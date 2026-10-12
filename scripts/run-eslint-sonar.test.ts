@@ -6,57 +6,60 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { ESLint } from 'eslint';
-import { describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 describe('Sonar ESLint bulk suppressions', () => {
-  test('suppresses existing violations, rejects new files cold and cached, and prunes fixed violations', async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), 'nous-eslint-sonar-'));
-    const runnerPath = fileURLToPath(new URL('./run-eslint-sonar.ts', import.meta.url));
-    const cachePath = path.join(directory, '.temp/sonar-test.cache');
-    const suppressionsPath = path.join(directory, 'eslint-suppressions.json');
-    const existingFile = 'apps/web/existing.ts';
-    const newFile = 'apps/web/new.ts';
-    const ruleId = 'sonarjs/no-nested-conditional';
-    const violation =
-      "export const choose = (first: boolean, second: boolean) => first ? (second ? 'both' : 'first') : 'neither';\n";
-    const run = (...args: string[]) => {
-      const result = spawnSync(
-        'bun',
-        ['run', runnerPath, '--format', 'json', '--cache-location', cachePath, ...args],
-        { cwd: directory, encoding: 'utf8' }
-      );
-      expect(result.error).toBeUndefined();
-      return {
-        status: result.status,
-        results: JSON.parse(result.stdout) as ESLint.LintResult[],
-        stderr: result.stderr,
-      };
+  let directory: string;
+  let cachePath: string;
+  let suppressionsPath: string;
+  const runnerPath = fileURLToPath(new URL('./run-eslint-sonar.ts', import.meta.url));
+  const existingFile = 'apps/web/existing.ts';
+  const newFile = 'apps/web/new.ts';
+  const ruleId = 'sonarjs/no-nested-conditional';
+  const violation =
+    "export const choose = (first: boolean, second: boolean) => first ? (second ? 'both' : 'first') : 'neither';\n";
+  const baseline = { [existingFile]: { [ruleId]: { count: 1 } } };
+  const run = (...args: string[]) => {
+    const result = spawnSync(
+      'bun',
+      ['run', runnerPath, '--format', 'json', '--cache-location', cachePath, ...args],
+      { cwd: directory, encoding: 'utf8' }
+    );
+    expect(result.error).toBeUndefined();
+    return {
+      status: result.status,
+      results: JSON.parse(result.stdout) as ESLint.LintResult[],
+      stderr: result.stderr,
     };
-    const diagnostics = (results: ESLint.LintResult[], file: string) => {
-      const result = results.find(entry => entry.filePath === path.join(directory, file));
-      assert(result, `Missing lint result for ${file}`);
-      return {
-        errors: result.messages.map(message => message.ruleId),
-        suppressed: result.suppressedMessages.map(message => message.ruleId),
-      };
+  };
+  const diagnostics = (results: ESLint.LintResult[], file: string) => {
+    const result = results.find(entry => entry.filePath === path.join(directory, file));
+    assert(result, `Missing lint result for ${file}`);
+    return {
+      errors: result.messages.map(message => message.ruleId),
+      suppressed: result.suppressedMessages.map(message => message.ruleId),
     };
+  };
 
-    try {
-      // Only dependencies are shared; config, sources, lockfile, cache, and baseline are isolated.
-      await symlink(
-        path.resolve('node_modules'),
-        path.join(directory, 'node_modules'),
-        process.platform === 'win32' ? 'junction' : 'dir'
-      );
-      for (const folder of ['apps/web', 'apps/backend/src', 'packages', 'scripts', 'e2e']) {
-        await mkdir(path.join(directory, folder), { recursive: true });
-        await writeFile(path.join(directory, folder, 'clean.ts'), 'export {};\n');
-      }
-      await mkdir(path.join(directory, '.temp'));
-      await writeFile(path.join(directory, 'bun.lock'), 'isolated ESLint test dependencies\n');
-      await writeFile(
-        path.join(directory, 'eslint.sonar.config.mjs'),
-        `import parser from '@typescript-eslint/parser';
+  beforeEach(async () => {
+    directory = await mkdtemp(path.join(tmpdir(), 'nous-eslint-sonar-'));
+    cachePath = path.join(directory, '.temp/sonar-test.cache');
+    suppressionsPath = path.join(directory, 'eslint-suppressions.json');
+    // Only dependencies are shared; config, sources, lockfile, cache, and baseline are isolated.
+    await symlink(
+      path.resolve('node_modules'),
+      path.join(directory, 'node_modules'),
+      process.platform === 'win32' ? 'junction' : 'dir'
+    );
+    for (const folder of ['apps/web', 'apps/backend/src', 'packages', 'scripts', 'e2e']) {
+      await mkdir(path.join(directory, folder), { recursive: true });
+      await writeFile(path.join(directory, folder, 'clean.ts'), 'export {};\n');
+    }
+    await mkdir(path.join(directory, '.temp'));
+    await writeFile(path.join(directory, 'bun.lock'), 'isolated ESLint test dependencies\n');
+    await writeFile(
+      path.join(directory, 'eslint.sonar.config.mjs'),
+      `import parser from '@typescript-eslint/parser';
 import sonarjs from 'eslint-plugin-sonarjs';
 export default [{
   files: ['**/*.ts'],
@@ -64,45 +67,49 @@ export default [{
   plugins: { sonarjs },
   rules: { '${ruleId}': 'error' },
 }];\n`
-      );
-      await writeFile(path.join(directory, existingFile), violation);
-      const baseline = { [existingFile]: { [ruleId]: { count: 1 } } };
-      await writeFile(suppressionsPath, JSON.stringify(baseline));
+    );
+    await writeFile(path.join(directory, existingFile), violation);
+    await writeFile(suppressionsPath, JSON.stringify(baseline));
+  });
 
-      const existing = run();
-      expect(existing.status, existing.stderr).toBe(0);
-      expect(diagnostics(existing.results, existingFile)).toEqual({
-        errors: [],
-        suppressed: [ruleId],
-      });
+  afterEach(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
 
-      await writeFile(path.join(directory, newFile), violation);
-      await rm(cachePath);
-      const cold = run();
-      expect(cold.status, cold.stderr).toBe(1);
-      expect(diagnostics(cold.results, existingFile)).toEqual({
-        errors: [],
-        suppressed: [ruleId],
-      });
-      expect(diagnostics(cold.results, newFile)).toEqual({ errors: [ruleId], suppressed: [] });
+  test('suppresses existing violations', () => {
+    const existing = run();
+    expect(existing.status, existing.stderr).toBe(0);
+    expect(diagnostics(existing.results, existingFile)).toEqual({
+      errors: [],
+      suppressed: [ruleId],
+    });
+  });
 
-      const warm = run('--debug');
-      expect(warm.status, warm.stderr).toBe(1);
-      expect(warm.stderr).toContain(
-        `Skipping file since it hasn't changed: ${path.join(directory, newFile)}`
-      );
-      expect(diagnostics(warm.results, newFile)).toEqual({ errors: [ruleId], suppressed: [] });
-      expect(warm.results).toEqual(cold.results);
-      expect(JSON.parse(await readFile(suppressionsPath, 'utf8'))).toEqual(baseline);
+  test('rejects new files cold and cached without changing the baseline', async () => {
+    await writeFile(path.join(directory, newFile), violation);
+    const cold = run();
+    expect(cold.status, cold.stderr).toBe(1);
+    expect(diagnostics(cold.results, existingFile)).toEqual({
+      errors: [],
+      suppressed: [ruleId],
+    });
+    expect(diagnostics(cold.results, newFile)).toEqual({ errors: [ruleId], suppressed: [] });
 
-      await rm(path.join(directory, newFile));
-      await writeFile(path.join(directory, existingFile), 'export const choose = () => true;\n');
-      const pruned = run('--prune-suppressions');
-      expect(pruned.status, pruned.stderr).toBe(0);
-      expect(diagnostics(pruned.results, existingFile)).toEqual({ errors: [], suppressed: [] });
-      expect(JSON.parse(await readFile(suppressionsPath, 'utf8'))).toEqual({});
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
+    const warm = run('--debug');
+    expect(warm.status, warm.stderr).toBe(1);
+    expect(warm.stderr).toContain(
+      `Skipping file since it hasn't changed: ${path.join(directory, newFile)}`
+    );
+    expect(diagnostics(warm.results, newFile)).toEqual({ errors: [ruleId], suppressed: [] });
+    expect(warm.results).toEqual(cold.results);
+    expect(JSON.parse(await readFile(suppressionsPath, 'utf8'))).toEqual(baseline);
+  });
+
+  test('prunes fixed violations', async () => {
+    await writeFile(path.join(directory, existingFile), 'export const choose = () => true;\n');
+    const pruned = run('--prune-suppressions');
+    expect(pruned.status, pruned.stderr).toBe(0);
+    expect(diagnostics(pruned.results, existingFile)).toEqual({ errors: [], suppressed: [] });
+    expect(JSON.parse(await readFile(suppressionsPath, 'utf8'))).toEqual({});
   });
 });

@@ -5,6 +5,8 @@ import { retryLessonGenerationCorrection } from './lessonGenerationCorrection.js
 import type { LessonContentDraft, LessonGenerationInput } from './lessonGenerationTypes.js';
 import { generateStructuredOutput } from './structuredGeneration.js';
 
+export const LESSON_EVIDENCE_REASONING_EFFORT = 'medium';
+
 const EvidenceReferenceSchema = z.object({
   materialId: z.string().min(1),
   firstUnit: z.number().int().nonnegative(),
@@ -113,7 +115,7 @@ export const verifyLessonEvidence = async (
     config: input.config,
     output: { name: 'lesson_factual_verification', schema },
     prompt,
-    reasoningEffort: 'medium',
+    reasoningEffort: LESSON_EVIDENCE_REASONING_EFFORT,
     signal: input.signal,
     slot: 'lesson',
     system: FACTUAL_REVIEW_INSTRUCTIONS,

@@ -19,12 +19,27 @@ import type {
   LearningPlanNodeSnapshot,
   ProjectSnapshot,
 } from '../apps/backend/src/projects/types.js';
-import { closeManagedCodexAccountClient } from '../apps/backend/src/services/codexAppServer.js';
+import {
+  CODEX_IMAGE_TURN_SETTINGS,
+  closeManagedCodexAccountClient,
+} from '../apps/backend/src/services/codexAppServer.js';
+import { LESSON_EVIDENCE_REASONING_EFFORT } from '../apps/backend/src/services/lessonEvidenceVerification.js';
+import { LESSON_REVIEW_REASONING_EFFORT } from '../apps/backend/src/services/lessonGenerationVerification.js';
 import { resolveLessonVisualModelConfig } from '../apps/backend/src/services/lessonVisualModelConfig.js';
+import { PostgresWorkflowStore } from '../apps/backend/src/workflows/persistence/postgresWorkflowStore.js';
 import {
   createWorkflowRuntimeComposition,
   type WorkflowRuntimeComposition,
 } from '../apps/backend/src/workflows/runtime/workflowRuntimeComposition.js';
+
+import type { WorkflowAiUsageRecord } from '../apps/backend/src/workflows/workflowAiMetering.js';
+import type { WorkflowPublicRunState } from '../apps/backend/src/workflows/workflowReadModel.js';
+import {
+  type RunEvidenceRecorder,
+  resolveRunEvidenceTextSlot,
+  withRunCleanup,
+  withRunEvidence,
+} from './run-evidence.js';
 
 const COST_ACKNOWLEDGEMENT = 'I_ACCEPT_REAL_PROVIDER_COSTS';
 const COURSE_MODEL = 'gpt-5.6-luna';
@@ -47,14 +62,7 @@ interface WorkflowJob {
   readonly status: string;
 }
 
-interface WorkflowTrace {
-  readonly nodes?: Array<{
-    readonly attemptCount?: number;
-    readonly definitionId?: string;
-    readonly status?: string;
-  }>;
-  readonly run?: { readonly status?: string };
-}
+type WorkflowTrace = Pick<WorkflowPublicRunState, 'nodes' | 'run'>;
 
 interface StoredWorkflowConfigRow {
   readonly resolved_config: unknown;
@@ -66,6 +74,11 @@ interface WorkflowDatabaseOccupancyRow {
 }
 
 interface WorkflowAiUsageRow {
+  readonly id: string;
+  readonly node_instance_id: string;
+  readonly attempt_number: number;
+  readonly provider_cost: string | null;
+  readonly reported_after_interruption: boolean;
   readonly cache_read_tokens: number | null;
   readonly cache_write_tokens: number | null;
   readonly input_tokens: number | null;
@@ -186,11 +199,6 @@ const closeServer = (server: Server): Promise<void> =>
     server.close(error => (error ? reject(error) : resolve()));
   });
 
-const reportCleanupFailure = (operation: string, error: unknown): void => {
-  process.exitCode = 1;
-  console.error(`[real-provider] ${operation} failed`, error);
-};
-
 const loadTrace = async (baseUrl: string, runId: string) => {
   const response = await requestJson(baseUrl, `/api/workflows/runs/${runId}`);
   if (response.status !== 200 || !isRecord(response.body) || !isRecord(response.body.state)) {
@@ -203,13 +211,11 @@ const waitForWorkflow = async ({
   baseUrl,
   label,
   path,
-  runId,
   timeoutMs,
 }: {
   baseUrl: string;
   label: string;
   path: string;
-  runId: string;
   timeoutMs: number;
 }): Promise<WorkflowJob> => {
   const startedAt = Date.now();
@@ -226,26 +232,11 @@ const waitForWorkflow = async ({
       previousProgress = progress;
     }
     if (TERMINAL_STATUSES.has(job.status)) {
-      const trace = await loadTrace(baseUrl, runId);
-      console.log(
-        JSON.stringify(
-          {
-            durationMs: Date.now() - startedAt,
-            label,
-            nodes: trace.nodes?.map(node => ({
-              attempts: node.attemptCount,
-              id: node.definitionId,
-              status: node.status,
-            })),
-            runId,
-            status: trace.run?.status,
-          },
-          null,
-          2
-        )
-      );
       if (job.status !== 'completed') {
-        throw new Error(`${label} failed with ${job.errorCode || 'an unknown workflow error'}.`);
+        throw Object.assign(
+          new Error(`${label} failed with ${job.errorCode || 'an unknown workflow error'}.`),
+          job.errorCode ? { code: job.errorCode } : {}
+        );
       }
       return job;
     }
@@ -255,6 +246,7 @@ const waitForWorkflow = async ({
 };
 
 const runWorkflow = async ({
+  evidence,
   baseUrl,
   body,
   label,
@@ -262,6 +254,7 @@ const runWorkflow = async ({
   statusPath,
   timeoutMs,
 }: {
+  evidence: RunEvidenceRecorder;
   baseUrl: string;
   body: Record<string, unknown>;
   label: string;
@@ -269,21 +262,34 @@ const runWorkflow = async ({
   statusPath: (runId: string) => string;
   timeoutMs: number;
 }): Promise<{ job: WorkflowJob; runId: string }> => {
-  const response = await requestJson(baseUrl, startPath, body);
-  if (response.status !== 200 && response.status !== 202) {
-    throw new Error(`${label} start route returned ${response.status}.`);
-  }
-  const queued = requireJob(response.body, startPath);
-  return {
-    job: await waitForWorkflow({
-      baseUrl,
-      label,
-      path: statusPath(queued.id),
-      runId: queued.id,
-      timeoutMs,
-    }),
-    runId: queued.id,
-  };
+  let runId: string | undefined;
+  return withRunCleanup(
+    async () => {
+      const result = await evidence.measure({ name: label, kind: 'workflow' }, async () => {
+        const response = await requestJson(baseUrl, startPath, body);
+        if (response.status !== 200 && response.status !== 202) {
+          throw new Error(`${label} start route returned ${response.status}.`);
+        }
+        const queued = requireJob(response.body, startPath);
+        runId = queued.id;
+        evidence.manifest.workflows.push({ name: label, runId });
+        return {
+          job: await waitForWorkflow({ baseUrl, label, path: statusPath(runId), timeoutMs }),
+          runId,
+        };
+      });
+      await evidence.writeJson(`${label}-result.json`, result.job);
+      return result;
+    },
+    async () => {
+      if (runId) {
+        const workflow = evidence.manifest.workflows.find(entry => entry.runId === runId);
+        assert.ok(workflow);
+        const trace = await loadTrace(baseUrl, runId);
+        await evidence.recordWorkflowState(workflow, trace);
+      }
+    }
+  );
 };
 
 const assertStoredModels = async (
@@ -317,25 +323,44 @@ const assertStoredModels = async (
   }
 };
 
-const assertStoredAiUsage = async (
-  sql: SQL,
-  runIds: { artifact: string; course: string; lesson: string }
-): Promise<void> => {
+const readStoredAiUsage = async (sql: SQL, runId: string): Promise<WorkflowAiUsageRecord[]> => {
   const rows = await sql<WorkflowAiUsageRow[]>`
     select
+      id, node_instance_id, attempt_number, provider_cost, reported_after_interruption,
       run_id, provider, model, input_tokens, output_tokens, reasoning_tokens,
       cache_read_tokens, cache_write_tokens
     from public.workflow_ai_usage
-    where run_id in (${runIds.course}, ${runIds.lesson}, ${runIds.artifact})
+    where run_id = ${runId}
     order by run_id, created_at, id
   `;
+  return rows.map(row => ({
+    id: row.id,
+    runId: row.run_id,
+    nodeInstanceId: row.node_instance_id,
+    attemptNumber: row.attempt_number,
+    provider: row.provider,
+    model: row.model,
+    ...(row.input_tokens === null ? {} : { inputTokens: row.input_tokens }),
+    ...(row.output_tokens === null ? {} : { outputTokens: row.output_tokens }),
+    ...(row.reasoning_tokens === null ? {} : { reasoningTokens: row.reasoning_tokens }),
+    ...(row.cache_read_tokens === null ? {} : { cacheReadTokens: row.cache_read_tokens }),
+    ...(row.cache_write_tokens === null ? {} : { cacheWriteTokens: row.cache_write_tokens }),
+    ...(row.provider_cost === null ? {} : { providerCost: Number(row.provider_cost) }),
+    ...(row.reported_after_interruption ? { reportedAfterInterruption: true as const } : {}),
+  }));
+};
+
+const assertStoredAiUsage = (
+  rows: readonly WorkflowAiUsageRecord[],
+  runIds: { artifact: string; course: string; lesson: string }
+): void => {
   const expectedModels = [
     [runIds.course, COURSE_MODEL],
     [runIds.lesson, LESSON_MODEL],
     [runIds.artifact, ARTIFACT_MODEL],
   ] as const;
   for (const [runId, expectedModel] of expectedModels) {
-    const runRows = rows.filter(row => row.run_id === runId);
+    const runRows = rows.filter(row => row.runId === runId);
     assert.ok(runRows.length > 0, `No AI usage was stored for workflow ${runId}.`);
     const matchingRows = runRows.filter(
       row => row.provider === 'codex' && row.model === expectedModel
@@ -345,19 +370,19 @@ const assertStoredAiUsage = async (
       `Workflow ${runId} did not store Codex usage for ${expectedModel}.`
     );
     assert.ok(
-      matchingRows.some(row => (row.input_tokens ?? 0) > 0 && (row.output_tokens ?? 0) > 0),
+      matchingRows.some(row => (row.inputTokens ?? 0) > 0 && (row.outputTokens ?? 0) > 0),
       `Workflow ${runId} did not store positive Codex input and output usage.`
     );
     for (const row of runRows) {
       const tokenCounts = [
-        row.input_tokens,
-        row.output_tokens,
-        row.reasoning_tokens,
-        row.cache_read_tokens,
-        row.cache_write_tokens,
+        row.inputTokens,
+        row.outputTokens,
+        row.reasoningTokens,
+        row.cacheReadTokens,
+        row.cacheWriteTokens,
       ];
       assert.ok(
-        tokenCounts.every(value => value === null || (Number.isInteger(value) && value >= 0)),
+        tokenCounts.every(value => value === undefined || (Number.isInteger(value) && value >= 0)),
         `Workflow ${runId} stored an invalid token count.`
       );
     }
@@ -375,8 +400,14 @@ const assertWorkflowDatabaseIsEmpty = async (sql: SQL): Promise<void> => {
   }
 };
 
-const runCourse = async (baseUrl: string, projectId: string, timeoutMs: number) => {
+const runCourse = async (
+  evidence: RunEvidenceRecorder,
+  baseUrl: string,
+  projectId: string,
+  timeoutMs: number
+) => {
   const { job, runId } = await runWorkflow({
+    evidence,
     baseUrl,
     body: {
       assessmentHistory: [
@@ -402,12 +433,21 @@ const runCourse = async (baseUrl: string, projectId: string, timeoutMs: number) 
 };
 
 const runLesson = async (
-  baseUrl: string,
-  projectId: string,
-  sectionId: string,
-  timeoutMs: number
+  evidence: RunEvidenceRecorder,
+  {
+    baseUrl,
+    projectId,
+    sectionId,
+    timeoutMs,
+  }: {
+    baseUrl: string;
+    projectId: string;
+    sectionId: string;
+    timeoutMs: number;
+  }
 ) => {
   const { job, runId } = await runWorkflow({
+    evidence,
     baseUrl,
     body: { forceRegenerate: false, projectId, requestKey: randomUUID(), sectionId },
     label: 'lesson',
@@ -423,6 +463,7 @@ const runLesson = async (
 };
 
 const runArtifact = async ({
+  evidence,
   baseUrl,
   lessonMarkdown,
   projectId,
@@ -430,6 +471,7 @@ const runArtifact = async ({
   sectionId,
   timeoutMs,
 }: {
+  evidence: RunEvidenceRecorder;
   baseUrl: string;
   lessonMarkdown: string;
   projectId: string;
@@ -438,6 +480,7 @@ const runArtifact = async ({
   timeoutMs: number;
 }): Promise<string> => {
   const { job, runId } = await runWorkflow({
+    evidence,
     baseUrl,
     body: {
       lessonMarkdown,
@@ -465,6 +508,7 @@ const runArtifact = async ({
 };
 
 const runProviderScenario = async ({
+  evidence,
   baseUrl,
   projectId,
   projectStore,
@@ -472,6 +516,7 @@ const runProviderScenario = async ({
   timeoutMs,
   userId,
 }: {
+  evidence: RunEvidenceRecorder;
   baseUrl: string;
   projectId: string;
   projectStore: PostgresProjectStore;
@@ -479,12 +524,18 @@ const runProviderScenario = async ({
   timeoutMs: number;
   userId: string;
 }): Promise<void> => {
-  const course = await runCourse(baseUrl, projectId, timeoutMs);
-  const lesson = await runLesson(baseUrl, projectId, course.sectionId, timeoutMs);
+  const course = await runCourse(evidence, baseUrl, projectId, timeoutMs);
+  const lesson = await runLesson(evidence, {
+    baseUrl,
+    projectId,
+    sectionId: course.sectionId,
+    timeoutMs,
+  });
   const savedProject = await projectStore.loadProject(userId, projectId);
   const section = savedProject ? findProjectLessonSection(savedProject, course.sectionId) : null;
   assert.ok(section);
   const artifactRunId = await runArtifact({
+    evidence,
     baseUrl,
     lessonMarkdown: lesson.content,
     projectId,
@@ -492,19 +543,15 @@ const runProviderScenario = async ({
     sectionId: course.sectionId,
     timeoutMs,
   });
-  await assertStoredModels(sql, {
-    artifact: artifactRunId,
-    course: course.runId,
-    lesson: lesson.runId,
-  });
-  await assertStoredAiUsage(sql, {
-    artifact: artifactRunId,
-    course: course.runId,
-    lesson: lesson.runId,
-  });
+  const runIds = { artifact: artifactRunId, course: course.runId, lesson: lesson.runId };
+  await assertStoredModels(sql, runIds);
+  const usage = (
+    await Promise.all(Object.values(runIds).map(runId => readStoredAiUsage(sql, runId)))
+  ).flat();
+  assertStoredAiUsage(usage, runIds);
 };
 
-const runRealProviderFlow = async (): Promise<void> => {
+const runRealProviderFlow = async (evidence: RunEvidenceRecorder): Promise<void> => {
   if (process.env.RUN_REAL_WORKFLOW_PROVIDER_TESTS !== COST_ACKNOWLEDGEMENT) {
     throw new Error(
       `Set RUN_REAL_WORKFLOW_PROVIDER_TESTS=${COST_ACKNOWLEDGEMENT} to acknowledge provider costs.`
@@ -524,6 +571,7 @@ const runRealProviderFlow = async (): Promise<void> => {
   const objectStorage = createMemoryStorage();
   const sql = new SQL(databaseUrl, { max: SQL_CONNECTION_LIMIT });
   const projectStore = new PostgresProjectStore(databaseUrl);
+  const evidenceStore = new PostgresWorkflowStore({ databaseUrl });
   let runtime: WorkflowRuntimeComposition | undefined;
   let server: Server | undefined;
 
@@ -535,106 +583,144 @@ const runRealProviderFlow = async (): Promise<void> => {
   process.env.LOCAL_USER_ID = userId;
   process.env.SUPABASE_SERVICE_ROLE_KEY = '';
   process.env.WORKFLOW_RUNTIME_STEP_CONCURRENCY = String(stepConcurrency);
-  configureEconomicalCodexModels();
 
-  try {
-    await assertWorkflowDatabaseIsEmpty(sql);
-    await sql`
+  await withRunCleanup(
+    async () => {
+      await assertWorkflowDatabaseIsEmpty(sql);
+      await sql`
       insert into auth.users (id, aud, role, created_at, updated_at)
       values (${userId}, 'authenticated', 'authenticated', now(), now())
     `;
-    const timestamp = new Date().toISOString();
-    const snapshot: ProjectSnapshot = {
-      createdAt: timestamp,
-      id: projectId,
-      isLearnMode: true,
-      lastOpenedAt: timestamp,
-      learningPlan: null,
-      source: null,
-      sourceKind: 'learn-mode',
-      state: 'PLANNING',
-      syllabus: [],
-      title: 'Test provider reali',
-      updatedAt: timestamp,
-      userProfile: {
+      const timestamp = new Date().toISOString();
+      const userProfile = {
         context: 'Studio autonomo con esempi concreti',
         experienceLevel: 'base',
         goals: 'Comprendere i concetti fondamentali dei sistemi distribuiti',
         language: 'Italiano',
         learningStyle: 'spiegazioni progressive ed esempi',
         topic: 'Fondamenti dei sistemi distribuiti',
-      },
-      version: '4.1',
-    };
-    await projectStore.saveProject(userId, snapshot);
-    setProjectStoreForTesting(projectStore);
+      };
+      const snapshot: ProjectSnapshot = {
+        createdAt: timestamp,
+        id: projectId,
+        isLearnMode: true,
+        lastOpenedAt: timestamp,
+        learningPlan: null,
+        source: null,
+        sourceKind: 'learn-mode',
+        state: 'PLANNING',
+        syllabus: [],
+        title: 'Test provider reali',
+        updatedAt: timestamp,
+        userProfile,
+        version: '4.1',
+      };
+      await projectStore.saveProject(userId, snapshot);
+      setProjectStoreForTesting(projectStore);
 
-    runtime = createWorkflowRuntimeComposition({ projectAssetStorage: objectStorage });
-    const app = createApp({
-      artifactDraftApi: runtime.artifactDraftApi,
-      courseGenerationApi: runtime.courseGenerationApi,
-      lessonGenerationApi: runtime.lessonGenerationApi,
-      lessonVisualRetryStarter: runtime.lessonVisualRetryStarter,
-      projectAssetReader: runtime.projectAssetReader,
-      workflowRuntimeApi: runtime.api,
-    });
-    await runtime.start();
-    server = await listen(app);
-    const address = server.address();
-    if (!address || typeof address === 'string') {
-      throw new Error('Unable to resolve the temporary backend address.');
-    }
-    const baseUrl = `http://127.0.0.1:${address.port}`;
+      runtime = createWorkflowRuntimeComposition({ projectAssetStorage: objectStorage });
+      const app = createApp({
+        artifactDraftApi: runtime.artifactDraftApi,
+        courseGenerationApi: runtime.courseGenerationApi,
+        lessonGenerationApi: runtime.lessonGenerationApi,
+        lessonVisualRetryStarter: runtime.lessonVisualRetryStarter,
+        projectAssetReader: runtime.projectAssetReader,
+        workflowRuntimeApi: runtime.api,
+      });
+      await runtime.start();
+      server = await listen(app);
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Unable to resolve the temporary backend address.');
+      }
+      const baseUrl = `http://127.0.0.1:${address.port}`;
 
-    await runProviderScenario({
-      baseUrl,
-      projectId,
-      projectStore,
-      sql,
-      timeoutMs: runTimeoutMs,
-      userId,
-    });
-    console.log('[real-provider] course, lesson and artifact completed through durable routes.');
-  } finally {
-    if (server) {
-      await closeServer(server).catch(error => reportCleanupFailure('HTTP server close', error));
+      await runProviderScenario({
+        evidence,
+        baseUrl,
+        projectId,
+        projectStore,
+        sql,
+        timeoutMs: runTimeoutMs,
+        userId,
+      });
+      console.log('[real-provider] course, lesson and artifact completed through durable routes.');
+    },
+    async () => {
+      const cleanupFailures: unknown[] = [];
+      const reportCleanupFailure = (operation: string, error: unknown): void => {
+        cleanupFailures.push(error);
+        console.error(`[real-provider] ${operation} failed`, error);
+      };
+      if (server) {
+        await closeServer(server).catch(error => reportCleanupFailure('HTTP server close', error));
+      }
+      if (runtime)
+        await runtime.close().catch(error => reportCleanupFailure('runtime close', error));
+      await closeManagedCodexAccountClient().catch(error =>
+        reportCleanupFailure('Codex close', error)
+      );
+      try {
+        for (const workflow of evidence.manifest.workflows) {
+          const state = await evidenceStore.getRunState({ runId: workflow.runId, userId });
+          assert.ok(state, `Missing final workflow state for ${workflow.runId}.`);
+          await evidence.recordWorkflowState(workflow, state);
+          evidence.manifest.aiUsage.push(...(await readStoredAiUsage(sql, workflow.runId)));
+        }
+      } catch (error) {
+        reportCleanupFailure('final workflow evidence collection', error);
+      } finally {
+        setProjectStoreForTesting(null);
+        await evidenceStore
+          .close()
+          .catch(error => reportCleanupFailure('evidence store close', error));
+        await projectStore
+          .close()
+          .catch(error => reportCleanupFailure('project store close', error));
+        await sql`delete from public.project_assets where user_id = ${userId}`.catch(error =>
+          reportCleanupFailure('asset metadata cleanup', error)
+        );
+        await sql`delete from auth.users where id = ${userId}`.catch(error =>
+          reportCleanupFailure('user cleanup', error)
+        );
+        await sql
+          .close({ timeout: SQL_CLOSE_TIMEOUT_SECONDS })
+          .catch(error => reportCleanupFailure('SQL close', error));
+      }
+      if (cleanupFailures.length) {
+        throw new AggregateError(cleanupFailures, 'Real workflow cleanup failed.');
+      }
     }
-    if (runtime) await runtime.close().catch(error => reportCleanupFailure('runtime close', error));
-    await closeManagedCodexAccountClient().catch(error =>
-      reportCleanupFailure('Codex close', error)
-    );
-    setProjectStoreForTesting(null);
-    await projectStore.close().catch(error => reportCleanupFailure('project store close', error));
-    await sql`delete from public.project_assets where user_id = ${userId}`.catch(error =>
-      reportCleanupFailure('asset metadata cleanup', error)
-    );
-    await sql`delete from auth.users where id = ${userId}`.catch(error =>
-      reportCleanupFailure('user cleanup', error)
-    );
-    await sql
-      .close({ timeout: SQL_CLOSE_TIMEOUT_SECONDS })
-      .catch(error => reportCleanupFailure('SQL close', error));
-  }
+  );
+};
+
+const resolvedSlots = () => {
+  const config = configureEconomicalCodexModels();
+  return {
+    course: resolveRunEvidenceTextSlot(config, 'course'),
+    research: resolveRunEvidenceTextSlot(config, 'research'),
+    lesson: resolveRunEvidenceTextSlot(config, 'lesson'),
+    lessonReview: resolveRunEvidenceTextSlot(config, 'lesson', LESSON_REVIEW_REASONING_EFFORT),
+    lessonVerification: resolveRunEvidenceTextSlot(
+      config,
+      'lesson',
+      LESSON_EVIDENCE_REASONING_EFFORT
+    ),
+    artifact: resolveRunEvidenceTextSlot(config, 'artifact'),
+    artifactInteractive: resolveRunEvidenceTextSlot(config, 'artifactInteractive'),
+    scene: resolveRunEvidenceTextSlot(config, 'scene'),
+    sceneIcon: resolveRunEvidenceTextSlot(config, 'sceneIcon'),
+    image: {
+      model: resolveLessonVisualModelConfig(config).image.model,
+      ...CODEX_IMAGE_TURN_SETTINGS,
+    },
+  };
 };
 
 const dryRun = (): void => {
-  const config = configureEconomicalCodexModels();
   console.log(
     JSON.stringify(
-      {
-        artifact: resolveLessonVisualModelConfig(config).artifact,
-        course: {
-          ...resolveTextModelConfig(config, 'course'),
-          serviceTier: resolveCodexServiceTierForSlot(config, 'course') ?? 'normal',
-        },
-        database: 'loopback-only',
-        lesson: {
-          ...resolveTextModelConfig(config, 'lesson'),
-          serviceTier: resolveCodexServiceTierForSlot(config, 'lesson') ?? 'normal',
-        },
-        mode: 'dry-run',
-        providerCalls: 0,
-      },
+      { ...resolvedSlots(), database: 'loopback-only', mode: 'dry-run', providerCalls: 0 },
       null,
       2
     )
@@ -645,7 +731,17 @@ const args = new Set(Bun.argv.slice(2));
 if (args.has('--dry-run')) {
   dryRun();
 } else if (args.has('--run')) {
-  await runRealProviderFlow();
+  await withRunEvidence(
+    {
+      scenario: 'workflow-codex',
+      provider: 'codex',
+      slots: resolvedSlots(),
+    },
+    async recorder => {
+      console.log(`Real workflow evidence: ${recorder.directory}`);
+      await runRealProviderFlow(recorder);
+    }
+  );
 } else {
   throw new Error('Choose --dry-run or --run explicitly. No provider request was made.');
 }
