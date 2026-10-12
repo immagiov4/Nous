@@ -13,7 +13,7 @@ import {
   SettingsManager,
 } from '@mariozechner/pi-coding-agent';
 import type { DecisionSource, LearnerDecision, LearnerInput } from './loop';
-import { createModelResolver } from './modelResolution';
+import { createModelResolver, MODEL_REQUEST_RETRIES } from './modelResolution';
 
 const DECISION_TOOLS = ['act', 'report_friction', 'diary', 'stop'];
 const actionSchema = Type.Union([
@@ -112,7 +112,7 @@ export function createPiDecisionSource(options: {
       };
       const settingsManager = SettingsManager.inMemory({
         compaction: { enabled: false },
-        retry: { enabled: false },
+        retry: { enabled: true, maxRetries: MODEL_REQUEST_RETRIES },
       });
       const loader = new DefaultResourceLoader({
         cwd: process.cwd(),

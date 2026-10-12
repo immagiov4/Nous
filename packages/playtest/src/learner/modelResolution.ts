@@ -3,6 +3,10 @@ import { AuthStorage, ModelRegistry } from '@mariozechner/pi-coding-agent';
 import * as z from 'zod';
 import { meterModel, type PricedModel, TOKENS_PER_MILLION } from '../modelUsage';
 
+// Maintainer-approved: transient provider failures (429, 5xx, dropped connections) are retried
+// twice with Pi's default backoff before a learner or judge request fails.
+export const MODEL_REQUEST_RETRIES = 2;
+
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const priceSchema = z.string().trim().min(1).pipe(z.coerce.number<string>().nonnegative());
 const entrySchema = z.object({

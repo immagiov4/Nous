@@ -286,6 +286,15 @@ describe('operator', () => {
     }
   });
 
+  it('leaves empty login fields unmasked so the learner sees the real form', async () => {
+    const page = await fixture(
+      '<label>Email <input type="email"></label><label>Password <input type="password"></label>'
+    );
+    const observation = await session.observe();
+    const screenshot = await readFile(observation.screenshotPath);
+    expect(screenshot.equals(await page.screenshot({ caret: 'initial' }))).toBe(true);
+  });
+
   it('redacts generated credentials from raw probe text', async () => {
     await fixture(
       `<p style="width:60px;overflow:hidden;white-space:nowrap">Account ${credentials.email}</p>`

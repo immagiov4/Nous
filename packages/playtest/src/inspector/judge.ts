@@ -13,7 +13,7 @@ import {
 } from '@mariozechner/pi-coding-agent';
 import type { ObservedEvent } from '../adapter';
 import type { LearnerRunResult } from '../learner/loop';
-import { createModelResolver } from '../learner/modelResolution';
+import { createModelResolver, MODEL_REQUEST_RETRIES } from '../learner/modelResolution';
 import { SCREENSHOT_PRIVACY_MASK } from '../operator/observe';
 import type { StepProbeSignal } from '../runner';
 import type { InspectorFinding } from './inspect';
@@ -100,7 +100,7 @@ export function createPiVisualJudge(options: {
       const extension = findingsExtension(result);
       const settingsManager = SettingsManager.inMemory({
         compaction: { enabled: false },
-        retry: { enabled: false },
+        retry: { enabled: true, maxRetries: MODEL_REQUEST_RETRIES },
       });
       const loader = new DefaultResourceLoader({
         cwd: process.cwd(),

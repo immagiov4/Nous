@@ -317,11 +317,9 @@ export async function observePage(options: {
     // Hiding the caret mutates editable styles and would invalidate this capture's DOM counter.
     caret: 'initial',
     maskColor: SCREENSHOT_PRIVACY_MASK.color,
-    // Live locators keep credential fields masked even if the app replaces them during capture.
+    // Only controls that actually hold a generated secret are masked, so an empty login form
+    // looks to the learner exactly as it looks to a person.
     mask: [
-      page.locator(
-        'input[type="password"], input[type="email"], input[autocomplete="username"], input[autocomplete="email"]'
-      ),
       ...secretFields.map(index => editable.nth(index)),
       ...secrets.filter(Boolean).map(secret => page.getByText(secret)),
     ],
