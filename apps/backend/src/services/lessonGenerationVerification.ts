@@ -59,6 +59,8 @@ import type { LessonContentDraft, LessonGenerationInput } from './lessonGenerati
 import { classifyMermaidInputs } from './mermaidValidation.js';
 import { generateStructuredOutput } from './structuredGeneration.js';
 
+export const LESSON_REVIEW_REASONING_EFFORT = 'medium';
+
 interface LessonResponseSchemaContract {
   name: string;
   schema: {
@@ -517,7 +519,7 @@ export const verifyLessonContentDraft = async (input: {
       config: generationInput.config,
       output: schema,
       prompt,
-      reasoningEffort: 'medium',
+      reasoningEffort: LESSON_REVIEW_REASONING_EFFORT,
       signal: generationInput.signal,
       slot: 'lesson',
       system: `${SYSTEM_INSTRUCTION_TEACHER}\nVerify and minimally correct the supplied lesson draft. Return every required checklist item.`,

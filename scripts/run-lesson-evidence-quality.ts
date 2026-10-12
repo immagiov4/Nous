@@ -1,19 +1,23 @@
 import assert from 'node:assert/strict';
-import {
-  getGlobalModelConfig,
-  resolveCodexServiceTierForSlot,
-  resolveTextModelConfig,
-} from '../apps/backend/src/config/modelConfig.js';
+import { getGlobalModelConfig } from '../apps/backend/src/config/modelConfig.js';
 import { closeManagedCodexAccountClient } from '../apps/backend/src/services/codexAppServer.js';
 import {
   buildLessonEvidenceMaterials,
   resolveLessonEvidence,
 } from '../apps/backend/src/services/lessonEvidence.js';
-import { verifyLessonEvidence } from '../apps/backend/src/services/lessonEvidenceVerification.js';
+import {
+  LESSON_EVIDENCE_REASONING_EFFORT,
+  verifyLessonEvidence,
+} from '../apps/backend/src/services/lessonEvidenceVerification.js';
 import { LessonGenerationCorrectionError } from '../apps/backend/src/services/lessonGenerationCorrection.js';
 import type { LessonGenerationInput } from '../apps/backend/src/services/lessonGenerationTypes.js';
 
-import { type RunEvidenceRecorder, withRunCleanup, withRunEvidence } from './run-evidence.js';
+import {
+  type RunEvidenceRecorder,
+  resolveRunEvidenceTextSlot,
+  withRunCleanup,
+  withRunEvidence,
+} from './run-evidence.js';
 
 const cases = [
   {
@@ -73,7 +77,6 @@ const main = async () => {
     sources: [],
     signal: new AbortController().signal,
   };
-  const model = resolveTextModelConfig(input.config, 'lesson');
   const verifyCase = (
     evidence: RunEvidenceRecorder,
     example: (typeof cases)[number],
@@ -103,27 +106,32 @@ const main = async () => {
     });
     const failures: string[] = [];
     for (const example of cases) {
-      await evidence.measure({ name: example.name, kind: 'case' }, async () => {
-        const draft = {
-          contentBlocks: [{ type: 'markdown' as const, markdown: example.markdown }],
-          generatedVisuals: [],
-          imageRefs: [],
-        };
-        const result = await evidence.measure({ name: example.name, kind: 'call' }, () =>
-          verifyCase(evidence, example, draft)
-        );
-        const usage = caseUsage(evidence, example.name);
-        await evidence.writeJson(`${example.name}.json`, {
-          expected: example.expected,
-          sourceContext: input.sourceContext,
-          evidence: input.evidencePacket,
-          draft,
-          result,
-          usage,
+      try {
+        await evidence.measure({ name: example.name, kind: 'case' }, async () => {
+          const draft = {
+            contentBlocks: [{ type: 'markdown' as const, markdown: example.markdown }],
+            generatedVisuals: [],
+            imageRefs: [],
+          };
+          const result = await evidence.measure({ name: example.name, kind: 'call' }, () =>
+            verifyCase(evidence, example, draft)
+          );
+          const usage = caseUsage(evidence, example.name);
+          await evidence.writeJson(`${example.name}.json`, {
+            expected: example.expected,
+            sourceContext: input.sourceContext,
+            evidence: input.evidencePacket,
+            draft,
+            result,
+            usage,
+          });
+          console.log(`${example.name}: ${result.outcome}`);
+          assert.equal(result.outcome, example.expected, 'Factual inference outcome mismatch.');
         });
-        console.log(`${example.name}: ${result.outcome}`);
-        if (result.outcome !== example.expected) failures.push(example.name);
-      });
+      } catch (error) {
+        if (!(error instanceof assert.AssertionError)) throw error;
+        failures.push(example.name);
+      }
     }
     assert.deepEqual(failures, [], 'Factual inference evaluation failed.');
   };
@@ -132,10 +140,11 @@ const main = async () => {
       scenario: 'lesson-evidence-quality',
       provider: 'codex',
       slots: {
-        lesson: {
-          ...model,
-          serviceTier: resolveCodexServiceTierForSlot(input.config, 'lesson') ?? 'normal',
-        },
+        lessonVerification: resolveRunEvidenceTextSlot(
+          input.config,
+          'lesson',
+          LESSON_EVIDENCE_REASONING_EFFORT
+        ),
       },
     },
     evidence => withRunCleanup(() => runCases(evidence), closeManagedCodexAccountClient)

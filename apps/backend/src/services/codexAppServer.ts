@@ -924,6 +924,8 @@ export const runCodexAppServerTurn = async (turn: CodexTurnInput): Promise<strin
   return execution.result;
 };
 
+export const CODEX_IMAGE_TURN_SETTINGS = { reasoningEffort: 'low', serviceTier: 'fast' } as const;
+
 export const generateCodexAppServerImage = async ({
   model,
   prompt,
@@ -943,8 +945,7 @@ export const generateCodexAppServerImage = async ({
     onImageGenerated: result => {
       imageResult = result;
     },
-    reasoningEffort: 'low',
-    serviceTier: 'fast',
+    ...CODEX_IMAGE_TURN_SETTINGS,
     signal,
   });
   if (!imageResult) {

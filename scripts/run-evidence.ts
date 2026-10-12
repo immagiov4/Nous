@@ -4,10 +4,22 @@ import { appendFile, mkdir, realpath, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  type GlobalModelConfig,
+  type ReasoningEffort,
+  resolveAiProviderForSlot,
+  resolveCodexServiceTierForSlot,
+  resolveTextModelConfig,
+  type TextModelSlot,
+} from '../apps/backend/src/config/modelConfig.js';
+import { normalizeCodexReasoningEffort } from '../apps/backend/src/services/codexAppServer.js';
+import {
   runWithWorkflowAttemptMetering,
   type WorkflowAiUsageRecord,
 } from '../apps/backend/src/workflows/workflowAiMetering.js';
-import type { WorkflowNodeRunState } from '../apps/backend/src/workflows/workflowReadModel.js';
+import type {
+  WorkflowNodeRunState,
+  WorkflowPublicRunState,
+} from '../apps/backend/src/workflows/workflowReadModel.js';
 
 const repositoryDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -17,6 +29,22 @@ export interface RunEvidenceContext {
   case?: string;
   slots: Record<string, { model: string; reasoningEffort?: string; serviceTier: string }>;
 }
+
+/** Reports the settings sent to the provider, including a role's explicit override. */
+export const resolveRunEvidenceTextSlot = (
+  config: GlobalModelConfig,
+  slot: TextModelSlot,
+  override?: ReasoningEffort
+): RunEvidenceContext['slots'][string] => {
+  const model = resolveTextModelConfig(config, slot);
+  const effort = override ?? model.reasoningEffort;
+  const isCodex = resolveAiProviderForSlot(config, slot) === 'codex';
+  return {
+    model: model.model,
+    reasoningEffort: isCodex ? normalizeCodexReasoningEffort(effort) : effort,
+    serviceTier: (isCodex && resolveCodexServiceTierForSlot(config, slot)) || 'normal',
+  };
+};
 
 export interface RunMeasurement {
   name: string;
@@ -99,6 +127,28 @@ export class RunEvidenceRecorder {
 
   async writeJson(name: string, contents: unknown): Promise<void> {
     await this.writeEvidence(name, JSON.stringify(contents, null, 2));
+  }
+
+  /** Writes the current lifecycle to the manifest and named trace, replacing an earlier snapshot. */
+  async recordWorkflowState(
+    workflow: WorkflowEvidence,
+    state: Pick<WorkflowPublicRunState, 'run' | 'nodes'>
+  ): Promise<void> {
+    workflow.status = state.run.status;
+    workflow.nodes = state.nodes.map(node => ({
+      instanceId: node.instanceId,
+      definitionId: node.definitionId,
+      status: node.status,
+      attemptCount: node.attemptCount,
+      createdAt: node.createdAt,
+      availableAt: node.availableAt,
+      updatedAt: node.updatedAt,
+      ...(node.completedAt ? { completedAt: node.completedAt } : {}),
+      lifetimeDurationMs: node.completedAt
+        ? Date.parse(node.completedAt) - Date.parse(node.createdAt)
+        : null,
+    }));
+    await this.writeJson(`${workflow.name}-state.json`, state);
   }
 
   async measure<Result>(

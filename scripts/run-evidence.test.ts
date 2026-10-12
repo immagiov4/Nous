@@ -1,13 +1,31 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { getGlobalModelConfig } from '../apps/backend/src/config/modelConfig.js';
+import { verifyLessonEvidence } from '../apps/backend/src/services/lessonEvidenceVerification.js';
+import { LessonGenerationCorrectionError } from '../apps/backend/src/services/lessonGenerationCorrection.js';
 import { recordWorkflowAiUsage } from '../apps/backend/src/workflows/workflowAiMetering.js';
-import { type RunEvidenceContext, type RunManifest, withRunEvidence } from './run-evidence.js';
+import type { WorkflowPublicRunState } from '../apps/backend/src/workflows/workflowReadModel.js';
+import {
+  type RunEvidenceContext,
+  type RunManifest,
+  resolveRunEvidenceTextSlot,
+  withRunCleanup,
+  withRunEvidence,
+} from './run-evidence.js';
 
 vi.mock('node:child_process', () => ({
   execFileSync: (_command: string, args: string[]) =>
     args[0] === 'rev-parse' ? 'test-commit\n' : ' M scripts/run-evidence.ts\n',
+}));
+
+vi.mock('../apps/backend/src/services/lessonEvidenceVerification.js', async importOriginal => ({
+  ...(await importOriginal<
+    typeof import('../apps/backend/src/services/lessonEvidenceVerification.js')
+  >()),
+  verifyLessonEvidence: vi.fn(),
 }));
 
 const context: RunEvidenceContext = {
@@ -33,10 +51,167 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.useRealTimers();
   vi.unstubAllEnvs();
+  vi.mocked(verifyLessonEvidence).mockReset();
   await rm(dataDirectory, { recursive: true, force: true });
 });
 
 describe('real-run evidence', () => {
+  test('resolves effective provider settings and role overrides', () => {
+    const config = {
+      ...getGlobalModelConfig(),
+      aiProvider: 'codex' as const,
+      aiProviderOverrides: {},
+      codexFastModelSlots: ['lesson'] as const,
+      codexLessonModel: 'fixture-lesson',
+      codexResearchModel: 'fixture-research',
+      lessonReasoningEffort: 'low' as const,
+      researchReasoningEffort: 'none' as const,
+    };
+    const models = { ...config, codexFastModelSlots: [...config.codexFastModelSlots] };
+    expect(resolveRunEvidenceTextSlot(models, 'research')).toEqual({
+      model: 'fixture-research',
+      reasoningEffort: 'low',
+      serviceTier: 'normal',
+    });
+    expect(resolveRunEvidenceTextSlot(models, 'lesson', 'medium')).toEqual({
+      model: 'fixture-lesson',
+      reasoningEffort: 'medium',
+      serviceTier: 'fast',
+    });
+    expect(
+      resolveRunEvidenceTextSlot(
+        { ...models, aiProvider: 'openrouter', lessonModel: 'fixture-router' },
+        'lesson',
+        'none'
+      )
+    ).toEqual({
+      model: 'fixture-router',
+      reasoningEffort: 'none',
+      serviceTier: 'normal',
+    });
+  });
+
+  test('records a mismatching lesson case as failed and still runs the remaining case', async () => {
+    vi.stubEnv('REAL_LESSON_QUALITY_TESTS', 'I_ACCEPT_REAL_PROVIDER_COSTS');
+    const correction = new LessonGenerationCorrectionError({
+      code: 'lesson_factual_support_failed',
+      feedback: 'fixture correction',
+      message: 'fixture',
+    });
+    vi.mocked(verifyLessonEvidence).mockRejectedValue(correction);
+    await expect(import('./run-lesson-evidence-quality.js')).rejects.toThrow(
+      'Factual inference evaluation failed.'
+    );
+    expect(verifyLessonEvidence).toHaveBeenCalledTimes(2);
+    const scenarioDirectory = join(dataDirectory, 'runs', 'lesson-evidence-quality');
+    const entry: RunManifest = JSON.parse(
+      (await readFile(join(scenarioDirectory, 'history.jsonl'), 'utf8')).trim()
+    );
+    expect(entry.outcome).toBe('failed');
+    expect(
+      entry.measurements
+        .filter(measurement => measurement.kind === 'case')
+        .map(measurement => [measurement.name, measurement.outcome])
+    ).toEqual([
+      ['valid-deduction', 'failed'],
+      ['missing-external-premise', 'passed'],
+    ]);
+    expect(entry.slots.lessonVerification).toEqual({
+      model: 'gpt-5.6-luna',
+      reasoningEffort: 'medium',
+      serviceTier: expect.any(String),
+    });
+    expect(
+      JSON.parse(await readFile(join(scenarioDirectory, entry.runId, 'manifest.json'), 'utf8'))
+    ).toEqual(entry);
+  });
+
+  test('replaces running workflow evidence with drained state while retaining the primary error', async () => {
+    const timestamp = '2026-10-12T12:00:00.000Z';
+    const running: Pick<WorkflowPublicRunState, 'run' | 'nodes'> = {
+      run: {
+        id: 'durable-run',
+        workflowId: 'lesson-generation',
+        requestKey: 'fixture',
+        definitionHash: 'fixture',
+        definitionHashVersion: 1,
+        cancellationRequested: false,
+        cleanupStatus: 'not-required',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        status: 'running',
+      },
+      nodes: [
+        {
+          instanceId: 'draft',
+          definitionId: 'draft',
+          kind: 'step',
+          status: 'running',
+          attemptCount: 1,
+          maxAttempts: 1,
+          createdAt: timestamp,
+          availableAt: timestamp,
+          updatedAt: timestamp,
+        },
+      ],
+    };
+    const completedAt = '2026-10-12T12:00:00.025Z';
+    const finalState = {
+      run: { ...running.run, status: 'completed' as const, updatedAt: completedAt, completedAt },
+      nodes: running.nodes.map(node => ({
+        ...node,
+        status: 'completed' as const,
+        updatedAt: completedAt,
+        completedAt,
+      })),
+    };
+    const failure = new Error('workflow timed out');
+    let directory = '';
+    await expect(
+      withRunEvidence(context, async recorder => {
+        directory = recorder.directory;
+        const workflow = { name: 'lesson', runId: running.run.id };
+        recorder.manifest.workflows.push(workflow);
+        await recorder.recordWorkflowState(workflow, running);
+        await withRunCleanup(
+          async () => {
+            throw failure;
+          },
+          async () => {
+            vi.advanceTimersByTime(25);
+            await recorder.recordWorkflowState(workflow, finalState);
+          }
+        );
+      })
+    ).rejects.toBe(failure);
+    const [manifest] = await history();
+    expect(manifest.outcome).toBe('failed');
+    expect(manifest.workflows).toEqual([
+      {
+        name: 'lesson',
+        runId: 'durable-run',
+        status: 'completed',
+        nodes: [
+          {
+            instanceId: 'draft',
+            definitionId: 'draft',
+            status: 'completed',
+            attemptCount: 1,
+            createdAt: timestamp,
+            availableAt: timestamp,
+            updatedAt: completedAt,
+            completedAt,
+            lifetimeDurationMs: 25,
+          },
+        ],
+      },
+    ]);
+    expect(JSON.parse(await readFile(join(directory, 'lesson-state.json'), 'utf8'))).toEqual(
+      finalState
+    );
+    expect(JSON.parse(await readFile(join(directory, 'manifest.json'), 'utf8'))).toEqual(manifest);
+  });
+
   test('persists context, measurements, usage and named evidence', async () => {
     let directory = '';
     const result = await withRunEvidence(context, async recorder => {
@@ -260,8 +435,10 @@ describe('real-run evidence', () => {
   });
 
   test('rejects a scenario junction into the repository before writing', async () => {
-    const repositoryTarget = await mkdtemp(join(resolve('.temp'), 'evidence-junction-'));
+    const repositoryParent = join(resolve('.temp'), `evidence-junction-${randomUUID()}`);
+    await mkdir(repositoryParent, { recursive: true });
     try {
+      const repositoryTarget = await mkdtemp(join(repositoryParent, 'target-'));
       await mkdir(join(dataDirectory, 'runs'));
       await symlink(repositoryTarget, join(dataDirectory, 'runs', context.scenario), 'junction');
       const operation = vi.fn(async () => {});
@@ -271,7 +448,7 @@ describe('real-run evidence', () => {
       expect(operation).not.toHaveBeenCalled();
       expect(await readdir(repositoryTarget)).toEqual([]);
     } finally {
-      await rm(repositoryTarget, { recursive: true, force: true });
+      await rm(repositoryParent, { recursive: true, force: true });
     }
   });
 

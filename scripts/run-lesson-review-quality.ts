@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import * as z from 'zod';
 import {
   getGlobalModelConfig,
-  resolveCodexServiceTierForSlot,
   resolveTextModelConfig,
 } from '../apps/backend/src/config/modelConfig.js';
 import {
   closeManagedCodexAccountClient,
+  normalizeCodexReasoningEffort,
   runCodexAppServerTurn,
 } from '../apps/backend/src/services/codexAppServer.js';
 import { LessonGenerationCorrectionError } from '../apps/backend/src/services/lessonGenerationCorrection.js';
@@ -18,6 +18,7 @@ import type {
   LessonContentDraft,
   LessonGenerationInput,
 } from '../apps/backend/src/services/lessonGenerationTypes.js';
+import { LESSON_REVIEW_REASONING_EFFORT } from '../apps/backend/src/services/lessonGenerationVerification.js';
 import { getRetryDecision } from '../apps/backend/src/workflows/retryPolicy.js';
 import { createProductionRegistry } from '../apps/backend/src/workflows/runtime/workflowRuntimeComposition.js';
 import {
@@ -26,6 +27,7 @@ import {
 } from '../apps/backend/tests/fixtures/lessonReviewQuality.js';
 import {
   type RunEvidenceRecorder,
+  resolveRunEvidenceTextSlot,
   runErrorCode,
   withRunCleanup,
   withRunEvidence,
@@ -258,11 +260,13 @@ const main = async () => {
       scenario: 'lesson-quality',
       provider: 'codex',
       slots: {
-        lesson: {
-          ...model,
-          serviceTier: resolveCodexServiceTierForSlot(config, 'lesson') ?? 'normal',
+        lesson: resolveRunEvidenceTextSlot(config, 'lesson'),
+        lessonReview: resolveRunEvidenceTextSlot(config, 'lesson', LESSON_REVIEW_REASONING_EFFORT),
+        evaluator: {
+          model: model.model,
+          reasoningEffort: normalizeCodexReasoningEffort(model.reasoningEffort),
+          serviceTier: 'normal',
         },
-        evaluator: { ...model, serviceTier: 'normal' },
       },
     },
     evidence => withRunCleanup(() => runCases(evidence), closeManagedCodexAccountClient)

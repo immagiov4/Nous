@@ -19,8 +19,14 @@ import type {
   LearningPlanNodeSnapshot,
   ProjectSnapshot,
 } from '../apps/backend/src/projects/types.js';
-import { closeManagedCodexAccountClient } from '../apps/backend/src/services/codexAppServer.js';
+import {
+  CODEX_IMAGE_TURN_SETTINGS,
+  closeManagedCodexAccountClient,
+} from '../apps/backend/src/services/codexAppServer.js';
+import { LESSON_EVIDENCE_REASONING_EFFORT } from '../apps/backend/src/services/lessonEvidenceVerification.js';
+import { LESSON_REVIEW_REASONING_EFFORT } from '../apps/backend/src/services/lessonGenerationVerification.js';
 import { resolveLessonVisualModelConfig } from '../apps/backend/src/services/lessonVisualModelConfig.js';
+import { PostgresWorkflowStore } from '../apps/backend/src/workflows/persistence/postgresWorkflowStore.js';
 import {
   createWorkflowRuntimeComposition,
   type WorkflowRuntimeComposition,
@@ -28,7 +34,12 @@ import {
 
 import type { WorkflowAiUsageRecord } from '../apps/backend/src/workflows/workflowAiMetering.js';
 import type { WorkflowPublicRunState } from '../apps/backend/src/workflows/workflowReadModel.js';
-import { type RunEvidenceRecorder, withRunCleanup, withRunEvidence } from './run-evidence.js';
+import {
+  type RunEvidenceRecorder,
+  resolveRunEvidenceTextSlot,
+  withRunCleanup,
+  withRunEvidence,
+} from './run-evidence.js';
 
 const COST_ACKNOWLEDGEMENT = 'I_ACCEPT_REAL_PROVIDER_COSTS';
 const COURSE_MODEL = 'gpt-5.6-luna';
@@ -275,21 +286,7 @@ const runWorkflow = async ({
         const workflow = evidence.manifest.workflows.find(entry => entry.runId === runId);
         assert.ok(workflow);
         const trace = await loadTrace(baseUrl, runId);
-        workflow.status = trace.run.status;
-        workflow.nodes = trace.nodes.map(node => ({
-          instanceId: node.instanceId,
-          definitionId: node.definitionId,
-          status: node.status,
-          attemptCount: node.attemptCount,
-          createdAt: node.createdAt,
-          availableAt: node.availableAt,
-          updatedAt: node.updatedAt,
-          ...(node.completedAt ? { completedAt: node.completedAt } : {}),
-          lifetimeDurationMs: node.completedAt
-            ? Date.parse(node.completedAt) - Date.parse(node.createdAt)
-            : null,
-        }));
-        await evidence.writeJson(`${label}-state.json`, trace);
+        await evidence.recordWorkflowState(workflow, trace);
       }
     }
   );
@@ -574,6 +571,7 @@ const runRealProviderFlow = async (evidence: RunEvidenceRecorder): Promise<void>
   const objectStorage = createMemoryStorage();
   const sql = new SQL(databaseUrl, { max: SQL_CONNECTION_LIMIT });
   const projectStore = new PostgresProjectStore(databaseUrl);
+  const evidenceStore = new PostgresWorkflowStore({ databaseUrl });
   let runtime: WorkflowRuntimeComposition | undefined;
   let server: Server | undefined;
 
@@ -664,12 +662,18 @@ const runRealProviderFlow = async (evidence: RunEvidenceRecorder): Promise<void>
       );
       try {
         for (const workflow of evidence.manifest.workflows) {
+          const state = await evidenceStore.getRunState({ runId: workflow.runId, userId });
+          assert.ok(state, `Missing final workflow state for ${workflow.runId}.`);
+          await evidence.recordWorkflowState(workflow, state);
           evidence.manifest.aiUsage.push(...(await readStoredAiUsage(sql, workflow.runId)));
         }
       } catch (error) {
-        reportCleanupFailure('usage evidence collection', error);
+        reportCleanupFailure('final workflow evidence collection', error);
       } finally {
         setProjectStoreForTesting(null);
+        await evidenceStore
+          .close()
+          .catch(error => reportCleanupFailure('evidence store close', error));
         await projectStore
           .close()
           .catch(error => reportCleanupFailure('project store close', error));
@@ -693,17 +697,22 @@ const runRealProviderFlow = async (evidence: RunEvidenceRecorder): Promise<void>
 const resolvedSlots = () => {
   const config = configureEconomicalCodexModels();
   return {
-    course: {
-      ...resolveTextModelConfig(config, 'course'),
-      serviceTier: resolveCodexServiceTierForSlot(config, 'course') ?? 'normal',
-    },
-    lesson: {
-      ...resolveTextModelConfig(config, 'lesson'),
-      serviceTier: resolveCodexServiceTierForSlot(config, 'lesson') ?? 'normal',
-    },
-    artifact: {
-      ...resolveLessonVisualModelConfig(config).artifact,
-      serviceTier: resolveCodexServiceTierForSlot(config, 'artifact') ?? 'normal',
+    course: resolveRunEvidenceTextSlot(config, 'course'),
+    research: resolveRunEvidenceTextSlot(config, 'research'),
+    lesson: resolveRunEvidenceTextSlot(config, 'lesson'),
+    lessonReview: resolveRunEvidenceTextSlot(config, 'lesson', LESSON_REVIEW_REASONING_EFFORT),
+    lessonVerification: resolveRunEvidenceTextSlot(
+      config,
+      'lesson',
+      LESSON_EVIDENCE_REASONING_EFFORT
+    ),
+    artifact: resolveRunEvidenceTextSlot(config, 'artifact'),
+    artifactInteractive: resolveRunEvidenceTextSlot(config, 'artifactInteractive'),
+    scene: resolveRunEvidenceTextSlot(config, 'scene'),
+    sceneIcon: resolveRunEvidenceTextSlot(config, 'sceneIcon'),
+    image: {
+      model: resolveLessonVisualModelConfig(config).image.model,
+      ...CODEX_IMAGE_TURN_SETTINGS,
     },
   };
 };
