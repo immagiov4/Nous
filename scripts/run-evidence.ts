@@ -189,6 +189,9 @@ export class RunEvidenceRecorder {
 
 /** Error identifiers are retained; messages and provider text are never copied. */
 export const runErrorCode = (error: unknown): string => {
+  // Cleanup aggregation keeps the operation failure as the cause; report that primary failure.
+  if (error instanceof AggregateError && error.cause !== undefined)
+    return runErrorCode(error.cause);
   if (
     typeof error === 'object' &&
     error !== null &&

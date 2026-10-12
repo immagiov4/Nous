@@ -9,6 +9,7 @@ import {
   normalizeCodexReasoningEffort,
   runCodexAppServerTurn,
 } from '../apps/backend/src/services/codexAppServer.js';
+import { LESSON_EVIDENCE_REASONING_EFFORT } from '../apps/backend/src/services/lessonEvidenceVerification.js';
 import { LessonGenerationCorrectionError } from '../apps/backend/src/services/lessonGenerationCorrection.js';
 import {
   generateLessonContent,
@@ -262,6 +263,11 @@ const main = async () => {
       slots: {
         lesson: resolveRunEvidenceTextSlot(config, 'lesson'),
         lessonReview: resolveRunEvidenceTextSlot(config, 'lesson', LESSON_REVIEW_REASONING_EFFORT),
+        lessonVerification: resolveRunEvidenceTextSlot(
+          config,
+          'lesson',
+          LESSON_EVIDENCE_REASONING_EFFORT
+        ),
         evaluator: {
           model: model.model,
           reasoningEffort: normalizeCodexReasoningEffort(model.reasoningEffort),

@@ -368,6 +368,24 @@ describe('real-run evidence', () => {
     expect(JSON.stringify(manifest)).not.toContain(failure.message);
   });
 
+  test('retains the primary error code when cleanup also fails', async () => {
+    const failure = Object.assign(new Error('provider text'), { code: 'workflow_timeout' });
+    await expect(
+      withRunEvidence(context, () =>
+        withRunCleanup(
+          async () => {
+            throw failure;
+          },
+          async () => {
+            throw new Error('cleanup failed');
+          }
+        )
+      )
+    ).rejects.toBeInstanceOf(AggregateError);
+    const [manifest] = await history();
+    expect(manifest.errorCode).toBe(failure.code);
+  });
+
   test.each([
     'manifest',
     'history',
