@@ -52,8 +52,8 @@ For a problem class or an architectural problem, stop patching locally and decom
 
 ### c. Integration on real provider flows
 
-- Exercise real application flows against OpenRouter and Codex through ChatGPT login. Exclude direct OpenAI integration from this workflow's provider checks.
-- On each supported provider, pass a simple case first, then realistic cases for the changed flow.
+- Exercise real application flows against each provider the changed flow supports, among OpenRouter and Codex through ChatGPT login (for example, speech synthesis exists only on OpenRouter). Exclude direct OpenAI integration from this workflow's provider checks.
+- On each of those providers, pass a simple case first, then realistic cases for the changed flow.
 - Record inputs, outcomes, performance measurements, and the real-run trace for stage d.
 
 ### d. X-ray of the real-run trace
