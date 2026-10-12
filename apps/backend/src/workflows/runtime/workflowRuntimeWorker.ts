@@ -1,5 +1,6 @@
 import type { ProjectAssetCleanupClaim } from '../../projects/projectAsset.js';
 import type { ProjectAssetDeletionClaim } from '../../projects/projectAssetDeletionQueue.js';
+import { bindModelExchangeCapture } from '../modelExchanges.js';
 import type {
   PostgresWorkflowOutboxStore,
   WorkflowOutboxClaim,
@@ -220,7 +221,9 @@ class WorkflowRuntimeWorker<Services> {
     await this.input.store.undo.requeueFailed({
       supportedDefinitions: this.input.registry.listRegisteredBoundaries(),
     });
-    const subscription = await this.input.wakeSource.subscribe(wake => this.wake(wake));
+    const subscription = await this.input.wakeSource.subscribe(
+      bindModelExchangeCapture(wake => this.wake(wake))
+    );
     this.subscription = subscription;
     this.active = true;
     this.pollTimer = setInterval(() => this.wake('all'), this.input.pollIntervalMs);

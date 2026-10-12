@@ -58,6 +58,7 @@ export const captionPdfImage = async (
   let caption: string;
   if (provider === 'codex') {
     caption = await runCodexAppServerTurn({
+      role: 'pdfImageCaption',
       allowWebSearch: false,
       developerInstructions:
         'Describe only what is visibly recognizable in the supplied PDF figure. Do not use tools or access local files.',

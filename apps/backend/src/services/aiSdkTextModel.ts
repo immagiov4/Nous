@@ -23,6 +23,8 @@ interface ConfiguredTextModel {
 }
 
 export interface ResolvedTextModelRequest {
+  readonly slot?: TextModelSlot;
+  readonly role?: string;
   readonly model: string;
   readonly provider: Exclude<AiProvider, 'codex'>;
   readonly reasoningEffort: ReasoningEffort;
@@ -51,10 +53,7 @@ export const createConfiguredTextModelFromResolution = (
         })
       : openRouter.chat(resolved.model);
   return {
-    model: meterWorkflowLanguageModel(model, {
-      model: resolved.model,
-      provider: resolved.provider,
-    }),
+    model: meterWorkflowLanguageModel(model, resolved),
     modelName: resolved.model,
     providerOptions: resolveOpenRouterProviderOptions(resolved.reasoningEffort),
   };
@@ -76,6 +75,7 @@ export const createConfiguredTextModel = (
   }
   return createConfiguredTextModelFromResolution(
     {
+      slot,
       model: modelOverride || resolved.model,
       provider,
       reasoningEffort: reasoningEffortOverride ?? resolved.reasoningEffort,

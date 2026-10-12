@@ -1,8 +1,9 @@
+import { MockLanguageModelV3 } from 'ai/test';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import * as z from 'zod';
-
 import { WorkflowExecutionDefaultsSchema } from '../../src/workflows/config.js';
 import { createWorkflowRegistry, step, workflow } from '../../src/workflows/definition.js';
+import { type ModelExchange, withModelExchanges } from '../../src/workflows/modelExchanges.js';
 import type { WorkflowOutboxClaim } from '../../src/workflows/postgresWorkflowOutboxStore.js';
 import { failPermanently } from '../../src/workflows/retryPolicy.js';
 import {
@@ -16,6 +17,7 @@ import {
   type WorkflowRuntimeWorkerInput,
 } from '../../src/workflows/runtime/workflowRuntimeWorker.js';
 import type { RegisteredWorkflow, WorkflowStepClaim } from '../../src/workflows/types.js';
+import { meterWorkflowLanguageModel } from '../../src/workflows/workflowAiMetering.js';
 import type { WorkflowLogEvent } from '../../src/workflows/workflowObservability.js';
 import {
   DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS,
@@ -192,6 +194,68 @@ afterEach(() => {
 });
 
 describe('workflow runtime worker', () => {
+  test('captures a model call from an external wake with the durable attempt identity', async () => {
+    vi.useFakeTimers();
+    const exchanges: ModelExchange[] = [];
+    const model = new MockLanguageModelV3({
+      doGenerate: {
+        content: [{ type: 'text', text: 'worker answer' }],
+        finishReason: { unified: 'stop', raw: 'stop' },
+        usage: {
+          inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 1, text: 1, reasoning: 0 },
+        },
+        warnings: [],
+      },
+    });
+    const { definition, registry } = registerStepWorkflow(async text => {
+      await meterWorkflowLanguageModel(model, {
+        model: 'fixture',
+        provider: 'openrouter',
+      }).doGenerate({ prompt: [{ role: 'user', content: [{ type: 'text', text }] }] });
+      return text;
+    });
+    const store = makeStore();
+    const wakeSource = new FakeWakeSource();
+    const worker = createWorkflowRuntimeWorker({
+      onLoopError: vi.fn(),
+      pollIntervalMs: POLL_INTERVAL_MS,
+      reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
+      registry,
+      services: {},
+      store,
+      wakeSource,
+      workerId: 'worker-1',
+    });
+    let wakeOutside!: () => void;
+    // This resource predates the capture scope, as a SQL connection can.
+    const externalWake = new Promise<void>(resolve => {
+      wakeOutside = resolve;
+    }).then(() => wakeSource.emit('step'));
+    await withModelExchanges(exchanges, async () => {
+      await worker.start();
+      await vi.advanceTimersByTimeAsync(0);
+      vi.mocked(store.steps.claimNext).mockResolvedValueOnce(
+        makeClaim(definition, 'worker-1', { attemptNumber: 2 })
+      );
+      wakeOutside();
+      await externalWake;
+      await vi.advanceTimersByTimeAsync(0);
+      await worker.stop();
+    });
+    expect(exchanges).toMatchObject([
+      {
+        workflow: {
+          runId: '11111111-1111-4111-8111-111111111111',
+          nodeInstanceId: 'work',
+          attemptNumber: 2,
+        },
+        request: { messages: [{ role: 'user', content: [{ type: 'text', text: 'input' }] }] },
+        response: 'worker answer',
+        status: 'stop',
+      },
+    ]);
+  });
   test('scans every independent work class at startup', async () => {
     const { definition, registry } = registerStepWorkflow(async text => text);
     const store = makeStore();
