@@ -42,6 +42,7 @@ For a problem class or an architectural problem, stop patching locally and decom
 - Test preconditions, postconditions, expected errors, and invariants through observable behaviour.
 - For every new test, deliberately break the code under test once, run the test, and record the failure. Restore the code and record the passing run. A requirement restatement, copy/string check, or assertion of implementation details does not qualify.
 - Record the test, deliberate defect, command, observed failure, and restored result so its ability to detect a regression is checkable.
+- When the change has no meaningful deterministic boundary (for example behaviour that exists only in nondeterministic model output), follow AGENTS.md: write no tautological test and document the manual or evaluation-based verification instead.
 - Run `bun run quality` during iteration alongside the selected behaviour tests; use the focused-check rules in AGENTS.md.
 
 ### b. Performance within behaviour and integration tests

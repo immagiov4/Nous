@@ -18,6 +18,6 @@ Vendored skills are guidance written for other environments. Where one conflicts
 - **Scope of a request:** a design-only request ("design this", "architect this") stops after presenting the design; implementation needs explicit intent.
 - **Documentation location:** do not create new documentation structures such as a root `GLOSSARY.md` or `docs/adr/`; architecture documentation belongs in `.cubic/wiki`, per AGENTS.md.
 - **Numbers:** file-size cutoffs, timeouts and other numeric thresholds in vendored skills are not project policy; the maintainer sets thresholds from measured data.
-- **Agents, models and tools:** use the delegation tools available in the current environment and the model policy in AGENTS.md and the maintainer's instructions, not Cursor-specific model slugs, rule files or tools.
+- **Agents, models and tools:** use the delegation tools available in the current environment and the model policy in AGENTS.md and the maintainer's instructions, not Cursor-specific model slugs, rule files or tools. Work that produces artifacts, such as `arena` candidates, runs as separate visible delegated tasks; local subagents stay limited to short read-only verification, as AGENTS.md requires.
 - **Missing inputs:** when a vendored step needs an artifact the environment does not expose (for example agent transcripts), use the closest available evidence and say what was unavailable.
 - **Testing:** the testing rules in AGENTS.md and `quality-workflow` govern; an assertion such as an empty result is valid when it is the precise observable contract.
