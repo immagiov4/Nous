@@ -12,7 +12,6 @@ import {
   planPlaybackMotion,
   validatePlaybackMotion,
 } from '../../../src/services/lessonPlayback/playbackMotion.js';
-import { toStepFailure } from '../../../src/workflows/retryPolicy.js';
 
 const scene: LessonScene = {
   type: 'parts',
@@ -210,11 +209,31 @@ test('corrects parser errors but propagates transport errors', async () => {
   expect(generate).toHaveBeenCalledTimes(1);
 });
 
-test('stops after the existing three-attempt scene policy', async () => {
-  generate.mockResolvedValue(response([focus[0]]));
-  const failure = await planPlaybackMotion(input()).catch(error => toStepFailure(error));
-  expect(failure).toMatchObject({ kind: 'permanent', code: 'lesson_playback_motion_invalid' });
-  expect(generate).toHaveBeenCalledTimes(3);
+test.each([
+  response([focus[0]]),
+  { plans: [] },
+])('keeps the scene static after three invalid motion responses: %j', async invalid => {
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  try {
+    generate.mockResolvedValue(invalid);
+    await expect(planPlaybackMotion(input())).resolves.toEqual([]);
+    expect(generate).toHaveBeenCalledTimes(3);
+    expect(warning).toHaveBeenCalledWith(
+      '[lesson-playback] Motion validation failed; keeping the scene static.',
+      expect.objectContaining({ problem: expect.any(String) })
+    );
+    expect(warning).toHaveBeenCalledWith(
+      '[lesson-playback] Invalid motion plan.',
+      expect.objectContaining({
+        attempt: 3,
+        problem: expect.stringContaining(
+          invalid.plans.length ? 'Focus must cover every target' : '"path":["plans"]'
+        ),
+      })
+    );
+  } finally {
+    warning.mockRestore();
+  }
 });
 
 test('single-target compact scenes stay static without a model call', async () => {

@@ -3,7 +3,6 @@ import type { LessonScene, LessonSceneType } from '@shared/lessonScene';
 import * as z from 'zod';
 
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
-import { failPermanently } from '../../workflows/retryPolicy.js';
 import { isInvalidLessonVisualStructuredOutput } from '../lessonGenerationVisuals.js';
 import { generateStructuredOutput } from '../structuredGeneration.js';
 import { PLAYBACK_MOTION_SYSTEM_PROMPT } from './playbackMotionPrompt.js';
@@ -139,6 +138,7 @@ export const planPlaybackMotion = async ({
     { chunk: 0, type: scene.type, title: scene.title, text: speech, targets },
   ]);
   let feedback = '';
+  let problem = '';
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt += 1) {
     signal.throwIfAborted();
     const response = await generateStructuredOutput<unknown>({
@@ -159,7 +159,9 @@ export const planPlaybackMotion = async ({
     });
     signal.throwIfAborted();
     const parsed = MotionResponseSchema.safeParse(response);
-    let problem = 'The answer must follow the requested JSON structure.';
+    problem = parsed.success
+      ? 'The answer must follow the requested JSON structure.'
+      : JSON.stringify(parsed.error.issues.map(({ code, path }) => ({ code, path })));
     if (parsed.success) {
       try {
         return validatePlaybackMotion(parsed.data.plans[0].events, scene, speech);
@@ -168,10 +170,15 @@ export const planPlaybackMotion = async ({
         problem = error.message;
       }
     }
+    console.warn('[lesson-playback] Invalid motion plan.', {
+      attempt: attempt + 1,
+      sceneType: scene.type,
+      problem,
+    });
     feedback = `\nRisposta precedente: ${JSON.stringify(response)}\nCorreggi la risposta completa: ${problem}. Le liste checklist/steps/hypothesis/timeline ammettono SOLO reveal di tutte le voci una per volta oppure events:[]; un bersaglio per reveal; focus condiviso ammesso per concetti nominati insieme; quote univoca esatta.`;
   }
-  throw failPermanently({
-    code: 'lesson_playback_motion_invalid',
-    message: 'Playback motion preparation failed validation after corrective attempts.',
+  console.warn('[lesson-playback] Motion validation failed; keeping the scene static.', {
+    problem,
   });
+  return [];
 };
