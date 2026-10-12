@@ -1,0 +1,3 @@
+policy:
+  # Mirrors the upstream `disable-model-invocation: true`: invoke explicitly.
+  allow_implicit_invocation: false

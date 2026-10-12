@@ -27,6 +27,10 @@ Sources: [AGENTS.md:143-162](../../../AGENTS.md#L143-L162), [scripts/run-full-qu
 
 The quality process is organized into discrete profiles and stages, allowing developers to run the narrowest meaningful validation first before proceeding to the full merge gate.
 
+### Implementation quality workflow
+
+Every implementation task follows `.agents/skills/quality-workflow/SKILL.md`, which AGENTS.md references. The agent states a level at the start: a local fix needs behaviour tests and `bun run quality`; a medium feature adds real-flow provider integration, a step-by-step review of the recorded run trace and an agentic playtest; a large or visual feature also starts from a functioning mockup on a temporary app page that the maintainer approves before production code. The ordered test ladder is behaviour tests that are shown to fail when the code is broken, performance measurements recorded per run (thresholds come from the maintainer), integration on each provider the changed flow supports, trace review, playtest, and maintainer visual QA with the playtest evidence. The skill also routes bugs found outside the work, requires a zoom-out check before fixes, and keeps Sonar to one run on the final candidate. Vendored third-party skills follow the precedence rules in `.agents/skills/THIRD_PARTY_SKILLS.md`.
+
 ### Local Health Diagnostics (Doctor)
 The `doctor` utility is a read-only diagnostic tool that reports on environment health without modifying state. It supports four distinct profiles to probe different layers of the application.
 
