@@ -122,7 +122,8 @@ bun run doctor        # Read-only diagnostic; defaults to the checks profile
 bun run doctor -- --profile gate   # Probe the existing local Sonar service
 bun run doctor -- --profile local  # Probe local Supabase services and migration parity
 bun run doctor -- --profile all    # Run checks plus every service probe
-bun run quality       # Local TypeScript, Biome, and React Hooks checks
+bun run quality       # Local TypeScript, Biome, React Hooks, and Sonar-style checks
+bun run check:eslint-sonar # Cached Sonar-style TS/TSX rules against bulk suppressions
 bun run quality:ci    # CI quality checks, including dependency graph validation
 bun run check:fallow  # Static dead-code & duplication analysis (info only)
 bun run gate:full     # Final local merge gate after green CI: checks + coverage + Sonar
@@ -132,6 +133,8 @@ bun run format        # Format all files (Biome)
 bun run test          # Vitest test suite (runs under Bun runtime)
 bun run playtest      # Headless agentic stories; requires NOUS_E2E_DATA, --provider and --model
 ```
+
+`check:eslint-sonar` uses `eslint.sonar.config.mjs` and the tracked `eslint-suppressions.json` baseline. After fixing baseline violations, run `bun run check:eslint-sonar --prune-suppressions` and include the reduced baseline with the fix. Regeneration with `bun run check:eslint-sonar --suppress-all` accepts every current violation and requires explicit maintainer approval. After either maintenance command, run `bunx biome format --write eslint-suppressions.json` to restore the required trailing newline. Scope, rule mappings, and suppression semantics are documented in [.cubic/wiki/09-section-tools/02-p-testing-quality.md](.cubic/wiki/09-section-tools/02-p-testing-quality.md).
 
 `doctor` is observational in every profile: it reports `PASS`/`FAIL`/`WARN`/`SKIP` results without
 starting, restarting, configuring, migrating services, or running the test suite. The default

@@ -5,11 +5,11 @@ import path from 'node:path';
 import { ESLint } from 'eslint';
 import { describe, expect, test, vi } from 'vitest';
 
+import { resolveEslintCachePath } from './eslint-cache.ts';
 import {
   generateReactHooksLintReport,
   hasReactHooksLintFailures,
   resolveEslintReportPath,
-  resolveReactHooksCachePath,
 } from './run-eslint-react-hooks.ts';
 
 describe('React Hooks ESLint report', () => {
@@ -50,7 +50,7 @@ describe('React Hooks ESLint report', () => {
       expect(coldResults[0].messages).toEqual(
         expect.arrayContaining([expect.objectContaining({ ruleId: 'react-hooks/rules-of-hooks' })])
       );
-      const cachedEntries = await readFile(await resolveReactHooksCachePath(), 'utf8');
+      const cachedEntries = await readFile(await resolveEslintCachePath('react-hooks'), 'utf8');
       expect(cachedEntries).toContain(path.basename(sourcePath));
       await rm(reportPath);
       const warmResults = await generateReactHooksLintReport(reportPath);
