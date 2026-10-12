@@ -142,7 +142,7 @@ describe('Nous adapter', () => {
     let identity = 'owned-process';
     const kill = vi.fn((_pid: number, signal: NodeJS.Signals | number | undefined) => {
       if (signal === 0) throw Object.assign(new Error('Exited'), { code: 'ESRCH' });
-      return true;
+      return true as const;
     });
     const initializeSupabase = vi.fn(async () => {
       await expect(readFile(backendPath)).rejects.toMatchObject({ code: 'ENOENT' });
@@ -255,7 +255,7 @@ describe('Nous adapter', () => {
     const kill = vi.fn((_pid: number, signal: NodeJS.Signals | number | undefined) => {
       expect(identity).toHaveBeenCalledExactlyOnceWith(process.pid);
       if (signal === 0 && !groupExists) throw Object.assign(new Error('Exited'), { code: 'ESRCH' });
-      return true;
+      return true as const;
     });
     const wait = vi.fn(async (milliseconds: number) => {
       expect(JSON.parse(await readFile(pidPath, 'utf8')).pid).toBe(process.pid);
@@ -293,7 +293,7 @@ describe('Nous adapter', () => {
         expect(elapsed).toBe(STACK_SHUTDOWN_GRACE_MS);
         forced = true;
       }
-      return true;
+      return true as const;
     });
     const wait = vi.fn(async (milliseconds: number) => {
       expect(forced).toBe(false);
@@ -412,7 +412,7 @@ describe('Nous adapter', () => {
     }).catch(error => error as Error);
     await paused.promise;
     await vi.advanceTimersByTimeAsync(STACK_STAGE_READINESS_LIMIT_MS);
-    expect((await result).message).toContain('stage limit expired');
+    expect(((await result) as Error).message).toContain('stage limit expired');
     expect(fetcher).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(0);
   });

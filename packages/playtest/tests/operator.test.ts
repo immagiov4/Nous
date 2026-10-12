@@ -286,6 +286,16 @@ describe('operator', () => {
     }
   });
 
+  it('redacts generated credentials from raw probe text', async () => {
+    await fixture(
+      `<p style="width:60px;overflow:hidden;white-space:nowrap">Account ${credentials.email}</p>`
+    );
+    await session.observe();
+    const signals = await session.signals();
+    expect(signals.some(signal => signal.kind === 'clipped-text')).toBe(true);
+    expect(JSON.stringify(signals)).not.toContain(credentials.email);
+  });
+
   it('masks credentials split across nested elements before extracting text', async () => {
     const split = Math.floor(credentials.email.length / 2);
     const page = await fixture(

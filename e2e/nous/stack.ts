@@ -273,10 +273,8 @@ export async function waitForReadiness(options: {
     for (;;) {
       signal.throwIfAborted();
       const response = await Promise.race([
-        fetch(options.url, { signal }).catch(error => {
-          recordDiagnostic('stack-readiness', error);
-          return undefined;
-        }),
+        // Refused connections are expected while the server starts; only the terminal stage failure is diagnosed.
+        fetch(options.url, { signal }).catch(() => undefined),
         options.exited,
       ]);
       await Promise.race([response?.body?.cancel(), options.exited]);

@@ -12,6 +12,7 @@ import {
   type Observation,
   type OperatorWindow,
   observePage,
+  redact,
 } from './observe';
 import { VIEWPORTS } from './viewports';
 
@@ -157,10 +158,16 @@ export async function openOperatorSession(options: {
         };
       },
       async signals() {
-        if (capturedSignals === undefined) return collectSignals(page);
+        // Probe text (e.g. a truncated account label) can contain the generated credentials.
+        const secrets = [credentials.email, credentials.password];
+        const redactSignal = (signal: ProbeSignal): ProbeSignal =>
+          JSON.parse(JSON.stringify(signal), (_key, value) =>
+            typeof value === 'string' ? redact(value, secrets) : value
+          );
+        if (capturedSignals === undefined) return (await collectSignals(page)).map(redactSignal);
         const signals = capturedSignals;
         capturedSignals = undefined;
-        return [...signals, ...drainConsoleSignals(page)];
+        return [...signals, ...drainConsoleSignals(page)].map(redactSignal);
       },
       async close() {
         const tracePath = join(runDir, 'trace.zip');

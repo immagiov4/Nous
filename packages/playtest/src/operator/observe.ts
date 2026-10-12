@@ -273,7 +273,7 @@ function visibleSnapshot({ secrets, prefix }: { secrets: string[]; prefix: strin
 }
 
 /** Credentials, including encoded copies, are withheld from learner-facing URLs and labels. */
-function redact(text: string, secrets: string[]): string {
+export function redact(text: string, secrets: string[]): string {
   for (const secret of secrets.filter(Boolean)) {
     const formEncoded = new URLSearchParams({ secret }).toString().slice('secret='.length);
     for (const representation of new Set([
