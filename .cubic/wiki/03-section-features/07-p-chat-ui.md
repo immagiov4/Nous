@@ -56,7 +56,6 @@ flowchart TD
 
     subgraph AI[AI Services]
         OpenRouter
-        OpenAI
         Codex[Codex App Server]
     end
 
@@ -65,7 +64,6 @@ flowchart TD
     Router --> ToolSet
     Router -->|createConfiguredTextModel + streamText| Model
     Model --> OpenRouter
-    Model --> OpenAI
     Router -->|createCodexChatStream| CodexStream
     CodexStream --> Codex
     AI -->>|Streamed UI Messages| Router
@@ -183,7 +181,7 @@ Sources: [apps/backend/src/routes/chatPrompts.ts:384-398](../../../apps/backend/
 
 ### AI Toolset
 The assistant uses a "Tool Calling" pattern to perform actions. The `buildContextToolSet` includes:
-*  **Web Search:** Uses the `searchWeb` tool (powered by OpenRouter or OpenAI) to perform external cross-checks.
+*  **Web Search:** Uses the `searchWeb` tool (powered by OpenRouter or Codex) to perform external cross-checks.
 *  **Artifact Generation:** `generateCurrentLessonArtifact` for creating dynamic SVG, Mermaid, or HTML visualizations.
 *  **Library Retrieval:** Tools like `getLessonDetails` and `listLibraryTree` for querying the user's stored knowledge.
 *  **Note Management:** `requestAddToNotes` for proposing new study notes based on AI clarifications.
@@ -208,7 +206,7 @@ sequenceDiagram
     participant B as Backend Route
     participant P as Proxy Service
     participant C as Config Resolver
-    participant AI as Provider (OpenRouter/OpenAI/Codex)
+    participant AI as Provider (OpenRouter/Codex)
 
     B->>P: Request with X-Nous-Model-Slot
     P->>C: resolveProxyConfig(slot)

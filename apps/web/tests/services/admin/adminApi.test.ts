@@ -11,7 +11,6 @@ vi.mock('../../../services/openrouter/config.ts', () => ({
 }));
 
 const {
-  DEFAULT_ADMIN_MODEL_CONFIG,
   createAdminUser,
   listAdminFeedback,
   listAdminUsers,
@@ -42,13 +41,9 @@ describe('admin user provider payloads', () => {
     );
   });
 
-  test('defaults OpenAI research to its Chat Completions search model', () => {
-    expect(DEFAULT_ADMIN_MODEL_CONFIG.openAiResearchModel).toBe('gpt-5-search-api');
-  });
-
   test('includes an explicit provider when creating a user', async () => {
     await createAdminUser({
-      aiProvider: 'openai',
+      aiProvider: 'codex',
       email: 'student@example.com',
       password: 'g1ovann1',
       role: 'user',
@@ -59,7 +54,7 @@ describe('admin user provider payloads', () => {
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
-          aiProvider: 'openai',
+          aiProvider: 'codex',
           email: 'student@example.com',
           password: 'g1ovann1',
           role: 'user',

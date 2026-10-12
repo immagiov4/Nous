@@ -6,7 +6,6 @@ import { createSupabaseTestToken } from '../helpers/auth.js';
 const imageClientMocks = vi.hoisted(() => ({
   generateImage: vi.fn(),
   listModels: vi.fn(),
-  listOpenAiModels: vi.fn(),
 }));
 const ORIGINAL_ENV = { ...process.env };
 
@@ -14,7 +13,6 @@ vi.mock('../../src/services/imageClient.js', () => ({
   imageClient: {
     generateImage: imageClientMocks.generateImage,
     listModels: imageClientMocks.listModels,
-    listOpenAiModels: imageClientMocks.listOpenAiModels,
   },
   DEFAULT_IMAGE_MODEL: 'google/gemini-3.1-flash-lite-image',
   toGeneratedImageDataUrl: (image: { bytes: Uint8Array; mediaType: string }) =>
@@ -30,11 +28,9 @@ describe('POST /api/images/generate', () => {
     patchGlobalModelConfig({ aiProvider: 'openrouter' });
     imageClientMocks.generateImage.mockReset();
     imageClientMocks.listModels.mockReset();
-    imageClientMocks.listOpenAiModels.mockReset();
     imageClientMocks.listModels.mockResolvedValue([
       { id: 'google/gemini-3.1-flash-lite-image', name: 'Nano Banana 2 Lite' },
     ]);
-    imageClientMocks.listOpenAiModels.mockReturnValue([{ id: 'gpt-image-2', name: 'gpt-image-2' }]);
     imageClientMocks.generateImage.mockResolvedValue({
       bytes: new TextEncoder().encode('fake-image'),
       generationId: 'image-gen-123',
@@ -69,11 +65,11 @@ describe('POST /api/images/generate', () => {
     const modelsResponse = await request(createApp())
       .get('/api/images/models')
       .set('Authorization', `Bearer ${token}`)
-      .set('X-Nous-AI-Provider', 'openai');
+      .set('X-Nous-AI-Provider', 'openrouter');
     const generationResponse = await request(createApp())
       .post('/api/images/generate')
       .set('Authorization', `Bearer ${token}`)
-      .set('X-Nous-AI-Provider', 'openai')
+      .set('X-Nous-AI-Provider', 'openrouter')
       .send({ prompt: 'Schema didattico della fotosintesi' });
 
     expect(modelsResponse.status).toBe(200);
@@ -91,7 +87,6 @@ describe('POST /api/images/generate', () => {
       provider: 'codex',
     });
     expect(imageClientMocks.listModels).not.toHaveBeenCalled();
-    expect(imageClientMocks.listOpenAiModels).not.toHaveBeenCalled();
   });
 
   test('requires a non-empty prompt', async () => {
@@ -127,25 +122,6 @@ describe('POST /api/images/generate', () => {
       model: expect.any(String),
       prompt: 'Sezione di una foglia al microscopio',
       provider: 'openrouter',
-    });
-  });
-
-  test('uses the authenticated user OpenAI provider and ignores request headers', async () => {
-    process.env.AUTH_MODE = 'supabase';
-    process.env.SUPABASE_JWT_SECRET = 'test-secret';
-    process.env.SUPABASE_URL = 'https://example.supabase.co';
-    const token = createSupabaseTestToken({ aiProvider: 'openai' });
-    const response = await request(createApp())
-      .post('/api/images/generate')
-      .set('Authorization', `Bearer ${token}`)
-      .set('X-Nous-AI-Provider', 'codex')
-      .send({ prompt: 'Diagramma didattico della fotosintesi' });
-
-    expect(response.status).toBe(200);
-    expect(imageClientMocks.generateImage).toHaveBeenCalledWith({
-      model: expect.stringMatching(/^gpt-image-/),
-      prompt: 'Diagramma didattico della fotosintesi',
-      provider: 'openai',
     });
   });
 

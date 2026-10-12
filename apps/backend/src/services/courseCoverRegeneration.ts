@@ -185,7 +185,6 @@ const planCourseCoverVisualDirection = async (
 const resolveImageModel = (config: GlobalModelConfig): string => {
   const provider = resolveAiProviderForSlot(config, 'image');
   if (provider === 'codex') return config.codexArtifactModel;
-  if (provider === 'openai') return config.openAiImageModel;
   return config.imageModel;
 };
 

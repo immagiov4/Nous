@@ -805,7 +805,6 @@ const ENGLISH_UI_MESSAGES = {
   'Leggi i collegamenti': 'Read the connections',
   'Immagine PDF': 'PDF image',
   Immagini: 'Images',
-  'Immagini (Codex/OpenAI)': 'Images (Codex/OpenAI)',
   'Immagini OpenRouter': 'OpenRouter images',
   Interattivo: 'Interactive',
   'Istruzioni rigenerazione': 'Regeneration instructions',

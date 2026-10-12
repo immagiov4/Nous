@@ -197,7 +197,8 @@ const renderState = (
 
 export const createArtifactDraftWorkflow = (
   executionDefaults: ArtifactDraftWorkflowConfig,
-  visualContract: LessonVisualContractSchemas = CurrentLessonVisualContractSchemas
+  visualContract: LessonVisualContractSchemas = CurrentLessonVisualContractSchemas,
+  configSchema: z.ZodType<ArtifactDraftWorkflowConfig> = ArtifactDraftWorkflowConfigSchema
 ) => {
   const {
     ArtifactDraftPlanStateSchema,
@@ -210,7 +211,7 @@ export const createArtifactDraftWorkflow = (
   const visualWorkflow = createLessonVisualWorkflows<
     ArtifactDraftWorkflowConfig,
     ArtifactDraftWorkflowServices
-  >(executionDefaults, ArtifactDraftWorkflowConfigSchema, visualContract).render;
+  >(executionDefaults, configSchema, visualContract).render;
 
   const planArtifactDraft = step<
     typeof ArtifactDraftWorkflowInputSchema,
@@ -324,7 +325,7 @@ export const createArtifactDraftWorkflow = (
 
   return workflow({
     compatibilityId: 'lesson-artifact-draft-v1',
-    configSchema: ArtifactDraftWorkflowConfigSchema,
+    configSchema,
     executionDefaults,
     id: ARTIFACT_DRAFT_WORKFLOW_ID,
     inputSchema: ArtifactDraftWorkflowInputSchema,

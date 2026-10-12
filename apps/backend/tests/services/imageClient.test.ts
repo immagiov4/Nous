@@ -10,7 +10,6 @@ const codexMocks = vi.hoisted(() => ({
 
 vi.mock('../../src/config/modelConfig.js', () => ({
   DEFAULT_IMAGE_MODEL: 'google/gemini-3.1-flash-lite-image',
-  DEFAULT_OPENAI_IMAGE_MODEL: 'gpt-image-2',
   getResolvedGlobalModelConfig: modelConfigMocks.getResolvedGlobalModelConfig,
 }));
 
@@ -28,7 +27,6 @@ describe('ImageClient', () => {
       aiProvider: 'openrouter',
       codexArtifactModel: 'gpt-codex-artifact',
       imageModel: 'google/configured-image-model',
-      openAiImageModel: 'gpt-image-2',
     });
   });
 
@@ -151,48 +149,11 @@ describe('ImageClient', () => {
     );
   });
 
-  test('uses the configured OpenAI image model through the Images API contract', async () => {
-    process.env.OPENAI_API_KEY = 'test-openai-key';
-    modelConfigMocks.getResolvedGlobalModelConfig.mockResolvedValue({
-      aiProvider: 'openai',
-      imageModel: 'google/configured-image-model',
-      openAiImageModel: 'gpt-image-2',
-    });
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ data: [{ b64_json: 'ZmFrZS1pbWFnZQ==' }] }), {
-          status: 200,
-          headers: { 'x-request-id': 'openai-request-1' },
-        })
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const result = await imageClient.generateImage({ prompt: 'Schema didattico' });
-
-    expect(result).toMatchObject({
-      bytes: new TextEncoder().encode('fake-image'),
-      generationId: 'openai-request-1',
-      mediaType: 'image/png',
-    });
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/images/generations');
-    const options = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    expect(new Headers(options.headers).get('Authorization')).toBe('Bearer test-openai-key');
-    expect(JSON.parse(String(options.body))).toEqual({
-      model: 'gpt-image-2',
-      n: 1,
-      output_format: 'png',
-      prompt: 'Schema didattico',
-      quality: 'medium',
-      size: '1536x1024',
-    });
-  });
-
   test('uses the authenticated Codex image capability without an API fetch', async () => {
     modelConfigMocks.getResolvedGlobalModelConfig.mockResolvedValue({
       aiProvider: 'codex',
       codexArtifactModel: 'gpt-codex-artifact',
       imageModel: 'google/configured-image-model',
-      openAiImageModel: 'gpt-image-2',
     });
     codexMocks.generateCodexAppServerImage.mockResolvedValueOnce('ZmFrZS1pbWFnZQ==');
     const fetchMock = vi.fn();

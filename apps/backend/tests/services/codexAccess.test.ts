@@ -8,7 +8,7 @@ const ORIGINAL_ENV = { ...process.env };
 const requestFor = (
   userId: string,
   remoteAddress: string,
-  aiProvider?: 'codex' | 'openai' | 'openrouter',
+  aiProvider?: 'codex' | 'openrouter',
   role?: string
 ): Request =>
   ({

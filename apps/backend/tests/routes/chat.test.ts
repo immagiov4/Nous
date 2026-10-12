@@ -37,13 +37,7 @@ const openRouterMocks = vi.hoisted(() => ({
   chat: vi.fn(),
 }));
 
-const openAiMocks = vi.hoisted(() => ({
-  createOpenAI: vi.fn(),
-  chat: vi.fn(),
-}));
-
 const chatConfigMocks = vi.hoisted(() => ({
-  requireOpenAiApiKey: vi.fn(),
   requireOpenRouterApiKey: vi.fn(),
 }));
 
@@ -73,10 +67,6 @@ vi.mock('@openrouter/ai-sdk-provider', () => ({
   createOpenRouter: openRouterMocks.createOpenRouter,
 }));
 
-vi.mock('@ai-sdk/openai', () => ({
-  createOpenAI: openAiMocks.createOpenAI,
-}));
-
 vi.mock('../../src/services/codexChatStream.js', () => codexStreamMocks);
 
 vi.mock('../../src/services/codexAppServer.js', async importOriginal => {
@@ -93,7 +83,6 @@ vi.mock('../../src/config/chatConfig.js', async () => {
   );
   return {
     ...actual,
-    requireOpenAiApiKey: chatConfigMocks.requireOpenAiApiKey,
     requireOpenRouterApiKey: chatConfigMocks.requireOpenRouterApiKey,
   };
 });
@@ -826,10 +815,7 @@ test('preserves ordinary filename characters in bounded contextual provenance', 
   expect(JSON.parse(serialized)[0]?.name).toBe('My Paper & Notes (final).pdf');
 });
 
-const authenticateProvider = (
-  aiProvider: 'codex' | 'openai' | 'openrouter',
-  userId?: string
-): string => {
+const authenticateProvider = (aiProvider: 'codex' | 'openrouter', userId?: string): string => {
   process.env.AUTH_MODE = 'supabase';
   process.env.SUPABASE_JWT_SECRET = 'test-secret';
   process.env.SUPABASE_URL = 'https://example.supabase.co';
@@ -845,9 +831,6 @@ describe('POST /api/chat/context', () => {
     aiMocks.toUIMessageStream.mockReset();
     openRouterMocks.chat.mockReset();
     openRouterMocks.createOpenRouter.mockReset();
-    openAiMocks.chat.mockReset();
-    openAiMocks.createOpenAI.mockReset();
-    chatConfigMocks.requireOpenAiApiKey.mockReset();
     chatConfigMocks.requireOpenRouterApiKey.mockReset();
     codexAppServerMocks.runCodexAppServerTurn.mockReset();
     codexStreamMocks.createCodexChatStream.mockReset();
@@ -856,16 +839,11 @@ describe('POST /api/chat/context', () => {
     process.env.CODEX_APP_SERVER_ENABLED = 'true';
 
     chatConfigMocks.requireOpenRouterApiKey.mockReturnValue('test-key');
-    chatConfigMocks.requireOpenAiApiKey.mockReturnValue('openai-test-key');
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
     openRouterMocks.chat.mockReturnValue('context-model');
     openRouterMocks.createOpenRouter.mockReturnValue({
       chat: openRouterMocks.chat,
-    });
-    openAiMocks.chat.mockReturnValue('openai-context-model');
-    openAiMocks.createOpenAI.mockReturnValue({
-      chat: openAiMocks.chat,
     });
     aiMocks.convertToModelMessages.mockResolvedValue([{ role: 'user', content: 'Ciao' }]);
     aiMocks.toUIMessageStream.mockReturnValue('stream-token');
@@ -1471,44 +1449,6 @@ describe('POST /api/chat/context', () => {
     });
   });
 
-  test('switches model, credential, and reasoning mapping together for OpenAI', async () => {
-    patchGlobalModelConfig({
-      aiProvider: 'openai',
-      contextReasoningEffort: 'high',
-      openAiContextModel: 'gpt-openai-context',
-    });
-
-    const response = await request(createApp())
-      .post('/api/chat/context')
-      .send({
-        selectedText: 'Puntatore',
-        messages: [{ id: '1', role: 'user', content: 'Spiegami' }],
-      });
-
-    expect(response.status).toBe(200);
-    expect(chatConfigMocks.requireOpenAiApiKey).toHaveBeenCalledTimes(1);
-    expect(openAiMocks.chat).toHaveBeenCalledWith('gpt-openai-context');
-    expect(aiMocks.streamText.mock.calls[0][0]).toMatchObject({
-      model: 'openai-context-model',
-      providerOptions: {
-        openai: { reasoningEffort: 'high' },
-      },
-    });
-    expect(chatConfigMocks.requireOpenRouterApiKey).not.toHaveBeenCalled();
-    const streamOptions = aiMocks.toUIMessageStream.mock.calls[0]?.[0] as {
-      generateMessageId?: () => string;
-      onError?: (error: unknown) => string;
-      originalMessages?: unknown[];
-    };
-    expect(streamOptions.originalMessages).toEqual([
-      { id: '1', role: 'user', content: 'Spiegami' },
-    ]);
-    expect(streamOptions.generateMessageId).toEqual(expect.any(Function));
-    expect(streamOptions.onError?.(new Error('provider token detail'))).toBe(
-      'Il servizio AI non ha completato la richiesta. Riprova tra poco.'
-    );
-  });
-
   test('routes contextual tools through Codex app-server without requiring API credentials', async () => {
     patchGlobalModelConfig({
       codexContextModel: 'gpt-codex-context',
@@ -1542,7 +1482,6 @@ describe('POST /api/chat/context', () => {
       stream: 'codex-stream-token',
     });
     expect(aiMocks.streamText).not.toHaveBeenCalled();
-    expect(chatConfigMocks.requireOpenAiApiKey).not.toHaveBeenCalled();
     expect(chatConfigMocks.requireOpenRouterApiKey).not.toHaveBeenCalled();
   });
 
@@ -1587,78 +1526,6 @@ describe('POST /api/chat/context', () => {
     expect(fetchOptions?.body).not.toContain('"model":"server/context-model"');
     expect(fetchOptions?.body).not.toContain('"model":"openai/gpt-5.4-nano"');
   });
-
-  test('keeps the context chat on OpenRouter while routing web search through OpenAI research', async () => {
-    patchGlobalModelConfig({
-      aiProvider: 'openrouter',
-      aiProviderOverrides: { research: 'openai' },
-      contextModel: 'server/context-model',
-      openAiResearchModel: 'gpt-5-search-api',
-    });
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              annotations: [
-                {
-                  type: 'url_citation',
-                  url_citation: {
-                    title: 'OpenAI source',
-                    url: 'https://example.com/openai-source',
-                  },
-                },
-              ],
-              content: 'Cross-check OpenAI eseguito.',
-            },
-          },
-        ],
-      }),
-    });
-
-    await request(createApp())
-      .post('/api/chat/context')
-      .send({
-        selectedText: 'Puntatore',
-        messages: [{ id: '1', role: 'user', content: 'Spiegami' }],
-      });
-
-    expect(openRouterMocks.chat).toHaveBeenCalledWith('server/context-model');
-    fetchMock.mockClear();
-    chatConfigMocks.requireOpenAiApiKey.mockClear();
-    chatConfigMocks.requireOpenRouterApiKey.mockClear();
-
-    const toolResult = await aiMocks.streamText.mock.calls[0][0].tools.searchWeb.execute({
-      query: 'pointer aliasing rules',
-    });
-
-    expect(toolResult).toMatchObject({
-      query: 'pointer aliasing rules',
-      sources: [
-        {
-          title: 'OpenAI source',
-          url: 'https://example.com/openai-source',
-        },
-      ],
-      summary: 'Cross-check OpenAI eseguito.',
-      webSearchRequests: 1,
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/chat/completions');
-    const fetchOptions = fetchMock.mock.calls[0]?.[1] as { body?: string } | undefined;
-    const requestBody = JSON.parse(fetchOptions?.body || '{}') as Record<string, unknown>;
-    expect(requestBody).toMatchObject({
-      model: 'gpt-5-search-api',
-      max_completion_tokens: 1200,
-      web_search_options: {},
-    });
-    expect(requestBody.tools).toBeUndefined();
-    expect(requestBody.tool_choice).toBeUndefined();
-    expect(chatConfigMocks.requireOpenAiApiKey).toHaveBeenCalledTimes(1);
-    expect(chatConfigMocks.requireOpenRouterApiKey).not.toHaveBeenCalled();
-    expect(codexAppServerMocks.runCodexAppServerTurn).not.toHaveBeenCalled();
-  });
 });
 
 describe('POST /api/chat/library', () => {
@@ -1672,9 +1539,6 @@ describe('POST /api/chat/library', () => {
     aiMocks.toUIMessageStream.mockReset();
     openRouterMocks.chat.mockReset();
     openRouterMocks.createOpenRouter.mockReset();
-    openAiMocks.chat.mockReset();
-    openAiMocks.createOpenAI.mockReset();
-    chatConfigMocks.requireOpenAiApiKey.mockReset();
     chatConfigMocks.requireOpenRouterApiKey.mockReset();
     codexAppServerMocks.runCodexAppServerTurn.mockReset();
     codexStreamMocks.createCodexChatStream.mockReset();
@@ -1683,16 +1547,11 @@ describe('POST /api/chat/library', () => {
     process.env.CODEX_APP_SERVER_ENABLED = 'true';
 
     chatConfigMocks.requireOpenRouterApiKey.mockReturnValue('test-key');
-    chatConfigMocks.requireOpenAiApiKey.mockReturnValue('openai-test-key');
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
     openRouterMocks.chat.mockReturnValue('context-model');
     openRouterMocks.createOpenRouter.mockReturnValue({
       chat: openRouterMocks.chat,
-    });
-    openAiMocks.chat.mockReturnValue('openai-context-model');
-    openAiMocks.createOpenAI.mockReturnValue({
-      chat: openAiMocks.chat,
     });
     aiMocks.convertToModelMessages.mockResolvedValue([{ role: 'user', content: 'Ciao' }]);
     aiMocks.toUIMessageStream.mockReturnValue('stream-token');
@@ -1923,10 +1782,10 @@ describe('POST /api/chat/library', () => {
 
   test('uses the authenticated user provider for library chat', async () => {
     patchGlobalModelConfig({
-      aiProvider: 'openrouter',
-      openAiContextModel: 'gpt-user-library',
+      aiProvider: 'codex',
+      contextModel: 'server/user-library',
     });
-    const token = authenticateProvider('openai');
+    const token = authenticateProvider('openrouter');
 
     const response = await request(createApp())
       .post('/api/chat/library')
@@ -1937,9 +1796,8 @@ describe('POST /api/chat/library', () => {
       });
 
     expect(response.status).toBe(200);
-    expect(openAiMocks.chat).toHaveBeenCalledWith('gpt-user-library');
-    expect(chatConfigMocks.requireOpenAiApiKey).toHaveBeenCalledTimes(1);
-    expect(chatConfigMocks.requireOpenRouterApiKey).not.toHaveBeenCalled();
+    expect(openRouterMocks.chat).toHaveBeenCalledWith('server/user-library');
+    expect(chatConfigMocks.requireOpenRouterApiKey).toHaveBeenCalledTimes(1);
     expect(codexStreamMocks.createCodexChatStream).not.toHaveBeenCalled();
   });
 
@@ -1979,7 +1837,7 @@ describe('POST /api/chat/library', () => {
     expected,
   }) => {
     accountMocks.readCurrentAccountPreferences.mockResolvedValueOnce(preferences);
-    const token = authenticateProvider('openai');
+    const token = authenticateProvider('openrouter');
     const messages = [
       { id: '1', role: 'user', content: 'Please answer in Spanish for this conversation.' },
     ];
@@ -2055,7 +1913,6 @@ describe('POST /api/chat/library', () => {
 
     expect(openRouterMocks.chat).toHaveBeenCalledWith('server/library-model');
     fetchMock.mockClear();
-    chatConfigMocks.requireOpenAiApiKey.mockClear();
     chatConfigMocks.requireOpenRouterApiKey.mockClear();
 
     const toolResult = await aiMocks.streamText.mock.calls[0][0].tools.searchWeb.execute({
@@ -2085,7 +1942,6 @@ describe('POST /api/chat/library', () => {
       })
     );
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(chatConfigMocks.requireOpenAiApiKey).not.toHaveBeenCalled();
     expect(chatConfigMocks.requireOpenRouterApiKey).not.toHaveBeenCalled();
   });
 });

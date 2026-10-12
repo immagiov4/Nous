@@ -36,7 +36,7 @@ SUPABASE_DEPLOYMENT=managed
 SUPABASE_DEPLOYMENT=self-hosted
 ```
 
-Set the three public URLs and external AI credentials. The browser receives only the public backend URL, public Supabase URL, and publishable/anon key. Database, service-role, JWT, OpenRouter, and OpenAI secrets remain server-side and are excluded from the image context.
+Set the three public URLs and external AI credentials. The browser receives only the public backend URL, public Supabase URL, and publishable/anon key. Database, service-role, JWT, and OpenRouter secrets remain server-side and are excluded from the image context.
 
 Check key names without printing values:
 

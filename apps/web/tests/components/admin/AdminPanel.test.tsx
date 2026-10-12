@@ -75,15 +75,6 @@ const defaultModelConfig = {
   imageModel: 'google/gemini-3.1-flash-lite-image',
   lessonModel: 'openai/gpt-5.6-luna',
   lessonReasoningEffort: 'high' as const,
-  openAiAssessmentModel: 'gpt-5.6-luna',
-  openAiArtifactModel: 'gpt-5.6-terra',
-  openAiArtifactInteractiveModel: 'gpt-5.6-terra',
-  openAiContextModel: 'gpt-5.6-luna',
-  openAiCourseModel: 'gpt-5.6-terra',
-  openAiImageModel: 'gpt-image-2',
-  openAiLessonModel: 'gpt-5.6-terra',
-  openAiProgressModel: 'gpt-5.6-luna',
-  openAiResearchModel: 'gpt-5.6-terra',
   progressModel: 'google/gemini-3.1-flash-lite',
   progressReasoningEffort: 'low' as const,
   researchModel: 'perplexity/sonar-pro-search',
@@ -93,9 +84,6 @@ const defaultModelConfig = {
   codexPlaybackPreparationModel: 'gpt-6-luna',
   codexSceneModel: 'gpt-6-luna',
   embeddingModel: 'google/gemini-embedding-2',
-  openAiSceneIconModel: 'gpt-6-luna',
-  openAiPlaybackPreparationModel: 'gpt-6-luna',
-  openAiSceneModel: 'gpt-6-luna',
   sceneIconModel: 'openai/gpt-6-luna',
   sceneIconReasoningEffort: 'none' as const,
   playbackPreparationModel: 'anthropic/claude-haiku-5.5',
@@ -112,7 +100,7 @@ const openConfiguration = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 
 const openProviderSections = async (user: ReturnType<typeof userEvent.setup>) => {
-  for (const provider of ['OpenRouter', 'OpenAI API', 'Codex app-server']) {
+  for (const provider of ['OpenRouter', 'Codex app-server']) {
     await user.click(screen.getByText(provider, { selector: 'summary span.flex-1' }));
   }
 };
@@ -168,7 +156,7 @@ describe('AdminPanel', () => {
     vi.mocked(createAdminUser).mockResolvedValue({
       id: 'user-2',
       email: 'new@example.com',
-      app_metadata: { ai_provider: 'openai', role: 'user' },
+      app_metadata: { ai_provider: 'openrouter', role: 'user' },
     });
     vi.mocked(sendAdminMagicLink).mockResolvedValue('access');
     vi.mocked(sendAdminAccessEmail).mockResolvedValue('access');
@@ -187,34 +175,33 @@ describe('AdminPanel', () => {
     expect(screen.getByDisplayValue('x-ai/grok-voice-tts-1.0')).toBeInTheDocument();
     expect(screen.getByDisplayValue('google/gemini-3.1-flash-lite-image')).toBeInTheDocument();
     expect(screen.getByDisplayValue('perplexity/sonar-pro-search')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('gpt-image-2')).toBeInTheDocument();
     expect(screen.getAllByDisplayValue('gpt-5.6-sol')).toHaveLength(2);
-    expect(screen.getAllByDisplayValue('gpt-5.6-terra')).toHaveLength(7);
+    expect(screen.getAllByDisplayValue('gpt-5.6-terra')).toHaveLength(2);
     expect(screen.getByDisplayValue('Ara')).toBeInTheDocument();
     const artifactReasoningSelects = screen.getAllByRole('combobox', {
       name: /Ragionamento Artefatti visuali per/,
     });
-    expect(artifactReasoningSelects).toHaveLength(3);
+    expect(artifactReasoningSelects).toHaveLength(2);
     artifactReasoningSelects.forEach(select => {
       expect(select).toHaveValue('none');
     });
     const interactiveReasoningSelects = screen.getAllByRole('combobox', {
       name: /Ragionamento Artefatti interattivi per/,
     });
-    expect(interactiveReasoningSelects).toHaveLength(3);
+    expect(interactiveReasoningSelects).toHaveLength(2);
     interactiveReasoningSelects.forEach(select => {
       expect(select).toHaveValue('low');
     });
     const lessonReasoningSelects = screen.getAllByRole('combobox', {
       name: /Ragionamento Lezioni per/,
     });
-    expect(lessonReasoningSelects).toHaveLength(3);
+    expect(lessonReasoningSelects).toHaveLength(2);
     lessonReasoningSelects.forEach(select => {
       expect(select).toHaveValue('high');
     });
-    expect(screen.getAllByRole('combobox', { name: /Ragionamento Contesto per/ })).toHaveLength(3);
+    expect(screen.getAllByRole('combobox', { name: /Ragionamento Contesto per/ })).toHaveLength(2);
     expect(screen.getAllByRole('combobox', { name: /Ragionamento Assessment per/ })).toHaveLength(
-      3
+      2
     );
     expect(
       screen.getAllByRole('combobox', { name: /Ragionamento Avanzamento per/ })[0]
@@ -222,7 +209,7 @@ describe('AdminPanel', () => {
     const researchReasoningSelects = screen.getAllByRole('combobox', {
       name: /Ragionamento Ricerca per/,
     });
-    expect(researchReasoningSelects).toHaveLength(3);
+    expect(researchReasoningSelects).toHaveLength(2);
     researchReasoningSelects.forEach(select => {
       expect(select).toBeEnabled();
       expect(select).toHaveValue('none');
@@ -245,7 +232,6 @@ describe('AdminPanel', () => {
         aiProvider: 'codex',
         codexAssessmentModel: 'gpt-5.6-luna',
         codexLessonModel: 'gpt-5.6-terra',
-        openAiLessonModel: 'gpt-5.6-terra',
         lessonModel: 'openai/gpt-5.6-luna',
       })
     );
@@ -296,12 +282,10 @@ describe('AdminPanel', () => {
     const openRouterArtifactInput = await screen.findByLabelText(
       'Modello Artefatti visuali per OpenRouter'
     );
-    const openAiArtifactInput = screen.getByLabelText('Modello Artefatti visuali per OpenAI API');
     const codexArtifactInput = screen.getByLabelText(
       'Modello Artefatti visuali per Codex app-server'
     );
     fireEvent.change(openRouterArtifactInput, { target: { value: 'openrouter/artifact-sol' } });
-    fireEvent.change(openAiArtifactInput, { target: { value: 'openai-artifact-sol' } });
     fireEvent.change(codexArtifactInput, { target: { value: 'codex-artifact-sol' } });
     const artifactReasoningSelects = screen.getAllByRole('combobox', {
       name: /Ragionamento Artefatti visuali per/,
@@ -328,7 +312,6 @@ describe('AdminPanel', () => {
           artifactVisualReviewEnabled: false,
           artifactVisualReviewMaxRounds: 3,
           codexArtifactModel: 'codex-artifact-sol',
-          openAiArtifactModel: 'openai-artifact-sol',
           lessonModel: defaultModelConfig.lessonModel,
         })
       )
@@ -343,7 +326,6 @@ describe('AdminPanel', () => {
 
     for (const [provider, model] of [
       ['OpenRouter', 'openrouter/playback'],
-      ['OpenAI API', 'openai-playback'],
       ['Codex app-server', 'codex-playback'],
     ]) {
       fireEvent.change(screen.getByLabelText(`Modello Preparazione ascolto per ${provider}`), {
@@ -369,7 +351,6 @@ describe('AdminPanel', () => {
       expect(patchAdminModelConfig).toHaveBeenCalledWith(
         expect.objectContaining({
           playbackPreparationModel: 'openrouter/playback',
-          openAiPlaybackPreparationModel: 'openai-playback',
           codexPlaybackPreparationModel: 'codex-playback',
           playbackPreparationReasoningEffort: 'medium',
           lessonModel: defaultModelConfig.lessonModel,
@@ -391,12 +372,12 @@ describe('AdminPanel', () => {
     fireEvent.change(screen.getByLabelText('Password nuovo account'), {
       target: { value: 'g1ovann1' },
     });
-    await user.selectOptions(screen.getByLabelText('Provider AI nuovo account'), 'openai');
+    await user.selectOptions(screen.getByLabelText('Provider AI nuovo account'), 'openrouter');
     await user.click(screen.getByRole('button', { name: 'Crea' }));
 
     await waitFor(() =>
       expect(createAdminUser).toHaveBeenCalledWith({
-        aiProvider: 'openai',
+        aiProvider: 'openrouter',
         email: 'new@example.com',
         password: 'g1ovann1',
         role: 'user',
@@ -428,7 +409,7 @@ describe('AdminPanel', () => {
         {
           id: 'user-1',
           email: 'student@example.com',
-          app_metadata: { ai_provider: 'openai', role: 'user' },
+          app_metadata: { ai_provider: 'openrouter', role: 'user' },
         },
       ],
     });
@@ -437,7 +418,7 @@ describe('AdminPanel', () => {
     const providerSelect = await screen.findByRole('combobox', {
       name: 'Provider AI per student@example.com',
     });
-    expect(providerSelect).toHaveValue('openai');
+    expect(providerSelect).toHaveValue('openrouter');
 
     await user.selectOptions(providerSelect, 'codex');
     await waitFor(() =>

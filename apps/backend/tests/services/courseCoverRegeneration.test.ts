@@ -44,8 +44,6 @@ const MODEL_CONFIG = {
   codexAssessmentModel: 'codex/assessment',
   codexArtifactModel: 'codex/image',
   imageModel: 'openrouter/image',
-  openAiAssessmentModel: 'openai/assessment',
-  openAiImageModel: 'openai/image',
 } as GlobalModelConfig;
 const MAX_CONCURRENT_TEST_SLOTS = 6;
 
@@ -282,28 +280,6 @@ describe('course cover regeneration jobs', () => {
     );
   });
 
-  test('uses OpenAI artifact and image models', async () => {
-    const store = buildStore([project('openai')]);
-    getProjectStoreMock.mockReturnValue(store);
-    const openAiConfig = { ...MODEL_CONFIG, aiProvider: 'openai' as const };
-    getResolvedModelConfigMock.mockResolvedValue(openAiConfig);
-
-    startOrResumeCourseCoverRegeneration('openai-user', 'openai');
-    await waitForTerminalJob('openai-user');
-
-    expect(generateStructuredOutputMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        config: openAiConfig,
-        maxRetries: 2,
-        signal: expect.any(AbortSignal),
-        slot: 'artifact',
-      })
-    );
-    expect(generateImageMock).toHaveBeenCalledWith(
-      expect.objectContaining({ model: 'openai/image', provider: 'openai' })
-    );
-  });
-
   test('resolves artifact planning and image providers independently', async () => {
     const store = buildStore([project('mixed-providers')]);
     const aiProviderOverrides = {
@@ -313,13 +289,13 @@ describe('course cover regeneration jobs', () => {
     getProjectStoreMock.mockReturnValue(store);
     getResolvedModelConfigMock.mockResolvedValue({
       ...MODEL_CONFIG,
-      aiProvider: 'openai',
+      aiProvider: 'codex',
       aiProviderOverrides,
     });
-    startOrResumeCourseCoverRegeneration('mixed-provider-user', 'openai', aiProviderOverrides);
+    startOrResumeCourseCoverRegeneration('mixed-provider-user', 'codex', aiProviderOverrides);
     await waitForTerminalJob('mixed-provider-user');
 
-    expect(getResolvedModelConfigMock).toHaveBeenCalledWith('openai', aiProviderOverrides);
+    expect(getResolvedModelConfigMock).toHaveBeenCalledWith('codex', aiProviderOverrides);
     expect(generateStructuredOutputMock).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({ aiProviderOverrides }),

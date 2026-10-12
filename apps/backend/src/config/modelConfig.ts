@@ -1,5 +1,5 @@
 export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high';
-export type AiProvider = 'codex' | 'openai' | 'openrouter';
+export type AiProvider = 'codex' | 'openrouter';
 export type TextModelSlot =
   | 'artifact'
   | 'artifactInteractive'
@@ -19,8 +19,6 @@ export const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-lite-tts';
 export const DEFAULT_TTS_VOICE = 'Zephyr';
 export const DEFAULT_IMAGE_MODEL = 'google/gemini-3.1-flash-lite-image';
 const DEFAULT_EMBEDDING_MODEL = 'google/gemini-embedding-2';
-export const DEFAULT_OPENAI_IMAGE_MODEL = 'gpt-image-2';
-export const DEFAULT_OPENAI_RESEARCH_MODEL = 'gpt-5-search-api';
 
 const UNAVAILABLE_TTS_MODELS = new Set([
   'openai/gpt-4o-mini-tts',
@@ -59,18 +57,6 @@ export interface GlobalModelConfig {
   embeddingModel: string;
   lessonModel: string;
   lessonReasoningEffort: ReasoningEffort;
-  openAiAssessmentModel: string;
-  openAiArtifactModel: string;
-  openAiArtifactInteractiveModel: string;
-  openAiContextModel: string;
-  openAiCourseModel: string;
-  openAiImageModel: string;
-  openAiLessonModel: string;
-  openAiProgressModel: string;
-  openAiPlaybackPreparationModel: string;
-  openAiSceneModel: string;
-  openAiSceneIconModel: string;
-  openAiResearchModel: string;
   progressModel: string;
   playbackPreparationModel: string;
   sceneModel: string;
@@ -96,9 +82,6 @@ export type DurableGlobalModelConfig = Omit<
   | 'codexPlaybackPreparationModel'
   | 'codexSceneModel'
   | 'embeddingModel'
-  | 'openAiSceneIconModel'
-  | 'openAiPlaybackPreparationModel'
-  | 'openAiSceneModel'
   | 'sceneIconModel'
   | 'sceneIconReasoningEffort'
   | 'playbackPreparationModel'
@@ -140,18 +123,6 @@ export type GlobalModelConfigPatch = Partial<
     | 'embeddingModel'
     | 'lessonModel'
     | 'lessonReasoningEffort'
-    | 'openAiAssessmentModel'
-    | 'openAiArtifactModel'
-    | 'openAiArtifactInteractiveModel'
-    | 'openAiContextModel'
-    | 'openAiCourseModel'
-    | 'openAiImageModel'
-    | 'openAiLessonModel'
-    | 'openAiProgressModel'
-    | 'openAiPlaybackPreparationModel'
-    | 'openAiSceneModel'
-    | 'openAiSceneIconModel'
-    | 'openAiResearchModel'
     | 'progressModel'
     | 'playbackPreparationModel'
     | 'sceneModel'
@@ -168,7 +139,7 @@ export type GlobalModelConfigPatch = Partial<
 >;
 
 const DEFAULT_MODEL_CONFIG: Omit<GlobalModelConfig, 'updatedAt'> = {
-  aiProvider: (['codex', 'openai', 'openrouter'].includes(process.env.AI_PROVIDER || '')
+  aiProvider: (['codex', 'openrouter'].includes(process.env.AI_PROVIDER || '')
     ? process.env.AI_PROVIDER
     : 'openrouter') as AiProvider,
   aiProviderOverrides: {},
@@ -204,21 +175,6 @@ const DEFAULT_MODEL_CONFIG: Omit<GlobalModelConfig, 'updatedAt'> = {
   embeddingModel: process.env.MODEL_EMBEDDING || DEFAULT_EMBEDDING_MODEL,
   lessonModel: process.env.MODEL_LESSON || 'openai/gpt-5.6-luna',
   lessonReasoningEffort: 'high',
-  openAiAssessmentModel: process.env.OPENAI_MODEL_ASSESSMENT || 'gpt-5.6-luna',
-  openAiArtifactModel: process.env.OPENAI_MODEL_ARTIFACT || 'gpt-5.6-terra',
-  openAiArtifactInteractiveModel:
-    process.env.OPENAI_MODEL_ARTIFACT_INTERACTIVE ||
-    process.env.OPENAI_MODEL_ARTIFACT ||
-    'gpt-5.6-terra',
-  openAiContextModel: process.env.OPENAI_MODEL_CONTEXT || 'gpt-5.6-luna',
-  openAiCourseModel: process.env.OPENAI_MODEL_COURSE || 'gpt-5.6-terra',
-  openAiImageModel: process.env.OPENAI_MODEL_IMAGE || DEFAULT_OPENAI_IMAGE_MODEL,
-  openAiLessonModel: process.env.OPENAI_MODEL_LESSON || 'gpt-5.6-terra',
-  openAiProgressModel: process.env.OPENAI_MODEL_PROGRESS || 'gpt-5.6-luna',
-  openAiPlaybackPreparationModel: process.env.OPENAI_MODEL_PLAYBACK_PREPARATION || 'gpt-6-luna',
-  openAiSceneModel: process.env.OPENAI_MODEL_SCENE || 'gpt-6-luna',
-  openAiSceneIconModel: process.env.OPENAI_MODEL_SCENE_ICON || 'gpt-6-luna',
-  openAiResearchModel: process.env.OPENAI_MODEL_RESEARCH || DEFAULT_OPENAI_RESEARCH_MODEL,
   progressModel: process.env.MODEL_PROGRESS || 'google/gemini-3.1-flash-lite',
   playbackPreparationModel: process.env.MODEL_PLAYBACK_PREPARATION || 'anthropic/claude-haiku-5.5',
   sceneModel: process.env.MODEL_SCENE || 'openai/gpt-6-luna',
@@ -271,18 +227,6 @@ interface PersistedModelConfigRow {
   embedding_model?: string;
   lesson_model?: string;
   lesson_reasoning_effort?: string;
-  openai_assessment_model?: string;
-  openai_artifact_model?: string;
-  openai_artifact_interactive_model?: string;
-  openai_context_model?: string;
-  openai_course_model?: string;
-  openai_image_model?: string;
-  openai_lesson_model?: string;
-  openai_progress_model?: string;
-  openai_playback_preparation_model?: string;
-  openai_scene_model?: string;
-  openai_scene_icon_model?: string;
-  openai_research_model?: string;
   progress_model?: string;
   playback_preparation_model?: string;
   scene_model?: string;
@@ -302,7 +246,7 @@ const readConfigValue = (value: unknown): string | undefined =>
   typeof value === 'string' && value.trim() ? value.trim() : undefined;
 
 const REASONING_EFFORTS = new Set<ReasoningEffort>(['none', 'minimal', 'low', 'medium', 'high']);
-const AI_PROVIDERS = new Set<AiProvider>(['codex', 'openai', 'openrouter']);
+const AI_PROVIDERS = new Set<AiProvider>(['codex', 'openrouter']);
 const TEXT_MODEL_SLOTS = new Set<TextModelSlot>([
   'artifact',
   'artifactInteractive',
@@ -389,19 +333,6 @@ const PROVIDER_MODEL_FIELDS: Record<AiProvider, Record<TextModelSlot, keyof Glob
     scene: 'codexSceneModel',
     sceneIcon: 'codexSceneIconModel',
     research: 'codexResearchModel',
-  },
-  openai: {
-    artifact: 'openAiArtifactModel',
-    artifactInteractive: 'openAiArtifactInteractiveModel',
-    assessment: 'openAiAssessmentModel',
-    context: 'openAiContextModel',
-    course: 'openAiCourseModel',
-    lesson: 'openAiLessonModel',
-    progress: 'openAiProgressModel',
-    playbackPreparation: 'openAiPlaybackPreparationModel',
-    scene: 'openAiSceneModel',
-    sceneIcon: 'openAiSceneIconModel',
-    research: 'openAiResearchModel',
   },
   openrouter: {
     artifact: 'artifactModel',
@@ -565,42 +496,6 @@ const buildPatchedGlobalModelConfig = (
   ...(readConfigValue(patch.embeddingModel)
     ? { embeddingModel: readConfigValue(patch.embeddingModel) }
     : {}),
-  ...(readConfigValue(patch.openAiAssessmentModel)
-    ? { openAiAssessmentModel: readConfigValue(patch.openAiAssessmentModel) }
-    : {}),
-  ...(readConfigValue(patch.openAiArtifactModel)
-    ? { openAiArtifactModel: readConfigValue(patch.openAiArtifactModel) }
-    : {}),
-  ...(readConfigValue(patch.openAiArtifactInteractiveModel)
-    ? { openAiArtifactInteractiveModel: readConfigValue(patch.openAiArtifactInteractiveModel) }
-    : {}),
-  ...(readConfigValue(patch.openAiContextModel)
-    ? { openAiContextModel: readConfigValue(patch.openAiContextModel) }
-    : {}),
-  ...(readConfigValue(patch.openAiCourseModel)
-    ? { openAiCourseModel: readConfigValue(patch.openAiCourseModel) }
-    : {}),
-  ...(readConfigValue(patch.openAiImageModel)
-    ? { openAiImageModel: readConfigValue(patch.openAiImageModel) }
-    : {}),
-  ...(readConfigValue(patch.openAiLessonModel)
-    ? { openAiLessonModel: readConfigValue(patch.openAiLessonModel) }
-    : {}),
-  ...(readConfigValue(patch.openAiProgressModel)
-    ? { openAiProgressModel: readConfigValue(patch.openAiProgressModel) }
-    : {}),
-  ...(readConfigValue(patch.openAiPlaybackPreparationModel)
-    ? { openAiPlaybackPreparationModel: readConfigValue(patch.openAiPlaybackPreparationModel) }
-    : {}),
-  ...(readConfigValue(patch.openAiSceneModel)
-    ? { openAiSceneModel: readConfigValue(patch.openAiSceneModel) }
-    : {}),
-  ...(readConfigValue(patch.openAiSceneIconModel)
-    ? { openAiSceneIconModel: readConfigValue(patch.openAiSceneIconModel) }
-    : {}),
-  ...(readConfigValue(patch.openAiResearchModel)
-    ? { openAiResearchModel: readConfigValue(patch.openAiResearchModel) }
-    : {}),
   ...(isReasoningEffort(patch.lessonReasoningEffort)
     ? { lessonReasoningEffort: patch.lessonReasoningEffort }
     : {}),
@@ -683,18 +578,6 @@ const buildPersistedModelConfig = (config: GlobalModelConfig): PersistedModelCon
   embedding_model: config.embeddingModel,
   lesson_model: config.lessonModel,
   lesson_reasoning_effort: config.lessonReasoningEffort,
-  openai_assessment_model: config.openAiAssessmentModel,
-  openai_artifact_model: config.openAiArtifactModel,
-  openai_artifact_interactive_model: config.openAiArtifactInteractiveModel,
-  openai_context_model: config.openAiContextModel,
-  openai_course_model: config.openAiCourseModel,
-  openai_image_model: config.openAiImageModel,
-  openai_lesson_model: config.openAiLessonModel,
-  openai_progress_model: config.openAiProgressModel,
-  openai_playback_preparation_model: config.openAiPlaybackPreparationModel,
-  openai_scene_model: config.openAiSceneModel,
-  openai_scene_icon_model: config.openAiSceneIconModel,
-  openai_research_model: config.openAiResearchModel,
   progress_model: config.progressModel,
   playback_preparation_model: config.playbackPreparationModel,
   scene_model: config.sceneModel,
@@ -787,30 +670,6 @@ const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConf
       row.lesson_reasoning_effort,
       activeModelConfig.lessonReasoningEffort
     ),
-    openAiAssessmentModel:
-      readConfigValue(row.openai_assessment_model) || activeModelConfig.openAiAssessmentModel,
-    openAiArtifactModel:
-      readConfigValue(row.openai_artifact_model) || activeModelConfig.openAiArtifactModel,
-    openAiArtifactInteractiveModel:
-      readConfigValue(row.openai_artifact_interactive_model) ||
-      activeModelConfig.openAiArtifactInteractiveModel,
-    openAiContextModel:
-      readConfigValue(row.openai_context_model) || activeModelConfig.openAiContextModel,
-    openAiCourseModel:
-      readConfigValue(row.openai_course_model) || activeModelConfig.openAiCourseModel,
-    openAiImageModel: readConfigValue(row.openai_image_model) || activeModelConfig.openAiImageModel,
-    openAiLessonModel:
-      readConfigValue(row.openai_lesson_model) || activeModelConfig.openAiLessonModel,
-    openAiProgressModel:
-      readConfigValue(row.openai_progress_model) || activeModelConfig.openAiProgressModel,
-    openAiPlaybackPreparationModel:
-      readConfigValue(row.openai_playback_preparation_model) ||
-      activeModelConfig.openAiPlaybackPreparationModel,
-    openAiSceneModel: readConfigValue(row.openai_scene_model) || activeModelConfig.openAiSceneModel,
-    openAiSceneIconModel:
-      readConfigValue(row.openai_scene_icon_model) || activeModelConfig.openAiSceneIconModel,
-    openAiResearchModel:
-      readConfigValue(row.openai_research_model) || activeModelConfig.openAiResearchModel,
     progressModel: readConfigValue(row.progress_model) || activeModelConfig.progressModel,
     playbackPreparationModel:
       readConfigValue(row.playback_preparation_model) || activeModelConfig.playbackPreparationModel,

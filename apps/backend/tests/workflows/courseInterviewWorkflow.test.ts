@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
+import { WorkflowExecutionDefaultsSchema } from '../../src/workflows/config.js';
 import {
   type CourseInterviewWorkflowConfig,
   CourseInterviewWorkflowConfigSchema,
@@ -12,6 +13,10 @@ import {
   preCompatibilityIdAndExternalEffectPrevious,
   preExternalEffectPrevious,
 } from '../../src/workflows/definition.js';
+import {
+  createPreOpenAiRemovalModelConfig,
+  PreOpenAiRemovalGlobalModelConfigSchema,
+} from '../../src/workflows/historicalModelConfigSchema.js';
 import type {
   EmitDefinition,
   RouteByDefinition,
@@ -44,6 +49,11 @@ const state = {
   projectId: 'project-1',
   userId: 'user-1',
 };
+
+const historicalConfig = { ...config, models: createPreOpenAiRemovalModelConfig(config.models) };
+const historicalConfigSchema = WorkflowExecutionDefaultsSchema.extend({
+  models: PreOpenAiRemovalGlobalModelConfigSchema,
+});
 
 const findNode = (
   id: string,
@@ -81,16 +91,16 @@ const stepContext = (input: unknown, services: CourseInterviewWorkflowServices) 
 describe('course interview workflow', () => {
   test('preserves the exact pre-preferences input, state, turn and event manifests', () => {
     const previous = createCourseInterviewWorkflow(
-      config,
+      historicalConfig,
       8,
-      CourseInterviewWorkflowConfigSchema,
+      historicalConfigSchema,
       'commit',
       'previous'
     );
     const legacy = createCourseInterviewWorkflow(
-      config,
+      historicalConfig,
       8,
-      CourseInterviewWorkflowConfigSchema,
+      historicalConfigSchema,
       'run',
       'previous'
     );

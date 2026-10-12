@@ -26,6 +26,7 @@ import {
   unavailableArtifactDraftApi,
 } from '../artifactDraftApi.js';
 import { createArtifactDraftWorkflow } from '../artifactDraftWorkflow.js';
+import { WorkflowExecutionDefaultsSchema } from '../config.js';
 import {
   type CourseGenerationApi,
   createCourseGenerationApi,
@@ -35,7 +36,6 @@ import { createProductionCourseGenerationServices } from '../courseGenerationPro
 import { createCourseGenerationStarter } from '../courseGenerationStart.js';
 import {
   COURSE_GENERATION_WORKFLOW_ID,
-  CourseGenerationWorkflowConfigSchema,
   createCourseGenerationWorkflow,
   createPreviousControlsCourseGenerationWorkflow,
   createPreviousCourseGenerationWorkflow,
@@ -69,6 +69,11 @@ import {
   preProviderPostprocessingPrevious,
   type WorkflowRegistry,
 } from '../definition.js';
+import {
+  createPreOpenAiRemovalModelConfig,
+  PreOpenAiRemovalGlobalModelConfigSchema,
+  PreOpenAiRemovalLessonVisualModelConfigSchema,
+} from '../historicalModelConfigSchema.js';
 import {
   createLessonGenerationApi,
   type LessonGenerationApi,
@@ -235,15 +240,32 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     timeoutMs: VISUAL_WORKFLOW_TIMEOUT_MS,
     visual,
   };
-  // Each frozen catalog reconstructs all affected definitions; equal current snapshots are omitted.
+  const historicalModels = createPreOpenAiRemovalModelConfig(models);
+  const historicalModelConfigSchema = WorkflowExecutionDefaultsSchema.extend({
+    models: PreOpenAiRemovalGlobalModelConfigSchema,
+  });
+  const historicalVisualConfigSchema = WorkflowExecutionDefaultsSchema.extend({
+    visual: PreOpenAiRemovalLessonVisualModelConfigSchema,
+  });
+  const historicalLessonConfigSchema = historicalModelConfigSchema.extend({
+    visual: PreOpenAiRemovalLessonVisualModelConfigSchema,
+  });
+  const historicalGenerationDefaults = {
+    maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+    models: historicalModels,
+    timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+    visual,
+  };
+  // Each catalog is rebuilt with both current and frozen provider contracts.
   const playbackExecutionDefaults = {
     maxAttempts: VISUAL_WORKFLOW_MAX_ATTEMPTS,
     timeoutMs: VISUAL_WORKFLOW_TIMEOUT_MS,
   };
-  const [currentScenes, ...historicalScenes] = [
+  const sceneSchemas = [
     sceneSchema,
     ...HistoricalLessonSceneSchemas.filter(schema => !schemasMatch(schema, sceneSchema)),
-  ].map(schema => {
+  ];
+  const [currentScenes, ...historicalScenes] = sceneSchemas.map(schema => {
     const contract = createSceneLessonVisualContractSchemas(schema);
     return {
       artifact: createArtifactDraftWorkflow(visualExecutionDefaults, contract),
@@ -264,16 +286,37 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
       ),
     };
   });
+  const preOpenAiRemovalScenes = sceneSchemas.map(schema => {
+    const contract = createSceneLessonVisualContractSchemas(schema);
+    return {
+      artifact: createArtifactDraftWorkflow(
+        visualExecutionDefaults,
+        contract,
+        historicalVisualConfigSchema
+      ),
+      retry: createLessonVisualWorkflows(
+        visualExecutionDefaults,
+        historicalVisualConfigSchema,
+        contract
+      ).retry,
+      lesson: createLessonGenerationWorkflow(
+        historicalGenerationDefaults,
+        historicalLessonConfigSchema,
+        createSceneLessonGenerationDurableSchemaSet(contract)
+      ),
+    };
+  });
   const lessonWorkflow = currentScenes.lesson;
   // Definitions deployed before lesson scenes keep the legacy visual contract.
   const preSceneRetryWorkflow = createLessonVisualWorkflows(
     visualExecutionDefaults,
-    undefined,
+    historicalVisualConfigSchema,
     LegacyLessonVisualContractSchemas
   ).retry;
   const preSceneArtifactDraftWorkflow = createArtifactDraftWorkflow(
     visualExecutionDefaults,
-    LegacyLessonVisualContractSchemas
+    LegacyLessonVisualContractSchemas,
+    historicalVisualConfigSchema
   );
   const courseWorkflow = createCourseGenerationWorkflow({
     maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
@@ -281,19 +324,24 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
   });
   const previousRoutingCourseWorkflow = createPreviousRoutingCourseGenerationWorkflow(
-    courseWorkflow.executionDefaults
+    historicalGenerationDefaults,
+    historicalModelConfigSchema
   );
   const previousCourseWorkflow = createPreviousCourseGenerationWorkflow(
-    courseWorkflow.executionDefaults
+    historicalGenerationDefaults,
+    historicalModelConfigSchema
   );
   const previousControlsCourseWorkflow = createPreviousControlsCourseGenerationWorkflow(
-    courseWorkflow.executionDefaults
+    historicalGenerationDefaults,
+    historicalModelConfigSchema
   );
   const previousDiagnosticCourseWorkflow = createPreviousDiagnosticCourseGenerationWorkflow(
-    courseWorkflow.executionDefaults
+    historicalGenerationDefaults,
+    historicalModelConfigSchema
   );
   const previousPreferencesCourseWorkflow = createPreviousPreferencesCourseGenerationWorkflow(
-    courseWorkflow.executionDefaults
+    historicalGenerationDefaults,
+    historicalModelConfigSchema
   );
   const courseInterviewWorkflow = createCourseInterviewWorkflow(
     {
@@ -307,41 +355,51 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     'diagnostic'
   );
   const previousCourseInterviewWorkflow = createCourseInterviewWorkflow(
-    courseInterviewWorkflow.executionDefaults,
+    historicalGenerationDefaults,
     COURSE_INTERVIEW_MAX_ITERATIONS,
-    CourseInterviewWorkflowConfigSchema,
+    historicalModelConfigSchema,
     'run',
     'previous'
   );
   const previousDiagnosticInterviewWorkflow = createCourseInterviewWorkflow(
-    courseInterviewWorkflow.executionDefaults,
+    historicalGenerationDefaults,
     COURSE_INTERVIEW_MAX_ITERATIONS,
-    CourseInterviewWorkflowConfigSchema,
+    historicalModelConfigSchema,
     'commit',
     'current'
   );
   const previousPreferencesCourseInterviewWorkflow = createCourseInterviewWorkflow(
-    courseInterviewWorkflow.executionDefaults,
+    historicalGenerationDefaults,
     COURSE_INTERVIEW_MAX_ITERATIONS,
-    CourseInterviewWorkflowConfigSchema,
+    historicalModelConfigSchema,
     'commit',
     'previous'
   );
   const previousPreSceneLessonWorkflow = createPreviousPreSceneLessonGenerationWorkflow(
-    lessonWorkflow.executionDefaults
+    historicalGenerationDefaults,
+    historicalLessonConfigSchema
   );
   const previousRoutingLessonWorkflow = createPreviousRoutingLessonGenerationWorkflow(
-    lessonWorkflow.executionDefaults
+    historicalGenerationDefaults,
+    historicalLessonConfigSchema
   );
   const previousLessonWorkflow = createPreviousLessonGenerationWorkflow(
-    lessonWorkflow.executionDefaults
+    historicalGenerationDefaults,
+    historicalLessonConfigSchema
   );
   const previousResearchContractLessonWorkflow =
-    createPreviousResearchContractLessonGenerationWorkflow(lessonWorkflow.executionDefaults);
+    createPreviousResearchContractLessonGenerationWorkflow(
+      historicalGenerationDefaults,
+      historicalLessonConfigSchema
+    );
   const previousQuizExplanationLessonWorkflow =
-    createPreviousQuizExplanationLessonGenerationWorkflow(lessonWorkflow.executionDefaults);
+    createPreviousQuizExplanationLessonGenerationWorkflow(
+      historicalGenerationDefaults,
+      historicalLessonConfigSchema
+    );
   const previousEvidenceLessonWorkflow = createPreviousEvidenceLessonGenerationWorkflow(
-    lessonWorkflow.executionDefaults
+    historicalGenerationDefaults,
+    historicalLessonConfigSchema
   );
   const pdfMappingRepairWorkflow = createPdfMappingRepairWorkflow({
     maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
@@ -349,36 +407,36 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
   });
   const previousPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
-    pdfMappingRepairWorkflow.executionDefaults,
-    CourseGenerationWorkflowConfigSchema,
+    historicalGenerationDefaults,
+    historicalModelConfigSchema,
     courseGenerationStateSchemas,
     PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID
   );
   const previousControlsPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
-    pdfMappingRepairWorkflow.executionDefaults,
-    CourseGenerationWorkflowConfigSchema,
+    historicalGenerationDefaults,
+    historicalModelConfigSchema,
     preControlsCourseGenerationStateSchemas
   );
   const previousDiagnosticPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
-    pdfMappingRepairWorkflow.executionDefaults,
-    CourseGenerationWorkflowConfigSchema,
+    historicalGenerationDefaults,
+    historicalModelConfigSchema,
     preDiagnosticCourseGenerationStateSchemas
   );
   const previousDiagnosticLegacyPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
-    pdfMappingRepairWorkflow.executionDefaults,
-    CourseGenerationWorkflowConfigSchema,
+    historicalGenerationDefaults,
+    historicalModelConfigSchema,
     preDiagnosticCourseGenerationStateSchemas,
     PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID
   );
   const previousControlsLegacyPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
-    pdfMappingRepairWorkflow.executionDefaults,
-    CourseGenerationWorkflowConfigSchema,
+    historicalGenerationDefaults,
+    historicalModelConfigSchema,
     preControlsCourseGenerationStateSchemas,
     PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID
   );
   const previousPreferencesPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
-    pdfMappingRepairWorkflow.executionDefaults,
-    CourseGenerationWorkflowConfigSchema,
+    historicalGenerationDefaults,
+    historicalModelConfigSchema,
     previousCourseGenerationStateSchemas,
     PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID
   );
@@ -386,6 +444,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     current: currentScenes.artifact,
     previous: [
       ...historicalScenes.map(definition => definition.artifact),
+      ...preOpenAiRemovalScenes.map(definition => definition.artifact),
       preSceneArtifactDraftWorkflow,
       preProviderPostprocessingPrevious(preSceneArtifactDraftWorkflow),
       preExternalEffectPrevious(preSceneArtifactDraftWorkflow),
@@ -396,6 +455,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     current: currentScenes.retry,
     previous: [
       ...historicalScenes.map(definition => definition.retry),
+      ...preOpenAiRemovalScenes.map(definition => definition.retry),
       preSceneRetryWorkflow,
       preProviderPostprocessingPrevious(preSceneRetryWorkflow),
       preExternalEffectPrevious(preSceneRetryWorkflow),
@@ -405,6 +465,13 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: courseInterviewWorkflow,
     previous: [
+      createCourseInterviewWorkflow(
+        historicalGenerationDefaults,
+        COURSE_INTERVIEW_MAX_ITERATIONS,
+        historicalModelConfigSchema,
+        'commit',
+        'diagnostic'
+      ),
       previousDiagnosticInterviewWorkflow,
       previousPreferencesCourseInterviewWorkflow,
       preExternalEffectPrevious(previousPreferencesCourseInterviewWorkflow),
@@ -414,6 +481,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: courseWorkflow,
     previous: [
+      createCourseGenerationWorkflow(historicalGenerationDefaults, historicalModelConfigSchema),
       previousRoutingCourseWorkflow,
       previousDiagnosticCourseWorkflow,
       previousControlsCourseWorkflow,
@@ -430,6 +498,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     current: lessonWorkflow,
     previous: [
       ...historicalScenes.map(definition => definition.lesson),
+      ...preOpenAiRemovalScenes.map(definition => definition.lesson),
       previousPreSceneLessonWorkflow,
       previousRoutingLessonWorkflow,
       previousQuizExplanationLessonWorkflow,
@@ -444,6 +513,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: pdfMappingRepairWorkflow,
     previous: [
+      createPdfMappingRepairWorkflow(historicalGenerationDefaults, historicalModelConfigSchema),
       previousDiagnosticPdfMappingRepairWorkflow,
       previousDiagnosticLegacyPdfMappingRepairWorkflow,
       previousControlsPdfMappingRepairWorkflow,

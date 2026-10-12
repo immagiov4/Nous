@@ -99,14 +99,13 @@ const getAccessEmailStatusMessage = (
 
 const AI_PROVIDER_OPTIONS = [
   ['openrouter', 'OpenRouter'],
-  ['openai', 'OpenAI API'],
   ['codex', 'Codex app-server'],
 ] as const satisfies ReadonlyArray<readonly [AdminAiProvider, string]>;
 
 type UserAiProviderSelection = AdminAiProvider | 'default';
 
 const readAiProvider = (value: string): AdminAiProvider =>
-  value === 'codex' ? 'codex' : value === 'openai' ? 'openai' : 'openrouter';
+  value === 'codex' ? 'codex' : 'openrouter';
 
 const readUserAiProvider = (value: string): UserAiProviderSelection =>
   value === 'default' ? 'default' : readAiProvider(value);
@@ -147,22 +146,11 @@ type AdminTextModelKey =
   | 'contextModel'
   | 'courseModel'
   | 'lessonModel'
-  | 'openAiArtifactModel'
-  | 'openAiArtifactInteractiveModel'
-  | 'openAiAssessmentModel'
-  | 'openAiContextModel'
-  | 'openAiCourseModel'
-  | 'openAiLessonModel'
-  | 'openAiProgressModel'
-  | 'openAiResearchModel'
   | 'progressModel'
   | 'researchModel'
   | 'codexPlaybackPreparationModel'
   | 'codexSceneModel'
   | 'codexSceneIconModel'
-  | 'openAiPlaybackPreparationModel'
-  | 'openAiSceneModel'
-  | 'openAiSceneIconModel'
   | 'playbackPreparationModel'
   | 'sceneModel'
   | 'sceneIconModel';
@@ -207,7 +195,6 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
     labelKey: 'artifacts',
     models: {
       openrouter: 'artifactModel',
-      openai: 'openAiArtifactModel',
       codex: 'codexArtifactModel',
     },
     reasoning: 'artifactReasoningEffort',
@@ -218,7 +205,6 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
     labelKey: 'interactiveArtifacts',
     models: {
       openrouter: 'artifactInteractiveModel',
-      openai: 'openAiArtifactInteractiveModel',
       codex: 'codexArtifactInteractiveModel',
     },
     reasoning: 'artifactInteractiveReasoningEffort',
@@ -229,7 +215,6 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
     labelKey: 'course',
     models: {
       openrouter: 'courseModel',
-      openai: 'openAiCourseModel',
       codex: 'codexCourseModel',
     },
     reasoning: 'courseReasoningEffort',
@@ -240,7 +225,6 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
     labelKey: 'lessons',
     models: {
       openrouter: 'lessonModel',
-      openai: 'openAiLessonModel',
       codex: 'codexLessonModel',
     },
     reasoning: 'lessonReasoningEffort',
@@ -251,7 +235,6 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
     labelKey: 'context',
     models: {
       openrouter: 'contextModel',
-      openai: 'openAiContextModel',
       codex: 'codexContextModel',
     },
     reasoning: 'contextReasoningEffort',
@@ -262,7 +245,6 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
     labelKey: 'assessment',
     models: {
       openrouter: 'assessmentModel',
-      openai: 'openAiAssessmentModel',
       codex: 'codexAssessmentModel',
     },
     reasoning: 'assessmentReasoningEffort',
@@ -273,7 +255,6 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
     labelKey: 'progress',
     models: {
       openrouter: 'progressModel',
-      openai: 'openAiProgressModel',
       codex: 'codexProgressModel',
     },
     reasoning: 'progressReasoningEffort',
@@ -284,7 +265,6 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
     labelKey: 'research',
     models: {
       openrouter: 'researchModel',
-      openai: 'openAiResearchModel',
       codex: 'codexResearchModel',
     },
     reasoning: 'researchReasoningEffort',
@@ -295,7 +275,6 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
     labelKey: 'playbackPreparation',
     models: {
       openrouter: 'playbackPreparationModel',
-      openai: 'openAiPlaybackPreparationModel',
       codex: 'codexPlaybackPreparationModel',
     },
     reasoning: 'playbackPreparationReasoningEffort',
@@ -306,7 +285,6 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
     labelKey: 'scenes',
     models: {
       openrouter: 'sceneModel',
-      openai: 'openAiSceneModel',
       codex: 'codexSceneModel',
     },
     reasoning: 'sceneReasoningEffort',
@@ -317,7 +295,6 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
     labelKey: 'sceneIcons',
     models: {
       openrouter: 'sceneIconModel',
-      openai: 'openAiSceneIconModel',
       codex: 'codexSceneIconModel',
     },
     reasoning: 'sceneIconReasoningEffort',
@@ -337,7 +314,6 @@ const PROVIDER_SECTIONS: ReadonlyArray<{
   label: string;
 }> = [
   { id: 'openrouter', label: 'OpenRouter' },
-  { id: 'openai', label: 'OpenAI API' },
   { id: 'codex', label: 'Codex app-server' },
 ];
 
@@ -707,7 +683,7 @@ export default function AdminPanel() {
   }: {
     icon: LucideIcon;
     label: string;
-    modelKey: 'embeddingModel' | 'imageModel' | 'openAiImageModel' | 'ttsModel' | 'ttsVoice';
+    modelKey: 'embeddingModel' | 'imageModel' | 'ttsModel' | 'ttsVoice';
   }) => (
     <label className="block border-b border-stone-100 py-3 last:border-b-0 dark:border-zinc-800">
       <span className="mb-2 flex items-center gap-2 text-sm font-semibold text-stone-800 dark:text-zinc-200">
@@ -1210,9 +1186,7 @@ export default function AdminPanel() {
                   {PROVIDER_SECTIONS.map(({ id, label }) => (
                     <AdminDisclosure
                       key={id}
-                      icon={
-                        id === 'openrouter' ? Link2 : id === 'openai' ? BrainCircuit : Settings2
-                      }
+                      icon={id === 'openrouter' ? Link2 : Settings2}
                       title={label}
                       status={
                         modelConfig.aiProvider === id ? t('Provider attivo') : t('Configurato')
@@ -1250,13 +1224,6 @@ export default function AdminPanel() {
                           })}
                         </>
                       ) : null}
-                      {id === 'openai'
-                        ? renderSingleModelRow({
-                            icon: Image,
-                            label: t('Immagini'),
-                            modelKey: 'openAiImageModel',
-                          })
-                        : null}
                     </AdminDisclosure>
                   ))}
                   <p className="border-t border-stone-200 px-5 pt-4 text-xs leading-5 text-stone-500 dark:border-zinc-700 dark:text-zinc-400">

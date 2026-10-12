@@ -75,7 +75,6 @@ describe('/api/admin', () => {
         lessonReasoningEffort: 'high',
         playbackPreparationModel: 'openrouter/playback',
         codexPlaybackPreparationModel: 'codex-playback',
-        openAiPlaybackPreparationModel: 'openai-playback',
         playbackPreparationReasoningEffort: 'medium',
         contextModel: 'google/gemini-3.1-flash-lite',
         contextReasoningEffort: 'none',
@@ -88,7 +87,6 @@ describe('/api/admin', () => {
       lessonReasoningEffort: 'high',
       playbackPreparationModel: 'openrouter/playback',
       codexPlaybackPreparationModel: 'codex-playback',
-      openAiPlaybackPreparationModel: 'openai-playback',
       playbackPreparationReasoningEffort: 'medium',
       contextModel: 'google/gemini-3.1-flash-lite',
       contextReasoningEffort: 'none',
@@ -98,7 +96,6 @@ describe('/api/admin', () => {
     expect(storedConfig).toMatchObject({
       playback_preparation_model: 'openrouter/playback',
       codex_playback_preparation_model: 'codex-playback',
-      openai_playback_preparation_model: 'openai-playback',
       playback_preparation_reasoning_effort: 'medium',
     });
     resetModelConfigForTesting();
@@ -112,7 +109,6 @@ describe('/api/admin', () => {
       lessonReasoningEffort: 'high',
       playbackPreparationModel: 'openrouter/playback',
       codexPlaybackPreparationModel: 'codex-playback',
-      openAiPlaybackPreparationModel: 'openai-playback',
       playbackPreparationReasoningEffort: 'medium',
       contextModel: 'google/gemini-3.1-flash-lite',
       contextReasoningEffort: 'none',
@@ -618,7 +614,7 @@ describe('/api/admin', () => {
       .patch('/api/admin/users/user-1')
       .set('Authorization', authHeader(adminToken))
       .send({
-        aiProvider: 'openai',
+        aiProvider: 'codex',
         disabled: true,
         role: 'admin',
       });
@@ -630,7 +626,7 @@ describe('/api/admin', () => {
         method: 'PUT',
         body: JSON.stringify({
           app_metadata: {
-            ai_provider: 'openai',
+            ai_provider: 'codex',
             role: 'admin',
           },
           ban_duration: '876000h',
@@ -720,7 +716,7 @@ describe('/api/admin', () => {
         aiProviderOverrides: {
           artifact: 'openrouter',
           lesson: 'codex',
-          unknown: 'openai',
+          unknown: 'codex',
         },
       });
 

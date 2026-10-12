@@ -20,7 +20,7 @@ The following files were used as context for generating this wiki page:
 
 # Backend REST Endpoints
 
-The Nous backend is an Express-based API server that facilitates document processing, AI-driven course generation, and project management. It serves as the bridge between the React frontend and various services including Supabase for authentication/persistence, PostgreSQL for metadata storage, and AI providers like OpenRouter or OpenAI.
+The Nous backend is an Express-based API server that facilitates document processing, AI-driven course generation, and project management. It serves as the bridge between the React frontend and various services including Supabase for authentication/persistence, PostgreSQL for metadata storage, and the supported AI providers, OpenRouter and Codex.
 
 The API is structured around functional domains such as `projects`, `workflows`, `auth`, and `feedback`. Most endpoints require authentication via Supabase JWTs, managed through a central middleware that resolves the current user context before passing requests to specific routers. Sources: [apps/backend/src/index.ts:1-70](../../../apps/backend/src/index.ts#L1-L70), [README.md:15-25](../../../README.md#L15-L25)
 
