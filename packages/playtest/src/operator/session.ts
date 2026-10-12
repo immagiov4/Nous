@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { type Browser, devices, type JSHandle } from 'playwright';
 import type { ObservedEvent } from '../adapter';
@@ -38,11 +38,23 @@ export function isGeometrySignal(signal: ProbeSignal): boolean {
   return ['clipped-text', 'overlap', 'contrast', 'horizontal-overflow'].includes(signal.kind);
 }
 
+/** Closure failures retain evidence saved before the failing stage. */
+export class OperatorCloseError extends Error {
+  constructor(
+    readonly stage: 'trace' | 'video',
+    readonly tracePath: string | undefined,
+    cause: unknown
+  ) {
+    super(`Operator ${stage} closure failed.`, { cause });
+    this.name = 'OperatorCloseError';
+  }
+}
+
 export type OperatorSession = {
   observe(): Promise<Observation>;
   act(action: LearnerAction): Promise<ActionResult>;
   signals(): Promise<ProbeSignal[]>;
-  close(): Promise<{ tracePath: string }>;
+  close(): Promise<{ tracePath: string; videoPath?: string }>;
 };
 
 /** Each story owns an isolated context; the caller retains ownership of the browser. */
@@ -53,6 +65,7 @@ export async function openOperatorSession(options: {
   locale: string;
   credentials: { email: string; password: string };
   runDir: string;
+  video?: boolean;
   onEvent?: (event: ObservedEvent) => void;
 }): Promise<OperatorSession> {
   const { browser, baseUrl, viewport, credentials, runDir } = options;
@@ -61,6 +74,7 @@ export async function openOperatorSession(options: {
     ...(viewport === 'mobile'
       ? { isMobile: true, hasTouch: true, userAgent: devices['Pixel 7'].userAgent }
       : {}),
+    ...(options.video ? { recordVideo: { dir: runDir, size: VIEWPORTS[viewport] } } : {}),
     viewport: VIEWPORTS[viewport],
     locale: options.locale,
     extraHTTPHeaders: { 'Accept-Language': options.locale },
@@ -171,11 +185,23 @@ export async function openOperatorSession(options: {
       },
       async close() {
         const tracePath = join(runDir, 'trace.zip');
+        let savedTracePath: string | undefined;
+        let stage: 'trace' | 'video' = 'trace';
         try {
-          await context.tracing.stop({ path: tracePath });
-          return { tracePath };
-        } finally {
-          await context.close();
+          try {
+            await context.tracing.stop({ path: tracePath });
+            savedTracePath = tracePath;
+          } finally {
+            await context.close();
+          }
+          const video = page.video();
+          if (!video) return { tracePath };
+          stage = 'video';
+          const videoPath = join(runDir, 'video.webm');
+          await rename(await video.path(), videoPath);
+          return { tracePath, videoPath };
+        } catch (error) {
+          throw new OperatorCloseError(stage, savedTracePath, error);
         }
       },
     };

@@ -18,6 +18,7 @@ import { createModelUsage, type ModelUsage, withModelUsage } from './modelUsage'
 import {
   isGeometrySignal,
   type Observation,
+  OperatorCloseError,
   type OperatorSession,
   openOperatorSession,
 } from './operator/session';
@@ -42,6 +43,7 @@ export type StoryRunRecord = {
   findings: InspectorFinding[];
   friction: string[];
   reportPath: string;
+  videoPath?: string;
 };
 export type RunSummary = {
   runDir: string;
@@ -59,6 +61,7 @@ type RunOptions = {
   personas: Map<string, Persona>;
   concurrency: number;
   headed: boolean;
+  video?: boolean;
   model: string;
   provider: string;
   runDir: string;
@@ -106,11 +109,18 @@ async function closePreparedStory(input: {
   const { session, prepared, record } = input;
   if (session) {
     try {
-      ({ tracePath } = await session.close());
+      const evidence = await session.close();
+      tracePath = evidence.tracePath;
+      if (evidence.videoPath) record.videoPath = evidence.videoPath;
     } catch (error) {
-      recordDiagnostic('trace', error);
+      const stage = error instanceof OperatorCloseError ? error.stage : 'trace';
+      if (error instanceof OperatorCloseError) tracePath = error.tracePath;
+      recordDiagnostic(stage, error);
       record.outcome = 'operator-failure';
-      record.reason = 'The harness could not save the browser trace.';
+      record.reason =
+        stage === 'video'
+          ? 'The harness could not save the browser video.'
+          : 'The harness could not save the browser trace.';
     }
   }
   try {
@@ -271,6 +281,7 @@ async function runStoryWithUsage(
           locale: options.adapter.locale(),
           credentials: prepared.credentials,
           runDir: storyDir,
+          video: options.video,
           onEvent,
         }),
         options,

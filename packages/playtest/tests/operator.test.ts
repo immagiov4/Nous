@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Browser, chromium, type Page } from 'playwright';
@@ -10,6 +10,7 @@ import {
   type OperatorSession,
   openOperatorSession,
 } from '../src/operator/session';
+import { VIEWPORTS } from '../src/operator/viewports';
 
 const credentials = { email: 'operator-secret@example.test', password: 'secret-password-operator' };
 let browser: Browser;
@@ -30,7 +31,11 @@ afterEach(async () => {
   if (runDir) await rm(runDir, { recursive: true, force: true });
 });
 
-async function fixture(html: string, viewport: 'desktop' | 'mobile' = 'desktop'): Promise<Page> {
+async function fixture(
+  html: string,
+  viewport: 'desktop' | 'mobile' = 'desktop',
+  video?: boolean
+): Promise<Page> {
   runDir = await mkdtemp(join(tmpdir(), 'playtest-operator-'));
   session = await openOperatorSession({
     browser,
@@ -39,6 +44,7 @@ async function fixture(html: string, viewport: 'desktop' | 'mobile' = 'desktop')
     viewport,
     credentials,
     runDir,
+    video,
   });
   sessionClosed = false;
   const page = browser.contexts().at(-1)?.pages()[0];
@@ -53,6 +59,42 @@ function ref(observation: Observation, name: string): string {
 }
 
 describe('operator', () => {
+  it.each([
+    'desktop',
+    'mobile',
+  ] as const)('finalizes optional video at the %s viewport size', async viewport => {
+    const newContext = vi.spyOn(browser, 'newContext');
+    const page = await fixture(
+      '<button onclick="this.textContent=\'Done\'">Continue</button>',
+      viewport,
+      true
+    );
+    await session.act({ type: 'click', ref: ref(await session.observe(), 'Continue') });
+    expect(await page.locator('button').textContent()).toBe('Done');
+    const evidence = await session.close();
+    sessionClosed = true;
+    expect(evidence.videoPath).toBe(join(runDir, 'video.webm'));
+    expect((await readFile(evidence.videoPath as string)).length).toBeGreaterThan(0);
+    expect((await readdir(runDir)).filter(name => name.endsWith('.webm'))).toEqual(['video.webm']);
+    expect(newContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordVideo: { dir: runDir, size: VIEWPORTS[viewport] },
+      })
+    );
+    expect(browser.contexts()).toHaveLength(0);
+  });
+
+  it('keeps recording disabled when the video option is omitted', async () => {
+    const page = await fixture('<button>Continue</button>');
+    await session.observe();
+    expect(page.video()).toBeNull();
+    const evidence = await session.close();
+    sessionClosed = true;
+    expect(evidence).not.toHaveProperty('videoPath');
+    expect((await readdir(runDir)).filter(name => name.endsWith('.webm'))).toEqual([]);
+    expect((await readFile(evidence.tracePath)).length).toBeGreaterThan(0);
+  });
+
   it('keeps static editable fields and privacy masks from invalidating a capture', async () => {
     const page = await fixture(
       '<input type="email"><input type="password"><textarea></textarea><p style="pointer-events:none">Hint</p><button>Continue</button>'

@@ -162,6 +162,109 @@ async function report(path: string) {
 }
 
 describe('parallel runner', () => {
+  it.each([true, false])('persists optional CLI video evidence with video=%s', async video => {
+    runDir = await mkdtemp(join(tmpdir(), 'playtest-video-cli-'));
+    const adapterPath = join(runDir, 'adapter.ts');
+    await writeFile(
+      adapterPath,
+      `export default {
+      locale: () => 'it-IT', taxonomyClasses: () => [], probeClass: () => undefined,
+      appDescription: () => 'Fixture', baseUrl: () => '${baseUrl}', ensureStack: async () => {},
+      prepare: async () => ({ credentials: { email: 'synthetic@example.test', password: 'synthetic' } }),
+      classify: () => ({ stop: false }), styleReference: () => [], taxonomy: () => '', thresholds: () => ({})
+    };`
+    );
+    await mkdir(join(runDir, 'stories'));
+    await writeFile(
+      join(runDir, 'stories', 'video.md'),
+      '---\nid: video\nkind: check\ntitle: Video\nviewports: [desktop]\nrequires: {}\ntags: []\nbudget: { steps: 1 }\n---\nExplore.\n'
+    );
+    vi.spyOn(decisionModule, 'createPiDecisionSource').mockReturnValue(
+      createScriptedDecisionSource([{ type: 'stop', reason: 'completed', summary: 'Done' }])
+    );
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const output = join(runDir, 'reports with spaces');
+    await main([
+      '--adapter',
+      adapterPath,
+      '--run-dir',
+      output,
+      '--provider',
+      'fake',
+      '--model',
+      'fake',
+      ...(video ? ['--video'] : []),
+    ]);
+    const summary = await report(join(output, 'summary.json'));
+    const record = summary.records[0];
+    const data = await report(record.reportPath);
+    const markdown = await readFile(record.reportPath.replace(/\.json$/, '.md'), 'utf8');
+    expect(record.outcome).toBe('completed');
+    expect(markdown).toContain('[Browser trace](trace.zip)');
+    if (video) {
+      expect(record.videoPath).toBe(join(output, 'story-0-video', 'desktop', 'video.webm'));
+      expect(data.videoPath).toBe(record.videoPath);
+      expect((await readFile(record.videoPath)).length).toBeGreaterThan(0);
+      const html = renderToStaticMarkup(createElement(ReactMarkdown, null, markdown));
+      expect(html).toContain('<a href="video.webm">Browser video</a>');
+    } else {
+      expect(record).not.toHaveProperty('videoPath');
+      expect(data).not.toHaveProperty('videoPath');
+      expect(
+        (await readdir(join(output, 'story-0-video', 'desktop'))).filter(name =>
+          name.endsWith('.webm')
+        )
+      ).toEqual([]);
+      expect(markdown).not.toContain('[Browser video]');
+    }
+    expect(chromium.launch).toHaveBeenCalledWith({ headless: true });
+    expect(browser.contexts()).toHaveLength(0);
+  });
+
+  it.each([
+    'video',
+    'trace',
+  ] as const)('reports a %s save failure and retains previously saved evidence', async stage => {
+    runDir = await mkdtemp(join(tmpdir(), 'playtest-evidence-failure-'));
+    const evidenceDir = join(runDir, 'story-0-evidence-failure', 'desktop');
+    await mkdir(join(evidenceDir, stage === 'video' ? 'video.webm' : 'trace.zip'), {
+      recursive: true,
+    });
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const summary = await runPlaytest({
+      adapter: adapter(),
+      stories: [story('evidence-failure')],
+      personas: new Map(),
+      concurrency: 1,
+      headed: false,
+      video: true,
+      model: 'fake',
+      provider: 'fake',
+      runDir,
+      sourceFactory: () =>
+        createScriptedDecisionSource([{ type: 'stop', reason: 'completed', summary: 'Done' }]),
+    });
+    const record = summary.records[0];
+    const data = await report(record.reportPath);
+    const markdown = await readFile(record.reportPath.replace(/\.json$/, '.md'), 'utf8');
+    expect(record.outcome).toBe('operator-failure');
+    expect(record.reason).toBe(`The harness could not save the browser ${stage}.`);
+    expect(data.outcome).toBe(record.outcome);
+    expect(data.reason).toBe(record.reason);
+    expect(Object.keys(data.diagnostics)).toEqual([stage]);
+    expect(stderr).toHaveBeenCalledTimes(1);
+    if (stage === 'video') {
+      expect(data.tracePath).toBe(join(evidenceDir, 'trace.zip'));
+      expect((await readFile(data.tracePath)).length).toBeGreaterThan(0);
+      const html = renderToStaticMarkup(createElement(ReactMarkdown, null, markdown));
+      expect(html).toContain('<a href="trace.zip">Browser trace</a>');
+    } else {
+      expect(data.tracePath).toBeUndefined();
+      expect(markdown).not.toContain('[Browser trace]');
+    }
+    expect(browser.contexts()).toHaveLength(0);
+  });
+
   it('selects affects reproducibly per seed, story and viewport and honors pins', () => {
     const persona = {
       id: 'learner',

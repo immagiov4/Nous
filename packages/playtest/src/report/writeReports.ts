@@ -62,6 +62,7 @@ export async function writeStoryReports(input: {
       ? [`Stopped response: ${stopEvent.status} ${escapeMarkdown(stopEvent.url)}`]
       : []),
     ...(tracePath ? [`[Browser trace](${evidenceLink(dir, tracePath)})`] : []),
+    ...(record.videoPath ? [`[Browser video](${evidenceLink(dir, record.videoPath)})`] : []),
     ...(inspectionError ? [escapeMarkdown(inspectionError)] : []),
     '## Probe findings',
     ...probeFindings.map(finding => findingMarkdown(finding, dir)),
