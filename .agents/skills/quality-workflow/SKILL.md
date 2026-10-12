@@ -60,7 +60,7 @@ When the same violation appears in sibling paths within this work, fix every occ
 ### d. X-ray of the real-run trace
 
 - Applies when stage c produced a real-run trace of an AI provider flow; for work with no such flow, record the stage as outside the selected scope.
-- Have a model review the recorded trace of a real run step by step for ambiguity, inefficiency, errors, and unexpected reasoning, even when the final result is correct.
+- Run `bun run xray -- <run-directory>` to have a model review the recorded trace of a real run step by step for ambiguity, inefficiency, errors, and unexpected reasoning, even when the final result is correct.
 - Preserve the trace and the review findings. Apply receiving-pr-reviews to the findings before correcting them.
 - Report limits of the recorded evidence; do not infer unrecorded reasoning.
 
