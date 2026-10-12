@@ -129,7 +129,6 @@ describe('inspector', () => {
     const trace = {
       learner: { ...learner, diary: ['Recorded history'] },
       probeSignals: [],
-      elapsedMs: 120,
       tracePath: 'trace.zip',
     };
     expect(
@@ -254,7 +253,7 @@ describe('Pi visual judge with a mocked SDK', () => {
     })),
     styleReference,
     taxonomy: 'D01: clipping',
-    trace: { learner, probeSignals: [], elapsedMs: 120, tracePath: 'trace.zip' },
+    trace: { learner, probeSignals: [], tracePath: 'trace.zip' },
   });
 
   it('resolves shared model metadata and sends ordered real images through an isolated session', async () => {

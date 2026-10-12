@@ -105,6 +105,8 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
       });
       console.log(`Playtest reports: ${join(summary.runDir, 'summary.html')}`);
       console.log(JSON.stringify(summary.outcomeCounts));
+      if (summary.stackFailure !== undefined)
+        throw new Error(`The application stack did not start: ${summary.stackFailure}`);
     } catch (error) {
       recordDiagnostic('cli', error);
       try {

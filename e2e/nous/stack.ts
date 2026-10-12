@@ -166,22 +166,23 @@ async function supabaseCommand(args: string[], signal?: AbortSignal): Promise<st
   });
   const abort = () => terminateChild(child);
   signal?.addEventListener('abort', abort, { once: true });
-  const captureOutput = async (stream: NonNullable<typeof child.stdout>) => {
+  // stdout carries machine-readable status with service keys and JWT secrets: parse it, never log it.
+  const captureOutput = async (stream: NonNullable<typeof child.stdout>, logPath?: string) => {
     const chunks: string[] = [];
     const decoder = new TextDecoder();
     for await (const chunk of stream) {
       const text = decoder.decode(chunk, { stream: true });
       chunks.push(text);
-      await appendFile(join(dataRoot(), 'stack', 'supabase.log'), text);
+      if (logPath) await appendFile(logPath, text);
     }
     const final = decoder.decode();
     chunks.push(final);
-    await appendFile(join(dataRoot(), 'stack', 'supabase.log'), final);
+    if (logPath) await appendFile(logPath, final);
     return chunks.join('');
   };
   const [stdout, stderr, code] = await Promise.all([
     captureOutput(child.stdout),
-    captureOutput(child.stderr),
+    captureOutput(child.stderr, join(dataRoot(), 'stack', 'supabase.log')),
     exited,
   ]).finally(() => signal?.removeEventListener('abort', abort));
   if (code !== 0) {

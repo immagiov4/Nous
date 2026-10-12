@@ -45,6 +45,8 @@ export type RunSummary = {
   outcomeCounts: Record<StoryOutcome, number>;
   costEstimated?: true;
   diagnostics?: Record<string, string>;
+  /** Set when the shared application stack could not start; every story is then blocked. */
+  stackFailure?: string;
 };
 type RunOptions = {
   adapter: PlaytestAdapter;
@@ -296,7 +298,6 @@ async function runStoryWithUsage(
         trace: {
           learner,
           probeSignals,
-          elapsedMs: performance.now() - startedAt,
           tracePath,
           stopEvent,
         },
@@ -470,6 +471,7 @@ async function executePlaytest(options: RunOptions, run: DiagnosticRecord): Prom
     outcomeCounts,
     ...run,
     ...(records.some(record => record.costEstimated) ? { costEstimated: true } : {}),
+    ...(stackFailure === undefined ? {} : { stackFailure }),
   };
   try {
     await writeSummaryReports(summary);

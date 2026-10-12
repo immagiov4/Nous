@@ -420,7 +420,8 @@ describe('parallel runner', () => {
     expect(data.friction).toEqual(['Unclear question']);
     expect(judge.mock.calls[0][0].trace?.learner).toEqual(data.learner);
     expect(judge.mock.calls[0][0].trace?.probeSignals).toEqual(data.probeSignals);
-    expect(judge.mock.calls[0][0].trace?.elapsedMs).toBeGreaterThan(0);
+    // Run time includes model latency, so it must not reach the judge as interaction timing.
+    expect(judge.mock.calls[0][0].trace).not.toHaveProperty('elapsedMs');
   });
   it('retains cleanup failures alongside an application stop', async () => {
     const app = adapter();
@@ -613,6 +614,7 @@ describe('parallel runner', () => {
     const summary = await run([story('first'), story('second')], app);
     expect(summary.outcomeCounts['blocked-precondition']).toBe(2);
     expect(app.prepare).not.toHaveBeenCalled();
+    expect(summary.stackFailure).toBe('Stack is unavailable');
     for (const record of summary.records) {
       expect((await report(record.reportPath)).reason).toBe('Stack is unavailable');
     }
@@ -697,26 +699,28 @@ describe('CLI', () => {
     }
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
-      await main([
-        '--adapter',
-        adapterPath,
-        '--model',
-        'fake',
-        '--seed',
-        'cli-seed',
-        '--provider',
-        'fake',
-        '--id',
-        'selected',
-        '--id',
-        'wrong-tag',
-        '--id',
-        'wrong-kind',
-        '--tag',
-        'fixture',
-        '--kind',
-        'check',
-      ]);
+      await expect(
+        main([
+          '--adapter',
+          adapterPath,
+          '--model',
+          'fake',
+          '--seed',
+          'cli-seed',
+          '--provider',
+          'fake',
+          '--id',
+          'selected',
+          '--id',
+          'wrong-tag',
+          '--id',
+          'wrong-kind',
+          '--tag',
+          'fixture',
+          '--kind',
+          'check',
+        ])
+      ).rejects.toThrow('The application stack did not start: Fixture stack unavailable');
     } finally {
       log.mockRestore();
     }
@@ -738,7 +742,9 @@ describe('CLI', () => {
     vi.stubEnv('NOUS_E2E_DATA', '');
     const logExplicit = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
-      await main([...args, '--id', 'selected', '--run-dir', join(runDir, 'explicit')]);
+      await expect(
+        main([...args, '--id', 'selected', '--run-dir', join(runDir, 'explicit')])
+      ).rejects.toThrow('The application stack did not start');
     } finally {
       logExplicit.mockRestore();
     }
