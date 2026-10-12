@@ -26,7 +26,7 @@ import { ACTING_RULES } from '../src/learner/prompt';
 import { createScriptedDecisionSource } from '../src/learner/scriptedDecisionSource';
 import { createModelUsage, meterModel } from '../src/modelUsage';
 import { writeStoryReports } from '../src/report/writeReports';
-import { runPlaytest, selectAffect } from '../src/runner';
+import { runPlaytest, selectAffect, withProbeEvidence } from '../src/runner';
 import type { Story } from '../src/types';
 import tieredEntry from './fixtures/models/openrouter-sonnet-4.json';
 
@@ -648,6 +648,35 @@ describe('parallel runner', () => {
     expect(data.outcome).toBe('harness-limit');
     expect(data.learner.turns).toHaveLength(3);
     expect(data.learner.diary).toEqual(['Thinking', 'Thinking', 'Thinking']);
+  });
+});
+
+describe('probe evidence', () => {
+  it('drains signals emitted after the last observation when the session closes', async () => {
+    const observation = {
+      stepIndex: 3,
+      url: 'http://app.test/',
+      screenshotPath: 'step-3.png',
+      nodes: [],
+    };
+    const late = { kind: 'console-error' as const, message: 'late error' };
+    const pending = [[], [late]];
+    const session = {
+      observe: async () => observation,
+      act: async () => ({ status: 'ok' as const, observation }),
+      signals: async () => pending.shift() ?? [],
+      close: async () => ({ tracePath: 'trace.zip' }),
+    };
+    const signals: Parameters<typeof withProbeEvidence>[2] = [];
+    const wrapped = withProbeEvidence(
+      session as never,
+      { adapter: adapter() } as never,
+      signals,
+      []
+    );
+    await wrapped.observe();
+    await wrapped.close();
+    expect(signals).toEqual([{ signal: late, stepIndex: 3, screenshotPath: 'step-3.png' }]);
   });
 });
 

@@ -120,13 +120,15 @@ async function closePreparedStory(input: {
 }
 
 /** Drain at each operator boundary, before the learner can request another action. */
-function withProbeEvidence(
+export function withProbeEvidence(
   session: OperatorSession,
   options: RunOptions,
   signals: StepProbeSignal[],
   findings: StepProbeFinding[]
 ): OperatorSession {
+  let lastObservation: Observation | undefined;
   const collect = async (observation: Observation) => {
+    lastObservation = observation;
     const drained = await session.signals();
     const evidence = {
       stepIndex: observation.stepIndex,
@@ -155,7 +157,11 @@ function withProbeEvidence(
       return result;
     },
     signals: () => session.signals(),
-    close: () => session.close(),
+    // Entries emitted while the learner decided its final step (e.g. a stop) belong to the last view.
+    async close() {
+      if (lastObservation) await collect(lastObservation);
+      return session.close();
+    },
   };
 }
 
