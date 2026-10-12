@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, realpath, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -20,6 +19,7 @@ import type {
   WorkflowNodeRunState,
   WorkflowPublicRunState,
 } from '../apps/backend/src/workflows/workflowReadModel.js';
+import { readGitIdentity } from './git-identity.js';
 
 const repositoryDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -254,12 +254,10 @@ export const withRunEvidence = async <Result>(
   const runId = `${startedAt.replaceAll(':', '-')}-${randomUUID()}`;
   const directory = join(scenarioDirectory, runId);
   await mkdir(directory, { recursive: true });
-  const git = (args: string[]) =>
-    execFileSync('git', args, { cwd: repositoryDirectory, encoding: 'utf8' }).trim();
   const manifest: RunManifest = {
     ...context,
     runId,
-    git: { commitSha: git(['rev-parse', 'HEAD']), dirty: git(['status', '--porcelain']) !== '' },
+    git: readGitIdentity(repositoryDirectory),
     startedAt,
     endedAt: null,
     durationMs: null,

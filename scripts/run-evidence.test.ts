@@ -16,9 +16,8 @@ import {
   withRunEvidence,
 } from './run-evidence.js';
 
-vi.mock('node:child_process', () => ({
-  execFileSync: (_command: string, args: string[]) =>
-    args[0] === 'rev-parse' ? 'test-commit\n' : ' M scripts/run-evidence.ts\n',
+vi.mock('./git-identity.js', () => ({
+  readGitIdentity: () => ({ commitSha: 'test-commit', dirty: true }),
 }));
 
 vi.mock('../apps/backend/src/services/lessonEvidenceVerification.js', async importOriginal => ({
