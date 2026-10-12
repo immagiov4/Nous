@@ -174,6 +174,17 @@ beforeEach(() => {
   save.mockResolvedValue({ saved: true, merged: false, annotationId: 'annotation' });
 });
 
+test('playback failure shows one retry action without duplicated retry text', () => {
+  playback = { ...playback, failed: true, playing: false };
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Impossibile preparare l’ascolto della lezione. Riprova'
+  );
+  expect(screen.getByRole('alert').textContent?.match(/Riprova/g)).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Riprova' }));
+  expect(playback.play).toHaveBeenCalledTimes(1);
+});
+
 test.each([
   undefined,
   true,

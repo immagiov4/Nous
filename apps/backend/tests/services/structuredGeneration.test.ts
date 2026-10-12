@@ -164,6 +164,19 @@ test('falls back to a JSON string envelope when a provider rejects schema compil
   });
 });
 
+test('optional parameter compilation limits use the existing JSON envelope', async () => {
+  createConfiguredTextModelFromResolution.mockReturnValue({ model: 'model', providerOptions: {} });
+  generateText
+    .mockRejectedValueOnce(
+      new Error(
+        '[Google] Schemas contains too many optional parameters (33), which would make grammar compilation inefficient. Reduce the number of optional parameters in your tool schemas (limit: 24).'
+      )
+    )
+    .mockResolvedValueOnce({ output: { payload: '{"answer":"42"}' } });
+  await expect(generateStructuredOutput(request('openrouter'))).resolves.toEqual({ answer: '42' });
+  expect(generateText).toHaveBeenCalledTimes(2);
+});
+
 test('schema rejection preserves the original contract for the envelope model to consume', async () => {
   const contract = z.strictObject({
     type: z.enum(['checklist', 'steps']),

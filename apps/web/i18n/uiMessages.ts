@@ -60,6 +60,7 @@ const ENGLISH_UI_MESSAGES = {
   'Questa lezione non contiene testo da ascoltare.': 'This lesson has no text to listen to.',
   'Impossibile preparare l’ascolto della lezione. Riprova.':
     'Could not prepare lesson playback. Try again.',
+  'Impossibile preparare l’ascolto della lezione.': 'Could not prepare lesson playback.',
 
   [ANNOTATION_PROJECTION_ERROR_MESSAGE]:
     'Some saved highlights are not visible in this text. Your notes are preserved.',

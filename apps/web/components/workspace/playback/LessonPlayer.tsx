@@ -539,15 +539,18 @@ export default function LessonPlayer({
               </output>
             ) : null}
             {playback.failed ? (
-              <p role="alert" className="mb-2 text-sm text-red-700 dark:text-red-300">
-                {t('Impossibile preparare l’ascolto della lezione. Riprova.')}{' '}
+              <p
+                role="alert"
+                className="mb-2 flex items-center gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2 text-sm text-[var(--ink-primary)]"
+              >
+                <span>{t('Impossibile preparare l’ascolto della lezione.')}</span>{' '}
                 <button
                   type="button"
                   onClick={() => {
                     if (!questionActive) void playback.play();
                   }}
                   disabled={questionActive}
-                  className="underline"
+                  className="shrink-0 rounded-full border border-[var(--border-subtle)] px-3 py-1 font-medium disabled:opacity-50"
                 >
                   {t('Riprova')}
                 </button>
