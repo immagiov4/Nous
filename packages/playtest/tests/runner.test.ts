@@ -224,12 +224,12 @@ describe('parallel runner', () => {
   it.each([
     'video',
     'trace',
-  ] as const)('reports a %s save failure and retains previously saved evidence', async stage => {
+    'trace and video',
+  ] as const)('reports a %s save failure and retains independent evidence', async stage => {
     runDir = await mkdtemp(join(tmpdir(), 'playtest-evidence-failure-'));
     const evidenceDir = join(runDir, 'story-0-evidence-failure', 'desktop');
-    await mkdir(join(evidenceDir, stage === 'video' ? 'video.webm' : 'trace.zip'), {
-      recursive: true,
-    });
+    if (stage.includes('trace')) await mkdir(join(evidenceDir, 'trace.zip'), { recursive: true });
+    if (stage.includes('video')) await mkdir(join(evidenceDir, 'video.webm'), { recursive: true });
     const stderr = vi.spyOn(console, 'error').mockImplementation(() => {});
     const summary = await runPlaytest({
       adapter: adapter(),
@@ -251,8 +251,12 @@ describe('parallel runner', () => {
     expect(record.reason).toBe(`The harness could not save the browser ${stage}.`);
     expect(data.outcome).toBe(record.outcome);
     expect(data.reason).toBe(record.reason);
-    expect(Object.keys(data.diagnostics)).toEqual([stage]);
-    expect(stderr).toHaveBeenCalledTimes(1);
+    expect(record.evidenceError).toBe(record.reason);
+    expect(data.evidenceError).toBe(record.evidenceError);
+    const persisted = (await report(join(runDir, 'summary.json'))).records[0];
+    expect(persisted.evidenceError).toBe(record.evidenceError);
+    expect(Object.keys(data.diagnostics)).toEqual(stage.split(' and '));
+    expect(stderr).toHaveBeenCalledTimes(stage.split(' and ').length);
     if (stage === 'video') {
       expect(data.tracePath).toBe(join(evidenceDir, 'trace.zip'));
       expect((await readFile(data.tracePath)).length).toBeGreaterThan(0);
@@ -261,6 +265,20 @@ describe('parallel runner', () => {
     } else {
       expect(data.tracePath).toBeUndefined();
       expect(markdown).not.toContain('[Browser trace]');
+    }
+    if (stage === 'trace') {
+      expect(record.videoPath).toBe(join(evidenceDir, 'video.webm'));
+      expect(data.videoPath).toBe(record.videoPath);
+      expect(persisted.videoPath).toBe(record.videoPath);
+      expect((await readFile(record.videoPath as string)).length).toBeGreaterThan(0);
+      expect((await readdir(evidenceDir)).filter(name => name.endsWith('.webm'))).toEqual([
+        'video.webm',
+      ]);
+      const html = renderToStaticMarkup(createElement(ReactMarkdown, null, markdown));
+      expect(html).toContain('<a href="video.webm">Browser video</a>');
+      expect(html).toContain(`Evidence: ${record.evidenceError}`);
+    } else {
+      expect(record.videoPath).toBeUndefined();
     }
     expect(browser.contexts()).toHaveLength(0);
   });

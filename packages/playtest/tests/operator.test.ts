@@ -93,7 +93,11 @@ describe('operator', () => {
     try {
       const error = await session.close().catch(error => error);
       expect(error).toBeInstanceOf(OperatorCloseError);
-      expect(error).toMatchObject({ stage: 'video', tracePath: join(runDir, 'trace.zip'), cause });
+      expect(error).toMatchObject({
+        failures: expect.arrayContaining([{ stage: 'video', cause }]),
+        tracePath: join(runDir, 'trace.zip'),
+        cause,
+      });
       // The first close saved the trace before the injected context failure.
       expect((await readFile(join(runDir, 'trace.zip'))).length).toBeGreaterThan(0);
     } finally {

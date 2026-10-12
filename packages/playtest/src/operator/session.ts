@@ -38,15 +38,21 @@ export function isGeometrySignal(signal: ProbeSignal): boolean {
   return ['clipped-text', 'overlap', 'contrast', 'horizontal-overflow'].includes(signal.kind);
 }
 
-/** Closure failures retain evidence saved before the failing stage. */
+type OperatorCloseFailure = { stage: 'trace' | 'video'; cause: unknown };
+
+/** Independent artifact failures retain every saved path and underlying cause. */
 export class OperatorCloseError extends Error {
+  readonly artifacts: string;
+
   constructor(
-    readonly stage: 'trace' | 'video',
+    readonly failures: OperatorCloseFailure[],
     readonly tracePath: string | undefined,
-    cause: unknown
+    readonly videoPath: string | undefined
   ) {
-    super(`Operator ${stage} closure failed.`, { cause });
+    const artifacts = [...new Set(failures.map(failure => failure.stage))].join(' and ');
+    super(`Operator ${artifacts} closure failed.`, { cause: failures[0]?.cause });
     this.name = 'OperatorCloseError';
+    this.artifacts = artifacts;
   }
 }
 
@@ -186,24 +192,37 @@ export async function openOperatorSession(options: {
       async close() {
         const tracePath = join(runDir, 'trace.zip');
         let savedTracePath: string | undefined;
-        let stage: 'trace' | 'video' = 'trace';
+        let savedVideoPath: string | undefined;
+        const failures: OperatorCloseFailure[] = [];
+        let contextCloseFailed = false;
         try {
-          try {
-            await context.tracing.stop({ path: tracePath });
-            savedTracePath = tracePath;
-            if (options.video) stage = 'video';
-          } finally {
-            await context.close();
-          }
-          const video = page.video();
-          if (!video) return { tracePath };
-          stage = 'video';
-          const videoPath = join(runDir, 'video.webm');
-          await rename(await video.path(), videoPath);
-          return { tracePath, videoPath };
-        } catch (error) {
-          throw new OperatorCloseError(stage, savedTracePath, error);
+          await context.tracing.stop({ path: tracePath });
+          savedTracePath = tracePath;
+        } catch (cause) {
+          failures.push({ stage: 'trace', cause });
         }
+        try {
+          await context.close();
+        } catch (cause) {
+          contextCloseFailed = true;
+          failures.push({ stage: options.video ? 'video' : 'trace', cause });
+        }
+        const video = page.video();
+        if (video) {
+          try {
+            // Finalize the recording even if context closure left its page open.
+            if (contextCloseFailed) await page.close();
+            const videoPath = join(runDir, 'video.webm');
+            await rename(await video.path(), videoPath);
+            savedVideoPath = videoPath;
+          } catch (cause) {
+            failures.push({ stage: 'video', cause });
+          }
+        }
+        if (failures.length) {
+          throw new OperatorCloseError(failures, savedTracePath, savedVideoPath);
+        }
+        return { tracePath, ...(savedVideoPath ? { videoPath: savedVideoPath } : {}) };
       },
     };
   } catch (error) {

@@ -100,6 +100,19 @@ export function selectAffect(input: {
   }
 }
 
+/** Preserve partial evidence and record each closure failure once. */
+function recordEvidenceFailure(record: StoryRunRecord, error: unknown): string | undefined {
+  const failures =
+    error instanceof OperatorCloseError ? error.failures : [{ stage: 'trace', cause: error }];
+  if (error instanceof OperatorCloseError && error.videoPath) record.videoPath = error.videoPath;
+  for (const failure of failures) recordDiagnostic(failure.stage, failure.cause);
+  const artifacts = error instanceof OperatorCloseError ? error.artifacts : 'trace';
+  record.outcome = 'operator-failure';
+  record.evidenceError = `The harness could not save the browser ${artifacts}.`;
+  record.reason = record.evidenceError;
+  return error instanceof OperatorCloseError ? error.tracePath : undefined;
+}
+
 /** Context closure precedes adapter cleanup on every prepared story path. */
 async function closePreparedStory(input: {
   session?: OperatorSession;
@@ -114,15 +127,7 @@ async function closePreparedStory(input: {
       tracePath = evidence.tracePath;
       if (evidence.videoPath) record.videoPath = evidence.videoPath;
     } catch (error) {
-      const stage = error instanceof OperatorCloseError ? error.stage : 'trace';
-      if (error instanceof OperatorCloseError) tracePath = error.tracePath;
-      recordDiagnostic(stage, error);
-      record.outcome = 'operator-failure';
-      record.evidenceError =
-        stage === 'video'
-          ? 'The harness could not save the browser video.'
-          : 'The harness could not save the browser trace.';
-      record.reason = record.evidenceError;
+      tracePath = recordEvidenceFailure(record, error);
     }
   }
   try {
