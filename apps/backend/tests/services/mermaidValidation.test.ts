@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { classifyMermaidInputs, isParseableMermaid } from '../../src/services/mermaidValidation.js';
 import { mermaidClassificationCases } from '../fixtures/mermaidClassification.js';
+import { mermaidParseCases } from '../fixtures/mermaidParseCases.js';
 
 vi.mock('node:child_process', { spy: true });
 
@@ -48,6 +49,12 @@ test('checks the lesson review classification fixtures against the real parser i
     )
   ).resolves.toEqual(mermaidClassificationCases.map(([, isDiagram]) => isDiagram));
   expect(execFile).toHaveBeenCalledOnce();
+});
+
+test.each(
+  mermaidParseCases
+)('checks the visual generation parse fixture against the real parser: %s', async (code, valid) => {
+  await expect(isParseableMermaid(code, new AbortController().signal)).resolves.toBe(valid);
 });
 
 test('reports parser execution failures separately from syntax rejection', async () => {
