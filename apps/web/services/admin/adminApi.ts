@@ -413,6 +413,22 @@ const readAiProviderOverrides = (value: unknown): AdminModelProviderOverrides =>
   );
 };
 
+const normalizeAdminUser = (user: AdminUser): AdminUser => {
+  if (!user.app_metadata) return user;
+
+  const { ai_provider, ai_provider_overrides, ...metadata } = user.app_metadata;
+  return {
+    ...user,
+    app_metadata: {
+      ...metadata,
+      ...(ADMIN_AI_PROVIDERS.has(ai_provider as AdminAiProvider) ? { ai_provider } : {}),
+      ...(ai_provider_overrides === undefined
+        ? {}
+        : { ai_provider_overrides: readAiProviderOverrides(ai_provider_overrides) }),
+    },
+  };
+};
+
 const readReasoningEffort = (
   value: unknown,
   fallback: AdminReasoningEffort
@@ -580,10 +596,12 @@ const requestAdmin = async <T>(path: string, init: RequestInit = {}): Promise<T>
     })
   );
 
-export const listAdminUsers = async (page = 1, pageSize = 8): Promise<AdminUserPage> =>
-  requestAdmin<AdminUserPage>(
+export const listAdminUsers = async (page = 1, pageSize = 8): Promise<AdminUserPage> => {
+  const response = await requestAdmin<AdminUserPage>(
     `/api/admin/users?page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}`
   );
+  return { ...response, users: response.users.map(normalizeAdminUser) };
+};
 
 export const listAdminFeedback = async (
   page: number,
@@ -642,7 +660,7 @@ export const createAdminUser = async (input: AdminUserCreateInput): Promise<Admi
     method: 'POST',
     body: JSON.stringify(input),
   });
-  return response.user;
+  return normalizeAdminUser(response.user);
 };
 
 export const sendAdminMagicLink = async (userId: string): Promise<AdminAccessEmailDelivery> => {
@@ -675,7 +693,7 @@ export const updateAdminUser = async (
       body: JSON.stringify(patch),
     }
   );
-  return response.user;
+  return normalizeAdminUser(response.user);
 };
 
 export const getAdminModelConfig = async (): Promise<AdminModelConfig> => {

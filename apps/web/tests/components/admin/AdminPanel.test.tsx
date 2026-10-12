@@ -20,6 +20,13 @@ import {
   updateAdminUser,
 } from '../../../services/admin/adminApi.ts';
 
+const fetchWithSupabaseAuthMock = vi.hoisted(() => vi.fn());
+
+vi.mock('../../../services/auth/supabaseAuth.ts', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../../services/auth/supabaseAuth.ts')>()),
+  fetchWithSupabaseAuth: fetchWithSupabaseAuthMock,
+}));
+
 const codexApiMocks = vi.hoisted(() => ({
   cancelCodexDeviceLogin: vi.fn(),
   loadCodexProviderStatus: vi.fn(),
@@ -116,6 +123,7 @@ const createDeferred = <T,>() => {
 describe('AdminPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    fetchWithSupabaseAuthMock.mockReset();
     codexApiMocks.loadCodexProviderStatus.mockResolvedValue({
       account: null,
       enabled: true,
@@ -428,6 +436,65 @@ describe('AdminPanel', () => {
     await user.selectOptions(providerSelect, 'default');
     await waitFor(() =>
       expect(updateAdminUser).toHaveBeenLastCalledWith('user-1', { aiProvider: null })
+    );
+  });
+
+  test('renders effective defaults for retired account providers through the admin API', async () => {
+    const actual = await vi.importActual<typeof import('../../../services/admin/adminApi.ts')>(
+      '../../../services/admin/adminApi.ts'
+    );
+    vi.mocked(listAdminUsers).mockImplementation(actual.listAdminUsers);
+    fetchWithSupabaseAuthMock.mockImplementation(async () =>
+      Response.json({
+        hasMore: false,
+        page: 1,
+        pageSize: 8,
+        users: [
+          {
+            id: 'user-1',
+            email: 'student@example.com',
+            app_metadata: {
+              ai_provider: 'openai',
+              ai_provider_overrides: { lesson: 'openai', research: 'openrouter' },
+              role: 'user',
+            },
+          },
+        ],
+      })
+    );
+    vi.mocked(getAdminModelConfig).mockResolvedValue({
+      ...defaultModelConfig,
+      aiProvider: 'openrouter',
+      aiProviderOverrides: { lesson: 'codex' },
+    });
+    const user = userEvent.setup();
+    render(<AdminPanel />);
+
+    expect(
+      await screen.findByRole('combobox', {
+        name: 'Provider AI per student@example.com',
+      })
+    ).toHaveValue('default');
+    await user.click(screen.getByText('Backend per funzione'));
+    const lessonProvider = screen.getByRole('combobox', { name: 'Provider per Lezioni' });
+    expect(lessonProvider).toHaveValue('default');
+    expect(lessonProvider.querySelector('option:checked')).toHaveTextContent(
+      'Predefinito: Codex app-server'
+    );
+    const contextProvider = screen.getByRole('combobox', { name: 'Provider per Contesto' });
+    expect(contextProvider).toHaveValue('default');
+    expect(contextProvider.querySelector('option:checked')).toHaveTextContent(
+      'Predefinito: OpenRouter'
+    );
+    expect(screen.getByRole('combobox', { name: 'Provider per Ricerca' })).toHaveValue(
+      'openrouter'
+    );
+
+    await user.selectOptions(contextProvider, 'codex');
+    await waitFor(() =>
+      expect(updateAdminUser).toHaveBeenCalledWith('user-1', {
+        aiProviderOverrides: { context: 'codex', research: 'openrouter' },
+      })
     );
   });
 
