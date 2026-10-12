@@ -26,7 +26,7 @@ import { ACTING_RULES } from '../src/learner/prompt';
 import { createScriptedDecisionSource } from '../src/learner/scriptedDecisionSource';
 import { createModelUsage, meterModel } from '../src/modelUsage';
 import { writeStoryReports } from '../src/report/writeReports';
-import { runPlaytest, selectAffect, withProbeEvidence } from '../src/runner';
+import { runPlaytest, selectAffect } from '../src/runner';
 import type { Story } from '../src/types';
 import tieredEntry from './fixtures/models/openrouter-sonnet-4.json';
 
@@ -47,6 +47,13 @@ const runDirs: string[] = [];
 beforeAll(async () => {
   browser = await chromium.launch({ headless: true });
   server = createServer((request, response) => {
+    if (request.url === '/late') {
+      response.setHeader('Content-Type', 'text/html');
+      response.end(
+        "<main><p>Waiting</p><script>setTimeout(() => console.error('late fact'), 1000)</script></main>"
+      );
+      return;
+    }
     if (request.url === '/error') {
       response.writeHead(500, { 'x-request-id': 'fixture-request' });
       response.end('Unavailable');
@@ -652,31 +659,23 @@ describe('parallel runner', () => {
 });
 
 describe('probe evidence', () => {
-  it('drains signals emitted after the last observation when the session closes', async () => {
-    const observation = {
-      stepIndex: 3,
-      url: 'http://app.test/',
-      screenshotPath: 'step-3.png',
-      nodes: [],
-    };
-    const late = { kind: 'console-error' as const, message: 'late error' };
-    const pending = [[], [late]];
-    const session = {
-      observe: async () => observation,
-      act: async () => ({ status: 'ok' as const, observation }),
-      signals: async () => pending.shift() ?? [],
-      close: async () => ({ tracePath: 'trace.zip' }),
-    };
-    const signals: Parameters<typeof withProbeEvidence>[2] = [];
-    const wrapped = withProbeEvidence(
-      session as never,
-      { adapter: adapter() } as never,
-      signals,
-      []
-    );
-    await wrapped.observe();
-    await wrapped.close();
-    expect(signals).toEqual([{ signal: late, stepIndex: 3, screenshotPath: 'step-3.png' }]);
+  it('keeps signals emitted while the learner decides its final step', async () => {
+    const app = adapter();
+    app.baseUrl = () => `${baseUrl}/late`;
+    const summary = await run([story('late')], app, () => ({
+      // The page logs after the first observation, while this final decision is pending.
+      decide: async () => {
+        await new Promise(resolveWait => setTimeout(resolveWait, 2_500));
+        return { type: 'stop', reason: 'completed', summary: 'Done' };
+      },
+    }));
+    const data = await report(summary.records[0].reportPath);
+    expect(
+      data.probeSignals.some(
+        (fact: { signal: { kind: string; message?: string } }) =>
+          fact.signal.kind === 'console-error' && fact.signal.message?.includes('late fact')
+      )
+    ).toBe(true);
   });
 });
 

@@ -120,7 +120,7 @@ async function closePreparedStory(input: {
 }
 
 /** Drain at each operator boundary, before the learner can request another action. */
-export function withProbeEvidence(
+function withProbeEvidence(
   session: OperatorSession,
   options: RunOptions,
   signals: StepProbeSignal[],
@@ -246,15 +246,21 @@ async function runStoryWithUsage(
       }
     };
     try {
-      session = await openOperatorSession({
-        browser: await input.getBrowser(),
-        baseUrl: options.adapter.baseUrl(),
-        viewport,
-        locale: options.adapter.locale(),
-        credentials: prepared.credentials,
-        runDir: storyDir,
-        onEvent,
-      });
+      // Wrap once so the learner and the final close share it: close drains late probe signals.
+      session = withProbeEvidence(
+        await openOperatorSession({
+          browser: await input.getBrowser(),
+          baseUrl: options.adapter.baseUrl(),
+          viewport,
+          locale: options.adapter.locale(),
+          credentials: prepared.credentials,
+          runDir: storyDir,
+          onEvent,
+        }),
+        options,
+        probeSignals,
+        probeFindings
+      );
       learner = await runLearner({
         story,
         persona:
@@ -265,7 +271,7 @@ async function runStoryWithUsage(
               }
             : persona,
         appDescription: options.adapter.appDescription(),
-        operator: withProbeEvidence(session, options, probeSignals, probeFindings),
+        operator: session,
         source:
           options.sourceFactory?.() ??
           createPiDecisionSource({
