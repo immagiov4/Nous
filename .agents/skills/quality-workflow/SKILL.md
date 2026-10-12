@@ -15,7 +15,7 @@ State the chosen level and its reason before starting work. Use the maintainer's
 | --- | --- |
 | Local fix | Behaviour tests (a), meaningful performance measurements (b), and `bun run quality`. Apply UI stages (e–f) when the fix affects UI. |
 | Medium feature | Local-fix checks plus real-flow integration (c), X-ray (d), and agentic playtest (e). Apply visual hand-off (f) for UI-affecting work. |
-| Large or visual feature | All levels, including the functioning mockup and stages a–f. |
+| Large or visual feature | Medium-feature checks; for UI-affecting work, also the functioning mockup and stages e–f. |
 
 For medium and large or visual work, plan PR decomposition and relations up front using `$codebase-design` and `$improve-codebase-architecture`; a local fix skips this architecture review. State each PR's purpose, dependencies, and blocking or follow-up relations. Reference those skills rather than reproducing their methods.
 
