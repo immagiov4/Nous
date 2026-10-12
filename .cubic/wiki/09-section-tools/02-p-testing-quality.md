@@ -70,9 +70,37 @@ Sources: [scripts/doctor.ts:6-7](../../../scripts/doctor.ts#L6-L7), [scripts/doc
 
 ### Quality checks
 
-The local `quality` script runs TypeScript checks, Biome, and the React Hooks lint report. CI runs `quality:ci`, which adds dependency-cruiser once per commit. Fallow separately blocks new dead-code and dependency findings against `.fallow-baselines/regression.json`.
+The local `quality` script runs TypeScript checks, Biome, the React Hooks lint report, and `check:eslint-sonar`. CI runs `quality:ci`, which adds dependency-cruiser once per commit. Fallow separately blocks new dead-code and dependency findings against `.fallow-baselines/regression.json`.
 
 React Hooks linting keeps ESLint's persistent cache under the ignored `.temp/eslint/` directory. The cache filename includes the `bun.lock` hash so dependency upgrades force fresh linting; ESLint invalidates changed files and configuration. Every run writes the complete Sonar report and retains the zero-warning check.
+
+`bun run check:eslint-sonar` runs ESLint 10 with exact-pinned SonarJS and the TypeScript ESLint and Unicorn rules that Sonar delegates to those plugins. Its separate configuration covers TS/TSX in `apps/web`, `apps/backend/src`, `packages`, `scripts`, and `e2e`, excluding declaration files, generated code, vendor code, dependencies, build output, coverage, and fixtures. `tsconfig.eslint.json` supplies type information for deprecation, sorting, optional properties, string conversion, optional chaining, and awaited values. The selected set covers the requested SonarWay findings; the broader recommended preset also introduces unrelated policies and thresholds.
+
+| Sonar TypeScript key | ESLint rule | Configuration |
+| --- | --- | --- |
+| S3776 | `sonarjs/cognitive-complexity` | Error above 15 |
+| S2004 | `sonarjs/no-nested-functions` | Error above 4 levels |
+| S3358 | `sonarjs/no-nested-conditional` | Error |
+| S4624 | `sonarjs/no-nested-template-literals` | Error |
+| S1874 | `sonarjs/deprecation` | Error |
+| S4043 | `sonarjs/no-misleading-array-reverse` | Error |
+| S2871 | `sonarjs/no-alphabetical-sort` | Error |
+| S4782 | `sonarjs/no-redundant-optional` | Error |
+| S6551 | `@typescript-eslint/no-base-to-string` | Error |
+| S6582 | `@typescript-eslint/prefer-optional-chain` | Error |
+| S4123 | `@typescript-eslint/await-thenable` | Error |
+| S7781 | `unicorn/prefer-string-replace-all` | Error |
+| S7780 | `unicorn/prefer-string-raw` | Error |
+| S7721 | `unicorn/consistent-function-scoping` | Error |
+| S7785 | `unicorn/prefer-top-level-await` | Error |
+
+ESLint's [bulk suppressions](https://eslint.org/docs/latest/use/suppressions) store existing error counts per file and rule in the tracked `eslint-suppressions.json`. A new file or a count above its baseline fails the check. Replacing an old violation with another violation of the same rule in the same file can stay within that count, so this check complements the final Sonar scan. Unused suppressions fail too: after fixing existing violations, run `bun run check:eslint-sonar --prune-suppressions` and include the reduced baseline with the fix. The initial baseline was generated once with `bun run check:eslint-sonar --suppress-all`; repeating that command accepts all current errors and requires explicit maintainer approval.
+
+After regenerating or pruning, run `bunx biome format --write eslint-suppressions.json`: ESLint writes the baseline without the trailing newline required by Biome.
+
+The Sonar-style runner shares the lockfile-keyed, content-based persistent cache implementation with React Hooks, using a separate `sonar-*.cache` file under `.temp/eslint/`. Bulk suppressions are applied after cached diagnostics are loaded, so baseline changes take effect on warm runs. An unchanged consumer can retain cached type diagnostics when only an imported declaration changes; choose an unused path with `--cache-location` for a complete reevaluation. The React Hooks JSON report and `SONAR_ESLINT_REPORT_PATH` override continue to serve Sonar's report import independently.
+
+Sources: [Sonar's rule catalogue and external-plugin mappings](https://github.com/SonarSource/SonarJS/blob/master/packages/analysis/src/jsts/rules/README.md), [Sonar ESLint configuration](../../../eslint.sonar.config.mjs), [Sonar runner](../../../scripts/run-eslint-sonar.ts), [shared cache](../../../scripts/eslint-cache.ts), [lint type configuration](../../../tsconfig.eslint.json), [suppressions](../../../eslint-suppressions.json).
 
 Lesson review tests isolate the Mermaid process with explicit classification fixtures. A real-parser integration test validates the entire shared fixture set in one batch, keeping parser checks while avoiding a new DOM process for each review case.
 Sources: [package.json](../../../package.json), [scripts/check-fallow-regression.ts](../../../scripts/check-fallow-regression.ts), [scripts/run-eslint-react-hooks.ts](../../../scripts/run-eslint-react-hooks.ts), [apps/backend/tests/services/mermaidValidation.test.ts](../../../apps/backend/tests/services/mermaidValidation.test.ts)
@@ -155,7 +183,7 @@ Sources: [scripts/run-full-quality-gate.ts:39-53](../../../scripts/run-full-qual
 SonarQube acts as a local-only merge gate and is intentionally excluded from GitHub Actions.
 - **Lifecycle:** `gate:full` starts the local service immediately before analysis and stops it after the scan.
 - **Configuration:** Docker binds the local service to `127.0.0.1:9000`. Its Docker-internal one-shot provisioner grants `Anyone` the global `Create Projects` and `Execute Analysis` permissions on a fresh volume, enabling anonymous analysis without scanner credentials. The `gate` Doctor profile requires that provisioner to complete successfully before it reports anonymous analysis ready.
-- **Merge Block:** A skipped, failed, or unreachable Sonar scan explicitly blocks the merge process.
+- **Merge Block:** A required Sonar scan that is skipped, failed, or unreachable blocks the merge.
 
 Sources: [AGENTS.md:156-162](../../../AGENTS.md#L156-L162), [scripts/doctor.ts:233-275](../../../scripts/doctor.ts#L233-L275)
 
