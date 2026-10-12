@@ -107,6 +107,26 @@ const MORE_ACTIONS_MENU_WIDTH = 240;
 const MORE_ACTIONS_MENU_GAP = 8;
 const PLAYBACK_NOTE_ROWS = 5;
 
+/** Keeps playback input sizing and motion together across question, note and listening modes. */
+const getFloatingInputLayout = (
+  playbackComposer: ContextMenuProps['playbackComposer']
+): { className: string; style?: CSSProperties } => {
+  const baseClassName = 'min-w-0 flex-1';
+  if (!playbackComposer) return { className: baseClassName };
+
+  const transitionClassName = playbackComposer.isMobileViewport
+    ? 'transition-none'
+    : 'transition-[height] duration-200 ease-out motion-reduce:transition-none';
+  const height =
+    playbackComposer.noteMode && !playbackComposer.listening
+      ? `calc(${PLAYBACK_NOTE_ROWS}lh + 1.25rem)`
+      : '2.5rem';
+  return {
+    className: `${baseClassName} overflow-hidden text-sm leading-6 ${transitionClassName}`,
+    style: { height },
+  };
+};
+
 const clamp = (value: number, min: number, max: number) => {
   return Math.min(Math.max(value, min), max);
 };
@@ -1077,34 +1097,34 @@ const ContextMenu = ({
     playbackComposer?.listening ||
     (playbackComposer?.speech &&
       (playbackComposer.speech.state !== 'idle' || playbackComposer.speech.speechInputError));
+  const renderListeningIndicator = () => (
+    <motion.output
+      initial={{ opacity: shouldAnimate ? 0 : 1 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
+      className="flex h-10 items-center gap-3 px-3.5 text-sm font-normal text-stone-600 dark:text-stone-200"
+    >
+      <span
+        aria-hidden="true"
+        className="lesson-question-wave flex items-center gap-0.5 text-orange-500"
+      >
+        <i />
+        <i />
+        <i />
+        <i />
+        <i />
+        <i />
+        <i />
+      </span>
+      <span>
+        {t('Ti ascolto… rilascia')} <span className="font-semibold">{t('Spazio')}</span>{' '}
+        {t('per inviare')}
+      </span>
+    </motion.output>
+  );
+
   const renderFloatingInput = () => {
-    if (playbackComposer?.listening) {
-      return (
-        <motion.output
-          initial={{ opacity: shouldAnimate ? 0 : 1 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
-          className="flex h-10 items-center gap-3 px-3.5 text-sm font-normal text-stone-600 dark:text-stone-200"
-        >
-          <span
-            aria-hidden="true"
-            className="lesson-question-wave flex items-center gap-0.5 text-orange-500"
-          >
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-          </span>
-          <span>
-            {t('Ti ascolto… rilascia')} <span className="font-semibold">{t('Spazio')}</span>{' '}
-            {t('per inviare')}
-          </span>
-        </motion.output>
-      );
-    }
+    if (playbackComposer?.listening) return renderListeningIndicator();
     if (playbackComposer?.noteMode) {
       return (
         <motion.textarea
@@ -1139,6 +1159,7 @@ const ContextMenu = ({
     );
   };
 
+  const floatingInputLayout = getFloatingInputLayout(playbackComposer);
   const renderSelectionDesktop = () => (
     <div className="space-y-2">
       <div className="flex items-center gap-2.5">
@@ -1166,19 +1187,7 @@ const ContextMenu = ({
           onSubmit={handleAskSubmit}
         >
           {playbackComposer?.tools}
-          <div
-            className={`min-w-0 flex-1 ${playbackComposer ? `overflow-hidden text-sm leading-6 ${playbackComposer.isMobileViewport ? 'transition-none' : 'transition-[height] duration-200 ease-out motion-reduce:transition-none'}` : ''}`}
-            style={
-              playbackComposer
-                ? {
-                    height:
-                      playbackComposer.noteMode && !playbackComposer.listening
-                        ? `calc(${PLAYBACK_NOTE_ROWS}lh + 1.25rem)`
-                        : '2.5rem',
-                  }
-                : undefined
-            }
-          >
+          <div className={floatingInputLayout.className} style={floatingInputLayout.style}>
             {renderFloatingInput()}
           </div>
 

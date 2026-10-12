@@ -69,6 +69,55 @@ const annotationArtifact: LearningArtifactRenderPayload = {
 
 describe('ContextMenu', () => {
   test.each([
+    false,
+    true,
+  ])('preserves playback input transitions on mobile=%s', isMobileViewport => {
+    const props = { ...buildProps(), type: 'lesson' as const };
+    const playbackComposer = {
+      isMobileViewport,
+      value: 'Domanda corrente',
+      noteMode: false,
+      onChange: vi.fn(),
+      onToggleNote: vi.fn(),
+      onSubmit: vi.fn(),
+    };
+    const { rerender } = render(<ContextMenu {...props} playbackComposer={playbackComposer} />);
+    const input = screen.getByRole('textbox');
+    expect(input.tagName).toBe('INPUT');
+    expect(input).toHaveValue(playbackComposer.value);
+    expect(input.parentElement).toHaveStyle({ height: '2.5rem' });
+    expect(input.parentElement).toHaveClass(
+      isMobileViewport ? 'transition-none' : 'transition-[height]'
+    );
+    fireEvent.change(input, { target: { value: 'Nuova domanda' } });
+    expect(playbackComposer.onChange).toHaveBeenCalledWith('Nuova domanda');
+
+    const noteComposer = { ...playbackComposer, value: 'Appunto corrente', noteMode: true };
+    rerender(<ContextMenu {...props} playbackComposer={noteComposer} />);
+    const note = screen.getByRole('textbox');
+    expect(note.tagName).toBe('TEXTAREA');
+    expect(note).toHaveValue(noteComposer.value);
+    expect(note).toHaveAttribute('rows', '5');
+    expect(note.parentElement).toHaveStyle({ height: 'calc(5lh + 1.25rem)' });
+    fireEvent.change(note, { target: { value: 'Nuovo appunto' } });
+    expect(playbackComposer.onChange).toHaveBeenCalledWith('Nuovo appunto');
+    fireEvent.click(screen.getByRole('button', { name: 'Salva nota' }));
+    expect(playbackComposer.onSubmit).toHaveBeenCalledOnce();
+
+    rerender(<ContextMenu {...props} playbackComposer={{ ...noteComposer, listening: true }} />);
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    const listening = screen.getByRole('status');
+    expect(listening).toHaveTextContent('Ti ascolto… rilascia Spazio per inviare');
+    expect(listening.parentElement).toHaveStyle({ height: '2.5rem' });
+
+    rerender(<ContextMenu {...props} playbackComposer={noteComposer} />);
+    expect(screen.getByRole('textbox')).toHaveValue(noteComposer.value);
+    expect(screen.getByRole('textbox').parentElement).toHaveStyle({
+      height: 'calc(5lh + 1.25rem)',
+    });
+  });
+
+  test.each([
     'desktop-floating',
     'mobile-sheet',
   ] as const)('keeps %s editing available while context-dependent actions wait', async placement => {

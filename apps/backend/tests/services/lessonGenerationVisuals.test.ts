@@ -14,6 +14,19 @@ vi.mock('../../src/services/openRouterModelCapabilities.js', () => ({
   openRouterModelSupportsImages: openRouterModelSupportsImagesMock,
 }));
 
+// Each real parse starts a JSDOM process; the shared fixtures are checked against the real parser.
+vi.mock('../../src/services/mermaidValidation.js', async () => {
+  const { mermaidParseCases } = await import('../fixtures/mermaidParseCases.js');
+  const parseResults = new Map(mermaidParseCases);
+  return {
+    isParseableMermaid: async (code: string) => {
+      const valid = parseResults.get(code);
+      if (valid === undefined) throw new Error(`Missing parser fixture: ${code}`);
+      return valid;
+    },
+  };
+});
+
 import { getLessonRasterImageSubject } from '@shared/lessonVisualContracts';
 import { imageClient } from '../../src/services/imageClient.js';
 import {
@@ -22,6 +35,7 @@ import {
   isSafeGeneratedVisualCode,
   reviseLessonVisualArtifact,
 } from '../../src/services/lessonGenerationVisuals.js';
+import { mermaidParseCases } from '../fixtures/mermaidParseCases.js';
 
 const visualPlan = {
   altText: 'Direzione della trama e dell ordito.',
@@ -41,14 +55,9 @@ const visualPlan = {
   visualType: 'structural_svg' as const,
 };
 
-test.each([
-  [
-    'classDiagram\n--- title: Il flusso end-to-end della software factory agent-assisted ---',
-    false,
-  ],
-  ['classDiagram\nclass Animal {\n+String name\n}\nAnimal <|-- Duck', true],
-  ['erDiagram\nCUSTOMER ||--o{ ORDER : places', true],
-] as const)('validates generated and revised Mermaid syntax: %s', async (code, valid) => {
+test.each(
+  mermaidParseCases
+)('validates generated and revised Mermaid syntax: %s', async (code, valid) => {
   generateStructuredOutputMock.mockReset().mockResolvedValue({ code, imageRequests: [] });
   const input = {
     ...reviewInput,
