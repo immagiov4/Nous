@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { getGlobalModelConfig } from '../apps/backend/src/config/modelConfig.js';
+import {
+  getGlobalModelConfig,
+  resolveCodexServiceTierForSlot,
+  resolveTextModelConfig,
+} from '../apps/backend/src/config/modelConfig.js';
 import { closeManagedCodexAccountClient } from '../apps/backend/src/services/codexAppServer.js';
 import {
   buildLessonEvidenceMaterials,
@@ -11,10 +12,8 @@ import {
 import { verifyLessonEvidence } from '../apps/backend/src/services/lessonEvidenceVerification.js';
 import { LessonGenerationCorrectionError } from '../apps/backend/src/services/lessonGenerationCorrection.js';
 import type { LessonGenerationInput } from '../apps/backend/src/services/lessonGenerationTypes.js';
-import {
-  runWithWorkflowAttemptMetering,
-  type WorkflowAiUsageRecord,
-} from '../apps/backend/src/workflows/workflowAiMetering.js';
+
+import { type RunEvidenceRecorder, withRunCleanup, withRunEvidence } from './run-evidence.js';
 
 const cases = [
   {
@@ -30,14 +29,28 @@ const cases = [
   },
 ] as const;
 
+const caseUsage = (evidence: RunEvidenceRecorder, name: string) =>
+  evidence.manifest.aiUsage.filter(record => record.nodeInstanceId === name);
+
+const verifyDraft = async (
+  input: LessonGenerationInput,
+  draft: Parameters<typeof verifyLessonEvidence>[1]
+) => {
+  try {
+    await verifyLessonEvidence(input, draft);
+    return { outcome: 'supported' };
+  } catch (error) {
+    if (!(error instanceof LessonGenerationCorrectionError)) throw error;
+    return { outcome: error.code, feedback: error.feedback };
+  }
+};
+
 const main = async () => {
   assert.equal(
     process.env.REAL_LESSON_QUALITY_TESTS,
     'I_ACCEPT_REAL_PROVIDER_COSTS',
     'Set REAL_LESSON_QUALITY_TESTS=I_ACCEPT_REAL_PROVIDER_COSTS to run paid model calls.'
   );
-  const outputDirectory = await mkdtemp(join(tmpdir(), 'nous-evidence-quality-'));
-  console.log(`Lesson evidence quality: ${outputDirectory}`);
   const input: LessonGenerationInput = {
     config: {
       ...getGlobalModelConfig(),
@@ -60,75 +73,73 @@ const main = async () => {
     sources: [],
     signal: new AbortController().signal,
   };
-  const materials = buildLessonEvidenceMaterials(input);
-  input.evidencePacket = resolveLessonEvidence(materials, {
-    materials: materials.map(material => ({
-      materialId: material.materialId,
-      reason: 'Complete exercise premises.',
-      overlaps: [],
-      passages: [
-        {
-          firstUnit: 0,
-          lastUnit: material.units.length - 1,
-          claims: ['The admissibility rule and the information recorded by the card.'],
-        },
-      ],
-    })),
-  });
-  const failures: string[] = [];
-  for (const example of cases) {
-    const usage: WorkflowAiUsageRecord[] = [];
-    const draft = {
-      contentBlocks: [{ type: 'markdown' as const, markdown: example.markdown }],
-      generatedVisuals: [],
-      imageRefs: [],
-    };
-    const result = await runWithWorkflowAttemptMetering(
-      {
-        attemptNumber: 1,
-        nodeInstanceId: example.name,
-        runId: 'lesson-evidence-quality',
-        record: async record => {
-          usage.push(record);
-          await writeFile(
-            join(outputDirectory, `${example.name}-usage.json`),
-            JSON.stringify(usage, null, 2)
-          );
-        },
-      },
-      async () => {
-        try {
-          await verifyLessonEvidence(input, draft);
-          return { outcome: 'supported' };
-        } catch (error) {
-          if (!(error instanceof LessonGenerationCorrectionError)) throw error;
-          return { outcome: error.code, feedback: error.feedback };
-        }
-      }
+  const model = resolveTextModelConfig(input.config, 'lesson');
+  const verifyCase = (
+    evidence: RunEvidenceRecorder,
+    example: (typeof cases)[number],
+    draft: Parameters<typeof verifyDraft>[1]
+  ) =>
+    withRunCleanup(
+      () => verifyDraft(input, draft),
+      () => evidence.writeJson(`${example.name}-usage.json`, caseUsage(evidence, example.name))
     );
-    await writeFile(
-      join(outputDirectory, `${example.name}.json`),
-      JSON.stringify(
-        {
+  const runCases = async (evidence: RunEvidenceRecorder): Promise<void> => {
+    console.log(`Lesson evidence quality: ${evidence.directory}`);
+
+    const materials = buildLessonEvidenceMaterials(input);
+    input.evidencePacket = resolveLessonEvidence(materials, {
+      materials: materials.map(material => ({
+        materialId: material.materialId,
+        reason: 'Complete exercise premises.',
+        overlaps: [],
+        passages: [
+          {
+            firstUnit: 0,
+            lastUnit: material.units.length - 1,
+            claims: ['The admissibility rule and the information recorded by the card.'],
+          },
+        ],
+      })),
+    });
+    const failures: string[] = [];
+    for (const example of cases) {
+      await evidence.measure({ name: example.name, kind: 'case' }, async () => {
+        const draft = {
+          contentBlocks: [{ type: 'markdown' as const, markdown: example.markdown }],
+          generatedVisuals: [],
+          imageRefs: [],
+        };
+        const result = await evidence.measure({ name: example.name, kind: 'call' }, () =>
+          verifyCase(evidence, example, draft)
+        );
+        const usage = caseUsage(evidence, example.name);
+        await evidence.writeJson(`${example.name}.json`, {
           expected: example.expected,
           sourceContext: input.sourceContext,
           evidence: input.evidencePacket,
           draft,
           result,
           usage,
+        });
+        console.log(`${example.name}: ${result.outcome}`);
+        if (result.outcome !== example.expected) failures.push(example.name);
+      });
+    }
+    assert.deepEqual(failures, [], 'Factual inference evaluation failed.');
+  };
+  await withRunEvidence(
+    {
+      scenario: 'lesson-evidence-quality',
+      provider: 'codex',
+      slots: {
+        lesson: {
+          ...model,
+          serviceTier: resolveCodexServiceTierForSlot(input.config, 'lesson') ?? 'normal',
         },
-        null,
-        2
-      )
-    );
-    console.log(`${example.name}: ${result.outcome}`);
-    if (result.outcome !== example.expected) failures.push(example.name);
-  }
-  assert.deepEqual(failures, [], 'Factual inference evaluation failed.');
+      },
+    },
+    evidence => withRunCleanup(() => runCases(evidence), closeManagedCodexAccountClient)
+  );
 };
 
-try {
-  await main();
-} finally {
-  await closeManagedCodexAccountClient();
-}
+await main();
