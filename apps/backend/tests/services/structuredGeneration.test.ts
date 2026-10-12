@@ -1,8 +1,8 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import * as z from 'zod';
-
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { generateStructuredOutput } from '../../src/services/structuredGeneration.js';
+import { isRecord } from '../../src/utils/validation.js';
 
 const { createConfiguredTextModelFromResolution, generateText, runCodexAppServerTurn } = vi.hoisted(
   () => ({
@@ -281,4 +281,147 @@ test('AI SDK transport retries are off unless the caller asks for them', async (
 
   await generateStructuredOutput({ ...request('openrouter'), maxRetries: 2 });
   expect(generateText.mock.lastCall?.[0].maxRetries).toBe(2);
+});
+
+const expectStrictObjects = (schema: unknown): void => {
+  if (Array.isArray(schema)) {
+    schema.forEach(expectStrictObjects);
+    return;
+  }
+  if (!isRecord(schema)) return;
+  if (isRecord(schema.properties)) {
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toStrictEqual(Object.keys(schema.properties));
+  }
+  expect(schema).not.toHaveProperty('oneOf');
+  Object.values(schema).forEach(expectStrictObjects);
+};
+
+const nestedOptionalSchema = z.strictObject({
+  metadata: z.strictObject({ detail: z.string().optional() }),
+  rows: z.array(z.strictObject({ note: z.string().optional() })).nullable(),
+  choice: z
+    .discriminatedUnion('kind', [
+      z.strictObject({ kind: z.enum(['first', 'alternate']), note: z.string().optional() }),
+      z.strictObject({ kind: z.literal('second'), count: z.number().optional() }),
+    ])
+    .nullable(),
+  title: z.string(),
+  nullable: z.string().nullable().optional(),
+});
+const { $schema: _nestedDialect, ...nestedOutputSchema } = z.toJSONSchema(nestedOptionalSchema);
+const nestedModelOutput = {
+  metadata: { detail: null },
+  rows: [{ note: null }, { note: 'retained' }],
+  choice: { kind: 'second', count: null },
+  title: 'Lesson',
+  nullable: null,
+};
+const optionalRequest = () => ({
+  ...request('codex'),
+  output: { name: 'nested_optional', schema: nestedOutputSchema },
+});
+
+test('Codex receives a strict-valid schema for nested optional properties and object arrays', async () => {
+  const originalSchema = structuredClone(nestedOutputSchema);
+  runCodexAppServerTurn.mockImplementation(async input => {
+    expectStrictObjects(input.outputSchema);
+    expect(z.fromJSONSchema(input.outputSchema).safeParse(nestedModelOutput).success).toBe(true);
+    return JSON.stringify(nestedModelOutput);
+  });
+  await generateStructuredOutput(optionalRequest());
+  expect(nestedOutputSchema).toStrictEqual(originalSchema);
+});
+
+test.each([
+  'slot',
+  'resolved',
+] as const)('Codex %s targets restore optional absence before caller validation and preserve explicit nulls', async target => {
+  runCodexAppServerTurn.mockResolvedValue(JSON.stringify(nestedModelOutput));
+  const input = optionalRequest();
+  const result = await generateStructuredOutput(
+    target === 'slot'
+      ? input
+      : {
+          model: { provider: 'codex', model: 'test-model', reasoningEffort: 'medium' },
+          output: input.output,
+          prompt: input.prompt,
+          system: input.system,
+          signal,
+        }
+  );
+  expect(result).toStrictEqual({
+    metadata: {},
+    rows: [{}, { note: 'retained' }],
+    choice: { kind: 'second' },
+    title: 'Lesson',
+    nullable: null,
+  });
+  expect(nestedOptionalSchema.safeParse(result).success).toBe(true);
+  runCodexAppServerTurn.mockResolvedValue(
+    JSON.stringify({ ...nestedModelOutput, title: null, extra: 'invalid' })
+  );
+  const invalid = await generateStructuredOutput(optionalRequest());
+  expect(invalid).toMatchObject({ title: null, extra: 'invalid' });
+  expect(nestedOptionalSchema.safeParse(invalid).success).toBe(false);
+});
+
+test.each([
+  'anyOf',
+  'oneOf',
+] as const)('Codex wraps root %s unions and normalizes the selected branch including nullable type arrays', async unionKeyword => {
+  const schema = {
+    [unionKeyword]: [
+      {
+        type: 'object',
+        additionalProperties: false,
+        properties: { kind: { const: 'first', type: 'string' }, note: { type: 'string' } },
+        required: ['kind'],
+      },
+      {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          kind: { const: 'second', type: 'string' },
+          count: { type: 'number' },
+          nullable: { type: ['string', 'null'] },
+        },
+        required: ['kind'],
+      },
+    ],
+  };
+  runCodexAppServerTurn.mockImplementation(async input => {
+    expectStrictObjects(input.outputSchema);
+    expect(input.outputSchema.type).toBe('object');
+    return '{"result":{"kind":"second","count":null,"nullable":null}}';
+  });
+  await expect(
+    generateStructuredOutput({ ...request('codex'), output: { name: 'union', schema } })
+  ).resolves.toStrictEqual({ kind: 'second', nullable: null });
+});
+
+test('Codex restores optional fields in untagged object unions before domain validation', async () => {
+  const unionSchema = z.strictObject({
+    rows: z.array(
+      z.union([
+        z.strictObject({ name: z.string(), note: z.string().optional() }),
+        z.strictObject({ count: z.number(), detail: z.string().optional() }),
+      ])
+    ),
+  });
+  const { $schema: _dialect, ...schema } = z.toJSONSchema(unionSchema);
+  const modelOutput = '{"rows":[{"count":2,"detail":null},{"name":"kept","note":null}]}';
+  runCodexAppServerTurn.mockImplementation(async input => {
+    expectStrictObjects(input.outputSchema);
+    expect(z.fromJSONSchema(input.outputSchema).safeParse(JSON.parse(modelOutput)).success).toBe(
+      true
+    );
+    return modelOutput;
+  });
+  const result = await generateStructuredOutput({
+    ...request('codex'),
+    output: { name: 'untagged', schema },
+  });
+  expect(result).toStrictEqual({ rows: [{ count: 2 }, { name: 'kept' }] });
+  expect(unionSchema.safeParse(result).success).toBe(true);
 });

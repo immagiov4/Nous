@@ -11,6 +11,7 @@ import {
 } from '../config/modelConfig.js';
 import { createConfiguredTextModelFromResolution } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
+import { prepareStrictStructuredOutput } from './strictStructuredOutput.js';
 
 /** JSON Schema of a structured model response, named for providers that require it. */
 export interface StructuredOutputSchema {
@@ -79,6 +80,7 @@ export const generateStructuredOutput = async <T>(
 ): Promise<T> => {
   const { image, maxRetries = 0, output, prompt, signal, system, webSearch = false } = request;
   const target = resolveTarget(request);
+  const strictOutput = prepareStrictStructuredOutput(output.schema);
   if (target.provider === 'codex') {
     const response = await runCodexAppServerTurn({
       allowWebSearch: webSearch,
@@ -91,12 +93,12 @@ export const generateStructuredOutput = async <T>(
       slot: 'slot' in request ? request.slot : undefined,
       role: output.name,
       outputSchemaName: output.name,
-      outputSchema: output.schema,
+      outputSchema: strictOutput.schema,
       reasoningEffort: target.reasoningEffort,
       serviceTier: target.serviceTier,
       signal,
     });
-    return JSON.parse(response) as T;
+    return strictOutput.normalize(JSON.parse(response)) as T;
   }
 
   const configured = createConfiguredTextModelFromResolution(
@@ -137,7 +139,8 @@ export const generateStructuredOutput = async <T>(
     });
 
   try {
-    return (await generate<T>(output, prompt)).output;
+    const response = await generate<unknown>({ ...output, schema: strictOutput.schema }, prompt);
+    return strictOutput.normalize(response.output) as T;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (
