@@ -33,7 +33,7 @@ Check these planes before an implementation fix or a review fix:
 2. **Architecture:** Is this the right owner? Is it a single instance or a class of problems? Does it need its own module or issue?
 3. **Code:** Which supported path reaches the defect? What logic violates the requirement?
 
-For a problem class or an architectural problem, stop patching locally and decompose the work into an issue or follow-up PR. Apply the architecture decision procedure in [receiving-pr-reviews](../receiving-pr-reviews/SKILL.md) and the issue procedure in [problem-to-github-issue](../problem-to-github-issue/SKILL.md).
+When the same violation appears in sibling paths within this work, fix every occurrence in the same batch. For an architectural problem, or a class that is genuinely separable from this work, stop patching locally and decompose it into an issue or follow-up PR. Apply the architecture decision procedure in [receiving-pr-reviews](../receiving-pr-reviews/SKILL.md) and the issue procedure in [problem-to-github-issue](../problem-to-github-issue/SKILL.md).
 
 ## Test ladder: run applicable stages in order
 
@@ -59,6 +59,7 @@ For a problem class or an architectural problem, stop patching locally and decom
 
 ### d. X-ray of the real-run trace
 
+- Applies when stage c produced a real-run trace of an AI provider flow; for work with no such flow, record the stage as outside the selected scope.
 - Have a model review the recorded trace of a real run step by step for ambiguity, inefficiency, errors, and unexpected reasoning, even when the final result is correct.
 - Preserve the trace and the review findings. Apply receiving-pr-reviews to the findings before correcting them.
 - Report limits of the recorded evidence; do not infer unrecorded reasoning.
