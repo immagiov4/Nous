@@ -183,6 +183,9 @@ describe('Codex app-server protocol client', () => {
     );
     const imageGenerationArgumentIndex = imageCommand.indexOf('image_generation');
     expect(imageCommand[imageGenerationArgumentIndex - 1]).toBe('--enable');
+    const codeModeArgumentIndex = imageCommand.indexOf('code_mode_host');
+    expect(imageCommand[codeModeArgumentIndex - 1]).toBe('--enable');
+    expect(disabledFeatures).toContain('code_mode_host');
     expect(imageCommand).toEqual(expect.arrayContaining(['--disable', 'shell_tool']));
   });
 

@@ -371,9 +371,12 @@ export const buildCodexAppServerCommand = (
   '-c',
   'mcp_servers={}',
   ...CODEX_DISABLED_BUILTIN_FEATURES.filter(
-    feature => feature !== 'image_generation' || !options.allowImageGeneration
+    feature =>
+      !options.allowImageGeneration || !['image_generation', 'code_mode_host'].includes(feature)
   ).flatMap(feature => ['--disable', feature]),
-  ...(options.allowImageGeneration ? ['--enable', 'image_generation'] : []),
+  ...(options.allowImageGeneration
+    ? ['--enable', 'image_generation', '--enable', 'code_mode_host']
+    : []),
 ];
 
 export const buildCodexAppServerEnvironment = (

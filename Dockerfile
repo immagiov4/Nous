@@ -21,6 +21,7 @@ ENV NODE_ENV=production \
     FRONTEND_PORT=8080
 COPY --from=web-build --chown=bun:bun /app/apps/web/dist apps/web/dist
 COPY --chown=bun:bun scripts/serve-production-frontend.ts scripts/serve-production-frontend.ts
+RUN mkdir -p /var/lib/nous/frontend-assets && chown bun:bun /var/lib/nous/frontend-assets
 USER bun
 EXPOSE 8080
 CMD ["bun", "run", "scripts/serve-production-frontend.ts"]

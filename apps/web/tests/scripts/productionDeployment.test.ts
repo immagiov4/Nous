@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, test, vi } from 'vitest';
@@ -9,6 +10,7 @@ import { checkHealthEndpoints } from '../../../../deploy/health-smoke.mjs';
 import { bootstrapAdmin } from '../../../../scripts/bootstrap-admin.ts';
 import {
   buildRuntimeConfigScript,
+  cacheFrontendAssets,
   getFrontendApiMisrouteResponse,
   resolveStaticFilePath,
 } from '../../../../scripts/serve-production-frontend.ts';
@@ -253,6 +255,33 @@ describe('production deployment boundaries', () => {
       resolve(publicDirectory, 'assets/app.js')
     );
     expect(resolveStaticFilePath(publicDirectory, '/%2e%2e/private.txt')).toBeNull();
+  });
+
+  test('retains old hashed assets when the next release replaces the build directory', () => {
+    const root = mkdtempSync(resolve(tmpdir(), 'nous-frontend-assets-'));
+    const publicDirectory = resolve(root, 'dist');
+    const assets = resolve(publicDirectory, 'assets');
+    const cache = resolve(root, 'retained');
+    try {
+      mkdirSync(assets, { recursive: true });
+      writeFileSync(resolve(assets, 'diagram-old.js'), 'old diagram');
+      cacheFrontendAssets(publicDirectory, cache);
+      rmSync(assets, { recursive: true });
+      mkdirSync(assets);
+      writeFileSync(resolve(assets, 'diagram-new.js'), 'new diagram');
+      cacheFrontendAssets(publicDirectory, cache);
+      expect(readFileSync(resolve(cache, 'diagram-old.js'), 'utf8')).toBe('old diagram');
+      expect(readFileSync(resolve(cache, 'diagram-new.js'), 'utf8')).toBe('new diagram');
+      expect(resolveStaticFilePath(cache, '/%2e%2e/private.txt')).toBeNull();
+      expect(APP_COMPOSE.services.frontend.volumes).toContain(
+        'frontend-assets:/var/lib/nous/frontend-assets'
+      );
+      expect(APP_COMPOSE.services.frontend.environment?.FRONTEND_ASSET_ROOT).toBe(
+        '/var/lib/nous/frontend-assets'
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test('rejects API paths at the frontend origin instead of serving the SPA', async () => {

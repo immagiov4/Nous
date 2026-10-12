@@ -128,9 +128,12 @@ services:
         condition: service_healthy
     environment:
       FRONTEND_PORT: 8080
+      FRONTEND_ASSET_ROOT: /var/lib/nous/frontend-assets
       NOUS_BACKEND_PUBLIC_URL: ${NOUS_BACKEND_PUBLIC_URL:?Set NOUS_BACKEND_PUBLIC_URL}
       NOUS_SUPABASE_ANON_KEY: ${NOUS_SUPABASE_ANON_KEY:?Set NOUS_SUPABASE_ANON_KEY}
       NOUS_SUPABASE_PUBLIC_URL: ${NOUS_SUPABASE_PUBLIC_URL:?Set NOUS_SUPABASE_PUBLIC_URL}
+    volumes:
+      - frontend-assets:/var/lib/nous/frontend-assets
     ports:
       - "${NOUS_FRONTEND_BIND:-127.0.0.1}:${NOUS_FRONTEND_PORT:-8080}:8080"
     healthcheck:
@@ -226,5 +229,6 @@ services:
       - "host.docker.internal:host-gateway"
 
 volumes:
+  frontend-assets:
   icon-index:
   library-exports:

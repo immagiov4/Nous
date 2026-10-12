@@ -1,3 +1,4 @@
+import { cpSync, mkdirSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -84,6 +85,12 @@ export const getFrontendApiMisrouteResponse = (requestPath: string): Response | 
   );
 };
 
+export const cacheFrontendAssets = (publicDirectory: string, assetDirectory: string): void => {
+  mkdirSync(assetDirectory, { recursive: true });
+  // ponytail: hashed assets are retained without pruning; add an approved retention policy when storage needs it.
+  cpSync(resolve(publicDirectory, 'assets'), assetDirectory, { recursive: true });
+};
+
 const startServer = (environment: Environment = process.env): void => {
   const publicDirectory = resolve(
     dirname(fileURLToPath(import.meta.url)),
@@ -93,6 +100,8 @@ const startServer = (environment: Environment = process.env): void => {
     'dist'
   );
   const runtimeConfigScript = buildRuntimeConfigScript(environment);
+  const assetDirectory = environment.FRONTEND_ASSET_ROOT?.trim();
+  if (assetDirectory) cacheFrontendAssets(publicDirectory, assetDirectory);
   const parsedPort = Number.parseInt(environment.FRONTEND_PORT || '8080', 10);
   if (!Number.isInteger(parsedPort) || parsedPort <= 0) {
     throw new Error('FRONTEND_PORT must be a positive integer.');
@@ -123,6 +132,17 @@ const startServer = (environment: Environment = process.env): void => {
         const file = Bun.file(filePath);
         if (await file.exists()) {
           return new Response(file);
+        }
+      }
+
+      if (assetDirectory && url.pathname.startsWith('/assets/')) {
+        const retainedPath = resolveStaticFilePath(
+          assetDirectory,
+          url.pathname.slice('/assets/'.length)
+        );
+        if (retainedPath) {
+          const file = Bun.file(retainedPath);
+          if (await file.exists()) return new Response(file);
         }
       }
 
