@@ -34,7 +34,7 @@ function captureVersion(): number {
   return capture.version;
 }
 
-function isGeometrySignal(signal: ProbeSignal): boolean {
+export function isGeometrySignal(signal: ProbeSignal): boolean {
   return ['clipped-text', 'overlap', 'contrast', 'horizontal-overflow'].includes(signal.kind);
 }
 
