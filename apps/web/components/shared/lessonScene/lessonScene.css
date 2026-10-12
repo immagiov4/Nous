@@ -827,10 +827,7 @@
   padding: 0 0 0 16px;
 }
 .lesson-scene .claim {
-  border-left: 4px solid var(--blue);
   display: grid;
-  border-color: var(--diagram-rule);
-  padding-left: 18px;
   gap: 20px;
 }
 .lesson-scene .claim-rule {
