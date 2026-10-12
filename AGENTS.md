@@ -57,6 +57,7 @@ Core Philosophy → Context Before Code → Simplicity → Naming → Single Sou
 
 ## Working Rules
 
+- Apply `.agents/skills/quality-workflow/SKILL.md` at the start of every implementation task and before implementation or review fixes; state the chosen quality level.
 - Read the nearest implementation files before editing.
 - Prefer the existing architecture and helpers over inventing new patterns.
 - Keep changes narrow and aligned with the current module boundaries.
