@@ -13,15 +13,23 @@ export type VisibleNode = {
   role: string;
   name: string;
   box: { x: number; y: number; w: number; h: number };
+  point?: { x: number; y: number };
 };
 export type Observation = {
   stepIndex: number;
   url: string;
   screenshotPath: string;
   nodes: VisibleNode[];
+  diagnostics?: { capture: { unstable: true } };
 };
 
 export type OperatorWindow = typeof globalThis & {
+  __playtestCapture?: {
+    version: number;
+    observer: MutationObserver;
+    count(records: MutationRecord[]): number;
+    resume(): void;
+  };
   __playtestOperator?: {
     document: Document;
     prefix: string;
@@ -31,10 +39,43 @@ export type OperatorWindow = typeof globalThis & {
   };
 };
 
+/** Same-document changes invalidate captures just as navigation does. */
+export function initializeCaptureCounter(): void {
+  const scope = globalThis as OperatorWindow;
+  const count = (records: MutationRecord[]) =>
+    records.filter(record => {
+      // Playwright's screenshot masks add/remove this glass pane; mixed app mutations still count.
+      const instrumental =
+        record.type === 'childList' &&
+        record.target === document.documentElement &&
+        [...record.addedNodes, ...record.removedNodes].every(
+          node => node instanceof Element && node.localName === 'x-pw-glass'
+        );
+      return !instrumental;
+    }).length;
+  const capture = {
+    version: 0,
+    count,
+    observer: new MutationObserver(records => {
+      capture.version += count(records);
+    }),
+    resume() {
+      capture.observer.observe(document, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        characterData: true,
+      });
+    },
+  };
+  capture.resume();
+  scope.__playtestCapture = capture;
+}
+
 /** Runs in the page: text is checked at glyph rectangles rather than trusting ancestor names. */
 function visibleSnapshot({ secrets, prefix }: { secrets: string[]; prefix: string }) {
   const scope = globalThis as OperatorWindow;
-  if (!scope.__playtestOperator || scope.__playtestOperator.document !== document) {
+  if (scope.__playtestOperator?.document !== document) {
     scope.__playtestOperator = {
       document,
       prefix,
@@ -54,12 +95,7 @@ function visibleSnapshot({ secrets, prefix }: { secrets: string[]; prefix: strin
       containsSecret(element.textContent ?? '') &&
       !Array.from(element.children).some(child => containsSecret(child.textContent ?? ''))
   );
-  const visibleAt = (element: Element, rect: DOMRect, textOnly = false) => {
-    if (!element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
-    if (rect.width <= 0 || rect.height <= 0) return false;
-    const x = rect.x + rect.width / 2;
-    const y = rect.y + rect.height / 2;
-    if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return false;
+  const hitsElement = (element: Element, x: number, y: number, textOnly = false) => {
     // Non-interactive copy still paints; restore its hit testing only while measuring coverage.
     const style = (element as HTMLElement | SVGElement).style;
     const pointerEvents = style.getPropertyValue('pointer-events');
@@ -76,18 +112,77 @@ function visibleSnapshot({ secrets, prefix }: { secrets: string[]; prefix: strin
       }
     }
   };
+  const visibleAt = (element: Element, rect: DOMRect, textOnly = false) => {
+    if (!element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    const x = rect.x + rect.width / 2;
+    const y = rect.y + rect.height / 2;
+    return (
+      x >= 0 && y >= 0 && x < innerWidth && y < innerHeight && hitsElement(element, x, y, textOnly)
+    );
+  };
+  const coverageEdges = ({
+    left,
+    right,
+    top,
+    bottom,
+  }: {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  }) => {
+    const xs = new Set([left, right]),
+      ys = new Set([top, bottom]);
+    for (const other of elements) {
+      const box = other.getBoundingClientRect();
+      if (box.right <= left || box.left >= right || box.bottom <= top || box.top >= bottom)
+        continue;
+      xs.add(Math.max(left, box.left));
+      xs.add(Math.min(right, box.right));
+      ys.add(Math.max(top, box.top));
+      ys.add(Math.min(bottom, box.bottom));
+    }
+    return { columns: [...xs].sort((a, b) => a - b), rows: [...ys].sort((a, b) => a - b) };
+  };
+  const uncoveredPoint = (element: Element, rect: DOMRect) => {
+    if (!element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return;
+    const left = Math.max(0, rect.left),
+      right = Math.min(innerWidth, rect.right);
+    const top = Math.max(0, rect.top),
+      bottom = Math.min(innerHeight, rect.bottom);
+    if (left >= right || top >= bottom) return;
+    const centre = { x: (left + right) / 2, y: (top + bottom) / 2 };
+    if (hitsElement(element, centre.x, centre.y)) return centre;
+    // Rectangle edges partition the intersection into cells with constant rectangular coverage.
+    const { columns, rows } = coverageEdges({ left, right, top, bottom });
+    for (let column = 1; column < columns.length; column++) {
+      for (let row = 1; row < rows.length; row++) {
+        const point = {
+          x: (columns[column - 1] + columns[column]) / 2,
+          y: (rows[row - 1] + rows[row]) / 2,
+        };
+        if (hitsElement(element, point.x, point.y)) return point;
+      }
+    }
+  };
   const semanticSelector =
     'button, a[href], input, textarea, select, h1, h2, h3, h4, h5, h6, [role], [contenteditable]';
   const names = new Map<Element, string>();
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const range = document.createRange();
-  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
-    const parent = text.parentElement;
-    if (!parent || parent.closest('script, style, noscript, template, input, textarea')) continue;
-    // Skip the whole secret-bearing label before clipping, so even partial secrets cannot escape.
-    if (secretTextElements.some(element => element.contains(parent))) continue;
-    const label = parent.closest('label');
-    const owner = label?.control ?? parent.closest(semanticSelector) ?? parent;
+  const collectNames = () => {
+    for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+      const parent = text.parentElement;
+      if (!parent || parent.closest('script, style, noscript, template, input, textarea')) continue;
+      // Skip the whole secret-bearing label before clipping, so even partial secrets cannot escape.
+      if (secretTextElements.some(element => element.contains(parent))) continue;
+      const label = parent.closest('label');
+      const owner = label?.control ?? parent.closest(semanticSelector) ?? parent;
+      names.set(owner, `${names.get(owner) ?? ''}${readVisibleText(text, parent)}`);
+    }
+  };
+  const readVisibleText = (text: Node, parent: Element) => {
     let visibleText = '';
     const content = text.textContent ?? '';
     for (let offset = 0; offset < content.length; offset++) {
@@ -105,8 +200,8 @@ function visibleSnapshot({ secrets, prefix }: { secrets: string[]; prefix: strin
         visibleText += content[offset];
       }
     }
-    names.set(owner, `${names.get(owner) ?? ''}${visibleText}`);
-  }
+    return visibleText;
+  };
   const implicitRole = (element: Element): string => {
     const tag = element.tagName.toLowerCase();
     if (tag === 'input') {
@@ -131,29 +226,50 @@ function visibleSnapshot({ secrets, prefix }: { secrets: string[]; prefix: strin
       )[tag] ?? 'text'
     );
   };
-  for (const element of elements) {
-    if (!element.matches(`${semanticSelector}, img`)) continue;
-    // Attribute names and native values have no text rectangles to verify for clipping or coverage.
-    if (!names.has(element)) names.set(element, '');
-  }
-  const nodes: VisibleNode[] = [];
-  for (const [element, rawName] of names) {
-    const box = element.getBoundingClientRect();
-    if (!visibleAt(element, box)) continue;
-    const name = containsSecret(rawName) ? '' : rawName.replace(/\s+/g, ' ').trim();
-    const declaredRole = element.getAttribute('role');
-    const role =
-      declaredRole && !containsSecret(declaredRole) ? declaredRole : implicitRole(element);
-    if (!name && role === 'text') continue;
-    let ref = registry.ids.get(element);
-    if (!ref) {
-      ref = `${registry.prefix}:${registry.nextRef++}`;
-      registry.ids.set(element, ref);
+  const registeredNodes = () => {
+    const nodes: VisibleNode[] = [];
+    for (const [element, rawName] of names) {
+      const box = element.getBoundingClientRect();
+      const point = uncoveredPoint(element, box);
+      if (!point) continue;
+      const name = containsSecret(rawName) ? '' : rawName.replace(/\s+/g, ' ').trim();
+      const declaredRole = element.getAttribute('role');
+      const role =
+        declaredRole && !containsSecret(declaredRole) ? declaredRole : implicitRole(element);
+      if (!name && role === 'text') continue;
+      let ref = registry.ids.get(element);
+      if (!ref) {
+        ref = `${registry.prefix}:${registry.nextRef++}`;
+        registry.ids.set(element, ref);
+      }
+      registry.elements.set(ref, element);
+      nodes.push({
+        ref,
+        role,
+        name,
+        box: { x: box.x, y: box.y, w: box.width, h: box.height },
+        point,
+      });
     }
-    registry.elements.set(ref, element);
-    nodes.push({ ref, role, name, box: { x: box.x, y: box.y, w: box.width, h: box.height } });
+    return nodes;
+  };
+  const capture = scope.__playtestCapture;
+  if (capture) {
+    capture.version += capture.count(capture.observer.takeRecords());
+    // Measurement temporarily changes pointer-events; synchronous page code cannot interleave here.
+    capture.observer.disconnect();
   }
-  return nodes;
+  try {
+    collectNames();
+    for (const element of elements) {
+      if (!element.matches(`${semanticSelector}, img`)) continue;
+      // Attribute names and native values have no text rectangles to verify for clipping or coverage.
+      if (!names.has(element)) names.set(element, '');
+    }
+    return registeredNodes();
+  } finally {
+    capture?.resume();
+  }
 }
 
 /** Credentials, including encoded copies, are withheld from learner-facing URLs and labels. */
@@ -166,7 +282,7 @@ function redact(text: string, secrets: string[]): string {
       encodeURI(secret),
       formEncoded,
     ])) {
-      text = text.split(representation).join('[redacted]');
+      text = text.replaceAll(representation, '[redacted]');
     }
   }
   return text;
@@ -198,6 +314,8 @@ export async function observePage(options: {
   await page.screenshot({
     path: screenshotPath,
     fullPage: false,
+    // Hiding the caret mutates editable styles and would invalidate this capture's DOM counter.
+    caret: 'initial',
     maskColor: SCREENSHOT_PRIVACY_MASK.color,
     // Live locators keep credential fields masked even if the app replaces them during capture.
     mask: [

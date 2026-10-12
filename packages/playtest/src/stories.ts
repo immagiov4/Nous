@@ -1,5 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { inspect } from 'node:util';
 import { parse } from 'yaml';
 import * as z from 'zod';
 import { recordDiagnostic } from './diagnostics';
@@ -38,13 +39,14 @@ const personaSchema = z.object({
 
 async function markdownPaths(dir: string): Promise<string[]> {
   const paths = await Promise.all(
-    (await readdir(dir, { withFileTypes: true })).map(entry => {
+    (await readdir(dir, { withFileTypes: true })).map(async entry => {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) return markdownPaths(path);
       return entry.isFile() && entry.name.endsWith('.md') ? [path] : [];
     })
   );
-  return paths.flat().sort();
+  // Code-point order keeps output stable across host locales.
+  return paths.flat().sort((a, b) => (a < b ? -1 : Number(a > b)));
 }
 
 async function loadMarkdown<T>(sourcePath: string, schema: z.ZodType<T>) {
@@ -64,7 +66,7 @@ async function loadMarkdown<T>(sourcePath: string, schema: z.ZodType<T>) {
     return { ...result.data, body: sections.body, sourcePath };
   } catch (cause) {
     recordDiagnostic('story-loading', cause);
-    const detail = cause instanceof Error ? cause.message : String(cause);
+    const detail = cause instanceof Error ? cause.message : inspect(cause);
     throw new Error(`Invalid Markdown file "${sourcePath}": ${detail}`, { cause });
   }
 }

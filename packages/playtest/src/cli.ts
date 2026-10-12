@@ -36,6 +36,7 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
       headed: { type: 'boolean', default: false },
       model: { type: 'string' },
       provider: { type: 'string' },
+      seed: { type: 'string' },
       adapter: { type: 'string', default: DEFAULT_ADAPTER },
       'run-dir': { type: 'string' },
     },
@@ -100,6 +101,7 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
         model: values.model,
         provider: values.provider,
         runDir,
+        seed: values.seed,
       });
       console.log(`Playtest reports: ${join(summary.runDir, 'summary.html')}`);
       console.log(JSON.stringify(summary.outcomeCounts));
@@ -137,9 +139,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 }
 
 if (import.meta.main) {
-  main().catch(error => {
+  try {
+    await main();
+  } catch (error) {
     recordDiagnostic('cli-exit', error);
     console.error(error instanceof Error ? error.message : 'Playtest failed.');
     process.exitCode = 1;
-  });
+  }
 }

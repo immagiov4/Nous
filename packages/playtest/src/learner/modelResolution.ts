@@ -20,7 +20,7 @@ const entrySchema = z.object({
   top_provider: z.object({ max_completion_tokens: z.number().int().positive() }),
   supported_parameters: z.array(z.string()).optional(),
 });
-const catalogueSchema = z.object({ data: z.array(z.object({ id: z.string() }).passthrough()) });
+const catalogueSchema = z.object({ data: z.array(z.looseObject({ id: z.string() })) });
 
 /** Only text/image inputs are supported by Pi; prices are expressed per million tokens. */
 export function mapOpenRouterModel(entry: unknown): PricedModel<'openai-completions'> {

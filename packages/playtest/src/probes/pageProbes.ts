@@ -29,7 +29,9 @@ export type ProbeSignal =
   | { kind: 'contrast'; selector: string; ratio: number }
   | { kind: 'console-error'; message: string };
 
-export type ProbeWindow = typeof globalThis & { __playtestProbes?: { drain(): ProbeSignal[] } };
+export type ProbeWindow = typeof globalThis & {
+  __playtestProbes?: { drain(): ProbeSignal[]; resetGeometry(): void };
+};
 
 /** Self-contained browser code: Playwright serializes this function for each new document. */
 export function initializePageProbes(): void {
@@ -76,30 +78,7 @@ export function initializePageProbes(): void {
     for (let current: Element | null = element; current; current = current.parentElement) {
       const style = getComputedStyle(current);
       const rect = current.getBoundingClientRect();
-      const inset = /^inset\(([-\d.]+)(%|px)\)$/.exec(style.clipPath);
-      if (inset) {
-        // CSS inset() clips all four sides; 50% leaves an empty painted rectangle.
-        const offset = Number(inset[1]);
-        const horizontal = inset[2] === '%' ? (rect.width * offset) / 100 : offset;
-        const vertical = inset[2] === '%' ? (rect.height * offset) / 100 : offset;
-        box = intersection(box, {
-          left: rect.left + horizontal,
-          right: rect.right - horizontal,
-          top: rect.top + vertical,
-          bottom: rect.bottom - vertical,
-        });
-      }
-      if (style.clip !== 'auto') {
-        const offsets = style.clip.match(/-?\d+(?:\.\d+)?/g)?.map(Number);
-        if (offsets?.length === 4) {
-          box = intersection(box, {
-            top: rect.top + offsets[0],
-            right: rect.left + offsets[1],
-            bottom: rect.top + offsets[2],
-            left: rect.left + offsets[3],
-          });
-        }
-      }
+      box = clipBox(box, style, rect);
       if (current === element) continue;
       if (style.overflowX !== 'visible')
         box = intersection(box, { ...box, left: rect.left, right: rect.right });
@@ -107,6 +86,36 @@ export function initializePageProbes(): void {
         box = intersection(box, { ...box, top: rect.top, bottom: rect.bottom });
     }
     return area(box) > 0 ? box : undefined;
+  }
+
+  function clipBox(box: Box, style: CSSStyleDeclaration, rect: DOMRect): Box {
+    const inset = /^inset\(([-\d.]+)(%|px)\)$/.exec(style.clipPath);
+    if (inset) {
+      // CSS inset() clips all four sides; 50% leaves an empty painted rectangle.
+      const offset = Number(inset[1]);
+      const horizontal = inset[2] === '%' ? (rect.width * offset) / 100 : offset;
+      const vertical = inset[2] === '%' ? (rect.height * offset) / 100 : offset;
+      box = intersection(box, {
+        left: rect.left + horizontal,
+        right: rect.right - horizontal,
+        top: rect.top + vertical,
+        bottom: rect.bottom - vertical,
+      });
+    }
+    // Apps still use deprecated CSS clip for screen-reader-only text.
+    const clip = style.clip;
+    if (clip !== 'auto') {
+      const offsets = clip.match(/-?\d+(?:\.\d+)?/g)?.map(Number);
+      if (offsets?.length === 4) {
+        box = intersection(box, {
+          top: rect.top + offsets[0],
+          right: rect.left + offsets[1],
+          bottom: rect.top + offsets[2],
+          left: rect.left + offsets[3],
+        });
+      }
+    }
+    return box;
   }
 
   type Color = { channels: number[]; alpha: number };
@@ -123,13 +132,24 @@ export function initializePageProbes(): void {
     );
   }
 
+  // WCAG sRGB conversion constants stay inside the serialized browser initializer.
+  const srgb = {
+    channelMaximum: 255,
+    linearLimit: 0.04045,
+    linearDivisor: 12.92,
+    offset: 0.055,
+    divisor: 1.055,
+    exponent: 2.4,
+    weights: [0.2126, 0.7152, 0.0722],
+  };
   function luminance(channels: number[]): number {
-    // WCAG relative luminance uses standardized sRGB conversion and channel weights.
     const linear = channels.map(channel => {
-      const srgb = channel / 255;
-      return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
+      const normalized = channel / srgb.channelMaximum;
+      return normalized <= srgb.linearLimit
+        ? normalized / srgb.linearDivisor
+        : ((normalized + srgb.offset) / srgb.divisor) ** srgb.exponent;
     });
-    return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+    return linear.reduce((sum, channel, index) => sum + channel * srgb.weights[index], 0);
   }
 
   function contrast(element: Element): number | undefined {
@@ -146,7 +166,8 @@ export function initializePageProbes(): void {
       if (background.alpha === 1) break;
     }
     let background = [255, 255, 255]; // Chromium's default document canvas.
-    for (const layer of layers.reverse()) background = composite(layer, background);
+    layers.reverse();
+    for (const layer of layers) background = composite(layer, background);
     const foregroundLuminance = luminance(composite(foreground, background));
     const backgroundLuminance = luminance(background);
     return (
@@ -155,11 +176,17 @@ export function initializePageProbes(): void {
     );
   }
 
-  function geometry(): ProbeSignal[] {
-    const facts: ProbeSignal[] = [];
+  type GeometryEntry = {
+    element: Element;
+    box: Box;
+    selector: string;
+    text: string;
+    overlapCandidate: boolean;
+  };
+  function visibleGeometry(): GeometryEntry[] {
     const interactiveSelector =
       'a, button, input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="slider"], [role="tab"], [role="menuitem"], [tabindex]';
-    const visible = Array.from(document.querySelectorAll('*')).flatMap(element => {
+    return Array.from(document.querySelectorAll('*')).flatMap(element => {
       const box = visibleBox(element);
       if (!box) return [];
       const text = Array.from(element.childNodes)
@@ -179,6 +206,9 @@ export function initializePageProbes(): void {
         },
       ];
     });
+  }
+  function textFacts(visible: GeometryEntry[]): ProbeSignal[] {
+    const facts: ProbeSignal[] = [];
     for (const entry of visible) {
       const { element, text } = entry;
       if (!text) continue;
@@ -197,33 +227,46 @@ export function initializePageProbes(): void {
       const ratio = contrast(element);
       if (ratio !== undefined) facts.push({ kind: 'contrast', selector: entry.selector, ratio });
     }
+    return facts;
+  }
+  function overlapFact(a: GeometryEntry, b: GeometryEntry): ProbeSignal | undefined {
+    if (a.element.contains(b.element) || b.element.contains(a.element)) return;
+    const overlap = intersection(a.box, b.box);
+    const areaPx = area(overlap);
+    if (areaPx <= 0) return;
+    const onTop = document.elementFromPoint(
+      (overlap.left + overlap.right) / 2,
+      (overlap.top + overlap.bottom) / 2
+    );
+    const covered = onTop
+      ? [a, b].filter(entry => !entry.element.contains(onTop)).map(entry => entry.selector)
+      : [];
+    return {
+      kind: 'overlap',
+      a: a.selector,
+      b: b.selector,
+      areaPx,
+      covered,
+      onTop: onTop ? selector(onTop) : null,
+    };
+  }
+  function overlapFacts(visible: GeometryEntry[]): ProbeSignal[] {
+    const facts: ProbeSignal[] = [];
     // Only text-bearing or interactive elements seed comparisons; decorative pairs are never scanned.
     for (const [index, candidate] of visible.entries()) {
       if (!candidate.overlapCandidate) continue;
       for (const [otherIndex, other] of visible.entries()) {
         if (index === otherIndex || (other.overlapCandidate && otherIndex < index)) continue;
         const [a, b] = index < otherIndex ? [candidate, other] : [other, candidate];
-        if (a.element.contains(b.element) || b.element.contains(a.element)) continue;
-        const overlap = intersection(a.box, b.box);
-        const areaPx = area(overlap);
-        if (areaPx <= 0) continue;
-        const onTop = document.elementFromPoint(
-          (overlap.left + overlap.right) / 2,
-          (overlap.top + overlap.bottom) / 2
-        );
-        const covered = onTop
-          ? [a, b].filter(entry => !entry.element.contains(onTop)).map(entry => entry.selector)
-          : [];
-        facts.push({
-          kind: 'overlap',
-          a: a.selector,
-          b: b.selector,
-          areaPx,
-          covered,
-          onTop: onTop ? selector(onTop) : null,
-        });
+        const fact = overlapFact(a, b);
+        if (fact) facts.push(fact);
       }
     }
+    return facts;
+  }
+  function geometry(): ProbeSignal[] {
+    const visible = visibleGeometry();
+    const facts = [...textFacts(visible), ...overlapFacts(visible)];
     const documentWidth = document.documentElement.scrollWidth;
     const viewportWidth = document.documentElement.clientWidth;
     if (documentWidth > viewportWidth)
@@ -361,44 +404,47 @@ export function initializePageProbes(): void {
   };
   type EventEntry = PerformanceEntry & { target?: Node; targetSelector?: string };
 
+  function recordShift(shift: ShiftEntry): void {
+    const sources = shift.sources.flatMap(source => {
+      const element = source.node instanceof Element ? source.node : source.node?.parentElement;
+      const inViewport =
+        area(intersection(source.previousRect, viewportBox())) > 0 ||
+        area(intersection(source.currentRect, viewportBox())) > 0;
+      return element && inViewport ? [selector(element)] : [];
+    });
+    if (shift.sources.length && !sources.length) return;
+    signals.push({
+      kind: 'layout-shift',
+      value: shift.value,
+      hadRecentInput: shift.hadRecentInput,
+      sources,
+    });
+  }
+  function timingTarget(timing: EventEntry): string | undefined {
+    if (timing.targetSelector) return timing.targetSelector;
+    if (timing.target instanceof Element)
+      return pointerSelectors.get(timing.target) ?? selector(timing.target);
+    if (['pointerdown', 'pointerup', 'click'].includes(timing.name)) {
+      const recentTargets = pointerTargets.slice();
+      recentTargets.reverse();
+      return recentTargets.find(target => target.startTime <= timing.startTime)?.selector;
+    }
+    return undefined;
+  }
+  function recordTiming(timing: EventEntry): void {
+    const target = timingTarget(timing);
+    if (!target) return;
+    signals.push({
+      kind: 'interaction-latency',
+      durationMs: timing.duration,
+      eventType: timing.name,
+      target,
+    });
+  }
   function recordEntries(entries: PerformanceEntry[]): void {
     for (const entry of entries) {
-      if (entry.entryType === 'layout-shift') {
-        const shift = entry as ShiftEntry;
-        const sources = shift.sources.flatMap(source => {
-          const element = source.node instanceof Element ? source.node : source.node?.parentElement;
-          const inViewport =
-            area(intersection(source.previousRect, viewportBox())) > 0 ||
-            area(intersection(source.currentRect, viewportBox())) > 0;
-          return element && inViewport ? [selector(element)] : [];
-        });
-        if (shift.sources.length && !sources.length) continue;
-        signals.push({
-          kind: 'layout-shift',
-          value: shift.value,
-          hadRecentInput: shift.hadRecentInput,
-          sources,
-        });
-      } else {
-        const timing = entry as EventEntry;
-        const target =
-          timing.targetSelector ||
-          (timing.target instanceof Element
-            ? (pointerSelectors.get(timing.target) ?? selector(timing.target))
-            : ['pointerdown', 'pointerup', 'click'].includes(timing.name)
-              ? pointerTargets
-                  .slice()
-                  .reverse()
-                  .find(target => target.startTime <= timing.startTime)?.selector
-              : undefined);
-        if (!target) continue;
-        signals.push({
-          kind: 'interaction-latency',
-          durationMs: timing.duration,
-          eventType: timing.name,
-          target,
-        });
-      }
+      if (entry.entryType === 'layout-shift') recordShift(entry as ShiftEntry);
+      else recordTiming(entry as EventEntry);
     }
   }
   const observers = ['layout-shift', 'event'].map(type => {
@@ -409,6 +455,9 @@ export function initializePageProbes(): void {
   });
 
   probeWindow.__playtestProbes = {
+    resetGeometry() {
+      previousGeometry.clear();
+    },
     drain() {
       for (const observer of observers) recordEntries(observer.takeRecords());
       reportGesture();

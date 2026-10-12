@@ -13,10 +13,10 @@ function escapeHtml(text: string): string {
   );
 }
 function escapeMarkdown(text: string): string {
-  return escapeHtml(text.replace(/[\\`*_{}[\]()#+.!|~:-]/g, '\\$&'));
+  return escapeHtml(text.replace(/[\\`*_{}[\]()#+.!|~:-]/g, String.raw`\$&`));
 }
 function evidenceLink(from: string, path: string): string {
-  return relative(from, path).split('\\').join('/').split('/').map(encodeURIComponent).join('/');
+  return relative(from, path).replaceAll('\\', '/').split('/').map(encodeURIComponent).join('/');
 }
 function findingMarkdown(finding: InspectorFinding, dir: string): string {
   return `### ${escapeMarkdown(finding.taxonomyClass)}: ${escapeMarkdown(finding.title)}\n\n${escapeMarkdown(finding.trigger)}\n\nExpected: ${escapeMarkdown(finding.expected)}\n\nActual: ${escapeMarkdown(finding.actual)}\n\nStep ${finding.stepIndex}: [Screenshot](${evidenceLink(dir, finding.screenshotPath)})`;
@@ -81,20 +81,42 @@ export async function writeStoryReports(input: {
   await writeFile(join(dir, 'story.md'), `${sections.join('\n\n')}\n`);
 }
 
+function findingList(findings: InspectorFinding[], runDir: string): string {
+  const entries = findings
+    .map(
+      finding =>
+        `<li>${escapeHtml(finding.taxonomyClass)}: ${escapeHtml(finding.title)} (step ${finding.stepIndex}, <a href="${evidenceLink(runDir, finding.screenshotPath)}">screenshot</a>)</li>`
+    )
+    .join('');
+  return `<ul>${entries}</ul>`;
+}
+
+function summaryRow(record: StoryRunRecord, runDir: string): string {
+  const reportDir = dirname(record.reportPath);
+  const reason = record.reason ? `<p>${escapeHtml(record.reason)}</p>` : '';
+  const estimated = record.costEstimated ? ' (estimated)' : '';
+  const usage = record.modelUsage
+    ? `USD ${record.modelUsage.total.cost.total.toFixed(6)} (${record.modelUsage.total.totalTokens} tokens)${estimated}`
+    : 'Unavailable';
+  const probes = findingList(
+    record.findings.filter(finding => finding.source === 'probe'),
+    runDir
+  );
+  const judges = findingList(
+    record.findings.filter(finding => finding.source === 'judge'),
+    runDir
+  );
+  const friction = record.friction.map(text => `<li>${escapeHtml(text)}</li>`).join('');
+  return `<tr><td><a href="${evidenceLink(runDir, join(reportDir, 'story.md'))}">${escapeHtml(record.storyId)}</a> (${record.viewport})</td><td>${record.outcome}${reason}</td><td>${record.elapsedMs?.toFixed(1) ?? 'Unavailable'}</td><td>${usage}</td><td>${probes}</td><td>${judges}</td><td><ul>${friction}</ul></td></tr>`;
+}
+
 /** The HTML summary escapes adapter and learner text and links to local evidence reports. */
 export async function writeSummaryReports(summary: RunSummary): Promise<void> {
   await mkdir(summary.runDir, { recursive: true });
   const counts = Object.entries(summary.outcomeCounts)
     .map(([outcome, count]) => `<li>${outcome}: ${count}</li>`)
     .join('');
-  const rows = summary.records
-    .map(record => {
-      const reportDir = dirname(record.reportPath);
-      const list = (findings: InspectorFinding[]) =>
-        `<ul>${findings.map(finding => `<li>${escapeHtml(finding.taxonomyClass)}: ${escapeHtml(finding.title)} (step ${finding.stepIndex}, <a href="${evidenceLink(summary.runDir, finding.screenshotPath)}">screenshot</a>)</li>`).join('')}</ul>`;
-      return `<tr><td><a href="${evidenceLink(summary.runDir, join(reportDir, 'story.md'))}">${escapeHtml(record.storyId)}</a> (${record.viewport})</td><td>${record.outcome}${record.reason ? `<p>${escapeHtml(record.reason)}</p>` : ''}</td><td>${record.elapsedMs?.toFixed(1) ?? 'Unavailable'}</td><td>${record.modelUsage ? `USD ${record.modelUsage.total.cost.total.toFixed(6)} (${record.modelUsage.total.totalTokens} tokens)${record.costEstimated ? ' (estimated)' : ''}` : 'Unavailable'}</td><td>${list(record.findings.filter(finding => finding.source === 'probe'))}</td><td>${list(record.findings.filter(finding => finding.source === 'judge'))}</td><td><ul>${record.friction.map(text => `<li>${escapeHtml(text)}</li>`).join('')}</ul></td></tr>`;
-    })
-    .join('');
+  const rows = summary.records.map(record => summaryRow(record, summary.runDir)).join('');
   await writeFile(join(summary.runDir, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
   await writeFile(
     join(summary.runDir, 'summary.html'),

@@ -4,16 +4,38 @@ import { type Browser, devices, type JSHandle } from 'playwright';
 import type { ObservedEvent } from '../adapter';
 import { recordDiagnostic } from '../diagnostics';
 import { collectSignals, drainConsoleSignals, installProbes } from '../probes/collect';
-import type { ProbeSignal } from '../probes/pageProbes';
+import type { ProbeSignal, ProbeWindow } from '../probes/pageProbes';
 import type { Viewport } from '../types';
 import { type ActionResult, executeAction, type LearnerAction } from './actions';
-import { type Observation, observePage } from './observe';
+import {
+  initializeCaptureCounter,
+  type Observation,
+  type OperatorWindow,
+  observePage,
+} from './observe';
 import { VIEWPORTS } from './viewports';
 
 export type { ActionResult, LearnerAction } from './actions';
 export type { Observation } from './observe';
 
 const SCREENSHOT_CAPTURE_RETRIES = 1;
+
+function waitForPaint(): Promise<void> {
+  return new Promise(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  );
+}
+
+function captureVersion(): number {
+  const capture = (globalThis as OperatorWindow).__playtestCapture;
+  if (!capture) throw new Error('Capture counter must be installed before observation.');
+  capture.version += capture.count(capture.observer.takeRecords());
+  return capture.version;
+}
+
+function isGeometrySignal(signal: ProbeSignal): boolean {
+  return ['clipped-text', 'overlap', 'contrast', 'horizontal-overflow'].includes(signal.kind);
+}
 
 export type OperatorSession = {
   observe(): Promise<Observation>;
@@ -56,6 +78,7 @@ export async function openOperatorSession(options: {
     });
     await context.tracing.start({ screenshots: true, snapshots: true });
     const page = await context.newPage();
+    await page.addInitScript(initializeCaptureCounter);
     await installProbes(page);
     await page.goto(baseUrl);
     let lastObservation: Observation | undefined;
@@ -74,14 +97,10 @@ export async function openOperatorSession(options: {
         try {
           await page.waitForLoadState('load');
           // Let dispatched input paint; a navigation here invalidates capture, not the action.
-          await page.evaluate(
-            () =>
-              new Promise<void>(resolve =>
-                requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-              )
-          );
+          await page.evaluate(waitForPaint);
           const version = documentVersion;
           capturedDocument = await page.evaluateHandle(() => document);
+          const before = await capturedDocument.evaluate(captureVersion);
           const observation = await observePage({
             page,
             stepIndex: currentStep,
@@ -90,6 +109,19 @@ export async function openOperatorSession(options: {
           });
           if (version !== documentVersion) throw new Error('Document changed during capture.');
           const signals = await collectSignals(page, capturedDocument);
+          const unstable = before !== (await capturedDocument.evaluate(captureVersion));
+          if (unstable && captureRetries < SCREENSHOT_CAPTURE_RETRIES) {
+            capturedSignals = [
+              ...(capturedSignals ?? []),
+              ...signals.filter(signal => !isGeometrySignal(signal)),
+            ];
+            await capturedDocument.evaluate(() =>
+              (globalThis as ProbeWindow).__playtestProbes?.resetGeometry()
+            );
+            captureRetries++;
+            continue;
+          }
+          if (unstable) observation.diagnostics = { capture: { unstable: true } };
           capturedSignals = [...(capturedSignals ?? []), ...signals];
           lastObservation = observation;
           return observation;
@@ -97,8 +129,6 @@ export async function openOperatorSession(options: {
           recordDiagnostic('capture', error);
           if (captureRetries === SCREENSHOT_CAPTURE_RETRIES) throw error;
           captureRetries++;
-          if (error instanceof Error && error.message.includes('Execution context was destroyed'))
-            await page.waitForLoadState('load');
         } finally {
           await capturedDocument?.dispose();
         }

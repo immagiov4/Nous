@@ -1,6 +1,6 @@
-import { randomInt } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { type Browser, chromium } from 'playwright';
 import type { ObservedEvent, PlaytestAdapter, StopVerdict } from './adapter';
 import { type DiagnosticRecord, recordDiagnostic, withDiagnostics } from './diagnostics';
@@ -40,6 +40,7 @@ export type StoryRunRecord = {
 };
 export type RunSummary = {
   runDir: string;
+  seed: string;
   records: StoryRunRecord[];
   outcomeCounts: Record<StoryOutcome, number>;
   costEstimated?: true;
@@ -54,11 +55,67 @@ type RunOptions = {
   model: string;
   provider: string;
   runDir: string;
+  seed?: string;
   sourceFactory?: () => DecisionSource;
 };
 export type StepProbeSignal = Pick<Observation, 'stepIndex' | 'screenshotPath'> & {
   signal: ProbeSignal;
 };
+
+/** Keyed selection is independent of worker order; rejection sampling preserves uniform choice. */
+export function selectAffect(input: {
+  seed: string;
+  story: Story;
+  viewport: Viewport;
+  persona?: Persona;
+}): string | undefined {
+  const { seed, story, viewport, persona } = input;
+  const pinned = story.requires.affect;
+  if (pinned !== undefined) {
+    if (typeof pinned !== 'string' || !persona?.affects?.includes(pinned))
+      throw new Error('Pinned affect must be one of the story persona’s listed affects.');
+    return pinned;
+  }
+  const affects = persona?.affects;
+  if (!affects) return undefined;
+  const uint32Range = 2 ** 32;
+  const acceptanceRange = uint32Range - (uint32Range % affects.length);
+  for (let attempt = 0; ; attempt++) {
+    const sample = createHash('sha256')
+      .update(JSON.stringify([seed, story.id, viewport, attempt]))
+      .digest()
+      .readUInt32BE(0);
+    if (sample < acceptanceRange) return affects[sample % affects.length];
+  }
+}
+
+/** Context closure precedes adapter cleanup on every prepared story path. */
+async function closePreparedStory(input: {
+  session?: OperatorSession;
+  prepared: Awaited<ReturnType<PlaytestAdapter['prepare']>>;
+  record: StoryRunRecord;
+}): Promise<string | undefined> {
+  let tracePath: string | undefined;
+  const { session, prepared, record } = input;
+  if (session) {
+    try {
+      ({ tracePath } = await session.close());
+    } catch (error) {
+      recordDiagnostic('trace', error);
+      record.outcome = 'operator-failure';
+      record.reason = 'The harness could not save the browser trace.';
+    }
+  }
+  try {
+    await prepared.cleanup?.();
+  } catch (error) {
+    recordDiagnostic('cleanup', error);
+    record.outcome = 'operator-failure';
+    record.cleanupError = 'The adapter could not clean up the synthetic story account.';
+    record.reason = record.cleanupError;
+  }
+  return tracePath;
+}
 
 /** Drain at each operator boundary, before the learner can request another action. */
 function withProbeEvidence(
@@ -136,8 +193,15 @@ async function runStoryWithUsage(
   };
   return withDiagnostics(record, async () => {
     let prepared: Awaited<ReturnType<PlaytestAdapter['prepare']>>;
+    const persona = story.persona ? options.personas.get(story.persona) : undefined;
     try {
       if (input.stackFailure !== undefined) throw new Error(input.stackFailure);
+      record.affect = selectAffect({
+        seed: options.seed ?? basename(resolve(options.runDir)),
+        story,
+        viewport,
+        persona,
+      });
       prepared = await options.adapter.prepare(story, viewport);
     } catch (error) {
       recordDiagnostic('preparation', error);
@@ -183,10 +247,6 @@ async function runStoryWithUsage(
         runDir: storyDir,
         onEvent,
       });
-      const persona = story.persona ? options.personas.get(story.persona) : undefined;
-      record.affect = persona?.affects
-        ? persona.affects[randomInt(persona.affects.length)]
-        : undefined;
       learner = await runLearner({
         story,
         persona:
@@ -218,23 +278,7 @@ async function runStoryWithUsage(
       record.outcome = 'operator-failure';
       record.reason = 'The harness could not execute the story.';
     } finally {
-      if (session) {
-        try {
-          ({ tracePath } = await session.close());
-        } catch (error) {
-          recordDiagnostic('trace', error);
-          record.outcome = 'operator-failure';
-          record.reason = 'The harness could not save the browser trace.';
-        }
-      }
-      try {
-        await prepared.cleanup?.();
-      } catch (error) {
-        recordDiagnostic('cleanup', error);
-        record.outcome = 'operator-failure';
-        record.cleanupError = 'The adapter could not clean up the synthetic story account.';
-        record.reason = record.cleanupError;
-      }
+      tracePath = await closePreparedStory({ session, prepared, record });
     }
     if (stopped) {
       record.outcome = 'app-error';
@@ -317,10 +361,11 @@ async function saveStory(input: Parameters<typeof writeStoryReports>[0]): Promis
 /** One browser per worker, one context per story×viewport; results retain deterministic order. */
 export async function runPlaytest(options: RunOptions): Promise<RunSummary> {
   const run: DiagnosticRecord = {};
-  return withDiagnostics(run, () => executePlaytest(options, run));
+  const seeded = { ...options, seed: options.seed ?? basename(resolve(options.runDir)) };
+  return withDiagnostics(run, () => executePlaytest(seeded, run));
 }
 
-async function executePlaytest(options: RunOptions, run: DiagnosticRecord): Promise<RunSummary> {
+function storyJobs(options: RunOptions) {
   if (!Number.isSafeInteger(options.concurrency) || options.concurrency <= 0) {
     throw new Error('Concurrency must be a positive integer.');
   }
@@ -340,6 +385,11 @@ async function executePlaytest(options: RunOptions, run: DiagnosticRecord): Prom
       throw new Error(`Unknown persona: ${story.persona}.`);
     }
   }
+  return jobs;
+}
+
+async function executePlaytest(options: RunOptions, run: DiagnosticRecord): Promise<RunSummary> {
+  const jobs = storyJobs(options);
   let stackFailure: string | undefined;
   try {
     await options.adapter.ensureStack();
@@ -391,6 +441,7 @@ async function executePlaytest(options: RunOptions, run: DiagnosticRecord): Prom
           JSON.stringify(
             {
               ...run,
+              seed: options.seed,
               records: records.filter(Boolean),
               reason: 'The harness could not complete its workers.',
             },
@@ -414,6 +465,7 @@ async function executePlaytest(options: RunOptions, run: DiagnosticRecord): Prom
   for (const record of records) outcomeCounts[record.outcome]++;
   const summary: RunSummary = {
     runDir: options.runDir,
+    seed: options.seed as string,
     records,
     outcomeCounts,
     ...run,

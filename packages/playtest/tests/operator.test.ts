@@ -53,6 +53,67 @@ function ref(observation: Observation, name: string): string {
 }
 
 describe('operator', () => {
+  it('keeps static editable fields and privacy masks from invalidating a capture', async () => {
+    const page = await fixture(
+      '<input type="email"><input type="password"><textarea></textarea><p style="pointer-events:none">Hint</p><button>Continue</button>'
+    );
+    const screenshot = vi.spyOn(page, 'screenshot');
+    const observation = await session.observe();
+    expect(observation.diagnostics).toBeUndefined();
+    expect(screenshot).toHaveBeenCalledTimes(1);
+    expect(observation.nodes.map(node => node.name)).toContain('Hint');
+  });
+  it.each([
+    'once',
+    'always',
+  ] as const)('recaptures same-document mutations %s and diagnoses continued instability', async frequency => {
+    const page = await fixture(
+      '<button>Before mutation</button><span style="display:inline-block;width:20px;white-space:nowrap;overflow:hidden">Before clipped label</span>'
+    );
+    const screenshot = page.screenshot.bind(page);
+    let captures = 0;
+    vi.spyOn(page, 'screenshot').mockImplementation(async options => {
+      if (captures++ === 0 || frequency === 'always') {
+        await page.evaluate(count => {
+          const button = document.querySelector('button');
+          const span = document.querySelector('span');
+          if (!button || !span) throw new Error('Capture fixture must contain button and span');
+          button.textContent = `Changed ${count}`;
+          span.textContent = `Clipped label ${count}`;
+        }, captures);
+      }
+      return screenshot(options);
+    });
+    const observation = await session.observe();
+    expect(page.screenshot).toHaveBeenCalledTimes(2);
+    expect(observation.nodes.some(node => node.name === 'Changed 1')).toBe(true);
+    expect(observation.diagnostics?.capture.unstable).toBe(
+      frequency === 'always' ? true : undefined
+    );
+    const signals = await session.signals();
+    expect(signals.filter(signal => signal.kind === 'clipped-text')).toEqual([
+      expect.objectContaining({
+        text: frequency === 'always' ? 'Clipped label 2' : 'Clipped label 1',
+      }),
+    ]);
+  });
+
+  it.each([
+    'desktop',
+    'mobile',
+  ] as const)('references and activates a partly visible, partly covered control on %s', async viewport => {
+    const page = await fixture(
+      '<button style="position:fixed;left:-180px;top:100px;width:200px;height:40px" onclick="this.dataset.clicked=true">Partly visible</button><div style="position:fixed;left:5px;top:100px;width:15px;height:40px;background:white"></div>',
+      viewport
+    );
+    const observation = await session.observe();
+    const button = observation.nodes.find(node => node.role === 'button');
+    assert(button?.point, 'Partly visible control must have an uncovered point');
+    expect(button.point.x).toBeGreaterThan(0);
+    expect(button.point.x).toBeLessThan(5);
+    expect((await session.act({ type: 'click', ref: button.ref })).status).toBe('ok');
+    expect(await page.locator('button').getAttribute('data-clicked')).toBe('true');
+  });
   it('reobserves when post-action document acquisition loses its execution context', async () => {
     const page = await fixture('<button>Continue</button>');
     const observation = await session.observe();

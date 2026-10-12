@@ -40,6 +40,54 @@ function learnerObservation(observation: Observation): LearnerObservation {
   return { stepIndex, screenshotPath, nodes };
 }
 
+function learnerHistory(turns: LearnerTurn[]): LearnerInput['history'] {
+  return turns.map(turn => ({
+    decision: turn.decision,
+    ...(turn.result
+      ? { result: { ...turn.result, observation: learnerObservation(turn.result.observation) } }
+      : {}),
+  }));
+}
+
+/** Records one decision and its observable effects; failures retain the already recorded turn. */
+async function recordTurn(
+  result: LearnerRunResult,
+  decision: LearnerDecision,
+  operator: OperatorSession
+): Promise<boolean> {
+  const turn: LearnerTurn = { decision };
+  result.turns.push(turn);
+  switch (decision.type) {
+    case 'act':
+      turn.result = await operator.act(decision.action);
+      result.observations.push(turn.result.observation);
+      break;
+    case 'diary':
+      result.diary.push(decision.entry);
+      break;
+    case 'report-friction':
+      result.friction.push(decision.text);
+      break;
+    case 'stop':
+      result.outcome = decision.reason;
+      return true;
+  }
+  return false;
+}
+
+function learnerFailure(input: {
+  result: LearnerRunResult;
+  stage: string;
+  error: unknown;
+  shouldStop: () => string | undefined;
+  reason?: string;
+}): LearnerRunResult {
+  recordDiagnostic(input.stage, input.error);
+  input.result.outcome = input.shouldStop() === undefined ? 'operator-failure' : 'app-error';
+  if (input.reason) input.result.reason = input.reason;
+  return input.result;
+}
+
 /** The caller owns operator cleanup. Each decision, including diary entries, consumes a step. */
 export async function runLearner(input: {
   story: Story;
@@ -66,9 +114,7 @@ export async function runLearner(input: {
     observation = await input.operator.observe();
     result.observations.push(observation);
   } catch (error) {
-    recordDiagnostic('observation', error);
-    result.outcome = appStopped() ? 'app-error' : 'operator-failure';
-    return result;
+    return learnerFailure({ result, stage: 'observation', error, shouldStop: input.shouldStop });
   }
   const systemPrompt = buildLearnerPrompt(input);
   while (result.turns.length < input.story.budget.steps) {
@@ -77,49 +123,24 @@ export async function runLearner(input: {
     try {
       decision = await input.source.decide({
         systemPrompt,
-        history: result.turns.map(turn => ({
-          decision: turn.decision,
-          ...(turn.result
-            ? {
-                result: {
-                  ...turn.result,
-                  observation: learnerObservation(turn.result.observation),
-                },
-              }
-            : {}),
-        })),
+        history: learnerHistory(result.turns),
         observation: learnerObservation(observation),
       });
     } catch (error) {
-      recordDiagnostic('decision', error);
-      result.outcome = appStopped() ? 'app-error' : 'operator-failure';
-      result.reason = 'The learner could not obtain its next decision.';
-      return result;
+      return learnerFailure({
+        result,
+        stage: 'decision',
+        error,
+        shouldStop: input.shouldStop,
+        reason: 'The learner could not obtain its next decision.',
+      });
     }
     if (appStopped()) return result;
-    const turn: LearnerTurn = { decision };
-    result.turns.push(turn);
-    switch (decision.type) {
-      case 'act':
-        try {
-          turn.result = await input.operator.act(decision.action);
-          observation = turn.result.observation;
-          result.observations.push(observation);
-        } catch (error) {
-          recordDiagnostic('action', error);
-          result.outcome = appStopped() ? 'app-error' : 'operator-failure';
-          return result;
-        }
-        break;
-      case 'diary':
-        result.diary.push(decision.entry);
-        break;
-      case 'report-friction':
-        result.friction.push(decision.text);
-        break;
-      case 'stop':
-        result.outcome = decision.reason;
-        return result;
+    try {
+      if (await recordTurn(result, decision, input.operator)) return result;
+      observation = result.turns.at(-1)?.result?.observation ?? observation;
+    } catch (error) {
+      return learnerFailure({ result, stage: 'action', error, shouldStop: input.shouldStop });
     }
     if (appStopped()) return result;
   }

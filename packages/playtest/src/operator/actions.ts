@@ -43,41 +43,51 @@ async function actOnElement(
   options: {
     credentials: { email: string; password: string };
     observedBox?: VisibleNode['box'];
+    observedPoint?: VisibleNode['point'];
     mobile: boolean;
   }
 ): Promise<ActionExecution> {
-  const target = await element.evaluate((element, observedBox) => {
-    if (!element.isConnected) return { status: 'stale-reference' as const };
-    const box = element.getBoundingClientRect();
-    const currentBox = { x: box.x, y: box.y, w: box.width, h: box.height };
-    const pointBox = observedBox ?? currentBox;
-    const x = pointBox.x + pointBox.w / 2;
-    const y = pointBox.y + pointBox.h / 2;
-    const top = document.elementFromPoint(x, y);
-    if (observedBox && !(top && (element === top || element.contains(top)))) {
-      return {
-        status: 'target-moved' as const,
-        observedBox,
-        currentBox,
-        detail: 'The observed point no longer hits the referenced element.',
-      };
-    }
-    if (
-      !element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) ||
-      box.width <= 0 ||
-      box.height <= 0 ||
-      x < 0 ||
-      y < 0 ||
-      x >= innerWidth ||
-      y >= innerHeight ||
-      !top ||
-      !(element === top || element.contains(top)) ||
-      element.matches(':disabled, [aria-disabled="true"]')
-    ) {
-      return { status: 'not-actionable' as const };
-    }
-    return { status: 'ok' as const, x, y };
-  }, options.observedBox);
+  const target = await element.evaluate(
+    (element, { observedBox, observedPoint }) => {
+      if (!element.isConnected) return { status: 'stale-reference' as const };
+      const box = element.getBoundingClientRect();
+      const currentBox = { x: box.x, y: box.y, w: box.width, h: box.height };
+      const pointBox = observedBox ?? currentBox;
+      const x =
+        observedPoint?.x ??
+        Math.max(0, pointBox.x) +
+          (Math.min(innerWidth, pointBox.x + pointBox.w) - Math.max(0, pointBox.x)) / 2;
+      const y =
+        observedPoint?.y ??
+        Math.max(0, pointBox.y) +
+          (Math.min(innerHeight, pointBox.y + pointBox.h) - Math.max(0, pointBox.y)) / 2;
+      const top = document.elementFromPoint(x, y);
+      if (observedBox && !(top && (element === top || element.contains(top)))) {
+        return {
+          status: 'target-moved' as const,
+          observedBox,
+          currentBox,
+          detail: 'The observed point no longer hits the referenced element.',
+        };
+      }
+      if (
+        !element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) ||
+        box.width <= 0 ||
+        box.height <= 0 ||
+        x < 0 ||
+        y < 0 ||
+        x >= innerWidth ||
+        y >= innerHeight ||
+        !top ||
+        !(element === top || element.contains(top)) ||
+        element.matches(':disabled, [aria-disabled="true"]')
+      ) {
+        return { status: 'not-actionable' as const };
+      }
+      return { status: 'ok' as const, x, y };
+    },
+    { observedBox: options.observedBox, observedPoint: options.observedPoint }
+  );
   if (target.status !== 'ok') return target;
   const { credentials } = options;
   switch (action.type) {
@@ -121,12 +131,9 @@ async function actOnElement(
   return { status: 'ok' };
 }
 
-/** Resolve identity, never a selector that could silently target a replacement element. */
-export async function executeAction(
+async function executeGlobalAction(
   page: Page,
-  action: LearnerAction,
-  credentials: { email: string; password: string },
-  options: { nodes: VisibleNode[]; mobile: boolean }
+  action: Extract<LearnerAction, { type: 'observe' | 'press' | 'scroll' }>
 ): Promise<ActionExecution> {
   if (action.type === 'observe') return { status: 'ok' };
   if (action.type === 'press') {
@@ -144,21 +151,33 @@ export async function executeAction(
     await page.mouse.wheel(0, action.direction === 'down' ? height : -height);
     return { status: 'ok' };
   }
+  throw new Error('Unknown global action.');
+}
+
+/** Resolve identity, never a selector that could silently target a replacement element. */
+export async function executeAction(
+  page: Page,
+  action: LearnerAction,
+  credentials: { email: string; password: string },
+  options: { nodes: VisibleNode[]; mobile: boolean }
+): Promise<ActionExecution> {
+  if (!('ref' in action)) return executeGlobalAction(page, action);
   const handle = await page.evaluateHandle(
     ref => (globalThis as OperatorWindow).__playtestOperator?.elements.get(ref) ?? null,
     action.ref
   );
   const element = handle.asElement() as ElementHandle<Element> | null;
   try {
-    if (!element || !(await attached(element))) return { status: 'stale-reference' };
+    if (!element) return { status: 'stale-reference' };
     try {
       const pointerAction = action.type === 'click' || action.type === 'drag';
-      const observedBox = options.nodes.find(node => node.ref === action.ref)?.box;
-      if (pointerAction && !observedBox) return { status: 'stale-reference' };
+      const observed = options.nodes.find(node => node.ref === action.ref);
+      if (pointerAction && !observed) return { status: 'stale-reference' };
       return await actOnElement(page, element, action, {
         credentials,
         mobile: options.mobile,
-        observedBox: pointerAction ? observedBox : undefined,
+        observedBox: pointerAction ? observed?.box : undefined,
+        observedPoint: pointerAction ? observed?.point : undefined,
       });
     } catch (error) {
       recordDiagnostic('element-action', error);

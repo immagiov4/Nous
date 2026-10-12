@@ -86,3 +86,36 @@ it('resets only a changed identity-verified isolated database and preserves the 
   );
   expect(command.mock.calls.map(([args]) => args)).not.toContainEqual(['db', 'reset', '--local']);
 });
+
+it('replaces an old generated config only after validating the isolated identity', async () => {
+  const migrations = await fixture();
+  const status = {
+    API_URL: 'http://127.0.0.1:55321',
+    DB_URL: 'postgresql://postgres:test@127.0.0.1:55322/postgres',
+    ANON_KEY: 'test',
+    SERVICE_ROLE_KEY: 'test',
+    JWT_SECRET: 'test',
+  };
+  const command = vi.fn(async (args: string[]) =>
+    args[0] === 'status' ? JSON.stringify(status) : ''
+  );
+  await initializeIsolatedDatabase({ migrations, command });
+  const path = join(root, 'stack', 'supabase', 'config.toml');
+  const generated = await readFile(path, 'utf8');
+  await writeFile(
+    path,
+    generated.replace('site_url = "http://localhost:5173"', 'site_url = "http://localhost:9999"') +
+      '\n# Previous repository generation\n'
+  );
+  await initializeIsolatedDatabase({ migrations, command });
+  expect(await readFile(path, 'utf8')).toBe(generated);
+  command.mockClear();
+  const foreign = generated.replace(
+    'project_id = "nous-playtest"',
+    'project_id = "developer-project"'
+  );
+  await writeFile(path, foreign);
+  await expect(initializeIsolatedDatabase({ migrations, command })).rejects.toThrow();
+  expect(command).not.toHaveBeenCalled();
+  expect(await readFile(path, 'utf8')).toBe(foreign);
+});

@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { chromium } from 'playwright';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { PostgresAccountStore } from '../../../apps/backend/src/account/accountStore';
 import { PostgresProjectStore } from '../../../apps/backend/src/projects/postgresProjectStore';
 import { openOperatorSession } from '../../../packages/playtest/src/operator/session';
 import { runPlaytest } from '../../../packages/playtest/src/runner';
@@ -32,6 +33,9 @@ import {
 } from '../stack';
 
 let temporaryRoot: string | undefined;
+beforeEach(() => {
+  vi.spyOn(PostgresAccountStore.prototype, 'finishSetup').mockResolvedValue();
+});
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -92,6 +96,38 @@ async function createShutdownFixture(name = 'backend'): Promise<string> {
 }
 
 describe('Nous adapter', () => {
+  it('skips account setup through the product store, retaining first-run enrollment when requested', async () => {
+    const userId = crypto.randomUUID();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ id: userId }))
+    );
+    const finish = vi.mocked(PostgresAccountStore.prototype.finishSetup);
+    await prepare(story, 'desktop', status);
+    expect(finish).toHaveBeenCalledExactlyOnceWith(userId, { status: 'skipped' });
+    finish.mockClear();
+    await prepare({ ...story, requires: { onboarding: 'first-run' } }, 'mobile', status);
+    expect(finish).not.toHaveBeenCalled();
+    await expect(
+      prepare({ ...story, requires: { onboarding: 'unknown' } }, 'desktop', status)
+    ).rejects.toThrow();
+  });
+
+  it('cleans up the synthetic account if product account setup fails', async () => {
+    const userId = crypto.randomUUID();
+    const fetcher = vi.fn(async () => Response.json({ id: userId }));
+    vi.stubGlobal('fetch', fetcher);
+    vi.mocked(PostgresAccountStore.prototype.finishSetup).mockRejectedValue(
+      new Error('Setup write failed')
+    );
+    vi.spyOn(PostgresProjectStore.prototype, 'listProjects').mockResolvedValue([]);
+    vi.spyOn(PostgresProjectStore.prototype, 'close').mockResolvedValue();
+    await expect(prepare(story, 'desktop', status)).rejects.toThrow('Setup write failed');
+    expect(fetcher.mock.calls.at(-1)).toEqual([
+      `${status.API_URL}/auth/v1/admin/users/${userId}`,
+      expect.objectContaining({ method: 'DELETE' }),
+    ]);
+  });
   it('restarts both owned app servers on every run while reusing isolated Supabase initialization', async () => {
     const backendPath = await createShutdownFixture();
     if (!temporaryRoot) throw new Error('Shutdown fixture root is missing');

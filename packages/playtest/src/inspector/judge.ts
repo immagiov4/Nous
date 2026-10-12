@@ -58,6 +58,29 @@ async function loadImage(path: string) {
   return { type: 'image' as const, data: (await readFile(path)).toString('base64'), mimeType };
 }
 
+function findingsExtension(result: { findings?: InspectorFinding[] }): ExtensionFactory {
+  return pi => {
+    pi.on('before_agent_start', () => ({ systemPrompt: JUDGE_PROMPT }));
+    pi.registerTool({
+      name: 'submit_findings',
+      label: 'Submit findings',
+      description: 'Submit screenshot-grounded defects, or an empty list when none are visible.',
+      parameters: Type.Object({ findings: Type.Array(findingParameters) }),
+      executionMode: 'sequential',
+      execute: async (_id, args, _signal, _update, ctx) => {
+        if (result.findings) throw new Error('Visual findings have already been submitted.');
+        // The inspector validates model output, including missing screenshot evidence.
+        result.findings = args.findings.map(finding => ({
+          ...finding,
+          source: 'judge',
+        })) as InspectorFinding[];
+        ctx.abort();
+        return { content: [{ type: 'text', text: 'Recorded' }], details: {} };
+      },
+    });
+  };
+}
+
 /** Pi inspects images without browser or filesystem tools; model metadata comes from the learner resolver. */
 export function createPiVisualJudge(options: {
   model: string;
@@ -74,28 +97,8 @@ export function createPiVisualJudge(options: {
       const model = await resolveModel();
       if (!model.input.includes('image'))
         throw new Error('The visual judge requires an image-capable model.');
-      let findings: InspectorFinding[] | undefined;
-      const extension: ExtensionFactory = pi => {
-        pi.on('before_agent_start', () => ({ systemPrompt: JUDGE_PROMPT }));
-        pi.registerTool({
-          name: 'submit_findings',
-          label: 'Submit findings',
-          description:
-            'Submit screenshot-grounded defects, or an empty list when none are visible.',
-          parameters: Type.Object({ findings: Type.Array(findingParameters) }),
-          executionMode: 'sequential',
-          execute: async (_id, args, _signal, _update, ctx) => {
-            if (findings) throw new Error('Visual findings have already been submitted.');
-            // The inspector validates model output, including missing screenshot evidence.
-            findings = args.findings.map(finding => ({
-              ...finding,
-              source: 'judge',
-            })) as InspectorFinding[];
-            ctx.abort();
-            return { content: [{ type: 'text', text: 'Recorded' }], details: {} };
-          },
-        });
-      };
+      const result: { findings?: InspectorFinding[] } = {};
+      const extension = findingsExtension(result);
       const settingsManager = SettingsManager.inMemory({
         compaction: { enabled: false },
         retry: { enabled: false },
@@ -144,8 +147,8 @@ export function createPiVisualJudge(options: {
           }),
           { images }
         );
-        if (!findings) throw new Error('Pi returned without visual findings.');
-        return findings;
+        if (!result.findings) throw new Error('Pi returned without visual findings.');
+        return result.findings;
       } finally {
         session.dispose();
       }

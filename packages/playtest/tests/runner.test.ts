@@ -1,9 +1,8 @@
-import { execFile } from 'node:child_process';
+import * as filesystem from 'node:fs/promises';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { promisify } from 'node:util';
+import { basename, join, resolve } from 'node:path';
 import {
   type AssistantMessage,
   createAssistantMessageEventStream,
@@ -11,10 +10,11 @@ import {
   streamSimple,
   unregisterApiProviders,
 } from '@mariozechner/pi-ai';
+import { type Browser, chromium } from 'playwright';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ReactMarkdown from 'react-markdown';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlaytestAdapter } from '../src/adapter';
 import { main } from '../src/cli';
 import type { InspectorFinding } from '../src/inspector/inspect';
@@ -26,7 +26,7 @@ import { ACTING_RULES } from '../src/learner/prompt';
 import { createScriptedDecisionSource } from '../src/learner/scriptedDecisionSource';
 import { createModelUsage, meterModel } from '../src/modelUsage';
 import { writeStoryReports } from '../src/report/writeReports';
-import { runPlaytest } from '../src/runner';
+import { runPlaytest, selectAffect } from '../src/runner';
 import type { Story } from '../src/types';
 import tieredEntry from './fixtures/models/openrouter-sonnet-4.json';
 
@@ -34,11 +34,18 @@ const judge = vi.hoisted(() =>
   vi.fn(async (_input: Parameters<VisualJudge['judge']>[0]) => [] as InspectorFinding[])
 );
 vi.mock('../src/inspector/judge', () => ({ createPiVisualJudge: vi.fn(() => ({ judge })) }));
+vi.mock('node:fs/promises', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return { ...actual, stat: vi.fn(actual.stat) };
+});
 let server: Server;
 let baseUrl: string;
 let runDir: string;
+let browser: Browser;
+const runDirs: string[] = [];
 
 beforeAll(async () => {
+  browser = await chromium.launch({ headless: true });
   server = createServer((request, response) => {
     if (request.url === '/error') {
       response.writeHead(500, { 'x-request-id': 'fixture-request' });
@@ -56,15 +63,23 @@ beforeAll(async () => {
   baseUrl = `http://127.0.0.1:${address.port}`;
 });
 afterAll(async () => {
+  await browser.close();
   await new Promise<void>((resolve, reject) =>
     server.close(error => (error ? reject(error) : resolve()))
   );
+});
+beforeEach(() => {
+  // Keep real isolated contexts and traces; process startup is owned once by this suite.
+  vi.spyOn(chromium, 'launch').mockResolvedValue(browser);
+  vi.spyOn(browser, 'close').mockResolvedValue();
 });
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.mocked(judgeModule.createPiVisualJudge).mockImplementation(() => ({ judge }));
   vi.unstubAllGlobals();
-  if (runDir) await rm(runDir, { recursive: true, force: true });
+  for (const directory of new Set([...runDirs.splice(0), runDir])) {
+    if (directory) await rm(directory, { recursive: true, force: true });
+  }
   judge.mockReset();
   judge.mockResolvedValue([]);
   vi.unstubAllEnvs();
@@ -115,6 +130,7 @@ async function run(
     createScriptedDecisionSource([{ type: 'stop', reason: 'completed', summary: 'Done' }])
 ) {
   runDir = await mkdtemp(join(tmpdir(), 'playtest-runner-'));
+  runDirs.push(runDir);
   return runPlaytest({
     adapter: app,
     stories,
@@ -132,6 +148,34 @@ async function report(path: string) {
 }
 
 describe('parallel runner', () => {
+  it('selects affects reproducibly per seed, story and viewport and honors pins', () => {
+    const persona = {
+      id: 'learner',
+      body: 'Profile',
+      affects: ['curious', 'tired', 'calm'],
+      sourcePath: 'learner.md',
+    };
+    const input = { seed: 'replay', story: story('seeded'), viewport: 'desktop' as const, persona };
+    const selections = ['desktop', 'mobile'].map(viewport =>
+      selectAffect({ ...input, viewport: viewport as 'desktop' | 'mobile' })
+    );
+    expect(
+      ['desktop', 'mobile'].map(viewport =>
+        selectAffect({ ...input, viewport: viewport as 'desktop' | 'mobile' })
+      )
+    ).toEqual(selections);
+    expect(selectAffect(input)).toBe(selectAffect({ ...input, story: { ...input.story } }));
+    expect(
+      selectAffect({ ...input, story: { ...input.story, requires: { affect: 'tired' } } })
+    ).toBe('tired');
+    expect(() =>
+      selectAffect({ ...input, story: { ...input.story, requires: { affect: 'unknown' } } })
+    ).toThrow('listed affects');
+    expect(() =>
+      selectAffect({ ...input, story: { ...input.story, requires: { affect: 1 } } })
+    ).toThrow('listed affects');
+    expect(selectAffect({ ...input, persona: undefined })).toBeUndefined();
+  });
   it('persists learner decision causes without exposing them in the stable reason', async () => {
     const stderr = vi.spyOn(console, 'error').mockImplementation(() => {});
     const summary = await run([story('decision-failure')], adapter(), () => ({
@@ -325,6 +369,7 @@ describe('parallel runner', () => {
       }),
     });
     const affect = summary.records[0].affect;
+    expect(summary.seed).toBe(basename(runDir));
     expect(affects).toContain(affect);
     const expectedPrompt = [
       app.appDescription(),
@@ -609,17 +654,15 @@ describe('CLI', () => {
     vi.stubEnv('NOUS_E2E_DATA', '');
     await expect(main([])).rejects.toThrow('NOUS_E2E_DATA is unset');
     runDir = await mkdtemp(join(tmpdir(), 'playtest-cli-missing-'));
-    const child = promisify(execFile)('bun', ['run', resolve('packages/playtest/src/cli.ts')], {
-      cwd: runDir,
-      env: { ...process.env, NOUS_E2E_DATA: runDir },
-      windowsHide: true,
-    });
-    const failure = await child.catch(error => error as { code: number; stderr: string });
-    expect('code' in failure && failure.code).toBe(1);
-    const stderr = failure.stderr;
-    expect(stderr).toContain('Adapter module is missing:');
-    expect(stderr).toContain('e2e');
-    expect(stderr).toContain('adapter.ts');
+    vi.stubEnv('NOUS_E2E_DATA', runDir);
+    const stat = vi
+      .mocked(filesystem.stat)
+      .mockClear()
+      .mockRejectedValueOnce(Object.assign(new Error('Missing adapter'), { code: 'ENOENT' }));
+    await expect(main([])).rejects.toThrow(
+      `Adapter module is missing: ${resolve('e2e', 'nous', 'adapter.ts')}`
+    );
+    expect(stat).toHaveBeenCalledExactlyOnceWith(resolve('e2e', 'nous', 'adapter.ts'));
   });
 
   it('loads a fake adapter, combines filters and writes under the data-root timestamp directory', async () => {
@@ -659,6 +702,8 @@ describe('CLI', () => {
         adapterPath,
         '--model',
         'fake',
+        '--seed',
+        'cli-seed',
         '--provider',
         'fake',
         '--id',
@@ -682,6 +727,7 @@ describe('CLI', () => {
       'selected',
     ]);
     expect(summary.outcomeCounts['blocked-precondition']).toBe(1);
+    expect(summary.seed).toBe('cli-seed');
     const args = ['--adapter', adapterPath, '--provider', 'fake', '--model', 'fake'];
     for (const filter of [
       ['--id', 'stale-id'],

@@ -2,6 +2,7 @@ import { readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import postgres from 'postgres';
 import * as z from 'zod';
+import { PostgresAccountStore } from '../../apps/backend/src/account/accountStore';
 import { PostgresProjectStore } from '../../apps/backend/src/projects/postgresProjectStore';
 import { createProjectAssetStorage } from '../../apps/backend/src/projects/projectAsset';
 import { PostgresProjectAssetDeletionQueue } from '../../apps/backend/src/projects/projectAssetDeletionQueue';
@@ -122,16 +123,51 @@ async function cleanupUser(isolated: StackStatus, userId: string): Promise<void>
   }
 }
 
+async function skipAccountSetup(isolated: StackStatus, userId: string): Promise<void> {
+  const sql = postgres(isolated.DB_URL);
+  try {
+    await new PostgresAccountStore(sql).finishSetup(userId, { status: 'skipped' });
+  } finally {
+    await sql.end();
+  }
+}
+
+async function populateCourse(input: {
+  isolated: StackStatus;
+  userId: string;
+  course?: string;
+  bytes?: Buffer;
+}): Promise<void> {
+  const { isolated, userId, course, bytes } = input;
+  if (course === undefined) return;
+  const store = projectStore(isolated);
+  try {
+    if (course === 'synthetic-short' || course === 'synthetic-law-short')
+      await store.saveProject(userId, syntheticCourse(course));
+    else if (bytes) {
+      // Product exports use JSON for snapshots and ZIP for projects with attachments.
+      if (course.endsWith('.json'))
+        await store.importProject(userId, JSON.parse(bytes.toString('utf8')));
+      else await store.importProjectArchive(userId, bytes, crypto.randomUUID());
+    }
+  } finally {
+    await store.close();
+  }
+}
+
 /** Fresh credentials stay with the operator. The store receives explicit isolated storage URLs. */
 export async function prepare(
   story: Story,
   viewport: Viewport,
   status?: StackStatus
 ): Promise<{ credentials: { email: string; password: string }; cleanup: () => Promise<void> }> {
-  const unsupported = Object.keys(story.requires).filter(key => key !== 'course');
+  const unsupported = Object.keys(story.requires).filter(
+    key => !['course', 'onboarding', 'affect'].includes(key)
+  );
   if (unsupported.length)
     throw new Error(`Unsupported story preconditions: ${unsupported.join(', ')}.`);
   const course = z.string().optional().parse(story.requires.course);
+  const onboarding = z.literal('first-run').optional().parse(story.requires.onboarding);
   if (
     course !== undefined &&
     course !== 'synthetic-short' &&
@@ -158,24 +194,13 @@ export async function prepare(
     body: JSON.stringify({ ...credentials, email_confirm: true }),
   });
   if (!response.ok) throw new Error(`Synthetic account creation failed (HTTP ${response.status}).`);
-  const user = z.object({ id: z.string().uuid() }).parse(await response.json());
+  const user = z.object({ id: z.uuid() }).parse(await response.json());
   const cleanup = () => cleanupUser(isolated, user.id);
   try {
-    if (course !== undefined) {
-      const store = projectStore(isolated);
-      try {
-        if (course === 'synthetic-short' || course === 'synthetic-law-short')
-          await store.saveProject(user.id, syntheticCourse(course));
-        else if (bytes) {
-          // Product exports use JSON for snapshots and ZIP for projects with attachments.
-          if (course.endsWith('.json'))
-            await store.importProject(user.id, JSON.parse(bytes.toString('utf8')));
-          else await store.importProjectArchive(user.id, bytes, crypto.randomUUID());
-        }
-      } finally {
-        await store.close();
-      }
+    if (onboarding !== 'first-run') {
+      await skipAccountSetup(isolated, user.id);
     }
+    await populateCourse({ isolated, userId: user.id, course, bytes });
   } catch (error) {
     try {
       await cleanup();

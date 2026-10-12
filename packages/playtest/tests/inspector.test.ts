@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
@@ -7,7 +7,6 @@ import type {
   ExtensionFactory,
   ToolDefinition,
 } from '@mariozechner/pi-coding-agent';
-import { chromium } from 'playwright';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type InspectorFinding, inspect, type StepProbeFinding } from '../src/inspector/inspect';
 import { createPiVisualJudge, type VisualJudge } from '../src/inspector/judge';
@@ -228,17 +227,9 @@ describe('Pi visual judge with a mocked SDK', () => {
     runDir = await mkdtemp(join(tmpdir(), 'inspector-test-'));
     screenshots = [join(runDir, 'step-0.png'), join(runDir, 'step-1.png')];
     styleReference = [join(runDir, 'reference.jpg')];
-    const browser = await chromium.launch({ headless: true });
-    try {
-      const page = await browser.newPage();
-      await page.setContent('<main>First screen</main>');
-      await page.screenshot({ path: screenshots[0] });
-      await page.setContent('<main>Second screen</main>');
-      await page.screenshot({ path: screenshots[1] });
-      await page.screenshot({ path: styleReference[0], type: 'jpeg' });
-    } finally {
-      await browser.close();
-    }
+    await copyFile(new URL('./fixtures/images/first.png', import.meta.url), screenshots[0]);
+    await copyFile(new URL('./fixtures/images/second.png', import.meta.url), screenshots[1]);
+    await copyFile(new URL('./fixtures/images/reference.jpg', import.meta.url), styleReference[0]);
   });
   afterAll(async () => {
     await rm(runDir, { recursive: true, force: true });

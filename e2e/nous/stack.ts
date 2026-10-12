@@ -137,10 +137,7 @@ async function configureStack(): Promise<string> {
       throw error;
     }
   );
-  if (existing !== undefined && existing !== config)
-    throw new Error(
-      'Isolated stack configuration differs from the expected playtest configuration.'
-    );
+  if (existing !== undefined) stackConfigSchema.parse(parseToml(existing));
   await writeFile(join(supabase, 'config.toml'), config);
   await cp(join(REPO_ROOT, 'supabase', 'templates'), join(supabase, 'templates'), {
     recursive: true,
@@ -189,7 +186,7 @@ async function supabaseCommand(args: string[], signal?: AbortSignal): Promise<st
 
 function terminateChild(child: { pid?: number; kill(): unknown }, detached = false): void {
   if (process.platform === 'win32' && child.pid) {
-    void executeFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+    executeFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
       windowsHide: true,
     }).catch(error => recordDiagnostic('stack-termination', error));
   } else if (detached && child.pid) {
@@ -308,10 +305,10 @@ export async function startServer(
       reject(stageError(name, detail));
     };
     child.once('error', error => {
-      void fail(error.message);
+      fail(error.message);
     });
     child.once('exit', (code, signal) => {
-      void fail(`process exited (${signal ?? code})`);
+      fail(`process exited (${signal ?? code})`);
     });
   });
   // Keep a rejection handled while the PID record is being written.
@@ -355,7 +352,8 @@ export async function migrationFingerprint(directory: string): Promise<string> {
   const files = (await readdir(directory, { recursive: true, withFileTypes: true }))
     .filter(entry => entry.isFile())
     .map(entry => relative(directory, join(entry.parentPath, entry.name)).split(sep).join('/'))
-    .sort();
+    // Code-point order keeps migration fingerprints stable across host locales.
+    .sort((a, b) => (a < b ? -1 : Number(a > b)));
   for (const name of files) {
     const contents = await readFile(join(directory, name));
     hash.update(JSON.stringify([name, contents.length]));
