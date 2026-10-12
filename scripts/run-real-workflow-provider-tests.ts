@@ -734,6 +734,7 @@ if (args.has('--dry-run')) {
   await withRunEvidence(
     {
       scenario: 'workflow-codex',
+      captureModelExchanges: true,
       provider: 'codex',
       slots: resolvedSlots(),
     },

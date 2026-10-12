@@ -138,6 +138,7 @@ const main = async () => {
   await withRunEvidence(
     {
       scenario: 'lesson-evidence-quality',
+      captureModelExchanges: true,
       provider: 'codex',
       slots: {
         lessonVerification: resolveRunEvidenceTextSlot(

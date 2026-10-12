@@ -133,6 +133,8 @@ export const createCodexChatStream = async ({
 
       try {
         const completedText = await runCodexAppServerTurn({
+          slot: 'chat',
+          role: 'chat',
           developerInstructions,
           input: [{ type: 'text', text: formatConversation(messages) }],
           model,

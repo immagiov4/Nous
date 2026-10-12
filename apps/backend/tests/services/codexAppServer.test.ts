@@ -14,6 +14,7 @@ import {
   runCodexAppServerTurnWithClient,
   startCodexAppServerClient,
 } from '../../src/services/codexAppServer.js';
+import { type ModelExchange, withModelExchanges } from '../../src/workflows/modelExchanges.js';
 import { runWithWorkflowAttemptMetering } from '../../src/workflows/workflowAiMetering.js';
 
 type WireMessage = Record<string, unknown>;
@@ -269,7 +270,11 @@ describe('Codex app-server protocol client', () => {
     client.close();
   });
 
-  test('runs an ephemeral turn, executes a dynamic tool, and streams only the matching thread', async () => {
+  test.each([
+    false,
+    true,
+  ])('runs an ephemeral turn with exchange capture %s', async captureEnabled => {
+    const exchanges: ModelExchange[] = [];
     let fakeProcess: FakeCodexProcess;
     let toolResponse: WireMessage | undefined;
     let clientToolResponse: WireMessage | undefined;
@@ -278,7 +283,7 @@ describe('Codex app-server protocol client', () => {
         respond(fakeProcess, message, {});
       } else if (message.method === 'account/read') {
         respond(fakeProcess, message, {
-          account: { type: 'chatgpt', planType: 'plus' },
+          account: { type: 'chatgpt', planType: 'plus', apiKey: 'private-auth-value' },
           requiresOpenaiAuth: true,
         });
       } else if (message.method === 'thread/start') {
@@ -317,6 +322,13 @@ describe('Codex app-server protocol client', () => {
           method: 'item/completed',
           params: {
             threadId: 'thread-nous',
+            item: { id: 'commentary', type: 'agentMessage', text: 'Checking the sources.' },
+          },
+        });
+        fakeProcess.send({
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-nous',
             turnId: 'turn-nous',
             item: {
               type: 'imageGeneration',
@@ -351,7 +363,12 @@ describe('Codex app-server protocol client', () => {
         });
         fakeProcess.send({
           method: 'item/reasoning/summaryTextDelta',
-          params: { threadId: 'thread-nous', turnId: 'turn-nous', delta: 'Analizzo.' },
+          params: {
+            threadId: 'thread-nous',
+            turnId: 'turn-nous',
+            delta: 'Analizzo.',
+            headers: { authorization: 'private-auth-value' },
+          },
         });
         fakeProcess.send({
           method: 'item/completed',
@@ -366,6 +383,10 @@ describe('Codex app-server protocol client', () => {
               ],
             },
           },
+        });
+        fakeProcess.send({
+          method: 'item/reasoning/textDelta',
+          params: { threadId: 'thread-nous', turnId: 'turn-nous', delta: 'Exposed reasoning.' },
         });
         fakeProcess.send({
           method: 'item/agentMessage/delta',
@@ -407,54 +428,104 @@ describe('Codex app-server protocol client', () => {
     const reasoningDeltas: string[] = [];
     const toolEvents: unknown[] = [];
     const recordAiUsage = vi.fn(async () => undefined);
-    const result = await runWithWorkflowAttemptMetering(
-      {
-        attemptNumber: 2,
-        nodeInstanceId: 'root/codex',
-        record: recordAiUsage,
-        runId: '11111111-1111-4111-8111-111111111111',
-      },
-      () =>
-        runCodexAppServerTurnWithClient(
-          {
-            developerInstructions: 'Rispondi come tutor.',
-            input: [{ type: 'text', text: 'Spiega i grafi.' }],
-            model: 'gpt-test-a',
-            onImageGenerated: image => imageResults.push(image),
-            onReasoningDelta: delta => reasoningDeltas.push(delta),
-            onTextDelta: delta => deltas.push(delta),
-            onToolEnd: (callId, output) => toolEvents.push({ callId, output }),
-            onToolStart: (callId, name, input, execution) =>
-              toolEvents.push({ callId, name, input, execution }),
-            reasoningEffort: 'medium',
-            serviceTier: 'fast',
-            tools: [
-              {
-                description: 'Cerca nella libreria.',
-                execute: async input => ({ input, matches: 3 }),
-                inputSchema: {
-                  type: 'object',
-                  properties: { query: { type: 'string' } },
-                  required: ['query'],
-                },
-                name: 'searchLibrary',
+    const run = () =>
+      runWithWorkflowAttemptMetering(
+        {
+          attemptNumber: 2,
+          nodeInstanceId: 'root/codex',
+          record: recordAiUsage,
+          runId: '11111111-1111-4111-8111-111111111111',
+        },
+        () =>
+          runCodexAppServerTurnWithClient(
+            {
+              developerInstructions: 'Rispondi come tutor.',
+              get role() {
+                if (!captureEnabled) throw new Error('Disabled capture accessed metadata');
+                return 'tutor';
               },
-              {
-                description: 'Propone una nota nel client.',
-                inputSchema: {
-                  type: 'object',
-                  properties: { noteDraft: { type: 'string' } },
-                  required: ['noteDraft'],
+              slot: 'chat',
+              outputSchemaName: 'tutor_response',
+              input: [{ type: 'text', text: 'Spiega i grafi.' }],
+              model: 'gpt-test-a',
+              onImageGenerated: image => imageResults.push(image),
+              onReasoningDelta: delta => reasoningDeltas.push(delta),
+              onTextDelta: delta => deltas.push(delta),
+              onToolEnd: (callId, output) => toolEvents.push({ callId, output }),
+              onToolStart: (callId, name, input, execution) =>
+                toolEvents.push({ callId, name, input, execution }),
+              reasoningEffort: 'medium',
+              serviceTier: 'fast',
+              tools: [
+                {
+                  description: 'Cerca nella libreria.',
+                  execute: async input => ({ input, matches: 3 }),
+                  inputSchema: {
+                    type: 'object',
+                    properties: { query: { type: 'string' } },
+                    required: ['query'],
+                  },
+                  name: 'searchLibrary',
                 },
-                name: 'requestAddToNotes',
-              },
-            ],
-          },
-          client
-        )
-    );
+                {
+                  description: 'Propone una nota nel client.',
+                  inputSchema: {
+                    type: 'object',
+                    properties: { noteDraft: { type: 'string' } },
+                    required: ['noteDraft'],
+                  },
+                  name: 'requestAddToNotes',
+                },
+              ],
+            },
+            client
+          )
+      );
 
-    expect(reasoningDeltas).toEqual(['Analizzo.', '\nControllo la risposta.']);
+    const result = await (captureEnabled ? withModelExchanges(exchanges, run) : run());
+    if (captureEnabled) {
+      expect(exchanges).toHaveLength(1);
+      expect(exchanges[0]).toMatchObject({
+        provider: 'codex',
+        model: 'gpt-test-a',
+        slot: 'chat',
+        role: 'tutor',
+        reasoningEffort: 'medium',
+        serviceTier: 'fast',
+        workflow: {
+          runId: '11111111-1111-4111-8111-111111111111',
+          nodeInstanceId: 'root/codex',
+          attemptNumber: 2,
+        },
+        request: {
+          developer: 'Rispondi come tutor.',
+          input: [{ type: 'text', text: 'Spiega i grafi.' }],
+          outputSchemaName: 'tutor_response',
+        },
+        response: 'Checking the sources.\n\nRisposta\n\nfinale',
+        reasoningSummary: 'Analizzo.\nControllo la risposta.',
+        reasoningText: 'Exposed reasoning.',
+        usage: { inputTokens: 20, outputTokens: 8 },
+        status: 'completed',
+        latencyMs: expect.any(Number),
+      });
+      expect(exchanges[0]?.toolCalls).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            callId: 'call-1',
+            name: 'searchLibrary',
+            output: { input: { query: 'grafi' }, matches: 3 },
+          }),
+        ])
+      );
+      expect(JSON.stringify(exchanges)).not.toContain('private-auth-value');
+    } else expect(exchanges).toEqual([]);
+
+    expect(reasoningDeltas).toEqual([
+      'Analizzo.',
+      '\nControllo la risposta.',
+      'Exposed reasoning.',
+    ]);
     expect(imageResults).toEqual(['ZmFrZS1pbWFnZQ==']);
 
     expect(result).toBe('Risposta\n\nfinale');
@@ -587,6 +658,7 @@ describe('Codex app-server protocol client', () => {
   });
 
   test('surfaces the app-server reason when a turn fails', async () => {
+    const exchanges: ModelExchange[] = [];
     let fakeProcess: FakeCodexProcess;
     fakeProcess = new FakeCodexProcess(message => {
       if (message.method === 'initialize') {
@@ -616,14 +688,16 @@ describe('Codex app-server protocol client', () => {
 
     const client = await startCodexAppServerClient(() => fakeProcess as never);
     await expect(
-      runCodexAppServerTurnWithClient(
-        {
-          developerInstructions: 'Tutor.',
-          input: [{ type: 'text', text: 'Ciao' }],
-          model: 'gpt-test-a',
-          reasoningEffort: 'minimal',
-        },
-        client
+      withModelExchanges(exchanges, () =>
+        runCodexAppServerTurnWithClient(
+          {
+            developerInstructions: 'Tutor.',
+            input: [{ type: 'text', text: 'Ciao' }],
+            model: 'gpt-test-a',
+            reasoningEffort: 'minimal',
+          },
+          client
+        )
       )
     ).rejects.toMatchObject<CodexAppServerError>({
       code: 'protocol',
@@ -632,93 +706,113 @@ describe('Codex app-server protocol client', () => {
     expect(fakeProcess.received.find(message => message.method === 'turn/start')).toMatchObject({
       params: { effort: 'low', summary: 'none' },
     });
+    expect(exchanges).toMatchObject([
+      {
+        status: 'failed',
+        error: 'CodexAppServerError',
+        reasoningEffort: 'low',
+        endedAt: expect.any(String),
+      },
+    ]);
+    expect(JSON.stringify(exchanges)).not.toContain('Too many requests.');
     client.close();
   });
 
   test('interrupts the active Codex turn when its abort signal fires', async () => {
-    const recordAiUsage = vi.fn(async () => undefined);
-    let finishInterruptedTurn = () => undefined;
-    let fakeProcess: FakeCodexProcess;
-    fakeProcess = new FakeCodexProcess(message => {
-      if (message.method === 'initialize') {
-        respond(fakeProcess, message, {});
-      } else if (message.method === 'account/read') {
-        respond(fakeProcess, message, {
-          account: { type: 'chatgpt', planType: 'plus' },
-          requiresOpenaiAuth: true,
-        });
-      } else if (message.method === 'thread/start') {
-        respond(fakeProcess, message, { thread: { id: 'thread-abort' } });
-      } else if (message.method === 'turn/start') {
-        respond(fakeProcess, message, { turn: { id: 'turn-abort' } });
-      } else if (message.method === 'turn/interrupt') {
-        respond(fakeProcess, message, {});
-        finishInterruptedTurn = () => {
-          sendInterruptedTurnCompletion(
-            fakeProcess,
-            { threadId: 'thread-abort', turnId: 'turn-abort' },
+    const exchanges: ModelExchange[] = [];
+    await withModelExchanges(exchanges, async () => {
+      const recordAiUsage = vi.fn(async () => undefined);
+      let finishInterruptedTurn = () => undefined;
+      let fakeProcess: FakeCodexProcess;
+      fakeProcess = new FakeCodexProcess(message => {
+        if (message.method === 'initialize') {
+          respond(fakeProcess, message, {});
+        } else if (message.method === 'account/read') {
+          respond(fakeProcess, message, {
+            account: { type: 'chatgpt', planType: 'plus' },
+            requiresOpenaiAuth: true,
+          });
+        } else if (message.method === 'thread/start') {
+          respond(fakeProcess, message, { thread: { id: 'thread-abort' } });
+        } else if (message.method === 'turn/start') {
+          respond(fakeProcess, message, { turn: { id: 'turn-abort' } });
+        } else if (message.method === 'turn/interrupt') {
+          respond(fakeProcess, message, {});
+          finishInterruptedTurn = () => {
+            sendInterruptedTurnCompletion(
+              fakeProcess,
+              { threadId: 'thread-abort', turnId: 'turn-abort' },
+              {
+                cacheReadTokens: 5,
+                inputTokens: 13,
+                outputTokens: 7,
+                reasoningTokens: 2,
+              }
+            );
+          };
+        }
+      });
+
+      const client = await startCodexAppServerClient(() => fakeProcess as never);
+      const controller = new AbortController();
+      const turnPromise = runWithWorkflowAttemptMetering(
+        {
+          attemptNumber: 3,
+          nodeInstanceId: 'root/codex-abort',
+          record: recordAiUsage,
+          runId: '33333333-3333-4333-8333-333333333333',
+        },
+        () =>
+          runCodexAppServerTurnWithClient(
             {
-              cacheReadTokens: 5,
-              inputTokens: 13,
-              outputTokens: 7,
-              reasoningTokens: 2,
-            }
-          );
-        };
-      }
-    });
+              developerInstructions: 'Tutor.',
+              input: [{ type: 'text', text: 'Ciao' }],
+              model: 'gpt-test-a',
+              reasoningEffort: 'low',
+              signal: controller.signal,
+            },
+            client
+          )
+      );
+      await vi.waitFor(() => {
+        expect(fakeProcess.received.some(message => message.method === 'turn/start')).toBe(true);
+      });
+      controller.abort();
 
-    const client = await startCodexAppServerClient(() => fakeProcess as never);
-    const controller = new AbortController();
-    const turnPromise = runWithWorkflowAttemptMetering(
+      await expect(turnPromise).rejects.toMatchObject({ name: 'AbortError' });
+      expect(recordAiUsage).not.toHaveBeenCalled();
+      await vi.waitFor(() => {
+        expect(
+          fakeProcess.received.find(message => message.method === 'turn/interrupt')
+        ).toMatchObject({
+          params: { threadId: 'thread-abort', turnId: 'turn-abort' },
+        });
+      });
+      finishInterruptedTurn();
+      await vi.waitFor(() => {
+        expect(recordAiUsage).toHaveBeenCalledWith({
+          attemptNumber: 3,
+          cacheReadTokens: 5,
+          id: expect.any(String),
+          inputTokens: 13,
+          model: 'gpt-test-a',
+          nodeInstanceId: 'root/codex-abort',
+          outputTokens: 7,
+          provider: 'codex',
+          reasoningTokens: 2,
+          runId: '33333333-3333-4333-8333-333333333333',
+        });
+      });
+      client.close();
+    });
+    expect(exchanges).toMatchObject([
       {
-        attemptNumber: 3,
-        nodeInstanceId: 'root/codex-abort',
-        record: recordAiUsage,
-        runId: '33333333-3333-4333-8333-333333333333',
+        status: 'interrupted',
+        endedAt: expect.any(String),
+        usage: { inputTokens: 13, outputTokens: 7 },
+        workflow: { attemptNumber: 3, nodeInstanceId: 'root/codex-abort' },
       },
-      () =>
-        runCodexAppServerTurnWithClient(
-          {
-            developerInstructions: 'Tutor.',
-            input: [{ type: 'text', text: 'Ciao' }],
-            model: 'gpt-test-a',
-            reasoningEffort: 'low',
-            signal: controller.signal,
-          },
-          client
-        )
-    );
-    await vi.waitFor(() => {
-      expect(fakeProcess.received.some(message => message.method === 'turn/start')).toBe(true);
-    });
-    controller.abort();
-
-    await expect(turnPromise).rejects.toMatchObject({ name: 'AbortError' });
-    expect(recordAiUsage).not.toHaveBeenCalled();
-    await vi.waitFor(() => {
-      expect(
-        fakeProcess.received.find(message => message.method === 'turn/interrupt')
-      ).toMatchObject({
-        params: { threadId: 'thread-abort', turnId: 'turn-abort' },
-      });
-    });
-    finishInterruptedTurn();
-    await vi.waitFor(() => {
-      expect(recordAiUsage).toHaveBeenCalledWith({
-        attemptNumber: 3,
-        cacheReadTokens: 5,
-        id: expect.any(String),
-        inputTokens: 13,
-        model: 'gpt-test-a',
-        nodeInstanceId: 'root/codex-abort',
-        outputTokens: 7,
-        provider: 'codex',
-        reasoningTokens: 2,
-        runId: '33333333-3333-4333-8333-333333333333',
-      });
-    });
-    client.close();
+    ]);
   });
 
   test('interrupts a timed-out turn and records usage from its terminal event', async () => {

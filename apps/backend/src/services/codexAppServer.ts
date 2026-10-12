@@ -4,7 +4,12 @@ import { createInterface, type Interface as ReadLineInterface } from 'node:readl
 import { Readable } from 'node:stream';
 
 import type { ReasoningEffort } from '../config/modelConfig.js';
-import { recordWorkflowAiUsage, type WorkflowAiUsage } from '../workflows/workflowAiMetering.js';
+import { startModelExchange } from '../workflows/modelExchanges.js';
+import {
+  currentWorkflowAttempt,
+  recordWorkflowAiUsage,
+  type WorkflowAiUsage,
+} from '../workflows/workflowAiMetering.js';
 import { toWorkflowErrorDiagnostic } from '../workflows/workflowErrorDiagnostics.js';
 
 const CODEX_REQUEST_TIMEOUT_MS = 30_000;
@@ -117,6 +122,9 @@ export interface CodexTurnTool {
 export type CodexToolExecution = 'client' | 'server';
 
 export interface CodexTurnInput {
+  slot?: string;
+  role?: string;
+  outputSchemaName?: string;
   allowImageGeneration?: boolean;
   allowWebSearch?: boolean;
   developerInstructions: string;
@@ -640,15 +648,110 @@ interface CodexTurnExecution {
   readonly settled: Promise<void>;
 }
 
+const codexBaseInstructions = (turn: CodexTurnInput): string =>
+  [
+    CODEX_BASE_INSTRUCTIONS,
+    turn.allowWebSearch ? CODEX_WEB_RESEARCH_INSTRUCTION : CODEX_OFFLINE_INSTRUCTION,
+    ...(turn.allowImageGeneration ? [CODEX_IMAGE_GENERATION_INSTRUCTION] : []),
+  ].join('\n');
+
+type ExchangeCapture = ReturnType<typeof startModelExchange>;
+
+const captureCodexToolItem = (capture: NonNullable<ExchangeCapture>, item: JsonObject): void => {
+  const { type, id, action, result, status } = item;
+  const previous = capture.exchange.toolCalls.find(call => isRecord(call) && id && call.id === id);
+  const contents = { type, id, action, result, status };
+  if (isRecord(previous)) Object.assign(previous, contents);
+  else capture.exchange.toolCalls.push(contents);
+};
+
+const captureCodexNotification = (
+  capture: ExchangeCapture,
+  captured: { summaries: Map<string, string>; messages: Map<string, string> },
+  method: string,
+  params: unknown
+): void => {
+  if (!capture || !isRecord(params)) return;
+  const { exchange } = capture;
+  const { summaries, messages } = captured;
+  if (method === 'item/agentMessage/delta') {
+    const id = readString(params.itemId) ?? '';
+    messages.set(id, (messages.get(id) ?? '') + (readText(params.delta) ?? ''));
+    exchange.response = [...messages.values()].join('\n\n');
+  }
+  if (method === 'item/reasoning/textDelta') {
+    exchange.reasoningText = (exchange.reasoningText ?? '') + (readText(params.delta) ?? '');
+  }
+  if (method === 'item/reasoning/summaryTextDelta') {
+    const id = readString(params.itemId) ?? '';
+    summaries.set(id, (summaries.get(id) ?? '') + (readText(params.delta) ?? ''));
+    exchange.reasoningSummary = [...summaries.values()].join('\n');
+  }
+  if ((method === 'item/started' || method === 'item/completed') && isRecord(params.item)) {
+    const item = params.item;
+    if (method === 'item/completed' && item.type === 'agentMessage') {
+      messages.set(readString(item.id) ?? '', readAgentMessageText(params) ?? '');
+      exchange.response = [...messages.values()].join('\n\n');
+    } else if (item.type === 'reasoning') {
+      // Completed summaries cover providers that omit summary deltas.
+      const summary = readCompletedReasoningSummary(params);
+      if (summary) {
+        summaries.set(readString(item.id) ?? '', summary);
+        exchange.reasoningSummary = [...summaries.values()].join('\n');
+      }
+    } else if (item.type === 'webSearch' || item.type === 'imageGeneration') {
+      captureCodexToolItem(capture, item);
+    }
+  }
+};
+
 const startCodexAppServerTurnWithClient = async (
   turn: CodexTurnInput,
   client: CodexJsonRpcClient
+): Promise<CodexTurnExecution> => {
+  const capture = startModelExchange(() => ({
+    provider: 'codex',
+    model: turn.model,
+    slot: turn.slot,
+    role: turn.role,
+    reasoningEffort: normalizeCodexReasoningEffort(turn.reasoningEffort),
+    serviceTier: turn.serviceTier ?? 'normal',
+    workflow: currentWorkflowAttempt(),
+    request: {
+      system: codexBaseInstructions(turn),
+      developer: turn.developerInstructions,
+      input: turn.input,
+      outputSchemaName: turn.outputSchemaName,
+      outputSchema: turn.outputSchema,
+      tools: turn.tools?.map(({ name, description, inputSchema }) => ({
+        name,
+        description,
+        inputSchema,
+      })),
+    },
+  }));
+  try {
+    return await executeCodexAppServerTurn(turn, client, capture);
+  } catch (error) {
+    capture?.finish('error', error);
+    throw error;
+  }
+};
+
+const executeCodexAppServerTurn = async (
+  turn: CodexTurnInput,
+  client: CodexJsonRpcClient,
+  capture: ExchangeCapture
 ): Promise<CodexTurnExecution> => {
   turn.signal?.throwIfAborted();
   let completedText = '';
   let streamedText = '';
   let hasStreamedReasoningText = false;
   let streamedReasoningSummary = '';
+  const captured = capture && {
+    summaries: new Map<string, string>(),
+    messages: new Map<string, string>(),
+  };
   const usageByTurnId = new Map<string, Omit<WorkflowAiUsage, 'model' | 'provider'>>();
 
   await requireAuthenticatedCodexAccount(client);
@@ -666,9 +769,14 @@ const startCodexAppServerTurnWithClient = async (
     }
 
     const argumentsValue = request.params.arguments;
+    const capturedTool = capture
+      ? { callId, name, input: argumentsValue, output: undefined as unknown }
+      : undefined;
+    if (capturedTool) capture?.exchange.toolCalls.push(capturedTool);
     const execution: CodexToolExecution = tool.execute ? 'server' : 'client';
     turn.onToolStart?.(callId, tool.name, argumentsValue, execution);
     if (!tool.execute) {
+      if (capturedTool) capturedTool.output = CODEX_DELEGATED_TOOL_RESULT;
       return {
         contentItems: [{ type: 'inputText', text: CODEX_DELEGATED_TOOL_RESULT }],
         success: true,
@@ -676,6 +784,7 @@ const startCodexAppServerTurnWithClient = async (
     }
 
     const output = await tool.execute(argumentsValue, callId);
+    if (capturedTool) capturedTool.output = output;
     turn.onToolEnd?.(callId, output);
     return {
       contentItems: [{ type: 'inputText', text: JSON.stringify(output ?? null) }],
@@ -686,11 +795,7 @@ const startCodexAppServerTurnWithClient = async (
   const webSearchMode = turn.allowWebSearch ? 'live' : 'disabled';
   const threadResponse = await client.request('thread/start', {
     approvalPolicy: 'never',
-    baseInstructions: [
-      CODEX_BASE_INSTRUCTIONS,
-      turn.allowWebSearch ? CODEX_WEB_RESEARCH_INSTRUCTION : CODEX_OFFLINE_INSTRUCTION,
-      ...(turn.allowImageGeneration ? [CODEX_IMAGE_GENERATION_INSTRUCTION] : []),
-    ].join('\n'),
+    baseInstructions: codexBaseInstructions(turn),
     config: { web_search: webSearchMode },
     cwd: process.env.CODEX_WORKING_DIRECTORY?.trim() || tmpdir(),
     developerInstructions: turn.developerInstructions,
@@ -736,6 +841,7 @@ const startCodexAppServerTurnWithClient = async (
       if (readThreadId(params) !== threadId) {
         return;
       }
+      if (captured) captureCodexNotification(capture, captured, method, params);
 
       if (method === 'thread/tokenUsage/updated') {
         const metering = readTurnTokenUsage(params);
@@ -798,6 +904,7 @@ const startCodexAppServerTurnWithClient = async (
       }
 
       const status = readTurnStatus(params);
+      if (capture) capture.exchange.status = status ?? 'completed';
       if (status && status !== 'completed') {
         const failure = readTurnFailure(params);
         rejectTurnCompleted(
@@ -842,6 +949,14 @@ const startCodexAppServerTurnWithClient = async (
         error => ({ error })
       );
       const usage = usageByTurnId.get(turnId);
+      if (capture) {
+        capture.exchange.response ??= completedText || streamedText;
+        capture.exchange.usage = usage;
+        capture.finish(
+          capture.exchange.status === 'running' ? 'error' : capture.exchange.status,
+          'error' in outcome ? outcome.error : undefined
+        );
+      }
       if (usage) {
         await recordWorkflowAiUsage({ ...usage, model: turn.model, provider: 'codex' });
       }
@@ -937,6 +1052,8 @@ export const generateCodexAppServerImage = async ({
 }): Promise<string> => {
   let imageResult = '';
   await runCodexAppServerTurn({
+    slot: 'image',
+    role: 'imageGeneration',
     allowImageGeneration: true,
     developerInstructions:
       'Generate the requested educational image with the built-in image generation capability. Do not use tools other than image generation and do not substitute SVG, HTML, Mermaid, or text art.',

@@ -58,6 +58,8 @@ export const captionPdfImage = async (
   let caption: string;
   if (provider === 'codex') {
     caption = await runCodexAppServerTurn({
+      slot: 'research',
+      role: 'pdfImageCaption',
       allowWebSearch: false,
       developerInstructions:
         'Describe only what is visibly recognizable in the supplied PDF figure. Do not use tools or access local files.',
@@ -73,6 +75,7 @@ export const captionPdfImage = async (
   } else {
     const configured = createConfiguredTextModel(config, 'research', {
       model: resolveCaptionModel(config),
+      role: 'pdfImageCaption',
     });
     const response = await generateText({
       abortSignal: signal,

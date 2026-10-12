@@ -88,6 +88,9 @@ export const generateStructuredOutput = async <T>(
         { text: prompt, type: 'text' },
       ],
       model: target.model,
+      slot: 'slot' in request ? request.slot : undefined,
+      role: output.name,
+      outputSchemaName: output.name,
       outputSchema: output.schema,
       reasoningEffort: target.reasoningEffort,
       serviceTier: target.serviceTier,
@@ -97,7 +100,13 @@ export const generateStructuredOutput = async <T>(
   }
 
   const configured = createConfiguredTextModelFromResolution(
-    { model: target.model, provider: target.provider, reasoningEffort: target.reasoningEffort },
+    {
+      model: target.model,
+      provider: target.provider,
+      reasoningEffort: target.reasoningEffort,
+      slot: 'slot' in request ? request.slot : undefined,
+      role: output.name,
+    },
     { webSearch }
   );
   const generate = async <Result>(schema: StructuredOutputSchema, generationPrompt: string) =>

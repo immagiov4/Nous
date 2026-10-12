@@ -306,6 +306,8 @@ const runCodexWebSearch = async ({
     .join('\n\n');
   const summary = (
     await runCodexAppServerTurn({
+      slot: 'research',
+      role: 'webSearch',
       allowWebSearch: true,
       developerInstructions,
       input: [{ type: 'text', text: input }],

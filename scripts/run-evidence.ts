@@ -12,6 +12,10 @@ import {
 } from '../apps/backend/src/config/modelConfig.js';
 import { normalizeCodexReasoningEffort } from '../apps/backend/src/services/codexAppServer.js';
 import {
+  type ModelExchange,
+  withModelExchanges,
+} from '../apps/backend/src/workflows/modelExchanges.js';
+import {
   runWithWorkflowAttemptMetering,
   type WorkflowAiUsageRecord,
 } from '../apps/backend/src/workflows/workflowAiMetering.js';
@@ -24,6 +28,7 @@ import { readGitIdentity } from './git-identity.js';
 const repositoryDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 export interface RunEvidenceContext {
+  captureModelExchanges?: true;
   scenario: string;
   provider: string;
   case?: string;
@@ -268,13 +273,16 @@ export const withRunEvidence = async <Result>(
     aiUsage: [],
   };
   const recorder = new RunEvidenceRecorder(directory, manifest);
+  const exchanges: ModelExchange[] = [];
   const saveManifest = () =>
     writeFile(join(directory, 'manifest.json'), JSON.stringify(manifest, null, 2));
   await saveManifest();
   return withRunCleanup(
     async () => {
       try {
-        const result = await operation(recorder);
+        const result = await (context.captureModelExchanges
+          ? withModelExchanges(exchanges, () => operation(recorder))
+          : operation(recorder));
         manifest.outcome = 'passed';
         return result;
       } catch (error) {
@@ -286,6 +294,15 @@ export const withRunEvidence = async <Result>(
     async () => {
       manifest.endedAt = new Date().toISOString();
       manifest.durationMs = performance.now() - started;
+      if (context.captureModelExchanges) {
+        await recorder.writeEvidence(
+          'model-exchanges.jsonl',
+          exchanges
+            .toSorted((left, right) => left.startedAt.localeCompare(right.startedAt))
+            .map(exchange => `${JSON.stringify(exchange)}\n`)
+            .join('')
+        );
+      }
       await saveManifest();
       await appendFile(join(scenarioDirectory, 'history.jsonl'), `${JSON.stringify(manifest)}\n`);
     }

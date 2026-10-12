@@ -6,10 +6,12 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../apps/backend/src/config/modelConfig.js';
 import { verifyLessonEvidence } from '../apps/backend/src/services/lessonEvidenceVerification.js';
 import { LessonGenerationCorrectionError } from '../apps/backend/src/services/lessonGenerationCorrection.js';
+import { startModelExchange } from '../apps/backend/src/workflows/modelExchanges.js';
 import { recordWorkflowAiUsage } from '../apps/backend/src/workflows/workflowAiMetering.js';
 import type { WorkflowPublicRunState } from '../apps/backend/src/workflows/workflowReadModel.js';
 import {
   type RunEvidenceContext,
+  RunEvidenceRecorder,
   type RunManifest,
   resolveRunEvidenceTextSlot,
   withRunCleanup,
@@ -55,6 +57,65 @@ afterEach(async () => {
 });
 
 describe('real-run evidence', () => {
+  test('writes opted-in exchanges in start order and drains interrupted calls before finalizing', async () => {
+    let directory = '';
+    let entered!: () => void;
+    const operationEntered = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    const write = vi.spyOn(RunEvidenceRecorder.prototype, 'writeEvidence');
+    let completeLate!: () => void;
+    const late = new Promise<void>(resolve => {
+      completeLate = resolve;
+    });
+    const running = withRunEvidence({ ...context, captureModelExchanges: true }, async recorder => {
+      directory = recorder.directory;
+      const first = startModelExchange(() => ({
+        provider: 'codex',
+        model: 'first',
+        serviceTier: 'normal',
+        request: { prompt: 'full synthetic prompt' },
+      }));
+      vi.advanceTimersByTime(10);
+      const second = startModelExchange(() => ({
+        provider: 'codex',
+        model: 'second',
+        serviceTier: 'normal',
+        request: {},
+      }));
+      second?.finish('completed');
+      void late.then(() => first?.finish('interrupted'));
+      entered();
+      throw new Error('synthetic failure');
+    });
+    void running.catch(() => undefined);
+    try {
+      await operationEntered;
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      write.mockRestore();
+      completeLate();
+    }
+    await expect(running).rejects.toThrow('synthetic failure');
+    const rows = (await readFile(join(directory, 'model-exchanges.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map(line => JSON.parse(line));
+    expect(rows).toMatchObject([
+      {
+        model: 'first',
+        status: 'interrupted',
+        latencyMs: 10,
+        request: { prompt: 'full synthetic prompt' },
+      },
+      { model: 'second', status: 'completed', latencyMs: 0 },
+    ]);
+    await withRunEvidence(context, async recorder => {
+      directory = recorder.directory;
+    });
+    expect(await readdir(directory)).not.toContain('model-exchanges.jsonl');
+  });
   test('resolves effective provider settings and role overrides', () => {
     const config = {
       ...getGlobalModelConfig(),
