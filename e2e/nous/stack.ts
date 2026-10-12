@@ -145,13 +145,21 @@ async function configureStack(): Promise<string> {
   return workdir;
 }
 
+// The repository-local CLI binary avoids resolving executables through a mutable PATH.
+const SUPABASE_CLI_PATH = join(
+  REPO_ROOT,
+  'node_modules',
+  '.bin',
+  process.platform === 'win32' ? 'supabase.exe' : 'supabase'
+);
+
 async function supabaseCommand(args: string[], signal?: AbortSignal): Promise<string> {
   signal?.throwIfAborted();
-  const child = spawn(
-    'bunx',
-    ['--no-install', 'supabase', ...args, '--workdir', join(dataRoot(), 'stack')],
-    { cwd: REPO_ROOT, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }
-  );
+  const child = spawn(SUPABASE_CLI_PATH, [...args, '--workdir', join(dataRoot(), 'stack')], {
+    cwd: REPO_ROOT,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
   const exited = new Promise<number | null>((resolveExit, reject) => {
     child.once('error', reject);
     child.once('close', resolveExit);

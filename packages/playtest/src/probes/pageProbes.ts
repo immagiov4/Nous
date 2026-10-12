@@ -102,8 +102,8 @@ export function initializePageProbes(): void {
         bottom: rect.bottom - vertical,
       });
     }
-    // Apps still use deprecated CSS clip for screen-reader-only text.
-    const clip = style.clip;
+    // Apps still use the legacy CSS clip property for screen-reader-only text.
+    const clip = style.getPropertyValue('clip') || 'auto';
     if (clip !== 'auto') {
       const offsets = clip.match(/-?\d+(?:\.\d+)?/g)?.map(Number);
       if (offsets?.length === 4) {
