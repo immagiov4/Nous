@@ -82,7 +82,9 @@ function learnerFailure(input: {
   shouldStop: () => string | undefined;
   reason?: string;
 }): LearnerRunResult {
-  recordDiagnostic(input.stage, input.error);
+  recordDiagnostic(input.stage, input.error, {
+    operational: input.shouldStop() === undefined,
+  });
   input.result.outcome = input.shouldStop() === undefined ? 'operator-failure' : 'app-error';
   if (input.reason) input.result.reason = input.reason;
   return input.result;

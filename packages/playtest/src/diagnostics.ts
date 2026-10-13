@@ -1,7 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { inspect } from 'node:util';
 
-export type DiagnosticRecord = { diagnostics?: Record<string, string> };
+export type DiagnosticRecord = {
+  diagnostics?: Record<string, string>;
+  operationalFailure?: true;
+};
 const scope = new AsyncLocalStorage<DiagnosticRecord>();
 
 /** Nested story scopes isolate concurrent jobs; lower layers retain causes at their owner. */
@@ -16,6 +19,7 @@ export function recordDiagnostic(
   options: {
     record?: DiagnosticRecord;
     label?: string;
+    operational?: boolean;
   } = {}
 ): void {
   const cause =
@@ -23,6 +27,7 @@ export function recordDiagnostic(
   console.error(options.label ?? `[playtest] ${stage} failed:`, cause);
   const record = options.record ?? scope.getStore();
   if (!record) return;
+  if (options.operational) record.operationalFailure = true;
   record.diagnostics ??= {};
   const previous = record.diagnostics[stage];
   record.diagnostics[stage] = previous ? `${previous}\n\n${cause}` : cause;

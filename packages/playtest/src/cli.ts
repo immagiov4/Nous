@@ -5,7 +5,7 @@ import { parseArgs } from 'node:util';
 import * as z from 'zod';
 import type { PlaytestAdapter } from './adapter';
 import { type DiagnosticRecord, recordDiagnostic, withDiagnostics } from './diagnostics';
-import { runPlaytest } from './runner';
+import { type RunSummary, runPlaytest } from './runner';
 import { filterStories, loadPersonas, loadStories } from './stories';
 
 const DEFAULT_CONCURRENCY = 4;
@@ -24,8 +24,7 @@ const adapterSchema = z.object({
   thresholds: z.function(),
 });
 
-/** Adapter stories/personas live beside its module; model and provider are explicit choices. */
-export async function main(args: string[] = process.argv.slice(2)): Promise<void> {
+export function parsePlaytestArgs(args: string[]) {
   const { values } = parseArgs({
     args: args[0] === '--' ? args.slice(1) : args,
     options: {
@@ -42,13 +41,22 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
       'run-dir': { type: 'string' },
     },
   });
+  return values;
+}
+
+/** Adapter stories/personas live beside its module; callers can own the output directory. */
+export async function main(
+  args: string[] = process.argv.slice(2),
+  outputDirectory?: string
+): Promise<RunSummary> {
+  const values = parsePlaytestArgs(args);
   const dataRoot = process.env.NOUS_E2E_DATA;
-  if (!dataRoot && !values['run-dir'])
+  if (!dataRoot && !values['run-dir'] && !outputDirectory)
     throw new Error('NOUS_E2E_DATA is unset. Set it to the local playtest data directory.');
   const timestamp = new Date().toISOString().replaceAll(':', '-');
-  const runDir = values['run-dir']
-    ? resolve(values['run-dir'])
-    : join(dataRoot as string, 'runs', timestamp);
+  const runDir =
+    outputDirectory ??
+    (values['run-dir'] ? resolve(values['run-dir']) : join(dataRoot as string, 'runs', timestamp));
   const diagnosticRun: DiagnosticRecord = {};
   return withDiagnostics(diagnosticRun, async () => {
     try {
@@ -92,7 +100,6 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
       const personas = stories.some(story => story.persona)
         ? await loadPersonas(join(adapterDir, 'personas'))
         : new Map();
-      // Colons are invalid in Windows filenames; retain the ISO timestamp with filesystem-safe separators.
       const summary = await runPlaytest({
         adapter,
         stories,
@@ -109,6 +116,14 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
       console.log(JSON.stringify(summary.outcomeCounts));
       if (summary.stackFailure !== undefined)
         throw new Error(`The application stack did not start: ${summary.stackFailure}`);
+      if (summary.operationalFailure || summary.records.some(record => record.operationalFailure))
+        throw Object.assign(
+          new Error('The playtest encountered an operational failure. See its reports.'),
+          {
+            code: 'PLAYTEST_OPERATIONAL_ERROR',
+          }
+        );
+      return summary;
     } catch (error) {
       recordDiagnostic('cli', error);
       try {

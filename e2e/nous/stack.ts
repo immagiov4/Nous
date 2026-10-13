@@ -47,7 +47,7 @@ const stackClock: StackClock = {
 const executeFile = promisify(execFile);
 const ownedProcessSchema = z.object({
   pid: z.number().int().positive(),
-  repoRoot: z.literal(REPO_ROOT),
+  repoRoot: z.string().min(1),
   identity: z.string().min(1),
 });
 const stackConfigSchema = z.object({
@@ -88,7 +88,14 @@ async function processIdentity(pid: number): Promise<string | undefined> {
 
 async function ownedProcess(name: string) {
   return readFile(join(dataRoot(), 'stack', `${name}-pid.json`), 'utf8')
-    .then(text => ownedProcessSchema.parse(JSON.parse(text)))
+    .then(text => {
+      const owned = ownedProcessSchema.parse(JSON.parse(text));
+      if (owned.repoRoot !== REPO_ROOT)
+        throw new Error(
+          `Playtest ${name} is owned by ${owned.repoRoot}. Run bun run e2e/nous/stack.ts --stop from that worktree with NOUS_E2E_DATA=${dataRoot()}, then retry from ${REPO_ROOT}.`
+        );
+      return owned;
+    })
     .catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return undefined;
       throw error;

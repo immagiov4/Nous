@@ -198,6 +198,29 @@ describe('Nous adapter', () => {
     ).toEqual([-frontendPid, -process.pid, -frontendPid, -process.pid]);
   });
 
+  it('explains foreign stack ownership without touching the process or registry', async () => {
+    const pidPath = await createShutdownFixture();
+    const owner = join(REPO_ROOT, '..', 'other-worktree');
+    const record = JSON.stringify({ pid: process.pid, repoRoot: owner, identity: 'owned-process' });
+    await writeFile(pidPath, record);
+    const identity = vi.fn(async () => 'owned-process');
+    const kill = vi.fn();
+    const initializeSupabase = vi.fn(async () => status);
+    const start = vi.fn(async () => process.pid);
+    const stopSupabase = vi.fn();
+    const message = `Playtest backend is owned by ${owner}. Run bun run e2e/nous/stack.ts --stop from that worktree with NOUS_E2E_DATA=${temporaryRoot}, then retry from ${REPO_ROOT}.`;
+    await expect(
+      ensureStack({ shutdown: { identity, kill }, initializeSupabase, startServer: start })
+    ).rejects.toThrow(message);
+    await expect(stopStack({ identity, kill, stopSupabase })).rejects.toThrow(message);
+    expect(identity).not.toHaveBeenCalled();
+    expect(kill).not.toHaveBeenCalled();
+    expect(initializeSupabase).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(stopSupabase).not.toHaveBeenCalled();
+    expect(await readFile(pidPath, 'utf8')).toBe(record);
+  });
+
   it('refuses to restart a recorded server with a changed identity before initializing Supabase', async () => {
     const pidPath = await createShutdownFixture();
     const kill = vi.fn();
