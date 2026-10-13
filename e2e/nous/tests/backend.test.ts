@@ -2,11 +2,19 @@ import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { getResolvedModelConfigForProvider } from '../../../apps/backend/src/config/modelConfig';
+import {
+  getResolvedGlobalModelConfig,
+  getResolvedModelConfigForProvider,
+} from '../../../apps/backend/src/config/modelConfig';
 import { OPENROUTER_WORKFLOW_MODELS } from '../../../scripts/real-workflow-provider-config';
-import { startPlaytestBackend } from '../backend';
+import { resolveGenerationModels, startPlaytestBackend, withGenerationSettings } from '../backend';
 
-vi.mock('../../../apps/backend/src/server', () => ({}));
+const boot = vi.hoisted(() =>
+  vi.fn<(options: { resolveLessonModels?: typeof resolveGenerationModels }) => Promise<void>>(
+    async () => {}
+  )
+);
+vi.mock('../../../apps/backend/src/server', () => ({ startBackend: boot }));
 vi.mock('../../../scripts/git-identity', () => ({
   readGitIdentity: () => ({ commitSha: 'revision', dirty: true }),
 }));
@@ -17,7 +25,7 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   await rm(root, { recursive: true, force: true });
 });
-it('persists small generation models so product resolution matches the recorded settings and preserves efforts', async () => {
+it('scopes small generation models to current accounts and leaves global application settings unchanged', async () => {
   root = await mkdtemp(join(tmpdir(), 'nous-generation-config-'));
   await mkdir(join(root, 'stack'));
   vi.stubEnv('NOUS_E2E_DATA', root);
@@ -40,15 +48,33 @@ it('persists small generation models so product resolution matches the recorded 
   );
   vi.stubGlobal('fetch', fetcher);
   await startPlaytestBackend();
-  const effective = await getResolvedModelConfigForProvider('openrouter');
+  const resolver = boot.mock.calls[0][0].resolveLessonModels;
+  if (!resolver) throw new Error('The backend must use the scoped lesson resolver');
+  const original = await getResolvedGlobalModelConfig();
+  expect(await resolver(undefined, undefined, 'any-user')).toEqual(original);
+  const effective = await withGenerationSettings('current-user', () =>
+    resolveGenerationModels('openrouter', undefined, 'current-user')
+  );
+  expect(await resolveGenerationModels('openrouter', undefined, 'current-user')).toEqual(
+    await getResolvedModelConfigForProvider('openrouter')
+  );
+  expect(await getResolvedGlobalModelConfig()).toEqual(original);
   const recorded = JSON.parse(await readFile(join(root, 'stack/generation-settings.json'), 'utf8'));
   expect(effective).toEqual(recorded.settings);
   expect(effective).toMatchObject({
     aiProvider: 'openrouter',
     lessonModel: OPENROUTER_WORKFLOW_MODELS.text,
-    sceneModel: OPENROUTER_WORKFLOW_MODELS.scene,
+    sceneModel: 'original-scene',
     lessonReasoningEffort: 'high',
     sceneReasoningEffort: 'medium',
   });
-  expect(fetcher.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(1);
+  await expect(
+    withGenerationSettings('failed-current-user', async () => {
+      throw new Error('Generation failed');
+    })
+  ).rejects.toThrow('Generation failed');
+  expect(await resolveGenerationModels(undefined, undefined, 'failed-current-user')).toEqual(
+    original
+  );
+  expect(fetcher.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(0);
 });

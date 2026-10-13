@@ -13,7 +13,11 @@ import {
   withRunEvidence,
 } from '../../scripts/run-evidence';
 import { withFixtureRun } from './fixtures';
-import { type FreshnessEvidence, withFreshnessEvidence } from './freshness';
+import {
+  type FreshnessEvidence,
+  PREPARATION_TIMEOUT_CODE,
+  withFreshnessEvidence,
+} from './freshness';
 import { stackStatus } from './stack';
 
 async function recordGeneration(
@@ -36,6 +40,8 @@ async function recordGeneration(
     runId: evidence.workflowId,
     status: evidence.workflowStatus,
   });
+  // Deadline evidence must not wait for optional durable snapshots or the usage ledger.
+  if (evidence.errorCode === PREPARATION_TIMEOUT_CODE) return;
   const isolated = await stackStatus();
   const sql = postgres(isolated.DB_URL);
   try {
@@ -78,19 +84,50 @@ async function linkArtifacts(recorder: RunEvidenceRecorder): Promise<void> {
 
 function runCliWithFixtures(args: string[], recorder: RunEvidenceRecorder) {
   let inventoryEvidence: Promise<void> | undefined;
-  return withFreshnessEvidence(
-    evidence => recordGeneration(recorder, evidence),
-    () =>
-      withFixtureRun(
-        () => runPlaytestCli(args, recorder.directory),
-        async (fixture, inventory) => {
-          if (inventory) {
-            inventoryEvidence ??= recorder.writeJson('fixture-inventory.json', inventory);
-            await inventoryEvidence;
-          }
-          await recorder.writeJson(`fixture-${randomUUID()}.json`, fixture);
-        }
-      )
+  return withFixtureRun(
+    () => runPlaytestCli(args, recorder.directory),
+    async (fixture, inventory) => {
+      if (inventory) {
+        inventoryEvidence ??= recorder.writeJson('fixture-inventory.json', inventory);
+        await inventoryEvidence;
+      }
+      await recorder.writeJson(`fixture-${randomUUID()}.json`, fixture);
+    }
+  );
+}
+
+/** Refresh settlements observed before the run begins finalizing without duplicating its ledger. */
+async function refreshGeneration(
+  recorder: RunEvidenceRecorder,
+  evidence: FreshnessEvidence
+): Promise<void> {
+  await recorder.writeJson(`generation-${evidence.requestKey}.json`, evidence);
+  if (
+    evidence.workflowId &&
+    !recorder.manifest.workflows.some(workflow => workflow.runId === evidence.workflowId)
+  ) {
+    recorder.manifest.workflows.push({
+      name: `generation-${evidence.requestKey}`,
+      runId: evidence.workflowId,
+      status: evidence.workflowStatus,
+    });
+  }
+}
+
+function executePlaytest(
+  args: string[],
+  values: ReturnType<typeof parsePlaytestArgs>,
+  recorder: RunEvidenceRecorder
+) {
+  return recorder.measure({ name: 'playtest', kind: 'case' }, () =>
+    withRunCleanup(
+      async () => {
+        if (values['run-dir'])
+          throw new Error('Nous playtest output is managed by NOUS_E2E_DATA; omit --run-dir.');
+        return runCliWithFixtures(args, recorder);
+      },
+      () => linkArtifacts(recorder)
+    )
   );
 }
 
@@ -107,15 +144,10 @@ export async function main(args: string[] = process.argv.slice(2)) {
       },
     },
     recorder =>
-      recorder.measure({ name: 'playtest', kind: 'case' }, () =>
-        withRunCleanup(
-          async () => {
-            if (values['run-dir'])
-              throw new Error('Nous playtest output is managed by NOUS_E2E_DATA; omit --run-dir.');
-            return runCliWithFixtures(args, recorder);
-          },
-          () => linkArtifacts(recorder)
-        )
+      withFreshnessEvidence(
+        evidence => recordGeneration(recorder, evidence),
+        () => executePlaytest(args, values, recorder),
+        evidence => refreshGeneration(recorder, evidence)
       )
   );
 }

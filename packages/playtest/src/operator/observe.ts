@@ -74,7 +74,15 @@ export function initializeCaptureCounter(): void {
 }
 
 /** Runs in the page: text is checked at glyph rectangles rather than trusting ancestor names. */
-function visibleSnapshot({ secrets, prefix }: { secrets: string[]; prefix: string }) {
+function visibleSnapshot({
+  secrets,
+  prefix,
+  inspectionSelector,
+}: {
+  secrets: string[];
+  prefix: string;
+  inspectionSelector?: string;
+}) {
   const scope = globalThis as OperatorWindow;
   if (scope.__playtestOperator?.document !== document) {
     scope.__playtestOperator = {
@@ -267,7 +275,15 @@ function visibleSnapshot({ secrets, prefix }: { secrets: string[]; prefix: strin
       // Attribute names and native values have no text rectangles to verify for clipping or coverage.
       if (!names.has(element)) names.set(element, '');
     }
-    return registeredNodes();
+    const inspectionEligible =
+      inspectionSelector === undefined
+        ? undefined
+        : elements.some(
+            element =>
+              element.matches(inspectionSelector) &&
+              uncoveredPoint(element, element.getBoundingClientRect()) !== undefined
+          );
+    return { nodes: registeredNodes(), inspectionEligible };
   } finally {
     capture?.resume();
   }
@@ -297,30 +313,11 @@ export async function observePage(options: {
   inspectionSelector?: string;
 }): Promise<Observation> {
   const { page, stepIndex, screenshotPath, secrets } = options;
-  const nodes = await page.evaluate(visibleSnapshot, {
+  const { nodes, inspectionEligible } = await page.evaluate(visibleSnapshot, {
     secrets,
     prefix: randomUUID(),
+    inspectionSelector: options.inspectionSelector,
   });
-  const inspectionEligible =
-    options.inspectionSelector === undefined
-      ? undefined
-      : await page
-          .locator(options.inspectionSelector)
-          .evaluateAll(elements =>
-            elements.some(
-              element =>
-                element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
-                [...element.getClientRects()].some(
-                  box =>
-                    box.width > 0 &&
-                    box.height > 0 &&
-                    box.bottom > 0 &&
-                    box.right > 0 &&
-                    box.top < innerHeight &&
-                    box.left < innerWidth
-                )
-            )
-          );
   const editable = page.locator('input, textarea, [contenteditable]');
   const secretFields = await editable.evaluateAll(
     (elements, secrets) =>

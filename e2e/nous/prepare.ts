@@ -9,6 +9,7 @@ import { SupabaseProjectSourceStorage } from '../../apps/backend/src/projects/pr
 import type { ProjectSnapshot } from '../../apps/backend/src/projects/types';
 import { recordDiagnostic } from '../../packages/playtest/src/diagnostics';
 import type { Story, Viewport } from '../../packages/playtest/src/types';
+import { withGenerationSettings } from './backend';
 import { type FixtureImport, importFixture } from './fixtures';
 import { type FreshnessEvidence, regenerateLesson } from './freshness';
 import { assertIsolatedStatus, type StackStatus, stackStatus } from './stack';
@@ -203,18 +204,21 @@ export async function prepare(
     }
     fixture = await populateCourse({ isolated, userId: user.id, course });
     if (freshness === 'current' && fixture && sectionId) {
+      const projectId = fixture.importedProjectId;
       const store = projectStore(isolated);
       try {
-        generation = await regenerateLesson({
-          story,
-          viewport,
-          isolated,
-          credentials,
-          userId: user.id,
-          projectId: fixture.importedProjectId,
-          sectionId,
-          store,
-        });
+        generation = await withGenerationSettings(user.id, () =>
+          regenerateLesson({
+            story,
+            viewport,
+            isolated,
+            credentials,
+            userId: user.id,
+            projectId,
+            sectionId,
+            store,
+          })
+        );
       } finally {
         await store.close();
       }

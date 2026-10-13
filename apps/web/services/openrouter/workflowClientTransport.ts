@@ -176,14 +176,16 @@ const waitForNextPoll = (signal?: AbortSignal): Promise<void> => {
 };
 
 export const retryTransientWorkflowRequest = async <Result>(
-  request: () => Promise<Result>
+  request: () => Promise<Result>,
+  signal?: AbortSignal
 ): Promise<Result> => {
   while (true) {
+    signal?.throwIfAborted();
     try {
       return await request();
     } catch (error) {
       if (!isTransientWorkflowPollError(error)) throw error;
-      await waitForNextPoll();
+      await waitForNextPoll(signal);
     }
   }
 };
@@ -213,3 +215,24 @@ export const pollWorkflow = async <State extends object>({
   }
   return currentState;
 };
+
+/** Recover durable work using the same idempotency key after an uncertain start. */
+export const resolveWorkflowRequestByKey = async <State>({
+  request,
+  readJob,
+  errorMessage,
+  signal,
+}: {
+  signal?: AbortSignal;
+  request: () => Promise<Response>;
+  readJob: (body: unknown) => State | null;
+  errorMessage: string;
+}): Promise<State | null> =>
+  retryTransientWorkflowRequest(async () => {
+    const response = await request();
+    if (response.status === WORKFLOW_NOT_FOUND_STATUS) return null;
+    assertWorkflowPollResponse(response, errorMessage);
+    const job = readJob(await readWorkflowPollJson(response, errorMessage));
+    if (!job) throw new Error(errorMessage);
+    return job;
+  }, signal);

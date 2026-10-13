@@ -3,13 +3,24 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import postgres from 'postgres';
 import * as z from 'zod';
 import type { GlobalModelConfig } from '../../apps/backend/src/config/modelConfig';
 import type { PostgresProjectStore } from '../../apps/backend/src/projects/postgresProjectStore';
+import { createProjectAssetStorage } from '../../apps/backend/src/projects/projectAsset';
 import { findProjectLessonSection } from '../../apps/backend/src/projects/projectLesson';
+import { LESSON_GENERATION_WORKFLOW_ID } from '../../apps/backend/src/workflows/lessonGenerationStart';
 import { LessonGenerationWorkflowResultSchema } from '../../apps/backend/src/workflows/lessonGenerationWorkflowContract';
+import { PostgresWorkflowStore } from '../../apps/backend/src/workflows/persistence/postgresWorkflowStore';
 import { canonicalJson } from '../../apps/backend/src/workflows/schemaFingerprint';
-import { pollWorkflow } from '../../apps/web/services/openrouter/workflowClientTransport';
+import { raceOperationWithAbort } from '../../apps/backend/src/workflows/workflowStepAttempt';
+import {
+  assertWorkflowPollResponse,
+  isDefinitiveWorkflowStartRejection,
+  pollWorkflow,
+  readWorkflowPollJson,
+  resolveWorkflowRequestByKey,
+} from '../../apps/web/services/openrouter/workflowClientTransport';
 import type { Story, Viewport } from '../../packages/playtest/src/types';
 import type {
   LessonWorkflowSnapshot,
@@ -17,6 +28,10 @@ import type {
 } from '../../packages/shared-types/lessonWorkflowContract';
 import { withRunCleanup } from '../../scripts/run-evidence';
 import { BACKEND_URL, dataRoot, type StackStatus } from './stack';
+
+// Maintainer-approved on 2026-10-13, derived from measured 336 s / 402 s regenerations.
+export const FRESH_CONTENT_PREPARATION_TIMEOUT_MS = 20 * 60_000;
+export const PREPARATION_TIMEOUT_CODE = 'lesson_generation_preparation_timeout';
 
 export interface FreshnessEvidence {
   userId: string;
@@ -31,6 +46,7 @@ export interface FreshnessEvidence {
   generationSettings?: GlobalModelConfig;
   outcome: 'blocked' | 'current';
   errorCode?: string;
+  cancellation?: { status: 'requested-unconfirmed' | 'confirmed' | 'failed'; errorCode?: string };
   warnings: LessonWorkflowWarning[];
   startedAt: string;
   durationMs: number;
@@ -38,12 +54,31 @@ export interface FreshnessEvidence {
   contentSha256?: string;
   visuals?: { generatedVisuals: unknown[]; imageRefs: unknown[]; visualPlanningDecision?: unknown };
 }
-const writer = new AsyncLocalStorage<(evidence: FreshnessEvidence) => Promise<void>>();
+type EvidenceScope = {
+  record: (evidence: FreshnessEvidence) => Promise<void>;
+  records: Set<FreshnessEvidence>;
+  cancellation: AbortController;
+  finalized: boolean;
+};
+const writer = new AsyncLocalStorage<EvidenceScope>();
 export function withFreshnessEvidence<T>(
   record: (evidence: FreshnessEvidence) => Promise<void>,
-  operation: () => Promise<T>
+  operation: () => Promise<T>,
+  refresh?: (evidence: FreshnessEvidence) => Promise<void>
 ): Promise<T> {
-  return writer.run(record, operation);
+  const scope: EvidenceScope = {
+    record,
+    records: new Set(),
+    cancellation: new AbortController(),
+    finalized: false,
+  };
+  return writer.run(scope, () =>
+    withRunCleanup(operation, async () => {
+      scope.finalized = true;
+      scope.cancellation.abort();
+      for (const evidence of scope.records) await refresh?.(evidence);
+    })
+  );
 }
 
 class FreshnessBlockedError extends Error {
@@ -51,7 +86,12 @@ class FreshnessBlockedError extends Error {
     readonly code: string,
     options?: ErrorOptions
   ) {
-    super(`Current lesson preparation blocked (${code}). See the generation evidence.`, options);
+    super(
+      code === PREPARATION_TIMEOUT_CODE
+        ? 'Current lesson preparation blocked: the generation deadline expired (lesson_generation_preparation_timeout). See the generation evidence.'
+        : `Current lesson preparation blocked (${code}). See the generation evidence.`,
+      options
+    );
     this.name = 'FreshnessBlockedError';
   }
 }
@@ -80,7 +120,7 @@ async function readJob(
     throw new FreshnessBlockedError(
       typeof body.code === 'string' ? body.code : 'lesson_workflow_request_failed'
     );
-  if (requireCreated && body.created !== true)
+  if (requireCreated && !z.boolean().parse(body.created))
     throw new FreshnessBlockedError('lesson_generation_not_created');
   return jobSchema.parse(body.job);
 }
@@ -141,56 +181,102 @@ async function verifiedPersistence(
 
 async function generate(
   input: RegenerationInput,
-  evidence: FreshnessEvidence
+  evidence: FreshnessEvidence,
+  context: { signal: AbortSignal; headers?: Record<string, string> }
 ): Promise<FreshnessEvidence> {
   const configuration = JSON.parse(
     await readFile(join(dataRoot(), 'stack', 'generation-settings.json'), 'utf8')
   );
+  context.signal.throwIfAborted();
   evidence.appRevision = configuration.appRevision;
   evidence.generationSettings = configuration.settings;
   const before = await input.store.loadProjectWithRevision(input.userId, input.projectId);
+  context.signal.throwIfAborted();
   if (!before || !findProjectLessonSection(before.snapshot, input.sectionId))
     throw new FreshnessBlockedError('lesson_generation_target_missing');
   const login = await fetch(`${input.isolated.API_URL}/auth/v1/token?grant_type=password`, {
     method: 'POST',
     headers: { apikey: input.isolated.ANON_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify(input.credentials),
+    signal: context.signal,
   });
   if (!login.ok) throw new FreshnessBlockedError('lesson_generation_auth_failed');
   const { access_token: token } = z
     .object({ access_token: z.string().min(1) })
     .parse(await login.json());
+  context.signal.throwIfAborted();
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-  const initial = await readJob(
-    await fetch(`${BACKEND_URL}/api/lesson-workflows/lessons`, {
+  context.headers = headers;
+  let initial: LessonWorkflowSnapshot;
+  let startResponse: Response | undefined;
+  try {
+    startResponse = await fetch(`${BACKEND_URL}/api/lesson-workflows/lessons`, {
       method: 'POST',
       headers,
+      signal: context.signal,
       body: JSON.stringify({
         forceRegenerate: true,
         projectId: input.projectId,
         sectionId: input.sectionId,
         requestKey: evidence.requestKey,
       }),
-    }),
-    true
-  );
+    });
+    initial = await readJob(startResponse, true);
+  } catch (error) {
+    context.signal.throwIfAborted();
+    if (
+      (error instanceof FreshnessBlockedError && error.code === 'lesson_generation_not_created') ||
+      (startResponse && isDefinitiveWorkflowStartRejection(startResponse))
+    )
+      throw error;
+    const recovered = await resolveWorkflowRequestByKey({
+      request: () =>
+        fetch(`${BACKEND_URL}/api/lesson-workflows/requests/resolve`, {
+          method: 'POST',
+          headers,
+          signal: context.signal,
+          body: JSON.stringify({ requestKey: evidence.requestKey }),
+        }),
+      readJob: body => {
+        const parsed = z.object({ success: z.literal(true), job: jobSchema }).safeParse(body);
+        return parsed.success ? parsed.data.job : null;
+      },
+      errorMessage: 'lesson_workflow_request_failed',
+      signal: context.signal,
+    });
+    if (!recovered) throw error;
+    initial = recovered;
+  }
+  context.signal.throwIfAborted();
   evidence.workflowId = initial.id;
   if (initial.projectId !== input.projectId || initial.sectionId !== input.sectionId)
     throw new FreshnessBlockedError('lesson_generation_identity_mismatch');
   const job = await pollWorkflow({
     initialState: initial,
+    signal: context.signal,
     onState: job => {
-      evidence.workflowStatus = job.status;
+      if (!context.signal.aborted) evidence.workflowStatus = job.status;
     },
     isTerminal: job => job.status === 'completed' || job.status === 'failed',
-    readState: async job =>
-      readJob(
-        await fetch(`${BACKEND_URL}/api/lesson-workflows/runs/${encodeURIComponent(job.id)}`, {
-          headers,
-          cache: 'no-store',
-        })
-      ),
+    readState: async (job, signal) => {
+      const response = await fetch(
+        `${BACKEND_URL}/api/lesson-workflows/runs/${encodeURIComponent(job.id)}`,
+        { headers, cache: 'no-store', signal }
+      );
+      assertWorkflowPollResponse(response, 'lesson_workflow_request_failed');
+      const body = z
+        .object({ success: z.literal(true), job: jobSchema })
+        .parse(await readWorkflowPollJson(response, 'lesson_workflow_request_failed'));
+      if (
+        body.job.id !== initial.id ||
+        body.job.projectId !== input.projectId ||
+        body.job.sectionId !== input.sectionId
+      )
+        throw new FreshnessBlockedError('lesson_generation_identity_mismatch');
+      return body.job;
+    },
   });
+  context.signal.throwIfAborted();
   evidence.workflowStatus = job.status;
   if (
     job.id !== initial.id ||
@@ -200,6 +286,7 @@ async function generate(
     throw new FreshnessBlockedError('lesson_generation_identity_mismatch');
   const result = completedResult(job, evidence);
   const persisted = await verifiedPersistence(input, before.revision, job, result);
+  context.signal.throwIfAborted();
   // Opening the imported course starts on the selected fresh lesson.
   await input.store.patchProject(
     input.userId,
@@ -207,6 +294,7 @@ async function generate(
     { activeSectionId: input.sectionId },
     { expectedRevision: persisted.revision }
   );
+  context.signal.throwIfAborted();
   evidence.persistedRevision = persisted.revision;
   evidence.contentSha256 = createHash('sha256')
     .update(canonicalJson(result.contentBlocks))
@@ -220,6 +308,67 @@ async function generate(
   };
   evidence.outcome = 'current';
   return evidence;
+}
+
+/** Cancellation and request-key recovery cannot extend the approved preparation deadline. */
+async function cancelTimedOutGeneration(
+  input: RegenerationInput,
+  evidence: FreshnessEvidence,
+  headers: Record<string, string> | undefined,
+  signal: AbortSignal
+): Promise<void> {
+  if (!headers) return;
+  const scope = writer.getStore();
+  evidence.cancellation = { status: 'requested-unconfirmed' };
+  const failed = () => {
+    if (!scope?.finalized)
+      evidence.cancellation = {
+        status: 'failed',
+        errorCode: 'lesson_generation_cancellation_failed',
+      };
+  };
+  try {
+    let workflowId = evidence.workflowId;
+    if (!workflowId) {
+      const sql = postgres(input.isolated.DB_URL);
+      // Zero closes the owned connection immediately; it does not add another wait budget.
+      const close = () => {
+        void sql.end({ timeout: 0 }).catch(failed);
+      };
+      signal.addEventListener('abort', close, { once: true });
+      try {
+        const store = new PostgresWorkflowStore({
+          sqlClient: sql,
+          projectAssetStorage: createProjectAssetStorage({
+            supabaseUrl: input.isolated.API_URL,
+            serviceRoleKey: input.isolated.SERVICE_ROLE_KEY,
+          }),
+        });
+        const run = await store.getRunByRequestKey({
+          userId: input.userId,
+          requestKey: evidence.requestKey,
+          workflowId: LESSON_GENERATION_WORKFLOW_ID,
+        });
+        if (run?.projectId === input.projectId) {
+          workflowId = run.id;
+          if (!scope?.finalized) evidence.workflowId = run.id;
+        }
+      } finally {
+        signal.removeEventListener('abort', close);
+        close();
+      }
+    }
+    if (!workflowId || signal.aborted) return;
+    const response = await fetch(
+      `${BACKEND_URL}/api/workflows/runs/${encodeURIComponent(workflowId)}/cancellation`,
+      { method: 'POST', headers, body: JSON.stringify({}), signal }
+    );
+    if (!response.ok || (await response.json()).success !== true)
+      throw new Error('Cancellation request failed');
+    if (!scope?.finalized) evidence.cancellation = { status: 'confirmed' };
+  } catch {
+    failed();
+  }
 }
 
 /** Force the product workflow, then check its durable identity and exact persisted output. */
@@ -238,10 +387,28 @@ export async function regenerateLesson(input: RegenerationInput): Promise<Freshn
     startedAt: new Date().toISOString(),
     durationMs: 0,
   };
+  const controller = new AbortController();
+  const context: { signal: AbortSignal; headers?: Record<string, string> } = {
+    signal: controller.signal,
+  };
+  const cancellation = writer.getStore()?.cancellation ?? new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new FreshnessBlockedError(PREPARATION_TIMEOUT_CODE)),
+    FRESH_CONTENT_PREPARATION_TIMEOUT_MS
+  );
   return withRunCleanup(
     async () => {
       try {
-        return await generate(input, evidence);
+        const settled = await raceOperationWithAbort(
+          () => generate(input, evidence, context),
+          controller.signal
+        );
+        if (settled.status === 'aborted' || controller.signal.aborted) {
+          void cancelTimedOutGeneration(input, evidence, context.headers, cancellation.signal);
+          throw controller.signal.reason;
+        }
+        if (settled.status === 'failed') throw settled.error;
+        return settled.value;
       } catch (error) {
         evidence.errorCode =
           error instanceof FreshnessBlockedError
@@ -253,8 +420,12 @@ export async function regenerateLesson(input: RegenerationInput): Promise<Freshn
       }
     },
     async () => {
+      clearTimeout(timer);
       evidence.durationMs = performance.now() - started;
-      await writer.getStore()?.(evidence);
+      const scope = writer.getStore();
+      scope?.records.add(evidence);
+      await scope?.record(evidence);
+      if (!scope) cancellation.abort();
     }
   );
 }

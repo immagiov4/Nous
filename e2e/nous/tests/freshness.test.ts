@@ -7,8 +7,13 @@ import { getGlobalModelConfig } from '../../../apps/backend/src/config/modelConf
 import { PostgresProjectStore } from '../../../apps/backend/src/projects/postgresProjectStore';
 import { buildProjectMeta } from '../../../apps/backend/src/projects/projectMeta';
 import type { ProjectSnapshotWithRevision } from '../../../apps/backend/src/projects/types';
+import { PostgresWorkflowStore } from '../../../apps/backend/src/workflows/persistence/postgresWorkflowStore';
 import type { Story } from '../../../packages/playtest/src/types';
-import { type FreshnessEvidence, withFreshnessEvidence } from '../freshness';
+import {
+  FRESH_CONTENT_PREPARATION_TIMEOUT_MS,
+  type FreshnessEvidence,
+  withFreshnessEvidence,
+} from '../freshness';
 import { prepare, syntheticCourse } from '../prepare';
 import { BACKEND_URL, type StackStatus } from '../stack';
 
@@ -133,7 +138,11 @@ const run = (selection: Story = story) =>
     async record => {
       evidence.push(structuredClone(record));
     },
-    () => prepare(selection, 'desktop', status)
+    () => prepare(selection, 'desktop', status),
+    async record => {
+      const index = evidence.findIndex(existing => existing.requestKey === record.requestKey);
+      evidence[index] = structuredClone(record);
+    }
   );
 
 describe('Nous freshness preparation', () => {
@@ -310,8 +319,10 @@ it.each([
     const [url] = args;
     if (defect === 'authentication' && url.includes('/token?'))
       return Response.json({}, { status: 401 });
-    if (defect === 'network' && url.startsWith(BACKEND_URL))
+    if (defect === 'network' && url.endsWith('/lessons'))
       throw new TypeError('Network unavailable');
+    if (defect === 'network' && url.endsWith('/requests/resolve'))
+      return Response.json({}, { status: 404 });
     const response = await respond(...args);
     if (defect === 'cached-start' && url.endsWith('/lessons')) {
       const body = await response.json();
@@ -324,4 +335,311 @@ it.each([
   expect(PostgresProjectStore.prototype.deleteProject).toHaveBeenCalledWith(userId, imported.id);
   if (defect === 'authentication' || defect === 'missing-target')
     expect(fetcher.mock.calls.some(call => call[0].startsWith(BACKEND_URL))).toBe(false);
+});
+
+it.each([
+  'lost-response',
+  'invalid-json',
+  'invalid-envelope',
+  'transient-start',
+])('recovers accepted %s by the original request key before cleanup', async defect => {
+  const respond = fetcher.getMockImplementation();
+  if (!respond) throw new Error('Response implementation missing');
+  fetcher.mockImplementation(async (url, options) => {
+    if (url.endsWith('/lessons')) {
+      if (defect === 'lost-response') throw new TypeError('Response lost');
+      if (defect === 'invalid-json') return new Response('{', { status: 202 });
+      if (defect === 'invalid-envelope') return Response.json({ success: true }, { status: 202 });
+      return new Response(null, { status: 500 });
+    }
+    return respond(url, options);
+  });
+  const prepared = await run();
+  const start = fetcher.mock.calls.find(([url]) => url.endsWith('/lessons'));
+  const recovery = fetcher.mock.calls.find(([url]) => url.endsWith('/requests/resolve'));
+  expect(JSON.parse(recovery?.[1]?.body as string)).toEqual({
+    requestKey: JSON.parse(start?.[1]?.body as string).requestKey,
+  });
+  expect(evidence[0]).toMatchObject({ workflowId, outcome: 'current' });
+  expect(PostgresProjectStore.prototype.deleteProject).not.toHaveBeenCalled();
+  await prepared.cleanup();
+  expect(PostgresProjectStore.prototype.deleteProject).toHaveBeenCalled();
+});
+
+it.each([
+  500,
+  408,
+  429,
+  'invalid-json',
+  'network',
+])('retries transient polling %s until the persisted output is available', async defect => {
+  const respond = fetcher.getMockImplementation();
+  if (!respond) throw new Error('Response implementation missing');
+  let reads = 0;
+  fetcher.mockImplementation(async (url, options) => {
+    if (url.endsWith('/lessons')) {
+      const response = await respond(url, options);
+      const body = await response.json();
+      return Response.json({ ...body, job: { ...body.job, status: 'running' } });
+    }
+    if (url.includes('/runs/') && ++reads === 1) {
+      if (defect === 'network') throw new TypeError('Temporary disconnect');
+      if (defect === 'invalid-json') return new Response('{', { status: 200 });
+      return new Response(null, { status: defect as number });
+    }
+    return respond(url, options);
+  });
+  await run();
+  expect(reads).toBe(2);
+  expect(evidence[0]).toMatchObject({ workflowId, outcome: 'current' });
+  expect(reload).toHaveBeenCalledTimes(2);
+  expect(PostgresProjectStore.prototype.deleteProject).not.toHaveBeenCalled();
+});
+
+it('retains a recovered failed workflow in evidence before deleting the account', async () => {
+  const respond = fetcher.getMockImplementation();
+  if (!respond) throw new Error('Response implementation missing');
+  job.status = 'failed';
+  job.errorCode = 'lesson_factual_support_failed';
+  delete job.result;
+  fetcher.mockImplementation(async (url, options) => {
+    if (url.endsWith('/lessons')) throw new TypeError('Accepted start response lost');
+    return respond(url, options);
+  });
+  await expect(run()).rejects.toThrow('lesson_factual_support_failed');
+  expect(evidence[0]).toMatchObject({
+    workflowId,
+    workflowStatus: 'failed',
+    errorCode: 'lesson_factual_support_failed',
+  });
+  expect(PostgresProjectStore.prototype.deleteProject).toHaveBeenCalledWith(userId, imported.id);
+});
+
+it('retries a transient request-key lookup and retains the accepted workflow', async () => {
+  const respond = fetcher.getMockImplementation();
+  if (!respond) throw new Error('Response implementation missing');
+  let lookups = 0;
+  fetcher.mockImplementation(async (url, options) => {
+    if (url.endsWith('/lessons')) throw new TypeError('Accepted start response lost');
+    if (url.endsWith('/requests/resolve') && ++lookups === 1)
+      return new Response(null, { status: 500 });
+    return respond(url, options);
+  });
+  await run();
+  expect(lookups).toBe(2);
+  expect(evidence[0]).toMatchObject({ workflowId, outcome: 'current' });
+});
+
+it.each([
+  'pending-poll',
+  'running',
+  'transient-poll',
+  'cancellation-failed',
+])('expires the overall preparation deadline for %s and records cancellation before cleanup', async scenario => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const respond = fetcher.getMockImplementation();
+  if (!respond) throw new Error('Response implementation missing');
+  const { promise: acceptedStart, resolve: notifyStart } = Promise.withResolvers<void>();
+  let latePoll: ((response: Response) => void) | undefined;
+  fetcher.mockImplementation(async (url, options) => {
+    if (url.endsWith('/lessons')) notifyStart();
+    if (url.endsWith('/cancellation') && scenario === 'cancellation-failed')
+      return new Response(null, { status: 500 });
+    if (url.includes('/runs/') && !url.endsWith('/cancellation')) {
+      if (scenario === 'pending-poll')
+        return new Promise<Response>(resolve => {
+          latePoll = resolve;
+        });
+      if (scenario === 'transient-poll') return new Response(null, { status: 500 });
+    }
+    const response = await respond(url, options);
+    if (url.endsWith('/lessons') || (url.includes('/runs/') && !url.endsWith('/cancellation'))) {
+      const body = await response.json();
+      return Response.json({ ...body, job: { ...body.job, status: 'running' } });
+    }
+    return response;
+  });
+  const preparation = run();
+  const blocked = expect(preparation).rejects.toThrow('lesson_generation_preparation_timeout');
+  await acceptedStart;
+  await vi.advanceTimersByTimeAsync(FRESH_CONTENT_PREPARATION_TIMEOUT_MS - Date.now() - 1);
+  expect(evidence).toEqual([]);
+  expect(PostgresProjectStore.prototype.deleteProject).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  await blocked;
+  expect(evidence[0]).toMatchObject({
+    workflowId,
+    outcome: 'blocked',
+    errorCode: 'lesson_generation_preparation_timeout',
+    cancellation:
+      scenario === 'cancellation-failed'
+        ? { status: 'failed', errorCode: 'lesson_generation_cancellation_failed' }
+        : { status: 'confirmed' },
+  });
+  const cancellation = fetcher.mock.calls.find(([url]) => url.endsWith('/cancellation'));
+  expect(cancellation?.[0]).toBe(`${BACKEND_URL}/api/workflows/runs/${workflowId}/cancellation`);
+  expect(cancellation?.[1]?.headers).toMatchObject({ Authorization: 'Bearer authenticated-token' });
+  expect(PostgresProjectStore.prototype.deleteProject).toHaveBeenCalledWith(userId, imported.id);
+  const poll = fetcher.mock.calls.find(
+    ([url]) => url.includes('/runs/') && !url.endsWith('/cancellation')
+  );
+  expect(poll?.[1]?.signal?.aborted).toBe(true);
+  if (latePoll)
+    latePoll(
+      Response.json({
+        success: true,
+        job: { ...job, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      })
+    );
+  await Promise.resolve();
+  expect(PostgresProjectStore.prototype.patchProject).not.toHaveBeenCalled();
+});
+
+it('recovers an accepted start id from the durable request key when its response outlives the deadline', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const lookup = vi
+    .spyOn(PostgresWorkflowStore.prototype, 'getRunByRequestKey')
+    .mockResolvedValue({ id: workflowId, projectId: imported.id } as Awaited<
+      ReturnType<PostgresWorkflowStore['getRunByRequestKey']>
+    >);
+  const respond = fetcher.getMockImplementation();
+  if (!respond) throw new Error('Response implementation missing');
+  const { promise: acceptedStart, resolve: notifyStart } = Promise.withResolvers<void>();
+  fetcher.mockImplementation(async (url, options) => {
+    if (url.endsWith('/lessons')) notifyStart();
+    return url.endsWith('/lessons') ? new Promise<Response>(() => {}) : respond(url, options);
+  });
+  const blocked = expect(run()).rejects.toThrow('lesson_generation_preparation_timeout');
+  await acceptedStart;
+  await vi.advanceTimersByTimeAsync(FRESH_CONTENT_PREPARATION_TIMEOUT_MS - Date.now());
+  await vi.waitFor(() => expect(evidence).toHaveLength(1));
+  await blocked;
+  expect(lookup).toHaveBeenCalledWith({
+    userId,
+    requestKey: evidence[0].requestKey,
+    workflowId: 'lesson-generation',
+  });
+  expect(evidence[0]).toMatchObject({
+    workflowId,
+    errorCode: 'lesson_generation_preparation_timeout',
+    cancellation: { status: 'confirmed' },
+  });
+  expect(
+    fetcher.mock.calls.some(
+      ([url]) => url === `${BACKEND_URL}/api/workflows/runs/${workflowId}/cancellation`
+    )
+  ).toBe(true);
+});
+
+it('clears the preparation deadline after success so later time cannot abort the finished request', async () => {
+  vi.useFakeTimers();
+  await run();
+  await vi.advanceTimersByTimeAsync(FRESH_CONTENT_PREPARATION_TIMEOUT_MS);
+  const start = fetcher.mock.calls.find(([url]) => url.endsWith('/lessons'));
+  expect(start?.[1]?.signal?.aborted).toBe(false);
+  expect(fetcher.mock.calls.some(([url]) => url.endsWith('/cancellation'))).toBe(false);
+  expect(evidence[0].outcome).toBe('current');
+});
+
+it('does not await a hanging cancellation and freezes timeout evidence against a late confirmation', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const captured: FreshnessEvidence[] = [];
+  const respond = fetcher.getMockImplementation();
+  if (!respond) throw new Error('Response implementation missing');
+  const { promise: acceptedStart, resolve: notifyStart } = Promise.withResolvers<void>();
+  let finishCancellation: ((response: Response) => void) | undefined;
+  fetcher.mockImplementation(async (url, options) => {
+    if (url.endsWith('/lessons')) notifyStart();
+    if (url.endsWith('/cancellation'))
+      return new Promise<Response>(resolve => {
+        finishCancellation = resolve;
+      });
+    const response = await respond(url, options);
+    if (url.endsWith('/lessons') || url.includes('/runs/')) {
+      const body = await response.json();
+      return Response.json({ ...body, job: { ...body.job, status: 'running' } });
+    }
+    return response;
+  });
+  const blocked = expect(
+    withFreshnessEvidence(
+      async record => {
+        captured.push(record);
+      },
+      () => prepare(story, 'desktop', status)
+    )
+  ).rejects.toThrow('lesson_generation_preparation_timeout');
+  await acceptedStart;
+  await vi.advanceTimersByTimeAsync(FRESH_CONTENT_PREPARATION_TIMEOUT_MS);
+  await blocked;
+  expect(captured[0]).toMatchObject({
+    workflowId,
+    outcome: 'blocked',
+    errorCode: 'lesson_generation_preparation_timeout',
+    cancellation: { status: 'requested-unconfirmed' },
+  });
+  expect(PostgresProjectStore.prototype.deleteProject).toHaveBeenCalled();
+  const finalEvidence = structuredClone(captured[0]);
+  const json = vi.fn(async () => ({ success: true }));
+  if (!finishCancellation) throw new Error('Cancellation was not issued');
+  finishCancellation({ ok: true, json } as unknown as Response);
+  await vi.waitFor(() => expect(json).toHaveBeenCalled());
+  await Promise.resolve();
+  expect(captured[0]).toEqual(finalEvidence);
+});
+
+it('does not await a hanging request-key fallback and cannot publish its late workflow id', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const captured: FreshnessEvidence[] = [];
+  let finishLookup:
+    | ((run: Awaited<ReturnType<PostgresWorkflowStore['getRunByRequestKey']>>) => void)
+    | undefined;
+  const lookup = vi.spyOn(PostgresWorkflowStore.prototype, 'getRunByRequestKey').mockImplementation(
+    () =>
+      new Promise(resolve => {
+        finishLookup = resolve;
+      })
+  );
+  const respond = fetcher.getMockImplementation();
+  if (!respond) throw new Error('Response implementation missing');
+  const { promise: acceptedStart, resolve: notifyStart } = Promise.withResolvers<void>();
+  fetcher.mockImplementation(async (url, options) => {
+    if (url.endsWith('/lessons')) {
+      notifyStart();
+      return new Promise<Response>(() => {});
+    }
+    return respond(url, options);
+  });
+  const blocked = expect(
+    withFreshnessEvidence(
+      async record => {
+        captured.push(record);
+      },
+      () => prepare(story, 'desktop', status)
+    )
+  ).rejects.toThrow('lesson_generation_preparation_timeout');
+  await acceptedStart;
+  await vi.advanceTimersByTimeAsync(FRESH_CONTENT_PREPARATION_TIMEOUT_MS);
+  await blocked;
+  expect(lookup).toHaveBeenCalled();
+  expect(captured[0]).toMatchObject({
+    workflowId: null,
+    outcome: 'blocked',
+    errorCode: 'lesson_generation_preparation_timeout',
+    cancellation: { status: 'requested-unconfirmed' },
+  });
+  expect(PostgresProjectStore.prototype.deleteProject).toHaveBeenCalled();
+  const finalEvidence = structuredClone(captured[0]);
+  if (!finishLookup) throw new Error('Request-key lookup was not issued');
+  finishLookup({ id: workflowId, projectId: imported.id } as Awaited<
+    ReturnType<PostgresWorkflowStore['getRunByRequestKey']>
+  >);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(captured[0]).toEqual(finalEvidence);
+  expect(fetcher.mock.calls.some(([url]) => url.endsWith('/cancellation'))).toBe(false);
 });

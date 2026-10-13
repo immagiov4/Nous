@@ -27,7 +27,15 @@ describe('lesson generation workflow start', () => {
       created: true,
       run: { id: 'run-1', status: 'queued' },
     });
-    const resolveModels = vi.fn().mockResolvedValue(models);
+    const accountModels = {
+      ...models,
+      aiProvider: 'openrouter' as const,
+      lessonModel: 'account-lesson-model',
+    };
+    const resolveModels = vi.fn(
+      async (_provider?: unknown, _overrides?: unknown, userId?: string) =>
+        userId === 'user-1' ? accountModels : models
+    );
     const starter = createLessonGenerationStarter({
       registry,
       resolveModels,
@@ -54,12 +62,12 @@ describe('lesson generation workflow start', () => {
       userId: 'user-1',
     });
 
-    expect(resolveModels).toHaveBeenCalledWith('codex', undefined);
+    expect(resolveModels).toHaveBeenCalledWith('codex', undefined, 'user-1');
     expect(createRun).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({
-          models: GlobalModelConfigSchema.parse(models),
-          visual: resolveLessonVisualModelConfig(models),
+          models: GlobalModelConfigSchema.parse(accountModels),
+          visual: resolveLessonVisualModelConfig(accountModels),
         }),
         dedupeKey: lessonGenerationDedupeKey('project-1'),
         idempotencyInput,

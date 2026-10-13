@@ -679,3 +679,19 @@ it('retains unstable scoped captures as evidence without declaring them eligible
   expect(observation.inspectionEligible).toBe(false);
   expect((await readFile(observation.screenshotPath)).length).toBeGreaterThan(0);
 });
+
+it('excludes a lesson clipped above its reader scroll area even while its box overlaps the viewport', async () => {
+  const page = await fixture(
+    '<header style="height:200px">Reader header</header><div id="reader" style="height:100px;overflow-y:auto"><main data-target="fresh" style="height:100px">Current lesson</main><footer style="height:500px">Artifacts and footer</footer></div>',
+    'desktop',
+    undefined,
+    '[data-target="fresh"]'
+  );
+  expect((await session.observe()).inspectionEligible).toBe(true);
+  await page.locator('#reader').evaluate(element => {
+    element.scrollTop = 100;
+  });
+  const box = await page.locator('main').boundingBox();
+  expect(box?.y).toBeGreaterThan(0);
+  expect((await session.observe()).inspectionEligible).toBe(false);
+});

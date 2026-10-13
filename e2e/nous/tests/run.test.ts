@@ -23,7 +23,7 @@ import type { Story } from '../../../packages/playtest/src/types';
 import type { RunManifest } from '../../../scripts/run-evidence';
 import adapter from '../adapter';
 import { importFixture } from '../fixtures';
-import { regenerateLesson } from '../freshness';
+import { FRESH_CONTENT_PREPARATION_TIMEOUT_MS, regenerateLesson } from '../freshness';
 import { syntheticCourse } from '../prepare';
 import { main } from '../run';
 import * as stack from '../stack';
@@ -114,6 +114,8 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
   await rm(dataDirectory, { recursive: true, force: true });
 });
 
@@ -457,7 +459,18 @@ describe('Nous playtest evidence entrypoint', () => {
   });
 });
 
-it('retains failed generation identity, configuration, duration, workflow state and cost before cleanup', async () => {
+it.each([
+  'product-failure',
+  'deadline',
+] as const)('retains failed generation identity, configuration, duration, workflow state and cost before cleanup with %s', async scenario => {
+  const deadline = scenario === 'deadline';
+  const failureCode = deadline
+    ? 'lesson_generation_preparation_timeout'
+    : 'lesson_factual_support_failed';
+  if (deadline) {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+  }
   await mkdir(join(dataDirectory, 'stack'));
   const settings = getGlobalModelConfig();
   await writeFile(
@@ -493,37 +506,58 @@ it('retains failed generation identity, configuration, duration, workflow state 
     SERVICE_ROLE_KEY: 'service',
     JWT_SECRET: 'secret',
   });
-  vi.spyOn(PostgresWorkflowStore.prototype, 'getRun').mockResolvedValue({
+  const readRun = vi.spyOn(PostgresWorkflowStore.prototype, 'getRun').mockResolvedValue({
     id: runId,
     resolvedConfig: settings,
-    status: 'failed',
+    status: deadline ? 'running' : 'failed',
     error: { code: 'lesson_factual_support_failed', kind: 'permanent' },
   } as unknown as Awaited<ReturnType<PostgresWorkflowStore['getRun']>>);
-  vi.spyOn(PostgresWorkflowStore.prototype, 'getRunState').mockResolvedValue({
-    nodes: [{ definitionId: 'review-lesson', status: 'failed' }],
+  const readState = vi.spyOn(PostgresWorkflowStore.prototype, 'getRunState').mockResolvedValue({
+    nodes: [{ definitionId: 'review-lesson', status: deadline ? 'running' : 'failed' }],
   } as unknown as Awaited<ReturnType<PostgresWorkflowStore['getRunState']>>);
+  if (deadline) {
+    readRun.mockImplementation(() => new Promise(() => {}));
+    readState.mockImplementation(() => new Promise(() => {}));
+    sql.mockImplementation(() => new Promise(() => {}));
+  }
+  const { promise: acceptedStart, resolve: notifyStart } = Promise.withResolvers<void>();
+  let finishCancellation: ((response: Response) => void) | undefined;
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (url: string) =>
-      url.includes('/token?')
-        ? Response.json({ access_token: 'token' })
-        : Response.json({
-            success: true,
-            created: true,
-            job: {
-              id: runId,
-              projectId: snapshot.id,
-              sectionId: 'lesson-water',
-              status: 'failed',
-              errorCode: 'lesson_factual_support_failed',
-              retrying: false,
-              stage: 'verification',
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            },
-          })
-    )
+    vi.fn(async (url: string) => {
+      if (url.includes('/token?')) return Response.json({ access_token: 'token' });
+      if (url.endsWith('/lessons')) notifyStart();
+      if (url.endsWith('/cancellation'))
+        return new Promise<Response>(resolve => {
+          finishCancellation = resolve;
+        });
+      return Response.json({
+        success: true,
+        created: true,
+        job: {
+          id: runId,
+          projectId: snapshot.id,
+          sectionId: 'lesson-water',
+          status: deadline ? 'running' : 'failed',
+          errorCode: deadline ? undefined : failureCode,
+          retrying: false,
+          stage: 'verification',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    })
   );
+  if (deadline) {
+    const writeSummary = reports.writeSummaryReports;
+    vi.spyOn(reports, 'writeSummaryReports').mockImplementation(async input => {
+      if (!finishCancellation) throw new Error('Cancellation request missing');
+      const json = vi.fn(async () => ({ success: true }));
+      finishCancellation({ ok: true, json } as unknown as Response);
+      await vi.waitFor(() => expect(json).toHaveBeenCalled());
+      return writeSummary(input);
+    });
+  }
   vi.mocked(adapter.prepare).mockImplementation(async selected => {
     await regenerateLesson({
       story: selected,
@@ -544,7 +578,12 @@ it('retains failed generation identity, configuration, duration, workflow state 
     });
     throw new Error('Preparation unexpectedly succeeded');
   });
-  await expect(main(args)).rejects.toMatchObject({ code: 'PLAYTEST_OPERATIONAL_ERROR' });
+  const blocked = expect(main(args)).rejects.toMatchObject({ code: 'PLAYTEST_OPERATIONAL_ERROR' });
+  if (deadline) {
+    await acceptedStart;
+    await vi.advanceTimersByTimeAsync(FRESH_CONTENT_PREPARATION_TIMEOUT_MS);
+  }
+  await blocked;
   const { directory, manifest } = await evidence(true);
   const generation = manifest.measurements.find(measurement => measurement.kind === 'workflow');
   if (!generation) throw new Error('Generation measurement missing');
@@ -559,16 +598,26 @@ it('retains failed generation identity, configuration, duration, workflow state 
     appRevision: { commitSha: 'revision', dirty: true },
     generationSettings: settings,
     outcome: 'blocked',
-    errorCode: 'lesson_factual_support_failed',
+    errorCode: failureCode,
     warnings: [],
   });
+  if (deadline) expect(record.cancellation).toEqual({ status: 'confirmed' });
   expect(manifest.measurements).toHaveLength(2);
-  expect(manifest.aiUsage).toEqual([usage]);
+  expect(manifest.workflows).toHaveLength(1);
+  expect(manifest.aiUsage).toEqual(deadline ? [] : [usage]);
   expect(manifest.workflows[0].runId).toBe(runId);
-  const trace = JSON.parse(
-    await readFile(join(directory, filename.replace('.json', '-workflow.json')), 'utf8')
-  );
-  expect(trace.run.error.code).toBe('lesson_factual_support_failed');
-  expect(trace.state.nodes[0].definitionId).toBe('review-lesson');
-  expect(sql.end).toHaveBeenCalled();
+  if (deadline) {
+    expect(readRun).not.toHaveBeenCalled();
+    expect(readState).not.toHaveBeenCalled();
+    expect(sql).not.toHaveBeenCalled();
+    expect(manifest.artifacts).not.toContain(filename.replace('.json', '-workflow.json'));
+    expect(manifest.artifacts).not.toContain(filename.replace('.json', '-usage.json'));
+  } else {
+    const trace = JSON.parse(
+      await readFile(join(directory, filename.replace('.json', '-workflow.json')), 'utf8')
+    );
+    expect(trace.run.error.code).toBe('lesson_factual_support_failed');
+    expect(trace.state.nodes[0].definitionId).toBe('review-lesson');
+    expect(sql.end).toHaveBeenCalled();
+  }
 });
