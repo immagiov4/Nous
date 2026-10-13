@@ -82,6 +82,10 @@ The project uses "Fallow" to detect unused files, exports, and dependencies. It 
 
 Sources: [scripts/doctor.ts:6-7](../../../scripts/doctor.ts#L6-L7), [scripts/doctor.ts:162-184](../../../scripts/doctor.ts#L162-L184)
 
+### Import costs and registry validation
+
+Node-only tests retain matcher registration and mock/timer cleanup while React Testing Library cleanup is loaded only in DOM environments. The production PDF extractor loads its parser only when extraction or native outline reading needs it, keeping text-only service and route imports free of parser initialization. Durable schema normalization reuses shared subtrees within each traversal. Each later call rebuilds its view, and recursive, optional-boundary, and unsupported-schema checks still run before reuse. Production workflow registration remains eager and validates every current and historical definition; compatibility tests continue to exercise the complete registry.
+
 ### Quality checks
 
 The local `quality` script runs TypeScript checks, Biome, the React Hooks lint report, and `check:eslint-sonar`. CI runs `quality:ci`, which adds dependency-cruiser once per commit. Fallow separately blocks new dead-code and dependency findings against `.fallow-baselines/regression.json`.

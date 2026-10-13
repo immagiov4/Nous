@@ -8,8 +8,6 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { deserialize } from 'node:v8';
 
-import { PDFParse } from 'pdf-parse';
-
 import { buildSha256HexDigest } from '../utils/hash.js';
 import { decodePdfDataUrl } from '../utils/pdfDataUrl.js';
 import { normalizeLineEndings } from '../utils/text.js';
@@ -329,6 +327,7 @@ const extractNativePdfOutline = async (
       return [];
     }
   }
+  const { PDFParse } = await import('pdf-parse');
   const parser = new PDFParse({ data: pdfBuffer });
   try {
     return normalizeNativePdfOutline((await parser.getInfo()).outline);
@@ -444,6 +443,7 @@ const extractWithPdfParse = async (
   if (timeoutMs !== undefined) {
     return extractWithFallbackProcess(pdfBuffer, timeoutMs, options);
   }
+  const { PDFParse } = await import('pdf-parse');
   const parser = new PDFParse({ data: pdfBuffer });
 
   try {

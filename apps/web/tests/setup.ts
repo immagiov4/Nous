@@ -1,7 +1,9 @@
 import '@testing-library/jest-dom/vitest';
 
-import { cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
+
+const cleanup =
+  typeof document !== 'undefined' ? (await import('@testing-library/react')).cleanup : undefined;
 
 if (typeof HTMLDialogElement !== 'undefined') {
   if (!HTMLDialogElement.prototype.showModal) {
@@ -68,7 +70,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  cleanup();
+  cleanup?.();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
