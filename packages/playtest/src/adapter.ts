@@ -17,7 +17,11 @@ export type PlaytestAdapter = {
   prepare(
     story: Story,
     viewport: Viewport
-  ): Promise<{ credentials: { email: string; password: string }; cleanup?: () => Promise<void> }>;
+  ): Promise<{
+    credentials: { email: string; password: string };
+    cleanup?: () => Promise<void>;
+    inspectionSelector?: string;
+  }>;
   classify(event: ObservedEvent): StopVerdict;
   styleReference(): string[];
   taxonomy(): string;

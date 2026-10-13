@@ -1011,3 +1011,31 @@ describe('CLI', () => {
     await expect(main(['--adapter', adapterPath])).rejects.toThrow('--model and --provider');
   });
 });
+
+it('keeps old observations in the story evidence and excludes them from scoped visual coverage', async () => {
+  const scoped = adapter();
+  scoped.prepare = async () => ({
+    credentials: { email: 'learner@example.test', password: 'secret' },
+    inspectionSelector: '[data-target="fresh"]',
+  });
+  const summary = await runPlaytest({
+    adapter: scoped,
+    stories: [story('scoped')],
+    personas: new Map(),
+    concurrency: 1,
+    headed: false,
+    model: 'fake',
+    provider: 'fake',
+    runDir,
+    sourceFactory: () =>
+      createScriptedDecisionSource([{ type: 'stop', reason: 'completed', summary: 'Done' }]),
+  });
+  expect(summary.records[0].inspectionCoverage).toEqual({
+    eligibleObservations: 0,
+    totalObservations: 1,
+  });
+  expect(judge.mock.calls[0][0].screenshots).toEqual([]);
+  const report = JSON.parse(await readFile(summary.records[0].reportPath, 'utf8'));
+  expect(report.learner.observations).toHaveLength(1);
+  expect(report.learner.observations[0].inspectionEligible).toBe(false);
+});

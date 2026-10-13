@@ -38,6 +38,11 @@ export function isGeometrySignal(signal: ProbeSignal): boolean {
   return ['clipped-text', 'overlap', 'contrast', 'horizontal-overflow'].includes(signal.kind);
 }
 
+function markUnstableCapture(observation: Observation, inspectionSelector?: string): void {
+  observation.diagnostics = { capture: { unstable: true } };
+  if (inspectionSelector) observation.inspectionEligible = false;
+}
+
 type OperatorCloseFailure = { stage: 'trace' | 'video'; cause: unknown };
 
 /** Independent artifact failures retain every saved path and underlying cause. */
@@ -72,6 +77,7 @@ export async function openOperatorSession(options: {
   credentials: { email: string; password: string };
   runDir: string;
   video?: boolean;
+  inspectionSelector?: string;
   onEvent?: (event: ObservedEvent) => void;
 }): Promise<OperatorSession> {
   const { browser, baseUrl, viewport, credentials, runDir } = options;
@@ -123,6 +129,7 @@ export async function openOperatorSession(options: {
           capturedDocument = await page.evaluateHandle(() => document);
           const before = await capturedDocument.evaluate(captureVersion);
           const observation = await observePage({
+            inspectionSelector: options.inspectionSelector,
             page,
             stepIndex: currentStep,
             screenshotPath: join(runDir, `step-${currentStep}.png`),
@@ -142,7 +149,7 @@ export async function openOperatorSession(options: {
             captureRetries++;
             continue;
           }
-          if (unstable) observation.diagnostics = { capture: { unstable: true } };
+          if (unstable) markUnstableCapture(observation, options.inspectionSelector);
           capturedSignals = [...(capturedSignals ?? []), ...signals];
           lastObservation = observation;
           return observation;

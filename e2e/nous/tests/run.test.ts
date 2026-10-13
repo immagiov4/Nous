@@ -3,12 +3,15 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
+import * as postgresModule from 'postgres';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getGlobalModelConfig } from '../../../apps/backend/src/config/modelConfig';
 import { PostgresProjectStore } from '../../../apps/backend/src/projects/postgresProjectStore';
 import {
   buildProjectMeta,
   normalizeProjectSnapshot,
 } from '../../../apps/backend/src/projects/projectMeta';
+import { PostgresWorkflowStore } from '../../../apps/backend/src/workflows/persistence/postgresWorkflowStore';
 import type { PlaytestAdapter } from '../../../packages/playtest/src/adapter';
 import type { LearnerDecision } from '../../../packages/playtest/src/learner/loop';
 import { createPiDecisionSource } from '../../../packages/playtest/src/learner/piDecisionSource';
@@ -20,9 +23,15 @@ import type { Story } from '../../../packages/playtest/src/types';
 import type { RunManifest } from '../../../scripts/run-evidence';
 import adapter from '../adapter';
 import { importFixture } from '../fixtures';
+import { regenerateLesson } from '../freshness';
 import { syntheticCourse } from '../prepare';
 import { main } from '../run';
+import * as stack from '../stack';
 
+vi.mock('postgres', async importOriginal => {
+  const actual = await importOriginal<{ default: typeof postgresModule.default }>();
+  return { ...actual, default: vi.fn(actual.default) };
+});
 vi.mock('../../../scripts/git-identity', () => ({
   readGitIdentity: (cwd: string) => ({
     commitSha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim(),
@@ -108,7 +117,7 @@ afterEach(async () => {
   await rm(dataDirectory, { recursive: true, force: true });
 });
 
-async function evidence() {
+async function evidence(generation = false) {
   const scenarioDirectory = join(dataDirectory, 'runs', 'playtest');
   const entries = await readdir(scenarioDirectory);
   const runId = entries.find(entry => entry !== 'history.jsonl');
@@ -126,7 +135,11 @@ async function evidence() {
   expect(manifest.runId).toBe(runId);
   expect(manifest.endedAt).toBeTruthy();
   expect(manifest.durationMs).toBeGreaterThanOrEqual(0);
-  expect(manifest.measurements).toEqual([
+  expect(
+    manifest.measurements.filter(measurement =>
+      generation ? measurement.name === 'playtest' : true
+    )
+  ).toEqual([
     expect.objectContaining({
       name: 'playtest',
       kind: 'case',
@@ -442,4 +455,120 @@ describe('Nous playtest evidence entrypoint', () => {
     expect(manifest.artifacts).toEqual([]);
     await expect(stat(join(dataDirectory, 'elsewhere'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
+});
+
+it('retains failed generation identity, configuration, duration, workflow state and cost before cleanup', async () => {
+  await mkdir(join(dataDirectory, 'stack'));
+  const settings = getGlobalModelConfig();
+  await writeFile(
+    join(dataDirectory, 'stack/generation-settings.json'),
+    JSON.stringify({
+      appRevision: { commitSha: 'revision', dirty: true },
+      settings,
+    })
+  );
+  const snapshot = syntheticCourse();
+  const runId = '22222222-2222-4222-8222-222222222222';
+  const userId = '11111111-1111-4111-8111-111111111111';
+  const usage = {
+    id: 'usage',
+    runId,
+    nodeInstanceId: 'review',
+    attemptNumber: 1,
+    provider: 'openrouter',
+    model: settings.lessonModel,
+    providerCost: 0.12,
+  };
+  const sql = Object.assign(
+    vi.fn(async () => [usage]),
+    { end: vi.fn(async () => {}) }
+  );
+  vi.mocked(postgresModule.default).mockReturnValueOnce(
+    sql as unknown as ReturnType<typeof postgresModule.default>
+  );
+  vi.spyOn(stack, 'stackStatus').mockResolvedValue({
+    API_URL: 'http://127.0.0.1:55321',
+    DB_URL: 'postgresql://postgres:test@127.0.0.1:55322/postgres',
+    ANON_KEY: 'anon',
+    SERVICE_ROLE_KEY: 'service',
+    JWT_SECRET: 'secret',
+  });
+  vi.spyOn(PostgresWorkflowStore.prototype, 'getRun').mockResolvedValue({
+    id: runId,
+    resolvedConfig: settings,
+    status: 'failed',
+    error: { code: 'lesson_factual_support_failed', kind: 'permanent' },
+  } as unknown as Awaited<ReturnType<PostgresWorkflowStore['getRun']>>);
+  vi.spyOn(PostgresWorkflowStore.prototype, 'getRunState').mockResolvedValue({
+    nodes: [{ definitionId: 'review-lesson', status: 'failed' }],
+  } as unknown as Awaited<ReturnType<PostgresWorkflowStore['getRunState']>>);
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      url.includes('/token?')
+        ? Response.json({ access_token: 'token' })
+        : Response.json({
+            success: true,
+            created: true,
+            job: {
+              id: runId,
+              projectId: snapshot.id,
+              sectionId: 'lesson-water',
+              status: 'failed',
+              errorCode: 'lesson_factual_support_failed',
+              retrying: false,
+              stage: 'verification',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+          })
+    )
+  );
+  vi.mocked(adapter.prepare).mockImplementation(async selected => {
+    await regenerateLesson({
+      story: selected,
+      viewport: 'desktop',
+      isolated: await stack.stackStatus(),
+      credentials: { email: 'test@example.test', password: 'secret' },
+      userId,
+      projectId: snapshot.id,
+      sectionId: 'lesson-water',
+      store: {
+        loadProjectWithRevision: async () => ({
+          snapshot,
+          revision: 1,
+          incarnationId: 'incarnation',
+        }),
+        patchProject: vi.fn(),
+      },
+    });
+    throw new Error('Preparation unexpectedly succeeded');
+  });
+  await expect(main(args)).rejects.toMatchObject({ code: 'PLAYTEST_OPERATIONAL_ERROR' });
+  const { directory, manifest } = await evidence(true);
+  const generation = manifest.measurements.find(measurement => measurement.kind === 'workflow');
+  if (!generation) throw new Error('Generation measurement missing');
+  const filename = `${generation.name}.json`;
+  expect(manifest.artifacts).toContain(filename);
+  const record = JSON.parse(await readFile(join(directory, filename), 'utf8'));
+  expect(record).toMatchObject({
+    workflowId: runId,
+    projectId: snapshot.id,
+    sectionId: 'lesson-water',
+    userId,
+    appRevision: { commitSha: 'revision', dirty: true },
+    generationSettings: settings,
+    outcome: 'blocked',
+    errorCode: 'lesson_factual_support_failed',
+    warnings: [],
+  });
+  expect(manifest.measurements).toHaveLength(2);
+  expect(manifest.aiUsage).toEqual([usage]);
+  expect(manifest.workflows[0].runId).toBe(runId);
+  const trace = JSON.parse(
+    await readFile(join(directory, filename.replace('.json', '-workflow.json')), 'utf8')
+  );
+  expect(trace.run.error.code).toBe('lesson_factual_support_failed');
+  expect(trace.state.nodes[0].definitionId).toBe('review-lesson');
+  expect(sql.end).toHaveBeenCalled();
 });

@@ -20,6 +20,7 @@ export type Observation = {
   url: string;
   screenshotPath: string;
   nodes: VisibleNode[];
+  inspectionEligible?: boolean;
   diagnostics?: { capture: { unstable: true } };
 };
 
@@ -293,12 +294,33 @@ export async function observePage(options: {
   stepIndex: number;
   screenshotPath: string;
   secrets: string[];
+  inspectionSelector?: string;
 }): Promise<Observation> {
   const { page, stepIndex, screenshotPath, secrets } = options;
   const nodes = await page.evaluate(visibleSnapshot, {
     secrets,
     prefix: randomUUID(),
   });
+  const inspectionEligible =
+    options.inspectionSelector === undefined
+      ? undefined
+      : await page
+          .locator(options.inspectionSelector)
+          .evaluateAll(elements =>
+            elements.some(
+              element =>
+                element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+                [...element.getClientRects()].some(
+                  box =>
+                    box.width > 0 &&
+                    box.height > 0 &&
+                    box.bottom > 0 &&
+                    box.right > 0 &&
+                    box.top < innerHeight &&
+                    box.left < innerWidth
+                )
+            )
+          );
   const editable = page.locator('input, textarea, [contenteditable]');
   const secretFields = await editable.evaluateAll(
     (elements, secrets) =>
@@ -334,5 +356,11 @@ export async function observePage(options: {
     location.password = '';
     url = location.href;
   }
-  return { stepIndex, url: redact(url, secrets), screenshotPath, nodes };
+  return {
+    stepIndex,
+    url: redact(url, secrets),
+    screenshotPath,
+    nodes,
+    ...(inspectionEligible === undefined ? {} : { inspectionEligible }),
+  };
 }

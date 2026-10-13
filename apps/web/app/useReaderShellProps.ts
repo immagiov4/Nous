@@ -484,6 +484,8 @@ export const useReaderShellProps = ({
         activeExercise,
         exercisePrerequisiteGaps,
         activeSectionTitle: controller.activeSection?.title || null,
+        activeSectionId: controller.activeSection?.id,
+        activeSectionGenerationRunId: controller.activeSection?.lastGenerationRunId ?? undefined,
         activeSectionAssetsById: readerState.activeSectionAssetsById,
         activeSectionGeneratedVisualsById: readerState.activeSectionGeneratedVisualsById,
         activeSectionImageRefsById: readerState.activeSectionImageRefsById,

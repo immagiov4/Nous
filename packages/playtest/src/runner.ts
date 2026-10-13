@@ -42,6 +42,7 @@ export type StoryRunRecord = {
   costEstimated?: true;
   diagnostics?: Record<string, string>;
   operationalFailure?: true;
+  inspectionCoverage?: { eligibleObservations: number; totalObservations: number };
   findings: InspectorFinding[];
   friction: string[];
   reportPath: string;
@@ -291,6 +292,7 @@ async function runStoryWithUsage(
           viewport,
           locale: options.adapter.locale(),
           credentials: prepared.credentials,
+          inspectionSelector: prepared.inspectionSelector,
           runDir: storyDir,
           video: options.video,
           onEvent,
@@ -341,10 +343,18 @@ async function runStoryWithUsage(
       record.reason = 'The adapter could not classify an observed event.';
     }
     if (learner) {
+      const scope = scopeInspection(learner.observations, Boolean(prepared.inspectionSelector));
+      const observations = scope.observations;
+      record.inspectionCoverage = scope.coverage;
+      const eligibleScreenshots = new Set(
+        observations.map(observation => observation.screenshotPath)
+      );
       const inspection = {
-        probeFindings,
+        probeFindings: probeFindings.filter(finding =>
+          eligibleScreenshots.has(finding.screenshotPath)
+        ),
         learner,
-        observations: learner.observations,
+        observations,
         trace: {
           learner,
           probeSignals,
@@ -385,6 +395,16 @@ async function runStoryWithUsage(
     await saveStory({ record, learner, probeSignals, tracePath, stopEvent, inspectionError });
     return record;
   });
+}
+
+function scopeInspection(captured: Observation[], scoped: boolean) {
+  const observations = captured.filter(observation => observation.inspectionEligible !== false);
+  return {
+    observations,
+    coverage: scoped
+      ? { eligibleObservations: observations.length, totalObservations: captured.length }
+      : undefined,
+  };
 }
 
 /** JSON remains available when a companion report fails; the summary retains unwritable stories. */

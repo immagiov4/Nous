@@ -35,7 +35,8 @@ afterEach(async () => {
 async function fixture(
   html: string,
   viewport: 'desktop' | 'mobile' = 'desktop',
-  video?: boolean
+  video?: boolean,
+  inspectionSelector?: string
 ): Promise<Page> {
   runDir = await mkdtemp(join(tmpdir(), 'playtest-operator-'));
   session = await openOperatorSession({
@@ -46,6 +47,7 @@ async function fixture(
     credentials,
     runDir,
     video,
+    inspectionSelector,
   });
   sessionClosed = false;
   const page = browser.contexts().at(-1)?.pages()[0];
@@ -636,4 +638,44 @@ describe('operator', () => {
       await other.close();
     }
   });
+});
+
+it('captures opaque inspection eligibility with the visible target and excludes old or hidden content', async () => {
+  const page = await fixture(
+    '<main data-target="fresh">Current lesson</main>',
+    'desktop',
+    undefined,
+    '[data-target="fresh"]'
+  );
+  expect((await session.observe()).inspectionEligible).toBe(true);
+  await page.locator('main').evaluate(element => {
+    element.setAttribute('data-target', 'old');
+  });
+  expect((await session.observe()).inspectionEligible).toBe(false);
+  await page.locator('main').evaluate(element => {
+    element.setAttribute('data-target', 'fresh');
+    element.style.display = 'none';
+  });
+  expect((await session.observe()).inspectionEligible).toBe(false);
+});
+
+it('retains unstable scoped captures as evidence without declaring them eligible', async () => {
+  const page = await fixture(
+    '<main data-target="fresh">Current lesson</main>',
+    'desktop',
+    undefined,
+    '[data-target="fresh"]'
+  );
+  const screenshot = page.screenshot.bind(page);
+  vi.spyOn(page, 'screenshot').mockImplementation(async options => {
+    const image = await screenshot(options);
+    await page.locator('main').evaluate(element => {
+      element.textContent += '.';
+    });
+    return image;
+  });
+  const observation = await session.observe();
+  expect(observation.diagnostics?.capture.unstable).toBe(true);
+  expect(observation.inspectionEligible).toBe(false);
+  expect((await readFile(observation.screenshotPath)).length).toBeGreaterThan(0);
 });
