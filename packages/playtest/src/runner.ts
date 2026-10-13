@@ -42,6 +42,7 @@ export type StoryRunRecord = {
   costEstimated?: true;
   diagnostics?: Record<string, string>;
   operationalFailure?: true;
+  inspectionCoverage?: { eligibleObservations: number; totalObservations: number };
   findings: InspectorFinding[];
   friction: string[];
   reportPath: string;
@@ -291,6 +292,7 @@ async function runStoryWithUsage(
           viewport,
           locale: options.adapter.locale(),
           credentials: prepared.credentials,
+          inspectionSelector: prepared.inspectionSelector,
           runDir: storyDir,
           video: options.video,
           onEvent,
@@ -341,16 +343,23 @@ async function runStoryWithUsage(
       record.reason = 'The adapter could not classify an observed event.';
     }
     if (learner) {
-      const inspection = {
-        probeFindings,
+      const scope = scopeInspection(
         learner,
-        observations: learner.observations,
-        trace: {
-          learner,
-          probeSignals,
-          tracePath,
-          stopEvent,
-        },
+        { probeSignals, tracePath, stopEvent },
+        Boolean(prepared.inspectionSelector)
+      );
+      const observations = scope.observations;
+      record.inspectionCoverage = scope.coverage;
+      const eligibleScreenshots = new Set(
+        observations.map(observation => observation.screenshotPath)
+      );
+      const inspection = {
+        probeFindings: probeFindings.filter(finding =>
+          eligibleScreenshots.has(finding.screenshotPath)
+        ),
+        learner,
+        observations,
+        trace: scope.trace,
       };
       try {
         record.findings = await withModelUsage(modelUsage, 'judge', () =>
@@ -385,6 +394,49 @@ async function runStoryWithUsage(
     await saveStory({ record, learner, probeSignals, tracePath, stopEvent, inspectionError });
     return record;
   });
+}
+
+/** Judge context follows the same capture boundary as screenshots; story evidence remains complete. */
+function scopeInspection(
+  learner: LearnerRunResult,
+  trace: { probeSignals: StepProbeSignal[]; tracePath?: string; stopEvent?: ObservedEvent },
+  scoped: boolean
+) {
+  const observations = learner.observations.filter(
+    observation => observation.inspectionEligible !== false
+  );
+  const coverage = scoped
+    ? { eligibleObservations: observations.length, totalObservations: learner.observations.length }
+    : undefined;
+  if (!scoped) return { observations, coverage, trace: { learner, ...trace } };
+  const eligible = new Set(observations.map(observation => observation.screenshotPath));
+  let current = learner.observations[0];
+  const turns = learner.turns.filter(turn => {
+    const contextEligible = current && eligible.has(current.screenshotPath);
+    const result = turn.result?.observation;
+    current = result ?? current;
+    // Stop summaries describe the whole mission rather than a single captured view.
+    return (
+      contextEligible &&
+      turn.decision.type !== 'stop' &&
+      (!result || eligible.has(result.screenshotPath))
+    );
+  });
+  return {
+    observations,
+    coverage,
+    trace: {
+      learner: {
+        observations,
+        turns,
+        diary: turns.flatMap(turn => (turn.decision.type === 'diary' ? [turn.decision.entry] : [])),
+        friction: turns.flatMap(turn =>
+          turn.decision.type === 'report-friction' ? [turn.decision.text] : []
+        ),
+      },
+      probeSignals: trace.probeSignals.filter(signal => eligible.has(signal.screenshotPath)),
+    },
+  };
 }
 
 /** JSON remains available when a companion report fails; the summary retains unwritable stories. */
