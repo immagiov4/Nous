@@ -116,7 +116,7 @@ Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:51-71](../../../ap
 
 ## Technical Validation and Quality Gates
 
-CI owns the complete Bun test suite and dependency graph check. After CI passes, `bun run gate:full` runs local quality, coverage, and Sonar analysis on the same final commit.
+The CI test job and local full gate share `gate:ci` for CI quality including dependency validation, Fallow, and the complete Bun suite. After CI passes, `bun run gate:full` runs that shared command, Node coverage, and Sonar analysis on the same final commit.
 
 ### Available Developer Commands
 *  `bun run doctor`: Read-only health report of local services.

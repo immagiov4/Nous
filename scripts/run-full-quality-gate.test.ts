@@ -1,4 +1,6 @@
+import { readFile } from 'node:fs/promises';
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import { parse } from 'yaml';
 
 import {
   executeFullQualityGate,
@@ -7,8 +9,7 @@ import {
 } from './run-full-quality-gate.ts';
 
 const GATE_SCRIPTS = {
-  quality: 'quality',
-  fallow: 'check:fallow:ci',
+  ciChecks: 'gate:ci',
   coverage: 'test:coverage',
   sonarStart: 'sonar:up',
   sonarPreflight: 'doctor:gate',
@@ -46,7 +47,7 @@ describe('full quality gate runner', () => {
 
   test('continues through Sonar and exposes every failed stage', async () => {
     const invokedScripts: string[] = [];
-    const failedScripts = new Set([GATE_SCRIPTS.quality, GATE_SCRIPTS.coverage]);
+    const failedScripts = new Set([GATE_SCRIPTS.ciChecks, GATE_SCRIPTS.coverage]);
 
     const results = await executeFullQualityGate(async stage => {
       invokedScripts.push(stage.script);
@@ -58,7 +59,7 @@ describe('full quality gate runner', () => {
 
     expect(invokedScripts.at(-1)).toBe(GATE_SCRIPTS.sonarScan);
     expect(results.filter(result => result.exitCode !== 0).map(result => result.script)).toEqual([
-      GATE_SCRIPTS.quality,
+      GATE_SCRIPTS.ciChecks,
       GATE_SCRIPTS.coverage,
     ]);
   });
@@ -66,7 +67,7 @@ describe('full quality gate runner', () => {
   test('continues after runner crashes and reports every crashed stage', async () => {
     const invokedScripts: string[] = [];
     const crashedScripts = new Set([
-      GATE_SCRIPTS.quality,
+      GATE_SCRIPTS.ciChecks,
       GATE_SCRIPTS.sonarStart,
       GATE_SCRIPTS.sonarScan,
     ]);
@@ -80,7 +81,7 @@ describe('full quality gate runner', () => {
 
     expect(invokedScripts).toEqual(EXPECTED_GATE_SCRIPTS);
     expect(results.filter(result => result.exitCode !== 0).map(result => result.script)).toEqual([
-      GATE_SCRIPTS.quality,
+      GATE_SCRIPTS.ciChecks,
       GATE_SCRIPTS.sonarStart,
       GATE_SCRIPTS.sonarScan,
     ]);
@@ -106,4 +107,35 @@ test('rechecks readiness and scans on the next gate after a scan crashes', async
   expect(first.at(-1)?.exitCode).toBe(1);
   expect(second.every(result => result.exitCode === 0)).toBe(true);
   expect(invokedScripts).toEqual([...EXPECTED_GATE_SCRIPTS, ...EXPECTED_GATE_SCRIPTS]);
+});
+
+test('executes the same repository checks as the CI test job', async () => {
+  const workflow = parse(
+    await readFile(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+  );
+  const ciScripts = workflow.jobs.test.steps
+    .filter((step: { run?: string }) => step.run)
+    .map((step: { run: string }) => step.run.trim())
+    .filter(
+      (command: string) =>
+        !command.startsWith('bun install ') && !command.startsWith('bunx playwright install ')
+    );
+  const localAnalysisScripts: readonly string[] = [
+    GATE_SCRIPTS.coverage,
+    GATE_SCRIPTS.sonarStart,
+    GATE_SCRIPTS.sonarPreflight,
+    GATE_SCRIPTS.sonarScan,
+  ];
+  const invokedScripts: string[] = [];
+
+  await executeFullQualityGate(async stage => {
+    invokedScripts.push(stage.script);
+    return passedResult(stage);
+  });
+
+  expect(
+    invokedScripts
+      .filter(script => !localAnalysisScripts.includes(script))
+      .map(script => `bun run ${script}`)
+  ).toEqual(ciScripts);
 });

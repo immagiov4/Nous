@@ -129,8 +129,8 @@ Developers use the following commands to interact with the diagnostic and qualit
 | :--- | :--- |
 | `bun run doctor` | Run observational health checks (default: `checks` profile). |
 | `bun run quality` | Run TypeScript type checks and Biome linting. |
-| `bun run quality:ci` | Add dependency boundary validation to the common quality checks in CI. |
-| `bun run gate:full` | After green CI, run quality, Fallow, Node coverage, and Sonar on the same final commit. |
+| `bun run quality:ci` | Add dependency boundary validation to the common quality checks for CI and the local full gate. |
+| `bun run gate:full` | After green CI, run shared `gate:ci` checks, Node coverage, and Sonar on the same final commit. |
 | `bun run sonar:up` | Start and provision the loopback-only Sonar service for diagnosis. |
 | `bun run sonar:stop` | Stop the Sonar containers without deleting their volumes. |
 | `bun run fix` | Automatically fix Biome linting, formatting, and import ordering. |
