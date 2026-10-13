@@ -8,6 +8,7 @@
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "types": ["bun"],
     "paths": {
       "@shared/*": ["../../packages/shared-types/*"]

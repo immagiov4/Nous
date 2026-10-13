@@ -7,6 +7,7 @@ import {
   withRunCleanup,
   withRunEvidence,
 } from '../../scripts/run-evidence';
+import { withFixtureRun } from './fixtures';
 
 /** Index files after execution so failed runs link only artifacts that were retained. */
 async function linkArtifacts(recorder: RunEvidenceRecorder): Promise<void> {
@@ -17,6 +18,20 @@ async function linkArtifacts(recorder: RunEvidenceRecorder): Promise<void> {
       relative(recorder.directory, join(entry.parentPath, entry.name)).replaceAll('\\', '/')
     )
     .sort((left, right) => (left < right ? -1 : Number(left > right)));
+}
+
+function runCliWithFixtures(args: string[], recorder: RunEvidenceRecorder) {
+  let inventoryEvidence: Promise<void> | undefined;
+  return withFixtureRun(
+    () => runPlaytestCli(args, recorder.directory),
+    async (fixture, inventory) => {
+      if (inventory) {
+        inventoryEvidence ??= recorder.writeJson('fixture-inventory.json', inventory);
+        await inventoryEvidence;
+      }
+      await recorder.writeJson(`fixture-${fixture.importedProjectId}.json`, fixture);
+    }
+  );
 }
 
 /** Nous owns run identity and persistence; learner outcomes remain in the generic reports. */
@@ -37,7 +52,7 @@ export async function main(args: string[] = process.argv.slice(2)) {
           async () => {
             if (values['run-dir'])
               throw new Error('Nous playtest output is managed by NOUS_E2E_DATA; omit --run-dir.');
-            return runPlaytestCli(args, recorder.directory);
+            return runCliWithFixtures(args, recorder);
           },
           () => linkArtifacts(recorder)
         )
