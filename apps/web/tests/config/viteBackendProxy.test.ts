@@ -1,6 +1,7 @@
+import { resolveConfig } from 'vite';
 import { describe, expect, test } from 'vitest';
 
-import { buildViteApiProxy } from '../../vite.config.ts';
+import viteConfig, { buildViteApiProxy } from '../../vite.config.ts';
 
 describe('Vite backend proxy', () => {
   test.each([
@@ -20,4 +21,12 @@ describe('Vite backend proxy', () => {
     });
     expect(proxy['/api']).not.toHaveProperty('rewrite');
   });
+});
+
+test('retains the Vite 6 JavaScript and CSS browser targets', async () => {
+  const configuration = viteConfig({ command: 'build', mode: 'production' });
+  const resolved = await resolveConfig({ ...configuration, configFile: false }, 'build');
+  const browserBaseline = ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari14'];
+  expect(resolved.build.target).toEqual(browserBaseline);
+  expect(resolved.build.cssTarget).toEqual(browserBaseline);
 });
