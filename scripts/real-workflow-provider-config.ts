@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util';
+import * as z from 'zod';
 import {
   getResolvedGlobalModelConfig,
   patchGlobalModelConfig,
@@ -6,6 +7,11 @@ import {
 
 export type WorkflowProvider = 'codex' | 'openrouter';
 export type WorkflowCase = 'simple' | 'realistic';
+
+export const OPENROUTER_WORKFLOW_MODELS = {
+  text: 'openai/gpt-5.6-luna',
+  scene: 'openai/gpt-6-luna',
+} as const;
 
 export const parseWorkflowProviderArgs = (args: string[]) => {
   const { values } = parseArgs({
@@ -30,12 +36,22 @@ export const parseWorkflowProviderArgs = (args: string[]) => {
   return { provider: values.provider, case: values.case, dryRun: Boolean(values['dry-run']) };
 };
 
+export const loadOpenRouterWorkflowCatalogue = async (): Promise<{ id: string }[]> => {
+  const response = await fetch('https://openrouter.ai/api/v1/models?output_modalities=all');
+  if (!response.ok) throw new Error('OpenRouter workflow catalogue unavailable.');
+  return z.object({ data: z.array(z.object({ id: z.string() })) }).parse(await response.json())
+    .data;
+};
+
 /** Validates the whole selection before the harness may make a paid request. */
 export const validateOpenRouterWorkflowModels = (
-  models: readonly string[],
+  slots: Readonly<Record<string, { model: string }>>,
   catalogue: readonly { id: string }[]
 ): string[] => {
   const available = new Set(catalogue.map(model => model.id));
+  const models = Object.entries(slots)
+    .filter(([name]) => name !== 'image')
+    .map(([, slot]) => slot.model);
   const requested = [...new Set(models)].sort((left, right) => left.localeCompare(right));
   const missing = requested.filter(model => !available.has(model));
   if (missing.length) {
@@ -56,16 +72,16 @@ export const configureWorkflowProviderModels = async (provider: WorkflowProvider
   if (provider === 'codex') return codex;
   return patchGlobalModelConfig({
     aiProvider: provider,
-    courseModel: 'openai/gpt-5.6-luna',
-    lessonModel: 'openai/gpt-5.6-luna',
-    researchModel: 'openai/gpt-5.6-luna',
-    artifactModel: 'openai/gpt-5.6-luna',
-    artifactInteractiveModel: 'openai/gpt-5.6-luna',
-    sceneModel: 'openai/gpt-6-luna',
-    sceneIconModel: 'openai/gpt-6-luna',
-    assessmentModel: 'openai/gpt-5.6-luna',
-    contextModel: 'openai/gpt-5.6-luna',
-    progressModel: 'openai/gpt-5.6-luna',
-    playbackPreparationModel: 'openai/gpt-6-luna',
+    courseModel: OPENROUTER_WORKFLOW_MODELS.text,
+    lessonModel: OPENROUTER_WORKFLOW_MODELS.text,
+    researchModel: OPENROUTER_WORKFLOW_MODELS.text,
+    artifactModel: OPENROUTER_WORKFLOW_MODELS.text,
+    artifactInteractiveModel: OPENROUTER_WORKFLOW_MODELS.text,
+    sceneModel: OPENROUTER_WORKFLOW_MODELS.scene,
+    sceneIconModel: OPENROUTER_WORKFLOW_MODELS.scene,
+    assessmentModel: OPENROUTER_WORKFLOW_MODELS.text,
+    contextModel: OPENROUTER_WORKFLOW_MODELS.text,
+    progressModel: OPENROUTER_WORKFLOW_MODELS.text,
+    playbackPreparationModel: OPENROUTER_WORKFLOW_MODELS.scene,
   });
 };

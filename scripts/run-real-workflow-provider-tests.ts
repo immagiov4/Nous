@@ -4,7 +4,6 @@ import { readFile } from 'node:fs/promises';
 import type { Server } from 'node:http';
 
 import { SQL } from 'bun';
-import { loadCurrentModelPrices } from '../apps/backend/src/account/accountUsage.js';
 import { requireOpenRouterApiKey } from '../apps/backend/src/config/chatConfig.js';
 import {
   type GlobalModelConfig,
@@ -36,6 +35,7 @@ import type { WorkflowPublicRunState } from '../apps/backend/src/workflows/workf
 import { LessonSceneSchema } from '../packages/shared-types/lessonScene.js';
 import {
   configureWorkflowProviderModels,
+  loadOpenRouterWorkflowCatalogue,
   parseWorkflowProviderArgs,
   validateOpenRouterWorkflowModels,
   type WorkflowCase,
@@ -800,10 +800,8 @@ const catalogue =
     ? {
         freeRequests: 1,
         checkedModelIds: validateOpenRouterWorkflowModels(
-          Object.entries(slots)
-            .filter(([name]) => name !== 'image' && name !== 'tts')
-            .map(([, slot]) => slot.model),
-          await loadCurrentModelPrices()
+          slots,
+          await loadOpenRouterWorkflowCatalogue()
         ),
       }
     : { freeRequests: 0, checkedModelIds: [] };

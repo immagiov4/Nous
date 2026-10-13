@@ -9,6 +9,8 @@ import {
 } from '../apps/backend/src/config/modelConfig.js';
 import {
   configureWorkflowProviderModels,
+  loadOpenRouterWorkflowCatalogue,
+  OPENROUTER_WORKFLOW_MODELS,
   parseWorkflowProviderArgs,
   validateOpenRouterWorkflowModels,
 } from './real-workflow-provider-config.js';
@@ -94,8 +96,8 @@ test('uses app defaults on Codex and small OpenRouter models with the resolved e
     );
     expect(resolveTextModelConfig(openrouter, slot).model).toBe(
       slot === 'scene' || slot === 'sceneIcon' || slot === 'playbackPreparation'
-        ? 'openai/gpt-6-luna'
-        : 'openai/gpt-5.6-luna'
+        ? OPENROUTER_WORKFLOW_MODELS.scene
+        : OPENROUTER_WORKFLOW_MODELS.text
     );
   }
   expect(resolveTextModelConfig(codex, 'artifact').model).toBe(original.codexArtifactModel);
@@ -139,18 +141,70 @@ test('loads persisted models, efforts and service tiers like the app', async () 
 test('validates the complete catalogue selection once in stable order', () => {
   expect(
     validateOpenRouterWorkflowModels(
-      ['openai/gpt-6-luna', 'openai/gpt-5.6-luna', 'openai/gpt-5.6-luna'],
-      [{ id: 'unrelated' }, { id: 'openai/gpt-5.6-luna' }, { id: 'openai/gpt-6-luna' }]
+      {
+        scene: { model: OPENROUTER_WORKFLOW_MODELS.scene },
+        lesson: { model: OPENROUTER_WORKFLOW_MODELS.text },
+        course: { model: OPENROUTER_WORKFLOW_MODELS.text },
+      },
+      [{ id: 'unrelated' }, ...Object.values(OPENROUTER_WORKFLOW_MODELS).map(id => ({ id }))]
     )
-  ).toEqual(['openai/gpt-5.6-luna', 'openai/gpt-6-luna']);
+  ).toEqual(
+    Object.values(OPENROUTER_WORKFLOW_MODELS).sort((left, right) => left.localeCompare(right))
+  );
 });
 
 test('blocks missing models even when another selected model is available', () => {
-  const models = ['openai/gpt-5.6-luna', 'openai/gpt-6-luna'];
-  expect(() => validateOpenRouterWorkflowModels(models, [{ id: models[0] }])).toThrow(
-    'OpenRouter catalogue is missing workflow models: openai/gpt-6-luna. Paid calls are blocked.'
+  const models = [OPENROUTER_WORKFLOW_MODELS.text, OPENROUTER_WORKFLOW_MODELS.scene];
+  const slots = { lesson: { model: models[0] }, scene: { model: models[1] } };
+  expect(() => validateOpenRouterWorkflowModels(slots, [{ id: models[0] }])).toThrow(
+    `OpenRouter catalogue is missing workflow models: ${models[1]}. Paid calls are blocked.`
   );
-  expect(() => validateOpenRouterWorkflowModels(models, [])).toThrow(
-    'OpenRouter catalogue is missing workflow models: openai/gpt-5.6-luna, openai/gpt-6-luna.'
+  expect(() => validateOpenRouterWorkflowModels(slots, [])).toThrow(
+    `OpenRouter catalogue is missing workflow models: ${models.join(', ')}.`
   );
+});
+
+test('blocks a missing speech model before a cell can start and ignores unused images', async () => {
+  patchGlobalModelConfig({ ttsModel: 'removed-speech-model', imageModel: 'unused-image-model' });
+  const config = await configureWorkflowProviderModels('openrouter');
+  const slots = {
+    lesson: resolveTextModelConfig(config, 'lesson'),
+    scene: resolveTextModelConfig(config, 'scene'),
+    tts: { model: config.ttsModel },
+    image: { model: config.imageModel },
+  };
+  const catalogue = Object.values(OPENROUTER_WORKFLOW_MODELS).map(id => ({ id }));
+  expect(() => validateOpenRouterWorkflowModels(slots, catalogue)).toThrow(
+    'OpenRouter catalogue is missing workflow models: removed-speech-model. Paid calls are blocked.'
+  );
+  expect(validateOpenRouterWorkflowModels(slots, [...catalogue, { id: config.ttsModel }])).toEqual(
+    [...Object.values(OPENROUTER_WORKFLOW_MODELS), config.ttsModel].sort((left, right) =>
+      left.localeCompare(right)
+    )
+  );
+});
+
+test('discovers speech as well as text without requiring token-pricing fields', async () => {
+  const text = { id: OPENROUTER_WORKFLOW_MODELS.text };
+  const speech = { id: 'speech-model', pricing: { input_character: '0.0001' } };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async (url: string) =>
+        new Response(
+          JSON.stringify({
+            data:
+              new URL(url).searchParams.get('output_modalities') === 'all'
+                ? [text, speech]
+                : [text],
+          })
+        )
+    )
+  );
+  expect(
+    validateOpenRouterWorkflowModels(
+      { lesson: { model: text.id }, tts: { model: speech.id } },
+      await loadOpenRouterWorkflowCatalogue()
+    )
+  ).toEqual([text.id, speech.id]);
 });

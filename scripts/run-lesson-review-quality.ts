@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import * as z from 'zod';
 import {
   getResolvedGlobalModelConfig,
+  resolveCodexServiceTierForSlot,
   resolveTextModelConfig,
 } from '../apps/backend/src/config/modelConfig.js';
 import {
   closeManagedCodexAccountClient,
-  normalizeCodexReasoningEffort,
   runCodexAppServerTurn,
 } from '../apps/backend/src/services/codexAppServer.js';
 import { LESSON_EVIDENCE_REASONING_EFFORT } from '../apps/backend/src/services/lessonEvidenceVerification.js';
@@ -84,6 +84,7 @@ const main = async () => {
     codexLessonModel: MODEL,
   };
   const model = resolveTextModelConfig(config, 'lesson');
+  const serviceTier = resolveCodexServiceTierForSlot(config, 'lesson');
   assert.equal(model.model, MODEL);
   const workflow = createProductionRegistry().current('lesson-generation');
   assert.ok(workflow);
@@ -169,6 +170,7 @@ const main = async () => {
           model: model.model,
           outputSchema: evaluationOutputSchema,
           reasoningEffort: model.reasoningEffort,
+          serviceTier,
           signal: input.signal,
         })
       );
@@ -270,11 +272,7 @@ const main = async () => {
           'lesson',
           LESSON_EVIDENCE_REASONING_EFFORT
         ),
-        evaluator: {
-          model: model.model,
-          reasoningEffort: normalizeCodexReasoningEffort(model.reasoningEffort),
-          serviceTier: 'normal',
-        },
+        evaluator: resolveRunEvidenceTextSlot(config, 'lesson'),
       },
     },
     evidence => withRunCleanup(() => runCases(evidence), closeManagedCodexAccountClient)
