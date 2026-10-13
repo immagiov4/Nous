@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
+import { type Browser, chromium } from 'playwright';
 import * as postgresModule from 'postgres';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../../apps/backend/src/config/modelConfig';
@@ -20,7 +21,7 @@ import * as operator from '../../../packages/playtest/src/operator/session';
 import * as reports from '../../../packages/playtest/src/report/writeReports';
 import { loadStories } from '../../../packages/playtest/src/stories';
 import type { Story } from '../../../packages/playtest/src/types';
-import type { RunManifest } from '../../../scripts/run-evidence';
+import { RunEvidenceRecorder, type RunManifest } from '../../../scripts/run-evidence';
 import adapter from '../adapter';
 import { importFixture } from '../fixtures';
 import { FRESH_CONTENT_PREPARATION_TIMEOUT_MS, regenerateLesson } from '../freshness';
@@ -66,6 +67,8 @@ vi.mock('../../../packages/playtest/src/inspector/judge', () => ({
   createPiVisualJudge: () => ({ judge: async () => [] }),
 }));
 
+const postgresFactory = vi.mocked(postgresModule.default).getMockImplementation();
+if (!postgresFactory) throw new Error('Postgres test factory missing');
 let server: Server;
 let dataDirectory: string;
 const args = ['--provider', 'scripted', '--model', 'deterministic', '--concurrency', '1'];
@@ -97,10 +100,12 @@ afterAll(async () => {
   );
 });
 beforeEach(async () => {
+  vi.mocked(postgresModule.default).mockReset().mockImplementation(postgresFactory);
   dataDirectory = await mkdtemp(join(tmpdir(), 'nous-playtest-evidence-'));
   vi.stubEnv('NOUS_E2E_DATA', dataDirectory);
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.spyOn(stack, 'stopStack').mockResolvedValue();
   vi.mocked(loadStories).mockResolvedValue([story]);
   vi.mocked(adapter.ensureStack).mockResolvedValue();
   vi.mocked(adapter.prepare).mockResolvedValue({
@@ -459,11 +464,32 @@ describe('Nous playtest evidence entrypoint', () => {
   });
 });
 
+async function advancePreparationDeadline(input: {
+  polling: boolean;
+  acceptedStart: Promise<void>;
+  entered: Promise<void>;
+  dataDirectory: string;
+  nextEntered: Promise<void>;
+  nextDecision: { resolve(value: LearnerDecision): void };
+}): Promise<void> {
+  await (input.polling ? input.acceptedStart : input.entered);
+  await vi.advanceTimersByTimeAsync(FRESH_CONTENT_PREPARATION_TIMEOUT_MS - Date.now());
+  if (input.polling)
+    await confirmImmediateCheckpoint(input.dataDirectory, input.nextEntered, input.nextDecision);
+}
+
 it.each([
   'product-failure',
   'deadline',
+  'snapshot-read',
+  'usage-read',
+  'snapshot-write',
+  'connection-close',
 ] as const)('retains failed generation identity, configuration, duration, workflow state and cost before cleanup with %s', async scenario => {
-  const deadline = scenario === 'deadline';
+  const deadline = scenario !== 'product-failure';
+  const polling = scenario === 'deadline';
+  const entered = Promise.withResolvers<void>();
+  const late = Promise.withResolvers<unknown>();
   const failureCode = deadline
     ? 'lesson_generation_preparation_timeout'
     : 'lesson_factual_support_failed';
@@ -509,16 +535,66 @@ it.each([
   const readRun = vi.spyOn(PostgresWorkflowStore.prototype, 'getRun').mockResolvedValue({
     id: runId,
     resolvedConfig: settings,
-    status: deadline ? 'running' : 'failed',
+    status: polling ? 'running' : 'failed',
     error: { code: 'lesson_factual_support_failed', kind: 'permanent' },
   } as unknown as Awaited<ReturnType<PostgresWorkflowStore['getRun']>>);
   const readState = vi.spyOn(PostgresWorkflowStore.prototype, 'getRunState').mockResolvedValue({
-    nodes: [{ definitionId: 'review-lesson', status: deadline ? 'running' : 'failed' }],
+    nodes: [{ definitionId: 'review-lesson', status: polling ? 'running' : 'failed' }],
   } as unknown as Awaited<ReturnType<PostgresWorkflowStore['getRunState']>>);
-  if (deadline) {
+  if (polling) {
     readRun.mockImplementation(() => new Promise(() => {}));
     readState.mockImplementation(() => new Promise(() => {}));
     sql.mockImplementation(() => new Promise(() => {}));
+  }
+  const waitSource = {
+    'product-failure': undefined,
+    deadline: undefined,
+    'snapshot-write': undefined,
+    'snapshot-read': readRun,
+    'usage-read': sql,
+    'connection-close': sql.end,
+  }[scenario];
+  waitSource?.mockImplementation(() => {
+    entered.resolve();
+    return late.promise as Promise<never>;
+  });
+  let capturedManifest: RunManifest | undefined;
+  const write = RunEvidenceRecorder.prototype.writeJson;
+  vi.spyOn(RunEvidenceRecorder.prototype, 'writeJson').mockImplementation(function (
+    this: RunEvidenceRecorder,
+    name,
+    contents,
+    options
+  ) {
+    capturedManifest = this.manifest;
+    if (scenario === 'snapshot-write' && name.endsWith('-workflow.json')) {
+      entered.resolve();
+      return late.promise.then(() => write.call(this, name, contents));
+    }
+    return write.call(this, name, contents, options);
+  });
+  const nextEntered = Promise.withResolvers<void>();
+  const nextDecision = Promise.withResolvers<LearnerDecision>();
+  if (polling) {
+    vi.mocked(createPiDecisionSource).mockImplementation(() => ({
+      decide: async () => {
+        nextEntered.resolve();
+        return nextDecision.promise;
+      },
+    }));
+    vi.mocked(loadStories).mockResolvedValue([story, { ...story, id: `${story.id}-next` }]);
+    vi.spyOn(chromium, 'launch').mockResolvedValue({ close: async () => {} } as unknown as Browser);
+    vi.spyOn(operator, 'openOperatorSession').mockImplementation(async options => ({
+      observe: async () => ({
+        url: options.baseUrl,
+        nodes: [],
+        stepIndex: 0,
+        screenshotPath: join(options.runDir, 'next.png'),
+      }),
+      act: vi.fn(),
+      signals: async () => [],
+      close: async () => ({ tracePath: join(options.runDir, 'next.zip') }),
+    }));
   }
   const { promise: acceptedStart, resolve: notifyStart } = Promise.withResolvers<void>();
   let finishCancellation: ((response: Response) => void) | undefined;
@@ -538,8 +614,8 @@ it.each([
           id: runId,
           projectId: snapshot.id,
           sectionId: 'lesson-water',
-          status: deadline ? 'running' : 'failed',
-          errorCode: deadline ? undefined : failureCode,
+          status: polling ? 'running' : 'failed',
+          errorCode: polling ? undefined : 'lesson_factual_support_failed',
           retrying: false,
           stage: 'verification',
           createdAt: new Date().toISOString(),
@@ -559,6 +635,8 @@ it.each([
     });
   }
   vi.mocked(adapter.prepare).mockImplementation(async selected => {
+    if (selected.id !== story.id)
+      return { credentials: { email: 'next@example.test', password: 'secret' } };
     await regenerateLesson({
       story: selected,
       viewport: 'desktop',
@@ -580,16 +658,27 @@ it.each([
   });
   const blocked = expect(main(args)).rejects.toMatchObject({ code: 'PLAYTEST_OPERATIONAL_ERROR' });
   if (deadline) {
-    await acceptedStart;
-    await vi.advanceTimersByTimeAsync(FRESH_CONTENT_PREPARATION_TIMEOUT_MS);
+    await advancePreparationDeadline({
+      polling,
+      acceptedStart,
+      entered: entered.promise,
+      dataDirectory,
+      nextEntered: nextEntered.promise,
+      nextDecision,
+    });
   }
   await blocked;
-  const { directory, manifest } = await evidence(true);
+  const { directory, manifest } = await vi.waitFor(() => evidence(true));
   const generation = manifest.measurements.find(measurement => measurement.kind === 'workflow');
   if (!generation) throw new Error('Generation measurement missing');
   const filename = `${generation.name}.json`;
-  expect(manifest.artifacts).toContain(filename);
-  const record = JSON.parse(await readFile(join(directory, filename), 'utf8'));
+  if (!deadline) {
+    expect(manifest.artifacts).toContain(filename);
+    expect(manifest.incompleteWrites).toEqual([]);
+  }
+  const record = await vi.waitFor(async () =>
+    JSON.parse(await readFile(join(directory, filename), 'utf8'))
+  );
   expect(record).toMatchObject({
     workflowId: runId,
     projectId: snapshot.id,
@@ -604,15 +693,59 @@ it.each([
   if (deadline) expect(record.cancellation).toEqual({ status: 'confirmed' });
   expect(manifest.measurements).toHaveLength(2);
   expect(manifest.workflows).toHaveLength(1);
-  expect(manifest.aiUsage).toEqual(deadline ? [] : [usage]);
+  expect(manifest.aiUsage).toEqual(!deadline || scenario === 'connection-close' ? [usage] : []);
   expect(manifest.workflows[0].runId).toBe(runId);
-  if (deadline) {
+  await assertGenerationBoundary({
+    polling,
+    deadline,
+    scenario,
+    directory,
+    filename,
+    manifest,
+    usage,
+    readRun,
+    readState,
+    sql,
+    capturedManifest,
+    late,
+  });
+});
+
+async function assertGenerationBoundary(input: {
+  polling: boolean;
+  deadline: boolean;
+  scenario: string;
+  directory: string;
+  filename: string;
+  manifest: RunManifest;
+  usage: unknown;
+  readRun: unknown;
+  readState: unknown;
+  sql: { end: unknown };
+  capturedManifest?: RunManifest;
+  late: { resolve(value: unknown): void };
+}) {
+  const {
+    polling,
+    deadline,
+    scenario,
+    directory,
+    filename,
+    manifest,
+    usage,
+    readRun,
+    readState,
+    sql,
+    capturedManifest,
+    late,
+  } = input;
+  if (polling) {
     expect(readRun).not.toHaveBeenCalled();
     expect(readState).not.toHaveBeenCalled();
     expect(sql).not.toHaveBeenCalled();
-    expect(manifest.artifacts).not.toContain(filename.replace('.json', '-workflow.json'));
-    expect(manifest.artifacts).not.toContain(filename.replace('.json', '-usage.json'));
-  } else {
+    expect(manifest.artifacts ?? []).not.toContain(filename.replace('.json', '-workflow.json'));
+    expect(manifest.artifacts ?? []).not.toContain(filename.replace('.json', '-usage.json'));
+  } else if (!deadline) {
     const trace = JSON.parse(
       await readFile(join(directory, filename.replace('.json', '-workflow.json')), 'utf8')
     );
@@ -620,4 +753,53 @@ it.each([
     expect(trace.state.nodes[0].definitionId).toBe('review-lesson');
     expect(sql.end).toHaveBeenCalled();
   }
-});
+  if (deadline) {
+    expect(stack.stopStack).toHaveBeenCalled();
+    if (polling) {
+      const summary = JSON.parse(await readFile(join(directory, 'summary.json'), 'utf8'));
+      expect(summary.records.map((entry: { outcome: string }) => entry.outcome)).toEqual([
+        'blocked-precondition',
+        'completed',
+      ]);
+    }
+    expect(manifest.incompleteWrites).toEqual(
+      expect.arrayContaining(['manifest.json', 'history.jsonl'])
+    );
+    if (!polling) {
+      expect(sql.end).toHaveBeenCalledWith({ timeout: 0 });
+      const frozen = await readFile(join(directory, filename), 'utf8');
+      const frozenManifest = structuredClone(capturedManifest);
+      late.resolve(scenario === 'usage-read' ? [usage] : undefined);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(await readFile(join(directory, filename), 'utf8')).toBe(frozen);
+      expect((await evidence(true)).manifest.aiUsage).toEqual(manifest.aiUsage);
+      expect(capturedManifest).toEqual(frozenManifest);
+    }
+  }
+}
+
+async function confirmImmediateCheckpoint(
+  dataDirectory: string,
+  entered: Promise<void>,
+  decision: { resolve(value: LearnerDecision): void }
+) {
+  await entered;
+  try {
+    const root = join(dataDirectory, 'runs', 'playtest');
+    const names = await readdir(root);
+    const run = names.find(name => name !== 'history.jsonl');
+    if (!run) throw new Error('Run directory missing');
+    await vi.waitFor(async () => {
+      const files = await readdir(join(root, run));
+      const checkpoint = files.find(name => name.endsWith('-deadline.json'));
+      if (!checkpoint) throw new Error('Immediate deadline checkpoint missing');
+      expect(JSON.parse(await readFile(join(root, run, checkpoint), 'utf8'))).toMatchObject({
+        outcome: 'blocked',
+        errorCode: 'lesson_generation_preparation_timeout',
+      });
+    });
+  } finally {
+    decision.resolve({ type: 'stop', reason: 'completed', summary: 'The next story completed.' });
+  }
+}

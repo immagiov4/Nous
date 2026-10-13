@@ -141,7 +141,8 @@ const run = (selection: Story = story) =>
     () => prepare(selection, 'desktop', status),
     async record => {
       const index = evidence.findIndex(existing => existing.requestKey === record.requestKey);
-      evidence[index] = structuredClone(record);
+      if (index < 0) evidence.push(structuredClone(record));
+      else evidence[index] = structuredClone(record);
     }
   );
 
@@ -642,4 +643,84 @@ it('does not await a hanging request-key fallback and cannot publish its late wo
   await Promise.resolve();
   expect(captured[0]).toEqual(finalEvidence);
   expect(fetcher.mock.calls.some(([url]) => url.endsWith('/cancellation'))).toBe(false);
+});
+
+it.each([
+  'evidence',
+  'store-close',
+  'account-cleanup',
+] as const)('keeps the single deadline through %s and records incomplete cleanup', async stage => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const entered = Promise.withResolvers<void>();
+  const late = Promise.withResolvers<void>();
+  let callbackSignal: AbortSignal | undefined;
+  if (stage === 'store-close') {
+    vi.mocked(PostgresProjectStore.prototype.close)
+      .mockResolvedValueOnce()
+      .mockImplementationOnce(() => {
+        entered.resolve();
+        return late.promise;
+      });
+  }
+  if (stage === 'account-cleanup') {
+    job = { ...job, status: 'failed', errorCode: 'lesson_factual_support_failed' };
+    vi.mocked(PostgresProjectStore.prototype.deleteProject).mockImplementation(() => {
+      entered.resolve();
+      return late.promise;
+    });
+  }
+  let final: FreshnessEvidence | undefined;
+  const preparation = withFreshnessEvidence(
+    async (_record, deadline) => {
+      if (stage === 'evidence') {
+        callbackSignal = deadline.signal;
+        entered.resolve();
+        await late.promise;
+      }
+    },
+    () => prepare(story, 'desktop', status),
+    async record => {
+      final = record;
+    }
+  );
+  const blocked = expect(preparation).rejects.toThrow('lesson_generation_preparation_timeout');
+  await entered.promise;
+  await vi.advanceTimersByTimeAsync(FRESH_CONTENT_PREPARATION_TIMEOUT_MS - Date.now() - 1);
+  expect(final).toBeUndefined();
+  await vi.advanceTimersByTimeAsync(1);
+  await blocked;
+  expect(final).toMatchObject({
+    workflowId,
+    outcome: 'blocked',
+    errorCode: 'lesson_generation_preparation_timeout',
+  });
+  if (stage === 'evidence') expect(callbackSignal?.aborted).toBe(true);
+  if (stage === 'account-cleanup')
+    expect(final?.preparation?.possiblyLeakedResources).toEqual([
+      { accountId: userId, projectId: imported.id },
+    ]);
+  const frozen = structuredClone(final);
+  late.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(final).toEqual(frozen);
+});
+
+it('preserves a product failure when its evidence callback also fails', async () => {
+  job = { ...job, status: 'failed', errorCode: 'lesson_factual_support_failed' };
+  let final: FreshnessEvidence | undefined;
+  await expect(
+    withFreshnessEvidence(
+      async () => {
+        throw new Error('Evidence disk unavailable');
+      },
+      () => prepare(story, 'desktop', status),
+      async record => {
+        final = record;
+      }
+    )
+  ).rejects.toThrow('lesson_factual_support_failed');
+  expect(final).toMatchObject({ errorCode: 'lesson_factual_support_failed', outcome: 'blocked' });
+  expect(PostgresProjectStore.prototype.deleteProject).toHaveBeenCalled();
 });

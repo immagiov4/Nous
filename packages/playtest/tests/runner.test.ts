@@ -20,6 +20,7 @@ import { main } from '../src/cli';
 import type { InspectorFinding } from '../src/inspector/inspect';
 import type { VisualJudge } from '../src/inspector/judge';
 import * as judgeModule from '../src/inspector/judge';
+import type { LearnerDecision } from '../src/learner/loop';
 import { mapOpenRouterModel } from '../src/learner/modelResolution';
 import * as decisionModule from '../src/learner/piDecisionSource';
 import { ACTING_RULES } from '../src/learner/prompt';
@@ -47,6 +48,13 @@ const runDirs: string[] = [];
 beforeAll(async () => {
   browser = await chromium.launch({ headless: true });
   server = createServer((request, response) => {
+    if (request.url === '/scoped-trace') {
+      response.setHeader('Content-Type', 'text/html');
+      response.end(
+        `<main data-target="old"><span style="display:inline-block;width:20px;white-space:nowrap;overflow:hidden">Old long label</span><button onclick="show(true)">Open fresh</button></main><script>function show(fresh) {const main=document.querySelector('main');main.dataset.target=fresh?'fresh':'old';main.innerHTML=fresh?'<span style="display:inline-block;width:20px;white-space:nowrap;overflow:hidden">Fresh long label</span><button onclick="show(false)">Open old</button>':'<span>Old lesson</span><button onclick="show(true)">Open fresh</button>';console.error(fresh?'fresh signal':'old signal');}</script>`
+      );
+      return;
+    }
     if (request.url === '/late-geometry') {
       response.setHeader('Content-Type', 'text/html');
       response.end(
@@ -1013,6 +1021,7 @@ describe('CLI', () => {
 });
 
 it('keeps old observations in the story evidence and excludes them from scoped visual coverage', async () => {
+  runDir = await mkdtemp(join(tmpdir(), 'playtest-scoped-'));
   const scoped = adapter();
   scoped.prepare = async () => ({
     credentials: { email: 'learner@example.test', password: 'secret' },
@@ -1038,4 +1047,81 @@ it('keeps old observations in the story evidence and excludes them from scoped v
   const report = JSON.parse(await readFile(summary.records[0].reportPath, 'utf8'));
   expect(report.learner.observations).toHaveLength(1);
   expect(report.learner.observations[0].inspectionEligible).toBe(false);
+});
+
+it('scopes mixed judge trace and signals while retaining all learner evidence', async () => {
+  runDir = await mkdtemp(join(tmpdir(), 'playtest-scoped-'));
+  const scoped = adapter();
+  scoped.baseUrl = () => `${baseUrl}/scoped-trace`;
+  scoped.prepare = async () => ({
+    credentials: { email: 'learner@example.test', password: 'secret' },
+    inspectionSelector: '[data-target="fresh"]',
+  });
+  const decisions: LearnerDecision[] = [
+    { type: 'diary', entry: 'Old diary' },
+    { type: 'report-friction', text: 'Old friction' },
+    {
+      type: 'act',
+      action: { type: 'click', ref: 'ignored' },
+      expectation: 'Enter from old lesson',
+    },
+    { type: 'diary', entry: 'Fresh diary' },
+    { type: 'report-friction', text: 'Fresh friction' },
+    { type: 'act', action: { type: 'click', ref: 'ignored' }, expectation: 'Leave fresh lesson' },
+    { type: 'diary', entry: 'Later old diary' },
+    { type: 'report-friction', text: 'Later old friction' },
+    { type: 'stop', reason: 'completed', summary: 'Summary of old and fresh lessons' },
+  ];
+  let index = 0;
+  const summary = await runPlaytest({
+    adapter: scoped,
+    stories: [{ ...story('mixed-scoped'), budget: { steps: decisions.length } }],
+    personas: new Map(),
+    concurrency: 1,
+    headed: false,
+    model: 'fake',
+    provider: 'fake',
+    runDir,
+    sourceFactory: () => ({
+      decide: async input => {
+        const decision = decisions[index++];
+        if (decision.type !== 'act') return decision;
+        const name = input.observation.nodes.find(node => node.role === 'button')?.ref;
+        if (!name) throw new Error('Fixture button missing');
+        return { ...decision, action: { type: 'click', ref: name } };
+      },
+    }),
+  });
+  const saved = await report(summary.records[0].reportPath);
+  const eligible = saved.learner.observations.filter(
+    (observation: { inspectionEligible: boolean }) => observation.inspectionEligible
+  );
+  expect(eligible).toHaveLength(1);
+  const inspected = judge.mock.calls[0][0];
+  expect(inspected.screenshots.map(screen => screen.screenshotPath)).toEqual(
+    eligible.map((observation: { screenshotPath: string }) => observation.screenshotPath)
+  );
+  expect(inspected.trace?.learner).toEqual({
+    observations: eligible,
+    turns: saved.learner.turns.slice(3, 5),
+    diary: ['Fresh diary'],
+    friction: ['Fresh friction'],
+  });
+  const screenshots = new Set(
+    eligible.map((observation: { screenshotPath: string }) => observation.screenshotPath)
+  );
+  expect(inspected.trace?.probeSignals).toEqual(
+    saved.probeSignals.filter((signal: { screenshotPath: string }) =>
+      screenshots.has(signal.screenshotPath)
+    )
+  );
+  expect(inspected.trace?.probeSignals.length).toBeGreaterThan(0);
+  expect(saved.probeSignals.length).toBeGreaterThan(inspected.trace?.probeSignals.length ?? 0);
+  expect(inspected.trace).not.toHaveProperty('tracePath');
+  expect(inspected.trace).not.toHaveProperty('stopEvent');
+  expect(saved.learner.turns).toHaveLength(decisions.length);
+  expect(saved.learner.diary).toEqual(['Old diary', 'Fresh diary', 'Later old diary']);
+  expect(saved.learner.friction).toEqual(['Old friction', 'Fresh friction', 'Later old friction']);
+  expect(saved.learner.reason).toBeUndefined();
+  expect(saved.tracePath).toBeDefined();
 });

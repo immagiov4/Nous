@@ -24,7 +24,7 @@ export type VisualJudge = {
     styleReference: string[];
     taxonomy: string;
     trace?: {
-      learner: LearnerRunResult;
+      learner: Pick<LearnerRunResult, 'turns' | 'observations' | 'diary' | 'friction'>;
       probeSignals: StepProbeSignal[];
       tracePath?: string;
       stopEvent?: ObservedEvent;

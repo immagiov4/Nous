@@ -343,7 +343,11 @@ async function runStoryWithUsage(
       record.reason = 'The adapter could not classify an observed event.';
     }
     if (learner) {
-      const scope = scopeInspection(learner.observations, Boolean(prepared.inspectionSelector));
+      const scope = scopeInspection(
+        learner,
+        { probeSignals, tracePath, stopEvent },
+        Boolean(prepared.inspectionSelector)
+      );
       const observations = scope.observations;
       record.inspectionCoverage = scope.coverage;
       const eligibleScreenshots = new Set(
@@ -355,12 +359,7 @@ async function runStoryWithUsage(
         ),
         learner,
         observations,
-        trace: {
-          learner,
-          probeSignals,
-          tracePath,
-          stopEvent,
-        },
+        trace: scope.trace,
       };
       try {
         record.findings = await withModelUsage(modelUsage, 'judge', () =>
@@ -397,13 +396,46 @@ async function runStoryWithUsage(
   });
 }
 
-function scopeInspection(captured: Observation[], scoped: boolean) {
-  const observations = captured.filter(observation => observation.inspectionEligible !== false);
+/** Judge context follows the same capture boundary as screenshots; story evidence remains complete. */
+function scopeInspection(
+  learner: LearnerRunResult,
+  trace: { probeSignals: StepProbeSignal[]; tracePath?: string; stopEvent?: ObservedEvent },
+  scoped: boolean
+) {
+  const observations = learner.observations.filter(
+    observation => observation.inspectionEligible !== false
+  );
+  const coverage = scoped
+    ? { eligibleObservations: observations.length, totalObservations: learner.observations.length }
+    : undefined;
+  if (!scoped) return { observations, coverage, trace: { learner, ...trace } };
+  const eligible = new Set(observations.map(observation => observation.screenshotPath));
+  let current = learner.observations[0];
+  const turns = learner.turns.filter(turn => {
+    const contextEligible = current && eligible.has(current.screenshotPath);
+    const result = turn.result?.observation;
+    current = result ?? current;
+    // Stop summaries describe the whole mission rather than a single captured view.
+    return (
+      contextEligible &&
+      turn.decision.type !== 'stop' &&
+      (!result || eligible.has(result.screenshotPath))
+    );
+  });
   return {
     observations,
-    coverage: scoped
-      ? { eligibleObservations: observations.length, totalObservations: captured.length }
-      : undefined,
+    coverage,
+    trace: {
+      learner: {
+        observations,
+        turns,
+        diary: turns.flatMap(turn => (turn.decision.type === 'diary' ? [turn.decision.entry] : [])),
+        friction: turns.flatMap(turn =>
+          turn.decision.type === 'report-friction' ? [turn.decision.text] : []
+        ),
+      },
+      probeSignals: trace.probeSignals.filter(signal => eligible.has(signal.screenshotPath)),
+    },
   };
 }
 

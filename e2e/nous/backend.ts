@@ -9,6 +9,7 @@ import {
 import { readGitIdentity } from '../../scripts/git-identity';
 import { selectOpenRouterWorkflowModels } from '../../scripts/real-workflow-provider-config';
 import { withRunCleanup } from '../../scripts/run-evidence';
+import type { PreparationDeadline } from './preparationDeadline';
 import { dataRoot, REPO_ROOT } from './stack';
 
 const settingsPath = (userId?: string) =>
@@ -21,10 +22,32 @@ const settingsPath = (userId?: string) =>
 /** Only the account preparing current content is admitted to the generation configuration. */
 export async function withGenerationSettings<T>(
   userId: string,
-  operation: () => Promise<T>
+  operation: () => Promise<T>,
+  deadline?: PreparationDeadline
 ): Promise<T> {
-  await writeFile(settingsPath(userId), await readFile(settingsPath()));
-  return withRunCleanup(operation, () => rm(settingsPath(userId), { force: true }));
+  if (!deadline) {
+    await writeFile(settingsPath(userId), await readFile(settingsPath()));
+    return withRunCleanup(operation, () => rm(settingsPath(userId), { force: true }));
+  }
+  return withRunCleanup(
+    async () => {
+      const contents = await deadline.step('generation-settings-read', signal =>
+        readFile(settingsPath(), { signal })
+      );
+      await deadline.step(
+        'generation-settings-write',
+        signal => writeFile(settingsPath(userId), contents, { signal }),
+        'write'
+      );
+      return operation();
+    },
+    () =>
+      deadline.settle(
+        'generation-settings-removal',
+        () => rm(settingsPath(userId), { force: true }),
+        'cleanup'
+      )
+  );
 }
 
 /** Resolve admitted current accounts; all other accounts use ordinary product settings. */

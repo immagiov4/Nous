@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { appendFile, mkdir, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, realpath, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -94,6 +94,9 @@ export interface RunManifest extends RunEvidenceContext {
   aiUsage: WorkflowAiUsageRecord[];
   /** Relative paths to artifacts retained by the harness, including partial failed runs. */
   artifacts?: string[];
+  /** Application-owned cleanup and writes that were incomplete at finalization. */
+  resourcesAtRisk?: Array<{ kind: string; id: string }>;
+  incompleteWrites?: string[];
 }
 
 const isInside = (directory: string, parent: string): boolean => {
@@ -124,16 +127,24 @@ export class RunEvidenceRecorder {
     readonly manifest: RunManifest
   ) {}
 
-  async writeEvidence(name: string, contents: string | Uint8Array): Promise<void> {
+  async writeEvidence(
+    name: string,
+    contents: string | Uint8Array,
+    options?: { signal?: AbortSignal }
+  ): Promise<void> {
     requireName(name);
     if (name.toLowerCase() === 'manifest.json' || name.toLowerCase() === 'history.jsonl') {
       throw new Error('Reserved evidence filename.');
     }
-    await writeFile(join(this.directory, name), contents);
+    await writeFile(join(this.directory, name), contents, options);
   }
 
-  async writeJson(name: string, contents: unknown): Promise<void> {
-    await this.writeEvidence(name, JSON.stringify(contents, null, 2));
+  async writeJson(
+    name: string,
+    contents: unknown,
+    options?: { signal?: AbortSignal }
+  ): Promise<void> {
+    await this.writeEvidence(name, JSON.stringify(contents, null, 2), options);
   }
 
   /** Writes the current lifecycle to the manifest and named trace, replacing an earlier snapshot. */
@@ -245,7 +256,11 @@ export const withRunCleanup = async <Result>(
 /** Validate the output before work starts and retain a redacted failure manifest. */
 export const withRunEvidence = async <Result>(
   context: RunEvidenceContext,
-  operation: (recorder: RunEvidenceRecorder) => Promise<Result>
+  operation: (recorder: RunEvidenceRecorder) => Promise<Result>,
+  finalize?: (
+    persist: (signal?: AbortSignal) => Promise<void>,
+    recorder: RunEvidenceRecorder
+  ) => Promise<void>
 ): Promise<Result> => {
   const dataDirectory = process.env.NOUS_E2E_DATA?.trim();
   if (!dataDirectory) throw new Error('NOUS_E2E_DATA is required for real-provider evidence.');
@@ -276,8 +291,8 @@ export const withRunEvidence = async <Result>(
   };
   const recorder = new RunEvidenceRecorder(directory, manifest);
   const exchanges: ModelExchange[] = [];
-  const saveManifest = () =>
-    writeFile(join(directory, 'manifest.json'), JSON.stringify(manifest, null, 2));
+  const saveManifest = (signal?: AbortSignal) =>
+    writeFile(join(directory, 'manifest.json'), JSON.stringify(manifest, null, 2), { signal });
   await saveManifest();
   return withRunCleanup(
     async () => {
@@ -305,8 +320,16 @@ export const withRunEvidence = async <Result>(
             .join('')
         );
       }
-      await saveManifest();
-      await appendFile(join(scenarioDirectory, 'history.jsonl'), `${JSON.stringify(manifest)}\n`);
+      const persist = async (signal?: AbortSignal) => {
+        const snapshot = JSON.stringify(manifest);
+        await writeFile(join(directory, 'manifest.json'), snapshot, { signal });
+        await writeFile(join(scenarioDirectory, 'history.jsonl'), `${JSON.stringify(manifest)}\n`, {
+          flag: 'a',
+          signal,
+        });
+      };
+      if (finalize) await finalize(persist, recorder);
+      else await persist();
     }
   );
 };

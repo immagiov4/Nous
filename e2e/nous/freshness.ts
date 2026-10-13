@@ -13,7 +13,6 @@ import { LESSON_GENERATION_WORKFLOW_ID } from '../../apps/backend/src/workflows/
 import { LessonGenerationWorkflowResultSchema } from '../../apps/backend/src/workflows/lessonGenerationWorkflowContract';
 import { PostgresWorkflowStore } from '../../apps/backend/src/workflows/persistence/postgresWorkflowStore';
 import { canonicalJson } from '../../apps/backend/src/workflows/schemaFingerprint';
-import { raceOperationWithAbort } from '../../apps/backend/src/workflows/workflowStepAttempt';
 import {
   assertWorkflowPollResponse,
   isDefinitiveWorkflowStartRejection,
@@ -27,11 +26,17 @@ import type {
   LessonWorkflowWarning,
 } from '../../packages/shared-types/lessonWorkflowContract';
 import { withRunCleanup } from '../../scripts/run-evidence';
+import {
+  PREPARATION_TIMEOUT_CODE,
+  PreparationDeadline,
+  type PreparationStep,
+} from './preparationDeadline';
 import { BACKEND_URL, dataRoot, type StackStatus } from './stack';
 
-// Maintainer-approved on 2026-10-13, derived from measured 336 s / 402 s regenerations.
-export const FRESH_CONTENT_PREPARATION_TIMEOUT_MS = 20 * 60_000;
-export const PREPARATION_TIMEOUT_CODE = 'lesson_generation_preparation_timeout';
+export {
+  FRESH_CONTENT_PREPARATION_TIMEOUT_MS,
+  PREPARATION_TIMEOUT_CODE,
+} from './preparationDeadline';
 
 export interface FreshnessEvidence {
   userId: string;
@@ -50,33 +55,51 @@ export interface FreshnessEvidence {
   warnings: LessonWorkflowWarning[];
   startedAt: string;
   durationMs: number;
+  preparation?: {
+    steps: PreparationStep[];
+    possiblyLeakedResources: { accountId: string; projectId: string }[];
+  };
   persistedRevision?: number;
   contentSha256?: string;
   visuals?: { generatedVisuals: unknown[]; imageRefs: unknown[]; visualPlanningDecision?: unknown };
 }
 type EvidenceScope = {
-  record: (evidence: FreshnessEvidence) => Promise<void>;
-  records: Set<FreshnessEvidence>;
+  record: (evidence: FreshnessEvidence, deadline: PreparationDeadline) => Promise<void>;
+  records: Map<FreshnessEvidence, PreparationDeadline>;
   cancellation: AbortController;
   finalized: boolean;
 };
 const writer = new AsyncLocalStorage<EvidenceScope>();
 export function withFreshnessEvidence<T>(
-  record: (evidence: FreshnessEvidence) => Promise<void>,
+  record: (evidence: FreshnessEvidence, deadline: PreparationDeadline) => Promise<void>,
   operation: () => Promise<T>,
-  refresh?: (evidence: FreshnessEvidence) => Promise<void>
+  refresh?: (
+    evidence: FreshnessEvidence,
+    deadline: PreparationDeadline,
+    signal: AbortSignal
+  ) => Promise<void>,
+  finishRun?: (deadlines: PreparationDeadline[]) => Promise<void>
 ): Promise<T> {
   const scope: EvidenceScope = {
     record,
-    records: new Set(),
+    records: new Map(),
     cancellation: new AbortController(),
     finalized: false,
   };
   return writer.run(scope, () =>
     withRunCleanup(operation, async () => {
+      await finishRun?.([...scope.records.values()]);
       scope.finalized = true;
       scope.cancellation.abort();
-      for (const evidence of scope.records) await refresh?.(evidence);
+      for (const [evidence, deadline] of scope.records) {
+        if (deadline.signal.aborted) deadline.freeze();
+        await deadline.settle(
+          'final-generation-write',
+          signal => refresh?.(structuredClone(evidence), deadline, signal) ?? Promise.resolve(),
+          'write'
+        );
+        if (!deadline.signal.aborted) deadline.freeze();
+      }
     })
   );
 }
@@ -134,6 +157,7 @@ type RegenerationInput = {
   projectId: string;
   sectionId: string;
   store: Pick<PostgresProjectStore, 'loadProjectWithRevision' | 'patchProject'>;
+  deadline?: PreparationDeadline;
 };
 
 function completedResult(job: LessonWorkflowSnapshot, evidence: FreshnessEvidence) {
@@ -314,11 +338,10 @@ async function generate(
 async function cancelTimedOutGeneration(
   input: RegenerationInput,
   evidence: FreshnessEvidence,
-  headers: Record<string, string> | undefined,
-  signal: AbortSignal
+  context: { headers?: Record<string, string>; signal: AbortSignal; scope?: EvidenceScope }
 ): Promise<void> {
+  const { headers, signal, scope } = context;
   if (!headers) return;
-  const scope = writer.getStore();
   evidence.cancellation = { status: 'requested-unconfirmed' };
   const failed = () => {
     if (!scope?.finalized)
@@ -371,9 +394,15 @@ async function cancelTimedOutGeneration(
   }
 }
 
-/** Force the product workflow, then check its durable identity and exact persisted output. */
-export async function regenerateLesson(input: RegenerationInput): Promise<FreshnessEvidence> {
-  const started = performance.now();
+/** Allocate the owned preparation evidence before settings, generation or cleanup can wait. */
+export function createPreparationDeadline(input: {
+  userId: string;
+  story: Story;
+  viewport: Viewport;
+  projectId: string;
+  sectionId: string;
+  isolated: StackStatus;
+}): PreparationDeadline {
   const evidence: FreshnessEvidence = {
     userId: input.userId,
     storyId: input.story.id,
@@ -387,45 +416,92 @@ export async function regenerateLesson(input: RegenerationInput): Promise<Freshn
     startedAt: new Date().toISOString(),
     durationMs: 0,
   };
-  const controller = new AbortController();
+  const deadline = new PreparationDeadline(
+    evidence,
+    input.isolated,
+    new FreshnessBlockedError(PREPARATION_TIMEOUT_CODE)
+  );
+  const scope = writer.getStore();
+  scope?.records.set(evidence, deadline);
+  if (scope)
+    deadline.signal.addEventListener(
+      'abort',
+      () => {
+        void deadline
+          .settle('deadline-evidence', () => scope.record(evidence, deadline), 'write')
+          .catch(() => {});
+      },
+      { once: true }
+    );
+  return deadline;
+}
+
+function preparationFailure(error: unknown, deadline: PreparationDeadline): FreshnessBlockedError {
+  if (deadline.signal.aborted) return deadline.signal.reason;
+  return error instanceof FreshnessBlockedError
+    ? error
+    : new FreshnessBlockedError('lesson_generation_preparation_failed', { cause: error });
+}
+
+async function recordFailedPreparation(
+  scope: EvidenceScope,
+  deadline: PreparationDeadline,
+  failure: FreshnessBlockedError
+): Promise<void> {
+  if (scope.finalized) return;
+  try {
+    await deadline.settle(
+      'blocked-generation-evidence',
+      () => scope.record(deadline.evidence, deadline),
+      'write'
+    );
+  } catch (recordError) {
+    throw new FreshnessBlockedError(failure.code, {
+      cause: new AggregateError(
+        [failure, recordError],
+        'Generation failed and evidence collection failed.',
+        { cause: failure }
+      ),
+    });
+  }
+}
+
+/** Force the product workflow, then check its durable identity and exact persisted output. */
+export async function regenerateLesson(input: RegenerationInput): Promise<FreshnessEvidence> {
+  const deadline = input.deadline ?? createPreparationDeadline(input);
+  const evidence = deadline.evidence;
   const context: { signal: AbortSignal; headers?: Record<string, string> } = {
-    signal: controller.signal,
+    signal: deadline.signal,
   };
-  const cancellation = writer.getStore()?.cancellation ?? new AbortController();
-  const timer = setTimeout(
-    () => controller.abort(new FreshnessBlockedError(PREPARATION_TIMEOUT_CODE)),
-    FRESH_CONTENT_PREPARATION_TIMEOUT_MS
-  );
-  return withRunCleanup(
-    async () => {
-      try {
-        const settled = await raceOperationWithAbort(
-          () => generate(input, evidence, context),
-          controller.signal
-        );
-        if (settled.status === 'aborted' || controller.signal.aborted) {
-          void cancelTimedOutGeneration(input, evidence, context.headers, cancellation.signal);
-          throw controller.signal.reason;
-        }
-        if (settled.status === 'failed') throw settled.error;
-        return settled.value;
-      } catch (error) {
-        evidence.errorCode =
-          error instanceof FreshnessBlockedError
-            ? error.code
-            : 'lesson_generation_preparation_failed';
-        throw error instanceof FreshnessBlockedError
-          ? error
-          : new FreshnessBlockedError(evidence.errorCode, { cause: error });
-      }
-    },
-    async () => {
-      clearTimeout(timer);
-      evidence.durationMs = performance.now() - started;
-      const scope = writer.getStore();
-      scope?.records.add(evidence);
-      await scope?.record(evidence);
-      if (!scope) cancellation.abort();
+  const scope = writer.getStore();
+  const cancellation = scope?.cancellation ?? new AbortController();
+  const cancel = () => {
+    void cancelTimedOutGeneration(input, evidence, {
+      headers: context.headers,
+      signal: cancellation.signal,
+      scope,
+    });
+  };
+  deadline.signal.addEventListener('abort', cancel, { once: true });
+  let recordingStarted = false;
+  try {
+    await deadline.step('lesson-generation', () => generate(input, evidence, context));
+    evidence.durationMs = deadline.elapsedMs;
+    if (scope && !scope.finalized) {
+      recordingStarted = true;
+      await deadline.step('generation-evidence', () => scope.record(evidence, deadline));
     }
-  );
+    return evidence;
+  } catch (error) {
+    const failure = preparationFailure(error, deadline);
+    evidence.outcome = 'blocked';
+    evidence.errorCode = failure.code;
+    if (scope && !recordingStarted && !deadline.signal.aborted)
+      await recordFailedPreparation(scope, deadline, failure);
+    throw preparationFailure(failure, deadline);
+  } finally {
+    deadline.signal.removeEventListener('abort', cancel);
+    if (!input.deadline) deadline.finish();
+    if (!scope) cancellation.abort();
+  }
 }
