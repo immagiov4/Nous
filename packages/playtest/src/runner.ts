@@ -194,7 +194,7 @@ function withProbeEvidence(
         }
       } catch (error) {
         // A failed drain (e.g. the page closed) must not leave the context open or lose its trace.
-        recordDiagnostic('final-probe-drain', error);
+        recordDiagnostic('final-probe-drain', error, { operational: true });
       }
       return session.close();
     },
@@ -393,8 +393,10 @@ async function saveStory(input: Parameters<typeof writeStoryReports>[0]): Promis
     await writeStoryReports(input);
   } catch (error) {
     recordDiagnostic('report', error, { operational: true });
-    input.record.outcome = 'operator-failure';
-    input.record.reason = 'The harness could not write the story report.';
+    if (input.record.outcome !== 'app-error') {
+      input.record.outcome = 'operator-failure';
+      input.record.reason = 'The harness could not write the story report.';
+    }
     try {
       const existing = await readFile(input.record.reportPath, 'utf8')
         .then(JSON.parse)

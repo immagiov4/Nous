@@ -8,6 +8,7 @@ import type { PlaytestAdapter } from '../../../packages/playtest/src/adapter';
 import type { LearnerDecision } from '../../../packages/playtest/src/learner/loop';
 import { createPiDecisionSource } from '../../../packages/playtest/src/learner/piDecisionSource';
 import { createScriptedDecisionSource } from '../../../packages/playtest/src/learner/scriptedDecisionSource';
+import * as operator from '../../../packages/playtest/src/operator/session';
 import * as reports from '../../../packages/playtest/src/report/writeReports';
 import { loadStories } from '../../../packages/playtest/src/stories';
 import type { Story } from '../../../packages/playtest/src/types';
@@ -180,6 +181,140 @@ describe('Nous playtest evidence entrypoint', () => {
     for (const artifact of manifest.artifacts ?? [])
       expect((await stat(join(directory, artifact))).isFile()).toBe(true);
     expect(await readdir(join(dataDirectory, 'runs'))).toEqual(['playtest']);
+  });
+
+  it.each(
+    (['observation', 'decision', 'action', 'final-probe-drain'] as const).flatMap(stage =>
+      (['stop-first', 'failure-first'] as const).map(order => ({ stage, order }))
+    )
+  )('retains $stage failure with $order through reports and the manifest', async ({
+    stage,
+    order,
+  }) => {
+    const open = operator.openOperatorSession;
+    const failure = new Error(`Synthetic ${stage} failure`);
+    let stopApp: () => void;
+    vi.mocked(adapter.classify).mockImplementation(event =>
+      event.kind === 'console' && event.text === 'Application stopped'
+        ? { stop: true, reason: 'Product problem.', correlationId: 'race-stop' }
+        : { stop: false }
+    );
+    vi.spyOn(operator, 'openOperatorSession').mockImplementation(async options => {
+      const session = await open(options);
+      stopApp = () =>
+        options.onEvent?.({
+          kind: 'console',
+          level: 'error',
+          text: 'Application stopped',
+        });
+      const fail = async () => {
+        // Hold the operation pending while delivering the competing terminal signal.
+        await Promise.resolve();
+        if (order === 'stop-first') stopApp();
+        throw failure;
+      };
+      return {
+        ...session,
+        observe: stage === 'observation' ? fail : session.observe,
+        act: stage === 'action' ? fail : session.act,
+        signals:
+          stage === 'final-probe-drain'
+            ? vi
+                .fn(session.signals)
+                .mockImplementationOnce(session.signals)
+                .mockImplementation(fail)
+            : session.signals,
+        close: async () => {
+          if (order === 'failure-first') stopApp();
+          return session.close();
+        },
+      };
+    });
+    vi.mocked(createPiDecisionSource).mockImplementation(() => ({
+      decide: async () => {
+        if (stage === 'decision') {
+          await Promise.resolve();
+          if (order === 'stop-first') stopApp();
+          throw failure;
+        }
+        return stage === 'action'
+          ? { type: 'act', action: { type: 'observe' }, expectation: 'Read again.' }
+          : { type: 'stop', reason: 'completed', summary: 'Done.' };
+      },
+    }));
+    await expect(main(args)).rejects.toMatchObject({ code: 'PLAYTEST_OPERATIONAL_ERROR' });
+    const { directory, manifest } = await evidence();
+    expect(manifest.outcome).toBe('failed');
+    expect(manifest.errorCode).toBe('PLAYTEST_OPERATIONAL_ERROR');
+    const summary = JSON.parse(await readFile(join(directory, 'summary.json'), 'utf8'));
+    const record = summary.records[0];
+    const saved = JSON.parse(await readFile(record.reportPath, 'utf8'));
+    for (const report of [record, saved]) {
+      expect(report).toMatchObject({
+        outcome: 'app-error',
+        reason: 'Product problem.',
+        correlationId: 'race-stop',
+        operationalFailure: true,
+      });
+      expect(report.diagnostics[stage]).toContain(failure.message);
+    }
+    expect(manifest.artifacts?.some(path => path.endsWith('/trace.zip'))).toBe(true);
+    expect((await stat(saved.tracePath)).isFile()).toBe(true);
+  });
+
+  it('fails execution when the page closes during the final decision but retains its trace', async () => {
+    const open = operator.openOperatorSession;
+    let closePage: () => Promise<void>;
+    vi.spyOn(operator, 'openOperatorSession').mockImplementation(async options => {
+      const session = await open(options);
+      closePage = async () => {
+        const [page] = options.browser.contexts().flatMap(context => context.pages());
+        await page.close();
+      };
+      return session;
+    });
+    vi.mocked(createPiDecisionSource).mockImplementation(() => ({
+      decide: async () => {
+        await closePage();
+        return { type: 'stop', reason: 'completed', summary: 'Done.' };
+      },
+    }));
+    await expect(main(args)).rejects.toMatchObject({ code: 'PLAYTEST_OPERATIONAL_ERROR' });
+    const { directory, manifest } = await evidence();
+    expect(manifest.outcome).toBe('failed');
+    expect(manifest.errorCode).toBe('PLAYTEST_OPERATIONAL_ERROR');
+    const summary = JSON.parse(await readFile(join(directory, 'summary.json'), 'utf8'));
+    const record = summary.records[0];
+    const saved = JSON.parse(await readFile(record.reportPath, 'utf8'));
+    for (const report of [record, saved]) {
+      expect(report).toMatchObject({ outcome: 'completed', operationalFailure: true });
+      expect(report.diagnostics['final-probe-drain']).toContain('closed');
+    }
+    expect((await stat(saved.tracePath)).isFile()).toBe(true);
+    expect(manifest.artifacts?.some(path => path.endsWith('/trace.zip'))).toBe(true);
+  });
+
+  it('preserves the application stop when writing its companion report fails', async () => {
+    vi.mocked(adapter.classify).mockReturnValue({ stop: true, reason: 'Product problem.' });
+    const write = reports.writeStoryReports;
+    vi.spyOn(reports, 'writeStoryReports').mockImplementationOnce(async input => {
+      await write(input);
+      throw new Error('Synthetic companion report failure');
+    });
+    await expect(main(args)).rejects.toMatchObject({ code: 'PLAYTEST_OPERATIONAL_ERROR' });
+    const { directory, manifest } = await evidence();
+    expect(manifest.outcome).toBe('failed');
+    const summary = JSON.parse(await readFile(join(directory, 'summary.json'), 'utf8'));
+    const record = summary.records[0];
+    const saved = JSON.parse(await readFile(record.reportPath, 'utf8'));
+    for (const report of [record, saved]) {
+      expect(report).toMatchObject({
+        outcome: 'app-error',
+        reason: 'Product problem.',
+        operationalFailure: true,
+      });
+      expect(report.diagnostics.report).toContain('Synthetic companion report failure');
+    }
   });
 
   it('preserves both reports when an operational error occurs after the first story', async () => {
