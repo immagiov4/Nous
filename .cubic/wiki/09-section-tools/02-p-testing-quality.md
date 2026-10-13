@@ -238,7 +238,7 @@ Sources: [scripts/run-full-quality-gate.ts:39-53](../../../scripts/run-full-qual
 
 ### SonarQube Integration
 SonarQube acts as a local-only merge gate and is intentionally excluded from GitHub Actions.
-- **Lifecycle:** `gate:full` starts the local service immediately before analysis and stops it after the scan.
+- **Lifecycle:** `gate:full` starts or reuses the local service immediately before analysis and keeps it running afterward. Stop it explicitly with `bun run sonar:stop` when finished.
 - **Configuration:** Docker binds the local service to `127.0.0.1:9000`. Its Docker-internal one-shot provisioner grants `Anyone` the global `Create Projects` and `Execute Analysis` permissions on a fresh volume, enabling anonymous analysis without scanner credentials. The `gate` Doctor profile requires that provisioner to complete successfully before it reports anonymous analysis ready.
 - **Merge Block:** A required Sonar scan that is skipped, failed, or unreachable blocks the merge.
 
