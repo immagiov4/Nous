@@ -40,13 +40,7 @@ After GitHub CI passes on the final commit, run:
 bun run gate:full
 ```
 
-- `gate:full` runs local quality, the blocking Fallow regression check, and Node coverage one at a
-  time after GitHub CI passes on the same commit. It does not repeat the complete Bun suite or the
-  dependency graph check from CI. It then starts the local Sonar service, verifies the pinned Bun
-  runtime and Sonar readiness with `doctor:gate`, runs the analysis, and stops the service. The stop
-  command also runs when Sonar startup, preflight, or analysis throws. The React Hooks ESLint
-  check creates the external-issues report consumed by Sonar, so the scan does not repeat that lint
-  pass. The scanner waits for the Sonar quality-gate result and propagates a failing gate.
+- `gate:full` runs local quality, the blocking Fallow regression check, and Node coverage one at a time after GitHub CI passes on the same commit. It does not repeat the complete Bun suite or the dependency graph check from CI. It then starts or reuses the local Sonar service, verifies the pinned Bun runtime and Sonar readiness with `doctor:gate`, and runs the analysis. The service stays running after success or failure; each invocation repeats readiness and doctor checks before the same quality gate. Run `bun run sonar:stop` when finished to release the server resources. The React Hooks ESLint check creates the external-issues report consumed by Sonar, so the scan does not repeat that lint pass. The scanner waits for the Sonar quality-gate result and propagates a failing gate.
 - `test:coverage` requires Node 26 (any 26.x), the major pinned in `.node-version`. It stops before
   Vitest if PATH resolves to another Node major. Its preflight deletes the previous `coverage/lcov.info` before
   that check, so a later Sonar stage cannot consume stale coverage. It uses four workers and writes
@@ -91,8 +85,7 @@ full gate. Do not treat a failed or unreachable required Sonar scan as a skip.
 
 ### When required Sonar is unavailable
 
-`gate:full` starts Sonar immediately before analysis and stops it afterward. If startup fails, use
-the standalone lifecycle command to diagnose the service before rerunning the full gate:
+`gate:full` starts or reuses Sonar immediately before analysis and keeps it running afterward, including after a failed scan. Stop it explicitly with `bun run sonar:stop` when finished. If startup fails, use the standalone lifecycle command to diagnose the service before rerunning the full gate:
 
 ```bash
 bun run sonar:up
