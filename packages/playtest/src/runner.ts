@@ -41,6 +41,7 @@ export type StoryRunRecord = {
   modelUsage?: ModelUsage;
   costEstimated?: true;
   diagnostics?: Record<string, string>;
+  operationalFailure?: true;
   findings: InspectorFinding[];
   friction: string[];
   reportPath: string;
@@ -53,6 +54,7 @@ export type RunSummary = {
   outcomeCounts: Record<StoryOutcome, number>;
   costEstimated?: true;
   diagnostics?: Record<string, string>;
+  operationalFailure?: true;
   /** Set when the shared application stack could not start; every story is then blocked. */
   stackFailure?: string;
 };
@@ -105,7 +107,8 @@ function recordEvidenceFailure(record: StoryRunRecord, error: unknown): string |
   const failures =
     error instanceof OperatorCloseError ? error.failures : [{ stage: 'trace', cause: error }];
   if (error instanceof OperatorCloseError && error.videoPath) record.videoPath = error.videoPath;
-  for (const failure of failures) recordDiagnostic(failure.stage, failure.cause);
+  for (const failure of failures)
+    recordDiagnostic(failure.stage, failure.cause, { operational: true });
   const artifacts = error instanceof OperatorCloseError ? error.artifacts : 'trace';
   record.outcome = 'operator-failure';
   record.evidenceError = `The harness could not save the browser ${artifacts}.`;
@@ -133,7 +136,7 @@ async function closePreparedStory(input: {
   try {
     await prepared.cleanup?.();
   } catch (error) {
-    recordDiagnostic('cleanup', error);
+    recordDiagnostic('cleanup', error, { operational: true });
     record.outcome = 'operator-failure';
     record.cleanupError = 'The adapter could not clean up the synthetic story account.';
     record.reason = record.cleanupError;
@@ -191,7 +194,7 @@ function withProbeEvidence(
         }
       } catch (error) {
         // A failed drain (e.g. the page closed) must not leave the context open or lose its trace.
-        recordDiagnostic('final-probe-drain', error);
+        recordDiagnostic('final-probe-drain', error, { operational: true });
       }
       return session.close();
     },
@@ -245,7 +248,7 @@ async function runStoryWithUsage(
       });
       prepared = await options.adapter.prepare(story, viewport);
     } catch (error) {
-      recordDiagnostic('preparation', error);
+      recordDiagnostic('preparation', error, { operational: true });
       // Adapter precondition failures are explicitly user-readable by contract.
       record.reason = error instanceof Error ? error.message : 'Story preparation failed.';
       record.elapsedMs = performance.now() - startedAt;
@@ -275,6 +278,7 @@ async function runStoryWithUsage(
         recordDiagnostic('classification', error, {
           record,
           label: '[playtest] Event classification failed:',
+          operational: true,
         });
       }
     };
@@ -322,7 +326,7 @@ async function runStoryWithUsage(
       const stopDecision = learner.turns.at(-1)?.decision;
       if (stopDecision?.type === 'stop') record.reason = stopDecision.summary;
     } catch (error) {
-      recordDiagnostic('operator', error);
+      recordDiagnostic('operator', error, { operational: true });
       record.outcome = 'operator-failure';
       record.reason = 'The harness could not execute the story.';
     } finally {
@@ -363,7 +367,10 @@ async function runStoryWithUsage(
           })
         );
       } catch (error) {
-        recordDiagnostic('inspection', error, { label: '[playtest] Visual inspection failed:' });
+        recordDiagnostic('inspection', error, {
+          label: '[playtest] Visual inspection failed:',
+          operational: true,
+        });
         inspectionError = 'Visual inspection failed; probe evidence is retained.';
         record.findings = await inspect({
           ...inspection,
@@ -385,9 +392,11 @@ async function saveStory(input: Parameters<typeof writeStoryReports>[0]): Promis
   try {
     await writeStoryReports(input);
   } catch (error) {
-    recordDiagnostic('report', error);
-    input.record.outcome = 'operator-failure';
-    input.record.reason = 'The harness could not write the story report.';
+    recordDiagnostic('report', error, { operational: true });
+    if (input.record.outcome !== 'app-error') {
+      input.record.outcome = 'operator-failure';
+      input.record.reason = 'The harness could not write the story report.';
+    }
     try {
       const existing = await readFile(input.record.reportPath, 'utf8')
         .then(JSON.parse)
@@ -441,7 +450,7 @@ async function executePlaytest(options: RunOptions, run: DiagnosticRecord): Prom
   try {
     await options.adapter.ensureStack();
   } catch (error) {
-    recordDiagnostic('stack', error);
+    recordDiagnostic('stack', error, { operational: true });
     stackFailure = error instanceof Error ? error.message : 'Application stack is unavailable.';
   }
   const records: StoryRunRecord[] = new Array(jobs.length);

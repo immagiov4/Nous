@@ -92,6 +92,8 @@ export interface RunManifest extends RunEvidenceContext {
   measurements: RunMeasurement[];
   workflows: WorkflowEvidence[];
   aiUsage: WorkflowAiUsageRecord[];
+  /** Relative paths to artifacts retained by the harness, including partial failed runs. */
+  artifacts?: string[];
 }
 
 const isInside = (directory: string, parent: string): boolean => {
