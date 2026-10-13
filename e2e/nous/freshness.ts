@@ -70,14 +70,16 @@ type EvidenceScope = {
   finalized: boolean;
 };
 const writer = new AsyncLocalStorage<EvidenceScope>();
+type EvidencePublication = (
+  evidence: FreshnessEvidence,
+  deadline: PreparationDeadline,
+  signal: AbortSignal
+) => Promise<void>;
+
 export function withFreshnessEvidence<T>(
   record: (evidence: FreshnessEvidence, deadline: PreparationDeadline) => Promise<void>,
   operation: () => Promise<T>,
-  refresh?: (
-    evidence: FreshnessEvidence,
-    deadline: PreparationDeadline,
-    signal: AbortSignal
-  ) => Promise<void>,
+  refresh?: EvidencePublication,
   finishRun?: (deadlines: PreparationDeadline[]) => Promise<void>
 ): Promise<T> {
   const scope: EvidenceScope = {
@@ -87,21 +89,39 @@ export function withFreshnessEvidence<T>(
     finalized: false,
   };
   return writer.run(scope, () =>
-    withRunCleanup(operation, async () => {
-      await finishRun?.([...scope.records.values()]);
-      scope.finalized = true;
-      scope.cancellation.abort();
-      for (const [evidence, deadline] of scope.records) {
-        if (deadline.signal.aborted) deadline.freeze();
-        await deadline.settle(
-          'final-generation-write',
-          signal => refresh?.(structuredClone(evidence), deadline, signal) ?? Promise.resolve(),
-          'write'
-        );
-        if (!deadline.signal.aborted) deadline.freeze();
-      }
+    withRunCleanup(operation, () =>
+      withRunCleanup(
+        () => finishRun?.([...scope.records.values()]) ?? Promise.resolve(),
+        () => publishFinalEvidence(scope, refresh)
+      )
+    )
+  );
+}
+
+/** Freeze cleanup risk and attempt every final snapshot, retaining all publication failures. */
+async function publishFinalEvidence(
+  scope: EvidenceScope,
+  refresh?: EvidencePublication
+): Promise<void> {
+  scope.finalized = true;
+  scope.cancellation.abort();
+  const publications = await Promise.allSettled(
+    [...scope.records].map(async ([evidence, deadline]) => {
+      deadline.freeze();
+      await deadline.settle(
+        'final-generation-write',
+        signal => refresh?.(structuredClone(evidence), deadline, signal) ?? Promise.resolve(),
+        'write'
+      );
     })
   );
+  const errors = publications.flatMap(result =>
+    result.status === 'rejected' ? [result.reason] : []
+  );
+  if (errors.length)
+    throw new AggregateError(errors, 'Final generation evidence failed.', {
+      cause: errors[0],
+    });
 }
 
 class FreshnessBlockedError extends Error {

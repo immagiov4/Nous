@@ -216,7 +216,7 @@ export const pollWorkflow = async <State extends object>({
   return currentState;
 };
 
-/** Recover durable work using the same idempotency key after an uncertain start. */
+/** Recover durable work by idempotency key; retries require a caller-owned cancellation budget. */
 export const resolveWorkflowRequestByKey = async <State>({
   request,
   readJob,
@@ -227,12 +227,14 @@ export const resolveWorkflowRequestByKey = async <State>({
   request: () => Promise<Response>;
   readJob: (body: unknown) => State | null;
   errorMessage: string;
-}): Promise<State | null> =>
-  retryTransientWorkflowRequest(async () => {
+}): Promise<State | null> => {
+  const resolve = async () => {
     const response = await request();
     if (response.status === WORKFLOW_NOT_FOUND_STATUS) return null;
     assertWorkflowPollResponse(response, errorMessage);
     const job = readJob(await readWorkflowPollJson(response, errorMessage));
     if (!job) throw new Error(errorMessage);
     return job;
-  }, signal);
+  };
+  return signal ? retryTransientWorkflowRequest(resolve, signal) : resolve();
+};

@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import * as filesystem from 'node:fs/promises';
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -24,11 +25,19 @@ import type { Story } from '../../../packages/playtest/src/types';
 import { RunEvidenceRecorder, type RunManifest } from '../../../scripts/run-evidence';
 import adapter from '../adapter';
 import { importFixture } from '../fixtures';
-import { FRESH_CONTENT_PREPARATION_TIMEOUT_MS, regenerateLesson } from '../freshness';
+import {
+  createPreparationDeadline,
+  FRESH_CONTENT_PREPARATION_TIMEOUT_MS,
+  regenerateLesson,
+} from '../freshness';
 import { syntheticCourse } from '../prepare';
 import { main } from '../run';
 import * as stack from '../stack';
 
+vi.mock('node:fs/promises', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return { ...actual, readdir: vi.fn(actual.readdir) };
+});
 vi.mock('postgres', async importOriginal => {
   const actual = await importOriginal<{ default: typeof postgresModule.default }>();
   return { ...actual, default: vi.fn(actual.default) };
@@ -585,12 +594,16 @@ it.each([
     vi.mocked(loadStories).mockResolvedValue([story, { ...story, id: `${story.id}-next` }]);
     vi.spyOn(chromium, 'launch').mockResolvedValue({ close: async () => {} } as unknown as Browser);
     vi.spyOn(operator, 'openOperatorSession').mockImplementation(async options => ({
-      observe: async () => ({
-        url: options.baseUrl,
-        nodes: [],
-        stepIndex: 0,
-        screenshotPath: join(options.runDir, 'next.png'),
-      }),
+      observe: async () => {
+        await mkdir(options.runDir, { recursive: true });
+        await writeFile(join(options.runDir, 'next.png'), 'synthetic capture');
+        return {
+          url: options.baseUrl,
+          nodes: [],
+          stepIndex: 0,
+          screenshotPath: join(options.runDir, 'next.png'),
+        };
+      },
       act: vi.fn(),
       signals: async () => [],
       close: async () => ({ tracePath: join(options.runDir, 'next.zip') }),
@@ -757,6 +770,9 @@ async function assertGenerationBoundary(input: {
     expect(stack.stopStack).toHaveBeenCalled();
     if (polling) {
       const summary = JSON.parse(await readFile(join(directory, 'summary.json'), 'utf8'));
+      expect(manifest.artifacts).toContain('summary.json');
+      expect(manifest.artifacts?.some(path => path.endsWith('/story.json'))).toBe(true);
+      expect(manifest.artifacts?.some(path => path.endsWith('/next.png'))).toBe(true);
       expect(summary.records.map((entry: { outcome: string }) => entry.outcome)).toEqual([
         'blocked-precondition',
         'completed',
@@ -803,3 +819,120 @@ async function confirmImmediateCheckpoint(
     decision.resolve({ type: 'stop', reason: 'completed', summary: 'The next story completed.' });
   }
 }
+
+it.each([
+  'stack-stop',
+  'artifact-index',
+  'account-cleanup',
+  'publication',
+] as const)('persists final generation evidence and cleanup risk through %s failure', async stage => {
+  const failure = Object.assign(new Error('Synthetic finalization failure'), {
+    code: `${stage}-failed`,
+  });
+  if (stage === 'stack-stop') vi.mocked(stack.stopStack).mockRejectedValue(failure);
+  if (stage === 'artifact-index') vi.mocked(filesystem.readdir).mockRejectedValueOnce(failure);
+  if (stage === 'publication')
+    vi.spyOn(RunEvidenceRecorder.prototype, 'writeJson').mockRejectedValueOnce(failure);
+  vi.mocked(adapter.prepare).mockImplementation(async selected => {
+    const deadline = createPreparationDeadline({
+      userId: 'account',
+      story: selected,
+      viewport: 'desktop',
+      projectId: 'project',
+      sectionId: 'lesson',
+      isolated: {} as stack.StackStatus,
+    });
+    deadline.evidence.outcome = 'current';
+    deadline.finish();
+    return {
+      credentials: { email: 'test@example.test', password: 'secret' },
+      cleanup: () =>
+        deadline.step(
+          'account-cleanup',
+          async () => {
+            if (stage === 'account-cleanup') throw failure;
+          },
+          'cleanup'
+        ),
+    };
+  });
+  await expect(main(args)).rejects.toThrow();
+  const { directory, manifest } = await evidence(true);
+  expect(manifest.outcome).toBe('failed');
+  if (stage === 'publication') {
+    const measurement = manifest.measurements.find(entry => entry.kind === 'workflow');
+    if (!measurement) throw new Error('Generation measurement missing');
+    const filename = `${measurement.name}.json`;
+    expect(manifest.errorCode).toBe('publication-failed');
+    expect(manifest.incompleteWrites).toContain(filename);
+    expect(manifest.artifacts).toContain('summary.json');
+    await expect(readFile(join(directory, filename))).rejects.toMatchObject({ code: 'ENOENT' });
+    return;
+  }
+  const filename = manifest.artifacts?.find(path => /^generation-.*\.json$/.test(path));
+  if (!filename) throw new Error('Canonical generation record missing');
+  const record = JSON.parse(await readFile(join(directory, filename), 'utf8'));
+  expect(record.outcome).toBe('current');
+  expect(record.preparation.possiblyLeakedResources).toEqual(
+    stage === 'account-cleanup' ? [{ accountId: 'account', projectId: 'project' }] : []
+  );
+  expect(manifest.resourcesAtRisk).toEqual(
+    stage === 'account-cleanup'
+      ? [
+          { kind: 'account', id: 'account' },
+          { kind: 'project', id: 'project' },
+        ]
+      : []
+  );
+  if (stage !== 'artifact-index') expect(manifest.artifacts).toContain('summary.json');
+  expect(stack.stopStack).toHaveBeenCalled();
+});
+
+it('retires a hanging expired artifact index and persists its eventual results without changing the blocked outcome', async () => {
+  const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+  const late = Promise.withResolvers<Awaited<ReturnType<typeof filesystem.readdir>>>();
+  vi.mocked(filesystem.readdir).mockImplementationOnce(() => late.promise);
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  vi.mocked(adapter.prepare).mockImplementation(async selected => {
+    const deadline = createPreparationDeadline({
+      userId: 'account',
+      story: selected,
+      viewport: 'desktop',
+      projectId: 'project',
+      sectionId: 'lesson',
+      isolated: {} as stack.StackStatus,
+    });
+    await vi.advanceTimersByTimeAsync(FRESH_CONTENT_PREPARATION_TIMEOUT_MS);
+    deadline.finish();
+    throw deadline.signal.reason;
+  });
+  await expect(main(args)).rejects.toMatchObject({ code: 'PLAYTEST_OPERATIONAL_ERROR' });
+  expect(filesystem.readdir).toHaveBeenCalledTimes(1);
+  const parent = join(dataDirectory, 'runs', 'playtest');
+  const directories = await actual.readdir(parent);
+  const directory = join(parent, directories.find(name => name !== 'history.jsonl') ?? 'missing');
+  const generation = await vi.waitFor(async () => {
+    const filenames = await actual.readdir(directory);
+    const name = filenames.find(
+      name => /^generation-[^.]+\.json$/.test(name) && !name.endsWith('-deadline.json')
+    );
+    if (!name) throw new Error('Final generation record pending');
+    return JSON.parse(await actual.readFile(join(directory, name), 'utf8'));
+  });
+  expect(generation).toMatchObject({
+    outcome: 'blocked',
+    errorCode: 'lesson_generation_preparation_timeout',
+    preparation: {
+      steps: expect.arrayContaining([
+        expect.objectContaining({ name: 'artifact-index', status: 'pending' }),
+      ]),
+    },
+  });
+  const entries = await actual.readdir(directory, { recursive: true, withFileTypes: true });
+  late.resolve(entries as unknown as Awaited<ReturnType<typeof filesystem.readdir>>);
+  const { manifest } = await vi.waitFor(() => evidence(true));
+  expect(manifest).toMatchObject({ outcome: 'failed', errorCode: 'PLAYTEST_OPERATIONAL_ERROR' });
+  expect(manifest.artifacts).toContain('summary.json');
+  expect(generation.outcome).toBe('blocked');
+});

@@ -7,7 +7,11 @@ import { PostgresWorkflowStore } from '../../apps/backend/src/workflows/persiste
 import type { WorkflowAiUsageRecord } from '../../apps/backend/src/workflows/workflowAiMetering';
 import { parsePlaytestArgs, main as runPlaytestCli } from '../../packages/playtest/src/cli';
 import { recordDiagnostic } from '../../packages/playtest/src/diagnostics';
-import { type RunEvidenceRecorder, withRunEvidence } from '../../scripts/run-evidence';
+import {
+  type RunEvidenceRecorder,
+  withRunCleanup,
+  withRunEvidence,
+} from '../../scripts/run-evidence';
 import { withFixtureRun } from './fixtures';
 import {
   type FreshnessEvidence,
@@ -119,12 +123,8 @@ async function recordGeneration(
 }
 
 /** Index files after execution so failed runs link only artifacts that were retained. */
-async function linkArtifacts(
-  recorder: RunEvidenceRecorder,
-  deadline?: PreparationDeadline
-): Promise<void> {
-  const read = () => readdir(recorder.directory, { recursive: true, withFileTypes: true });
-  const entries = deadline ? await deadline.step('artifact-index-read', read) : await read();
+async function linkArtifacts(recorder: RunEvidenceRecorder): Promise<void> {
+  const entries = await readdir(recorder.directory, { recursive: true, withFileTypes: true });
   recorder.manifest.artifacts = entries
     .filter(entry => entry.isFile() && entry.name !== 'manifest.json')
     .map(entry =>
@@ -175,7 +175,12 @@ async function refreshGeneration(
       .map(step => step.name) ?? [])
   );
   const filename = `generation-${evidence.requestKey}.json`;
-  await recorder.writeJson(filename, evidence, { signal });
+  try {
+    await recorder.writeJson(filename, evidence, { signal });
+  } catch (error) {
+    if (!deadline.signal.aborted) recorder.manifest.incompleteWrites.push(filename);
+    throw error;
+  }
   if (!deadline.signal.aborted) {
     recorder.manifest.artifacts ??= [];
     recorder.manifest.artifacts.push(filename);
@@ -191,26 +196,35 @@ function executePlaytest(
     throw new Error('Nous playtest output is managed by NOUS_E2E_DATA; omit --run-dir.');
   return runCliWithFixtures(args, recorder);
 }
+type RunFinalization = {
+  expired?: PreparationDeadline;
+  indexing?: Promise<void>;
+};
+
 async function finishNousRun(
   recorder: RunEvidenceRecorder,
-  deadlines: PreparationDeadline[]
-): Promise<PreparationDeadline | undefined> {
-  const expired = deadlines.find(deadline => deadline.signal.aborted);
-  const finishing = expired ?? deadlines.at(-1);
-  if (finishing) {
-    await finishing.settle('isolated-stack-stop', () => stopStack(), 'cleanup');
-    await finishing.settle('artifact-index', () => linkArtifacts(recorder, finishing), 'cleanup');
-  } else {
-    await stopStack();
-    await linkArtifacts(recorder);
-  }
-  return expired;
+  deadlines: PreparationDeadline[],
+  finalization: RunFinalization
+): Promise<void> {
+  finalization.expired = deadlines.find(deadline => deadline.signal.aborted);
+  const finishing = finalization.expired ?? deadlines.at(-1);
+  await withRunCleanup(
+    () =>
+      finishing
+        ? finishing.settle('isolated-stack-stop', () => stopStack(), 'cleanup')
+        : stopStack(),
+    () => {
+      const reading = linkArtifacts(recorder);
+      finalization.indexing = reading;
+      return finishing ? finishing.settle('artifact-index', () => reading, 'cleanup') : reading;
+    }
+  );
 }
 
 /** Nous owns run identity and persistence; learner outcomes remain in the generic reports. */
 export async function main(args: string[] = process.argv.slice(2)) {
   const values = parsePlaytestArgs(args);
-  let expired: PreparationDeadline | undefined;
+  const finalization: RunFinalization = {};
   return withRunEvidence(
     {
       scenario: 'playtest',
@@ -227,12 +241,10 @@ export async function main(args: string[] = process.argv.slice(2)) {
             (evidence, deadline) => recordGeneration(recorder, evidence, deadline),
             () => executePlaytest(args, values, recorder),
             (evidence, deadline, signal) => refreshGeneration(recorder, evidence, deadline, signal),
-            async deadlines => {
-              expired = await finishNousRun(recorder, deadlines);
-            }
+            deadlines => finishNousRun(recorder, deadlines, finalization)
           );
         } catch (error) {
-          if (expired)
+          if (finalization.expired)
             throw Object.assign(
               new Error('Fresh preparation deadline expired. See the retained run evidence.'),
               { code: 'PLAYTEST_OPERATIONAL_ERROR', cause: error }
@@ -241,10 +253,18 @@ export async function main(args: string[] = process.argv.slice(2)) {
         }
       }),
     async (persist, recorder) => {
-      if (expired) {
+      if (finalization.expired) {
         recorder.manifest.incompleteWrites ??= [];
         recorder.manifest.incompleteWrites.push('manifest.json', 'history.jsonl');
-        await expired.settle('manifest-and-history-write', signal => persist(signal), 'write');
+        await finalization.expired.settle(
+          'manifest-and-history-write',
+          signal =>
+            withRunCleanup(
+              () => finalization.indexing ?? Promise.resolve(),
+              () => persist(signal)
+            ),
+          'write'
+        );
       } else await persist();
     }
   );

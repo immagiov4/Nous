@@ -10,6 +10,7 @@ import type { ProjectSnapshotWithRevision } from '../../../apps/backend/src/proj
 import { PostgresWorkflowStore } from '../../../apps/backend/src/workflows/persistence/postgresWorkflowStore';
 import type { Story } from '../../../packages/playtest/src/types';
 import {
+  createPreparationDeadline,
   FRESH_CONTENT_PREPARATION_TIMEOUT_MS,
   type FreshnessEvidence,
   withFreshnessEvidence,
@@ -723,4 +724,113 @@ it('preserves a product failure when its evidence callback also fails', async ()
   ).rejects.toThrow('lesson_factual_support_failed');
   expect(final).toMatchObject({ errorCode: 'lesson_factual_support_failed', outcome: 'blocked' });
   expect(PostgresProjectStore.prototype.deleteProject).toHaveBeenCalled();
+});
+
+it.each([
+  'current',
+  'any',
+] as const)('exposes %s freshness through the course CLI environment', async freshness => {
+  vi.stubEnv('NOUS_E2E_FRESHNESS', freshness);
+  vi.stubEnv('NOUS_E2E_LESSON', 'lesson-water');
+  const selected = {
+    ...story,
+    requires: {
+      course: 'fixture:course.json',
+      freshness: freshness === 'current' ? 'any' : 'current',
+    },
+  };
+  const prepared = await run(selected);
+  expect(prepared.freshness?.outcome).toBe(freshness === 'current' ? 'current' : undefined);
+  expect(fetcher.mock.calls.filter(([url]) => url.startsWith(BACKEND_URL))).toHaveLength(
+    freshness === 'current' ? 1 : 0
+  );
+});
+
+it('rejects invalid freshness overrides before creating an account', async () => {
+  vi.stubEnv('NOUS_E2E_FRESHNESS', 'yesterday');
+  await expect(run()).rejects.toThrow();
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it('keeps course freshness overrides out of stories without a course', async () => {
+  vi.stubEnv('NOUS_E2E_FRESHNESS', 'current');
+  const prepared = await run({ ...story, requires: {} });
+  expect(prepared.freshness).toBeUndefined();
+  expect(fetcher.mock.calls.some(([url]) => url.startsWith(BACKEND_URL))).toBe(false);
+});
+
+it.each([
+  'teardown',
+  'publication',
+  'both',
+] as const)('publishes every final generation record despite %s failure', async failure => {
+  const teardown = Object.assign(new Error('Teardown failed'), { code: 'stack-stop-failed' });
+  const publication = new Error('First publication failed');
+  const final: FreshnessEvidence[] = [];
+  const attempt = withFreshnessEvidence(
+    async () => {},
+    async () => {
+      for (const id of ['first', 'second']) {
+        const deadline = createPreparationDeadline({
+          userId,
+          story: { ...story, id },
+          viewport: 'desktop',
+          projectId: imported.id,
+          sectionId: 'lesson-water',
+          isolated: status,
+        });
+        deadline.evidence.outcome = 'current';
+        await deadline.step('account-cleanup', async () => {}, 'cleanup');
+        deadline.finish();
+      }
+    },
+    async (record, deadline) => {
+      expect(deadline.cleanupSignal.aborted).toBe(true);
+      final.push(record);
+      if (failure !== 'teardown' && record.storyId === 'first') throw publication;
+    },
+    async () => {
+      if (failure !== 'publication') throw teardown;
+    }
+  );
+  const error = await attempt.catch(error => error);
+  expect(final.map(record => record.storyId)).toEqual(['first', 'second']);
+  expect(final.every(record => record.outcome === 'current')).toBe(true);
+  if (failure === 'teardown') expect(error).toBe(teardown);
+  else if (failure === 'both') expect(error).toMatchObject({ cause: teardown });
+  else expect(error.errors).toEqual([publication]);
+});
+
+it('publishes failed account cleanup risk before cloning successful generation evidence', async () => {
+  const failure = Object.assign(new Error('Project deletion failed'), {
+    code: 'project-delete-failed',
+  });
+  vi.mocked(PostgresProjectStore.prototype.deleteProject).mockRejectedValue(failure);
+  const final: FreshnessEvidence[] = [];
+  await expect(
+    withFreshnessEvidence(
+      async () => {},
+      async () => {
+        const prepared = await prepare(story, 'desktop', status);
+        await prepared.cleanup();
+      },
+      async record => {
+        final.push(record);
+      }
+    )
+  ).rejects.toBe(failure);
+  expect(final).toHaveLength(1);
+  expect(final[0]).toMatchObject({
+    outcome: 'current',
+    preparation: {
+      possiblyLeakedResources: [{ accountId: userId, projectId: imported.id }],
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          name: 'account-cleanup',
+          status: 'failed',
+          errorCode: 'project-delete-failed',
+        }),
+      ]),
+    },
+  });
 });

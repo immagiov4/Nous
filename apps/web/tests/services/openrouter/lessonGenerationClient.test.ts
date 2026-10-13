@@ -1090,6 +1090,41 @@ describe('generateDurableLesson', () => {
     ).toBe('active-request');
   });
 
+  test.each([
+    '500',
+    '408',
+    '429',
+    'malformed-json',
+    'network',
+  ] as const)('keeps retained lesson recovery at its existing single lookup for %s failure', async failure => {
+    const key = 'nous:lesson-workflow-request:project-1:lesson-1';
+    globalThis.sessionStorage.setItem(key, 'retained-request');
+    if (failure === 'network')
+      fetchWithSupabaseAuthMock.mockRejectedValue(new TypeError('Network unavailable'));
+    else
+      fetchWithSupabaseAuthMock.mockResolvedValue(
+        failure === 'malformed-json'
+          ? new Response('malformed', { status: 200 })
+          : new Response(null, { status: Number(failure) })
+      );
+    await expect(
+      generateDurableLesson({ projectId: 'project-1', sectionId: 'lesson-1' })
+    ).rejects.toThrow();
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+    expect(globalThis.sessionStorage.getItem(key)).toBe('retained-request');
+  });
+
+  test('keeps retained sublesson recovery at its existing single lookup on an unavailable backend', async () => {
+    const key = 'nous:lesson-workflow-request:project-1:sublesson:lesson-1';
+    globalThis.sessionStorage.setItem(key, 'retained-request');
+    fetchWithSupabaseAuthMock.mockResolvedValue(new Response(null, { status: 500 }));
+    await expect(
+      resolveDurableSublessonRequestForParent('project-1', 'lesson-1')
+    ).rejects.toThrow();
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+    expect(globalThis.sessionStorage.getItem(key)).toBe('retained-request');
+  });
+
   test('resolves a recoverable sublesson with its original request identity', async () => {
     globalThis.sessionStorage.setItem(
       'nous:lesson-workflow-request:project-1:sublesson:lesson-1',

@@ -152,7 +152,14 @@ function storyPreconditions(story: Story) {
         ? undefined
         : (process.env.NOUS_E2E_COURSE ?? story.requires.course)
     );
-  const freshness = z.enum(['any', 'current']).default('any').parse(story.requires.freshness);
+  const freshness = z
+    .enum(['any', 'current'])
+    .default('any')
+    .parse(
+      course === undefined
+        ? story.requires.freshness
+        : (process.env.NOUS_E2E_FRESHNESS ?? story.requires.freshness)
+    );
   const sectionId = z
     .string()
     .trim()

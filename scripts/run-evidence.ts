@@ -323,7 +323,7 @@ export const withRunEvidence = async <Result>(
       const persist = async (signal?: AbortSignal) => {
         const snapshot = JSON.stringify(manifest);
         await writeFile(join(directory, 'manifest.json'), snapshot, { signal });
-        await writeFile(join(scenarioDirectory, 'history.jsonl'), `${JSON.stringify(manifest)}\n`, {
+        await writeFile(join(scenarioDirectory, 'history.jsonl'), `${snapshot}\n`, {
           flag: 'a',
           signal,
         });
