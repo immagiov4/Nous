@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import * as z from 'zod';
 import {
-  getGlobalModelConfig,
+  getResolvedGlobalModelConfig,
+  resolveCodexServiceTierForSlot,
   resolveTextModelConfig,
 } from '../apps/backend/src/config/modelConfig.js';
 import {
   closeManagedCodexAccountClient,
-  normalizeCodexReasoningEffort,
   runCodexAppServerTurn,
 } from '../apps/backend/src/services/codexAppServer.js';
 import { LESSON_EVIDENCE_REASONING_EFFORT } from '../apps/backend/src/services/lessonEvidenceVerification.js';
@@ -76,15 +76,15 @@ const main = async () => {
     'I_ACCEPT_REAL_PROVIDER_COSTS',
     'Set REAL_LESSON_QUALITY_TESTS=I_ACCEPT_REAL_PROVIDER_COSTS to run paid model calls.'
   );
+  process.env.CODEX_APP_SERVER_ENABLED = 'true';
   const config = {
-    ...getGlobalModelConfig(),
+    ...(await getResolvedGlobalModelConfig()),
     aiProvider: 'codex' as const,
     aiProviderOverrides: {},
-    codexFastModelSlots: [],
     codexLessonModel: MODEL,
-    lessonReasoningEffort: 'low' as const,
   };
   const model = resolveTextModelConfig(config, 'lesson');
+  const serviceTier = resolveCodexServiceTierForSlot(config, 'lesson');
   assert.equal(model.model, MODEL);
   const workflow = createProductionRegistry().current('lesson-generation');
   assert.ok(workflow);
@@ -170,6 +170,7 @@ const main = async () => {
           model: model.model,
           outputSchema: evaluationOutputSchema,
           reasoningEffort: model.reasoningEffort,
+          serviceTier,
           signal: input.signal,
         })
       );
@@ -271,11 +272,7 @@ const main = async () => {
           'lesson',
           LESSON_EVIDENCE_REASONING_EFFORT
         ),
-        evaluator: {
-          model: model.model,
-          reasoningEffort: normalizeCodexReasoningEffort(model.reasoningEffort),
-          serviceTier: 'normal',
-        },
+        evaluator: resolveRunEvidenceTextSlot(config, 'lesson'),
       },
     },
     evidence => withRunCleanup(() => runCases(evidence), closeManagedCodexAccountClient)

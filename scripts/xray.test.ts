@@ -91,6 +91,144 @@ describe('X-ray recorded run review', () => {
       'Exchange 0: ambiguity (medium)'
     );
   });
+  it('reviews recorded run/node/attempt groups separately with manifest context and merges references', async () => {
+    const identity = { runId: 'workflow-run', nodeInstanceId: 'node', attemptNumber: 1 };
+    const entries = [
+      { ...exchange('2026-10-12T00:00:04Z', 'recorded response'), workflow: identity },
+      {
+        ...exchange('2026-10-12T00:00:02Z', 'attempt two'),
+        workflow: { ...identity, attemptNumber: 2 },
+      },
+      { ...exchange('2026-10-12T00:00:01Z', 'first'), workflow: identity },
+      exchange('2026-10-12T00:00:03Z', 'unassigned'),
+      {
+        ...exchange('2026-10-12T00:00:05Z', 'other run'),
+        workflow: { ...identity, runId: 'other' },
+      },
+      {
+        ...exchange('2026-10-12T00:00:06Z', 'other node'),
+        workflow: { ...identity, nodeInstanceId: 'other' },
+      },
+      exchange('2026-10-12T00:00:07Z', 'unassigned later'),
+    ];
+    await writeFile(
+      join(directory, 'model-exchanges.jsonl'),
+      entries.map(entry => JSON.stringify(entry)).join('\n')
+    );
+    vi.mocked(reviewRecordedTrace).mockImplementation(async input => {
+      const group = JSON.parse(input);
+      expect(group.manifest).toEqual((await loadXrayTrace(directory)).manifest);
+      const entry = group.chronologicalExchanges[0];
+      return {
+        response: JSON.stringify({
+          ...review,
+          findings: [
+            {
+              ...review.findings[0],
+              exchangeIndex: entry.exchangeIndex,
+              evidence: entry.exchange.response,
+            },
+          ],
+        }),
+        reviewer: { model: 'configured-model', reasoningEffort: 'medium' },
+      };
+    });
+    const report = await runXray(directory);
+    expect(
+      vi
+        .mocked(reviewRecordedTrace)
+        .mock.calls.map(([input]) =>
+          JSON.parse(input).chronologicalExchanges.map(
+            (entry: { exchangeIndex: number }) => entry.exchangeIndex
+          )
+        )
+    ).toEqual([[2, 0], [1], [3, 6], [4], [5]]);
+    expect(report.status).toBe('reviewed');
+    expect(report.findings.map(finding => finding.exchangeIndex)).toEqual([2, 1, 3, 4, 5]);
+    expect(JSON.parse(await readFile(join(directory, 'xray.json'), 'utf8')).findings).toEqual(
+      report.findings
+    );
+    expect(await readFile(join(directory, 'xray.md'), 'utf8')).toContain(
+      'Exchange 5: ambiguity (medium)'
+    );
+    expect(report.nodeReviews.map(node => node.status)).toEqual(Array(5).fill('reviewed'));
+  });
+  it('continues after a rejected oversized node, retaining findings and exact complete input sizes', async () => {
+    const largeResponse = 'é'.repeat(1_048_577);
+    const identity = { runId: 'workflow-run', nodeInstanceId: 'large', attemptNumber: 1 };
+    await writeFile(
+      join(directory, 'model-exchanges.jsonl'),
+      [
+        { ...exchange('2026-10-12T00:00:01Z', largeResponse), workflow: identity },
+        {
+          ...exchange('2026-10-12T00:00:02Z', 'recorded response'),
+          workflow: { ...identity, nodeInstanceId: 'small' },
+        },
+      ]
+        .map(entry => JSON.stringify(entry))
+        .join('\n')
+    );
+    vi.mocked(reviewRecordedTrace)
+      .mockRejectedValueOnce(new Error('Input exceeds the maximum length'))
+      .mockResolvedValueOnce({
+        response: JSON.stringify({
+          ...review,
+          findings: [{ ...review.findings[0], exchangeIndex: 1 }],
+        }),
+        reviewer: { model: 'configured-model', reasoningEffort: 'medium' },
+      });
+    const report = await runXray(directory);
+    const input = vi.mocked(reviewRecordedTrace).mock.calls[0][0];
+    expect(JSON.parse(input).chronologicalExchanges[0].exchange.response).toBe(largeResponse);
+    expect(report.status).toBe('needs-maintainer');
+    expect(report.findings[0].exchangeIndex).toBe(1);
+    expect(report.nodeReviews.map(node => node.status)).toEqual(['needs-maintainer', 'reviewed']);
+    expect(report.nodeReviews[0]).toMatchObject({
+      inputBytes: Buffer.byteLength(input),
+      inputCharacters: input.length,
+      exchangeIndexes: [0],
+    });
+    expect(report.inputBytes).toBe(
+      vi
+        .mocked(reviewRecordedTrace)
+        .mock.calls.reduce((sum, [text]) => sum + Buffer.byteLength(text), 0)
+    );
+    expect(report.evidenceLimits[0]).toContain(
+      `${Buffer.byteLength(input)} bytes, ${input.length} characters`
+    );
+    expect(await readFile(join(directory, 'xray.md'), 'utf8')).toContain(
+      'Exchange 1: ambiguity (medium)'
+    );
+    expect(JSON.parse(await readFile(join(directory, 'xray.json'), 'utf8')).nodeReviews).toEqual(
+      report.nodeReviews
+    );
+  });
+  it('rejects a finding referencing a different group even if its quotation exists in the run', async () => {
+    await writeFile(
+      join(directory, 'model-exchanges.jsonl'),
+      [
+        {
+          ...exchange('2026-10-12T00:00:01Z', 'first'),
+          workflow: { runId: 'run', nodeInstanceId: 'first', attemptNumber: 1 },
+        },
+        exchange('2026-10-12T00:00:02Z', 'recorded response'),
+      ]
+        .map(entry => JSON.stringify(entry))
+        .join('\n')
+    );
+    vi.mocked(reviewRecordedTrace).mockResolvedValue({
+      response: JSON.stringify({
+        ...review,
+        findings: [{ ...review.findings[0], exchangeIndex: 1 }],
+      }),
+      reviewer: { model: 'configured-model', reasoningEffort: 'medium' },
+    });
+    const report = await runXray(directory);
+    expect(report.status).toBe('needs-maintainer');
+    expect(report.nodeReviews.map(node => node.status)).toEqual(['needs-maintainer', 'reviewed']);
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0].exchangeIndex).toBe(1);
+  });
   it('validates the strict output and rejects invalid categories, severity, empty evidence and extra fields', async () => {
     const trace = await loadXrayTrace(directory);
     expect(validateXrayReview(review, trace)).toEqual(review);
@@ -187,6 +325,7 @@ describe('X-ray recorded run review', () => {
       reviewer: null,
       failure: null,
       reviewerResponse: null,
+      nodeReviews: [],
     });
     expect(markdown).not.toContain('<script>');
     expect(markdown).not.toContain('\n# forged heading');

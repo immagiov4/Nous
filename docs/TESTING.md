@@ -184,33 +184,27 @@ Supabase contract job took 4 minutes 12 seconds to 4 minutes 28 seconds, of whic
 startup took 3 minutes 8 seconds to 3 minutes 17 seconds. The pull-request subset therefore reuses
 the already-running Supabase job instead of provisioning a second database stack.
 
-## Real Codex workflow smoke test (manual and paid)
+## Real-provider workflow matrix (manual)
 
-The course, lesson, and visual-artifact smoke flow is deliberately outside `test`, `gate`, and CI.
-It exercises the real HTTP routes on an ephemeral loopback server, the durable worker, and
-PostgreSQL checkpoints with a temporary learn-mode project. Generated assets use process-local
-memory storage and the temporary project is removed at the end. The database must be a migrated,
-workflow-runtime-empty loopback instance; remote databases are rejected.
-
-Validate the harness and resolved models without a database or provider request:
+The [workflow matrix](../.cubic/wiki/09-section-tools/02-p-testing-quality.md#real-provider-workflow-matrix) exercises course, lesson and visual-artifact generation through real HTTP routes, durable workers and PostgreSQL checkpoints. Select `--provider codex|openrouter`, `--case simple|realistic`, and exactly one of `--dry-run` or `--run`. Run the simple learn-mode case first, then the realistic two-lesson PDF case. The retained SVG request resolves to a native lesson scene under the current application contract; the harness checks its scene schema. OpenRouter cells additionally exercise the TTS route and retain its audio response.
 
 ```bash
-bun run test:workflow-codex -- --dry-run
+bun run test:workflow-providers -- --provider codex --case simple --dry-run
+bun run test:workflow-providers -- --provider openrouter --case simple --dry-run
+bun run test:workflow-providers -- --provider openrouter --case realistic --dry-run
 ```
 
-To make the paid Codex run explicit in PowerShell:
+OpenRouter dry runs read the free model catalogue and validate every selected text-model ID before paid calls. The harness loads the resolved global configuration and preserves application reasoning efforts and Codex service tiers. Codex cells use the application's resolved default models for every slot, including artifacts; only OpenRouter cells substitute small text models (`openai/gpt-5.6-luna`, or `openai/gpt-6-luna` for scenes, scene icons and playback preparation). Real runs require an external evidence directory and a fresh, migrated loopback database with empty project, workflow-run and asset-deletion tables. Create one disposable database per cell and drop it after evidence collection. Generated assets and source objects use process-local memory storage. The manifest records the provider, case, effective slots, workflow durations, token usage and outcomes alongside final traces and model exchanges.
 
 ```powershell
-$env:REAL_WORKFLOW_PROVIDER_DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+$env:NOUS_E2E_DATA = 'C:/temp/nous-workflow-evidence'
+$env:REAL_WORKFLOW_PROVIDER_DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:55322/nous_workflow_disposable'
 $env:RUN_REAL_WORKFLOW_PROVIDER_TESTS = 'I_ACCEPT_REAL_PROVIDER_COSTS'
-bun run test:workflow-codex -- --run
+bun run test:workflow-providers -- --provider codex --case simple --run
+# Use another fresh disposable database for the next cell.
+bun run test:workflow-providers -- --provider codex --case realistic --run
 ```
 
-This is intentionally a Codex-only smoke test; it does not claim live coverage of OpenRouter
-billing. It freezes course and lesson on `gpt-5.6-luna` with low reasoning and normal
-service tier, and visual work on `gpt-5.6-sol` with low reasoning. Auxiliary research uses Luna.
-These overrides exist only in the test process and are not persisted. The harness runs at most two
-workflow steps concurrently (hard cap: four) and gives each of the three workflow runs 15 minutes
-by default. Override those test-only limits with `REAL_WORKFLOW_PROVIDER_CONCURRENCY` and
-`REAL_WORKFLOW_PROVIDER_TIMEOUT_MS`. It also verifies the persisted model snapshot and positive
-input/output usage for every run. The Codex app server must already be authenticated.
+Codex uses the local ChatGPT login; the harness enables `CODEX_APP_SERVER_ENABLED=true` before runtime startup. The `test:lesson-quality` and `test:lesson-evidence-quality` scripts also enable this flag after their cost acknowledgement and require the authenticated local ChatGPT account and external evidence directory. OpenRouter real runs require `OPENROUTER_API_KEY` and maintainer approval for paid calls. These manual real-provider runs remain outside the deterministic test suite, gates and CI. See the testing wiki for model selection, retained evidence and speech-usage limits.
+
+Set `CODEX_APP_SERVER_ENABLED=true` and review each retained run with `bun run xray -- <run-directory>`. X-ray sends complete exchanges grouped by recorded workflow run, node and attempt, with manifest context in every turn. Unassigned exchanges share a chronological group. It merges supported findings into `xray.json` and `xray.md`, preserving original exchange references. If a complete node exceeds the provider limit, the report retains the measured bytes and characters as an evidence limit, continues reviewing other nodes and returns `needs-maintainer`. Preserve existing review files before requesting a new review; exclusive creation prevents overwriting evidence.
