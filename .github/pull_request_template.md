@@ -5,7 +5,7 @@ Check exactly one:
 - [ ] Sonar required: GitHub CI and `bun run gate:full` passed on the exact commit proposed for merge, with coverage completed before the local Sonar scan.
 - [ ] Narrow skip: this is a trivially scoped docs/metadata/workflow-only change with no analyzable application-code or runtime-behavior change, CI/review are clean, and no reviewer or CI signal requests Sonar.
 
-`gate:full` starts Sonar only for the scan and stops it afterward. If startup failed, I diagnosed it with `bun run sonar:up` and reran the full gate. Every new Sonar finding was fixed or explicitly resolved with an owner-visible disposition.
+`gate:full` starts or reuses Sonar for the scan and keeps it running afterward. Run `bun run sonar:stop` when finished. If startup failed, I diagnosed it with `bun run sonar:up` and reran the full gate. Every new Sonar finding was fixed or explicitly resolved with an owner-visible disposition.
 
 Sonar result or skip rationale:
 

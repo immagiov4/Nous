@@ -40,19 +40,15 @@ After GitHub CI passes on the final commit, run:
 bun run gate:full
 ```
 
-- `gate:full` runs local quality, the blocking Fallow regression check, and Node coverage one at a
-  time after GitHub CI passes on the same commit. It does not repeat the complete Bun suite or the
-  dependency graph check from CI. It then starts the local Sonar service, verifies the pinned Bun
-  runtime and Sonar readiness with `doctor:gate`, runs the analysis, and stops the service. The stop
-  command also runs when Sonar startup, preflight, or analysis throws. The React Hooks ESLint
-  check creates the external-issues report consumed by Sonar, so the scan does not repeat that lint
-  pass. The scanner waits for the Sonar quality-gate result and propagates a failing gate.
+- `gate:full` runs the shared `gate:ci` command (CI quality including dependency validation, Fallow, and the complete Bun suite), then Node coverage, one stage at a time after GitHub CI passes on the same commit. The CI test job uses the same command, and a behavior test compares the workflow checks with the scripts actually invoked by the local gate. It then starts or reuses the local Sonar service, verifies the pinned Bun runtime and Sonar readiness with `doctor:gate`, and runs the analysis. The service stays running after success or failure; each invocation repeats readiness and doctor checks before the same quality gate. Run `bun run sonar:stop` when finished to release the server resources. The React Hooks ESLint check creates the external-issues report consumed by Sonar, so the scan does not repeat that lint pass. The scanner waits for the Sonar quality-gate result and propagates a failing gate.
 - `test:coverage` requires Node 26 (any 26.x), the major pinned in `.node-version`. It stops before
   Vitest if PATH resolves to another Node major. Its preflight deletes the previous `coverage/lcov.info` before
   that check, so a later Sonar stage cannot consume stale coverage. It uses four workers and writes
   only the report Sonar consumes. CI does not generate and discard a second coverage report.
 
 `bun run prepare:coverage` removes stale coverage, verifies the Node major, and then runs the idempotent `bunx playwright install chromium` command before coverage tests start.
+
+The CI test job and local full gate share `gate:ci`, defined in `package.json`. Its checks stop at the first failure; the full gate still records that failed stage and continues through Node coverage and Sonar. Separate CI jobs retain the Supabase Auth/RLS contract, the change-selected critical PostgreSQL contract, the full PostgreSQL contract on main, and the credential-dependent staging contract. Remote pull-request-body verification also remains a separate workflow. The pull-request contracts and remote body verification remain CI merge prerequisites with their own service and event requirements. The full PostgreSQL and credential-dependent managed-staging checks run on pushes to main after merge.
 
 ## Pull request Sonar merge policy
 
@@ -91,8 +87,7 @@ full gate. Do not treat a failed or unreachable required Sonar scan as a skip.
 
 ### When required Sonar is unavailable
 
-`gate:full` starts Sonar immediately before analysis and stops it afterward. If startup fails, use
-the standalone lifecycle command to diagnose the service before rerunning the full gate:
+`gate:full` starts or reuses Sonar immediately before analysis and keeps it running afterward, including after a failed scan. Stop it explicitly with `bun run sonar:stop` when finished. If startup fails, use the standalone lifecycle command to diagnose the service before rerunning the full gate:
 
 ```bash
 bun run sonar:up

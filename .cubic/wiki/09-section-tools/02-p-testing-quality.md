@@ -55,21 +55,19 @@ Sources: [scripts/doctor.ts:98-124](../../../scripts/doctor.ts#L98-L124), [AGENT
 
 ### The Full Quality Gate
 
-The `gate:full` command runs one heavy process at a time after GitHub CI passes on the same commit. CI owns the complete Bun suite and dependency graph check. The local gate runs quality, Fallow, and Node coverage before it starts SonarQube. After startup, `doctor:gate` verifies the pinned Bun runtime and Sonar readiness before analysis. The gate stops SonarQube after the scan, including when startup, preflight, or analysis throws.
+The `gate:full` command runs one heavy process at a time after GitHub CI passes on the same commit. The CI test job and local gate share `gate:ci`, whose `package.json` definition runs `quality:ci` (including dependency-cruiser), Fallow, and the complete Bun suite. A behavior test compares the CI workflow checks with the scripts actually invoked by the local gate. The local gate then runs Node coverage before it starts or reuses SonarQube. After startup, `doctor:gate` verifies the pinned Bun runtime and Sonar readiness before analysis. The gate keeps SonarQube running after success or failure. Each invocation starts or reuses the server, repeats readiness and doctor checks, and runs the same quality gate. Run `bun run sonar:stop` when finished to release the server resources (about 2.5 GiB idle RAM in the measured environment). The SonarJS bridge uses `sonar.javascript.node.maxspace=8192`; run only one scan at a time.
 
 ```mermaid
 flowchart TD
-    Start[bun run gate:full] --> Q[Quality: Types & Lint]
-    Q --> F[Fallow: Dead Code]
-    F --> Cov[Coverage under Node]
+    Start[bun run gate:full] --> CI[gate:ci: CI quality, Fallow, Bun suite]
+    CI --> Cov[Coverage under Node]
     Cov --> Up[sonar:up]
     Up --> Preflight[doctor:gate]
     Preflight --> Sonar[sonar:scan]
-    Sonar --> Stop[sonar:stop]
-    Stop --> End[Merge Admission]
+    Sonar --> End[Merge Admission]
 ```
 
-An earlier stage failure does not skip later stages. The command reports every failed stage after Sonar stops.
+The shared `gate:ci` command stops at its first failed check, matching CI. A failed full-gate stage does not skip the later coverage or Sonar stages; the command reports every failed stage after analysis completes. Separate pull-request service contracts and remote PR-body checks remain CI merge prerequisites; main-push PostgreSQL and credential-dependent managed-staging checks run after merge.
 Sources: [scripts/run-full-quality-gate.ts:22-60](../../../scripts/run-full-quality-gate.ts#L22-L60), [scripts/run-full-quality-gate.test.ts:39-57](../../../scripts/run-full-quality-gate.test.ts#L39-L57)
 
 ## Static Analysis & Regressions
@@ -84,7 +82,7 @@ Sources: [scripts/doctor.ts:6-7](../../../scripts/doctor.ts#L6-L7), [scripts/doc
 
 ### Quality checks
 
-The local `quality` script runs TypeScript checks, Biome, the React Hooks lint report, and `check:eslint-sonar`. CI runs `quality:ci`, which adds dependency-cruiser once per commit. Fallow separately blocks new dead-code and dependency findings against `.fallow-baselines/regression.json`.
+The local `quality` script runs TypeScript checks, Biome, the React Hooks lint report, and `check:eslint-sonar`. Both CI and the local full gate run `quality:ci` through the shared `gate:ci` command; it adds dependency-cruiser. Fallow separately blocks new dead-code and dependency findings against `.fallow-baselines/regression.json`.
 
 React Hooks linting keeps ESLint's persistent cache under the ignored `.temp/eslint/` directory. The cache filename includes the `bun.lock` hash so dependency upgrades force fresh linting; ESLint invalidates changed files and configuration. Every run writes the complete Sonar report and retains the zero-warning check.
 
@@ -239,7 +237,7 @@ Sources: [scripts/run-full-quality-gate.ts:39-53](../../../scripts/run-full-qual
 
 ### SonarQube Integration
 SonarQube acts as a local-only merge gate and is intentionally excluded from GitHub Actions.
-- **Lifecycle:** `gate:full` starts the local service immediately before analysis and stops it after the scan.
+- **Lifecycle:** `gate:full` starts or reuses the local service immediately before analysis and keeps it running afterward. Stop it explicitly with `bun run sonar:stop` when finished.
 - **Configuration:** Docker binds the local service to `127.0.0.1:9000`. Its Docker-internal one-shot provisioner grants `Anyone` the global `Create Projects` and `Execute Analysis` permissions on a fresh volume, enabling anonymous analysis without scanner credentials. The `gate` Doctor profile requires that provisioner to complete successfully before it reports anonymous analysis ready.
 - **Merge Block:** A required Sonar scan that is skipped, failed, or unreachable blocks the merge.
 
