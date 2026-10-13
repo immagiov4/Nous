@@ -89,9 +89,8 @@ export const executeFullQualityGate = async (
 
   const results: GateStageResult[] = [];
   for (const stage of CHECK_GATE_STAGES) results.push(await runStageSafely(stage));
-  const coverageResult = await runStageSafely(COVERAGE_STAGE);
-  results.push(coverageResult);
   results.push(
+    await runStageSafely(COVERAGE_STAGE),
     await runStageSafely(SONAR_START_STAGE),
     await runStageSafely(SONAR_PREFLIGHT_STAGE),
     await runStageSafely(SONAR_STAGE)
