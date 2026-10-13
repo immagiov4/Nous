@@ -13,7 +13,6 @@ const GATE_SCRIPTS = {
   sonarStart: 'sonar:up',
   sonarPreflight: 'doctor:gate',
   sonarScan: 'sonar:scan',
-  sonarStop: 'sonar:stop',
 } as const;
 
 const EXPECTED_GATE_SCRIPTS = Object.values(GATE_SCRIPTS);
@@ -27,7 +26,7 @@ const passedResult = (stage: GateStage): GateStageResult => ({
 afterEach(() => vi.restoreAllMocks());
 
 describe('full quality gate runner', () => {
-  test('runs one heavy stage at a time and stops Sonar after the scan', async () => {
+  test('runs one heavy stage at a time and keeps Sonar available', async () => {
     const invokedScripts: string[] = [];
     let activeStageCount = 0;
     let maximumActiveStageCount = 0;
@@ -57,7 +56,7 @@ describe('full quality gate runner', () => {
       };
     });
 
-    expect(invokedScripts.at(-1)).toBe(GATE_SCRIPTS.sonarStop);
+    expect(invokedScripts.at(-1)).toBe(GATE_SCRIPTS.sonarScan);
     expect(results.filter(result => result.exitCode !== 0).map(result => result.script)).toEqual([
       GATE_SCRIPTS.quality,
       GATE_SCRIPTS.coverage,
@@ -69,7 +68,7 @@ describe('full quality gate runner', () => {
     const crashedScripts = new Set([
       GATE_SCRIPTS.quality,
       GATE_SCRIPTS.sonarStart,
-      GATE_SCRIPTS.sonarStop,
+      GATE_SCRIPTS.sonarScan,
     ]);
     const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
@@ -83,9 +82,28 @@ describe('full quality gate runner', () => {
     expect(results.filter(result => result.exitCode !== 0).map(result => result.script)).toEqual([
       GATE_SCRIPTS.quality,
       GATE_SCRIPTS.sonarStart,
-      GATE_SCRIPTS.sonarStop,
+      GATE_SCRIPTS.sonarScan,
     ]);
     expect(stderr).toHaveBeenCalledTimes(3);
-    expect(invokedScripts.at(-1)).toBe(GATE_SCRIPTS.sonarStop);
+    expect(invokedScripts.at(-1)).toBe(GATE_SCRIPTS.sonarScan);
   });
+});
+
+test('rechecks readiness and scans on the next gate after a scan crashes', async () => {
+  const invokedScripts: string[] = [];
+  let failScan = true;
+  vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  const runStage = async (stage: GateStage) => {
+    invokedScripts.push(stage.script);
+    if (stage.script === GATE_SCRIPTS.sonarScan && failScan) {
+      failScan = false;
+      throw new Error('interrupted scan');
+    }
+    return passedResult(stage);
+  };
+  const first = await executeFullQualityGate(runStage);
+  const second = await executeFullQualityGate(runStage);
+  expect(first.at(-1)?.exitCode).toBe(1);
+  expect(second.every(result => result.exitCode === 0)).toBe(true);
+  expect(invokedScripts).toEqual([...EXPECTED_GATE_SCRIPTS, ...EXPECTED_GATE_SCRIPTS]);
 });

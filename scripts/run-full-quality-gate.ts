@@ -37,11 +37,6 @@ const SONAR_PREFLIGHT_STAGE: GateStage = {
   script: 'doctor:gate',
 };
 
-const SONAR_STOP_STAGE: GateStage = {
-  label: 'Stop local Sonar',
-  script: 'sonar:stop',
-};
-
 const formatDuration = (durationMs: number): string => `${(durationMs / 1_000).toFixed(3)}s`;
 
 const writeStageOutput = (result: GateStageResult, stdout: string, stderr: string) => {
@@ -96,15 +91,11 @@ export const executeFullQualityGate = async (
   for (const stage of CHECK_GATE_STAGES) results.push(await runStageSafely(stage));
   const coverageResult = await runStageSafely(COVERAGE_STAGE);
   results.push(coverageResult);
-  try {
-    results.push(
-      await runStageSafely(SONAR_START_STAGE),
-      await runStageSafely(SONAR_PREFLIGHT_STAGE),
-      await runStageSafely(SONAR_STAGE)
-    );
-  } finally {
-    results.push(await runStageSafely(SONAR_STOP_STAGE));
-  }
+  results.push(
+    await runStageSafely(SONAR_START_STAGE),
+    await runStageSafely(SONAR_PREFLIGHT_STAGE),
+    await runStageSafely(SONAR_STAGE)
+  );
   return results;
 };
 

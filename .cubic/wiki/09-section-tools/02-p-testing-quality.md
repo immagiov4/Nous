@@ -55,7 +55,7 @@ Sources: [scripts/doctor.ts:98-124](../../../scripts/doctor.ts#L98-L124), [AGENT
 
 ### The Full Quality Gate
 
-The `gate:full` command runs one heavy process at a time after GitHub CI passes on the same commit. CI owns the complete Bun suite and dependency graph check. The local gate runs quality, Fallow, and Node coverage before it starts SonarQube. After startup, `doctor:gate` verifies the pinned Bun runtime and Sonar readiness before analysis. The gate stops SonarQube after the scan, including when startup, preflight, or analysis throws.
+The `gate:full` command runs one heavy process at a time after GitHub CI passes on the same commit. CI owns the complete Bun suite and dependency graph check. The local gate runs quality, Fallow, and Node coverage before it starts SonarQube. After startup, `doctor:gate` verifies the pinned Bun runtime and Sonar readiness before analysis. The gate keeps SonarQube running after success or failure. Each invocation starts or reuses the server, repeats readiness and doctor checks, and runs the same quality gate. Run `bun run sonar:stop` when finished to release the server resources (about 2.5 GiB idle RAM in the measured environment). The SonarJS bridge uses `sonar.javascript.node.maxspace=8192`; run only one scan at a time.
 
 ```mermaid
 flowchart TD
@@ -65,11 +65,10 @@ flowchart TD
     Cov --> Up[sonar:up]
     Up --> Preflight[doctor:gate]
     Preflight --> Sonar[sonar:scan]
-    Sonar --> Stop[sonar:stop]
-    Stop --> End[Merge Admission]
+    Sonar --> End[Merge Admission]
 ```
 
-An earlier stage failure does not skip later stages. The command reports every failed stage after Sonar stops.
+An earlier stage failure does not skip later stages. The command reports every failed stage after analysis completes.
 Sources: [scripts/run-full-quality-gate.ts:22-60](../../../scripts/run-full-quality-gate.ts#L22-L60), [scripts/run-full-quality-gate.test.ts:39-57](../../../scripts/run-full-quality-gate.test.ts#L39-L57)
 
 ## Static Analysis & Regressions
