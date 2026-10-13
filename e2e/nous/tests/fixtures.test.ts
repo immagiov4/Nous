@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import * as fixtureFiles from 'node:fs/promises';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,6 +16,10 @@ import type { Story } from '../../../packages/playtest/src/types';
 import { CourseFixtures, importFixture, withFixtureRun } from '../fixtures';
 import { prepare, syntheticCourse } from '../prepare';
 import type { StackStatus } from '../stack';
+
+vi.mock('node:fs/promises', async importOriginal => ({
+  ...(await importOriginal<typeof import('node:fs/promises')>()),
+}));
 
 let root: string;
 const status: StackStatus = {
@@ -169,7 +174,9 @@ it('lists immutable freshness metadata and shares one validated decode across co
   });
   expect(first?.importedProjectId).not.toBe(second?.importedProjectId);
   expect(first?.importedProjectId).not.toBe('course-one');
-  expect(save.mock.calls.map(call => call[0])).toEqual(['account-one', 'account-two']);
+  expect(
+    save.mock.calls.map(call => call[0]).sort((left, right) => left.localeCompare(right))
+  ).toEqual(['account-one', 'account-two']);
   for (const [input] of prepareAssets.mock.calls) {
     expect(input.assets).toEqual([{ bytes: assetBytes, ref: assetRef }]);
     expect(input.snapshot.source).toMatchObject({
@@ -303,4 +310,92 @@ it('retains legacy ZIP filenames without an extension and JSON snapshots without
     courseId: null,
     importedProjectId: expect.any(String),
   });
+});
+
+it.each([
+  'legacy.json',
+  'legacy.zip',
+  'legacy-course',
+])('imports %s independently of an invalid library backup', async filename => {
+  const snapshot = course('legacy-course', 'Synthetic legacy course');
+  const bytes = filename.endsWith('.json')
+    ? JSON.stringify(snapshot)
+    : new Uint8Array(
+        await (
+          await createProjectArchiveBlob(snapshot, { loadAsset: async () => assetBytes })
+        ).arrayBuffer()
+      );
+  await writeFile(join(root, 'fixtures', filename), bytes);
+  await writeFile(join(root, 'fixtures', 'nous-library-backup.nous-library.zip'), 'broken');
+  const { store } = productImporter();
+  const onImport = vi.fn();
+  const fixtures = new CourseFixtures(onImport);
+  await expect(fixtures.inventory()).rejects.toThrow('Cannot decode');
+  const imported = await fixtures.importCourse(filename, store, 'user');
+  expect(imported).toMatchObject({
+    originalProjectId: 'legacy-course',
+    title: 'Synthetic legacy course',
+    archivePath: join(root, 'fixtures', filename),
+  });
+  expect(onImport).toHaveBeenCalledWith(imported);
+});
+
+it('resolves an existing legacy file before a same-named library title', async () => {
+  await backup([course('library-course', 'legacy.json')]);
+  await writeFile(
+    join(root, 'fixtures', 'legacy.json'),
+    JSON.stringify(course('legacy-course', 'Legacy file'))
+  );
+  const { store } = productImporter();
+  expect(await new CourseFixtures().importCourse('legacy.json', store, 'user')).toMatchObject({
+    originalProjectId: 'legacy-course',
+    title: 'Legacy file',
+  });
+});
+
+it('imports exact course titles that exceed the filesystem filename limit', async () => {
+  const title = Array.from({ length: 300 }, () => 'a').join('');
+  await backup([course('long-title', title)]);
+  const statFile = fixtureFiles.stat;
+  vi.spyOn(fixtureFiles, 'stat').mockImplementation(async (...args) => {
+    if (args[0] === join(root, 'fixtures', title))
+      throw Object.assign(new Error('Filename too long'), { code: 'ENAMETOOLONG' });
+    return statFile(...args);
+  });
+  const { store } = productImporter();
+  expect(await new CourseFixtures().importCourse(title, store, 'user')).toMatchObject({
+    courseId: 'long-title',
+    title,
+  });
+});
+
+it('reports absent historical schema metadata from the archive while importing its migrated snapshot', async () => {
+  await backup([course('historical-course', 'Historical course')]);
+  const path = join(root, 'fixtures', 'nous-library-backup.nous-library.zip');
+  const library = await JSZip.loadAsync(await readFile(path));
+  const manifestEntry = library.file('library.json');
+  if (!manifestEntry) throw new Error('Synthetic manifest missing.');
+  const manifest = JSON.parse(await manifestEntry.async('string'));
+  const archivePath = manifest.projects[0].path;
+  const entry = library.file(archivePath);
+  if (!entry) throw new Error('Synthetic course archive missing.');
+  const archive = await JSZip.loadAsync(await entry.async('uint8array'));
+  const projectEntry = archive.file('project.json');
+  if (!projectEntry) throw new Error('Synthetic project manifest missing.');
+  const projectManifest = JSON.parse(await projectEntry.async('string'));
+  delete projectManifest.project.projectFormatVersion;
+  archive.file('project.json', JSON.stringify(projectManifest));
+  library.file(archivePath, await archive.generateAsync({ type: 'uint8array' }), {
+    compression: 'STORE',
+  });
+  await writeFile(path, await library.generateAsync({ type: 'uint8array' }));
+  const fixtures = new CourseFixtures();
+  expect((await fixtures.inventory()).courses[0]).toMatchObject({
+    id: 'historical-course',
+    projectFormatVersion: null,
+    lessonCount: 1,
+  });
+  const { store, save } = productImporter();
+  await fixtures.importCourse('historical-course', store, 'user');
+  expect(save.mock.calls[0][1].projectFormatVersion).toBe(1);
 });

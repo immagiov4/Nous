@@ -1,9 +1,14 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { PostgresProjectStore } from '../../../apps/backend/src/projects/postgresProjectStore';
+import {
+  buildProjectMeta,
+  normalizeProjectSnapshot,
+} from '../../../apps/backend/src/projects/projectMeta';
 import type { PlaytestAdapter } from '../../../packages/playtest/src/adapter';
 import type { LearnerDecision } from '../../../packages/playtest/src/learner/loop';
 import { createPiDecisionSource } from '../../../packages/playtest/src/learner/piDecisionSource';
@@ -14,6 +19,8 @@ import { loadStories } from '../../../packages/playtest/src/stories';
 import type { Story } from '../../../packages/playtest/src/types';
 import type { RunManifest } from '../../../scripts/run-evidence';
 import adapter from '../adapter';
+import { importFixture } from '../fixtures';
+import { syntheticCourse } from '../prepare';
 import { main } from '../run';
 
 vi.mock('../../../scripts/git-identity', () => ({
@@ -131,6 +138,39 @@ async function evidence() {
 }
 
 describe('Nous playtest evidence entrypoint', () => {
+  it('retains separate provenance for concurrent legacy JSON imports with the same project ID', async () => {
+    const snapshot = normalizeProjectSnapshot(syntheticCourse(), true);
+    await mkdir(join(dataDirectory, 'fixtures'));
+    const filenames = ['desktop.json', 'mobile.json'];
+    for (const filename of filenames)
+      await writeFile(
+        join(dataDirectory, 'fixtures', filename),
+        JSON.stringify({ ...snapshot, version: filename })
+      );
+    vi.spyOn(PostgresProjectStore.prototype, 'importProject').mockResolvedValue({
+      snapshot,
+      meta: buildProjectMeta(snapshot),
+    });
+    const store = new PostgresProjectStore('postgres://unused');
+    const imports: Awaited<ReturnType<typeof importFixture>>[] = [];
+    vi.mocked(loadStories).mockResolvedValue([{ ...story, viewports: ['desktop', 'mobile'] }]);
+    vi.mocked(adapter.prepare).mockImplementation(async (_story, viewport) => {
+      const fixture = await importFixture(`${viewport}.json`, store, viewport);
+      imports.push(fixture);
+      return { credentials: { email: `${viewport}@example.test`, password: 'secret' } };
+    });
+    await main(['--provider', 'scripted', '--model', 'deterministic']);
+    const { directory, manifest } = await evidence();
+    const artifacts = manifest.artifacts?.filter(path => path.startsWith('fixture-')) ?? [];
+    expect(artifacts).toHaveLength(filenames.length);
+    const retained = await Promise.all(
+      artifacts.map(async path => JSON.parse(await readFile(join(directory, path), 'utf8')))
+    );
+    expect(retained).toEqual(expect.arrayContaining(imports));
+    expect(new Set(retained.map(fixture => fixture.importedProjectId)).size).toBe(1);
+    expect(new Set(retained.map(fixture => fixture.sha256)).size).toBe(filenames.length);
+  });
+
   it.each([
     'completed',
     'abandoned',

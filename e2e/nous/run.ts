@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { parsePlaytestArgs, main as runPlaytestCli } from '../../packages/playtest/src/cli';
@@ -29,7 +30,7 @@ function runCliWithFixtures(args: string[], recorder: RunEvidenceRecorder) {
         inventoryEvidence ??= recorder.writeJson('fixture-inventory.json', inventory);
         await inventoryEvidence;
       }
-      await recorder.writeJson(`fixture-${fixture.importedProjectId}.json`, fixture);
+      await recorder.writeJson(`fixture-${randomUUID()}.json`, fixture);
     }
   );
 }

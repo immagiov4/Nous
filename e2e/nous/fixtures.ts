@@ -70,7 +70,9 @@ async function fixtureFileExists(name: string): Promise<boolean> {
   try {
     return (await stat(resolve(dataRoot(), 'fixtures', name))).isFile();
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    const code = (error as NodeJS.ErrnoException).code;
+    // A valid course title can exceed the filesystem's filename limit.
+    if (code === 'ENOENT' || code === 'ENAMETOOLONG') return false;
     throw error;
   }
 }
@@ -108,7 +110,10 @@ async function readInventory() {
           lessonCount: flattenLessons(normalizeStoredProject(snapshot).learningPlan?.modules)
             .length,
           appVersion: snapshot.version ?? null,
-          projectFormatVersion: snapshot.projectFormatVersion ?? null,
+          projectFormatVersion:
+            typeof inspected.project.projectFormatVersion === 'number'
+              ? inspected.project.projectFormatVersion
+              : null,
           archiveVersion: inspected.archiveVersion,
         })
       );
@@ -181,27 +186,18 @@ export class CourseFixtures {
   async inventory() {
     return (await this.load()).inventory;
   }
-  /** Match an exact ID or title. Every call uses the product importer with a fresh target ID. */
-  async importCourse(
-    selection: string,
-    store: ImportStore,
-    userId: string
-  ): Promise<FixtureImport> {
+  /** Resolve existing files first; decode the library only for a course selection. */
+  private async resolveSelection(selection: string) {
     if (!selection.trim()) throw new Error('A fixture course ID or exact title is required.');
-    const legacyFile =
-      selection.endsWith('.json') ||
-      selection.endsWith('.zip') ||
-      (await fixtureFileExists(selection));
-    const library =
-      !legacyFile || (await fixtureFileExists(libraryName())) ? await this.load() : undefined;
-    const matches =
-      library?.inventory.courses.filter(
-        course => course.id === selection || course.title === selection
-      ) ?? [];
-    // A matching course wins over a filename; legacy files remain usable without a library backup.
-    if (!matches.length && legacyFile) {
-      return importSingleFile(selection, store, userId, this.onImport);
-    }
+    const fileSelection =
+      (await fixtureFileExists(selection)) ||
+      ((selection.endsWith('.json') || selection.endsWith('.zip')) &&
+        !(await fixtureFileExists(libraryName())));
+    if (fileSelection) return { kind: 'file' as const, filename: selection };
+    const { inventory, archives } = await this.load();
+    const matches = inventory.courses.filter(
+      course => course.id === selection || course.title === selection
+    );
     if (!matches.length)
       throw new Error(
         `Fixture course is missing: ${selection}. Use the fixture inventory to select an exact ID or title.`
@@ -210,11 +206,21 @@ export class CourseFixtures {
       throw new Error(
         `Fixture course selection is ambiguous: ${selection}. Select a course ID from the inventory.`
       );
-    if (!library) throw new Error('Validated library fixture is absent.');
-    const { inventory, archives } = library;
     const course = matches[0];
     const archive = archives.get(course.id);
     if (!archive) throw new Error('Selected fixture archive is absent after validation.');
+    return { kind: 'library' as const, course, archive, inventory };
+  }
+  /** Import the resolved fixture through the product importer and record its provenance. */
+  async importCourse(
+    selection: string,
+    store: ImportStore,
+    userId: string
+  ): Promise<FixtureImport> {
+    const selected = await this.resolveSelection(selection);
+    if (selected.kind === 'file')
+      return importSingleFile(selected.filename, store, userId, this.onImport);
+    const { course, archive, inventory } = selected;
     const imported = await store.importProjectArchive(
       userId,
       new Uint8Array(await archive.arrayBuffer()),
