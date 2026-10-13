@@ -1,0 +1,75 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 582 >>
+stream
+BT /F1 12 Tf 40 750 Td 20 TL
+(Distributed systems: events and messages) Tj
+T*
+(A distributed system has independent processes that communicate by messages.) Tj
+T*
+(An event is an action observed within one process: a computation, send or receive.) Tj
+T*
+(Each process has a local sequence of events. There is no shared global clock.) Tj
+T*
+(A message is sent at one event and received later by another process.) Tj
+T*
+(Example: process A sends an order to B. B receives it and records the order.) Tj
+T*
+(Local clocks may disagree; timestamps alone do not prove causal order.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 712 >>
+stream
+BT /F1 12 Tf 40 750 Td 20 TL
+(Causal ordering: the happens-before relation) Tj
+T*
+(If two events occur in one process, the earlier event happens before the later one.) Tj
+T*
+(Sending a message happens before receiving that message.) Tj
+T*
+(The relation is transitive: if a precedes b and b precedes c, a precedes c.) Tj
+T*
+(Events are concurrent when neither event happens before the other.) Tj
+T*
+(Example: A sends an order, B receives it, then B sends a confirmation to A.) Tj
+T*
+(The send precedes the receipt, which precedes the confirmation.) Tj
+T*
+(Independent local computations in A and C may be concurrent.) Tj
+T*
+(Causality gives a partial order; it does not impose a total order on all events.) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000247 00000 n 
+0000000879 00000 n 
+0000001005 00000 n 
+0000001767 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1837
+%%EOF

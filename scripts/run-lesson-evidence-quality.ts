@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { getGlobalModelConfig } from '../apps/backend/src/config/modelConfig.js';
+import { getResolvedGlobalModelConfig } from '../apps/backend/src/config/modelConfig.js';
 import { closeManagedCodexAccountClient } from '../apps/backend/src/services/codexAppServer.js';
 import {
   buildLessonEvidenceMaterials,
@@ -55,9 +55,10 @@ const main = async () => {
     'I_ACCEPT_REAL_PROVIDER_COSTS',
     'Set REAL_LESSON_QUALITY_TESTS=I_ACCEPT_REAL_PROVIDER_COSTS to run paid model calls.'
   );
+  process.env.CODEX_APP_SERVER_ENABLED = 'true';
   const input: LessonGenerationInput = {
     config: {
-      ...getGlobalModelConfig(),
+      ...(await getResolvedGlobalModelConfig()),
       aiProvider: 'codex',
       aiProviderOverrides: {},
       codexLessonModel: 'gpt-5.6-luna',

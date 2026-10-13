@@ -35,6 +35,11 @@ const ManifestSchema = z.looseObject({
   workflows: z.array(z.unknown()),
   aiUsage: z.array(z.unknown()),
 });
+const WorkflowIdentitySchema = z.strictObject({
+  runId: text,
+  nodeInstanceId: text,
+  attemptNumber: z.number().int().nonnegative(),
+});
 const ExchangeSchema = z.looseObject({
   provider: z.enum(['codex', 'openrouter']),
   model: text,
@@ -44,6 +49,7 @@ const ExchangeSchema = z.looseObject({
   toolCalls: z.array(z.unknown()),
   status: text,
   startedAt: z.iso.datetime(),
+  workflow: WorkflowIdentitySchema.optional(),
 });
 
 /** Retain original line indexes as references; equal timestamps preserve capture order. */
@@ -72,6 +78,21 @@ export const loadXrayTrace = async (directory: string) => {
 };
 type Trace = Awaited<ReturnType<typeof loadXrayTrace>>;
 
+/** Group by recorded workflow identity; unassigned exchanges share a chronological group. */
+const groupWorkflowExchanges = (trace: Trace) => {
+  const groups = new Map<string, Trace['exchanges']>();
+  for (const entry of trace.exchanges) {
+    const workflow = entry.exchange.workflow;
+    const key = workflow
+      ? JSON.stringify([workflow.runId, workflow.nodeInstanceId, workflow.attemptNumber])
+      : 'unassigned';
+    const group = groups.get(key);
+    if (group) group.push(entry);
+    else groups.set(key, [entry]);
+  }
+  return [...groups.values()];
+};
+
 const recordedStrings = (value: unknown): string[] => {
   if (typeof value === 'string') return [value];
   if (Array.isArray(value)) return value.flatMap(recordedStrings);
@@ -94,7 +115,17 @@ export const validateXrayReview = (response: unknown, trace: Trace): Review => {
   return review;
 };
 
+interface NodeReview {
+  workflow: z.infer<typeof WorkflowIdentitySchema> | null;
+  exchangeIndexes: number[];
+  inputBytes: number;
+  inputCharacters: number;
+  status: 'reviewed' | 'needs-maintainer';
+  reviewerResponse: string | null;
+  failure: string | null;
+}
 interface XrayReport extends Review {
+  nodeReviews: NodeReview[];
   status: 'reviewed' | 'needs-maintainer';
   runId: string;
   sourceBytes: number;
@@ -167,17 +198,13 @@ const reserveReviewFiles = async (directory: string) => {
 
 export const runXray = async (directory: string): Promise<XrayReport> => {
   const trace = await loadXrayTrace(directory);
-  const input = JSON.stringify({
-    manifest: trace.manifest,
-    chronologicalExchanges: trace.exchanges,
-  });
   const files = await reserveReviewFiles(directory);
   const started = performance.now();
   const report: XrayReport = {
     status: 'needs-maintainer',
     runId: trace.manifest.runId,
     sourceBytes: trace.sourceBytes,
-    inputBytes: Buffer.byteLength(input),
+    inputBytes: 0,
     exchangeCount: trace.exchanges.length,
     durationMs: 0,
     reviewer: null,
@@ -185,21 +212,45 @@ export const runXray = async (directory: string): Promise<XrayReport> => {
     reviewerResponse: null,
     findings: [],
     evidenceLimits: [],
+    nodeReviews: [],
   };
   try {
-    try {
-      const result = await reviewRecordedTrace(input, outputSchema);
-      report.reviewer = result.reviewer;
-      report.reviewerResponse = result.response;
-      Object.assign(report, validateXrayReview(JSON.parse(result.response), trace));
-      report.status = 'reviewed';
-    } catch (error) {
-      console.error('X-ray reviewer failed.', error);
-      report.failure = error instanceof Error ? error.name : 'UnknownError';
-      report.evidenceLimits = [
-        'The reviewer did not return a valid complete review. No findings can be concluded. The complete measured input was prepared without truncation; provider context rejection requires a maintainer decision. See the command diagnostic for the failure.',
-      ];
+    report.status = 'reviewed';
+    for (const exchanges of groupWorkflowExchanges(trace)) {
+      const input = JSON.stringify({ manifest: trace.manifest, chronologicalExchanges: exchanges });
+      const nodeReview: NodeReview = {
+        workflow: exchanges[0].exchange.workflow ?? null,
+        exchangeIndexes: exchanges.map(entry => entry.exchangeIndex),
+        inputBytes: Buffer.byteLength(input),
+        inputCharacters: input.length,
+        status: 'needs-maintainer',
+        reviewerResponse: null,
+        failure: null,
+      };
+      report.nodeReviews.push(nodeReview);
+      report.inputBytes += nodeReview.inputBytes;
+      try {
+        const result = await reviewRecordedTrace(input, outputSchema);
+        report.reviewer = result.reviewer;
+        nodeReview.reviewerResponse = result.response;
+        const review = validateXrayReview(JSON.parse(result.response), { ...trace, exchanges });
+        report.findings.push(...review.findings);
+        report.evidenceLimits.push(...review.evidenceLimits);
+        nodeReview.status = 'reviewed';
+      } catch (error) {
+        console.error('X-ray workflow-node reviewer failed.', error);
+        nodeReview.failure = error instanceof Error ? error.name : 'UnknownError';
+        report.failure = nodeReview.failure;
+        report.status = 'needs-maintainer';
+        const identity = nodeReview.workflow ? JSON.stringify(nodeReview.workflow) : 'unassigned';
+        report.evidenceLimits.push(
+          `Workflow group ${identity}, exchanges ${nodeReview.exchangeIndexes.join(', ')} could not be reviewed: ${nodeReview.failure}. Complete input: ${nodeReview.inputBytes} bytes, ${nodeReview.inputCharacters} characters, without truncation. No findings can be concluded for this group; see the command diagnostic for provider rejection or invalid review output.`
+        );
+      }
     }
+    report.evidenceLimits = [...new Set(report.evidenceLimits)];
+    report.reviewerResponse =
+      report.nodeReviews.length === 1 ? report.nodeReviews[0].reviewerResponse : null;
     report.durationMs = performance.now() - started;
     await files.json.writeFile(`${JSON.stringify(report, null, 2)}\n`);
     await files.markdown.writeFile(renderXrayMarkdown(report));

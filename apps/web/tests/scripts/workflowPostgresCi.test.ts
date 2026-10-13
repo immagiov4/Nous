@@ -158,6 +158,6 @@ describe('workflow PostgreSQL CI contract', () => {
       .flatMap(job => job.steps)
       .flatMap(step => (step.run ? [step.run] : []));
 
-    expect(workflowCommands.join('\n')).not.toContain('test:workflow-codex');
+    expect(workflowCommands.join('\n')).not.toContain('test:workflow-providers');
   });
 });

@@ -63,6 +63,8 @@ flowchart TD
 
 Sources: [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts:511-576](../../../apps/backend/src/workflows/persistence/postgresWorkflowStore.ts#L511-L576)
 
+Course generation fingerprints the normalized project snapshot used by persistence. Snapshot normalization keeps an explicit project title authoritative over the generated plan title, so the course signature applies the same transformation before commit, finalization and undo comparisons. A title proposed by the model therefore cannot make an unchanged persisted course appear modified; a real project rename or course-content edit still changes the signature. The regression test exercises the actual snapshot split/merge path, finalization and undo. Sources: [courseGenerationPersistence.ts](../../../apps/backend/src/workflows/courseGenerationPersistence.ts), [projectMeta.ts](../../../apps/backend/src/projects/projectMeta.ts), [courseGenerationPersistence.test.ts](../../../apps/backend/tests/workflows/courseGenerationPersistence.test.ts).
+
 ## Workflow Materialization and Persistence
 
 Materialization first produces in-memory records for nodes, waits, durable events, and transient events.

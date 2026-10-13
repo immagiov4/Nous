@@ -2,6 +2,10 @@ import type { TransactionSql } from 'postgres';
 import { describe, expect, test, vi } from 'vitest';
 
 import { applyProjectPatch } from '../../src/projects/projectPatch.js';
+import {
+  mergeProjectSnapshotRow,
+  splitProjectSnapshot,
+} from '../../src/projects/projectPersistence.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
 import {
   buildCourseGenerationCommitPatch,
@@ -51,7 +55,11 @@ const project = (): ProjectSnapshot => ({
   researchCoursePlan: null,
   researchDossiersBySectionId: {},
   source: {
-    file: { data: '', mimeType: 'text/plain', name: 'distributed-systems.txt' },
+    file: {
+      data: Buffer.from('Synthetic distributed-systems source').toString('base64'),
+      mimeType: 'text/plain',
+      name: 'distributed-systems.txt',
+    },
     kind: 'document',
   },
   sourceKind: 'document',
@@ -116,6 +124,51 @@ const stageContext = (input: CourseExercisesState) => ({
 });
 
 describe('course generation persistence', () => {
+  test('finalizes and undoes the stored course after title normalization while detecting later edits', async () => {
+    const snapshot = { ...project(), title: 'My chosen project title' };
+    const input = exercisesState();
+    const context = stageContext(input);
+    const state = await createCoursePersistenceStage({
+      loadProjectWithRevision: vi.fn().mockResolvedValue({ revision: 4, snapshot }),
+      now: () => NOW,
+    })(context);
+    const committed = applyProjectPatch(
+      snapshot,
+      buildCourseGenerationCommitPatch({ revision: 4, snapshot }, input, state, context.execution),
+      NOW
+    );
+    const stored = splitProjectSnapshot(committed);
+    const reloaded = mergeProjectSnapshotRow({
+      snapshot: stored.snapshotWithoutDocumentIndex,
+      document_index: stored.documentIndex,
+    });
+    const loadProjectWithRevision = vi.fn().mockResolvedValue({ revision: 5, snapshot: reloaded });
+    const finalize = createCourseResultFinalizer({ loadProjectWithRevision });
+    await expect(finalize({ ...context, input: state })).resolves.toEqual(state.result);
+    expect(reloaded.title).toBe(snapshot.title);
+    expect(reloaded.learningPlan?.title).toBe(snapshot.title);
+    const undo = buildCourseGenerationUndoPatch({ revision: 5, snapshot: reloaded }, state);
+    expect(undo).not.toBeNull();
+    const restored = applyProjectPatch(reloaded, undo ?? {}, NOW);
+    expect(restored.learningPlan).toBeNull();
+    expect(restored.title).toBe(snapshot.title);
+
+    const renamed = applyProjectPatch(reloaded, { title: 'A later chosen title' }, NOW);
+    const edited = {
+      ...reloaded,
+      learningPlan: { ...reloaded.learningPlan, summary: 'Later course edit' },
+    };
+    for (const changed of [renamed, edited]) {
+      loadProjectWithRevision.mockResolvedValue({ revision: 5, snapshot: changed });
+      await expect(finalize({ ...context, input: state })).rejects.toMatchObject({
+        failure: { code: 'course_generation_commit_changed', kind: 'permanent' },
+      });
+      expect(() =>
+        buildCourseGenerationUndoPatch({ revision: 5, snapshot: changed }, state)
+      ).toThrow();
+    }
+  });
+
   test('rejects a generated plan with no readable lesson', async () => {
     const build = createCoursePersistenceStage({
       loadProjectWithRevision: vi.fn().mockResolvedValue({ revision: 4, snapshot: project() }),

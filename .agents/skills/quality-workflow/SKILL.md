@@ -90,6 +90,7 @@ Use problem-to-github-issue for every issue operation, including its live-label 
 ## Review and publish complete fix batches
 
 - Apply receiving-pr-reviews to all internal and external feedback, including self-review.
+- CodeRabbit does not run automatically in this repository. Trigger it once with `@coderabbitai review` on the first commit of a large PR. Its hourly quota is small; reserve requests for that initial large-PR review.
 - Keep every valid finding accounted for: fix blocking findings in the PR; route non-blocking findings to a follow-up PR and record its relation to the current PR. Use problem-to-github-issue when an issue is required.
 - Apply the maintainer's routing above for small pre-existing bugs. These routing decisions replace receiving-pr-reviews' default of sending all separable findings only to an issue; retain its evidence checks and architecture stops.
 - Close the supported problem class and verify the complete fix batch before an authorized push. Each push re-triggers automated review; push only complete batches. Follow AGENTS.md for publication authorization and review completion.

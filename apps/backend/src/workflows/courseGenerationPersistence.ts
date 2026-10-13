@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import type { Sql } from 'postgres';
 
+import { normalizeProjectSnapshot } from '../projects/projectMeta.js';
 import { applyProjectPatch } from '../projects/projectPatch.js';
 import { patchProjectInTransaction } from '../projects/projectTransaction.js';
 import type { ProjectPatch, ProjectSnapshot, ProjectStore } from '../projects/types.js';
@@ -75,7 +76,7 @@ const courseState = (snapshot: ProjectSnapshot) => ({
 
 const courseStateFingerprint = (snapshot: ProjectSnapshot): string =>
   createHash('sha256')
-    .update(canonicalJson(courseState(snapshot)))
+    .update(canonicalJson(courseState(normalizeProjectSnapshot(snapshot))))
     .digest('hex');
 
 const generatedCoursePatch = (
