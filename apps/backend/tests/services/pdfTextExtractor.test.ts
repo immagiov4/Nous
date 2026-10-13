@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { serialize } from 'node:v8';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { buildPdfTextDataUrl } from '../fixtures/pdfText.js';
 
 const pdfRuntimeMocks = vi.hoisted(() => ({
   execFileAsync: vi.fn(),
@@ -284,5 +285,39 @@ describe('resolvePdfTextFallbackNodeExecutable', () => {
     } finally {
       process.env.PATH = originalPath;
     }
+  });
+});
+
+describe('extractPdfText lazy parser', () => {
+  test('extracts real PDF text without a subprocess timeout', async () => {
+    pdfRuntimeMocks.execFileAsync.mockRejectedValue(new Error('spawn pdftotext ENOENT'));
+
+    const result = await extractPdfText(buildPdfTextDataUrl());
+
+    expect(result).toMatchObject({
+      parser: 'pdf-parse',
+      parserFallbackReason: 'spawn pdftotext ENOENT',
+      usedFallbackParser: true,
+      pageCount: 1,
+      pages: [{ pageNumber: 1, text: 'Lazy PDF extraction' }],
+      text: 'Lazy PDF extraction',
+    });
+    expect(result.sourceHash).toMatch(/^[a-f0-9]{64}$/u);
+    expect(pdfRuntimeMocks.spawnCalls).toEqual([]);
+  });
+
+  test('reads the real native outline after pdftotext extraction without a subprocess timeout', async () => {
+    pdfRuntimeMocks.execFileAsync.mockResolvedValue({ stdout: 'Text from pdftotext' });
+
+    const result = await extractPdfText(buildPdfTextDataUrl());
+
+    expect(result).toMatchObject({
+      parser: 'pdftotext',
+      usedFallbackParser: false,
+      text: 'Text from pdftotext',
+      outlineOrigin: 'native',
+      outline: [expect.objectContaining({ title: 'Native PDF chapter', children: [] })],
+    });
+    expect(pdfRuntimeMocks.spawnCalls).toEqual([]);
   });
 });

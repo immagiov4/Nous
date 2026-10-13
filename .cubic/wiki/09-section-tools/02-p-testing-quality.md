@@ -177,7 +177,7 @@ Sources: [Nous entrypoint](../../../e2e/nous/run.ts), [Run recorder](../../../sc
 
 ### Import costs and registry validation
 
-Node-only tests retain matcher registration and mock/timer cleanup while React Testing Library cleanup is loaded only in DOM environments. The production PDF extractor loads its parser only when extraction or native outline reading needs it, keeping text-only service and route imports free of parser initialization. Durable schema normalization reuses shared subtrees within each traversal. Each later call rebuilds its view, and recursive, optional-boundary, and unsupported-schema checks still run before reuse. Production workflow registration remains eager and validates every current and historical definition; compatibility tests continue to exercise the complete registry.
+Node-only tests retain matcher registration and mock/timer cleanup while React Testing Library cleanup is loaded only in DOM environments. The production PDF extractor loads its parser only when extraction or native outline reading needs it, keeping text-only service and route imports free of parser initialization. Focused tests exercise both lazy paths with a real PDF and no fallback timeout, verify that loading the service leaves the parser unloaded and preserves module-load errors, and check that shared DOM cleanup unmounts React trees between tests. Durable schema normalization reuses shared subtrees within each traversal. Each later call rebuilds its view, and recursive, optional-boundary, and unsupported-schema checks still run before reuse. Production workflow registration remains eager and validates every current and historical definition; compatibility tests continue to exercise the complete registry.
 
 ## Continuous Integration (CI) Contracts
 
