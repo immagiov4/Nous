@@ -82,10 +82,6 @@ The project uses "Fallow" to detect unused files, exports, and dependencies. It 
 
 Sources: [scripts/doctor.ts:6-7](../../../scripts/doctor.ts#L6-L7), [scripts/doctor.ts:162-184](../../../scripts/doctor.ts#L162-L184)
 
-### Import costs and registry validation
-
-Node-only tests retain matcher registration and mock/timer cleanup while React Testing Library cleanup is loaded only in DOM environments. The production PDF extractor loads its parser only when extraction or native outline reading needs it, keeping text-only service and route imports free of parser initialization. Durable schema normalization reuses shared subtrees within each traversal. Each later call rebuilds its view, and recursive, optional-boundary, and unsupported-schema checks still run before reuse. Production workflow registration remains eager and validates every current and historical definition; compatibility tests continue to exercise the complete registry.
-
 ### Quality checks
 
 The local `quality` script runs TypeScript checks, Biome, the React Hooks lint report, and `check:eslint-sonar`. CI runs `quality:ci`, which adds dependency-cruiser once per commit. Fallow separately blocks new dead-code and dependency findings against `.fallow-baselines/regression.json`.
@@ -178,6 +174,10 @@ The Nous evidence entrypoint binds one decode promise to the run, using the prod
 To exercise an existing course-bearing story with an explicit selection, set `NOUS_E2E_COURSE=fixture:<course-id-or-title>` and run `bun run playtest -- --id library-open-course --provider openrouter --model <authorized-model>`. This overrides the course precondition only on stories already requiring a course. Headless execution remains the default. After the first library-course import, the run directory retains `fixture-inventory.json` once; every library-course or legacy single-file import retains `fixture-<import-uuid>.json`, recording original and imported project IDs plus archive provenance. Each import has a distinct evidence filename, including concurrent legacy JSON imports that preserve the same project ID. Account and project cleanup also runs when import or provenance recording fails; stop the isolated stack afterwards with `bun run e2e/nous/stack.ts --stop`.
 
 Sources: [Nous entrypoint](../../../e2e/nous/run.ts), [Run recorder](../../../scripts/run-evidence.ts), [Nous adapter](../../../e2e/nous/adapter.ts), [Stack lifecycle](../../../e2e/nous/stack.ts), [Preparation](../../../e2e/nous/prepare.ts), [Runner](../../../packages/playtest/src/runner.ts).
+
+### Import costs and registry validation
+
+Node-only tests retain matcher registration and mock/timer cleanup while React Testing Library cleanup is loaded only in DOM environments. The production PDF extractor loads its parser only when extraction or native outline reading needs it, keeping text-only service and route imports free of parser initialization. Durable schema normalization reuses shared subtrees within each traversal. Each later call rebuilds its view, and recursive, optional-boundary, and unsupported-schema checks still run before reuse. Production workflow registration remains eager and validates every current and historical definition; compatibility tests continue to exercise the complete registry.
 
 ## Continuous Integration (CI) Contracts
 
