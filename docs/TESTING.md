@@ -48,7 +48,7 @@ bun run gate:full
 
 `bun run prepare:coverage` removes stale coverage, verifies the Node major, and then runs the idempotent `bunx playwright install chromium` command before coverage tests start.
 
-The CI test job and local full gate share `gate:ci`, defined in `package.json`. Its checks stop at the first failure; the full gate still records that failed stage and continues through Node coverage and Sonar. Separate CI jobs retain the Supabase Auth/RLS contract, the change-selected critical PostgreSQL contract, the full PostgreSQL contract on main, and the credential-dependent staging contract. Remote pull-request-body verification also remains a separate workflow. These jobs remain CI merge prerequisites with their own service and event requirements.
+The CI test job and local full gate share `gate:ci`, defined in `package.json`. Its checks stop at the first failure; the full gate still records that failed stage and continues through Node coverage and Sonar. Separate CI jobs retain the Supabase Auth/RLS contract, the change-selected critical PostgreSQL contract, the full PostgreSQL contract on main, and the credential-dependent staging contract. Remote pull-request-body verification also remains a separate workflow. The pull-request contracts and remote body verification remain CI merge prerequisites with their own service and event requirements. The full PostgreSQL and credential-dependent managed-staging checks run on pushes to main after merge.
 
 ## Pull request Sonar merge policy
 

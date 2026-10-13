@@ -67,7 +67,7 @@ flowchart TD
     Sonar --> End[Merge Admission]
 ```
 
-The shared `gate:ci` command stops at its first failed check, matching CI. A failed full-gate stage does not skip the later coverage or Sonar stages; the command reports every failed stage after analysis completes. Separate service-backed contracts and remote PR-body checks remain CI merge prerequisites.
+The shared `gate:ci` command stops at its first failed check, matching CI. A failed full-gate stage does not skip the later coverage or Sonar stages; the command reports every failed stage after analysis completes. Separate pull-request service contracts and remote PR-body checks remain CI merge prerequisites; main-push PostgreSQL and credential-dependent managed-staging checks run after merge.
 Sources: [scripts/run-full-quality-gate.ts:22-60](../../../scripts/run-full-quality-gate.ts#L22-L60), [scripts/run-full-quality-gate.test.ts:39-57](../../../scripts/run-full-quality-gate.test.ts#L39-L57)
 
 ## Static Analysis & Regressions
