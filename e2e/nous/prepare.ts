@@ -1,5 +1,3 @@
-import { readFile, realpath } from 'node:fs/promises';
-import { isAbsolute, join, relative, sep } from 'node:path';
 import postgres from 'postgres';
 import * as z from 'zod';
 import { PostgresAccountStore } from '../../apps/backend/src/account/accountStore';
@@ -11,7 +9,8 @@ import { SupabaseProjectSourceStorage } from '../../apps/backend/src/projects/pr
 import type { ProjectSnapshot } from '../../apps/backend/src/projects/types';
 import { recordDiagnostic } from '../../packages/playtest/src/diagnostics';
 import type { Story, Viewport } from '../../packages/playtest/src/types';
-import { assertIsolatedStatus, dataRoot, type StackStatus, stackStatus } from './stack';
+import { type FixtureImport, importFixture } from './fixtures';
+import { assertIsolatedStatus, type StackStatus, stackStatus } from './stack';
 
 export function syntheticCourse(
   kind: 'synthetic-short' | 'synthetic-law-short' = 'synthetic-short'
@@ -64,29 +63,6 @@ export function syntheticCourse(
   };
 }
 
-async function fixtureBytes(name: string): Promise<Buffer> {
-  const root = await realpath(join(dataRoot(), 'fixtures')).catch(
-    (error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') {
-        recordDiagnostic('fixture-directory', error);
-        throw new Error('Required fixture directory is missing.', { cause: error });
-      }
-      throw error;
-    }
-  );
-  const path = await realpath(join(root, name)).catch(error => {
-    recordDiagnostic('fixture-path', error);
-    throw new Error(`Required fixture is missing: ${name}.`, { cause: error });
-  });
-  const within = relative(root, path);
-  if (!within || within === '..' || within.startsWith(`..${sep}`) || isAbsolute(within))
-    throw new Error('Required fixture must be a file within NOUS_E2E_DATA/fixtures.');
-  return readFile(path).catch(error => {
-    recordDiagnostic('fixture-read', error);
-    throw new Error(`Required fixture is not readable: ${name}.`, { cause: error });
-  });
-}
-
 function projectStore(isolated: StackStatus): PostgresProjectStore {
   const sql = postgres(isolated.DB_URL);
   const storageConfig = {
@@ -136,20 +112,14 @@ async function populateCourse(input: {
   isolated: StackStatus;
   userId: string;
   course?: string;
-  bytes?: Buffer;
-}): Promise<void> {
-  const { isolated, userId, course, bytes } = input;
+}): Promise<FixtureImport | undefined> {
+  const { isolated, userId, course } = input;
   if (course === undefined) return;
   const store = projectStore(isolated);
   try {
     if (course === 'synthetic-short' || course === 'synthetic-law-short')
       await store.saveProject(userId, syntheticCourse(course));
-    else if (bytes) {
-      // Product exports use JSON for snapshots and ZIP for projects with attachments.
-      if (course.endsWith('.json'))
-        await store.importProject(userId, JSON.parse(bytes.toString('utf8')));
-      else await store.importProjectArchive(userId, bytes, crypto.randomUUID());
-    }
+    else return await importFixture(course.slice('fixture:'.length), store, userId);
   } finally {
     await store.close();
   }
@@ -160,13 +130,24 @@ export async function prepare(
   story: Story,
   viewport: Viewport,
   status?: StackStatus
-): Promise<{ credentials: { email: string; password: string }; cleanup: () => Promise<void> }> {
+): Promise<{
+  credentials: { email: string; password: string };
+  cleanup: () => Promise<void>;
+  fixture?: FixtureImport;
+}> {
   const unsupported = Object.keys(story.requires).filter(
     key => !['course', 'onboarding', 'affect'].includes(key)
   );
   if (unsupported.length)
     throw new Error(`Unsupported story preconditions: ${unsupported.join(', ')}.`);
-  const course = z.string().optional().parse(story.requires.course);
+  const course = z
+    .string()
+    .optional()
+    .parse(
+      story.requires.course === undefined
+        ? undefined
+        : (process.env.NOUS_E2E_COURSE ?? story.requires.course)
+    );
   const onboarding = z.literal('first-run').optional().parse(story.requires.onboarding);
   if (
     course !== undefined &&
@@ -175,9 +156,6 @@ export async function prepare(
     !course.startsWith('fixture:')
   )
     throw new Error(`Unsupported course precondition: ${course}.`);
-  const bytes = course?.startsWith('fixture:')
-    ? await fixtureBytes(course.slice('fixture:'.length))
-    : undefined;
   const isolated = status ?? (await stackStatus());
   assertIsolatedStatus(isolated);
   const credentials = {
@@ -196,11 +174,12 @@ export async function prepare(
   if (!response.ok) throw new Error(`Synthetic account creation failed (HTTP ${response.status}).`);
   const user = z.object({ id: z.uuid() }).parse(await response.json());
   const cleanup = () => cleanupUser(isolated, user.id);
+  let fixture: FixtureImport | undefined;
   try {
     if (onboarding !== 'first-run') {
       await skipAccountSetup(isolated, user.id);
     }
-    await populateCourse({ isolated, userId: user.id, course, bytes });
+    fixture = await populateCourse({ isolated, userId: user.id, course });
   } catch (error) {
     try {
       await cleanup();
@@ -213,5 +192,5 @@ export async function prepare(
     }
     throw error;
   }
-  return { credentials, cleanup };
+  return { credentials, cleanup, ...(fixture ? { fixture } : {}) };
 }

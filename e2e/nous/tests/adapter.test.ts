@@ -9,6 +9,8 @@ import { chromium } from 'playwright';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PostgresAccountStore } from '../../../apps/backend/src/account/accountStore';
 import { PostgresProjectStore } from '../../../apps/backend/src/projects/postgresProjectStore';
+import { buildProjectMeta } from '../../../apps/backend/src/projects/projectMeta';
+import { createProjectArchiveBlob } from '../../../apps/web/services/projects/projectArchive';
 import { openOperatorSession } from '../../../packages/playtest/src/operator/session';
 import { runPlaytest } from '../../../packages/playtest/src/runner';
 import { loadPersonas, loadStories } from '../../../packages/playtest/src/stories';
@@ -707,6 +709,7 @@ describe('Nous adapter', () => {
     temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-adapter-'));
     vi.stubEnv('NOUS_E2E_DATA', temporaryRoot);
     await mkdir(join(temporaryRoot, 'fixtures'));
+    vi.spyOn(PostgresProjectStore.prototype, 'listProjects').mockResolvedValue([]);
     const snapshot = syntheticCourse();
     await writeFile(join(temporaryRoot, 'fixtures', 'synthetic.json'), JSON.stringify(snapshot));
     await writeFile(join(temporaryRoot, 'outside.json'), '{}');
@@ -716,7 +719,7 @@ describe('Nous adapter', () => {
     );
     const importProject = vi
       .spyOn(PostgresProjectStore.prototype, 'importProject')
-      .mockResolvedValue({} as Awaited<ReturnType<PostgresProjectStore['importProject']>>);
+      .mockResolvedValue({ snapshot, meta: buildProjectMeta(snapshot) });
     vi.spyOn(PostgresProjectStore.prototype, 'close').mockResolvedValue();
     await prepare({ ...story, requires: { course: 'fixture:synthetic.json' } }, 'desktop', status);
     expect(importProject.mock.calls[0][1]).toEqual(snapshot);
@@ -727,11 +730,17 @@ describe('Nous adapter', () => {
       status
     );
     expect(importProject.mock.calls[1][1]).toEqual(snapshot);
-    const archive = Buffer.from('synthetic archive bytes');
+    const archive = Buffer.from(
+      await (
+        await createProjectArchiveBlob(
+          snapshot as unknown as import('../../../apps/web/types').ProjectSnapshot
+        )
+      ).arrayBuffer()
+    );
     await writeFile(join(temporaryRoot, 'fixtures', 'synthetic.zip'), archive);
     const importArchive = vi
       .spyOn(PostgresProjectStore.prototype, 'importProjectArchive')
-      .mockResolvedValue({} as Awaited<ReturnType<PostgresProjectStore['importProjectArchive']>>);
+      .mockResolvedValue({ snapshot, meta: buildProjectMeta(snapshot) });
     await prepare({ ...story, requires: { course: 'fixture:synthetic.zip' } }, 'mobile', status);
     expect(importArchive.mock.calls[0][1]).toEqual(archive);
     expect(importArchive.mock.calls[0][2]).toMatch(/^[a-f0-9-]+$/);
