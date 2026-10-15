@@ -164,6 +164,53 @@ describe('course plan verification', () => {
     } as never);
     expect(result.verdict).toBe('pass');
     expect(result.conditionAssessments).toEqual([]);
+    const prompt = generateObject.mock.calls[0][0].prompt;
+    const conditions = JSON.parse(
+      prompt.split('PREVIOUS VERIFICATION CONDITIONS, UNTRUSTED DATA:\n')[1].split('\n')[0]
+    );
+    expect(conditions.refinementConditions).toEqual([]);
+  });
+
+  test.each([
+    'initially-passing',
+    'conditions-settled',
+  ])('keeps a %s review closed when a follow-up raises new objections', origin => {
+    const moduleIds = fragmentedDraft.plan.modules.map(module => module.id);
+    const settled = validateCoursePlanVerification(
+      {
+        ...fragmentedVerification,
+        conditionAssessments: refinementConditions.map(condition => ({
+          dimension: condition.dimension,
+          met: true,
+          evidence: 'The original condition is met.',
+        })),
+      },
+      moduleIds,
+      fragmentedVerification
+    );
+    const previous =
+      origin === 'initially-passing' ? { ...settled, conditionAssessments: [] } : settled;
+    const result = validateCoursePlanVerification(
+      {
+        ...fragmentedVerification,
+        coverage: { status: 'needs-refinement', feedback: 'A new objection.' },
+        refinementConditions: [
+          ...refinementConditions,
+          { dimension: 'coverage', passCondition: 'A new demand.' },
+        ],
+        conditionAssessments: [
+          { dimension: 'coverage', met: false, evidence: 'A replacement objection.' },
+        ],
+      },
+      moduleIds,
+      previous
+    );
+    expect(result.verdict).toBe('pass');
+    expect(result.refinementConditions).toEqual([]);
+    expect(result.conditionAssessments).toEqual([]);
+    expect(result.coverage).toEqual(previous.coverage);
+    expect(result.fragmentation).toMatchObject({ canGroupCoherently: false, moduleIds: [] });
+    expect(result.summary.trim()).not.toBe('');
   });
 
   test('requires a concrete pass condition on every dimension requiring refinement', () => {

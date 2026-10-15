@@ -35,7 +35,7 @@ export const applyCoursePlanConditions = (
   const previousConditions = previous?.refinementConditions ?? [];
   const conditions = verification.refinementConditions ?? [];
   const assessments = verification.conditionAssessments ?? [];
-  if (!previousConditions.length) {
+  if (previous?.refinementConditions === undefined) {
     const requiredDimensions = COURSE_PLAN_QUALITY_DIMENSIONS.filter(
       dimension => verification[dimension].status === 'needs-refinement'
     );
@@ -86,7 +86,9 @@ export const applyCoursePlanConditions = (
       )
     ),
     conditionAssessments: relevantAssessments,
-    summary: relevantAssessments.map(assessment => assessment.evidence).join('\n'),
+    summary: relevantAssessments.length
+      ? relevantAssessments.map(assessment => assessment.evidence).join('\n')
+      : previous.summary,
     verdict,
     fragmentation:
       dimensions.granularity.status === 'pass'
