@@ -70,6 +70,19 @@ flowchart TD
 The shared `gate:ci` command stops at its first failed check, matching CI. A failed full-gate stage does not skip the later coverage or Sonar stages; the command reports every failed stage after analysis completes. Separate pull-request service contracts and remote PR-body checks remain CI merge prerequisites; main-push PostgreSQL and credential-dependent managed-staging checks run after merge.
 Sources: [scripts/run-full-quality-gate.ts:22-60](../../../scripts/run-full-quality-gate.ts#L22-L60), [scripts/run-full-quality-gate.test.ts:39-57](../../../scripts/run-full-quality-gate.test.ts#L39-L57)
 
+### Worker scheduling and measurement
+
+The Bun suite and Node coverage share the worker limit in `apps/web/vitest.config.ts`. On the measured 8-core/16-thread Windows host, a sample during Bun's default 15-worker stage recorded 100% CPU and a processor ready queue of 71; browser setup and playtest cases timed out. A two-worker batch containing those cases, Mermaid parsing, and registry reconstruction passed all 126 tests under both Bun and Node coverage. The shared bound leaves capacity for the browsers and parser subprocesses each worker launches; the coverage command uses the same configuration.
+
+Capture a gate's process tree on Windows and summarize its per-stage worker, browser, parser, CPU, and thread counts:
+
+```powershell
+pwsh -File scripts/measure-gate-load.ps1 -OutputDirectory "$env:TEMP/nous-gate-load"
+bun run gate:load-summary "$env:TEMP/nous-gate-load"
+```
+
+The capture records process creation times to distinguish reused Windows PIDs and excludes command lines. It also records whether the Sonar server is running before and after the command, separately from active scanner processes. CPU figures use deltas for owned process identities present in consecutive snapshots; they omit first and final lifetime segments and assign transition intervals to the stage observed at the later snapshot. Process peaks are sampled, and processes that start and finish between snapshots are absent.
+
 ## Static Analysis & Regressions
 
 ### Fallow: Dead Code Detection
@@ -253,7 +266,7 @@ SonarQube acts as a local-only merge gate and is intentionally excluded from Git
 
 Sources: [AGENTS.md:156-162](../../../AGENTS.md#L156-L162), [scripts/doctor.ts:233-275](../../../scripts/doctor.ts#L233-L275)
 
-Use focused checks while editing. Use GitHub CI for the full suite after pull-request updates and pushes to `main`. After CI passes, run `gate:full` once on the same commit after implementation and review feedback are complete. Coverage uses any Node 26.x release; `.node-version` pins only the major. The coverage preflight deletes the previous LCOV report before it checks that pin, so Sonar cannot consume stale coverage after a runtime mismatch. Coverage uses four workers and writes only the LCOV report consumed by Sonar.
+Use focused checks while editing. Use GitHub CI for the full suite after pull-request updates and pushes to `main`. After CI passes, run `gate:full` once on the same commit after implementation and review feedback are complete. Coverage uses any Node 26.x release; `.node-version` pins only the major. The coverage preflight deletes the previous LCOV report before it checks that pin, so Sonar cannot consume stale coverage after a runtime mismatch. Coverage uses the shared Vitest worker limit and writes only the LCOV report consumed by Sonar.
 
 Sources: [AGENTS.md:155-162](../../../AGENTS.md#L155-L162)
 
