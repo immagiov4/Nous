@@ -35,6 +35,8 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, repoRoot, '');
   const rootNodeModules = path.resolve(repoRoot, 'node_modules');
   return {
+    // Preserve the browser baseline used by Vite 6 when upgrading the bundler.
+    build: { target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari14'] },
     root: __dirname,
     envDir: repoRoot,
     server: {

@@ -93,6 +93,10 @@ The project uses "Fallow" to detect unused files, exports, and dependencies. It 
 
 Sources: [scripts/doctor.ts:6-7](../../../scripts/doctor.ts#L6-L7), [scripts/doctor.ts:162-184](../../../scripts/doctor.ts#L162-L184)
 
+### Build and test toolchain
+
+The frontend uses Vite 8 with Rolldown/Oxc and the matching React plugin 6. Vitest and its V8 coverage provider use the same stable 4.1 release. The build explicitly retains the Vite 6 targets: ES2020, Edge 88, Firefox 78, Chrome 87, and Safari 14. Coverage runs under Node with the shared Vitest worker limit and the existing LCOV and Sonar checks. Registry construction reuses shared schema subtrees within each traversal, preserving validation and observing schema changes on later calls.
+
 ### Quality checks
 
 The local `quality` script runs TypeScript checks, Biome, the React Hooks lint report, and `check:eslint-sonar`. Both CI and the local full gate run `quality:ci` through the shared `gate:ci` command; it adds dependency-cruiser. Fallow separately blocks new dead-code and dependency findings against `.fallow-baselines/regression.json`.
