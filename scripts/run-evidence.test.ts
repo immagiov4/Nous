@@ -546,3 +546,40 @@ describe('real-run evidence', () => {
     expect((await history())[0].outcome).toBe('passed');
   });
 });
+
+test('passes the abort signal to evidence file writes', async () => {
+  await withRunEvidence(context, async recorder => {
+    const cancellation = new AbortController();
+    cancellation.abort();
+    await expect(
+      recorder.writeJson('cancelled.json', { outcome: 'blocked' }, { signal: cancellation.signal })
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(readFile(join(recorder.directory, 'cancelled.json'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+});
+
+test('lets the caller retire pending final persistence without changing its final snapshot', async () => {
+  let resume: ((signal?: AbortSignal) => Promise<void>) | undefined;
+  let recorder: RunEvidenceRecorder | undefined;
+  const failure = Object.assign(new Error('Primary failure'), { code: 'workflow_timeout' });
+  await expect(
+    withRunEvidence(
+      context,
+      async current => {
+        recorder = current;
+        throw failure;
+      },
+      async persist => {
+        resume = persist;
+      }
+    )
+  ).rejects.toBe(failure);
+  if (!resume || !recorder) throw new Error('Finalization callback missing');
+  expect(recorder.manifest).toMatchObject({ outcome: 'failed', errorCode: 'workflow_timeout' });
+  await resume(new AbortController().signal);
+  expect(JSON.parse(await readFile(join(recorder.directory, 'manifest.json'), 'utf8'))).toEqual(
+    (await history())[0]
+  );
+});

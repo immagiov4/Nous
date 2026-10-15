@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
+import postgres from 'postgres';
+import { createProjectAssetStorage } from '../../apps/backend/src/projects/projectAsset';
+import { PostgresWorkflowStore } from '../../apps/backend/src/workflows/persistence/postgresWorkflowStore';
+import type { WorkflowAiUsageRecord } from '../../apps/backend/src/workflows/workflowAiMetering';
 import { parsePlaytestArgs, main as runPlaytestCli } from '../../packages/playtest/src/cli';
 import { recordDiagnostic } from '../../packages/playtest/src/diagnostics';
 import {
@@ -9,6 +13,114 @@ import {
   withRunEvidence,
 } from '../../scripts/run-evidence';
 import { withFixtureRun } from './fixtures';
+import {
+  type FreshnessEvidence,
+  PREPARATION_TIMEOUT_CODE,
+  withFreshnessEvidence,
+} from './freshness';
+import type { PreparationDeadline } from './preparationDeadline';
+import { stopStack } from './stack';
+
+function updateGenerationLedger(recorder: RunEvidenceRecorder, evidence: FreshnessEvidence): void {
+  const name = `generation-${evidence.requestKey}`;
+  const measurement = {
+    name,
+    kind: 'workflow' as const,
+    attemptNumber: 1,
+    startedAt: evidence.startedAt,
+    endedAt: new Date(Date.parse(evidence.startedAt) + evidence.durationMs).toISOString(),
+    durationMs: evidence.durationMs,
+    outcome: evidence.outcome === 'current' ? ('passed' as const) : ('failed' as const),
+  };
+  const previous = recorder.manifest.measurements.find(entry => entry.name === name);
+  if (previous) Object.assign(previous, measurement);
+  else recorder.manifest.measurements.push(measurement);
+  if (
+    evidence.workflowId &&
+    !recorder.manifest.workflows.some(workflow => workflow.runId === evidence.workflowId)
+  )
+    recorder.manifest.workflows.push({
+      name,
+      runId: evidence.workflowId,
+      status: evidence.workflowStatus,
+    });
+}
+
+async function recordGeneration(
+  recorder: RunEvidenceRecorder,
+  evidence: FreshnessEvidence,
+  deadline: PreparationDeadline
+): Promise<void> {
+  updateGenerationLedger(recorder, evidence);
+  if (evidence.errorCode === PREPARATION_TIMEOUT_CODE) {
+    await deadline.settle(
+      'deadline-checkpoint-write',
+      signal =>
+        recorder.writeJson(
+          `generation-${evidence.requestKey}-deadline.json`,
+          structuredClone(evidence),
+          { signal }
+        ),
+      'write'
+    );
+    return;
+  }
+  await deadline.step(
+    'generation-snapshot-write',
+    signal =>
+      recorder.writeJson(
+        `generation-${evidence.requestKey}-snapshot.json`,
+        structuredClone(evidence),
+        { signal }
+      ),
+    'write'
+  );
+  if (!evidence.workflowId) return;
+  const isolated = deadline.isolated;
+  const sql = postgres(isolated.DB_URL);
+  deadline.ownConnection(sql);
+  try {
+    const reader = new PostgresWorkflowStore({
+      sqlClient: sql,
+      projectAssetStorage: createProjectAssetStorage({
+        serviceRoleKey: isolated.SERVICE_ROLE_KEY,
+        supabaseUrl: isolated.API_URL,
+      }),
+    });
+    const identity = { runId: evidence.workflowId, userId: evidence.userId };
+    const [run, state] = await deadline.step('workflow-snapshot-read', () =>
+      Promise.all([reader.getRun(identity), reader.getRunState(identity)])
+    );
+    await deadline.step(
+      'workflow-snapshot-write',
+      signal =>
+        recorder.writeJson(
+          `generation-${evidence.requestKey}-workflow.json`,
+          { run, state },
+          { signal }
+        ),
+      'write'
+    );
+    const usage = await deadline.step(
+      'generation-usage-read',
+      () => sql<WorkflowAiUsageRecord[]>`
+      select id, run_id as "runId", node_instance_id as "nodeInstanceId", attempt_number as "attemptNumber", provider, model,
+        input_tokens as "inputTokens", output_tokens as "outputTokens", reasoning_tokens as "reasoningTokens",
+        cache_read_tokens as "cacheReadTokens", cache_write_tokens as "cacheWriteTokens", provider_cost::float8 as "providerCost"
+      from public.workflow_ai_usage where run_id = ${evidence.workflowId} order by id
+    `
+    );
+    recorder.manifest.aiUsage.push(...usage);
+    await deadline.step(
+      'generation-usage-write',
+      signal =>
+        recorder.writeJson(`generation-${evidence.requestKey}-usage.json`, usage, { signal }),
+      'write'
+    );
+  } finally {
+    await deadline.settle('evidence-connection-close', () => sql.end(), 'cleanup');
+  }
+}
 
 /** Index files after execution so failed runs link only artifacts that were retained. */
 async function linkArtifacts(recorder: RunEvidenceRecorder): Promise<void> {
@@ -35,9 +147,84 @@ function runCliWithFixtures(args: string[], recorder: RunEvidenceRecorder) {
   );
 }
 
+/** Publish one immutable final generation record; provisional collectors cannot overwrite it. */
+async function refreshGeneration(
+  recorder: RunEvidenceRecorder,
+  evidence: FreshnessEvidence,
+  deadline: PreparationDeadline,
+  signal: AbortSignal
+): Promise<void> {
+  // The publication cannot report its own completed write before it has happened.
+  if (!deadline.signal.aborted && evidence.preparation)
+    evidence.preparation.steps = evidence.preparation.steps.filter(
+      step => step.name !== 'final-generation-write'
+    );
+  updateGenerationLedger(recorder, evidence);
+  const resources = evidence.preparation?.possiblyLeakedResources ?? [];
+  recorder.manifest.resourcesAtRisk ??= [];
+  recorder.manifest.resourcesAtRisk.push(
+    ...resources.flatMap(resource => [
+      { kind: 'account', id: resource.accountId },
+      { kind: 'project', id: resource.projectId },
+    ])
+  );
+  recorder.manifest.incompleteWrites ??= [];
+  recorder.manifest.incompleteWrites.push(
+    ...(evidence.preparation?.steps
+      .filter(step => step.kind === 'write' && step.status !== 'completed')
+      .map(step => step.name) ?? [])
+  );
+  const filename = `generation-${evidence.requestKey}.json`;
+  try {
+    await recorder.writeJson(filename, evidence, { signal });
+  } catch (error) {
+    if (!deadline.signal.aborted) recorder.manifest.incompleteWrites.push(filename);
+    throw error;
+  }
+  if (!deadline.signal.aborted) {
+    recorder.manifest.artifacts ??= [];
+    recorder.manifest.artifacts.push(filename);
+  }
+}
+
+function executePlaytest(
+  args: string[],
+  values: ReturnType<typeof parsePlaytestArgs>,
+  recorder: RunEvidenceRecorder
+) {
+  if (values['run-dir'])
+    throw new Error('Nous playtest output is managed by NOUS_E2E_DATA; omit --run-dir.');
+  return runCliWithFixtures(args, recorder);
+}
+type RunFinalization = {
+  expired?: PreparationDeadline;
+  indexing?: Promise<void>;
+};
+
+async function finishNousRun(
+  recorder: RunEvidenceRecorder,
+  deadlines: PreparationDeadline[],
+  finalization: RunFinalization
+): Promise<void> {
+  finalization.expired = deadlines.find(deadline => deadline.signal.aborted);
+  const finishing = finalization.expired ?? deadlines.at(-1);
+  await withRunCleanup(
+    () =>
+      finishing
+        ? finishing.settle('isolated-stack-stop', () => stopStack(), 'cleanup')
+        : stopStack(),
+    () => {
+      const reading = linkArtifacts(recorder);
+      finalization.indexing = reading;
+      return finishing ? finishing.settle('artifact-index', () => reading, 'cleanup') : reading;
+    }
+  );
+}
+
 /** Nous owns run identity and persistence; learner outcomes remain in the generic reports. */
 export async function main(args: string[] = process.argv.slice(2)) {
   const values = parsePlaytestArgs(args);
+  const finalization: RunFinalization = {};
   return withRunEvidence(
     {
       scenario: 'playtest',
@@ -48,16 +235,38 @@ export async function main(args: string[] = process.argv.slice(2)) {
       },
     },
     recorder =>
-      recorder.measure({ name: 'playtest', kind: 'case' }, () =>
-        withRunCleanup(
-          async () => {
-            if (values['run-dir'])
-              throw new Error('Nous playtest output is managed by NOUS_E2E_DATA; omit --run-dir.');
-            return runCliWithFixtures(args, recorder);
-          },
-          () => linkArtifacts(recorder)
-        )
-      )
+      recorder.measure({ name: 'playtest', kind: 'case' }, async () => {
+        try {
+          return await withFreshnessEvidence(
+            (evidence, deadline) => recordGeneration(recorder, evidence, deadline),
+            () => executePlaytest(args, values, recorder),
+            (evidence, deadline, signal) => refreshGeneration(recorder, evidence, deadline, signal),
+            deadlines => finishNousRun(recorder, deadlines, finalization)
+          );
+        } catch (error) {
+          if (finalization.expired)
+            throw Object.assign(
+              new Error('Fresh preparation deadline expired. See the retained run evidence.'),
+              { code: 'PLAYTEST_OPERATIONAL_ERROR', cause: error }
+            );
+          throw error;
+        }
+      }),
+    async (persist, recorder) => {
+      if (finalization.expired) {
+        recorder.manifest.incompleteWrites ??= [];
+        recorder.manifest.incompleteWrites.push('manifest.json', 'history.jsonl');
+        await finalization.expired.settle(
+          'manifest-and-history-write',
+          signal =>
+            withRunCleanup(
+              () => finalization.indexing ?? Promise.resolve(),
+              () => persist(signal)
+            ),
+          'write'
+        );
+      } else await persist();
+    }
   );
 }
 

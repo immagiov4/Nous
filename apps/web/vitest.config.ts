@@ -2,6 +2,8 @@ import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 const TEST_TIMEOUT_MS = 10_000;
+// Browser and parser subprocesses share the measured worker resource budget.
+const TEST_WORKER_COUNT = 2;
 
 export default defineConfig({
   resolve: {
@@ -18,6 +20,7 @@ export default defineConfig({
     environment: 'node',
     exclude: ['apps/web/dist/**', 'apps/backend/dist/**', '**/node_modules/**'],
     globals: false,
+    maxWorkers: TEST_WORKER_COUNT,
     include: [
       'apps/web/tests/**/*.{test,spec}.{ts,tsx}',
       'apps/backend/tests/**/*.{test,spec}.{ts,tsx}',

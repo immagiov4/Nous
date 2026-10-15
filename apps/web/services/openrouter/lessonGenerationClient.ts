@@ -20,6 +20,7 @@ import {
   readWorkflowPollJson,
   readWorkflowRequestKey,
   resolveWorkflowFailureMessage,
+  resolveWorkflowRequestByKey,
 } from './workflowClientTransport.ts';
 
 const LESSON_GENERATION_ERROR = 'La generazione della lezione non è riuscita. Riprova.';
@@ -437,22 +438,23 @@ const resolveRetainedLessonRequest = async ({
   const requestKey = readWorkflowRequestKey(storageKey);
   if (!requestKey) return null;
 
-  const response = await fetchWithSupabaseAuth(
-    `${getBackendUrl()}/api/lesson-workflows/requests/resolve`,
-    {
-      body: JSON.stringify({ requestKey }),
-      headers: { 'Content-Type': 'application/json' },
-      method: 'POST',
-    },
-    { expectedStatuses: [404] }
-  );
-  if (response.status === 404) {
+  const job = await resolveWorkflowRequestByKey({
+    request: () =>
+      fetchWithSupabaseAuth(
+        `${getBackendUrl()}/api/lesson-workflows/requests/resolve`,
+        {
+          body: JSON.stringify({ requestKey }),
+          headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+        },
+        { expectedStatuses: [404] }
+      ),
+    readJob: readWorkflowJob,
+    errorMessage: LESSON_GENERATION_ERROR,
+  });
+  if (!job) {
     clearWorkflowRequestKey(storageKey, requestKey);
     return null;
-  }
-  const job = readWorkflowJob(await readWorkflowJson(response));
-  if (!response.ok || !job) {
-    throw new Error(LESSON_GENERATION_ERROR);
   }
   return { job, requestKey, storageKey };
 };
