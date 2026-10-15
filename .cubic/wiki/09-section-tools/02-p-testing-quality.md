@@ -72,7 +72,7 @@ Sources: [scripts/run-full-quality-gate.ts:22-60](../../../scripts/run-full-qual
 
 ### Worker scheduling and measurement
 
-The Bun suite and Node coverage share the worker limit in `apps/web/vitest.config.ts`. On the measured 8-core/16-thread Windows host, a sample during Bun's default 15-worker stage recorded 100% CPU and a processor ready queue of 71; browser setup and playtest cases timed out. A two-worker batch containing those cases, Mermaid parsing, and registry reconstruction passed all 126 tests under both Bun and Node coverage. The shared bound leaves capacity for the browsers and parser subprocesses each worker launches; the coverage command uses the same configuration.
+The Bun suite and Node coverage use the ordered projects in `apps/web/vitest.config.ts`. The `load-sensitive` project runs the playtest and end-to-end suites, real parser/process fixtures, and production-registry compatibility tests with at most two Vitest workers. The `general` project excludes those files and runs afterward with Vitest's default worker count. Native `sequence.groupOrder` keeps the groups separate within one invocation, preserving file filters and watch mode; Node coverage collects both projects into one LCOV report. Keep suites that start subprocesses or rebuild the production registry in the bounded project's include list.
 
 Capture a gate's process tree on Windows and summarize its per-stage worker, browser, parser, CPU, and thread counts:
 
@@ -270,7 +270,7 @@ SonarQube acts as a local-only merge gate and is intentionally excluded from Git
 
 Sources: [AGENTS.md:156-162](../../../AGENTS.md#L156-L162), [scripts/doctor.ts:233-275](../../../scripts/doctor.ts#L233-L275)
 
-Use focused checks while editing. Use GitHub CI for the full suite after pull-request updates and pushes to `main`. After CI passes, run `gate:full` once on the same commit after implementation and review feedback are complete. Coverage uses any Node 26.x release; `.node-version` pins only the major. The coverage preflight deletes the previous LCOV report before it checks that pin, so Sonar cannot consume stale coverage after a runtime mismatch. Coverage uses the shared Vitest worker limit and writes only the LCOV report consumed by Sonar.
+Use focused checks while editing. Use GitHub CI for the full suite after pull-request updates and pushes to `main`. After CI passes, run `gate:full` once on the same commit after implementation and review feedback are complete. Coverage uses any Node 26.x release; `.node-version` pins only the major. The coverage preflight deletes the previous LCOV report before it checks that pin, so Sonar cannot consume stale coverage after a runtime mismatch. Coverage uses the same ordered projects as the Bun suite and writes one combined LCOV report consumed by Sonar.
 
 Sources: [AGENTS.md:155-162](../../../AGENTS.md#L155-L162)
 
