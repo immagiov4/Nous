@@ -14,6 +14,8 @@ New-Item -ItemType Directory -Force -Path $output | Out-Null
 $stdoutPath = Join-Path $output 'stdout.log'
 $stderrPath = Join-Path $output 'stderr.log'
 $samplesPath = Join-Path $output 'processes.jsonl'
+$runPath = Join-Path $output 'run.json'
+if (Test-Path -LiteralPath $runPath) { Remove-Item -LiteralPath $runPath }
 $processors = @(Get-CimInstance Win32_Processor)
 $logicalProcessors = ($processors | Measure-Object NumberOfLogicalProcessors -Sum).Sum
 $physicalCores = ($processors | Measure-Object NumberOfCores -Sum).Sum
@@ -37,21 +39,28 @@ $stdoutFile = [IO.FileStream]::new($stdoutPath, [IO.FileMode]::Create, [IO.FileA
 $stderrFile = [IO.FileStream]::new($stderrPath, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite, 1, $true)
 $gate = [Diagnostics.Process]::new()
 $gate.StartInfo = $startInfo
-[void]$gate.Start()
-$stdoutCopy = $gate.StandardOutput.BaseStream.CopyToAsync($stdoutFile)
-$stderrCopy = $gate.StandardError.BaseStream.CopyToAsync($stderrFile)
-$gateStartedAt = $gate.StartTime
-$null = $gate.Handle
-$owned = [Collections.Generic.HashSet[int]]::new()
-[void]$owned.Add($gate.Id)
-$births = [Collections.Generic.Dictionary[int,datetime]]::new()
+$started = $false
+$stdoutCopy = $null
+$stderrCopy = $null
+$writer = $null
 $timer = [Diagnostics.Stopwatch]::StartNew()
-$writer = [IO.StreamWriter]::new($samplesPath, $false)
 try {
+  [void]$gate.Start()
+  $started = $true
+  $stdoutCopy = $gate.StandardOutput.BaseStream.CopyToAsync($stdoutFile)
+  $stderrCopy = $gate.StandardError.BaseStream.CopyToAsync($stderrFile)
+  $gateStartedAt = $gate.StartTime
+  $null = $gate.Handle
+  $owned = [Collections.Generic.HashSet[int]]::new()
+  [void]$owned.Add($gate.Id)
+  $births = [Collections.Generic.Dictionary[int,datetime]]::new()
+  $writer = [IO.StreamWriter]::new($samplesPath, $false)
   do {
     $processes = @(Get-CimInstance Win32_Process)
+    $liveBirths = [Collections.Generic.Dictionary[int,datetime]]::new()
     foreach ($process in $processes) {
       $id = [int]$process.ProcessId
+      $liveBirths[$id] = $process.CreationDate
       if ($owned.Contains($id)) {
         if ($births.ContainsKey($id) -and $births[$id] -ne $process.CreationDate) {
           [void]$owned.Remove($id)
@@ -59,13 +68,15 @@ try {
       }
     }
     if (-not $births.ContainsKey($gate.Id)) { $births[$gate.Id] = $gateStartedAt }
-    # Parents can exit between samples; retain ownership of descendants already seen.
+    # Retain observed descendants, but adopt children only from a verified live parent.
     do {
       $added = $false
       foreach ($process in $processes) {
         if (
           $process.CreationDate -ge $gateStartedAt -and
           $owned.Contains([int]$process.ParentProcessId) -and
+          $liveBirths.ContainsKey([int]$process.ParentProcessId) -and
+          $liveBirths[[int]$process.ParentProcessId] -eq $births[[int]$process.ParentProcessId] -and
           $process.CreationDate -ge $births[[int]$process.ParentProcessId] -and
           $owned.Add([int]$process.ProcessId)
         ) {
@@ -112,23 +123,34 @@ try {
     Start-Sleep -Seconds $SampleIntervalSeconds
     $gate.Refresh()
   } while (-not $gate.HasExited)
-} finally { $writer.Dispose() }
-$gate.WaitForExit()
-$null = $stdoutCopy.GetAwaiter().GetResult()
-$null = $stderrCopy.GetAwaiter().GetResult()
-$stdoutFile.Dispose()
-$stderrFile.Dispose()
-$timer.Stop()
+  $gate.WaitForExit()
+  $exitCode = $gate.ExitCode
+} finally {
+  if ($started -and -not $gate.HasExited) {
+    $gate.Kill($true)
+    $gate.WaitForExit()
+  }
+  if ($null -ne $writer) { $writer.Dispose() }
+  try {
+    if ($null -ne $stdoutCopy) { $null = $stdoutCopy.GetAwaiter().GetResult() }
+    if ($null -ne $stderrCopy) { $null = $stderrCopy.GetAwaiter().GetResult() }
+  } finally {
+    $stdoutFile.Dispose()
+    $stderrFile.Dispose()
+    $gate.Dispose()
+    $timer.Stop()
+  }
+}
 $summary = [ordered]@{
   executable = $Command[0]
   physicalCores = $physicalCores
   sonarRunningBefore = $sonarRunningBefore
   sonarRunningAfter = Get-SonarRunning
   commit = (git rev-parse HEAD)
-  exitCode = $gate.ExitCode
+  exitCode = $exitCode
   durationSeconds = $timer.Elapsed.TotalSeconds
   logicalProcessors = $logicalProcessors
 }
-$summary | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'run.json')
+$summary | ConvertTo-Json | Set-Content -LiteralPath $runPath
 $summary | ConvertTo-Json
-exit $gate.ExitCode
+exit $exitCode
