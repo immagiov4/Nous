@@ -453,7 +453,7 @@ export async function ensureStack(
     {
       name: 'backend',
       url: `${BACKEND_URL}/health`,
-      args: [join(REPO_ROOT, 'apps/backend/src/server.ts')],
+      args: [join(REPO_ROOT, 'e2e/nous/backend.ts')],
     },
     {
       name: 'frontend',

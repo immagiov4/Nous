@@ -19,7 +19,7 @@ The following files were used as context for generating this wiki page:
 
 # Local Environment Setup
 
-The local environment setup for Nous Reader is designed to provide a consistent development experience by automating the verification and orchestration of necessary infrastructure. The system ensures that all dependencies, including Docker, local Supabase instances, and quality gate tools like SonarQube, are correctly configured and reachable before the application starts.
+The local environment setup for Nous Reader is designed to provide a consistent development experience by automating the verification and orchestration of necessary infrastructure. Application startup checks Docker and local Supabase when loopback services are configured. The final quality gate starts or reuses SonarQube after coverage and checks its readiness before analysis.
 
 This setup is primarily managed through Bun scripts and specialized diagnostic tools that check for runtime compatibility (e.g., Bun versions), service health, and database migration parity. By centralizing these checks, the project prevents common issues where a frontend starts without its required backend services or when developers use mismatched runtime versions.
 
@@ -91,16 +91,20 @@ The `doctor` script supports multiple profiles to probe different aspects of the
 Sources: [scripts/doctor.ts:152-165](../../../scripts/doctor.ts#L152-L165), [scripts/doctor.ts:245-276](../../../scripts/doctor.ts#L245-L276)
 
 ### Local SonarQube Setup
-For deep code analysis, a local SonarQube instance is used as a merge gate. Docker binds it only to `127.0.0.1:9000`. On a fresh volume, a Docker-internal one-shot provisioner grants the `Anyone` pseudo-group the global `Create Projects` and `Execute Analysis` permissions, so no scanner token or developer credential bootstrap is required. `gate:full` starts SonarQube after coverage and stops it after analysis. `sonar:up` remains available for startup diagnosis. The provisioner polls SonarQube every second, fails immediately on `DB_MIGRATION_NEEDED`, and uses the approved 133-second ceiling derived from twice the slowest observed local successful startup. For a legacy volume with a changed administrator password, `sonar:up` automatically passes the ignored legacy local administrator settings only to that internal provisioner; if they are stale, it retries the fresh-volume default. The scanner never reads those settings or an inherited `SONAR_TOKEN`.
+For deep code analysis, a local SonarQube instance is used as a merge gate. Docker binds it only to `127.0.0.1:9000`. On a fresh volume, a Docker-internal one-shot provisioner grants the `Anyone` pseudo-group the global `Create Projects` and `Execute Analysis` permissions, so no scanner token or developer credential bootstrap is required. `gate:full` starts or reuses SonarQube after coverage and keeps it running after success or failure. Each invocation repeats readiness and doctor checks before the same quality gate. Run `bun run sonar:stop` when finished to release the server resources. `sonar:up` remains available for startup diagnosis. The provisioner polls SonarQube every second, fails immediately on `DB_MIGRATION_NEEDED`, and uses the approved 133-second ceiling derived from twice the slowest observed local successful startup. For a legacy volume with a changed administrator password, `sonar:up` automatically passes the ignored legacy local administrator settings only to that internal provisioner; if they are stale, it retries the fresh-volume default. The scanner never reads those settings or an inherited `SONAR_TOKEN`.
 
 ```mermaid
 sequenceDiagram
     participant Dev as Developer
     participant Sonar as SonarQube Service
     Dev->>Sonar: bun run gate:full
-    Note over Sonar: Start after coverage and provision anonymous analysis
+    Note over Sonar: Start or reuse after coverage; provision anonymous analysis and check readiness
     Sonar-->>Dev: Return quality-gate result
-    Note over Sonar: Stop the local service
+    Note over Sonar: Keep running after success or failure
+    opt Developer has finished using Sonar
+        Dev->>Sonar: bun run sonar:stop
+        Note over Sonar: Stop the local service explicitly
+    end
 ```
 
 *Tokenless local SonarQube analysis workflow.*

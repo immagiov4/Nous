@@ -127,7 +127,8 @@ bun run check:eslint-sonar # Cached Sonar-style TS/TSX rules against bulk suppre
 bun run quality:ci    # CI quality checks, including dependency graph validation
 bun run check:fallow  # Static dead-code & duplication analysis (info only)
 bun run gate:full     # Final local merge gate after green CI: checks + coverage + Sonar
-bun run gate:ci       # CI gate: quality + fallow regression + tests
+bun run sonar:stop    # Stop the local Sonar service when finished
+bun run gate:ci       # Shared CI gate: quality:ci + Fallow regression + Bun tests
 bun run fix           # Auto-fix Biome lint, format, and import ordering
 bun run format        # Format all files (Biome)
 bun run test          # Vitest test suite (runs under Bun runtime)
@@ -136,14 +137,7 @@ bun run playtest      # Headless agentic stories; requires NOUS_E2E_DATA, --prov
 
 `check:eslint-sonar` uses `eslint.sonar.config.mjs` and the tracked `eslint-suppressions.json` baseline. After fixing baseline violations, run `bun run check:eslint-sonar --prune-suppressions` and include the reduced baseline with the fix. Regeneration with `bun run check:eslint-sonar --suppress-all` accepts every current violation and requires explicit maintainer approval. After either maintenance command, run `bunx biome format --write eslint-suppressions.json` to restore the required trailing newline. Scope, rule mappings, and suppression semantics are documented in [.cubic/wiki/09-section-tools/02-p-testing-quality.md](.cubic/wiki/09-section-tools/02-p-testing-quality.md).
 
-`doctor` is observational in every profile: it reports `PASS`/`FAIL`/`WARN`/`SKIP` results without
-starting, restarting, configuring, migrating services, or running the test suite. The default
-`checks` profile inspects the service-free environment; `gate` probes Sonar, `local` probes Supabase and migration parity, and `all`
-combines them. `gate:full` runs local quality, the Fallow regression check, and Node coverage one at
-a time after GitHub CI passes on the exact commit. It does not repeat the complete Bun suite or the
-dependency graph check from CI. It starts Sonar only for the final analysis and stops the local
-service afterward, including when startup or analysis throws. It completes every stage that can run
-and exits with failure if any stage fails. The Sonar container has no automatic restart policy.
+`doctor` is observational in every profile: it reports `PASS`/`FAIL`/`WARN`/`SKIP` results without starting, restarting, configuring, migrating services, or running the test suite. The default `checks` profile inspects the service-free environment; `gate` probes Sonar, `local` probes Supabase and migration parity, and `all` combines them. `gate:full` runs the shared `gate:ci` command (CI quality including dependency validation, Fallow, and the complete Bun suite), then Node coverage, one stage at a time after GitHub CI passes on the exact commit. The CI test job uses that same command; a behavior test compares its workflow checks with the scripts actually invoked by the local gate. It starts or reuses Sonar for the final analysis and keeps the local service running afterward, including after a failed scan. Each gate repeats readiness and doctor checks before the same quality gate. Stop the service explicitly with `bun run sonar:stop` when finished. It completes every stage that can run and exits with failure if any stage fails. The Sonar container has no automatic restart policy.
 
 Keep the development loop narrow. Run focused tests and the relevant type or lint checks for the
 changed area. After a pull-request update or a push to `main`, use GitHub CI as the full-suite signal
@@ -153,7 +147,7 @@ resource-constrained Windows host, run only one heavy analysis process at a time
 times out in unrelated tests, rerun those files in isolation before treating them as regressions or
 changing timeout policy.
 
-Coverage requires Node 26 (any 26.x release), the major version pinned in `.node-version`. The command fails before Vitest if PATH resolves to another major. The preflight removes the previous LCOV first, so Sonar cannot consume stale coverage after that failure. Coverage uses four workers and writes only the LCOV report consumed by Sonar. Do not add another complete coverage pass to CI or raise test timeouts to hide local resource contention.
+Coverage requires Node 26 (any 26.x release), the major version pinned in `.node-version`. The command fails before Vitest if PATH resolves to another major. The preflight removes the previous LCOV first, so Sonar cannot consume stale coverage after that failure. Coverage uses the shared Vitest worker limit in `apps/web/vitest.config.ts` and writes only the LCOV report consumed by Sonar. Do not add another complete coverage pass to CI or raise test timeouts to hide local resource contention.
 
 After GitHub CI passes, run `bun run gate:full` once on the same final merge candidate, after
 implementation and review feedback are complete. A mid-cycle full gate is reserved for a large or

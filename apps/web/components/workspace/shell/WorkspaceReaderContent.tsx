@@ -922,6 +922,8 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   activeExercise,
   exercisePrerequisiteGaps = [],
   activeSectionTitle,
+  activeSectionId,
+  activeSectionGenerationRunId,
   activeSectionAssetsById,
   activeSectionGeneratedVisualsById = {},
   activeSectionImageRefsById,
@@ -1240,7 +1242,13 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                     </button>
                   </div>
                 ) : null}
-                <div className="space-y-2" data-nous-lesson-content-root="true">
+                <div
+                  className="space-y-2"
+                  data-nous-lesson-content-root="true"
+                  data-nous-project-id={projectId}
+                  data-nous-section-id={activeSectionId}
+                  data-nous-generation-run-id={activeSectionGenerationRunId}
+                >
                   {hasTypedContent
                     ? typedContentBlocks.map((block, blockIndex) => {
                         if (block.type === 'markdown') {

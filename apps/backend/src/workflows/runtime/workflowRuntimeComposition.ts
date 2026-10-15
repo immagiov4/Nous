@@ -220,6 +220,9 @@ export interface CreateWorkflowRuntimeCompositionOptions {
   readonly courseGenerationApi?: CourseGenerationApi;
   readonly courseInterviewApi?: CourseInterviewApi;
   readonly lessonGenerationApi?: LessonGenerationApi;
+  readonly resolveLessonModels?: Parameters<
+    typeof createLessonGenerationStarter
+  >[0]['resolveModels'];
   readonly lessonPlaybackApi?: LessonPlaybackApi;
   readonly lessonVisualRetryStarter?: LessonVisualRetryStarter;
   readonly pdfMappingRepairApi?: PdfMappingRepairApi;
@@ -712,7 +715,7 @@ export const createWorkflowRuntimeComposition = (
             starter: createLessonGenerationStarter({
               registry,
               publishTransientEvent,
-              resolveModels: getResolvedModelConfigForProvider,
+              resolveModels: options.resolveLessonModels ?? getResolvedModelConfigForProvider,
               store: productionStore,
             }),
           })

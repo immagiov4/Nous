@@ -209,6 +209,8 @@ export interface WorkspaceReaderContentModel {
   activeExercise?: ApplicationExerciseNode | null;
   exercisePrerequisiteGaps?: Array<{ id: string; title: string }>;
   activeSectionTitle?: string | null;
+  activeSectionId?: string;
+  activeSectionGenerationRunId?: string;
   activeSectionAssetsById: Record<string, PdfDocumentImageAsset>;
   activeSectionGeneratedVisualsById?: Record<string, StoredLessonVisual>;
   activeSectionImageRefsById: Record<string, LessonImageRef>;

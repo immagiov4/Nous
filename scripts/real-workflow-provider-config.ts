@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util';
 import * as z from 'zod';
 import {
+  type GlobalModelConfig,
   getResolvedGlobalModelConfig,
   patchGlobalModelConfig,
 } from '../apps/backend/src/config/modelConfig.js';
@@ -70,18 +71,23 @@ export const configureWorkflowProviderModels = async (provider: WorkflowProvider
     aiProviderOverrides: {},
   });
   if (provider === 'codex') return codex;
-  return patchGlobalModelConfig({
-    aiProvider: provider,
-    courseModel: OPENROUTER_WORKFLOW_MODELS.text,
-    lessonModel: OPENROUTER_WORKFLOW_MODELS.text,
-    researchModel: OPENROUTER_WORKFLOW_MODELS.text,
-    artifactModel: OPENROUTER_WORKFLOW_MODELS.text,
-    artifactInteractiveModel: OPENROUTER_WORKFLOW_MODELS.text,
-    sceneModel: OPENROUTER_WORKFLOW_MODELS.scene,
-    sceneIconModel: OPENROUTER_WORKFLOW_MODELS.scene,
-    assessmentModel: OPENROUTER_WORKFLOW_MODELS.text,
-    contextModel: OPENROUTER_WORKFLOW_MODELS.text,
-    progressModel: OPENROUTER_WORKFLOW_MODELS.text,
-    playbackPreparationModel: OPENROUTER_WORKFLOW_MODELS.scene,
-  });
+  return patchGlobalModelConfig(selectOpenRouterWorkflowModels(original));
 };
+
+/** Select small workflow models without changing live application settings. */
+export const selectOpenRouterWorkflowModels = (original: GlobalModelConfig): GlobalModelConfig => ({
+  ...original,
+  aiProvider: 'openrouter',
+  aiProviderOverrides: {},
+  courseModel: OPENROUTER_WORKFLOW_MODELS.text,
+  lessonModel: OPENROUTER_WORKFLOW_MODELS.text,
+  researchModel: OPENROUTER_WORKFLOW_MODELS.text,
+  artifactModel: OPENROUTER_WORKFLOW_MODELS.text,
+  artifactInteractiveModel: OPENROUTER_WORKFLOW_MODELS.text,
+  sceneModel: OPENROUTER_WORKFLOW_MODELS.scene,
+  sceneIconModel: OPENROUTER_WORKFLOW_MODELS.scene,
+  assessmentModel: OPENROUTER_WORKFLOW_MODELS.text,
+  contextModel: OPENROUTER_WORKFLOW_MODELS.text,
+  progressModel: OPENROUTER_WORKFLOW_MODELS.text,
+  playbackPreparationModel: OPENROUTER_WORKFLOW_MODELS.scene,
+});
