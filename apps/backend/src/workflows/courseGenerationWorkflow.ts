@@ -28,6 +28,7 @@ import {
   preControlsCourseGenerationStateSchemas,
   preDiagnosticCourseGenerationStateSchemas,
   preRoutingCourseGenerationStateSchemas,
+  preVerificationCriteriaCourseGenerationStateSchemas,
   previousCourseGenerationStateSchemas,
   validateRefinedCoursePlan,
 } from './courseGenerationWorkflowContract.js';
@@ -47,9 +48,9 @@ import { createWorkflowModelDiagnostic } from './workflowErrorDiagnostics.js';
 
 export const COURSE_GENERATION_WORKFLOW_ID = 'course-generation';
 
-export {
-  type CourseGenerationStageContext,
-  type CourseGenerationWorkflowConfig,
+export type {
+  CourseGenerationStageContext,
+  CourseGenerationWorkflowConfig,
 } from './courseGenerationWorkflowContract.js';
 
 export interface CourseGenerationWorkflowServices
@@ -197,7 +198,8 @@ const createCourseGenerationWorkflowDefinition = <
 
   const courseResearch = createCourseResearchNode<Config, Services>(
     schemas,
-    schemas === courseGenerationStateSchemas
+    schemas === courseGenerationStateSchemas ||
+      schemas === preVerificationCriteriaCourseGenerationStateSchemas
   );
 
   const draftCoursePlan = step<
@@ -532,12 +534,14 @@ export const createCourseGenerationWorkflow = <
   Services extends CourseGenerationWorkflowServices = CourseGenerationWorkflowServices,
 >(
   executionDefaults: Config,
-  configSchema: z.ZodType<Config> = CourseGenerationWorkflowConfigSchema as z.ZodType<Config>
+  configSchema: z.ZodType<Config> = CourseGenerationWorkflowConfigSchema as z.ZodType<Config>,
+  schemas = courseGenerationStateSchemas
 ) =>
   createCourseGenerationWorkflowDefinition<Config, Services>(
     executionDefaults,
     configSchema,
-    'current'
+    'current',
+    schemas
   );
 
 export const createPreviousCourseGenerationWorkflow = <
@@ -603,4 +607,15 @@ export const createPreviousRoutingCourseGenerationWorkflow = (
     configSchema,
     'current',
     preRoutingCourseGenerationStateSchemas
+  );
+
+/** Reconstructs definitions deployed before checkable plan refinement conditions. */
+export const createPreviousVerificationCriteriaCourseGenerationWorkflow = (
+  executionDefaults: CourseGenerationWorkflowConfig,
+  configSchema = CourseGenerationWorkflowConfigSchema
+) =>
+  createCourseGenerationWorkflow(
+    executionDefaults,
+    configSchema,
+    preVerificationCriteriaCourseGenerationStateSchemas
   );

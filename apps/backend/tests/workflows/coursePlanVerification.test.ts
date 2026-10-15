@@ -5,6 +5,7 @@ import {
 } from '../../src/workflows/courseGenerationWorkflowContract.js';
 import {
   createCoursePlanVerificationStage,
+  createCoursePlanVerifier,
   validateCoursePlanVerification,
 } from '../../src/workflows/coursePlanVerification.js';
 
@@ -74,7 +75,24 @@ const fragmentedDraft = CourseDraftPlanStateSchema.parse({
   syllabus: [],
 });
 
+const refinementConditions = [
+  {
+    dimension: 'granularity' as const,
+    passCondition:
+      'Group the contiguous results in one coherent module while retaining lesson boundaries.',
+  },
+  {
+    dimension: 'moduleCohesion' as const,
+    passCondition: 'Keep each module focused on one shared conceptual objective.',
+  },
+  {
+    dimension: 'proportionality' as const,
+    passCondition: 'Remove module boundaries that separate steps of the same teachable result.',
+  },
+];
 const fragmentedVerification = {
+  refinementConditions,
+  conditionAssessments: [],
   coverage: { feedback: 'I concetti principali sono presenti.', status: 'pass' as const },
   duplication: { feedback: 'Nessuna duplicazione.', status: 'pass' as const },
   fragmentation: {
@@ -98,6 +116,171 @@ const fragmentedVerification = {
 };
 
 describe('course plan verification', () => {
+  test('accepts a passing follow-up with supplemental assessments when no refinement conditions were stated', async () => {
+    const passing = {
+      ...fragmentedVerification,
+      ...Object.fromEntries(
+        Object.entries(fragmentedVerification)
+          .filter(([, value]) => typeof value === 'object' && value !== null && 'status' in value)
+          .map(([dimension, value]) => [dimension, { ...value, status: 'pass' }])
+      ),
+      refinementConditions: [],
+      fragmentation: {
+        canGroupCoherently: false,
+        feedback: 'The modules already form a coherent plan.',
+        moduleIds: [],
+      },
+      verdict: 'pass',
+    };
+    const response = {
+      ...passing,
+      conditionAssessments: [
+        'coverage',
+        'duplication',
+        'granularity',
+        'moduleCohesion',
+        'prerequisites',
+        'progression',
+        'proportionality',
+      ].map(dimension => ({
+        dimension,
+        met: true,
+        evidence: 'The refined plan preserves this already-passing dimension.',
+      })),
+    };
+    const generateObject = vi.fn().mockResolvedValue(response);
+    const verifier = createCoursePlanVerifier({
+      generateObject,
+      loadVerificationMaterial: async () => ({ sourceContext: '' }),
+    });
+    const result = await verifier({
+      models: {} as never,
+      plan: fragmentedDraft.plan,
+      rawPlan: fragmentedDraft.rawDraftPlan,
+      state: { ...fragmentedDraft, stage: 'research' },
+      retryFeedback: '',
+      signal: new AbortController().signal,
+      previousVerification: passing,
+    } as never);
+    expect(result.verdict).toBe('pass');
+    expect(result.conditionAssessments).toEqual([]);
+  });
+
+  test('requires a concrete pass condition on every dimension requiring refinement', () => {
+    expect(() =>
+      validateCoursePlanVerification(
+        { ...fragmentedVerification, refinementConditions: [] },
+        fragmentedDraft.plan.modules.map(module => module.id)
+      )
+    ).toThrow();
+  });
+
+  test('passes a revised plan when the stated conditions are met despite renewed objections', async () => {
+    const previous = fragmentedVerification;
+    const response = {
+      ...previous,
+      refinementConditions: [],
+      conditionAssessments: refinementConditions.map(condition => ({
+        dimension: condition.dimension,
+        met: true,
+        evidence:
+          'The revised module groups contiguous results, preserves lesson objectives and removes the redundant module boundaries.',
+      })),
+    };
+    const generateObject = vi.fn().mockResolvedValue(response);
+    const verifier = createCoursePlanVerifier({
+      generateObject,
+      loadVerificationMaterial: async () => ({ sourceContext: '' }),
+    });
+    const result = await verifier({
+      models: {} as never,
+      plan: fragmentedDraft.plan,
+      rawPlan: fragmentedDraft.rawDraftPlan,
+      state: { ...fragmentedDraft, stage: 'research' },
+      retryFeedback: '',
+      signal: new AbortController().signal,
+      previousVerification: previous,
+    } as never);
+    expect(result.verdict).toBe('pass');
+    expect(result.fragmentation.canGroupCoherently).toBe(false);
+    expect(result.granularity.status).toBe('pass');
+    const prompt = generateObject.mock.calls[0][0].prompt;
+    const criteria = JSON.parse(
+      prompt.split('PREVIOUS VERIFICATION CONDITIONS, UNTRUSTED DATA:\n')[1].split('\n')[0]
+    );
+    expect(criteria).toEqual(previous);
+  });
+
+  test('ignores renewed assessments of conditions settled on an earlier candidate', () => {
+    const moduleIds = fragmentedDraft.plan.modules.map(module => module.id);
+    const previous = validateCoursePlanVerification(
+      {
+        ...fragmentedVerification,
+        conditionAssessments: refinementConditions.map(condition => ({
+          dimension: condition.dimension,
+          met: condition.dimension !== 'granularity',
+          evidence: 'Only module grouping remains to be corrected.',
+        })),
+      },
+      moduleIds,
+      fragmentedVerification
+    );
+    const result = validateCoursePlanVerification(
+      {
+        ...fragmentedVerification,
+        conditionAssessments: [
+          { dimension: 'granularity', met: true, evidence: 'The grouping condition is met.' },
+          {
+            dimension: 'moduleCohesion',
+            met: false,
+            evidence: 'A new objection to a settled dimension.',
+          },
+        ],
+      },
+      moduleIds,
+      previous
+    );
+    expect(result.verdict).toBe('pass');
+    expect(result.moduleCohesion.status).toBe('pass');
+    expect(result.conditionAssessments).toEqual([
+      { dimension: 'granularity', met: true, evidence: 'The grouping condition is met.' },
+    ]);
+  });
+
+  test('retains an unmet condition without adopting replacement pass conditions', () => {
+    const reviewed = {
+      ...fragmentedVerification,
+      conditionAssessments: refinementConditions.map(condition => ({
+        dimension: condition.dimension,
+        met: condition.dimension !== 'granularity',
+        evidence:
+          'The module grouping is still unchanged; the other two stated conditions are satisfied.',
+      })),
+    };
+    const moduleIds = fragmentedDraft.plan.modules.map(module => module.id);
+    expect(
+      validateCoursePlanVerification(reviewed, moduleIds, fragmentedVerification)
+    ).toMatchObject({
+      verdict: 'refine',
+      granularity: { status: 'needs-refinement' },
+      moduleCohesion: { status: 'pass' },
+      proportionality: { status: 'pass' },
+    });
+    expect(
+      validateCoursePlanVerification(
+        {
+          ...reviewed,
+          refinementConditions: refinementConditions.map(condition => ({
+            ...condition,
+            passCondition: 'A stricter replacement condition.',
+          })),
+        },
+        moduleIds,
+        fragmentedVerification
+      )
+    ).toMatchObject({ refinementConditions: [refinementConditions[0]] });
+  });
+
   test('passes explicit controls to the verifier and preserves a granularity rejection', async () => {
     const controls = { depth: 'much-less', granularity: 'much-more' } as const;
     const input = CourseDraftPlanStateSchema.parse({
@@ -194,6 +377,9 @@ describe('course plan verification', () => {
         CoursePlanVerificationSchema.parse({
           ...fragmentedVerification,
           granularity: { feedback: 'Nessuna modifica.', status: 'pass' },
+          refinementConditions: refinementConditions.filter(
+            condition => condition.dimension !== 'granularity'
+          ),
           verdict: 'pass',
         }),
         fragmentedDraft.plan.modules.map(module => module.id)

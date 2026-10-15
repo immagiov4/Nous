@@ -32,6 +32,11 @@ import {
   type CourseResearchState,
   CourseResearchStateSchema,
 } from './courseGenerationWorkflowContract.js';
+import { COURSE_PLAN_REFINEMENT_INSTRUCTIONS } from './coursePlanCriteria.js';
+import {
+  preserveCoursePlanRefinementFeedback,
+  resumeCoursePlanRefinementInput,
+} from './coursePlanRefinementFeedback.js';
 import { buildPriorKnowledgeInstructions } from './priorKnowledgePlanningInstructions.js';
 import { retryCorrective } from './retryPolicy.js';
 
@@ -196,7 +201,7 @@ ${formatSourceArchiveIndex(index, {
   previewBudgetChars: ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
 })}
 ${draft ? `\nPLAN TO REFINE:\n${JSON.stringify(draft)}` : ''}
-${verification ? `\nSTRUCTURAL REVIEW TO APPLY:\n${JSON.stringify(verification)}` : ''}
+${verification ? `\nSTRUCTURAL REVIEW TO APPLY:\n${JSON.stringify(verification)}\n${COURSE_PLAN_REFINEMENT_INSTRUCTIONS}` : ''}
 ${retryFeedback ? `\nREQUIRED CORRECTION:\n${retryFeedback}` : ''}
 
 RULES:
@@ -264,40 +269,47 @@ export const createCourseArchivePlanningStages = ({
     return buildCourseDraftPlanState(generated.rawPlan, generated.state, now());
   },
   refineCoursePlan: async context => {
-    if (!context.providerEffect) throw new Error('Provider effect persistence is required.');
-    const effectKeys = getCoursePlanRefinementProviderEffectKeys(
-      context.retryFeedbackSourceAttemptNumber
-    );
-    const generated = await context.providerEffect.run({
-      key: effectKeys.generation,
-      operation: () => generateArchivePlan({ context, generateObject, openArchive }),
-      outputSchema: CourseArchivePlanGenerationResultSchema,
+    const providerEffect = context.providerEffect;
+    if (!providerEffect) throw new Error('Provider effect persistence is required.');
+    const refinementInput = resumeCoursePlanRefinementInput(context.input, context.retryFeedback);
+    const refinementContext = { ...context, input: refinementInput };
+    return preserveCoursePlanRefinementFeedback(refinementInput, async () => {
+      const effectKeys = getCoursePlanRefinementProviderEffectKeys(
+        context.retryFeedbackSourceAttemptNumber
+      );
+      const generated = await providerEffect.run({
+        key: effectKeys.generation,
+        operation: () =>
+          generateArchivePlan({ context: refinementContext, generateObject, openArchive }),
+        outputSchema: CourseArchivePlanGenerationResultSchema,
+      });
+      const generatedAt = now();
+      const refinedPlan = buildCoursePlanOutput(generated.rawPlan, generated.state, generatedAt);
+      const verification = await providerEffect.run({
+        key: effectKeys.verification,
+        operation: () =>
+          verifyRefinedPlan({
+            models: context.config.models,
+            plan: refinedPlan.plan,
+            rawPlan: generated.rawPlan,
+            retryFeedback: context.retryFeedback,
+            previousVerification: refinementInput.verification,
+            signal: context.signal,
+            state: generated.state,
+          }),
+        outputSchema: CoursePlanVerificationSchema,
+      });
+      const refinedVerification = requirePassingRefinedVerification({
+        plan: refinedPlan.plan,
+        rawPlan: generated.rawPlan,
+        verification,
+      });
+      return buildCourseRefinedPlanState(
+        generated.rawPlan,
+        context.input,
+        refinedVerification,
+        generatedAt
+      );
     });
-    const generatedAt = now();
-    const refinedPlan = buildCoursePlanOutput(generated.rawPlan, generated.state, generatedAt);
-    const verification = await context.providerEffect.run({
-      key: effectKeys.verification,
-      operation: () =>
-        verifyRefinedPlan({
-          models: context.config.models,
-          plan: refinedPlan.plan,
-          rawPlan: generated.rawPlan,
-          retryFeedback: context.retryFeedback,
-          signal: context.signal,
-          state: generated.state,
-        }),
-      outputSchema: CoursePlanVerificationSchema,
-    });
-    const refinedVerification = requirePassingRefinedVerification({
-      plan: refinedPlan.plan,
-      rawPlan: generated.rawPlan,
-      verification,
-    });
-    return buildCourseRefinedPlanState(
-      generated.rawPlan,
-      context.input,
-      refinedVerification,
-      generatedAt
-    );
   },
 });

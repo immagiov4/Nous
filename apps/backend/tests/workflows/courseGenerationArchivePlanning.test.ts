@@ -11,6 +11,8 @@ import {
   CourseResearchStateSchema,
   validateRefinedCoursePlan,
 } from '../../src/workflows/courseGenerationWorkflowContract.js';
+import { createCoursePlanVerifier } from '../../src/workflows/coursePlanVerification.js';
+import { WorkflowStepError } from '../../src/workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../src/workflows/types.js';
 
 const immediateProviderEffect: WorkflowProviderEffectExecutor = {
@@ -115,6 +117,8 @@ const stageContext = (input: typeof researchState) => ({
 });
 
 const verification = {
+  refinementConditions: [],
+  conditionAssessments: [],
   coverage: { feedback: 'Copertura adeguata.', status: 'pass' as const },
   duplication: { feedback: 'Nessuna duplicazione.', status: 'pass' as const },
   fragmentation: {
@@ -182,6 +186,63 @@ describe('course archive planning', () => {
     );
   });
 
+  test('carries closed conditions and archive selectors into the next refinement', async () => {
+    const initialVerification = {
+      ...verification,
+      refinementConditions: [
+        { dimension: 'granularity' as const, passCondition: 'Name one bootstrap responsibility.' },
+        { dimension: 'prerequisites' as const, passCondition: 'Declare TypeScript knowledge.' },
+      ],
+      granularity: { status: 'needs-refinement' as const, feedback: 'Narrow the scope.' },
+      prerequisites: { status: 'needs-refinement' as const, feedback: 'Declare entry knowledge.' },
+      verdict: 'refine' as const,
+    };
+    const reviewModel = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...verification,
+        verdict: 'refine',
+        conditionAssessments: [
+          { dimension: 'granularity', met: false, evidence: 'Two responsibilities remain.' },
+          { dimension: 'prerequisites', met: true, evidence: 'TypeScript is declared.' },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ...verification,
+        conditionAssessments: [
+          { dimension: 'granularity', met: true, evidence: 'Bootstrap responsibility is named.' },
+        ],
+      });
+    const stages = createCourseArchivePlanningStages({
+      generateObject: vi.fn().mockResolvedValue(rawArchivePlan()) as never,
+      openArchive: async () => createArchive(),
+      verifyRefinedPlan: createCoursePlanVerifier({
+        generateObject: reviewModel as never,
+        loadVerificationMaterial: async () => ({ sourceContext: '' }),
+      }),
+    });
+    const draft = await stages.draftCoursePlan(stageContext(researchState));
+    const input = CoursePlanVerificationStateSchema.parse({
+      ...draft,
+      stage: 'plan-verification',
+      verification: initialVerification,
+    });
+    const context = { ...stageContext(researchState), input };
+    const failure = await stages.refineCoursePlan(context).catch(error => error);
+    expect(failure).toBeInstanceOf(WorkflowStepError);
+    const result = await stages.refineCoursePlan({
+      ...context,
+      attemptNumber: 2,
+      retryFeedback: (failure as WorkflowStepError).failure.feedback ?? '',
+      retryFeedbackSourceAttemptNumber: 1,
+    });
+    expect(result.refinedVerification.verdict).toBe('pass');
+    expect(result.refinedVerification.prerequisites.status).toBe('pass');
+    expect(result.rawRefinedPlan.modules[0].lessons[0].sourceArchiveSelectors).toEqual([
+      { kind: 'file', path: 'src/index.ts' },
+    ]);
+  });
+
   test('refines the durable draft without invoking the draft stage again', async () => {
     const archive = createArchive();
     const generateObject = vi.fn(async () => rawArchivePlan());
@@ -228,7 +289,7 @@ describe('course archive planning', () => {
     expect(generateObject).toHaveBeenCalledTimes(2);
     expect(requestedKeys).toEqual([
       'generate-refined-plan:correction:1',
-      'verify-refined-plan:correction:1',
+      'verify-refined-plan:criteria-v1:correction:1',
     ]);
   });
 });

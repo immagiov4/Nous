@@ -42,6 +42,7 @@ import {
   createPreviousDiagnosticCourseGenerationWorkflow,
   createPreviousPreferencesCourseGenerationWorkflow,
   createPreviousRoutingCourseGenerationWorkflow,
+  createPreviousVerificationCriteriaCourseGenerationWorkflow,
 } from '../courseGenerationWorkflow.js';
 import {
   courseGenerationStateSchemas,
@@ -481,7 +482,15 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: courseWorkflow,
     previous: [
-      createCourseGenerationWorkflow(historicalGenerationDefaults, historicalModelConfigSchema),
+      createPreviousVerificationCriteriaCourseGenerationWorkflow({
+        maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+        models,
+        timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+      }),
+      createPreviousVerificationCriteriaCourseGenerationWorkflow(
+        historicalGenerationDefaults,
+        historicalModelConfigSchema
+      ),
       previousRoutingCourseWorkflow,
       previousDiagnosticCourseWorkflow,
       previousControlsCourseWorkflow,

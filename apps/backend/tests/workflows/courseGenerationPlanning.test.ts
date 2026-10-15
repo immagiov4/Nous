@@ -9,6 +9,7 @@ import {
   requirePassingRefinedVerification,
 } from '../../src/workflows/courseGenerationPlanning.js';
 import { CoursePlanVerificationStateSchema } from '../../src/workflows/courseGenerationWorkflowContract.js';
+import { createCoursePlanVerifier } from '../../src/workflows/coursePlanVerification.js';
 import { WorkflowStepError } from '../../src/workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../src/workflows/types.js';
 
@@ -107,6 +108,8 @@ const rawPlan = (sourceUrls: string[] = [youtubeUrl, webUrl]) => ({
 });
 
 const verification = {
+  refinementConditions: [],
+  conditionAssessments: [],
   coverage: { feedback: 'Copertura adeguata.', status: 'pass' as const },
   duplication: { feedback: 'Nessuna duplicazione.', status: 'pass' as const },
   fragmentation: {
@@ -321,6 +324,9 @@ describe('course generation planning', () => {
     expect(refined.plan).toEqual(draft.plan);
     expect(refined.verification).toEqual(verification);
     expect(verifyRefinedPlan).toHaveBeenCalledOnce();
+    expect(verifyRefinedPlan.mock.calls[0]?.[0].previousVerification).toEqual(
+      verified.verification
+    );
     expect(refined.refinedPlan.plan.summary).toBe(refinedGeneratedPlan.summary);
     expect(refined.refinedVerification).toEqual(verification);
     expect(refined.rawRefinedPlan).toEqual(refinedGeneratedPlan);
@@ -346,6 +352,12 @@ describe('course generation planning', () => {
     const rejectedVerification = {
       ...verification,
       granularity: { feedback: 'La struttura resta frammentata.', status: 'needs-refinement' },
+      refinementConditions: [
+        {
+          dimension: 'granularity' as const,
+          passCondition: 'Group the contiguous results in one coherent module.',
+        },
+      ],
       verdict: 'refine' as const,
     };
     let thrown: unknown;
@@ -379,10 +391,96 @@ describe('course generation planning', () => {
     });
   });
 
+  test.each([
+    false,
+    true,
+  ])('closes satisfied conditions across corrective refinement attempts with an invalid review: %s', async invalidReview => {
+    const initialVerification = {
+      ...verification,
+      granularity: { status: 'needs-refinement' as const, feedback: 'Narrow the activity scope.' },
+      prerequisites: { status: 'needs-refinement' as const, feedback: 'Declare entry knowledge.' },
+      refinementConditions: [
+        { dimension: 'granularity' as const, passCondition: 'Name one core activity.' },
+        { dimension: 'prerequisites' as const, passCondition: 'Declare IP network knowledge.' },
+      ],
+      verdict: 'refine' as const,
+    };
+    const reviewModel = vi.fn().mockResolvedValueOnce({
+      ...verification,
+      verdict: 'refine',
+      conditionAssessments: [
+        { dimension: 'granularity', met: false, evidence: 'The activity remains broad.' },
+        { dimension: 'prerequisites', met: true, evidence: 'IP networks are declared.' },
+      ],
+    });
+    if (invalidReview) reviewModel.mockResolvedValueOnce(verification);
+    reviewModel.mockResolvedValueOnce({
+      ...verification,
+      conditionAssessments: [
+        { dimension: 'granularity', met: true, evidence: 'One core activity is named.' },
+      ],
+    });
+    const stages = createCoursePlanningStages({
+      generateObject: vi.fn().mockResolvedValue(rawPlan()) as never,
+      readSourceMaterials: vi.fn().mockResolvedValue([]),
+      verifyRefinedPlan: createCoursePlanVerifier({
+        generateObject: reviewModel as never,
+        loadVerificationMaterial: async () => ({ sourceContext: '' }),
+      }),
+    });
+    const input = CoursePlanVerificationStateSchema.parse({
+      ...buildCourseDraftPlanState(rawPlan(), researchState, '2026-07-30T09:00:00.000Z'),
+      stage: 'plan-verification',
+      verification: initialVerification,
+    });
+    const context = {
+      config: { models: {} as never } as never,
+      execution: { nodeInstanceId: 'refine-course-plan', runId: 'run-1' },
+      idempotencyKey: 'refine-key',
+      input,
+      providerEffect: immediateProviderEffect,
+      signal: new AbortController().signal,
+    };
+    let failure = await stages
+      .refineCoursePlan({
+        ...context,
+        attemptNumber: 1,
+        retryFeedback: '',
+      })
+      .catch(error => error);
+    expect(failure).toBeInstanceOf(WorkflowStepError);
+    if (invalidReview) {
+      failure = await stages
+        .refineCoursePlan({
+          ...context,
+          attemptNumber: 2,
+          retryFeedback: (failure as WorkflowStepError).failure.feedback ?? '',
+          retryFeedbackSourceAttemptNumber: 1,
+        })
+        .catch(error => error);
+      expect((failure as WorkflowStepError).failure.code).toBe('course_plan_verification_invalid');
+    }
+    const result = await stages.refineCoursePlan({
+      ...context,
+      attemptNumber: invalidReview ? 3 : 2,
+      retryFeedback: (failure as WorkflowStepError).failure.feedback ?? '',
+      retryFeedbackSourceAttemptNumber: invalidReview ? 2 : 1,
+    });
+    expect(result.refinedVerification.verdict).toBe('pass');
+    expect(result.refinedVerification.prerequisites.status).toBe('pass');
+    expect(reviewModel).toHaveBeenCalledTimes(invalidReview ? 3 : 2);
+  });
+
   test('persists provider effects per corrective refinement while replaying operational retries', async () => {
     const rejectedVerification = {
       ...verification,
       coverage: { feedback: 'Manca un concetto richiesto.', status: 'needs-refinement' as const },
+      refinementConditions: [
+        {
+          dimension: 'coverage' as const,
+          passCondition: 'Include the missing required concept in a lesson objective.',
+        },
+      ],
       verdict: 'refine' as const,
     };
     const correctedRawPlan = {
@@ -450,13 +548,13 @@ describe('course generation planning', () => {
     expect(verifyRefinedPlan).toHaveBeenCalledTimes(2);
     expect(requestedKeys).toEqual([
       'generate-refined-plan',
-      'verify-refined-plan',
+      'verify-refined-plan:criteria-v1',
       'generate-refined-plan',
-      'verify-refined-plan',
+      'verify-refined-plan:criteria-v1',
       'generate-refined-plan:correction:1',
-      'verify-refined-plan:correction:1',
+      'verify-refined-plan:criteria-v1:correction:1',
       'generate-refined-plan:correction:1',
-      'verify-refined-plan:correction:1',
+      'verify-refined-plan:criteria-v1:correction:1',
     ]);
   });
 
