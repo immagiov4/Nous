@@ -238,16 +238,31 @@ export const resolveLessonEvidence = (
 };
 
 /** Share primary provenance across consecutive units while preserving citation indices and text. */
-export const buildLessonEvidencePromptPassages = (packet: LessonEvidencePacket) =>
-  packet.passages.map(({ units, ...passage }) => {
+export const buildLessonEvidencePromptPassages = (
+  packet: LessonEvidencePacket,
+  input?: Pick<LessonGenerationInput, 'researchContext'>
+) => {
+  // Attribution is prompt metadata, keeping persisted evidence hashes and unit indices stable.
+  const dossier = input?.researchContext ? JSON.parse(input.researchContext) : null;
+  const attributedSources = z
+    .array(
+      z.object({
+        title: z.string(),
+        url: z.string().optional(),
+        sourceId: z.string().optional(),
+        note: z.string().optional(),
+      })
+    )
+    .safeParse(dossier?.sources);
+  return packet.passages.map(({ units, ...passage }) => {
     const primarySources: Array<{
       source: LessonPrimarySourceIdentity;
       firstUnit: number;
       lastUnit: number;
     }> = [];
     const promptUnits = units.map(({ source, ...unit }, index) => {
+      const unitIndex = passage.firstUnit + index;
       if (source) {
-        const unitIndex = passage.firstUnit + index;
         const previous = primarySources.at(-1);
         if (
           previous?.lastUnit === unitIndex - 1 &&
@@ -258,14 +273,25 @@ export const buildLessonEvidencePromptPassages = (packet: LessonEvidencePacket) 
           primarySources.push({ source, firstUnit: unitIndex, lastUnit: unitIndex });
         }
       }
-      return unit;
+      return { ...unit, unitIndex };
     });
-    return { ...passage, primarySources, units: promptUnits };
+    return {
+      ...passage,
+      ...(passage.kind === 'research' && attributedSources.success
+        ? { attributedSources: attributedSources.data }
+        : {}),
+      primarySources,
+      units: promptUnits,
+    };
   });
+};
 
-export const formatLessonEvidence = (packet: LessonEvidencePacket): string =>
+export const formatLessonEvidence = (
+  packet: LessonEvidencePacket,
+  input?: Pick<LessonGenerationInput, 'researchContext'>
+): string =>
   JSON.stringify(
-    buildLessonEvidencePromptPassages(packet).map(({ units, ...passage }) =>
+    buildLessonEvidencePromptPassages(packet, input).map(({ units, ...passage }) =>
       units.some(unit => unit.startSeconds !== undefined || unit.endSeconds !== undefined)
         ? {
             ...passage,
