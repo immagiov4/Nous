@@ -1,7 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
-
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import {
   buildLessonEvidenceMaterials,
@@ -23,6 +22,7 @@ import { buildResearchDossier } from '../../src/services/lessonGenerationResearc
 import type { LessonGenerationInput } from '../../src/services/lessonGenerationTypes.js';
 import { encodeLessonPrimarySources } from '../../src/services/lessonPrimarySourceContext.js';
 import { resolveLessonVisualModelConfig } from '../../src/services/lessonVisualModelConfig.js';
+import { buildSha256HexDigest } from '../../src/utils/hash.js';
 import { createLessonNormalizationStage } from '../../src/workflows/lessonGenerationNormalizationStage.js';
 import { createLessonPersistenceStage } from '../../src/workflows/lessonGenerationPersistence.js';
 import { createLessonGenerationStageServices } from '../../src/workflows/lessonGenerationStageServices.js';
@@ -33,6 +33,7 @@ import {
   LessonReviewedStateSchema,
   LessonSourcesStateSchema,
 } from '../../src/workflows/lessonGenerationWorkflowContract.js';
+import { canonicalJson } from '../../src/workflows/schemaFingerprint.js';
 import { toWorkflowErrorDiagnostic } from '../../src/workflows/workflowErrorDiagnostics.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
 import {
@@ -155,10 +156,12 @@ const generationInput = (): LessonGenerationInput => ({
 
 const reference = { materialId: 'primary', firstUnit: 0, lastUnit: 3 };
 const demoReference = { materialId: 'source-2', firstUnit: 1, lastUnit: 3 };
+const fixtureBlockId = (index: number) =>
+  `${buildSha256HexDigest(Buffer.from(canonicalJson(evidenceLesson.contentBlocks[index])))}:0`;
 const factualReport = (supported: boolean) => ({
   blocks: [
     {
-      blockId: null as string | null,
+      blockId: fixtureBlockId(0) as string | null,
       noFactualClaimsReason: '',
       assessments: [
         {
@@ -170,7 +173,7 @@ const factualReport = (supported: boolean) => ({
       ],
     },
     {
-      blockId: null as string | null,
+      blockId: fixtureBlockId(1) as string | null,
       noFactualClaimsReason: '',
       assessments: [
         {
@@ -182,7 +185,7 @@ const factualReport = (supported: boolean) => ({
       ],
     },
     {
-      blockId: null as string | null,
+      blockId: fixtureBlockId(2) as string | null,
       noFactualClaimsReason: '',
       assessments: [
         {
@@ -197,7 +200,7 @@ const factualReport = (supported: boolean) => ({
       ],
     },
     {
-      blockId: null as string | null,
+      blockId: fixtureBlockId(3) as string | null,
       noFactualClaimsReason: '',
       assessments: [
         {
@@ -347,6 +350,59 @@ describe('role-specific lesson evidence through the production Luna model path',
     report.blocks[3].assessments[0].status = 'supported';
     report.blocks[3].assessments[0].evidence = [reference];
     runCodexAppServerTurn.mockResolvedValueOnce(JSON.stringify(report));
+    await expect(verifyLessonEvidence(input, evidenceLesson)).rejects.toMatchObject({
+      code: 'lesson_factual_review_invalid',
+    });
+  });
+
+  test.each([
+    'omitted',
+    'duplicated',
+    'shortened',
+    'unknown',
+    'null',
+    'extra',
+    'claim-free',
+  ])('rejects a successful factual report with %s block coverage', async variant => {
+    const input = generationInput();
+    input.evidencePacket = await selectLessonEvidence(input);
+    runCodexAppServerTurn.mockImplementation(async request => {
+      const { draft } = JSON.parse(request.input[0].text);
+      const report = factualReport(true);
+      report.blocks.forEach((block, index) => {
+        block.blockId = draft.contentBlocks[index].blockId;
+      });
+      if (variant === 'omitted' || variant === 'claim-free') report.blocks.pop();
+      if (variant === 'duplicated') report.blocks[3] = structuredClone(report.blocks[0]);
+      if (variant === 'shortened')
+        report.blocks[3].blockId = report.blocks[3].blockId?.slice(0, 12) ?? null;
+      if (variant === 'unknown') report.blocks[3].blockId = 'unknown-block';
+      if (variant === 'null') report.blocks[3].blockId = null;
+      if (variant === 'extra') report.blocks.push(structuredClone(report.blocks[0]));
+      if (variant === 'claim-free')
+        for (const block of report.blocks) {
+          block.assessments = [];
+          block.noFactualClaimsReason = 'This block asks a reflective question.';
+        }
+      return JSON.stringify(report);
+    });
+    await expect(verifyLessonEvidence(input, evidenceLesson)).rejects.toMatchObject({
+      code: 'lesson_factual_review_invalid',
+    });
+  });
+
+  test('accepts complete factual coverage regardless of response order', async () => {
+    const input = generationInput();
+    input.evidencePacket = await selectLessonEvidence(input);
+    runCodexAppServerTurn.mockImplementation(async request => {
+      const { draft } = JSON.parse(request.input[0].text);
+      const report = factualReport(true);
+      report.blocks.forEach((block, index) => {
+        block.blockId = draft.contentBlocks[index].blockId;
+      });
+      report.blocks.reverse();
+      return JSON.stringify(report);
+    });
     await expect(verifyLessonEvidence(input, evidenceLesson)).resolves.toBeUndefined();
   });
 
@@ -498,7 +554,7 @@ describe('role-specific lesson evidence through the production Luna model path',
       JSON.stringify({
         blocks: [
           {
-            blockId: null as string | null,
+            blockId: `${buildSha256HexDigest(Buffer.from(canonicalJson(draft.contentBlocks[0])))}:0`,
             noFactualClaimsReason: '',
             assessments: [
               {
