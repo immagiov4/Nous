@@ -13,8 +13,7 @@ export type GateStageResult = GateStage & {
 type RunGateStage = (stage: GateStage) => Promise<GateStageResult>;
 
 const CHECK_GATE_STAGES: GateStage[] = [
-  { label: 'Type and lint quality', script: 'quality' },
-  { label: 'Fallow regression check', script: 'check:fallow:ci' },
+  { label: 'CI quality, dependency, Fallow, and Bun tests', script: 'gate:ci' },
 ];
 
 const COVERAGE_STAGE: GateStage = {
@@ -35,11 +34,6 @@ const SONAR_START_STAGE: GateStage = {
 const SONAR_PREFLIGHT_STAGE: GateStage = {
   label: 'Runtime and Sonar preflight',
   script: 'doctor:gate',
-};
-
-const SONAR_STOP_STAGE: GateStage = {
-  label: 'Stop local Sonar',
-  script: 'sonar:stop',
 };
 
 const formatDuration = (durationMs: number): string => `${(durationMs / 1_000).toFixed(3)}s`;
@@ -94,17 +88,12 @@ export const executeFullQualityGate = async (
 
   const results: GateStageResult[] = [];
   for (const stage of CHECK_GATE_STAGES) results.push(await runStageSafely(stage));
-  const coverageResult = await runStageSafely(COVERAGE_STAGE);
-  results.push(coverageResult);
-  try {
-    results.push(
-      await runStageSafely(SONAR_START_STAGE),
-      await runStageSafely(SONAR_PREFLIGHT_STAGE),
-      await runStageSafely(SONAR_STAGE)
-    );
-  } finally {
-    results.push(await runStageSafely(SONAR_STOP_STAGE));
-  }
+  results.push(
+    await runStageSafely(COVERAGE_STAGE),
+    await runStageSafely(SONAR_START_STAGE),
+    await runStageSafely(SONAR_PREFLIGHT_STAGE),
+    await runStageSafely(SONAR_STAGE)
+  );
   return results;
 };
 

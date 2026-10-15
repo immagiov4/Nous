@@ -752,7 +752,7 @@ describe('Nous adapter', () => {
     ).rejects.toThrow('missing');
     await expect(
       prepare({ ...story, requires: { freshness: 'current' } }, 'desktop', status)
-    ).rejects.toThrow('Unsupported');
+    ).rejects.toThrow('explicit fixture course and lesson ID');
   });
 
   it('passes only the family matrix to the inspector', async () => {

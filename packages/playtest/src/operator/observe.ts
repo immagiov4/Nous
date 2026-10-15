@@ -20,6 +20,7 @@ export type Observation = {
   url: string;
   screenshotPath: string;
   nodes: VisibleNode[];
+  inspectionEligible?: boolean;
   diagnostics?: { capture: { unstable: true } };
 };
 
@@ -73,7 +74,15 @@ export function initializeCaptureCounter(): void {
 }
 
 /** Runs in the page: text is checked at glyph rectangles rather than trusting ancestor names. */
-function visibleSnapshot({ secrets, prefix }: { secrets: string[]; prefix: string }) {
+function visibleSnapshot({
+  secrets,
+  prefix,
+  inspectionSelector,
+}: {
+  secrets: string[];
+  prefix: string;
+  inspectionSelector?: string;
+}) {
   const scope = globalThis as OperatorWindow;
   if (scope.__playtestOperator?.document !== document) {
     scope.__playtestOperator = {
@@ -266,7 +275,15 @@ function visibleSnapshot({ secrets, prefix }: { secrets: string[]; prefix: strin
       // Attribute names and native values have no text rectangles to verify for clipping or coverage.
       if (!names.has(element)) names.set(element, '');
     }
-    return registeredNodes();
+    const inspectionEligible =
+      inspectionSelector === undefined
+        ? undefined
+        : elements.some(
+            element =>
+              element.matches(inspectionSelector) &&
+              uncoveredPoint(element, element.getBoundingClientRect()) !== undefined
+          );
+    return { nodes: registeredNodes(), inspectionEligible };
   } finally {
     capture?.resume();
   }
@@ -293,11 +310,13 @@ export async function observePage(options: {
   stepIndex: number;
   screenshotPath: string;
   secrets: string[];
+  inspectionSelector?: string;
 }): Promise<Observation> {
   const { page, stepIndex, screenshotPath, secrets } = options;
-  const nodes = await page.evaluate(visibleSnapshot, {
+  const { nodes, inspectionEligible } = await page.evaluate(visibleSnapshot, {
     secrets,
     prefix: randomUUID(),
+    inspectionSelector: options.inspectionSelector,
   });
   const editable = page.locator('input, textarea, [contenteditable]');
   const secretFields = await editable.evaluateAll(
@@ -334,5 +353,11 @@ export async function observePage(options: {
     location.password = '';
     url = location.href;
   }
-  return { stepIndex, url: redact(url, secrets), screenshotPath, nodes };
+  return {
+    stepIndex,
+    url: redact(url, secrets),
+    screenshotPath,
+    nodes,
+    ...(inspectionEligible === undefined ? {} : { inspectionEligible }),
+  };
 }

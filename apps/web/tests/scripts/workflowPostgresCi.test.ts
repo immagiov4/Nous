@@ -61,16 +61,17 @@ describe('workflow PostgreSQL CI contract', () => {
     });
   });
 
-  test('runs only the CI quality, Fallow, browser provisioning, and complete Bun suite commands', () => {
+  test('provisions Chromium before the shared CI quality, Fallow, and complete Bun suite gate', () => {
     const commands = testSteps.flatMap(step => (step.run ? [step.run] : []));
 
     expect(commands).toEqual([
       'bun install --frozen-lockfile',
-      'bun run quality:ci',
-      'bun run check:fallow:ci',
       'bunx playwright install --with-deps chromium',
-      'bun run test',
+      'bun run gate:ci',
     ]);
+    expect(packageScripts['gate:ci']).toBe(
+      'bun run quality:ci && bun run check:fallow:ci && bun run test'
+    );
   });
 
   test('keeps staging credentials on trusted main pushes', () => {

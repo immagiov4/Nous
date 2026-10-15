@@ -30,7 +30,8 @@ interface LessonGenerationStartDependencies {
   readonly publishTransientEvent?: WorkflowTransientEventPublisher;
   readonly resolveModels: (
     aiProvider?: unknown,
-    aiProviderOverrides?: unknown
+    aiProviderOverrides?: unknown,
+    userId?: string
   ) => Promise<GlobalModelConfig>;
   readonly store: WorkflowRunCreator;
 }
@@ -60,7 +61,11 @@ export const createLessonGenerationStarter = (
   dependencies: LessonGenerationStartDependencies
 ): LessonGenerationStarter => ({
   start: async input => {
-    const models = await dependencies.resolveModels(input.aiProvider, input.aiProviderOverrides);
+    const models = await dependencies.resolveModels(
+      input.aiProvider,
+      input.aiProviderOverrides,
+      input.userId
+    );
     const workflowInput = LessonGenerationWorkflowInputSchema.parse(input);
     return startWorkflowRun({
       configOverride: { models, visual: resolveLessonVisualModelConfig(models) },
