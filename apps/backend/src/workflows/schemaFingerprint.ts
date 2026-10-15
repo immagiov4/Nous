@@ -60,14 +60,19 @@ const normalizeCanonicalValue = (value: unknown, path: string): unknown => {
 export const canonicalJson = (value: unknown): string =>
   JSON.stringify(normalizeCanonicalValue(value, 'value'));
 
+interface SchemaNormalization {
+  stack: Set<object>;
+  shapes: WeakMap<object, unknown>;
+}
+
 const normalizeDefinitionValue = (
   value: unknown,
   path: string,
-  stack: Set<object>,
+  context: SchemaNormalization,
   key?: string,
   allowOptional = false
 ): unknown => {
-  if (isZodSchema(value)) return normalizeSchema(value, path, stack, allowOptional);
+  if (isZodSchema(value)) return normalizeSchema(value, path, context, allowOptional);
   if (value instanceof RegExp) return { flags: value.flags, source: value.source };
   if (value === null || typeof value === 'string' || typeof value === 'boolean') {
     return value;
@@ -84,7 +89,7 @@ const normalizeDefinitionValue = (
   }
   if (Array.isArray(value)) {
     const normalized = value.map((entry, index) =>
-      normalizeDefinitionValue(entry, `${path}[${index}]`, stack)
+      normalizeDefinitionValue(entry, `${path}[${index}]`, context)
     );
     return key && ORDER_INDEPENDENT_ARRAY_KEYS.has(key)
       ? normalized.sort((left, right) =>
@@ -101,13 +106,13 @@ const normalizeDefinitionValue = (
       .sort(([left], [right]) => compareCodeUnits(left, right))
       .map(([childKey, child]) => [
         childKey,
-        normalizeDefinitionValue(child, `${path}.${childKey}`, stack, childKey, key === 'shape'),
+        normalizeDefinitionValue(child, `${path}.${childKey}`, context, childKey, key === 'shape'),
       ])
       .filter(([, child]) => child !== undefined)
   );
 };
 
-const normalizeCheck = (value: unknown, path: string, stack: Set<object>): unknown => {
+const normalizeCheck = (value: unknown, path: string, context: SchemaNormalization): unknown => {
   if (!isZodSchema(value)) {
     throw new Error(`Unsupported durable schema at ${path}: unknown check`);
   }
@@ -116,17 +121,18 @@ const normalizeCheck = (value: unknown, path: string, stack: Set<object>): unkno
   if (check === 'custom' || check === 'overwrite') {
     throw new Error(`Unsupported durable schema at ${path}: ${check}`);
   }
-  return normalizeDefinitionValue(definition, path, stack);
+  return normalizeDefinitionValue(definition, path, context);
 };
 
 const normalizeSchema = (
   schema: ZodType & ZodInternals,
   path: string,
-  stack: Set<object>,
+  context: SchemaNormalization,
   allowOptional = false
 ): unknown => {
-  if (stack.has(schema)) throw new Error(`Unsupported durable schema at ${path}: recursive schema`);
-  stack.add(schema);
+  if (context.stack.has(schema))
+    throw new Error(`Unsupported durable schema at ${path}: recursive schema`);
+  context.stack.add(schema);
   try {
     const definition = schema._zod.def;
     const schemaType = String(definition.type);
@@ -142,7 +148,9 @@ const normalizeSchema = (
       throw new Error(`Unsupported durable schema at ${path}: coerce`);
     }
 
-    return Object.fromEntries(
+    const cached = context.shapes.get(schema);
+    if (cached !== undefined) return cached;
+    const shape = Object.fromEntries(
       Object.entries(definition)
         .filter(([key, value]) => key !== 'type' && value !== undefined)
         .sort(([left], [right]) => compareCodeUnits(left, right))
@@ -150,22 +158,25 @@ const normalizeSchema = (
           key,
           key === 'checks' && Array.isArray(value)
             ? value
-                .map((check, index) => normalizeCheck(check, `${path}.checks[${index}]`, stack))
+                .map((check, index) => normalizeCheck(check, `${path}.checks[${index}]`, context))
                 .sort((left, right) => compareCodeUnits(canonicalJson(left), canonicalJson(right)))
-            : normalizeDefinitionValue(value, `${path}.${key}`, stack, key),
+            : normalizeDefinitionValue(value, `${path}.${key}`, context, key),
         ])
         .concat([['type', schemaType]])
         .sort(([left], [right]) => compareCodeUnits(String(left), String(right)))
     );
+    context.shapes.set(schema, shape);
+    return shape;
   } finally {
-    stack.delete(schema);
+    context.stack.delete(schema);
   }
 };
 
+// Reuse shared subtrees only within this traversal; later calls must observe schema mutations.
 export const durableSchemaShape = (schema: ZodType, path = 'schema'): unknown => {
   if (!isZodSchema(schema))
     throw new Error(`Unsupported durable schema at ${path}: invalid schema`);
-  return normalizeSchema(schema, path, new Set());
+  return normalizeSchema(schema, path, { stack: new Set(), shapes: new WeakMap() });
 };
 
 export const schemasMatch = (left: ZodType, right: ZodType): boolean =>

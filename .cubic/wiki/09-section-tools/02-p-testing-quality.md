@@ -93,6 +93,10 @@ The project uses "Fallow" to detect unused files, exports, and dependencies. It 
 
 Sources: [scripts/doctor.ts:6-7](../../../scripts/doctor.ts#L6-L7), [scripts/doctor.ts:162-184](../../../scripts/doctor.ts#L162-L184)
 
+### Build and test toolchain
+
+The frontend uses Vite 8 with Rolldown/Oxc and the matching React plugin 6. Vitest and its V8 coverage provider use the same stable 4.1 release. The build explicitly retains the Vite 6 targets: ES2020, Edge 88, Firefox 78, Chrome 87, and Safari 14. Coverage runs under Node with the shared Vitest worker limit and the existing LCOV and Sonar checks. Registry construction reuses shared schema subtrees within each traversal, preserving validation and observing schema changes on later calls.
+
 ### Quality checks
 
 The local `quality` script runs TypeScript checks, Biome, the React Hooks lint report, and `check:eslint-sonar`. Both CI and the local full gate run `quality:ci` through the shared `gate:ci` command; it adds dependency-cruiser. Fallow separately blocks new dead-code and dependency findings against `.fallow-baselines/regression.json`.
@@ -195,6 +199,10 @@ Freshness and visual availability are separate checks. A fresh lesson may have n
 Product failures such as `lesson_factual_support_failed` block preparation with that code. The harness preserves the outcome and usage without changing lesson verification criteria or prompts.
 
 Sources: [Nous entrypoint](../../../e2e/nous/run.ts), [Run recorder](../../../scripts/run-evidence.ts), [Nous adapter](../../../e2e/nous/adapter.ts), [Stack lifecycle](../../../e2e/nous/stack.ts), [Preparation](../../../e2e/nous/prepare.ts), [Runner](../../../packages/playtest/src/runner.ts).
+
+### Import costs and registry validation
+
+Node-only tests retain matcher registration and mock/timer cleanup while React Testing Library cleanup is loaded only in DOM environments. The production PDF extractor loads its parser only when extraction or native outline reading needs it, keeping text-only service and route imports free of parser initialization. Focused tests exercise both lazy paths with a real PDF and no fallback timeout, verify that loading the service leaves the parser unloaded and preserves module-load errors, and check that shared DOM cleanup unmounts React trees between tests. Durable schema normalization reuses shared subtrees within each traversal. Each later call rebuilds its view, and recursive, optional-boundary, and unsupported-schema checks still run before reuse. Production workflow registration remains eager and validates every current and historical definition; compatibility tests continue to exercise the complete registry.
 
 ## Continuous Integration (CI) Contracts
 

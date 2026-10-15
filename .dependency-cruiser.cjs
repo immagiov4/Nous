@@ -56,8 +56,9 @@ module.exports = {
     },
     tsPreCompilationDeps: true,
     enhancedResolveOptions: {
+      exportsFields: ['exports'],
       mainFields: ['module', 'main', 'types', 'typings'],
-      conditionNames: ['import', 'require', 'node', 'default'],
+      conditionNames: ['import', 'require', 'node', 'default', 'types'],
     },
   },
 };
