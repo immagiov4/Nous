@@ -4,6 +4,7 @@ import {
   type CoursePlanVerificationState,
   CourseRawArchivePlanSchema,
   CourseRawPlanSchema,
+  preVerificationCriteriaCourseGenerationStateSchemas,
 } from './courseGenerationWorkflowContract.js';
 import { retryCorrective, WorkflowStepError } from './retryPolicy.js';
 
@@ -11,7 +12,10 @@ const RefinementFeedbackSchema = z.object({
   rejectedCandidate: z.object({
     rawPlan: z.unknown(),
   }),
-  verification: CoursePlanVerificationSchema,
+  verification: z.union([
+    CoursePlanVerificationSchema,
+    preVerificationCriteriaCourseGenerationStateSchemas.CoursePlanVerificationSchema.strict(),
+  ]),
 });
 
 const readRefinementFeedback = (input: CoursePlanVerificationState, feedback?: string) => {

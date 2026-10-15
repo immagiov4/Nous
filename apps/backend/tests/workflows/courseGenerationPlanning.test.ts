@@ -1,5 +1,6 @@
 import { COURSE_CONTROL_POSITIONS } from '@shared/coursePlanningControls';
 import { describe, expect, test, vi } from 'vitest';
+import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 
 import {
   buildCourseDraftPlanState,
@@ -8,10 +9,23 @@ import {
   createCoursePlanningStages,
   requirePassingRefinedVerification,
 } from '../../src/workflows/courseGenerationPlanning.js';
-import { CoursePlanVerificationStateSchema } from '../../src/workflows/courseGenerationWorkflowContract.js';
+import { createPreviousVerificationCriteriaCourseGenerationWorkflow } from '../../src/workflows/courseGenerationWorkflow.js';
+import {
+  CoursePlanVerificationStateSchema,
+  preControlsCourseGenerationStateSchemas,
+  preDiagnosticCourseGenerationStateSchemas,
+  preRoutingCourseGenerationStateSchemas,
+  preVerificationCriteriaCourseGenerationStateSchemas,
+  previousCourseGenerationStateSchemas,
+} from '../../src/workflows/courseGenerationWorkflowContract.js';
+import {
+  preserveCoursePlanRefinementFeedback,
+  resumeCoursePlanRefinementInput,
+} from '../../src/workflows/coursePlanRefinementFeedback.js';
 import { createCoursePlanVerifier } from '../../src/workflows/coursePlanVerification.js';
-import { WorkflowStepError } from '../../src/workflows/retryPolicy.js';
+import { retryCorrective, WorkflowStepError } from '../../src/workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../src/workflows/types.js';
+import { indexWorkflowNodes } from '../../src/workflows/workflowNodeIndex.js';
 
 const immediateProviderEffect: WorkflowProviderEffectExecutor = {
   run: async ({ operation, outputSchema }) => outputSchema.parse(await operation()),
@@ -127,6 +141,83 @@ const verification = {
 };
 
 describe('course generation planning', () => {
+  test.each([
+    ['pre-criteria', preVerificationCriteriaCourseGenerationStateSchemas],
+    ['pre-routing', preRoutingCourseGenerationStateSchemas],
+    ['pre-diagnostic', preDiagnosticCourseGenerationStateSchemas],
+    ['pre-controls', preControlsCourseGenerationStateSchemas],
+    ['previous', previousCourseGenerationStateSchemas],
+  ])('executes refinement of a %s persisted review without criteria arrays', async (_version, schemas) => {
+    const reviewModel = vi.fn().mockResolvedValue(verification);
+    const stages = createCoursePlanningStages({
+      generateObject: vi.fn().mockResolvedValue(rawPlan()) as never,
+      readSourceMaterials: async () => [],
+      verifyRefinedPlan: createCoursePlanVerifier({
+        generateObject: reviewModel as never,
+        loadVerificationMaterial: async () => ({ sourceContext: '' }),
+      }),
+    });
+    const context = {
+      attemptNumber: 1,
+      config: { models: {} as never } as never,
+      execution: { nodeInstanceId: 'refine-course-plan', runId: 'old-run' },
+      idempotencyKey: 'old-refine',
+      providerEffect: immediateProviderEffect,
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    };
+    const draft = await stages.draftCoursePlan({ ...context, input: researchState });
+    const input = schemas.CoursePlanVerificationStateSchema.parse({
+      ...draft,
+      stage: 'plan-verification',
+      verification: {
+        ...verification,
+        verdict: 'refine',
+        coverage: { status: 'needs-refinement', feedback: 'Restore the missing objective.' },
+      },
+    });
+    expect(input.verification).not.toHaveProperty('refinementConditions');
+    const definition = createPreviousVerificationCriteriaCourseGenerationWorkflow({
+      maxAttempts: 3,
+      models: getGlobalModelConfig(),
+      timeoutMs: 1,
+    });
+    const refine = [...indexWorkflowNodes(definition).values()].find(
+      entry => entry.node.id === 'refine-course-plan'
+    )?.node;
+    if (refine?.kind !== 'step') throw new Error('Missing historical refinement node.');
+    const restored = refine.inputSchema.parse(input);
+    const result = schemas.CourseRefinedPlanStateSchema.parse(
+      refine.outputSchema.parse(
+        await refine.run({
+          ...context,
+          config: definition.executionDefaults,
+          input: restored,
+          services: stages,
+        })
+      )
+    );
+    expect(result.refinedVerification.verdict).toBe('pass');
+    expect(result.verification).toEqual(input.verification);
+    expect(result.rawRefinedPlan).toEqual(rawPlan());
+    expect(reviewModel).toHaveBeenCalledOnce();
+    const latest = {
+      ...input,
+      rawDraftPlan: { ...input.rawDraftPlan, summary: 'Latest rejected historical candidate.' },
+    };
+    const failure = await preserveCoursePlanRefinementFeedback(latest, async () => {
+      throw retryCorrective({
+        code: 'course_plan_verification_invalid',
+        message: 'Invalid review.',
+        feedback: 'Retry the review.',
+      });
+    }).catch(error => error);
+    expect(failure).toBeInstanceOf(WorkflowStepError);
+    const resumed = resumeCoursePlanRefinementInput(input, failure.failure.feedback);
+    expect(resumed.rawDraftPlan.summary).toBe(latest.rawDraftPlan.summary);
+    expect(resumed.verification).toEqual(latest.verification);
+  });
+
   test.each([
     'One concept at a time. Keep technical details.',
     '',

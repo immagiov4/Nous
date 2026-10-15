@@ -27,6 +27,7 @@ import {
   type CourseResearchSourceSchema,
   type CourseResearchState,
   CourseResearchStateSchema,
+  preVerificationCriteriaCourseGenerationStateSchemas,
 } from './courseGenerationWorkflowContract.js';
 import { COURSE_PLAN_REFINEMENT_INSTRUCTIONS } from './coursePlanCriteria.js';
 import {
@@ -279,7 +280,16 @@ export const buildCourseRefinedPlanState = (
   generatedAt: string
 ): CourseRefinedPlanState => {
   const researchState = CourseResearchStateSchema.parse({ ...state, stage: 'research' });
-  return CourseRefinedPlanStateSchema.parse({
+  // In-flight definitions retain their original review shape, including absent criteria.
+  const schema =
+    !('refinementConditions' in state.verification) &&
+    !('conditionAssessments' in state.verification)
+      ? CourseRefinedPlanStateSchema.extend({
+          verification:
+            preVerificationCriteriaCourseGenerationStateSchemas.CoursePlanVerificationSchema,
+        })
+      : CourseRefinedPlanStateSchema;
+  return schema.parse({
     ...state,
     refinedPlan: buildCoursePlanOutput(rawPlan, researchState, generatedAt),
     refinedVerification,
