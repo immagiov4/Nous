@@ -466,11 +466,11 @@ export const createCoursePlanningStages = ({
     if (!providerEffect) throw new Error('Provider effect persistence is required.');
     const refinementInput = resumeCoursePlanRefinementInput(context.input, context.retryFeedback);
     const refinementContext = { ...context, input: refinementInput };
-    return preserveCoursePlanRefinementFeedback(refinementInput, async () => {
-      const effectKeys = getCoursePlanRefinementProviderEffectKeys(
-        context.retryFeedbackSourceAttemptNumber
-      );
-      const generated = await providerEffect.run({
+    const effectKeys = getCoursePlanRefinementProviderEffectKeys(
+      context.retryFeedbackSourceAttemptNumber
+    );
+    const generated = await preserveCoursePlanRefinementFeedback(refinementInput, () =>
+      providerEffect.run({
         key: effectKeys.generation,
         operation: async () =>
           generatePlan({
@@ -484,34 +484,39 @@ export const createCoursePlanningStages = ({
             verification: refinementInput.verification,
           }),
         outputSchema: CoursePlanGenerationResultSchema,
-      });
-      const generatedAt = now();
-      const refinedPlan = buildCoursePlanOutput(generated.rawPlan, generated.state, generatedAt);
-      const verification = await providerEffect.run({
-        key: effectKeys.verification,
-        operation: () =>
-          verifyRefinedPlan({
-            models: context.config.models,
-            plan: refinedPlan.plan,
-            rawPlan: generated.rawPlan,
-            retryFeedback: context.retryFeedback,
-            previousVerification: refinementInput.verification,
-            signal: context.signal,
-            state: generated.state,
-          }),
-        outputSchema: CoursePlanVerificationSchema,
-      });
-      const refinedVerification = requirePassingRefinedVerification({
-        plan: refinedPlan.plan,
-        rawPlan: generated.rawPlan,
-        verification,
-      });
-      return buildCourseRefinedPlanState(
-        generated.rawPlan,
-        context.input,
-        refinedVerification,
-        generatedAt
-      );
-    });
+      })
+    );
+    return preserveCoursePlanRefinementFeedback(
+      { ...refinementInput, rawDraftPlan: generated.rawPlan },
+      async () => {
+        const generatedAt = now();
+        const refinedPlan = buildCoursePlanOutput(generated.rawPlan, generated.state, generatedAt);
+        const verification = await providerEffect.run({
+          key: effectKeys.verification,
+          operation: () =>
+            verifyRefinedPlan({
+              models: context.config.models,
+              plan: refinedPlan.plan,
+              rawPlan: generated.rawPlan,
+              retryFeedback: context.retryFeedback,
+              previousVerification: refinementInput.verification,
+              signal: context.signal,
+              state: generated.state,
+            }),
+          outputSchema: CoursePlanVerificationSchema,
+        });
+        const refinedVerification = requirePassingRefinedVerification({
+          plan: refinedPlan.plan,
+          rawPlan: generated.rawPlan,
+          verification,
+        });
+        return buildCourseRefinedPlanState(
+          generated.rawPlan,
+          context.input,
+          refinedVerification,
+          generatedAt
+        );
+      }
+    );
   },
 });

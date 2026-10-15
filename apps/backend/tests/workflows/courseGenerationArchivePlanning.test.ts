@@ -324,6 +324,93 @@ describe('course archive planning', () => {
     ]);
   });
 
+  test.each([
+    'generation',
+    'missing-assessment',
+    'duplicate-assessment',
+  ])('resumes the latest valid candidate after a %s contract failure', async failureStage => {
+    const initialVerification = {
+      ...verification,
+      granularity: {
+        status: 'needs-refinement' as const,
+        feedback: 'Name one core responsibility.',
+      },
+      refinementConditions: [
+        { dimension: 'granularity' as const, passCondition: 'Name one core responsibility.' },
+      ],
+      verdict: 'refine' as const,
+    };
+    const candidate = rawArchivePlan();
+    candidate.summary = 'A refined candidate that preserves completed improvements.';
+    candidate.modules[0].lessons[0].keyConcepts = ['One core responsibility'];
+    const assessment = {
+      dimension: 'granularity' as const,
+      met: true,
+      evidence: 'One core responsibility is named.',
+    };
+    const acceptedReview = { ...verification, conditionAssessments: [assessment] };
+    const reviewModel = vi.fn();
+    const generateObject = vi.fn().mockResolvedValue(candidate);
+    if (failureStage === 'generation') {
+      generateObject.mockRejectedValueOnce(
+        retryCorrective({
+          code: 'course_plan_generation_invalid',
+          message: 'Invalid generated plan.',
+          feedback: 'Repair the generated plan.',
+        })
+      );
+    } else {
+      reviewModel.mockResolvedValueOnce({
+        ...verification,
+        conditionAssessments: failureStage === 'missing-assessment' ? [] : [assessment, assessment],
+      });
+    }
+    reviewModel.mockResolvedValue(acceptedReview);
+    const stages = createCourseArchivePlanningStages({
+      generateObject: generateObject as never,
+      openArchive: async () => createArchive(),
+      verifyRefinedPlan: createCoursePlanVerifier({
+        generateObject: reviewModel as never,
+        loadVerificationMaterial: async () => ({ sourceContext: '' }),
+      }),
+    });
+    const draftStages = createCourseArchivePlanningStages({
+      generateObject: vi.fn().mockResolvedValue(rawArchivePlan()) as never,
+      openArchive: async () => createArchive(),
+      verifyRefinedPlan: vi.fn().mockResolvedValue(verification),
+    });
+    const draft = await draftStages.draftCoursePlan(stageContext(researchState));
+    const input = CoursePlanVerificationStateSchema.parse({
+      ...draft,
+      stage: 'plan-verification',
+      verification: initialVerification,
+    });
+    const context = { ...stageContext(researchState), input };
+    const failure = await stages.refineCoursePlan(context).catch(error => error);
+    expect(failure).toBeInstanceOf(WorkflowStepError);
+    expect(failure.failure.code).toBe(
+      failureStage === 'generation'
+        ? 'course_plan_generation_invalid'
+        : 'course_plan_verification_invalid'
+    );
+    const snapshot = JSON.parse(failure.failure.feedback);
+    const expectedCandidate = failureStage === 'generation' ? input.rawDraftPlan : candidate;
+    expect(snapshot.rejectedCandidate.rawPlan).toEqual(expectedCandidate);
+    expect(snapshot.verification).toEqual(initialVerification);
+    const result = await stages.refineCoursePlan({
+      ...context,
+      attemptNumber: 2,
+      retryFeedback: failure.failure.feedback,
+      retryFeedbackSourceAttemptNumber: 1,
+    });
+    const nextPrompt = generateObject.mock.calls[1][0].prompt;
+    const restoredCandidate = JSON.parse(nextPrompt.split('PLAN TO REFINE:\n')[1].split('\n')[0]);
+    expect(restoredCandidate).toEqual(expectedCandidate);
+    expect(result.rawRefinedPlan).toEqual(candidate);
+    expect(result.refinedVerification.verdict).toBe('pass');
+    expect(result.refinedVerification.prerequisites).toEqual(initialVerification.prerequisites);
+  });
+
   test('refines the durable draft without invoking the draft stage again', async () => {
     const archive = createArchive();
     const generateObject = vi.fn(async () => rawArchivePlan());
