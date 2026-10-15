@@ -1165,3 +1165,18 @@ describe('workflow definition validation', () => {
     ).toThrow('root.loop.maxIterations must be a positive integer.');
   });
 });
+
+test('checks optional boundaries even when the schema subtree was already visited', () => {
+  const optional = z.string().optional();
+  const schema = z.object({ first: z.object({ value: optional }), second: z.array(optional) });
+  expect(() => durableSchemaShape(schema)).toThrow(
+    'Unsupported durable schema at schema.shape.second.element: optional values are only allowed as object properties'
+  );
+});
+
+test('observes schema changes between fingerprint traversals', () => {
+  const schema = z.object({ value: z.string() });
+  const original = canonicalJson(durableSchemaShape(schema));
+  schema.shape.value._zod.def.checks = [z.minLength(1)];
+  expect(canonicalJson(durableSchemaShape(schema))).not.toBe(original);
+});

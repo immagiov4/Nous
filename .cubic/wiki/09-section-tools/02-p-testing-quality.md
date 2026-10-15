@@ -196,6 +196,10 @@ Product failures such as `lesson_factual_support_failed` block preparation with 
 
 Sources: [Nous entrypoint](../../../e2e/nous/run.ts), [Run recorder](../../../scripts/run-evidence.ts), [Nous adapter](../../../e2e/nous/adapter.ts), [Stack lifecycle](../../../e2e/nous/stack.ts), [Preparation](../../../e2e/nous/prepare.ts), [Runner](../../../packages/playtest/src/runner.ts).
 
+### Import costs and registry validation
+
+Node-only tests retain matcher registration and mock/timer cleanup while React Testing Library cleanup is loaded only in DOM environments. The production PDF extractor loads its parser only when extraction or native outline reading needs it, keeping text-only service and route imports free of parser initialization. Focused tests exercise both lazy paths with a real PDF and no fallback timeout, verify that loading the service leaves the parser unloaded and preserves module-load errors, and check that shared DOM cleanup unmounts React trees between tests. Durable schema normalization reuses shared subtrees within each traversal. Each later call rebuilds its view, and recursive, optional-boundary, and unsupported-schema checks still run before reuse. Production workflow registration remains eager and validates every current and historical definition; compatibility tests continue to exercise the complete registry.
+
 ## Continuous Integration (CI) Contracts
 
 The CI pipeline mirrors local gates but adds specialized logic for PostgreSQL and Supabase contract testing. The test job installs Chromium and its Linux dependencies with `bunx playwright install --with-deps chromium` before the Vitest suite, following the [Playwright CI setup](https://playwright.dev/docs/ci). Playtest process fixtures use Node APIs so the same tests can run under Bun and Node coverage.
