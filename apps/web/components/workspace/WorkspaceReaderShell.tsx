@@ -42,6 +42,9 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
     autoPlay: boolean;
     audioElementRef: RefObject<HTMLAudioElement>;
   } | null>(null);
+  const hasBanners = Boolean(
+    banners.needsSourceFile || banners.storageError || banners.pdfMappingWarning
+  );
   const canPlayLesson = isLessonPlayable(content, header);
   const openPlayer = (autoPlay: boolean) => {
     if (!sidebar.activeSectionId || !content.projectId || !canPlayLesson) return;
@@ -59,7 +62,7 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
   const { viewportHeight } = useMobileKeyboardOffset();
 
   useEffect(() => {
-    if (displayMode === 'embedded' || !header.isMobileViewport) {
+    if (displayMode === 'embedded' || !header.isMobileViewport || hasBanners) {
       return;
     }
 
@@ -89,7 +92,7 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
       scrollContainer.removeEventListener('scroll', handleScroll);
       scrollContainer.style.removeProperty(READER_MOBILE_TOP_FADE_ALPHA_PROPERTY);
     };
-  }, [content.scrollContainerRef, displayMode, header.isMobileViewport]);
+  }, [content.scrollContainerRef, displayMode, hasBanners, header.isMobileViewport]);
 
   useLayoutEffect(() => {
     if (displayMode === 'embedded' || typeof document === 'undefined') {
@@ -138,9 +141,6 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
     };
   }, [content.scrollContainerRef, displayMode]);
 
-  const hasBanners = Boolean(
-    banners.needsSourceFile || banners.storageError || banners.pdfMappingWarning
-  );
   const isEmbedded = displayMode === 'embedded';
   const sidebarModel = isEmbedded ? { ...sidebar, placement: 'container' as const } : sidebar;
   const contentModel = isEmbedded ? { ...content, scrollMode: 'document' as const } : content;
@@ -184,7 +184,7 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
           data-reader-content-layer="true"
           className="relative flex min-h-0 min-w-0 flex-1 flex-col"
         >
-          <WorkspaceReaderContent {...contentModel} />
+          <WorkspaceReaderContent {...contentModel} hasFloatingHeader={!hasBanners} />
           <WorkspaceReaderOverlays {...overlays} />
         </div>
       </div>

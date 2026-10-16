@@ -6,6 +6,7 @@ import { createRef, useState } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderContentModel } from '../../../../components/workspace/shell/types.ts';
 import WorkspaceReaderContent from '../../../../components/workspace/shell/WorkspaceReaderContent.tsx';
+import { READER_MOBILE_INITIAL_TOP_OFFSET_PX } from '../../../../constants/layout.ts';
 import type {
   ApplicationExerciseNode,
   LearningArtifactRenderPayload,
@@ -1153,5 +1154,18 @@ describe('WorkspaceReaderContent', () => {
     expect(container).not.toHaveTextContent(/Obiettivo operativo/i);
     expect(container).not.toHaveTextContent(/Dimostrare di saper applicare/i);
     expect(screen.getByText(/Disegna una mappa minima/i)).toBeInTheDocument();
+  });
+});
+
+describe('mobile header clearance', () => {
+  test.each([
+    true,
+    false,
+  ])('reserves content clearance only for a floating header (%s)', hasFloatingHeader => {
+    const props = buildProps({ isMobileViewport: true });
+    render(<WorkspaceReaderContent {...props} hasFloatingHeader={hasFloatingHeader} />);
+    expect(props.contentRef.current?.parentElement?.style.paddingTop).toBe(
+      hasFloatingHeader ? `${READER_MOBILE_INITIAL_TOP_OFFSET_PX}px` : ''
+    );
   });
 });
