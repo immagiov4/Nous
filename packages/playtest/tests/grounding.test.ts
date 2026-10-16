@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { type DiscardedFinding, type InspectorFinding, inspect } from '../src/inspector/inspect';
+import {
+  type DiscardedFinding,
+  type InspectorFinding,
+  inspect,
+  type StepProbeFinding,
+} from '../src/inspector/inspect';
 import type { Observation } from '../src/operator/session';
 
 // Synthetic captured DOM: no private course or run data.
@@ -88,12 +93,16 @@ function candidate(evidence: unknown): InspectorFinding {
     evidence,
   } as InspectorFinding;
 }
-async function check(evidence: unknown, screen = observation) {
+async function check(
+  evidence: unknown,
+  screen = observation,
+  probeFindings: StepProbeFinding[] = []
+) {
   const discarded: DiscardedFinding[] = [];
   const findings = await inspect({
     observations: [screen],
     learner: { outcome: 'completed', turns: [], diary: [], friction: [], observations: [screen] },
-    probeFindings: [],
+    probeFindings,
     styleReference: [],
     taxonomy: '',
     taxonomyClasses: ['D01'],
@@ -103,22 +112,78 @@ async function check(evidence: unknown, screen = observation) {
   return { findings, discarded };
 }
 describe('DOM-grounded inspector', () => {
+  it('discards geometric probe defects from an unstable capture', async () => {
+    const result = await check(
+      undefined,
+      { ...observation, diagnostics: { capture: { unstable: true } } },
+      [
+        {
+          stepIndex: 0,
+          screenshotPath: 'step.png',
+          taxonomyClass: 'D01',
+          threshold: 0,
+          signal: {
+            kind: 'clipped-text',
+            selector: '#accent',
+            text: 'Qualita',
+            scrollWidth: 100,
+            clientWidth: 10,
+          },
+        },
+      ]
+    );
+    expect(result.findings).toEqual([]);
+    expect(result.discarded).toContainEqual(
+      expect.objectContaining({ reason: 'The DOM and screenshot capture was unstable.' })
+    );
+  });
+  it('discards a spelling correction identical to the quoted DOM text', async () => {
+    const result = await check({
+      kind: 'text',
+      selector: '#accent',
+      quote: 'Qualita',
+      replacement: 'Qualita',
+    });
+    expect(result.findings).toEqual([]);
+    expect(result.discarded).toEqual([
+      expect.objectContaining({
+        reason: 'The proposed correction is identical to the quoted text.',
+      }),
+    ]);
+  });
   it.each([
     'creareuna lezione',
     'percondensazione',
   ])('discards misread text %s and preserves the reason', async quote => {
-    const result = await check({ kind: 'text', selector: '#copy', quote });
+    const result = await check({
+      kind: 'text',
+      selector: '#copy',
+      quote,
+      replacement: 'creare una lezione per condensazione',
+    });
     expect(result.findings).toEqual([]);
     expect(result.discarded).toEqual([
       expect.objectContaining({
         reason: 'Quoted text is absent from the captured element.',
-        finding: candidate({ kind: 'text', selector: '#copy', quote }),
+        finding: candidate({
+          kind: 'text',
+          selector: '#copy',
+          quote,
+          replacement: 'creare una lezione per condensazione',
+        }),
       }),
     ]);
   });
   it('keeps the real missing accent when the quotation exists', async () => {
-    const evidence = { kind: 'text', selector: '#accent', quote: 'Qualita' };
-    expect((await check(evidence)).findings).toEqual([candidate(evidence)]);
+    const evidence = {
+      kind: 'text',
+      selector: '#accent',
+      quote: 'Qualita',
+      replacement: 'Qualità',
+    };
+    expect((await check(evidence)).findings).toEqual([
+      { ...candidate(evidence), actual: evidence.quote, expected: evidence.replacement },
+    ]);
   });
   it.each(['#dialog', '#menu'])('discards an intentional overlay %s', async selector => {
     const result = await check({ kind: 'overlap', selectors: ['#copy', selector] });
@@ -141,15 +206,15 @@ describe('DOM-grounded inspector', () => {
   it('discards absent citations, unknown selectors and unstable captures', async () => {
     for (const evidence of [
       undefined,
-      { kind: 'text', selector: '#missing', quote: 'Qualita' },
-      { kind: 'text', selector: '#accent', quote: '' },
+      { kind: 'text', selector: '#missing', quote: 'Qualita', replacement: 'Qualità' },
+      { kind: 'text', selector: '#accent', quote: '', replacement: 'Qualità' },
     ]) {
       expect((await check(evidence)).findings).toEqual([]);
     }
     expect(
       (
         await check(
-          { kind: 'text', selector: '#accent', quote: 'Qualita' },
+          { kind: 'text', selector: '#accent', quote: 'Qualita', replacement: 'Qualità' },
           { ...observation, diagnostics: { capture: { unstable: true } } }
         )
       ).findings

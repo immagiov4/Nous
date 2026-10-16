@@ -99,6 +99,39 @@ function finding(overrides: Partial<InspectorFinding> = {}): InspectorFinding {
 }
 
 describe('inspector', () => {
+  it('retains rejected probe evidence once when retrying after a judge failure', async () => {
+    const discarded: import('../src/inspector/inspect').DiscardedFinding[] = [];
+    const probeFindings: StepProbeFinding[] = [
+      {
+        stepIndex: 0,
+        screenshotPath: 'step-0.png',
+        taxonomyClass: 'D01',
+        threshold: 0,
+        signal: {
+          kind: 'overlap',
+          a: '#label',
+          b: '#missing',
+          areaPx: 10,
+          covered: ['#label'],
+          onTop: '#missing',
+        },
+      },
+    ];
+    await expect(
+      inspect({
+        ...input,
+        probeFindings,
+        discarded,
+        judge: {
+          judge: async () => {
+            throw new Error('Judge failed');
+          },
+        },
+      })
+    ).rejects.toThrow('Judge failed');
+    await inspect({ ...input, probeFindings, discarded });
+    expect(discarded).toHaveLength(1);
+  });
   it('preserves probe evidence, threshold and recorded step', async () => {
     const probe: StepProbeFinding = {
       stepIndex: 0,
@@ -292,7 +325,13 @@ describe('Pi visual judge with a mocked SDK', () => {
       styleReference,
       taxonomy: 'D01: clipping',
       privacyRedactions: SCREENSHOT_PRIVACY_MASK,
-      trace: judgeInput().trace,
+      trace: {
+        ...judgeInput().trace,
+        learner: {
+          ...learner,
+          observations: observations.map(({ dom: _dom, ...observation }) => observation),
+        },
+      },
       imageOrder: 'Screenshots in list order, then style references in list order.',
     });
     expect(imageInput.images).toEqual(
@@ -308,6 +347,37 @@ describe('Pi visual judge with a mocked SDK', () => {
     expect(sdk.dispose).toHaveBeenCalledTimes(1);
     await judge.judge(judgeInput());
     expect(sdk.find).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends each captured DOM once while retaining action results in the trace', async () => {
+    const input = judgeInput();
+    const observation = {
+      stepIndex: 0,
+      screenshotPath: screenshots[0],
+      url: 'https://example.test',
+      nodes: [],
+      dom: { elements: [], overlaps: [] },
+    };
+    input.trace.learner = {
+      ...learner,
+      observations: [observation],
+      turns: [
+        {
+          decision: { type: 'act', action: { type: 'press', key: 'Enter' }, expectation: 'Open' },
+          result: { status: 'ok', observation },
+        },
+      ],
+    };
+    await createPiVisualJudge(options).judge({
+      ...input,
+      screenshots: [{ ...input.screenshots[0], dom: observation.dom }],
+    });
+    const payload = JSON.parse(sdk.prompt.mock.calls[0][0]);
+    expect(payload.screenshots[0].dom).toEqual(observation.dom);
+    expect(payload.trace.learner.observations[0]).not.toHaveProperty('dom');
+    expect(payload.trace.learner.turns[0].result.observation).not.toHaveProperty('dom');
+    expect(payload.trace.learner.turns[0].result.status).toBe('ok');
+    expect(observation.dom).toEqual({ elements: [], overlaps: [] });
   });
 
   it('returns submitted findings and leaves missing evidence for inspector validation', async () => {

@@ -6,6 +6,7 @@ export const findingEvidenceSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('text'),
     selector,
+    replacement: z.string().min(1),
     quote: z
       .string()
       .min(1)
@@ -21,6 +22,8 @@ export function groundingFailure(evidence: FindingEvidence, dom: CapturedDom): s
   if (evidence.kind !== 'overlap') {
     const element = dom.elements.find(element => element.selector === evidence.selector);
     if (!element) return 'The cited element is absent from the captured DOM.';
+    if (evidence.kind === 'text' && evidence.quote === evidence.replacement)
+      return 'The proposed correction is identical to the quoted text.';
     if (evidence.kind === 'text' && !element.text.some(run => run.includes(evidence.quote)))
       return 'Quoted text is absent from the captured element.';
     return;

@@ -63,6 +63,40 @@ function ref(observation: Observation, name: string): string {
 }
 
 describe('operator', () => {
+  it('retains painted collisions when both text elements ignore pointer events', async () => {
+    const page =
+      await fixture(`<div role="dialog" aria-modal="true" style="width:300px;height:200px">
+      <span id="a" style="position:absolute;left:10px;top:10px;width:100px;height:30px;pointer-events:none">First</span>
+      <span id="b" style="position:absolute;left:10px;top:10px;width:100px;height:30px;pointer-events:none">Second</span>
+    </div>`);
+    const observation = await session.observe();
+    assert(observation.dom);
+    expect(
+      groundingFailure({ kind: 'overlap', selectors: ['#a', '#b'] }, observation.dom)
+    ).toBeUndefined();
+    expect(observation.diagnostics?.capture).toBeUndefined();
+    expect(
+      await page.locator('#a').evaluate(element => getComputedStyle(element).pointerEvents)
+    ).toBe('none');
+  });
+  it('preserves a collision between a menu item and its sibling panel heading', async () => {
+    await fixture(`<section style="position:absolute;left:0;top:0;width:300px;height:200px">
+      <h2 id="heading" style="position:absolute;left:0;top:0;margin:0;width:100px;height:30px">Account</h2>
+      <div role="menu" style="height:100px"><button id="item" style="position:absolute;left:0;top:0;width:100px;height:30px">Settings</button></div>
+    </section>`);
+    const { dom } = await session.observe();
+    assert(dom);
+    expect(
+      groundingFailure({ kind: 'overlap', selectors: ['#heading', '#item'] }, dom)
+    ).toBeUndefined();
+  });
+  it('uses credential-free selectors even for IDs containing CSS-special secret characters', async () => {
+    await fixture(`<div id="${credentials.email}"><span>Visible label</span></div>`);
+    const { dom } = await session.observe();
+    assert(dom);
+    expect(JSON.stringify(dom)).not.toContain('operator-secret');
+    expect(dom.elements.some(element => element.text.includes('Visible label'))).toBe(true);
+  });
   it('grounds visible text across nested spans without inventing concatenated words or leaking split secrets', async () => {
     await fixture(`<p id="split">creare<span> </span>una lezione</p>
       <p id="accent" style="pointer-events:none">Qualita</p>
@@ -70,10 +104,21 @@ describe('operator', () => {
     const { dom } = await session.observe();
     assert(dom);
     expect(
-      groundingFailure({ kind: 'text', selector: '#split', quote: 'creareuna lezione' }, dom)
+      groundingFailure(
+        {
+          kind: 'text',
+          selector: '#split',
+          quote: 'creareuna lezione',
+          replacement: 'creare una lezione',
+        },
+        dom
+      )
     ).toBe('Quoted text is absent from the captured element.');
     expect(
-      groundingFailure({ kind: 'text', selector: '#accent', quote: 'Qualita' }, dom)
+      groundingFailure(
+        { kind: 'text', selector: '#accent', quote: 'Qualita', replacement: 'Qualità' },
+        dom
+      )
     ).toBeUndefined();
     expect(JSON.stringify(dom)).not.toContain('operator-secret');
     expect(JSON.stringify(dom)).not.toContain('@example.test');
@@ -95,10 +140,21 @@ describe('operator', () => {
     assert(dom);
     expect(dom.elements.some(element => element.selector === '#copy')).toBe(true);
     expect(
-      groundingFailure({ kind: 'text', selector: '#copy', quote: 'creareuna lezione' }, dom)
+      groundingFailure(
+        {
+          kind: 'text',
+          selector: '#copy',
+          quote: 'creareuna lezione',
+          replacement: 'creare una lezione',
+        },
+        dom
+      )
     ).toBe('Quoted text is absent from the captured element.');
     expect(
-      groundingFailure({ kind: 'text', selector: '#accent', quote: 'Qualita' }, dom)
+      groundingFailure(
+        { kind: 'text', selector: '#accent', quote: 'Qualita', replacement: 'Qualità' },
+        dom
+      )
     ).toBeUndefined();
     expect(groundingFailure({ kind: 'overlap', selectors: ['#copy', '#menu'] }, dom)).toBe(
       'The captured overlay intentionally covers content outside itself.'
@@ -110,6 +166,47 @@ describe('operator', () => {
     const closed = await session.observe();
     expect(closed.dom?.elements.find(element => element.selector === '#menu')?.overlay).toBe(false);
   });
+  it('grounds a sibling backdrop through an explicitly declared overlay layer', async () => {
+    await fixture(`<p id="background" style="position:absolute;inset:0">Background</p>
+      <div data-playtest-overlay style="position:fixed;inset:0">
+        <button id="backdrop" style="position:absolute;inset:0">Close</button>
+        <div role="dialog" aria-modal="true" style="position:absolute;left:200px;top:200px">Settings</div>
+      </div>`);
+    const { dom } = await session.observe();
+    assert(dom);
+    expect(
+      groundingFailure({ kind: 'overlap', selectors: ['#background', '#backdrop'] }, dom)
+    ).toBe('The captured overlay intentionally covers content outside itself.');
+  });
+
+  it('captures native control copy while excluding hidden placeholders and credential values', async () => {
+    await fixture(`<input id="placeholder" placeholder="Qualita">
+      <input id="filled" placeholder="Hidden placeholder" value="Visible value">
+      <textarea id="area">Visible message</textarea>
+      <select id="choice"><option>Unselected</option><option selected>Selected label</option></select>
+      <input type="password" value="unknown-password">
+      <input value="${credentials.email}">`);
+    const { dom } = await session.observe();
+    assert(dom);
+    expect(
+      groundingFailure(
+        { kind: 'text', selector: '#placeholder', quote: 'Qualita', replacement: 'Qualità' },
+        dom
+      )
+    ).toBeUndefined();
+    expect(dom.elements.find(element => element.selector === '#filled')?.text).toEqual([
+      'Visible value',
+    ]);
+    expect(dom.elements.find(element => element.selector === '#area')?.text).toEqual([
+      'Visible message',
+    ]);
+    expect(dom.elements.find(element => element.selector === '#choice')?.text).toEqual([
+      'Selected label',
+    ]);
+    expect(JSON.stringify(dom)).not.toContain('unknown-password');
+    expect(JSON.stringify(dom)).not.toContain(credentials.email);
+  });
+
   it('captures a native modal and excludes credentials from inspector DOM evidence', async () => {
     const page = await fixture(
       `<p id="copy" style="position:absolute;inset:0">Background</p><dialog><p>Accedi</p><p>${credentials.email}</p><input value="${credentials.password}"></dialog>`
@@ -248,7 +345,7 @@ describe('operator', () => {
     const signals = await session.signals();
     expect(signals.filter(signal => signal.kind === 'clipped-text')).toEqual([
       expect.objectContaining({
-        text: frequency === 'always' ? 'Clipped label 2' : 'Clipped label 1',
+        text: 'Clipped label 1',
       }),
     ]);
   });

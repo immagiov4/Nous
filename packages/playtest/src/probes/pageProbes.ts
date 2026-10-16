@@ -54,10 +54,15 @@ export function initializePageProbes(): void {
   if (probeWindow.__playtestProbes) return;
   const signals: ProbeSignal[] = [];
   let previousGeometry = new Set<string>();
+  let capturedGeometry: ProbeSignal[] | undefined;
   type Box = { left: number; top: number; right: number; bottom: number };
 
-  function selector(element: Element): string {
-    if (element.id && document.querySelectorAll(`#${CSS.escape(element.id)}`).length === 1) {
+  function selector(element: Element, secrets?: string[]): string {
+    if (
+      element.id &&
+      !secrets?.some(secret => secret && element.id.includes(secret)) &&
+      document.querySelectorAll(`#${CSS.escape(element.id)}`).length === 1
+    ) {
       return `#${CSS.escape(element.id)}`;
     }
     const parts: string[] = [];
@@ -244,7 +249,11 @@ export function initializePageProbes(): void {
     }
     return facts;
   }
-  function overlapFact(a: GeometryEntry, b: GeometryEntry): ProbeSignal | undefined {
+  function overlapFact(
+    a: GeometryEntry,
+    b: GeometryEntry,
+    secrets?: string[]
+  ): ProbeSignal | undefined {
     if (a.element.contains(b.element) || b.element.contains(a.element)) return;
     const overlap = intersection(a.box, b.box);
     const areaPx = area(overlap);
@@ -262,10 +271,10 @@ export function initializePageProbes(): void {
       b: b.selector,
       areaPx,
       covered,
-      onTop: onTop ? selector(onTop) : null,
+      onTop: onTop ? selector(onTop, secrets) : null,
     };
   }
-  function overlapFacts(visible: GeometryEntry[]): ProbeSignal[] {
+  function overlapFacts(visible: GeometryEntry[], secrets?: string[]): ProbeSignal[] {
     const facts: ProbeSignal[] = [];
     // Only text-bearing or interactive elements seed comparisons; decorative pairs are never scanned.
     for (const [index, candidate] of visible.entries()) {
@@ -273,15 +282,14 @@ export function initializePageProbes(): void {
       for (const [otherIndex, other] of visible.entries()) {
         if (index === otherIndex || (other.overlapCandidate && otherIndex < index)) continue;
         const [a, b] = index < otherIndex ? [candidate, other] : [other, candidate];
-        const fact = overlapFact(a, b);
+        const fact = overlapFact(a, b, secrets);
         if (fact) facts.push(fact);
       }
     }
     return facts;
   }
-  function geometry(): ProbeSignal[] {
-    const visible = visibleGeometry();
-    const facts = [...textFacts(visible), ...overlapFacts(visible)];
+  function geometry(visible = visibleGeometry(), overlaps = overlapFacts(visible)): ProbeSignal[] {
+    const facts = [...textFacts(visible), ...overlaps];
     const documentWidth = document.documentElement.scrollWidth;
     const viewportWidth = document.documentElement.clientWidth;
     if (documentWidth > viewportWidth)
@@ -469,6 +477,30 @@ export function initializePageProbes(): void {
     return observer;
   });
 
+  /** Observation pauses its mutation counter while restoring paint hit testing for measurement. */
+  function paintedOverlaps(visible: GeometryEntry[], secrets: string[]): ProbeSignal[] {
+    const restored: { style: CSSStyleDeclaration; value: string; priority: string }[] = [];
+    try {
+      for (const { element } of visible) {
+        if (getComputedStyle(element).pointerEvents !== 'none') continue;
+        const style = (element as HTMLElement | SVGElement).style;
+        restored.push({
+          style,
+          value: style.getPropertyValue('pointer-events'),
+          priority: style.getPropertyPriority('pointer-events'),
+        });
+        style.setProperty('pointer-events', 'auto', 'important');
+      }
+      return overlapFacts(visible, secrets);
+    } finally {
+      restored.reverse();
+      for (const { style, value, priority } of restored) {
+        if (value) style.setProperty('pointer-events', value, priority);
+        else style.removeProperty('pointer-events');
+      }
+    }
+  }
+
   function domSnapshot(secrets: string[], textRuns: Map<Element, string[]>): CapturedDom {
     const visible = visibleGeometry();
     const controls = Array.from(document.querySelectorAll('[aria-expanded="true"][aria-controls]'));
@@ -481,26 +513,28 @@ export function initializePageProbes(): void {
             .map(id => document.getElementById(id))
         )
     );
-    const containsSecret = (text: string) =>
-      secrets.some(secret => secret && text.includes(secret));
-    const safe = visible.filter(({ selector: path }) => !containsSecret(path));
+    const safe = visible.map(entry => ({ ...entry, selector: selector(entry.element, secrets) }));
     const elements = safe.map(({ element, box, selector: path }) => {
       const ancestors: string[] = [];
       for (let parent = element.parentElement; parent; parent = parent.parentElement)
-        ancestors.push(selector(parent));
+        ancestors.push(selector(parent, secrets));
       return {
         selector: path,
         box,
-        ancestors: ancestors.filter(path => !containsSecret(path)),
+        ancestors,
         text: textRuns.get(element) ?? [],
         overlay:
-          element.matches('[aria-modal="true"], dialog[open], [role="menu"], :popover-open') ||
-          (controlled.has(element) &&
+          element.matches(
+            '[aria-modal="true"], dialog[open], :popover-open, [data-playtest-overlay]'
+          ) ||
+          ((controlled.has(element) || element.matches('[role="menu"]')) &&
             ['absolute', 'fixed'].includes(getComputedStyle(element).position)),
       };
     });
     const selectors = new Set(elements.map(element => element.selector));
-    const overlaps = overlapFacts(safe).filter(
+    const measuredOverlaps = paintedOverlaps(safe, secrets);
+    capturedGeometry = geometry(safe, measuredOverlaps);
+    const overlaps = measuredOverlaps.filter(
       (fact): fact is Extract<ProbeSignal, { kind: 'overlap' }> =>
         fact.kind === 'overlap' &&
         selectors.has(fact.a) &&
@@ -515,12 +549,16 @@ export function initializePageProbes(): void {
     snapshot: domSnapshot,
     resetGeometry() {
       previousGeometry.clear();
+      capturedGeometry = undefined;
     },
     drain() {
       for (const observer of observers) recordEntries(observer.takeRecords());
       reportGesture();
       const currentGeometry = new Set<string>();
-      for (const signal of geometry()) {
+      // Snapshot facts belong to the screenshot; later geometry must not replace them.
+      const facts = capturedGeometry ?? geometry();
+      capturedGeometry = undefined;
+      for (const signal of facts) {
         const signature = JSON.stringify(signal);
         currentGeometry.add(signature);
         if (!previousGeometry.has(signature)) signals.push(signal);

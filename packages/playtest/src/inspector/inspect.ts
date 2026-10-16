@@ -1,6 +1,6 @@
 import * as z from 'zod';
 import type { LearnerRunResult } from '../learner/loop';
-import type { Observation } from '../operator/session';
+import { isGeometrySignal, type Observation } from '../operator/session';
 import type { ProbeFinding } from '../probes/thresholds';
 import { type FindingEvidence, findingEvidenceSchema, groundingFailure } from './grounding';
 import type { VisualJudge } from './judge';
@@ -67,12 +67,16 @@ function groundedProbes(input: InspectionInput): InspectorFinding[] {
   const findings: InspectorFinding[] = [];
   for (const probe of input.probeFindings) {
     const finding = probeFinding(probe);
+    const observation = input.observations.find(
+      observation =>
+        observation.stepIndex === probe.stepIndex &&
+        observation.screenshotPath === probe.screenshotPath
+    );
+    if (isGeometrySignal(probe.signal) && observation?.diagnostics?.capture.unstable) {
+      input.discarded?.push({ finding, reason: 'The DOM and screenshot capture was unstable.' });
+      continue;
+    }
     if (probe.signal.kind === 'overlap') {
-      const observation = input.observations.find(
-        observation =>
-          observation.stepIndex === probe.stepIndex &&
-          observation.screenshotPath === probe.screenshotPath
-      );
       const evidence: FindingEvidence = {
         kind: 'overlap',
         selectors: [probe.signal.a, probe.signal.b],
@@ -93,9 +97,8 @@ function groundedProbes(input: InspectionInput): InspectorFinding[] {
 
 /** Judge indices address the supplied screenshot list; returned indices address observations. */
 export async function inspect(input: InspectionInput): Promise<InspectorFinding[]> {
-  const findings = groundedProbes(input);
-  if (input.judge) {
-    const candidates = await input.judge.judge({
+  const candidates =
+    (await input.judge?.judge({
       screenshots: input.observations.map(observation => ({
         screenshotPath: observation.screenshotPath,
         dom: observation.dom,
@@ -106,36 +109,41 @@ export async function inspect(input: InspectionInput): Promise<InspectorFinding[
       styleReference: input.styleReference,
       taxonomy: input.taxonomy,
       trace: input.trace,
-    });
-    const allowedClasses = new Set(input.taxonomyClasses);
-    let dropped = 0;
-    for (const candidate of candidates) {
-      const parsed = judgeFindingSchema.safeParse(candidate);
-      const observation = parsed.success ? input.observations[parsed.data.stepIndex] : undefined;
-      if (
-        !parsed.success ||
-        !allowedClasses.has(parsed.data.taxonomyClass) ||
-        observation?.screenshotPath !== parsed.data.screenshotPath
-      ) {
-        input.discarded?.push({
-          finding: candidate,
-          reason: 'Invalid screenshot evidence, taxonomy or finding fields.',
-        });
-        dropped++;
-        continue;
-      }
-      const reason = verifyEvidence(parsed.data.evidence, observation);
-      if (reason) {
-        input.discarded?.push({ finding: candidate, reason });
-        continue;
-      }
-      findings.push({ ...parsed.data, stepIndex: observation.stepIndex });
+    })) ?? [];
+  const findings = groundedProbes(input);
+  const allowedClasses = new Set(input.taxonomyClasses);
+  let dropped = 0;
+  for (const candidate of candidates) {
+    const parsed = judgeFindingSchema.safeParse(candidate);
+    const observation = parsed.success ? input.observations[parsed.data.stepIndex] : undefined;
+    if (
+      !parsed.success ||
+      !allowedClasses.has(parsed.data.taxonomyClass) ||
+      observation?.screenshotPath !== parsed.data.screenshotPath
+    ) {
+      input.discarded?.push({
+        finding: candidate,
+        reason: 'Invalid screenshot evidence, taxonomy or finding fields.',
+      });
+      dropped++;
+      continue;
     }
-    if (dropped) {
-      console.warn(
-        `Inspector dropped ${dropped} judge findings with invalid screenshot evidence or fields.`
-      );
+    const reason = verifyEvidence(parsed.data.evidence, observation);
+    if (reason) {
+      input.discarded?.push({ finding: candidate, reason });
+      continue;
     }
+    const finding = { ...parsed.data, stepIndex: observation.stepIndex };
+    if (finding.evidence.kind === 'text') {
+      finding.actual = finding.evidence.quote;
+      finding.expected = finding.evidence.replacement;
+    }
+    findings.push(finding);
+  }
+  if (dropped) {
+    console.warn(
+      `Inspector dropped ${dropped} judge findings with invalid screenshot evidence or fields.`
+    );
   }
   return findings.sort((a, b) => {
     if (a.stepIndex !== b.stepIndex) return a.stepIndex - b.stepIndex;

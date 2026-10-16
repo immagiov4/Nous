@@ -186,7 +186,8 @@ function visibleSnapshot({
   const collectNames = () => {
     for (let text = walker.nextNode(); text; text = walker.nextNode()) {
       const parent = text.parentElement;
-      if (!parent || parent.closest('script, style, noscript, template, input, textarea')) continue;
+      if (!parent || parent.closest('script, style, noscript, template, input, textarea, select'))
+        continue;
       // Skip the whole secret-bearing label before clipping, so even partial secrets cannot escape.
       if (secretTextElements.some(element => element.contains(parent))) continue;
       const label = parent.closest('label');
@@ -222,6 +223,37 @@ function visibleSnapshot({
     if (run) runs.push(run);
     textRuns.set(parent, [...(textRuns.get(parent) ?? []), ...runs]);
     return visibleText;
+  };
+  const collectControlText = () => {
+    for (const element of document.querySelectorAll('input, textarea, select')) {
+      if (!visibleAt(element, element.getBoundingClientRect())) continue;
+      let text: string[];
+      if (element instanceof HTMLSelectElement) {
+        text = Array.from(element.selectedOptions, option => option.label);
+      } else if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
+        if (
+          element instanceof HTMLInputElement &&
+          ![
+            'text',
+            'search',
+            'email',
+            'url',
+            'tel',
+            'number',
+            'button',
+            'submit',
+            'reset',
+          ].includes(element.type)
+        )
+          continue;
+        text = [element.matches(':placeholder-shown') ? element.placeholder : element.value];
+      } else continue;
+      // Native control copy has no DOM glyph ranges; retain only its displayed, non-secret source.
+      textRuns.set(
+        element,
+        text.filter(value => value && !containsSecret(value))
+      );
+    }
   };
   const implicitRole = (element: Element): string => {
     const tag = element.tagName.toLowerCase();
@@ -282,6 +314,7 @@ function visibleSnapshot({
   }
   try {
     collectNames();
+    collectControlText();
     for (const element of elements) {
       if (!element.matches(`${semanticSelector}, img`)) continue;
       // Attribute names and native values have no text rectangles to verify for clipping or coverage.
