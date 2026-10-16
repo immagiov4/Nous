@@ -767,7 +767,11 @@ describe('useLibraryAssistantChat', () => {
     expect(addToolOutputMock).toHaveBeenCalledTimes(2);
   });
 
-  test('reuses the source artifact identity across explicit regeneration attempts', async () => {
+  test.each([
+    'scene',
+    'image',
+    'html',
+  ] as const)('forwards %s and reuses the source artifact identity across regeneration attempts', async requestedVisualKind => {
     const sourceArtifact = {
       summary: {
         id: 'project-1:lesson-1:generated-visual:visual-1',
@@ -853,12 +857,17 @@ describe('useLibraryAssistantChat', () => {
             lessonId: 'lesson-1',
             projectId: 'project-1',
             prompt: 'Crea una mappa concettuale.',
+            requestedVisualKind,
           },
           toolCallId: 'initial-artifact',
           toolName: 'generateLearningArtifact',
         },
       });
     });
+    expect(generateLessonArtifactDraftMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ requestedVisualKind })
+    );
     await act(async () => {
       await result.current.regenerateLearningArtifact({
         artifactId: sourceArtifact.summary.id,

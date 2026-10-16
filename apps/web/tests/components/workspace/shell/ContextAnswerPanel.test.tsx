@@ -648,6 +648,92 @@ describe('ContextAnswerPanel', () => {
     }
   });
 
+  test.each([
+    'scene',
+    'image',
+    'html',
+  ] as const)('forwards the requested %s format from a contextual tool call', async requestedVisualKind => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      messages: [
+        {
+          id: 'assistant-current-format',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-generateCurrentLessonArtifact',
+              toolCallId: 'current-format',
+              state: 'output-available',
+              input: {},
+              output: { artifactId: generatedDraftArtifact.summary.id },
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+      stop: stopMock,
+    });
+    const draft =
+      requestedVisualKind === 'scene'
+        ? {
+            ...generatedDraftArtifact,
+            visual: {
+              ...generatedDraftArtifact.visual,
+              kind: 'scene' as const,
+              code: '',
+              scene: {
+                type: 'comparison' as const,
+                title: 'Evaporazione e condensazione',
+                body: '',
+                items: [],
+                note: '',
+                quote: '',
+                groups: [
+                  { label: 'Evaporazione', items: ['Acqua in vapore'], icons: ['point'] },
+                  { label: 'Condensazione', items: ['Vapore in gocce'], icons: ['point'] },
+                ],
+                relation: { kind: 'versus' as const, label: 'confronto', evidence: '' },
+              },
+            },
+          }
+        : generatedDraftArtifact;
+    generateLessonArtifactDraftMock.mockResolvedValue({
+      artifactId: generatedDraftArtifact.summary.id,
+      payload: draft,
+      visual: draft.visual,
+    });
+    render(<ContextAnswerPanel {...buildProps()} />);
+    await act(async () => {
+      await useChatMock.mock.lastCall?.[0].onToolCall({
+        toolCall: {
+          dynamic: false,
+          toolName: 'generateCurrentLessonArtifact',
+          toolCallId: 'current-format',
+          input: { mode: 'new', prompt: 'Mostra il concetto.', requestedVisualKind },
+        },
+      });
+    });
+    if (requestedVisualKind === 'scene') {
+      await userEvent.setup().click(screen.getByRole('button', { name: /Apri schema nuovo/i }));
+      expect(
+        await screen.findAllByRole('heading', { name: 'Evaporazione e condensazione' })
+      ).not.toHaveLength(0);
+      expect(document.querySelector('.lesson-scene .type-comparison')).not.toBeNull();
+    }
+    expect(generateLessonArtifactDraftMock).toHaveBeenCalledWith(
+      expect.objectContaining({ requestedVisualKind })
+    );
+    expect(addToolOutputMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolCallId: 'current-format',
+        output: expect.objectContaining({
+          artifactId: generatedDraftArtifact.summary.id,
+        }),
+      })
+    );
+  });
+
   test('does not revive a stopped artifact tool when a follow-up starts', async () => {
     const user = userEvent.setup();
     let resolveDraft: (draft: typeof generatedDraftArtifact) => void = () => {};

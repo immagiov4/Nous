@@ -1579,6 +1579,21 @@ describe('POST /api/chat/library', () => {
     });
   });
 
+  test.each([
+    ['/api/chat/context', 'generateCurrentLessonArtifact'],
+    ['/api/chat/library', 'generateLearningArtifact'],
+  ])('advertises current visual formats through %s', async (endpoint, toolName) => {
+    const response = await request(createApp())
+      .post(endpoint)
+      .send({
+        selectedText: 'Trama e ordito si incrociano.',
+        messages: [{ id: 'diagram', role: 'user', content: 'Mostra uno schema.' }],
+      });
+    expect(response.status).toBe(200);
+    const schema = aiMocks.streamText.mock.calls[0][0].tools[toolName].inputSchema;
+    expect(schema.properties.requestedVisualKind.enum).toEqual(['html', 'image', 'scene']);
+  });
+
   test('streams a library answer with scoped tool contracts and optional web search', async () => {
     const response = await request(createApp())
       .post('/api/chat/library')

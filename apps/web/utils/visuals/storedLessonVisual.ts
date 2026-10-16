@@ -11,6 +11,7 @@ const STORED_LESSON_VISUAL_KINDS: ReadonlySet<LessonGeneratedVisualKind> = new S
   'html',
   'image',
   'mermaid',
+  'scene',
   'svg',
 ]);
 

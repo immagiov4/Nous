@@ -22,6 +22,7 @@ import { getBackendUrl } from '../../services/openrouter/config.ts';
 import type {
   HomeChatToolPreferences,
   LearningArtifactRenderPayload,
+  LessonGeneratedVisualKind,
   LibraryContextRef,
   LibraryFolder,
   LibraryScopeSummary,
@@ -119,7 +120,7 @@ interface GenerateLearningArtifactInput {
   mode?: 'new' | 'replacement-draft';
   projectId: string;
   prompt: string;
-  requestedVisualKind?: 'html' | 'image' | 'mermaid' | 'svg';
+  requestedVisualKind?: LessonGeneratedVisualKind;
   revisionInstructions?: string;
   sourceArtifactId?: string;
 }
