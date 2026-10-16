@@ -99,15 +99,24 @@ test('stops a pending project read and recovers active and queued users after sh
     exported.push(owner);
     return exportProject(owner, id);
   });
+  // Recovery schedules background work; observe each persisted completion before asserting.
+  const recovered = new Map(
+    [first, second, third].map(run => [run.runId, Promise.withResolvers<void>()])
+  );
+  const markCompleted = runStore.markCompleted.bind(runStore);
+  vi.spyOn(runStore, 'markCompleted').mockImplementation(async (runId, archive) => {
+    const result = await markCompleted(runId, archive);
+    recovered.get(runId)?.resolve();
+    return result;
+  });
   const restarted = createLibraryExportApi(dependencies);
   await restarted.recoverPendingRuns();
-  await vi.waitFor(() =>
-    expect([first, second, third].map(run => runStore.runs.get(run.runId)?.status)).toEqual([
-      'completed',
-      'completed',
-      'completed',
-    ])
-  );
+  await Promise.all([...recovered.values()].map(completion => completion.promise));
+  expect([first, second, third].map(run => runStore.runs.get(run.runId)?.status)).toEqual([
+    'completed',
+    'completed',
+    'completed',
+  ]);
   expect(exported).toEqual([owners[0], ...owners]);
 });
 
