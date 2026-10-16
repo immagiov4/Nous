@@ -2,6 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { Sql } from 'postgres';
 import { afterEach, expect, it, vi } from 'vitest';
 import { PostgresWorkflowCancellationStore } from '../../../apps/backend/src/workflows/postgresWorkflowCancellationStore';
+import { STACK_SHUTDOWN_GRACE_MS } from '../stack';
 import { settleAccountWorkflows } from '../workflowCleanup';
 
 vi.mock('node:timers/promises', () => ({ setTimeout: vi.fn() }));
@@ -67,11 +68,69 @@ it('rejects failed compensation and aborts a pending retirement', async () => {
     'compensation failed'
   );
   const controller = new AbortController();
-  const running = vi.fn(async () => [
-    { id: 'run', active: true, cancellation_requested: true, cleanup_status: 'not-required' },
-  ]);
+  const running = Object.assign(
+    vi.fn(async () => [
+      { id: 'run', active: true, cancellation_requested: true, cleanup_status: 'not-required' },
+    ]),
+    { end: vi.fn(async () => {}) }
+  );
   const pending = settleAccountWorkflows(running as unknown as Sql, 'account', controller.signal);
   const rejection = expect(pending).rejects.toThrow();
   controller.abort();
   await rejection;
+  expect(running.end).toHaveBeenCalledWith({ timeout: 0 });
+});
+
+it.each([
+  'select',
+  'cancellation',
+  'worker',
+  'compensation',
+  'close-failure',
+])('bounds ordinary retirement stalled at %s and releases its connection', async stage => {
+  vi.useFakeTimers();
+  const blocked = Promise.withResolvers<never>();
+  const closeError = new Error('Connection close failed');
+  const rows = [
+    {
+      id: 'run',
+      active: stage === 'cancellation',
+      cancellation_requested: false,
+      workers_running: stage === 'worker',
+      cleanup_status: stage === 'compensation' ? 'pending' : 'not-required',
+    },
+  ];
+  const sql = Object.assign(
+    vi.fn(() =>
+      ['select', 'close-failure'].includes(stage) ? blocked.promise : Promise.resolve(rows)
+    ),
+    {
+      end: vi.fn(async () => {
+        blocked.reject(new Error('Connection destroyed'));
+        if (stage === 'close-failure') throw closeError;
+      }),
+    }
+  );
+  vi.spyOn(PostgresWorkflowCancellationStore.prototype, 'request').mockImplementation(
+    () => blocked.promise
+  );
+  vi.mocked(delay).mockImplementation(() => blocked.promise);
+  let outcome: unknown;
+  const pending = settleAccountWorkflows(sql as unknown as Sql, 'account').catch(error => {
+    outcome = error;
+  });
+  await vi.advanceTimersByTimeAsync(STACK_SHUTDOWN_GRACE_MS - 1);
+  expect(outcome).toBeUndefined();
+  await vi.advanceTimersByTimeAsync(1);
+  await pending;
+  if (stage === 'close-failure') {
+    expect(outcome).toBeInstanceOf(AggregateError);
+    expect((outcome as AggregateError).errors).toEqual([
+      expect.objectContaining({ message: expect.stringContaining('retirement timed out') }),
+      closeError,
+    ]);
+  } else
+    expect(outcome).toMatchObject({ message: expect.stringContaining('retirement timed out') });
+  expect(sql.end).toHaveBeenCalledWith({ timeout: 0 });
+  expect(vi.getTimerCount()).toBe(0);
 });

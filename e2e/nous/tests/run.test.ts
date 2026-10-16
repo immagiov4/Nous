@@ -33,6 +33,7 @@ import {
 import { syntheticCourse } from '../prepare';
 import { main } from '../run';
 import * as stack from '../stack';
+import { settleAccountWorkflows } from '../workflowCleanup';
 
 vi.mock('node:fs/promises', async importOriginal => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
@@ -169,6 +170,41 @@ async function evidence(generation = false) {
   ]);
   return { directory, manifest };
 }
+
+it('finalizes ordinary-story reports and shutdown after stalled workflow retirement', async () => {
+  const blocked = Promise.withResolvers<never>();
+  const sql = Object.assign(
+    vi.fn(() => blocked.promise),
+    {
+      end: vi.fn(async () => {
+        blocked.reject(new Error('Connection destroyed'));
+      }),
+    }
+  );
+  vi.mocked(adapter.prepare).mockResolvedValue({
+    credentials: { email: 'test@example.test', password: 'secret' },
+    cleanup: async () => {
+      vi.useFakeTimers();
+      const pending = settleAccountWorkflows(sql as unknown as postgresModule.Sql, 'account');
+      const observed = pending.catch(error => error);
+      try {
+        await vi.advanceTimersByTimeAsync(stack.STACK_SHUTDOWN_GRACE_MS);
+        throw await observed;
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  });
+  await expect(main(args)).rejects.toMatchObject({ code: 'PLAYTEST_OPERATIONAL_ERROR' });
+  const { directory, manifest } = await evidence();
+  const summary = JSON.parse(await readFile(join(directory, 'summary.json'), 'utf8'));
+  const record = JSON.parse(await readFile(summary.records[0].reportPath, 'utf8'));
+  expect(record.cleanupError).toBe('The adapter could not clean up the synthetic story account.');
+  expect(record.diagnostics.cleanup).toContain('retirement timed out');
+  expect(manifest.outcome).toBe('failed');
+  expect(stack.stopStack).toHaveBeenCalled();
+  expect(sql.end).toHaveBeenCalledWith({ timeout: 0 });
+});
 
 describe('Nous playtest evidence entrypoint', () => {
   it('retains a skipped run without starting or stopping application services', async () => {

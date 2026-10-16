@@ -1,7 +1,9 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Sql } from 'postgres';
 import { PostgresWorkflowCancellationStore } from '../../apps/backend/src/workflows/postgresWorkflowCancellationStore';
-import { STACK_READINESS_POLL_INTERVAL_MS } from './stack';
+import { raceOperationWithAbort } from '../../apps/backend/src/workflows/workflowStepAttempt';
+import { withRunCleanup } from '../../scripts/run-evidence';
+import { STACK_READINESS_POLL_INTERVAL_MS, STACK_SHUTDOWN_GRACE_MS } from './stack';
 
 interface AccountRun {
   id: string;
@@ -17,9 +19,46 @@ export async function settleAccountWorkflows(
   userId: string,
   signal?: AbortSignal
 ): Promise<void> {
+  const retirement = new AbortController();
+  // Account retirement is graceful shutdown, including for stories without preparation deadlines.
+  const timer = setTimeout(
+    () =>
+      retirement.abort(
+        new Error('Account workflow retirement timed out; resources were retained.')
+      ),
+    STACK_SHUTDOWN_GRACE_MS
+  );
+  const retirementSignal = signal
+    ? AbortSignal.any([signal, retirement.signal])
+    : retirement.signal;
+  try {
+    await withRunCleanup(
+      async () => {
+        const result = await raceOperationWithAbort(
+          () => waitForAccountWorkflows(sql, userId, retirementSignal),
+          retirementSignal
+        );
+        if (result.status === 'failed') throw result.error;
+        retirementSignal.throwIfAborted();
+      },
+      async () => {
+        // Release blocked selects and cancellation transactions before the caller closes its pool.
+        if (retirementSignal.aborted) await sql.end({ timeout: 0 });
+      }
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function waitForAccountWorkflows(
+  sql: Sql,
+  userId: string,
+  signal: AbortSignal
+): Promise<void> {
   const cancellations = new PostgresWorkflowCancellationStore(sql);
   while (true) {
-    signal?.throwIfAborted();
+    signal.throwIfAborted();
     const runs = await sql<AccountRun[]>`
       select run.id, run.cancellation_requested, run.cleanup_status,
         run.status in ('queued', 'running', 'waiting') as active,
@@ -30,7 +69,7 @@ export async function settleAccountWorkflows(
       from public.workflow_runs run where run.user_id = ${userId}
       order by run.id
     `;
-    signal?.throwIfAborted();
+    signal.throwIfAborted();
     if (runs.some(run => run.cleanup_status === 'failed'))
       throw new Error('Account workflow compensation failed; resources were retained.');
     const pending = runs.filter(
@@ -39,7 +78,7 @@ export async function settleAccountWorkflows(
     );
     if (pending.length === 0) return;
     for (const run of pending) {
-      signal?.throwIfAborted();
+      signal.throwIfAborted();
       if (run.active && !run.cancellation_requested)
         await cancellations.request({ runId: run.id, userId });
     }
