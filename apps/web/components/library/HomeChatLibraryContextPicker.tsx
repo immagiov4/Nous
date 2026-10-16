@@ -95,10 +95,15 @@ const LibraryContextTreeNode = ({
             {node.project.title}
           </span>
           <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
-            {t('{completed}/{total} lezioni completate', {
-              completed: node.project.completedCount,
-              total: node.project.lessonCount,
-            })}
+            {t(
+              node.project.lessonCount === 1
+                ? '{completed}/{total} lezione completata'
+                : '{completed}/{total} lezioni completate',
+              {
+                completed: node.project.completedCount,
+                total: node.project.lessonCount,
+              }
+            )}
           </span>
         </span>
       </label>
@@ -155,7 +160,9 @@ const LibraryContextTreeNode = ({
               <span className="truncate">{node.folder.name}</span>
             </span>
             <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
-              {t('{count} corsi inclusi', { count: node.descendantProjectIds.length })}
+              {node.descendantProjectIds.length === 1
+                ? t('1 corso incluso')
+                : t('{count} corsi inclusi', { count: node.descendantProjectIds.length })}
             </span>
           </span>
           {isExpanded ? (

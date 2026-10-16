@@ -8,6 +8,7 @@ import {
 } from '@shared/projectSnapshotWire';
 import { isSourceArchivePdfWarningReason } from '@shared/sourceArchiveWarnings';
 import { parseYouTubeTranscript } from '@shared/youtubeTranscript';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
   AppState,
   type CourseSourceDescriptor,
@@ -119,7 +120,8 @@ export const buildCoverLabel = (
   const lessonCount = snapshot.learningPlan
     ? flattenLessons(snapshot.learningPlan.modules).length
     : 0;
-  return lessonCount > 0 ? `${lessonCount} lezioni` : 'Bozza salvata';
+  if (lessonCount === 0) return 'Bozza salvata';
+  return lessonCount === 1 ? t('1 lezione') : t('{count} lezioni', { count: lessonCount });
 };
 
 export const buildProjectMeta = (

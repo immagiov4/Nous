@@ -1277,10 +1277,15 @@ const CourseList = ({
                                   aria-busy={isOpening}
                                   className="mt-1 text-[0.68rem] text-stone-600 disabled:cursor-wait sm:text-stone-400 dark:text-stone-300 dark:sm:text-stone-400"
                                 >
-                                  {t('{lessonCount} lezioni · {lastOpenedDate}', {
-                                    lessonCount: project.lessonCount,
-                                    lastOpenedDate: formatCourseDate(project.lastOpenedAt),
-                                  })}
+                                  {t(
+                                    project.lessonCount === 1
+                                      ? '1 lezione · {lastOpenedDate}'
+                                      : '{lessonCount} lezioni · {lastOpenedDate}',
+                                    {
+                                      lessonCount: project.lessonCount,
+                                      lastOpenedDate: formatCourseDate(project.lastOpenedAt),
+                                    }
+                                  )}
                                 </button>
                               </>
                             )}

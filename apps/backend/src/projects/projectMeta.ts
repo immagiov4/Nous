@@ -187,7 +187,8 @@ const buildCoverLabel = (snapshot: ProjectSnapshot, sourceKind: ProjectSourceKin
   }
 
   const { lessonCount } = getLearningPlanLessonStats(snapshot.learningPlan);
-  return lessonCount > 0 ? `${lessonCount} lezioni` : 'Bozza sincronizzata';
+  if (lessonCount === 0) return 'Bozza sincronizzata';
+  return lessonCount === 1 ? '1 lezione' : `${lessonCount} lezioni`;
 };
 
 export const normalizeProjectSnapshot = (

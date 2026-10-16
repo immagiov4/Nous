@@ -37,6 +37,13 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 };
 
 const ENGLISH_UI_MESSAGES = {
+  '1 lezione · {lastOpenedDate}': '1 lesson · {lastOpenedDate}',
+  '{completed}/{total} lezione completata': '{completed}/{total} lesson completed',
+  '1 corso incluso': '1 course included',
+  '1 corso importato.': '1 course imported.',
+  'Richiesta di scaricamento del backup di 1 corso inviata.':
+    'Download request for the backup of 1 course sent.',
+
   'Ti ascolto… rilascia': 'Listening… release',
   Spazio: 'Space',
   'Tieni premuto': 'Hold',

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { formatYouTubeTranscript } from '@shared/youtubeTranscript';
-import { expect, test } from 'vitest';
+import { afterEach, expect, test } from 'vitest';
+import { setAccountLocale } from '../../../i18n/uiMessages.ts';
 import {
   buildCourseSourceDescriptors,
   createProjectSourceFromDescriptors,
@@ -689,4 +690,30 @@ test('normalizeImportedProject preserves multi-source identities, outlines, and 
     descriptors.map(item => item.id)
   );
   assert.equal(imported.source?.sources?.[0]?.outline[0]?.title, 'First');
+});
+
+afterEach(() => setAccountLocale(null));
+
+test.each([
+  ['it', 1, '1 lezione'],
+  ['it', 2, '2 lezioni'],
+  ['en', 1, '1 lesson'],
+  ['en', 2, '2 lessons'],
+] as const)('builds a %s cover label for %i lessons', (locale, count, expected) => {
+  setAccountLocale(locale);
+  const snapshot = normalizeImportedProject({
+    id: 'counted-course',
+    version: '4.1',
+    learningPlan: {
+      title: 'Course',
+      summary: '',
+      sections: Array.from({ length: count }, (_, index) => ({
+        id: `lesson-${index}`,
+        title: `Lesson ${index}`,
+        content: '',
+        isCompleted: false,
+      })),
+    },
+  });
+  expect(buildCoverLabel(snapshot, 'document')).toBe(expected);
 });

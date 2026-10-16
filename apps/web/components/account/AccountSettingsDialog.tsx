@@ -183,7 +183,12 @@ export default function AccountSettingsDialog({
     try {
       const courseCount = await onExportLibraryBackup(setLibraryExportProgress);
       setSuccessMessage(
-        t('Richiesta di scaricamento del backup di {courseCount} corsi inviata.', { courseCount })
+        t(
+          courseCount === 1
+            ? 'Richiesta di scaricamento del backup di 1 corso inviata.'
+            : 'Richiesta di scaricamento del backup di {courseCount} corsi inviata.',
+          { courseCount }
+        )
       );
     } catch (error) {
       console.error('[Nous][Account] Library backup export failed.', error);
@@ -202,7 +207,11 @@ export default function AccountSettingsDialog({
     beginAction('backup-import');
     try {
       const courseCount = await onImportLibraryBackup(file);
-      setSuccessMessage(t('{courseCount} corsi importati.', { courseCount }));
+      setSuccessMessage(
+        courseCount === 1
+          ? t('1 corso importato.')
+          : t('{courseCount} corsi importati.', { courseCount })
+      );
     } catch (error) {
       console.error('[Nous][Account] Library backup import failed.', error);
       const correlationId = await reportLibraryArchiveImportFailure(error, file.size);
