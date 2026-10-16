@@ -1,8 +1,11 @@
 import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { PassThrough, Readable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-
+import { type RunManifest, withRunEvidence } from '../../../../scripts/run-evidence.js';
 import {
   buildCodexAppServerCommand,
   buildCodexAppServerEnvironment,
@@ -11,11 +14,16 @@ import {
   listCodexModels,
   normalizeCodexReasoningEffort,
   readCodexAccount,
+  runCodexAppServerTurn,
   runCodexAppServerTurnWithClient,
   startCodexAppServerClient,
 } from '../../src/services/codexAppServer.js';
 import { type ModelExchange, withModelExchanges } from '../../src/workflows/modelExchanges.js';
 import { runWithWorkflowAttemptMetering } from '../../src/workflows/workflowAiMetering.js';
+
+vi.mock('../../../../scripts/git-identity.js', () => ({
+  readGitIdentity: () => ({ commitSha: 'fixture-commit', dirty: false }),
+}));
 
 type WireMessage = Record<string, unknown>;
 
@@ -929,5 +937,138 @@ describe('Codex app-server protocol client', () => {
     ).rejects.toMatchObject<CodexAppServerError>({ code: 'not_authenticated' });
     expect(fakeProcess.received.some(message => message.method === 'thread/start')).toBe(false);
     client.close();
+  });
+});
+
+describe('interrupted direct Codex run evidence', () => {
+  test.each([
+    'late',
+    'missing',
+    'starting',
+    'initializing',
+  ] as const)('persists %s usage before finalizing the manifest and history', async usageReport => {
+    const directory = await mkdtemp(join(tmpdir(), 'nous-codex-evidence-'));
+    vi.stubEnv('NOUS_E2E_DATA', directory);
+    vi.stubEnv('CODEX_APP_SERVER_ENABLED', 'true');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const controller = new AbortController();
+    const interrupted = Promise.withResolvers<void>();
+    const callerFailed = Promise.withResolvers<void>();
+    const turnStarting = Promise.withResolvers<void>();
+    let startTurn = () => undefined;
+    let initialize = () => undefined;
+    const finalize = vi.fn(async (persist: () => Promise<void>) => persist());
+    let runDirectory = '';
+    let fakeProcess: FakeCodexProcess;
+    fakeProcess = new FakeCodexProcess(message => {
+      if (message.method === 'initialize') {
+        initialize = () => respond(fakeProcess, message, {});
+        if (usageReport === 'initializing') turnStarting.resolve();
+        else initialize();
+      } else if (message.method === 'account/read') {
+        respond(fakeProcess, message, { requiresOpenaiAuth: false });
+      } else if (message.method === 'thread/start') {
+        respond(fakeProcess, message, { thread: { id: 'evidence-thread' } });
+      } else if (message.method === 'turn/start') {
+        startTurn = () => {
+          respond(fakeProcess, message, { turn: { id: 'evidence-turn' } });
+          controller.abort();
+        };
+        turnStarting.resolve();
+        if (usageReport !== 'starting') startTurn();
+      } else if (message.method === 'turn/interrupt') {
+        respond(fakeProcess, message, {});
+        interrupted.resolve();
+      }
+    });
+    if (!globalThis.Bun) vi.stubGlobal('Bun', { spawn: vi.fn() });
+    const spawn = vi.spyOn(Bun, 'spawn').mockReturnValue({
+      stdin: fakeProcess.stdin,
+      stdout: Readable.toWeb(fakeProcess.stdout),
+      stderr: Readable.toWeb(fakeProcess.stderr),
+      exited: new Promise(() => {}),
+      kill: fakeProcess.kill,
+    } as never);
+    try {
+      const run = withRunEvidence(
+        { scenario: 'interrupted', provider: 'codex', slots: {} },
+        async recorder => {
+          runDirectory = recorder.directory;
+          try {
+            const turn = recorder.measure({ kind: 'call', name: 'direct-turn' }, () =>
+              runCodexAppServerTurn({
+                developerInstructions: 'Tutor.',
+                input: [{ type: 'text', text: 'Hello' }],
+                model: 'fixture-model',
+                reasoningEffort: 'low',
+                signal: controller.signal,
+              })
+            );
+            await Promise.all([
+              turn,
+              turnStarting.promise.then(() => {
+                if (usageReport === 'starting' || usageReport === 'initializing')
+                  throw new Error('Sibling failed during startup.');
+              }),
+            ]);
+          } catch (error) {
+            callerFailed.resolve();
+            throw error;
+          }
+        },
+        finalize
+      );
+      const result = run.catch(error => error);
+      await callerFailed.promise;
+      await vi.advanceTimersByTimeAsync(0);
+      const finalizedBeforeUsage = finalize.mock.calls.length;
+      if (usageReport === 'starting') startTurn();
+      if (usageReport === 'initializing') initialize();
+      await interrupted.promise;
+      if (usageReport !== 'missing') {
+        sendInterruptedTurnCompletion(
+          fakeProcess,
+          { threadId: 'evidence-thread', turnId: 'evidence-turn' },
+          { cacheReadTokens: 5, inputTokens: 13, outputTokens: 7, reasoningTokens: 2 }
+        );
+      } else {
+        await vi.runAllTimersAsync();
+      }
+      expect(await result).toMatchObject(
+        usageReport === 'starting' || usageReport === 'initializing'
+          ? { message: 'Sibling failed during startup.' }
+          : { name: 'AbortError' }
+      );
+      expect(finalizedBeforeUsage).toBe(0);
+      const manifest: RunManifest = JSON.parse(
+        await readFile(join(runDirectory, 'manifest.json'), 'utf8')
+      );
+      const history: RunManifest = JSON.parse(
+        await readFile(join(directory, 'runs', 'interrupted', 'history.jsonl'), 'utf8')
+      );
+      expect(history).toEqual(manifest);
+      expect(manifest.outcome).toBe('failed');
+      expect(manifest.aiUsage).toHaveLength(1);
+      expect(manifest.aiUsage[0]).toMatchObject({
+        model: 'fixture-model',
+        provider: 'codex',
+        nodeInstanceId: 'direct-turn',
+      });
+      if (usageReport !== 'missing') {
+        expect(manifest.aiUsage[0]).toMatchObject({ inputTokens: 13, outputTokens: 7 });
+      } else {
+        expect(manifest.aiUsage[0].inputTokens).toBeUndefined();
+        expect(manifest.aiUsage[0].outputTokens).toBeUndefined();
+        expect(manifest.aiUsage[0].providerCost).toBeUndefined();
+      }
+    } finally {
+      fakeProcess.stdout.end();
+      fakeProcess.stderr.end();
+      spawn.mockRestore();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

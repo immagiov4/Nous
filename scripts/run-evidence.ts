@@ -10,7 +10,10 @@ import {
   resolveTextModelConfig,
   type TextModelSlot,
 } from '../apps/backend/src/config/modelConfig.js';
-import { normalizeCodexReasoningEffort } from '../apps/backend/src/services/codexAppServer.js';
+import {
+  normalizeCodexReasoningEffort,
+  withSettledCodexUsage,
+} from '../apps/backend/src/services/codexAppServer.js';
 import {
   type ModelExchange,
   withModelExchanges,
@@ -297,9 +300,11 @@ export const withRunEvidence = async <Result>(
   return withRunCleanup(
     async () => {
       try {
-        const result = await (context.captureModelExchanges
-          ? withModelExchanges(exchanges, () => operation(recorder))
-          : operation(recorder));
+        const result = await withSettledCodexUsage(() =>
+          context.captureModelExchanges
+            ? withModelExchanges(exchanges, () => operation(recorder))
+            : operation(recorder)
+        );
         manifest.outcome = 'passed';
         return result;
       } catch (error) {

@@ -144,7 +144,7 @@ export const generateStructuredOutput = async <T>(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (
-      !/schema is too complex|schemas contains too many optional parameters|invalid schema for response_format|additionalProperties.*required/iu.test(
+      !/schema is too complex|schemas contains too many (?:optional parameters|parameters with union types)|invalid schema for response_format|additionalProperties.*required/iu.test(
         message
       )
     ) {

@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { APICallError } from 'ai';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadXrayTrace, renderXrayMarkdown, runXray, validateXrayReview } from './xray.js';
 import { reviewRecordedTrace } from './xray-reviewer.js';
@@ -332,6 +333,80 @@ describe('X-ray recorded run review', () => {
     expect(markdown).not.toContain('![image]');
     expect(markdown.match(/&lt;script&gt;/g)).toHaveLength(5);
     expect(markdown).toContain('&#10;');
+  });
+  it('persists reviewer failure messages, causes and provider diagnostics in the run directory', async () => {
+    const providerError = new APICallError({
+      message: 'Provider rejected the schema',
+      url: 'https://provider.example/review',
+      requestBodyValues: {},
+      statusCode: 400,
+      responseBody: '{"error":{"message":"Unsupported schema"}}',
+      data: { error: { code: 'invalid_schema' } },
+      cause: new Error('Schema validation failed'),
+    });
+    vi.mocked(reviewRecordedTrace).mockRejectedValue(
+      new Error('Review failed', { cause: providerError })
+    );
+    await runXray(directory);
+    const saved = JSON.parse(await readFile(join(directory, 'xray.json'), 'utf8'));
+    expect(saved.nodeReviews[0].failureDiagnostic).toMatchObject({
+      originalMessage: 'Review failed',
+      cause: {
+        originalMessage: 'Provider rejected the schema',
+        status: 400,
+        providerResponse: '{"error":{"message":"Unsupported schema"}}',
+        cause: { originalMessage: 'Schema validation failed' },
+      },
+    });
+    expect(saved.status).toBe('needs-maintainer');
+    expect(await readFile(join(directory, 'xray.md'), 'utf8')).toContain(String.raw`xray\.json`);
+  });
+  it('redacts credentials from persisted reviewer failure diagnostics', async () => {
+    vi.mocked(reviewRecordedTrace).mockRejectedValue(
+      new Error('Review failed: api_key=outer-secret', {
+        cause: new APICallError({
+          message: 'Rejected Bearer provider-secret',
+          url: 'https://user:url-secret@provider.example/review?token=query-secret',
+          requestBodyValues: { apiKey: 'request-secret' },
+          statusCode: 401,
+          responseBody: JSON.stringify({
+            error: {
+              message: 'Unauthorized',
+              api_key: 'body-secret',
+              authorization: 'Bearer body-token',
+            },
+          }),
+          data: { error: { code: 'unauthorized' } },
+          cause: new Error('password=cause-secret'),
+        }),
+      })
+    );
+    await runXray(directory);
+    const json = await readFile(join(directory, 'xray.json'), 'utf8');
+    const markdown = await readFile(join(directory, 'xray.md'), 'utf8');
+    expect(JSON.parse(json).nodeReviews[0].failureDiagnostic).toMatchObject({
+      originalMessage: 'Review failed: api_key=[REDACTED]',
+      cause: {
+        originalMessage: 'Rejected Bearer [REDACTED]',
+        status: 401,
+        providerResponse: JSON.stringify({
+          error: { message: 'Unauthorized', api_key: '[REDACTED]', authorization: '[REDACTED]' },
+        }),
+        cause: { originalMessage: 'password=[REDACTED]' },
+      },
+    });
+    for (const secret of [
+      'outer-secret',
+      'provider-secret',
+      'url-secret',
+      'query-secret',
+      'request-secret',
+      'body-secret',
+      'body-token',
+      'cause-secret',
+    ]) {
+      expect(json + markdown).not.toContain(secret);
+    }
   });
   it('preserves measured size and needs-maintainer when the provider rejects the complete input', async () => {
     vi.mocked(reviewRecordedTrace).mockRejectedValue(new Error('contextWindowExceeded'));

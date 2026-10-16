@@ -2,6 +2,10 @@ import { open, readFile, unlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as z from 'zod';
+import {
+  toWorkflowErrorDiagnostic,
+  type WorkflowErrorDiagnostic,
+} from '../apps/backend/src/workflows/workflowErrorDiagnostics.js';
 import { reviewRecordedTrace } from './xray-reviewer.js';
 
 const text = z.string().regex(/\S/);
@@ -123,6 +127,7 @@ interface NodeReview {
   status: 'reviewed' | 'needs-maintainer';
   reviewerResponse: string | null;
   failure: string | null;
+  failureDiagnostic: WorkflowErrorDiagnostic | null;
 }
 interface XrayReport extends Review {
   nodeReviews: NodeReview[];
@@ -226,6 +231,7 @@ export const runXray = async (directory: string): Promise<XrayReport> => {
         status: 'needs-maintainer',
         reviewerResponse: null,
         failure: null,
+        failureDiagnostic: null,
       };
       report.nodeReviews.push(nodeReview);
       report.inputBytes += nodeReview.inputBytes;
@@ -238,13 +244,14 @@ export const runXray = async (directory: string): Promise<XrayReport> => {
         report.evidenceLimits.push(...review.evidenceLimits);
         nodeReview.status = 'reviewed';
       } catch (error) {
-        console.error('X-ray workflow-node reviewer failed.', error);
-        nodeReview.failure = error instanceof Error ? error.name : 'UnknownError';
+        nodeReview.failureDiagnostic = toWorkflowErrorDiagnostic(error);
+        console.error('X-ray workflow-node reviewer failed.', nodeReview.failureDiagnostic);
+        nodeReview.failure = nodeReview.failureDiagnostic.type as string;
         report.failure = nodeReview.failure;
         report.status = 'needs-maintainer';
         const identity = nodeReview.workflow ? JSON.stringify(nodeReview.workflow) : 'unassigned';
         report.evidenceLimits.push(
-          `Workflow group ${identity}, exchanges ${nodeReview.exchangeIndexes.join(', ')} could not be reviewed: ${nodeReview.failure}. Complete input: ${nodeReview.inputBytes} bytes, ${nodeReview.inputCharacters} characters, without truncation. No findings can be concluded for this group; see the command diagnostic for provider rejection or invalid review output.`
+          `Workflow group ${identity}, exchanges ${nodeReview.exchangeIndexes.join(', ')} could not be reviewed: ${nodeReview.failure}. Complete input: ${nodeReview.inputBytes} bytes, ${nodeReview.inputCharacters} characters, without truncation. No findings can be concluded for this group; see failureDiagnostic in xray.json for provider rejection or invalid review output.`
         );
       }
     }

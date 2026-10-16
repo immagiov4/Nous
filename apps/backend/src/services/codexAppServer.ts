@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { createInterface, type Interface as ReadLineInterface } from 'node:readline';
@@ -643,6 +644,22 @@ const readTurnFailure = (params: unknown): string | undefined => {
     .join(': ');
 };
 
+const pendingCodexUsage = new AsyncLocalStorage<Set<Promise<void>>>();
+
+/** Await this scope's metered turns before persisting evidence, including after interruption. */
+export const withSettledCodexUsage = async <Result>(
+  operation: () => Promise<Result>
+): Promise<Result> => {
+  const pending = new Set<Promise<void>>();
+  return pendingCodexUsage.run(pending, async () => {
+    try {
+      return await operation();
+    } finally {
+      await Promise.all(pending);
+    }
+  });
+};
+
 interface CodexTurnExecution {
   readonly result: Promise<string>;
   readonly settled: Promise<void>;
@@ -943,6 +960,7 @@ const executeCodexAppServerTurn = async (
     const callerCancellation = new Promise<never>((_resolve, reject) => {
       rejectCallerCancellation = reject;
     });
+    let cancellationStarted = false;
     const meteredCompletion = (async () => {
       const outcome = await turnCompleted.then(
         result => ({ result }),
@@ -957,7 +975,7 @@ const executeCodexAppServerTurn = async (
           'error' in outcome ? outcome.error : undefined
         );
       }
-      if (usage) {
+      if (usage || cancellationStarted) {
         await recordWorkflowAiUsage({ ...usage, model: turn.model, provider: 'codex' });
       }
       if ('error' in outcome) throw outcome.error;
@@ -969,7 +987,6 @@ const executeCodexAppServerTurn = async (
       () => undefined
     );
 
-    let cancellationStarted = false;
     let protocolCloseTimeout: ReturnType<typeof setTimeout> | undefined;
     let turnTimeout: ReturnType<typeof setTimeout> | undefined;
     const interruptTurn = (callerError: unknown) => {
@@ -1019,12 +1036,25 @@ const executeCodexAppServerTurn = async (
   }
 };
 
-export const runCodexAppServerTurnWithClient = async (
+const trackCodexTurnUsage = async (execution: Promise<CodexTurnExecution>): Promise<string> => {
+  const pending = pendingCodexUsage.getStore();
+  if (pending) {
+    const settled = execution.then(
+      turnExecution => turnExecution.settled,
+      () => undefined
+    );
+    pending.add(settled);
+    void settled.then(() => pending.delete(settled));
+  }
+  return (await execution).result;
+};
+
+export const runCodexAppServerTurnWithClient = (
   turn: CodexTurnInput,
   client: CodexJsonRpcClient
-): Promise<string> => (await startCodexAppServerTurnWithClient(turn, client)).result;
+): Promise<string> => trackCodexTurnUsage(startCodexAppServerTurnWithClient(turn, client));
 
-export const runCodexAppServerTurn = async (turn: CodexTurnInput): Promise<string> => {
+const startCodexAppServerTurn = async (turn: CodexTurnInput): Promise<CodexTurnExecution> => {
   const client = await startCodexAppServerClient(() =>
     spawnCodexAppServer({ allowImageGeneration: turn.allowImageGeneration })
   );
@@ -1036,8 +1066,11 @@ export const runCodexAppServerTurn = async (turn: CodexTurnInput): Promise<strin
     throw error;
   }
   void execution.settled.then(() => client.close());
-  return execution.result;
+  return execution;
 };
+
+export const runCodexAppServerTurn = (turn: CodexTurnInput): Promise<string> =>
+  trackCodexTurnUsage(startCodexAppServerTurn(turn));
 
 export const CODEX_IMAGE_TURN_SETTINGS = { reasoningEffort: 'low', serviceTier: 'fast' } as const;
 
