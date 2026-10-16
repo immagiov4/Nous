@@ -79,7 +79,8 @@ type JsonRpcId = number | string;
 type JsonObject = Record<string, unknown>;
 
 interface PendingRequest {
-  reject: (error: Error) => void;
+  cleanup: () => void;
+  reject: (error: unknown) => void;
   resolve: (result: unknown) => void;
   timeout: ReturnType<typeof setTimeout>;
 }
@@ -227,20 +228,35 @@ export class CodexJsonRpcClient {
   async request(
     method: string,
     params?: unknown,
-    timeoutMs = this.requestTimeoutMs
+    options: { signal?: AbortSignal; timeoutMs?: number } = {}
   ): Promise<unknown> {
+    options.signal?.throwIfAborted();
     if (this.#closed) {
       throw new CodexAppServerError('Codex app-server connection is closed.', 'process');
     }
 
     const id = this.#nextRequestId++;
+    let abortImmediate: ReturnType<typeof setImmediate> | undefined;
+    const onAbort = () => {
+      // Drain a response already buffered on stdout so a started turn can be interrupted.
+      abortImmediate = setImmediate(() => {
+        this.#failPending(options.signal?.reason);
+        this.close();
+      });
+    };
+    const cleanup = () => {
+      if (abortImmediate) clearImmediate(abortImmediate);
+      options.signal?.removeEventListener('abort', onAbort);
+    };
     const result = new Promise<unknown>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.#pendingRequests.delete(String(id));
+        cleanup();
         reject(new CodexAppServerError(`Codex app-server timed out during ${method}.`, 'timeout'));
-      }, timeoutMs);
+      }, options.timeoutMs ?? this.requestTimeoutMs);
       timeout.unref?.();
-      this.#pendingRequests.set(String(id), { reject, resolve, timeout });
+      this.#pendingRequests.set(String(id), { cleanup, reject, resolve, timeout });
+      options.signal?.addEventListener('abort', onAbort, { once: true });
     });
 
     this.#write({ id, method, ...(params === undefined ? {} : { params }) });
@@ -330,6 +346,7 @@ export class CodexJsonRpcClient {
 
     this.#pendingRequests.delete(requestId);
     clearTimeout(pending.timeout);
+    pending.cleanup();
     if ('error' in message) {
       pending.reject(makeProtocolError(message));
       return;
@@ -356,9 +373,10 @@ export class CodexJsonRpcClient {
     }
   }
 
-  #failPending(error: Error): void {
+  #failPending(error: unknown): void {
     for (const pending of this.#pendingRequests.values()) {
       clearTimeout(pending.timeout);
+      pending.cleanup();
       pending.reject(error);
     }
     this.#pendingRequests.clear();
@@ -435,18 +453,25 @@ const spawnCodexAppServer = (options: { allowImageGeneration?: boolean } = {}): 
 };
 
 export const startCodexAppServerClient = async (
-  spawnProcess: () => CodexProcess = spawnCodexAppServer
+  spawnProcess: () => CodexProcess = spawnCodexAppServer,
+  signal?: AbortSignal
 ): Promise<CodexJsonRpcClient> => {
+  signal?.throwIfAborted();
   if (!isCodexAppServerEnabled()) {
     throw new CodexAppServerError('Codex app-server is disabled.', 'disabled');
   }
 
   const client = new CodexJsonRpcClient(spawnProcess());
   try {
-    await client.request('initialize', {
-      clientInfo: CODEX_CLIENT_INFO,
-      capabilities: { experimentalApi: true },
-    });
+    await client.request(
+      'initialize',
+      {
+        clientInfo: CODEX_CLIENT_INFO,
+        capabilities: { experimentalApi: true },
+      },
+      { signal }
+    );
+    signal?.throwIfAborted();
     client.notify('initialized');
     return client;
   } catch (error) {
@@ -509,8 +534,11 @@ const parseAccountSummary = (response: unknown): CodexAccountSummary => {
   };
 };
 
-export const readCodexAccount = async (client: CodexJsonRpcClient): Promise<CodexAccountSummary> =>
-  parseAccountSummary(await client.request('account/read', { refreshToken: false }));
+export const readCodexAccount = async (
+  client: CodexJsonRpcClient,
+  signal?: AbortSignal
+): Promise<CodexAccountSummary> =>
+  parseAccountSummary(await client.request('account/read', { refreshToken: false }, { signal }));
 
 export const listCodexModels = async (client: CodexJsonRpcClient): Promise<CodexModelSummary[]> => {
   const models: CodexModelSummary[] = [];
@@ -543,8 +571,11 @@ export const listCodexModels = async (client: CodexJsonRpcClient): Promise<Codex
   return models;
 };
 
-const requireAuthenticatedCodexAccount = async (client: CodexJsonRpcClient): Promise<void> => {
-  const account = await readCodexAccount(client);
+const requireAuthenticatedCodexAccount = async (
+  client: CodexJsonRpcClient,
+  signal?: AbortSignal
+): Promise<void> => {
+  const account = await readCodexAccount(client, signal);
   if (account.requiresOpenaiAuth && !account.type) {
     throw new CodexAppServerError('Codex is not authenticated.', 'not_authenticated');
   }
@@ -722,6 +753,16 @@ const captureCodexNotification = (
   }
 };
 
+const failedCodexTurnStartup = (turn: CodexTurnInput, error: unknown): CodexTurnExecution => ({
+  result: Promise.reject(error),
+  settled: turn.signal?.aborted
+    ? recordWorkflowAiUsage({ model: turn.model, provider: 'codex' }).then(
+        () => undefined,
+        () => undefined
+      )
+    : Promise.resolve(),
+});
+
 const startCodexAppServerTurnWithClient = async (
   turn: CodexTurnInput,
   client: CodexJsonRpcClient
@@ -750,8 +791,9 @@ const startCodexAppServerTurnWithClient = async (
   try {
     return await executeCodexAppServerTurn(turn, client, capture);
   } catch (error) {
+    if (turn.signal?.aborted) client.close();
     capture?.finish('error', error);
-    throw error;
+    return failedCodexTurnStartup(turn, error);
   }
 };
 
@@ -771,7 +813,7 @@ const executeCodexAppServerTurn = async (
   };
   const usageByTurnId = new Map<string, Omit<WorkflowAiUsage, 'model' | 'provider'>>();
 
-  await requireAuthenticatedCodexAccount(client);
+  await requireAuthenticatedCodexAccount(client, turn.signal);
   const toolsByName = new Map((turn.tools || []).map(tool => [tool.name, tool]));
   client.handleServerRequests(async request => {
     if (request.method !== 'item/tool/call' || !isRecord(request.params)) {
@@ -810,26 +852,30 @@ const executeCodexAppServerTurn = async (
   });
 
   const webSearchMode = turn.allowWebSearch ? 'live' : 'disabled';
-  const threadResponse = await client.request('thread/start', {
-    approvalPolicy: 'never',
-    baseInstructions: codexBaseInstructions(turn),
-    config: { web_search: webSearchMode },
-    cwd: process.env.CODEX_WORKING_DIRECTORY?.trim() || tmpdir(),
-    developerInstructions: turn.developerInstructions,
-    dynamicTools: (turn.tools || []).map(tool => ({
-      type: 'function',
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-    })),
-    ephemeral: true,
-    environments: [],
-    model: turn.model,
-    serviceTier: turn.serviceTier,
-    runtimeWorkspaceRoots: [],
-    sandbox: 'read-only',
-    selectedCapabilityRoots: [],
-  });
+  const threadResponse = await client.request(
+    'thread/start',
+    {
+      approvalPolicy: 'never',
+      baseInstructions: codexBaseInstructions(turn),
+      config: { web_search: webSearchMode },
+      cwd: process.env.CODEX_WORKING_DIRECTORY?.trim() || tmpdir(),
+      developerInstructions: turn.developerInstructions,
+      dynamicTools: (turn.tools || []).map(tool => ({
+        type: 'function',
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      })),
+      ephemeral: true,
+      environments: [],
+      model: turn.model,
+      serviceTier: turn.serviceTier,
+      runtimeWorkspaceRoots: [],
+      sandbox: 'read-only',
+      selectedCapabilityRoots: [],
+    },
+    { signal: turn.signal }
+  );
   const threadId = readThreadId(threadResponse);
   if (!threadId) {
     throw new CodexAppServerError('Codex did not return a thread id.', 'protocol');
@@ -941,16 +987,22 @@ const executeCodexAppServerTurn = async (
   });
 
   try {
-    const turnResponse = await client.request('turn/start', {
-      threadId,
-      input: turn.input,
-      model: turn.model,
-      effort: normalizeCodexReasoningEffort(turn.reasoningEffort),
-      summary:
-        turn.reasoningEffort === 'none' || turn.reasoningEffort === 'minimal' ? 'none' : 'detailed',
-      sandboxPolicy: { type: 'readOnly' },
-      ...(turn.outputSchema ? { outputSchema: turn.outputSchema } : {}),
-    });
+    const turnResponse = await client.request(
+      'turn/start',
+      {
+        threadId,
+        input: turn.input,
+        model: turn.model,
+        effort: normalizeCodexReasoningEffort(turn.reasoningEffort),
+        summary:
+          turn.reasoningEffort === 'none' || turn.reasoningEffort === 'minimal'
+            ? 'none'
+            : 'detailed',
+        sandboxPolicy: { type: 'readOnly' },
+        ...(turn.outputSchema ? { outputSchema: turn.outputSchema } : {}),
+      },
+      { signal: turn.signal }
+    );
     const turnId = readStartedTurnId(turnResponse);
     if (!turnId) {
       throw new CodexAppServerError('Codex did not return a turn id.', 'protocol');
@@ -1055,16 +1107,16 @@ export const runCodexAppServerTurnWithClient = (
 ): Promise<string> => trackCodexTurnUsage(startCodexAppServerTurnWithClient(turn, client));
 
 const startCodexAppServerTurn = async (turn: CodexTurnInput): Promise<CodexTurnExecution> => {
-  const client = await startCodexAppServerClient(() =>
-    spawnCodexAppServer({ allowImageGeneration: turn.allowImageGeneration })
-  );
-  let execution: CodexTurnExecution;
+  let client: CodexJsonRpcClient;
   try {
-    execution = await startCodexAppServerTurnWithClient(turn, client);
+    client = await startCodexAppServerClient(
+      () => spawnCodexAppServer({ allowImageGeneration: turn.allowImageGeneration }),
+      turn.signal
+    );
   } catch (error) {
-    client.close();
-    throw error;
+    return failedCodexTurnStartup(turn, error);
   }
+  const execution = await startCodexAppServerTurnWithClient(turn, client);
   void execution.settled.then(() => client.close());
   return execution;
 };

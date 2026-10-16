@@ -118,6 +118,8 @@ Sources: [apps/backend/src/services/codexAppServer.ts:7-8](../../../apps/backend
 
 `withSettledCodexUsage` waits for metering to finish for the direct Codex turns started by its operation, including when the operation throws after cancellation. Each invocation owns its pending turns through async-local context. `withRunEvidence` uses this scope before writing the final manifest, history entry, and optional model exchanges, so a caller can receive its interruption promptly while evidence still includes the later usage report.
 
+Direct-call cancellation also covers initialization, account authentication, `thread/start`, and `turn/start`. Each startup request observes the caller's signal and closes the client when cancelled while pending. Cancellation gives a response already buffered on stdout one event-loop turn to arrive; a returned turn ID follows the existing interruption and usage-settlement path. Earlier startup cancellation records provider/model usage with unknown consumption. A signal already aborted before startup prevents spawning the process, and an abort between startup responses prevents the next request.
+
 Settlement reuses the existing interruption deadline, `CODEX_REQUEST_TIMEOUT_MS`: the client waits for a terminal notification after requesting interruption and settles when that deadline expires. An interrupted turn without a usage report records the provider and model with absent token and cost fields, preserving unknown consumption rather than recording zero.
 
 ## Integration with OpenRouter Proxy
