@@ -164,14 +164,13 @@ test('falls back to a JSON string envelope when a provider rejects schema compil
   });
 });
 
-test('optional parameter compilation limits use the existing JSON envelope', async () => {
+test.each([
+  '[Google] Schemas contains too many optional parameters (33), which would make grammar compilation inefficient. Reduce the number of optional parameters in your tool schemas (limit: 24).',
+  '[Google] Schemas contains too many parameters with union types (37 parameters with type arrays or anyOf). This causes exponential compilation cost. Reduce the number of nullable or union-typed parameters (limit: 16 parameters with unions).',
+])('schema compilation limits use the existing JSON envelope: %s', async message => {
   createConfiguredTextModelFromResolution.mockReturnValue({ model: 'model', providerOptions: {} });
   generateText
-    .mockRejectedValueOnce(
-      new Error(
-        '[Google] Schemas contains too many optional parameters (33), which would make grammar compilation inefficient. Reduce the number of optional parameters in your tool schemas (limit: 24).'
-      )
-    )
+    .mockRejectedValueOnce(new Error(message))
     .mockResolvedValueOnce({ output: { payload: '{"answer":"42"}' } });
   await expect(generateStructuredOutput(request('openrouter'))).resolves.toEqual({ answer: '42' });
   expect(generateText).toHaveBeenCalledTimes(2);
