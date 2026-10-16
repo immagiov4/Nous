@@ -138,6 +138,9 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
     };
   }, [content.scrollContainerRef, displayMode]);
 
+  const hasBanners = Boolean(
+    banners.needsSourceFile || banners.storageError || banners.pdfMappingWarning
+  );
   const isEmbedded = displayMode === 'embedded';
   const sidebarModel = isEmbedded ? { ...sidebar, placement: 'container' as const } : sidebar;
   const contentModel = isEmbedded ? { ...content, scrollMode: 'document' as const } : content;
@@ -171,11 +174,12 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
         className="relative flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-x-hidden bg-paper-light transition-[margin] duration-300 dark:bg-paper-dark"
         style={{ marginLeft: shouldUseDesktopSidebar ? READER_SIDEBAR_WIDTH_PX : 0 }}
       >
-        <WorkspaceReaderBanners {...banners} />
         <WorkspaceReaderHeader
           {...header}
+          reserveSpace={hasBanners}
           onPlayLesson={canPlayLesson ? () => openPlayer(true) : undefined}
         />
+        <WorkspaceReaderBanners {...banners} />
         <div
           data-reader-content-layer="true"
           className="relative flex min-h-0 min-w-0 flex-1 flex-col"
