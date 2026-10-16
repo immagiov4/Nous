@@ -11,6 +11,11 @@ import * as z from 'zod';
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { ResearchSourceRoutingSchema } from '../services/researchSourceRouting.js';
 import { WorkflowExecutionDefaultsSchema } from './config.js';
+import {
+  COURSE_PLAN_QUALITY_DIMENSIONS,
+  CoursePlanConditionAssessmentSchema,
+  CoursePlanRefinementConditionSchema,
+} from './coursePlanCriteria.js';
 import { GlobalModelConfigSchema } from './modelConfigSchema.js';
 import type {
   DeepReadonly,
@@ -364,7 +369,8 @@ const CourseProfileSchema = PreControlsCourseProfileSchema.extend({
 const createCourseGenerationStateSchemas = (
   profileSchema: z.ZodType<z.infer<typeof CourseProfileSchema>>,
   diagnostic = false,
-  routing = false
+  routing = false,
+  verificationCriteria = false
 ) => {
   const inputSchema = diagnostic
     ? CourseGenerationWorkflowInputSchema
@@ -417,7 +423,7 @@ const createCourseGenerationStateSchemas = (
     status: z.enum(['pass', 'needs-refinement']),
   });
 
-  const CoursePlanVerificationSchema = z.object({
+  const HistoricalCoursePlanVerificationSchema = z.object({
     coverage: CoursePlanQualityDimensionSchema,
     duplication: CoursePlanQualityDimensionSchema,
     fragmentation: z.object({
@@ -433,6 +439,15 @@ const createCourseGenerationStateSchemas = (
     summary: CourseRequiredTextSchema,
     verdict: z.enum(['pass', 'refine']),
   });
+
+  const CurrentCoursePlanVerificationSchema = HistoricalCoursePlanVerificationSchema.extend({
+    refinementConditions: z.array(CoursePlanRefinementConditionSchema),
+    conditionAssessments: z.array(CoursePlanConditionAssessmentSchema),
+  });
+  // Historical manifests retain exactly the pre-criteria verification contract.
+  const CoursePlanVerificationSchema = verificationCriteria
+    ? CurrentCoursePlanVerificationSchema
+    : (HistoricalCoursePlanVerificationSchema as typeof CurrentCoursePlanVerificationSchema);
 
   const CourseDraftPlanStateSchema = CourseResearchStateSchema.omit({ stage: true }).extend({
     ...CoursePlanOutputSchema.shape,
@@ -489,8 +504,11 @@ const createCourseGenerationStateSchemas = (
 export const courseGenerationStateSchemas = createCourseGenerationStateSchemas(
   CourseProfileSchema,
   true,
+  true,
   true
 );
+export const preVerificationCriteriaCourseGenerationStateSchemas =
+  createCourseGenerationStateSchemas(CourseProfileSchema, true, true);
 export const preRoutingCourseGenerationStateSchemas = createCourseGenerationStateSchemas(
   CourseProfileSchema,
   true
@@ -555,6 +573,7 @@ export type CoursePlanCandidateVerifier = (input: {
   readonly plan: CourseLearningPlan;
   readonly rawPlan: CourseRawArchivePlan | CourseRawPlan;
   readonly retryFeedback: string;
+  readonly previousVerification?: CoursePlanVerification;
   readonly signal: AbortSignal;
   readonly state: CourseResearchState;
 }) => Promise<CoursePlanVerification>;
@@ -573,15 +592,9 @@ export type CourseYoutubeQueryPlan = z.infer<typeof CourseYoutubeQueryPlanSchema
 export type CourseYoutubeResearch = z.infer<typeof CourseYoutubeResearchSchema>;
 
 export const validateRefinedCoursePlan = (state: CourseRefinedPlanState): CoursePlanState => {
-  const qualityDimensions = [
-    state.refinedVerification.coverage,
-    state.refinedVerification.duplication,
-    state.refinedVerification.granularity,
-    state.refinedVerification.moduleCohesion,
-    state.refinedVerification.prerequisites,
-    state.refinedVerification.progression,
-    state.refinedVerification.proportionality,
-  ];
+  const qualityDimensions = COURSE_PLAN_QUALITY_DIMENSIONS.map(
+    dimension => state.refinedVerification[dimension]
+  );
   if (
     state.refinedVerification.verdict !== 'pass' ||
     state.refinedVerification.fragmentation.canGroupCoherently ||

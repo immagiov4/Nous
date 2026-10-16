@@ -178,6 +178,8 @@ Sources: [apps/backend/src/workflows/courseGenerationResearch.ts:88-101](../../.
 
 ## Planning and Quality Verification
 
+Plan review records a concrete `passCondition` for every dimension requiring refinement. Both ordinary and archive refinement pass those conditions to the next verifier, which returns an evidence-bearing assessment of whether each is met. When all stated conditions are met, the application accepts the plan and closes the original review instead of allowing replacement objections to prolong the same refinement. If any condition remains unmet, the application retains the original unmet conditions and preserves dimensions already settled by the review. Plan authoring applies those conditions using plan-only instructions; the subsequent verifier owns the condition-assessment output. The verification prompt grounds conditions in observable plan content; duration or distribution targets must come from the supplied context. An initial review that passes without conditions also stays closed during follow-up review. The existing retry budget remains unchanged.
+
 The model drafts a course plan and reviews its coverage, lesson boundaries, and prerequisite order. Findings feed the refinement stage.
 
 ### Refinement Loop Logic
@@ -186,7 +188,9 @@ The model drafts a course plan and reviews its coverage, lesson boundaries, and 
 3.  **Refinement**: If the verdict is `refine`, the `refineCoursePlan` service attempts to fix the identified issues.
 4.  **Final Validation**: The `validateRefinedCoursePlan` function ensures no structural quality findings remain before proceeding.
 
-Refinement generation and verification are persisted as a paired provider-effect boundary. The initial refinement retains the legacy effect identities for in-flight replay compatibility. After a corrective failure, both identities derive from the durable attempt that produced the corrective feedback. Operational retries keep that identity and replay paid outputs, while a later corrective failure supplies a new identity and reaches fresh provider calls.
+Corrective feedback carries the latest raw candidate and normalized verification. Ordinary and archive refinement restore this snapshot before the next attempt, retaining original unmet conditions and settled dimensions; archive refinement parses the raw candidate through its archive schema to preserve selectors. After generation succeeds, corrective verification-contract errors preserve the new candidate with the prior unmet conditions. Generation failures preserve the preceding candidate. In-flight definitions whose original verification predates these criteria retain that historical review shape through refinement and corrective retries; absent historical criteria do not become an empty set of settled conditions.
+
+Refinement generation and verification are persisted as a paired provider-effect boundary. Initial generation retains the legacy effect identity for in-flight replay compatibility, while verification uses a criteria-v1 identity for the new output contract. After a corrective failure, both identities derive from the durable attempt that produced the corrective feedback. Operational retries keep those identities and replay paid outputs, while a later corrective failure supplies a new identity and reaches fresh provider calls.
 
 ```mermaid
 sequenceDiagram

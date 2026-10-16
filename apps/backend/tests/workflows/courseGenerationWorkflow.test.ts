@@ -145,6 +145,8 @@ const draftPlanState: CourseDraftPlanState = CourseDraftPlanStateSchema.parse({
 });
 
 const verification = {
+  refinementConditions: [],
+  conditionAssessments: [],
   coverage: { feedback: 'Copertura adeguata.', status: 'pass' as const },
   duplication: { feedback: 'Nessuna duplicazione.', status: 'pass' as const },
   fragmentation: {
@@ -570,6 +572,12 @@ describe('course generation workflow', () => {
       refinedVerification: {
         ...verification,
         granularity: { feedback: 'La struttura resta frammentata.', status: 'needs-refinement' },
+        refinementConditions: [
+          {
+            dimension: 'granularity' as const,
+            passCondition: 'Group the contiguous results in one coherent module.',
+          },
+        ],
         verdict: 'refine',
       },
     });

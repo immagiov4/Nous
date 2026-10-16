@@ -1,7 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
-
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import {
   buildLessonEvidenceMaterials,
@@ -23,6 +22,7 @@ import { buildResearchDossier } from '../../src/services/lessonGenerationResearc
 import type { LessonGenerationInput } from '../../src/services/lessonGenerationTypes.js';
 import { encodeLessonPrimarySources } from '../../src/services/lessonPrimarySourceContext.js';
 import { resolveLessonVisualModelConfig } from '../../src/services/lessonVisualModelConfig.js';
+import { buildSha256HexDigest } from '../../src/utils/hash.js';
 import { createLessonNormalizationStage } from '../../src/workflows/lessonGenerationNormalizationStage.js';
 import { createLessonPersistenceStage } from '../../src/workflows/lessonGenerationPersistence.js';
 import { createLessonGenerationStageServices } from '../../src/workflows/lessonGenerationStageServices.js';
@@ -33,6 +33,7 @@ import {
   LessonReviewedStateSchema,
   LessonSourcesStateSchema,
 } from '../../src/workflows/lessonGenerationWorkflowContract.js';
+import { canonicalJson } from '../../src/workflows/schemaFingerprint.js';
 import { toWorkflowErrorDiagnostic } from '../../src/workflows/workflowErrorDiagnostics.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
 import {
@@ -155,10 +156,12 @@ const generationInput = (): LessonGenerationInput => ({
 
 const reference = { materialId: 'primary', firstUnit: 0, lastUnit: 3 };
 const demoReference = { materialId: 'source-2', firstUnit: 1, lastUnit: 3 };
+const fixtureBlockId = (index: number) =>
+  `${buildSha256HexDigest(Buffer.from(canonicalJson(evidenceLesson.contentBlocks[index])))}:0`;
 const factualReport = (supported: boolean) => ({
   blocks: [
     {
-      blockIndex: 0,
+      blockId: fixtureBlockId(0) as string | null,
       noFactualClaimsReason: '',
       assessments: [
         {
@@ -170,7 +173,7 @@ const factualReport = (supported: boolean) => ({
       ],
     },
     {
-      blockIndex: 1,
+      blockId: fixtureBlockId(1) as string | null,
       noFactualClaimsReason: '',
       assessments: [
         {
@@ -182,7 +185,7 @@ const factualReport = (supported: boolean) => ({
       ],
     },
     {
-      blockIndex: 2,
+      blockId: fixtureBlockId(2) as string | null,
       noFactualClaimsReason: '',
       assessments: [
         {
@@ -197,7 +200,7 @@ const factualReport = (supported: boolean) => ({
       ],
     },
     {
-      blockIndex: 3,
+      blockId: fixtureBlockId(3) as string | null,
       noFactualClaimsReason: '',
       assessments: [
         {
@@ -251,7 +254,8 @@ const mockModels = () => {
           (unit: { text: string }) => unit.text === `${evidencePrimaryContext.split('\n')[3]}\n`
         )
       );
-      for (const block of report.blocks) {
+      for (const [index, block] of report.blocks.entries()) {
+        block.blockId = reviewed.draft.contentBlocks[index].blockId;
         block.assessments = block.assessments.map(assessment => ({
           ...assessment,
           evidence: assessment.evidence.map(citation =>
@@ -268,6 +272,238 @@ const mockModels = () => {
 };
 
 describe('role-specific lesson evidence through the production Luna model path', () => {
+  test('keeps dossier attribution after selection and durable restoration for both author and verifier', async () => {
+    const input = generationInput();
+    const attribution = {
+      title: 'Observability reference',
+      url: 'https://example.org/observability',
+      note: 'Telemetry produces traces, metrics and logs.',
+    };
+    input.researchContext = JSON.stringify({
+      factualSummary: attribution.note,
+      sources: [attribution],
+    });
+    const packet = await selectLessonEvidence(input);
+    input.evidencePacket = restoreLessonEvidence(input, serializeLessonEvidence(input, packet));
+    const authored = JSON.parse(formatLessonEvidence(input.evidencePacket, input));
+    const research = authored.find((passage: { kind: string }) => passage.kind === 'research');
+    expect(research.attributedSources).toEqual([attribution]);
+    const report = factualReport(true);
+    report.blocks[0].assessments[0].evidence = [
+      { materialId: 'research', firstUnit: 1, lastUnit: 1 },
+    ];
+    runCodexAppServerTurn.mockResolvedValueOnce(JSON.stringify(report));
+    await expect(verifyLessonEvidence(input, evidenceLesson)).resolves.toBeUndefined();
+    const prompt = JSON.parse(runCodexAppServerTurn.mock.lastCall?.[0].input[0].text);
+    expect(
+      prompt.evidence.find((passage: { kind: string }) => passage.kind === 'research')
+        .attributedSources
+    ).toEqual([attribution]);
+  });
+
+  test('rejects an unattributed model claim instead of approving it without evidence', async () => {
+    const input = generationInput();
+    input.researchContext = JSON.stringify(evidenceResearch);
+    input.evidencePacket = resolveLessonEvidence(
+      buildLessonEvidenceMaterials(input),
+      evidenceSelection
+    );
+    const report = factualReport(true);
+    report.blocks[0].assessments[0] = {
+      claim: 'An external historical claim introduced without attribution.',
+      status: 'unsupported',
+      evidence: [],
+      explanation: 'Neither the course source nor an attributed dossier note states this claim.',
+    };
+    runCodexAppServerTurn.mockResolvedValueOnce(JSON.stringify(report));
+    await expect(verifyLessonEvidence(input, evidenceLesson)).rejects.toMatchObject({
+      code: 'lesson_factual_support_failed',
+    });
+  });
+
+  test('preserves unresolved factual findings as unanchored feedback instead of rejecting block references', async () => {
+    const input = generationInput();
+    input.researchContext = JSON.stringify(evidenceResearch);
+    input.evidencePacket = resolveLessonEvidence(
+      buildLessonEvidenceMaterials(input),
+      evidenceSelection
+    );
+    const report = factualReport(true);
+    report.blocks[3].blockId = 'missing-block';
+    report.blocks[3].assessments[0].status = 'unsupported';
+    report.blocks[3].assessments[0].evidence = [];
+    runCodexAppServerTurn.mockResolvedValueOnce(JSON.stringify(report));
+    const failure = await verifyLessonEvidence(input, evidenceLesson).catch(error => error);
+    expect(failure.code).toBe('lesson_factual_support_failed');
+    const findings = JSON.parse(
+      failure.feedback
+        .split('BEGIN FACTUAL FINDINGS JSON\n')[1]
+        .split('\nEND FACTUAL FINDINGS JSON')[0]
+    );
+    expect(findings).toEqual([
+      expect.objectContaining({ blockIndex: null, status: 'unsupported' }),
+    ]);
+    const prompt = JSON.parse(runCodexAppServerTurn.mock.lastCall?.[0].input[0].text);
+    expect(
+      new Set(prompt.draft.contentBlocks.map((block: { blockId: string }) => block.blockId)).size
+    ).toBe(evidenceLesson.contentBlocks.length);
+    report.blocks[3].assessments[0].status = 'supported';
+    report.blocks[3].assessments[0].evidence = [reference];
+    runCodexAppServerTurn.mockResolvedValueOnce(JSON.stringify(report));
+    await expect(verifyLessonEvidence(input, evidenceLesson)).rejects.toMatchObject({
+      code: 'lesson_factual_review_invalid',
+    });
+  });
+
+  test.each([
+    'omitted',
+    'duplicated',
+    'shortened',
+    'unknown',
+    'null',
+    'extra',
+    'claim-free',
+  ])('rejects a successful factual report with %s block coverage', async variant => {
+    const input = generationInput();
+    input.evidencePacket = await selectLessonEvidence(input);
+    runCodexAppServerTurn.mockImplementation(async request => {
+      const { draft } = JSON.parse(request.input[0].text);
+      const report = factualReport(true);
+      report.blocks.forEach((block, index) => {
+        block.blockId = draft.contentBlocks[index].blockId;
+      });
+      if (variant === 'omitted' || variant === 'claim-free') report.blocks.pop();
+      if (variant === 'duplicated') report.blocks[3] = structuredClone(report.blocks[0]);
+      if (variant === 'shortened')
+        report.blocks[3].blockId = report.blocks[3].blockId?.slice(0, 12) ?? null;
+      if (variant === 'unknown') report.blocks[3].blockId = 'unknown-block';
+      if (variant === 'null') report.blocks[3].blockId = null;
+      if (variant === 'extra') report.blocks.push(structuredClone(report.blocks[0]));
+      if (variant === 'claim-free')
+        for (const block of report.blocks) {
+          block.assessments = [];
+          block.noFactualClaimsReason = 'This block asks a reflective question.';
+        }
+      return JSON.stringify(report);
+    });
+    await expect(verifyLessonEvidence(input, evidenceLesson)).rejects.toMatchObject({
+      code: 'lesson_factual_review_invalid',
+    });
+  });
+
+  test('accepts complete factual coverage regardless of response order', async () => {
+    const input = generationInput();
+    input.evidencePacket = await selectLessonEvidence(input);
+    runCodexAppServerTurn.mockImplementation(async request => {
+      const { draft } = JSON.parse(request.input[0].text);
+      const report = factualReport(true);
+      report.blocks.forEach((block, index) => {
+        block.blockId = draft.contentBlocks[index].blockId;
+      });
+      report.blocks.reverse();
+      return JSON.stringify(report);
+    });
+    await expect(verifyLessonEvidence(input, evidenceLesson)).resolves.toBeUndefined();
+  });
+
+  test('keeps retained citation indices explicit after selection and durable restoration', async () => {
+    const input = generationInput();
+    input.researchContext = JSON.stringify(evidenceResearch);
+    const selected = resolveLessonEvidence(buildLessonEvidenceMaterials(input), evidenceSelection);
+    input.evidencePacket = restoreLessonEvidence(input, serializeLessonEvidence(input, selected));
+    const before = structuredClone(input.evidencePacket);
+    runCodexAppServerTurn.mockResolvedValueOnce(JSON.stringify(factualReport(true)));
+    await verifyLessonEvidence(input, evidenceLesson);
+    const prompt = JSON.parse(runCodexAppServerTurn.mock.lastCall?.[0].input[0].text);
+    const retained = prompt.evidence.find(
+      (passage: { materialId: string }) => passage.materialId === 'source-2'
+    );
+    expect(retained.firstUnit).toBe(1);
+    expect(retained.lastUnit).toBe(3);
+    expect(retained.units.map((unit: { unitIndex: number }) => unit.unitIndex)).toEqual([1, 2, 3]);
+    const stored = input.evidencePacket.passages.find(passage => passage.materialId === 'source-2');
+    expect(
+      retained.units.map(({ unitIndex: _unitIndex, ...unit }: { unitIndex: number }) => unit)
+    ).toEqual(stored?.units.map(({ source: _source, ...unit }) => unit));
+    expect(input.evidencePacket).toEqual(before);
+  });
+
+  test('anchors factual findings by stable content identity across visual insertion and repeated blocks', async () => {
+    const input = generationInput();
+    input.researchContext = JSON.stringify(evidenceResearch);
+    input.evidencePacket = resolveLessonEvidence(
+      buildLessonEvidenceMaterials(input),
+      evidenceSelection
+    );
+    let quizId: string | undefined;
+    runCodexAppServerTurn.mockImplementation(async request => {
+      const reviewed = JSON.parse(request.input[0].text);
+      quizId ??= reviewed.draft.contentBlocks.find(
+        (block: { type: string }) => block.type === 'inline-quiz'
+      ).blockId;
+      return JSON.stringify({
+        blocks: [
+          {
+            blockId: quizId,
+            noFactualClaimsReason: '',
+            assessments: [
+              {
+                claim: 'The quiz introduces an unsupported external claim.',
+                status: 'unsupported',
+                evidence: [],
+                explanation: 'The supplied evidence does not state this external fact.',
+              },
+            ],
+          },
+        ],
+      });
+    });
+    const first = await verifyLessonEvidence(input, evidenceLesson).catch(error => error);
+    const findings = (failure: { feedback: string }) =>
+      JSON.parse(
+        failure.feedback
+          .split('BEGIN FACTUAL FINDINGS JSON\n')[1]
+          .split('\nEND FACTUAL FINDINGS JSON')[0]
+      );
+    expect(findings(first)[0].blockIndex).toBe(3);
+    const shifted = {
+      ...evidenceLesson,
+      generatedVisuals: [
+        {
+          altText: 'P sends to Q, then Q sends to R.',
+          anchorHeading: 'Catena causale',
+          complexity: 'simple' as const,
+          concept: 'Precedenza causale',
+          coverage: 'all_elements' as const,
+          coverageRationale: 'The diagram covers each process and message in the example.',
+          factualRequirements: ['Local order and messages establish the P-Q-R chain.'],
+          interactionLevel: 'low' as const,
+          pedagogicalGoal: 'Follow the causal chain from local events and messages.',
+          reason: 'Make the message dependencies explicit.',
+          requiresDepiction: false,
+          slotId: 'causal-chain',
+          title: 'Catena P-Q-R',
+          visualDirection: 'Show the three processes and their directed messages.',
+          visualType: 'lesson_scene' as const,
+        },
+      ],
+      contentBlocks: [
+        { type: 'generated-visual' as const, slotId: 'causal-chain' },
+        evidenceLesson.contentBlocks[0],
+        ...evidenceLesson.contentBlocks,
+      ],
+    };
+    const next = await verifyLessonEvidence(input, shifted).catch(error => error);
+    expect(next.code).toBe('lesson_factual_support_failed');
+    expect(findings(next)[0].blockIndex).toBe(5);
+    const prompt = JSON.parse(runCodexAppServerTurn.mock.lastCall?.[0].input[0].text);
+    expect(prompt.draft.contentBlocks[5].blockId).toBe(quizId);
+    expect(
+      new Set(prompt.draft.contentBlocks.map((block: { blockId: string }) => block.blockId)).size
+    ).toBe(shifted.contentBlocks.length);
+    expect(evidenceLesson.contentBlocks[3]).not.toHaveProperty('blockId');
+  });
+
   test('keeps a many-line draft below the reported provider limit with all text and provenance', async () => {
     // The incident retained 6,921 short units; this is a provider limit, not a context policy.
     const providerCharacterLimit = 1_048_576;
@@ -318,7 +554,7 @@ describe('role-specific lesson evidence through the production Luna model path',
       JSON.stringify({
         blocks: [
           {
-            blockIndex: 0,
+            blockId: `${buildSha256HexDigest(Buffer.from(canonicalJson(draft.contentBlocks[0])))}:0`,
             noFactualClaimsReason: '',
             assessments: [
               {
@@ -774,11 +1010,17 @@ describe('role-specific lesson evidence through the production Luna model path',
     const factualInput = JSON.parse(runCodexAppServerTurn.mock.calls[3]?.[0].input[0].text);
     const originalDemo = originals[2]?.youtubeTranscript?.segments.slice(1, 4);
     expect(
-      factualInput.evidence.find(
-        (passage: { materialId: string }) => passage.materialId === 'source-2'
-      ).units
+      factualInput.evidence
+        .find((passage: { materialId: string }) => passage.materialId === 'source-2')
+        .units.map(({ unitIndex: _unitIndex, ...unit }: { unitIndex: number }) => unit)
     ).toEqual(originals[2]?.youtubeTranscript?.segments);
-    expect(factualInput.draft).toEqual(verified);
+    expect(factualInput.draft).toEqual({
+      ...verified,
+      contentBlocks: verified.contentBlocks.map(block => ({
+        ...block,
+        blockId: expect.any(String),
+      })),
+    });
     expect(writerPrompt).toContain(originals[4]?.youtubeTranscript?.segments[0]?.text);
     expect(pedagogicalPrompt).not.toContain(originalDemo?.[0]?.text);
     expect(input.sources).toEqual(originals);
@@ -820,6 +1062,12 @@ describe('role-specific lesson evidence through the production Luna model path',
       reviewLessonContentDraftStrict({ draft: evidenceLesson, generationInput: input })
     ).rejects.toMatchObject({ code: 'lesson_factual_support_failed' });
     const factualInput = JSON.parse(runCodexAppServerTurn.mock.calls[1]?.[0].input[0].text);
-    expect(factualInput.draft).toEqual(evidenceLesson);
+    expect(factualInput.draft).toEqual({
+      ...evidenceLesson,
+      contentBlocks: evidenceLesson.contentBlocks.map(block => ({
+        ...block,
+        blockId: expect.any(String),
+      })),
+    });
   });
 });
