@@ -41,6 +41,8 @@ Capture uses `AsyncLocalStorage` and has no production environment switch. The h
 
 The AI SDK middleware captures generation and consumed streams; the Codex adapter captures matching-thread text, exposed reasoning, dynamic tool calls, completed built-in tool items and terminal usage. With capture disabled, descriptions are not evaluated and unmetered SDK models retain their identity. Behaviour tests cover these boundaries, exclusion of transport credentials, notification context propagation and JSONL persistence. The real-run trace is the input to quality-workflow stage d: review every recorded request and response, and distinguish provider-exposed reasoning from any interpretation of it.
 
+The lesson-quality evaluator parses JSON and validates its assessment schema inside the measured call. Malformed JSON or a schema-invalid response marks both the call and its enclosing case as failed in `manifest.json`; a valid assessment is saved before the case checks its educational criteria.
+
 ### Local Health Diagnostics (Doctor)
 The `doctor` utility is a read-only diagnostic tool that reports on environment health without modifying state. It supports four distinct profiles to probe different layers of the application.
 
