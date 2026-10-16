@@ -349,6 +349,26 @@ describe('WorkspaceReaderShell', () => {
     }
   });
 
+  test('clears the floating-header fade while a banner reserves layout space', () => {
+    const props = buildProps();
+    props.header.isMobileViewport = true;
+    const scrollContainer = props.content.scrollContainerRef.current;
+    if (!scrollContainer) throw new Error('Expected the reader scroll container');
+    const { rerender } = render(<WorkspaceReaderShell {...props} />);
+    scrollContainer.scrollTop = 50;
+    fireEvent.scroll(scrollContainer);
+    expect(scrollContainer.style.getPropertyValue('--reader-mobile-top-fade-alpha')).toBe('0.000');
+
+    rerender(
+      <WorkspaceReaderShell {...props} banners={{ ...props.banners, needsSourceFile: true }} />
+    );
+    fireEvent.scroll(scrollContainer);
+    expect(scrollContainer.style.getPropertyValue('--reader-mobile-top-fade-alpha')).toBe('');
+
+    rerender(<WorkspaceReaderShell {...props} />);
+    expect(scrollContainer.style.getPropertyValue('--reader-mobile-top-fade-alpha')).toBe('0.000');
+  });
+
   test('supports an embedded reader without locking or resetting the document viewport', () => {
     const props = buildProps();
     const windowScrollSpy = vi.spyOn(globalThis, 'scrollTo').mockImplementation(() => {});

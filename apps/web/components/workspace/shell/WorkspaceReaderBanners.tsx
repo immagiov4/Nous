@@ -41,7 +41,7 @@ export default function WorkspaceReaderBanners({
       ) : null}
 
       {needsSourceFile ? (
-        <div className="mx-4 mt-4 flex flex-col items-start justify-between gap-4 rounded-2xl border border-gray-200 bg-white/90 px-4 py-3 text-sm text-gray-600 dark:border-zinc-700/80 dark:bg-zinc-800/90 dark:text-zinc-300 sm:mx-8 sm:mt-5 sm:flex-row sm:items-center">
+        <div className="mx-4 mt-4 flex shrink-0 flex-col items-start justify-between gap-4 rounded-xl border border-gray-200/80 bg-white/90 px-5 py-4 text-sm text-gray-600 shadow-sm dark:border-zinc-700/80 dark:bg-zinc-900/85 dark:text-zinc-300 sm:mx-8 sm:mt-5 sm:flex-row sm:items-center">
           <span>
             {sourceKind === 'pdf'
               ? t(
@@ -54,7 +54,7 @@ export default function WorkspaceReaderBanners({
           <button
             type="button"
             onClick={onAttachSourceFile}
-            className="inline-flex items-center justify-center rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-black dark:bg-white dark:text-black dark:hover:bg-gray-200"
+            className="inline-flex items-center justify-center shrink-0 rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-black dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
             {t(sourceKind === 'pdf' ? 'Ricarica PDF' : 'Ricollega sorgente')}
           </button>
