@@ -5,6 +5,7 @@ title: Leggere e selezionare un passaggio
 viewports: [desktop]
 requires:
   course: synthetic-short
+surfaces: [library, lesson-reader]
 tags: [reader, selection]
 budget:
   steps: 30

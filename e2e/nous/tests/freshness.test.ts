@@ -36,6 +36,7 @@ const story: Story = {
     lesson: 'lesson-water',
   },
   body: 'Read.',
+  surfaces: ['library'],
   tags: [],
   budget: { steps: 1 },
   sourcePath: 'test.md',

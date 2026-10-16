@@ -60,6 +60,7 @@ const story: Story = {
   body: 'Test',
   viewports: ['desktop'],
   requires: {},
+  surfaces: ['library'],
   tags: [],
   budget: { steps: 1 },
   sourcePath: 'test.md',

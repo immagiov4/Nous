@@ -36,6 +36,7 @@ const story: Story = {
   body: 'Open a course.',
   viewports: ['desktop', 'mobile'],
   requires: {},
+  surfaces: ['library'],
   tags: [],
   budget: { steps: 1 },
   sourcePath: 'test.md',

@@ -5,7 +5,11 @@ import postgres from 'postgres';
 import { createProjectAssetStorage } from '../../apps/backend/src/projects/projectAsset';
 import { PostgresWorkflowStore } from '../../apps/backend/src/workflows/persistence/postgresWorkflowStore';
 import type { WorkflowAiUsageRecord } from '../../apps/backend/src/workflows/workflowAiMetering';
-import { parsePlaytestArgs, main as runPlaytestCli } from '../../packages/playtest/src/cli';
+import {
+  parsePlaytestArgs,
+  main as runPlaytestCli,
+  runCommand as runPlaytestCommand,
+} from '../../packages/playtest/src/cli';
 import { recordDiagnostic } from '../../packages/playtest/src/diagnostics';
 import {
   type RunEvidenceRecorder,
@@ -270,9 +274,15 @@ export async function main(args: string[] = process.argv.slice(2)) {
   );
 }
 
+/** Keep metadata-only inspection outside the run evidence and stack lifecycle. */
+export async function runCommand(args: string[] = process.argv.slice(2)) {
+  if (parsePlaytestArgs(args)['coverage-map']) return runPlaytestCommand(args);
+  return main(args);
+}
+
 if (import.meta.main) {
   try {
-    await main();
+    await runCommand();
   } catch (error) {
     recordDiagnostic('nous-run', error);
     console.error('Nous playtest execution failed. See the retained run evidence.');

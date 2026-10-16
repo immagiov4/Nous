@@ -26,6 +26,19 @@ async function loadModifiedCheck(transform: (markdown: string) => string) {
 }
 
 describe('story and persona loading', () => {
+  it.each([
+    ['unknown', 'surfaces: [invented]'],
+    ['missing', ''],
+    ['empty', 'surfaces: []'],
+    ['duplicate', 'surfaces: [library, library]'],
+  ])('rejects %s product surfaces with the source path', async (_name, declaration) => {
+    const fixture = await loadModifiedCheck(markdown =>
+      markdown.replace('surfaces: [library]', declaration)
+    );
+    await expect(fixture.load()).rejects.toThrow(fixture.sourcePath);
+    await expect(fixture.load()).rejects.toThrow('surfaces');
+  });
+
   it('rejects duplicate viewports while naming the invalid source file', async () => {
     const fixture = await loadModifiedCheck(markdown =>
       markdown.replace('[desktop, mobile]', '[desktop, desktop]')
@@ -43,6 +56,7 @@ describe('story and persona loading', () => {
         persona: 'giulia',
         viewports: ['mobile'],
         requires: {},
+        surfaces: ['library'],
         tags: ['study', 'smoke'],
         budget: { steps: 24 },
         body: 'Understand the topic well enough to explain it in your own words.\n',
@@ -54,6 +68,7 @@ describe('story and persona loading', () => {
         title: 'Open a course',
         viewports: ['desktop', 'mobile'],
         requires: { course: 'synthetic-short', options: { fresh: true } },
+        surfaces: ['library'],
         tags: ['library', 'smoke'],
         budget: { steps: 8 },
         body: 'Find a course and start reading.\n',

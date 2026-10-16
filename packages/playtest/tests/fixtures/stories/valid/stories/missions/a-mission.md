@@ -5,6 +5,7 @@ title: Prepare for an exam
 persona: giulia
 viewports: [mobile]
 requires: {}
+surfaces: [library]
 tags: [study, smoke]
 budget:
   steps: 24

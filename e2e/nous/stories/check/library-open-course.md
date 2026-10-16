@@ -5,6 +5,7 @@ title: Aprire un corso e iniziare a leggere
 viewports: [desktop, mobile]
 requires:
   course: synthetic-short
+surfaces: [library, lesson-reader]
 tags: [library, smoke]
 budget:
   steps: 30

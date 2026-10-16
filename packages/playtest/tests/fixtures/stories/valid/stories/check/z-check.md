@@ -7,6 +7,7 @@ requires:
   course: synthetic-short
   options:
     fresh: true
+surfaces: [library]
 tags: [library, smoke]
 budget:
   steps: 8
