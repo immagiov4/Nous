@@ -185,10 +185,6 @@ async function refreshGeneration(
     if (!deadline.signal.aborted) recorder.manifest.incompleteWrites.push(filename);
     throw error;
   }
-  if (!deadline.signal.aborted) {
-    recorder.manifest.artifacts ??= [];
-    recorder.manifest.artifacts.push(filename);
-  }
 }
 
 function executePlaytest(
@@ -203,29 +199,21 @@ function executePlaytest(
 type RunFinalization = {
   expired?: PreparationDeadline;
   indexing?: Promise<void>;
+  publications: Promise<void>[];
+  finishing?: PreparationDeadline;
   allSkipped?: boolean;
 };
 
 async function finishNousRun(
-  recorder: RunEvidenceRecorder,
   deadlines: PreparationDeadline[],
   finalization: RunFinalization
 ): Promise<void> {
   finalization.expired = deadlines.find(deadline => deadline.signal.aborted);
-  const finishing = finalization.expired ?? deadlines.at(-1);
-  await withRunCleanup(
-    () => {
-      if (finalization.allSkipped) return Promise.resolve();
-      return finishing
-        ? finishing.settle('isolated-stack-stop', () => stopStack(), 'cleanup')
-        : stopStack();
-    },
-    () => {
-      const reading = linkArtifacts(recorder);
-      finalization.indexing = reading;
-      return finishing ? finishing.settle('artifact-index', () => reading, 'cleanup') : reading;
-    }
-  );
+  finalization.finishing = finalization.expired ?? deadlines.at(-1);
+  if (finalization.allSkipped) return;
+  if (finalization.finishing)
+    await finalization.finishing.settle('isolated-stack-stop', () => stopStack(), 'cleanup');
+  else await stopStack();
 }
 
 async function executeAndRecordSelection(
@@ -242,7 +230,7 @@ async function executeAndRecordSelection(
 /** Nous owns run identity and persistence; learner outcomes remain in the generic reports. */
 export async function main(args: string[] = process.argv.slice(2)) {
   const values = parsePlaytestArgs(args);
-  const finalization: RunFinalization = {};
+  const finalization: RunFinalization = { publications: [] };
   return withRunEvidence(
     {
       scenario: 'playtest',
@@ -255,11 +243,28 @@ export async function main(args: string[] = process.argv.slice(2)) {
     recorder =>
       recorder.measure({ name: 'playtest', kind: 'case' }, async () => {
         try {
-          return await withFreshnessEvidence(
-            (evidence, deadline) => recordGeneration(recorder, evidence, deadline),
-            () => executeAndRecordSelection(args, values, recorder, finalization),
-            (evidence, deadline, signal) => refreshGeneration(recorder, evidence, deadline, signal),
-            deadlines => finishNousRun(recorder, deadlines, finalization)
+          return await withRunCleanup(
+            () =>
+              withFreshnessEvidence(
+                (evidence, deadline) => recordGeneration(recorder, evidence, deadline),
+                () => executeAndRecordSelection(args, values, recorder, finalization),
+                (evidence, deadline, signal) => {
+                  const publication = refreshGeneration(recorder, evidence, deadline, signal);
+                  finalization.publications.push(publication);
+                  return publication;
+                },
+                deadlines => finishNousRun(deadlines, finalization)
+              ),
+            async () => {
+              // Expired publications are detached from preparation, but must precede indexing.
+              const indexing = Promise.allSettled(finalization.publications).then(() =>
+                linkArtifacts(recorder)
+              );
+              finalization.indexing = indexing;
+              if (finalization.finishing)
+                await finalization.finishing.settle('artifact-index', () => indexing, 'cleanup');
+              else await indexing;
+            }
           );
         } catch (error) {
           if (finalization.expired)

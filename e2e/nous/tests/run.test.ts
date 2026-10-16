@@ -740,8 +740,8 @@ it.each([
   const generation = manifest.measurements.find(measurement => measurement.kind === 'workflow');
   if (!generation) throw new Error('Generation measurement missing');
   const filename = `${generation.name}.json`;
+  expect(manifest.artifacts).toContain(filename);
   if (!deadline) {
-    expect(manifest.artifacts).toContain(filename);
     expect(manifest.incompleteWrites).toEqual([]);
   }
   const record = await vi.waitFor(async () =>
@@ -924,8 +924,10 @@ it.each([
     await expect(readFile(join(directory, filename))).rejects.toMatchObject({ code: 'ENOENT' });
     return;
   }
-  const filename = manifest.artifacts?.find(path => /^generation-.*\.json$/.test(path));
-  if (!filename) throw new Error('Canonical generation record missing');
+  const generation = manifest.measurements.find(entry => entry.kind === 'workflow');
+  if (!generation) throw new Error('Generation measurement missing');
+  const filename = `${generation.name}.json`;
+  if (stage !== 'artifact-index') expect(manifest.artifacts).toContain(filename);
   const record = JSON.parse(await readFile(join(directory, filename), 'utf8'));
   expect(record.outcome).toBe('current');
   expect(record.preparation.possiblyLeakedResources).toEqual(
@@ -963,7 +965,7 @@ it('retires a hanging expired artifact index and persists its eventual results w
     throw deadline.signal.reason;
   });
   await expect(main(args)).rejects.toMatchObject({ code: 'PLAYTEST_OPERATIONAL_ERROR' });
-  expect(filesystem.readdir).toHaveBeenCalledTimes(1);
+  await vi.waitFor(() => expect(filesystem.readdir).toHaveBeenCalledTimes(1));
   const parent = join(dataDirectory, 'runs', 'playtest');
   const directories = await actual.readdir(parent);
   const directory = join(parent, directories.find(name => name !== 'history.jsonl') ?? 'missing');
@@ -978,11 +980,6 @@ it('retires a hanging expired artifact index and persists its eventual results w
   expect(generation).toMatchObject({
     outcome: 'blocked',
     errorCode: 'lesson_generation_preparation_timeout',
-    preparation: {
-      steps: expect.arrayContaining([
-        expect.objectContaining({ name: 'artifact-index', status: 'pending' }),
-      ]),
-    },
   });
   const entries = await actual.readdir(directory, { recursive: true, withFileTypes: true });
   late.resolve(entries as unknown as Awaited<ReturnType<typeof filesystem.readdir>>);
@@ -990,4 +987,60 @@ it('retires a hanging expired artifact index and persists its eventual results w
   expect(manifest).toMatchObject({ outcome: 'failed', errorCode: 'PLAYTEST_OPERATIONAL_ERROR' });
   expect(manifest.artifacts).toContain('summary.json');
   expect(generation.outcome).toBe('blocked');
+});
+it.each([
+  false,
+  true,
+])('indexes final publication artifacts after preparation timeout=%s', async expired => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const publication = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let filename = '';
+  const write = RunEvidenceRecorder.prototype.writeJson;
+  vi.spyOn(RunEvidenceRecorder.prototype, 'writeJson').mockImplementation(async function (
+    this: RunEvidenceRecorder,
+    name,
+    contents,
+    options
+  ) {
+    if (name === filename) {
+      publication.resolve();
+      await release.promise;
+      await this.writeEvidence('publication-details.json', '{}');
+    }
+    return write.call(this, name, contents, options);
+  });
+  vi.mocked(adapter.prepare).mockImplementation(async selected => {
+    const deadline = createPreparationDeadline({
+      userId: 'account',
+      story: selected,
+      viewport: 'desktop',
+      projectId: 'project',
+      sectionId: 'lesson',
+      isolated: {} as stack.StackStatus,
+    });
+    filename = `generation-${deadline.evidence.requestKey}.json`;
+    if (expired) await vi.advanceTimersByTimeAsync(FRESH_CONTENT_PREPARATION_TIMEOUT_MS);
+    else deadline.evidence.outcome = 'current';
+    deadline.finish();
+    if (expired) throw deadline.signal.reason;
+    vi.useRealTimers();
+    return { credentials: { email: 'test@example.test', password: 'secret' } };
+  });
+  const running = main(args);
+  const finished = expired
+    ? expect(running).rejects.toMatchObject({ code: 'PLAYTEST_OPERATIONAL_ERROR' })
+    : expect(running).resolves.toMatchObject({
+        records: [expect.objectContaining({ outcome: 'completed' })],
+      });
+  await publication.promise;
+  release.resolve();
+  await finished;
+  const { directory, manifest } = await vi.waitFor(() => evidence(true));
+  await vi.waitFor(() => readFile(join(directory, filename), 'utf8'));
+  expect(manifest.artifacts).toEqual(
+    expect.arrayContaining([filename, 'publication-details.json', 'summary.json'])
+  );
+  expect(manifest.artifacts).toEqual([...new Set(manifest.artifacts)].sort());
 });
