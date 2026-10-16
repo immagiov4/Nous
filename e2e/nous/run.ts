@@ -227,6 +227,46 @@ async function executeAndRecordSelection(
   return summary;
 }
 
+async function executeAndFinalize(
+  args: string[],
+  values: ReturnType<typeof parsePlaytestArgs>,
+  recorder: RunEvidenceRecorder,
+  finalization: RunFinalization
+) {
+  try {
+    return await withRunCleanup(
+      () =>
+        withFreshnessEvidence(
+          (evidence, deadline) => recordGeneration(recorder, evidence, deadline),
+          () => executeAndRecordSelection(args, values, recorder, finalization),
+          (evidence, deadline, signal) => {
+            const publication = refreshGeneration(recorder, evidence, deadline, signal);
+            finalization.publications.push(publication);
+            return publication;
+          },
+          deadlines => finishNousRun(deadlines, finalization)
+        ),
+      async () => {
+        // Expired publications are detached from preparation, but must precede indexing.
+        const indexing = Promise.allSettled(finalization.publications).then(() =>
+          linkArtifacts(recorder)
+        );
+        finalization.indexing = indexing;
+        if (finalization.finishing)
+          await finalization.finishing.settle('artifact-index', () => indexing, 'cleanup');
+        else await indexing;
+      }
+    );
+  } catch (error) {
+    if (finalization.expired)
+      throw Object.assign(
+        new Error('Fresh preparation deadline expired. See the retained run evidence.'),
+        { code: 'PLAYTEST_OPERATIONAL_ERROR', cause: error }
+      );
+    throw error;
+  }
+}
+
 /** Nous owns run identity and persistence; learner outcomes remain in the generic reports. */
 export async function main(args: string[] = process.argv.slice(2)) {
   const values = parsePlaytestArgs(args);
@@ -241,40 +281,9 @@ export async function main(args: string[] = process.argv.slice(2)) {
       },
     },
     recorder =>
-      recorder.measure({ name: 'playtest', kind: 'case' }, async () => {
-        try {
-          return await withRunCleanup(
-            () =>
-              withFreshnessEvidence(
-                (evidence, deadline) => recordGeneration(recorder, evidence, deadline),
-                () => executeAndRecordSelection(args, values, recorder, finalization),
-                (evidence, deadline, signal) => {
-                  const publication = refreshGeneration(recorder, evidence, deadline, signal);
-                  finalization.publications.push(publication);
-                  return publication;
-                },
-                deadlines => finishNousRun(deadlines, finalization)
-              ),
-            async () => {
-              // Expired publications are detached from preparation, but must precede indexing.
-              const indexing = Promise.allSettled(finalization.publications).then(() =>
-                linkArtifacts(recorder)
-              );
-              finalization.indexing = indexing;
-              if (finalization.finishing)
-                await finalization.finishing.settle('artifact-index', () => indexing, 'cleanup');
-              else await indexing;
-            }
-          );
-        } catch (error) {
-          if (finalization.expired)
-            throw Object.assign(
-              new Error('Fresh preparation deadline expired. See the retained run evidence.'),
-              { code: 'PLAYTEST_OPERATIONAL_ERROR', cause: error }
-            );
-          throw error;
-        }
-      }),
+      recorder.measure({ name: 'playtest', kind: 'case' }, () =>
+        executeAndFinalize(args, values, recorder, finalization)
+      ),
     async (persist, recorder) => {
       if (finalization.expired) {
         recorder.manifest.incompleteWrites ??= [];

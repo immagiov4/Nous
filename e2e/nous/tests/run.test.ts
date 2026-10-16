@@ -1042,5 +1042,9 @@ it.each([
   expect(manifest.artifacts).toEqual(
     expect.arrayContaining([filename, 'publication-details.json', 'summary.json'])
   );
-  expect(manifest.artifacts).toEqual([...new Set(manifest.artifacts)].sort());
+  expect(manifest.artifacts).toEqual(
+    [...new Set(manifest.artifacts)].sort((left, right) =>
+      left < right ? -1 : Number(left > right)
+    )
+  );
 });
