@@ -175,6 +175,84 @@ test('generates a validated scene from speech without a visual plan', async () =
   });
 });
 
+test.each([
+  false,
+  true,
+])('preserves independent computations after rejecting a disconnected diagram (planned: %s)', async planned => {
+  const computations = [
+    { label: 'Somma', detail: '2 + 3 = 5' },
+    { label: 'Prodotto', detail: '4 × 6 = 24' },
+  ];
+  const lesson = 'Due calcoli indipendenti: la somma 2 + 3 = 5 e il prodotto 4 × 6 = 24.';
+  const input = {
+    ...unplannedInput(lesson),
+    ...(planned
+      ? {
+          plan: {
+            anchorHeading: '',
+            complexity: 'simple' as const,
+            concept: 'Due calcoli indipendenti',
+            factualRequirements: computations.map(item => item.detail),
+            coverage: 'all_elements' as const,
+            coverageRationale: 'Ogni calcolo è indipendente e necessario.',
+            interactionLevel: 'none' as const,
+            pedagogicalGoal: 'Mostrare entrambi i calcoli.',
+            title: 'Calcoli indipendenti',
+            reason: 'Affiancare i due calcoli.',
+            requiresDepiction: false,
+            slotId: 'independent-computations',
+            visualDirection: 'Un diagramma dei due calcoli.',
+            visualType: 'lesson_scene' as const,
+          },
+        }
+      : {}),
+  };
+  const draft = {
+    ...quoteDraft(''),
+    evidence: lesson,
+    intent: 'Leggere entrambi i calcoli indipendenti.',
+    title: 'Calcoli indipendenti',
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...draft,
+    type: 'flowchart',
+    diagram: {
+      nodes: computations.flatMap((item, index) => [
+        { id: `input-${index}`, kind: 'step', label: item.label },
+        { id: `result-${index}`, kind: 'end', label: item.detail },
+      ]),
+      edges: computations.map((item, index) => ({
+        from: `input-${index}`,
+        to: `result-${index}`,
+        label: '',
+        kind: 'call',
+        evidence: item.detail,
+      })),
+    },
+  });
+  const rejected = await generateLessonScene(input);
+  expect(rejected.kind).toBe('invalid');
+  if (rejected.kind !== 'invalid') throw new Error('Expected a disconnected diagram rejection');
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...draft,
+    type: 'parts',
+    items: computations.map(item => ({ ...item, time: null, value: null, iconQueries: queries })),
+  });
+  const result = await generateLessonScene({
+    ...input,
+    retryFeedback: rejected.problems.join('\n'),
+  });
+  expect(result.kind).toBe('scene');
+  if (result.kind !== 'scene') throw new Error('Expected a non-graph scene');
+  expect(result.scene.type).toBe('parts');
+  expect(result.scene.items).toEqual(computations.map(item => ({ ...item, icon: '' })));
+  expect(result.scene.diagram).toBeUndefined();
+  expect(isLessonScene(result.scene)).toBe(true);
+  expect(chooseIconsMock.mock.calls[0][0].entries).toHaveLength(computations.length);
+});
+
 test('validates against the excerpt actually sent, not the unseen tail of a long lesson', async () => {
   const unseenQuote = 'Quali fonti sostengono la tesi?';
   const input = unplannedInput(`${'x'.repeat(MAX_VISUAL_LESSON_CHARS)}${unseenQuote}`);

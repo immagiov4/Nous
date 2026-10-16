@@ -18,7 +18,10 @@ import {
   type LessonSceneType,
 } from '@shared/lessonScene';
 import { interactiveSelectionRules } from '@shared/lessonSceneAnimation';
-import { LESSON_SCENE_CLOSING_TEXT_RULE } from '@shared/lessonVisualContracts';
+import {
+  LESSON_SCENE_CLOSING_TEXT_RULE,
+  LESSON_SCENE_INDEPENDENT_CONTENT_RULE,
+} from '@shared/lessonVisualContracts';
 import * as z from 'zod';
 
 import { getResolvedModelConfigForProvider } from '../../config/modelConfig.js';
@@ -206,7 +209,8 @@ Use 2 to 4 elements when needed; never fill space. A label identifies a concept;
 Word limits are maxima, not targets. Bad example: "Preservation process, data/operational; indirect impact. Query, procedure and migration test". If the criterion is who is involved, write "The change also involves the preservation process". If the criterion is how to verify it, write "Verify the migration with a test". Choose the criterion consistent with the title and keep it for every entry. When several facts are indispensable, separate them into explicitly labelled entries or columns; otherwise select the fact that helps the reader understand the passage. Other information remains in the lesson text. Apply the same rule to body, note, and groups. Always preserve the conditions and negations needed to make the sentence true.
 
 FORMS
-- Make the layout mirror the logical relations the lesson states: parallel criteria, factors, or options sit side by side in one form (checklist, parts, grid); only steps the lesson explicitly orders become steps or a sequence. Never chain parallel items as consecutive steps.
+- ${LESSON_SCENE_INDEPENDENT_CONTENT_RULE}
+- Make the layout mirror the logical relations the lesson states: parallel criteria, factors, or options sit side by side in one form (checklist, parts, comparison); only steps the lesson explicitly orders become steps or a sequence. Never chain parallel items as consecutive steps.
 - definition: the defining sentence in body and attributes in items; a condition common to all attributes goes in body once, leaving detail empty. checklist: concrete questions in labels, details only when they add information. limits: two items meaning "Shows" and "Does not prove", in the lesson language. roles: people as items with a neutral profile. quote: only the exact quotation or question, in quote, with body "". steps: strictly ordered actions, not alternatives; options after a pause become a checklist with the pause in body.
 - comparison, signals, matrix, decision, balance, and beforeafter need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other original forms need at least two items, except quote, number, flowchart, sequence, journey, proportional, and guided-path; diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
 - For hierarchies and networks the title names the common node. Do not use maps, cycles, or timelines for plain lists. beforeafter needs an actual transformation; a mere preference between two behaviours is a comparison with verdicts.

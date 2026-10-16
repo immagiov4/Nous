@@ -929,7 +929,7 @@ const diagramForm = (description: string, orderedPath = false) =>
 /** One entry owns a form's selection rule, data contract, and validation. */
 export const LESSON_SCENE_REGISTRY = {
   definition: itemForm('Un concetto e una spiegazione breve.'),
-  parts: itemForm('Un concetto composto da 2–4 parti.'),
+  parts: itemForm('Parti di un concetto o calcoli indipendenti affiancati, senza connessioni.'),
   signals: groupForm(
     'Distinzione esplicita fra indizi esteriori e ragioni verificabili; due gruppi.'
   ),
@@ -1014,9 +1014,9 @@ export const LESSON_SCENE_REGISTRY = {
         : [];
     },
   }),
-  flowchart: diagramForm('Azioni, decisioni e diramazioni con condizioni esplicite.'),
+  flowchart: diagramForm('Azioni, decisioni e diramazioni connesse con condizioni esplicite.'),
   sequence: diagramForm(
-    'Messaggi ordinati tra partecipanti: chiamate, risposte ed eventi distinti.'
+    'Messaggi connessi e ordinati tra partecipanti: chiamate, risposte ed eventi distinti.'
   ),
   journey: diagramForm('Tappe successive vissute da una persona, senza punteggi inventati.', true),
   proportional: {
