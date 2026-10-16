@@ -17,6 +17,7 @@ import {
   runCodexAppServerTurn,
   runCodexAppServerTurnWithClient,
   startCodexAppServerClient,
+  withSettledCodexUsage,
 } from '../../src/services/codexAppServer.js';
 import { type ModelExchange, withModelExchanges } from '../../src/workflows/modelExchanges.js';
 import { runWithWorkflowAttemptMetering } from '../../src/workflows/workflowAiMetering.js';
@@ -58,6 +59,17 @@ class FakeCodexProcess extends EventEmitter {
     this.stdout.write(`${JSON.stringify(message)}\n`);
   }
 }
+
+const stubCodexSpawn = (process: FakeCodexProcess) => {
+  if (!globalThis.Bun) vi.stubGlobal('Bun', { spawn: vi.fn() });
+  return vi.spyOn(Bun, 'spawn').mockReturnValue({
+    stdin: process.stdin,
+    stdout: Readable.toWeb(process.stdout),
+    stderr: Readable.toWeb(process.stderr),
+    exited: new Promise(() => {}),
+    kill: process.kill,
+  } as never);
+};
 
 const respond = (process: FakeCodexProcess, request: WireMessage, result: unknown): void => {
   process.send({ id: request.id, result });
@@ -940,6 +952,129 @@ describe('Codex app-server protocol client', () => {
   });
 });
 
+describe('direct Codex startup cancellation', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
+  });
+
+  test.each([
+    'before spawn',
+    'initialize',
+    'account/read',
+    'thread/start',
+  ])('stops subsequent startup work when aborted at %s', async stage => {
+    vi.stubEnv('CODEX_APP_SERVER_ENABLED', 'true');
+    const controller = new AbortController();
+    let fakeProcess: FakeCodexProcess;
+    fakeProcess = new FakeCodexProcess(message => {
+      if (message.method === 'initialize') respond(fakeProcess, message, {});
+      if (message.method === 'account/read')
+        respond(fakeProcess, message, { requiresOpenaiAuth: false });
+      if (message.method === 'thread/start')
+        respond(fakeProcess, message, { thread: { id: 'startup-thread' } });
+      if (message.method === stage) controller.abort();
+    });
+    const spawn = stubCodexSpawn(fakeProcess);
+    if (stage === 'before spawn') controller.abort();
+    try {
+      await expect(
+        runCodexAppServerTurn({
+          developerInstructions: 'Tutor.',
+          input: [{ type: 'text', text: 'Hello' }],
+          model: 'fixture-model',
+          reasoningEffort: 'low',
+          signal: controller.signal,
+        })
+      ).rejects.toMatchObject({ name: 'AbortError' });
+      if (stage === 'before spawn') {
+        expect(spawn).not.toHaveBeenCalled();
+      } else {
+        expect(fakeProcess.received.at(-1)?.method).toBe(stage);
+        expect(fakeProcess.kill).toHaveBeenCalledOnce();
+      }
+    } finally {
+      fakeProcess.stdout.end();
+      fakeProcess.stderr.end();
+    }
+  });
+
+  test.each([
+    'initialize',
+    'account/read',
+    'thread/start',
+    'turn/start',
+  ])('closes a pending %s request on abort and settles unknown usage', async stage => {
+    vi.stubEnv('CODEX_APP_SERVER_ENABLED', 'true');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const controller = new AbortController();
+    const reachedStage = Promise.withResolvers<void>();
+    const recorded = Promise.withResolvers<void>();
+    const record = vi.fn(async (_usage: unknown) => recorded.promise);
+    let fakeProcess: FakeCodexProcess;
+    fakeProcess = new FakeCodexProcess(message => {
+      if (message.method === stage) {
+        reachedStage.resolve();
+        return;
+      }
+      if (message.method === 'initialize') respond(fakeProcess, message, {});
+      if (message.method === 'account/read')
+        respond(fakeProcess, message, { requiresOpenaiAuth: false });
+      if (message.method === 'thread/start')
+        respond(fakeProcess, message, { thread: { id: 'startup-thread' } });
+    });
+    stubCodexSpawn(fakeProcess);
+    let outcome: unknown;
+    const reason = new Error('Caller cancelled startup.');
+    let scopeSettled = false;
+    const pending = withSettledCodexUsage(() =>
+      runWithWorkflowAttemptMetering(
+        { runId: 'startup', nodeInstanceId: 'direct-turn', attemptNumber: 1, record },
+        () =>
+          runCodexAppServerTurn({
+            developerInstructions: 'Tutor.',
+            input: [{ type: 'text', text: 'Hello' }],
+            model: 'fixture-model',
+            reasoningEffort: 'low',
+            signal: controller.signal,
+          })
+      ).catch(error => {
+        outcome = error;
+      })
+    ).then(() => {
+      scopeSettled = true;
+    });
+    try {
+      await reachedStage.promise;
+      controller.abort(reason);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(outcome).toBe(reason);
+      expect(scopeSettled).toBe(false);
+      expect(fakeProcess.kill).toHaveBeenCalledOnce();
+      expect(fakeProcess.stdin.writableEnded).toBe(true);
+      expect(record).toHaveBeenCalledOnce();
+      const usage = record.mock.calls[0][0];
+      expect(usage).toMatchObject({ model: 'fixture-model', provider: 'codex' });
+      expect(usage).not.toHaveProperty('inputTokens');
+      expect(usage).not.toHaveProperty('outputTokens');
+      expect(usage).not.toHaveProperty('providerCost');
+      expect(fakeProcess.received.at(-1)?.method).toBe(stage);
+      recorded.resolve();
+      await pending;
+      expect(scopeSettled).toBe(true);
+    } finally {
+      recorded.resolve();
+      fakeProcess.emit('exit', 0);
+      await vi.runAllTimersAsync();
+      await pending;
+      fakeProcess.stdout.end();
+      fakeProcess.stderr.end();
+    }
+  });
+});
+
 describe('interrupted direct Codex run evidence', () => {
   test.each([
     'late',
@@ -981,14 +1116,7 @@ describe('interrupted direct Codex run evidence', () => {
         interrupted.resolve();
       }
     });
-    if (!globalThis.Bun) vi.stubGlobal('Bun', { spawn: vi.fn() });
-    const spawn = vi.spyOn(Bun, 'spawn').mockReturnValue({
-      stdin: fakeProcess.stdin,
-      stdout: Readable.toWeb(fakeProcess.stdout),
-      stderr: Readable.toWeb(fakeProcess.stderr),
-      exited: new Promise(() => {}),
-      kill: fakeProcess.kill,
-    } as never);
+    const spawn = stubCodexSpawn(fakeProcess);
     try {
       const run = withRunEvidence(
         { scenario: 'interrupted', provider: 'codex', slots: {} },
