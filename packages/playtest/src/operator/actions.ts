@@ -4,10 +4,11 @@ import type { Observation, OperatorWindow, VisibleNode } from './observe';
 
 export type LearnerAction =
   | { type: 'observe' }
-  | { type: 'click'; ref: string }
+  | { type: 'click'; ref: string; button?: 'left' | 'right' }
+  | { type: 'select'; ref: string; label: string }
   | { type: 'type'; ref: string; text: string }
   | { type: 'press'; key: string }
-  | { type: 'scroll'; direction: 'up' | 'down' }
+  | { type: 'scroll'; direction: 'up' | 'down'; ref?: string }
   | { type: 'drag'; ref: string; dx: number; dy: number }
   | { type: 'fill-credential'; ref: string; field: 'email' | 'password' };
 
@@ -36,10 +37,32 @@ async function attached(element: ElementHandle<Element>): Promise<boolean> {
   }
 }
 
+async function clickAtPoint(
+  page: Page,
+  point: { x: number; y: number },
+  button: 'left' | 'right' | undefined,
+  mobile: boolean
+): Promise<ActionExecution> {
+  if (mobile && button === 'right') return { status: 'not-actionable' };
+  if (mobile) await page.touchscreen.tap(point.x, point.y);
+  else await page.mouse.click(point.x, point.y, { button });
+  return { status: 'ok' };
+}
+
+async function selectNativeOption(
+  element: ElementHandle<Element>,
+  label: string
+): Promise<ActionExecution> {
+  if (!(await element.evaluate(element => element instanceof HTMLSelectElement)))
+    return { status: 'not-actionable' };
+  await element.selectOption({ label });
+  return { status: 'ok' };
+}
+
 async function actOnElement(
   page: Page,
   element: ElementHandle<Element>,
-  action: Exclude<LearnerAction, { type: 'press' | 'scroll' | 'observe' }>,
+  action: Exclude<LearnerAction, { type: 'press' | 'observe' }>,
   options: {
     credentials: { email: string; password: string };
     observedBox?: VisibleNode['box'];
@@ -92,9 +115,12 @@ async function actOnElement(
   const { credentials } = options;
   switch (action.type) {
     case 'click':
-      if (options.mobile) await page.touchscreen.tap(target.x, target.y);
-      else await page.mouse.click(target.x, target.y);
-      break;
+      return clickAtPoint(page, target, action.button, options.mobile);
+    case 'scroll':
+      await page.mouse.move(target.x, target.y);
+      return executeGlobalAction(page, action);
+    case 'select':
+      return selectNativeOption(element, action.label);
     case 'type':
     case 'fill-credential': {
       const editable = await element.evaluate(element =>
@@ -161,16 +187,21 @@ export async function executeAction(
   credentials: { email: string; password: string },
   options: { nodes: VisibleNode[]; mobile: boolean }
 ): Promise<ActionExecution> {
-  if (!('ref' in action)) return executeGlobalAction(page, action);
+  if (
+    action.type === 'observe' ||
+    action.type === 'press' ||
+    (action.type === 'scroll' && action.ref === undefined)
+  )
+    return executeGlobalAction(page, action);
   const handle = await page.evaluateHandle(
     ref => (globalThis as OperatorWindow).__playtestOperator?.elements.get(ref) ?? null,
-    action.ref
+    action.ref as string
   );
   const element = handle.asElement() as ElementHandle<Element> | null;
   try {
     if (!element) return { status: 'stale-reference' };
     try {
-      const pointerAction = action.type === 'click' || action.type === 'drag';
+      const pointerAction = ['click', 'drag', 'scroll', 'select'].includes(action.type);
       const observed = options.nodes.find(node => node.ref === action.ref);
       if (pointerAction && !observed) return { status: 'stale-reference' };
       return await actOnElement(page, element, action, {

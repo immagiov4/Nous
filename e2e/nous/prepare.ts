@@ -15,6 +15,7 @@ import { type FixtureImport, importFixture } from './fixtures';
 import { createPreparationDeadline, type FreshnessEvidence, regenerateLesson } from './freshness';
 import { ACCOUNT_CLEANUP_STEP, type PreparationDeadline } from './preparationDeadline';
 import { assertIsolatedStatus, type StackStatus, stackStatus } from './stack';
+import { settleAccountWorkflows } from './workflowCleanup';
 
 export function syntheticCourse(
   kind: 'synthetic-short' | 'synthetic-law-short' = 'synthetic-short'
@@ -96,6 +97,13 @@ async function cleanupUser(
 ): Promise<void> {
   const store = projectStore(isolated, deadline, true);
   const cleanup = async () => {
+    const sql = postgres(isolated.DB_URL);
+    deadline?.ownConnection(sql, true);
+    await withRunCleanup(
+      () => settleAccountWorkflows(sql, userId, deadline?.cleanupSignal),
+      () => sql.end()
+    );
+    deadline?.cleanupSignal.throwIfAborted();
     for (const project of await store.listProjects(userId))
       await store.deleteProject(userId, project.id);
     const response = await fetch(`${isolated.API_URL}/auth/v1/admin/users/${userId}`, {

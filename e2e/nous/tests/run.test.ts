@@ -33,6 +33,7 @@ import {
 import { syntheticCourse } from '../prepare';
 import { main } from '../run';
 import * as stack from '../stack';
+import { settleAccountWorkflows } from '../workflowCleanup';
 
 vi.mock('node:fs/promises', async importOriginal => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
@@ -54,6 +55,7 @@ vi.mock('../adapter', () => ({
     baseUrl: vi.fn(),
     locale: () => 'it-IT',
     ensureStack: vi.fn(async () => {}),
+    skipReason: vi.fn(async (): Promise<string | undefined> => undefined),
     prepare: vi.fn(async () => ({
       credentials: { email: 'test@example.test', password: 'secret' },
     })),
@@ -118,6 +120,8 @@ beforeEach(async () => {
   vi.spyOn(stack, 'stopStack').mockResolvedValue();
   vi.mocked(loadStories).mockResolvedValue([story]);
   vi.mocked(adapter.ensureStack).mockResolvedValue();
+  if (!adapter.skipReason) throw new Error('Skip policy fixture missing');
+  vi.mocked(adapter.skipReason).mockResolvedValue(undefined);
   vi.mocked(adapter.prepare).mockResolvedValue({
     credentials: { email: 'test@example.test', password: 'secret' },
   });
@@ -167,7 +171,57 @@ async function evidence(generation = false) {
   return { directory, manifest };
 }
 
+it('finalizes ordinary-story reports and shutdown after stalled workflow retirement', async () => {
+  const blocked = Promise.withResolvers<never>();
+  const sql = Object.assign(
+    vi.fn(() => blocked.promise),
+    {
+      end: vi.fn(async () => {
+        blocked.reject(new Error('Connection destroyed'));
+      }),
+    }
+  );
+  vi.mocked(adapter.prepare).mockResolvedValue({
+    credentials: { email: 'test@example.test', password: 'secret' },
+    cleanup: async () => {
+      vi.useFakeTimers();
+      const pending = settleAccountWorkflows(sql as unknown as postgresModule.Sql, 'account');
+      const observed = pending.catch(error => error);
+      try {
+        await vi.advanceTimersByTimeAsync(stack.STACK_SHUTDOWN_GRACE_MS);
+        throw await observed;
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  });
+  await expect(main(args)).rejects.toMatchObject({ code: 'PLAYTEST_OPERATIONAL_ERROR' });
+  const { directory, manifest } = await evidence();
+  const summary = JSON.parse(await readFile(join(directory, 'summary.json'), 'utf8'));
+  const record = JSON.parse(await readFile(summary.records[0].reportPath, 'utf8'));
+  expect(record.cleanupError).toBe('The adapter could not clean up the synthetic story account.');
+  expect(record.diagnostics.cleanup).toContain('retirement timed out');
+  expect(manifest.outcome).toBe('failed');
+  expect(stack.stopStack).toHaveBeenCalled();
+  expect(sql.end).toHaveBeenCalledWith({ timeout: 0 });
+});
+
 describe('Nous playtest evidence entrypoint', () => {
+  it('retains a skipped run without starting or stopping application services', async () => {
+    if (!adapter.skipReason) throw new Error('Skip policy fixture missing');
+    vi.mocked(adapter.skipReason).mockResolvedValue('Private fixtures require local opt-in.');
+    await main(args);
+    const saved = await evidence();
+    expect(adapter.ensureStack).not.toHaveBeenCalled();
+    expect(stack.stopStack).not.toHaveBeenCalled();
+    expect(adapter.prepare).not.toHaveBeenCalled();
+    expect(createPiDecisionSource).not.toHaveBeenCalled();
+    const summary = JSON.parse(await readFile(join(saved.directory, 'summary.json'), 'utf8'));
+    expect(summary.records[0]).toMatchObject({
+      outcome: 'skipped',
+      reason: 'Private fixtures require local opt-in.',
+    });
+  });
   it('retains separate provenance for concurrent legacy JSON imports with the same project ID', async () => {
     const snapshot = normalizeProjectSnapshot(syntheticCourse(), true);
     await mkdir(join(dataDirectory, 'fixtures'));

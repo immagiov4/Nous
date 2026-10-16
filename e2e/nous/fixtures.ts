@@ -7,6 +7,7 @@ import { readLibraryArchive } from '../../apps/web/services/projects/libraryArch
 import { normalizeStoredProject } from '../../apps/web/services/projects/projectSnapshot';
 import { flattenLessons } from '../../apps/web/utils/learning/pathNodes';
 import { isRecord } from '../../apps/web/utils/records';
+import type { Story } from '../../packages/playtest/src/types';
 import {
   inspectProjectBackupArchive,
   PROJECT_BACKUP_MAX_ENTRIES,
@@ -260,4 +261,23 @@ if (import.meta.main) {
   if (process.argv[2] !== '--inventory')
     throw new Error('Use --inventory to list library fixture courses.');
   console.log(JSON.stringify(await new CourseFixtures().inventory(), null, 2));
+}
+
+/** Private fixtures require explicit local consent, including environment overrides. */
+export async function privateFixtureSkipReason(
+  story: Pick<Story, 'requires'>
+): Promise<string | undefined> {
+  const course =
+    story.requires.course === undefined
+      ? undefined
+      : (process.env.NOUS_E2E_COURSE ?? story.requires.course);
+  if (typeof course !== 'string' || !course.startsWith('fixture:')) return;
+  if (process.env.CI) return 'Private course fixtures never run in CI.';
+  if (process.env.NOUS_E2E_PRIVATE_FIXTURES !== '1')
+    return 'Private course fixtures require NOUS_E2E_PRIVATE_FIXTURES=1.';
+  if (!process.env.NOUS_E2E_DATA)
+    return 'Private course fixtures are unavailable: NOUS_E2E_DATA is unset.';
+  const selection = course.slice('fixture:'.length);
+  if (!(await fixtureFileExists(selection)) && !(await fixtureFileExists(libraryName())))
+    return 'Private course fixture backup is unavailable.';
 }

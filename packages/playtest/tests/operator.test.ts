@@ -62,6 +62,32 @@ function ref(observation: Observation, name: string): string {
 }
 
 describe('operator', () => {
+  it('opens a context menu with a right click and selects a native option', async () => {
+    const page = await fixture(
+      `<button oncontextmenu="event.preventDefault();this.textContent='Context open'">Passage</button><select aria-label="Language" onchange="document.querySelector('output').textContent=this.value"><option value="it">Italiano</option><option value="en">English</option></select><output></output>`
+    );
+    let view = await session.observe();
+    await session.act({ type: 'click', ref: ref(view, 'Passage'), button: 'right' });
+    expect(await page.locator('button').textContent()).toBe('Context open');
+    view = await session.observe();
+    const select = view.nodes.find(node => node.role === 'combobox');
+    assert(select);
+    await session.act({ type: 'select', ref: select.ref, label: 'English' });
+    expect(await page.locator('output').textContent()).toBe('en');
+  });
+
+  it('scrolls the referenced pane after the pointer was in another pane', async () => {
+    const page = await fixture(
+      `<aside style="position:fixed;width:150px;height:200px"><button>Outline</button></aside><main style="margin-left:200px;height:200px;overflow:auto"><p>Lesson</p><div style="height:1200px">Long content</div><p>End</p></main>`
+    );
+    const view = await session.observe();
+    await session.act({ type: 'click', ref: ref(view, 'Outline') });
+    await session.act({ type: 'scroll', direction: 'down', ref: ref(view, 'Lesson') });
+    await expect
+      .poll(() => page.locator('main').evaluate(element => element.scrollTop))
+      .toBeGreaterThan(0);
+  });
+
   it.each([
     'desktop',
     'mobile',

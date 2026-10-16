@@ -27,7 +27,7 @@ import { toFindings } from './probes/thresholds';
 import { writeStoryReports, writeSummaryReports } from './report/writeReports';
 import type { Persona, Story, Viewport } from './types';
 
-export type StoryOutcome = MissionOutcome | 'app-error' | 'blocked-precondition';
+export type StoryOutcome = MissionOutcome | 'app-error' | 'blocked-precondition' | 'skipped';
 export type StoryRunRecord = {
   storyId: string;
   viewport: Viewport;
@@ -209,6 +209,7 @@ async function runStory(input: {
   jobIndex: number;
   getBrowser: () => Promise<Browser>;
   stackFailure?: string;
+  skipReason?: string;
   resolveModel: ReturnType<typeof createModelResolver>;
 }): Promise<StoryRunRecord> {
   const modelUsage = createModelUsage();
@@ -236,6 +237,15 @@ async function runStoryWithUsage(
     reportPath: join(storyDir, 'story.json'),
     modelUsage,
   };
+  if (input.skipReason !== undefined) {
+    return withDiagnostics(record, async () => {
+      record.outcome = 'skipped';
+      record.reason = input.skipReason;
+      record.elapsedMs = performance.now() - startedAt;
+      await saveStory({ record });
+      return record;
+    });
+  }
   return withDiagnostics(record, async () => {
     let prepared: Awaited<ReturnType<PlaytestAdapter['prepare']>>;
     const persona = story.persona ? options.personas.get(story.persona) : undefined;
@@ -496,15 +506,33 @@ function storyJobs(options: RunOptions) {
   return jobs;
 }
 
-async function executePlaytest(options: RunOptions, run: DiagnosticRecord): Promise<RunSummary> {
-  const jobs = storyJobs(options);
-  let stackFailure: string | undefined;
+async function storyExclusions(options: RunOptions) {
+  const exclusions = new Map<string, string | undefined>();
+  for (const story of options.stories)
+    exclusions.set(story.id, await options.adapter.skipReason?.(story));
+  return exclusions;
+}
+
+async function startAvailableStack(
+  adapter: PlaytestAdapter,
+  required: boolean
+): Promise<string | undefined> {
+  if (!required) return;
   try {
-    await options.adapter.ensureStack();
+    await adapter.ensureStack();
   } catch (error) {
     recordDiagnostic('stack', error, { operational: true });
-    stackFailure = error instanceof Error ? error.message : 'Application stack is unavailable.';
+    return error instanceof Error ? error.message : 'Application stack is unavailable.';
   }
+}
+
+async function executePlaytest(options: RunOptions, run: DiagnosticRecord): Promise<RunSummary> {
+  const jobs = storyJobs(options);
+  const exclusions = await storyExclusions(options);
+  const stackFailure = await startAvailableStack(
+    options.adapter,
+    jobs.some(job => exclusions.get(job.story.id) === undefined)
+  );
   const records: StoryRunRecord[] = new Array(jobs.length);
   const resolveModel = createModelResolver({ model: options.model, provider: options.provider });
   let nextJob = 0;
@@ -523,6 +551,7 @@ async function executePlaytest(options: RunOptions, run: DiagnosticRecord): Prom
           jobIndex: index,
           getBrowser,
           stackFailure,
+          skipReason: exclusions.get(jobs[index].story.id),
           resolveModel,
         });
       }
@@ -563,6 +592,7 @@ async function executePlaytest(options: RunOptions, run: DiagnosticRecord): Prom
       throw new Error('The harness could not complete its workers.', { cause: worker.reason });
     }
   const outcomeCounts: RunSummary['outcomeCounts'] = {
+    skipped: 0,
     completed: 0,
     abandoned: 0,
     'harness-limit': 0,

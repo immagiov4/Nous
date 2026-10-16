@@ -17,6 +17,7 @@ import {
 } from '../freshness';
 import { prepare, syntheticCourse } from '../prepare';
 import { BACKEND_URL, type StackStatus } from '../stack';
+import * as workflowCleanup from '../workflowCleanup';
 
 const status: StackStatus = {
   API_URL: 'http://127.0.0.1:55321',
@@ -60,6 +61,7 @@ function freshSnapshot(): ProjectSnapshotWithRevision {
   return { snapshot, revision: 2, incarnationId: 'incarnation' };
 }
 beforeEach(async () => {
+  vi.spyOn(workflowCleanup, 'settleAccountWorkflows').mockResolvedValue();
   root = await mkdtemp(join(tmpdir(), 'nous-freshness-'));
   vi.stubEnv('NOUS_E2E_DATA', root);
   await mkdir(join(root, 'fixtures'));
@@ -135,12 +137,19 @@ afterEach(async () => {
   vi.useRealTimers();
   await rm(root, { recursive: true, force: true });
 });
-const run = (selection: Story = story) =>
+const run = (
+  selection: Story = story,
+  use?: (prepared: Awaited<ReturnType<typeof prepare>>) => Promise<void>
+) =>
   withFreshnessEvidence(
     async record => {
       evidence.push(structuredClone(record));
     },
-    () => prepare(selection, 'desktop', status),
+    async () => {
+      const prepared = await prepare(selection, 'desktop', status);
+      await use?.(prepared);
+      return prepared;
+    },
     async record => {
       const index = evidence.findIndex(existing => existing.requestKey === record.requestKey);
       if (index < 0) evidence.push(structuredClone(record));
@@ -357,16 +366,17 @@ it.each([
     }
     return respond(url, options);
   });
-  const prepared = await run();
+  await run(story, async prepared => {
+    expect(PostgresProjectStore.prototype.deleteProject).not.toHaveBeenCalled();
+    await prepared.cleanup();
+    expect(PostgresProjectStore.prototype.deleteProject).toHaveBeenCalled();
+  });
   const start = fetcher.mock.calls.find(([url]) => url.endsWith('/lessons'));
   const recovery = fetcher.mock.calls.find(([url]) => url.endsWith('/requests/resolve'));
   expect(JSON.parse(recovery?.[1]?.body as string)).toEqual({
     requestKey: JSON.parse(start?.[1]?.body as string).requestKey,
   });
   expect(evidence[0]).toMatchObject({ workflowId, outcome: 'current' });
-  expect(PostgresProjectStore.prototype.deleteProject).not.toHaveBeenCalled();
-  await prepared.cleanup();
-  expect(PostgresProjectStore.prototype.deleteProject).toHaveBeenCalled();
 });
 
 it.each([
@@ -483,7 +493,7 @@ it.each([
   const cancellation = fetcher.mock.calls.find(([url]) => url.endsWith('/cancellation'));
   expect(cancellation?.[0]).toBe(`${BACKEND_URL}/api/workflows/runs/${workflowId}/cancellation`);
   expect(cancellation?.[1]?.headers).toMatchObject({ Authorization: 'Bearer authenticated-token' });
-  expect(PostgresProjectStore.prototype.deleteProject).toHaveBeenCalledWith(userId, imported.id);
+  expect(PostgresProjectStore.prototype.deleteProject).not.toHaveBeenCalled();
   const poll = fetcher.mock.calls.find(
     ([url]) => url.includes('/runs/') && !url.endsWith('/cancellation')
   );
@@ -584,7 +594,7 @@ it('does not await a hanging cancellation and freezes timeout evidence against a
     errorCode: 'lesson_generation_preparation_timeout',
     cancellation: { status: 'requested-unconfirmed' },
   });
-  expect(PostgresProjectStore.prototype.deleteProject).toHaveBeenCalled();
+  expect(PostgresProjectStore.prototype.deleteProject).not.toHaveBeenCalled();
   const finalEvidence = structuredClone(captured[0]);
   const json = vi.fn(async () => ({ success: true }));
   if (!finishCancellation) throw new Error('Cancellation was not issued');
@@ -635,7 +645,7 @@ it('does not await a hanging request-key fallback and cannot publish its late wo
     errorCode: 'lesson_generation_preparation_timeout',
     cancellation: { status: 'requested-unconfirmed' },
   });
-  expect(PostgresProjectStore.prototype.deleteProject).toHaveBeenCalled();
+  expect(PostgresProjectStore.prototype.deleteProject).not.toHaveBeenCalled();
   const finalEvidence = structuredClone(captured[0]);
   if (!finishLookup) throw new Error('Request-key lookup was not issued');
   finishLookup({ id: workflowId, projectId: imported.id } as Awaited<
