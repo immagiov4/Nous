@@ -153,9 +153,12 @@ ${input.lessonMarkdown.slice(0, 3_000)}`;
 
 export const LESSON_SCENE_CLOSING_TEXT_RULE = `A lesson scene needs no closing text by default. Add a note only when a necessary limit would otherwise be missed, or a question only when it is essential to the reader's task. Never add both, repeat information already visible, or append generic reminders. Leave both fields empty when the scene is sufficient. In quote and decision forms, quote is the main content rather than a closing question.`;
 
+export const LESSON_SCENE_INDEPENDENT_CONTENT_RULE = `Preserve every independent computation or step required by the visual's teaching goal. Use parts for independent entries shown side by side, checklist for independent checks, or comparison for genuinely comparable alternatives; use steps only when the lesson explicitly orders the actions. Flowchart, sequence, and journey require one connected graph with lesson-supported connections. If required content is disconnected, change to a suitable non-graph form, including when correcting a previous diagram attempt. Never omit independent content or invent connections to satisfy the diagram contract. A planned diagram is a form suggestion, not permission to lose required content.`;
+
 export const LESSON_VISUAL_PLANNING_RULES = `- ${GENERATED_VISUAL_RELEVANCE_RULE}
 - ${INTERACTIVE_VISUAL_VALUE_RULE}
 - ${VISUAL_FORMAT_SELECTION_RULE}
+- ${LESSON_SCENE_INDEPENDENT_CONTENT_RULE}
 - For automatic generation, normally plan zero or one artifact. Plan two only when they answer different, complementary pedagogical questions, and three only when all are indispensable. Never produce aesthetic variants of the same content.
 - Format variety is never a goal. Two or three raster images are correct when they are the best pedagogical solution.
 - Do not simulate images with ASCII art, monospace text, cells, coordinates, geometric boxes, or scenes. If concrete appearance matters, use illustrative_image.
