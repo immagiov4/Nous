@@ -1,3 +1,4 @@
+import { EventEmitter, once } from 'node:events';
 import type { LibraryExportPhase } from '@shared/libraryExportContract';
 import type {
   LibraryExportProjectCheckpoint,
@@ -10,6 +11,7 @@ export class MemoryLibraryExportRunStore implements LibraryExportRunStore {
   readonly terminalTimes = new Map<string, number>();
   private readonly tokens = new Map<string, Set<string>>();
   private readonly cleaned = new Set<string>();
+  private readonly statusChanges = new EventEmitter();
 
   get run() {
     return [...this.runs.values()].at(-1) ?? null;
@@ -20,6 +22,13 @@ export class MemoryLibraryExportRunStore implements LibraryExportRunStore {
   }
   get cleanupCompleted() {
     return this.run ? this.cleaned.has(this.run.id) : false;
+  }
+
+  /** Observe persisted transitions without a polling deadline, including already-settled runs. */
+  async waitForStatus(runId: string, status: LibraryExportRunRecord['status']): Promise<void> {
+    while (this.requireRun(runId).status !== status) {
+      await once(this.statusChanges, runId);
+    }
   }
 
   private requireRun(runId: string) {
@@ -124,6 +133,7 @@ export class MemoryLibraryExportRunStore implements LibraryExportRunStore {
     const run = this.requireRun(runId);
     if (!['running', 'failed'].includes(run.status)) return;
     Object.assign(run, { status: 'running', phase, currentProjectId });
+    this.statusChanges.emit(runId);
   }
   async checkpointProject(runId: string, checkpoint: LibraryExportProjectCheckpoint) {
     const run = this.requireRun(runId);
@@ -142,6 +152,7 @@ export class MemoryLibraryExportRunStore implements LibraryExportRunStore {
       archiveBytes: archive.bytes,
       archiveSha256: archive.sha256,
     });
+    this.statusChanges.emit(runId);
     return true;
   }
   async markCancelled(
@@ -156,11 +167,13 @@ export class MemoryLibraryExportRunStore implements LibraryExportRunStore {
       errorPhase: error.phase,
     });
     this.tokens.delete(runId);
+    this.statusChanges.emit(runId);
   }
   async markDownloaded(runId: string) {
     const run = this.requireRun(runId);
     if (run.status !== 'completed') return;
     run.status = 'downloaded';
+    this.statusChanges.emit(runId);
   }
   async markCleanupCompleted(runId: string) {
     this.cleaned.add(runId);
@@ -180,5 +193,6 @@ export class MemoryLibraryExportRunStore implements LibraryExportRunStore {
       errorPhase: error.phase,
     });
     this.tokens.delete(runId);
+    this.statusChanges.emit(runId);
   }
 }
