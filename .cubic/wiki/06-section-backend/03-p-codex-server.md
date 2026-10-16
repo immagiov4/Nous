@@ -114,6 +114,12 @@ export class CodexAppServerError extends Error {
 
 Sources: [apps/backend/src/services/codexAppServer.ts:7-8](../../../apps/backend/src/services/codexAppServer.ts#L7-L8), [apps/backend/src/services/codexAppServer.ts:114-121](../../../apps/backend/src/services/codexAppServer.ts#L114-L121)
 
+### Settling direct-call usage before evidence finalization
+
+`withSettledCodexUsage` waits for metering to finish for the direct Codex turns started by its operation, including when the operation throws after cancellation. Each invocation owns its pending turns through async-local context. `withRunEvidence` uses this scope before writing the final manifest, history entry, and optional model exchanges, so a caller can receive its interruption promptly while evidence still includes the later usage report.
+
+Settlement reuses the existing interruption deadline, `CODEX_REQUEST_TIMEOUT_MS`: the client waits for a terminal notification after requesting interruption and settles when that deadline expires. An interrupted turn without a usage report records the provider and model with absent token and cost fields, preserving unknown consumption rather than recording zero.
+
 ## Integration with OpenRouter Proxy
 
 Nous provides an `openRouterProxy.ts` that allows the frontend to use a unified OpenAI-compatible API even when Codex App Server is the underlying provider.
