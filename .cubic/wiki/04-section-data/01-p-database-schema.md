@@ -77,6 +77,14 @@ Sources: [apps/backend/src/projects/postgresProjectStore.ts:587-605](../../../ap
 | `snapshot` | `jsonb` | Complete project state (excluding heavy indices). |
 | `document_index` | `jsonb` | Extracted text and chunk mapping for search and AI grounding. |
 
+### Lesson learner state
+
+Lesson `quizState` stores selected answer indices and submission state inside `project_snapshots.snapshot`, alongside annotations and completion. The existing authenticated project PATCH validates the state and advances the project revision, so the same persistence and revision events serve local edits and other sessions. Project and library archives retain this state. No additional table or migration is required. Successful generation clears quiz state and annotations at the lesson content commit; compensation restores the previous values.
+
+Quiz writes use the narrow `quiz` rebase mode and the observed `lastGenerationRunId`. The project transaction checks that identity while holding the project lock: another lesson can advance the revision, while regeneration of the answered lesson rejects the old answer. Reopening and archive exports wait for pending local writes. A quiz write advances the saved UI signature only when its preceding domain state was already saved, preserving unrelated edits for autosave.
+
+Sources: [quiz state contract](../../../packages/shared-types/lessonQuizState.ts), [section PATCH](../../../apps/backend/src/routes/projects.ts), [lesson persistence](../../../apps/backend/src/workflows/lessonGenerationPersistence.ts).
+
 ## Project Source Management
 
 Nous employs an "immutable object" strategy for project sources. Large files are stored in Supabase Storage, while the database maintains integrity metadata (hashes and object paths).

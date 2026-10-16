@@ -259,6 +259,96 @@ describe('durable lesson generation persistence', () => {
     });
   });
 
+  test('regeneration clears learner state only at commit and restores it on compensation', async () => {
+    const snapshot = project();
+    const lesson = findProjectLessonSection(snapshot, 'lesson-1');
+    if (!lesson) throw new Error('Missing test lesson.');
+    const annotations = [{ id: 'highlight-1', quote: 'Lezione precedente', note: 'Remember this' }];
+    const quizState = { answers: [1, -1], isSubmitted: true };
+    Object.assign(lesson, { annotations, quizState });
+    const original = structuredClone(snapshot);
+    const input = visualsState(snapshot);
+    const execution = context(input).execution;
+    const state = await createLessonPersistenceStage({
+      loadProject: vi.fn().mockResolvedValue(snapshot),
+      now: () => NOW,
+    })(context(input));
+    expect(snapshot).toEqual(original);
+    const committed = applyProjectPatch(
+      snapshot,
+      buildLessonGenerationCommitPatch({ revision: 4, snapshot }, input, state, execution),
+      NOW
+    );
+    expect(findProjectLessonSection(committed, 'lesson-1')).toMatchObject({ annotations: [] });
+    expect(findProjectLessonSection(committed, 'lesson-1')?.quizState).toBeUndefined();
+    expect(findProjectLessonSection(committed, 'lesson-2')).toEqual(
+      findProjectLessonSection(original, 'lesson-2')
+    );
+    const restored = applyProjectPatch(
+      committed,
+      buildLessonGenerationUndoPatch(
+        { revision: 5, snapshot: committed },
+        input,
+        state,
+        execution
+      ) ?? {},
+      NOW
+    );
+    expect(findProjectLessonSection(restored, 'lesson-1')).toMatchObject({
+      annotations,
+      quizState,
+    });
+    expect(
+      buildLessonGenerationUndoPatch({ revision: 6, snapshot: restored }, input, state, execution)
+    ).toBeNull();
+  });
+
+  test('learner edits after commit do not fail finalization and compensation restores the replaced state', async () => {
+    const snapshot = project();
+    const oldAnnotations = [{ id: 'old', note: 'Previous note' }];
+    const oldQuiz = { answers: [1], isSubmitted: true };
+    const original = findProjectLessonSection(snapshot, 'lesson-1');
+    if (!original) throw new Error('Missing lesson');
+    Object.assign(original, { annotations: oldAnnotations, quizState: oldQuiz });
+    const input = visualsState(snapshot);
+    const execution = context(input).execution;
+    const state = await createLessonPersistenceStage({
+      loadProject: async () => snapshot,
+      now: () => NOW,
+    })(context(input));
+    const committed = applyProjectPatch(
+      snapshot,
+      buildLessonGenerationCommitPatch({ snapshot, revision: 4 }, input, state, execution),
+      NOW
+    );
+    const answered = applyProjectPatch(
+      committed,
+      {
+        section: {
+          sectionId: 'lesson-1',
+          annotations: [{ id: 'new', note: 'New note' }],
+          quizState: { answers: [2], isSubmitted: false },
+        },
+      },
+      NOW
+    );
+    const finalize = createLessonResultFinalizer({
+      loadProjectWithRevision: async () => ({ snapshot: answered, revision: 6 }),
+    });
+    await expect(finalize({ ...context(input), input: state })).resolves.toMatchObject({
+      projectRevision: 6,
+    });
+    const undo = buildLessonGenerationUndoPatch(
+      { snapshot: answered, revision: 6 },
+      input,
+      state,
+      execution
+    );
+    expect(
+      findProjectLessonSection(applyProjectPatch(answered, undo ?? {}, NOW), 'lesson-1')
+    ).toMatchObject({ annotations: oldAnnotations, quizState: oldQuiz });
+  });
+
   test('inserts a sublesson after the complete parent subtree and removes it on undo', () => {
     const snapshot = project();
     snapshot.activeSectionId = 'lesson-1';

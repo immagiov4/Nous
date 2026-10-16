@@ -67,6 +67,16 @@ Quizzes must use one of the approved `exerciseType` values, such as `prediction`
 
 Sources: [apps/backend/src/services/lessonGenerationModel.ts:31-40](../../../apps/backend/src/services/lessonGenerationModel.ts#L31-L40), [apps/web/types.ts:251-257](../../../apps/web/types.ts#L251-L257)
 
+### Saved learner answers
+
+Each lesson stores `quizState` alongside its annotations in the project snapshot. `answers` follows the lesson's quiz order, with `-1` for unanswered questions, and `isSubmitted` preserves submission state. Selecting an answer persists it through the existing revision-checked section PATCH; the reader derives its selection and revealed explanation from this saved state. Navigation, generation of another lesson, course reopening, and library export/import preserve it.
+
+Quiz writes use the narrow `quiz` rebase mode and the observed `lastGenerationRunId`. The project transaction checks that identity while holding the project lock: another lesson can advance the revision, while regeneration of the answered lesson rejects the old answer. Reopening and archive exports wait for pending local writes. A quiz write advances the saved UI signature only when its preceding domain state was already saved, preserving unrelated edits for autosave.
+
+Successful lesson generation clears that lesson's quiz state and all previous annotations in the same content commit. Questions and annotations are not matched against the replacement text. A failure before commit preserves the old state; compensation after commit restores it. Regeneration uses the existing action without a confirmation or stale-annotation warning.
+
+Sources: [reader state](../../../apps/web/hooks/workspace/useWorkspaceReaderState.ts), [learner-state persistence](../../../apps/web/hooks/library/useProjectLibrary.ts), [lesson commit and compensation](../../../apps/backend/src/workflows/lessonGenerationPersistence.ts).
+
 ### Question quality and answer disclosure
 
 `EXERCISE_TASK_DISCLOSURE_RULE` supplies the shared boundary for lesson questions and lab briefs: provide the facts and constraints needed to solve the task, without supplying the inference, classification, diagnosis, or procedure being tested. Teaching the prerequisite concept remains necessary.

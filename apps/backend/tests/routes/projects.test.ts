@@ -1708,6 +1708,39 @@ describe('/api/projects', () => {
     }
   });
 
+  test('persists inline quiz state through the project revision stream and rejects invalid answers', async () => {
+    const app = createApp();
+    const snapshot = {
+      ...createSnapshot('quiz-project', 'Quiz'),
+      learningPlan: {
+        title: 'Quiz',
+        sections: [{ id: 'lesson-1', content: 'Text', quiz: [], isCompleted: false }],
+      },
+    } as unknown as ProjectSnapshot;
+    const saved = await request(app).put('/api/projects/projects/quiz-project').send({ snapshot });
+    const quizState = { answers: [1, -1], isSubmitted: true };
+    const response = await request(app)
+      .patch('/api/projects/projects/quiz-project')
+      .send({
+        expectedRevision: saved.body.meta.revision,
+        patch: { section: { sectionId: 'lesson-1', quizState } },
+      });
+    expect(response.status).toBe(200);
+    expect(response.body.meta.revision).toBe(saved.body.meta.revision + 1);
+    const loaded = await request(app).get('/api/projects/projects/quiz-project');
+    expect(loaded.body.project.learningPlan.sections[0].quizState).toEqual(quizState);
+    const invalid = await request(app)
+      .patch('/api/projects/projects/quiz-project')
+      .send({
+        patch: {
+          section: { sectionId: 'lesson-1', quizState: { answers: [0.5], isSubmitted: true } },
+        },
+      });
+    expect(invalid.status).toBeGreaterThanOrEqual(400);
+    const unchanged = await request(app).get('/api/projects/projects/quiz-project');
+    expect(unchanged.body.project.learningPlan.sections[0].quizState).toEqual(quizState);
+  });
+
   test('section PATCH uses the fast path with a heavy documentIndex', async () => {
     const app = createApp();
 
@@ -1792,6 +1825,74 @@ describe('/api/projects', () => {
     expect(loadResponse.body.project.activeSectionId).toBe('session-a');
     const listResponse = await request(app).get('/api/projects/projects');
     expect(listResponse.body.projects[0].revision).toBe(2);
+  });
+
+  test('saves a quiz across another lesson commit but rejects answers for replaced content', async () => {
+    const app = createApp();
+    const projectId = 'quiz-rebase-project';
+    await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({ snapshot: createModuleSnapshot(projectId, 'Quiz') });
+    await request(app)
+      .patch(`/api/projects/projects/${projectId}`)
+      .send({
+        patch: {
+          section: {
+            sectionId: 'lesson-2',
+            content: 'Nuova lezione',
+            lastGenerationRunId: 'other-run',
+          },
+        },
+      });
+    const write = {
+      expectedRevision: 1,
+      rebaseMode: 'quiz',
+      expectedLessonGenerationRunId: null,
+      patch: { section: { sectionId: 'lesson-1', quizState: { answers: [0], isSubmitted: true } } },
+    };
+    const saved = await request(app).patch(`/api/projects/projects/${projectId}`).send(write);
+    expect(saved.status).toBe(200);
+    expect(saved.body.meta.revision).toBe(3);
+    const loaded = await request(app).get(`/api/projects/projects/${projectId}`);
+    expect(loaded.body.project.learningPlan.modules[0].children[0].quizState).toEqual(
+      write.patch.section.quizState
+    );
+    expect(loaded.body.project.learningPlan.modules[1].children[0].content).toBe('Nuova lezione');
+    await request(app)
+      .patch(`/api/projects/projects/${projectId}`)
+      .send({
+        patch: {
+          section: {
+            sectionId: 'lesson-1',
+            content: 'Rigenerata',
+            lastGenerationRunId: 'new-run',
+            quizState: null,
+          },
+        },
+      });
+    expect(
+      (await request(app).patch(`/api/projects/projects/${projectId}`).send(write)).status
+    ).toBe(409);
+    const after = await request(app).get(`/api/projects/projects/${projectId}`);
+    expect(after.body.project.learningPlan.modules[0].children[0].quizState).toBeUndefined();
+    expect(
+      (
+        await request(app)
+          .patch(`/api/projects/projects/${projectId}`)
+          .send({
+            ...write,
+            expectedLessonGenerationRunId: 'new-run',
+            patch: { ...write.patch, title: 'Invalid broad write' },
+          })
+      ).status
+    ).toBe(400);
+    expect(
+      (
+        await request(app)
+          .patch(`/api/projects/projects/${projectId}`)
+          .send({ ...write, expectedLessonGenerationRunId: undefined })
+      ).status
+    ).toBe(400);
   });
 
   test('rebases stale navigation onto a newly generated lesson without losing either change', async () => {

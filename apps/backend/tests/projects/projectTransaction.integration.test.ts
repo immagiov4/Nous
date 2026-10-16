@@ -1,11 +1,14 @@
 import { randomUUID } from 'node:crypto';
-
 import { SIBLING_ORDER_STEP } from '@shared/libraryOrdering';
+import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-
 import { LibrarySiblingSetChangedError } from '../../src/projects/librarySiblingOrder.js';
 import { PostgresProjectStore } from '../../src/projects/postgresProjectStore.js';
+import {
+  ProjectNotFoundError,
+  ProjectRevisionConflictError,
+} from '../../src/projects/projectRevision.js';
 import { patchProjectInTransaction } from '../../src/projects/projectTransaction.js';
 import type {
   LibraryPlacement,
@@ -112,6 +115,71 @@ describe.skipIf(!shouldRun)('transactional project patch integration', () => {
     if (!sql) return;
     await sql`delete from auth.users where id = ${userId}`;
     await sql.end();
+  });
+
+  test('quiz writes preserve concurrent content and reject replaced lessons and other tenants', async () => {
+    if (!sql) throw new Error('Workflow integration database is required.');
+    const store = new PostgresProjectStore(undefined, sql);
+    const id = `quiz-concurrency-${randomUUID()}`;
+    const saved = await store.saveProject(userId, {
+      ...projectSnapshot,
+      id,
+      source: null,
+      sourceKind: 'learn-mode',
+      isLearnMode: true,
+      learningPlan: {
+        title: 'Quiz',
+        sections: [
+          { id: 'lesson-a', content: 'A' },
+          { id: 'lesson-b', content: 'B' },
+        ],
+      },
+    });
+    const staleRevision = saved.meta.revision;
+    const quizState = { answers: [1], isSubmitted: true };
+    const options = {
+      expectedRevision: staleRevision,
+      rebaseMode: PROJECT_PATCH_REBASE_MODE.quiz,
+      expectedLessonGenerationRunId: null,
+    };
+    await sql.begin(transaction =>
+      patchProjectInTransaction(transaction, {
+        projectId: id,
+        userId,
+        updatedAt: createdAt,
+        buildPatch: () => ({
+          section: { sectionId: 'lesson-b', content: 'Generated B', lastGenerationRunId: 'b-run' },
+        }),
+      })
+    );
+    await store.patchProject(
+      userId,
+      id,
+      { section: { sectionId: 'lesson-a', quizState } },
+      options
+    );
+    const current = await store.loadProject(userId, id);
+    expect(current?.learningPlan?.sections).toMatchObject([
+      { id: 'lesson-a', quizState },
+      { id: 'lesson-b', content: 'Generated B' },
+    ]);
+    await expect(
+      store.patchProject(
+        randomUUID(),
+        id,
+        { section: { sectionId: 'lesson-a', quizState } },
+        options
+      )
+    ).rejects.toBeInstanceOf(ProjectNotFoundError);
+    await store.patchProject(userId, id, {
+      section: { sectionId: 'lesson-a', lastGenerationRunId: 'a-run', quizState: null },
+    });
+    await expect(
+      store.patchProject(userId, id, { section: { sectionId: 'lesson-a', quizState } }, options)
+    ).rejects.toBeInstanceOf(ProjectRevisionConflictError);
+    expect(
+      (await store.loadProject(userId, id))?.learningPlan?.sections?.[0]?.quizState
+    ).toBeUndefined();
   });
 
   test('commits the project patch and revision in the caller transaction', async () => {

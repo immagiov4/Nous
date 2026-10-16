@@ -8,6 +8,7 @@ import {
   LESSON_MARKDOWN_BLOCK_TYPE,
 } from './lessonContent';
 import { isValidLessonPlayback } from './lessonPlaybackSchema';
+import { LessonQuizStateSchema } from './lessonQuizState';
 import { isValidProjectLessonVisual } from './projectAsset';
 import type { ProjectSourceKind } from './projectContract';
 import { isSourceArchivePdfWarningReason } from './sourceArchiveWarnings';
@@ -266,6 +267,9 @@ export const canonicalizeLessonNodeContent = <Node extends Record<string, unknow
   node: Node,
   options: ProjectSnapshotWireDecodeOptions = {}
 ): Node => {
+  if (node.quizState !== undefined && !LessonQuizStateSchema.safeParse(node.quizState).success) {
+    throw new ProjectSnapshotWireError('Risposte della lezione non valide.');
+  }
   if (node.playback !== undefined && !isValidLessonPlayback(node.playback)) {
     throw new ProjectSnapshotWireError('Dati di ascolto della lezione non validi.');
   }

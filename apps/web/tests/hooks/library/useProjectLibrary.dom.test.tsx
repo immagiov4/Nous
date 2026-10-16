@@ -4,6 +4,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import JSZip from 'jszip';
 import { useState } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { useWorkspaceDomain } from '../../../hooks/workspace/useWorkspaceDomain';
 import { createLibraryArchiveBlob } from '../../../services/projects/libraryArchive.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import { normalizeStoredProject } from '../../../services/projects/projectSnapshot.ts';
@@ -1784,6 +1785,212 @@ describe('useProjectLibrary', () => {
     expect(repositoryMocks.createFolder).toHaveBeenCalledWith({ name: 'Frontend' });
     expect(result.current.libraryFolders[0]?.name).toBe('Frontend');
     expect(result.current.libraryTree.rootNodes[0]?.kind).toBe('folder');
+  });
+
+  test.each([false, true])('a quiz save preserves pending instructions: %s', async dirtyNotes => {
+    const quizState = { answers: [0], isSubmitted: false };
+    const initial = buildSnapshot('project-1', {
+      learningPlan: buildTestLearningPlan([buildTestLesson({ id: 'lesson-1' })]),
+    });
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
+    ]);
+    repositoryMocks.patchProject.mockResolvedValue(
+      buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2)
+    );
+    const { result } = renderHook(() => {
+      const domain = useWorkspaceDomain();
+      const library = useProjectLibrary({
+        domainState: domain.domainState,
+        hydrateSnapshot: domain.hydrateSnapshot,
+        setSource: domain.setSource,
+      });
+      return { domain, library };
+    });
+    await waitFor(() => expect(result.current.library.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.domain.hydrateSnapshot(initial);
+      result.current.library.setCurrentProjectId('project-1');
+    });
+    act(() => result.current.library.setProjectHydrated(true));
+    if (dirtyNotes) act(() => result.current.domain.setGenerationNotes('Keep these instructions'));
+    let saved!: Promise<boolean>;
+    act(() => {
+      const before = result.current.domain.getDomainState();
+      result.current.domain.updateSection('lesson-1', section => ({ ...section, quizState }));
+      saved = result.current.library.patchSectionLearnerState(
+        'lesson-1',
+        { quizState },
+        { before, after: result.current.domain.getDomainState() }
+      );
+    });
+    await act(async () => {
+      expect(await saved).toBe(true);
+    });
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue({
+      revision: 3,
+      snapshot: buildSnapshot('project-1', result.current.domain.getDomainState()),
+    });
+    await act(async () => {
+      const applying = result.current.library.applyPersistedProjectRevision({
+        projectId: 'project-1',
+        revision: 3,
+      });
+      if (dirtyNotes) await expect(applying).rejects.toMatchObject({ code: 'revision-conflict' });
+      else expect(await applying).toBe(true);
+    });
+  });
+
+  test('reloads another lesson committed between two queued quiz answers', async () => {
+    const initial = buildSnapshot('project-1', {
+      learningPlan: buildTestLearningPlan([
+        buildTestLesson({ id: 'lesson-1' }),
+        buildTestLesson({ id: 'lesson-2' }),
+      ]),
+    });
+    const first = { answers: [0, -1], isSubmitted: false };
+    const second = { answers: [0, 1], isSubmitted: true };
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
+    ]);
+    repositoryMocks.patchProject
+      .mockResolvedValueOnce(buildMeta('project-1', '2026-04-02T11:00:00.000Z', 3))
+      .mockResolvedValueOnce(buildMeta('project-1', '2026-04-02T11:01:00.000Z', 4));
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue({
+      revision: 4,
+      snapshot: buildSnapshot('project-1', {
+        learningPlan: buildTestLearningPlan([
+          buildTestLesson({ id: 'lesson-1', quizState: second }),
+          buildTestLesson({ id: 'lesson-2', content: 'Generated elsewhere' }),
+        ]),
+      }),
+    });
+    const { result } = renderHook(() => {
+      const domain = useWorkspaceDomain();
+      const library = useProjectLibrary({
+        domainState: domain.domainState,
+        hydrateSnapshot: domain.hydrateSnapshot,
+        setSource: domain.setSource,
+      });
+      return { domain, library };
+    });
+    await waitFor(() => expect(result.current.library.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.domain.hydrateSnapshot(initial);
+      result.current.library.setCurrentProjectId('project-1');
+    });
+    act(() => result.current.library.setProjectHydrated(true));
+    const saves: Promise<boolean>[] = [];
+    act(() => {
+      for (const quizState of [first, second]) {
+        const before = result.current.domain.getDomainState();
+        result.current.domain.updateSection('lesson-1', section => ({ ...section, quizState }));
+        saves.push(
+          result.current.library.patchSectionLearnerState(
+            'lesson-1',
+            { quizState },
+            { before, after: result.current.domain.getDomainState() }
+          )
+        );
+      }
+    });
+    await act(async () => {
+      expect(await Promise.all(saves)).toEqual([true, true]);
+    });
+    expect(repositoryMocks.patchProject.mock.calls[0]?.[2]).toMatchObject({
+      rebaseMode: 'quiz',
+      expectedLessonGenerationRunId: null,
+    });
+    expect(result.current.domain.learningPlan?.modules[0]?.children).toMatchObject([
+      { id: 'lesson-1', quizState: second },
+      { id: 'lesson-2', content: 'Generated elsewhere' },
+    ]);
+  });
+
+  test.each([
+    'loadStoredProject',
+    'loadStoredProjectWithRevision',
+    'validateStoredProjectForOpen',
+  ] as const)('reopening with %s waits for the pending quiz answer', async method => {
+    let release!: () => void;
+    let snapshot = buildSnapshot('project-1');
+    const quizState = { answers: [1], isSubmitted: true };
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
+    ]);
+    repositoryMocks.loadProject.mockImplementation(async () => snapshot);
+    repositoryMocks.loadProjectWithRevision.mockImplementation(async () => ({
+      revision: 2,
+      snapshot,
+    }));
+    repositoryMocks.patchProject.mockImplementation(async () => {
+      await new Promise<void>(resolve => {
+        release = resolve;
+      });
+      snapshot = buildSnapshot('project-1', {
+        learningPlan: buildTestLearningPlan([buildTestLesson({ id: 'lesson-1', quizState })]),
+      });
+      return buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2);
+    });
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => result.current.setCurrentProjectId('project-1'));
+    let saved!: Promise<boolean>;
+    act(() => {
+      saved = result.current.patchSectionLearnerState('lesson-1', { quizState });
+    });
+    await waitFor(() => expect(release).toBeTypeOf('function'));
+    act(() => result.current.setCurrentProjectId(null));
+    let opening!:
+      | ReturnType<typeof result.current.loadStoredProject>
+      | ReturnType<typeof result.current.loadStoredProjectWithRevision>;
+    await act(async () => {
+      opening = result.current[method]('project-1');
+      await Promise.resolve();
+    });
+    expect(repositoryMocks.loadProject).not.toHaveBeenCalled();
+    expect(repositoryMocks.loadProjectWithRevision).not.toHaveBeenCalled();
+    await act(async () => {
+      release();
+      await saved;
+    });
+    const loaded = await opening;
+    const reopened = loaded && 'snapshot' in loaded ? loaded.snapshot : loaded;
+    expect(reopened?.learningPlan?.modules?.[0]?.children?.[0]).toMatchObject({ quizState });
+  });
+
+  test('quiz changes use a granular revision-checked write bound to their originating course', async () => {
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('course-a', '2026-04-02T10:00:00.000Z'),
+      buildMeta('course-b', '2026-04-02T10:00:00.000Z'),
+    ]);
+    repositoryMocks.patchProject.mockImplementation(async (id: string) =>
+      buildMeta(id, '2026-04-02T11:00:00.000Z', 2)
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => result.current.setCurrentProjectId('course-a'));
+    const saveQuiz = result.current.patchSectionLearnerState;
+    act(() => result.current.setCurrentProjectId('course-b'));
+    const quizState = { answers: [2], isSubmitted: true };
+    await act(async () => {
+      await saveQuiz('lesson-1', { quizState });
+    });
+    expect(repositoryMocks.patchProject).toHaveBeenCalledWith(
+      'course-a',
+      expect.objectContaining({ section: { sectionId: 'lesson-1', quizState } }),
+      expect.objectContaining({ expectedRevision: expect.any(Number) })
+    );
   });
 
   test('patchSectionAnnotations suppresses autosave even when called with a stale closure', async () => {

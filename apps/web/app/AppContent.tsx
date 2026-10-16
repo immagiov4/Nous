@@ -2,7 +2,8 @@ import type {
   FeedbackProductContext,
   FeedbackProductSurface,
 } from '@shared/feedbackDiagnosticsContract';
-import { useEffect } from 'react';
+import type { LessonQuizState } from '@shared/lessonQuizState';
+import { useCallback, useEffect } from 'react';
 import { LibraryScreenContainer } from '../components/library/LibraryScreenContainer.tsx';
 import { getNewHomePageFromPathname } from '../components/newHome/NewHomeView.tsx';
 import LoadingScreen from '../components/shared/LoadingScreen';
@@ -70,12 +71,30 @@ const AppContent = () => {
   const { appOverlays, notify, requestConfirmation } = useAppDialogs();
   const domain = useWorkspaceDomain();
 
+  const projectLibrary = useProjectLibrary({
+    domainState: domain.domainState,
+    hydrateSnapshot: domain.hydrateSnapshot,
+    setSource: domain.setSource,
+  });
+
+  const { getDomainState, updateSection } = domain;
+  const { patchSectionLearnerState } = projectLibrary;
+  const handleQuizStateChange = useCallback(
+    (sectionId: string, quizState: LessonQuizState) => {
+      const before = getDomainState();
+      updateSection(sectionId, section => ({ ...section, quizState }));
+      void patchSectionLearnerState(sectionId, { quizState }, { before, after: getDomainState() });
+    },
+    [getDomainState, patchSectionLearnerState, updateSection]
+  );
+
   const readerState = useWorkspaceReaderState({
     activeSection: domain.activeSection,
     activeSectionId: domain.activeSectionId,
     documentAssets: domain.documentAssets,
     learningPlan: domain.learningPlan,
     quiz: domain.quiz,
+    onQuizStateChange: handleQuizStateChange,
     sectionContent: domain.sectionContent,
     syllabus: domain.syllabus,
   });
@@ -83,12 +102,6 @@ const AppContent = () => {
   useUiPreferencesPersistence({
     uiPreferences: readerState.uiPreferences,
     applyUiPreferences: readerState.applyUiPreferences,
-  });
-
-  const projectLibrary = useProjectLibrary({
-    domainState: domain.domainState,
-    hydrateSnapshot: domain.hydrateSnapshot,
-    setSource: domain.setSource,
   });
 
   const libraryAssistantChat = useLibraryAssistantChat({

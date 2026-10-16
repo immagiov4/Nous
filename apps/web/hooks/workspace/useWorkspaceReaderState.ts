@@ -1,5 +1,6 @@
+import type { LessonQuizState } from '@shared/lessonQuizState';
 /* @refresh reset */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type {
   AudioPanelTab,
   LearningPlan,
@@ -27,6 +28,7 @@ interface UseWorkspaceReaderStateArgs {
   documentAssets: PdfDocumentAssets | null;
   learningPlan: LearningPlan | null;
   quiz: QuizQuestion[];
+  onQuizStateChange: (sectionId: string, state: LessonQuizState) => void;
   sectionContent: string;
   syllabus: SyllabusItem[];
 }
@@ -43,6 +45,7 @@ export const useWorkspaceReaderState = ({
   activeSectionId,
   documentAssets,
   learningPlan,
+  onQuizStateChange,
   quiz,
   sectionContent,
   syllabus,
@@ -53,14 +56,15 @@ export const useWorkspaceReaderState = ({
   );
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [musicVolume, setMusicVolume] = useState(20);
-  const [quizAnswers, setQuizAnswers] = useState<number[]>([]);
-  const [isQuizSubmitted, setIsQuizSubmitted] = useState(false);
+  const quizAnswers = useMemo(
+    () => quiz.map((_, index) => activeSection?.quizState?.answers[index] ?? -1),
+    [activeSection?.quizState, quiz]
+  );
+  const isQuizSubmitted = activeSection?.quizState?.isSubmitted ?? false;
   const [settingsPanelExpandedSections, setSettingsPanelExpandedSections] = useState<
     SettingsPanelSectionId[]
   >(['course-notes']);
   const [lastAudioTab, setLastAudioTab] = useState<AudioPanelTab>('voce');
-  const previousQuizSectionIdRef = useRef(activeSectionId);
-  const previousQuizSubmissionSectionIdRef = useRef(activeSectionId);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -163,50 +167,29 @@ export const useWorkspaceReaderState = ({
     [activeSection?.generatedVisuals]
   );
 
-  useEffect(() => {
-    if (previousQuizSubmissionSectionIdRef.current === activeSectionId) {
-      return;
-    }
-
-    previousQuizSubmissionSectionIdRef.current = activeSectionId;
-    setIsQuizSubmitted(false);
-  }, [activeSectionId]);
-
-  useEffect(() => {
-    const sectionChanged = previousQuizSectionIdRef.current !== activeSectionId;
-    previousQuizSectionIdRef.current = activeSectionId;
-
-    setQuizAnswers(currentAnswers => {
-      const nextAnswers = quiz.length > 0 ? new Array(quiz.length).fill(-1) : [];
-      if (
-        !sectionChanged &&
-        currentAnswers.length === nextAnswers.length &&
-        currentAnswers.every(answer => answer === -1)
-      ) {
-        return currentAnswers;
-      }
-
-      return nextAnswers;
-    });
-  }, [activeSectionId, quiz]);
-
   const handleSelectQuizAnswer = useCallback(
     (questionIndex: number, optionIndex: number) => {
-      if (isQuizSubmitted) {
+      if (!activeSectionId || isQuizSubmitted || quizAnswers[questionIndex] !== -1) return;
+      const question = quiz[questionIndex];
+      if (
+        !question ||
+        !Number.isInteger(optionIndex) ||
+        optionIndex < 0 ||
+        optionIndex >= question.options.length
+      )
         return;
-      }
-
-      setQuizAnswers(currentAnswers => {
-        if (currentAnswers[questionIndex] !== -1) {
-          return currentAnswers;
-        }
-
-        const nextAnswers = [...currentAnswers];
-        nextAnswers[questionIndex] = optionIndex;
-        return nextAnswers;
-      });
+      const answers = [...quizAnswers];
+      answers[questionIndex] = optionIndex;
+      onQuizStateChange(activeSectionId, { answers, isSubmitted: false });
     },
-    [isQuizSubmitted]
+    [activeSectionId, isQuizSubmitted, onQuizStateChange, quiz, quizAnswers]
+  );
+  const setIsQuizSubmitted = useCallback(
+    (isSubmitted: boolean) => {
+      if (!activeSectionId || isSubmitted === isQuizSubmitted) return;
+      onQuizStateChange(activeSectionId, { answers: quizAnswers, isSubmitted });
+    },
+    [activeSectionId, isQuizSubmitted, onQuizStateChange, quizAnswers]
   );
 
   return {
