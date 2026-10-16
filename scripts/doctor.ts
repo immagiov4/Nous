@@ -12,7 +12,7 @@ const WORKSPACE_BIN_PATH = path.resolve('node_modules/.bin');
 const REALTIME_LOCAL_TENANT = 'realtime-dev';
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
-const CHECK_WORKSPACE_BINARIES = ['biome', 'eslint', 'tsgo', 'vitest'] as const;
+const CHECK_WORKSPACE_BINARIES = ['biome', 'eslint', 'fallow', 'tsgo', 'vitest'] as const;
 const GATE_WORKSPACE_BINARIES = ['sonar-scanner'] as const;
 const LOCAL_WORKSPACE_BINARIES = ['supabase'] as const;
 
