@@ -201,13 +201,8 @@ const collectInlineRanges = (
   if (node.type === 'image' || node.type === 'imageReference') {
     analysis.inlineVisuals.push({ start, end });
     analysis.omissions.push({ start, end });
-  } else if (
-    node.type === 'html' &&
-    /^<\/?mark(?:\s+(?:[^"'<>]|"[^"]*"|'[^']*')*)?>$/iu.test(markdown.slice(start, end))
-  ) {
-    // Annotation wrappers are invisible; their text keeps its original source offsets.
-    analysis.annotationTags.push({ start, end });
-    analysis.omissions.push({ start, end });
+  } else if (node.type === 'html') {
+    collectAnnotationRanges(node, markdown, analysis);
   } else if (node.type === 'inlineCode') {
     const delimiter = /^`+/u.exec(markdown.slice(start, end));
     if (!delimiter) throw new TypeError('Inline code must start with its parsed delimiter.');
@@ -254,20 +249,24 @@ const collectTextRanges = (
   }
 };
 
-/** Removes only parsed annotation wrappers for content identity, preserving all other Markdown. */
-export const projectPlaybackAnnotations = (content: readonly PlaybackContentBlock[]) => {
-  let hasAnnotations = false;
-  const blocks = content.map(block => {
-    if (block.type !== 'markdown') return block;
-    const tags = analyzeMarkdown(block.markdown).annotationTags;
-    if (!tags.length) return block;
-    hasAnnotations = true;
-    const markdown = [...tags]
-      .sort((left, right) => right.start - left.start)
-      .reduce((text, tag) => text.slice(0, tag.start) + text.slice(tag.end), block.markdown);
-    return { ...block, markdown };
-  });
-  return { blocks, hasAnnotations };
+/** HTML nodes can contain a complete multiline wrapper; ignore comments and quoted tag syntax. */
+const collectAnnotationRanges = (
+  node: MarkdownNode,
+  markdown: string,
+  analysis: MarkdownAnalysis
+): void => {
+  const start = node.position.start.offset;
+  const html = markdown.slice(start, node.position.end.offset);
+  // Comments, declarations, CDATA and processing instructions contain no annotation elements.
+  if (html.startsWith('<!') || html.startsWith('<?')) return;
+  for (const match of html.matchAll(
+    /<!--.*?(?:-->|$)|<\/?([a-z][a-z0-9-]*)(?:\s+(?:[^"'<>]|"[^"]*"|'[^']*')*)?>/gisu
+  )) {
+    if (match[1]?.toLowerCase() !== 'mark') continue;
+    const range = { start: start + match.index, end: start + match.index + match[0].length };
+    analysis.annotationTags.push(range);
+    analysis.omissions.push(range);
+  }
 };
 
 /** Preserve both content and line-ending offsets, including bare CR and blank lines. */
@@ -462,10 +461,10 @@ const appendHeadingSeparator = (text: SpokenText, markdown: string, end: number)
   text.speech += '\n';
 };
 
-/** Deterministically segment authored lesson text and attach visuals to its spoken introductions. */
-export const segmentLessonPlayback = (
-  contentBlocks: readonly PlaybackContentBlock[]
-): LessonPlaybackBlock[] => {
+/** Build speech and annotation-free content identity from the same parsed Markdown analysis. */
+export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlock[]) => {
+  const projectedContent = [...contentBlocks];
+  let hasAnnotations = false;
   const blocks: (Omit<LessonPlaybackBlock, 'visuals'> & { visuals: PlaybackVisual[] })[] = [];
   let heading = '';
   let pendingHeadings: SpokenText[] = [];
@@ -478,6 +477,13 @@ export const segmentLessonPlayback = (
 
   const appendMarkdown = (markdown: string, sourceBlockIndex: number): void => {
     const analysis = analyzeMarkdown(markdown);
+    if (analysis.annotationTags.length) {
+      hasAnnotations = true;
+      const projectedMarkdown = [...analysis.annotationTags]
+        .sort((left, right) => right.start - left.start)
+        .reduce((text, tag) => text.slice(0, tag.start) + text.slice(tag.end), markdown);
+      projectedContent[sourceBlockIndex] = { type: 'markdown', markdown: projectedMarkdown };
+    }
     for (const chunk of markdownChunks(markdown, analysis)) {
       if (chunk.kind === 'omitted') continue;
       if (chunk.kind === 'visual') {
@@ -516,5 +522,10 @@ export const segmentLessonPlayback = (
     }
     if (content.type === 'markdown') appendMarkdown(content.markdown, sourceBlockIndex);
   }
-  return blocks;
+  return { blocks, contentBlocks: projectedContent, hasAnnotations };
 };
+
+/** Deterministically segment authored lesson text and attach visuals to its spoken introductions. */
+export const segmentLessonPlayback = (
+  contentBlocks: readonly PlaybackContentBlock[]
+): LessonPlaybackBlock[] => projectLessonPlayback(contentBlocks).blocks;

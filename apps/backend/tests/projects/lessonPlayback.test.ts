@@ -417,3 +417,17 @@ test('annotated identity distinguishes speech when wrapper placement changes Mar
   expect(readLessonPlayback(second).blocks[0].speech).toBe('ab');
   expect(buildLessonPlaybackKey(first)).not.toBe(buildLessonPlaybackKey(second));
 });
+
+test('multiline annotations gain a stable visible speech identity', () => {
+  const first = annotatedSection(
+    '<mark data-nous-annotation-id="first">\nPassage visible.\n</mark>'
+  );
+  const edited = annotatedSection(
+    '<mark title="updated" data-nous-annotation-id="second">\nPassage visible.\n</mark>'
+  );
+  expect(readLessonPlayback(first).blocks[0].speech).toBe('\nPassage visible.\n');
+  expect(buildLessonPlaybackKey(first)).toBe(buildLessonPlaybackKey(edited));
+  expect(buildLessonPlaybackKey(first)).not.toBe(
+    buildLessonPlaybackKey(annotatedSection('\nPassage visible.\n'))
+  );
+});
