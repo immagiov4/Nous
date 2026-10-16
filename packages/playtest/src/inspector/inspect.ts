@@ -2,9 +2,11 @@ import * as z from 'zod';
 import type { LearnerRunResult } from '../learner/loop';
 import type { Observation } from '../operator/session';
 import type { ProbeFinding } from '../probes/thresholds';
+import { type FindingEvidence, findingEvidenceSchema, groundingFailure } from './grounding';
 import type { VisualJudge } from './judge';
 
 export type InspectorFinding = {
+  evidence?: FindingEvidence;
   source: 'probe' | 'judge';
   taxonomyClass: string;
   title: string;
@@ -15,8 +17,11 @@ export type InspectorFinding = {
   screenshotPath: string;
 };
 
+export type DiscardedFinding = { finding: unknown; reason: string };
+
 const judgeFindingSchema = z.object({
   source: z.literal('judge'),
+  evidence: findingEvidenceSchema,
   taxonomyClass: z.string().min(1),
   title: z.string().min(1),
   trigger: z.string().min(1),
@@ -39,8 +44,15 @@ function probeFinding(probe: StepProbeFinding): InspectorFinding {
   };
 }
 
-/** Judge indices address the supplied screenshot list; returned indices address observations. */
-export async function inspect(input: {
+function verifyEvidence(evidence: FindingEvidence, observation: Observation): string | undefined {
+  if (observation.diagnostics?.capture.unstable)
+    return 'The DOM and screenshot capture was unstable.';
+  if (!observation.dom) return 'No DOM evidence was captured for this screenshot.';
+  return groundingFailure(evidence, observation.dom);
+}
+
+type InspectionInput = {
+  discarded?: DiscardedFinding[];
   probeFindings: StepProbeFinding[];
   learner: LearnerRunResult;
   observations: Observation[];
@@ -49,12 +61,44 @@ export async function inspect(input: {
   taxonomy: string;
   taxonomyClasses: string[];
   trace?: NonNullable<Parameters<VisualJudge['judge']>[0]['trace']>;
-}): Promise<InspectorFinding[]> {
-  const findings = input.probeFindings.map(probeFinding);
+};
+
+function groundedProbes(input: InspectionInput): InspectorFinding[] {
+  const findings: InspectorFinding[] = [];
+  for (const probe of input.probeFindings) {
+    const finding = probeFinding(probe);
+    if (probe.signal.kind === 'overlap') {
+      const observation = input.observations.find(
+        observation =>
+          observation.stepIndex === probe.stepIndex &&
+          observation.screenshotPath === probe.screenshotPath
+      );
+      const evidence: FindingEvidence = {
+        kind: 'overlap',
+        selectors: [probe.signal.a, probe.signal.b],
+      };
+      const reason = observation
+        ? verifyEvidence(evidence, observation)
+        : 'The probe has no matching observation.';
+      if (reason) {
+        input.discarded?.push({ finding, reason });
+        continue;
+      }
+      finding.evidence = evidence;
+    }
+    findings.push(finding);
+  }
+  return findings;
+}
+
+/** Judge indices address the supplied screenshot list; returned indices address observations. */
+export async function inspect(input: InspectionInput): Promise<InspectorFinding[]> {
+  const findings = groundedProbes(input);
   if (input.judge) {
     const candidates = await input.judge.judge({
       screenshots: input.observations.map(observation => ({
         screenshotPath: observation.screenshotPath,
+        dom: observation.dom,
         visibleText: [
           ...new Set(observation.nodes.map(node => node.name).filter(name => name.trim())),
         ],
@@ -73,7 +117,16 @@ export async function inspect(input: {
         !allowedClasses.has(parsed.data.taxonomyClass) ||
         observation?.screenshotPath !== parsed.data.screenshotPath
       ) {
+        input.discarded?.push({
+          finding: candidate,
+          reason: 'Invalid screenshot evidence, taxonomy or finding fields.',
+        });
         dropped++;
+        continue;
+      }
+      const reason = verifyEvidence(parsed.data.evidence, observation);
+      if (reason) {
+        input.discarded?.push({ finding: candidate, reason });
         continue;
       }
       findings.push({ ...parsed.data, stepIndex: observation.stepIndex });

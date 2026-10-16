@@ -29,8 +29,23 @@ export type ProbeSignal =
   | { kind: 'contrast'; selector: string; ratio: number }
   | { kind: 'console-error'; message: string };
 
+export type CapturedDom = {
+  elements: {
+    selector: string;
+    text: string[];
+    box: { left: number; top: number; right: number; bottom: number };
+    ancestors: string[];
+    overlay: boolean;
+  }[];
+  overlaps: Extract<ProbeSignal, { kind: 'overlap' }>[];
+};
+
 export type ProbeWindow = typeof globalThis & {
-  __playtestProbes?: { drain(): ProbeSignal[]; resetGeometry(): void };
+  __playtestProbes?: {
+    drain(): ProbeSignal[];
+    resetGeometry(): void;
+    snapshot(secrets: string[], textRuns: Map<Element, string[]>): CapturedDom;
+  };
 };
 
 /** Self-contained browser code: Playwright serializes this function for each new document. */
@@ -454,7 +469,50 @@ export function initializePageProbes(): void {
     return observer;
   });
 
+  function domSnapshot(secrets: string[], textRuns: Map<Element, string[]>): CapturedDom {
+    const visible = visibleGeometry();
+    const controls = Array.from(document.querySelectorAll('[aria-expanded="true"][aria-controls]'));
+    const controlled = new Set<Element | null>(
+      controls
+        .filter(control => visibleBox(control))
+        .flatMap(control =>
+          (control.getAttribute('aria-controls') ?? '')
+            .split(/\s+/)
+            .map(id => document.getElementById(id))
+        )
+    );
+    const containsSecret = (text: string) =>
+      secrets.some(secret => secret && text.includes(secret));
+    const safe = visible.filter(({ selector: path }) => !containsSecret(path));
+    const elements = safe.map(({ element, box, selector: path }) => {
+      const ancestors: string[] = [];
+      for (let parent = element.parentElement; parent; parent = parent.parentElement)
+        ancestors.push(selector(parent));
+      return {
+        selector: path,
+        box,
+        ancestors: ancestors.filter(path => !containsSecret(path)),
+        text: textRuns.get(element) ?? [],
+        overlay:
+          element.matches('[aria-modal="true"], dialog[open], [role="menu"], :popover-open') ||
+          (controlled.has(element) &&
+            ['absolute', 'fixed'].includes(getComputedStyle(element).position)),
+      };
+    });
+    const selectors = new Set(elements.map(element => element.selector));
+    const overlaps = overlapFacts(safe).filter(
+      (fact): fact is Extract<ProbeSignal, { kind: 'overlap' }> =>
+        fact.kind === 'overlap' &&
+        selectors.has(fact.a) &&
+        selectors.has(fact.b) &&
+        fact.onTop !== null &&
+        selectors.has(fact.onTop)
+    );
+    return { elements, overlaps };
+  }
+
   probeWindow.__playtestProbes = {
+    snapshot: domSnapshot,
     resetGeometry() {
       previousGeometry.clear();
     },

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Browser, chromium, type Page } from 'playwright';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { groundingFailure } from '../src/inspector/grounding';
 import { SCREENSHOT_PRIVACY_MASK } from '../src/operator/observe';
 import {
   type Observation,
@@ -62,6 +63,68 @@ function ref(observation: Observation, name: string): string {
 }
 
 describe('operator', () => {
+  it('grounds visible text across nested spans without inventing concatenated words or leaking split secrets', async () => {
+    await fixture(`<p id="split">creare<span> </span>una lezione</p>
+      <p id="accent" style="pointer-events:none">Qualita</p>
+      <p>operator-secret<span>@example.test</span></p>`);
+    const { dom } = await session.observe();
+    assert(dom);
+    expect(
+      groundingFailure({ kind: 'text', selector: '#split', quote: 'creareuna lezione' }, dom)
+    ).toBe('Quoted text is absent from the captured element.');
+    expect(
+      groundingFailure({ kind: 'text', selector: '#accent', quote: 'Qualita' }, dom)
+    ).toBeUndefined();
+    expect(JSON.stringify(dom)).not.toContain('operator-secret');
+    expect(JSON.stringify(dom)).not.toContain('@example.test');
+  });
+  it('captures exact DOM text and distinguishes controlled overlays from collisions within them', async () => {
+    const page = await fixture(`<style>
+      #copy { position:absolute; left:0; top:0; width:300px; height:200px }
+      #menu { position:absolute; left:0; top:0; width:200px; height:100px; background:white; z-index:2 }
+      #first,#second { position:absolute; left:10px; top:10px; width:100px; height:30px }
+      #second { z-index:1 }
+      button { position:absolute; top:250px }
+      #accent { position:absolute; top:300px }
+    </style><p id="copy">creare una lezione per condensazione</p>
+    <button aria-expanded="true" aria-controls="menu">Menu</button>
+    <nav id="menu"><span id="first">First</span><span id="second">Second</span></nav>
+    <p id="accent">Qualita</p>`);
+    const observation = await session.observe();
+    const dom = observation.dom;
+    assert(dom);
+    expect(dom.elements.some(element => element.selector === '#copy')).toBe(true);
+    expect(
+      groundingFailure({ kind: 'text', selector: '#copy', quote: 'creareuna lezione' }, dom)
+    ).toBe('Quoted text is absent from the captured element.');
+    expect(
+      groundingFailure({ kind: 'text', selector: '#accent', quote: 'Qualita' }, dom)
+    ).toBeUndefined();
+    expect(groundingFailure({ kind: 'overlap', selectors: ['#copy', '#menu'] }, dom)).toBe(
+      'The captured overlay intentionally covers content outside itself.'
+    );
+    expect(
+      groundingFailure({ kind: 'overlap', selectors: ['#first', '#second'] }, dom)
+    ).toBeUndefined();
+    await page.locator('button').evaluate(button => button.setAttribute('aria-expanded', 'false'));
+    const closed = await session.observe();
+    expect(closed.dom?.elements.find(element => element.selector === '#menu')?.overlay).toBe(false);
+  });
+  it('captures a native modal and excludes credentials from inspector DOM evidence', async () => {
+    const page = await fixture(
+      `<p id="copy" style="position:absolute;inset:0">Background</p><dialog><p>Accedi</p><p>${credentials.email}</p><input value="${credentials.password}"></dialog>`
+    );
+    await page.locator('dialog').evaluate(dialog => (dialog as HTMLDialogElement).showModal());
+    const { dom } = await session.observe();
+    assert(dom);
+    const dialog = dom.elements.find(element => element.overlay);
+    assert(dialog);
+    expect(groundingFailure({ kind: 'overlap', selectors: ['#copy', dialog.selector] }, dom)).toBe(
+      'The captured overlay intentionally covers content outside itself.'
+    );
+    expect(JSON.stringify(dom)).not.toContain(credentials.email);
+    expect(JSON.stringify(dom)).not.toContain(credentials.password);
+  });
   it('opens a context menu with a right click and selects a native option', async () => {
     const page = await fixture(
       `<button oncontextmenu="event.preventDefault();this.textContent='Context open'">Passage</button><select aria-label="Language" onchange="document.querySelector('output').textContent=this.value"><option value="it">Italiano</option><option value="en">English</option></select><output></output>`

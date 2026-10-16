@@ -52,9 +52,21 @@ vi.mock('@mariozechner/pi-coding-agent', () => ({
   createAgentSession: sdk.createSession,
 }));
 
+const dom = {
+  elements: [
+    {
+      selector: '#label',
+      text: ['Label'],
+      box: { left: 0, top: 0, right: 10, bottom: 10 },
+      ancestors: [],
+      overlay: false,
+    },
+  ],
+  overlaps: [],
+};
 const observations: Observation[] = [
-  { stepIndex: 0, url: 'https://example.test', screenshotPath: 'step-0.png', nodes: [] },
-  { stepIndex: 3, url: 'https://example.test', screenshotPath: 'step-3.png', nodes: [] },
+  { stepIndex: 0, url: 'https://example.test', screenshotPath: 'step-0.png', nodes: [], dom },
+  { stepIndex: 3, url: 'https://example.test', screenshotPath: 'step-3.png', nodes: [], dom },
 ];
 const learner: LearnerRunResult = {
   outcome: 'completed',
@@ -74,6 +86,7 @@ const input = {
 function finding(overrides: Partial<InspectorFinding> = {}): InspectorFinding {
   return {
     source: 'judge',
+    evidence: { kind: 'element', selector: '#label' },
     taxonomyClass: 'D01',
     title: 'Clipped text',
     trigger: 'Open the page',
@@ -142,8 +155,8 @@ describe('inspector', () => {
     ).toEqual([finding()]);
     expect(judge).toHaveBeenCalledExactlyOnceWith({
       screenshots: [
-        { screenshotPath: 'step-0.png', visibleText: ['Small visible text'] },
-        { screenshotPath: 'step-3.png', visibleText: ['Next screen'] },
+        { screenshotPath: 'step-0.png', dom, visibleText: ['Small visible text'] },
+        { screenshotPath: 'step-3.png', dom, visibleText: ['Next screen'] },
       ],
       styleReference: input.styleReference,
       taxonomy: input.taxonomy,

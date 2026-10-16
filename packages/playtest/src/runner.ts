@@ -4,7 +4,12 @@ import { basename, join, resolve } from 'node:path';
 import { type Browser, chromium } from 'playwright';
 import type { ObservedEvent, PlaytestAdapter, StopVerdict } from './adapter';
 import { type DiagnosticRecord, recordDiagnostic, withDiagnostics } from './diagnostics';
-import { type InspectorFinding, inspect, type StepProbeFinding } from './inspector/inspect';
+import {
+  type DiscardedFinding,
+  type InspectorFinding,
+  inspect,
+  type StepProbeFinding,
+} from './inspector/inspect';
 import { createPiVisualJudge } from './inspector/judge';
 import {
   type DecisionSource,
@@ -44,6 +49,7 @@ export type StoryRunRecord = {
   operationalFailure?: true;
   inspectionCoverage?: { eligibleObservations: number; totalObservations: number };
   findings: InspectorFinding[];
+  discardedFindings?: DiscardedFinding[];
   friction: string[];
   reportPath: string;
   videoPath?: string;
@@ -363,7 +369,9 @@ async function runStoryWithUsage(
       const eligibleScreenshots = new Set(
         observations.map(observation => observation.screenshotPath)
       );
+      record.discardedFindings = [];
       const inspection = {
+        discarded: record.discardedFindings,
         probeFindings: probeFindings.filter(finding =>
           eligibleScreenshots.has(finding.screenshotPath)
         ),
