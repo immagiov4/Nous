@@ -12,6 +12,10 @@ import type {
   UiPreferences,
 } from '../../types.ts';
 import {
+  deriveQuizFromLessonContentBlocks,
+  normalizeLessonContentBlocks,
+} from '../../utils/reader/lessonContentBlocks.ts';
+import {
   buildLessonAssetMap,
   buildLessonImageRefMap,
   buildSidebarGroups,
@@ -56,9 +60,13 @@ export const useWorkspaceReaderState = ({
   );
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [musicVolume, setMusicVolume] = useState(20);
+  const effectiveQuiz = useMemo(() => {
+    const blocks = normalizeLessonContentBlocks(activeSection?.contentBlocks);
+    return blocks.length > 0 ? deriveQuizFromLessonContentBlocks(blocks) : quiz;
+  }, [activeSection?.contentBlocks, quiz]);
   const quizAnswers = useMemo(
-    () => quiz.map((_, index) => activeSection?.quizState?.answers[index] ?? -1),
-    [activeSection?.quizState, quiz]
+    () => effectiveQuiz.map((_, index) => activeSection?.quizState?.answers[index] ?? -1),
+    [activeSection?.quizState, effectiveQuiz]
   );
   const isQuizSubmitted = activeSection?.quizState?.isSubmitted ?? false;
   const [settingsPanelExpandedSections, setSettingsPanelExpandedSections] = useState<
@@ -170,7 +178,7 @@ export const useWorkspaceReaderState = ({
   const handleSelectQuizAnswer = useCallback(
     (questionIndex: number, optionIndex: number) => {
       if (!activeSectionId || isQuizSubmitted || quizAnswers[questionIndex] !== -1) return;
-      const question = quiz[questionIndex];
+      const question = effectiveQuiz[questionIndex];
       if (
         !question ||
         !Number.isInteger(optionIndex) ||
@@ -182,7 +190,7 @@ export const useWorkspaceReaderState = ({
       answers[questionIndex] = optionIndex;
       onQuizStateChange(activeSectionId, { answers, isSubmitted: false });
     },
-    [activeSectionId, isQuizSubmitted, onQuizStateChange, quiz, quizAnswers]
+    [activeSectionId, effectiveQuiz, isQuizSubmitted, onQuizStateChange, quizAnswers]
   );
   const setIsQuizSubmitted = useCallback(
     (isSubmitted: boolean) => {

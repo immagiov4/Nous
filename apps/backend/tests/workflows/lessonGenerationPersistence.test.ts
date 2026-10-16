@@ -264,7 +264,7 @@ describe('durable lesson generation persistence', () => {
     const lesson = findProjectLessonSection(snapshot, 'lesson-1');
     if (!lesson) throw new Error('Missing test lesson.');
     const annotations = [{ id: 'highlight-1', quote: 'Lezione precedente', note: 'Remember this' }];
-    const quizState = { answers: [1, -1], isSubmitted: true };
+    const quizState = { answers: [1, 0], isSubmitted: true };
     const quiz = { question: 'Previous?', options: ['A', 'B'], correctIndex: 1 };
     Object.assign(lesson, {
       annotations,

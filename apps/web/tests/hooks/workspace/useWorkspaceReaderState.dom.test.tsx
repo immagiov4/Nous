@@ -17,6 +17,52 @@ vi.mock('../../../hooks/reader/useTtsTextPicker.ts', () => ({ useTtsTextPicker: 
 const quiz = [{ question: 'Choose', options: ['A', 'B', 'C', 'D'], correctIndex: 1 }];
 
 describe('persisted inline quiz state', () => {
+  test.each([
+    { legacyQuiz: undefined },
+    { legacyQuiz: [{ ...quiz[0], options: ['A', 'B'] }] },
+    { legacyQuiz: [{ ...quiz[0], options: ['A', 'B', 'C', 'D', 'Stale option'] }] },
+  ])('answers the inline questions when the legacy quiz differs: $legacyQuiz', ({ legacyQuiz }) => {
+    let saved = buildTestLesson({
+      quiz: legacyQuiz,
+      contentBlocks: [
+        { type: 'markdown', markdown: 'Text' },
+        { type: 'inline-quiz', quiz: quiz[0] },
+        { type: 'inline-quiz', quiz: quiz[0] },
+      ],
+    });
+    const persist = vi.fn();
+    const useReader = () => {
+      const [lesson, setLesson] = useState(saved);
+      return useWorkspaceReaderState({
+        activeSection: lesson,
+        activeSectionId: lesson.id,
+        documentAssets: null,
+        learningPlan: null,
+        quiz: lesson.quiz ?? [],
+        sectionContent: 'Text',
+        syllabus: [],
+        onQuizStateChange: (id, quizState) => {
+          persist(id, quizState);
+          saved = { ...lesson, quizState };
+          setLesson(saved);
+        },
+      });
+    };
+    const reader = renderHook(useReader);
+    act(() => reader.result.current.handleSelectQuizAnswer(0, 4));
+    expect(persist).not.toHaveBeenCalled();
+    act(() => reader.result.current.handleSelectQuizAnswer(0, 3));
+    expect(reader.result.current.quizAnswers).toEqual([3, -1]);
+    act(() => reader.result.current.handleSelectQuizAnswer(1, 1));
+    expect(persist).toHaveBeenLastCalledWith(saved.id, { answers: [3, 1], isSubmitted: false });
+    act(() => reader.result.current.setIsQuizSubmitted(true));
+    reader.unmount();
+    const reopened = renderHook(useReader);
+    expect(reopened.result.current.quizAnswers).toEqual([3, 1]);
+    expect(reopened.result.current.isQuizSubmitted).toBe(true);
+    reopened.unmount();
+  });
+
   test('restores selections and submission after navigation, generation elsewhere and reopening', () => {
     let saved = buildTestLesson({ quiz });
     const persist = vi.fn((_id, quizState) => {

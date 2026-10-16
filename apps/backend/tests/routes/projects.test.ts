@@ -1728,7 +1728,7 @@ describe('/api/projects', () => {
       },
     } as unknown as ProjectSnapshot;
     const saved = await request(app).put('/api/projects/projects/quiz-project').send({ snapshot });
-    const quizState = { answers: [1, -1], isSubmitted: true };
+    const quizState = { answers: [1, 0], isSubmitted: true };
     const response = await request(app)
       .patch('/api/projects/projects/quiz-project')
       .send({
@@ -1907,6 +1907,54 @@ describe('/api/projects', () => {
     expect(response.status).toBe(400);
     const loaded = await request(app).get(`/api/projects/projects/${projectId}`);
     expect(loaded.body.project.learningPlan.modules[0].children[0].quizState).toBeUndefined();
+  });
+
+  describe.each([
+    'patch',
+    'put',
+    'import',
+  ] as const)('submitted quiz validation through %s', method => {
+    test.each([
+      { answers: [] },
+      { answers: [0] },
+      { answers: [0, -1] },
+      { answers: [0, 1, -1] },
+    ])('rejects incomplete submitted answers $answers without replacing saved state', async ({
+      answers,
+    }) => {
+      const app = createApp();
+      const projectId = 'quiz-submission';
+      const snapshot = createModuleSnapshot(projectId, 'Quiz');
+      const question = { question: 'Choose', options: ['A', 'B', 'C', 'D'], correctIndex: 0 };
+      const savedState = { answers: [0], isSubmitted: false };
+      Object.assign(snapshot.learningPlan.modules[0].children[0], {
+        quiz: [question],
+        contentBlocks: [
+          { type: 'markdown', markdown: 'Text' },
+          { type: 'inline-quiz', quiz: question },
+          { type: 'inline-quiz', quiz: question },
+        ],
+        quizState: savedState,
+      });
+      const saved = await request(app)
+        .put(`/api/projects/projects/${projectId}`)
+        .send({ snapshot });
+      expect(saved.status).toBe(200);
+      const quizState = { answers, isSubmitted: true };
+      Object.assign(snapshot.learningPlan.modules[0].children[0], { quizState });
+      const response =
+        method === 'patch'
+          ? await request(app)
+              .patch(`/api/projects/projects/${projectId}`)
+              .send({ patch: { section: { sectionId: 'lesson-1', quizState } } })
+          : method === 'put'
+            ? await request(app).put(`/api/projects/projects/${projectId}`).send({ snapshot })
+            : await request(app).post('/api/projects/import').send({ data: snapshot });
+      expect(response.status).toBe(400);
+      const loaded = await request(app).get(`/api/projects/projects/${projectId}`);
+      expect(loaded.body.project.learningPlan.modules[0].children[0].quizState).toEqual(savedState);
+      expect(loaded.body.revision).toBe(saved.body.meta.revision);
+    });
   });
 
   test('validates answers against inline blocks instead of a stale legacy quiz array', async () => {

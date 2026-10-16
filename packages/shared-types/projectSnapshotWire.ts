@@ -274,6 +274,10 @@ const assertLessonQuizState = (node: Record<string, unknown>): void => {
       : node.quiz;
   if (
     !parsed.success ||
+    (parsed.data.isSubmitted &&
+      (!Array.isArray(quiz) ||
+        parsed.data.answers.length !== quiz.length ||
+        parsed.data.answers.includes(-1))) ||
     parsed.data.answers.some((answer, index) => {
       if (answer === -1) return false;
       const question = Array.isArray(quiz) ? quiz[index] : undefined;

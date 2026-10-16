@@ -481,7 +481,7 @@ export const useProjectLibrary = ({
   const reconcileRebasedProjectWrites = useCallback(
     async (projectId: string): Promise<void> => {
       const writeState = getProjectWriteState(projectId);
-      if (writeState.reconciliation) await writeState.reconciliation;
+      if (writeState.reconciliation !== undefined) await writeState.reconciliation;
       const revision = writeState.rebasedRevision;
       if (writeState.pendingCount > 0 || writeState.batchFailed || revision === undefined) return;
       if ((getExpectedRevision(projectId) ?? 0) < revision) {
