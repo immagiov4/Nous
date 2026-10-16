@@ -235,7 +235,10 @@ export default function AccountSettingsDialog({
     data: t('Dati e backup'),
   };
   return createPortal(
-    <div className="fixed inset-0 z-[150] flex items-center justify-center p-3">
+    <div
+      data-playtest-overlay
+      className="fixed inset-0 z-[150] flex items-center justify-center p-3"
+    >
       <button
         type="button"
         aria-label={t('Chiudi impostazioni')}

@@ -76,7 +76,7 @@ beforeAll(async () => {
     }
     response.setHeader('Content-Type', 'text/html');
     response.end(
-      `<main><span style="display:inline-block;width:20px;white-space:nowrap;overflow:hidden">A long visible label</span><button onclick="console.error('action fact');this.after(Object.assign(document.createElement('span'),{textContent:'Changed'}))">Change</button><a href="/error">Fail</a></main>`
+      `<main><span id="clipped" style="display:inline-block;width:20px;white-space:nowrap;overflow:hidden">A long visible label</span><button onclick="console.error('action fact');this.after(Object.assign(document.createElement('span'),{textContent:'Changed'}))">Change</button><a href="/error">Fail</a></main>`
     );
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -697,12 +697,19 @@ describe('parallel runner', () => {
         reason: injected,
         correlationId: injected,
         findings: [],
+        discardedFindings: [
+          { finding: { title: injected }, reason: 'Contradicted by captured DOM' },
+        ],
         friction: [injected],
         reportPath: join(runDir, 'story.json'),
       },
     });
     const markdown = await readFile(join(runDir, 'story.md'), 'utf8');
     const rendered = renderToStaticMarkup(createElement(ReactMarkdown, null, markdown));
+    expect((await report(join(runDir, 'story.json'))).discardedFindings).toEqual([
+      { finding: { title: injected }, reason: 'Contradicted by captured DOM' },
+    ]);
+    expect(rendered).toContain('Contradicted by captured DOM');
     expect(rendered).not.toContain('<img');
     expect(rendered).not.toContain('<a href="https://attacker.invalid');
     expect(rendered).not.toContain('<script>');
@@ -809,6 +816,10 @@ describe('parallel runner', () => {
         trigger: 'Open the page',
         expected: 'Readable',
         actual: 'Clipped',
+        evidence: {
+          kind: 'element',
+          selector: '#clipped',
+        },
         stepIndex: 0,
         screenshotPath: screenshots[0].screenshotPath,
       },

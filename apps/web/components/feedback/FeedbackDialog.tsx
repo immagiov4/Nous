@@ -605,6 +605,7 @@ export default function FeedbackDialog({ onClose }: FeedbackDialogProps) {
   return createPortal(
     <div
       ref={layerRef}
+      data-playtest-overlay
       className="fixed inset-0 z-[170] flex h-[100dvh] items-stretch sm:items-center sm:justify-center sm:p-3"
     >
       <button
