@@ -2,8 +2,21 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { formatCoverageMap } from '../src/coverage';
 import { filterStories, loadPersonas, loadStories } from '../src/stories';
+
+const directoryOrder = vi.hoisted(() => ({ reversed: false }));
+vi.mock('node:fs/promises', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    readdir: async (...args: Parameters<typeof actual.readdir>) => {
+      const entries = await actual.readdir(...args);
+      return directoryOrder.reversed ? entries.reverse() : entries;
+    },
+  };
+});
 
 const fixtures = fileURLToPath(new URL('./fixtures/stories/valid/', import.meta.url));
 const storyDir = join(fixtures, 'stories');
@@ -11,6 +24,7 @@ const checkPath = join(storyDir, 'check/z-check.md');
 const temporaryDirs: string[] = [];
 
 afterEach(async () => {
+  directoryOrder.reversed = false;
   await Promise.all(temporaryDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })));
 });
 
@@ -26,6 +40,15 @@ async function loadModifiedCheck(transform: (markdown: string) => string) {
 }
 
 describe('story and persona loading', () => {
+  it('preserves story and coverage order when filesystem enumeration is reversed', async () => {
+    const original = await loadStories(storyDir);
+    directoryOrder.reversed = true;
+    const reversed = await loadStories(storyDir);
+    expect(reversed.map(story => story.id)).toEqual(['exam-preparation', 'open-library']);
+    expect(reversed).toEqual(original);
+    expect(formatCoverageMap(reversed)).toBe(formatCoverageMap(original));
+  });
+
   it.each([
     ['unknown', 'surfaces: [invented]'],
     ['missing', ''],
