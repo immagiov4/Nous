@@ -75,6 +75,6 @@ it('prints a filtered map without importing the adapter or creating run artifact
   expect(await runCommand([...args, '--id', 'missing'])).toBe(formatCoverageMap([]));
   expect(await runCommand([...args, '--kind', 'mission'])).toBe(formatCoverageMap([]));
   await expect(runCommand([...args, '--kind', 'unknown'])).rejects.toThrow();
-  expect(await readdir(dir)).toEqual(['adapter.ts', 'stories']);
+  expect((await readdir(dir)).sort()).toEqual(['adapter.ts', 'stories']);
   await expect(runCommand([])).rejects.toThrow('NOUS_E2E_DATA is unset');
 });
