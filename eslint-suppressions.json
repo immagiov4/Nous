@@ -378,11 +378,6 @@
       "count": 1
     }
   },
-  "apps/web/hooks/library/useProjectLibrary.ts": {
-    "sonarjs/cognitive-complexity": {
-      "count": 1
-    }
-  },
   "apps/web/hooks/reader/useReaderContext.ts": {
     "@typescript-eslint/prefer-optional-chain": {
       "count": 1
@@ -630,14 +625,6 @@
   "apps/web/tests/hooks/library/useLibraryAssistantChat.test.tsx": {
     "unicorn/consistent-function-scoping": {
       "count": 3
-    }
-  },
-  "apps/web/tests/hooks/library/useProjectLibrary.dom.test.tsx": {
-    "sonarjs/no-nested-conditional": {
-      "count": 1
-    },
-    "unicorn/consistent-function-scoping": {
-      "count": 2
     }
   },
   "apps/web/tests/hooks/reader/useLessonPlayback.test.tsx": {

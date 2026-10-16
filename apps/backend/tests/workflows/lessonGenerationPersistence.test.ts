@@ -265,7 +265,17 @@ describe('durable lesson generation persistence', () => {
     if (!lesson) throw new Error('Missing test lesson.');
     const annotations = [{ id: 'highlight-1', quote: 'Lezione precedente', note: 'Remember this' }];
     const quizState = { answers: [1, -1], isSubmitted: true };
-    Object.assign(lesson, { annotations, quizState });
+    const quiz = { question: 'Previous?', options: ['A', 'B'], correctIndex: 1 };
+    Object.assign(lesson, {
+      annotations,
+      quizState,
+      quiz: [quiz, quiz],
+      contentBlocks: [
+        { type: 'markdown', markdown: 'Lezione precedente' },
+        { type: 'inline-quiz', quiz },
+        { type: 'inline-quiz', quiz },
+      ],
+    });
     const original = structuredClone(snapshot);
     const input = visualsState(snapshot);
     const execution = context(input).execution;
@@ -309,8 +319,19 @@ describe('durable lesson generation persistence', () => {
     const oldQuiz = { answers: [1], isSubmitted: true };
     const original = findProjectLessonSection(snapshot, 'lesson-1');
     if (!original) throw new Error('Missing lesson');
-    Object.assign(original, { annotations: oldAnnotations, quizState: oldQuiz });
+    const quiz = { question: 'Previous?', options: ['A', 'B', 'C', 'D'], correctIndex: 1 };
+    Object.assign(original, {
+      annotations: oldAnnotations,
+      quizState: oldQuiz,
+      quiz: [quiz],
+      contentBlocks: [
+        { type: 'markdown', markdown: 'Lezione precedente' },
+        { type: 'inline-quiz', quiz },
+      ],
+    });
     const input = visualsState(snapshot);
+    input.contentBlocks.push({ type: 'inline-quiz', quiz });
+    input.quiz = [quiz];
     const execution = context(input).execution;
     const state = await createLessonPersistenceStage({
       loadProject: async () => snapshot,

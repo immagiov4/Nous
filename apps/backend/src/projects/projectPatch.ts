@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { PROJECT_PATCH_REBASE_MODE, type ProjectWriteOptions } from '@shared/projectContract';
 import {
   canonicalizeLearningPlanContent,
@@ -51,12 +52,17 @@ export const assertRebasedProjectPatch = (
     options.rebaseMode !== PROJECT_PATCH_REBASE_MODE.quiz ||
     !sectionPatch?.quizState ||
     options.expectedLessonGenerationRunId === undefined ||
+    options.expectedQuizState === undefined ||
     projectFields.some(([key]) => key !== 'section' && key !== 'updatedAt') ||
     sectionFields.some(([key]) => key !== 'sectionId' && key !== 'quizState')
   )
     throw new TypeError('Quiz rebase requires only quiz state and its lesson generation identity.');
   const section = findProjectLessonSection(project, sectionPatch.sectionId);
-  if (!section || (section.lastGenerationRunId ?? null) !== options.expectedLessonGenerationRunId) {
+  if (
+    !section ||
+    (section.lastGenerationRunId ?? null) !== options.expectedLessonGenerationRunId ||
+    !isDeepStrictEqual(section.quizState ?? null, options.expectedQuizState)
+  ) {
     throw new ProjectRevisionConflictError();
   }
 };

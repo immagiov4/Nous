@@ -60,6 +60,7 @@ const quizWriteOptions = (
     rebaseMode: PROJECT_PATCH_REBASE_MODE.quiz,
     expectedLessonGenerationRunId:
       section?.kind === 'lesson' ? (section.lastGenerationRunId ?? null) : null,
+    expectedQuizState: section?.kind === 'lesson' ? (section.quizState ?? null) : null,
   };
 };
 
@@ -137,9 +138,11 @@ interface PersistSnapshotOptions {
 interface ProjectWriteState {
   batchFailed: boolean;
   batchNeedsAutosave: boolean;
+  expectedRevision?: number;
   deletion?: Promise<void>;
   pendingCount: number;
-  rebasedQuizRevision?: number;
+  rebasedRevision?: number;
+  reconciliation?: Promise<boolean>;
   queue: Promise<void>;
 }
 
@@ -286,7 +289,16 @@ export const useProjectLibrary = ({
       const nextProjects = savedProjectsRef.current.filter(project => project.id !== meta.id);
       nextProjects.push(meta);
       storeSavedProjects(nextProjects);
-      if (loadedProjectRevisionRef.current.projectId === meta.id) {
+      const writes = projectWritesRef.current.get(meta.id);
+      if (writes && !didRebaseOverRemoteRevision(writes.expectedRevision, meta.revision)) {
+        writes.expectedRevision = meta.revision;
+      }
+      // A narrow rebased write does not make the local snapshot include remote edits.
+      // Keep its optimistic concurrency baseline until those edits are hydrated.
+      if (
+        loadedProjectRevisionRef.current.projectId === meta.id &&
+        !didRebaseOverRemoteRevision(loadedProjectRevisionRef.current.revision, meta.revision)
+      ) {
         loadedProjectRevisionRef.current = { projectId: meta.id, revision: meta.revision };
       }
     },
@@ -325,6 +337,8 @@ export const useProjectLibrary = ({
   );
 
   const getExpectedRevision = useCallback((projectId: string): number | undefined => {
+    const writes = projectWritesRef.current.get(projectId);
+    if (writes && writes.pendingCount > 0) return writes.expectedRevision;
     if (loadedProjectRevisionRef.current.projectId === projectId) {
       return loadedProjectRevisionRef.current.revision;
     }
@@ -443,9 +457,8 @@ export const useProjectLibrary = ({
         (currentMeta.revision === undefined || persisted.revision > currentMeta.revision)
       ) {
         syncProjectMeta({ ...currentMeta, revision: persisted.revision });
-      } else {
-        loadedProjectRevisionRef.current = { projectId, revision: persisted.revision };
       }
+      loadedProjectRevisionRef.current = { projectId, revision: persisted.revision };
       if (
         pendingRemoteRevisionRef.current?.projectId === projectId &&
         pendingRemoteRevisionRef.current.revision <= persisted.revision
@@ -463,6 +476,27 @@ export const useProjectLibrary = ({
       rememberExplicitProjectTitle,
       syncProjectMeta,
     ]
+  );
+
+  const reconcileRebasedProjectWrites = useCallback(
+    async (projectId: string): Promise<void> => {
+      const writeState = getProjectWriteState(projectId);
+      if (writeState.reconciliation) await writeState.reconciliation;
+      const revision = writeState.rebasedRevision;
+      if (writeState.pendingCount > 0 || writeState.batchFailed || revision === undefined) return;
+      if ((getExpectedRevision(projectId) ?? 0) < revision) {
+        const reconciliation = applyPersistedProjectRevision({ projectId, revision });
+        writeState.reconciliation = reconciliation;
+        try {
+          await reconciliation;
+        } finally {
+          delete writeState.reconciliation;
+        }
+      }
+      if ((getExpectedRevision(projectId) ?? 0) >= (writeState.rebasedRevision ?? revision))
+        delete writeState.rebasedRevision;
+    },
+    [applyPersistedProjectRevision, getExpectedRevision, getProjectWriteState]
   );
 
   const runTrackedProjectWrite = useCallback(
@@ -490,6 +524,8 @@ export const useProjectLibrary = ({
       assertProjectNotDeleted();
 
       if (writeState.pendingCount === 0) {
+        // Queued snapshots retain this baseline even if another course becomes selected.
+        writeState.expectedRevision = getExpectedRevision(projectId);
         writeState.batchFailed = false;
         writeState.batchNeedsAutosave = false;
       }
@@ -545,7 +581,7 @@ export const useProjectLibrary = ({
       );
       return queuedWrite;
     },
-    [getProjectWriteState, invalidateRemoteDeletedProject, syncProjectMeta]
+    [getExpectedRevision, getProjectWriteState, invalidateRemoteDeletedProject, syncProjectMeta]
   );
 
   const saveStoredProjectCover = useCallback(
@@ -777,21 +813,32 @@ export const useProjectLibrary = ({
         selectedProjectId
       );
 
-      const persistedSignature = buildAutosaveSignature({
-        ...domainStateRef.current,
-        ...overrides,
-      });
       let expectedRevision: number | undefined;
       const rebaseMode = isNavigationOnlyProjectOverride(overrides)
         ? PROJECT_PATCH_REBASE_MODE.navigation
         : undefined;
+      const persistedSignature = buildAutosaveSignature({
+        ...domainStateRef.current,
+        ...overrides,
+      });
       try {
-        const meta = await runTrackedProjectWrite(selectedProjectId, () => {
+        const meta = await runTrackedProjectWrite(selectedProjectId, async () => {
           expectedRevision = getExpectedRevision(selectedProjectId);
-          return projectRepositoryRef.current.patchProject(selectedProjectId, patch, {
+          const saved = await projectRepositoryRef.current.patchProject(selectedProjectId, patch, {
             expectedRevision,
             ...(rebaseMode === undefined ? {} : { rebaseMode }),
           });
+          if (
+            currentProjectIdRef.current === selectedProjectId &&
+            rebaseMode &&
+            lastPersistedSignatureRef.current
+          ) {
+            lastPersistedSignatureRef.current = JSON.stringify({
+              ...JSON.parse(lastPersistedSignatureRef.current),
+              activeSectionId: overrides.activeSectionId,
+            });
+          }
+          return saved;
         });
         if (!meta) return null;
         const writeState = getProjectWriteState(selectedProjectId);
@@ -801,15 +848,13 @@ export const useProjectLibrary = ({
           !writeState.batchFailed
         ) {
           setStorageError(null);
-          lastPersistedSignatureRef.current = persistedSignature;
+          if (!rebaseMode) lastPersistedSignatureRef.current = persistedSignature;
         }
         const savedRevision = meta.revision;
         if (rebaseMode && didRebaseOverRemoteRevision(expectedRevision, savedRevision)) {
-          await applyPersistedProjectRevision({
-            projectId: selectedProjectId,
-            revision: savedRevision,
-          });
+          writeState.rebasedRevision = savedRevision;
         }
+        await reconcileRebasedProjectWrites(selectedProjectId);
         void requestPersistentStorage();
         return meta;
       } catch (error) {
@@ -822,9 +867,9 @@ export const useProjectLibrary = ({
       }
     },
     [
-      applyPersistedProjectRevision,
       getExpectedRevision,
       getProjectWriteState,
+      reconcileRebasedProjectWrites,
       requestPersistentStorage,
       runTrackedProjectWrite,
     ]
@@ -852,33 +897,31 @@ export const useProjectLibrary = ({
       let expectedRevision: number | undefined;
       try {
         markSyncSaving();
-        const meta = await runTrackedProjectWrite(selectedProjectId, () => {
+        const meta = await runTrackedProjectWrite(selectedProjectId, async () => {
           expectedRevision = getExpectedRevision(selectedProjectId);
-          return projectRepositoryRef.current.patchProject(selectedProjectId, patch, {
+          const saved = await projectRepositoryRef.current.patchProject(selectedProjectId, patch, {
             expectedRevision,
             ...writeOptions,
           });
+          if (
+            currentProjectIdRef.current === selectedProjectId &&
+            (domainChange === undefined || lastPersistedSignatureRef.current === previousSignature)
+          ) {
+            lastPersistedSignatureRef.current = persistedSignature;
+          }
+          return saved;
         });
         if (!meta) return false;
         if (currentProjectIdRef.current !== selectedProjectId) return true;
 
-        if (domainChange === undefined || lastPersistedSignatureRef.current === previousSignature) {
-          lastPersistedSignatureRef.current = persistedSignature;
-        }
         const writeState = getProjectWriteState(selectedProjectId);
         const savedRevision = meta.revision;
         if (changes.quizState && didRebaseOverRemoteRevision(expectedRevision, savedRevision)) {
-          writeState.rebasedQuizRevision = savedRevision;
+          writeState.rebasedRevision = savedRevision;
         }
         if (writeState.pendingCount === 0 && !writeState.batchFailed) {
           setStorageError(null);
-          if (writeState.rebasedQuizRevision !== undefined) {
-            await applyPersistedProjectRevision({
-              projectId: selectedProjectId,
-              revision: writeState.rebasedQuizRevision,
-            });
-            delete writeState.rebasedQuizRevision;
-          }
+          await reconcileRebasedProjectWrites(selectedProjectId);
           markSyncSaved();
         } else {
           markSyncError();
@@ -895,10 +938,10 @@ export const useProjectLibrary = ({
       }
     },
     [
-      applyPersistedProjectRevision,
       currentProjectId,
       getExpectedRevision,
       getProjectWriteState,
+      reconcileRebasedProjectWrites,
       runTrackedProjectWrite,
     ]
   );
@@ -1185,7 +1228,6 @@ export const useProjectLibrary = ({
 
   const processPendingRemoteRevision = useCallback(async (): Promise<void> => {
     const pendingEvent = pendingRemoteRevisionRef.current;
-    const loadedProject = loadedProjectRevisionRef.current;
     if (pendingEvent?.projectId !== currentProjectIdRef.current) {
       return;
     }
@@ -1197,6 +1239,7 @@ export const useProjectLibrary = ({
       invalidateRemoteDeletedProject(pendingEvent.projectId);
       return;
     }
+    const loadedProject = loadedProjectRevisionRef.current;
     if (
       loadedProject.projectId === pendingEvent.projectId &&
       loadedProject.revision !== undefined &&

@@ -887,6 +887,7 @@ router.patch('/projects/:id', async (req: Request, res: Response) => {
     const meta = await getProjectStore().patchProject(userId, projectId, patch, {
       expectedRevision: readExpectedRevision(body),
       rebaseMode,
+      expectedQuizState: LessonQuizStateSchema.nullish().parse(body.expectedQuizState),
       expectedLessonGenerationRunId:
         body.expectedLessonGenerationRunId === null
           ? null

@@ -105,10 +105,18 @@ test('library archives roundtrip selected and submitted quiz state per course an
   assert.ok(projects[1].learningPlan);
   projects[0].learningPlan.modules[0].children[0] = buildTestLesson({
     id: 'shared-lesson-id',
+    quiz: [
+      { question: 'First?', options: ['A', 'B', 'C'], correctIndex: 0 },
+      { question: 'Second?', options: ['A', 'B'], correctIndex: 1 },
+    ],
     quizState: { answers: [1, -1], isSubmitted: false },
   });
   projects[1].learningPlan.modules[0].children[0] = buildTestLesson({
     id: 'shared-lesson-id',
+    quiz: [
+      { question: 'First?', options: ['A', 'B', 'C'], correctIndex: 0 },
+      { question: 'Second?', options: ['A', 'B'], correctIndex: 1 },
+    ],
     quizState: { answers: [2, 0], isSubmitted: true },
   });
   const archive = await createLibraryArchiveBlob(projects, {

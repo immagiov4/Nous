@@ -1714,7 +1714,17 @@ describe('/api/projects', () => {
       ...createSnapshot('quiz-project', 'Quiz'),
       learningPlan: {
         title: 'Quiz',
-        sections: [{ id: 'lesson-1', content: 'Text', quiz: [], isCompleted: false }],
+        sections: [
+          {
+            id: 'lesson-1',
+            content: 'Text',
+            quiz: [
+              { question: 'First?', options: ['A', 'B'], correctIndex: 0 },
+              { question: 'Second?', options: ['A', 'B'], correctIndex: 1 },
+            ],
+            isCompleted: false,
+          },
+        ],
       },
     } as unknown as ProjectSnapshot;
     const saved = await request(app).put('/api/projects/projects/quiz-project').send({ snapshot });
@@ -1827,12 +1837,113 @@ describe('/api/projects', () => {
     expect(listResponse.body.projects[0].revision).toBe(2);
   });
 
+  test('rejects the losing session when two sessions race to answer the same quiz', async () => {
+    const app = createApp();
+    const projectId = 'quiz-two-sessions';
+    const snapshot = createModuleSnapshot(projectId, 'Quiz');
+    Object.assign(snapshot.learningPlan.modules[0].children[0], {
+      quiz: [
+        { question: 'First?', options: ['A', 'B'], correctIndex: 0 },
+        { question: 'Second?', options: ['A', 'B'], correctIndex: 1 },
+      ],
+    });
+    await request(app).put(`/api/projects/projects/${projectId}`).send({ snapshot });
+    const sessions = await Promise.all([
+      request(app).get(`/api/projects/projects/${projectId}`),
+      request(app).get(`/api/projects/projects/${projectId}`),
+    ]);
+    const answers = [
+      [0, -1],
+      [-1, 1],
+    ];
+    const writes = await Promise.all(
+      sessions.map((session, index) =>
+        request(app)
+          .patch(`/api/projects/projects/${projectId}`)
+          .send({
+            expectedRevision: session.body.revision,
+            expectedLessonGenerationRunId: null,
+            expectedQuizState: null,
+            rebaseMode: 'quiz',
+            patch: {
+              section: {
+                sectionId: 'lesson-1',
+                quizState: { answers: answers[index], isSubmitted: false },
+              },
+            },
+          })
+      )
+    );
+    expect(writes.map(write => write.status).sort()).toEqual([200, 409]);
+    const winner = writes.findIndex(write => write.status === 200);
+    const loaded = await request(app).get(`/api/projects/projects/${projectId}`);
+    expect(loaded.body.project.learningPlan.modules[0].children[0].quizState.answers).toEqual(
+      answers[winner]
+    );
+  });
+
+  test.each([
+    'patch',
+    'put',
+    'import',
+  ] as const)('rejects out-of-range quiz answers through %s', async method => {
+    const app = createApp();
+    const projectId = `quiz-invalid-${method}`;
+    const snapshot = createModuleSnapshot(projectId, 'Quiz');
+    Object.assign(snapshot.learningPlan.modules[0].children[0], {
+      quiz: [{ question: 'First?', options: ['A', 'B'], correctIndex: 0 }],
+    });
+    await request(app).put(`/api/projects/projects/${projectId}`).send({ snapshot });
+    const quizState = { answers: [99], isSubmitted: true };
+    Object.assign(snapshot.learningPlan.modules[0].children[0], { quizState });
+    const response =
+      method === 'patch'
+        ? await request(app)
+            .patch(`/api/projects/projects/${projectId}`)
+            .send({ patch: { section: { sectionId: 'lesson-1', quizState } } })
+        : method === 'put'
+          ? await request(app).put(`/api/projects/projects/${projectId}`).send({ snapshot })
+          : await request(app).post('/api/projects/import').send({ data: snapshot });
+    expect(response.status).toBe(400);
+    const loaded = await request(app).get(`/api/projects/projects/${projectId}`);
+    expect(loaded.body.project.learningPlan.modules[0].children[0].quizState).toBeUndefined();
+  });
+
+  test('validates answers against inline blocks instead of a stale legacy quiz array', async () => {
+    const app = createApp();
+    const projectId = 'quiz-block-options';
+    const snapshot = createModuleSnapshot(projectId, 'Quiz');
+    const quiz = { question: 'First?', options: ['A', 'B', 'C', 'D'], correctIndex: 0 };
+    Object.assign(snapshot.learningPlan.modules[0].children[0], {
+      quiz: [{ ...quiz, options: [...quiz.options, 'Stale option'] }],
+      contentBlocks: [
+        { type: 'markdown', markdown: 'Text' },
+        { type: 'inline-quiz', quiz },
+      ],
+    });
+    await request(app).put(`/api/projects/projects/${projectId}`).send({ snapshot });
+    const write = (answers: number[]) =>
+      request(app)
+        .patch(`/api/projects/projects/${projectId}`)
+        .send({
+          patch: { section: { sectionId: 'lesson-1', quizState: { answers, isSubmitted: false } } },
+        });
+    expect((await write([4])).status).toBe(400);
+    expect((await write([0, 0])).status).toBe(400);
+    expect((await write([-1])).status).toBe(200);
+    expect((await write([3])).status).toBe(200);
+    const loaded = await request(app).get(`/api/projects/projects/${projectId}`);
+    expect(loaded.body.project.learningPlan.modules[0].children[0].quizState.answers).toEqual([3]);
+  });
+
   test('saves a quiz across another lesson commit but rejects answers for replaced content', async () => {
     const app = createApp();
     const projectId = 'quiz-rebase-project';
-    await request(app)
-      .put(`/api/projects/projects/${projectId}`)
-      .send({ snapshot: createModuleSnapshot(projectId, 'Quiz') });
+    const snapshot = createModuleSnapshot(projectId, 'Quiz');
+    Object.assign(snapshot.learningPlan.modules[0].children[0], {
+      quiz: [{ question: 'First?', options: ['A', 'B'], correctIndex: 0 }],
+    });
+    await request(app).put(`/api/projects/projects/${projectId}`).send({ snapshot });
     await request(app)
       .patch(`/api/projects/projects/${projectId}`)
       .send({
@@ -1848,6 +1959,7 @@ describe('/api/projects', () => {
       expectedRevision: 1,
       rebaseMode: 'quiz',
       expectedLessonGenerationRunId: null,
+      expectedQuizState: null,
       patch: { section: { sectionId: 'lesson-1', quizState: { answers: [0], isSubmitted: true } } },
     };
     const saved = await request(app).patch(`/api/projects/projects/${projectId}`).send(write);

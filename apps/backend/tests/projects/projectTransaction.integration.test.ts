@@ -130,7 +130,11 @@ describe.skipIf(!shouldRun)('transactional project patch integration', () => {
       learningPlan: {
         title: 'Quiz',
         sections: [
-          { id: 'lesson-a', content: 'A' },
+          {
+            id: 'lesson-a',
+            content: 'A',
+            quiz: [{ question: 'First?', options: ['A', 'B'], correctIndex: 0 }],
+          },
           { id: 'lesson-b', content: 'B' },
         ],
       },
@@ -141,6 +145,7 @@ describe.skipIf(!shouldRun)('transactional project patch integration', () => {
       expectedRevision: staleRevision,
       rebaseMode: PROJECT_PATCH_REBASE_MODE.quiz,
       expectedLessonGenerationRunId: null,
+      expectedQuizState: null,
     };
     await sql.begin(transaction =>
       patchProjectInTransaction(transaction, {
@@ -180,6 +185,69 @@ describe.skipIf(!shouldRun)('transactional project patch integration', () => {
     expect(
       (await store.loadProject(userId, id))?.learningPlan?.sections?.[0]?.quizState
     ).toBeUndefined();
+  });
+
+  test('serializes two database sessions answering the same quiz without losing the winning answer', async () => {
+    if (!sql) throw new Error('Workflow integration database is required.');
+    const sessions = [
+      new PostgresProjectStore(undefined, sql),
+      new PostgresProjectStore(undefined, sql),
+    ];
+    const id = `quiz-race-${randomUUID()}`;
+    await sessions[0].saveProject(userId, {
+      ...projectSnapshot,
+      id,
+      source: null,
+      sourceKind: 'learn-mode',
+      isLearnMode: true,
+      learningPlan: {
+        title: 'Quiz',
+        sections: [
+          {
+            id: 'lesson-a',
+            content: 'A',
+            quiz: [
+              { question: 'First?', options: ['A', 'B'], correctIndex: 0 },
+              { question: 'Second?', options: ['A', 'B'], correctIndex: 1 },
+            ],
+          },
+        ],
+      },
+    });
+    const loaded = await Promise.all(
+      sessions.map(session => session.loadProjectWithRevision(userId, id))
+    );
+    const answers = [
+      [0, -1],
+      [-1, 1],
+    ];
+    const writes = await Promise.allSettled(
+      sessions.map((session, index) =>
+        session.patchProject(
+          userId,
+          id,
+          {
+            section: {
+              sectionId: 'lesson-a',
+              quizState: { answers: answers[index], isSubmitted: false },
+            },
+          },
+          {
+            expectedRevision: loaded[index]?.revision,
+            rebaseMode: PROJECT_PATCH_REBASE_MODE.quiz,
+            expectedLessonGenerationRunId: null,
+            expectedQuizState: null,
+          }
+        )
+      )
+    );
+    expect(writes.filter(write => write.status === 'fulfilled')).toHaveLength(1);
+    const rejected = writes.find(write => write.status === 'rejected');
+    expect(rejected?.reason).toBeInstanceOf(ProjectRevisionConflictError);
+    const winner = writes.findIndex(write => write.status === 'fulfilled');
+    expect(
+      (await sessions[0].loadProject(userId, id))?.learningPlan?.sections?.[0]?.quizState?.answers
+    ).toEqual(answers[winner]);
   });
 
   test('commits the project patch and revision in the caller transaction', async () => {

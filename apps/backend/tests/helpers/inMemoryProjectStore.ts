@@ -67,6 +67,7 @@ import type {
   ProjectSourceRef,
   ProjectSourceUpload,
   ProjectStore,
+  ProjectWriteOptions,
   SavedProjectMeta,
   StoredProjectSourceFile,
 } from '../../src/projects/types.js';
@@ -761,7 +762,7 @@ export class InMemoryProjectStore implements ProjectStore {
       .map(clone);
   }
 
-  replaceProjectMeta(userId: string, id: ProjectId, meta: SavedProjectMeta): void {
+  replaceProjectMeta(userId: string, id: ProjectId, meta: ProjectRecord['meta']): void {
     const record = this.getProjects(userId).get(id);
     if (!record) {
       throw new Error(`Progetto ${id} non trovato nel test store.`);

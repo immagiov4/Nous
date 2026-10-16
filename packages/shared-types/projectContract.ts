@@ -87,6 +87,7 @@ export interface ProjectWriteOptions {
   expectedRevision?: number;
   rebaseMode?: ProjectPatchRebaseMode;
   expectedLessonGenerationRunId?: string | null;
+  expectedQuizState?: LessonQuizState | null;
 }
 
 export interface SectionPatch {
