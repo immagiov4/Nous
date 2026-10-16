@@ -6,6 +6,7 @@ persona: giulia
 viewports: [mobile]
 requires:
   course: synthetic-law-short
+surfaces: [library, lesson-reader]
 tags: [study, law]
 budget:
   steps: 80

@@ -168,6 +168,7 @@ const story: Story = {
   title: 'title-sentinel',
   viewports: ['desktop'],
   requires: { credential: 'credential-sentinel' },
+  surfaces: ['lesson-reader'],
   tags: ['tag-sentinel'],
   budget: { steps: 4 },
   body: 'story-sentinel',

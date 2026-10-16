@@ -114,6 +114,7 @@ function story(id: string, requires: Story['requires'] = {}): Story {
     title: id,
     viewports: ['desktop'],
     requires,
+    surfaces: ['library'],
     tags: [],
     budget: { steps: 3 },
     body: 'Explore.',
@@ -185,7 +186,7 @@ describe('parallel runner', () => {
     await mkdir(join(runDir, 'stories'));
     await writeFile(
       join(runDir, 'stories', 'video.md'),
-      '---\nid: video\nkind: check\ntitle: Video\nviewports: [desktop]\nrequires: {}\ntags: []\nbudget: { steps: 1 }\n---\nExplore.\n'
+      '---\nid: video\nkind: check\ntitle: Video\nviewports: [desktop]\nrequires: {}\nsurfaces: [library]\ntags: []\nbudget: { steps: 1 }\n---\nExplore.\n'
     );
     vi.spyOn(decisionModule, 'createPiDecisionSource').mockReturnValue(
       createScriptedDecisionSource([{ type: 'stop', reason: 'completed', summary: 'Done' }])
@@ -948,7 +949,7 @@ describe('CLI', () => {
     ]) {
       await writeFile(
         join(runDir, 'stories', `${id}.md`),
-        `---\nid: ${id}\nkind: ${kind}\n${kind === 'mission' ? 'persona: person\n' : ''}title: ${id}\nviewports: [desktop]\nrequires: {}\ntags: [${tag}]\nbudget: { steps: 1 }\n---\nExplore.\n`
+        `---\nid: ${id}\nkind: ${kind}\n${kind === 'mission' ? 'persona: person\n' : ''}title: ${id}\nviewports: [desktop]\nrequires: {}\nsurfaces: [library]\ntags: [${tag}]\nbudget: { steps: 1 }\n---\nExplore.\n`
       );
     }
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});

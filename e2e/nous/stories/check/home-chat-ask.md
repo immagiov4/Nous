@@ -4,6 +4,7 @@ kind: check
 title: Chiedere aiuto per organizzare lo studio
 viewports: [desktop]
 requires: {}
+surfaces: [home-chat]
 tags: [home, chat]
 budget:
   steps: 30

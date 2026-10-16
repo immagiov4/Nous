@@ -87,6 +87,7 @@ const story: Story = {
   kind: 'check',
   viewports: ['desktop'],
   requires: {},
+  surfaces: ['library'],
   tags: [],
   budget: { steps: 1 },
   body: 'Read the page.',

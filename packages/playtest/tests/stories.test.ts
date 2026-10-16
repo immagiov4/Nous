@@ -2,8 +2,21 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { formatCoverageMap } from '../src/coverage';
 import { filterStories, loadPersonas, loadStories } from '../src/stories';
+
+const directoryOrder = vi.hoisted(() => ({ reversed: false }));
+vi.mock('node:fs/promises', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    readdir: async (...args: Parameters<typeof actual.readdir>) => {
+      const entries = await actual.readdir(...args);
+      return directoryOrder.reversed ? entries.reverse() : entries;
+    },
+  };
+});
 
 const fixtures = fileURLToPath(new URL('./fixtures/stories/valid/', import.meta.url));
 const storyDir = join(fixtures, 'stories');
@@ -11,6 +24,7 @@ const checkPath = join(storyDir, 'check/z-check.md');
 const temporaryDirs: string[] = [];
 
 afterEach(async () => {
+  directoryOrder.reversed = false;
   await Promise.all(temporaryDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })));
 });
 
@@ -26,6 +40,28 @@ async function loadModifiedCheck(transform: (markdown: string) => string) {
 }
 
 describe('story and persona loading', () => {
+  it('preserves story and coverage order when filesystem enumeration is reversed', async () => {
+    const original = await loadStories(storyDir);
+    directoryOrder.reversed = true;
+    const reversed = await loadStories(storyDir);
+    expect(reversed.map(story => story.id)).toEqual(['exam-preparation', 'open-library']);
+    expect(reversed).toEqual(original);
+    expect(formatCoverageMap(reversed)).toBe(formatCoverageMap(original));
+  });
+
+  it.each([
+    ['unknown', 'surfaces: [invented]'],
+    ['missing', ''],
+    ['empty', 'surfaces: []'],
+    ['duplicate', 'surfaces: [library, library]'],
+  ])('rejects %s product surfaces with the source path', async (_name, declaration) => {
+    const fixture = await loadModifiedCheck(markdown =>
+      markdown.replace('surfaces: [library]', declaration)
+    );
+    await expect(fixture.load()).rejects.toThrow(fixture.sourcePath);
+    await expect(fixture.load()).rejects.toThrow('surfaces');
+  });
+
   it('rejects duplicate viewports while naming the invalid source file', async () => {
     const fixture = await loadModifiedCheck(markdown =>
       markdown.replace('[desktop, mobile]', '[desktop, desktop]')
@@ -43,6 +79,7 @@ describe('story and persona loading', () => {
         persona: 'giulia',
         viewports: ['mobile'],
         requires: {},
+        surfaces: ['library'],
         tags: ['study', 'smoke'],
         budget: { steps: 24 },
         body: 'Understand the topic well enough to explain it in your own words.\n',
@@ -54,6 +91,7 @@ describe('story and persona loading', () => {
         title: 'Open a course',
         viewports: ['desktop', 'mobile'],
         requires: { course: 'synthetic-short', options: { fresh: true } },
+        surfaces: ['library'],
         tags: ['library', 'smoke'],
         budget: { steps: 8 },
         body: 'Find a course and start reading.\n',

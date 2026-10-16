@@ -4,7 +4,7 @@ import { inspect } from 'node:util';
 import { parse } from 'yaml';
 import * as z from 'zod';
 import { recordDiagnostic } from './diagnostics';
-import type { Persona, Story, StoryFilter } from './types';
+import { type Persona, PRODUCT_SURFACES, type Story, type StoryFilter } from './types';
 
 const identifier = z.string().trim().min(1);
 const viewport = z.enum(['desktop', 'mobile']);
@@ -16,12 +16,16 @@ const storySchema = z
     persona: identifier.optional(),
     viewports: z.array(viewport).nonempty(),
     requires: z.record(z.string(), z.unknown()),
+    surfaces: z.array(z.enum(PRODUCT_SURFACES)).nonempty(),
     tags: z.array(identifier),
     budget: z.object({ steps: z.number().int().positive() }),
   })
   .superRefine((story, context) => {
     if (new Set(story.viewports).size !== story.viewports.length) {
       context.addIssue({ code: 'custom', path: ['viewports'], message: 'Duplicate viewports' });
+    }
+    if (new Set(story.surfaces).size !== story.surfaces.length) {
+      context.addIssue({ code: 'custom', path: ['surfaces'], message: 'Duplicate surfaces' });
     }
     if (story.kind === 'mission' && !story.persona) {
       context.addIssue({

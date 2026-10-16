@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import * as z from 'zod';
 import type { PlaytestAdapter } from './adapter';
+import { formatCoverageMap } from './coverage';
 import { type DiagnosticRecord, recordDiagnostic, withDiagnostics } from './diagnostics';
 import { type RunSummary, runPlaytest } from './runner';
 import { filterStories, loadPersonas, loadStories } from './stories';
@@ -28,6 +29,7 @@ export function parsePlaytestArgs(args: string[]) {
   const { values } = parseArgs({
     args: args[0] === '--' ? args.slice(1) : args,
     options: {
+      'coverage-map': { type: 'boolean', default: false },
       id: { type: 'string', multiple: true },
       tag: { type: 'string', multiple: true },
       kind: { type: 'string', multiple: true },
@@ -157,9 +159,29 @@ export async function main(
   });
 }
 
+/** Metadata commands run before adapter imports, output setup, or provider validation. */
+export async function runCommand(args: string[] = process.argv.slice(2)) {
+  const values = parsePlaytestArgs(args);
+  if (values['coverage-map']) {
+    const stories = await loadStories(join(dirname(resolve(values.adapter)), 'stories'));
+    const selected = filterStories(stories, {
+      ids: values.id,
+      tags: values.tag,
+      kinds:
+        values.kind === undefined
+          ? undefined
+          : z.array(z.enum(['check', 'mission'])).parse(values.kind),
+    });
+    const map = formatCoverageMap(selected);
+    console.log(map);
+    return map;
+  }
+  return main(args);
+}
+
 if (import.meta.main) {
   try {
-    await main();
+    await runCommand();
   } catch (error) {
     recordDiagnostic('cli-exit', error);
     console.error(error instanceof Error ? error.message : 'Playtest failed.');
