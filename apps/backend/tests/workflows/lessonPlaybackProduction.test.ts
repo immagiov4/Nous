@@ -164,3 +164,38 @@ test.each([
   expect(prepare).not.toHaveBeenCalled();
   expect(assets.stage).not.toHaveBeenCalled();
 });
+
+test('rejects legacy annotated input before resuming stored audio or scene provider effects', async () => {
+  const markdown =
+    'A system has <mark data-nous-annotation-id="note">boundaries</mark> and interactions.';
+  const section = {
+    ...playbackSection(),
+    content: markdown,
+    contentBlocks: [{ type: 'markdown' as const, markdown }],
+  };
+  const { assets, context } = setup();
+  const services = createProductionLessonPlaybackServices(assets, {
+    loadProjectWithRevision: async () => ({
+      snapshot: playbackProject(section),
+      incarnationId: 'incarnation-1',
+      revision: 1,
+    }),
+  });
+  const run = vi.fn().mockResolvedValue({
+    scene: { type: 'quote', quote: 'old speech' },
+    data: 'old audio',
+  });
+  await expect(
+    services.preparePlayback({
+      ...context,
+      providerEffect: { run },
+      input: {
+        ...context.input,
+        lessonKey: 'e8489e83fbb9ff282833c647795465b5ee95f5a75253ea899ae6d5667958652f',
+      },
+    })
+  ).rejects.toMatchObject({ failure: { code: 'lesson_playback_stale' } });
+  expect(run).not.toHaveBeenCalled();
+  expect(prepare).not.toHaveBeenCalled();
+  expect(assets.stage).not.toHaveBeenCalled();
+});

@@ -11,6 +11,7 @@ import * as z from 'zod';
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
 import { failPermanently } from '../../workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../workflows/types.js';
+import type { WorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
 import { generateLessonScene } from '../lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../lessonVisualModelConfig.js';
 import {
@@ -81,6 +82,7 @@ const prepareScene = async (
     throw new Error('Playback block speech exceeds the scene generation text limit.');
   }
   let retryFeedback: string | undefined;
+  let diagnostic: WorkflowErrorDiagnostic | undefined;
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt += 1) {
     signal.throwIfAborted();
     const outcome = await generateLessonScene({
@@ -95,10 +97,12 @@ const prepareScene = async (
     signal.throwIfAborted();
     if (outcome.kind === 'scene') return outcome.scene;
     retryFeedback = outcome.problems.join('\n');
+    diagnostic = outcome.diagnostic;
   }
   throw failPermanently({
     code: 'lesson_playback_scene_invalid',
     message: 'Playback scene preparation failed validation after corrective attempts.',
+    ...(diagnostic ? { details: { diagnostic } } : {}),
   });
 };
 

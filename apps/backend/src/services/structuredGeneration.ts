@@ -37,6 +37,8 @@ export type StructuredGenerationRequest = StructuredModelTarget & {
   readonly image?: string;
   /** AI SDK transport retries; 0 by default because callers own correction retries. */
   readonly maxRetries?: number;
+  /** Records the transport shape without retaining model content. */
+  readonly onOutputPath?: (path: 'direct' | 'json-envelope') => void;
   readonly output: StructuredOutputSchema;
   readonly prompt: string;
   /** Overrides the slot's configured reasoning effort. */
@@ -80,6 +82,7 @@ export const generateStructuredOutput = async <T>(
 ): Promise<T> => {
   const { image, maxRetries = 0, output, prompt, signal, system, webSearch = false } = request;
   const target = resolveTarget(request);
+  request.onOutputPath?.('direct');
   const strictOutput = prepareStrictStructuredOutput(output.schema);
   if (target.provider === 'codex') {
     const response = await runCodexAppServerTurn({
@@ -160,7 +163,8 @@ export const generateStructuredOutput = async <T>(
       },
     } as const;
     const fallbackPrompt = `${prompt}\n\nThe provider cannot compile the requested schema. Return the complete requested JSON object as a JSON-encoded string in payload. Do not omit, summarize, or alter fields. The JSON object inside payload must conform to the original requested output schema below:\n\n${JSON.stringify(output.schema)}`;
+    request.onOutputPath?.('json-envelope');
     const fallback = await generate<{ payload: string }>(envelope, fallbackPrompt);
-    return JSON.parse(fallback.output.payload) as T;
+    return strictOutput.normalizePayload(JSON.parse(fallback.output.payload)) as T;
   }
 };

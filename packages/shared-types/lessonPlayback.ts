@@ -121,6 +121,7 @@ interface MarkdownAnalysis {
   readonly blocks: MarkdownChunk[];
   readonly inlineCode: PlaybackRange[];
   readonly omissions: PlaybackRange[];
+  readonly annotationTags: PlaybackRange[];
   readonly inlineVisuals: PlaybackRange[];
 }
 
@@ -139,6 +140,7 @@ const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
     blocks: [],
     inlineCode: [],
     omissions: [],
+    annotationTags: [],
     inlineVisuals: [],
   };
   const visit = (node: MarkdownNode): void => {
@@ -199,6 +201,13 @@ const collectInlineRanges = (
   if (node.type === 'image' || node.type === 'imageReference') {
     analysis.inlineVisuals.push({ start, end });
     analysis.omissions.push({ start, end });
+  } else if (
+    node.type === 'html' &&
+    /^<\/?mark(?:\s+(?:[^"'<>]|"[^"]*"|'[^']*')*)?>$/iu.test(markdown.slice(start, end))
+  ) {
+    // Annotation wrappers are invisible; their text keeps its original source offsets.
+    analysis.annotationTags.push({ start, end });
+    analysis.omissions.push({ start, end });
   } else if (node.type === 'inlineCode') {
     const delimiter = /^`+/u.exec(markdown.slice(start, end));
     if (!delimiter) throw new TypeError('Inline code must start with its parsed delimiter.');
@@ -222,16 +231,43 @@ const collectInlineRanges = (
       analysis.omissions.push({ start, end });
     }
   } else if (node.type === 'text') {
-    const text = markdown.slice(start, end);
-    for (const match of text.matchAll(/\\[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/gu)) {
-      analysis.omissions.push({ start: start + match.index, end: start + match.index + 1 });
-    }
-    for (const match of text.matchAll(PDF_IMAGE)) {
-      const range = { start: start + match.index, end: start + match.index + match[0].length };
-      analysis.inlineVisuals.push(range);
-      analysis.omissions.push(range);
-    }
+    collectTextRanges(node, markdown, analysis);
   }
+};
+
+/** Collect escaped punctuation and visual placeholders only from parsed prose. */
+const collectTextRanges = (
+  node: MarkdownNode,
+  markdown: string,
+  analysis: MarkdownAnalysis
+): void => {
+  const start = node.position.start.offset;
+  const end = node.position.end.offset;
+  const text = markdown.slice(start, end);
+  for (const match of text.matchAll(/\\[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/gu)) {
+    analysis.omissions.push({ start: start + match.index, end: start + match.index + 1 });
+  }
+  for (const match of text.matchAll(PDF_IMAGE)) {
+    const range = { start: start + match.index, end: start + match.index + match[0].length };
+    analysis.inlineVisuals.push(range);
+    analysis.omissions.push(range);
+  }
+};
+
+/** Removes only parsed annotation wrappers for content identity, preserving all other Markdown. */
+export const projectPlaybackAnnotations = (content: readonly PlaybackContentBlock[]) => {
+  let hasAnnotations = false;
+  const blocks = content.map(block => {
+    if (block.type !== 'markdown') return block;
+    const tags = analyzeMarkdown(block.markdown).annotationTags;
+    if (!tags.length) return block;
+    hasAnnotations = true;
+    const markdown = [...tags]
+      .sort((left, right) => right.start - left.start)
+      .reduce((text, tag) => text.slice(0, tag.start) + text.slice(tag.end), block.markdown);
+    return { ...block, markdown };
+  });
+  return { blocks, hasAnnotations };
 };
 
 /** Preserve both content and line-ending offsets, including bare CR and blank lines. */

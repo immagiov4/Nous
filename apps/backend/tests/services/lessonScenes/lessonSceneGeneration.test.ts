@@ -304,6 +304,7 @@ test.each([
   if (kind === 'invalid') {
     expect(outcome).toEqual({
       kind: 'invalid',
+      diagnostic: expect.objectContaining({ type: 'Error' }),
       problems: [
         'Use either an essential closing question or a necessary note, or leave both empty.',
       ],
@@ -381,6 +382,7 @@ test('reports ungrounded evidence as contract problems instead of a scene', asyn
     } as never)
   ).resolves.toEqual({
     kind: 'invalid',
+    diagnostic: expect.objectContaining({ type: 'Error' }),
     problems: ['evidence must be an exact quotation from the lesson.'],
   });
 });
@@ -402,6 +404,7 @@ test('reports a malformed answer as a contract problem instead of throwing', asy
     } as never)
   ).resolves.toEqual({
     kind: 'invalid',
+    diagnostic: expect.objectContaining({ type: 'Error' }),
     problems: ['The answer must follow the requested JSON structure.'],
   });
 });
@@ -422,6 +425,7 @@ test('reports an unparsable answer as a contract problem', async () => {
     } as never)
   ).resolves.toEqual({
     kind: 'invalid',
+    diagnostic: expect.objectContaining({ type: 'Error' }),
     problems: ['The answer must follow the requested JSON structure.'],
   });
 });
@@ -564,6 +568,7 @@ test('rejects invented quantitative quick data before icon selection', async () 
   });
   expect(await generateLessonScene(unplannedInput(source))).toEqual({
     kind: 'invalid',
+    diagnostic: expect.objectContaining({ type: 'Error' }),
     problems: ['Quantitative values must appear in the lesson.'],
   });
   expect(chooseIconsMock).not.toHaveBeenCalled();
@@ -584,4 +589,23 @@ test.each([
   if (result.kind !== 'scene') throw new Error('Expected a generated scene');
   expect(result.scene).not.toHaveProperty('icon');
   expect(chooseIconsMock.mock.calls[0][0].entries).toEqual([]);
+});
+
+test('reports schema paths and transport without retaining unknown model fields', async () => {
+  generateStructuredOutputMock.mockImplementation(async request => {
+    request.onOutputPath?.('json-envelope');
+    return {
+      ...quoteDraft('Source sentence.'),
+      private_unexpected_field: 'private course content',
+    };
+  });
+  const outcome = await generateLessonScene(unplannedInput('Source sentence.'));
+  expect(outcome).toMatchObject({ kind: 'invalid' });
+  if (outcome.kind !== 'invalid') throw new Error('Expected invalid scene');
+  expect(JSON.parse(String(outcome.diagnostic?.originalMessage))).toEqual({
+    outputPath: 'json-envelope',
+    stage: 'schema',
+    problems: [{ code: 'unrecognized_keys', path: [] }],
+  });
+  expect(JSON.stringify(outcome.diagnostic)).not.toContain('private');
 });

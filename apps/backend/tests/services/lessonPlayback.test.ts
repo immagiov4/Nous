@@ -434,3 +434,24 @@ describe('lesson playback segmentation', () => {
     ).toEqual([]);
   });
 });
+
+test.each([
+  'Intro <mark data-nous-annotation-id="note">boundaries</mark> and <mark>interactions</mark>.',
+  '<mark data-nous-annotation-id="note">Intro boundaries</mark> and interactions.',
+  'Intro <MARK title="a > b">boundaries</MARK> and interactions.',
+])('projects annotation markup out of speech with exact source spans: %s', markdown => {
+  const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+  expect(blocks).toHaveLength(1);
+  expect(blocks[0].speech).toBe('Intro boundaries and interactions.');
+  expectExactSpans(blocks[0], markdown);
+});
+
+test('keeps literal annotation syntax in code, escaped text and unsupported HTML', () => {
+  const markdown =
+    'Use `<mark>literal</mark>` and \\<mark>escaped</mark> and <marker>text</marker>.';
+  const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+  expect(blocks[0].speech).toBe(
+    'Use <mark>literal</mark> and <mark>escaped and <marker>text</marker>.'
+  );
+  expectExactSpans(blocks[0], markdown);
+});

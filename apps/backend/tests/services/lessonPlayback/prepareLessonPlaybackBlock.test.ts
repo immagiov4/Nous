@@ -382,3 +382,24 @@ test.each([
   expect(sceneGeneration).not.toHaveBeenCalled();
   expect(motion).not.toHaveBeenCalled();
 });
+
+test('retains final bounded scene diagnostics in the workflow failure', async () => {
+  const diagnostic = {
+    type: 'Error',
+    originalMessage: JSON.stringify({
+      outputPath: 'json-envelope',
+      stage: 'schema',
+      problems: [{ code: 'invalid_type', path: ['items', 0, 'parent'] }],
+    }),
+  };
+  sceneGeneration.mockResolvedValue({
+    kind: 'invalid',
+    problems: ['Malformed scene.'],
+    diagnostic,
+  });
+  const failure = await prepareLessonPlaybackBlock(input()).catch(error => toStepFailure(error));
+  expect(failure).toMatchObject({
+    code: 'lesson_playback_scene_invalid',
+    details: { diagnostic },
+  });
+});
