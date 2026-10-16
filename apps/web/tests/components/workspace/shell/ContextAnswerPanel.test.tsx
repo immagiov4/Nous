@@ -484,6 +484,51 @@ describe('ContextAnswerPanel', () => {
     expect(useChatMock.mock.lastCall?.[0].sendAutomaticallyWhen({ messages })).toBe(shouldContinue);
   });
 
+  test.each([
+    { saved: true, laterStep: false, shouldContinue: false },
+    { saved: false, laterStep: false, shouldContinue: true },
+    { saved: true, laterStep: true, shouldContinue: true },
+  ])('continues after note output only when appropriate: %j', ({
+    saved,
+    laterStep,
+    shouldContinue,
+  }) => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(true);
+    render(<ContextAnswerPanel {...buildProps()} />);
+    const retrieval = {
+      type: 'tool-getCurrentLessonArtifacts',
+      toolCallId: 'retrieve',
+      state: 'output-available',
+      input: {},
+      output: { artifacts: [] },
+    };
+    const messages = [
+      {
+        id: 'assistant-note',
+        role: 'assistant',
+        parts: [
+          { type: 'step-start' },
+          retrieval,
+          { type: 'step-start' },
+          {
+            type: 'tool-requestAddToNotes',
+            toolCallId: 'save',
+            state: 'output-available',
+            input: {},
+            output: { approved: true, mode: 'new', saved },
+          },
+          ...(laterStep ? [{ type: 'step-start' }, retrieval] : [retrieval]),
+        ],
+      },
+    ];
+    expect(useChatMock.mock.lastCall?.[0].sendAutomaticallyWhen({ messages })).toBe(shouldContinue);
+  });
   test('dismisses the mobile keyboard on follow-up submit so streaming can use the 80% sheet', async () => {
     const user = userEvent.setup();
     useMobileKeyboardOffsetMock.mockReturnValue({ keyboardOffset: 240, viewportHeight: 528 });
