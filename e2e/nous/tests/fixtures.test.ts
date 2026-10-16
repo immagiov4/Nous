@@ -16,6 +16,7 @@ import type { Story } from '../../../packages/playtest/src/types';
 import { CourseFixtures, importFixture, withFixtureRun } from '../fixtures';
 import { prepare, syntheticCourse } from '../prepare';
 import type { StackStatus } from '../stack';
+import * as workflowCleanup from '../workflowCleanup';
 
 vi.mock('node:fs/promises', async importOriginal => ({
   ...(await importOriginal<typeof import('node:fs/promises')>()),
@@ -105,6 +106,7 @@ async function backup(
   );
 }
 beforeEach(async () => {
+  vi.spyOn(workflowCleanup, 'settleAccountWorkflows').mockResolvedValue();
   root = await mkdtemp(join(tmpdir(), 'nous-course-fixtures-'));
   await mkdir(join(root, 'fixtures'));
   vi.stubEnv('NOUS_E2E_DATA', root);
