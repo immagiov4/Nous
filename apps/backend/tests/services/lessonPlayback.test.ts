@@ -1,6 +1,7 @@
 import {
   type LessonPlaybackBlock,
   type PlaybackContentBlock,
+  projectLessonPlayback,
   segmentLessonPlayback,
 } from '@shared/lessonPlayback';
 import { describe, expect, test } from 'vitest';
@@ -433,4 +434,54 @@ describe('lesson playback segmentation', () => {
       ])
     ).toEqual([]);
   });
+});
+
+test.each([
+  'Intro <mark data-nous-annotation-id="note">boundaries</mark> and <mark>interactions</mark>.',
+  '<mark data-nous-annotation-id="note">Intro boundaries</mark> and interactions.',
+  'Intro <MARK title="a > b">boundaries</MARK> and interactions.',
+])('projects annotation markup out of speech with exact source spans: %s', markdown => {
+  const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+  expect(blocks).toHaveLength(1);
+  expect(blocks[0].speech).toBe('Intro boundaries and interactions.');
+  expectExactSpans(blocks[0], markdown);
+});
+
+test('keeps literal annotation syntax in code, escaped text and unsupported HTML', () => {
+  const markdown =
+    'Use `<mark>literal</mark>` and \\<mark>escaped</mark> and <marker>text</marker>.';
+  const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+  expect(blocks[0].speech).toBe(
+    'Use <mark>literal</mark> and <mark>escaped and <marker>text</marker>.'
+  );
+  expectExactSpans(blocks[0], markdown);
+});
+
+test('projects multiline annotation HTML nodes while preserving authored source spans', () => {
+  const markdown = '<mark data-nous-annotation-id="note">\nPassage visible.\n</mark>';
+  const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+  expect(blocks.map(block => block.speech)).toEqual(['\nPassage visible.\n']);
+  expectExactSpans(blocks[0], markdown);
+});
+
+test('keeps annotation-looking syntax inside HTML comments and other tag attributes literal', () => {
+  const markdown = '<!-- <mark>literal</mark> -->\n\n<div title="<mark>">visible</div>';
+  const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+  expect(blocks.map(block => block.speech)).toEqual([
+    '<!-- <mark>literal</mark> -->',
+    '<div title="<mark>">visible</div>',
+  ]);
+  for (const block of blocks) expectExactSpans(block, markdown);
+});
+
+test.each([
+  '<![CDATA[<mark>literal</mark>]]>',
+  '<?instruction <mark>literal</mark> ?>',
+])('preserves non-tag HTML nodes as unannotated content: %s', markdown => {
+  const content = [markdownBlock(markdown)];
+  const projection = projectLessonPlayback(content);
+  expect(projection.hasAnnotations).toBe(false);
+  expect(projection.contentBlocks).toEqual(content);
+  expect(projection.blocks.map(block => block.speech)).toEqual([markdown]);
+  expectExactSpans(projection.blocks[0], markdown);
 });

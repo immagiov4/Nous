@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import {
   type LessonPlayback,
   type PlaybackContentBlock,
-  segmentLessonPlayback,
+  projectLessonPlayback,
 } from '@shared/lessonPlayback';
 import { buildProjectAssetPlaceholder, type ProjectLessonVisual } from '@shared/projectAsset';
 
@@ -59,11 +59,19 @@ export const lessonPlaybackVisuals = (section: LearningPlanNodeSnapshot): Projec
     .sort((a, b) => a.id.localeCompare(b.id));
 };
 
-export const buildLessonPlaybackKey = (section: LearningPlanNodeSnapshot): string =>
-  createHash('sha256')
+const lessonPlaybackKey = (
+  section: LearningPlanNodeSnapshot,
+  projection: ReturnType<typeof projectLessonPlayback>
+): string => {
+  return createHash('sha256')
     .update(
       canonicalJson({
-        contentBlocks: lessonPlaybackContent(section),
+        contentBlocks: projection.contentBlocks,
+        ...(projection.hasAnnotations
+          ? {
+              speechProjection: projection.blocks.map(block => block.speech),
+            }
+          : {}),
         generatedVisuals: lessonPlaybackVisuals(section).map(visualContent),
         lastGenerationRunId: section.lastGenerationRunId ?? null,
         title: typeof section.title === 'string' ? section.title : '',
@@ -71,9 +79,14 @@ export const buildLessonPlaybackKey = (section: LearningPlanNodeSnapshot): strin
       })
     )
     .digest('hex');
+};
+
+export const buildLessonPlaybackKey = (section: LearningPlanNodeSnapshot): string =>
+  lessonPlaybackKey(section, projectLessonPlayback(lessonPlaybackContent(section)));
 
 export const readLessonPlayback = (section: LearningPlanNodeSnapshot): LessonPlayback => {
-  const lessonKey = buildLessonPlaybackKey(section);
+  const projection = projectLessonPlayback(lessonPlaybackContent(section));
+  const lessonKey = lessonPlaybackKey(section, projection);
   const saved = new Map(
     section.playback?.lessonKey === lessonKey
       ? section.playback.blocks.map(block => [block.id, block])
@@ -82,9 +95,11 @@ export const readLessonPlayback = (section: LearningPlanNodeSnapshot): LessonPla
   return {
     version: 1,
     lessonKey,
-    blocks: segmentLessonPlayback(lessonPlaybackContent(section)).map(block => {
+    blocks: projection.blocks.map(block => {
       const prepared = saved.get(block.id);
-      return prepared ? { ...block, prepared: prepared.prepared, audio: prepared.audio } : block;
+      return prepared?.speech === block.speech
+        ? { ...block, prepared: prepared.prepared, audio: prepared.audio }
+        : block;
     }),
   };
 };

@@ -26,6 +26,10 @@ import * as z from 'zod';
 
 import { getResolvedModelConfigForProvider } from '../../config/modelConfig.js';
 import {
+  toWorkflowErrorDiagnostic,
+  type WorkflowErrorDiagnostic,
+} from '../../workflows/workflowErrorDiagnostics.js';
+import {
   isInvalidLessonVisualStructuredOutput,
   type RenderResolvedLessonVisualInput,
 } from '../lessonGenerationVisuals.js';
@@ -41,7 +45,11 @@ import { chooseLessonSceneIcons, type SceneIconEntry } from './lessonSceneIconCh
 
 export type LessonSceneOutcome =
   | { readonly kind: 'scene'; readonly scene: LessonScene }
-  | { readonly kind: 'invalid'; readonly problems: readonly string[] };
+  | {
+      readonly kind: 'invalid';
+      readonly problems: readonly string[];
+      readonly diagnostic?: WorkflowErrorDiagnostic;
+    };
 
 export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'plan'> & {
   readonly allowedSceneTypes?: readonly LessonSceneType[];
@@ -397,7 +405,13 @@ export const generateLessonScene = async (
   const { $schema: _dialect, ...outputSchema } = z.toJSONSchema(schema);
   // Malformed output surfaces either as an error or as JSON of the wrong shape; both become
   // corrective feedback for the next attempt.
+  let outputPath: 'direct' | 'json-envelope' | 'unavailable' = 'unavailable';
+  const diagnostic = (stage: 'schema' | 'domain', problems: unknown) =>
+    toWorkflowErrorDiagnostic(new Error(JSON.stringify({ outputPath, stage, problems })));
   const response = await generateStructuredOutput<unknown>({
+    onOutputPath: path => {
+      outputPath = path;
+    },
     config,
     output: { name: 'lesson_scene', schema: outputSchema },
     prompt: buildScenePrompt(input),
@@ -411,7 +425,14 @@ export const generateLessonScene = async (
   });
   const parsed = schema.safeParse(response);
   if (!parsed.success) {
-    return { kind: 'invalid', problems: [MALFORMED_ANSWER_PROBLEM] };
+    return {
+      kind: 'invalid',
+      problems: [MALFORMED_ANSWER_PROBLEM],
+      diagnostic: diagnostic(
+        'schema',
+        parsed.error.issues.map(({ code, path }) => ({ code, path }))
+      ),
+    };
   }
   const draft = parsed.data;
   const scene = toScene(draft);
@@ -420,7 +441,24 @@ export const generateLessonScene = async (
     scene,
     input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)
   );
-  if (problems.length) return { kind: 'invalid', problems };
+  if (problems.length)
+    return {
+      kind: 'invalid',
+      problems,
+      diagnostic: diagnostic(
+        'domain',
+        problems.map(problem => {
+          // These validator templates interpolate private model labels; retain only the contract.
+          if (problem.startsWith('The connection "'))
+            return 'A diagram connection needs an exact quotation from the lesson.';
+          if (problem.startsWith('Times must appear in the lesson:'))
+            return 'Times must appear in the lesson.';
+          if (problem.startsWith('Quantitative values must appear in the lesson:'))
+            return 'Quantitative values must appear in the lesson.';
+          return problem;
+        })
+      ),
+    };
   return {
     kind: 'scene',
     scene: await chooseLessonSceneIcons({

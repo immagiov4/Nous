@@ -121,6 +121,7 @@ interface MarkdownAnalysis {
   readonly blocks: MarkdownChunk[];
   readonly inlineCode: PlaybackRange[];
   readonly omissions: PlaybackRange[];
+  readonly annotationTags: PlaybackRange[];
   readonly inlineVisuals: PlaybackRange[];
 }
 
@@ -139,6 +140,7 @@ const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
     blocks: [],
     inlineCode: [],
     omissions: [],
+    annotationTags: [],
     inlineVisuals: [],
   };
   const visit = (node: MarkdownNode): void => {
@@ -199,6 +201,8 @@ const collectInlineRanges = (
   if (node.type === 'image' || node.type === 'imageReference') {
     analysis.inlineVisuals.push({ start, end });
     analysis.omissions.push({ start, end });
+  } else if (node.type === 'html') {
+    collectAnnotationRanges(node, markdown, analysis);
   } else if (node.type === 'inlineCode') {
     const delimiter = /^`+/u.exec(markdown.slice(start, end));
     if (!delimiter) throw new TypeError('Inline code must start with its parsed delimiter.');
@@ -222,15 +226,73 @@ const collectInlineRanges = (
       analysis.omissions.push({ start, end });
     }
   } else if (node.type === 'text') {
-    const text = markdown.slice(start, end);
-    for (const match of text.matchAll(/\\[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/gu)) {
-      analysis.omissions.push({ start: start + match.index, end: start + match.index + 1 });
+    collectTextRanges(node, markdown, analysis);
+  }
+};
+
+/** Collect escaped punctuation and visual placeholders only from parsed prose. */
+const collectTextRanges = (
+  node: MarkdownNode,
+  markdown: string,
+  analysis: MarkdownAnalysis
+): void => {
+  const start = node.position.start.offset;
+  const end = node.position.end.offset;
+  const text = markdown.slice(start, end);
+  for (const match of text.matchAll(/\\[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/gu)) {
+    analysis.omissions.push({ start: start + match.index, end: start + match.index + 1 });
+  }
+  for (const match of text.matchAll(PDF_IMAGE)) {
+    const range = { start: start + match.index, end: start + match.index + match[0].length };
+    analysis.inlineVisuals.push(range);
+    analysis.omissions.push(range);
+  }
+};
+
+/** Find a tag boundary without treating quoted angle brackets as delimiters. */
+const htmlTagEnd = (html: string, start: number): number => {
+  let quote: string | undefined;
+  for (let cursor = start; cursor < html.length; cursor += 1) {
+    const character = html[cursor];
+    if (quote) {
+      if (character === quote) quote = undefined;
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '>') {
+      return cursor + 1;
+    } else if (character === '<') {
+      return -1;
     }
-    for (const match of text.matchAll(PDF_IMAGE)) {
-      const range = { start: start + match.index, end: start + match.index + match[0].length };
-      analysis.inlineVisuals.push(range);
-      analysis.omissions.push(range);
+  }
+  return -1;
+};
+
+/** HTML nodes can contain a complete multiline wrapper; ignore comments and quoted tag syntax. */
+const collectAnnotationRanges = (
+  node: MarkdownNode,
+  markdown: string,
+  analysis: MarkdownAnalysis
+): void => {
+  const sourceStart = node.position.start.offset;
+  const html = markdown.slice(sourceStart, node.position.end.offset);
+  // Comments, declarations, CDATA and processing instructions contain no annotation elements.
+  if (html.startsWith('<!') || html.startsWith('<?')) return;
+  let cursor = 0;
+  while (cursor < html.length) {
+    const start = html.indexOf('<', cursor);
+    if (start === -1) break;
+    if (html.startsWith('<!--', start)) {
+      const close = html.indexOf('-->', start + '<!--'.length);
+      cursor = close === -1 ? html.length : close + '-->'.length;
+      continue;
     }
+    const tag = /^<\/?([a-z][a-z0-9-]*)(?=[\s>])/iu.exec(html.slice(start));
+    const end = tag ? htmlTagEnd(html, start + tag[0].length) : -1;
+    cursor = end === -1 ? start + 1 : end;
+    if (end === -1 || tag?.[1].toLowerCase() !== 'mark') continue;
+    const range = { start: sourceStart + start, end: sourceStart + end };
+    analysis.annotationTags.push(range);
+    analysis.omissions.push(range);
   }
 };
 
@@ -426,10 +488,10 @@ const appendHeadingSeparator = (text: SpokenText, markdown: string, end: number)
   text.speech += '\n';
 };
 
-/** Deterministically segment authored lesson text and attach visuals to its spoken introductions. */
-export const segmentLessonPlayback = (
-  contentBlocks: readonly PlaybackContentBlock[]
-): LessonPlaybackBlock[] => {
+/** Build speech and annotation-free content identity from the same parsed Markdown analysis. */
+export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlock[]) => {
+  const projectedContent = [...contentBlocks];
+  let hasAnnotations = false;
   const blocks: (Omit<LessonPlaybackBlock, 'visuals'> & { visuals: PlaybackVisual[] })[] = [];
   let heading = '';
   let pendingHeadings: SpokenText[] = [];
@@ -442,6 +504,13 @@ export const segmentLessonPlayback = (
 
   const appendMarkdown = (markdown: string, sourceBlockIndex: number): void => {
     const analysis = analyzeMarkdown(markdown);
+    if (analysis.annotationTags.length) {
+      hasAnnotations = true;
+      const projectedMarkdown = [...analysis.annotationTags]
+        .sort((left, right) => right.start - left.start)
+        .reduce((text, tag) => text.slice(0, tag.start) + text.slice(tag.end), markdown);
+      projectedContent[sourceBlockIndex] = { type: 'markdown', markdown: projectedMarkdown };
+    }
     for (const chunk of markdownChunks(markdown, analysis)) {
       if (chunk.kind === 'omitted') continue;
       if (chunk.kind === 'visual') {
@@ -480,5 +549,10 @@ export const segmentLessonPlayback = (
     }
     if (content.type === 'markdown') appendMarkdown(content.markdown, sourceBlockIndex);
   }
-  return blocks;
+  return { blocks, contentBlocks: projectedContent, hasAnnotations };
 };
+
+/** Deterministically segment authored lesson text and attach visuals to its spoken introductions. */
+export const segmentLessonPlayback = (
+  contentBlocks: readonly PlaybackContentBlock[]
+): LessonPlaybackBlock[] => projectLessonPlayback(contentBlocks).blocks;

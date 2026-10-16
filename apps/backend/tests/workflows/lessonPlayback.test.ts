@@ -111,3 +111,35 @@ describe('playback block commit', () => {
     );
   });
 });
+
+test.each([
+  'legacy-key',
+  'different-speech',
+])('rejects incompatible checkpointed preparation at commit: %s', mismatch => {
+  const markdown =
+    'A system has <mark data-nous-annotation-id="note">boundaries</mark> and interactions.';
+  const section = {
+    ...playbackSection(),
+    content: markdown,
+    contentBlocks: [{ type: 'markdown' as const, markdown }],
+  };
+  const result = playbackResult(section);
+  const stale = {
+    ...result,
+    target: {
+      ...result.target,
+      ...(mismatch === 'legacy-key'
+        ? { lessonKey: 'e8489e83fbb9ff282833c647795465b5ee95f5a75253ea899ae6d5667958652f' }
+        : {}),
+    },
+    block: { ...result.block, speech: markdown },
+  };
+  expect(() =>
+    buildLessonPlaybackCommitPatch(
+      { snapshot: playbackProject(section), revision: 1, incarnationId: 'incarnation-1' },
+      stale
+    )
+  ).toThrow(
+    expect.objectContaining({ failure: expect.objectContaining({ code: 'lesson_playback_stale' }) })
+  );
+});

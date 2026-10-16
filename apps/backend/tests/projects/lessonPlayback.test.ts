@@ -348,3 +348,86 @@ describe('playback persistence and assets', () => {
     expect(() => collectProjectAssetReferences(playbackProject(section))).toThrow();
   });
 });
+
+test('does not reuse saved scene or audio when spoken projection has changed', () => {
+  const markdown =
+    'A system has <mark data-nous-annotation-id="note">boundaries</mark> and interactions.';
+  const section = {
+    ...playbackSection(),
+    content: markdown,
+    contentBlocks: [{ type: 'markdown' as const, markdown }],
+  };
+  const saved = preparedPlayback(section);
+  const legacy = { ...saved, blocks: saved.blocks.map(block => ({ ...block, speech: markdown })) };
+  const current = readLessonPlayback({ ...section, playback: legacy });
+  expect(current.blocks[0].speech).toBe('A system has boundaries and interactions.');
+  expect(current.blocks[0].audio).toEqual([]);
+  expect(current.blocks[0]).not.toHaveProperty('prepared');
+  expect(section.content).toBe(markdown);
+});
+
+// Captured from origin/main 3724874 before the annotation projection identity change.
+const LEGACY_UNANNOTATED_KEY = '8f8e203c1724abd815a2b5ae308df626f57a0b18d32f43fd1288335471424bab';
+const annotatedSection = (markdown: string) => ({
+  ...playbackSection(),
+  content: markdown,
+  contentBlocks: [{ type: 'markdown' as const, markdown }],
+});
+
+test('keeps the main-branch key for unannotated lessons', () => {
+  expect(buildLessonPlaybackKey(playbackSection())).toBe(LEGACY_UNANNOTATED_KEY);
+});
+
+test('annotation edits preserve the projected speech identity rather than annotation ids or ranges', () => {
+  const first = annotatedSection(
+    'A system has <mark data-nous-annotation-id="note">boundaries</mark> and interactions.'
+  );
+  const edited = annotatedSection(
+    '<mark data-nous-annotation-id="other">A system</mark> has boundaries and <mark title="updated">interactions</mark>.'
+  );
+  const legacyKey = 'e8489e83fbb9ff282833c647795465b5ee95f5a75253ea899ae6d5667958652f';
+  expect(buildLessonPlaybackKey(first)).not.toBe(legacyKey);
+  expect(buildLessonPlaybackKey(edited)).toBe(buildLessonPlaybackKey(first));
+  first.playback = preparedPlayback(first);
+  expect(readLessonPlayback({ ...edited, playback: first.playback }).blocks[0].audio).toEqual(
+    first.playback.blocks[0].audio
+  );
+});
+
+test('removing the final wrapper returns to the valid unannotated key and cache', () => {
+  const plain = playbackSection();
+  const legacy = preparedPlayback(plain);
+  const annotated = {
+    ...plain,
+    contentBlocks: [
+      { type: 'markdown' as const, markdown: '<mark>Prima frase.</mark>\n\nSeconda frase.' },
+    ],
+  };
+  expect(buildLessonPlaybackKey(annotated)).not.toBe(LEGACY_UNANNOTATED_KEY);
+  expect(buildLessonPlaybackKey({ ...plain, playback: legacy })).toBe(LEGACY_UNANNOTATED_KEY);
+  expect(readLessonPlayback({ ...plain, playback: legacy }).blocks[0].audio).toEqual(
+    legacy.blocks[0].audio
+  );
+});
+
+test('annotated identity distinguishes speech when wrapper placement changes Markdown parsing', () => {
+  const first = annotatedSection('a_<mark>b</mark>_');
+  const second = annotatedSection('a<mark>_b_</mark>');
+  expect(readLessonPlayback(first).blocks[0].speech).toBe('a_b_');
+  expect(readLessonPlayback(second).blocks[0].speech).toBe('ab');
+  expect(buildLessonPlaybackKey(first)).not.toBe(buildLessonPlaybackKey(second));
+});
+
+test('multiline annotations gain a stable visible speech identity', () => {
+  const first = annotatedSection(
+    '<mark data-nous-annotation-id="first">\nPassage visible.\n</mark>'
+  );
+  const edited = annotatedSection(
+    '<mark title="updated" data-nous-annotation-id="second">\nPassage visible.\n</mark>'
+  );
+  expect(readLessonPlayback(first).blocks[0].speech).toBe('\nPassage visible.\n');
+  expect(buildLessonPlaybackKey(first)).toBe(buildLessonPlaybackKey(edited));
+  expect(buildLessonPlaybackKey(first)).not.toBe(
+    buildLessonPlaybackKey(annotatedSection('\nPassage visible.\n'))
+  );
+});

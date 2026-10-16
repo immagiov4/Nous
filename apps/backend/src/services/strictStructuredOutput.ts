@@ -117,6 +117,9 @@ export const prepareStrictStructuredOutput = (schema: Record<string, unknown>) =
           type: 'object',
         }
       : strictSchema,
+    /** Envelope payloads already have the domain root shape. */
+    normalizePayload: (response: unknown): unknown =>
+      omitOptionalNulls(response, schema, branchValidators),
     normalize: (response: unknown): unknown => {
       const output = wrapsRootValue && isRecord(response) ? response.result : response;
       return omitOptionalNulls(output, schema, branchValidators);

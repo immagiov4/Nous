@@ -25,7 +25,7 @@ export const buildLessonPlaybackCommitPatch = (
     project.incarnationId !== target.incarnationId ||
     project.snapshot.id !== target.projectId ||
     playback?.lessonKey !== target.lessonKey ||
-    !playback.blocks.some(saved => saved.id === block.id)
+    !playback.blocks.some(saved => saved.id === block.id && saved.speech === block.speech)
   ) {
     throw failPermanently({
       code: 'lesson_playback_stale',

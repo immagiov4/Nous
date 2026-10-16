@@ -424,3 +424,29 @@ test('Codex restores optional fields in untagged object unions before domain val
   expect(result).toStrictEqual({ rows: [{ count: 2 }, { name: 'kept' }] });
   expect(unionSchema.safeParse(result).success).toBe(true);
 });
+
+test.each([
+  z.array(z.strictObject({ note: z.string().optional(), nullable: z.string().nullable() })),
+  z.union([
+    z.strictObject({
+      kind: z.literal('first'),
+      note: z.string().optional(),
+      nullable: z.string().nullable(),
+    }),
+    z.strictObject({ kind: z.literal('second') }),
+  ]),
+])('envelope payload normalization preserves the original root and explicit nullability', async contract => {
+  const value = { note: null, nullable: null };
+  const payload = contract instanceof z.ZodArray ? [value] : { kind: 'first', ...value };
+  createConfiguredTextModelFromResolution.mockReturnValue({ model: 'model', providerOptions: {} });
+  generateText
+    .mockRejectedValueOnce(new Error('Schema is too complex'))
+    .mockResolvedValueOnce({ output: { payload: JSON.stringify(payload) } });
+  const result = await generateStructuredOutput({
+    ...request('openrouter'),
+    output: { name: 'root_contract', schema: z.toJSONSchema(contract) },
+  });
+  expect(contract.parse(result)).toEqual(
+    Array.isArray(payload) ? [{ nullable: null }] : { kind: 'first', nullable: null }
+  );
+});
