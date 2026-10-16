@@ -10,6 +10,10 @@ import { runCodexAppServerTurn } from '../apps/backend/src/services/codexAppServ
 import { flawedAutomationLesson } from '../apps/backend/tests/fixtures/lessonReviewQuality.js';
 import { type RunManifest, withRunEvidence } from './run-evidence.js';
 
+vi.mock('./git-identity.js', () => ({
+  readGitIdentity: () => ({ commitSha: 'test-commit', dirty: true }),
+}));
+
 vi.mock('../apps/backend/src/config/modelConfig.js', async importOriginal => ({
   ...(await importOriginal<typeof import('../apps/backend/src/config/modelConfig.js')>()),
   getResolvedGlobalModelConfig: vi.fn(),
