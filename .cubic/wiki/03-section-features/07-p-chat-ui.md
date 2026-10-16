@@ -182,7 +182,7 @@ Sources: [apps/backend/src/routes/chatPrompts.ts:384-398](../../../apps/backend/
 ### AI Toolset
 The assistant uses a "Tool Calling" pattern to perform actions. The `buildContextToolSet` includes:
 *  **Web Search:** Uses the `searchWeb` tool (powered by OpenRouter or Codex) to perform external cross-checks.
-*  **Artifact Generation:** `generateCurrentLessonArtifact` for creating dynamic SVG, Mermaid, or HTML visualizations.
+*  **Artifact Generation:** `generateCurrentLessonArtifact` for creating temporary scene diagrams, raster images, or interactive HTML widgets. Both contextual and library chat generation tools advertise only `scene`, `image`, and `html`. Their callers preserve an explicit `scene` request through the artifact-draft API to the scene renderer. Stored historical SVG and Mermaid artifacts remain readable and revisable through the existing compatibility path.
 *  **Library Retrieval:** Tools like `getLessonDetails` and `listLibraryTree` for querying the user's stored knowledge.
 *  **Note Management:** `requestAddToNotes` for proposing new study notes based on AI clarifications.
 

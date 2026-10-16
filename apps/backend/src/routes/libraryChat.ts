@@ -253,7 +253,7 @@ const libraryChatTools = {
       mode?: 'new' | 'replacement-draft';
       projectId: string;
       prompt: string;
-      requestedVisualKind?: 'html' | 'image' | 'mermaid' | 'svg';
+      requestedVisualKind?: 'html' | 'image' | 'scene';
       revisionInstructions?: string;
       sourceArtifactId?: string;
     }>({
@@ -281,9 +281,9 @@ const libraryChatTools = {
         },
         requestedVisualKind: {
           type: 'string',
-          enum: ['html', 'image', 'mermaid', 'svg'],
+          enum: ['html', 'image', 'scene'],
           description:
-            'Rendering category explicitly requested by the user: image, svg, mermaid, or html.',
+            'Rendering category explicitly requested by the user: image for raster images or illustrations, scene for diagrams, and html for interactive widgets.',
         },
         revisionInstructions: {
           type: 'string',

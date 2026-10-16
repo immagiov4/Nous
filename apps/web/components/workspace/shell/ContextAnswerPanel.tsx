@@ -51,6 +51,7 @@ import { getBackendUrl } from '../../../services/openrouter/config.ts';
 import type {
   LearningArtifactRenderPayload,
   LearningSection,
+  LessonGeneratedVisualKind,
   StoredLessonVisual,
 } from '../../../types.ts';
 import {
@@ -142,7 +143,7 @@ interface CurrentLessonArtifactsToolInput {
 interface GenerateCurrentLessonArtifactInput {
   mode: 'new' | 'replacement-draft';
   prompt: string;
-  requestedVisualKind?: 'html' | 'image' | 'mermaid' | 'svg';
+  requestedVisualKind?: LessonGeneratedVisualKind;
   revisionInstructions?: string;
   sourceArtifactId?: string;
 }
