@@ -249,21 +249,48 @@ const collectTextRanges = (
   }
 };
 
+/** Find a tag boundary without treating quoted angle brackets as delimiters. */
+const htmlTagEnd = (html: string, start: number): number => {
+  let quote: string | undefined;
+  for (let cursor = start; cursor < html.length; cursor += 1) {
+    const character = html[cursor];
+    if (quote) {
+      if (character === quote) quote = undefined;
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '>') {
+      return cursor + 1;
+    } else if (character === '<') {
+      return -1;
+    }
+  }
+  return -1;
+};
+
 /** HTML nodes can contain a complete multiline wrapper; ignore comments and quoted tag syntax. */
 const collectAnnotationRanges = (
   node: MarkdownNode,
   markdown: string,
   analysis: MarkdownAnalysis
 ): void => {
-  const start = node.position.start.offset;
-  const html = markdown.slice(start, node.position.end.offset);
+  const sourceStart = node.position.start.offset;
+  const html = markdown.slice(sourceStart, node.position.end.offset);
   // Comments, declarations, CDATA and processing instructions contain no annotation elements.
   if (html.startsWith('<!') || html.startsWith('<?')) return;
-  for (const match of html.matchAll(
-    /<!--.*?(?:-->|$)|<\/?([a-z][a-z0-9-]*)(?:\s+(?:[^"'<>]|"[^"]*"|'[^']*')*)?>/gisu
-  )) {
-    if (match[1]?.toLowerCase() !== 'mark') continue;
-    const range = { start: start + match.index, end: start + match.index + match[0].length };
+  let cursor = 0;
+  while (cursor < html.length) {
+    const start = html.indexOf('<', cursor);
+    if (start === -1) break;
+    if (html.startsWith('<!--', start)) {
+      const close = html.indexOf('-->', start + '<!--'.length);
+      cursor = close === -1 ? html.length : close + '-->'.length;
+      continue;
+    }
+    const tag = /^<\/?([a-z][a-z0-9-]*)(?=[\s>])/iu.exec(html.slice(start));
+    const end = tag ? htmlTagEnd(html, start + tag[0].length) : -1;
+    cursor = end === -1 ? start + 1 : end;
+    if (end === -1 || tag?.[1].toLowerCase() !== 'mark') continue;
+    const range = { start: sourceStart + start, end: sourceStart + end };
     analysis.annotationTags.push(range);
     analysis.omissions.push(range);
   }
