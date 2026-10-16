@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 import {
   getGlobalModelConfig,
@@ -5,7 +8,11 @@ import {
 } from '../apps/backend/src/config/modelConfig.js';
 import { runCodexAppServerTurn } from '../apps/backend/src/services/codexAppServer.js';
 import { flawedAutomationLesson } from '../apps/backend/tests/fixtures/lessonReviewQuality.js';
-import { withRunEvidence } from './run-evidence.js';
+import { type RunManifest, withRunEvidence } from './run-evidence.js';
+
+vi.mock('./git-identity.js', () => ({
+  readGitIdentity: () => ({ commitSha: 'test-commit', dirty: true }),
+}));
 
 vi.mock('../apps/backend/src/config/modelConfig.js', async importOriginal => ({
   ...(await importOriginal<typeof import('../apps/backend/src/config/modelConfig.js')>()),
@@ -86,4 +93,47 @@ test.each([
     reasoningEffort: 'high',
     serviceTier: expectedTier,
   });
+});
+
+test.each([
+  { response: '{', errorName: 'SyntaxError', label: 'malformed JSON' },
+  { response: '{}', errorName: 'ZodError', label: 'a schema-invalid object' },
+])('records a failed evaluator call for $label', async ({ response, errorName }) => {
+  vi.resetModules();
+  const directory = await mkdtemp(join(tmpdir(), 'nous-evaluator-validation-'));
+  vi.stubEnv('NOUS_E2E_DATA', directory);
+  vi.stubEnv('REAL_LESSON_QUALITY_TESTS', 'I_ACCEPT_REAL_PROVIDER_COSTS');
+  vi.stubEnv('CODEX_APP_SERVER_ENABLED', '');
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  vi.mocked(getResolvedGlobalModelConfig).mockResolvedValue(getGlobalModelConfig());
+  vi.mocked(runCodexAppServerTurn).mockResolvedValue(response);
+  const actual = await vi.importActual<typeof import('./run-evidence.js')>('./run-evidence.js');
+  let runDirectory = '';
+  vi.mocked(withRunEvidence).mockImplementation((context, operation) =>
+    actual.withRunEvidence(context, recorder => {
+      runDirectory = recorder.directory;
+      return operation(recorder);
+    })
+  );
+
+  try {
+    await expect(import('./run-lesson-review-quality.js')).rejects.toMatchObject({
+      name: errorName,
+    });
+    const manifest: RunManifest = JSON.parse(
+      await readFile(join(runDirectory, 'manifest.json'), 'utf8')
+    );
+    expect(manifest.outcome).toBe('failed');
+    expect(manifest.measurements).toEqual([
+      expect.objectContaining({
+        name: 'seeded-original-evaluation',
+        kind: 'call',
+        outcome: 'failed',
+      }),
+      expect.objectContaining({ name: 'seeded-original', kind: 'case', outcome: 'failed' }),
+    ]);
+    expect(runCodexAppServerTurn).toHaveBeenCalledTimes(1);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
