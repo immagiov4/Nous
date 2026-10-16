@@ -101,13 +101,14 @@ test('stops a pending project read and recovers active and queued users after sh
   });
   const restarted = createLibraryExportApi(dependencies);
   await restarted.recoverPendingRuns();
-  await vi.waitFor(() =>
-    expect([first, second, third].map(run => runStore.runs.get(run.runId)?.status)).toEqual([
-      'completed',
-      'completed',
-      'completed',
-    ])
+  await Promise.all(
+    [first, second, third].map(run => runStore.waitForStatus(run.runId, 'completed'))
   );
+  expect([first, second, third].map(run => runStore.runs.get(run.runId)?.status)).toEqual([
+    'completed',
+    'completed',
+    'completed',
+  ]);
   expect(exported).toEqual([owners[0], ...owners]);
 });
 
@@ -125,7 +126,8 @@ test('rejects pending and queued admission during shutdown without creating anot
     config,
   });
   const first = await api.startOrResume(userId, 'first-request');
-  await vi.waitFor(() => expect(runStore.runs.get(first.runId)?.status).toBe('completed'));
+  await runStore.waitForStatus(first.runId, 'completed');
+  expect(runStore.runs.get(first.runId)?.status).toBe('completed');
   runStore.terminalTimes.set(first.runId, Date.now() - config.retentionMs);
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -173,13 +175,15 @@ test('starts a fresh library snapshot after the previous completed export expire
     config,
   });
   const first = await api.startOrResume(userId, 'first-request');
-  await vi.waitFor(() => expect(runStore.runs.get(first.runId)?.status).toBe('completed'));
+  await runStore.waitForStatus(first.runId, 'completed');
+  expect(runStore.runs.get(first.runId)?.status).toBe('completed');
   runStore.terminalTimes.set(first.runId, Date.now() - config.retentionMs);
   await projectStore.saveProject(userId, createSnapshot('new-project'));
   const second = await api.startOrResume(userId, 'fresh-request');
   expect(second.runId).not.toBe(first.runId);
   expect(runStore.runs.get(first.runId)?.status).toBe('cancelled');
-  await vi.waitFor(() => expect(runStore.runs.get(second.runId)?.status).toBe('completed'));
+  await runStore.waitForStatus(second.runId, 'completed');
+  expect(runStore.runs.get(second.runId)?.status).toBe('completed');
   expect(runStore.runs.get(second.runId)?.expectedProjects.map(project => project.id)).toEqual([
     'old-project',
     'new-project',
@@ -191,19 +195,22 @@ test('reclaims completed archives after retention during startup', async () => {
   await projectStore.saveProject(userId, createSnapshot('retained-project'));
   const runStore = new MemoryLibraryExportRunStore();
   const workspace = new LibraryExportWorkspace(temporaryRoot);
-  const api = createLibraryExportApi({
+  const dependencies = {
     archiveWorkspace: workspace,
     assetReader: { readActive: () => Promise.reject(new Error('Unexpected asset read.')) },
     projectStore,
     runStore,
-  });
+  };
+  const api = createLibraryExportApi(dependencies);
   const started = await api.startOrResume(userId, 'retention-request');
-  await vi.waitFor(() => expect(runStore.run?.status).toBe('completed'));
+  await runStore.waitForStatus(started.runId, 'completed');
+  expect(runStore.run?.status).toBe('completed');
   const retentionMs = 24 * 60 * 60_000;
   runStore.terminalTimes.set(started.runId, Date.now() - retentionMs);
   const removeRun = vi.spyOn(workspace, 'removeRun');
-  await api.recoverPendingRuns();
   await api.close();
+  const restartedProcess = createLibraryExportApi(dependencies);
+  await restartedProcess.recoverPendingRuns();
   expect(runStore.run?.status).toBe('cancelled');
   expect(removeRun).toHaveBeenCalledWith(started.runId);
   expect(runStore.cleanupCompleted).toBe(true);
@@ -262,9 +269,8 @@ test('creates an import-compatible library archive while only one project export
   });
 
   const started = await api.startOrResume(userId, '550e8400-e29b-41d4-a716-446655440000');
-  await vi.waitFor(async () => {
-    expect((await api.getStatus(userId, started.runId))?.status).toBe('completed');
-  });
+  await runStore.waitForStatus(started.runId, 'completed');
+  expect((await api.getStatus(userId, started.runId))?.status).toBe('completed');
 
   const downloadToken = await api.createDownloadAccess(userId, started.runId);
   if (!downloadToken) throw new Error('Library download token is missing.');
@@ -354,13 +360,14 @@ test.each([
     expect(markFailed).not.toHaveBeenCalled();
   } finally {
     releaseFirst.resolve();
-    await vi.waitFor(() =>
-      expect([first, second, third].map(run => runStore.runs.get(run.runId)?.status)).toEqual([
-        'completed',
-        'completed',
-        'completed',
-      ])
+    await Promise.all(
+      [first, second, third].map(run => runStore.waitForStatus(run.runId, 'completed'))
     );
+    expect([first, second, third].map(run => runStore.runs.get(run.runId)?.status)).toEqual([
+      'completed',
+      'completed',
+      'completed',
+    ]);
   }
   expect(exported).toEqual(owners);
 });
@@ -389,17 +396,16 @@ test('resumes from a durable project checkpoint after an interrupted process', a
   };
   const firstProcess = createLibraryExportApi(dependencies);
   const started = await firstProcess.startOrResume(userId, '550e8400-e29b-41d4-a716-446655440000');
-  await vi.waitFor(async () => {
-    expect((await firstProcess.getStatus(userId, started.runId))?.status).toBe('failed');
-  });
+  await runStore.waitForStatus(started.runId, 'failed');
+  expect((await firstProcess.getStatus(userId, started.runId))?.status).toBe('failed');
+
   expect(runStore.run?.checkpoints.map(checkpoint => checkpoint.projectId)).toEqual(['project-1']);
   await runStore.markRunning(started.runId, 'project-archive', 'project-2');
 
   const restartedProcess = createLibraryExportApi(dependencies);
   await restartedProcess.recoverPendingRuns();
-  await vi.waitFor(async () => {
-    expect((await restartedProcess.getStatus(userId, started.runId))?.status).toBe('completed');
-  });
+  await runStore.waitForStatus(started.runId, 'completed');
+  expect((await restartedProcess.getStatus(userId, started.runId))?.status).toBe('completed');
 
   expect(callsByProject.get('project-1')).toBe(1);
   expect(callsByProject.get('project-2')).toBe(2);
@@ -434,9 +440,9 @@ test('replaces a failed run when a checkpointed project revision changed', async
     userId,
     '550e8400-e29b-41d4-a716-446655440000'
   );
-  await vi.waitFor(async () => {
-    expect((await firstProcess.getStatus(userId, failedRun.runId))?.status).toBe('failed');
-  });
+  await runStore.waitForStatus(failedRun.runId, 'failed');
+  expect((await firstProcess.getStatus(userId, failedRun.runId))?.status).toBe('failed');
+
   expect(runStore.run?.checkpoints).toEqual([
     expect.objectContaining({
       projectId: 'project-1',
@@ -457,11 +463,11 @@ test('replaces a failed run when a checkpointed project revision changed', async
   );
 
   expect(replacementRun.runId).not.toBe(failedRun.runId);
-  await vi.waitFor(async () => {
-    expect((await restartedProcess.getStatus(userId, replacementRun.runId))?.status).toBe(
-      'completed'
-    );
-  });
+  await runStore.waitForStatus(replacementRun.runId, 'completed');
+  expect((await restartedProcess.getStatus(userId, replacementRun.runId))?.status).toBe(
+    'completed'
+  );
+
   expect(markCancelled).toHaveBeenCalledWith(
     failedRun.runId,
     expect.objectContaining({ code: 'LIBRARY_EXPORT_EXPECTED_PROJECT_CHANGED' })
@@ -518,9 +524,9 @@ test('replaces a failed run when a checkpointed project cover changed', async ()
     userId,
     '550e8400-e29b-41d4-a716-446655440000'
   );
-  await vi.waitFor(async () => {
-    expect((await firstProcess.getStatus(userId, failedRun.runId))?.status).toBe('failed');
-  });
+  await runStore.waitForStatus(failedRun.runId, 'failed');
+  expect((await firstProcess.getStatus(userId, failedRun.runId))?.status).toBe('failed');
+
   expect(runStore.run?.checkpoints).toEqual([
     expect.objectContaining({ projectId: 'project-1', projectRevision: 2 }),
   ]);
@@ -535,11 +541,11 @@ test('replaces a failed run when a checkpointed project cover changed', async ()
   );
 
   expect(replacementRun.runId).not.toBe(failedRun.runId);
-  await vi.waitFor(async () => {
-    expect((await restartedProcess.getStatus(userId, replacementRun.runId))?.status).toBe(
-      'completed'
-    );
-  });
+  await runStore.waitForStatus(replacementRun.runId, 'completed');
+  expect((await restartedProcess.getStatus(userId, replacementRun.runId))?.status).toBe(
+    'completed'
+  );
+
   expect(markCancelled).toHaveBeenCalledWith(
     failedRun.runId,
     expect.objectContaining({ code: 'LIBRARY_EXPORT_EXPECTED_PROJECT_CHANGED' })
@@ -589,9 +595,9 @@ test('replaces a failed run when a project is deleted and recreated with the sam
     userId,
     '550e8400-e29b-41d4-a716-446655440000'
   );
-  await vi.waitFor(async () => {
-    expect((await firstProcess.getStatus(userId, failedRun.runId))?.status).toBe('failed');
-  });
+  await runStore.waitForStatus(failedRun.runId, 'failed');
+  expect((await firstProcess.getStatus(userId, failedRun.runId))?.status).toBe('failed');
+
   const originalIncarnationId = runStore.run?.expectedProjects.find(
     project => project.id === 'project-1'
   )?.incarnationId;
@@ -609,11 +615,11 @@ test('replaces a failed run when a project is deleted and recreated with the sam
   );
 
   expect(replacementRun.runId).not.toBe(failedRun.runId);
-  await vi.waitFor(async () => {
-    expect((await restartedProcess.getStatus(userId, replacementRun.runId))?.status).toBe(
-      'completed'
-    );
-  });
+  await runStore.waitForStatus(replacementRun.runId, 'completed');
+  expect((await restartedProcess.getStatus(userId, replacementRun.runId))?.status).toBe(
+    'completed'
+  );
+
   expect(markCancelled).toHaveBeenCalledWith(
     failedRun.runId,
     expect.objectContaining({ code: 'LIBRARY_EXPORT_EXPECTED_PROJECT_CHANGED' })
@@ -688,9 +694,8 @@ test('cancels a pre-identity run instead of restarting it', async () => {
 
   const replacement = await api.startOrResume(userId, '92b5e8d4-8384-4d25-8745-728e2ad0f02f');
   expect(replacement.runId).not.toBe(legacyRunId);
-  await vi.waitFor(async () => {
-    expect((await api.getStatus(userId, replacement.runId))?.status).toBe('completed');
-  });
+  await runStore.waitForStatus(replacement.runId, 'completed');
+  expect((await api.getStatus(userId, replacement.runId))?.status).toBe('completed');
 });
 
 test('refuses finalization when a project changes after archive verification', async () => {
@@ -718,9 +723,8 @@ test('refuses finalization when a project changes after archive verification', a
   });
 
   const started = await api.startOrResume(userId, '550e8400-e29b-41d4-a716-446655440000');
-  await vi.waitFor(async () => {
-    expect((await api.getStatus(userId, started.runId))?.status).toBe('failed');
-  });
+  await runStore.waitForStatus(started.runId, 'failed');
+  expect((await api.getStatus(userId, started.runId))?.status).toBe('failed');
 
   expect(runStore.run?.checkpoints).toHaveLength(2);
   expect(createLibraryArchive).toHaveBeenCalledOnce();
@@ -749,9 +753,9 @@ test('cancels an irrecoverable failed run before exporting the current library',
     userId,
     '550e8400-e29b-41d4-a716-446655440000'
   );
-  await vi.waitFor(async () => {
-    expect((await firstProcess.getStatus(userId, failedRun.runId))?.status).toBe('failed');
-  });
+  await runStore.waitForStatus(failedRun.runId, 'failed');
+  expect((await firstProcess.getStatus(userId, failedRun.runId))?.status).toBe('failed');
+
   await projectStore.deleteProject(userId, 'project-2');
   const markCancelled = vi.spyOn(runStore, 'markCancelled');
 
@@ -761,11 +765,11 @@ test('cancels an irrecoverable failed run before exporting the current library',
     '6ba7b810-9dad-11d1-80b4-00c04fd430c8'
   );
   expect(replacementRun.runId).not.toBe(failedRun.runId);
-  await vi.waitFor(async () => {
-    expect((await restartedProcess.getStatus(userId, replacementRun.runId))?.status).toBe(
-      'completed'
-    );
-  });
+  await runStore.waitForStatus(replacementRun.runId, 'completed');
+  expect((await restartedProcess.getStatus(userId, replacementRun.runId))?.status).toBe(
+    'completed'
+  );
+
   expect(markCancelled).toHaveBeenCalledWith(
     failedRun.runId,
     expect.objectContaining({ code: 'LIBRARY_EXPORT_EXPECTED_PROJECT_UNAVAILABLE' })
@@ -790,13 +794,12 @@ test('serves only the completed backend archive through the library export route
   const startResponse = await request(app).post('/api/projects/library-exports');
   expect(startResponse.status).toBe(202);
   const runId = startResponse.body.run.runId as string;
-  await vi.waitFor(async () => {
-    const statusResponse = await request(app).get(`/api/projects/library-exports/${runId}`);
-    expect(statusResponse.body.run).toMatchObject({
-      completedProjectCount: 1,
-      projectCount: 1,
-      status: 'completed',
-    });
+  await runStore.waitForStatus(runId, 'completed');
+  const statusResponse = await request(app).get(`/api/projects/library-exports/${runId}`);
+  expect(statusResponse.body.run).toMatchObject({
+    completedProjectCount: 1,
+    projectCount: 1,
+    status: 'completed',
   });
   getRun.mockClear();
   getRunProgress.mockClear();
@@ -817,9 +820,9 @@ test('serves only the completed backend archive through the library export route
   expect(downloadResponse.headers['content-type']).toContain('application/zip');
   const archive = await JSZip.loadAsync(downloadResponse.body as Buffer);
   expect(archive.file(LIBRARY_ARCHIVE_MANIFEST_PATH)).not.toBeNull();
-  await vi.waitFor(async () => {
-    expect((await api.getStatus(userId, runId))?.status).toBe('downloaded');
-  });
+  await runStore.waitForStatus(runId, 'downloaded');
+  expect((await api.getStatus(userId, runId))?.status).toBe('downloaded');
+
   expect(await api.createDownloadAccess(userId, runId)).toBeNull();
   await vi.waitFor(() => expect(runStore.cleanupCompleted).toBe(true));
 });
