@@ -3,8 +3,9 @@ import '@testing-library/jest-dom/vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-
+import HomeChatLibraryContextPicker from '../../../components/library/HomeChatLibraryContextPicker.tsx';
 import { NewHomeView } from '../../../components/newHome/NewHomeView.tsx';
+import { setAccountLocale } from '../../../i18n/uiMessages.ts';
 import type { LibraryTree, ProjectSnapshot, SavedProjectMeta } from '../../../types.ts';
 
 vi.mock('../../../services/projects/courseCover.ts', () => ({
@@ -107,8 +108,93 @@ describe('NewHomeView library interactions', () => {
   });
 
   afterEach(() => {
+    setAccountLocale(null);
     vi.unstubAllEnvs();
     globalThis.matchMedia = originalMatchMedia;
+  });
+
+  test.each([
+    ['it', 1, '1 lezione'],
+    ['it', 2, '2 lezioni'],
+    ['en', 1, '1 lesson'],
+    ['en', 2, '2 lessons'],
+  ] as const)('renders %s lesson count %i in the course list', (locale, lessonCount, label) => {
+    setAccountLocale(locale);
+    const countedProject = { ...project, lessonCount };
+    render(
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isExportingProject={false}
+        isLibraryLoading={false}
+        libraryFolders={[]}
+        libraryTree={{
+          descendantProjectIdsByFolderId: {},
+          folderById: {},
+          placementByProjectId: {},
+          rootNodes: [{ id: project.id, kind: 'project', order: 1, project: countedProject }],
+        }}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => null)}
+        loadProjectsById={vi.fn(async () => [])}
+        onCreateFolder={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onToggleDarkMode={vi.fn()}
+        openingProjectId={null}
+        projects={[countedProject]}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+    expect(screen.getByRole('button', { name: new RegExp(`^${label} ·`) })).toBeInTheDocument();
+  });
+
+  test.each([
+    ['it', 1, '1 corso incluso', '1/1 lezione completata'],
+    ['it', 2, '2 corsi inclusi', '1/2 lezioni completate'],
+    ['en', 1, '1 course included', '1/1 lesson completed'],
+    ['en', 2, '2 courses included', '1/2 lessons completed'],
+  ] as const)('renders %s context counts for %i', (locale, count, courseLabel, lessonLabel) => {
+    setAccountLocale(locale);
+    const projects = Array.from({ length: count }, (_, index) => ({
+      ...project,
+      id: `project-${index}`,
+      lessonCount: count,
+    }));
+    const ids = projects.map(entry => entry.id);
+    render(
+      <HomeChatLibraryContextPicker
+        attachedContextRefs={[]}
+        close={vi.fn()}
+        isLibraryLoading={false}
+        isMobileViewport={false}
+        libraryTree={{
+          ...tree,
+          descendantProjectIdsByFolderId: { [folder.id]: ids },
+          rootNodes: [
+            {
+              id: folder.id,
+              kind: 'folder',
+              order: 1,
+              folder,
+              descendantProjectIds: ids,
+              children: projects.map(entry => ({
+                id: entry.id,
+                kind: 'project',
+                order: 1,
+                project: entry,
+              })),
+            },
+          ],
+        }}
+        menuAlign="start"
+        menuRef={{ current: null }}
+        menuVerticalPlacement="below"
+        onToggleContextRef={vi.fn()}
+        onUploadSourceClick={vi.fn()}
+      />
+    );
+    expect(screen.getByText(courseLabel)).toBeInTheDocument();
+    expect(screen.getAllByText(lessonLabel)).toHaveLength(count);
   });
 
   test('reports home and library page changes to its owner', async () => {
