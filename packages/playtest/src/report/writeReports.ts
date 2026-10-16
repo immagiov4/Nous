@@ -69,6 +69,8 @@ export async function writeStoryReports(input: {
     ...probeFindings.map(finding => findingMarkdown(finding, dir)),
     '## Judge findings',
     ...judgeFindings.map(finding => findingMarkdown(finding, dir)),
+    '## Discarded inspector candidates',
+    ...(record.discardedFindings ?? []).map(discarded => escapeMarkdown(JSON.stringify(discarded))),
     '## Learner friction',
     ...record.friction.map(escapeMarkdown),
     '## Diary',

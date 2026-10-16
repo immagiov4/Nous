@@ -145,6 +145,7 @@ export default function LandingPage({
         </a>
 
         <nav
+          id="marketing-navigation"
           className={isMenuOpen ? 'marketing-nav is-open' : 'marketing-nav'}
           aria-label={t('Navigazione principale')}
         >
@@ -172,6 +173,7 @@ export default function LandingPage({
           type="button"
           aria-label={isMenuOpen ? t('Chiudi menu') : t('Apri menu')}
           aria-expanded={isMenuOpen}
+          aria-controls="marketing-navigation"
           onClick={() => setIsMenuOpen(current => !current)}
         >
           {isMenuOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />}

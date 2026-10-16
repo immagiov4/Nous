@@ -300,6 +300,7 @@ const ArtifactOverlay = ({
   return (
     <div
       role="presentation"
+      data-playtest-overlay
       className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-3 sm:p-6"
     >
       <button

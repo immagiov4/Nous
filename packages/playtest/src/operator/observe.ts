@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Page } from 'playwright';
+import type { CapturedDom, ProbeWindow } from '../probes/pageProbes';
 
 export const SCREENSHOT_PRIVACY_MASK = {
   color: '#FF00FF',
@@ -20,6 +21,7 @@ export type Observation = {
   url: string;
   screenshotPath: string;
   nodes: VisibleNode[];
+  dom?: CapturedDom;
   inspectionEligible?: boolean;
   diagnostics?: { capture: { unstable: true } };
 };
@@ -178,12 +180,14 @@ function visibleSnapshot({
   const semanticSelector =
     'button, a[href], input, textarea, select, h1, h2, h3, h4, h5, h6, [role], [contenteditable]';
   const names = new Map<Element, string>();
+  const textRuns = new Map<Element, string[]>();
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const range = document.createRange();
   const collectNames = () => {
     for (let text = walker.nextNode(); text; text = walker.nextNode()) {
       const parent = text.parentElement;
-      if (!parent || parent.closest('script, style, noscript, template, input, textarea')) continue;
+      if (!parent || parent.closest('script, style, noscript, template, input, textarea, select'))
+        continue;
       // Skip the whole secret-bearing label before clipping, so even partial secrets cannot escape.
       if (secretTextElements.some(element => element.contains(parent))) continue;
       const label = parent.closest('label');
@@ -193,6 +197,9 @@ function visibleSnapshot({
   };
   const readVisibleText = (text: Node, parent: Element) => {
     let visibleText = '';
+    // Keep DOM-node and occlusion boundaries: joining separated runs can invent missing spaces.
+    let run = '';
+    const runs: string[] = [];
     const content = text.textContent ?? '';
     for (let offset = 0; offset < content.length; offset++) {
       range.setStart(text, offset);
@@ -207,9 +214,46 @@ function visibleSnapshot({
         visibleAt(parent, rect, true)
       ) {
         visibleText += content[offset];
+        run += content[offset];
+      } else if (run) {
+        runs.push(run);
+        run = '';
       }
     }
+    if (run) runs.push(run);
+    textRuns.set(parent, [...(textRuns.get(parent) ?? []), ...runs]);
     return visibleText;
+  };
+  const collectControlText = () => {
+    for (const element of document.querySelectorAll('input, textarea, select')) {
+      if (!visibleAt(element, element.getBoundingClientRect())) continue;
+      let text: string[];
+      if (element instanceof HTMLSelectElement) {
+        text = Array.from(element.selectedOptions, option => option.label);
+      } else if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
+        if (
+          element instanceof HTMLInputElement &&
+          ![
+            'text',
+            'search',
+            'email',
+            'url',
+            'tel',
+            'number',
+            'button',
+            'submit',
+            'reset',
+          ].includes(element.type)
+        )
+          continue;
+        text = [element.matches(':placeholder-shown') ? element.placeholder : element.value];
+      } else continue;
+      // Native control copy has no DOM glyph ranges; retain only its displayed, non-secret source.
+      textRuns.set(
+        element,
+        text.filter(value => value && !containsSecret(value))
+      );
+    }
   };
   const implicitRole = (element: Element): string => {
     const tag = element.tagName.toLowerCase();
@@ -270,6 +314,7 @@ function visibleSnapshot({
   }
   try {
     collectNames();
+    collectControlText();
     for (const element of elements) {
       if (!element.matches(`${semanticSelector}, img`)) continue;
       // Attribute names and native values have no text rectangles to verify for clipping or coverage.
@@ -283,7 +328,11 @@ function visibleSnapshot({
               element.matches(inspectionSelector) &&
               uncoveredPoint(element, element.getBoundingClientRect()) !== undefined
           );
-    return { nodes: registeredNodes(), inspectionEligible };
+    return {
+      nodes: registeredNodes(),
+      inspectionEligible,
+      dom: (scope as ProbeWindow).__playtestProbes?.snapshot(secrets, textRuns),
+    };
   } finally {
     capture?.resume();
   }
@@ -313,7 +362,7 @@ export async function observePage(options: {
   inspectionSelector?: string;
 }): Promise<Observation> {
   const { page, stepIndex, screenshotPath, secrets } = options;
-  const { nodes, inspectionEligible } = await page.evaluate(visibleSnapshot, {
+  const { nodes, inspectionEligible, dom } = await page.evaluate(visibleSnapshot, {
     secrets,
     prefix: randomUUID(),
     inspectionSelector: options.inspectionSelector,
@@ -358,6 +407,7 @@ export async function observePage(options: {
     url: redact(url, secrets),
     screenshotPath,
     nodes,
+    dom,
     ...(inspectionEligible === undefined ? {} : { inspectionEligible }),
   };
 }
