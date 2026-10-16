@@ -54,6 +54,7 @@ vi.mock('../adapter', () => ({
     baseUrl: vi.fn(),
     locale: () => 'it-IT',
     ensureStack: vi.fn(async () => {}),
+    skipReason: vi.fn(async (): Promise<string | undefined> => undefined),
     prepare: vi.fn(async () => ({
       credentials: { email: 'test@example.test', password: 'secret' },
     })),
@@ -118,6 +119,8 @@ beforeEach(async () => {
   vi.spyOn(stack, 'stopStack').mockResolvedValue();
   vi.mocked(loadStories).mockResolvedValue([story]);
   vi.mocked(adapter.ensureStack).mockResolvedValue();
+  if (!adapter.skipReason) throw new Error('Skip policy fixture missing');
+  vi.mocked(adapter.skipReason).mockResolvedValue(undefined);
   vi.mocked(adapter.prepare).mockResolvedValue({
     credentials: { email: 'test@example.test', password: 'secret' },
   });
@@ -168,6 +171,21 @@ async function evidence(generation = false) {
 }
 
 describe('Nous playtest evidence entrypoint', () => {
+  it('retains a skipped run without starting or stopping application services', async () => {
+    if (!adapter.skipReason) throw new Error('Skip policy fixture missing');
+    vi.mocked(adapter.skipReason).mockResolvedValue('Private fixtures require local opt-in.');
+    await main(args);
+    const saved = await evidence();
+    expect(adapter.ensureStack).not.toHaveBeenCalled();
+    expect(stack.stopStack).not.toHaveBeenCalled();
+    expect(adapter.prepare).not.toHaveBeenCalled();
+    expect(createPiDecisionSource).not.toHaveBeenCalled();
+    const summary = JSON.parse(await readFile(join(saved.directory, 'summary.json'), 'utf8'));
+    expect(summary.records[0]).toMatchObject({
+      outcome: 'skipped',
+      reason: 'Private fixtures require local opt-in.',
+    });
+  });
   it('retains separate provenance for concurrent legacy JSON imports with the same project ID', async () => {
     const snapshot = normalizeProjectSnapshot(syntheticCourse(), true);
     await mkdir(join(dataDirectory, 'fixtures'));

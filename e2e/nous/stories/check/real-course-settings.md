@@ -12,4 +12,4 @@ budget:
   steps: 30
 ---
 
-You want to try a different interface language while studying the Linux course. Sign in, open the course and note which lesson you are reading. Open your account preferences, choose a supported language different from the one currently shown in the interface, and save it. Close and reopen preferences to check that your chosen language remains selected, then return to the course. Finish when the saved language is reflected in the interface and the same lesson remains available to read, or describe the visible saving or navigation obstacle.
+You want to try a different interface language while studying the Linux course. Sign in, open the course and note which lesson you are reading. Return to the library and open your account preferences, choose a supported language different from the one currently shown in the interface, and save it. Close and reopen preferences to check that your chosen language remains selected, then return to the course. Finish when the saved language is reflected in the interface and the same lesson remains available to read, or describe the visible saving or navigation obstacle.

@@ -203,6 +203,7 @@ function executePlaytest(
 type RunFinalization = {
   expired?: PreparationDeadline;
   indexing?: Promise<void>;
+  allSkipped?: boolean;
 };
 
 async function finishNousRun(
@@ -213,16 +214,29 @@ async function finishNousRun(
   finalization.expired = deadlines.find(deadline => deadline.signal.aborted);
   const finishing = finalization.expired ?? deadlines.at(-1);
   await withRunCleanup(
-    () =>
-      finishing
+    () => {
+      if (finalization.allSkipped) return Promise.resolve();
+      return finishing
         ? finishing.settle('isolated-stack-stop', () => stopStack(), 'cleanup')
-        : stopStack(),
+        : stopStack();
+    },
     () => {
       const reading = linkArtifacts(recorder);
       finalization.indexing = reading;
       return finishing ? finishing.settle('artifact-index', () => reading, 'cleanup') : reading;
     }
   );
+}
+
+async function executeAndRecordSelection(
+  args: string[],
+  values: ReturnType<typeof parsePlaytestArgs>,
+  recorder: RunEvidenceRecorder,
+  finalization: RunFinalization
+) {
+  const summary = await executePlaytest(args, values, recorder);
+  finalization.allSkipped = summary.records.every(record => record.outcome === 'skipped');
+  return summary;
 }
 
 /** Nous owns run identity and persistence; learner outcomes remain in the generic reports. */
@@ -243,7 +257,7 @@ export async function main(args: string[] = process.argv.slice(2)) {
         try {
           return await withFreshnessEvidence(
             (evidence, deadline) => recordGeneration(recorder, evidence, deadline),
-            () => executePlaytest(args, values, recorder),
+            () => executeAndRecordSelection(args, values, recorder, finalization),
             (evidence, deadline, signal) => refreshGeneration(recorder, evidence, deadline, signal),
             deadlines => finishNousRun(recorder, deadlines, finalization)
           );

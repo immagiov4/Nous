@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PlaytestAdapter } from '../../packages/playtest/src/adapter';
+import { privateFixtureSkipReason } from './fixtures';
 import { prepare } from './prepare';
 import { APP_URL, BACKEND_URL, dataRoot, ensureStack } from './stack';
 
@@ -13,6 +14,7 @@ const adapter: PlaytestAdapter = {
   baseUrl: () => APP_URL,
   locale: () => 'it-IT',
   ensureStack,
+  skipReason: privateFixtureSkipReason,
   prepare,
   classify(event) {
     if (event.kind !== 'response' || event.status < HTTP_SERVER_ERROR) return { stop: false };

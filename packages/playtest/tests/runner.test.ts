@@ -171,6 +171,35 @@ async function report(path: string) {
 }
 
 describe('parallel runner', () => {
+  it('reports exclusions before starting any stack, browser, or account', async () => {
+    const app = adapter();
+    app.skipReason = async () => 'Private fixtures require local opt-in.';
+    app.ensureStack = vi.fn();
+    app.prepare = vi.fn();
+    const source = vi.fn();
+    const launch = vi.spyOn(chromium, 'launch');
+    const summary = await run([story('private')], app, source);
+    expect(summary.records[0]).toMatchObject({
+      outcome: 'skipped',
+      reason: 'Private fixtures require local opt-in.',
+    });
+    expect((await report(summary.records[0].reportPath)).outcome).toBe('skipped');
+    expect(summary.outcomeCounts.skipped).toBe(1);
+    expect(app.ensureStack).not.toHaveBeenCalled();
+    expect(app.prepare).not.toHaveBeenCalled();
+    expect(source).not.toHaveBeenCalled();
+    expect(launch).not.toHaveBeenCalled();
+  });
+  it('runs available stories while retaining exclusions in a mixed selection', async () => {
+    const app = adapter();
+    app.skipReason = async candidate =>
+      candidate.id === 'private' ? 'Backup unavailable.' : undefined;
+    const summary = await run([story('private'), story('public')], app);
+    expect(summary.outcomeCounts.skipped).toBe(1);
+    expect(summary.outcomeCounts.completed).toBe(1);
+    expect(summary.operationalFailure).toBeUndefined();
+  });
+
   it.each([true, false])('persists optional CLI video evidence with video=%s', async video => {
     runDir = await mkdtemp(join(tmpdir(), 'playtest-video-cli-'));
     const adapterPath = join(runDir, 'adapter.ts');

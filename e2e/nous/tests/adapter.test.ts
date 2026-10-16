@@ -33,9 +33,11 @@ import {
   stopStack,
   waitForReadiness,
 } from '../stack';
+import * as workflowCleanup from '../workflowCleanup';
 
 let temporaryRoot: string | undefined;
 beforeEach(() => {
+  vi.spyOn(workflowCleanup, 'settleAccountWorkflows').mockResolvedValue();
   vi.spyOn(PostgresAccountStore.prototype, 'finishSetup').mockResolvedValue();
 });
 afterEach(async () => {
@@ -571,13 +573,18 @@ describe('Nous adapter', () => {
     });
   });
 
-  it('loads the four stories and their mission persona', async () => {
+  it('loads the bundled stories and their mission persona', async () => {
     const stories = await loadStories(fileURLToPath(new URL('../stories', import.meta.url)));
     expect(stories.map(story => story.id)).toEqual([
       'esame-diritto-privato',
       'home-chat-ask',
       'lesson-read-and-select',
       'library-open-course',
+      'real-course-contextual-chat',
+      'real-course-lesson-visuals',
+      'real-course-outline-navigation',
+      'real-course-regeneration',
+      'real-course-settings',
     ]);
     const personas = await loadPersonas(fileURLToPath(new URL('../personas', import.meta.url)));
     expect(personas.get('giulia')?.affects?.length).toBeGreaterThan(0);
@@ -686,6 +693,28 @@ describe('Nous adapter', () => {
     expect(deleted.mock.invocationCallOrder[0]).toBeLessThan(
       fetcher.mock.invocationCallOrder.at(-1) as number
     );
+  });
+
+  it('holds project and account deletion until account workflows settle', async () => {
+    const userId = crypto.randomUUID();
+    const fetcher = vi.fn(async () => Response.json({ id: userId }));
+    vi.stubGlobal('fetch', fetcher);
+    vi.spyOn(PostgresProjectStore.prototype, 'listProjects').mockResolvedValue([
+      { id: 'project' },
+    ] as Awaited<ReturnType<PostgresProjectStore['listProjects']>>);
+    const deleted = vi.spyOn(PostgresProjectStore.prototype, 'deleteProject').mockResolvedValue();
+    vi.spyOn(PostgresProjectStore.prototype, 'close').mockResolvedValue();
+    const retirement = Promise.withResolvers<void>();
+    vi.mocked(workflowCleanup.settleAccountWorkflows).mockReturnValue(retirement.promise);
+    const prepared = await prepare(story, 'desktop', status);
+    const cleanup = prepared.cleanup();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(deleted).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    retirement.resolve();
+    await cleanup;
+    expect(deleted).toHaveBeenCalledExactlyOnceWith(userId, 'project');
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it('cleans up a created synthetic account when course preparation fails', async () => {

@@ -18,11 +18,17 @@ import { createModelResolver, MODEL_REQUEST_RETRIES } from './modelResolution';
 const DECISION_TOOLS = ['act', 'report_friction', 'diary', 'stop'];
 const actionSchema = Type.Union([
   Type.Object({ type: Type.Literal('observe') }),
-  Type.Object({ type: Type.Literal('click'), ref: Type.String() }),
+  Type.Object({
+    type: Type.Literal('click'),
+    ref: Type.String(),
+    button: Type.Optional(Type.Union([Type.Literal('left'), Type.Literal('right')])),
+  }),
+  Type.Object({ type: Type.Literal('select'), ref: Type.String(), label: Type.String() }),
   Type.Object({ type: Type.Literal('type'), ref: Type.String(), text: Type.String() }),
   Type.Object({ type: Type.Literal('press'), key: Type.String() }),
   Type.Object({
     type: Type.Literal('scroll'),
+    ref: Type.Optional(Type.String()),
     direction: Type.Union([Type.Literal('up'), Type.Literal('down')]),
   }),
   Type.Object({
@@ -73,7 +79,7 @@ export function createPiDecisionSource(options: {
           name: 'act',
           label: 'Act',
           description:
-            'Choose one action on the visible viewport and state its expected result. Use observe to look again while an operation progresses; press accepts actual keyboard keys only. Credentials are filled privately by the operator.',
+            'Choose one action on the visible viewport and state its expected result. Use observe to look again while an operation progresses; press accepts actual keyboard keys (for example Escape, ArrowDown, Enter). Click supports a right mouse button on desktop. For scroll, supply a visible ref in the pane you want to scroll. Use select with a visible option label for native dropdowns. Credentials are filled privately by the operator.',
           parameters: Type.Object({ action: actionSchema, expectation: Type.String() }),
           executionMode: 'sequential',
           execute: async (_id, args, _signal, _update, ctx) =>

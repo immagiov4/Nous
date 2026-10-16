@@ -14,6 +14,8 @@ export type PlaytestAdapter = {
   baseUrl(): string;
   locale(): string;
   ensureStack(): Promise<void>;
+  /** A declared exclusion is reported before stack startup or account preparation. */
+  skipReason?(story: Story): Promise<string | undefined>;
   prepare(
     story: Story,
     viewport: Viewport
