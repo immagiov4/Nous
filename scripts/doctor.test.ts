@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
 import {
   countPackageManagerBunSetups,
@@ -10,6 +12,11 @@ import {
   parseSonarProvisioner,
   resolveLocalSupabaseConfig,
 } from './doctor';
+
+vi.mock('node:fs', async importOriginal => {
+  const filesystem = await importOriginal<typeof import('node:fs')>();
+  return { ...filesystem, existsSync: vi.fn(filesystem.existsSync) };
+});
 
 describe('parseDoctorArguments', () => {
   test('uses service-free checks by default', () => {
@@ -166,6 +173,27 @@ describe('inspectEnvironment', () => {
       expect.objectContaining({ label: 'Bun runtime', status: 'PASS' }),
       expect.objectContaining({ label: 'Workspace dependencies', status: 'PASS' }),
     ]);
+  });
+
+  test.each([
+    'checks',
+    'all',
+  ] as const)('reports a missing local Fallow binary in the %s profile', async profile => {
+    const filesystem = await vi.importActual<typeof import('node:fs')>('node:fs');
+    vi.mocked(existsSync).mockImplementation(candidate =>
+      ['fallow', 'fallow.cmd', 'fallow.exe'].includes(path.basename(String(candidate)))
+        ? false
+        : filesystem.existsSync(candidate)
+    );
+    try {
+      expect(inspectEnvironment(profile, { bunVersion: '1.4.0' })).toContainEqual({
+        detail: 'Missing fallow. Run "bun run deps:install".',
+        label: 'Workspace dependencies',
+        status: 'FAIL',
+      });
+    } finally {
+      vi.mocked(existsSync).mockImplementation(filesystem.existsSync);
+    }
   });
 
   test('rejects a runtime that differs from packageManager', () => {

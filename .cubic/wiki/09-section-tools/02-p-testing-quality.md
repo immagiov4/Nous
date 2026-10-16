@@ -86,7 +86,7 @@ The capture records process creation times to distinguish reused Windows PIDs an
 ## Static Analysis & Regressions
 
 ### Fallow: Dead Code Detection
-The project uses "Fallow" to detect unused files, exports, and dependencies. It maintains a baseline to prevent regressions in debt.
+The project uses "Fallow" to detect unused files, exports, and dependencies. It maintains a baseline to prevent regressions in debt. Fallow 3.16.0 is pinned as a development dependency and installed through the repository lockfile. The informational check, regression check, and baseline writer invoke the local binary; CI uses the same regression command after its frozen dependency installation.
 - **Baseline Path:** `.fallow-baselines/regression.json`
 - **Metric Categories:** Unused files, unused dependencies, and unused exports.
 - **Enforcement:** The doctor tool warns if the total issues in the baseline are greater than zero.
