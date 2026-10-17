@@ -162,7 +162,18 @@ const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
   collectMathRanges(markdown, analysis);
   analysis.omissions.sort((left, right) => left.start - right.start);
   analysis.inlineVisuals.sort((left, right) => left.start - right.start);
-  return analysis;
+  return {
+    ...analysis,
+    // A heading boundary inside a visual belongs to that visual's syntax.
+    headings: analysis.headings.filter(
+      heading =>
+        !analysis.inlineVisuals.some(
+          visual =>
+            (visual.start < heading.start && visual.end > heading.start) ||
+            (visual.start < heading.end && visual.end > heading.end)
+        )
+    ),
+  };
 };
 
 const collectMathRanges = (markdown: string, analysis: MarkdownAnalysis): void => {
@@ -342,6 +353,11 @@ const markdownChunks = (markdown: string, analysis: MarkdownAnalysis): MarkdownC
     const lineStart = line.start;
     const lineEnd = line.contentEnd;
     if (lineStart < consumedEnd) continue;
+    // Internal visual lines cannot end the surrounding spoken passage.
+    if (analysis.inlineVisuals.some(visual => visual.start < lineStart && visual.end > lineStart)) {
+      end = lineEnd;
+      continue;
+    }
     const block = analysis.blocks[blockIndex];
     if (block && block.start >= lineStart && block.start <= lineEnd) {
       flush();
