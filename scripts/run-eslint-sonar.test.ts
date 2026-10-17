@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { ESLint } from 'eslint';
+import { ESLint } from 'eslint';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 describe('Sonar ESLint bulk suppressions', () => {
@@ -14,7 +14,7 @@ describe('Sonar ESLint bulk suppressions', () => {
   let suppressionsPath: string;
   const runnerPath = fileURLToPath(new URL('./run-eslint-sonar.ts', import.meta.url));
   const existingFile = 'apps/web/existing.ts';
-  const newFile = 'apps/web/new.ts';
+  const newFile = 'apps/backend/tests/new.ts';
   const ruleId = 'sonarjs/no-nested-conditional';
   const violation =
     "export const choose = (first: boolean, second: boolean) => first ? (second ? 'both' : 'first') : 'neither';\n";
@@ -51,10 +51,30 @@ describe('Sonar ESLint bulk suppressions', () => {
       path.join(directory, 'node_modules'),
       process.platform === 'win32' ? 'junction' : 'dir'
     );
-    for (const folder of ['apps/web', 'apps/backend/src', 'packages', 'scripts', 'e2e']) {
+    for (const folder of [
+      'apps/web',
+      'apps/backend/src',
+      'apps/backend/tests',
+      'packages',
+      'scripts',
+      'e2e',
+    ]) {
       await mkdir(path.join(directory, folder), { recursive: true });
       await writeFile(path.join(directory, folder, 'clean.ts'), 'export {};\n');
     }
+    await writeFile(
+      path.join(directory, 'tsconfig.eslint.json'),
+      JSON.stringify({
+        include: [
+          'apps/web/**/*.ts',
+          'apps/backend/src/**/*.ts',
+          'apps/backend/tests/**/*.ts',
+          'packages/**/*.ts',
+          'scripts/**/*.ts',
+          'e2e/**/*.ts',
+        ],
+      })
+    );
     await mkdir(path.join(directory, '.temp'));
     await writeFile(path.join(directory, 'bun.lock'), 'isolated ESLint test dependencies\n');
     await writeFile(
@@ -111,5 +131,33 @@ export default [{
     expect(pruned.status, pruned.stderr).toBe(0);
     expect(diagnostics(pruned.results, existingFile)).toEqual({ errors: [], suppressed: [] });
     expect(JSON.parse(await readFile(suppressionsPath, 'utf8'))).toEqual({});
+  });
+});
+
+describe('Sonar ESLint test classification', () => {
+  test('applies Main rules to backend helpers and excludes Sonar-classified test files', async () => {
+    const eslint = new ESLint({ overrideConfigFile: 'eslint.sonar.config.mjs' });
+    const helper = await eslint.calculateConfigForFile('apps/backend/tests/helpers/auth.ts');
+    const mainRules = Object.keys(helper.rules);
+    expect(mainRules.length).toBeGreaterThan(0);
+    for (const file of [
+      'apps/web/tests/example.test.tsx',
+      'apps/backend/tests/example.test.ts',
+      'apps/backend/tests/example.spec.tsx',
+      'scripts/example.test.ts',
+      'packages/playtest/tests/example.spec.ts',
+      'e2e/nous/tests/example.test.ts',
+    ]) {
+      const config = await eslint.calculateConfigForFile(file);
+      for (const rule of mainRules) expect(config.rules[rule][0], `${file}: ${rule}`).toBe(0);
+    }
+    for (const file of [
+      'apps/backend/tests/helpers/auth.ts',
+      'apps/backend/src/example.test.ts',
+      'packages/shared-types/example.test.ts',
+    ]) {
+      const config = await eslint.calculateConfigForFile(file);
+      for (const rule of mainRules) expect(config.rules[rule][0], `${file}: ${rule}`).toBe(2);
+    }
   });
 });

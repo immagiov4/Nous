@@ -3,8 +3,9 @@ import tsParser from '@typescript-eslint/parser';
 import reactHooks from 'eslint-plugin-react-hooks';
 import sonarjs from 'eslint-plugin-sonarjs';
 import unicorn from 'eslint-plugin-unicorn';
+import lintProject from './tsconfig.eslint.json' with { type: 'json' };
 
-export default [
+const config = [
   {
     ignores: [
       '**/node_modules/**',
@@ -19,13 +20,7 @@ export default [
     ],
   },
   {
-    files: [
-      'apps/web/**/*.{ts,tsx}',
-      'apps/backend/src/**/*.{ts,tsx}',
-      'packages/**/*.{ts,tsx}',
-      'scripts/**/*.{ts,tsx}',
-      'e2e/**/*.{ts,tsx}',
-    ],
+    files: lintProject.include,
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -54,5 +49,20 @@ export default [
       'unicorn/consistent-function-scoping': 'error', // S7721
       'unicorn/prefer-top-level-await': 'error', // S7785
     },
+  },
+];
+
+// Match sonar.tests and sonar.test.inclusions: the selected rules all have Main scope.
+export default [
+  ...config,
+  {
+    files: [
+      'apps/web/tests/**/*.{test,spec}.{ts,tsx}',
+      'apps/backend/tests/**/*.{test,spec}.{ts,tsx}',
+      'scripts/**/*.{test,spec}.{ts,tsx}',
+      'packages/playtest/tests/**/*.{test,spec}.{ts,tsx}',
+      'e2e/nous/tests/**/*.{test,spec}.{ts,tsx}',
+    ],
+    rules: Object.fromEntries(Object.keys(config[1].rules).map(rule => [rule, 'off'])),
   },
 ];

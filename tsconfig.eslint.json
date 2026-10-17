@@ -8,6 +8,8 @@
     "apps/web/**/*.tsx",
     "apps/backend/src/**/*.ts",
     "apps/backend/src/**/*.tsx",
+    "apps/backend/tests/**/*.ts",
+    "apps/backend/tests/**/*.tsx",
     "packages/**/*.ts",
     "packages/**/*.tsx",
     "scripts/**/*.ts",
