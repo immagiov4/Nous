@@ -120,6 +120,7 @@ interface MarkdownAnalysis {
   readonly headings: PlaybackRange[];
   readonly blocks: MarkdownChunk[];
   readonly inlineCode: PlaybackRange[];
+  readonly text: PlaybackRange[];
   readonly omissions: PlaybackRange[];
   readonly annotationTags: PlaybackRange[];
   readonly inlineVisuals: PlaybackRange[];
@@ -140,6 +141,7 @@ const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
     headings: [],
     blocks: [],
     inlineCode: [],
+    text: [],
     omissions: [],
     annotationTags: [],
     inlineVisuals: [],
@@ -229,6 +231,7 @@ const collectInlineRanges = (
       analysis.omissions.push({ start, end });
     }
   } else if (node.type === 'text') {
+    analysis.text.push({ start, end });
     collectTextRanges(node, markdown, analysis);
   }
 };
@@ -449,6 +452,44 @@ const annotationFreeMarkdown = (
   return text;
 };
 
+/** Escape syntax that reparsing would consume from originally literal text after unwrapping. */
+const contextualMarkdown = (
+  markdown: string,
+  range: PlaybackRange,
+  analysis: MarkdownAnalysis
+): string => {
+  let text = annotationFreeMarkdown(markdown, range, analysis.annotationTags);
+  const tags = analysis.annotationTags
+    .filter(tag => tag.start >= range.start && tag.end <= range.end)
+    .sort((left, right) => left.start - right.start);
+  if (!tags.length) return text;
+  const escapes = new Set<number>();
+  const visit = (node: MarkdownNode): void => {
+    if (node.type === 'text') return;
+    const end = node.children?.[0]?.position.start.offset ?? node.position.end.offset;
+    for (let offset = node.position.start.offset; offset < end; offset += 1) {
+      if (!/[!"#$%&'()*+,\-./:;<=>?@[\]^_`{|}~]/u.test(text[offset])) continue;
+      let sourceOffset = range.start + offset;
+      for (const tag of tags) {
+        if (tag.start > sourceOffset) break;
+        sourceOffset += tag.end - tag.start;
+      }
+      if (
+        analysis.text.some(source => source.start <= sourceOffset && source.end > sourceOffset) &&
+        !analysis.math.some(math => math.start <= sourceOffset && math.end > sourceOffset)
+      ) {
+        escapes.add(offset);
+      }
+    }
+    if (node.children) for (const child of node.children) visit(child);
+  };
+  visit(markdownParser.parse(text) as MarkdownNode);
+  for (const offset of [...escapes].sort((left, right) => right - left)) {
+    text = `${text.slice(0, offset)}&#${text.charCodeAt(offset)};${text.slice(offset + 1)}`;
+  }
+  return text;
+};
+
 const spokenText = (
   markdown: string,
   range: PlaybackRange,
@@ -474,7 +515,7 @@ const spokenText = (
     result.visuals = [
       {
         kind: 'markdown',
-        markdown: annotationFreeMarkdown(markdown, range, analysis.annotationTags),
+        markdown: contextualMarkdown(markdown, range, analysis),
       },
     ];
   }
