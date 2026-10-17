@@ -651,7 +651,7 @@ export const useLibraryAssistantChat = ({
             projectId: input.projectId,
           })
         : {
-            error: t('Il salvataggio delle note non e disponibile in questo contesto.'),
+            error: t('Il salvataggio delle note non è disponibile in questo contesto.'),
             saved: false,
           };
       void addToolOutput({

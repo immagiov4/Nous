@@ -356,7 +356,7 @@ export const runConfiguredWebSearch = async ({
 
   if (!normalizedQuery) {
     return {
-      error: 'La query per la ricerca web e vuota.',
+      error: 'La query per la ricerca web è vuota.',
       query: '',
       sources: [],
       summary: '',
@@ -621,7 +621,7 @@ ${focusRule}
 - Avoid small headings, bullet lists, and elliptical note fragments. Prefer a short, continuous, concrete, self-contained explanation.
 - \`requestAddToNotes\` is the only available annotation tool. The UI decides whether to create a new note or update the note already linked to the passage based on current state. Do NOT distinguish between creation and update.
 - Never ask for saving confirmation in natural language, such as "Should we save it?" Confirmation happens only through the card shown by \`requestAddToNotes\`. Calling the tool is the only valid confirmation request.
-- Never write in free text that you saved or updated a note. Saving occurs only if the user clicks the proposal card. The real outcome arrives in the tool output and must be reported accordingly.
+- Never write in free text that you saved or updated a note. Saving occurs only if the user clicks the proposal card. The card displays the real outcome. A successful save ends the current response; wait for the next explicit user message to continue.
 - If the user declines, do not insist. Continue normally.
 - If the "Annotate" preference is active, consider it very likely that the user wants to save or update a useful note about this passage. Give \`requestAddToNotes\` strong priority when the clarification justifies it.
 - If the "Search the web" preference is active, treat it as reinforcement only when the user has not already given an explicit web instruction.

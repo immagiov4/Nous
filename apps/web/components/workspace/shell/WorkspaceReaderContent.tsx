@@ -919,6 +919,7 @@ function LessonSourceAttribution({
 }
 
 const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
+  hasFloatingHeader = true,
   activeExercise,
   exercisePrerequisiteGaps = [],
   activeSectionTitle,
@@ -963,7 +964,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   projectId,
   sourcePageRangeLabel,
   ttsTextPicker,
-}: WorkspaceReaderContentModel) {
+}: WorkspaceReaderContentModel & { hasFloatingHeader?: boolean }) {
   useAppLocale();
   const [hasDismissedContextHint, setHasDismissedContextHint] = useState(() => {
     if (typeof globalThis.window === 'undefined') {
@@ -985,9 +986,10 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
       active = false;
     };
   }, [hasVideoClips]);
+  const mobileTopPaddingClassName = hasFloatingHeader ? 'pt-0' : 'pt-4';
   const readingShellClassName = isFocusMode
-    ? 'max-w-[72rem] px-4 pb-36 pt-0 sm:px-8 sm:pt-8 lg:px-12 xl:px-16'
-    : 'max-w-[90rem] px-4 pb-36 pt-0 sm:px-8 sm:pt-8 lg:px-14 xl:px-20 2xl:px-24';
+    ? `max-w-[72rem] px-4 pb-36 ${mobileTopPaddingClassName} sm:px-8 sm:pt-8 lg:px-12 xl:px-16`
+    : `max-w-[90rem] px-4 pb-36 ${mobileTopPaddingClassName} sm:px-8 sm:pt-8 lg:px-14 xl:px-20 2xl:px-24`;
   const readingColumnClassName = isFocusMode ? 'mx-auto max-w-[76ch]' : 'mx-auto max-w-[82ch]';
   const lessonLayoutClassName = readingColumnClassName;
   const hasStructuredSourceAttribution =
@@ -1187,7 +1189,8 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
       <div
         className={`mx-auto w-full min-w-0 transition-all duration-500 ${readingShellClassName}`}
         style={{
-          paddingTop: isMobileViewport ? READER_MOBILE_INITIAL_TOP_OFFSET_PX : undefined,
+          paddingTop:
+            isMobileViewport && hasFloatingHeader ? READER_MOBILE_INITIAL_TOP_OFFSET_PX : undefined,
         }}
       >
         <section

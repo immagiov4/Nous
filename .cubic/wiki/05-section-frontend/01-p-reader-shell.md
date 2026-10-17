@@ -35,8 +35,8 @@ The layout utilizes a flexbox-based structure to manage the spatial relationship
 flowchart TD
     Shell[WorkspaceReaderShell] --> Sidebar[WorkspaceReaderSidebar]
     Shell --> MainCol[Main Column]
-    MainCol --> Banners[WorkspaceReaderBanners]
     MainCol --> Header[WorkspaceReaderHeader]
+    MainCol --> Banners[WorkspaceReaderBanners]
     MainCol --> ContentLayer[Content Layer]
     ContentLayer --> Content[WorkspaceReaderContent]
     ContentLayer --> Overlays[WorkspaceReaderOverlays]
@@ -44,6 +44,8 @@ flowchart TD
 
 The content layer is specifically isolated to ensure that interactive overlays (like context menus or AI chat panels) are visually and functionally constrained to the active reading area rather than the global application frame.
 Sources: [apps/web/components/workspace/WorkspaceReaderShell.tsx:90-112](../../../apps/web/components/workspace/WorkspaceReaderShell.tsx#L90-L112), [apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx:210-218](../../../apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx#L210-L218)
+
+The header precedes status banners in the main column. While any banner is visible, the mobile header reserves its natural height in the flex layout instead of overlaying the notice. The content omits the floating-header clearance and top fade while the header occupies layout space; the bottom fade remains. Without banners, the mobile controls retain their floating placement. The missing-source notice uses the reader card border, background and padding in both themes.
 
 ### Component Registry
 | Component | Responsibility |

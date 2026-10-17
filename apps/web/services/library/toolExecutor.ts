@@ -111,7 +111,7 @@ const buildScopeViolationError = ({
     if (!projectList || isOnlyUnknownProjectList) {
       return outOfScopeProjectIds.length > 1
         ? 'I corsi richiesti non sono presenti nella libreria corrente.'
-        : 'Il corso richiesto non e presente nella libreria corrente.';
+        : 'Il corso richiesto non è presente nella libreria corrente.';
     }
 
     return `${outOfScopeProjectIds.length > 1 ? 'Corsi non presenti nella libreria corrente' : 'Corso non presente nella libreria corrente'}: ${projectList}`;

@@ -150,11 +150,6 @@
       "count": 1
     }
   },
-  "apps/backend/src/workflows/schemaFingerprint.ts": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 2
-    }
-  },
   "apps/backend/src/workflows/validation.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 3

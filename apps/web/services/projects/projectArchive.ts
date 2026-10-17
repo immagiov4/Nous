@@ -20,7 +20,7 @@ import { exportProjectData } from './projectSnapshot.ts';
 const PROJECT_ARCHIVE_MIME_TYPE = 'application/zip';
 const INVALID_BACKUP_ARCHIVE_MESSAGE =
   "Questo ZIP non contiene un backup Nous valido. Importa un file .nous.zip esportato dall'app.";
-const INVALID_BACKUP_FILE_MESSAGE = 'Il file selezionato non e un backup Nous valido.';
+const INVALID_BACKUP_FILE_MESSAGE = 'Il file selezionato non è un backup Nous valido.';
 // Base64 expands bytes by about one third; this keeps the complete import body
 // below the backend's 300 MB JSON limit without imposing a per-file cutoff.
 const PROJECT_ARCHIVE_LIMITS: ProjectBackupLimits = {

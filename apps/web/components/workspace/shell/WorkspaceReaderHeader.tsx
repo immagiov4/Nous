@@ -11,6 +11,7 @@ import type { WorkspaceReaderHeaderModel } from './types.ts';
 import WorkspaceReaderSettingsPanel from './WorkspaceReaderSettingsPanel.tsx';
 
 const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
+  reserveSpace = false,
   hasActiveSection,
   courseGenerationNotes,
   isDarkMode,
@@ -41,10 +42,11 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   settingsPanelExpandedSections,
   syncState,
   tts,
-}: WorkspaceReaderHeaderModel) {
+}: WorkspaceReaderHeaderModel & { reserveSpace?: boolean }) {
   useAppLocale();
   const [isAudioOpen, setIsAudioOpen] = useState(false);
   const [isMobileLearningAidsOpen, setIsMobileLearningAidsOpen] = useState(false);
+  const mobilePositionClassName = reserveSpace ? 'relative' : 'absolute';
   const canRegenerate = hasActiveSection;
   const visibleLoadingStatus = isMobileViewport ? loadingStatus : loadingStatus.toUpperCase();
   let loadingBadge: ReactNode = null;
@@ -79,7 +81,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
         z-50 flex flex-shrink-0 overflow-visible transition-opacity duration-500 ease-in-out
         ${
           isMobileViewport
-            ? 'pointer-events-none absolute inset-x-0 top-0 flex-col items-stretch gap-2 bg-transparent px-4 pb-3 pt-4'
+            ? `pointer-events-none inset-x-0 top-0 flex-col items-stretch gap-2 bg-transparent px-4 pb-3 pt-4 ${mobilePositionClassName}`
             : 'sticky top-0 h-16 items-center justify-between border-b border-gray-100 bg-white/80 px-8 backdrop-blur dark:border-zinc-700/80 dark:bg-zinc-800/80'
         }
         opacity-100

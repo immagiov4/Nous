@@ -70,7 +70,7 @@ const LESSON_WORKFLOW_STATUSES: ReadonlySet<string> = new Set([
   'running',
 ]);
 export const LESSON_SOURCE_UNAVAILABLE_MESSAGE =
-  'Il materiale sorgente originale non e disponibile. Ricollegalo per generare o rigenerare le lezioni.' as const;
+  'Il materiale sorgente originale non è disponibile. Ricollegalo per generare o rigenerare le lezioni.' as const;
 
 export class LessonSourceUnavailableError extends Error {
   constructor() {

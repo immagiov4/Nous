@@ -189,6 +189,13 @@ const shouldContinueContextResponse = (messages: ContextChatMessage[]): boolean 
     -1
   );
   const lastStepParts = lastMessage?.parts.slice((lastStepStart ?? -1) + 1) ?? [];
+  const hasSavedNote = lastStepParts.some(
+    part =>
+      part.type === 'tool-requestAddToNotes' &&
+      part.state === 'output-available' &&
+      isRequestAddToNotesOutput(part.output) &&
+      part.output.saved === true
+  );
   const isReplacementStep = lastStepParts.some(
     part =>
       part.type === 'tool-generateCurrentLessonArtifact' &&
@@ -198,6 +205,7 @@ const shouldContinueContextResponse = (messages: ContextChatMessage[]): boolean 
   const completionMessages =
     isReplacementStep && lastMessage ? [{ ...lastMessage, parts: lastStepParts }] : messages;
   return (
+    !hasSavedNote &&
     !hasOnlySuccessfulToolOutputs(completionMessages, 'tool-generateCurrentLessonArtifact') &&
     lastAssistantMessageIsCompleteWithToolCalls({ messages })
   );
