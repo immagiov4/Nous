@@ -182,7 +182,7 @@ const buildYouTubeResearchRecord = ({
           decision: selected ? 'selected-source' : 'rejected',
           reason: selected
             ? 'La lezione usa una clip tratta da questo transcript.'
-            : 'Il transcript non e stato usato nei micro-capitoli della lezione.',
+            : 'Il transcript non è stato usato nei micro-capitoli della lezione.',
           url: video.url,
         };
       });

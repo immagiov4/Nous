@@ -374,7 +374,7 @@ test('HttpProjectRepository reports request timeouts without claiming the backen
     (error: unknown) =>
       error instanceof ProjectStorageError &&
       error.message ===
-        'La sincronizzazione sta impiegando troppo tempo. Il backend e raggiungibile, ma non ha completato la richiesta.'
+        'La sincronizzazione sta impiegando troppo tempo. Il backend è raggiungibile, ma non ha completato la richiesta.'
   );
 });
 

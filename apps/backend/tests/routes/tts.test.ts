@@ -48,7 +48,7 @@ describe('POST /api/tts', () => {
     expect(response.status).toBe(400);
     expect(response.body).toEqual({
       success: false,
-      error: 'Il testo e obbligatorio e deve essere una stringa.',
+      error: 'Il testo è obbligatorio e deve essere una stringa.',
     });
   });
 

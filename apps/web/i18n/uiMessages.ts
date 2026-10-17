@@ -660,7 +660,7 @@ const ENGLISH_UI_MESSAGES = {
   'Nuova password': 'New password',
   'Conferma password': 'Confirm password',
   'Nuovo indirizzo email': 'New email address',
-  'Operazione non riuscita. L artefatto non e stato modificato.':
+  'Operazione non riuscita. L artefatto non è stato modificato.':
     'The operation failed. The artifact was not changed.',
   'Operazione non riuscita. Riprova.': 'The operation failed. Try again.',
   'Operazione in corso…': 'Working…',
@@ -825,7 +825,7 @@ const ENGLISH_UI_MESSAGES = {
     'The microphone requires a secure connection (HTTPS or localhost).',
   'Non ho rilevato audio. Riprova.': 'No audio was detected. Try again.',
   'Non riesco ad accedere al microfono. Riprova.': 'I cannot access the microphone. Try again.',
-  'Operazione ancora in corso, non e un blocco.': 'Still working; the app is not stuck.',
+  'Operazione ancora in corso, non è un blocco.': 'Still working; the app is not stuck.',
   'Permesso microfono negato. Abilitalo nelle impostazioni del browser.':
     'Microphone permission was denied. Enable it in your browser settings.',
   'Registrazione in corso.': 'Recording in progress.',
@@ -841,7 +841,7 @@ const ENGLISH_UI_MESSAGES = {
     'Regenerate your course covers in the background with the current prompt. Existing covers remain available until completion.',
   'Rigenerazione...': 'Regenerating...',
   'Rigenerazione in corso': 'Regeneration in progress',
-  'Rigenerazione fallita. La bozza precedente non e stata modificata.':
+  'Rigenerazione fallita. La bozza precedente non è stata modificata.':
     'Regeneration failed. The previous draft was not changed.',
   'Rigenerazione richiesta.': 'Regeneration requested.',
   'Stato della rigenerazione cover non disponibile.':
@@ -919,11 +919,11 @@ const ENGLISH_UI_MESSAGES = {
   Prosegui: 'Continue',
   'Puoi andare avanti subito oppure completare prima le pause attive per segnare la lezione come completata.':
     'You can continue now or complete the active pauses first to mark the lesson as completed.',
-  'Questo progetto e stato importato senza file sorgente. Ricollega il PDF o lo ZIP per generare nuove lezioni.':
+  'Questo progetto è stato importato senza file sorgente. Ricollega il PDF o lo ZIP per generare nuove lezioni.':
     'This project was imported without its source file. Reconnect the PDF or ZIP to generate new lessons.',
-  'Il PDF originale di questo corso non e disponibile. Ricaricalo per generare o rigenerare le lezioni senza perdere il corso.':
+  'Il PDF originale di questo corso non è disponibile. Ricaricalo per generare o rigenerare le lezioni senza perdere il corso.':
     'The original PDF for this course is unavailable. Upload it again to generate or regenerate lessons without losing the course.',
-  'Il materiale sorgente originale non e disponibile. Ricollegalo per generare o rigenerare le lezioni.':
+  'Il materiale sorgente originale non è disponibile. Ricollegalo per generare o rigenerare le lezioni.':
     'The original source material is unavailable. Reconnect it to generate or regenerate lessons.',
   'Ricarica PDF': 'Upload PDF again',
   'Ricollega sorgente': 'Reconnect source',
@@ -958,7 +958,7 @@ const ENGLISH_UI_MESSAGES = {
   'Pianificazione esercizi...': 'Planning exercises...',
   "Una parte interattiva dell'artefatto ha avuto un errore. Puoi rigenerarlo o sostituirlo.":
     'An interactive part of the artifact encountered an error. You can regenerate or replace it.',
-  'Questo artefatto interattivo non e riuscito a caricarsi. Puoi rigenerarlo o sostituirlo.':
+  'Questo artefatto interattivo non è riuscito a caricarsi. Puoi rigenerarlo o sostituirlo.':
     'This interactive artifact failed to load. You can regenerate or replace it.',
   'Errore nello script del visuale.': 'Error in the visual script.',
   'Script esterno non caricato.': 'External script failed to load.',
@@ -1275,11 +1275,11 @@ const ENGLISH_UI_MESSAGES = {
   'Struttura corsi': 'Course structures',
   Tool: 'Tool',
   'Vuoi salvarlo nelle note della lezione?': 'Do you want to save it to the lesson notes?',
-  'Il salvataggio delle note non e disponibile in questo contesto.':
+  'Il salvataggio delle note non è disponibile in questo contesto.':
     'Saving notes is unavailable in this context.',
   'Il corso originale non è più attivo.': 'The original course is no longer active.',
-  'La sezione attiva non e disponibile.': 'The active section is unavailable.',
-  'La lezione rigenerata non e stata salvata. Riprova.':
+  'La sezione attiva non è disponibile.': 'The active section is unavailable.',
+  'La lezione rigenerata non è stata salvata. Riprova.':
     'The regenerated lesson was not saved. Try again.',
   'Non sono riuscito a salvare la lezione da generare. Riprova.':
     'I could not save the lesson to generate. Try again.',

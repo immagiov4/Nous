@@ -81,7 +81,7 @@ class PdfTextQualityError extends Error {
 
   constructor(fileName: string, report: PdfTextQualityReport) {
     super(
-      `Questo PDF non contiene abbastanza testo selezionabile per generare un percorso affidabile. Se e un libro scannerizzato, serve una versione con OCR o testo estraibile.`
+      `Questo PDF non contiene abbastanza testo selezionabile per generare un percorso affidabile. Se è un libro scannerizzato, serve una versione con OCR o testo estraibile.`
     );
     this.name = 'PdfTextQualityError';
     this.report = report;

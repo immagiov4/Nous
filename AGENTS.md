@@ -71,11 +71,13 @@ Core Philosophy → Context Before Code → Simplicity → Naming → Single Sou
 
 Use the execution model deliberately:
 
-- Use `gpt-6-astra` for implementation, exploration, review, and documentation.
-- Simple bounded work, such as a small UI change expected to take about 5-10 minutes: `low` reasoning.
-- Normal work: `medium` reasoning.
-- Difficult or high-impact work: `high` reasoning, the maximum unless explicitly authorized otherwise.
+- Default to the current mid-tier model (currently `gpt-6.1-sol`) for implementation, exploration, review, and documentation unless the user explicitly requests otherwise.
+- Use a large, more expensive model (currently `gpt-6-astra`) only when the user explicitly requests it or agrees after being told explicitly. Never escalate silently.
+- Apply reasoning guidance by the tier of the model actually used, not its name; model lineups change:
+  - Mid-tier models: `low` for simple bounded work, such as a small UI change expected to take about 5-10 minutes; `medium` for normal work; `high` for difficult or high-impact work, the maximum unless explicitly authorized otherwise.
+  - Large models: `low` for simple bounded work, such as a small UI change expected to take about 5-10 minutes; `medium` for normal work; `high` for difficult or high-impact work, the maximum unless explicitly authorized otherwise.
 - The user's "Light" level maps to `low`. Apply this policy to new and resumed tasks.
+- Use the standard service tier; use fast/priority only when the user requests it.
 
 Run implementation work in separate visible Codex tasks with isolated worktrees; use local subagents only for short, read-only verification in the current chat.
 ## Product Manifesto

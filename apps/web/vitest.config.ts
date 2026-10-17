@@ -11,11 +11,11 @@ const TEST_FILES = [
   'packages/playtest/tests/**/*.{test,spec}.ts',
   'e2e/**/tests/**/*.{test,spec}.ts',
 ];
+const MERMAID_PARSER_TEST = 'apps/backend/tests/services/mermaidValidation.test.ts';
 // These suites own browser/parser subprocesses, process fixtures, or production registry rebuilds.
 const LOAD_SENSITIVE_TESTS = [
   'packages/playtest/tests/**/*.{test,spec}.ts',
   'e2e/**/tests/**/*.{test,spec}.ts',
-  'apps/backend/tests/services/mermaidValidation.test.ts',
   'apps/backend/tests/services/pdfTextFallbackProcess.test.ts',
   'apps/backend/tests/workflows/*Compatibility.test.ts',
   'apps/backend/tests/workflows/workflowRuntimeComposition.test.ts',
@@ -47,6 +47,14 @@ export default defineConfig({
       {
         extends: true,
         test: {
+          // The default group runs before suites that compete with cold parser subprocesses.
+          name: 'mermaid-parser',
+          include: [MERMAID_PARSER_TEST],
+        },
+      },
+      {
+        extends: true,
+        test: {
           name: 'load-sensitive',
           include: LOAD_SENSITIVE_TESTS,
           maxWorkers: LOAD_SENSITIVE_WORKERS,
@@ -58,7 +66,7 @@ export default defineConfig({
         test: {
           name: 'general',
           include: TEST_FILES,
-          exclude: LOAD_SENSITIVE_TESTS,
+          exclude: [MERMAID_PARSER_TEST, ...LOAD_SENSITIVE_TESTS],
           sequence: { groupOrder: 2 },
         },
       },

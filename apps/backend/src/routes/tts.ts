@@ -43,7 +43,7 @@ router.post('/', async (req: Request, res: Response) => {
     if (!text || typeof text !== 'string') {
       return res.status(400).json({
         success: false,
-        error: 'Il testo e obbligatorio e deve essere una stringa.',
+        error: 'Il testo è obbligatorio e deve essere una stringa.',
       });
     }
 
