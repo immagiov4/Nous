@@ -521,3 +521,58 @@ test.each([
     )
   ).toBe(true);
 });
+
+test.each([
+  '<mark data-nous-annotation-id="b">',
+  '<mark\n data-nous-annotation-id="b">',
+  '<mark title="**">',
+  '<mark title="`">',
+  '<mark\n title="**" data-nous-annotation-id="b">',
+])('keeps words intact across annotation wrappers and maps their complete speech ranges: %s', opener => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: `<mark data-nous-annotation-id="a">The Greek let</mark>${opener}ter is a parameter.</mark>`,
+    },
+  ];
+  const block = segmentLessonPlayback(sources)[0];
+  const source = captionSource(block, sources);
+  const formatted = captionFormat(source.markdown, source.ranges);
+  expect(formatted.words.map(word => word.text)).toEqual([
+    'The',
+    'Greek',
+    'letter',
+    'is',
+    'a',
+    'parameter.',
+  ]);
+  expect(formatted.words.every(word => !word.bold && !word.code)).toBe(true);
+  const ranges = captionSpeechRanges(formatted.words, source.ranges);
+  expect(ranges.map(range => block.speech.slice(range.start, range.end))).toEqual([
+    'The',
+    'Greek',
+    'letter',
+    'is',
+    'a',
+    'parameter.',
+  ]);
+});
+
+test.each([
+  '- literal minus',
+  '1. literal number',
+  '# literal heading',
+])('keeps annotated literal block markers in caption words: %s', text => {
+  const sources = [{ type: 'markdown' as const, markdown: `<mark>${text}</mark>` }];
+  const block = segmentLessonPlayback(sources)[0];
+  const source = captionSource(block, sources);
+  const formatted = captionFormat(source.markdown, source.ranges);
+  expect(formatted.headings).toEqual([]);
+  expect(formatted.words.map(word => word.text)).toEqual(text.split(' '));
+  expect(formatted.words.every(word => !word.list && !word.breakBefore)).toBe(true);
+  expect(
+    captionSpeechRanges(formatted.words, source.ranges).map(range =>
+      block.speech.slice(range.start, range.end)
+    )
+  ).toEqual(text.split(' '));
+});

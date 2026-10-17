@@ -431,3 +431,35 @@ test('multiline annotations gain a stable visible speech identity', () => {
     buildLessonPlaybackKey(annotatedSection('\nPassage visible.\n'))
   );
 });
+
+test('refreshes contextual math visuals while reusing matching stored speech and audio', () => {
+  const section = {
+    ...playbackSection(),
+    contentBlocks: [{ type: 'markdown', markdown: 'Read $x$ as the input; $y$ as the output.' }],
+  };
+  const current = readLessonPlayback(section);
+  const audio = [{ model: 'tts', voice: 'Kore', asset: playbackAsset, durationSeconds: 12 }];
+  const saved = {
+    ...section,
+    playback: {
+      ...current,
+      blocks: current.blocks.map(block => ({
+        ...block,
+        visuals: [
+          { kind: 'markdown' as const, markdown: '$x$' },
+          { kind: 'markdown' as const, markdown: '$y$' },
+        ],
+        prepared: { motion: [] },
+        audio,
+      })),
+    },
+  };
+  const restored = readLessonPlayback(saved);
+  expect(restored.lessonKey).toBe(current.lessonKey);
+  expect(restored.blocks[0].visuals).toEqual([
+    { kind: 'markdown', markdown: section.contentBlocks[0].markdown },
+  ]);
+  expect(restored.blocks[0].speech).toBe(current.blocks[0].speech);
+  expect(restored.blocks[0].audio).toEqual(audio);
+  expect(restored.blocks[0].prepared).toEqual({ motion: [] });
+});

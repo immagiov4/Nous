@@ -3,6 +3,9 @@ import type {
   PlaybackContentBlock,
   PlaybackRange,
 } from '@shared/lessonPlayback';
+import { getAllowedRawHtmlTagRanges } from '../../../utils/markdown/html.ts';
+
+const CAPTION_HIDDEN_TAG_CHARACTER = '\0';
 
 export interface CaptionWord {
   text: string;
@@ -92,6 +95,7 @@ function appendCaptionLine({
   words,
   state,
   visibleText,
+  visibleOffsets,
   hasRanges,
 }: {
   line: string;
@@ -99,6 +103,7 @@ function appendCaptionLine({
   words: CaptionWord[];
   state: CaptionStyle;
   visibleText: (start: number, end: number) => string;
+  visibleOffsets: (start: number, end: number) => number[];
   hasRanges: boolean;
 }) {
   const list = /^\s*([-*+]|\d+\.)\s+/.exec(line);
@@ -113,11 +118,12 @@ function appendCaptionLine({
       partStart += part.length;
       continue;
     }
-    for (const match of part.matchAll(/\S+/g)) {
-      const start = partStart + match.index;
-      const end = start + match[0].length;
-      const text = visibleText(start, end);
-      if (!text) continue;
+    const offsets = visibleOffsets(partStart, partStart + part.length);
+    const projected = visibleText(partStart, partStart + part.length);
+    for (const match of projected.matchAll(/\S+/g)) {
+      const start = offsets[match.index];
+      const end = offsets[match.index + match[0].length - 1] + 1;
+      const text = match[0];
       words.push({
         text,
         bold: state.bold,
@@ -149,20 +155,45 @@ export function captionFormat(original: string, ranges?: readonly { source: Play
       })
       .join('');
   };
+  const visibleOffsets = (start: number, end: number) => {
+    const sources = ranges?.map(range => range.source) ?? [{ start, end }];
+    return sources.flatMap(source => {
+      const from = Math.max(start, source.start);
+      const to = Math.min(end, source.end);
+      return Array.from({ length: Math.max(0, to - from) }, (_, index) => from + index);
+    });
+  };
+  // A non-whitespace mask preserves offsets without creating list or heading markers.
+  let source = original;
+  for (const tag of getAllowedRawHtmlTagRanges(original)) {
+    if (visibleText(tag.start, tag.end)) continue;
+    source =
+      source.slice(0, tag.start) +
+      CAPTION_HIDDEN_TAG_CHARACTER.repeat(tag.end - tag.start) +
+      source.slice(tag.end);
+  }
   // Non-whitespace starts the content, or one trailing space is the entire content.
   // This keeps whitespace-only headings without overlapping unbounded repetitions.
   const headingPattern = /^#{1,6}\s+(\S.*|(?=.)\s)$/gm;
-  const headings = Array.from(original.matchAll(headingPattern), match =>
+  const headings = Array.from(source.matchAll(headingPattern), match =>
     visibleText(match.index + match[0].length - match[1].length, match.index + match[0].length)
   );
   const headingWords = headings.join(' ').trim().split(/\s+/).filter(Boolean).length;
-  const body = original.replace(headingPattern, match => ' '.repeat(match.length));
+  const body = source.replaceAll(headingPattern, match => ' '.repeat(match.length));
   const lines = body.trim().split('\n');
   let lineStart = body.length - body.trimStart().length;
   const words: CaptionWord[] = [];
   const state: CaptionStyle = { bold: false, codeDelimiter: '' };
   for (const line of lines) {
-    appendCaptionLine({ line, lineStart, words, state, visibleText, hasRanges: Boolean(ranges) });
+    appendCaptionLine({
+      line,
+      lineStart,
+      words,
+      state,
+      visibleText,
+      visibleOffsets,
+      hasRanges: Boolean(ranges),
+    });
     lineStart += line.length + 1;
   }
   return { headings, headingWords, words };
