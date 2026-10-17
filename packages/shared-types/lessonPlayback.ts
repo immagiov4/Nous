@@ -485,7 +485,7 @@ const contextualMarkdown = (
   };
   visit(markdownParser.parse(text) as MarkdownNode);
   for (const offset of [...escapes].sort((left, right) => right - left)) {
-    text = `${text.slice(0, offset)}&#${text.charCodeAt(offset)};${text.slice(offset + 1)}`;
+    text = `${text.slice(0, offset)}&#${text[offset].codePointAt(0)};${text.slice(offset + 1)}`;
   }
   return text;
 };
