@@ -168,6 +168,9 @@ const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
   analysis.inlineVisuals.sort((left, right) => left.start - right.start);
   return {
     ...analysis,
+    blocks: analysis.blocks.filter(
+      block => !analysis.math.some(math => math.start <= block.start && math.end >= block.end)
+    ),
     // A heading boundary inside a visual belongs to that visual's syntax.
     headings: analysis.headings.filter(
       heading =>
@@ -196,7 +199,17 @@ const collectMathRanges = (markdown: string, analysis: MarkdownAnalysis): void =
       continue;
     }
     const mathRange = getMarkdownMathRangeAt(markdown, cursor);
-    if (mathRange && (!protectedRange || mathRange.end <= protectedRange.start)) {
+    // A formula can contain complete parser blocks, but cannot close inside protected syntax.
+    const overlapsProtectedSyntax =
+      mathRange &&
+      protectedRanges
+        .slice(protectedIndex)
+        .some(
+          range =>
+            range.start < mathRange.end &&
+            (!analysis.blocks.some(block => block === range) || range.end > mathRange.end)
+        );
+    if (mathRange && !overlapsProtectedSyntax) {
       analysis.omissions.push(mathRange);
       analysis.inlineVisuals.push(mathRange);
       analysis.math.push(mathRange);

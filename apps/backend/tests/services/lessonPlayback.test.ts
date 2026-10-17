@@ -103,6 +103,39 @@ describe('lesson playback segmentation', () => {
     for (const block of blocks) expectExactSpans(block, markdown);
   });
 
+  test.each([
+    { kind: 'thematic break', markdown: '---' },
+    { kind: 'code', markdown: '```text\ninner code\n```' },
+    { kind: 'table', markdown: '| A | B |\n| --- | --- |\n| x | y |' },
+    { kind: 'definition', markdown: '[inside]: https://example.test/inside' },
+  ])('preserves later parser blocks after a $kind in multiline math', ({ markdown: internal }) => {
+    const formula = `$$\nx\n\n${internal}\n\ny\n$$`;
+    const code = '```ts\nconst result = 1;\n```';
+    const table = '| Input | Output |\n| --- | --- |\n| 1 | 2 |';
+    const markdown = `Introduction.\n${formula}\nResult.\n\n${code}\n\n${table}\n\n[ref]: https://example.test\n\n***\n\nRead [the reference][ref].`;
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.speech)).toEqual([
+      'Introduction.\n\nResult.',
+      'Read the reference.',
+    ]);
+    expect(blocks[0].visuals).toEqual([
+      { kind: 'markdown', markdown: `Introduction.\n${formula}\nResult.` },
+      { kind: 'markdown', markdown: code },
+      { kind: 'markdown', markdown: table },
+    ]);
+    expect(blocks[1].visuals).toEqual([]);
+    for (const block of blocks) expectExactSpans(block, markdown);
+  });
+
+  test('keeps a math delimiter inside an external code block protected', () => {
+    const code = '```tex\n$$\n```';
+    const markdown = `Unclosed $$\n\n${code}\n\nAfter.`;
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.speech)).toEqual(['Unclosed $$', 'After.']);
+    expect(blocks[0].visuals).toEqual([{ kind: 'markdown', markdown: code }]);
+    for (const block of blocks) expectExactSpans(block, markdown);
+  });
+
   test('speaks headings once and keeps the latest heading on following blocks', () => {
     const markdown =
       'Prima.\n\n# Tema\n\n## Dettaglio\nUn fatto.\n\nUn altro.\n\n###### Fine\n\nConclusione.';
