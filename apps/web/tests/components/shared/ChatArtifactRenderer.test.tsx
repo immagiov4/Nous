@@ -425,7 +425,7 @@ describe('ChatArtifactRenderer', () => {
       await pendingDiscard.catch(() => undefined);
     });
     const actionFailureMessage = await screen.findByText(
-      'Operazione non riuscita. L artefatto non e stato modificato.'
+      'Operazione non riuscita. L artefatto non è stato modificato.'
     );
     const actionFailureFeedback = actionFailureMessage.parentElement;
     expect(actionFailureFeedback).toHaveClass('bg-red-50', 'text-red-700');
@@ -544,7 +544,7 @@ describe('ChatArtifactRenderer', () => {
 
     await user.click(screen.getByRole('button', { name: /Scarta artefatto/i }));
     expect(
-      await screen.findByText('Operazione non riuscita. L artefatto non e stato modificato.')
+      await screen.findByText('Operazione non riuscita. L artefatto non è stato modificato.')
     ).toBeInTheDocument();
     expect(screen.queryByText('Il corso originale non è più attivo.')).toBeNull();
 

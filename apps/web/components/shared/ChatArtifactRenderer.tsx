@@ -111,7 +111,7 @@ const getArtifactReplacementTargetId = (artifact: LearningArtifactRenderPayload)
     : undefined;
 
 const ARTIFACT_ACTION_FEEDBACK = {
-  actionFailed: () => t('Operazione non riuscita. L artefatto non e stato modificato.'),
+  actionFailed: () => t('Operazione non riuscita. L artefatto non è stato modificato.'),
   discarded: () => t('Artefatto scartato.'),
   regenerationFailed: () => t('Rigenerazione fallita. La bozza precedente non e stata modificata.'),
   regenerationRequested: () => t('Rigenerazione richiesta.'),

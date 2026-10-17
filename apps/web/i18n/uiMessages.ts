@@ -660,7 +660,7 @@ const ENGLISH_UI_MESSAGES = {
   'Nuova password': 'New password',
   'Conferma password': 'Confirm password',
   'Nuovo indirizzo email': 'New email address',
-  'Operazione non riuscita. L artefatto non e stato modificato.':
+  'Operazione non riuscita. L artefatto non è stato modificato.':
     'The operation failed. The artifact was not changed.',
   'Operazione non riuscita. Riprova.': 'The operation failed. Try again.',
   'Operazione in corso…': 'Working…',
@@ -919,7 +919,7 @@ const ENGLISH_UI_MESSAGES = {
   Prosegui: 'Continue',
   'Puoi andare avanti subito oppure completare prima le pause attive per segnare la lezione come completata.':
     'You can continue now or complete the active pauses first to mark the lesson as completed.',
-  'Questo progetto e stato importato senza file sorgente. Ricollega il PDF o lo ZIP per generare nuove lezioni.':
+  'Questo progetto è stato importato senza file sorgente. Ricollega il PDF o lo ZIP per generare nuove lezioni.':
     'This project was imported without its source file. Reconnect the PDF or ZIP to generate new lessons.',
   'Il PDF originale di questo corso non e disponibile. Ricaricalo per generare o rigenerare le lezioni senza perdere il corso.':
     'The original PDF for this course is unavailable. Upload it again to generate or regenerate lessons without losing the course.',

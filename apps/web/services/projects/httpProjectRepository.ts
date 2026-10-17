@@ -541,7 +541,7 @@ export class HttpProjectRepository implements ProjectRepository {
       source?.kind === 'archive' ? PROJECT_ARCHIVE_SAVE_TIMEOUT_MS : PROJECT_REQUEST_TIMEOUT_MS
     );
     return {
-      meta: assertValue(response.meta, 'Il progetto sincronizzato non e stato salvato.'),
+      meta: assertValue(response.meta, 'Il progetto sincronizzato non è stato salvato.'),
       snapshot: normalizeStoredProject(
         assertValue(response.snapshot, 'La fonte sincronizzata non e stata restituita.')
       ),
@@ -594,7 +594,7 @@ export class HttpProjectRepository implements ProjectRepository {
         PROJECT_ARCHIVE_SAVE_TIMEOUT_MS
       );
       return {
-        meta: assertValue(response.meta, 'Il progetto sincronizzato non e stato salvato.'),
+        meta: assertValue(response.meta, 'Il progetto sincronizzato non è stato salvato.'),
         snapshot: normalizeStoredProject(
           assertValue(response.snapshot, 'La fonte sincronizzata non e stata restituita.')
         ),
@@ -606,7 +606,7 @@ export class HttpProjectRepository implements ProjectRepository {
       );
       if (!status?.complete) throw error;
       return {
-        meta: assertValue(status.meta, 'Il progetto sincronizzato non e stato salvato.'),
+        meta: assertValue(status.meta, 'Il progetto sincronizzato non è stato salvato.'),
         snapshot: normalizeStoredProject(
           assertValue(status.snapshot, 'La fonte sincronizzata non e stata restituita.')
         ),
@@ -626,7 +626,7 @@ export class HttpProjectRepository implements ProjectRepository {
         body: JSON.stringify({ cover, expectedRevision: options.expectedRevision }),
       }
     );
-    return assertValue(response.meta, 'Il progetto sincronizzato non e stato salvato.');
+    return assertValue(response.meta, 'Il progetto sincronizzato non è stato salvato.');
   }
 
   async setProjectFavorite(
@@ -641,7 +641,7 @@ export class HttpProjectRepository implements ProjectRepository {
         body: JSON.stringify({ isFavorite, expectedRevision: options.expectedRevision }),
       }
     );
-    return assertValue(response.meta, 'Il preferito sincronizzato non e stato aggiornato.');
+    return assertValue(response.meta, 'Il preferito sincronizzato non è stato aggiornato.');
   }
 
   async patchProject(
@@ -656,7 +656,7 @@ export class HttpProjectRepository implements ProjectRepository {
         body: JSON.stringify({ patch, ...options }),
       }
     );
-    return assertValue(response.meta, 'Il progetto sincronizzato non e stato aggiornato.');
+    return assertValue(response.meta, 'Il progetto sincronizzato non è stato aggiornato.');
   }
 
   subscribeToProjectRevisions(
@@ -753,8 +753,8 @@ export class HttpProjectRepository implements ProjectRepository {
       }
     }
     return {
-      meta: assertValue(response.meta, 'Il progetto sincronizzato non e stato importato.'),
-      snapshot: assertValue(response.snapshot, 'Il progetto sincronizzato non e stato importato.'),
+      meta: assertValue(response.meta, 'Il progetto sincronizzato non è stato importato.'),
+      snapshot: assertValue(response.snapshot, 'Il progetto sincronizzato non è stato importato.'),
     };
   }
 
@@ -793,9 +793,9 @@ export class HttpProjectRepository implements ProjectRepository {
       response = status;
     }
     return {
-      meta: assertValue(response.meta, 'Il progetto sincronizzato non e stato importato.'),
+      meta: assertValue(response.meta, 'Il progetto sincronizzato non è stato importato.'),
       snapshot: normalizeStoredProject(
-        assertValue(response.snapshot, 'Il progetto sincronizzato non e stato importato.')
+        assertValue(response.snapshot, 'Il progetto sincronizzato non è stato importato.')
       ),
     };
   }
