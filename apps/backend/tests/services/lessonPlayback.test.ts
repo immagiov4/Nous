@@ -142,7 +142,7 @@ describe('lesson playback segmentation', () => {
     const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
     expect(blocks.map(block => block.speech)).toEqual(['Prima  dopo.', 'Poi.']);
     expect(blocks[0]?.visuals).toEqual([
-      { kind: 'markdown', markdown: formula },
+      { kind: 'markdown', markdown: `Prima ${formula} dopo.` },
       { kind: 'markdown', markdown: formula },
     ]);
     for (const block of blocks) expectExactSpans(block, markdown);
@@ -162,9 +162,7 @@ describe('lesson playback segmentation', () => {
     const markdown = `Prima $x$ poi ${image} infine $y$ e ${pdf}.`;
     const [block] = segmentLessonPlayback([markdownBlock(markdown)]);
     expect(block?.speech).toBe('Prima  poi  infine  e .');
-    expect(block?.visuals).toEqual(
-      ['$x$', image, '$y$', pdf].map(markdown => ({ kind: 'markdown', markdown }))
-    );
+    expect(block?.visuals).toEqual([{ kind: 'markdown', markdown }]);
     expectExactSpans(block as LessonPlaybackBlock, markdown);
   });
 
@@ -538,4 +536,25 @@ test.each([
   expect(projection.contentBlocks).toEqual(content);
   expect(projection.blocks.map(block => block.speech)).toEqual([markdown]);
   expectExactSpans(projection.blocks[0], markdown);
+});
+
+test('keeps an inline mathematical reading and its definitions in one contextual visual', () => {
+  const passage =
+    '<mark data-nous-annotation-id="a">Read “the chance of </mark>$y$<mark data-nous-annotation-id="b"> given </mark>$x$<mark data-nous-annotation-id="c">”. The bar </mark>$\\mid$<mark data-nous-annotation-id="d"> means given.</mark>';
+  const [block] = segmentLessonPlayback([markdownBlock(passage)]);
+  expect(block.speech).toBe('Read “the chance of  given ”. The bar  means given.');
+  expect(block.visuals).toEqual([
+    {
+      kind: 'markdown',
+      markdown: 'Read “the chance of $y$ given $x$”. The bar $\\mid$ means given.',
+    },
+  ]);
+  expectExactSpans(block, passage);
+});
+
+test('keeps the explanation of mathematical symbols in spoken headings', () => {
+  const markdown = '# The bar $\\mid$ means given\n\nContinue with the reading.';
+  const [block] = segmentLessonPlayback([markdownBlock(markdown)]);
+  expect(block.visuals).toEqual([{ kind: 'markdown', markdown: '# The bar $\\mid$ means given' }]);
+  expectExactSpans(block, markdown);
 });
