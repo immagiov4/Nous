@@ -184,6 +184,7 @@ const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
 };
 
 const collectMathRanges = (markdown: string, analysis: MarkdownAnalysis): void => {
+  const blockRanges = new Set<PlaybackRange>(analysis.blocks);
   const protectedRanges = [
     ...analysis.blocks,
     ...analysis.inlineCode,
@@ -206,8 +207,7 @@ const collectMathRanges = (markdown: string, analysis: MarkdownAnalysis): void =
         .slice(protectedIndex)
         .some(
           range =>
-            range.start < mathRange.end &&
-            (!analysis.blocks.some(block => block === range) || range.end > mathRange.end)
+            range.start < mathRange.end && (!blockRanges.has(range) || range.end > mathRange.end)
         );
     if (mathRange && !overlapsProtectedSyntax) {
       analysis.omissions.push(mathRange);
