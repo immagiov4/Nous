@@ -154,7 +154,7 @@ const normalizeSchema = (
       Object.entries(definition)
         .filter(([key, value]) => key !== 'type' && value !== undefined)
         .sort(([left], [right]) => compareCodeUnits(left, right))
-        .map(([key, value]) => [
+        .map<[string, unknown]>(([key, value]) => [
           key,
           key === 'checks' && Array.isArray(value)
             ? value
@@ -163,7 +163,7 @@ const normalizeSchema = (
             : normalizeDefinitionValue(value, `${path}.${key}`, context, key),
         ])
         .concat([['type', schemaType]])
-        .sort(([left], [right]) => compareCodeUnits(String(left), String(right)))
+        .sort(([left], [right]) => compareCodeUnits(left, right))
     );
     context.shapes.set(schema, shape);
     return shape;

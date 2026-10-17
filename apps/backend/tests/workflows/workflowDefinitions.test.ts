@@ -722,6 +722,18 @@ describe('workflow definition validation', () => {
     expect(definitionHashFor(alphaFirst)).not.toBe(definitionHashFor(betaFirst));
   });
 
+  test('preserves durable schema fingerprint bytes', () => {
+    const schema = z.object({
+      z: z.string().optional(),
+      à: z.number().min(0),
+      a: z.enum(['z', 'A']),
+      A: z.string().regex(/ab/i),
+    });
+    expect(canonicalJson(durableSchemaShape(schema))).toBe(
+      '{"shape":{"A":{"checks":[{"check":"string_format","format":"regex","pattern":{"flags":"i","source":"ab"}}],"type":"string"},"a":{"entries":{"A":"A","z":"z"},"type":"enum"},"z":{"innerType":{"type":"string"},"type":"optional"},"à":{"checks":[{"check":"greater_than","inclusive":true,"value":0}],"type":"number"}},"type":"object"}'
+    );
+  });
+
   test('produces the same canonical order on every host locale', () => {
     expect(canonicalJson({ z: 1, A: 2, a: 3, à: 4 })).toBe('{"A":2,"a":3,"z":1,"à":4}');
   });
