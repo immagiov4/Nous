@@ -51,6 +51,91 @@ describe('lesson playback segmentation', () => {
     }
   });
 
+  test.each([
+    '\n',
+    '\r\n',
+    '\r',
+  ])('keeps prose around multiline visuals in one segment (%j)', newline => {
+    for (const [open, close] of [
+      ['$$', '$$'],
+      ['\\[', '\\]'],
+    ]) {
+      const formula = [open, 'x + y', '', '= z', close].join(newline);
+      const markdown = `The calculation continues${newline}${formula}${newline}with this result.${newline}${newline}A separate paragraph.`;
+      const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+      expect(blocks.map(block => block.speech)).toEqual([
+        `The calculation continues${newline}${newline}with this result.`,
+        'A separate paragraph.',
+      ]);
+      expect(blocks[0].visuals).toHaveLength(1);
+      const visual = blocks[0].visuals[0];
+      expect(visual.kind).toBe('markdown');
+      if (visual.kind !== 'markdown') throw new Error('Expected the authored formula visual.');
+      expect(visual.markdown).toContain(formula);
+      expect(blocks[1].visuals).toEqual([]);
+      for (const block of blocks) expectExactSpans(block, markdown);
+    }
+  });
+
+  test.each([
+    '',
+    '\n',
+  ])('recognizes later headings after heading-like lines inside a formula (%j)', blank => {
+    const formula = `$$\n${blank}x\n=\ny\n$$`;
+    const markdown = `The calculation continues\n${formula}\nwith this result.\n\n# Next topic\nThe explanation.\n\n## Detail\nMore detail.`;
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.heading)).toEqual(['', 'Next topic', 'Detail']);
+    expect(blocks.map(block => block.speech)).toEqual([
+      'The calculation continues\n\nwith this result.',
+      'Next topic\nThe explanation.',
+      'Detail\nMore detail.',
+    ]);
+    for (const block of blocks) expectExactSpans(block, markdown);
+  });
+
+  test.each([
+    '# x $$',
+    '# x $$ trailing',
+  ])('keeps real headings after visual-internal heading lines: %s', ending => {
+    const markdown = `Intro\n$$\n${ending}\nresult.\n\n# Topic\nBody.`;
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.heading)).toEqual(['', 'Topic']);
+    for (const block of blocks) expectExactSpans(block, markdown);
+  });
+
+  test.each([
+    { kind: 'thematic break', markdown: '---' },
+    { kind: 'code', markdown: '```text\ninner code\n```' },
+    { kind: 'table', markdown: '| A | B |\n| --- | --- |\n| x | y |' },
+    { kind: 'definition', markdown: '[inside]: https://example.test/inside' },
+  ])('preserves later parser blocks after a $kind in multiline math', ({ markdown: internal }) => {
+    const formula = `$$\nx\n\n${internal}\n\ny\n$$`;
+    const code = '```ts\nconst result = 1;\n```';
+    const table = '| Input | Output |\n| --- | --- |\n| 1 | 2 |';
+    const markdown = `Introduction.\n${formula}\nResult.\n\n${code}\n\n${table}\n\n[ref]: https://example.test\n\n***\n\nRead [the reference][ref].`;
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.speech)).toEqual([
+      'Introduction.\n\nResult.',
+      'Read the reference.',
+    ]);
+    expect(blocks[0].visuals).toEqual([
+      { kind: 'markdown', markdown: `Introduction.\n${formula}\nResult.` },
+      { kind: 'markdown', markdown: code },
+      { kind: 'markdown', markdown: table },
+    ]);
+    expect(blocks[1].visuals).toEqual([]);
+    for (const block of blocks) expectExactSpans(block, markdown);
+  });
+
+  test('keeps a math delimiter inside an external code block protected', () => {
+    const code = '```tex\n$$\n```';
+    const markdown = `Unclosed $$\n\n${code}\n\nAfter.`;
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.speech)).toEqual(['Unclosed $$', 'After.']);
+    expect(blocks[0].visuals).toEqual([{ kind: 'markdown', markdown: code }]);
+    for (const block of blocks) expectExactSpans(block, markdown);
+  });
+
   test('speaks headings once and keeps the latest heading on following blocks', () => {
     const markdown =
       'Prima.\n\n# Tema\n\n## Dettaglio\nUn fatto.\n\nUn altro.\n\n###### Fine\n\nConclusione.';
@@ -70,6 +155,8 @@ describe('lesson playback segmentation', () => {
     { heading: 'Titolo', source: 'Titolo\r\n---' },
     { heading: 'Prima riga\nseconda riga', source: 'Prima riga\nseconda riga\n===' },
     { heading: 'Titolo', source: '## Titolo ##' },
+    { heading: 'Topic ', source: '# Topic $x$' },
+    { heading: 'Topic ', source: 'Topic $x$\n===' },
   ])('reads parsed heading text without its markers: $source', ({ heading, source }) => {
     const markdown = `${source}\n\nProsa.\n\nAncora.`;
     const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
