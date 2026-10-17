@@ -135,29 +135,56 @@ export default [{
 });
 
 describe('Sonar ESLint test classification', () => {
-  test('applies Main rules to backend helpers and excludes Sonar-classified test files', async () => {
-    const eslint = new ESLint({ overrideConfigFile: 'eslint.sonar.config.mjs' });
-    const helper = await eslint.calculateConfigForFile('apps/backend/tests/helpers/auth.ts');
-    const mainRules = Object.keys(helper.rules);
-    expect(mainRules.length).toBeGreaterThan(0);
-    for (const file of [
-      'apps/web/tests/example.test.tsx',
-      'apps/backend/tests/example.test.ts',
-      'apps/backend/tests/example.spec.tsx',
-      'scripts/example.test.ts',
-      'packages/playtest/tests/example.spec.ts',
-      'e2e/nous/tests/example.test.ts',
-    ]) {
-      const config = await eslint.calculateConfigForFile(file);
-      for (const rule of mainRules) expect(config.rules[rule][0], `${file}: ${rule}`).toBe(0);
-    }
-    for (const file of [
-      'apps/backend/tests/helpers/auth.ts',
-      'apps/backend/src/example.test.ts',
-      'packages/shared-types/example.test.ts',
-    ]) {
-      const config = await eslint.calculateConfigForFile(file);
-      for (const rule of mainRules) expect(config.rules[rule][0], `${file}: ${rule}`).toBe(2);
+  test('reads test directories and inclusion patterns from the Sonar properties', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'nous-sonar-classification-'));
+    try {
+      await symlink(
+        path.resolve('node_modules'),
+        path.join(directory, 'node_modules'),
+        process.platform === 'win32' ? 'junction' : 'dir'
+      );
+      await writeFile(
+        path.join(directory, 'eslint.sonar.config.mjs'),
+        await readFile('eslint.sonar.config.mjs', 'utf8')
+      );
+      await writeFile(
+        path.join(directory, 'tsconfig.eslint.json'),
+        JSON.stringify({ include: ['**/*.ts', '**/*.tsx'] })
+      );
+      await writeFile(
+        path.join(directory, 'sonar-project.properties'),
+        '# Synthetic classification, deliberately different from the repository\r\n' +
+          'sonar.tests = custom/unit, custom/integration/\r\n' +
+          'sonar.test.inclusions = **/*.verify.ts, **/*.spec.tsx, custom/unit/**/*.target.ts\r\n'
+      );
+      const eslint = new ESLint({
+        cwd: directory,
+        overrideConfigFile: path.join(directory, 'eslint.sonar.config.mjs'),
+      });
+      const helper = await eslint.calculateConfigForFile('custom/unit/helper.ts');
+      const mainRules = Object.keys(helper.rules);
+      expect(mainRules.length).toBeGreaterThan(0);
+      for (const file of [
+        'custom/unit/example.verify.ts',
+        'custom/unit/example.target.ts',
+        'custom/unit/nested/example.spec.tsx',
+        'custom/integration/example.verify.ts',
+        'custom/integration/example.spec.tsx',
+      ]) {
+        const config = await eslint.calculateConfigForFile(file);
+        for (const rule of mainRules) expect(config.rules[rule][0], `${file}: ${rule}`).toBe(0);
+      }
+      for (const file of [
+        'custom/unit/helper.ts',
+        'custom/unit/example.test.ts',
+        'outside/example.verify.ts',
+        'custom/integration/example.target.ts',
+      ]) {
+        const config = await eslint.calculateConfigForFile(file);
+        for (const rule of mainRules) expect(config.rules[rule][0], `${file}: ${rule}`).toBe(2);
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
     }
   });
 });
