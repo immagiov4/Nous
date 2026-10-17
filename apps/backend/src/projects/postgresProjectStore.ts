@@ -20,7 +20,6 @@ import {
   PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
 } from '@shared/projectBackupArchive';
 import { assertValidProjectArtifactScope } from '@shared/projectBackupAssets';
-import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import type { SourceArchivePdfWarningReason } from '@shared/sourceArchiveWarnings';
 import postgres from 'postgres';
 import { createEntityId } from '../utils/ids.js';
@@ -39,7 +38,7 @@ import {
 } from './projectAssetImport.js';
 import { projectImportConfig } from './projectImportConfig.js';
 import { buildProjectMeta, normalizeProjectSnapshot } from './projectMeta.js';
-import { applyProjectPatch, isNavigationProjectPatch } from './projectPatch.js';
+import { applyProjectPatch, assertRebasedProjectPatch } from './projectPatch.js';
 import {
   mergeProjectMetaRow,
   mergeProjectSnapshotRow,
@@ -1210,14 +1209,14 @@ export class PostgresProjectStore implements ProjectStore {
     patch: ProjectPatch,
     options: ProjectWriteOptions = {}
   ): Promise<SavedProjectMeta> {
-    if (options.rebaseMode === PROJECT_PATCH_REBASE_MODE.navigation) {
-      if (!isNavigationProjectPatch(patch)) {
-        throw new TypeError('Navigation rebase accepts only navigation fields.');
-      }
+    if (options.rebaseMode !== undefined) {
       try {
         const saved = await this.sql.begin(transaction =>
           patchProjectInTransaction(transaction, {
-            buildPatch: () => patch,
+            buildPatch: project => {
+              assertRebasedProjectPatch(project.snapshot, patch, options);
+              return patch;
+            },
             projectId: id,
             updatedAt: patch.updatedAt || timestampIso(),
             userId,

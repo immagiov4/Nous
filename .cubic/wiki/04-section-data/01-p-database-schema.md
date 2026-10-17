@@ -77,6 +77,16 @@ Sources: [apps/backend/src/projects/postgresProjectStore.ts:587-605](../../../ap
 | `snapshot` | `jsonb` | Complete project state (excluding heavy indices). |
 | `document_index` | `jsonb` | Extracted text and chunk mapping for search and AI grounding. |
 
+### Lesson learner state
+
+Lesson `quizState` stores selected answer indices and submission state inside `project_snapshots.snapshot`, alongside annotations and completion. The existing authenticated project PATCH validates the state and advances the project revision, so the same persistence and revision events serve local edits and other sessions. Project and library archives retain this state. No additional table or migration is required. Successful generation clears quiz state and annotations at the lesson content commit; compensation restores the previous values.
+
+Quiz writes use the narrow `quiz` rebase mode, the observed `lastGenerationRunId`, and `expectedQuizState`. The project transaction compares both the generation identity and the prior quiz state while holding the project lock: another lesson can advance the revision, while regeneration or a competing answer to the same quiz rejects the stale write through the existing revision conflict response. The shared snapshot boundary validates answer indices against the lesson's inline quiz blocks, or its legacy quiz array when it has no blocks, for PATCH, snapshot saves, and archive imports. A submitted state must contain exactly one valid selected option for every question; incomplete answers remain valid only before submission. The reader uses the same content-block precedence when restoring answers and validating selections, including lessons with an absent or stale legacy quiz array.
+
+Reopening and archive exports wait for pending local writes. A quiz write advances the saved UI signature only when its preceding domain state was already saved. A rebased write updates library metadata but preserves the expected revision of the loaded snapshot and its queued writes. The queue retains that revision if the learner switches courses, so pending full saves still conflict instead of replacing remote content. Once the queue finishes, inactive-course metadata edits and reimports use the existing library revision path. Navigation writes advance only the navigation field in the saved signature within the write queue, retaining preceding saved quiz answers and keeping other local edits dirty. Quiz and navigation completions share a pending reload; the loaded snapshot adopts the new revision only after hydration.
+
+Sources: [quiz state contract](../../../packages/shared-types/lessonQuizState.ts), [section PATCH](../../../apps/backend/src/routes/projects.ts), [lesson persistence](../../../apps/backend/src/workflows/lessonGenerationPersistence.ts).
+
 ## Project Source Management
 
 Nous employs an "immutable object" strategy for project sources. Large files are stored in Supabase Storage, while the database maintains integrity metadata (hashes and object paths).

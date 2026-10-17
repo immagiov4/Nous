@@ -18,6 +18,7 @@ const GENERATED_LESSON_FIELDS = new Set([
   'lastGenerationRunId',
   'learningAids',
   'quiz',
+  'quizState',
   'visualPlanningDecision',
 ]);
 

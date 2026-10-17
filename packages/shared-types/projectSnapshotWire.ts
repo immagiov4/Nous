@@ -8,6 +8,7 @@ import {
   LESSON_MARKDOWN_BLOCK_TYPE,
 } from './lessonContent';
 import { isValidLessonPlayback } from './lessonPlaybackSchema';
+import { LessonQuizStateSchema } from './lessonQuizState';
 import { isValidProjectLessonVisual } from './projectAsset';
 import type { ProjectSourceKind } from './projectContract';
 import { isSourceArchivePdfWarningReason } from './sourceArchiveWarnings';
@@ -262,10 +263,38 @@ const assertGeneratedVisualBlockRelations = (
   }
 };
 
+const assertLessonQuizState = (node: Record<string, unknown>): void => {
+  if (node.quizState === undefined) return;
+  const parsed = LessonQuizStateSchema.safeParse(node.quizState);
+  const quiz =
+    Array.isArray(node.contentBlocks) && node.contentBlocks.length > 0
+      ? node.contentBlocks
+          .filter(block => isRecord(block) && block.type === 'inline-quiz')
+          .map(block => block.quiz)
+      : node.quiz;
+  if (
+    !parsed.success ||
+    (parsed.data.isSubmitted &&
+      (!Array.isArray(quiz) ||
+        parsed.data.answers.length !== quiz.length ||
+        parsed.data.answers.includes(-1))) ||
+    parsed.data.answers.some((answer, index) => {
+      if (answer === -1) return false;
+      const question = Array.isArray(quiz) ? quiz[index] : undefined;
+      return (
+        !isRecord(question) || !Array.isArray(question.options) || answer >= question.options.length
+      );
+    })
+  ) {
+    throw new ProjectSnapshotWireError('Risposte della lezione non valide.');
+  }
+};
+
 export const canonicalizeLessonNodeContent = <Node extends Record<string, unknown>>(
   node: Node,
   options: ProjectSnapshotWireDecodeOptions = {}
 ): Node => {
+  assertLessonQuizState(node);
   if (node.playback !== undefined && !isValidLessonPlayback(node.playback)) {
     throw new ProjectSnapshotWireError('Dati di ascolto della lezione non validi.');
   }

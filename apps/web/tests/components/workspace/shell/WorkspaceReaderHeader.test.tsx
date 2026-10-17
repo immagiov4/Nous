@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, test, vi } from 'vitest';
@@ -91,79 +91,27 @@ describe('WorkspaceReaderHeader', () => {
     expect(screen.getByRole('button', { name: /^Rigenera$/i })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Istruzioni personalizzate' })).toBeInTheDocument();
   });
-  test('updates the inline confirmation when the account locale changes', async () => {
+  test.each([false, true])('starts regeneration directly, mobile=%s', async isMobileViewport => {
     const user = userEvent.setup();
-    setAccountLocale('it');
-    const view = render(<Header {...buildProps()} isSettingsOpen />);
+    const props = buildProps();
+    render(<Header {...props} isMobileViewport={isMobileViewport} isSettingsOpen />);
+    await user.click(screen.getByRole('button', { name: 'Rigenera' }));
+    expect(props.onRegenerateActiveSection).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  test('uses the account locale for the regeneration action', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    const view = render(<Header {...props} isSettingsOpen />);
     try {
-      await user.click(screen.getByRole('button', { name: 'Rigenera' }));
       act(() => setAccountLocale('en'));
-      const confirmation = screen.getByRole('group', { name: 'Regenerate this lesson?' });
-      await user.click(within(confirmation).getByRole('button', { name: 'Yes, regenerate' }));
-      expect(screen.getByRole('button', { name: 'Regenerate' })).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Regenerate' }));
+      expect(props.onRegenerateActiveSection).toHaveBeenCalledTimes(1);
     } finally {
       view.unmount();
       setAccountLocale(null);
     }
-  });
-
-  test.each([
-    false,
-    true,
-  ])('confirms regeneration inside settings, mobile=%s', async isMobileViewport => {
-    const user = userEvent.setup();
-    const props = buildProps();
-    render(<Header {...props} isMobileViewport={isMobileViewport} />);
-    await user.click(screen.getByRole('button', { name: 'Apri impostazioni lettura' }));
-    const trigger = screen.getByRole('button', { name: 'Rigenera' });
-    const row = trigger.parentElement;
-    await user.click(trigger);
-    const confirmation = screen.getByRole('group', { name: 'Rigenerare questa lezione?' });
-    expect(confirmation.parentElement).toBe(row);
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Rigenera' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Istruzioni personalizzate' })).toBeInTheDocument();
-    expect(props.onRegenerateActiveSection).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'No' })).toHaveFocus();
-    await user.tab();
-    expect(screen.getByRole('button', { name: 'Sì, rigenera' })).toHaveFocus();
-    await user.click(screen.getByRole('button', { name: 'Sì, rigenera' }));
-    expect(props.onRegenerateActiveSection).toHaveBeenCalledTimes(1);
-    expect(
-      screen.queryByRole('group', { name: 'Rigenerare questa lezione?' })
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Rigenera' })).toBeEnabled();
-  });
-
-  test.each([
-    { mobile: false, cancel: 'No' },
-    { mobile: true, cancel: 'No' },
-    { mobile: false, cancel: 'Escape' },
-    { mobile: true, cancel: 'Escape' },
-  ])('returns to the button with $cancel, mobile=$mobile', async ({ mobile, cancel }) => {
-    const user = userEvent.setup();
-    const props = buildProps();
-    render(<Header {...props} isMobileViewport={mobile} isSettingsOpen />);
-    await user.click(screen.getByRole('button', { name: 'Rigenera' }));
-    if (cancel === 'No') await user.click(screen.getByRole('button', { name: 'No' }));
-    else await user.keyboard('{Escape}');
-    expect(screen.getByRole('button', { name: 'Rigenera' })).toHaveFocus();
-    expect(
-      screen.queryByRole('group', { name: 'Rigenerare questa lezione?' })
-    ).not.toBeInTheDocument();
-    expect(props.onRegenerateActiveSection).not.toHaveBeenCalled();
-  });
-
-  test('starts with the regenerate button after closing and reopening settings', async () => {
-    const user = userEvent.setup();
-    render(<Header {...buildProps()} isSettingsOpen />);
-    await user.click(screen.getByRole('button', { name: 'Rigenera' }));
-    await user.click(screen.getByRole('button', { name: 'Apri impostazioni lettura' }));
-    await user.click(screen.getByRole('button', { name: 'Apri impostazioni lettura' }));
-    expect(screen.getByRole('button', { name: 'Rigenera' })).toBeEnabled();
-    expect(
-      screen.queryByRole('group', { name: 'Rigenerare questa lezione?' })
-    ).not.toBeInTheDocument();
   });
 
   test.each([
@@ -172,14 +120,10 @@ describe('WorkspaceReaderHeader', () => {
   ])('disables regeneration when unavailable: %o', async availability => {
     const user = userEvent.setup();
     const props = buildProps();
-    const { rerender } = render(<Header {...props} isSettingsOpen />);
-    await user.click(screen.getByRole('button', { name: 'Rigenera' }));
-    rerender(<Header {...props} {...availability} isSettingsOpen />);
-    expect(
-      screen.queryByRole('group', { name: 'Rigenerare questa lezione?' })
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Rigenera' })).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'Rigenera' }));
+    render(<Header {...props} {...availability} isSettingsOpen />);
+    const regenerate = screen.getByRole('button', { name: 'Rigenera' });
+    expect(regenerate).toBeDisabled();
+    await user.click(regenerate);
     expect(props.onRegenerateActiveSection).not.toHaveBeenCalled();
   });
 

@@ -2,6 +2,7 @@ import type { CoursePlanningPreferences } from '@shared/coursePlanningControls';
 import type { LearningArtifactKind } from '@shared/learningArtifact';
 import type { ActivePauseExerciseType } from '@shared/lessonGenerationPolicy';
 import type { LessonPlayback } from '@shared/lessonPlayback';
+import type { LessonQuizState } from '@shared/lessonQuizState';
 import type { LessonScene } from '@shared/lessonScene';
 import type { LessonWorkflowWarning } from '@shared/lessonWorkflowContract';
 import type { ProjectDocumentImageAsset, ProjectLessonVisual } from '@shared/projectAsset';
@@ -553,6 +554,7 @@ export interface LearningSection {
   content?: string; // The generated full lesson content (persisted)
   contentBlocks?: LessonContentBlock[]; // Ordered first-class lesson content (new generations)
   generationWarnings?: LessonWorkflowWarning[];
+  quizState?: LessonQuizState;
   quiz?: QuizQuestion[]; // The generated quiz (persisted)
   imageRefs?: LessonImageRef[]; // PDF image references selected for this lesson
   generatedVisuals?: StoredLessonVisual[]; // Generated pedagogical visuals for missing examples

@@ -1,3 +1,4 @@
+import type { ProjectWriteOptions, SectionPatch } from '@shared/projectContract';
 import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
@@ -47,6 +48,21 @@ import { findPathNodeById } from '../../utils/learning/pathNodes.ts';
 import { createLessonSectionAnnotation } from '../../utils/learning/sectionAnnotations.ts';
 import { buildLibraryTree } from '../../utils/library/tree.ts';
 import { timestampIso } from '../../utils/time.ts';
+
+const quizWriteOptions = (
+  sectionId: string,
+  changes: Pick<SectionPatch, 'quizState'>,
+  domain: WorkspaceDomainState
+): ProjectWriteOptions => {
+  if (!changes.quizState) return {};
+  const section = findPathNodeById(domain.learningPlan?.modules, sectionId);
+  return {
+    rebaseMode: PROJECT_PATCH_REBASE_MODE.quiz,
+    expectedLessonGenerationRunId:
+      section?.kind === 'lesson' ? (section.lastGenerationRunId ?? null) : null,
+    expectedQuizState: section?.kind === 'lesson' ? (section.quizState ?? null) : null,
+  };
+};
 
 interface UseProjectLibraryArgs {
   domainState: WorkspaceDomainState;
@@ -122,8 +138,11 @@ interface PersistSnapshotOptions {
 interface ProjectWriteState {
   batchFailed: boolean;
   batchNeedsAutosave: boolean;
+  expectedRevision?: number;
   deletion?: Promise<void>;
   pendingCount: number;
+  rebasedRevision?: number;
+  reconciliation?: Promise<boolean>;
   queue: Promise<void>;
 }
 
@@ -270,7 +289,16 @@ export const useProjectLibrary = ({
       const nextProjects = savedProjectsRef.current.filter(project => project.id !== meta.id);
       nextProjects.push(meta);
       storeSavedProjects(nextProjects);
-      if (loadedProjectRevisionRef.current.projectId === meta.id) {
+      const writes = projectWritesRef.current.get(meta.id);
+      if (writes && !didRebaseOverRemoteRevision(writes.expectedRevision, meta.revision)) {
+        writes.expectedRevision = meta.revision;
+      }
+      // A narrow rebased write does not make the local snapshot include remote edits.
+      // Keep its optimistic concurrency baseline until those edits are hydrated.
+      if (
+        loadedProjectRevisionRef.current.projectId === meta.id &&
+        !didRebaseOverRemoteRevision(loadedProjectRevisionRef.current.revision, meta.revision)
+      ) {
         loadedProjectRevisionRef.current = { projectId: meta.id, revision: meta.revision };
       }
     },
@@ -309,6 +337,8 @@ export const useProjectLibrary = ({
   );
 
   const getExpectedRevision = useCallback((projectId: string): number | undefined => {
+    const writes = projectWritesRef.current.get(projectId);
+    if (writes && writes.pendingCount > 0) return writes.expectedRevision;
     if (loadedProjectRevisionRef.current.projectId === projectId) {
       return loadedProjectRevisionRef.current.revision;
     }
@@ -427,9 +457,8 @@ export const useProjectLibrary = ({
         (currentMeta.revision === undefined || persisted.revision > currentMeta.revision)
       ) {
         syncProjectMeta({ ...currentMeta, revision: persisted.revision });
-      } else {
-        loadedProjectRevisionRef.current = { projectId, revision: persisted.revision };
       }
+      loadedProjectRevisionRef.current = { projectId, revision: persisted.revision };
       if (
         pendingRemoteRevisionRef.current?.projectId === projectId &&
         pendingRemoteRevisionRef.current.revision <= persisted.revision
@@ -449,6 +478,27 @@ export const useProjectLibrary = ({
     ]
   );
 
+  const reconcileRebasedProjectWrites = useCallback(
+    async (projectId: string): Promise<void> => {
+      const writeState = getProjectWriteState(projectId);
+      if (writeState.reconciliation !== undefined) await writeState.reconciliation;
+      const revision = writeState.rebasedRevision;
+      if (writeState.pendingCount > 0 || writeState.batchFailed || revision === undefined) return;
+      if ((getExpectedRevision(projectId) ?? 0) < revision) {
+        const reconciliation = applyPersistedProjectRevision({ projectId, revision });
+        writeState.reconciliation = reconciliation;
+        try {
+          await reconciliation;
+        } finally {
+          delete writeState.reconciliation;
+        }
+      }
+      if ((getExpectedRevision(projectId) ?? 0) >= (writeState.rebasedRevision ?? revision))
+        delete writeState.rebasedRevision;
+    },
+    [applyPersistedProjectRevision, getExpectedRevision, getProjectWriteState]
+  );
+
   const runTrackedProjectWrite = useCallback(
     async (
       projectId: string,
@@ -466,11 +516,16 @@ export const useProjectLibrary = ({
           // The project still exists, so the queued write can continue.
         }
       }
-      if (deletedProjectIdsRef.current.has(projectId)) {
-        throw new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted');
-      }
+      const assertProjectNotDeleted = () => {
+        if (deletedProjectIdsRef.current.has(projectId)) {
+          throw new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted');
+        }
+      };
+      assertProjectNotDeleted();
 
       if (writeState.pendingCount === 0) {
+        // Queued snapshots retain this baseline even if another course becomes selected.
+        writeState.expectedRevision = getExpectedRevision(projectId);
         writeState.batchFailed = false;
         writeState.batchNeedsAutosave = false;
       }
@@ -478,13 +533,9 @@ export const useProjectLibrary = ({
       setProjectSyncState({ kind: 'write', phase: 'pending' });
       const queuedWrite = writeState.queue.then(async () => {
         try {
-          if (deletedProjectIdsRef.current.has(projectId)) {
-            throw new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted');
-          }
+          assertProjectNotDeleted();
           const meta = await operation();
-          if (deletedProjectIdsRef.current.has(projectId)) {
-            throw new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted');
-          }
+          assertProjectNotDeleted();
           syncProjectMeta(meta);
           return meta;
         } catch (error) {
@@ -530,7 +581,7 @@ export const useProjectLibrary = ({
       );
       return queuedWrite;
     },
-    [getProjectWriteState, invalidateRemoteDeletedProject, syncProjectMeta]
+    [getExpectedRevision, getProjectWriteState, invalidateRemoteDeletedProject, syncProjectMeta]
   );
 
   const saveStoredProjectCover = useCallback(
@@ -762,21 +813,32 @@ export const useProjectLibrary = ({
         selectedProjectId
       );
 
-      const persistedSignature = buildAutosaveSignature({
-        ...domainStateRef.current,
-        ...overrides,
-      });
       let expectedRevision: number | undefined;
       const rebaseMode = isNavigationOnlyProjectOverride(overrides)
         ? PROJECT_PATCH_REBASE_MODE.navigation
         : undefined;
+      const persistedSignature = buildAutosaveSignature({
+        ...domainStateRef.current,
+        ...overrides,
+      });
       try {
-        const meta = await runTrackedProjectWrite(selectedProjectId, () => {
+        const meta = await runTrackedProjectWrite(selectedProjectId, async () => {
           expectedRevision = getExpectedRevision(selectedProjectId);
-          return projectRepositoryRef.current.patchProject(selectedProjectId, patch, {
+          const saved = await projectRepositoryRef.current.patchProject(selectedProjectId, patch, {
             expectedRevision,
             ...(rebaseMode === undefined ? {} : { rebaseMode }),
           });
+          if (
+            currentProjectIdRef.current === selectedProjectId &&
+            rebaseMode &&
+            lastPersistedSignatureRef.current
+          ) {
+            lastPersistedSignatureRef.current = JSON.stringify({
+              ...JSON.parse(lastPersistedSignatureRef.current),
+              activeSectionId: overrides.activeSectionId,
+            });
+          }
+          return saved;
         });
         if (!meta) return null;
         const writeState = getProjectWriteState(selectedProjectId);
@@ -786,15 +848,13 @@ export const useProjectLibrary = ({
           !writeState.batchFailed
         ) {
           setStorageError(null);
-          lastPersistedSignatureRef.current = persistedSignature;
+          if (!rebaseMode) lastPersistedSignatureRef.current = persistedSignature;
         }
         const savedRevision = meta.revision;
         if (rebaseMode && didRebaseOverRemoteRevision(expectedRevision, savedRevision)) {
-          await applyPersistedProjectRevision({
-            projectId: selectedProjectId,
-            revision: savedRevision,
-          });
+          writeState.rebasedRevision = savedRevision;
         }
+        await reconcileRebasedProjectWrites(selectedProjectId);
         void requestPersistentStorage();
         return meta;
       } catch (error) {
@@ -807,52 +867,61 @@ export const useProjectLibrary = ({
       }
     },
     [
-      applyPersistedProjectRevision,
       getExpectedRevision,
       getProjectWriteState,
+      reconcileRebasedProjectWrites,
       requestPersistentStorage,
       runTrackedProjectWrite,
     ]
   );
 
-  /**
-   * patchSectionAnnotations — sends ONLY the annotations (and optionally content) for one section.
-   * This is the most common hot path (highlight, note, delete annotation).
-   * Payload: ~1KB instead of ~100KB for the full learning plan.
-   *
-   * After a successful patch, updates the persistence signature so the debounced autosave
-   * is suppressed for this change.
-   */
-  const patchSectionAnnotations = useCallback(
+  /** Persists learner edits through the project's ordered revision stream. */
+  const patchSectionLearnerState = useCallback(
     async (
       sectionId: string,
-      annotations: unknown,
-      content?: string,
-      generatedVisuals?: LearningSection['generatedVisuals']
+      changes: Pick<SectionPatch, 'annotations' | 'quizState' | 'content' | 'generatedVisuals'>,
+      domainChange?: { before: WorkspaceDomainState; after: WorkspaceDomainState }
     ): Promise<boolean> => {
       if (!currentProjectId) return false;
       const selectedProjectId = currentProjectId;
-
-      const patch: Record<string, unknown> = {
-        section: { sectionId, annotations, content, generatedVisuals },
+      const patch: ProjectPatch = {
+        section: { sectionId, ...changes },
         updatedAt: timestampIso(),
       };
 
-      const persistedSignature = buildAutosaveSignature(domainStateRef.current);
+      const before = domainChange?.before ?? domainStateRef.current;
+      const after = domainChange?.after ?? domainStateRef.current;
+      const previousSignature = buildAutosaveSignature(before);
+      const persistedSignature = buildAutosaveSignature(after);
+      const writeOptions = quizWriteOptions(sectionId, changes, before);
+      let expectedRevision: number | undefined;
       try {
         markSyncSaving();
-        const meta = await runTrackedProjectWrite(selectedProjectId, () =>
-          projectRepositoryRef.current.patchProject(selectedProjectId, patch, {
-            expectedRevision: getExpectedRevision(selectedProjectId),
-          })
-        );
+        const meta = await runTrackedProjectWrite(selectedProjectId, async () => {
+          expectedRevision = getExpectedRevision(selectedProjectId);
+          const saved = await projectRepositoryRef.current.patchProject(selectedProjectId, patch, {
+            expectedRevision,
+            ...writeOptions,
+          });
+          if (
+            currentProjectIdRef.current === selectedProjectId &&
+            (domainChange === undefined || lastPersistedSignatureRef.current === previousSignature)
+          ) {
+            lastPersistedSignatureRef.current = persistedSignature;
+          }
+          return saved;
+        });
         if (!meta) return false;
         if (currentProjectIdRef.current !== selectedProjectId) return true;
 
         const writeState = getProjectWriteState(selectedProjectId);
+        const savedRevision = meta.revision;
+        if (changes.quizState && didRebaseOverRemoteRevision(expectedRevision, savedRevision)) {
+          writeState.rebasedRevision = savedRevision;
+        }
         if (writeState.pendingCount === 0 && !writeState.batchFailed) {
           setStorageError(null);
-          lastPersistedSignatureRef.current = persistedSignature;
+          await reconcileRebasedProjectWrites(selectedProjectId);
           markSyncSaved();
         } else {
           markSyncError();
@@ -868,7 +937,28 @@ export const useProjectLibrary = ({
         return false;
       }
     },
-    [currentProjectId, getExpectedRevision, getProjectWriteState, runTrackedProjectWrite]
+    [
+      currentProjectId,
+      getExpectedRevision,
+      getProjectWriteState,
+      reconcileRebasedProjectWrites,
+      runTrackedProjectWrite,
+    ]
+  );
+
+  const patchSectionAnnotations = useCallback(
+    (
+      sectionId: string,
+      annotations: unknown,
+      content?: string,
+      generatedVisuals?: LearningSection['generatedVisuals']
+    ) =>
+      patchSectionLearnerState(sectionId, {
+        annotations: annotations as unknown[],
+        content,
+        generatedVisuals,
+      }),
+    [patchSectionLearnerState]
   );
 
   const patchSectionLessonContent = useCallback(
@@ -1083,6 +1173,7 @@ export const useProjectLibrary = ({
         throw new Error('No project is available for export.');
       }
 
+      await getProjectWriteState(targetProjectId).queue;
       const exportData = await projectRepositoryRef.current.exportProject(targetProjectId);
 
       if (!exportData) {
@@ -1102,11 +1193,12 @@ export const useProjectLibrary = ({
         `nous-backup-${timestampIso().slice(0, 10)}${getProjectArchiveExtension()}`
       );
     },
-    [currentProjectId, downloadBlob]
+    [currentProjectId, downloadBlob, getProjectWriteState]
   );
 
   const downloadLibraryBackup = useCallback(
     async (onProgress?: LibraryExportProgressListener): Promise<number> => {
+      await Promise.all([...projectWritesRef.current.values()].map(write => write.queue));
       const { projectCount } = await projectRepositoryRef.current.exportLibraryBackup(onProgress);
       return projectCount;
     },
@@ -1136,7 +1228,6 @@ export const useProjectLibrary = ({
 
   const processPendingRemoteRevision = useCallback(async (): Promise<void> => {
     const pendingEvent = pendingRemoteRevisionRef.current;
-    const loadedProject = loadedProjectRevisionRef.current;
     if (pendingEvent?.projectId !== currentProjectIdRef.current) {
       return;
     }
@@ -1148,6 +1239,7 @@ export const useProjectLibrary = ({
       invalidateRemoteDeletedProject(pendingEvent.projectId);
       return;
     }
+    const loadedProject = loadedProjectRevisionRef.current;
     if (
       loadedProject.projectId === pendingEvent.projectId &&
       loadedProject.revision !== undefined &&
@@ -1360,26 +1452,29 @@ export const useProjectLibrary = ({
   );
   const loadStoredProject = useCallback(
     async (projectId: string) => {
+      await getProjectWriteState(projectId).queue;
       const project = await projectRepositoryRef.current.loadProject(projectId);
       if (project) {
         rememberExplicitProjectTitle(project);
       }
       return project;
     },
-    [rememberExplicitProjectTitle]
+    [getProjectWriteState, rememberExplicitProjectTitle]
   );
   const loadStoredProjectWithRevision = useCallback(
     async (projectId: string) => {
+      await getProjectWriteState(projectId).queue;
       const project = await projectRepositoryRef.current.loadProjectWithRevision(projectId);
       if (project) {
         rememberExplicitProjectTitle(project.snapshot);
       }
       return project;
     },
-    [rememberExplicitProjectTitle]
+    [getProjectWriteState, rememberExplicitProjectTitle]
   );
   const validateStoredProjectForOpen = useCallback(
     async (projectId: string) => {
+      await getProjectWriteState(projectId).queue;
       if (deletedProjectIdsRef.current.has(projectId)) return null;
       const project = await projectRepositoryRef.current.loadProjectWithRevision(projectId);
       if (!project) {
@@ -1389,7 +1484,7 @@ export const useProjectLibrary = ({
       rememberExplicitProjectTitle(project.snapshot);
       return project;
     },
-    [invalidateRemoteDeletedProject, rememberExplicitProjectTitle]
+    [getProjectWriteState, invalidateRemoteDeletedProject, rememberExplicitProjectTitle]
   );
   const loadStoredProjectCover = useCallback(
     (projectId: string) => projectRepositoryRef.current.loadProjectCover(projectId),
@@ -1647,6 +1742,7 @@ export const useProjectLibrary = ({
     patchCurrentProject,
     patchSectionLessonContent,
     patchSectionAnnotations,
+    patchSectionLearnerState,
     projectSyncState,
     savedProjects,
     setProjectFavorite,

@@ -1,5 +1,6 @@
 import type { LessonInstructionPackId } from './lessonInstructionPacks';
 import type { LessonPlayback } from './lessonPlayback';
+import type { LessonQuizState } from './lessonQuizState';
 
 // Contract types shared between the frontend (apps/web) and the backend
 // (apps/backend). These shapes travel over the network and through the
@@ -76,6 +77,7 @@ export const PROJECT_API_ERROR_CODE = {
 
 export const PROJECT_PATCH_REBASE_MODE = {
   navigation: 'navigation',
+  quiz: 'quiz',
 } as const;
 
 export type ProjectPatchRebaseMode =
@@ -84,12 +86,15 @@ export type ProjectPatchRebaseMode =
 export interface ProjectWriteOptions {
   expectedRevision?: number;
   rebaseMode?: ProjectPatchRebaseMode;
+  expectedLessonGenerationRunId?: string | null;
+  expectedQuizState?: LessonQuizState | null;
 }
 
 export interface SectionPatch {
   sectionId: string;
   playback?: LessonPlayback | null;
-  annotations?: unknown[];
+  annotations?: unknown[] | null;
+  quizState?: LessonQuizState | null;
   content?: string | null;
   contentBlocks?: unknown[] | null;
   generationWarnings?: unknown[] | null;

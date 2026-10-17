@@ -1,9 +1,12 @@
+import { isDeepStrictEqual } from 'node:util';
+import { PROJECT_PATCH_REBASE_MODE, type ProjectWriteOptions } from '@shared/projectContract';
 import {
   canonicalizeLearningPlanContent,
   canonicalizeLessonNodeContent,
 } from '@shared/projectSnapshotWire';
-
 import { isRecord } from '../utils/validation.js';
+import { findProjectLessonSection } from './projectLesson.js';
+import { ProjectRevisionConflictError } from './projectRevision.js';
 import type {
   LearningPlanNodeSnapshot,
   LearningPlanSnapshot,
@@ -29,6 +32,41 @@ export const isNavigationProjectPatch = (patch: ProjectPatch): boolean => {
   );
 };
 
+/** Validate a narrow write against the snapshot held under the project lock. */
+export const assertRebasedProjectPatch = (
+  project: ProjectSnapshot,
+  patch: ProjectPatch,
+  options: ProjectWriteOptions
+): void => {
+  if (options.rebaseMode === PROJECT_PATCH_REBASE_MODE.navigation) {
+    if (!isNavigationProjectPatch(patch))
+      throw new TypeError('Navigation rebase accepts only navigation fields.');
+    return;
+  }
+  const sectionPatch = patch.section;
+  const projectFields = Object.entries(patch).filter(([, value]) => value !== undefined);
+  const sectionFields = Object.entries(sectionPatch ?? {}).filter(
+    ([, value]) => value !== undefined
+  );
+  if (
+    options.rebaseMode !== PROJECT_PATCH_REBASE_MODE.quiz ||
+    !sectionPatch?.quizState ||
+    options.expectedLessonGenerationRunId === undefined ||
+    options.expectedQuizState === undefined ||
+    projectFields.some(([key]) => key !== 'section' && key !== 'updatedAt') ||
+    sectionFields.some(([key]) => key !== 'sectionId' && key !== 'quizState')
+  )
+    throw new TypeError('Quiz rebase requires only quiz state and its lesson generation identity.');
+  const section = findProjectLessonSection(project, sectionPatch.sectionId);
+  if (
+    !section ||
+    (section.lastGenerationRunId ?? null) !== options.expectedLessonGenerationRunId ||
+    !isDeepStrictEqual(section.quizState ?? null, options.expectedQuizState)
+  ) {
+    throw new ProjectRevisionConflictError();
+  }
+};
+
 const applySectionPatchToNode = (
   node: LearningPlanNodeSnapshot,
   sectionPatch: SectionPatch
@@ -38,7 +76,12 @@ const applySectionPatchToNode = (
     ...(sectionPatch.playback !== undefined
       ? { playback: sectionPatch.playback ?? undefined }
       : {}),
-    ...(sectionPatch.annotations !== undefined ? { annotations: sectionPatch.annotations } : {}),
+    ...(sectionPatch.annotations !== undefined
+      ? { annotations: sectionPatch.annotations ?? undefined }
+      : {}),
+    ...(sectionPatch.quizState !== undefined
+      ? { quizState: sectionPatch.quizState ?? undefined }
+      : {}),
     ...(sectionPatch.content !== undefined ? { content: sectionPatch.content } : {}),
     ...(sectionPatch.contentBlocks === undefined
       ? {}

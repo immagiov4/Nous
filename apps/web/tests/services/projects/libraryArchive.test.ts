@@ -8,6 +8,7 @@ import {
   readLibraryArchive,
   restoreLibraryArchiveOrganization,
 } from '../../../services/projects/libraryArchive.ts';
+import { inspectProjectArchiveData } from '../../../services/projects/projectArchive.ts';
 import { encodeTextBase64 } from '../../../services/projects/projectSource.ts';
 import { AppState, type ProjectSnapshot } from '../../../types.ts';
 import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
@@ -96,6 +97,44 @@ test('library backup round trip preserves courses, folders, and placements', asy
   assert.equal(imported.projectArchives.length, 2);
   assert.deepEqual(imported.folders, folders);
   assert.deepEqual(imported.placements, placements);
+});
+
+test('library archives roundtrip selected and submitted quiz state per course and lesson', async () => {
+  const projects = [buildSnapshot('first', 'First'), buildSnapshot('second', 'Second')];
+  assert.ok(projects[0].learningPlan);
+  assert.ok(projects[1].learningPlan);
+  projects[0].learningPlan.modules[0].children[0] = buildTestLesson({
+    id: 'shared-lesson-id',
+    quiz: [
+      { question: 'First?', options: ['A', 'B', 'C'], correctIndex: 0 },
+      { question: 'Second?', options: ['A', 'B'], correctIndex: 1 },
+    ],
+    quizState: { answers: [1, -1], isSubmitted: false },
+  });
+  projects[1].learningPlan.modules[0].children[0] = buildTestLesson({
+    id: 'shared-lesson-id',
+    quiz: [
+      { question: 'First?', options: ['A', 'B', 'C'], correctIndex: 0 },
+      { question: 'Second?', options: ['A', 'B'], correctIndex: 1 },
+    ],
+    quizState: { answers: [2, 0], isSubmitted: true },
+  });
+  const archive = await createLibraryArchiveBlob(projects, {
+    folders: [],
+    placements: projects.map((project, order) => ({
+      projectId: project.id,
+      folderId: null,
+      order,
+      updatedAt: project.updatedAt,
+    })),
+  });
+  const imported = await readLibraryArchive(archive);
+  const restored = await Promise.all(
+    imported.projectArchives.map(entry => inspectProjectArchiveData(entry.archive))
+  );
+  expect(restored.map(project => project.learningPlan)).toEqual(
+    projects.map(project => project.learningPlan)
+  );
 });
 
 test('library backup export rejects a missing project placement', async () => {

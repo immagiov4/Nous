@@ -431,3 +431,13 @@ test('multiline annotations gain a stable visible speech identity', () => {
     buildLessonPlaybackKey(annotatedSection('\nPassage visible.\n'))
   );
 });
+
+test('quiz learner state preserves prepared playback for annotated lessons', () => {
+  const section = annotatedSection(
+    'A <mark data-nous-annotation-id="note">system</mark> has boundaries.'
+  );
+  const playback = preparedPlayback(section);
+  const answered = { ...section, playback, quizState: { answers: [1], isSubmitted: true } };
+  expect(buildLessonPlaybackKey(answered)).toBe(buildLessonPlaybackKey(section));
+  expect(readLessonPlayback(answered).blocks[0].audio).toEqual(playback.blocks[0].audio);
+});
