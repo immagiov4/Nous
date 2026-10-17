@@ -1,0 +1,7 @@
+/* The isolated stage receives the same full-height flex constraint as LessonPlayer. */
+#root {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}

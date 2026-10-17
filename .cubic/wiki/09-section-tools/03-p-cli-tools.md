@@ -139,3 +139,52 @@ Developers use the following commands to interact with the diagnostic and qualit
 Sources: [AGENTS.md:124-142](../../../AGENTS.md#L124-L142)
 
 The diagnostic ecosystem ensures that the development environment is stable, services are reachable, and the codebase remains compliant with established architectural and quality standards.
+
+## Playback visual atlas
+
+`bun run atlas:playback` creates a local atlas from normalized lessons and renders the production playback components in headless Chromium. It uses the application's deterministic segmentation and estimated playback timeline, samples each block at its start, middle and end, and writes separately labelled sheets for isolated visuals that those block positions might miss. Ordinary library exports omit prepared playback scenes and audio; the atlas exercises the authored visuals available in the export.
+
+```bash
+bun run atlas:playback -- --synthetic synthetic-short
+bun run atlas:playback -- --library "$NOUS_E2E_LIBRARY"
+bun run atlas:playback -- --fixture path/to/synthetic-project.json
+bun run atlas:playback -- --scenario path/to/playback-scenario.json
+```
+
+The default fixture is a deterministic pairwise generator over playback content kinds, supported visual kinds, the current scene catalog and Markdown syntax. It reuses the existing valid scene examples and checks generated scenes against the shared contract. The existing `synthetic-short` and `synthetic-law-short` courses remain available for a short run.
+
+A scenario declares its identity, tags, fixture, viewports or named Playwright devices, and enabled structural checks. The built-in scenario covers desktop, mobile and tablet. JSON definitions use the following shape; fixture paths are resolved from the command's working directory.
+
+```json
+{
+  "id": "playback-example",
+  "surface": "playback",
+  "tags": ["playback", "synthetic"],
+  "fixture": { "kind": "synthetic", "generator": "pairwise" },
+  "viewports": [
+    { "id": "desktop", "device": "Desktop Chrome" },
+    { "id": "mobile", "device": "Pixel 7" }
+  ],
+  "checks": [
+    "visual-empty",
+    "visual-symbol-only",
+    "caption-word-mismatch",
+    "visual-clipped",
+    "console-error",
+    "render-error",
+    "scene-invalid"
+  ]
+}
+```
+
+`--course` and `--lesson` select exact IDs. `--source-root` loads segmentation, components and styles from another source checkout with its dependencies installed, allowing one version of the atlas to compare application commits. The renderer builds immutable assets with the selected checkout's Vite, PostCSS and Tailwind configuration before starting a local preview. Capture remains sequential. The output records the resolved scenario, source and tool revisions, dirty-state flags, per-tile geometry and rendering duration.
+
+Each run creates a fresh directory under `~/nous-atlas/`, or under an explicit `--output-root`. Output paths must resolve outside every Git repository. `index.html` links to contact sheets and original PNGs; `report.json` gives every finding an exact HTML fragment, image, sheet and sheet rectangle. These artifacts include lesson content and stay private. Library inputs are refused in CI; CI can use the synthetic generator or repository-owned project fixtures. The renderer uses local assets and system font fallbacks, with outbound requests blocked.
+
+Checks identify rendered empty content, symbolic content without prose, captions crossing canonical spoken-word boundaries, exact clipping, scene contract failures and rendering or console errors. A formula can satisfy the symbolic-content check while remaining valid teaching content: structural findings still require interpretation against the lesson. Sparse nonempty content, fitted font size, canvas occupancy and rendering duration retain raw measurements and maintainer decisions instead of numerical quality cutoffs. The command exits unsuccessfully when findings or operational errors are present. Lessons without spoken playback blocks are explicitly recorded as incomplete coverage rather than silently counted as captured.
+
+Contact sheets include a transcript of the actual caption DOM beneath every image, including on mobile where the production stage hides that caption region. The report initially marks agent visual review as pending; the reviewing agent records inspected tile paths and observations separately from automatic findings.
+
+Run `bun run test -- e2e/nous/tests/playbackAtlas.test.ts` for the deterministic contracts. Run `bun run e2e/nous/tests/playbackAtlas.browser.ts` for the sequential Chromium contract: it compares repeated PNGs byte for byte and checks animated content clipped inside an iframe and an iframe clipped by its outer stage. An optional positional source checkout path exercises that version of the application.
+
+Sources: [command](../../../e2e/nous/playbackAtlas.ts), [scenario contract](../../../e2e/nous/atlas/scenario.ts), [synthetic generator](../../../e2e/nous/atlas/synthetic.ts), [behavior tests](../../../e2e/nous/tests/playbackAtlas.test.ts).
