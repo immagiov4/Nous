@@ -96,7 +96,7 @@ const partialVisualError = ${toSafeScriptJson(
   t("Una parte interattiva dell'artefatto ha avuto un errore. Puoi rigenerarlo o sostituirlo.")
 )};
 const failedVisualError = ${toSafeScriptJson(
-  t('Questo artefatto interattivo non e riuscito a caricarsi. Puoi rigenerarlo o sostituirlo.')
+  t('Questo artefatto interattivo non è riuscito a caricarsi. Puoi rigenerarlo o sostituirlo.')
 )};
 const root = document.getElementById('${GENERATED_VISUAL_ROOT_ID}');
 let hasShownGeneratedVisualError = false;

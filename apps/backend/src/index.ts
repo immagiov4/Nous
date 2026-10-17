@@ -391,7 +391,7 @@ export const createApp = (options: CreateAppOptions = {}) => {
         });
         res.status(413).json({
           success: false,
-          error: 'Il file e troppo grande per questa richiesta.',
+          error: 'Il file è troppo grande per questa richiesta.',
         });
         return;
       }

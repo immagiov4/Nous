@@ -8,7 +8,7 @@ export const OPENROUTER_SAFE_JSON_BODY_BYTES = Math.floor(
 export const OPENROUTER_INLINE_MEDIA_DATA_URL_LIMIT_CHARS = 8 * BYTES_PER_MIB;
 
 export const OPENROUTER_PAYLOAD_TOO_LARGE_MESSAGE =
-  'La richiesta al modello e troppo grande. Riduci allegati o immagini e riprova.';
+  'La richiesta al modello è troppo grande. Riduci allegati o immagini e riprova.';
 
 export const measureUtf8Bytes = (value: string): number => new TextEncoder().encode(value).length;
 

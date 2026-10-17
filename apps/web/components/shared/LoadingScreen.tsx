@@ -194,7 +194,7 @@ const getWaitingHint = (elapsedSeconds: number): string | null => {
   }
 
   if (elapsedSeconds >= 35) {
-    return t('Operazione ancora in corso, non e un blocco.');
+    return t('Operazione ancora in corso, non è un blocco.');
   }
 
   return null;

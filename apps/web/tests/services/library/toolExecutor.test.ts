@@ -557,7 +557,7 @@ describe('executeLibraryAssistantTool', () => {
 
     expect(result.outputError).toBeUndefined();
     expect(result.output).toMatchObject({
-      error: 'Il corso richiesto non e presente nella libreria corrente.',
+      error: 'Il corso richiesto non è presente nella libreria corrente.',
     });
   });
 

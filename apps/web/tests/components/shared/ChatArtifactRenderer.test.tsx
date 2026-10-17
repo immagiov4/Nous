@@ -425,7 +425,7 @@ describe('ChatArtifactRenderer', () => {
       await pendingDiscard.catch(() => undefined);
     });
     const actionFailureMessage = await screen.findByText(
-      'Operazione non riuscita. L artefatto non e stato modificato.'
+      'Operazione non riuscita. L artefatto non è stato modificato.'
     );
     const actionFailureFeedback = actionFailureMessage.parentElement;
     expect(actionFailureFeedback).toHaveClass('bg-red-50', 'text-red-700');
@@ -465,7 +465,7 @@ describe('ChatArtifactRenderer', () => {
 
     expect(screen.queryByRole('dialog', { name: /simulatore chiusura/i })).not.toBeInTheDocument();
     expect(
-      await screen.findByText('Rigenerazione fallita. La bozza precedente non e stata modificata.')
+      await screen.findByText('Rigenerazione fallita. La bozza precedente non è stata modificata.')
     ).toBeInTheDocument();
     expect(screen.queryByText('Rigenerazione richiesta.')).toBeNull();
     expect(screen.getByRole('button', { name: /Apri simulatore chiusura/i })).toBeInTheDocument();
@@ -544,7 +544,7 @@ describe('ChatArtifactRenderer', () => {
 
     await user.click(screen.getByRole('button', { name: /Scarta artefatto/i }));
     expect(
-      await screen.findByText('Operazione non riuscita. L artefatto non e stato modificato.')
+      await screen.findByText('Operazione non riuscita. L artefatto non è stato modificato.')
     ).toBeInTheDocument();
     expect(screen.queryByText('Il corso originale non è più attivo.')).toBeNull();
 
@@ -552,7 +552,7 @@ describe('ChatArtifactRenderer', () => {
     await user.type(screen.getByLabelText(/Istruzioni rigenerazione/i), 'Correggi il simulatore.');
     await user.click(screen.getByRole('button', { name: /Conferma rigenerazione/i }));
     expect(
-      await screen.findByText('Rigenerazione fallita. La bozza precedente non e stata modificata.')
+      await screen.findByText('Rigenerazione fallita. La bozza precedente non è stata modificata.')
     ).toBeInTheDocument();
     expect(screen.queryByText('Il corso originale non è più attivo.')).toBeNull();
   });
