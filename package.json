@@ -10,6 +10,7 @@
   "scripts": {
     "xray": "bun run scripts/xray.ts",
     "playtest": "bun run e2e/nous/run.ts",
+    "atlas:playback": "bun run e2e/nous/playbackAtlas.ts",
     "deps:install": "bun install --frozen-lockfile --force",
     "predev": "bun run scripts/ensure-local-dev-services.ts",
     "eval:research-routing": "bun run scripts/evaluate-research-source-routing.ts",
@@ -28,7 +29,7 @@
     "lint:biome": "biome lint .",
     "lint:frontend": "tsgo --noEmit -p apps/web/tsconfig.json",
     "lint:backend": "tsgo --noEmit -p apps/backend/tsconfig.json",
-    "lint:types": "bun run lint:frontend && bun run lint:backend && tsgo --noEmit -p packages/playtest/tsconfig.json && tsgo --noEmit -p e2e/nous/tsconfig.json",
+    "lint:types": "bun run lint:frontend && bun run lint:backend && tsgo --noEmit -p packages/playtest/tsconfig.json && tsgo --noEmit -p e2e/nous/tsconfig.json && tsgo --noEmit -p e2e/nous/atlas/tsconfig.browser.json",
     "quality": "bun run lint && bun run check:biome && bun run check:eslint-react-hooks && bun run check:eslint-sonar",
     "quality:ci": "bun run quality && bun run check:depcruise",
     "gate:load-summary": "node scripts/summarize-gate-load.mjs",
