@@ -347,9 +347,9 @@ For manual-only projects, explain what must be verified and where. If validation
 ## Verification: prove it, don't ask to try it
 
 - Prove that each change works with observable evidence; never ask the maintainer to try it as a substitute for verification.
-- Scale evidence to the change: use integration tests and observable outputs for backend-only changes; documentation-only changes need no browser run. For changes affecting UI or user-visible behavior, include appropriate screenshots, short videos, render atlases, and integration results across the relevant resolutions and devices.
+- Scale evidence to the change: for backend-only changes, use behavior tests and observable outputs at the selected quality level, with integration evidence where integrations are affected; documentation-only changes need no browser run. For changes affecting UI or user-visible behavior, include appropriate screenshots, short videos, render atlases, and integration results across the relevant resolutions and devices.
 - For changes affecting UI or user-visible behavior, apply extreme observational TDD: observe and profile what a human would experience, including intermediate states and the final result.
-- For those changes, including backend changes that affect what users see, prove the affected end-to-end flow with human-like Playwright actions: navigate, click, ask a question, press the relevant button, and verify the answer arrives.
+- For those changes, including backend changes that affect what users see, prove the affected end-to-end flow with human-like Playwright actions and verify its expected outcome; for example, navigate, ask a question, press the relevant button, and verify the answer arrives.
 - Inspect the artifacts yourself for visual and interaction anomalies. Passing tests and one satisfactory screenshot are insufficient evidence.
 - For each change, run the shared verification scenarios tagged for the touched features and regression scenarios for existing features they can affect.
 - Prefer deterministic integration checks and render atlases over real and synthetic content; generate synthetic fixtures from the app's types in compact combinations of supported states.
