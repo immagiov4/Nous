@@ -1,3 +1,4 @@
+import type { FormulaSpotlightData } from '@shared/formulaSpotlight';
 import type {
   GuidedPathLessonScene,
   LessonScenePanel,
@@ -6,10 +7,9 @@ import type {
 } from '@shared/lessonScene';
 import { proportionalTotal } from '@shared/lessonSceneAnimation';
 import { Fragment, type ReactNode } from 'react';
-
 import { getAppLocale } from '../../../i18n/uiMessages.ts';
-
 import { AnimatedScene } from './AnimatedScene.tsx';
+import { FormulaSpotlight } from './FormulaSpotlight.tsx';
 import {
   concepts,
   groups,
@@ -43,6 +43,12 @@ const diagram: SceneRenderer = ({ scene, isDarkMode }) => (
 );
 
 export const SCENE_RENDERERS = {
+  'formula-spotlight': c => (
+    <FormulaSpotlight
+      scene={c.scene as typeof c.scene & FormulaSpotlightData}
+      readFrame={c.readFrame}
+    />
+  ),
   definition: c => concepts(c, { className: 'definition', badges: true }),
   parts: c => concepts(c, { className: 'parts' }),
   signals: c => groups(c, 'signals'),

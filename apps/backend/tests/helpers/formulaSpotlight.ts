@@ -1,0 +1,56 @@
+import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import type { LessonScene } from '@shared/lessonScene';
+
+export const FORMULA_SPOTLIGHT_MARKDOWN =
+  'Consideriamo $p_\\theta(y\\mid x)$. La probabilità, indicata con p, è la stima del modello. I parametri, indicati con theta, sono i valori appresi. Il risultato, indicato con y, è ciò che prevediamo. La barra verticale significa dato: introduce la condizione. L’informazione osservata, indicata con x, è ciò che conosciamo.';
+export const FORMULA_SPOTLIGHT_SPEECH = segmentLessonPlayback([
+  { type: 'markdown', markdown: FORMULA_SPOTLIGHT_MARKDOWN },
+])[0].speech;
+export const formulaSpotlight = {
+  type: 'formula-spotlight',
+  title: 'Una probabilità condizionata',
+  body: '',
+  items: [],
+  groups: [],
+  quote: '',
+  note: '',
+  formula:
+    '\\nousSymbol{probability}_{\\nousSymbol{theta}}(\\nousSymbol{outcome}\\nousSymbol{given}\\nousSymbol{input})',
+  symbols: [
+    {
+      id: 'probability',
+      latex: 'p',
+      name: 'Probabilità',
+      meaning: 'La stima assegnata dal modello.',
+      anchor: 'La probabilità',
+    },
+    {
+      id: 'theta',
+      latex: '\\theta',
+      name: 'Parametri',
+      meaning: 'I valori appresi dal modello.',
+      anchor: 'I parametri',
+    },
+    {
+      id: 'outcome',
+      latex: 'y',
+      name: 'Risultato',
+      meaning: 'L’esito da prevedere.',
+      anchor: 'Il risultato',
+    },
+    {
+      id: 'given',
+      latex: '\\mid',
+      name: 'Dato',
+      meaning: 'La condizione della probabilità.',
+      anchor: 'La barra verticale',
+    },
+    {
+      id: 'input',
+      latex: 'x',
+      name: 'Informazione',
+      meaning: 'Ciò che abbiamo osservato.',
+      anchor: 'L’informazione',
+    },
+  ],
+} satisfies LessonScene;

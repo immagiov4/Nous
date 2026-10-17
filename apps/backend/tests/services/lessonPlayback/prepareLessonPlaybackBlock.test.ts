@@ -403,3 +403,37 @@ test('retains final bounded scene diagnostics in the workflow failure', async ()
     details: { diagnostic },
   });
 });
+
+import { getPlaybackMathMarkdown, segmentLessonPlayback } from '@shared/lessonPlayback';
+import { FORMULA_SPOTLIGHT_MARKDOWN, formulaSpotlight } from '../../helpers/formulaSpotlight';
+
+test('preparation asks the model to choose a form for the complete math passage', async () => {
+  const mathBlock = segmentLessonPlayback([
+    { type: 'markdown', markdown: FORMULA_SPOTLIGHT_MARKDOWN },
+  ])[0];
+  sceneGeneration.mockResolvedValue({ kind: 'scene', scene: formulaSpotlight });
+  expect(await prepareLessonPlaybackBlock({ ...input(), block: mathBlock })).toMatchObject({
+    prepared: { scene: formulaSpotlight, motion: [] },
+  });
+  expect(sceneGeneration).toHaveBeenCalledWith(
+    expect.objectContaining({
+      lessonMarkdown: FORMULA_SPOTLIGHT_MARKDOWN,
+      narration: mathBlock.speech,
+      allowTextFallback: true,
+    })
+  );
+  expect(motion).not.toHaveBeenCalled();
+  sceneGeneration.mockResolvedValue({ kind: 'text' });
+  expect(await prepareLessonPlaybackBlock({ ...input(), block: mathBlock })).toMatchObject({
+    prepared: { motion: [] },
+  });
+});
+
+test('code containing math syntax retains its authored visual', async () => {
+  const codeBlock = segmentLessonPlayback([
+    { type: 'markdown', markdown: 'Leggi questo codice.\n\n```js\nconst price = "$x$";\n```' },
+  ])[0];
+  expect(getPlaybackMathMarkdown(codeBlock)).toBeUndefined();
+  await prepareLessonPlaybackBlock({ ...input(), block: codeBlock });
+  expect(sceneGeneration).not.toHaveBeenCalled();
+});

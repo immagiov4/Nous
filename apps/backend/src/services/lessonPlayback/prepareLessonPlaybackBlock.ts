@@ -1,5 +1,5 @@
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
-import type { LessonPlaybackBlock } from '@shared/lessonPlayback';
+import { getPlaybackMathMarkdown, type LessonPlaybackBlock } from '@shared/lessonPlayback';
 import {
   LessonSceneSchema,
   PlaybackAudioSchema,
@@ -72,13 +72,14 @@ const prepareScene = async (
   input: PrepareLessonPlaybackBlockInput
 ): Promise<LessonScene | undefined> => {
   const { block, lesson, config, signal } = input;
-  if (block.visuals.length) {
+  const mathMarkdown = getPlaybackMathMarkdown(block);
+  if (block.visuals.length && !mathMarkdown) {
     const scenes = existingScenes(input);
     // Motion events carry no scene id, so a block with several scenes shows them without motion.
     return scenes.length === 1 ? scenes[0] : undefined;
   }
   // A prepared block must cover its complete speech, not silently inherit the lesson excerpt cut.
-  if (block.speech.length > MAX_VISUAL_LESSON_CHARS) {
+  if (Math.max(block.speech.length, mathMarkdown?.length ?? 0) > MAX_VISUAL_LESSON_CHARS) {
     throw new Error('Playback block speech exceeds the scene generation text limit.');
   }
   let retryFeedback: string | undefined;
@@ -88,7 +89,9 @@ const prepareScene = async (
     const outcome = await generateLessonScene({
       allowedSceneTypes: input.allowedSceneTypes,
       config: resolveLessonVisualModelConfig(config),
-      lessonMarkdown: block.speech,
+      lessonMarkdown: mathMarkdown ?? block.speech,
+      narration: block.speech,
+      allowTextFallback: true,
       retryFeedback,
       sectionDescription: lesson.description ?? '',
       sectionTitle: block.heading || lesson.title,
@@ -96,6 +99,7 @@ const prepareScene = async (
     });
     signal.throwIfAborted();
     if (outcome.kind === 'scene') return outcome.scene;
+    if (outcome.kind === 'text') return undefined;
     retryFeedback = outcome.problems.join('\n');
     diagnostic = outcome.diagnostic;
   }
@@ -139,7 +143,7 @@ const prepareVisuals = async (
         ).scene
       : await prepareScene(input);
     const planMotion = async () =>
-      scene && !isAnimatedLessonScene(scene)
+      scene && scene.type !== 'formula-spotlight' && !isAnimatedLessonScene(scene)
         ? await planPlaybackMotion({ scene, speech: block.speech, config, signal })
         : [];
     const motion = input.providerEffect

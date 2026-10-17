@@ -2,7 +2,7 @@
 
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { LessonPlaybackResponseSchema } from '@shared/lessonPlaybackSchema';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, render, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import {
   unlockLessonPlaybackAudio,
@@ -584,4 +584,22 @@ test.each([
   await act(async () => result.current.play());
   expect(result.current.index).toBe(Math.floor(destination / 10));
   expect(audio.currentTime).toBe(destination % 10);
+});
+
+import { useEffect } from 'react';
+
+test('makes the audio clock available to a child stage on its first effect', () => {
+  const observed = vi.fn();
+  function Stage({ readTime }: { readTime: () => number }) {
+    useEffect(() => {
+      observed(readTime());
+    }, [readTime]);
+    return null;
+  }
+  function Player() {
+    const playback = useLessonPlayback(target);
+    return <Stage readTime={playback.readTime} />;
+  }
+  render(<Player />);
+  expect(observed).toHaveBeenCalledWith(0);
 });

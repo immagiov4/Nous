@@ -620,3 +620,43 @@ test.each([
   expect(card?.querySelector(selector)?.textContent).toContain('literal');
   expect(card?.querySelector('.katex')).not.toBeNull();
 });
+
+import {
+  FORMULA_SPOTLIGHT_MARKDOWN,
+  formulaSpotlight,
+} from '../../../../backend/tests/helpers/formulaSpotlight';
+import { sceneCaptionAnchors } from '../../../components/workspace/playback/stageMotion.ts';
+
+test('a model-chosen spotlight replaces the contextual math card while text fallback retains it', () => {
+  const source = [{ type: 'markdown' as const, markdown: FORMULA_SPOTLIGHT_MARKDOWN }];
+  const block = segmentLessonPlayback(source)[0];
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: source,
+  } as WorkspaceReaderContentModel;
+  const { container, rerender } = render(
+    <LessonPlaybackStage
+      block={{ ...block, prepared: { scene: formulaSpotlight, motion: [] } }}
+      content={content}
+      duration={10}
+      time={2}
+    />
+  );
+  expect(container.querySelector('.formula-spotlight')).not.toBeNull();
+  expect(sceneCaptionAnchors(formulaSpotlight, block.speech)).toEqual(
+    formulaSpotlight.symbols.map(symbol => symbol.anchor)
+  );
+  rerender(
+    <LessonPlaybackStage
+      block={{ ...block, prepared: { motion: [] } }}
+      content={content}
+      duration={10}
+      time={2}
+    />
+  );
+  expect(container.querySelector('.formula-spotlight')).toBeNull();
+  expect(container.querySelector('.scene-host')?.textContent).toContain(
+    'La probabilità, indicata con p, è la stima del modello.'
+  );
+  expect(container.querySelector('.scene-host .katex')).not.toBeNull();
+});

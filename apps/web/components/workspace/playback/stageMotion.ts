@@ -30,8 +30,13 @@ export function sceneCaptionAnchors(
   scene: LessonScene | null | undefined,
   speech: string
 ): string[] | undefined {
-  if (!scene || !isAnimatedLessonScene(scene) || playbackMode(scene) !== 'text') return undefined;
-  const cues = scene.type === 'guided-path' ? scene.steps : (scene.cues ?? []);
+  if (!scene) return undefined;
+  let cues: readonly { readonly anchor?: string }[] | undefined;
+  if (scene.type === 'formula-spotlight') cues = scene.symbols;
+  else if (isAnimatedLessonScene(scene) && playbackMode(scene) === 'text') {
+    cues = scene.type === 'guided-path' ? scene.steps : scene.cues;
+  }
+  if (!cues) return undefined;
   try {
     cueTimes(speech, cues);
   } catch {

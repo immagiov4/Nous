@@ -1,5 +1,7 @@
 import * as z from 'zod';
 
+import { FormulaSpotlightDataSchema, findFormulaSpotlightProblems } from './formulaSpotlight';
+
 import { cueTimes, playbackMode } from './lessonSceneAnimation';
 import { LESSON_SCENE_CATALOG_SNAPSHOTS } from './lessonSceneCatalogSnapshots';
 
@@ -928,6 +930,17 @@ const diagramForm = (description: string, orderedPath = false) =>
 
 /** One entry owns a form's selection rule, data contract, and validation. */
 export const LESSON_SCENE_REGISTRY = {
+  'formula-spotlight': {
+    schema: SceneDataSchema.extend(FormulaSpotlightDataSchema.shape),
+    description:
+      'Una formula grande con simboli nominati e spiegati, sincronizzati alla narrazione.',
+    validate: (scene, source) => [
+      ...findFormulaSpotlightProblems(scene, source),
+      ...((scene.items as unknown[]).length || (scene.groups as unknown[]).length
+        ? ['Formula spotlight uses symbols, not items or groups.']
+        : []),
+    ],
+  },
   definition: itemForm('Un concetto e una spiegazione breve.'),
   parts: itemForm('Parti di un concetto o calcoli indipendenti affiancati, senza connessioni.'),
   signals: groupForm(

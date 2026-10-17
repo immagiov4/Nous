@@ -98,7 +98,7 @@ test.each([
   const request = generateStructuredOutputMock.mock.calls[0][0];
   const schema = z.fromJSONSchema(request.output.schema);
   expect(schema.safeParse(draft).success).toBe(true);
-  expect(schema.safeParse({ ...draft, formula: 'quantity * amountPerUnit' }).success).toBe(false);
+  expect(schema.safeParse({ ...draft, script: 'quantity * amountPerUnit' }).success).toBe(false);
   expect(chooseIconsMock.mock.calls[0][0].entries).toEqual([]);
 });
 
@@ -608,4 +608,65 @@ test('reports schema paths and transport without retaining unknown model fields'
     problems: [{ code: 'unrecognized_keys', path: [] }],
   });
   expect(JSON.stringify(outcome.diagnostic)).not.toContain('private');
+});
+
+import {
+  FORMULA_SPOTLIGHT_MARKDOWN,
+  FORMULA_SPOTLIGHT_SPEECH,
+  formulaSpotlight,
+} from '../../helpers/formulaSpotlight';
+
+test('the model can choose a spotlight from authored math with canonical spoken anchors', async () => {
+  generateStructuredOutputMock.mockResolvedValue({
+    ...quoteDraft(''),
+    ...formulaSpotlight,
+    evidence: FORMULA_SPOTLIGHT_MARKDOWN,
+    intent: 'Explain the symbols.',
+  });
+  const result = await generateLessonScene({
+    ...unplannedInput(FORMULA_SPOTLIGHT_MARKDOWN),
+    narration: FORMULA_SPOTLIGHT_SPEECH,
+    allowTextFallback: true,
+  });
+  expect(result).toEqual({ kind: 'scene', scene: formulaSpotlight });
+  expect(
+    z.fromJSONSchema(generateStructuredOutputMock.mock.calls[0][0].output.schema).safeParse({
+      ...quoteDraft(''),
+      ...formulaSpotlight,
+      evidence: FORMULA_SPOTLIGHT_MARKDOWN,
+      intent: 'Explain.',
+    }).success
+  ).toBe(true);
+});
+
+test('explicit text fallback needs exact evidence and stays available to the model', async () => {
+  generateStructuredOutputMock.mockResolvedValue({
+    ...quoteDraft(''),
+    type: 'text',
+    evidence: 'Una frase.',
+  });
+  expect(
+    await generateLessonScene({ ...unplannedInput('Una frase.'), allowTextFallback: true })
+  ).toEqual({ kind: 'text' });
+  expect(await generateLessonScene(unplannedInput('Una frase.'))).toMatchObject({
+    kind: 'invalid',
+  });
+  expect(
+    await generateLessonScene({ ...unplannedInput('Altra frase.'), allowTextFallback: true })
+  ).toMatchObject({ kind: 'invalid' });
+});
+
+test('admits a spotlight only when the caller supplies canonical narration', async () => {
+  const draft = {
+    ...quoteDraft(''),
+    ...formulaSpotlight,
+    evidence: FORMULA_SPOTLIGHT_MARKDOWN,
+    intent: 'Explain the symbols.',
+  };
+  generateStructuredOutputMock.mockResolvedValue(draft);
+  expect(await generateLessonScene(unplannedInput(FORMULA_SPOTLIGHT_MARKDOWN))).toMatchObject({
+    kind: 'invalid',
+  });
+  const schema = z.fromJSONSchema(generateStructuredOutputMock.mock.calls[0][0].output.schema);
+  expect(schema.safeParse(draft).success).toBe(false);
 });
