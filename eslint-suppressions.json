@@ -331,11 +331,6 @@
       "count": 2
     }
   },
-  "apps/web/components/workspace/playback/captionFormat.ts": {
-    "unicorn/prefer-string-replace-all": {
-      "count": 1
-    }
-  },
   "apps/web/components/workspace/shell/ContextAnswerPanel.tsx": {
     "sonarjs/cognitive-complexity": {
       "count": 4

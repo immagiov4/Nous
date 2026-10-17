@@ -521,3 +521,102 @@ test.each([
     )
   ).toBe(true);
 });
+
+test.each([
+  '<mark data-nous-annotation-id="b">',
+  '<mark\n data-nous-annotation-id="b">',
+  '<mark title="**">',
+  '<mark title="`">',
+  '<mark\n title="**" data-nous-annotation-id="b">',
+])('keeps words intact across annotation wrappers and maps their complete speech ranges: %s', opener => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: `<mark data-nous-annotation-id="a">The Greek let</mark>${opener}ter is a parameter.</mark>`,
+    },
+  ];
+  const block = segmentLessonPlayback(sources)[0];
+  const source = captionSource(block, sources);
+  const formatted = captionFormat(source.markdown, source.ranges);
+  expect(formatted.words.map(word => word.text)).toEqual([
+    'The',
+    'Greek',
+    'letter',
+    'is',
+    'a',
+    'parameter.',
+  ]);
+  expect(formatted.words.every(word => !word.bold && !word.code)).toBe(true);
+  const ranges = captionSpeechRanges(formatted.words, source.ranges);
+  expect(ranges.map(range => block.speech.slice(range.start, range.end))).toEqual([
+    'The',
+    'Greek',
+    'letter',
+    'is',
+    'a',
+    'parameter.',
+  ]);
+});
+
+test.each([
+  '- literal minus',
+  '1. literal number',
+  '# literal heading',
+])('keeps annotated literal block markers in caption words: %s', text => {
+  const sources = [{ type: 'markdown' as const, markdown: `<mark>${text}</mark>` }];
+  const block = segmentLessonPlayback(sources)[0];
+  const source = captionSource(block, sources);
+  const formatted = captionFormat(source.markdown, source.ranges);
+  expect(formatted.headings).toEqual([]);
+  expect(formatted.words.map(word => word.text)).toEqual(text.split(' '));
+  expect(formatted.words.every(word => !word.list && !word.breakBefore)).toBe(true);
+  expect(
+    captionSpeechRanges(formatted.words, source.ranges).map(range =>
+      block.speech.slice(range.start, range.end)
+    )
+  ).toEqual(text.split(' '));
+});
+
+test.each([
+  { source: '<mark>- literal $x$</mark>', literal: '- literal' },
+  { source: '<mark># literal $x$</mark>', literal: '# literal' },
+  { source: '<mark>1. literal $x$</mark>', literal: '1. literal' },
+  { source: '<mark>> literal $x$</mark>', literal: '> literal' },
+  { source: '-<mark> </mark>literal $x$', literal: '- literal' },
+])('preserves literal block markers on contextual cards: $source', ({ source, literal }) => {
+  const sources = [{ type: 'markdown' as const, markdown: `Introduction.\n\n${source}` }];
+  const block = segmentLessonPlayback(sources)[1];
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+  } as WorkspaceReaderContentModel;
+  const { container, rerender } = render(
+    <LessonPlaybackStage block={block} content={content} duration={6} time={1} />
+  );
+  for (const time of [1, 3, 5]) {
+    rerender(<LessonPlaybackStage block={block} content={content} duration={6} time={time} />);
+    const card = container.querySelector('.scene-host');
+    expect(card?.textContent).toContain(literal);
+    expect(card?.querySelector('ul, ol, blockquote, h1, h2, h3, h4, h5, h6')).toBeNull();
+    expect(card?.querySelector('.katex')).not.toBeNull();
+    expect(card?.querySelector('mark')).toBeNull();
+  }
+});
+test.each([
+  { source: '- <mark>literal $x$</mark>', selector: 'li' },
+  { source: '# <mark>literal $x$</mark>', selector: 'h1' },
+  { source: '> <mark>literal $x$</mark>', selector: 'blockquote' },
+])('retains authored block structure around annotated math: $source', ({ source, selector }) => {
+  const sources = [{ type: 'markdown' as const, markdown: `${source}\n\nContinue.` }];
+  const { container } = render(
+    <LessonPlaybackStage
+      block={segmentLessonPlayback(sources)[0]}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={6}
+      time={3}
+    />
+  );
+  const card = container.querySelector('.scene-host');
+  expect(card?.querySelector(selector)?.textContent).toContain('literal');
+  expect(card?.querySelector('.katex')).not.toBeNull();
+});
