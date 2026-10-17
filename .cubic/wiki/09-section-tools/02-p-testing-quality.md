@@ -105,7 +105,7 @@ The local `quality` script runs TypeScript checks, Biome, the React Hooks lint r
 
 React Hooks linting keeps ESLint's persistent cache under the ignored `.temp/eslint/` directory. The cache filename includes the `bun.lock` hash so dependency upgrades force fresh linting; ESLint invalidates changed files and configuration. Every run writes the complete Sonar report and retains the zero-warning check.
 
-`bun run check:eslint-sonar` runs ESLint 10 with exact-pinned SonarJS and the TypeScript ESLint and Unicorn rules that Sonar delegates to those plugins. Its separate configuration covers TS/TSX in `apps/web`, `apps/backend/src`, `packages`, `scripts`, and `e2e`, excluding declaration files, generated code, vendor code, dependencies, build output, coverage, and fixtures. `tsconfig.eslint.json` supplies type information for deprecation, sorting, optional properties, string conversion, optional chaining, and awaited values. The selected set covers the requested SonarWay findings; the broader recommended preset also introduces unrelated policies and thresholds.
+`bun run check:eslint-sonar` runs ESLint 10 with exact-pinned SonarJS and the TypeScript ESLint and Unicorn rules that Sonar delegates to those plugins. Its separate configuration covers TS/TSX in `apps/web`, `apps/backend/src`, `apps/backend/tests`, `packages`, `scripts`, and `e2e`, excluding declaration files, generated code, vendor code, dependencies, build output, coverage, and fixtures. `tsconfig.eslint.json` owns the shared TS/TSX scope consumed by the ESLint configuration and runner, and supplies type information for deprecation, sorting, optional properties, string conversion, optional chaining, and awaited values. The selected set covers the requested SonarWay findings; the broader recommended preset also introduces unrelated policies and thresholds.
 
 | Sonar TypeScript key | ESLint rule | Configuration |
 | --- | --- | --- |
@@ -124,6 +124,8 @@ React Hooks linting keeps ESLint's persistent cache under the ignored `.temp/esl
 | S7780 | `unicorn/prefer-string-raw` | Error |
 | S7721 | `unicorn/consistent-function-scoping` | Error |
 | S7785 | `unicorn/prefer-top-level-await` | Error |
+
+The selected rules all have Sonar `Main` scope. The ESLint configuration reads `sonar.tests` and `sonar.test.inclusions` directly from `sonar-project.properties`, so classification changes automatically apply to the fast check. Files matching both `sonar.tests` directories and `sonar.test.inclusions` suffixes (`.test.ts`, `.test.tsx`, `.spec.ts`, `.spec.tsx`) therefore disable those rules consistently across frontend, backend, scripts, Playtest and Nous end-to-end tests. Support files without a test suffix retain the rules, including helpers under `apps/backend/tests`.
 
 ESLint's [bulk suppressions](https://eslint.org/docs/latest/use/suppressions) store existing error counts per file and rule in the tracked `eslint-suppressions.json`. A new file or a count above its baseline fails the check. Replacing an old violation with another violation of the same rule in the same file can stay within that count, so this check complements the final Sonar scan. Unused suppressions fail too: after fixing existing violations, run `bun run check:eslint-sonar --prune-suppressions` and include the reduced baseline with the fix. The initial baseline was generated once with `bun run check:eslint-sonar --suppress-all`; repeating that command accepts all current errors and requires explicit maintainer approval.
 

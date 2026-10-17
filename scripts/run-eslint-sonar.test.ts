@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { ESLint } from 'eslint';
+import { ESLint } from 'eslint';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 describe('Sonar ESLint bulk suppressions', () => {
@@ -14,7 +14,7 @@ describe('Sonar ESLint bulk suppressions', () => {
   let suppressionsPath: string;
   const runnerPath = fileURLToPath(new URL('./run-eslint-sonar.ts', import.meta.url));
   const existingFile = 'apps/web/existing.ts';
-  const newFile = 'apps/web/new.ts';
+  const newFile = 'apps/backend/tests/new.ts';
   const ruleId = 'sonarjs/no-nested-conditional';
   const violation =
     "export const choose = (first: boolean, second: boolean) => first ? (second ? 'both' : 'first') : 'neither';\n";
@@ -51,10 +51,30 @@ describe('Sonar ESLint bulk suppressions', () => {
       path.join(directory, 'node_modules'),
       process.platform === 'win32' ? 'junction' : 'dir'
     );
-    for (const folder of ['apps/web', 'apps/backend/src', 'packages', 'scripts', 'e2e']) {
+    for (const folder of [
+      'apps/web',
+      'apps/backend/src',
+      'apps/backend/tests',
+      'packages',
+      'scripts',
+      'e2e',
+    ]) {
       await mkdir(path.join(directory, folder), { recursive: true });
       await writeFile(path.join(directory, folder, 'clean.ts'), 'export {};\n');
     }
+    await writeFile(
+      path.join(directory, 'tsconfig.eslint.json'),
+      JSON.stringify({
+        include: [
+          'apps/web/**/*.ts',
+          'apps/backend/src/**/*.ts',
+          'apps/backend/tests/**/*.ts',
+          'packages/**/*.ts',
+          'scripts/**/*.ts',
+          'e2e/**/*.ts',
+        ],
+      })
+    );
     await mkdir(path.join(directory, '.temp'));
     await writeFile(path.join(directory, 'bun.lock'), 'isolated ESLint test dependencies\n');
     await writeFile(
@@ -111,5 +131,60 @@ export default [{
     expect(pruned.status, pruned.stderr).toBe(0);
     expect(diagnostics(pruned.results, existingFile)).toEqual({ errors: [], suppressed: [] });
     expect(JSON.parse(await readFile(suppressionsPath, 'utf8'))).toEqual({});
+  });
+});
+
+describe('Sonar ESLint test classification', () => {
+  test('reads test directories and inclusion patterns from the Sonar properties', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'nous-sonar-classification-'));
+    try {
+      await symlink(
+        path.resolve('node_modules'),
+        path.join(directory, 'node_modules'),
+        process.platform === 'win32' ? 'junction' : 'dir'
+      );
+      await writeFile(
+        path.join(directory, 'eslint.sonar.config.mjs'),
+        await readFile('eslint.sonar.config.mjs', 'utf8')
+      );
+      await writeFile(
+        path.join(directory, 'tsconfig.eslint.json'),
+        JSON.stringify({ include: ['**/*.ts', '**/*.tsx'] })
+      );
+      await writeFile(
+        path.join(directory, 'sonar-project.properties'),
+        '# Synthetic classification, deliberately different from the repository\r\n' +
+          'sonar.tests = custom/unit, custom/integration/\r\n' +
+          'sonar.test.inclusions = **/*.verify.ts, **/*.spec.tsx, custom/unit/**/*.target.ts\r\n'
+      );
+      const eslint = new ESLint({
+        cwd: directory,
+        overrideConfigFile: path.join(directory, 'eslint.sonar.config.mjs'),
+      });
+      const helper = await eslint.calculateConfigForFile('custom/unit/helper.ts');
+      const mainRules = Object.keys(helper.rules);
+      expect(mainRules.length).toBeGreaterThan(0);
+      for (const file of [
+        'custom/unit/example.verify.ts',
+        'custom/unit/example.target.ts',
+        'custom/unit/nested/example.spec.tsx',
+        'custom/integration/example.verify.ts',
+        'custom/integration/example.spec.tsx',
+      ]) {
+        const config = await eslint.calculateConfigForFile(file);
+        for (const rule of mainRules) expect(config.rules[rule][0], `${file}: ${rule}`).toBe(0);
+      }
+      for (const file of [
+        'custom/unit/helper.ts',
+        'custom/unit/example.test.ts',
+        'outside/example.verify.ts',
+        'custom/integration/example.target.ts',
+      ]) {
+        const config = await eslint.calculateConfigForFile(file);
+        for (const rule of mainRules) expect(config.rules[rule][0], `${file}: ${rule}`).toBe(2);
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
