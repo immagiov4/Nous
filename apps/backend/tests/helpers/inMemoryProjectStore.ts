@@ -20,10 +20,9 @@ import {
   buildImportedProjectAssetIdentity,
   remapProjectAssetReferences,
 } from '@shared/projectBackupAssets';
-import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { resolveAvailableFolderName } from '../../src/projects/folderNames.js';
 import { buildProjectMeta, normalizeProjectSnapshot } from '../../src/projects/projectMeta.js';
-import { applyProjectPatch, isNavigationProjectPatch } from '../../src/projects/projectPatch.js';
+import { applyProjectPatch, assertRebasedProjectPatch } from '../../src/projects/projectPatch.js';
 import {
   ProjectNotFoundError,
   ProjectRevisionConflictError,
@@ -68,6 +67,7 @@ import type {
   ProjectSourceRef,
   ProjectSourceUpload,
   ProjectStore,
+  ProjectWriteOptions,
   SavedProjectMeta,
   StoredProjectSourceFile,
 } from '../../src/projects/types.js';
@@ -441,18 +441,14 @@ export class InMemoryProjectStore implements ProjectStore {
       throw new ProjectNotFoundError();
     }
     if (
-      options.rebaseMode !== PROJECT_PATCH_REBASE_MODE.navigation &&
+      options.rebaseMode === undefined &&
       options.expectedRevision !== undefined &&
       existing.meta.revision !== options.expectedRevision
     ) {
       throw new ProjectRevisionConflictError();
     }
-    if (
-      options.rebaseMode === PROJECT_PATCH_REBASE_MODE.navigation &&
-      !isNavigationProjectPatch(patch)
-    ) {
-      throw new TypeError('Navigation rebase accepts only navigation fields.');
-    }
+    if (options.rebaseMode !== undefined)
+      assertRebasedProjectPatch(existing.snapshot, patch, options);
 
     const snapshot = applyProjectPatch(existing.snapshot, patch, patch.updatedAt || timestampIso());
     const meta = {
@@ -766,7 +762,7 @@ export class InMemoryProjectStore implements ProjectStore {
       .map(clone);
   }
 
-  replaceProjectMeta(userId: string, id: ProjectId, meta: SavedProjectMeta): void {
+  replaceProjectMeta(userId: string, id: ProjectId, meta: ProjectRecord['meta']): void {
     const record = this.getProjects(userId).get(id);
     if (!record) {
       throw new Error(`Progetto ${id} non trovato nel test store.`);

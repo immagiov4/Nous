@@ -463,3 +463,13 @@ test('refreshes contextual math visuals while reusing matching stored speech and
   expect(restored.blocks[0].audio).toEqual(audio);
   expect(restored.blocks[0].prepared).toEqual({ motion: [] });
 });
+
+test('quiz learner state preserves prepared playback for annotated lessons', () => {
+  const section = annotatedSection(
+    'A <mark data-nous-annotation-id="note">system</mark> has boundaries.'
+  );
+  const playback = preparedPlayback(section);
+  const answered = { ...section, playback, quizState: { answers: [1], isSubmitted: true } };
+  expect(buildLessonPlaybackKey(answered)).toBe(buildLessonPlaybackKey(section));
+  expect(readLessonPlayback(answered).blocks[0].audio).toEqual(playback.blocks[0].audio);
+});

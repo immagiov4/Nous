@@ -2,6 +2,7 @@
 
 import { Readable } from 'node:stream';
 import { normalizeLessonInstructionPacks } from '@shared/lessonInstructionPacks';
+import { LessonQuizStateSchema } from '@shared/lessonQuizState';
 import { SOURCE_ARCHIVE_VERSION_HASH_PATTERN } from '@shared/lessonSourceContext';
 import { isProjectCoverMediaType, PROJECT_COVER_MAX_BYTES } from '@shared/projectBackupArchive';
 import { InvalidProjectBackupAssetError } from '@shared/projectBackupAssets';
@@ -141,7 +142,10 @@ const readProjectPatchRebaseMode = (
   body: Record<string, unknown>
 ): ProjectPatchRebaseMode | undefined => {
   if (body.rebaseMode === undefined) return undefined;
-  if (body.rebaseMode !== PROJECT_PATCH_REBASE_MODE.navigation) {
+  if (
+    body.rebaseMode !== PROJECT_PATCH_REBASE_MODE.navigation &&
+    body.rebaseMode !== PROJECT_PATCH_REBASE_MODE.quiz
+  ) {
     throw new Error('Modalità di rebase progetto non valida.');
   }
   return body.rebaseMode;
@@ -816,7 +820,8 @@ const readSectionPatch = (body: Record<string, unknown>): SectionPatch | undefin
 
   return {
     sectionId,
-    annotations: Array.isArray(value.annotations) ? value.annotations : undefined,
+    annotations: readNullableArray(value.annotations),
+    quizState: LessonQuizStateSchema.nullish().parse(value.quizState),
     content: readNullableString(value.content),
     contentBlocks: readLessonContentBlocksPatch(value),
     generationWarnings: readNullableArray(value.generationWarnings),
@@ -882,6 +887,11 @@ router.patch('/projects/:id', async (req: Request, res: Response) => {
     const meta = await getProjectStore().patchProject(userId, projectId, patch, {
       expectedRevision: readExpectedRevision(body),
       rebaseMode,
+      expectedQuizState: LessonQuizStateSchema.nullish().parse(body.expectedQuizState),
+      expectedLessonGenerationRunId:
+        body.expectedLessonGenerationRunId === null
+          ? null
+          : readOptionalString(body.expectedLessonGenerationRunId),
     });
     publishMetaRevision(userId, meta);
     res.json({ success: true, meta });

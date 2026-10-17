@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import { deriveLegacyLessonContent } from '@shared/lessonContent';
+import { LessonQuizStateSchema } from '@shared/lessonQuizState';
 import {
   canonicalizeLessonNodeContent,
   ProjectSnapshotWireError,
@@ -90,6 +91,8 @@ const sectionCommitPatch = (
   input: LessonVisualsState,
   runId: string
 ): NonNullable<TransactionProjectPatch['section']> => ({
+  annotations: [],
+  quizState: null,
   content: deriveLegacyLessonContent(input.contentBlocks),
   contentBlocks: input.contentBlocks,
   generationWarnings: input.warnings,
@@ -113,6 +116,31 @@ const committedTargetFingerprint = (
     applyProjectPatch(project, { section: sectionCommitPatch(input, runId) }, persistedAt),
     input.request.sectionId
   );
+
+// Learner edits made after the content commit do not replace the generated lesson.
+const matchesCommittedLesson = (
+  project: ProjectSnapshot,
+  state: LessonPersistenceState
+): boolean => {
+  const sectionId = state.result.sectionId;
+  if (
+    buildLessonGenerationTargetFingerprint(project, sectionId) === state.committedTargetFingerprint
+  ) {
+    return true;
+  }
+  const committedLearnerState = {
+    ...project,
+    learningPlan: structuredClone(project.learningPlan),
+  };
+  const section = findProjectLessonSection(committedLearnerState, sectionId);
+  if (!section) throw new ProjectLessonGenerationTargetError();
+  section.annotations = [];
+  delete section.quizState;
+  return (
+    buildLessonGenerationTargetFingerprint(committedLearnerState, sectionId) ===
+    state.committedTargetFingerprint
+  );
+};
 
 const buildPersistenceState = (
   project: ProjectSnapshot,
@@ -214,8 +242,7 @@ export const createLessonResultFinalizer =
     if (
       !record ||
       section?.lastGenerationRunId !== context.execution.runId ||
-      buildLessonGenerationTargetFingerprint(record.snapshot, state.result.sectionId) !==
-        state.committedTargetFingerprint
+      !matchesCommittedLesson(record.snapshot, state)
     ) {
       throw failPermanently({
         code: 'lesson_generation_commit_changed',
@@ -286,10 +313,7 @@ export const buildLessonGenerationCommitPatch = (
   };
 };
 
-const restoredSectionPatch = (
-  sectionId: string,
-  previous: Record<string, unknown>
-): NonNullable<TransactionProjectPatch['section']> => {
+const restorePreviousLessonContent = (previous: Record<string, unknown>) => {
   let content = typeof previous.content === 'string' ? previous.content : null;
   let contentBlocks: unknown[] | null = null;
   let generatedVisuals = Array.isArray(previous.generatedVisuals)
@@ -309,13 +333,20 @@ const restoredSectionPatch = (
       if (!(error instanceof ProjectSnapshotWireError)) throw error;
     }
   }
+  return { content, contentBlocks, generatedVisuals };
+};
+
+const restoredSectionPatch = (
+  sectionId: string,
+  previous: Record<string, unknown>
+): NonNullable<TransactionProjectPatch['section']> => {
   return {
-    content,
-    contentBlocks,
+    annotations: Array.isArray(previous.annotations) ? previous.annotations : null,
+    quizState: previous.quizState == null ? null : LessonQuizStateSchema.parse(previous.quizState),
+    ...restorePreviousLessonContent(previous),
     generationWarnings: Array.isArray(previous.generationWarnings)
       ? previous.generationWarnings
       : null,
-    generatedVisuals,
     imageRefs: Array.isArray(previous.imageRefs) ? previous.imageRefs : null,
     learningAids: Array.isArray(previous.learningAids) ? previous.learningAids : null,
     lastGenerationRunId:
@@ -370,8 +401,7 @@ export const buildLessonGenerationUndoPatch = (
   }
   if (isAlreadyUndone(project.snapshot, input, state)) return null;
   if (
-    buildLessonGenerationTargetFingerprint(project.snapshot, sectionId) !==
-      state.committedTargetFingerprint ||
+    !matchesCommittedLesson(project.snapshot, state) ||
     !isDeepStrictEqual(
       project.snapshot.researchDossiersBySectionId?.[sectionId],
       persistedResearchDossier(input, state)
