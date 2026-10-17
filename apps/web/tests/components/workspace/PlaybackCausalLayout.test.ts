@@ -14,6 +14,7 @@ beforeAll(async () => {
     ...config,
     configFile: false,
     root: path.resolve('apps/web'),
+    optimizeDeps: { entries: ['tests/fixtures/playbackLayout.html'] },
     server: { host: '127.0.0.1', port: 0, strictPort: false },
   });
   await server.listen();

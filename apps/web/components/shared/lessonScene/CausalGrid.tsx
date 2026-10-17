@@ -72,9 +72,8 @@ export function CausalGrid({ items }: { readonly items: readonly LessonSceneItem
           focusable="false"
         >
           <g fill="none" stroke="currentColor" strokeWidth={geometry.stroke}>
-            {geometry.paths.map((d, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: one connector per adjacent authored pair
-              <path className="causal-connection" key={index} d={d} />
+            {geometry.paths.map(d => (
+              <path className="causal-connection" key={d} d={d} />
             ))}
           </g>
         </svg>
