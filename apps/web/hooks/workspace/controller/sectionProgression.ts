@@ -760,7 +760,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return {
         outcome: 'failed',
         errorMessage:
-          'La lezione attiva non e disponibile. Riprova dopo aver aperto una sezione del percorso.',
+          'La lezione attiva non è disponibile. Riprova dopo aver aperto una sezione del percorso.',
       };
     }
 

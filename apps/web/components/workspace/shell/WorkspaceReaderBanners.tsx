@@ -45,7 +45,7 @@ export default function WorkspaceReaderBanners({
           <span>
             {sourceKind === 'pdf'
               ? t(
-                  'Il PDF originale di questo corso non e disponibile. Ricaricalo per generare o rigenerare le lezioni senza perdere il corso.'
+                  'Il PDF originale di questo corso non è disponibile. Ricaricalo per generare o rigenerare le lezioni senza perdere il corso.'
                 )
               : t(
                   'Questo progetto è stato importato senza file sorgente. Ricollega il PDF o lo ZIP per generare nuove lezioni.'

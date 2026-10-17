@@ -202,7 +202,7 @@ export const createProjectLifecycleCommands = (
         if (isBackupArchive) {
           if (options?.mode === 'reattach-source') {
             throw new Error(
-              'Questo ZIP e un backup Nous completo. Usa Importa dalla libreria invece di Ricollega sorgente.'
+              'Questo ZIP è un backup Nous completo. Usa Importa dalla libreria invece di Ricollega sorgente.'
             );
           }
 

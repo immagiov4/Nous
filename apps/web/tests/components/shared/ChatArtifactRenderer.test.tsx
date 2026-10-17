@@ -465,7 +465,7 @@ describe('ChatArtifactRenderer', () => {
 
     expect(screen.queryByRole('dialog', { name: /simulatore chiusura/i })).not.toBeInTheDocument();
     expect(
-      await screen.findByText('Rigenerazione fallita. La bozza precedente non e stata modificata.')
+      await screen.findByText('Rigenerazione fallita. La bozza precedente non è stata modificata.')
     ).toBeInTheDocument();
     expect(screen.queryByText('Rigenerazione richiesta.')).toBeNull();
     expect(screen.getByRole('button', { name: /Apri simulatore chiusura/i })).toBeInTheDocument();
@@ -552,7 +552,7 @@ describe('ChatArtifactRenderer', () => {
     await user.type(screen.getByLabelText(/Istruzioni rigenerazione/i), 'Correggi il simulatore.');
     await user.click(screen.getByRole('button', { name: /Conferma rigenerazione/i }));
     expect(
-      await screen.findByText('Rigenerazione fallita. La bozza precedente non e stata modificata.')
+      await screen.findByText('Rigenerazione fallita. La bozza precedente non è stata modificata.')
     ).toBeInTheDocument();
     expect(screen.queryByText('Il corso originale non è più attivo.')).toBeNull();
   });

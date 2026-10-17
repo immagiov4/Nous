@@ -356,7 +356,7 @@ export const runConfiguredWebSearch = async ({
 
   if (!normalizedQuery) {
     return {
-      error: 'La query per la ricerca web e vuota.',
+      error: 'La query per la ricerca web è vuota.',
       query: '',
       sources: [],
       summary: '',

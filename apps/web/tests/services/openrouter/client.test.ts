@@ -70,7 +70,7 @@ test('callOpenRouterRaw surfaces proxy payload limit failures with a clear messa
     ok: false,
     status: 413,
     statusText: 'Payload Too Large',
-    text: async () => '{"success":false,"error":"Il file e troppo grande per questa richiesta."}',
+    text: async () => '{"success":false,"error":"Il file è troppo grande per questa richiesta."}',
   });
 
   await assert.rejects(
@@ -81,7 +81,7 @@ test('callOpenRouterRaw surfaces proxy payload limit failures with a clear messa
         messages: [{ role: 'user', content: 'Test prompt' }],
       }),
     (error: unknown) =>
-      error instanceof Error && /richiesta al modello e troppo grande/i.test(error.message)
+      error instanceof Error && /richiesta al modello è troppo grande/i.test(error.message)
   );
 });
 

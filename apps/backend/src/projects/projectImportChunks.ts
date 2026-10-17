@@ -268,23 +268,23 @@ export const storeProjectImportChunk = async (
 
   return withSessionLock(session, async () => {
     if (session.status !== 'receiving') {
-      throw new ProjectImportInputError('Questo backup e gia stato elaborato.');
+      throw new ProjectImportInputError('Questo backup è gia stato elaborato.');
     }
     if (session.chunkCount !== input.chunkCount) {
-      throw new ProjectImportInputError('Il numero di parti del backup non e coerente.');
+      throw new ProjectImportInputError('Il numero di parti del backup non è coerente.');
     }
     if (session.format !== (typeof input.chunk === 'string' ? 'text' : 'binary')) {
-      throw new ProjectImportInputError('Il formato delle parti del backup non e coerente.');
+      throw new ProjectImportInputError('Il formato delle parti del backup non è coerente.');
     }
     if (session.expectedRevision !== input.expectedRevision) {
-      throw new ProjectImportInputError('La revisione del progetto non e coerente.');
+      throw new ProjectImportInputError('La revisione del progetto non è coerente.');
     }
 
     const digest = createHash('sha256').update(input.chunk).digest('hex');
     const existingChunk = session.chunks.get(input.chunkIndex);
     if (existingChunk) {
       if (existingChunk.bytes !== chunkBytes || existingChunk.digest !== digest) {
-        throw new ProjectImportInputError('Una parte del backup e stata inviata con dati diversi.');
+        throw new ProjectImportInputError('Una parte del backup è stata inviata con dati diversi.');
       }
       session.updatedAt = Date.now();
       return {
@@ -370,7 +370,7 @@ const assembleAndImport = async (
   try {
     data = JSON.parse(serialized) as unknown;
   } catch {
-    throw new ProjectImportInputError('Il contenuto del backup non e un JSON valido.');
+    throw new ProjectImportInputError('Il contenuto del backup non è un JSON valido.');
   } finally {
     serialized = '';
   }

@@ -721,6 +721,6 @@ test('readLegacyProjectImportData rejects arbitrary json files that are not Nous
 
   await assert.rejects(
     () => readLegacyProjectImportData(arbitraryJson),
-    /Il file selezionato non e un backup Nous valido\./
+    /Il file selezionato non è un backup Nous valido\./
   );
 });
