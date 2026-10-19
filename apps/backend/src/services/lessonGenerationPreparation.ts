@@ -59,8 +59,10 @@ export const resolveLessonSourceMaterials = async ({
   signal,
   store,
   userId,
+  config,
 }: {
   project: ProjectSnapshot;
+  config?: GlobalModelConfig;
   projectId: string;
   section: Record<string, unknown>;
   sectionId: string;
@@ -78,6 +80,8 @@ export const resolveLessonSourceMaterials = async ({
       section,
       signal,
       primarySourceId: readAuthoritativePrimarySourceId(project),
+      config,
+      source: project.source,
     });
     if (!sourceContext) throw new LessonSourceUnavailableError();
   }

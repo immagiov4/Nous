@@ -1,3 +1,4 @@
+import { ArchivePdfPagesSchema } from '@shared/pdfTranscription';
 import {
   resolveSourceArchiveSelection,
   SourceArchiveSelectorContractError,
@@ -11,6 +12,7 @@ export interface SourceArchiveIndexedDirectory {
 }
 
 export interface SourceArchiveIndexedFile {
+  pdfPages?: import('@shared/pdfTranscription').ArchivePdfPage[];
   byteSize: number;
   contentKind: 'binary' | 'text';
   kind: 'file';
@@ -43,11 +45,13 @@ export type SourceArchiveSelector = {
 };
 
 export interface SourceArchiveResolvedFile {
+  pdfPages?: import('@shared/pdfTranscription').ArchivePdfPage[];
   path: string;
   text: string;
 }
 
 export interface SourceArchiveTextPage {
+  pdfPages?: import('@shared/pdfTranscription').ArchivePdfPage[];
   cursorBytes: number;
   endByteExclusive: number;
   nextCursorBytes: number | null;
@@ -57,6 +61,7 @@ export interface SourceArchiveTextPage {
 }
 
 export interface SourceArchiveSearchMatch {
+  pdfPages?: import('@shared/pdfTranscription').ArchivePdfPage[];
   column: number;
   line: number;
   lineText: string;
@@ -127,6 +132,7 @@ const copyEntry = (entry: SourceArchiveIndexedEntry): SourceArchiveIndexedEntry 
   entry.kind === 'directory'
     ? { kind: entry.kind, path: entry.path }
     : {
+        ...(entry.pdfPages ? { pdfPages: structuredClone(entry.pdfPages) } : {}),
         byteSize: entry.byteSize,
         contentKind: entry.contentKind,
         kind: entry.kind,
@@ -160,7 +166,9 @@ export class SourceArchiveAccess {
         entry.kind === 'file' &&
         (!Number.isSafeInteger(entry.byteSize) ||
           entry.byteSize < 0 ||
-          !['binary', 'text'].includes(entry.contentKind))
+          !['binary', 'text'].includes(entry.contentKind) ||
+          (entry.pdfPages !== undefined &&
+            !ArchivePdfPagesSchema.safeParse(entry.pdfPages).success))
       ) {
         throw new SourceArchiveAccessError('index-invalid', entry.path);
       }
@@ -260,6 +268,13 @@ export class SourceArchiveAccess {
       endByteExclusive,
       nextCursorBytes: endByteExclusive === entry.byteSize ? null : endByteExclusive,
       path: entry.path,
+      ...(entry.pdfPages
+        ? {
+            pdfPages: entry.pdfPages
+              .filter(page => page.startByte < endByteExclusive && page.endByte > cursorBytes)
+              .map(page => structuredClone(page)),
+          }
+        : {}),
       text: decoded.text,
       totalBytes: entry.byteSize,
     };
@@ -279,14 +294,25 @@ export class SourceArchiveAccess {
         continue;
       }
       const { text } = await this.loadText(entry);
-      const lines = text.split(/\r\n|\n|\r/u);
-      for (const [lineIndex, lineText] of lines.entries()) {
+      const lines = text.split(/(?<=\n)|(?<=\r)(?!\n)/u);
+      let byteOffset = 0;
+      for (const [lineIndex, rawLine] of lines.entries()) {
+        const lineText = rawLine.replace(/(?:\r\n|\n|\r)$/u, '');
+        const lineStart = byteOffset;
+        byteOffset += textEncoder.encode(rawLine).byteLength;
         const lineByteSize = textEncoder.encode(lineText).byteLength;
         let matchIndex = lineText.indexOf(query);
         while (matchIndex !== -1) {
           contextBytes += lineByteSize;
           this.assertContextSize(contextBytes, entry.path);
           matches.push({
+            ...(entry.pdfPages
+              ? {
+                  pdfPages: entry.pdfPages
+                    .filter(page => page.startByte < byteOffset && page.endByte > lineStart)
+                    .map(page => structuredClone(page)),
+                }
+              : {}),
             column: matchIndex + 1,
             line: lineIndex + 1,
             lineText,
@@ -333,7 +359,11 @@ export class SourceArchiveAccess {
       const loaded = await this.loadText(entry);
       actualBytes += loaded.byteSize;
       this.assertContextSize(actualBytes, path);
-      resolved.push({ path: entry.path, text: loaded.text });
+      resolved.push({
+        path: entry.path,
+        text: loaded.text,
+        ...(entry.pdfPages ? { pdfPages: structuredClone(entry.pdfPages) } : {}),
+      });
     }
     return resolved;
   }

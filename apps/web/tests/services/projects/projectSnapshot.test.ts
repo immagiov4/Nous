@@ -717,3 +717,51 @@ test.each([
   });
   expect(buildCoverLabel(snapshot, 'document')).toBe(expected);
 });
+
+test('keeps prepared PDF text and page provenance across export and reload', () => {
+  const provenance = {
+    kind: 'vision-transcription' as const,
+    pageNumber: 2,
+    model: 'recorded',
+    provider: 'recorded',
+  };
+  const preparedPdfText = {
+    text: 'transcribed source',
+    sourceHash: 'a'.repeat(64),
+    pages: [{ pageNumber: 2, text: 'transcribed source', provenance }],
+    parser: 'pdf-parse' as const,
+    usedFallbackParser: true,
+    outline: [],
+    outlineOrigin: 'none' as const,
+  };
+  const snapshot = createProjectSnapshot({
+    id: 'transcribed-roundtrip',
+    source: {
+      kind: 'pdf',
+      file: { name: 'notes.pdf', mimeType: 'application/pdf', data: 'cGRm' },
+      preparedPdfText,
+    },
+    documentIndex: {
+      kind: 'pdf-text-index',
+      parsedAt: '2026-01-01T00:00:00Z',
+      chunks: [
+        {
+          id: 'notes:1',
+          sequence: 0,
+          headingPath: [],
+          text: 'transcribed source',
+          startOffset: 0,
+          endOffset: 18,
+          pageStart: 2,
+          pageEnd: 2,
+          transcribedPages: [2],
+        },
+      ],
+    },
+  });
+  const reopened = normalizeStoredProject(exportProjectData(snapshot));
+  expect(reopened.source?.kind === 'pdf' && reopened.source.preparedPdfText).toEqual(
+    preparedPdfText
+  );
+  expect(reopened.documentIndex?.chunks[0].transcribedPages).toEqual([2]);
+});

@@ -1,3 +1,9 @@
+const pdfPageTranscriptionMocks = vi.hoisted(() => ({ complete: vi.fn() }));
+vi.mock('../../src/services/pdfPageTranscription.js', async original => ({
+  ...(await original<typeof import('../../src/services/pdfPageTranscription.js')>()),
+  completePdfTextExtraction: pdfPageTranscriptionMocks.complete,
+}));
+
 import { createHash } from 'node:crypto';
 import { SOURCE_ARCHIVE_PREVIEW_MAX_CHARS } from '@shared/sourceArchivePreview';
 import JSZip from 'jszip';
@@ -87,6 +93,9 @@ const replaceAscii = (bytes: Uint8Array, from: string, to: string) => {
 
 beforeEach(() => {
   pdfTextExtractorMocks.extractPdfText.mockReset();
+  pdfPageTranscriptionMocks.complete
+    .mockReset()
+    .mockImplementation(async (_bytes: Buffer, extracted: unknown) => extracted);
 });
 
 afterEach(() => {
@@ -117,15 +126,27 @@ describe('indexSourceArchive', () => {
     expect(pdfTextExtractorMocks.extractPdfText.mock.calls).toEqual([
       [
         `data:application/pdf;base64,${Buffer.from(validPdfBytes).toString('base64')}`,
-        expect.objectContaining({ fallbackTimeoutMs: 15_000, pdftotextTimeoutMs: 15_000 }),
+        expect.objectContaining({
+          transcription: false,
+          fallbackTimeoutMs: 15_000,
+          pdftotextTimeoutMs: 15_000,
+        }),
       ],
       [
         `data:application/pdf;base64,${Buffer.from(scannedPdfBytes).toString('base64')}`,
-        expect.objectContaining({ fallbackTimeoutMs: 15_000, pdftotextTimeoutMs: 15_000 }),
+        expect.objectContaining({
+          transcription: false,
+          fallbackTimeoutMs: 15_000,
+          pdftotextTimeoutMs: 15_000,
+        }),
       ],
       [
         `data:application/pdf;base64,${Buffer.from(unreadablePdfBytes).toString('base64')}`,
-        expect.objectContaining({ fallbackTimeoutMs: 15_000, pdftotextTimeoutMs: 15_000 }),
+        expect.objectContaining({
+          transcription: false,
+          fallbackTimeoutMs: 15_000,
+          pdftotextTimeoutMs: 15_000,
+        }),
       ],
     ]);
     expect(result.entries.find(entry => entry.path === 'docs/a-valid.PDF')).toMatchObject({
@@ -329,6 +350,7 @@ describe('indexSourceArchive', () => {
     const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
 
     expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledWith(expect.any(String), {
+      transcription: false,
       fallbackTimeoutMs: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.fallbackTimeoutMs,
       maxOutputBytes: GENEROUS_LIMITS.maxEntryBytes,
       pdftotextTimeoutMs: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.pdftotextTimeoutMs,
@@ -643,4 +665,77 @@ describe('withSourceArchivePreparationAdmission', () => {
     ).resolves.toBeUndefined();
     expect(secondPrepare).toHaveBeenCalledOnce();
   });
+});
+
+test.each([
+  'inspection',
+  'model',
+] as const)('counts local inspection but excludes model time from the archive deadline: %s', async phase => {
+  const archive = await createArchive([
+    { content: '%PDF-first', path: 'a.pdf', type: 'file' },
+    { content: '%PDF-second', path: 'b.pdf', type: 'file' },
+  ]);
+  let now = 1_000;
+  vi.spyOn(Date, 'now').mockImplementation(() => now);
+  const text = 'A useful mathematical explanation with complete definitions. '.repeat(8).trim();
+  pdfTextExtractorMocks.extractPdfText.mockResolvedValue({ text, pages: [{ text }] });
+  let modelStarts = 0;
+  pdfPageTranscriptionMocks.complete.mockImplementation(async (_bytes, extracted, options) => {
+    if (phase === 'model') options?.onTranscriptionStart?.();
+    now += PROJECT_SOURCE_ARCHIVE_PDF_POLICY.archivePreparationTimeoutMs + 1;
+    if (phase === 'inspection') options?.onTranscriptionStart?.();
+    modelStarts += 1;
+    return extracted;
+  });
+  if (phase === 'inspection') {
+    await expect(indexSourceArchive(archive, GENEROUS_LIMITS)).rejects.toThrow(
+      'preparation deadline exceeded'
+    );
+    expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(1);
+    expect(modelStarts).toBe(0);
+  } else {
+    expect(
+      (await indexSourceArchive(archive, GENEROUS_LIMITS)).entries.every(
+        entry => entry.kind === 'file' && entry.text === text
+      )
+    ).toBe(true);
+    expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(2);
+  }
+});
+
+test('interrupts a stalled PDF inspection at the existing archive preparation deadline', async () => {
+  const archive = await createArchive([
+    { content: '%PDF-stalled', path: 'scan.pdf', type: 'file' },
+  ]);
+  const text = 'A useful mathematical explanation with complete definitions. '.repeat(8).trim();
+  const extracted = { text, pages: [{ text }] };
+  pdfTextExtractorMocks.extractPdfText.mockResolvedValue(extracted);
+  const started = Promise.withResolvers<void>();
+  const completion = Promise.withResolvers<typeof extracted>();
+  let inspectionSignal: AbortSignal | undefined;
+  pdfPageTranscriptionMocks.complete.mockImplementation((_bytes, _extracted, options) => {
+    inspectionSignal = options?.signal;
+    started.resolve();
+    return completion.promise;
+  });
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const pending = indexSourceArchive(archive, GENEROUS_LIMITS);
+  let settled = false;
+  void pending.then(() => {
+    settled = true;
+  });
+  try {
+    await started.promise;
+    await vi.advanceTimersByTimeAsync(
+      PROJECT_SOURCE_ARCHIVE_PDF_POLICY.archivePreparationTimeoutMs
+    );
+    expect(settled).toBe(true);
+    expect(inspectionSignal?.aborted).toBe(true);
+    expect((await pending).entries[0]).toMatchObject({ warningReason: 'timeout' });
+    expect((await pending).entries[0]).not.toHaveProperty('text');
+  } finally {
+    completion.resolve(extracted);
+    await pending;
+    vi.useRealTimers();
+  }
 });

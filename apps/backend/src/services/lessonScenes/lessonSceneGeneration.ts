@@ -23,7 +23,6 @@ import {
   LESSON_SCENE_INDEPENDENT_CONTENT_RULE,
 } from '@shared/lessonVisualContracts';
 import * as z from 'zod';
-
 import { getResolvedModelConfigForProvider } from '../../config/modelConfig.js';
 import {
   toWorkflowErrorDiagnostic,
@@ -33,6 +32,7 @@ import {
   isInvalidLessonVisualStructuredOutput,
   type RenderResolvedLessonVisualInput,
 } from '../lessonGenerationVisuals.js';
+import type { LessonSourceProvenance } from '../lessonPrimarySourceContext.js';
 import { generateStructuredOutput } from '../structuredGeneration.js';
 import { chooseLessonSceneIcons, type SceneIconEntry } from './lessonSceneIconChoice.js';
 
@@ -53,6 +53,7 @@ export type LessonSceneOutcome =
 
 export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'plan'> & {
   readonly allowedSceneTypes?: readonly LessonSceneType[];
+  readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
 };
 
@@ -262,8 +263,12 @@ const buildScenePrompt = (input: GenerateLessonSceneInput): string => {
   const correction = input.retryFeedback?.trim()
     ? `\nRequired correction from the previous attempt:\n${input.retryFeedback.trim()}\n`
     : '';
+  const provenance = input.sourceProvenance
+    ? `Source provenance: ${JSON.stringify(input.sourceProvenance)}`
+    : '';
   return `Lesson: ${input.sectionTitle}
 Description: ${input.sectionDescription}
+${provenance}
 ${
   input.plan
     ? `Planned visual: ${JSON.stringify({

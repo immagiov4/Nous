@@ -3,6 +3,7 @@ export const SOURCE_ARCHIVE_TOOL_STEP_LIMIT = 12;
 export const SOURCE_ARCHIVE_TOOL_CONTEXT_MAX_BYTES = 8 * 1024 * 1024;
 
 interface SourceArchiveIndexEntry {
+  pdfPages?: import('./pdfTranscription').ArchivePdfPage[];
   byteSize?: number;
   contentKind?: 'binary' | 'text';
   kind: 'directory' | 'file';
@@ -41,7 +42,12 @@ export const formatSourceArchiveIndex = (
   return entries
     .flatMap(entry => {
       if (entry.kind === 'directory') return [`DIRECTORY ${entry.path}`];
-      const description = `FILE ${entry.path} | ${entry.contentKind} | ${entry.byteSize} bytes`;
+      const transcribedPages =
+        entry.pdfPages?.filter(page => page.provenance).map(page => page.pageNumber) || [];
+      const provenance = transcribedPages.length
+        ? ` | vision-transcription pages: ${transcribedPages.join(', ')}`
+        : '';
+      const description = `FILE ${entry.path} | ${entry.contentKind} | ${entry.byteSize} bytes${provenance}`;
       if (entry.contentKind !== 'text') return [description];
       const previewQuota = baseQuota + (textFileIndex < extraQuotaCount ? 1 : 0);
       textFileIndex += 1;

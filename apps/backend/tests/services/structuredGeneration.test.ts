@@ -1,3 +1,4 @@
+import { TRANSCRIBED_SOURCE_RULE } from '@shared/pdfTranscription';
 import { beforeEach, expect, test, vi } from 'vitest';
 import * as z from 'zod';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
@@ -58,7 +59,7 @@ test('Codex turns are tool-free, schema-bound, and parsed as JSON', async () => 
   expect(runCodexAppServerTurn).toHaveBeenCalledWith(
     expect.objectContaining({
       allowWebSearch: false,
-      developerInstructions: 'Rispondi. Do not use tools or access local files.',
+      developerInstructions: `Rispondi.\n${TRANSCRIBED_SOURCE_RULE} Do not use tools or access local files.`,
       input: [{ text: 'Domanda', type: 'text' }],
       outputSchema: OUTPUT.schema,
       reasoningEffort: 'medium',
@@ -75,7 +76,7 @@ test('web search lets Codex search while still forbidding local files', async ()
   expect(runCodexAppServerTurn).toHaveBeenCalledWith(
     expect.objectContaining({
       allowWebSearch: true,
-      developerInstructions: 'Rispondi. Do not access local files.',
+      developerInstructions: `Rispondi.\n${TRANSCRIBED_SOURCE_RULE} Do not access local files.`,
     })
   );
 });
@@ -126,7 +127,7 @@ test('AI SDK providers receive the system prompt unchanged', async () => {
     maxRetries: 0,
     prompt: 'Domanda',
     providerOptions: { p: {} },
-    system: 'Rispondi.',
+    system: `Rispondi.\n${TRANSCRIBED_SOURCE_RULE}`,
   });
   await expect(call.output.responseFormat).resolves.toMatchObject({
     name: 'answer',
@@ -215,7 +216,7 @@ test('schema rejection preserves the original contract for the envelope model to
   expect(generateText).toHaveBeenCalledTimes(2);
   const fallback = generateText.mock.calls[1][0];
   expect(fallback.prompt.startsWith(`${original.prompt}\n\n`)).toBe(true);
-  expect(fallback.system).toBe(original.system);
+  expect(fallback.system).toBe(`${original.system}\n${TRANSCRIBED_SOURCE_RULE}`);
   await expect(fallback.output.responseFormat).resolves.toMatchObject({
     schema: {
       additionalProperties: false,
@@ -239,7 +240,7 @@ test('a resolved model bypasses slot configuration and keeps its service tier', 
     output: OUTPUT,
     prompt: 'Domanda',
     signal,
-    system: 'Rispondi.',
+    system: `Rispondi.\n${TRANSCRIBED_SOURCE_RULE}`,
   });
 
   expect(runCodexAppServerTurn).toHaveBeenCalledWith(

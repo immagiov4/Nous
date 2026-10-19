@@ -1,6 +1,10 @@
 import { describe, expect, test, vi } from 'vitest';
+import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 
-import { createCourseSourceMaterialReader } from '../../src/workflows/courseGenerationSources.js';
+import {
+  createCourseSourceMaterialReader,
+  formatCourseSourceMaterials,
+} from '../../src/workflows/courseGenerationSources.js';
 
 const preparedState = {
   context: {
@@ -107,4 +111,79 @@ describe('course generation source material reader', () => {
       kind: 'permanent',
     });
   });
+});
+
+test('reuses the durable prepared PDF text with matching source hash instead of paying for another transcription', async () => {
+  const pdf = {
+    text: 'Prepared transcription',
+    pages: [{ pageNumber: 1, text: 'Prepared transcription' }],
+    sourceHash: 'a'.repeat(64),
+    parser: 'pdf-parse',
+    usedFallbackParser: true,
+    outline: [],
+    outlineOrigin: 'none',
+  };
+  const readSourceMaterial = vi.fn();
+  const reader = createCourseSourceMaterialReader({
+    loadProjectSources: vi
+      .fn()
+      .mockResolvedValue([storedSource('source-ready', 'a'.repeat(64), 'encoded')]),
+    loadProjectWithRevision: vi.fn().mockResolvedValue({
+      revision: 4,
+      snapshot: { source: { sources: [{ id: 'source-ready', preparedPdfText: pdf }] } },
+    }),
+    readSourceMaterial,
+  });
+  const result = await reader(preparedState);
+  expect(result[0].text).toBe(pdf.text);
+  expect(result[0].pdf?.pages).toEqual(pdf.pages);
+  expect(readSourceMaterial).not.toHaveBeenCalled();
+});
+
+test('passes the durable account models and cancellation signal when prepared text is absent', async () => {
+  const readSourceMaterial = vi.fn().mockResolvedValue({ text: 'source' });
+  const reader = createCourseSourceMaterialReader({
+    loadProjectSources: vi
+      .fn()
+      .mockResolvedValue([storedSource('source-ready', 'a'.repeat(64), 'encoded')]),
+    loadProjectWithRevision: vi.fn().mockResolvedValue({ revision: 4, snapshot: {} }),
+    readSourceMaterial,
+  });
+  const config = {
+    ...getGlobalModelConfig(),
+    aiProvider: 'codex' as const,
+    aiProviderOverrides: { research: 'codex' as const },
+  };
+  const signal = new AbortController().signal;
+  await reader(preparedState, signal, config);
+  expect(readSourceMaterial).toHaveBeenCalledWith(expect.anything(), { config, signal });
+});
+
+test('course planning retains transcription provenance even when sampling omits the page marker', () => {
+  const text = 'Middle of a page without its header.';
+  const material = {
+    descriptor: preparedState.context.sources[0],
+    text,
+    pdf: {
+      text,
+      pages: [
+        {
+          pageNumber: 7,
+          text,
+          provenance: {
+            kind: 'vision-transcription' as const,
+            pageNumber: 7,
+            model: 'recorded',
+            provider: 'recorded',
+          },
+        },
+      ],
+      sourceHash: 'synthetic',
+      parser: 'pdf-parse' as const,
+      usedFallbackParser: true,
+      outline: [],
+      outlineOrigin: 'none' as const,
+    },
+  };
+  expect(formatCourseSourceMaterials([material], 1)).toContain('"transcribedPages":[7]');
 });

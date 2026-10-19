@@ -965,6 +965,7 @@ const createOpenRouterMock = (
         ],
         projectId: input.projectId,
       }),
+    getPdfTextSession: async () => null,
     validatePdfTextSource: async () => ({
       averageCharsPerPage: 120,
       extractedCharacterCount: 1200,
@@ -2429,7 +2430,7 @@ test('handleSourceUpload reattach preserves the active source and messages when 
 test('handleSourceUpload cleans up a new project rejected during archive preparation', async () => {
   const sourceWarnings = [
     {
-      message: 'Questa fonte non contiene testo PDF utilizzabile.',
+      message: 'This source contains no usable PDF text.',
       name: 'scans/manual.pdf',
       reason: 'no-usable-text' as const,
     },
@@ -2741,11 +2742,15 @@ test('handleSourceUpload preserves archive identity when reattaching changed ZIP
         kind: 'archive',
       }),
     }),
-    { archiveFile: uploadedFile, throwOnError: true }
+    {
+      archiveFile: uploadedFile,
+      throwOnError: true,
+      onPdfTranscriptionProgress: expect.any(Function),
+    }
   );
   assert.deepEqual(result.sourceWarnings, [
     {
-      message: 'Questa fonte non contiene testo PDF utilizzabile.',
+      message: 'This source contains no usable PDF text.',
       name: 'scansioni/allegato.pdf',
       reason: 'no-usable-text',
     },
@@ -4827,9 +4832,22 @@ test('startHomeChat saves a ZIP before assessment and uses only the server index
       },
     },
     projectLibrary: {
+      // The controller is still holding the library callback created before project selection.
+      saveCurrentProject: async overrides =>
+        overrides?.id
+          ? {
+              meta: buildMeta(overrides.id),
+              snapshot: createProjectSnapshot({ ...overrides, id: overrides.id }),
+            }
+          : null,
+
       persistSnapshot: async (snapshot, options) => {
         persistedWrites += 1;
-        assert.deepEqual(options, { archiveFile: uploadedFile, throwOnError: true });
+        expect(options).toEqual({
+          archiveFile: uploadedFile,
+          throwOnError: true,
+          onPdfTranscriptionProgress: expect.any(Function),
+        });
         assert.equal(snapshot.source?.kind, 'archive');
         assert.deepEqual(
           snapshot.source?.kind === 'archive' ? snapshot.source.index.entries : [],
@@ -4934,12 +4952,12 @@ test('startHomeChat assesses extracted ZIP PDFs and reports each unusable PDF en
   expect(result.outcome).toBe('continued');
   expect(result.sourceWarnings).toEqual([
     {
-      message: 'Questa fonte non contiene testo PDF utilizzabile.',
+      message: 'This source contains no usable PDF text.',
       name: 'scansioni/allegato.pdf',
       reason: 'no-usable-text',
     },
     {
-      message: 'Questa fonte non contiene testo PDF utilizzabile.',
+      message: 'This source contains no usable PDF text.',
       name: 'corrotti/non-leggibile.PDF',
       reason: 'no-usable-text',
     },
@@ -4953,12 +4971,12 @@ test('startHomeChat assesses extracted ZIP PDFs and reports each unusable PDF en
 test('startHomeChat rejects a ZIP when every PDF entry is unusable', async () => {
   const sourceWarnings = [
     {
-      message: 'Questa fonte non contiene testo PDF utilizzabile.',
+      message: 'This source contains no usable PDF text.',
       name: 'scansioni/allegato.pdf',
       reason: 'no-usable-text' as const,
     },
     {
-      message: 'Questa fonte non contiene testo PDF utilizzabile.',
+      message: 'This source contains no usable PDF text.',
       name: 'corrotti/non-leggibile.PDF',
       reason: 'no-usable-text' as const,
     },
@@ -5050,7 +5068,7 @@ test('startHomeChat reports each unusable source while continuing with valid mat
   assert.equal(result.outcome, 'continued');
   assert.deepEqual(result.sourceWarnings, [
     {
-      message: 'Questa fonte non contiene testo PDF utilizzabile.',
+      message: 'This source contains no usable PDF text.',
       name: 'scansione.pdf',
     },
   ]);

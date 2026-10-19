@@ -155,6 +155,7 @@ export interface SourceOutlineNode {
 }
 
 export interface CourseSourceDescriptor {
+  preparedPdfText?: import('@shared/pdfTranscription').PreparedPdfText;
   documentIndex?: PdfTextIndex | null;
   errorMessage?: string;
   file: FileData;
@@ -189,6 +190,7 @@ export interface SourceArchiveDirectoryEntry {
 }
 
 export interface SourceArchiveFileEntry {
+  pdfPages?: import('@shared/pdfTranscription').ArchivePdfPage[];
   byteSize: number;
   contentKind: 'binary' | 'text';
   hash?: string;
@@ -223,6 +225,7 @@ export interface SourceArchiveSelector {
 }
 
 export interface PdfProjectSource {
+  preparedPdfText?: import('@shared/pdfTranscription').PreparedPdfText;
   kind: 'pdf';
   file: FileData;
   ref?: ProjectSourceRef;
@@ -420,6 +423,7 @@ export type LearningArtifactRenderPayload =
     };
 
 export interface PdfTextPage {
+  provenance?: import('@shared/pdfTranscription').PdfPageProvenance;
   pageNumber: number;
   text: string;
 }
@@ -452,6 +456,7 @@ export interface PdfDocumentAssets {
 }
 
 export interface PdfTextChunk {
+  transcribedPages?: number[];
   id: string;
   text: string;
   headingPath: string[];

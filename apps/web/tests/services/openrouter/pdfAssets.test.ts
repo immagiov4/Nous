@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test, vi } from 'vitest';
+import { setRenderingLocaleOverride } from '../../../i18n/uiMessages.ts';
 import { OPENROUTER_INLINE_MEDIA_DATA_URL_LIMIT_CHARS } from '../../../services/openrouter/payloadLimits.ts';
 import type { FileData } from '../../../types.ts';
 
@@ -330,4 +331,108 @@ test('getPdfAssetSession skips extracted images that would exceed the OpenRouter
   assert.equal(session?.images.length, 1);
   assert.equal(session?.images[0]?.id, 'pdf-img-small');
   assert.equal(session?.images[0]?.caption, 'Grafico leggibile.');
+});
+
+test('forwards streamed transcription progress and uses the completed Markdown pages', async () => {
+  const { getPdfTextSession } = await import('../../../services/openrouter/pdfAssets.ts');
+  const events = [
+    { type: 'progress', progress: { completed: 0, total: 1, failedPages: [] } },
+    { type: 'progress', progress: { completed: 1, total: 1, failedPages: [] } },
+    {
+      type: 'result',
+      result: {
+        success: true,
+        text: String.raw`$A \cup B$`,
+        pages: [{ pageNumber: 2, text: String.raw`$A \cup B$` }],
+        transcription: { pages: [2] },
+      },
+    },
+  ];
+  const wire = `${events.map(event => JSON.stringify(event)).join('\n')}\n`;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(wire.slice(0, 20)));
+            controller.enqueue(new TextEncoder().encode(wire.slice(20)));
+            controller.close();
+          },
+        }),
+        { headers: { 'Content-Type': 'application/x-ndjson' } }
+      )
+    )
+  );
+  const progress: unknown[] = [];
+  const result = await getPdfTextSession({ ...pdfFile, name: 'streamed-scanned.pdf' }, event =>
+    progress.push(event)
+  );
+  assert.deepEqual(
+    progress,
+    events.slice(0, 2).map(event => event.progress)
+  );
+  assert.deepEqual(result?.pages, events[2].result?.pages);
+});
+
+test('reports streamed page failures in the interface language and allows retrying the same source', async () => {
+  const { getPdfTextSession } = await import('../../../services/openrouter/pdfAssets.ts');
+  setRenderingLocaleOverride('en');
+  const progress = { completed: 1, total: 1, failedPages: [3] };
+  const response = [
+    JSON.stringify({ type: 'progress', progress }),
+    JSON.stringify({ type: 'error', failedPages: [3], error: 'Internal provider details' }),
+  ].join('\n');
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      new Response(response, { headers: { 'Content-Type': 'application/x-ndjson' } })
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          text: 'Recovered page',
+          pages: [{ pageNumber: 3, text: 'Recovered page' }],
+        }),
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+  vi.stubGlobal('fetch', fetchMock);
+  const observed: unknown[] = [];
+  const source = { ...pdfFile, name: 'retry-scanned-failure.pdf' };
+  try {
+    await assert.rejects(
+      getPdfTextSession(source, event => observed.push(event)),
+      { message: 'Transcription failed for pages: 3.' }
+    );
+    assert.deepEqual(observed, [progress]);
+    assert.equal((await getPdfTextSession(source))?.pages[0].text, 'Recovered page');
+    assert.equal(fetchMock.mock.calls.length, 2);
+  } finally {
+    setRenderingLocaleOverride(null);
+  }
+});
+
+test('retries the provider after a completed blank transcription fails source validation', async () => {
+  const { validatePdfTextSource } = await import('../../../services/openrouter/pdfAssets.ts');
+  const recoveredText = 'A readable synthetic source with mathematical definitions. '.repeat(30);
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json({ success: true, text: '', pages: [], transcription: { pages: [1] } })
+    )
+    .mockResolvedValueOnce(
+      Response.json({
+        success: true,
+        text: recoveredText,
+        pages: [{ pageNumber: 1, text: recoveredText }],
+        transcription: { pages: [1] },
+      })
+    );
+  vi.stubGlobal('fetch', fetchMock);
+  const source = { ...pdfFile, name: 'completed-blank-transcription.pdf' };
+  await assert.rejects(validatePdfTextSource(source), { code: 'PDF_TEXT_QUALITY_INSUFFICIENT' });
+  assert.equal((await validatePdfTextSource(source))?.status, 'ok');
+  assert.equal(fetchMock.mock.calls.length, 2);
 });

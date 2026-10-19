@@ -10,6 +10,7 @@ import {
 } from '@shared/lessonSourceContract';
 import type { LessonWorkflowWarning } from '@shared/lessonWorkflowContract';
 import { LESSON_PDF_IMAGE_EXTRACTION_LIMIT } from '@shared/pdfImagePolicy';
+import { readPdfTranscribedPages } from '@shared/pdfTranscription';
 import { SOURCE_ARCHIVE_LESSON_CONTEXT_MAX_BYTES } from '@shared/sourceArchiveSelectors';
 import {
   formatYouTubeTranscript,
@@ -25,7 +26,12 @@ import {
   type LessonPrimarySourcePart,
 } from './lessonPrimarySourceContext.js';
 import type { ExtractedPdfImage, extractPdfImages } from './pdfImageExtractor.js';
-import { isPdfProjectSourceFile, readProjectSourceText } from './projectSourceText.js';
+import {
+  isPdfProjectSourceFile,
+  type ProjectSourceMaterial,
+  readPreparedProjectPdfText,
+  readProjectSourceMaterial,
+} from './projectSourceText.js';
 import type { YouTubeResearchOutcome } from './youtubeResearch.js';
 
 export interface ResearchSource {
@@ -239,6 +245,9 @@ export const buildMappedSourceContext = (
             : String(chunk.id),
         ...(sourceId ? { sourceId } : {}),
         chunkIds: [String(chunk.id)],
+        ...(readPdfTranscribedPages(chunk.text).length
+          ? { transcribedPages: readPdfTranscribedPages(chunk.text) }
+          : {}),
         ...(typeof chunk.pageStart === 'number' ? { pageStart: chunk.pageStart } : {}),
         ...(typeof chunk.pageEnd === 'number' ? { pageEnd: chunk.pageEnd } : {}),
       };
@@ -320,6 +329,33 @@ const filterReferencedStoredSources = (
     : candidates;
 };
 
+const buildStoredMaterialSourceParts = (
+  candidate: StoredSourceCandidate,
+  material: ProjectSourceMaterial
+): LessonPrimarySourcePart[] => {
+  const parts: LessonPrimarySourcePart[] = [];
+  const pages = material.pdf?.pages || [
+    { text: material.text, pageNumber: undefined, provenance: undefined },
+  ];
+  let remaining = MAX_LESSON_SOURCE_CONTEXT_CHARS;
+  for (const page of pages) {
+    const content = clipSourceContext(page.text, remaining);
+    if (content)
+      parts.push({
+        source: {
+          title: candidate.file.name,
+          sourceId: candidate.id,
+          ...(page.pageNumber ? { pageStart: page.pageNumber, pageEnd: page.pageNumber } : {}),
+          ...(page.provenance ? { transcribedPages: [page.provenance.pageNumber] } : {}),
+        },
+        text: `ORIGINAL SOURCE: ${candidate.file.name}\n${content}`,
+      });
+    remaining -= content.length;
+    if (remaining <= 0) break;
+  }
+  return parts;
+};
+
 export const buildStoredDocumentSourceContext = async ({
   store,
   userId,
@@ -327,13 +363,17 @@ export const buildStoredDocumentSourceContext = async ({
   section,
   signal,
   primarySourceId,
+  config,
+  source,
 }: {
+  source?: ProjectSnapshot['source'];
   store: ProjectStore;
   userId: string;
   projectId: string;
   section: Record<string, unknown>;
   signal: AbortSignal;
   primarySourceId: string;
+  config?: import('../config/modelConfig.js').GlobalModelConfig;
 }): Promise<string> => {
   const candidates = filterReferencedStoredSources(
     await loadStoredSourceCandidates(store, userId, projectId, primarySourceId),
@@ -342,15 +382,11 @@ export const buildStoredDocumentSourceContext = async ({
   const parts: LessonPrimarySourcePart[] = [];
   for (const candidate of candidates) {
     signal.throwIfAborted();
-    const content = clipSourceContext(
-      await readProjectSourceText(candidate.file),
-      MAX_LESSON_SOURCE_CONTEXT_CHARS
-    );
-    if (content)
-      parts.push({
-        source: { title: candidate.file.name, sourceId: candidate.id },
-        text: `ORIGINAL SOURCE: ${candidate.file.name}\n${content}`,
-      });
+    const pdf = readPreparedProjectPdfText(source, candidate.id, candidate.hash);
+    const material = pdf
+      ? { pdf, text: pdf.text }
+      : await readProjectSourceMaterial(candidate.file, { config, signal });
+    parts.push(...buildStoredMaterialSourceParts(candidate, material));
   }
   const separator = '\n\n---\n\n';
   const combined = clipSourceContext(
@@ -415,10 +451,26 @@ export const buildArchiveSourceContext = async (
   });
   const files = await access.resolveSelectors(selectors);
   return encodeLessonPrimarySources(
-    files.map(file => ({
-      source: { title: file.path, path: file.path, sourceId: index.version.sourceId },
-      text: `FILE ${file.path}\n${file.text}`,
-    }))
+    files.flatMap(file =>
+      file.pdfPages?.length
+        ? file.pdfPages.map(page => ({
+            source: {
+              title: file.path,
+              path: file.path,
+              sourceId: index.version.sourceId,
+              pageStart: page.pageNumber,
+              pageEnd: page.pageNumber,
+              ...(page.provenance ? { transcribedPages: [page.pageNumber] } : {}),
+            },
+            text: `FILE ${file.path}\n${Buffer.from(file.text).subarray(page.startByte, page.endByte).toString('utf8')}`,
+          }))
+        : [
+            {
+              source: { title: file.path, path: file.path, sourceId: index.version.sourceId },
+              text: `FILE ${file.path}\n${file.text}`,
+            },
+          ]
+    )
   );
 };
 

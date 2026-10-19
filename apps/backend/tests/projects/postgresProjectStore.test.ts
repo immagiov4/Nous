@@ -1,3 +1,8 @@
+vi.mock('../../src/services/pdfPageTranscription.js', async original => ({
+  ...(await original<typeof import('../../src/services/pdfPageTranscription.js')>()),
+  completePdfTextExtraction: async (_bytes: Buffer, extracted: unknown) => extracted,
+}));
+
 import { createHash } from 'node:crypto';
 import {
   createProjectBackupArchive,
@@ -2562,10 +2567,26 @@ describe('PostgresProjectStore', () => {
     ).rejects.toThrow(/reference is missing|does not match/u);
   });
 
-  test('loads archive metadata separately and verifies entry bytes through Storage', async () => {
+  test.each([
+    undefined,
+    [
+      {
+        pageNumber: 2,
+        startByte: 0,
+        endByte: 14,
+        provenance: {
+          kind: 'vision-transcription' as const,
+          pageNumber: 2,
+          model: 'synthetic',
+          provider: 'openrouter',
+        },
+      },
+    ],
+  ])('loads archive metadata and optional page provenance separately from verified entry bytes (%j)', async pdfPages => {
     const entryBytes = new TextEncoder().encode('complete entry');
     const entryHash = createHash('sha256').update(entryBytes).digest('hex');
     let representationIsCurrent = true;
+    let storedPdfPages = pdfPages;
     const sqlClient = Object.assign(
       vi.fn((strings: TemplateStringsArray) => {
         const statement = strings.join('?');
@@ -2593,6 +2614,7 @@ describe('PostgresProjectStore', () => {
               kind: 'file',
               object_path: 'users/user/projects/hash/source/entries/hash',
               path: 'src/index.ts',
+              pdf_pages: storedPdfPages ?? null,
               project_id: PROJECT_META.id,
               preview: 'complete entry',
               source_hash: entryHash,
@@ -2632,6 +2654,15 @@ describe('PostgresProjectStore', () => {
 
     const index = await store.loadProjectSourceArchiveIndex('user-1', PROJECT_META.id);
     if (!index) throw new Error('Expected the stored archive index.');
+    storedPdfPages = pdfPages?.map(page => ({
+      provenance: { ...page.provenance, provider: page.provenance.provider },
+      endByte: page.endByte,
+      startByte: page.startByte,
+      pageNumber: page.pageNumber,
+    }));
+    const reloaded = await store.loadProjectSourceArchiveIndex('user-1', PROJECT_META.id);
+    expect(reloaded?.version).toEqual(index.version);
+
     const loadedEntry = await store.loadProjectSourceArchiveEntry(
       'user-1',
       PROJECT_META.id,
@@ -2656,6 +2687,7 @@ describe('PostgresProjectStore', () => {
           hash: entryHash,
           kind: 'file',
           path: 'src/index.ts',
+          ...(pdfPages ? { pdfPages } : {}),
           preview: 'complete entry',
         },
       ],

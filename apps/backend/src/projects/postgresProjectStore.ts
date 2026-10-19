@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { lstat, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
 import {
   buildOrderedSiblingItems,
   buildSiblingItemIdentity,
@@ -13,6 +12,7 @@ import {
   SIBLING_ORDER_STEP,
   type SiblingItem,
 } from '@shared/libraryOrdering';
+import { ArchivePdfPagesSchema } from '@shared/pdfTranscription';
 import {
   decodeProjectBackupArchive,
   PROJECT_BACKUP_MAX_ENTRIES,
@@ -111,7 +111,8 @@ const PROJECT_SOURCE_ARCHIVE_INDEX_PROJECTION_AND_JOIN = `
   entry.source_hash,
   entry.byte_size,
   entry.preview,
-  entry.warning_reason
+  entry.warning_reason,
+  entry.pdf_pages
 from public.project_sources source
 left join public.project_source_entries entry
   on entry.user_id = source.user_id and entry.project_id = source.project_id
@@ -211,6 +212,7 @@ interface ProjectSourceArchiveEntryRow {
   preview: string | null;
   source_hash: string | null;
   warning_reason: SourceArchivePdfWarningReason | null;
+  pdf_pages?: import('@shared/pdfTranscription').ArchivePdfPage[] | null;
 }
 
 interface ProjectSourceArchiveIndexRow {
@@ -225,6 +227,7 @@ interface ProjectSourceArchiveIndexRow {
   source_hash: string | null;
   source_kind: 'archive' | 'file';
   warning_reason: SourceArchivePdfWarningReason | null;
+  pdf_pages?: import('@shared/pdfTranscription').ArchivePdfPage[] | null;
 }
 
 interface ProjectSourceArchiveIndexByProjectRow extends ProjectSourceArchiveIndexRow {
@@ -256,6 +259,7 @@ interface ProjectSourceArchiveEntryMetadata {
   preview: string | null;
   source_hash: string | null;
   warning_reason: SourceArchivePdfWarningReason | null;
+  pdf_pages?: import('@shared/pdfTranscription').ArchivePdfPage[] | null;
 }
 
 type PreparedProjectSourceObject = {
@@ -1774,6 +1778,7 @@ export class PostgresProjectStore implements ProjectStore {
           | 'preview'
           | 'source_hash'
           | 'warning_reason'
+          | 'pdf_pages'
         >,
         'byte_size'
       > & { byte_size: number | string | null }
@@ -1791,6 +1796,9 @@ export class PostgresProjectStore implements ProjectStore {
               kind: 'file' as const,
               path: entry.path,
               ...(entry.preview === null ? {} : { preview: entry.preview }),
+              ...(entry.pdf_pages?.length
+                ? { pdfPages: ArchivePdfPagesSchema.parse(entry.pdf_pages) }
+                : {}),
               ...(entry.warning_reason ? { warningReason: entry.warning_reason } : {}),
             }
       )
@@ -1826,6 +1834,7 @@ export class PostgresProjectStore implements ProjectStore {
               preview: row.preview,
               source_hash: row.source_hash,
               warning_reason: row.warning_reason,
+              pdf_pages: row.pdf_pages,
             },
           ]
     );
@@ -1916,7 +1925,8 @@ export class PostgresProjectStore implements ProjectStore {
         source_hash,
         byte_size,
         preview,
-        warning_reason
+        warning_reason,
+        pdf_pages
       from public.project_source_entries
       where user_id = ${userId} and project_id = ${snapshot.id}
       order by path
@@ -2228,6 +2238,7 @@ export class PostgresProjectStore implements ProjectStore {
             byte_size,
             preview,
             warning_reason,
+            pdf_pages,
             object_path
           )
         select
@@ -2240,6 +2251,7 @@ export class PostgresProjectStore implements ProjectStore {
           entry.byte_size,
           entry.preview,
           entry.warning_reason,
+          entry.pdf_pages,
           entry.object_path
         from jsonb_to_recordset(
           ${sql.json(toPostgresJson(prepared.archiveEntries))}
@@ -2251,6 +2263,7 @@ export class PostgresProjectStore implements ProjectStore {
           byte_size bigint,
           preview text,
           warning_reason text,
+          pdf_pages jsonb,
           object_path text
         )
       `;
@@ -2359,6 +2372,7 @@ export class PostgresProjectStore implements ProjectStore {
             preview: entry.preview ?? null,
             source_hash: entry.hash,
             warning_reason: entry.warningReason ?? null,
+            pdf_pages: entry.pdfPages ?? null,
           });
           prepared.objects.push({
             byteSize: entry.byteSize,

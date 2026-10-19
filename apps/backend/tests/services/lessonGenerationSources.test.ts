@@ -15,6 +15,81 @@ import {
 } from '../../src/services/lessonGenerationSources.js';
 import { readLessonPrimarySources } from '../../src/services/lessonPrimarySourceContext.js';
 
+const extraction = vi.hoisted(() => ({ extractPdfText: vi.fn() }));
+vi.mock('../../src/services/pdfTextExtractor.js', async original => ({
+  ...(await original<typeof import('../../src/services/pdfTextExtractor.js')>()),
+  extractPdfText: extraction.extractPdfText,
+}));
+
+test.each([
+  true,
+  false,
+])('reuses a prepared PDF only when its source hash matches: %s', async matches => {
+  const sourceHash = 'a'.repeat(64);
+  const prepared = {
+    text: 'Persisted machine transcription.',
+    pages: [
+      {
+        pageNumber: 7,
+        text: 'Persisted machine transcription.',
+        provenance: {
+          kind: 'vision-transcription',
+          pageNumber: 7,
+          model: 'recorded',
+          provider: 'recorded',
+        },
+      },
+    ],
+    sourceHash: matches ? sourceHash : 'b'.repeat(64),
+    parser: 'pdf-parse',
+    usedFallbackParser: true,
+    outline: [],
+    outlineOrigin: 'none',
+  };
+  extraction.extractPdfText.mockReset();
+  extraction.extractPdfText.mockResolvedValue({
+    ...prepared,
+    sourceHash,
+    text: 'Fresh source.',
+    pages: [{ pageNumber: 1, text: 'Fresh source.' }],
+  });
+  const file = {
+    name: 'synthetic.pdf',
+    mimeType: 'application/pdf',
+    data: Buffer.from('synthetic PDF bytes').toString('base64'),
+  };
+  const store = {
+    loadProjectSources: vi
+      .fn()
+      .mockResolvedValue([{ file, ref: { id: 'source-1', hash: sourceHash } }]),
+  } as unknown as ProjectStore;
+  const result = await resolveLessonSourceMaterials({
+    project: {
+      sourceKind: 'document',
+      source: { ref: { id: 'source-1' }, preparedPdfText: prepared },
+    } as never,
+    store,
+    userId: 'user',
+    projectId: 'project',
+    sectionId: 'lesson',
+    section: {},
+    signal: new AbortController().signal,
+  });
+  expect(readLessonPrimarySources(result.sourceContext)).toEqual([
+    {
+      source: {
+        sourceId: 'source-1',
+        title: file.name,
+        pageStart: matches ? 7 : 1,
+        pageEnd: matches ? 7 : 1,
+        ...(matches ? { transcribedPages: [7] } : {}),
+      },
+      text: `ORIGINAL SOURCE: ${file.name}\n${matches ? prepared.text : 'Fresh source.'}`,
+    },
+  ]);
+  expect(extraction.extractPdfText).toHaveBeenCalledTimes(matches ? 0 : 1);
+});
+
 test('restores a legacy document using its authoritative project source identity', async () => {
   const store = {
     loadProjectSources: vi.fn().mockResolvedValue([]),

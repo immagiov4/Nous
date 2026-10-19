@@ -22,6 +22,20 @@ import type { ProjectSnapshot } from '../../src/projects/types.js';
 import { createSupabaseTestToken } from '../helpers/auth.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
 
+vi.mock('../../src/services/pdfPageTranscription.js', async original => {
+  const actual = await original<typeof import('../../src/services/pdfPageTranscription.js')>();
+  return {
+    ...actual,
+    withPdfTranscriptionProvider: (
+      preferences: Parameters<typeof actual.withPdfTranscriptionProvider>[0],
+      operation: () => unknown
+    ) => {
+      preferences.onProgress?.({ completed: 1, total: 1, failedPages: [] });
+      return actual.withPdfTranscriptionProvider(preferences, operation);
+    },
+  };
+});
+
 let store: InMemoryProjectStore;
 let previousLocalUserId: string | undefined;
 
@@ -208,6 +222,52 @@ describe('/api/projects', () => {
         { path: 'broken/b.pdf', reason: 'parser-failed' },
       ],
       success: false,
+    });
+  });
+
+  test('retains unusable-source warnings after transcription progress opened the response', async () => {
+    const app = createApp();
+    const uploadId = crypto.randomUUID();
+    const warnings = [{ path: 'blank.pdf', reason: 'no-usable-text' as const }];
+    vi.spyOn(store, 'saveProject').mockRejectedValue(new SourceArchiveUnusableError(warnings));
+    const archive = { name: 'materials.zip', mimeType: 'application/zip' };
+    await request(app)
+      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1`)
+      .set('Content-Type', 'application/octet-stream')
+      .send(Buffer.from('synthetic archive bytes'));
+    const response = await request(app)
+      .post(`/api/projects/import/chunks/${uploadId}/complete`)
+      .set('Accept', 'application/x-ndjson')
+      .send({
+        payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceArchive,
+        snapshot: {
+          ...createSnapshot('blank-archive', 'Blank archive'),
+          sourceKind: 'codebase',
+          source: {
+            kind: 'archive',
+            file: { ...archive, data: '' },
+            index: { entries: [] },
+            name: archive.name,
+          },
+        },
+        sourceFile: archive,
+      });
+    const events = response.text
+      .trim()
+      .split('\n')
+      .map(line => JSON.parse(line));
+    expect(events[0]).toEqual({
+      type: 'progress',
+      progress: { completed: 1, total: 1, failedPages: [] },
+    });
+    expect(events.at(-1)).toEqual({
+      type: 'result',
+      result: {
+        success: false,
+        code: PROJECT_API_ERROR_CODE.sourceArchiveUnusable,
+        error: 'L’archivio non contiene alcun testo utilizzabile.',
+        sourceWarnings: warnings,
+      },
     });
   });
 

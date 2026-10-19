@@ -1,4 +1,7 @@
+import type { PdfTranscriptionProgress } from '@shared/pdfTranscription';
+import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import * as OpenRouterService from '../../../services/openrouter/index.ts';
+import { PdfTranscriptionError } from '../../../services/processingResponse.ts';
 import {
   buildCourseSourceDescriptors,
   createProjectSourceFromDescriptors,
@@ -48,13 +51,18 @@ export const readSourceFileData = async (file: File): Promise<FileData> => {
 
 const UNUSABLE_PDF_SOURCE_MESSAGE = 'Questa fonte non contiene testo PDF utilizzabile.';
 
-export const getProjectSourceWarnings = (source: ProjectSource): ProjectSourceWarning[] => {
-  const descriptorWarnings = (source.sources || [])
+const getCourseSourceWarnings = (
+  sources: readonly CourseSourceDescriptor[]
+): ProjectSourceWarning[] =>
+  sources
     .filter(descriptor => descriptor.status === 'error')
     .map(descriptor => ({
-      message: descriptor.errorMessage || 'Questa fonte non è utilizzabile.',
+      message: descriptor.errorMessage || t('Questa fonte non è utilizzabile.'),
       name: descriptor.name,
     }));
+
+export const getProjectSourceWarnings = (source: ProjectSource): ProjectSourceWarning[] => {
+  const descriptorWarnings = getCourseSourceWarnings(source.sources || []);
   if (source.kind !== 'archive') {
     return descriptorWarnings;
   }
@@ -65,7 +73,7 @@ export const getProjectSourceWarnings = (source: ProjectSource): ProjectSourceWa
     entry.path.toLowerCase().endsWith('.pdf')
       ? [
           {
-            message: UNUSABLE_PDF_SOURCE_MESSAGE,
+            message: t(UNUSABLE_PDF_SOURCE_MESSAGE),
             name: entry.path,
             reason: entry.warningReason || 'no-usable-text',
           },
@@ -78,7 +86,7 @@ export const getProjectSourceWarnings = (source: ProjectSource): ProjectSourceWa
 export const prepareUploadedCourseSource = async (
   context: Pick<WorkspaceControllerContext, 'openRouter'>,
   selectedFiles: readonly File[],
-  onProgress?: (completed: number, total: number) => void
+  onProgress?: (completed: number, total: number, pdfProgress?: PdfTranscriptionProgress) => void
 ): Promise<{ descriptors: CourseSourceDescriptor[]; source: ProjectSource }> => {
   const sortedFiles = sortSourceFiles(selectedFiles);
   const fileData = await Promise.all(sortedFiles.map(readSourceFileData));
@@ -91,12 +99,15 @@ export const prepareUploadedCourseSource = async (
       continue;
     }
     try {
-      await context.openRouter.validatePdfTextSource(descriptor.file);
+      await context.openRouter.validatePdfTextSource(descriptor.file, progress =>
+        onProgress?.(index, descriptors.length, progress)
+      );
       const session = await context.openRouter.getPdfTextSession(descriptor.file);
       if (!session?.extractedText.trim()) {
         throw new Error('No extracted PDF text');
       }
       descriptor.hash = session.sourceHash || descriptor.hash;
+      descriptor.preparedPdfText = toPreparedPdfText(session, descriptor.hash);
       descriptor.outline = session.outline;
       descriptor.outlineOrigin = session.outlineOrigin;
       descriptor.documentIndex = context.openRouter.buildPdfTextIndex(
@@ -115,13 +126,21 @@ export const prepareUploadedCourseSource = async (
         name: descriptor.name,
       });
       descriptor.status = 'error';
-      descriptor.errorMessage = UNUSABLE_PDF_SOURCE_MESSAGE;
+      descriptor.errorMessage =
+        error instanceof PdfTranscriptionError ? error.message : t(UNUSABLE_PDF_SOURCE_MESSAGE);
     }
   }
   onProgress?.(descriptors.length, descriptors.length);
 
   if (descriptors.every(descriptor => descriptor.status === 'error')) {
-    throw new Error('Nessuna delle fonti selezionate contiene materiale utilizzabile.');
+    throw new Error(
+      [
+        t('Nessuna delle fonti selezionate contiene materiale utilizzabile.'),
+        ...getCourseSourceWarnings(descriptors).map(
+          warning => `${warning.name}: ${warning.message}`
+        ),
+      ].join('\n')
+    );
   }
 
   return {
@@ -162,4 +181,18 @@ export const createWorkspaceControllerContext = ({
   sleep,
   state,
   stopAudio,
+});
+
+export const toPreparedPdfText = (
+  session: import('../../../services/openrouter/pdfAssets.ts').PdfAssetSession,
+  sourceHash: string
+): import('@shared/pdfTranscription').PreparedPdfText => ({
+  text: session.extractedText,
+  pages: session.pages,
+  sourceHash,
+  parser: session.parser || 'pdf-parse',
+  pageCount: session.pageCount,
+  outline: session.outline,
+  outlineOrigin: session.outlineOrigin,
+  usedFallbackParser: session.parser !== 'pdftotext',
 });

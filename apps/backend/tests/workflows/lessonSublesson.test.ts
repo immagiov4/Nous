@@ -279,6 +279,71 @@ describe('durable sublesson stages', () => {
     });
   });
 
+  test('retains prepared transcription for deep dives and passes account models when extraction is needed', async () => {
+    const hash = 'a'.repeat(64);
+    const source = {
+      file: { data: 'dGVzdG8=', mimeType: 'application/pdf', name: 'synthetic.pdf' },
+      ref: {
+        byteSize: 6,
+        hash,
+        id: 'source-1',
+        mimeType: 'application/pdf',
+        name: 'synthetic.pdf',
+        objectPath: 'sources/synthetic.pdf',
+      },
+    };
+    const provenance = {
+      kind: 'vision-transcription',
+      pageNumber: 1,
+      model: 'synthetic-vision',
+      provider: 'openrouter',
+    };
+    const preparedPdfText = {
+      sourceHash: hash,
+      parser: 'pdf-parse',
+      usedFallbackParser: false,
+      pageCount: 1,
+      pages: [
+        {
+          pageNumber: 1,
+          text: '[Page 1: transcribed from scanned handwriting/image; machine transcription may contain errors.] $x>1$',
+          provenance,
+        },
+      ],
+      text: '[Page 1: transcribed from scanned handwriting/image; machine transcription may contain errors.] $x>1$',
+      outline: [],
+      outlineOrigin: 'none',
+    };
+    const readSourceMaterial = vi.fn().mockResolvedValue({ text: 'fresh extraction' });
+    const generateObject = vi.fn(async (_request: unknown) => metadata);
+    const project = snapshot({ source: { kind: 'pdf', preparedPdfText } });
+    const projectStore = store(project, {
+      loadProjectSources: vi.fn().mockResolvedValue([source]),
+    });
+    const stages = createLessonSublessonStages({
+      projectStore,
+      readSourceMaterial,
+      generateObject: generateObject as never,
+    });
+    await stages.planSublesson(context(input));
+    expect(readSourceMaterial).not.toHaveBeenCalled();
+    const prompt = generateObject.mock.calls[0]?.[0] as unknown as { prompt: string };
+    const serializedProvenance = prompt.prompt
+      .split('<source-provenance>')[1]
+      ?.split('</source-provenance>')[0];
+    expect(JSON.parse(serializedProvenance || 'null')).toEqual({
+      kind: 'vision-transcription',
+      transcribedPages: [1],
+    });
+    project.source = null;
+    const stageContext = context(input);
+    await stages.planSublesson(stageContext);
+    expect(readSourceMaterial).toHaveBeenCalledWith(source.file, {
+      config: getGlobalModelConfig(),
+      signal: stageContext.signal,
+    });
+  });
+
   test('creates a missing source index, while a source-free project skips mapping', async () => {
     const source = {
       file: { data: 'dGVzdG8=', mimeType: 'application/pdf', name: 'fonte.pdf' },

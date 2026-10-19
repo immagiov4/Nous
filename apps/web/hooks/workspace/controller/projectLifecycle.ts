@@ -43,6 +43,7 @@ import {
   getProjectSourceWarnings,
   prepareUploadedCourseSource,
   readSourceFileData,
+  toPreparedPdfText,
 } from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
@@ -231,11 +232,16 @@ export const createProjectLifecycleCommands = (
           const prepared = await prepareUploadedCourseSource(
             context,
             selectedFiles,
-            (completed, total) => {
+            (completed, total, pdfProgress) => {
               state.setWorkflowMessage(
                 'attachSource',
                 requestId,
-                t('Preparazione fonti... {completed}/{total}', { completed, total })
+                pdfProgress
+                  ? t('Trascrizione pagine scansionate {completed}/{total}', {
+                      completed: pdfProgress.completed,
+                      total: pdfProgress.total,
+                    })
+                  : t('Preparazione fonti... {completed}/{total}', { completed, total })
               );
             }
           );
@@ -252,7 +258,23 @@ export const createProjectLifecycleCommands = (
 
       if (nextSource.kind === 'pdf' && !nextSource.sources?.length) {
         state.setWorkflowMessage('attachSource', requestId, t('Verifica testo PDF...'));
-        await openRouter.validatePdfTextSource(nextFile);
+        await openRouter.validatePdfTextSource(nextFile, progress =>
+          state.setWorkflowMessage(
+            'attachSource',
+            requestId,
+            t('Trascrizione pagine scansionate {completed}/{total}', {
+              completed: progress.completed,
+              total: progress.total,
+            })
+          )
+        );
+        const session = await openRouter.getPdfTextSession(nextFile);
+        if (session?.transcription?.pages.length && session.sourceHash) {
+          nextSource = {
+            ...nextSource,
+            preparedPdfText: toPreparedPdfText(session, session.sourceHash),
+          };
+        }
       }
 
       pushNousDebugTrace('attach-source:prepared', {
@@ -290,7 +312,19 @@ export const createProjectLifecycleCommands = (
         try {
           const saved = await projectLibrary.saveCurrentProject(
             { source: nextSource },
-            { archiveFile, throwOnError: true }
+            {
+              archiveFile,
+              throwOnError: true,
+              onPdfTranscriptionProgress: progress =>
+                state.setWorkflowMessage(
+                  'attachSource',
+                  requestId,
+                  t('Trascrizione pagine scansionate {completed}/{total}', {
+                    completed: progress.completed,
+                    total: progress.total,
+                  })
+                ),
+            }
           );
           if (!isReattachCurrent()) {
             if (isReattachProjectSelected() && domain.source === nextSource) {
@@ -342,7 +376,19 @@ export const createProjectLifecycleCommands = (
           state: AppState.ASSESSMENT,
           source: nextSource,
         }),
-        { archiveFile, throwOnError: true }
+        {
+          archiveFile,
+          throwOnError: true,
+          onPdfTranscriptionProgress: progress =>
+            state.setWorkflowMessage(
+              'attachSource',
+              requestId,
+              t('Trascrizione pagine scansionate {completed}/{total}', {
+                completed: progress.completed,
+                total: progress.total,
+              })
+            ),
+        }
       );
       if (!saved?.snapshot.source) {
         throw new Error('La sorgente del progetto non è stata salvata.');

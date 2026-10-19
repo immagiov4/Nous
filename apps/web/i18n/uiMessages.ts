@@ -37,6 +37,14 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 };
 
 const ENGLISH_UI_MESSAGES = {
+  'Nessuna delle fonti selezionate contiene materiale utilizzabile.':
+    'None of the selected sources contains usable material.',
+  'Questa fonte non è utilizzabile.': 'This source is unusable.',
+  'Questa fonte non contiene testo PDF utilizzabile.': 'This source contains no usable PDF text.',
+  'Risposta di elaborazione incompleta.': 'Document processing response is incomplete.',
+  'Preparazione del documento non riuscita.': 'Document preparation failed.',
+  'Trascrizione non riuscita per le pagine: {pages}.': 'Transcription failed for pages: {pages}.',
+  'Documento: {name}.': 'Document: {name}.',
   '1 lezione · {lastOpenedDate}': '1 lesson · {lastOpenedDate}',
   '{completed}/{total} lezione completata': '{completed}/{total} lesson completed',
   '1 corso incluso': '1 course included',
@@ -1328,6 +1336,8 @@ const ENGLISH_UI_MESSAGES = {
   'Salvataggio progresso...': 'Saving progress...',
   'Scelgo dove inserire gli esercizi...': 'Choosing where to place exercises...',
   'Valutazione risposta...': 'Assessing answer...',
+  'Trascrizione pagine scansionate {completed}/{total}':
+    'Transcribing scanned pages {completed}/{total}',
   'Verifica testo PDF...': 'Checking PDF text...',
   Corretta: 'Correct',
   'Da rivedere': 'Review',

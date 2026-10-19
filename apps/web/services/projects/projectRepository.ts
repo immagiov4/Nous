@@ -38,7 +38,10 @@ export class ProjectStorageError extends Error {
     | 'source-archive-changed'
     | 'source-archive-invalid'
     | 'source-archive-unusable'
+    | 'pdf-transcription-failed'
     | 'unknown';
+  readonly failedPages?: number[];
+  readonly documentName?: string;
   readonly httpStatus?: number;
   readonly responseContentType?: string;
   readonly sourceWarnings?: ProjectSourceWarning[];
@@ -48,6 +51,8 @@ export class ProjectStorageError extends Error {
     code: ProjectStorageError['code'] = 'unknown',
     response?: {
       contentType?: string;
+      failedPages?: number[];
+      documentName?: string;
       sourceWarnings?: ProjectSourceWarning[];
       status?: number;
     }
@@ -55,6 +60,8 @@ export class ProjectStorageError extends Error {
     super(message);
     this.name = 'ProjectStorageError';
     this.code = code;
+    this.failedPages = response?.failedPages;
+    this.documentName = response?.documentName;
     this.httpStatus = response?.status;
     this.responseContentType = response?.contentType;
     this.sourceWarnings = response?.sourceWarnings;
@@ -79,6 +86,9 @@ export type LibraryExportProgressListener = (progress: LibraryExportProgress) =>
 
 export interface ProjectSaveOptions extends ProjectWriteOptions {
   archiveFile?: File;
+  onPdfTranscriptionProgress?: (
+    progress: import('@shared/pdfTranscription').PdfTranscriptionProgress
+  ) => void;
 }
 
 export interface ProjectRepository {

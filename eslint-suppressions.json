@@ -82,9 +82,6 @@
   "apps/backend/src/routes/projects.ts": {
     "sonarjs/cognitive-complexity": {
       "count": 1
-    },
-    "sonarjs/no-nested-conditional": {
-      "count": 1
     }
   },
   "apps/backend/src/services/codexAppServer.ts": {

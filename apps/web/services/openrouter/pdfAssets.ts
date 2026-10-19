@@ -1,5 +1,6 @@
 import { LESSON_PDF_IMAGE_EXTRACTION_LIMIT } from '@shared/pdfImagePolicy';
 import { assessPdfTextQuality, type PdfTextQualityReport } from '@shared/pdfTextQuality';
+import type { PdfTranscriptionProgress, PdfTranscriptionSummary } from '@shared/pdfTranscription';
 import { sanitizePartialPages } from '@shared/sanitizePartialPages';
 import type {
   LessonImageRef,
@@ -11,6 +12,7 @@ import type {
 import { normalizeLineEndings } from '../../utils/text.ts';
 import { timestampIso } from '../../utils/time.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
+import { readProcessingResponse } from '../processingResponse.ts';
 import { isOpenRouterDataUrlInlineSafe } from './payloadLimits.ts';
 import {
   callOpenRouter,
@@ -49,6 +51,7 @@ interface BackendPdfExtractResponse {
 }
 
 interface BackendPdfTextResponse {
+  transcription?: PdfTranscriptionSummary;
   success: boolean;
   text?: string;
   pages?: PdfTextPage[];
@@ -62,6 +65,7 @@ interface BackendPdfTextResponse {
 }
 
 export interface PdfAssetSession {
+  transcription?: PdfTranscriptionSummary;
   images: PdfImageAsset[];
   extractedText: string;
   pages: PdfTextPage[];
@@ -81,7 +85,7 @@ class PdfTextQualityError extends Error {
 
   constructor(fileName: string, report: PdfTextQualityReport) {
     super(
-      `Questo PDF non contiene abbastanza testo selezionabile per generare un percorso affidabile. Se è un libro scannerizzato, serve una versione con OCR o testo estraibile.`
+      `Questo PDF non contiene abbastanza contenuto leggibile per generare un percorso affidabile.`
     );
     this.name = 'PdfTextQualityError';
     this.report = report;
@@ -104,19 +108,24 @@ const canCaptionBackendImage = (image: BackendPdfImage): boolean =>
   isOpenRouterDataUrlInlineSafe(image.dataUrl);
 
 export const validatePdfTextSource = async (
-  file: FileData
+  file: FileData,
+  onProgress?: (progress: PdfTranscriptionProgress) => void
 ): Promise<PdfTextQualityReport | null> => {
   if (!isPdfFile(file)) {
     return null;
   }
 
-  const session = await getPdfTextSession(file);
+  const session = await getPdfTextSession(file, onProgress);
   if (!session) {
     return null;
   }
 
   const report = assessPdfTextQuality(session);
-  if (report.status !== 'ok') {
+  if (
+    report.status !== 'ok' &&
+    !(session.transcription?.pages.length && session.extractedText.trim())
+  ) {
+    PDF_TEXT_PARSE_CACHE.delete(getPdfCacheKey(file));
     throw new PdfTextQualityError(file.name, report);
   }
 
@@ -318,11 +327,15 @@ const extractPdfImagesViaBackend = async (
   return captionedImages;
 };
 
-const extractPdfTextViaBackend = async (file: FileData): Promise<PdfAssetSession> => {
+const extractPdfTextViaBackend = async (
+  file: FileData,
+  onProgress?: (progress: PdfTranscriptionProgress) => void
+): Promise<PdfAssetSession> => {
   const response = await fetchWithSupabaseAuth(`${getBackendUrl()}/api/pdf/extract-text`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      Accept: 'application/x-ndjson',
     },
     body: JSON.stringify({
       fileData: fileToDataUrl(file),
@@ -334,7 +347,7 @@ const extractPdfTextViaBackend = async (file: FileData): Promise<PdfAssetSession
     throw new Error(`PDF text backend error: ${response.status} ${errorText}`);
   }
 
-  const payload = (await response.json()) as BackendPdfTextResponse;
+  const payload = await readProcessingResponse<BackendPdfTextResponse>(response, onProgress);
   if (!payload.success) {
     throw new Error(payload.error || 'Unknown PDF text backend error');
   }
@@ -363,6 +376,7 @@ const extractPdfTextViaBackend = async (file: FileData): Promise<PdfAssetSession
             Boolean(page) && Number.isInteger(page.pageNumber) && typeof page.text === 'string'
         )
         .map(page => ({
+          ...page,
           pageNumber: page.pageNumber,
           text: page.text,
         }))
@@ -378,6 +392,7 @@ const extractPdfTextViaBackend = async (file: FileData): Promise<PdfAssetSession
   });
 
   return {
+    transcription: payload.transcription,
     images: [],
     extractedText,
     pages,
@@ -390,7 +405,10 @@ const extractPdfTextViaBackend = async (file: FileData): Promise<PdfAssetSession
   };
 };
 
-export const getPdfTextSession = async (file: FileData): Promise<PdfAssetSession | null> => {
+export const getPdfTextSession = async (
+  file: FileData,
+  onProgress?: (progress: PdfTranscriptionProgress) => void
+): Promise<PdfAssetSession | null> => {
   if (!isPdfFile(file)) {
     return null;
   }
@@ -401,7 +419,7 @@ export const getPdfTextSession = async (file: FileData): Promise<PdfAssetSession
     return cached;
   }
 
-  const nextPromise = extractPdfTextViaBackend(file).catch(error => {
+  const nextPromise = extractPdfTextViaBackend(file, onProgress).catch(error => {
     PDF_TEXT_PARSE_CACHE.delete(cacheKey);
     throw error;
   });

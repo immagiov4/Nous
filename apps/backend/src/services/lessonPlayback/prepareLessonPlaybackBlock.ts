@@ -17,6 +17,7 @@ import type { GlobalModelConfig } from '../../config/modelConfig.js';
 import { failPermanently } from '../../workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../workflows/types.js';
 import type { WorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
+import type { LessonSourceProvenance } from '../lessonPrimarySourceContext.js';
 import { generateLessonScene } from '../lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../lessonVisualModelConfig.js';
 import {
@@ -36,6 +37,7 @@ interface PrepareLessonPlaybackBlockInput {
   readonly lesson: {
     readonly title: string;
     readonly description?: string;
+    readonly sourceProvenance?: LessonSourceProvenance;
     readonly generatedVisuals?: readonly ProjectLessonVisual[];
   };
   readonly voice: string;
@@ -99,6 +101,7 @@ const prepareScene = async (
       retryFeedback,
       // Only this block is admissible evidence; lesson metadata can describe other passages.
       sectionDescription: '',
+      sourceProvenance: input.lesson.sourceProvenance,
       sectionTitle: '',
       signal,
     });
@@ -146,7 +149,8 @@ const prepareSpokenMath = async (input: PrepareLessonPlaybackBlockInput) => {
   const { block } = input;
   if (block.prepared) return block.prepared.spokenMath;
   if (input.supportsSpokenMath === false || !block.spans.some(span => span.math)) return undefined;
-  const operation = () => generatePlaybackSpokenMath(input);
+  const operation = () =>
+    generatePlaybackSpokenMath({ ...input, sourceProvenance: input.lesson.sourceProvenance });
   const spokenMath = input.providerEffect
     ? await input.providerEffect.run({
         key: 'spoken-math',
@@ -175,7 +179,13 @@ const prepareVisuals = async (
       : await prepareScene(input);
     const planMotion = async () =>
       scene && !isAnimatedLessonScene(scene)
-        ? await planPlaybackMotion({ scene, speech: block.speech, config, signal })
+        ? await planPlaybackMotion({
+            scene,
+            speech: block.speech,
+            config,
+            signal,
+            sourceProvenance: input.lesson.sourceProvenance,
+          })
         : [];
     const motion = input.providerEffect
       ? await input.providerEffect.run({

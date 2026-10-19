@@ -103,4 +103,26 @@ describe('POST /api/pdf', () => {
       [3, 4, 5]
     );
   });
+  test('streams page progress before the completed PDF response', async () => {
+    pdfServiceMocks.extractPdfText.mockImplementation(async (_file, options) => {
+      options.transcription.onProgress({ completed: 0, total: 1, failedPages: [] });
+      options.transcription.onProgress({ completed: 1, total: 1, failedPages: [] });
+      return { text: 'A $x in A$ formula', pages: [{ pageNumber: 1, text: 'A formula' }] };
+    });
+    const response = await request(createApp())
+      .post('/api/pdf/extract-text')
+      .set('Accept', 'application/x-ndjson')
+      .send({ fileData: 'data:application/pdf;base64,ZmFrZQ==' });
+    const events = response.text
+      .trim()
+      .split('\n')
+      .map((line: string) => JSON.parse(line));
+    expect(events.map((event: { type: string }) => event.type)).toEqual([
+      'progress',
+      'progress',
+      'result',
+    ]);
+    expect(events[0].progress).toEqual({ completed: 0, total: 1, failedPages: [] });
+    expect(events[2].result.pages).toEqual([{ pageNumber: 1, text: 'A formula' }]);
+  });
 });

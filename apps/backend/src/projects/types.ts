@@ -121,6 +121,7 @@ export interface ProjectSourceArchiveDirectoryEntry {
 }
 
 export interface ProjectSourceArchiveFileEntry {
+  pdfPages?: import('@shared/pdfTranscription').ArchivePdfPage[];
   byteSize: number;
   contentKind: 'binary' | 'text';
   hash: string;

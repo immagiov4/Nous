@@ -134,7 +134,13 @@ export interface WorkspaceProjectLibraryAdapter {
   ) => Promise<LibraryPlacement[]>;
   persistSnapshot: (
     snapshot: ProjectSnapshot,
-    options?: { archiveFile?: File; throwOnError?: boolean }
+    options?: {
+      archiveFile?: File;
+      throwOnError?: boolean;
+      onPdfTranscriptionProgress?: (
+        progress: import('@shared/pdfTranscription').PdfTranscriptionProgress
+      ) => void;
+    }
   ) => Promise<ProjectSaveResult | null>;
   refreshLibraryOrganization: () => Promise<void>;
   refreshLibraryState: () => Promise<void>;
@@ -142,7 +148,13 @@ export interface WorkspaceProjectLibraryAdapter {
   renameFolder: (folderId: string, name: string) => Promise<LibraryFolder | null>;
   saveCurrentProject: (
     overrides?: Partial<ProjectSnapshot>,
-    options?: { archiveFile?: File; throwOnError?: boolean }
+    options?: {
+      archiveFile?: File;
+      throwOnError?: boolean;
+      onPdfTranscriptionProgress?: (
+        progress: import('@shared/pdfTranscription').PdfTranscriptionProgress
+      ) => void;
+    }
   ) => Promise<ProjectSaveResult | null>;
   patchCurrentProject: (
     overrides?: Partial<ProjectSnapshot>,

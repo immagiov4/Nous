@@ -64,6 +64,11 @@ import {
   getCourseCoverRegenerationStatus,
   startOrResumeCourseCoverRegeneration,
 } from '../services/courseCoverRegeneration.js';
+import {
+  PdfPageTranscriptionError,
+  withPdfTranscriptionProvider,
+} from '../services/pdfPageTranscription.js';
+import { getErrorMessage } from '../utils/errors.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
 import { timestampIso } from '../utils/time.js';
 import {
@@ -74,6 +79,7 @@ import {
 } from '../utils/validation.js';
 
 const router = Router();
+router.use((req, _res, next) => withPdfTranscriptionProvider(getCurrentUser(req), next));
 
 const PROJECT_EVENT_HEARTBEAT_MS = 25_000;
 const PROJECT_SNAPSHOT_MULTIPART_MAX_BYTES = 300_000_000;
@@ -244,6 +250,21 @@ const publishMetaRevision = (userId: string, meta: { id: string; revision?: numb
   }
 };
 
+const sendProjectWriteErrorResult = (
+  res: Response,
+  status: number,
+  result: Record<string, unknown>
+): void => {
+  if (
+    res.headersSent &&
+    res.getHeader('content-type')?.toString().includes('application/x-ndjson')
+  ) {
+    res.end(`${JSON.stringify({ type: 'result', result })}\n`);
+  } else {
+    res.status(status).json(result);
+  }
+};
+
 const sendProjectWriteError = (
   res: Response,
   error: unknown,
@@ -251,11 +272,25 @@ const sendProjectWriteError = (
   fallbackStatus = 400
 ): void => {
   if (error instanceof ProjectRevisionConflictError) {
-    res.status(409).json({ code: error.code, error: error.message, success: false });
+    sendProjectWriteErrorResult(res, 409, {
+      code: error.code,
+      error: error.message,
+      success: false,
+    });
+    return;
+  }
+  if (error instanceof PdfPageTranscriptionError) {
+    sendProjectWriteErrorResult(res, 422, {
+      success: false,
+      code: error.code,
+      error: error.message,
+      failedPages: error.failedPages,
+      documentName: error.documentName,
+    });
     return;
   }
   if (error instanceof SourceArchivePreparationCapacityError) {
-    res.status(429).json({
+    sendProjectWriteErrorResult(res, 429, {
       code: PROJECT_API_ERROR_CODE.sourceArchiveBusy,
       error: error.message,
       success: false,
@@ -263,7 +298,7 @@ const sendProjectWriteError = (
     return;
   }
   if (error instanceof SourceArchiveUnusableError) {
-    res.status(422).json({
+    sendProjectWriteErrorResult(res, 422, {
       code: PROJECT_API_ERROR_CODE.sourceArchiveUnusable,
       error: error.message,
       sourceWarnings: error.warnings,
@@ -272,23 +307,19 @@ const sendProjectWriteError = (
     return;
   }
   if (error instanceof SourceArchivePreparationError) {
-    res.status(422).json({
+    sendProjectWriteErrorResult(res, 422, {
       code: PROJECT_API_ERROR_CODE.sourceArchiveInvalid,
       error: error.message,
       success: false,
     });
     return;
   }
-  sendErrorResponse(
-    res,
-    error instanceof ProjectNotFoundError
-      ? 404
-      : error instanceof ProjectRevisionConflictError
-        ? 409
-        : fallbackStatus,
-    error,
-    fallbackMessage
-  );
+  sendProjectWriteErrorResult(res, error instanceof ProjectNotFoundError ? 404 : fallbackStatus, {
+    success: false,
+    error: res.headersSent
+      ? 'Preparazione archivio non riuscita.'
+      : getErrorMessage(error, fallbackMessage),
+  });
 };
 
 const requireProjectSnapshot = (
@@ -1026,35 +1057,52 @@ router.get('/import/chunks/:uploadId', async (req: Request, res: Response) => {
 });
 
 router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Response) => {
+  const streamed = req.get('Accept') === 'application/x-ndjson';
+  const onProgress = streamed
+    ? (progress: import('@shared/pdfTranscription').PdfTranscriptionProgress) => {
+        if (!res.headersSent) {
+          res.type('application/x-ndjson');
+          res.set('Cache-Control', 'no-store');
+          res.flushHeaders();
+        }
+        res.write(`${JSON.stringify({ type: 'progress', progress })}\n`);
+      }
+    : undefined;
   try {
     const userId = getCurrentUser(req).id;
     const store = getProjectStore();
     const completionBody = isRecord(req.body) ? req.body : {};
-    const completed = await completeProjectImportUpload({
-      userId,
-      uploadId: getRouteParam(req.params.uploadId),
-      importData: async data => {
-        const imported = await store.importProject(userId, data);
-        publishMetaRevision(userId, imported.meta);
-        return { projectId: imported.meta.id, meta: imported.meta };
-      },
-      importBinary: async (bytes, expectedRevision) => {
-        const imported = await importBinaryProjectUpload({
-          body: completionBody,
-          bytes,
-          expectedRevision,
-          store,
+    const completed = await withPdfTranscriptionProvider(
+      { ...getCurrentUser(req), onProgress },
+      () =>
+        completeProjectImportUpload({
           userId,
-        });
-        publishMetaRevision(userId, imported.meta);
-        return { projectId: imported.meta.id, meta: imported.meta };
-      },
-    });
+          uploadId: getRouteParam(req.params.uploadId),
+          importData: async data => {
+            const imported = await store.importProject(userId, data);
+            publishMetaRevision(userId, imported.meta);
+            return { projectId: imported.meta.id, meta: imported.meta };
+          },
+          importBinary: async (bytes, expectedRevision) => {
+            const imported = await importBinaryProjectUpload({
+              body: completionBody,
+              bytes,
+              expectedRevision,
+              store,
+              userId,
+            });
+            publishMetaRevision(userId, imported.meta);
+            return { projectId: imported.meta.id, meta: imported.meta };
+          },
+        })
+    );
     const snapshot = await store.loadProject(userId, completed.projectId);
     if (!snapshot) {
       throw new Error('Imported project could not be loaded.');
     }
-    res.json({ success: true, complete: true, meta: completed.meta, snapshot });
+    const result = { success: true, complete: true, meta: completed.meta, snapshot };
+    if (res.headersSent) res.end(`${JSON.stringify({ type: 'result', result })}\n`);
+    else res.json(result);
   } catch (error) {
     sendProjectWriteError(
       res,

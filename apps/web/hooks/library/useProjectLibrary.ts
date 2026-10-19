@@ -132,6 +132,9 @@ const buildCurrentProjectPatch = (
 
 interface PersistSnapshotOptions {
   archiveFile?: File;
+  onPdfTranscriptionProgress?: (
+    progress: import('@shared/pdfTranscription').PdfTranscriptionProgress
+  ) => void;
   throwOnError?: boolean;
 }
 
@@ -714,6 +717,7 @@ export const useProjectLibrary = ({
           async () => {
             const saved = await projectRepositoryRef.current.saveProject(snapshot, {
               archiveFile: options.archiveFile,
+              onPdfTranscriptionProgress: options.onPdfTranscriptionProgress,
               expectedRevision: getExpectedRevision(snapshot.id),
             });
             detachedSnapshot = saved.snapshot;

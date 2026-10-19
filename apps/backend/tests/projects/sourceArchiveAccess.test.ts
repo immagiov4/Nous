@@ -410,3 +410,36 @@ describe('SourceArchiveAccess', () => {
     });
   });
 });
+
+test('retains physical-page provenance when a paginated archive read excludes its text marker', async () => {
+  const bytes = encoder.encode('marker and first page\nsecond page text');
+  const pdfPages = [
+    { pageNumber: 1, startByte: 0, endByte: 22 },
+    {
+      pageNumber: 2,
+      startByte: 22,
+      endByte: bytes.length,
+      provenance: {
+        kind: 'vision-transcription' as const,
+        pageNumber: 2,
+        model: 'recorded',
+        provider: 'recorded',
+      },
+    },
+  ];
+  const access = new SourceArchiveAccess({
+    index: {
+      entries: [
+        { kind: 'file', path: 'notes.pdf', contentKind: 'text', byteSize: bytes.length, pdfPages },
+      ],
+    },
+    maxContextBytes: 1000,
+    readBytes: async () => bytes,
+    readByteRange: async (_path, start, end) => bytes.slice(start, end),
+  });
+  expect(await access.readTextPage('notes.pdf', 22)).toMatchObject({ pdfPages: [pdfPages[1]] });
+  expect((await access.resolveSelectors([{ kind: 'file', path: 'notes.pdf' }]))[0]).toMatchObject({
+    pdfPages,
+  });
+  expect((await access.searchLiteral('second'))[0].pdfPages).toEqual([pdfPages[1]]);
+});

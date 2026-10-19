@@ -60,6 +60,12 @@ When OpenRouter rejects compilation of the provider schema, structured generatio
 
 Sources: [structuredGeneration.ts](../../../apps/backend/src/services/structuredGeneration.ts), [strictStructuredOutput.ts](../../../apps/backend/src/services/strictStructuredOutput.ts), [courseGenerationModel.ts](../../../apps/backend/src/workflows/courseGenerationModel.ts)
 
+### PDF page transcription
+
+Scanned-page transcription uses the existing `research` provider selection and the account's provider overrides. OpenRouter defaults to `openai/gpt-6-luna-pro`, configurable with `MODEL_PDF_TRANSCRIPTION`. Codex uses `CODEX_MODEL_PDF_TRANSCRIPTION` when set, otherwise its configured research model and reasoning/service-tier settings. Models must accept image input. Successful page calls report input/output tokens and provider cost where available; subscription providers need not report a dollar amount. Page failures remain explicit. This feature adds no user-facing price or page-count policy.
+
+All downstream course and structured-generation calls receive the shared transcription-provenance rule. Source metadata identifies the affected pages; the factual reviewer uses its existing evidence-reference validator when accepting a justified correction of an evident transcription error.
+
 ## Configuration Components
 
 ### Global Model Configuration

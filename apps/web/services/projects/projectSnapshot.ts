@@ -1,5 +1,6 @@
 import { CoursePlanningPreferencesSchema } from '@shared/coursePlanningControls';
 import { SOURCE_ARCHIVE_VERSION_HASH_PATTERN } from '@shared/lessonSourceContext';
+import { ArchivePdfPagesSchema, PreparedPdfTextSchema } from '@shared/pdfTranscription';
 import {
   decodeProjectSnapshotWire,
   encodeProjectSnapshotWire,
@@ -277,6 +278,7 @@ const parseCourseSources = (value: unknown): CourseSourceDescriptor[] | undefine
       }
       return {
         documentIndex: parseDocumentIndex(source.documentIndex),
+        preparedPdfText: PreparedPdfTextSchema.safeParse(source.preparedPdfText).data,
         errorMessage: ensureString(source.errorMessage) || undefined,
         file: { ...file, sourceId: file.sourceId || source.id },
         hash: source.hash,
@@ -326,6 +328,9 @@ const parseSourceArchiveIndex = (value: unknown): SourceArchiveIndex | null => {
     }
     return {
       byteSize: entry.byteSize,
+      ...(entry.pdfPages !== undefined
+        ? { pdfPages: ArchivePdfPagesSchema.parse(entry.pdfPages) }
+        : {}),
       contentKind: entry.contentKind,
       ...(isString(entry.hash) ? { hash: entry.hash } : {}),
       kind: 'file' as const,
@@ -387,6 +392,7 @@ const parseProjectSource = (value: unknown): ProjectSource | null => {
     return file && isPdfFileData(file) && (file.data || ref)
       ? {
           kind: 'pdf',
+          preparedPdfText: PreparedPdfTextSchema.safeParse(value.preparedPdfText).data,
           file,
           ...(ref ? { ref } : {}),
           ...(sources ? { sources } : {}),
@@ -544,6 +550,14 @@ function parseDocumentIndex(value: unknown): PdfTextIndex | null {
         headingPath: Array.isArray(chunk.headingPath)
           ? chunk.headingPath.map(item => ensureString(item)).filter(Boolean)
           : [],
+        ...(Array.isArray(chunk.transcribedPages)
+          ? {
+              transcribedPages: chunk.transcribedPages.filter(
+                (page): page is number =>
+                  typeof page === 'number' && Number.isInteger(page) && page > 0
+              ),
+            }
+          : {}),
         sequence: typeof chunk.sequence === 'number' ? chunk.sequence : 0,
         startOffset: typeof chunk.startOffset === 'number' ? chunk.startOffset : 0,
         endOffset: typeof chunk.endOffset === 'number' ? chunk.endOffset : 0,

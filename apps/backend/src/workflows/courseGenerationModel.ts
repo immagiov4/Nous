@@ -1,3 +1,4 @@
+import { TRANSCRIBED_SOURCE_RULE } from '@shared/pdfTranscription';
 import { generateText, jsonSchema, NoObjectGeneratedError, Output, stepCountIs, tool } from 'ai';
 import * as z from 'zod';
 
@@ -151,7 +152,7 @@ const requestCourseObject = async <Schema extends z.ZodType>({
   if (resolveAiProviderForSlot(config, input.slot) !== 'codex') {
     const response = await dependencies.runAiObject({
       config,
-      developerInstructions: input.developerInstructions,
+      developerInstructions: `${input.developerInstructions}\n${TRANSCRIBED_SOURCE_RULE}`,
       name: input.name,
       outputSchema: strictOutput.schema,
       prompt: input.prompt,
@@ -167,7 +168,7 @@ const requestCourseObject = async <Schema extends z.ZodType>({
   const model = resolveTextModelConfig(config, input.slot);
   const response = await dependencies.runCodexObject({
     allowWebSearch: webSearch,
-    developerInstructions: input.developerInstructions,
+    developerInstructions: `${input.developerInstructions}\n${TRANSCRIBED_SOURCE_RULE}`,
     input: [{ text: input.prompt, type: 'text' }],
     model: model.model,
     slot: input.slot,

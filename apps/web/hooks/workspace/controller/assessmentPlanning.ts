@@ -48,6 +48,7 @@ import {
   getProjectSourceWarnings,
   prepareUploadedCourseSource,
   readSourceFileData,
+  toPreparedPdfText,
 } from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type { AssessmentSourceInput, WorkspaceControllerContext } from './types.ts';
@@ -225,7 +226,12 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     const existingProjectId = projectLibrary.getCurrentProjectId();
     if (existingProjectId) {
       const saved = await projectLibrary.saveCurrentProject(
-        { isLearnMode: mode === 'learn', source, state: AppState.ASSESSMENT },
+        {
+          id: existingProjectId,
+          isLearnMode: mode === 'learn',
+          source,
+          state: AppState.ASSESSMENT,
+        },
         { throwOnError: true }
       );
       if (!saved) throw new Error('Non è stato possibile preparare l’intervista del corso.');
@@ -817,11 +823,16 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     const prepared = await prepareUploadedCourseSource(
       context,
       selectedFiles,
-      (completed, total) => {
+      (completed, total, pdfProgress) => {
         state.setWorkflowMessage(
           'assessment',
           requestId,
-          t('Preparazione fonti... {completed}/{total}', { completed, total })
+          pdfProgress
+            ? t('Trascrizione pagine scansionate {completed}/{total}', {
+                completed: pdfProgress.completed,
+                total: pdfProgress.total,
+              })
+            : t('Preparazione fonti... {completed}/{total}', { completed, total })
         );
       }
     );
@@ -869,8 +880,10 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     source,
     startState,
     workspaceOwnership,
+    requestId,
   }: {
     archiveFile?: File;
+    requestId: number;
     source: ProjectSource;
     startState: HomeChatStartState;
     workspaceOwnership: AssessmentWorkspaceOwnership;
@@ -882,7 +895,19 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     projectLibrary.setCurrentProjectId(projectId);
     const saved = await projectLibrary.persistSnapshot(
       createProjectSnapshot({ id: projectId, state: AppState.ASSESSMENT, source }),
-      { archiveFile, throwOnError: true }
+      {
+        archiveFile,
+        throwOnError: true,
+        onPdfTranscriptionProgress: progress =>
+          state.setWorkflowMessage(
+            'assessment',
+            requestId,
+            t('Trascrizione pagine scansionate {completed}/{total}', {
+              completed: progress.completed,
+              total: progress.total,
+            })
+          ),
+      }
     );
     if (saved?.snapshot.source?.kind !== 'archive') {
       throw new Error('La sorgente archivio non è stata salvata.');
@@ -951,12 +976,26 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     }
     if (source.kind === 'pdf' && !source.sources?.length) {
       state.setWorkflowMessage('assessment', requestId, t('Verifica testo PDF...'));
-      await openRouter.validatePdfTextSource(file);
+      await openRouter.validatePdfTextSource(file, progress =>
+        state.setWorkflowMessage(
+          'assessment',
+          requestId,
+          t('Trascrizione pagine scansionate {completed}/{total}', {
+            completed: progress.completed,
+            total: progress.total,
+          })
+        )
+      );
+      const session = await openRouter.getPdfTextSession(file);
+      if (session?.transcription?.pages.length && session.sourceHash) {
+        source = { ...source, preparedPdfText: toPreparedPdfText(session, session.sourceHash) };
+      }
       if (!isRequestCurrent()) {
         return { kind: 'completed', result: await abandonCancelledStart() };
       }
     }
     source = await persistHomeChatArchiveSource({
+      requestId,
       archiveFile,
       source,
       startState,

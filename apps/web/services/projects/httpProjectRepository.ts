@@ -29,6 +29,7 @@ import type {
 import { isRecord } from '../../utils/records.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
+import { readProcessingResponse } from '../processingResponse.ts';
 import { attachStoredSources, getCourseSourceDescriptors } from './courseSources.ts';
 import type {
   LibraryExportProgressListener,
@@ -67,6 +68,8 @@ interface ApiResponse {
   sourceWarnings?: unknown;
   sources?: StoredProjectSourceFile[];
   snapshot?: ProjectSnapshot;
+  failedPages?: number[];
+  documentName?: string;
   uploadStatus?: 'receiving' | 'finalizing' | 'completed';
 }
 
@@ -137,11 +140,13 @@ const createProjectSyncError = (error: unknown): ProjectStorageError => {
     return new ProjectStorageError(
       error.httpStatus === HTTP_STATUS_REQUEST_TOO_LARGE
         ? PROJECT_REQUEST_TOO_LARGE_MESSAGE
-        : responseErrorMessage(error.code),
+        : responseErrorMessage(error.code, error.failedPages, error.documentName),
       error.code,
       {
         contentType: error.responseContentType,
         sourceWarnings: error.sourceWarnings,
+        failedPages: error.failedPages,
+        documentName: error.documentName,
         status: error.httpStatus,
       }
     );
@@ -154,6 +159,7 @@ const createProjectSyncError = (error: unknown): ProjectStorageError => {
 };
 
 const responseErrorCode = (status: number, apiCode?: string): ProjectStorageError['code'] => {
+  if (apiCode === 'PDF_PAGE_TRANSCRIPTION_FAILED') return 'pdf-transcription-failed';
   if (status === 404) return 'project-deleted';
   if (apiCode === PROJECT_API_ERROR_CODE.revisionConflict) return 'revision-conflict';
   if (apiCode === PROJECT_API_ERROR_CODE.coverRevisionConflict) return 'cover-revision-conflict';
@@ -165,7 +171,20 @@ const responseErrorCode = (status: number, apiCode?: string): ProjectStorageErro
   return 'persistence-failed';
 };
 
-function responseErrorMessage(code: ProjectStorageError['code']): string {
+function responseErrorMessage(
+  code: ProjectStorageError['code'],
+  failedPages?: number[],
+  documentName?: string
+): string {
+  if (code === 'pdf-transcription-failed') {
+    const failure = translateUiMessage('Trascrizione non riuscita per le pagine: {pages}.', {
+      pages: failedPages?.join(', ') || '?',
+    });
+    const document = documentName
+      ? translateUiMessage('Documento: {name}.', { name: documentName })
+      : '';
+    return [failure, document].filter(Boolean).join(' ');
+  }
   if (code === 'project-deleted') return REMOTE_PROJECT_DELETED_MESSAGE;
   if (code === 'revision-conflict') return PROJECT_REVISION_CONFLICT_MESSAGE;
   if (code === 'cover-revision-conflict') return PROJECT_COVER_REVISION_CONFLICT_MESSAGE;
@@ -487,7 +506,7 @@ export class HttpProjectRepository implements ProjectRepository {
 
   async saveProject(
     snapshot: ProjectSnapshot,
-    { archiveFile, ...options }: ProjectSaveOptions = {}
+    { archiveFile, onPdfTranscriptionProgress, ...options }: ProjectSaveOptions = {}
   ): Promise<ProjectSaveResult> {
     let snapshotToSave = snapshot;
     const source = snapshot.source;
@@ -527,7 +546,13 @@ export class HttpProjectRepository implements ProjectRepository {
     );
     if (archiveFile) {
       const importConfig = await this.getProjectImportConfig();
-      return this.saveArchiveProjectInChunks(projectPayload, archiveFile, importConfig, options);
+      return this.saveArchiveProjectInChunks(
+        projectPayload,
+        archiveFile,
+        importConfig,
+        options,
+        onPdfTranscriptionProgress
+      );
     }
     const response = await this.request<{
       meta?: SavedProjectMeta;
@@ -552,7 +577,8 @@ export class HttpProjectRepository implements ProjectRepository {
     snapshot: ProjectSnapshotWire,
     archiveFile: File,
     config: ProjectImportConfig,
-    options: ProjectWriteOptions
+    options: ProjectWriteOptions,
+    onProgress?: (progress: import('@shared/pdfTranscription').PdfTranscriptionProgress) => void
   ): Promise<ProjectSaveResult> {
     if (snapshot.source?.kind !== 'archive') {
       throw new ProjectStorageError(
@@ -590,8 +616,10 @@ export class HttpProjectRepository implements ProjectRepository {
             sourceFile: { name: sourceFile.name, mimeType: sourceFile.mimeType },
           }),
           method: 'POST',
+          headers: { Accept: 'application/x-ndjson' },
         },
-        PROJECT_ARCHIVE_SAVE_TIMEOUT_MS
+        PROJECT_ARCHIVE_SAVE_TIMEOUT_MS,
+        onProgress
       );
       return {
         meta: assertValue(response.meta, 'Il progetto sincronizzato non è stato salvato.'),
@@ -987,13 +1015,21 @@ export class HttpProjectRepository implements ProjectRepository {
   private async request<T>(
     path: string,
     init: RequestInit = {},
-    timeoutMs = PROJECT_REQUEST_TIMEOUT_MS
+    timeoutMs = PROJECT_REQUEST_TIMEOUT_MS,
+    onProgress?: (progress: import('@shared/pdfTranscription').PdfTranscriptionProgress) => void
   ): Promise<T> {
     const requestUrl = `${this.baseUrl}${path}`;
     const timeoutController = new AbortController();
-    const timeoutId = globalThis.setTimeout(() => {
-      timeoutController.abort();
-    }, timeoutMs);
+    const abortOnTimeout = () => timeoutController.abort();
+    let timeoutId = globalThis.setTimeout(abortOnTimeout, timeoutMs);
+    const renewProcessingDeadline = (
+      progress: import('@shared/pdfTranscription').PdfTranscriptionProgress
+    ) => {
+      // Page progress keeps long archives connected; the existing wait still bounds a stalled stream.
+      globalThis.clearTimeout(timeoutId);
+      timeoutId = globalThis.setTimeout(abortOnTimeout, timeoutMs);
+      onProgress?.(progress);
+    };
 
     try {
       const response = await fetchWithSupabaseAuth(requestUrl, {
@@ -1008,7 +1044,9 @@ export class HttpProjectRepository implements ProjectRepository {
               },
         signal: init.signal || timeoutController.signal,
       });
-      const data = await readApiResponse<T>(response);
+      const data = response.headers?.get('content-type')?.includes('application/x-ndjson')
+        ? await readProcessingResponse<ApiResponse & T>(response, renewProcessingDeadline)
+        : await readApiResponse<T>(response);
 
       if (!response.ok || data.success === false) {
         const errorCode = responseErrorCode(response.status, data.code);
@@ -1018,6 +1056,10 @@ export class HttpProjectRepository implements ProjectRepository {
           {
             contentType: response.headers?.get('content-type') || undefined,
             sourceWarnings: readSourceWarnings(data.sourceWarnings),
+            failedPages: Array.isArray(data.failedPages)
+              ? data.failedPages.filter(page => Number.isInteger(page) && page > 0)
+              : undefined,
+            documentName: typeof data.documentName === 'string' ? data.documentName : undefined,
             status: response.status,
           }
         );

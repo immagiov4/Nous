@@ -8,6 +8,10 @@ import type {
 } from '@shared/sourceArchiveWarnings';
 import JSZip from 'jszip';
 import {
+  completePdfTextExtraction,
+  PdfPageTranscriptionError,
+} from '../services/pdfPageTranscription.js';
+import {
   extractPdfText,
   PdfTextExtractionOutputLimitError,
   PdfTextExtractionTimeoutError,
@@ -110,6 +114,7 @@ export interface SourceArchiveDirectoryEntry {
 }
 
 export interface SourceArchiveFileEntry {
+  pdfPages?: import('@shared/pdfTranscription').ArchivePdfPage[];
   byteSize: number;
   content: Uint8Array;
   hash: string;
@@ -299,6 +304,24 @@ const loadArchive = async (archiveBytes: Uint8Array) => {
   }
 };
 
+const assertUncompressedEntrySize = (
+  loadedEntry: JsZipEntryWithMetadata,
+  expectedSize: number,
+  path: string
+): void => {
+  const loadedSize = loadedEntry._data?.uncompressedSize;
+  // JSZip represents empty entries as promises publicly; their central metadata remains exact.
+  if (loadedSize === undefined && expectedSize === 0) {
+    return;
+  }
+  if (typeof loadedSize !== 'number' || !Number.isSafeInteger(loadedSize) || loadedSize < 0) {
+    throw invalidArchive('missing uncompressed size metadata');
+  }
+  if (loadedSize !== expectedSize) {
+    throw invalidArchive(`inconsistent uncompressed size for "${path}"`);
+  }
+};
+
 const mapLoadedEntries = (
   loadedArchive: JSZip,
   centralEntriesByPath: Map<string, { directory: boolean; uncompressedSize: number }>
@@ -329,17 +352,7 @@ const mapLoadedEntries = (
       continue;
     }
 
-    const loadedSize = loadedEntry._data?.uncompressedSize;
-    // JSZip represents empty entries as promises publicly; their central metadata remains exact.
-    if (loadedSize === undefined && metadata.uncompressedSize === 0) {
-      continue;
-    }
-    if (typeof loadedSize !== 'number' || !Number.isSafeInteger(loadedSize) || loadedSize < 0) {
-      throw invalidArchive('missing uncompressed size metadata');
-    }
-    if (loadedSize !== metadata.uncompressedSize) {
-      throw invalidArchive(`inconsistent uncompressed size for "${path}"`);
-    }
+    assertUncompressedEntrySize(loadedEntry, metadata.uncompressedSize, path);
   }
 
   return loadedEntriesByPath;
@@ -517,6 +530,49 @@ const admitPdfEntry = (
   return undefined;
 };
 
+const completeArchivePdfText = async (
+  entry: SourceArchiveFileEntry,
+  textLayer: Awaited<ReturnType<typeof extractPdfText>>,
+  pdfBudget: PdfPreparationBudget
+) => {
+  const controller = new AbortController();
+  let rejectInspection!: (reason: unknown) => void;
+  const inspectionDeadline = new Promise<never>((_resolve, reject) => {
+    rejectInspection = reject;
+  });
+  const timeoutError = new PdfTextExtractionTimeoutError('pdf-parse');
+  let transcriptionStarted: number | undefined;
+  const inspectionTimer = globalThis.setTimeout(
+    () => {
+      controller.abort(timeoutError);
+      rejectInspection(timeoutError);
+    },
+    Math.max(1, pdfBudget.deadlineAt - Date.now())
+  );
+  try {
+    return await Promise.race([
+      completePdfTextExtraction(Buffer.from(entry.content), textLayer, {
+        signal: controller.signal,
+        onTranscriptionStart: () => {
+          if (Date.now() >= pdfBudget.deadlineAt) throw timeoutError;
+          globalThis.clearTimeout(inspectionTimer);
+          transcriptionStarted = Date.now();
+        },
+      }),
+      inspectionDeadline,
+    ]);
+  } catch (error) {
+    if (error instanceof PdfPageTranscriptionError)
+      throw new PdfPageTranscriptionError(error.failedPages, entry.path);
+    throw error;
+  } finally {
+    // The archive deadline bounds local preparation; model calls have their own page deadline.
+    globalThis.clearTimeout(inspectionTimer);
+    if (transcriptionStarted !== undefined)
+      pdfBudget.deadlineAt += Date.now() - transcriptionStarted;
+  }
+};
+
 const prepareSourceArchiveFile = async (
   entry: SourceArchiveFileEntry,
   maxPreparedBytes: number,
@@ -549,8 +605,9 @@ const prepareSourceArchiveFile = async (
       PROJECT_SOURCE_ARCHIVE_PDF_POLICY.fallbackTimeoutMs,
       pdfTimeoutMs - pdftotextTimeoutMs
     );
-    const extractedPdf = await withTimeout(
+    const textLayer = await withTimeout(
       extractPdfText(encodePdfDataUrl(entry.content), {
+        transcription: false,
         fallbackTimeoutMs,
         maxOutputBytes: Math.min(
           maxPreparedBytes,
@@ -566,14 +623,35 @@ const prepareSourceArchiveFile = async (
       }),
       pdfTimeoutMs
     );
-    const extractedText = extractedPdf.text.trim();
+    const extractedPdf = await completeArchivePdfText(entry, textLayer, pdfBudget);
+    let extractedText = extractedPdf.text.trim();
+    const pdfPages: import('@shared/pdfTranscription').ArchivePdfPage[] = [];
+    if (extractedPdf.transcription) {
+      const parts: string[] = [];
+      let byteOffset = 0;
+      for (const page of extractedPdf.pages) {
+        const text = `[Pagina ${page.pageNumber}]\n${page.text}`;
+        if (parts.length) byteOffset += Buffer.byteLength('\n\n');
+        const startByte = byteOffset;
+        byteOffset += Buffer.byteLength(text);
+        pdfPages.push({
+          pageNumber: page.pageNumber,
+          startByte,
+          endByte: byteOffset,
+          ...(page.provenance ? { provenance: page.provenance } : {}),
+        });
+        parts.push(text);
+      }
+      extractedText = parts.join('\n\n');
+    }
     if (
-      extractedText &&
-      assessPdfTextQuality({
-        extractedText,
-        pageCount: extractedPdf.pageCount,
-        pages: extractedPdf.pages,
-      }).status === 'ok'
+      (extractedText &&
+        assessPdfTextQuality({
+          extractedText,
+          pageCount: extractedPdf.pageCount,
+          pages: extractedPdf.pages,
+        }).status === 'ok') ||
+      Boolean(extractedPdf.transcription?.pages.length && extractedPdf.text.trim())
     ) {
       const content = new TextEncoder().encode(extractedText);
       if (content.byteLength > maxPreparedBytes) {
@@ -587,11 +665,13 @@ const prepareSourceArchiveFile = async (
         byteSize: content.byteLength,
         content,
         hash: createHash('sha256').update(content).digest('hex'),
+        ...(pdfPages.length ? { pdfPages } : {}),
         preview: createSourceArchivePreview(extractedText),
         text: extractedText,
       };
     }
   } catch (error) {
+    if (error instanceof PdfPageTranscriptionError) throw error;
     console.warn('[Backend] PDF text extraction failed for a source archive entry.', {
       error,
       path: entry.path,
@@ -646,7 +726,7 @@ export async function* streamSourceArchive(
     eligibleEntries: 0,
   };
   for (const entry of orderedEntries) {
-    if (Date.now() >= deadlineAt) throw invalidArchive('preparation deadline exceeded');
+    if (Date.now() >= pdfBudget.deadlineAt) throw invalidArchive('preparation deadline exceeded');
     if (entry.kind === 'directory') {
       yield entry;
       continue;
@@ -664,7 +744,7 @@ export async function* streamSourceArchive(
       metadata.uncompressedSize,
       limits.maxEntryBytes,
       limits.maxExpandedBytes - actualExpandedBytes,
-      deadlineAt
+      pdfBudget.deadlineAt
     );
     actualExpandedBytes += content.byteLength;
 

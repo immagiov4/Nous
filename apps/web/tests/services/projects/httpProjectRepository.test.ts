@@ -1285,3 +1285,181 @@ test('subscribeToProjectRevisionStream requests catch-up on the first successful
   await vi.waitFor(() => expect(requestCatchUp).toHaveBeenCalledOnce());
   unsubscribe();
 });
+
+test('HttpProjectRepository reports scanned-page progress while saving a chunked archive', async () => {
+  const snapshot: ProjectSnapshot = {
+    ...buildPdfSnapshot(),
+    id: 'chunked-archive',
+    sourceKind: 'codebase',
+    source: {
+      file: { data: '', mimeType: 'application/zip', name: 'engine.zip' },
+      index: { entries: [] },
+      kind: 'archive',
+      name: 'engine.zip',
+    },
+  };
+  const progress = vi.fn();
+  fetchMock
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        config: {
+          import: {
+            directMaxBytes: 10_000_000,
+            maxChunkBytes: 10_000_000,
+            maxChunkCount: 4,
+            maxSerializedBytes: 32_000_000,
+            requestTimeoutMs: 10_000,
+          },
+        },
+      }),
+    })
+    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ success: true }) })
+    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ success: true }) })
+    .mockResolvedValueOnce(
+      new Response(
+        [
+          JSON.stringify({
+            type: 'progress',
+            progress: { completed: 1, total: 2, failedPages: [] },
+          }),
+          JSON.stringify({
+            type: 'result',
+            result: {
+              success: true,
+              meta: { id: snapshot.id },
+              snapshot: withStoredArchiveReference(snapshot),
+            },
+          }),
+        ].join('\n'),
+        { headers: { 'Content-Type': 'application/x-ndjson' } }
+      )
+    );
+
+  await new HttpProjectRepository('http://localhost:3301').saveProject(snapshot, {
+    archiveFile: new File([new Uint8Array(16_000_001)], 'engine.zip', {
+      type: 'application/zip',
+    }),
+    expectedRevision: 7,
+    onPdfTranscriptionProgress: progress,
+  });
+
+  expect(progress).toHaveBeenCalledWith({ completed: 1, total: 2, failedPages: [] });
+  expect(fetchMock).toHaveBeenCalledTimes(4);
+  expect(fetchMock.mock.calls.slice(1, 3).every(call => call[1]?.body instanceof Blob)).toBe(true);
+  expect(
+    fetchMock.mock.calls.slice(1, 3).every(call => String(call[0]).includes('expectedRevision=7'))
+  ).toBe(true);
+  expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/complete');
+});
+
+test('preserves failed scanned page numbers and document name in normalized archive errors', async () => {
+  setRenderingLocaleOverride('it');
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        success: false,
+        code: 'PDF_PAGE_TRANSCRIPTION_FAILED',
+        failedPages: [2, 7],
+        documentName: 'notes.pdf',
+      }),
+      { status: 422, headers: { 'Content-Type': 'application/json' } }
+    )
+  );
+  await expect(
+    new HttpProjectRepository('http://localhost:3301').listFolders()
+  ).rejects.toMatchObject({
+    code: 'pdf-transcription-failed',
+    failedPages: [2, 7],
+    documentName: 'notes.pdf',
+    message: 'Trascrizione non riuscita per le pagine: 2, 7. Documento: notes.pdf.',
+  });
+});
+
+test.each([
+  'complete',
+  'stall',
+])('archive progress renews the existing wait, then remains bounded: %s', async outcome => {
+  vi.useFakeTimers();
+  const waitMs = 10 * 60_000;
+  const progressIntervalMs = waitMs - 60_000;
+  const snapshot: ProjectSnapshot = {
+    ...buildPdfSnapshot(),
+    sourceKind: 'codebase',
+    source: {
+      kind: 'archive',
+      name: 'source.zip',
+      file: { data: '', name: 'source.zip', mimeType: 'application/zip' },
+      index: { entries: [] },
+    },
+  };
+  const result = {
+    success: true,
+    complete: true,
+    meta: { id: snapshot.id },
+    snapshot: withStoredArchiveReference(snapshot),
+  };
+  let stream!: ReadableStreamDefaultController<Uint8Array>;
+  const response = new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        stream = controller;
+      },
+    }),
+    { headers: { 'Content-Type': 'application/x-ndjson' } }
+  );
+  fetchMock
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        config: {
+          import: {
+            directMaxBytes: 20_000_000,
+            maxChunkBytes: 16_000_000,
+            maxChunkCount: 32,
+            maxSerializedBytes: 280_000_000,
+            requestTimeoutMs: 120_000,
+          },
+        },
+      }),
+    })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ success: true }) })
+    .mockResolvedValueOnce(response)
+    .mockResolvedValueOnce({ ok: true, json: async () => result });
+  const progress = vi.fn();
+  const saving = new HttpProjectRepository('http://localhost:3301').saveProject(snapshot, {
+    archiveFile: new File(['PK synthetic'], 'source.zip', { type: 'application/zip' }),
+    onPdfTranscriptionProgress: progress,
+  });
+  try {
+    await vi.advanceTimersByTimeAsync(0);
+    const signal = (fetchMock.mock.calls[2][1] as RequestInit).signal;
+    for (let completed = 0; completed < 3; completed += 1) {
+      stream.enqueue(
+        new TextEncoder().encode(
+          JSON.stringify({ type: 'progress', progress: { completed, total: 3, failedPages: [] } }) +
+            '\n'
+        )
+      );
+      await vi.advanceTimersByTimeAsync(progressIntervalMs);
+      expect(signal?.aborted).toBe(false);
+    }
+    if (outcome === 'stall') {
+      await vi.advanceTimersByTimeAsync(waitMs + 1);
+      expect(signal?.aborted).toBe(true);
+      stream.error(new DOMException('Request aborted', 'AbortError'));
+    } else {
+      stream.enqueue(new TextEncoder().encode(`${JSON.stringify({ type: 'result', result })}\n`));
+      stream.close();
+    }
+    expect((await saving).meta.id).toBe(snapshot.id);
+    expect(progress).toHaveBeenCalledTimes(3);
+  } finally {
+    stream.error(new Error('Test cleanup'));
+    await saving.catch(() => undefined);
+    vi.useRealTimers();
+  }
+});

@@ -6,11 +6,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { deserialize } from 'node:v8';
 
+import type { PdfPageProvenance, PdfTranscriptionSummary } from '@shared/pdfTranscription';
 import { buildSha256HexDigest } from '../utils/hash.js';
 import { decodePdfDataUrl } from '../utils/pdfDataUrl.js';
 import { normalizeLineEndings } from '../utils/text.js';
+import type { PdfTranscriptionOptions } from './pdfPageTranscription.js';
 
 const execFileAsync = promisify(execFile);
 const TMP_DIR_PREFIX = 'nous-pdf-text-';
@@ -58,6 +59,7 @@ const PDF_TEXT_FALLBACK_WARNING =
   'Estrazione testo eseguita con parser di fallback; qualita e impaginazione potrebbero essere meno fedeli.';
 
 export interface PdfTextExtractionOptions {
+  transcription?: PdfTranscriptionOptions | false;
   fallbackTimeoutMs?: number;
   maxOutputBytes?: number;
   pdftotextTimeoutMs?: number;
@@ -79,6 +81,7 @@ export class PdfTextExtractionOutputLimitError extends Error {
 }
 
 export interface ExtractedPdfTextPage {
+  provenance?: PdfPageProvenance;
   pageNumber: number;
   text: string;
 }
@@ -92,6 +95,7 @@ export interface ExtractedPdfOutlineNode {
 }
 
 export interface ExtractedPdfText {
+  transcription?: PdfTranscriptionSummary;
   text: string;
   pages: ExtractedPdfTextPage[];
   sourceHash: string;
@@ -137,7 +141,7 @@ const isPageMarkerLine = (line: string): boolean => {
   );
 };
 
-const normalizeExtractedTextSegment = (text: string): string =>
+export const normalizeExtractedTextSegment = (text: string): string =>
   normalizeLineEndings(text)
     .split('\n')
     .filter(line => !isPageMarkerLine(line))
@@ -294,7 +298,7 @@ const runPdfTextFallbackProcess = (
         }
         let result: PdfTextProcessResult;
         try {
-          result = deserialize(Buffer.concat(stdoutChunks)) as PdfTextProcessResult;
+          result = JSON.parse(Buffer.concat(stdoutChunks).toString('utf8')) as PdfTextProcessResult;
         } catch {
           reject(new Error('PDF fallback process returned an invalid response.'));
           return;
@@ -544,7 +548,7 @@ const extractWithPdftotext = async (
   }
 };
 
-export const extractPdfText = async (
+export const extractPdfTextLayer = async (
   pdfDataUrl: string,
   options: PdfTextExtractionOptions = {}
 ): Promise<ExtractedPdfText> => {
@@ -565,4 +569,14 @@ export const extractPdfText = async (
     parserFallbackReason: pdftotextResult.failureReason,
     sourceHash,
   };
+};
+
+export const extractPdfText = async (
+  pdfDataUrl: string,
+  options: PdfTextExtractionOptions = {}
+): Promise<ExtractedPdfText> => {
+  const extracted = await extractPdfTextLayer(pdfDataUrl, options);
+  if (options.transcription === false) return extracted;
+  const { completePdfTextExtraction } = await import('./pdfPageTranscription.js');
+  return completePdfTextExtraction(decodePdfDataUrl(pdfDataUrl), extracted, options.transcription);
 };
