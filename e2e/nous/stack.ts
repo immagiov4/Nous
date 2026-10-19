@@ -42,7 +42,7 @@ const stackClock: StackClock = {
     await delay(milliseconds, undefined, { signal });
   },
 };
-// Preserve the output budget of the execFile calls used before native Bun spawning.
+// Process identity and termination commands retain execFile's 1 MiB output budget.
 const EXEC_FILE_MAX_BUFFER_BYTES = 1024 * 1024;
 
 async function captureCommandOutput(
@@ -567,7 +567,7 @@ async function stopAppServers(options: AppShutdownOptions = {}): Promise<void> {
       const expected = z
         .object({ startedAt: z.string(), command: z.string() })
         .parse(JSON.parse(owned.identity));
-      const command = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${owned.pid}'; if ($p) { if ($p.CreationDate.ToUniversalTime().ToString('o') -cne '${expected.startedAt.replaceAll("'", "''")}' -or $p.CommandLine -cne '${expected.command.replaceAll("'", "''")}') { exit 1 }; taskkill /PID ${owned.pid} /T /F | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 } }`;
+      const command = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${owned.pid}'; if ($p) { if ($p.CreationDate.ToUniversalTime().ToString('o') -cne '${expected.startedAt.replaceAll("'", "''")}' -or $p.CommandLine -cne '${expected.command.replaceAll("'", "''")}') { exit 1 }; $termination = Start-Process -FilePath 'taskkill.exe' -ArgumentList '/PID', '${owned.pid}', '/T', '/F' -WindowStyle Hidden -Wait -PassThru; if ($termination.ExitCode -ne 0) { exit 1 } }`;
       try {
         await executeFile('powershell.exe', ['-NoProfile', '-Command', command], {
           windowsHide: true,
