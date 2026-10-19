@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { setRenderingLocaleOverride } from '../../../i18n/uiMessages.ts';
 
 const fetchWithSupabaseAuthMock = vi.hoisted(() => vi.fn());
 
@@ -111,12 +112,14 @@ const requestBody = (callIndex: number): { forceRegenerate?: boolean; requestKey
 
 describe('generateDurableLesson', () => {
   beforeEach(() => {
+    setRenderingLocaleOverride('it');
     vi.useFakeTimers();
     fetchWithSupabaseAuthMock.mockReset();
     globalThis.sessionStorage.clear();
   });
 
   afterEach(() => {
+    setRenderingLocaleOverride(null);
     vi.useRealTimers();
   });
 
@@ -693,6 +696,49 @@ describe('generateDurableLesson', () => {
     await expect(
       generateDurableLesson({ projectId: 'project-1', sectionId: 'lesson-1' })
     ).rejects.toThrow(expectedMessage);
+  });
+
+  test.each([
+    [
+      'lesson_factual_support_failed',
+      'The new lesson could not be fully verified against the sources. You can try generating it again.',
+    ],
+    [
+      'lesson_factual_review_invalid',
+      'The source check for the new lesson could not be completed. You can try generating it again.',
+    ],
+  ])('localizes factual failure %s for the English interface', async (errorCode, expectedMessage) => {
+    setRenderingLocaleOverride('en');
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      response({
+        errorCode,
+        id: 'run-failed',
+        projectId: 'project-1',
+        sectionId: 'lesson-1',
+        stage: 'verification',
+        status: 'failed',
+      })
+    );
+    await expect(
+      generateDurableLesson({ projectId: 'project-1', sectionId: 'lesson-1' })
+    ).rejects.toThrow(expectedMessage);
+  });
+
+  test('preserves the existing sanitized fallback for other terminal failures in English', async () => {
+    setRenderingLocaleOverride('en');
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      response({
+        errorCode: 'lesson_draft_failed',
+        id: 'run-failed',
+        projectId: 'project-1',
+        sectionId: 'lesson-1',
+        stage: 'drafting',
+        status: 'failed',
+      })
+    );
+    await expect(
+      generateDurableLesson({ projectId: 'project-1', sectionId: 'lesson-1' })
+    ).rejects.toThrow('Non è stato possibile creare la bozza della lezione. Riprova.');
   });
 
   test('explains when an app update intentionally stops the stored workflow definition', async () => {

@@ -6589,7 +6589,8 @@ test('force regeneration clears its retained intent when target persistence fail
     },
   });
 
-  await expect(harness.controller.regenerateActiveSection()).rejects.toThrow(
+  await expect(harness.controller.regenerateActiveSection()).resolves.toBe('failed');
+  expect(harness.state.internalState.workflowState.loadSection.error).toBe(
     t('Non sono riuscito a salvare la lezione da generare. Riprova.')
   );
   expect(retainDurableLessonForceRegenerationIntent).toHaveBeenCalledWith('project-1', lesson.id);
@@ -8650,6 +8651,57 @@ test('createLessonFromSelection hydrates and opens the authoritative durable sub
   assert.equal('parentContent' in (request ?? {}), false);
 });
 
+test.each([
+  'lesson-1',
+  'deep-new',
+])('opening a generated sublesson clears a previous regeneration failure after hydration selects %s', async activeAfterHydration => {
+  const parent = buildTestLesson({ content: '# Lezione salvata', id: 'lesson-1' });
+  const childContent = '# Approfondimento';
+  const child = buildTestLesson({
+    content: childContent,
+    id: 'deep-new',
+    type: 'deep-dive',
+    parentId: parent.id,
+  });
+  const harness = createControllerHarness({
+    domain: { activeSectionId: parent.id, learningPlan: buildPlan({ sections: [parent] }) },
+    projectLibrary: { currentProjectId: 'project-1' },
+    openRouter: {
+      generateDurableLesson: async () => {
+        throw new Error('Verifica delle fonti non riuscita.');
+      },
+      generateDurableSublesson: async () => ({
+        content: childContent,
+        contentBlocks: [],
+        generatedVisuals: [],
+        imageRefs: [],
+        learningAids: [],
+        projectId: 'project-1',
+        projectRevision: 2,
+        quiz: [],
+        sectionId: child.id,
+        warnings: [],
+      }),
+    },
+  });
+  await harness.controller.regenerateActiveSection().catch(() => undefined);
+  expect(harness.state.internalState.workflowState.loadSection.status).toBe('failed');
+  harness.projectLibrary.adapter.applyPersistedProjectRevision = async () => {
+    harness.domain.setLearningPlan(buildPlan({ sections: [parent, child] }));
+    harness.domain.setActiveSectionId(activeAfterHydration);
+    return true;
+  };
+  await expect(
+    harness.controller.createLessonFromSelection({
+      instructions: 'Approfondisci',
+      selectedText: 'testo',
+    })
+  ).resolves.toEqual({ outcome: 'created' });
+  expect(harness.domain.activeSectionId).toBe(child.id);
+  expect(harness.state.internalState.workflowState.loadSection.status).toBe('idle');
+  expect(harness.state.internalState.workflowState.loadSection.error).toBeUndefined();
+});
+
 test('createLessonFromSelection leaves local state untouched when durable generation fails', async () => {
   const basePlan = buildPlan({
     sections: [
@@ -9082,9 +9134,7 @@ test('keeps a failed regeneration on its lesson and clears it when navigating to
     },
     projectLibrary: { currentProjectId: 'project-1' },
   });
-  await expect(harness.controller.regenerateActiveSection()).rejects.toThrow(
-    'Verifica delle fonti non riuscita.'
-  );
+  await expect(harness.controller.regenerateActiveSection()).resolves.toBe('failed');
   expect(harness.state.internalState.workflowState.loadSection.error).toBe(
     'Verifica delle fonti non riuscita.'
   );

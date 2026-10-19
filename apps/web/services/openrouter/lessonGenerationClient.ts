@@ -4,6 +4,7 @@ import type {
   LessonWorkflowStage,
 } from '@shared/lessonWorkflowContract';
 
+import { translateUiMessage as t, type UiMessage } from '../../i18n/uiMessages.ts';
 import type { LessonNode, PdfDocumentAssets, ResearchLessonDossier } from '../../types.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { logBackendFailureCorrelationId } from '../feedback/browserDiagnostics.ts';
@@ -27,12 +28,13 @@ const LESSON_GENERATION_ERROR = 'La generazione della lezione non è riuscita. R
 const LESSON_GENERATION_TIMEOUT_ERROR =
   'La generazione della lezione ha superato il tempo disponibile. Riprova.';
 const LESSON_GENERATION_BUSY_STATUS = 409;
-const LESSON_TERMINAL_PHASE_MESSAGES: Readonly<Record<string, string>> = {
+const LESSON_FACTUAL_FAILURE_MESSAGES: Readonly<Partial<Record<string, UiMessage>>> = {
   lesson_factual_support_failed:
     'Non è stato possibile verificare che tutti i contenuti della nuova lezione siano supportati dalle fonti. Puoi riprovare a generarla.',
   lesson_factual_review_invalid:
     'La verifica delle fonti della nuova lezione non è stata completata. Puoi riprovare a generarla.',
-
+};
+const LESSON_TERMINAL_PHASE_MESSAGES: Readonly<Record<string, string>> = {
   lesson_document_sources_failed:
     'Non è stato possibile elaborare le immagini delle fonti PDF. Riprova.',
   lesson_draft_failed: 'Non è stato possibile creare la bozza della lezione. Riprova.',
@@ -336,6 +338,8 @@ const throwForTerminalFailure = (job: LessonWorkflowSnapshot): never => {
   if (job.errorCode === 'lesson_source_unavailable') {
     throw new LessonSourceUnavailableError();
   }
+  const factualMessage = job.errorCode && LESSON_FACTUAL_FAILURE_MESSAGES[job.errorCode];
+  if (factualMessage) throw new Error(t(factualMessage));
   const fallbackMessage =
     job.errorCode === 'workflow_step_timeout'
       ? LESSON_GENERATION_TIMEOUT_ERROR

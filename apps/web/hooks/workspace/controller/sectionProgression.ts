@@ -738,6 +738,11 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
               ? t(LESSON_SOURCE_UNAVAILABLE_MESSAGE)
               : getErrorMessage(error)
           );
+          // The scoped reader banner owns a regeneration failure already recorded here.
+          if (forceRegenerate)
+            return error instanceof LessonSourceUnavailableError
+              ? 'blocked-missing-source'
+              : 'failed';
         } else {
           state.invalidateWorkflows(['loadSection']);
         }
@@ -975,12 +980,11 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     };
 
     const openGeneratedSublesson = (sectionId: string) => {
-      if (
-        projectLibrary.getCurrentProjectId() !== projectId ||
-        domain.activeSectionId === sectionId
-      ) {
-        return;
+      if (projectLibrary.getCurrentProjectId() !== projectId) return;
+      if (state.getWorkflowState().loadSection.status === 'failed') {
+        state.invalidateWorkflows(['loadSection']);
       }
+      if (domain.activeSectionId === sectionId) return;
       stopAudio(true);
       domain.setActiveSectionId(sectionId);
       void projectLibrary.patchCurrentProject(
