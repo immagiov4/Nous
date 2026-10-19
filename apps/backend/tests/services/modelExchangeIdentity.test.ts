@@ -155,6 +155,27 @@ for (const provider of ['codex', 'openrouter'] as const) {
     });
   });
 
+  if (provider === 'openrouter') {
+    test.each([
+      undefined,
+      'synthetic-vision-override',
+    ])('PDF captions resolve the supported default or configured vision route (%s)', async modelOverride => {
+      vi.stubEnv('MODEL_PDF_IMAGE_CAPTION', modelOverride);
+      vi.resetModules();
+      const { captionPdfImage: captionWithEnvironment } = await import(
+        '../../src/services/pdfImageCaption.js'
+      );
+      responseText = 'Grafo con tre vertici A, B e C collegati a triangolo.';
+      expect(
+        await captionWithEnvironment(
+          { dataUrl: 'data:image/png;base64,aGVsbG8=' },
+          { ...getGlobalModelConfig(), aiProvider: provider, aiProviderOverrides: {} },
+          new AbortController().signal
+        )
+      ).toBe(responseText);
+      expect(chat.mock.calls.at(-1)?.[0]).toBe(modelOverride ?? 'google/gemini-3.1-flash-lite');
+    });
+  }
   test.each([
     false,
     true,
