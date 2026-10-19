@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
 import { act, render, screen } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
+import { discreteMathCases } from '../../../../backend/tests/helpers/discreteMath';
 import {
   CAPTION_TIMING,
   captionFormat,
@@ -619,4 +620,53 @@ test.each([
   const card = container.querySelector('.scene-host');
   expect(card?.querySelector(selector)?.textContent).toContain('literal');
   expect(card?.querySelector('.katex')).not.toBeNull();
+});
+
+test('uses the prepared spoken formula in captions while retaining authored math on the visual', () => {
+  const markdown = String.raw`Consideriamo $p_\theta(y\mid x)$. La probabilità descrive il risultato.`;
+  const sources = [{ type: 'markdown' as const, markdown }];
+  const raw = segmentLessonPlayback(sources)[0];
+  const block = {
+    ...raw,
+    prepared: {
+      motion: [],
+      spokenMath: [
+        { formula: String.raw`$p_\theta(y\mid x)$`, spoken: 'p con parametro theta di y dato x' },
+      ],
+    },
+  };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={8}
+      time={8}
+    />
+  );
+  expect(container.querySelector('.caption-page')?.textContent?.trim()).toBe(
+    'Consideriamo p con parametro theta di y dato x. La probabilità descrive il risultato.'
+  );
+  expect(container.querySelector('.scene-host')?.textContent).toContain('La probabilità');
+});
+
+test.each(
+  discreteMathCases
+)('renders $name as spoken caption words with authored KaTeX on the card', fixture => {
+  const sources = [{ type: 'markdown' as const, markdown: fixture.markdown }];
+  const raw = segmentLessonPlayback(sources)[0];
+  const block = { ...raw, prepared: { motion: [], spokenMath: fixture.spokenMath } };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={30}
+      time={30}
+    />
+  );
+  expect(
+    Array.from(container.querySelectorAll('.caption-word'), word => word.textContent?.trim())
+  ).toEqual(resolvePlaybackNarration(block).speech.trim().split(/\s+/u));
+  expect(container.querySelectorAll('.scene-host .katex')).toHaveLength(fixture.spokenMath.length);
+  expect(container.querySelector('.caption-page .katex')).toBeNull();
+  expect(container.querySelector('.katex-error')).toBeNull();
 });

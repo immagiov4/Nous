@@ -41,7 +41,8 @@ export interface LessonPlaybackServices {
       WorkflowExecutionDefaults,
       LessonPlaybackServices
     >,
-    allowedSceneTypes?: readonly LessonSceneType[]
+    allowedSceneTypes?: readonly LessonSceneType[],
+    supportsSpokenMath?: boolean
   ) => Promise<LessonPlaybackResult>;
   persistPlayback: (
     context: StepCommitContext<
@@ -59,6 +60,7 @@ export const createLessonPlaybackWorkflow = (
 ) => {
   const resultSchema = LessonPlaybackResultSchema.extend({ block: blockSchema });
   const sceneTypes = blockSchema.shape.prepared.unwrap().shape.scene.unwrap().shape.type.options;
+  const supportsSpokenMath = 'spokenMath' in blockSchema.shape.prepared.unwrap().shape;
   const prepare = step<
     typeof LessonPlaybackInputSchema,
     typeof resultSchema,
@@ -69,7 +71,7 @@ export const createLessonPlaybackWorkflow = (
     externalEffect: 'provider-with-postprocessing',
     inputSchema: LessonPlaybackInputSchema,
     outputSchema: resultSchema,
-    run: context => context.services.preparePlayback(context, sceneTypes),
+    run: context => context.services.preparePlayback(context, sceneTypes, supportsSpokenMath),
   });
   const persist = step<
     typeof resultSchema,
