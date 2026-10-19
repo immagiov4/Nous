@@ -23,7 +23,8 @@ export const createProductionLessonPlaybackServices = (
   persistPlayback: createLessonPlaybackPersistence({ assets }),
   preparePlayback: async (
     { input, signal, execution, idempotencyKey, providerEffect },
-    allowedSceneTypes
+    allowedSceneTypes,
+    supportsSpokenMath = true
   ) => {
     const project = await projectStore.loadProjectWithRevision(input.userId, input.projectId);
     const section = project && findProjectLessonSection(project.snapshot, input.sectionId);
@@ -55,6 +56,7 @@ export const createProductionLessonPlaybackServices = (
     if (!providerEffect) throw new Error('Playback preparation requires durable provider results.');
     const prepared = await prepareLessonPlaybackBlock({
       allowedSceneTypes,
+      supportsSpokenMath,
       block,
       lesson,
       config: await getResolvedGlobalModelConfig(),

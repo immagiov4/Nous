@@ -1,4 +1,4 @@
-import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
 import { AnimatePresence, motion, useIsPresent } from 'framer-motion';
 import { ArrowLeft, Check, RotateCcw, RotateCw } from 'lucide-react';
 import {
@@ -264,7 +264,9 @@ export default function LessonPlayer({
       lessonTitle: content.activeSectionTitle ?? undefined,
       lessonContent: content.sectionContent,
       contextScope: block ? 'selection' : 'lesson',
-      selectedText: selector?.exact ?? block?.speech ?? content.sectionContent,
+      selectedText:
+        selector?.exact ??
+        (block ? resolvePlaybackNarration(block).speech : content.sectionContent),
       selectedTextStart: selector?.selectionStart,
       contextBefore: selector?.prefix,
       contextAfter: selector?.suffix,

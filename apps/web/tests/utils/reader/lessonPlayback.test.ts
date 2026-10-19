@@ -68,3 +68,15 @@ test('the timeline replaces estimated durations with measured recordings', () =>
     { duration: 8, estimated: true },
   ]);
 });
+
+test('maps a spoken mathematical phrase back to the complete source formula', () => {
+  const source = [{ type: 'markdown' as const, markdown: 'Consideriamo $x^2$. Poi proseguiamo.' }];
+  const raw = segmentLessonPlayback(source)[0];
+  const block = {
+    ...raw,
+    prepared: { motion: [], spokenMath: [{ formula: '$x^2$', spoken: 'ics al quadrato' }] },
+  };
+  const selector = playbackSentenceSelector(block, 5, 8, source);
+  expect(selector?.exact).toBe('Consideriamo x2.');
+  expect(source[0].markdown.slice(selector?.start, selector?.end)).toContain('$x^2$');
+});

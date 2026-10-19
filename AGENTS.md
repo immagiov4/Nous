@@ -344,6 +344,23 @@ Do not infer semantic meaning, workflow state, user intent, generation phase, co
 
 For manual-only projects, explain what must be verified and where. If validation reveals unrelated pre-existing failures, mention them clearly instead of hiding them.
 
+## Verification: prove it, don't ask to try it
+
+- Prove that each change works with observable evidence; never ask the maintainer to try it as a substitute for verification.
+- Scale evidence to the change: for backend-only changes, use behavior tests and observable outputs at the selected quality level, with integration evidence where integrations are affected; documentation-only changes need no browser run. For changes affecting UI or user-visible behavior, include appropriate screenshots, short videos, render atlases, and integration results across the relevant resolutions and devices.
+- For changes affecting UI or user-visible behavior, apply extreme observational TDD: observe and profile what a human would experience, including intermediate states and the final result.
+- For those changes, including backend changes that affect what users see, prove the affected end-to-end flow with human-like Playwright actions and verify its expected outcome; for example, navigate, ask a question, press the relevant button, and verify the answer arrives.
+- Inspect the artifacts yourself for visual and interaction anomalies. Passing tests and one satisfactory screenshot are insufficient evidence.
+- For each change, run the shared verification scenarios tagged for the touched features and regression scenarios for existing features they can affect.
+- Prefer deterministic integration checks and render atlases over real and synthetic content; generate synthetic fixtures from the app's types in compact combinations of supported states.
+- Use real-AI end-to-end runs for nondeterministic stress and long, articulated sessions. For workflows whose output format matters, run integration across every supported provider and feed the outputs into rendering checks.
+- Use the maintainer's real course library through the existing explicit local opt-in; keep private courses and their evidence local and outside Git. Use synthetic fixtures for CI and public artifacts.
+- Reuse pre-generated lessons as fixtures and retain a small fresh set to exercise current generation behavior.
+- Keep scenarios declarative in one shared system rather than rebuilding a harness per PR. The shared verification scenarios are being built, starting with the playback atlas; use existing capabilities and report missing coverage explicitly.
+- Parallelize independent scenarios and aggregate results only within the shared machine's capacity; keep heavy runs serialized.
+- Fix obvious defects yourself. Escalate only odd or ambiguous visual results with links to the exact artifacts; obtain the maintainer's approval of visible changes from those artifacts.
+- Run Sonar-equivalent checks early and during development, including backend tests, and resolve findings as they appear so the final gate confirms the result. Follow the [quality workflow](.agents/skills/quality-workflow/SKILL.md) and [testing wiki](.cubic/wiki/09-section-tools/02-p-testing-quality.md) for existing checks, fixtures, evidence, and final-gate rules.
+
 ## Bug Fixing Methodology
 
 When fixing a bug, identify the root pattern, then search for similar occurrences:
