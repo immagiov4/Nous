@@ -245,3 +245,11 @@ Sources: [AccountMenu.tsx](../../../apps/web/components/account/AccountMenu.tsx)
 `/dev/first-run` is development-only and renders the same flow with an in-memory adapter before authentication. It simulates loading, saving and failures without account API writes; completion restarts the demonstration. Session changes remount the production gate to discard the previous account's draft.
 
 Sources: [AccountSetupPage.tsx](../../../apps/web/components/account/setup/AccountSetupPage.tsx), [AccountSetupFlow.tsx](../../../apps/web/components/account/setup/AccountSetupFlow.tsx), [AccountSetupDemo.tsx](../../../apps/web/components/account/setup/AccountSetupDemo.tsx), [accountSetup.ts](../../../apps/web/services/preferences/accountSetup.ts).
+
+### Ambiguous fenced explanations during playback
+
+Playback keeps the authored lesson unchanged. Parser-recognized `text`, `plaintext` and unlabelled fences are eligible for model classification; programming-language fences and indented code keep their existing behavior. The existing structured narration preparation returns both inline-math pronunciations and one prose/code decision for each eligible occurrence. Exact occurrence coverage is validated before audio work. Prose receives spoken narration, a wrapping Markdown card and source anchors into the original fence body; logs, ASCII diagrams and code retain their fenced visuals. Decisions are recorded with preparation and reused for other voices. Saved audio without a required fence decision is prepared again, while historical workflow definitions retain their registered schemas.
+
+The lesson writer and the existing code-structure review require mathematical explanations outside code fences. For ambiguous fences, the same review response explicitly classifies every remaining occurrence; incomplete coverage or a remaining prose classification rejects the result for correction.
+
+Sources: [shared segmentation and narration](../../../packages/shared-types/lessonPlayback.ts), [structured preparation](../../../apps/backend/src/services/lessonPlayback/playbackSpokenMath.ts), [lesson review](../../../apps/backend/src/services/lessonGenerationVerification.ts).

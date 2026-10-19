@@ -20,6 +20,10 @@ const expectExactSpans = (
     if (content?.type !== 'markdown') throw new Error('Expected a markdown source block.');
     const { markdown } = content;
     expect(span.speech.start).toBe(speechEnd);
+    if (span.fencedCode) {
+      expect(span.speech.end).toBe(span.speech.start);
+      continue;
+    }
     if (span.math) {
       expect(span.speech.end).toBe(span.speech.start);
       expect(markdown.slice(span.source.start, span.source.end)).toBe(span.math);
@@ -596,4 +600,19 @@ test('keeps the explanation of mathematical symbols in spoken headings', () => {
     { kind: 'markdown', markdown: String.raw`# The bar $\mid$ means given` },
   ]);
   expectExactSpans(block, markdown);
+});
+
+test('retains declared code below a trailing heading', () => {
+  const code = '```python\nprint(1)\n```';
+  const [block] = segmentLessonPlayback([markdownBlock(`Introduction.\n\n## Example\n\n${code}`)]);
+  expect(block.visuals).toEqual([{ kind: 'markdown', markdown: code }]);
+});
+
+test('preserves the contextual math card of a trailing heading above an ambiguous fence', () => {
+  const code = '```text\nA vector has components.\n```';
+  const [block] = segmentLessonPlayback([markdownBlock(`Before.\n\n## Topic $x$\n\n${code}`)]);
+  expect(block.visuals).toEqual([
+    { kind: 'markdown', markdown: code },
+    { kind: 'markdown', markdown: '## Topic $x$' },
+  ]);
 });

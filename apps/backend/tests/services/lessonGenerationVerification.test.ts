@@ -1,3 +1,4 @@
+import { getAmbiguousFencedBlocks } from '@shared/lessonPlayback';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { reviewLessonContentDraftStrict } from '../../src/services/lessonGenerationModel.js';
@@ -91,6 +92,14 @@ const mockReview = (
       output.schema.properties.verificationReport.items.properties.checkId.enum;
     return {
       ...draft,
+      fencedCode: draft.contentBlocks.flatMap(block =>
+        block.type === 'markdown'
+          ? getAmbiguousFencedBlocks(block.markdown).map(fence => ({
+              source: fence.source,
+              kind: 'code',
+            }))
+          : []
+      ),
       ...(lessonIntegrity === undefined ? {} : { lessonIntegrity }),
       verificationReport: checkIds.map(checkId => ({
         action: 'Retain the reviewed content.',
@@ -561,4 +570,50 @@ describe('lesson review preserves its subject and learning objectives', () => {
       },
     });
   });
+});
+
+test('rejects reviewed mathematical prose that the model still classifies inside an ambiguous fence', async () => {
+  const draft = {
+    ...original,
+    contentBlocks: [
+      { type: 'markdown' as const, markdown: '```text\nA matrix transforms a vector.\n```' },
+    ],
+  };
+  mockReview(draft, preserved);
+  const base = generateStructuredOutput.getMockImplementation();
+  if (!base) throw new Error('Expected the recorded lesson review.');
+  generateStructuredOutput.mockImplementation(async request => ({
+    ...(await base(request)),
+    fencedCode: [{ source: draft.contentBlocks[0].markdown, kind: 'prose' }],
+  }));
+  await expect(reviewLessonContentDraftStrict({ generationInput, draft })).rejects.toMatchObject({
+    code: 'lesson_review_fenced_prose',
+  });
+});
+
+test.each([
+  { body: 'INFO started\nERROR stopped', kind: 'code' },
+  { body: '+---+\n| x |\n+---+', kind: 'code' },
+])('preserves recorded $kind decisions for genuine text output', async fixture => {
+  const markdown = `\x60\x60\x60text\n${fixture.body}\n\x60\x60\x60`;
+  const draft = { ...original, contentBlocks: [{ type: 'markdown' as const, markdown }] };
+  mockReview(draft, preserved);
+  await expect(reviewLessonContentDraftStrict({ generationInput, draft })).resolves.toEqual(draft);
+  expect(generateStructuredOutput).toHaveBeenCalledOnce();
+});
+
+test('accepts recorded review that unwraps mathematical prose into ordinary Markdown', async () => {
+  const body = 'An ordered pair has two components.';
+  const draft = {
+    ...original,
+    contentBlocks: [
+      { type: 'markdown' as const, markdown: `\x60\x60\x60text\n${body}\n\x60\x60\x60` },
+    ],
+  };
+  const corrected = { ...original, contentBlocks: [{ type: 'markdown' as const, markdown: body }] };
+  mockReview(corrected, preserved);
+  await expect(reviewLessonContentDraftStrict({ generationInput, draft })).resolves.toEqual(
+    corrected
+  );
+  expect(generateStructuredOutput).toHaveBeenCalledOnce();
 });
