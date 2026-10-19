@@ -369,7 +369,7 @@ export class InMemoryProjectStore implements ProjectStore {
     sourceFiles: ProjectSaveOptions['sourceFiles']
   ): Promise<void> {
     if (sourceFiles && isRecord(snapshot.source) && Array.isArray(snapshot.source.sources)) {
-      const bytes = await readFile(sourceFiles.path);
+      const bytes = (await readFile(sourceFiles.path)).subarray(sourceFiles.offset ?? 0);
       let offset = 0;
       for (const file of sourceFiles.files) {
         const descriptor = snapshot.source.sources.find(

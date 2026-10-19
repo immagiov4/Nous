@@ -132,6 +132,88 @@ describe('/api/projects', () => {
     });
   });
 
+  test.each([
+    PROJECT_IMPORT_BINARY_KIND.sourceSet,
+    PROJECT_IMPORT_BINARY_KIND.sourceArchive,
+  ])('restores the chunked snapshot prefix before persisting %s originals', async payloadKind => {
+    const app = createApp();
+    const sourceSet = payloadKind === PROJECT_IMPORT_BINARY_KIND.sourceSet;
+    const zip = new JSZip();
+    zip.file('lesson.md', '# Lesson\n\nCourse source text');
+    const original = sourceSet
+      ? Buffer.from('Course source text')
+      : await zip.generateAsync({ type: 'nodebuffer' });
+    const name = sourceSet ? 'lesson.txt' : 'course.zip';
+    const mimeType = sourceSet ? 'text/plain' : 'application/zip';
+    const file = { data: '', mimeType, name, sourceId: 'source-first' };
+    const index = { kind: 'pdf-text-index', chunks: [{ text: 'Complete source index' }] };
+    const snapshot = {
+      ...createSnapshot(`prefix-${sourceSet}`, 'Chunked metadata'),
+      source: sourceSet
+        ? {
+            file,
+            kind: 'document',
+            sources: [
+              {
+                file,
+                hash: 'a'.repeat(64),
+                id: 'source-first',
+                name,
+                kind: 'text',
+                position: 0,
+                status: 'ready',
+                outline: [],
+                outlineOrigin: 'none',
+                documentIndex: index,
+              },
+            ],
+          }
+        : { file, kind: 'archive', name, index: { entries: [] } },
+    };
+    const prefix = Buffer.from(
+      JSON.stringify({
+        snapshot,
+        ...(sourceSet
+          ? { sourceFiles: [{ id: 'source-first', name, mimeType, byteSize: original.byteLength }] }
+          : { sourceFile: { name, mimeType } }),
+      })
+    );
+    const uploadId = crypto.randomUUID();
+    const uploaded = await request(app)
+      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1&sourceUpload=true`)
+      .set('Content-Type', 'application/octet-stream')
+      .send(Buffer.concat([prefix, original]));
+    expect(uploaded.status).toBe(202);
+    const completion = await request(app)
+      .post(`/api/projects/import/chunks/${uploadId}/complete`)
+      .send({
+        payloadKind,
+        metadataBytes: prefix.byteLength,
+      });
+    expect(completion.status).toBe(200);
+    if (sourceSet) expect(completion.body.snapshot.source.sources[0].documentIndex).toEqual(index);
+    const stored = await request(app).get(`/api/projects/projects/${snapshot.id}/source`);
+    expect(stored.body.source.data).toBe(original.toString('base64'));
+  });
+
+  test('rejects malformed uploaded source metadata before publishing a project', async () => {
+    const app = createApp();
+    const prefix = Buffer.from('{invalid JSON');
+    const uploadId = crypto.randomUUID();
+    await request(app)
+      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1&sourceUpload=true`)
+      .set('Content-Type', 'application/octet-stream')
+      .send(prefix)
+      .expect(202);
+
+    await request(app)
+      .post(`/api/projects/import/chunks/${uploadId}/complete`)
+      .send({ payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceSet, metadataBytes: prefix.byteLength })
+      .expect(400);
+    const projects = await request(app).get('/api/projects/projects');
+    expect(projects.body.projects).toEqual([]);
+  });
+
   test('saves, lists, loads, exports, touches, and deletes projects', async () => {
     const app = createApp();
     const snapshot = createSnapshot('project-1', 'Corso server');

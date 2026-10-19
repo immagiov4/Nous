@@ -171,6 +171,7 @@ export interface LibraryExportSnapshot {
 export interface ProjectSaveOptions extends ProjectWriteOptions {
   sourceFiles?: {
     path: string;
+    offset?: number;
     files: import('@shared/courseSourceUpload').CourseSourceUploadFile[];
   };
   importedAssets?: readonly ImportedProjectAssetDescriptor[];

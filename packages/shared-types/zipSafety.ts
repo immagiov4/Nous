@@ -1,7 +1,7 @@
 import JSZip from 'jszip';
 
 const DEFAULT_MAX_ZIP_ENTRIES = 1_000;
-const DEFAULT_MAX_ZIP_ENTRY_NAME_CHARS = 512;
+export const DEFAULT_MAX_ZIP_ENTRY_NAME_CHARS = 512;
 const DEFAULT_INVALID_ARCHIVE_MESSAGE = 'Invalid ZIP archive.';
 
 export class ZipEntryTooLargeError extends Error {

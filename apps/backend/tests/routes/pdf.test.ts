@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import * as pdfDataUrl from '../../src/utils/pdfDataUrl.js';
 
 const pdfServiceMocks = vi.hoisted(() => ({
   extractPdfImages: vi.fn(),
@@ -62,10 +63,13 @@ describe('POST /api/pdf', () => {
   });
 
   test('returns extracted text metadata', async () => {
+    const decode = vi.spyOn(pdfDataUrl, 'decodePdfDataUrl');
     const response = await request(createApp())
       .post('/api/pdf/extract-text')
       .send({ fileData: 'data:application/pdf;base64,ZmFrZQ==' });
 
+    expect(decode).not.toHaveBeenCalled();
+    decode.mockRestore();
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
       success: true,

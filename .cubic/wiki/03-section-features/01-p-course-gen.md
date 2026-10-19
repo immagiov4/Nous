@@ -180,9 +180,11 @@ Sources: [apps/backend/src/workflows/courseGenerationResearch.ts:88-101](../../.
 
 Course preparation reads source metadata without downloading all original files. Planning and chunk mapping then read the frozen source identities one at a time, checking the project revision around each download. The number of sources does not impose a six-file admission cap.
 
-Starting from several files persists the source set before the interview begins, then marks the project as hydrated. This enables autosave and remote revision processing during the interview, as it does for ZIP starts.
+Starting from several files persists the source set before the interview begins, then marks the project as hydrated. Interview preparation saves that draft by its explicit identity, including before the library selection has rendered. This enables autosave and remote revision processing during the interview, as it does for ZIP starts.
 
 For separate files, planning receives every source name and outline together with beginning, middle and end text samples. Text samples share the existing 180,000-character budget, with up to 8,000 characters per source. The complete PDFs are not sent in that planning prompt. Archive planning instead uses the existing directory, read and search tools. Lesson generation uses mapped source chunks and authoritative source references; fallback text and original-image reads first select metadata and then download relevant source files. The existing per-lesson context and mapping budgets remain in force.
+
+Adding a sublesson also loads source metadata first, then downloads and reads each original file before loading the next one. Exclusion notices belong to a pending selection and clear when the selection is consumed or the new-course flow is abandoned.
 
 ## Planning and Quality Verification
 

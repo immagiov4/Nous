@@ -27,6 +27,7 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       onHomeChatModeChange: (mode: 'library-query' | 'new-course') => void;
       onSendAssessmentMessage: (message: string) => Promise<void>;
       pendingFileNames?: string[];
+      pendingFileWarnings?: string[];
     };
     onPageChange: (page: 'home' | 'library') => void;
   }) => (
@@ -34,6 +35,7 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       <div data-testid="new-home-surface">
         {chatProps.homeChatMode}:{String(chatProps.assessmentComplete)}:
         {chatProps.pendingFileNames?.join(',')}
+        {chatProps.pendingFileWarnings?.join(',')}
       </div>
       <div data-testid="confirmation-messages">
         {chatProps.assessmentMessages.map(message => message.text).join('\n')}
@@ -215,6 +217,63 @@ describe('LibraryScreenContainer route fallback', () => {
         finishFirst({ files: [first], warnings: [] });
       });
       expect(screen.getByTestId('new-home-surface')).toHaveTextContent('second.md');
+    } finally {
+      inspection.mockRestore();
+    }
+  });
+
+  test.each([
+    'continued',
+    'abandoned',
+  ] as const)('clears exclusion notices when the source selection is %s', async outcome => {
+    const file = new File(['valid'], 'valid.md', { type: 'text/markdown' });
+    const inspection = vi.spyOn(sourceSelection, 'inspectSourceSelection').mockResolvedValue({
+      files: [file],
+      warnings: [{ name: 'excluded.pdf', message: 'Too large' }],
+    });
+    const props = buildProps();
+    props.controller.startHomeChat = vi.fn().mockResolvedValue({ outcome });
+    try {
+      const { container } = render(<LibraryScreenContainer {...props} />);
+      const input = container.querySelector<HTMLInputElement>('#library-source-file');
+      if (!input) throw new Error('Missing source input');
+      await act(async () => fireEvent.change(input, { target: { files: [file] } }));
+      expect(screen.getByTestId('new-home-surface')).toHaveTextContent('excluded.pdf');
+      await act(async () =>
+        fireEvent.click(screen.getByRole('button', { name: 'Invia nuovo corso' }))
+      );
+      expect(screen.getByTestId('new-home-surface')).not.toHaveTextContent('excluded.pdf');
+    } finally {
+      inspection.mockRestore();
+    }
+  });
+
+  test('keeps a cancelled selection cleared when its inspection finishes later', async () => {
+    const file = new File(['archive'], 'abandoned.zip', { type: 'application/zip' });
+    let finish!: (
+      result: Awaited<ReturnType<typeof sourceSelection.inspectSourceSelection>>
+    ) => void;
+    const inspection = vi.spyOn(sourceSelection, 'inspectSourceSelection').mockImplementation(
+      () =>
+        new Promise(resolve => {
+          finish = resolve;
+        })
+    );
+    const props = buildProps();
+    props.controller.assessmentMessages = [{ role: 'model', text: 'Existing interview' }];
+    try {
+      const { container } = render(<LibraryScreenContainer {...props} />);
+      const input = container.querySelector<HTMLInputElement>('#library-source-file');
+      if (!input) throw new Error('Missing source input');
+      fireEvent.change(input, { target: { files: [file] } });
+      await act(async () =>
+        fireEvent.click(screen.getByRole('button', { name: 'Ferma nuovo corso' }))
+      );
+      await act(async () =>
+        finish({ files: [file], warnings: [{ name: 'excluded.pdf', message: 'Too large' }] })
+      );
+      expect(screen.getByTestId('new-home-surface')).not.toHaveTextContent('abandoned.zip');
+      expect(screen.getByTestId('new-home-surface')).not.toHaveTextContent('excluded.pdf');
     } finally {
       inspection.mockRestore();
     }

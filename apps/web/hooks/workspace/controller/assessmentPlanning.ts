@@ -227,7 +227,12 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     const existingProjectId = projectLibrary.getCurrentProjectId();
     if (existingProjectId) {
       const saved = await projectLibrary.saveCurrentProject(
-        { isLearnMode: mode === 'learn', source, state: AppState.ASSESSMENT },
+        {
+          id: existingProjectId,
+          isLearnMode: mode === 'learn',
+          source,
+          state: AppState.ASSESSMENT,
+        },
         { throwOnError: true }
       );
       if (!saved) throw new Error('Non è stato possibile preparare l’intervista del corso.');

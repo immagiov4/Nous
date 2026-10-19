@@ -1688,8 +1688,11 @@ export class PostgresProjectStore implements ProjectStore {
     const totalBytes = upload.files.reduce((total, file) => total + file.byteSize, 0);
     if (
       !Number.isSafeInteger(totalBytes) ||
+      totalBytes < 0 ||
       totalBytes > COURSE_SOURCE_UPLOAD_LIMITS.maxTotalBytes ||
-      totalBytes !== (await lstat(upload.path)).size
+      !Number.isSafeInteger(upload.offset ?? 0) ||
+      (upload.offset ?? 0) < 0 ||
+      totalBytes + (upload.offset ?? 0) !== (await lstat(upload.path)).size
     ) {
       throw new Error('Source upload size does not match the project.');
     }
@@ -1699,9 +1702,12 @@ export class PostgresProjectStore implements ProjectStore {
     const files: PreparedProjectSource['files'] = [];
     const objects: PreparedProjectSource['objects'] = [];
     const sourceIds = new Set<string>();
-    let offset = 0;
+    let offset = upload.offset ?? 0;
     try {
       fileHandle = await open(upload.path, 'r');
+      const readBuffer = Buffer.alloc(
+        Math.min(totalBytes, COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes)
+      );
       for (const [position, file] of upload.files.entries()) {
         const descriptor = source.sources.find(
           descriptor => isRecord(descriptor) && descriptor.id === file.id
@@ -1721,7 +1727,7 @@ export class PostgresProjectStore implements ProjectStore {
           throw new Error('Invalid source upload file.');
         }
         sourceIds.add(file.id);
-        const bytes = Buffer.alloc(file.byteSize);
+        const bytes = readBuffer.subarray(0, file.byteSize);
         let read = 0;
         while (read < bytes.length) {
           const result = await fileHandle.read(bytes, read, bytes.length - read, offset + read);
@@ -1740,6 +1746,8 @@ export class PostgresProjectStore implements ProjectStore {
         objects.push({
           byteSize: bytes.length,
           temporaryPath,
+          hash: ref.hash,
+          stream: true,
           mimeType: file.mimeType,
           path: ref.objectPath,
         });
@@ -2325,7 +2333,13 @@ export class PostgresProjectStore implements ProjectStore {
       delete from public.project_source_files
       where user_id = ${userId} and project_id = ${projectId}
     `;
-    const newObjectPaths = [...new Set(prepared.objects.map(object => object.path))];
+    const newObjectPaths = [
+      ...new Set([
+        prepared.primaryRef.objectPath,
+        ...prepared.files.map(file => file.ref.objectPath),
+        ...prepared.objects.map(object => object.path),
+      ]),
+    ];
     const newObjectPathSet = new Set(newObjectPaths);
     await sql`
       delete from public.project_source_deletions

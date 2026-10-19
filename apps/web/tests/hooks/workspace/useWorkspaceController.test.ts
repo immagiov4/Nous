@@ -4809,6 +4809,43 @@ test('startHomeChat clears client state after semantic cancellation by the model
   assert.deepEqual(state.internalState.assessmentMessages, []);
 });
 
+test.each([
+  false,
+  true,
+])('startHomeChat starts the saved course before the library selection rerenders (archive: %s)', async archive => {
+  let savedSnapshot: ProjectSnapshot | undefined;
+  const capturedProjectId: string | null = null;
+  const { controller, projectLibrary } = createControllerHarness({
+    projectLibrary: {
+      persistSnapshot: async snapshot => {
+        savedSnapshot = snapshot;
+        return { meta: buildMeta(snapshot.id), snapshot };
+      },
+      saveCurrentProject: async overrides => {
+        const id = overrides?.id || capturedProjectId;
+        if (!id || !savedSnapshot) return null;
+        return { meta: buildMeta(id), snapshot: { ...savedSnapshot, ...overrides, id } };
+      },
+    },
+  });
+  const selectedFiles = archive
+    ? [new File(['opaque source archive'], 'course.zip', { type: 'application/zip' })]
+    : [
+        new File(['# First lesson'], 'first.md', { type: 'text/markdown' }),
+        new File(['# Second lesson'], 'second.md', { type: 'text/markdown' }),
+      ];
+
+  const result = await controller.startHomeChat({
+    input: 'Prepare a course using these sources',
+    selectedFiles,
+  });
+
+  expect(result.outcome).toBe('continued');
+  expect(result.errorMessage).toBeUndefined();
+  expect(projectLibrary.deletedProjectIds).toEqual([]);
+  expect(projectLibrary.adapter.currentProjectId).toBe(savedSnapshot?.id);
+});
+
 test('startHomeChat saves a ZIP before assessment and uses only the server index', async () => {
   const canonicalEntry = {
     byteSize: 18,

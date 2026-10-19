@@ -57,6 +57,10 @@ import {
   SourceArchiveAccess,
   type SourceArchiveSelector,
 } from '../projects/sourceArchiveAccess.js';
+import {
+  extractSourceUploadArchive,
+  readSourceUploadMetadata,
+} from '../projects/sourceUploadPayload.js';
 import type {
   ProjectCoverFile,
   ProjectPatch,
@@ -1048,7 +1052,13 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
         completionBody.payloadKind === PROJECT_IMPORT_BINARY_KIND.sourceArchive ||
         completionBody.payloadKind === PROJECT_IMPORT_BINARY_KIND.sourceSet
           ? async (path, expectedRevision) => {
-              const snapshotRecord = completionBody.snapshot;
+              const metadata =
+                completionBody.metadataBytes === undefined
+                  ? completionBody
+                  : await readSourceUploadMetadata(path, completionBody.metadataBytes);
+              if (!isRecord(metadata))
+                throw new ProjectImportInputError('Metadati delle fonti non validi.');
+              const snapshotRecord = metadata.snapshot;
               if (!isRecord(snapshotRecord) || typeof snapshotRecord.id !== 'string')
                 throw new ProjectImportInputError('Metadati delle fonti non validi.');
               const sourceSet = completionBody.payloadKind === PROJECT_IMPORT_BINARY_KIND.sourceSet;
@@ -1062,9 +1072,9 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
               );
               let imported: Awaited<ReturnType<typeof store.saveProject>>;
               if (sourceSet) {
-                if (!Array.isArray(completionBody.sourceFiles))
+                if (!Array.isArray(metadata.sourceFiles))
                   throw new ProjectImportInputError('Elenco delle fonti mancante.');
-                const files: CourseSourceUploadFile[] = completionBody.sourceFiles.map(file => {
+                const files: CourseSourceUploadFile[] = metadata.sourceFiles.map(file => {
                   if (
                     !isRecord(file) ||
                     typeof file.id !== 'string' ||
@@ -1084,10 +1094,14 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
                 });
                 imported = await store.saveProject(userId, snapshot, {
                   expectedRevision,
-                  sourceFiles: { path, files },
+                  sourceFiles: {
+                    path,
+                    files,
+                    offset: completionBody.metadataBytes as number | undefined,
+                  },
                 });
               } else {
-                const sourceFile = completionBody.sourceFile;
+                const sourceFile = metadata.sourceFile;
                 if (
                   !isRecord(sourceFile) ||
                   !isRecord(snapshot.source) ||
@@ -1100,9 +1114,20 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
                   (await stat(path)).size > PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES
                 )
                   throw new ProjectImportInputError('Metadati della sorgente archivio non validi.');
+                const archivePath =
+                  completionBody.metadataBytes === undefined
+                    ? path
+                    : await extractSourceUploadArchive(
+                        path,
+                        completionBody.metadataBytes as number
+                      );
                 imported = await store.saveProject(userId, snapshot, {
                   expectedRevision,
-                  sourceFile: { path, name: sourceFile.name, mimeType: sourceFile.mimeType },
+                  sourceFile: {
+                    path: archivePath,
+                    name: sourceFile.name,
+                    mimeType: sourceFile.mimeType,
+                  },
                 });
               }
               publishMetaRevision(userId, imported.meta);

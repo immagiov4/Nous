@@ -770,12 +770,16 @@ test('HttpProjectRepository uses the status-backed upload flow for a single-chun
     /\/api\/projects\/import\/chunks\/.+\/0\?chunkCount=1&sourceUpload=true$/u
   );
   expect(chunkRequest?.[1]?.body).toBeInstanceOf(Blob);
-  expect(await (chunkRequest?.[1]?.body as Blob).text()).toBe(await archiveFile.text());
   expect(new Headers(chunkRequest?.[1]?.headers).get('Content-Type')).toBe(
     'application/octet-stream'
   );
   const completionBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
-  expect(completionBody.snapshot.source).toEqual({
+  expect(completionBody.snapshot).toBeUndefined();
+  const uploaded = chunkRequest?.[1]?.body as Blob;
+  expect(await uploaded.slice(completionBody.metadataBytes).text()).toBe(await archiveFile.text());
+  expect(
+    JSON.parse(await uploaded.slice(0, completionBody.metadataBytes).text()).snapshot.source
+  ).toEqual({
     file: {
       data: '',
       mimeType: 'application/zip',
@@ -907,6 +911,49 @@ test('HttpProjectRepository recovers a completed chunked archive save after losi
   expect(String(fetchMock.mock.calls[4]?.[0])).not.toContain('/complete');
   expect(String(fetchMock.mock.calls[5]?.[0])).not.toContain('/complete');
   expect(fetchMock.mock.calls.some(call => call[1]?.method === 'DELETE')).toBe(false);
+});
+
+test('HttpProjectRepository cancels a rejected source completion without polling it', async () => {
+  const files = [new File(['notes'], 'notes.txt', { type: 'text/plain' })];
+  const source = createProjectSourceFromDescriptors(
+    buildCourseSourceDescriptors([{ data: 'bm90ZXM=', mimeType: 'text/plain', name: 'notes.txt' }])
+  );
+  fetchMock
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        config: {
+          import: {
+            directMaxBytes: 16_000_000,
+            maxChunkBytes: 16_000_000,
+            maxChunkCount: 32,
+            maxSerializedBytes: 280_000_000,
+            requestTimeoutMs: 120_000,
+          },
+        },
+      }),
+    })
+    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ success: true }) })
+    .mockResolvedValueOnce(new Response('Too large', { status: 413 }))
+    .mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        complete: false,
+        uploadStatus: 'receiving',
+      }),
+    });
+  await expect(
+    new HttpProjectRepository('http://localhost:3301').saveProject(
+      { ...buildPdfSnapshot(), source },
+      { sourceFiles: files }
+    )
+  ).rejects.toMatchObject({ code: 'quota-exceeded' });
+  const calls = fetchMock.mock.calls.slice(3);
+  expect(calls).toHaveLength(1);
+  expect(calls[0][1].method).toBe('DELETE');
 });
 
 test('HttpProjectRepository does not fall back to Base64 JSON for archives', async () => {
@@ -1363,14 +1410,27 @@ test('uploads all 30 sources in bounded binary requests and publishes metadata o
   const saved = await new HttpProjectRepository('http://localhost:3301').saveProject(snapshot, {
     sourceFiles: files,
   });
-  expect(await new Blob(bodies).text()).toBe(
+  expect(completions[0]?.snapshot).toBeUndefined();
+  const metadataBytes = completions[0]?.metadataBytes as number;
+  expect(JSON.parse(await new Blob(bodies).slice(0, metadataBytes).text())).toMatchObject({
+    snapshot: {
+      id: snapshot.id,
+      source: {
+        sources: descriptors.map(descriptor => ({
+          id: descriptor.id,
+          documentIndex: descriptor.documentIndex,
+        })),
+      },
+    },
+    sourceFiles: descriptors.map(descriptor => ({ id: descriptor.id, name: descriptor.name })),
+  });
+  expect(await new Blob(bodies).slice(metadataBytes).text()).toBe(
     (await Promise.all(files.map(file => file.text()))).join('')
   );
   expect(bodies.every(body => body.size <= 27)).toBe(true);
   expect(completions).toHaveLength(1);
   expect(completions[0]).toMatchObject({
     payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceSet,
-    sourceFiles: descriptors.map(descriptor => ({ id: descriptor.id, name: descriptor.name })),
   });
   expect(saved.snapshot.source?.sources).toHaveLength(30);
 });

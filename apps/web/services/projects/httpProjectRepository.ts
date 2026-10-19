@@ -549,8 +549,11 @@ export class HttpProjectRepository implements ProjectRepository {
           byteSize: file.size,
         };
       });
+      const snapshotBlob = new Blob([
+        JSON.stringify({ snapshot: projectPayload, sourceFiles: files }),
+      ]);
       const uploadId = await this.uploadBinaryProjectImport(
-        new Blob([...sourceFiles]),
+        new Blob([snapshotBlob, ...sourceFiles]),
         config,
         options.expectedRevision,
         true
@@ -558,8 +561,7 @@ export class HttpProjectRepository implements ProjectRepository {
       return this.completeSourceProjectUpload(uploadId, {
         ...options,
         payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceSet,
-        snapshot: projectPayload,
-        sourceFiles: files,
+        metadataBytes: snapshotBlob.size,
       });
     }
     if (archiveFile) {
@@ -608,8 +610,14 @@ export class HttpProjectRepository implements ProjectRepository {
         'persistence-failed'
       );
     }
+    const snapshotBlob = new Blob([
+      JSON.stringify({
+        snapshot,
+        sourceFile: { name: sourceFile.name, mimeType: sourceFile.mimeType },
+      }),
+    ]);
     const uploadId = await this.uploadBinaryProjectImport(
-      archiveFile,
+      new Blob([snapshotBlob, archiveFile]),
       config,
       options.expectedRevision,
       true
@@ -617,8 +625,7 @@ export class HttpProjectRepository implements ProjectRepository {
     return this.completeSourceProjectUpload(uploadId, {
       ...options,
       payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceArchive,
-      snapshot,
-      sourceFile: { name: sourceFile.name, mimeType: sourceFile.mimeType },
+      metadataBytes: snapshotBlob.size,
     });
   }
 
@@ -639,6 +646,10 @@ export class HttpProjectRepository implements ProjectRepository {
         ),
       };
     } catch (error) {
+      if (error instanceof ProjectStorageError && error.code === 'quota-exceeded') {
+        await this.cancelProjectImportUpload(uploadId, PROJECT_ARCHIVE_SAVE_TIMEOUT_MS);
+        throw error;
+      }
       const status = await this.waitForCompletedProjectImport(
         uploadId,
         PROJECT_ARCHIVE_SAVE_TIMEOUT_MS

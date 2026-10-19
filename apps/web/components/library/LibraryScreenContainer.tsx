@@ -202,6 +202,7 @@ export const LibraryScreenContainer = ({
 
       if (result.outcome !== 'failed' && result.outcome !== 'noop') {
         setPendingHomeSourceFiles([]);
+        setPendingFileWarnings([]);
       }
 
       if (result.errorMessage) {
@@ -232,8 +233,11 @@ export const LibraryScreenContainer = ({
     setIsConfirmingCourse(false);
     try {
       await cancelAssessment();
+      sourceSelectionRequestRef.current += 1;
+      setIsSourceSelectionPending(false);
       setIsAddingAssessmentDetails(false);
       setPendingHomeSourceFiles([]);
+      setPendingFileWarnings([]);
       setHomeChatMode('library-query');
       return true;
     } catch (error) {

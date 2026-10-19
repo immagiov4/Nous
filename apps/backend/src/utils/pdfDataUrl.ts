@@ -13,5 +13,9 @@ export const decodePdfDataUrl = (pdfDataUrl: string): Buffer => {
   return Buffer.from(pdfDataUrl.replace(PDF_DATA_URL_PREFIX, ''), 'base64');
 };
 
+/** Measures a base64 PDF payload without allocating the decoded PDF bytes. */
+export const getPdfDataUrlByteLength = (pdfDataUrl: string): number =>
+  Buffer.byteLength(pdfDataUrl.replace(PDF_DATA_URL_PREFIX, '').replaceAll(/\s/gu, ''), 'base64');
+
 export const encodePdfDataUrl = (pdfBytes: Uint8Array): string =>
   `data:application/pdf;base64,${Buffer.from(pdfBytes).toString('base64')}`;
