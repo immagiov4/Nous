@@ -75,6 +75,8 @@ Sources: [apps/backend/src/services/pdfImageExtractor.ts:7-22](../../../apps/bac
 
 ### Optional Figure Captions
 
+Browser PDF admission, source indexing and initial assessment use `getPdfTextSession` and `/api/pdf/extract-text`. Figure extraction and captioning belong to the backend lesson document stage; the former web `getPdfAssetSession` and `buildStoredPdfDocumentAssets` entrypoints had no product callers and have been removed.
+
 The lesson document stage stores extracted figure bytes before requesting optional Italian captions. For OpenRouter, `pdfImageCaption.ts` defaults to the image-capable `google/gemini-3.1-flash-lite` route; `MODEL_PDF_IMAGE_CAPTION` can override it. The former `nvidia/nemotron-nano-12b-v2-vl` route returned HTTP 404 with no available endpoints. Caption failures remain optional and do not remove stored figures. Codex captions use the configured lesson model through the research provider slot.
 
 ### Spatial Context Reconstruction
