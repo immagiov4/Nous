@@ -64,6 +64,10 @@ The sidebar keeps the exercise whose brief is being generated selectable. A lear
 
 Sources: [sidebar state](../../../apps/web/components/workspace/shell/WorkspaceReaderSidebar.tsx), [exercise navigation](../../../apps/web/hooks/workspace/controller/sectionProgression.ts).
 
+### Lesson generation failures
+
+The existing reader banners retain the active lesson's load failure after generation ends. A save failure before a different lesson becomes active uses the existing notification path, keeping the retry action associated with the visible lesson. Factual-support failures explain that the new content could not be verified against the sources; malformed factual reviews have a separate message. The banner offers the existing regeneration action through **Riprova** when the source is available. Missing sources keep their reconnection action. The reader reserves header space for this banner on mobile as it does for other banners. An exercise-brief failure that settles after navigating to a lesson clears its load workflow instead of attaching its error to that lesson. Starting another generation or navigating clears the scoped workflow error; failed generation preserves the previously saved lesson and learner state.
+
 ### Regeneration Confirmation
 
 Regenerating the active lesson requires inline confirmation in the reader settings panel, below custom instructions. The full-width action and confirmation share one grid row and crossfade without changing its dimensions; reduced-motion preferences disable the transition. Confirmation focuses **No**; **No** or `Escape` restores the action and its focus, while **Sì, rigenera** invokes the existing regeneration callback. Closing settings discards the pending confirmation. The same controls serve mobile and desktop layouts.

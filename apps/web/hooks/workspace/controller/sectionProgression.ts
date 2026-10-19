@@ -179,6 +179,10 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         if (!isGenerationRequestCurrent()) {
           return;
         }
+        if (domain.getDomainState().activeSectionId !== exercise.id) {
+          state.invalidateWorkflows(['loadSection']);
+          return;
+        }
         state.failWorkflow('loadSection', requestId, getErrorMessage(error));
         throw error;
       }
@@ -543,6 +547,12 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       !hasPersistedLessonRequest &&
       !hasPersistedSublessonRequest
     ) {
+      if (
+        domain.activeSectionId !== section.id &&
+        state.getWorkflowState().loadSection.status === 'failed'
+      ) {
+        state.invalidateWorkflows(['loadSection']);
+      }
       stopAudio(true);
       state.setScreenState(AppState.READING);
       domain.setActiveSectionId(section.id);
@@ -717,7 +727,10 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         ? isGenerationViewCurrent()
         : isOpenSectionNavigationCurrent() && isGenerationWorkflowCurrent();
       if (isGenerationWorkflowCurrent()) {
-        if (shouldReportToCurrentView) {
+        if (
+          shouldReportToCurrentView &&
+          (domain.getDomainState().activeSectionId === null || isGenerationViewCurrent())
+        ) {
           state.failWorkflow(
             'loadSection',
             requestId,

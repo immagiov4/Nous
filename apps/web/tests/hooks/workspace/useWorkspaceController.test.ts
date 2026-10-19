@@ -7891,6 +7891,44 @@ test('openExercise reopens its running brief without starting concurrent generat
   assert.equal(generatedExercise.brief, '# Consegna');
 });
 
+test('exercise brief failure cannot offer lesson regeneration after navigating to a ready lesson', async () => {
+  const exercise: ApplicationExerciseNode = {
+    kind: 'exercise',
+    id: 'exercise-1',
+    title: 'Laboratorio',
+    description: 'Applica il metodo.',
+    assessedObjective: 'Applicare il metodo correttamente.',
+    attachments: [],
+    currentFeedback: null,
+    feedbackStale: false,
+    isCompleted: false,
+    updatedAt: '2026-03-20T10:00:00.000Z',
+  };
+  const readyLesson = buildTestLesson({ id: 'ready-lesson', content: '# Lezione pronta' });
+  const plan = buildPlan({ sections: [readyLesson] });
+  plan.modules[0]?.children.push(exercise);
+  let rejectBrief!: (error: Error) => void;
+  const briefResult = new Promise<{ brief: string; groundingSources: [] }>((_, reject) => {
+    rejectBrief = reject;
+  });
+  const { controller, domain, state } = createControllerHarness({
+    domain: { learningPlan: plan },
+    projectLibrary: { currentProjectId: 'project-1' },
+    openRouter: {
+      generateApplicationExerciseBrief: () => briefResult,
+      getExercisePrerequisiteGaps: () => [],
+    },
+  });
+  const generation = controller.openExercise(exercise);
+  assert.equal(await controller.openSection(readyLesson), 'reused-cached');
+  rejectBrief(new Error('La generazione dell’esercizio non è riuscita.'));
+  await assert.doesNotReject(generation);
+  assert.equal(domain.activeSectionId, readyLesson.id);
+  assert.equal(domain.activeSection?.content, '# Lezione pronta');
+  assert.equal(state.adapter.getWorkflowState().loadSection.status, 'idle');
+  assert.equal(state.adapter.getWorkflowState().loadSection.error, undefined);
+});
+
 test('exercise brief generation keeps its gate after workflow invalidation until the provider call settles', async () => {
   const exercise: ApplicationExerciseNode = {
     kind: 'exercise',
@@ -9027,4 +9065,51 @@ test('confirmPlanGeneration rejects a superseded approval response', async () =>
 
   decisionResolvers[1]?.();
   await current;
+});
+
+test('keeps a failed regeneration on its lesson and clears it when navigating to another ready lesson', async () => {
+  const previousLesson = buildTestLesson({ content: '# Salvata', id: 'lesson-1' });
+  const nextLesson = buildTestLesson({ content: '# Altra lezione', id: 'lesson-2' });
+  const harness = createControllerHarness({
+    domain: {
+      activeSectionId: previousLesson.id,
+      learningPlan: buildPlan({ sections: [previousLesson, nextLesson] }),
+    },
+    openRouter: {
+      generateDurableLesson: vi.fn(async () => {
+        throw new Error('Verifica delle fonti non riuscita.');
+      }),
+    },
+    projectLibrary: { currentProjectId: 'project-1' },
+  });
+  await expect(harness.controller.regenerateActiveSection()).rejects.toThrow(
+    'Verifica delle fonti non riuscita.'
+  );
+  expect(harness.state.internalState.workflowState.loadSection.error).toBe(
+    'Verifica delle fonti non riuscita.'
+  );
+  expect(harness.domain.activeSection?.content).toBe('# Salvata');
+  await expect(harness.controller.openSection(nextLesson)).resolves.toBe('reused-cached');
+  expect(harness.state.internalState.workflowState.loadSection.error).toBeUndefined();
+  expect(harness.domain.activeSectionId).toBe(nextLesson.id);
+});
+
+test('a failed navigation save cannot offer regeneration of the previous ready lesson', async () => {
+  const previousLesson = buildTestLesson({ content: '# Salvata', id: 'lesson-1' });
+  const target = buildTestLesson({ id: 'lesson-2' });
+  const generateDurableLesson = vi.fn();
+  const harness = createControllerHarness({
+    domain: {
+      activeSectionId: previousLesson.id,
+      learningPlan: buildPlan({ sections: [previousLesson, target] }),
+    },
+    openRouter: { generateDurableLesson },
+    projectLibrary: { currentProjectId: 'project-1', patchCurrentProject: async () => null },
+  });
+  await expect(harness.controller.openSection(target)).rejects.toThrow(
+    t('Non sono riuscito a salvare la lezione da generare. Riprova.')
+  );
+  expect(harness.domain.activeSectionId).toBe(previousLesson.id);
+  expect(harness.state.internalState.workflowState.loadSection.error).toBeUndefined();
+  expect(generateDurableLesson).not.toHaveBeenCalled();
 });

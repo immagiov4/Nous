@@ -43,6 +43,14 @@ const CORRELATION_ID = '123e4567-e89b-42d3-a456-426614174000';
 
 const terminalPhaseMessages = [
   [
+    'lesson_factual_review_invalid',
+    'La verifica delle fonti della nuova lezione non è stata completata. Puoi riprovare a generarla.',
+  ],
+  [
+    'lesson_factual_support_failed',
+    'Non è stato possibile verificare che tutti i contenuti della nuova lezione siano supportati dalle fonti. Puoi riprovare a generarla.',
+  ],
+  [
     'sublesson_planning_failed',
     'Non è stato possibile preparare la lezione di approfondimento. Riprova.',
   ],

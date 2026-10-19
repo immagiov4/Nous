@@ -28,6 +28,11 @@ const LESSON_GENERATION_TIMEOUT_ERROR =
   'La generazione della lezione ha superato il tempo disponibile. Riprova.';
 const LESSON_GENERATION_BUSY_STATUS = 409;
 const LESSON_TERMINAL_PHASE_MESSAGES: Readonly<Record<string, string>> = {
+  lesson_factual_support_failed:
+    'Non è stato possibile verificare che tutti i contenuti della nuova lezione siano supportati dalle fonti. Puoi riprovare a generarla.',
+  lesson_factual_review_invalid:
+    'La verifica delle fonti della nuova lezione non è stata completata. Puoi riprovare a generarla.',
+
   lesson_document_sources_failed:
     'Non è stato possibile elaborare le immagini delle fonti PDF. Riprova.',
   lesson_draft_failed: 'Non è stato possibile creare la bozza della lezione. Riprova.',
