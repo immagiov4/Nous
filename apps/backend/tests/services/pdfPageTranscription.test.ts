@@ -1,12 +1,20 @@
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { formatPdfTranscriptionMarker } from '@shared/pdfTranscription';
+import { APICallError } from 'ai';
 import { beforeEach, expect, test, vi } from 'vitest';
+import type { SourcePreparationContext } from '../../src/projects/sourcePreparationContext.js';
 import { extractPdfTextLayer } from '../../src/services/pdfTextExtractor.js';
+import { normalizePdfTranscriptionMarkdown } from '../../src/services/pdfTranscriptionMath.js';
+import { PdfTranscriptionPool } from '../../src/services/pdfTranscriptionPool.js';
 import recording from '../fixtures/pdf-transcription-response.json';
 import { buildPdfPageFixture, buildPdfTextDataUrl } from '../fixtures/pdfText.js';
 
-const provider = vi.hoisted(() => ({ generateText: vi.fn(), runCodexAppServerTurn: vi.fn() }));
+const provider = vi.hoisted(() => ({
+  generateText: vi.fn(),
+  runCodexAppServerTurn: vi.fn(),
+  createConfiguredTextModel: vi.fn(),
+}));
 vi.mock('ai', async original => ({
   ...(await original<typeof import('ai')>()),
   generateText: provider.generateText,
@@ -15,12 +23,12 @@ vi.mock('../../src/services/codexAppServer.js', () => ({
   runCodexAppServerTurn: provider.runCodexAppServerTurn,
 }));
 vi.mock('../../src/services/aiSdkTextModel.js', () => ({
-  createConfiguredTextModel: () => ({ model: {}, providerOptions: {} }),
+  createConfiguredTextModel: provider.createConfiguredTextModel,
 }));
 
 import { getResolvedGlobalModelConfig } from '../../src/config/modelConfig.js';
 
-const { completePdfTextExtraction, inspectPdfPageText } = await import(
+const { completePdfTextExtraction, preparePdfTextExtraction, inspectPdfPageText } = await import(
   '../../src/services/pdfPageTranscription.js'
 );
 
@@ -38,6 +46,9 @@ const bytes = Buffer.from(buildPdfTextDataUrl().split(',')[1], 'base64');
 const scannedBytes = await readFile(new URL('../fixtures/synthetic-proof.pdf', import.meta.url));
 
 beforeEach(() => {
+  provider.createConfiguredTextModel
+    .mockReset()
+    .mockReturnValue({ model: {}, providerOptions: {} });
   provider.runCodexAppServerTurn.mockReset();
   provider.generateText.mockReset().mockResolvedValue({
     output: recordedPage,
@@ -68,7 +79,7 @@ test('keeps a usable text page byte-for-byte without a provider call', async () 
   expect(provider.generateText).not.toHaveBeenCalled();
 });
 
-test('reports the failed page and rejects incomplete source material', async () => {
+test('returns failed-page metadata without exposing unreadable source content', async () => {
   provider.generateText.mockResolvedValue({
     output: { markdown: '', status: 'unreadable' },
     usage: {},
@@ -77,7 +88,7 @@ test('reports the failed page and rejects incomplete source material', async () 
     completePdfTextExtraction(bytes, textLayer(''), {
       config: await getResolvedGlobalModelConfig(),
     })
-  ).rejects.toMatchObject({ failedPages: [1] });
+  ).resolves.toMatchObject({ transcription: { failedPages: [1] } });
 });
 
 test('replaces garbage invisible OCR in a mixed document and keeps clean pages in order', async () => {
@@ -212,7 +223,7 @@ test('rejects a page whose corrective response still contains unrenderable math'
     completePdfTextExtraction(bytes, textLayer(''), {
       config: await getResolvedGlobalModelConfig(),
     })
-  ).rejects.toMatchObject({ failedPages: [1] });
+  ).resolves.toMatchObject({ transcription: { failedPages: [1] } });
   expect(provider.generateText).toHaveBeenCalledTimes(2);
 });
 
@@ -277,7 +288,7 @@ test('counts a billed response even when its syntax correction fails', async () 
       completePdfTextExtraction(bytes, textLayer(''), {
         config: await getResolvedGlobalModelConfig(),
       })
-    ).rejects.toMatchObject({ failedPages: [1] });
+    ).resolves.toMatchObject({ transcription: { failedPages: [1] } });
     expect(log).toHaveBeenCalledWith(
       '[Nous][PDF] Document transcription',
       expect.objectContaining({
@@ -307,7 +318,7 @@ test('records Codex usage before rejecting malformed JSON', async () => {
           aiProviderOverrides: {},
         },
       })
-    ).rejects.toMatchObject({ failedPages: [1] });
+    ).resolves.toMatchObject({ transcription: { failedPages: [1] } });
     expect(log).toHaveBeenCalledWith(
       '[Nous][PDF] Document transcription',
       expect.objectContaining({ inputTokens: 90, outputTokens: 30, failedPages: [1] })
@@ -331,7 +342,9 @@ test('interrupts a pending raster operation when its page deadline expires', asy
     const pending = completePdfTextExtraction(bytes, textLayer(''), {
       config: await getResolvedGlobalModelConfig(),
     });
-    const rejected = expect(pending).rejects.toMatchObject({ failedPages: [1] });
+    const rejected = expect(pending).resolves.toMatchObject({
+      transcription: { failedPages: [1] },
+    });
     await started.promise;
     deadline.abort(new Error('recorded page deadline'));
     await rejected;
@@ -372,7 +385,7 @@ test('rejects a corrective response that erases a page previously classified as 
     completePdfTextExtraction(bytes, textLayer(''), {
       config: await getResolvedGlobalModelConfig(),
     })
-  ).rejects.toMatchObject({ failedPages: [1] });
+  ).resolves.toMatchObject({ transcription: { failedPages: [1] } });
   expect(provider.generateText).toHaveBeenCalledTimes(2);
 });
 
@@ -435,4 +448,446 @@ test('reads Unicode math text from the isolated Node parser process', async () =
     { fallbackTimeoutMs: 15000, maxOutputBytes: 1000000 }
   );
   expect(result.pages[0].text).toBe('ΑΒΧ');
+});
+
+test('retranscribes provider text with invalid control characters instead of admitting corrupted prose', async () => {
+  provider.generateText
+    .mockResolvedValueOnce({
+      output: { markdown: 'Synthetic corrupted prosa\u0000e8 with $x=1$.', status: 'ok' },
+      usage: { inputTokens: 100, outputTokens: 20 },
+    })
+    .mockResolvedValueOnce({ output: recordedPage, usage: { inputTokens: 150, outputTokens: 40 } });
+  const result = await completePdfTextExtraction(bytes, textLayer(''), {
+    config: await getResolvedGlobalModelConfig(),
+  });
+  expect(result.pages[0].text).toBe(
+    `${formatPdfTranscriptionMarker(1)}\n\n${recordedPage.markdown}`
+  );
+  expect(result.transcription).toMatchObject({ inputTokens: 250, outputTokens: 60 });
+  expect(provider.generateText).toHaveBeenCalledTimes(2);
+});
+
+test.each([
+  '$',
+  '$$',
+])('normalizes a valid multiline matrix (%s) without a paid corrective request', async delimiter => {
+  const markdown = `${delimiter}A=\\begin{pmatrix}\na & b\\\\\nc & d\n\\end{pmatrix}${delimiter}`;
+  provider.generateText.mockResolvedValue({
+    output: { markdown, status: 'ok' },
+    usage: { inputTokens: 100, outputTokens: 20 },
+  });
+  const result = await completePdfTextExtraction(bytes, textLayer(''), {
+    config: await getResolvedGlobalModelConfig(),
+  });
+  expect(result.pages[0].text).toContain('a & b\\\\\nc & d');
+  expect(result.pages[0].text).toContain('$$');
+  expect(provider.generateText).toHaveBeenCalledOnce();
+});
+
+test('keeps normalized multiline math stable when the prepared source is normalized again', () => {
+  const source = '$A=\\begin{pmatrix}\na & b\\\\\nc & d\n\\end{pmatrix}$';
+  const normalized = normalizePdfTranscriptionMarkdown(source);
+  expect(normalizePdfTranscriptionMarkdown(normalized)).toBe(normalized);
+});
+
+test('rejects a blank response that contains substantive Markdown instead of silently deleting it', async () => {
+  provider.generateText.mockResolvedValue({
+    output: { markdown: 'A real source statement $x=2$.', status: 'blank' },
+    usage: { inputTokens: 10, outputTokens: 5 },
+  });
+  await expect(
+    completePdfTextExtraction(bytes, textLayer(''), {
+      config: await getResolvedGlobalModelConfig(),
+    })
+  ).resolves.toMatchObject({ transcription: { failedPages: [1] } });
+});
+
+test('does not count an empty scanned page as recovered text or attach transcription provenance', async () => {
+  provider.generateText.mockResolvedValue({
+    output: { markdown: '', status: 'blank' },
+    usage: { inputTokens: 10, outputTokens: 5 },
+  });
+  const result = await completePdfTextExtraction(bytes, textLayer(''), {
+    config: await getResolvedGlobalModelConfig(),
+  });
+  expect(result.transcription?.pages).toEqual([]);
+  expect(result.transcription).toMatchObject({ inputTokens: 10, outputTokens: 5 });
+  expect(result.pages).toEqual([{ pageNumber: 1, text: '' }]);
+});
+
+test('transcribes a full-page raster despite visible footer text and retains a digital page with a small image', async () => {
+  const raster = 'BI /W 1 /H 1 /CS /RGB /BPC 8 /F /AHx ID FF0000> EI';
+  const fixture = buildPdfPageFixture([
+    `q 200 0 0 200 0 0 cm ${raster} Q BT /F1 12 Tf 10 10 Td (Footer) Tj ET`,
+    `q 20 0 0 20 0 0 cm ${raster} Q BT /F1 12 Tf 10 100 Td (Digital statement) Tj ET`,
+  ]);
+  const result = await completePdfTextExtraction(
+    fixture,
+    {
+      ...textLayer(''),
+      pageCount: 2,
+      pages: [
+        { pageNumber: 1, text: 'Footer' },
+        { pageNumber: 2, text: 'Digital statement' },
+      ],
+    },
+    { config: await getResolvedGlobalModelConfig() }
+  );
+  expect(result.pages[0].provenance?.kind).toBe('vision-transcription');
+  expect(result.pages[0].text).toContain(recordedPage.markdown);
+  expect(result.pages[1]).toEqual({ pageNumber: 2, text: 'Digital statement' });
+  expect(result.transcription?.measurements[0].reasons).toContain('full-page-image');
+  expect(provider.generateText).toHaveBeenCalledOnce();
+});
+
+test('retries an unreadable response once with the original image and a fresh request', async () => {
+  provider.generateText.mockResolvedValueOnce({
+    output: { status: 'unreadable', markdown: '' },
+    usage: { inputTokens: 100, outputTokens: 20 },
+  });
+  const result = await completePdfTextExtraction(scannedBytes, textLayer(''), {
+    config: await getResolvedGlobalModelConfig(),
+  });
+  expect(result.pages[0].text).toContain(recordedPage.markdown);
+  expect(result.transcription).toMatchObject({ inputTokens: 220, outputTokens: 60 });
+  expect(result.transcription?.measurements[0].attempts).toBe(2);
+  expect(provider.generateText).toHaveBeenCalledTimes(2);
+  const requests = provider.generateText.mock.calls.map(call => call[0]);
+  expect(requests[1].messages).toEqual(requests[0].messages);
+});
+
+test.each([
+  true,
+  false,
+])('retries a dominant script mismatch against OCR prose and bounds failure: recovered=%s', async recovered => {
+  const fixture = buildPdfPageFixture(['BT /F1 12 Tf 3 Tr 10 100 Td (Scanner OCR prose) Tj ET']);
+  const drift = { output: { status: 'ok', markdown: 'משפט מתמטי הוכחה ארוכה ומפורטת' }, usage: {} };
+  provider.generateText.mockResolvedValueOnce(drift);
+  if (!recovered) provider.generateText.mockResolvedValue(drift);
+  const result = completePdfTextExtraction(fixture, textLayer('Scanner OCR prose'), {
+    config: await getResolvedGlobalModelConfig(),
+  });
+  if (recovered) expect((await result).text).toContain(recordedPage.markdown);
+  else await expect(result).resolves.toMatchObject({ transcription: { failedPages: [1] } });
+  expect(provider.generateText).toHaveBeenCalledTimes(2);
+});
+
+test('excludes formulas from script comparison and preserves a non-Latin source language', async () => {
+  const original = 'Ελληνική μαθηματική πρόταση';
+  const fixture = buildPdfPageFixture(['BT /F1 12 Tf 3 Tr 10 100 Td (OCR) Tj ET']);
+  provider.generateText.mockResolvedValue({
+    output: {
+      status: 'ok',
+      markdown: `${original}. $a+b+c+d+e+f+g+h+i+j+k+l+m+n+o+p+q+r+s+t+u+v+w+x+y+z$`,
+    },
+    usage: {},
+  });
+  const result = await completePdfTextExtraction(fixture, textLayer(original), {
+    config: await getResolvedGlobalModelConfig(),
+  });
+  expect(result.text).toContain(original);
+  expect(provider.generateText).toHaveBeenCalledOnce();
+});
+
+test('logs only safe provider request identity metadata', async () => {
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  provider.generateText.mockResolvedValue({
+    output: recordedPage,
+    usage: {},
+    response: {
+      id: 'gen-recorded',
+      body: {
+        provider: 'Recorded upstream',
+        model: 'recorded-model',
+        endpoint_id: 'recorded-endpoint',
+        choices: [{ private: 'excluded-content' }],
+      },
+    },
+  });
+  try {
+    await completePdfTextExtraction(scannedBytes, textLayer(''), {
+      config: await getResolvedGlobalModelConfig(),
+    });
+    expect(log).toHaveBeenCalledWith('[Nous][PDF] Provider request', {
+      sourceHash: 'synthetic',
+      pageNumber: 1,
+      requestId: 'gen-recorded',
+      upstreamProvider: 'Recorded upstream',
+      upstreamModel: 'recorded-model',
+      endpointId: 'recorded-endpoint',
+    });
+    expect(JSON.stringify(log.mock.calls)).not.toContain('excluded-content');
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test('shares collection progress while requests from consecutive documents overlap', async () => {
+  const first = Promise.withResolvers<unknown>();
+  const second = Promise.withResolvers<unknown>();
+  provider.generateText
+    .mockReset()
+    .mockImplementationOnce(() => first.promise)
+    .mockImplementationOnce(() => second.promise);
+  const pool = new PdfTranscriptionPool(2);
+  const progress: Array<{ completed: number; total: number }> = [];
+  const options = {
+    pool,
+    config: await getResolvedGlobalModelConfig(),
+    onProgress: (event: { completed: number; total: number }) => {
+      progress.push(event);
+    },
+  };
+  try {
+    const a = await preparePdfTextExtraction(scannedBytes, textLayer(''), options);
+    const b = await preparePdfTextExtraction(scannedBytes, textLayer(''), options);
+    expect(provider.generateText).toHaveBeenCalledTimes(2);
+    expect(progress.at(-1)).toMatchObject({ completed: 0, total: 2 });
+    second.resolve({ output: recordedPage, usage: {} });
+    await b.completion;
+    expect(progress.at(-1)).toMatchObject({ completed: 1, total: 2 });
+    first.resolve({ output: recordedPage, usage: {} });
+    await a.completion;
+    expect(progress.at(-1)).toMatchObject({ completed: 2, total: 2 });
+  } finally {
+    first.resolve({ output: recordedPage, usage: {} });
+    second.resolve({ output: recordedPage, usage: {} });
+    await pool.close();
+  }
+});
+
+test('shares the two-request budget between syntax correction and an unreadable response', async () => {
+  provider.generateText
+    .mockResolvedValueOnce({
+      output: { status: 'ok', markdown: '$\\unsupportedMath{x}$' },
+      usage: {},
+    })
+    .mockResolvedValue({ output: { status: 'unreadable', markdown: '' }, usage: {} });
+  await expect(
+    completePdfTextExtraction(scannedBytes, textLayer(''), {
+      config: await getResolvedGlobalModelConfig(),
+    })
+  ).resolves.toMatchObject({ transcription: { failedPages: [1] } });
+  expect(provider.generateText).toHaveBeenCalledTimes(2);
+});
+
+test('pins the default transcription model to OpenAI without upstream fallback', async () => {
+  await completePdfTextExtraction(scannedBytes, textLayer(''), {
+    config: await getResolvedGlobalModelConfig(),
+  });
+  expect(provider.generateText.mock.calls[0][0].providerOptions.openrouter.provider).toEqual({
+    only: ['openai'],
+    order: ['openai'],
+    allow_fallbacks: false,
+  });
+});
+
+test('uses the configured transcription-only upstream override', async () => {
+  vi.stubEnv('PDF_TRANSCRIPTION_OPENROUTER_PROVIDER', 'recorded/region');
+  try {
+    await completePdfTextExtraction(scannedBytes, textLayer(''), {
+      config: await getResolvedGlobalModelConfig(),
+    });
+    expect(provider.generateText.mock.calls[0][0].providerOptions.openrouter.provider).toEqual({
+      only: ['recorded/region'],
+      order: ['recorded/region'],
+      allow_fallbacks: false,
+    });
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+test('reports a missing pinned endpoint as a page failure with no cross-provider fallback', async () => {
+  provider.generateText.mockRejectedValue(
+    new APICallError({
+      message: 'No endpoints available',
+      url: 'https://provider.invalid',
+      requestBodyValues: {},
+      statusCode: 404,
+    })
+  );
+  await expect(
+    completePdfTextExtraction(scannedBytes, textLayer(''), {
+      config: await getResolvedGlobalModelConfig(),
+    })
+  ).resolves.toMatchObject({ transcription: { failedPages: [1] } });
+  expect(provider.generateText).toHaveBeenCalledOnce();
+  expect(provider.generateText.mock.calls[0][0].providerOptions.openrouter.provider).toEqual({
+    only: ['openai'],
+    order: ['openai'],
+    allow_fallbacks: false,
+  });
+});
+
+test('keeps dollar signs inside Markdown code unchanged during multiline formula normalization', () => {
+  const markdown = ['```sh', 'echo "$HOME"', 'echo "$PATH"', '```', '', '$x=1$'].join('\n');
+  expect(normalizePdfTranscriptionMarkdown(markdown)).toBe(markdown);
+});
+
+test('gives a timed-out first request one fresh deadline without exceeding two calls', async () => {
+  provider.generateText
+    .mockRejectedValueOnce(new DOMException('Recorded attempt deadline', 'TimeoutError'))
+    .mockImplementationOnce(async request => {
+      expect(request.abortSignal.aborted).toBe(false);
+      return { output: recordedPage, usage: {} };
+    });
+  const result = await completePdfTextExtraction(bytes, textLayer(''), {
+    config: await getResolvedGlobalModelConfig(),
+  });
+  expect(result.text).toContain(recordedPage.markdown);
+  expect(provider.generateText).toHaveBeenCalledTimes(2);
+  const signals = provider.generateText.mock.calls.map(([request]) => request.abortSignal);
+  expect(signals[0]).not.toBe(signals[1]);
+});
+
+test('retains good pages while removing a failed garbage OCR page from downstream text', async () => {
+  const fixture = buildPdfPageFixture([
+    'BT /F1 12 Tf 10 100 Td (Clean first page) Tj ET',
+    'BT /F1 12 Tf 3 Tr 10 100 Td (Garbage scanner OCR) Tj ET',
+  ]);
+  provider.generateText.mockResolvedValue({
+    output: { status: 'unreadable', markdown: '' },
+    usage: {},
+  });
+  const result = await completePdfTextExtraction(
+    fixture,
+    {
+      ...textLayer(''),
+      pages: [
+        { pageNumber: 1, text: 'Clean first page' },
+        { pageNumber: 2, text: 'Garbage scanner OCR' },
+      ],
+    },
+    { config: await getResolvedGlobalModelConfig() }
+  );
+  expect(result.text).toBe('Clean first page');
+  expect(result.pages).toEqual([
+    { pageNumber: 1, text: 'Clean first page' },
+    { pageNumber: 2, text: '' },
+  ]);
+  expect(result.transcription).toMatchObject({ failedPages: [2], pages: [] });
+  expect(provider.generateText).toHaveBeenCalledTimes(2);
+});
+
+test('uses the correct model effort at the course tier boundary and never counts a clean page', async () => {
+  const pool = new PdfTranscriptionPool(2, 149);
+  const config = await getResolvedGlobalModelConfig();
+  const fixture = buildPdfPageFixture([
+    'BT /F1 12 Tf 3 Tr 10 100 Td (Scan first) Tj ET',
+    'BT /F1 12 Tf 10 100 Td (Clean middle) Tj ET',
+    'BT /F1 12 Tf 3 Tr 10 100 Td (Scan last) Tj ET',
+  ]);
+  try {
+    const result = await completePdfTextExtraction(
+      fixture,
+      {
+        ...textLayer(''),
+        pages: [
+          { pageNumber: 1, text: 'Scan first' },
+          { pageNumber: 2, text: 'Clean middle' },
+          { pageNumber: 3, text: 'Scan last' },
+        ],
+      },
+      { config, pool }
+    );
+    expect(result.pages[1].text).toBe('Clean middle');
+    expect(provider.createConfiguredTextModel.mock.calls.map(call => call[2])).toEqual([
+      { model: 'openai/gpt-6-luna', role: 'pdfPageTranscription', reasoningEffort: 'xhigh' },
+      { model: 'openai/gpt-6-luna', role: 'pdfPageTranscription', reasoningEffort: 'medium' },
+    ]);
+    expect(pool.measurements.scannedPages).toBe(151);
+    expect(
+      provider.generateText.mock.calls.map(call => call[0].providerOptions.openrouter.provider)
+    ).toEqual([
+      { only: ['openai'], order: ['openai'], allow_fallbacks: false },
+      { only: ['openai'], order: ['openai'], allow_fallbacks: false },
+    ]);
+  } finally {
+    await pool.close();
+  }
+});
+
+test('stops over-limit scanned material before rendering or calling a provider', async () => {
+  const pool = new PdfTranscriptionPool(2, 300);
+  try {
+    await expect(
+      completePdfTextExtraction(scannedBytes, textLayer(''), {
+        pool,
+        config: await getResolvedGlobalModelConfig(),
+      })
+    ).rejects.toMatchObject({ code: 'PDF_SCANNED_PAGE_LIMIT', limit: 300 });
+    expect(provider.generateText).not.toHaveBeenCalled();
+    expect(pool.measurements.maxRenderedImages).toBe(0);
+  } finally {
+    await pool.close();
+  }
+});
+
+test('shares the collection context pool across files, reports job progress and overlaps inference', async () => {
+  const firstResponse = Promise.withResolvers<{ output: typeof recordedPage; usage: object }>();
+  provider.generateText.mockImplementationOnce(() => firstResponse.promise);
+  const context: SourcePreparationContext = {
+    userId: 'synthetic-user',
+    uploadId: 'synthetic-upload',
+    projectId: 'synthetic-course',
+    signal: new AbortController().signal,
+    previousScannedPages: 149,
+    reportProgress: vi.fn(),
+  };
+  const config = await getResolvedGlobalModelConfig();
+  const first = await preparePdfTextExtraction(scannedBytes, textLayer(''), {
+    context,
+    config,
+    documentName: 'a.pdf',
+  });
+  let second: Awaited<ReturnType<typeof preparePdfTextExtraction>> | undefined;
+  try {
+    second = await preparePdfTextExtraction(scannedBytes, textLayer(''), {
+      context,
+      config,
+      documentName: 'b.pdf',
+    });
+    await second.completion;
+    expect(context.pdfTranscriptionPool?.measurements).toMatchObject({
+      scannedPages: 151,
+      maxInFlight: 2,
+      maxRenderedImages: 2,
+    });
+    expect(
+      provider.createConfiguredTextModel.mock.calls.map(call => call[2].reasoningEffort)
+    ).toEqual(['xhigh', 'medium']);
+    expect(context.reportProgress).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        step: 'pdf-transcription',
+        documentName: 'b.pdf',
+        completed: 1,
+        total: 2,
+        reducedQuality: { from: 151, to: 151 },
+      })
+    );
+  } finally {
+    firstResponse.resolve({ output: recordedPage, usage: {} });
+    await Promise.allSettled([first.completion, ...(second ? [second.completion] : [])]);
+    await context.pdfTranscriptionPool?.close();
+  }
+});
+
+test('honours job cancellation before inspecting or requesting a PDF page', async () => {
+  const controller = new AbortController();
+  const reason = new Error('Synthetic job cancelled');
+  controller.abort(reason);
+  await expect(
+    preparePdfTextExtraction(scannedBytes, textLayer(''), {
+      context: {
+        userId: 'synthetic-user',
+        uploadId: 'synthetic-upload',
+        projectId: 'synthetic-course',
+        signal: controller.signal,
+        reportProgress: vi.fn(),
+      },
+      config: await getResolvedGlobalModelConfig(),
+    })
+  ).rejects.toBe(reason);
+  expect(provider.generateText).not.toHaveBeenCalled();
 });

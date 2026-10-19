@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import os from 'node:os';
+import { join } from 'node:path';
 import { assessPdfTextQuality } from '@shared/pdfTextQuality';
 import { createSourceArchivePreview } from '@shared/sourceArchivePreview';
 import type {
@@ -8,14 +11,16 @@ import type {
 } from '@shared/sourceArchiveWarnings';
 import JSZip from 'jszip';
 import {
-  completePdfTextExtraction,
   PdfPageTranscriptionError,
+  preparePdfTextExtraction,
 } from '../services/pdfPageTranscription.js';
 import {
   extractPdfText,
   PdfTextExtractionOutputLimitError,
   PdfTextExtractionTimeoutError,
 } from '../services/pdfTextExtractor.js';
+import { PdfScannedPageLimitError } from '../services/pdfTranscriptionPolicy.js';
+import { PdfTranscriptionPool } from '../services/pdfTranscriptionPool.js';
 import { encodePdfDataUrl } from '../utils/pdfDataUrl.js';
 
 export interface SourceArchiveLimits {
@@ -530,10 +535,11 @@ const admitPdfEntry = (
   return undefined;
 };
 
-const completeArchivePdfText = async (
+const prepareArchivePdfText = async (
   entry: SourceArchiveFileEntry,
   textLayer: Awaited<ReturnType<typeof extractPdfText>>,
-  pdfBudget: PdfPreparationBudget
+  pdfBudget: PdfPreparationBudget,
+  pool: PdfTranscriptionPool
 ) => {
   const controller = new AbortController();
   let rejectInspection!: (reason: unknown) => void;
@@ -551,7 +557,9 @@ const completeArchivePdfText = async (
   );
   try {
     return await Promise.race([
-      completePdfTextExtraction(Buffer.from(entry.content), textLayer, {
+      preparePdfTextExtraction(Buffer.from(entry.content), textLayer, {
+        pool,
+        documentName: entry.path,
         signal: controller.signal,
         onTranscriptionStart: () => {
           if (Date.now() >= pdfBudget.deadlineAt) throw timeoutError;
@@ -573,21 +581,106 @@ const completeArchivePdfText = async (
   }
 };
 
-const prepareSourceArchiveFile = async (
+const formatPreparedPdfText = (extractedPdf: Awaited<ReturnType<typeof extractPdfText>>) => {
+  let extractedText = extractedPdf.text.trim();
+  const pdfPages: import('@shared/pdfTranscription').ArchivePdfPage[] = [];
+  if (extractedPdf.transcription) {
+    const parts: string[] = [];
+    let byteOffset = 0;
+    for (const page of extractedPdf.pages) {
+      if (extractedPdf.transcription.blankPages?.includes(page.pageNumber)) {
+        pdfPages.push({
+          pageNumber: page.pageNumber,
+          startByte: byteOffset,
+          endByte: byteOffset,
+          transcriptionBlank: true,
+        });
+        continue;
+      }
+      if (extractedPdf.transcription.failedPages?.includes(page.pageNumber)) {
+        pdfPages.push({
+          pageNumber: page.pageNumber,
+          startByte: byteOffset,
+          endByte: byteOffset,
+          transcriptionFailed: true,
+        });
+        continue;
+      }
+      if (!page.text.trim()) continue;
+      const text = `[Pagina ${page.pageNumber}]\n${page.text}`;
+      if (parts.length) byteOffset += Buffer.byteLength('\n\n');
+      const startByte = byteOffset;
+      byteOffset += Buffer.byteLength(text);
+      pdfPages.push({
+        pageNumber: page.pageNumber,
+        startByte,
+        endByte: byteOffset,
+        ...(page.provenance ? { provenance: page.provenance } : {}),
+      });
+      parts.push(text);
+    }
+    extractedText = parts.join('\n\n');
+  }
+  return { extractedText, pdfPages };
+};
+
+const finishPreparedPdfEntry = (
+  entry: SourceArchiveFileEntry,
+  extractedPdf: Awaited<ReturnType<typeof extractPdfText>>,
+  maxPreparedBytes: number
+): SourceArchiveFileEntry => {
+  const { extractedText, pdfPages } = formatPreparedPdfText(extractedPdf);
+  if (
+    (extractedText &&
+      assessPdfTextQuality({
+        extractedText,
+        pageCount: extractedPdf.pageCount,
+        pages: extractedPdf.pages,
+      }).status === 'ok') ||
+    Boolean(extractedPdf.transcription && extractedPdf.text.trim())
+  ) {
+    const content = new TextEncoder().encode(extractedText);
+    if (content.byteLength > maxPreparedBytes) {
+      console.warn('[Backend] Extracted PDF text exceeds source archive limits.', {
+        path: entry.path,
+      });
+      return toBinarySourceArchiveFile(entry, 'safety-limit');
+    }
+    return {
+      ...entry,
+      byteSize: content.byteLength,
+      content,
+      hash: createHash('sha256').update(content).digest('hex'),
+      ...(pdfPages.length ? { pdfPages } : {}),
+      preview: createSourceArchivePreview(extractedText),
+      text: extractedText,
+    };
+  }
+  return {
+    ...toBinarySourceArchiveFile(entry, 'no-usable-text'),
+    ...(pdfPages.length ? { pdfPages } : {}),
+  };
+};
+
+const prepareSourceArchivePdf = async (
   entry: SourceArchiveFileEntry,
   maxPreparedBytes: number,
-  pdfBudget: PdfPreparationBudget
-): Promise<SourceArchiveFileEntry> => {
+  pdfBudget: PdfPreparationBudget,
+  pool: PdfTranscriptionPool
+): Promise<{
+  completion?: Promise<Awaited<ReturnType<typeof extractPdfText>>>;
+  warningReason?: SourceArchivePdfWarningReason;
+}> => {
   if (!isPdfArchivePath(entry.path)) {
-    return entry;
+    return {};
   }
 
   const admissionWarning = admitPdfEntry(entry, pdfBudget);
   if (admissionWarning) {
-    return toBinarySourceArchiveFile(entry, admissionWarning);
+    return { warningReason: admissionWarning };
   }
   if (maxPreparedBytes <= 0) {
-    return toBinarySourceArchiveFile(entry, 'safety-limit');
+    return { warningReason: 'safety-limit' };
   }
 
   try {
@@ -623,55 +716,11 @@ const prepareSourceArchiveFile = async (
       }),
       pdfTimeoutMs
     );
-    const extractedPdf = await completeArchivePdfText(entry, textLayer, pdfBudget);
-    let extractedText = extractedPdf.text.trim();
-    const pdfPages: import('@shared/pdfTranscription').ArchivePdfPage[] = [];
-    if (extractedPdf.transcription) {
-      const parts: string[] = [];
-      let byteOffset = 0;
-      for (const page of extractedPdf.pages) {
-        const text = `[Pagina ${page.pageNumber}]\n${page.text}`;
-        if (parts.length) byteOffset += Buffer.byteLength('\n\n');
-        const startByte = byteOffset;
-        byteOffset += Buffer.byteLength(text);
-        pdfPages.push({
-          pageNumber: page.pageNumber,
-          startByte,
-          endByte: byteOffset,
-          ...(page.provenance ? { provenance: page.provenance } : {}),
-        });
-        parts.push(text);
-      }
-      extractedText = parts.join('\n\n');
-    }
-    if (
-      (extractedText &&
-        assessPdfTextQuality({
-          extractedText,
-          pageCount: extractedPdf.pageCount,
-          pages: extractedPdf.pages,
-        }).status === 'ok') ||
-      Boolean(extractedPdf.transcription?.pages.length && extractedPdf.text.trim())
-    ) {
-      const content = new TextEncoder().encode(extractedText);
-      if (content.byteLength > maxPreparedBytes) {
-        console.warn('[Backend] Extracted PDF text exceeds source archive limits.', {
-          path: entry.path,
-        });
-        return toBinarySourceArchiveFile(entry, 'safety-limit');
-      }
-      return {
-        ...entry,
-        byteSize: content.byteLength,
-        content,
-        hash: createHash('sha256').update(content).digest('hex'),
-        ...(pdfPages.length ? { pdfPages } : {}),
-        preview: createSourceArchivePreview(extractedText),
-        text: extractedText,
-      };
-    }
+    const prepared = await prepareArchivePdfText(entry, textLayer, pdfBudget, pool);
+    return prepared;
   } catch (error) {
-    if (error instanceof PdfPageTranscriptionError) throw error;
+    if (error instanceof PdfPageTranscriptionError || error instanceof PdfScannedPageLimitError)
+      throw error;
     console.warn('[Backend] PDF text extraction failed for a source archive entry.', {
       error,
       path: entry.path,
@@ -679,25 +728,13 @@ const prepareSourceArchiveFile = async (
     let warningReason: SourceArchivePdfWarningReason = 'parser-failed';
     if (error instanceof PdfTextExtractionTimeoutError) warningReason = 'timeout';
     if (error instanceof PdfTextExtractionOutputLimitError) warningReason = 'safety-limit';
-    return toBinarySourceArchiveFile(entry, warningReason);
+    return { warningReason };
   }
-
-  return toBinarySourceArchiveFile(entry, 'no-usable-text');
 };
 
-export async function* streamSourceArchive(
-  archiveBytes: Uint8Array,
-  limits: SourceArchiveLimits
-): AsyncGenerator<SourceArchiveEntry> {
-  validateLimits(limits);
-  const deadlineAt = Date.now() + PROJECT_SOURCE_ARCHIVE_PDF_POLICY.archivePreparationTimeoutMs;
-  const centralEntries = parseCentralDirectory(archiveBytes);
-  const { entriesByPath, totalExpandedBytes: originalTotalExpandedBytes } = inspectCentralDirectory(
-    centralEntries,
-    limits
-  );
-  const loadedArchive = await withArchivePreparationDeadline(loadArchive(archiveBytes), deadlineAt);
-  const loadedEntriesByPath = mapLoadedEntries(loadedArchive, entriesByPath);
+const listOrderedArchiveEntries = (
+  entriesByPath: ReturnType<typeof inspectCentralDirectory>['entriesByPath']
+) => {
   const directories = new Map<string, SourceArchiveDirectoryEntry>();
   const filePaths: string[] = [];
 
@@ -718,60 +755,156 @@ export async function* streamSourceArchive(
     ...directories.values(),
     ...filePaths.map(path => ({ kind: 'file' as const, path })),
   ].sort(compareEntryPaths);
-  let actualExpandedBytes = 0;
-  let preparedExpandedBytes = 0;
-  const pdfBudget: PdfPreparationBudget = {
-    deadlineAt,
-    eligibleBytes: 0,
-    eligibleEntries: 0,
+  return { orderedEntries, filePaths };
+};
+
+const sourceEntryFromContent = (path: string, content: Uint8Array): SourceArchiveFileEntry => {
+  const text = decodeUtf8(content);
+  return {
+    byteSize: content.byteLength,
+    content,
+    hash: createHash('sha256').update(content).digest('hex'),
+    kind: 'file',
+    path,
+    ...(text === undefined ? {} : { preview: createSourceArchivePreview(text), text }),
   };
-  for (const entry of orderedEntries) {
-    if (Date.now() >= pdfBudget.deadlineAt) throw invalidArchive('preparation deadline exceeded');
-    if (entry.kind === 'directory') {
-      yield entry;
+};
+
+type StagedSourceArchiveEntry =
+  | SourceArchiveDirectoryEntry
+  | {
+      metadata: Omit<SourceArchiveFileEntry, 'content' | 'text' | 'preview'>;
+      spoolPath: string;
+      completion?: Promise<Awaited<ReturnType<typeof extractPdfText>>>;
+      warningReason?: SourceArchivePdfWarningReason;
+    };
+
+async function* finalizeStagedArchive(
+  staged: StagedSourceArchiveEntry[],
+  limits: SourceArchiveLimits,
+  pdfBudget: PdfPreparationBudget,
+  originalBytes: number
+): AsyncGenerator<SourceArchiveEntry> {
+  let preparedExpandedBytes = 0;
+  let finalizedOriginalBytes = 0;
+  for (const stage of staged) {
+    if ('kind' in stage) {
+      yield stage;
       continue;
     }
-    const metadata = entriesByPath.get(entry.path);
-    const path = entry.path;
-    const loadedEntry = loadedEntriesByPath.get(path);
-    if (!metadata || !loadedEntry) {
-      throw invalidArchive(`missing path "${path}"`);
+    const waitStarted = Date.now();
+    let extractedPdf: Awaited<ReturnType<typeof extractPdfText>> | undefined;
+    try {
+      extractedPdf = await stage.completion;
+    } catch (error) {
+      if (error instanceof PdfPageTranscriptionError)
+        throw new PdfPageTranscriptionError(error.failedPages, stage.metadata.path);
+      throw error;
+    } finally {
+      pdfBudget.deadlineAt += Date.now() - waitStarted;
     }
-
-    const content = await readEntryContent(
-      loadedEntry,
-      path,
-      metadata.uncompressedSize,
-      limits.maxEntryBytes,
-      limits.maxExpandedBytes - actualExpandedBytes,
-      pdfBudget.deadlineAt
-    );
-    actualExpandedBytes += content.byteLength;
-
-    const text = decodeUtf8(content);
-    const sourceEntry: SourceArchiveFileEntry = {
-      byteSize: content.byteLength,
-      content,
-      hash: createHash('sha256').update(content).digest('hex'),
-      kind: 'file',
-      path,
-      ...(text === undefined
-        ? {}
-        : {
-            preview: createSourceArchivePreview(text),
-            text,
-          }),
-    };
-    const remainingOriginalBytes = originalTotalExpandedBytes - actualExpandedBytes;
+    // Reopen one original at a time for the established binary fallback and byte-budget checks.
+    const content = new Uint8Array(await readFile(stage.spoolPath));
+    const sourceEntry = sourceEntryFromContent(stage.metadata.path, content);
+    finalizedOriginalBytes += sourceEntry.byteSize;
+    const remainingOriginalBytes = originalBytes - finalizedOriginalBytes;
     const remainingPreparedBytes =
       limits.maxExpandedBytes - preparedExpandedBytes - remainingOriginalBytes;
-    const preparedEntry = await prepareSourceArchiveFile(
-      sourceEntry,
-      Math.min(limits.maxEntryBytes, remainingPreparedBytes),
-      pdfBudget
-    );
+    let preparedEntry = sourceEntry;
+    if (extractedPdf)
+      preparedEntry = finishPreparedPdfEntry(
+        sourceEntry,
+        extractedPdf,
+        Math.min(limits.maxEntryBytes, remainingPreparedBytes)
+      );
+    else if (stage.warningReason)
+      preparedEntry = toBinarySourceArchiveFile(sourceEntry, stage.warningReason);
     preparedExpandedBytes += preparedEntry.byteSize;
     yield preparedEntry;
+  }
+}
+
+export async function* streamSourceArchive(
+  archiveBytes: Uint8Array,
+  limits: SourceArchiveLimits
+): AsyncGenerator<SourceArchiveEntry> {
+  validateLimits(limits);
+  const deadlineAt = Date.now() + PROJECT_SOURCE_ARCHIVE_PDF_POLICY.archivePreparationTimeoutMs;
+  const centralEntries = parseCentralDirectory(archiveBytes);
+  const { entriesByPath, totalExpandedBytes: originalTotalExpandedBytes } = inspectCentralDirectory(
+    centralEntries,
+    limits
+  );
+  const loadedArchive = await withArchivePreparationDeadline(loadArchive(archiveBytes), deadlineAt);
+  const loadedEntriesByPath = mapLoadedEntries(loadedArchive, entriesByPath);
+  const { orderedEntries, filePaths } = listOrderedArchiveEntries(entriesByPath);
+  let actualExpandedBytes = 0;
+  const pool = new PdfTranscriptionPool();
+  const hasPdf = filePaths.some(isPdfArchivePath);
+  const spoolDirectory = hasPdf
+    ? await mkdtemp(join(os.tmpdir(), 'nous-source-pages-'))
+    : undefined;
+  const staged: StagedSourceArchiveEntry[] = [];
+  try {
+    const pdfBudget: PdfPreparationBudget = {
+      deadlineAt,
+      eligibleBytes: 0,
+      eligibleEntries: 0,
+    };
+    for (const entry of orderedEntries) {
+      if (Date.now() >= pdfBudget.deadlineAt) throw invalidArchive('preparation deadline exceeded');
+      if (entry.kind === 'directory') {
+        if (hasPdf) staged.push(entry);
+        else yield entry;
+        continue;
+      }
+      const metadata = entriesByPath.get(entry.path);
+      const path = entry.path;
+      const loadedEntry = loadedEntriesByPath.get(path);
+      if (!metadata || !loadedEntry) {
+        throw invalidArchive(`missing path "${path}"`);
+      }
+
+      const content = await readEntryContent(
+        loadedEntry,
+        path,
+        metadata.uncompressedSize,
+        limits.maxEntryBytes,
+        limits.maxExpandedBytes - actualExpandedBytes,
+        pdfBudget.deadlineAt
+      );
+      actualExpandedBytes += content.byteLength;
+
+      const sourceEntry = sourceEntryFromContent(path, content);
+      if (!spoolDirectory) {
+        yield sourceEntry;
+        continue;
+      }
+      const spoolPath = join(spoolDirectory, String(staged.length));
+      await writeFile(spoolPath, sourceEntry.content);
+      const preparation = await prepareSourceArchivePdf(
+        sourceEntry,
+        limits.maxEntryBytes,
+        pdfBudget,
+        pool
+      );
+      if (preparation.completion) void preparation.completion.catch(() => undefined);
+      staged.push({
+        metadata: {
+          kind: 'file',
+          path: sourceEntry.path,
+          hash: sourceEntry.hash,
+          byteSize: sourceEntry.byteSize,
+        },
+        spoolPath,
+        ...preparation,
+      });
+    }
+    yield* finalizeStagedArchive(staged, limits, pdfBudget, originalTotalExpandedBytes);
+  } finally {
+    await pool.close();
+    console.info('[Nous][PDF] Collection transcription pool', pool.measurements);
+    if (spoolDirectory) await rm(spoolDirectory, { recursive: true, force: true });
   }
 }
 

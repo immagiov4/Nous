@@ -27,11 +27,11 @@ export interface ResolvedTextModelRequest {
   readonly role?: string;
   readonly model: string;
   readonly provider: Exclude<AiProvider, 'codex'>;
-  readonly reasoningEffort: ReasoningEffort;
+  readonly reasoningEffort: ReasoningEffort | 'xhigh';
 }
 
 export const resolveOpenRouterProviderOptions = (
-  reasoningEffort: ReasoningEffort
+  reasoningEffort: ResolvedTextModelRequest['reasoningEffort']
 ): Record<string, Record<string, JSONValue>> =>
   reasoningEffort === 'none'
     ? {}
@@ -67,7 +67,12 @@ export const createConfiguredTextModel = (
     role,
     reasoningEffort: reasoningEffortOverride,
     webSearch = false,
-  }: { model?: string; role?: string; reasoningEffort?: ReasoningEffort; webSearch?: boolean } = {}
+  }: {
+    model?: string;
+    role?: string;
+    reasoningEffort?: ResolvedTextModelRequest['reasoningEffort'];
+    webSearch?: boolean;
+  } = {}
 ): ConfiguredTextModel => {
   const provider = resolveAiProviderForSlot(config, slot);
   const resolved = resolveTextModelConfig(config, slot);

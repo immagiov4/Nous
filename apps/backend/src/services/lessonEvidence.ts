@@ -340,17 +340,22 @@ export const readStoredTranscribedSources = (
   serialized: string | undefined
 ): LessonPrimarySourceIdentity[] => {
   if (!serialized) return [];
-  const archive = z
-    .object({
-      materials: z.array(
-        z.object({ units: z.array(z.object({ source: PrimarySourceIdentitySchema.optional() })) })
-      ),
-    })
-    .parse(JSON.parse(serialized));
+  const archive = StoredSelectionSchema.extend({
+    materials: z.array(
+      z.object({
+        materialId: z.string(),
+        kind: z.enum(['primary', 'research', 'source']),
+        units: z.array(
+          z.object({ text: z.string(), source: PrimarySourceIdentitySchema.optional() })
+        ),
+      })
+    ),
+  }).parse(JSON.parse(serialized));
+  const retained = resolveLessonEvidence(archive.materials, archive.selection);
   return [
     ...new Map(
-      archive.materials.flatMap(material =>
-        material.units.flatMap(unit =>
+      retained.passages.flatMap(passage =>
+        passage.units.flatMap(unit =>
           unit.source?.transcribedPages?.length
             ? [[JSON.stringify(unit.source), unit.source] as const]
             : []

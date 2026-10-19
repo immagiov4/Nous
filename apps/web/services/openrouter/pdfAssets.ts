@@ -109,22 +109,20 @@ const canCaptionBackendImage = (image: BackendPdfImage): boolean =>
 
 export const validatePdfTextSource = async (
   file: FileData,
-  onProgress?: (progress: PdfTranscriptionProgress) => void
+  onProgress?: (progress: PdfTranscriptionProgress) => void,
+  signal?: AbortSignal
 ): Promise<PdfTextQualityReport | null> => {
   if (!isPdfFile(file)) {
     return null;
   }
 
-  const session = await getPdfTextSession(file, onProgress);
+  const session = await getPdfTextSession(file, onProgress, signal);
   if (!session) {
     return null;
   }
 
   const report = assessPdfTextQuality(session);
-  if (
-    report.status !== 'ok' &&
-    !(session.transcription?.pages.length && session.extractedText.trim())
-  ) {
+  if (report.status !== 'ok' && !(session.transcription && session.extractedText.trim())) {
     PDF_TEXT_PARSE_CACHE.delete(getPdfCacheKey(file));
     throw new PdfTextQualityError(file.name, report);
   }
@@ -329,9 +327,12 @@ const extractPdfImagesViaBackend = async (
 
 const extractPdfTextViaBackend = async (
   file: FileData,
-  onProgress?: (progress: PdfTranscriptionProgress) => void
+  onProgress?: (progress: PdfTranscriptionProgress) => void,
+  signal?: AbortSignal
 ): Promise<PdfAssetSession> => {
+  signal?.throwIfAborted();
   const response = await fetchWithSupabaseAuth(`${getBackendUrl()}/api/pdf/extract-text`, {
+    signal,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -347,7 +348,19 @@ const extractPdfTextViaBackend = async (
     throw new Error(`PDF text backend error: ${response.status} ${errorText}`);
   }
 
-  const payload = await readProcessingResponse<BackendPdfTextResponse>(response, onProgress);
+  const payload = await readProcessingResponse<BackendPdfTextResponse>(response, progress =>
+    onProgress?.({
+      ...progress,
+      ...(progress.failures?.length
+        ? {
+            failures: progress.failures.map(failure => ({
+              ...failure,
+              documentName: failure.documentName || file.name,
+            })),
+          }
+        : {}),
+    })
+  );
   if (!payload.success) {
     throw new Error(payload.error || 'Unknown PDF text backend error');
   }
@@ -407,19 +420,21 @@ const extractPdfTextViaBackend = async (
 
 export const getPdfTextSession = async (
   file: FileData,
-  onProgress?: (progress: PdfTranscriptionProgress) => void
+  onProgress?: (progress: PdfTranscriptionProgress) => void,
+  signal?: AbortSignal
 ): Promise<PdfAssetSession | null> => {
   if (!isPdfFile(file)) {
     return null;
   }
 
+  signal?.throwIfAborted();
   const cacheKey = getPdfCacheKey(file);
   const cached = PDF_TEXT_PARSE_CACHE.get(cacheKey);
   if (cached !== undefined) {
     return cached;
   }
 
-  const nextPromise = extractPdfTextViaBackend(file, onProgress).catch(error => {
+  const nextPromise = extractPdfTextViaBackend(file, onProgress, signal).catch(error => {
     PDF_TEXT_PARSE_CACHE.delete(cacheKey);
     throw error;
   });

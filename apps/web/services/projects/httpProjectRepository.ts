@@ -160,7 +160,8 @@ const createProjectSyncError = (error: unknown): ProjectStorageError => {
 
 const responseErrorCode = (status: number, apiCode?: string): ProjectStorageError['code'] => {
   if (apiCode === 'PDF_PAGE_TRANSCRIPTION_FAILED') return 'pdf-transcription-failed';
-  if (status === 404) return 'project-deleted';
+  if (status === 404 || apiCode === PROJECT_API_ERROR_CODE.projectNotFound)
+    return 'project-deleted';
   if (apiCode === PROJECT_API_ERROR_CODE.revisionConflict) return 'revision-conflict';
   if (apiCode === PROJECT_API_ERROR_CODE.coverRevisionConflict) return 'cover-revision-conflict';
   if (apiCode === PROJECT_API_ERROR_CODE.sourceArchiveBusy) return 'source-archive-busy';

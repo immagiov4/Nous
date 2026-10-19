@@ -436,3 +436,38 @@ test('retries the provider after a completed blank transcription fails source va
   assert.equal((await validatePdfTextSource(source))?.status, 'ok');
   assert.equal(fetchMock.mock.calls.length, 2);
 });
+
+test('cancels the backend transcription request and permits retrying its source', async () => {
+  const { getPdfTextSession } = await import('../../../services/openrouter/pdfAssets.ts');
+  const controller = new AbortController();
+  let rejectRequest: (reason: unknown) => void = () => {};
+  const fetchMock = vi.fn(
+    (_url, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        rejectRequest = reject;
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+      })
+  );
+  vi.stubGlobal('fetch', fetchMock);
+  const source = { ...pdfFile, name: 'cancel-private-request.pdf' };
+  const pending = getPdfTextSession(source, undefined, controller.signal);
+  void pending.catch(() => undefined);
+  try {
+    await vi.waitFor(() => assert.equal(fetchMock.mock.calls.length, 1));
+    assert.equal(fetchMock.mock.calls[0][1]?.signal, controller.signal);
+    controller.abort();
+    await assert.rejects(pending, { name: 'AbortError' });
+  } finally {
+    controller.abort();
+    rejectRequest(controller.signal.reason);
+    await pending.catch(() => undefined);
+  }
+  fetchMock.mockResolvedValueOnce(
+    Response.json({
+      success: true,
+      text: 'Recovered text',
+      pages: [{ pageNumber: 1, text: 'Recovered text' }],
+    })
+  );
+  assert.equal((await getPdfTextSession(source))?.pages[0].text, 'Recovered text');
+});

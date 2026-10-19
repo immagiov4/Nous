@@ -9046,3 +9046,42 @@ test('confirmPlanGeneration rejects a superseded approval response', async () =>
   decisionResolvers[1]?.();
   await current;
 });
+
+test('Stop aborts scanned PDF preparation before an interview or draft exists', async () => {
+  let sourceSignal: AbortSignal | undefined;
+  let markStarted!: () => void;
+  const started = new Promise<void>(resolve => {
+    markStarted = resolve;
+  });
+  let release: () => void = () => {};
+  const startCourseInterview = vi.fn();
+  const { controller, projectLibrary } = createControllerHarness({
+    openRouter: {
+      startCourseInterview,
+      validatePdfTextSource: async (_file, _progress, signal?: AbortSignal) => {
+        sourceSignal = signal;
+        markStarted();
+        return new Promise<null>((resolve, reject) => {
+          release = () => resolve(null);
+          signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      },
+    },
+  });
+  const start = controller.startHomeChat({
+    input: 'Build a course',
+    selectedFile: new File(['synthetic'], 'cancel-scanned.pdf', { type: 'application/pdf' }),
+  });
+  let cancellation: Promise<void> | undefined;
+  try {
+    await started;
+    cancellation = controller.cancelAssessment();
+    expect(sourceSignal?.aborted).toBe(true);
+  } finally {
+    release();
+    await cancellation;
+  }
+  expect((await start).outcome).toBe('abandoned');
+  expect(projectLibrary.persistedSnapshots).toEqual([]);
+  expect(startCourseInterview).not.toHaveBeenCalled();
+});

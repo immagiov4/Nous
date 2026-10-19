@@ -1463,3 +1463,21 @@ test.each([
     vi.useRealTimers();
   }
 });
+
+test('recognizes a deleted project after NDJSON progress committed HTTP 200', async () => {
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      [
+        JSON.stringify({ type: 'progress', progress: { completed: 1, total: 2, failedPages: [] } }),
+        JSON.stringify({
+          type: 'result',
+          result: { success: false, code: 'project_not_found', error: 'Il corso non esiste più.' },
+        }),
+      ].join('\n'),
+      { headers: { 'Content-Type': 'application/x-ndjson' } }
+    )
+  );
+  await expect(
+    new HttpProjectRepository('http://localhost:3301').listFolders()
+  ).rejects.toMatchObject({ code: 'project-deleted' });
+});

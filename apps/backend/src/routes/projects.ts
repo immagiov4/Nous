@@ -315,7 +315,15 @@ const sendProjectWriteError = (
     });
     return;
   }
-  sendProjectWriteErrorResult(res, error instanceof ProjectNotFoundError ? 404 : fallbackStatus, {
+  if (error instanceof ProjectNotFoundError) {
+    sendProjectWriteErrorResult(res, 404, {
+      code: PROJECT_API_ERROR_CODE.projectNotFound,
+      error: error.message,
+      success: false,
+    });
+    return;
+  }
+  sendProjectWriteErrorResult(res, fallbackStatus, {
     success: false,
     error: res.headersSent
       ? 'Preparazione archivio non riuscita.'

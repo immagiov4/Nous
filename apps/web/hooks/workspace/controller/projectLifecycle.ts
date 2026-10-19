@@ -1,6 +1,7 @@
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
+import { formatPdfTranscriptionProgress } from '../../../services/processingResponse.ts';
 import {
   createProjectSourceFromDescriptors,
   getCourseSourceDescriptors,
@@ -237,10 +238,7 @@ export const createProjectLifecycleCommands = (
                 'attachSource',
                 requestId,
                 pdfProgress
-                  ? t('Trascrizione pagine scansionate {completed}/{total}', {
-                      completed: pdfProgress.completed,
-                      total: pdfProgress.total,
-                    })
+                  ? formatPdfTranscriptionProgress(pdfProgress)
                   : t('Preparazione fonti... {completed}/{total}', { completed, total })
               );
             }
@@ -262,10 +260,7 @@ export const createProjectLifecycleCommands = (
           state.setWorkflowMessage(
             'attachSource',
             requestId,
-            t('Trascrizione pagine scansionate {completed}/{total}', {
-              completed: progress.completed,
-              total: progress.total,
-            })
+            formatPdfTranscriptionProgress(progress)
           )
         );
         const session = await openRouter.getPdfTextSession(nextFile);
@@ -319,10 +314,7 @@ export const createProjectLifecycleCommands = (
                 state.setWorkflowMessage(
                   'attachSource',
                   requestId,
-                  t('Trascrizione pagine scansionate {completed}/{total}', {
-                    completed: progress.completed,
-                    total: progress.total,
-                  })
+                  formatPdfTranscriptionProgress(progress)
                 ),
             }
           );
@@ -383,10 +375,7 @@ export const createProjectLifecycleCommands = (
             state.setWorkflowMessage(
               'attachSource',
               requestId,
-              t('Trascrizione pagine scansionate {completed}/{total}', {
-                completed: progress.completed,
-                total: progress.total,
-              })
+              formatPdfTranscriptionProgress(progress)
             ),
         }
       );

@@ -1,3 +1,4 @@
+import { PDF_SCANNED_PAGE_LIMIT_MESSAGE } from '@shared/pdfTranscription';
 import { COURSE_PLANNING_MESSAGES } from './coursePlanningMessages';
 
 export const SUPPORTED_APP_LOCALES = ['en', 'it'] as const;
@@ -37,12 +38,18 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 };
 
 const ENGLISH_UI_MESSAGES = {
+  [PDF_SCANNED_PAGE_LIMIT_MESSAGE]:
+    'There is too much scanned material for one course. Select only the parts you need.',
+  'Pagine {from}–{to} trascritte in qualità ridotta.':
+    'Pages {from}–{to} transcribed at reduced quality.',
   'Nessuna delle fonti selezionate contiene materiale utilizzabile.':
     'None of the selected sources contains usable material.',
   'Questa fonte non è utilizzabile.': 'This source is unusable.',
   'Questa fonte non contiene testo PDF utilizzabile.': 'This source contains no usable PDF text.',
   'Risposta di elaborazione incompleta.': 'Document processing response is incomplete.',
   'Preparazione del documento non riuscita.': 'Document preparation failed.',
+  '{file}, pagina {page}: non trascritta.': '{file}, page {page}: not transcribed.',
+  'Pagina {page}: non trascritta.': 'Page {page}: not transcribed.',
   'Trascrizione non riuscita per le pagine: {pages}.': 'Transcription failed for pages: {pages}.',
   'Documento: {name}.': 'Document: {name}.',
   '1 lezione · {lastOpenedDate}': '1 lesson · {lastOpenedDate}',

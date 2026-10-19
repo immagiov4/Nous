@@ -258,6 +258,8 @@ export const getCourseSourceDescriptors = (
     if (!descriptor) {
       return [];
     }
+    if (source.kind === 'pdf' && source.preparedPdfText)
+      descriptor.preparedPdfText = source.preparedPdfText;
     if (!source.ref) {
       return [descriptor];
     }

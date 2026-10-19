@@ -185,5 +185,16 @@ test('course planning retains transcription provenance even when sampling omits 
       outlineOrigin: 'none' as const,
     },
   };
-  expect(formatCourseSourceMaterials([material], 1)).toContain('"transcribedPages":[7]');
+  const formatted = formatCourseSourceMaterials([material], 1);
+  const source = /^<source id="([^"]+)" name="([^"]+)">\n([\s\S]*)\n<\/source>$/.exec(formatted);
+  expect(source?.slice(1, 3)).toEqual([material.descriptor.id, material.descriptor.name]);
+  const provenance =
+    /^<source-provenance>([^\n]+)<\/source-provenance>\n<excerpt>\n([\s\S]*)\n<\/excerpt>$/.exec(
+      source?.[3] || ''
+    );
+  expect(JSON.parse(provenance?.[1] || 'null')).toEqual({
+    kind: 'vision-transcription',
+    transcribedPages: [7],
+  });
+  expect(provenance?.[2]).toBe('M');
 });

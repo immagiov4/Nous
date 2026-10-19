@@ -15,7 +15,10 @@ import {
   buildMappedSourceContext,
 } from '../../src/services/lessonGenerationSources.js';
 import type { LessonGenerationInput } from '../../src/services/lessonGenerationTypes.js';
-import { readLessonPrimarySources } from '../../src/services/lessonPrimarySourceContext.js';
+import {
+  encodeLessonPrimarySources,
+  readLessonPrimarySources,
+} from '../../src/services/lessonPrimarySourceContext.js';
 import { buildSha256HexDigest } from '../../src/utils/hash.js';
 import { CourseDocumentIndexSchema } from '../../src/workflows/courseGenerationWorkflowContract.js';
 import { canonicalJson } from '../../src/workflows/schemaFingerprint.js';
@@ -187,4 +190,34 @@ test('archive evidence keeps clean and transcribed page identities separate afte
     },
   ]);
   expect(parts?.[1].text).toContain('Machine transcription with a slip.');
+});
+
+test('playback provenance includes only the selected evidence units', () => {
+  const clean = { title: 'Digital page', pageStart: 1, pageEnd: 1 };
+  const scanned = { title: 'Handwritten page', pageStart: 2, pageEnd: 2, transcribedPages: [2] };
+  const input = {
+    sourceContext: encodeLessonPrimarySources([
+      { source: clean, text: 'Digital statement.\n' },
+      { source: scanned, text: 'Transcribed statement.\n' },
+    ]),
+    researchContext: '',
+    sources: [],
+  } as unknown as LessonGenerationInput;
+  const materials = buildLessonEvidenceMaterials(input);
+  const stored = (unitIndex: number) =>
+    serializeLessonEvidence(
+      input,
+      resolveLessonEvidence(materials, {
+        materials: [
+          {
+            materialId: 'primary',
+            reason: 'Selected page',
+            passages: [{ firstUnit: unitIndex, lastUnit: unitIndex, claims: ['Statement.'] }],
+            overlaps: [],
+          },
+        ],
+      })
+    );
+  expect(readStoredTranscribedSources(stored(0))).toEqual([]);
+  expect(readStoredTranscribedSources(stored(1))).toEqual([scanned]);
 });

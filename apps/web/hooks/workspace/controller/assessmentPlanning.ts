@@ -17,6 +17,7 @@ import { getErrorMessage } from '../../../services/core/errorMessage.ts';
 import { recordFeedbackWorkflowSnapshot } from '../../../services/feedback/browserDiagnostics.ts';
 import type { CourseInterviewSnapshot } from '../../../services/openrouter/courseInterviewClient.ts';
 import { createGenerationProgressBridge } from '../../../services/openrouter/generationProgress.ts';
+import { formatPdfTranscriptionProgress } from '../../../services/processingResponse.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import {
   createProjectId,
@@ -132,6 +133,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     requestToken: symbol
   ): AssessmentWorkspaceOwnership => {
     const ownership: AssessmentWorkspaceOwnership = {
+      sourcePreparationAbortController: new AbortController(),
       adoptedProjectIds: new Set(),
       draftCleanupPromise: null,
       draftProjectId: null,
@@ -648,6 +650,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
       );
     };
     session.latestHomeChatRequestToken = null;
+    homeChatWorkspaceOwnership?.sourcePreparationAbortController.abort();
     const cancellationRequestId = state.beginWorkflow('assessment', t('Caricamento...'));
     try {
       await retryPendingCancelledDraftCleanup();
@@ -814,7 +817,8 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
 
   const prepareRegularHomeChatSource = async (
     selectedFiles: File[],
-    requestId: number
+    requestId: number,
+    signal: AbortSignal
   ): Promise<PreparedFileSource> => {
     if (selectedFiles.length === 1) {
       const file = await readSourceFileData(selectedFiles[0]);
@@ -828,13 +832,11 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
           'assessment',
           requestId,
           pdfProgress
-            ? t('Trascrizione pagine scansionate {completed}/{total}', {
-                completed: pdfProgress.completed,
-                total: pdfProgress.total,
-              })
+            ? formatPdfTranscriptionProgress(pdfProgress)
             : t('Preparazione fonti... {completed}/{total}', { completed, total })
         );
-      }
+      },
+      signal
     );
     const file = prepared.descriptors.find(source => source.status !== 'error')?.file;
     if (!file) throw new Error('Unable to prepare project source');
@@ -872,7 +874,14 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
         workspaceOwnership,
       });
     }
-    return { kind: 'ready', value: await prepareRegularHomeChatSource(selectedFiles, requestId) };
+    return {
+      kind: 'ready',
+      value: await prepareRegularHomeChatSource(
+        selectedFiles,
+        requestId,
+        workspaceOwnership.sourcePreparationAbortController.signal
+      ),
+    };
   };
 
   const persistHomeChatArchiveSource = async ({
@@ -902,10 +911,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
           state.setWorkflowMessage(
             'assessment',
             requestId,
-            t('Trascrizione pagine scansionate {completed}/{total}', {
-              completed: progress.completed,
-              total: progress.total,
-            })
+            formatPdfTranscriptionProgress(progress)
           ),
       }
     );
@@ -976,17 +982,21 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     }
     if (source.kind === 'pdf' && !source.sources?.length) {
       state.setWorkflowMessage('assessment', requestId, t('Verifica testo PDF...'));
-      await openRouter.validatePdfTextSource(file, progress =>
-        state.setWorkflowMessage(
-          'assessment',
-          requestId,
-          t('Trascrizione pagine scansionate {completed}/{total}', {
-            completed: progress.completed,
-            total: progress.total,
-          })
-        )
+      await openRouter.validatePdfTextSource(
+        file,
+        progress =>
+          state.setWorkflowMessage(
+            'assessment',
+            requestId,
+            formatPdfTranscriptionProgress(progress)
+          ),
+        workspaceOwnership.sourcePreparationAbortController.signal
       );
-      const session = await openRouter.getPdfTextSession(file);
+      const session = await openRouter.getPdfTextSession(
+        file,
+        undefined,
+        workspaceOwnership.sourcePreparationAbortController.signal
+      );
       if (session?.transcription?.pages.length && session.sourceHash) {
         source = { ...source, preparedPdfText: toPreparedPdfText(session, session.sourceHash) };
       }

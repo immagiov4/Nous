@@ -276,9 +276,10 @@ const parseCourseSources = (value: unknown): CourseSourceDescriptor[] | undefine
       ) {
         return null;
       }
+      const preparedPdfText = PreparedPdfTextSchema.safeParse(source.preparedPdfText).data;
       return {
         documentIndex: parseDocumentIndex(source.documentIndex),
-        preparedPdfText: PreparedPdfTextSchema.safeParse(source.preparedPdfText).data,
+        ...(preparedPdfText ? { preparedPdfText } : {}),
         errorMessage: ensureString(source.errorMessage) || undefined,
         file: { ...file, sourceId: file.sourceId || source.id },
         hash: source.hash,
@@ -389,10 +390,11 @@ const parseProjectSource = (value: unknown): ProjectSource | null => {
 
   if (value.kind === 'pdf') {
     const file = parseFileData(value.file);
+    const preparedPdfText = PreparedPdfTextSchema.safeParse(value.preparedPdfText).data;
     return file && isPdfFileData(file) && (file.data || ref)
       ? {
           kind: 'pdf',
-          preparedPdfText: PreparedPdfTextSchema.safeParse(value.preparedPdfText).data,
+          ...(preparedPdfText ? { preparedPdfText } : {}),
           file,
           ...(ref ? { ref } : {}),
           ...(sources ? { sources } : {}),

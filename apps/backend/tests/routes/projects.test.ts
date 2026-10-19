@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { createApp } from '../../src/index.js';
 import { LibrarySiblingSetChangedError } from '../../src/projects/librarySiblingOrder.js';
+import { ProjectNotFoundError } from '../../src/projects/projectRevision.js';
 import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
 import {
   SourceArchivePreparationCapacityError,
@@ -267,6 +268,50 @@ describe('/api/projects', () => {
         code: PROJECT_API_ERROR_CODE.sourceArchiveUnusable,
         error: 'L’archivio non contiene alcun testo utilizzabile.',
         sourceWarnings: warnings,
+      },
+    });
+  });
+
+  test('retains project deletion after transcription progress opened the response', async () => {
+    const app = createApp();
+    const uploadId = crypto.randomUUID();
+    vi.spyOn(store, 'saveProject').mockRejectedValue(new ProjectNotFoundError());
+    const archive = { name: 'materials.zip', mimeType: 'application/zip' };
+    await request(app)
+      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1`)
+      .set('Content-Type', 'application/octet-stream')
+      .send(Buffer.from('synthetic archive bytes'));
+    const response = await request(app)
+      .post(`/api/projects/import/chunks/${uploadId}/complete`)
+      .set('Accept', 'application/x-ndjson')
+      .send({
+        payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceArchive,
+        snapshot: {
+          ...createSnapshot('blank-archive', 'Blank archive'),
+          sourceKind: 'codebase',
+          source: {
+            kind: 'archive',
+            file: { ...archive, data: '' },
+            index: { entries: [] },
+            name: archive.name,
+          },
+        },
+        sourceFile: archive,
+      });
+    const events = response.text
+      .trim()
+      .split('\n')
+      .map(line => JSON.parse(line));
+    expect(events[0]).toEqual({
+      type: 'progress',
+      progress: { completed: 1, total: 1, failedPages: [] },
+    });
+    expect(events.at(-1)).toEqual({
+      type: 'result',
+      result: {
+        success: false,
+        code: 'project_not_found',
+        error: 'Il corso non esiste più.',
       },
     });
   });

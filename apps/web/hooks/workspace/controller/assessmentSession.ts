@@ -27,6 +27,7 @@ export interface PendingWorkspaceOpen {
 }
 
 export interface AssessmentWorkspaceOwnership {
+  readonly sourcePreparationAbortController: AbortController;
   readonly adoptedProjectIds: Set<string>;
   draftCleanupPromise: Promise<void> | null;
   draftProjectId: string | null;

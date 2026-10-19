@@ -63,6 +63,20 @@ const getCourseSourceWarnings = (
 
 export const getProjectSourceWarnings = (source: ProjectSource): ProjectSourceWarning[] => {
   const descriptorWarnings = getCourseSourceWarnings(source.sources || []);
+  const missingPageWarnings = (source.sources || []).flatMap(descriptor =>
+    (descriptor.preparedPdfText?.failedPages || []).map(pageNumber => ({
+      name: descriptor.name,
+      message: t('Pagina {page}: non trascritta.', { page: pageNumber }),
+    }))
+  );
+  if (source.kind === 'pdf' && !source.sources?.length)
+    missingPageWarnings.push(
+      ...(source.preparedPdfText?.failedPages || []).map(pageNumber => ({
+        name: source.file.name,
+        message: t('Pagina {page}: non trascritta.', { page: pageNumber }),
+      }))
+    );
+  descriptorWarnings.push(...missingPageWarnings);
   if (source.kind !== 'archive') {
     return descriptorWarnings;
   }
@@ -80,29 +94,48 @@ export const getProjectSourceWarnings = (source: ProjectSource): ProjectSourceWa
         ]
       : []
   );
-  return [...descriptorWarnings, ...archivePdfWarnings];
+  const missingArchivePages = source.index.entries.flatMap(entry =>
+    entry.kind === 'file'
+      ? (entry.pdfPages || [])
+          .filter(page => page.transcriptionFailed)
+          .map(page => ({
+            name: entry.path,
+            message: t('Pagina {page}: non trascritta.', { page: page.pageNumber }),
+          }))
+      : []
+  );
+  return [...descriptorWarnings, ...archivePdfWarnings, ...missingArchivePages];
 };
 
 export const prepareUploadedCourseSource = async (
   context: Pick<WorkspaceControllerContext, 'openRouter'>,
   selectedFiles: readonly File[],
-  onProgress?: (completed: number, total: number, pdfProgress?: PdfTranscriptionProgress) => void
+  onProgress?: (completed: number, total: number, pdfProgress?: PdfTranscriptionProgress) => void,
+  signal?: AbortSignal
 ): Promise<{ descriptors: CourseSourceDescriptor[]; source: ProjectSource }> => {
+  signal?.throwIfAborted();
   const sortedFiles = sortSourceFiles(selectedFiles);
   const fileData = await Promise.all(sortedFiles.map(readSourceFileData));
   const descriptors = buildCourseSourceDescriptors(fileData);
 
   for (let index = 0; index < descriptors.length; index += 1) {
+    signal?.throwIfAborted();
     const descriptor = descriptors[index];
     onProgress?.(index, descriptors.length);
     if (descriptor.kind !== 'pdf') {
       continue;
     }
     try {
-      await context.openRouter.validatePdfTextSource(descriptor.file, progress =>
-        onProgress?.(index, descriptors.length, progress)
+      await context.openRouter.validatePdfTextSource(
+        descriptor.file,
+        progress => onProgress?.(index, descriptors.length, progress),
+        signal
       );
-      const session = await context.openRouter.getPdfTextSession(descriptor.file);
+      const session = await context.openRouter.getPdfTextSession(
+        descriptor.file,
+        undefined,
+        signal
+      );
       if (!session?.extractedText.trim()) {
         throw new Error('No extracted PDF text');
       }
@@ -118,6 +151,7 @@ export const prepareUploadedCourseSource = async (
         descriptor.id
       );
     } catch (error) {
+      signal?.throwIfAborted();
       if (descriptors.length === 1) {
         throw error;
       }
@@ -188,6 +222,9 @@ export const toPreparedPdfText = (
   sourceHash: string
 ): import('@shared/pdfTranscription').PreparedPdfText => ({
   text: session.extractedText,
+  ...(session.transcription?.failedPages?.length
+    ? { failedPages: session.transcription.failedPages }
+    : {}),
   pages: session.pages,
   sourceHash,
   parser: session.parser || 'pdf-parse',

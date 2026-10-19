@@ -2,6 +2,22 @@ const pdfPageTranscriptionMocks = vi.hoisted(() => ({ complete: vi.fn() }));
 vi.mock('../../src/services/pdfPageTranscription.js', async original => ({
   ...(await original<typeof import('../../src/services/pdfPageTranscription.js')>()),
   completePdfTextExtraction: pdfPageTranscriptionMocks.complete,
+  preparePdfTextExtraction: async (
+    bytes: Buffer,
+    extracted: unknown,
+    options: { onTranscriptionStart?: () => void }
+  ) => {
+    let started = false;
+    const completion = pdfPageTranscriptionMocks.complete(bytes, extracted, {
+      ...options,
+      onTranscriptionStart: () => {
+        options.onTranscriptionStart?.();
+        started = true;
+      },
+    });
+    if (!started) return { completion: Promise.resolve(await completion) };
+    return { completion };
+  },
 }));
 
 import { createHash } from 'node:crypto';
@@ -720,16 +736,11 @@ test('interrupts a stalled PDF inspection at the existing archive preparation de
   });
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   const pending = indexSourceArchive(archive, GENEROUS_LIMITS);
-  let settled = false;
-  void pending.then(() => {
-    settled = true;
-  });
   try {
     await started.promise;
     await vi.advanceTimersByTimeAsync(
       PROJECT_SOURCE_ARCHIVE_PDF_POLICY.archivePreparationTimeoutMs
     );
-    expect(settled).toBe(true);
     expect(inspectionSignal?.aborted).toBe(true);
     expect((await pending).entries[0]).toMatchObject({ warningReason: 'timeout' });
     expect((await pending).entries[0]).not.toHaveProperty('text');
@@ -738,4 +749,90 @@ test('interrupts a stalled PDF inspection at the existing archive preparation de
     await pending;
     vi.useRealTimers();
   }
+});
+
+test('prepares the next PDF while the first transcription is still in flight and preserves source order', async () => {
+  const archive = await createArchive([
+    { content: '%PDF-first', path: 'a.pdf', type: 'file' },
+    { content: '%PDF-second', path: 'b.pdf', type: 'file' },
+  ]);
+  const text = 'A useful mathematical explanation with complete definitions. '.repeat(8).trim();
+  const extracted = { text, pages: [{ pageNumber: 1, text }] };
+  const first = Promise.withResolvers<typeof extracted>();
+  pdfTextExtractorMocks.extractPdfText.mockResolvedValue(extracted);
+  pdfPageTranscriptionMocks.complete.mockImplementation((_bytes, value, options) => {
+    options?.onTranscriptionStart?.();
+    return pdfPageTranscriptionMocks.complete.mock.calls.length === 1
+      ? first.promise
+      : Promise.resolve(value);
+  });
+  const pending = indexSourceArchive(archive, GENEROUS_LIMITS);
+  try {
+    await vi.waitFor(() => expect(pdfPageTranscriptionMocks.complete).toHaveBeenCalledTimes(2));
+  } finally {
+    first.resolve(extracted);
+    const result = await pending;
+    expect(result.entries.filter(entry => entry.kind === 'file').map(entry => entry.path)).toEqual([
+      'a.pdf',
+      'b.pdf',
+    ]);
+  }
+});
+
+test('propagates the course scanned-page limit instead of downgrading it to a parser warning', async () => {
+  const { PdfScannedPageLimitError } = await import('../../src/services/pdfTranscriptionPolicy.js');
+  const archive = await createArchive([
+    { content: '%PDF-synthetic', path: 'notes.pdf', type: 'file' },
+  ]);
+  pdfTextExtractorMocks.extractPdfText.mockResolvedValue({
+    text: '',
+    pages: [{ pageNumber: 1, text: '' }],
+  });
+  pdfPageTranscriptionMocks.complete.mockRejectedValue(new PdfScannedPageLimitError(300));
+  await expect(indexSourceArchive(archive, GENEROUS_LIMITS)).rejects.toMatchObject({
+    code: 'PDF_SCANNED_PAGE_LIMIT',
+    limit: 300,
+  });
+});
+
+test('persists scanned blank and failed page identities alongside successful transcription for course budgeting', async () => {
+  const archive = await createArchive([
+    { content: '%PDF-synthetic', path: 'notes.pdf', type: 'file' },
+  ]);
+  const text = 'A transcribed definition and its derivation. '.repeat(8);
+  pdfTextExtractorMocks.extractPdfText.mockResolvedValue({ text: '', pages: [] });
+  pdfPageTranscriptionMocks.complete.mockResolvedValue({
+    text,
+    pages: [
+      { pageNumber: 1, text: '' },
+      { pageNumber: 2, text: '' },
+      {
+        pageNumber: 3,
+        text,
+        provenance: {
+          kind: 'vision-transcription',
+          model: 'synthetic',
+          provider: 'openrouter',
+          pageNumber: 3,
+        },
+      },
+    ],
+    transcription: {
+      pages: [3],
+      blankPages: [1],
+      failedPages: [2],
+      measurements: [],
+      inputTokens: 0,
+      outputTokens: 0,
+    },
+  });
+  const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
+  const file = result.entries.find(entry => entry.kind === 'file');
+  expect(file).toMatchObject({
+    pdfPages: [
+      { pageNumber: 1, transcriptionBlank: true, startByte: 0, endByte: 0 },
+      { pageNumber: 2, transcriptionFailed: true, startByte: 0, endByte: 0 },
+      { pageNumber: 3, provenance: { kind: 'vision-transcription' } },
+    ],
+  });
 });

@@ -26,7 +26,11 @@ import {
   exportProjectData,
   normalizeImportedProject,
 } from '../../../services/projects/projectSnapshot.ts';
-import { encodeBytesBase64, encodeTextBase64 } from '../../../services/projects/projectSource.ts';
+import {
+  decodeBase64Bytes,
+  encodeBytesBase64,
+  encodeTextBase64,
+} from '../../../services/projects/projectSource.ts';
 import { AppState, type ProjectSnapshot } from '../../../types.ts';
 import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
 import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
@@ -723,4 +727,36 @@ test('readLegacyProjectImportData rejects arbitrary json files that are not Nous
     () => readLegacyProjectImportData(arbitraryJson),
     /Il file selezionato non è un backup Nous valido\./
   );
+});
+
+test('backup and restore preserve prepared PDF text, source hash and physical-page provenance', async () => {
+  const snapshot = buildPdfSnapshot();
+  assert.ok(snapshot.source?.kind === 'pdf');
+  const sourceHash = await sha256(decodeBase64Bytes(snapshot.source.file.data));
+  const preparedPdfText = {
+    text: 'Recorded transcription $x=2$.',
+    sourceHash,
+    pages: [
+      {
+        pageNumber: 7,
+        text: 'Recorded transcription $x=2$.',
+        provenance: {
+          kind: 'vision-transcription' as const,
+          pageNumber: 7,
+          model: 'recorded',
+          provider: 'recorded',
+        },
+      },
+    ],
+    parser: 'pdf-parse' as const,
+    usedFallbackParser: true,
+    outline: [],
+    outlineOrigin: 'none' as const,
+  };
+  snapshot.source.preparedPdfText = preparedPdfText;
+  const archive = await createProjectArchiveBlob(snapshot);
+  const imported = normalizeImportedProject((await decodeArchive(archive)).project);
+  assert.ok(imported.source?.kind === 'pdf');
+  assert.deepEqual(imported.source.preparedPdfText, preparedPdfText);
+  assert.deepEqual(imported.source.file, snapshot.source.file);
 });
