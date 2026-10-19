@@ -33,8 +33,9 @@ describe('direct OpenAI removal deployment compatibility', () => {
     );
     if (!local) throw new Error(`Missing deployment: ${deployed.current.workflowId}`);
 
+    // Playback output schema additions are compatible promotions, not unchanged deployments.
     expect(classifyWorkflowDefinitionDeployment({ current: deployed, previous: null }, local)).toBe(
-      deployed.current.workflowId === 'prepare-lesson-playback-block' ? 'unchanged' : 'promote'
+      'promote'
     );
   });
 

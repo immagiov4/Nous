@@ -1,5 +1,13 @@
 import type { LessonPlaybackBlock } from '@shared/lessonPlayback';
-import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type RefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   getLessonPlayback,
   LessonPlaybackRequestError,
@@ -81,7 +89,7 @@ export function useLessonPlayback({
     latest.current = { voice, speed };
   }, [voice, speed]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     audioRef.current = audioElementRef?.current ?? new Audio();
     const audio = getAudio();
     const sessionIntent = intent.current;
