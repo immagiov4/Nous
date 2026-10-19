@@ -7924,13 +7924,13 @@ test('exercise brief failure cannot offer lesson regeneration after navigating t
     },
   });
   const generation = controller.openExercise(exercise);
-  assert.equal(await controller.openSection(readyLesson), 'reused-cached');
+  await expect(controller.openSection(readyLesson)).resolves.toBe('reused-cached');
   rejectBrief(new Error('La generazione dell’esercizio non è riuscita.'));
-  await assert.doesNotReject(generation);
-  assert.equal(domain.activeSectionId, readyLesson.id);
-  assert.equal(domain.activeSection?.content, '# Lezione pronta');
-  assert.equal(state.adapter.getWorkflowState().loadSection.status, 'idle');
-  assert.equal(state.adapter.getWorkflowState().loadSection.error, undefined);
+  await expect(generation).resolves.toBeUndefined();
+  expect(domain.activeSectionId).toBe(readyLesson.id);
+  expect(domain.activeSection?.content).toBe('# Lezione pronta');
+  expect(state.adapter.getWorkflowState().loadSection.status).toBe('idle');
+  expect(state.adapter.getWorkflowState().loadSection.error).toBeUndefined();
 });
 
 test('exercise brief generation keeps its gate after workflow invalidation until the provider call settles', async () => {
