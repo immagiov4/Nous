@@ -79,6 +79,7 @@ export type LibraryExportProgressListener = (progress: LibraryExportProgress) =>
 
 export interface ProjectSaveOptions extends ProjectWriteOptions {
   archiveFile?: File;
+  sourceFiles?: readonly File[];
 }
 
 export interface ProjectRepository {

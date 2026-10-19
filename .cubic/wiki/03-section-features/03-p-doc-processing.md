@@ -101,7 +101,7 @@ Sources: [packages/shared-types/pdfTextIndex.ts:118-136](../../../packages/share
 
 ## Source Archive Preparation
 
-For `codebase` projects, the system processes ZIP archives. This involves a high-intensity "Admission" phase to prevent server overload.
+ZIP sources are inspected before transfer and prepared under the existing single-archive admission. Separate course files also use binary chunk transfer; the browser encodes only one file at a time for extraction and keeps original File handles for persistence.
 
 ```mermaid
 sequenceDiagram
@@ -111,7 +111,7 @@ sequenceDiagram
     
     User->>Archive: indexSourceArchive(buffer)
     Archive->>Archive: Validate path safety (no traversal)
-    Archive->>Archive: Check entry limits (max 16 PDFs)
+    Archive->>Archive: Inspect directory metadata and safety limits
     loop For each PDF
         Archive->>Extract: extractPdfText()
     end
@@ -124,7 +124,11 @@ Sources: [apps/backend/tests/projects/sourceArchive.test.ts:96-150](../../../app
 
 ### Safety Constraints
 *  **Path Validation**: Rejects traversal attacks (`../`), absolute paths, or duplicate entries.
-*  **Safety Limits**: Caps PDF processing to the first 16 eligible files or a cumulative 64MB budget per archive to prevent DoS.
+*  **Per-file preparation**: Every eligible PDF is processed sequentially. The former 16-PDF and 64 MB cumulative admission limits are removed. A PDF input is limited to 32 MB; an oversized archive member remains available as binary data and receives an explicit warning. The browser reads ZIP directory metadata before upload and names excluded PDFs.
+*  **Transfer and temporary disk**: Source files and ZIPs use the existing authenticated 16 MB chunk transfer with one final publication. Source uploads reuse the 1 GB archive safety envelope. ZIP entries retain the existing 20,000-entry, 256 MB single-entry and 1 GB expanded-size validation. The backend reads an assembled ZIP from disk, and keeps prepared file bytes in temporary files rather than retaining a complete course in memory. Backup import limits remain separate.
+*  **Storage concurrency**: The existing four uploads and 64 MB in-flight byte budget apply to active storage transfers, rather than the total course size. The original ZIP is streamed from disk.
+*  **Parser bounds**: PDF extraction uses a 15-second native stage, 15-second isolated fallback stage and 64 MB text-output bound for both separate files and ZIP members. ZIP preparation retains its 480-second deadline. The fallback heap bound is derived from one PDF input and its output budget.
+*  **Atomic publication and ownership**: Source metadata and references are published only after all objects are ready. Reattached retained sources must belong to the same project. Temporary files are removed after completion or failure.
 *  **Lexicographic Stability**: Archives are processed and indexed in a stable alphabetical order to ensure deterministic IDs.
 
 Sources: [apps/backend/tests/projects/sourceArchive.test.ts:241-260](../../../apps/backend/tests/projects/sourceArchive.test.ts#L241-L260), [apps/backend/tests/projects/sourceArchive.test.ts:291-305](../../../apps/backend/tests/projects/sourceArchive.test.ts#L291-L305)

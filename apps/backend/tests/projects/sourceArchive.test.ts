@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SOURCE_ARCHIVE_PREVIEW_MAX_CHARS } from '@shared/sourceArchivePreview';
 import JSZip from 'jszip';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { ZipFile } from 'yauzl';
 
 const pdfTextExtractorMocks = vi.hoisted(() => ({
   extractPdfText: vi.fn(),
@@ -19,6 +23,7 @@ import {
   PROJECT_SOURCE_ARCHIVE_PDF_POLICY,
   type SourceArchiveLimits,
   SourceArchivePreparationError,
+  streamSourceArchive,
   withSourceArchivePreparationAdmission,
 } from '../../src/projects/sourceArchive.js';
 import {
@@ -223,16 +228,13 @@ describe('indexSourceArchive', () => {
     expect(entry).toMatchObject({ warningReason: 'no-usable-text' });
   });
 
-  test('admits at most 16 PDFs and continues indexing later valid text entries', async () => {
+  test('prepares all 30 lesson PDFs and continues indexing later text entries', async () => {
     const archive = await createArchive([
-      ...Array.from(
-        { length: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEligibleEntries + 1 },
-        (_, index) => ({
-          content: `%PDF-${index}`,
-          path: `docs/${index.toString().padStart(2, '0')}.pdf`,
-          type: 'file' as const,
-        })
-      ),
+      ...Array.from({ length: 30 }, (_, index) => ({
+        content: `%PDF-${index}`,
+        path: `docs/${index.toString().padStart(2, '0')}.pdf`,
+        type: 'file' as const,
+      })),
       { content: 'Appunti ancora validi', path: 'docs/notes.txt', type: 'file' as const },
     ]);
     const usableText = 'Contenuto didattico estratto correttamente. '.repeat(8);
@@ -243,10 +245,10 @@ describe('indexSourceArchive', () => {
 
     const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
 
-    expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(16);
-    expect(result.entries.find(entry => entry.path === 'docs/16.pdf')).toMatchObject({
+    expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(30);
+    expect(result.entries.find(entry => entry.path === 'docs/29.pdf')).toMatchObject({
       kind: 'file',
-      warningReason: 'safety-limit',
+      text: usableText.trim(),
     });
     expect(result.entries.find(entry => entry.path === 'docs/notes.txt')).toMatchObject({
       kind: 'file',
@@ -283,14 +285,8 @@ describe('indexSourceArchive', () => {
     });
   });
 
-  test('enforces the cumulative 64 MB PDF admission budget', async () => {
-    const testPdfBytes = 16;
-    const testCumulativeBytes = testPdfBytes * 4;
-    expect(PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxCumulativeBytes).toBe(64_000_000);
-    vi.spyOn(PROJECT_SOURCE_ARCHIVE_PDF_POLICY, 'maxCumulativeBytes', 'get').mockReturnValue(
-      testCumulativeBytes
-    );
-    const pdfBytes = new Uint8Array(testPdfBytes);
+  test('prepares every PDF when the course exceeds the former 64 MB total', async () => {
+    const pdfBytes = new Uint8Array(16_000_000);
     const archive = await createArchive(
       Array.from({ length: 5 }, (_, index) => ({
         content: pdfBytes,
@@ -303,16 +299,14 @@ describe('indexSourceArchive', () => {
       pages: [{ text: usableText }],
       text: usableText,
     });
-
     const result = await indexSourceArchive(archive, {
       maxEntries: 10,
-      maxEntryBytes: testPdfBytes,
-      maxExpandedBytes: testPdfBytes * 5,
+      maxEntryBytes: pdfBytes.byteLength,
+      maxExpandedBytes: pdfBytes.byteLength * 5,
     });
-
-    expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(4);
+    expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(5);
     expect(result.entries.find(entry => entry.path === 'docs/4.pdf')).toMatchObject({
-      warningReason: 'safety-limit',
+      text: usableText.trim(),
     });
   });
 
@@ -643,4 +637,58 @@ describe('withSourceArchivePreparationAdmission', () => {
     ).resolves.toBeUndefined();
     expect(secondPrepare).toHaveBeenCalledOnce();
   });
+});
+
+const readArchiveFromDisk = async (bytes: Uint8Array, limits: SourceArchiveLimits) => {
+  const directory = await mkdtemp(join(tmpdir(), 'nous-file-archive-test-'));
+  try {
+    const path = join(directory, 'source.zip');
+    await writeFile(path, bytes);
+    const entries = [];
+    for await (const entry of streamSourceArchive(path, limits)) entries.push(entry);
+    return entries;
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+};
+
+test('preserves text and binary entries when the archive stays on disk', async () => {
+  const bytes = await createArchive([
+    { path: 'notes.md', content: '# Complete notes', type: 'file' },
+    { path: 'image.bin', content: new Uint8Array([0xff, 0xfe]), type: 'file' },
+  ]);
+  const entries = await readArchiveFromDisk(bytes, GENEROUS_LIMITS);
+  expect(entries.find(entry => entry.path === 'notes.md')).toMatchObject({
+    text: '# Complete notes',
+  });
+  expect(entries.find(entry => entry.path === 'image.bin')).toMatchObject({
+    content: new Uint8Array([0xff, 0xfe]),
+  });
+});
+
+test('rejects traversal and duplicate names through the file-backed archive path', async () => {
+  const unsafe = await createArchive([{ path: '../notes.md', content: 'private', type: 'file' }]);
+  await expect(readArchiveFromDisk(unsafe, GENEROUS_LIMITS)).rejects.toThrow(
+    SourceArchivePreparationError
+  );
+  const normal = await createArchive([
+    { path: 'aa.md', content: 'first', type: 'file' },
+    { path: 'bb.md', content: 'second', type: 'file' },
+  ]);
+  const duplicate = replaceAscii(normal, 'bb.md', 'aa.md');
+  await expect(readArchiveFromDisk(duplicate, GENEROUS_LIMITS)).rejects.toThrow(
+    SourceArchivePreparationError
+  );
+});
+
+test('rejects an excessive directory before reading its entries', async () => {
+  const bytes = await createArchive([
+    { path: 'first.txt', content: 'first', type: 'file' },
+    { path: 'second.txt', content: 'second', type: 'file' },
+  ]);
+  const reads = vi.spyOn(ZipFile.prototype, 'readEntry');
+  await expect(readArchiveFromDisk(bytes, { ...GENEROUS_LIMITS, maxEntries: 1 })).rejects.toThrow(
+    SourceArchivePreparationError
+  );
+  expect(reads).not.toHaveBeenCalled();
 });

@@ -1,3 +1,4 @@
+import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
 import {
   LIBRARY_EXPORT_RETENTION_ERROR_CODE,
   type LibraryExportPhase,
@@ -487,7 +488,7 @@ export class HttpProjectRepository implements ProjectRepository {
 
   async saveProject(
     snapshot: ProjectSnapshot,
-    { archiveFile, ...options }: ProjectSaveOptions = {}
+    { archiveFile, sourceFiles, ...options }: ProjectSaveOptions = {}
   ): Promise<ProjectSaveResult> {
     let snapshotToSave = snapshot;
     const source = snapshot.source;
@@ -497,7 +498,7 @@ export class HttpProjectRepository implements ProjectRepository {
         'persistence-failed'
       );
     }
-    if (source?.kind !== 'archive' && source?.sources?.length) {
+    if (!sourceFiles && source?.kind !== 'archive' && source?.sources?.length) {
       const descriptors = getCourseSourceDescriptors(source);
       if (
         descriptors.some(descriptor => descriptor.file.data) &&
@@ -523,8 +524,44 @@ export class HttpProjectRepository implements ProjectRepository {
     const projectPayload = omitDuplicatedPrimarySourceBytes(
       exportProjectData(snapshotToSave, {
         externalArchiveBytesAvailable: Boolean(archiveFile?.size),
+        externalSourceFilesAvailable: Boolean(sourceFiles?.length),
       })
     );
+    if (sourceFiles?.length) {
+      const descriptors = getCourseSourceDescriptors(snapshot.source);
+
+      const config = await this.getProjectImportConfig();
+      const usedSourceIds = new Set<string>();
+      const files = sourceFiles.map(file => {
+        const descriptor = descriptors.find(
+          source => source.name === file.name && !source.ref && !usedSourceIds.has(source.id)
+        );
+        if (!descriptor)
+          throw new ProjectStorageError(
+            'Le fonti selezionate non corrispondono al corso.',
+            'persistence-failed'
+          );
+        usedSourceIds.add(descriptor.id);
+        return {
+          id: descriptor.id,
+          name: file.name,
+          mimeType: descriptor.file.mimeType,
+          byteSize: file.size,
+        };
+      });
+      const uploadId = await this.uploadBinaryProjectImport(
+        new Blob([...sourceFiles]),
+        config,
+        options.expectedRevision,
+        true
+      );
+      return this.completeSourceProjectUpload(uploadId, {
+        ...options,
+        payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceSet,
+        snapshot: projectPayload,
+        sourceFiles: files,
+      });
+    }
     if (archiveFile) {
       const importConfig = await this.getProjectImportConfig();
       return this.saveArchiveProjectInChunks(projectPayload, archiveFile, importConfig, options);
@@ -574,23 +611,25 @@ export class HttpProjectRepository implements ProjectRepository {
     const uploadId = await this.uploadBinaryProjectImport(
       archiveFile,
       config,
-      options.expectedRevision
+      options.expectedRevision,
+      true
     );
+    return this.completeSourceProjectUpload(uploadId, {
+      ...options,
+      payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceArchive,
+      snapshot,
+      sourceFile: { name: sourceFile.name, mimeType: sourceFile.mimeType },
+    });
+  }
+
+  private async completeSourceProjectUpload(
+    uploadId: string,
+    body: Record<string, unknown>
+  ): Promise<ProjectSaveResult> {
     try {
-      const response = await this.request<{
-        meta?: SavedProjectMeta;
-        snapshot?: ProjectSnapshot;
-      }>(
+      const response = await this.request<{ meta?: SavedProjectMeta; snapshot?: ProjectSnapshot }>(
         `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/complete`,
-        {
-          body: JSON.stringify({
-            ...options,
-            payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceArchive,
-            snapshot,
-            sourceFile: { name: sourceFile.name, mimeType: sourceFile.mimeType },
-          }),
-          method: 'POST',
-        },
+        { body: JSON.stringify(body), method: 'POST' },
         PROJECT_ARCHIVE_SAVE_TIMEOUT_MS
       );
       return {
@@ -887,10 +926,17 @@ export class HttpProjectRepository implements ProjectRepository {
   private async uploadBinaryProjectImport(
     archive: Blob,
     config: ProjectImportConfig,
-    expectedRevision?: number
+    expectedRevision?: number,
+    sourceUpload = false
   ): Promise<string> {
     const chunkCount = Math.ceil(archive.size / config.maxChunkBytes);
-    if (chunkCount > config.maxChunkCount || archive.size > config.maxSerializedBytes) {
+    const maxBytes = sourceUpload
+      ? COURSE_SOURCE_UPLOAD_LIMITS.maxTotalBytes
+      : config.maxSerializedBytes;
+    const maxChunks = sourceUpload
+      ? Math.ceil(maxBytes / config.maxChunkBytes)
+      : config.maxChunkCount;
+    if (chunkCount > maxChunks || archive.size > maxBytes) {
       throw new ProjectStorageError(
         'Il backup supera il limite massimo di importazione configurato sul server.',
         'quota-exceeded'
@@ -902,7 +948,7 @@ export class HttpProjectRepository implements ProjectRepository {
     try {
       for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
         await this.requestImportUpload(
-          `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/${chunkIndex}?chunkCount=${chunkCount}${expectedRevisionQuery}`,
+          `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/${chunkIndex}?chunkCount=${chunkCount}${expectedRevisionQuery}${sourceUpload ? '&sourceUpload=true' : ''}`,
           {
             body: archive.slice(
               chunkIndex * config.maxChunkBytes,

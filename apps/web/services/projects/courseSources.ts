@@ -195,9 +195,12 @@ const buildTextIndex = (
 };
 
 export const buildCourseSourceDescriptors = (
-  files: readonly FileData[]
+  files: readonly FileData[],
+  {
+    hashOccurrences = new Map<string, number>(),
+    positionOffset = 0,
+  }: { hashOccurrences?: Map<string, number>; positionOffset?: number } = {}
 ): CourseSourceDescriptor[] => {
-  const hashOccurrences = new Map<string, number>();
   return sortSourceFiles(files).map((originalFile, position) => {
     const hash = buildStableProjectSourceHash(originalFile);
     const occurrence = (hashOccurrences.get(hash) || 0) + 1;
@@ -215,7 +218,7 @@ export const buildCourseSourceDescriptors = (
       name: file.name,
       outline,
       outlineOrigin: outline.length > 0 ? 'deterministic' : 'none',
-      position,
+      position: position + positionOffset,
       status: 'ready',
     };
     if (kind !== 'pdf') {
@@ -229,8 +232,7 @@ export const createProjectSourceFromDescriptors = (
   descriptors: readonly CourseSourceDescriptor[]
 ): ProjectSource => {
   const sources = normalizeCourseSourceOrder(descriptors);
-  const primary =
-    sources.find(source => source.status !== 'error' && source.file.data) || sources[0];
+  const primary = sources.find(source => source.status !== 'error') || sources[0];
   if (!primary) {
     throw new Error('At least one course source is required.');
   }
@@ -267,6 +269,7 @@ export const getCourseSourceDescriptors = (
         file: { ...descriptor.file, sourceId: source.ref.id },
         hash: source.ref.hash,
         id: source.ref.id,
+        ref: source.ref,
       },
     ];
   }

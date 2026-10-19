@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { describe, expect, test, vi } from 'vitest';
 
@@ -230,4 +233,28 @@ describe('verifyProjectSourceBytes', () => {
       );
     }
   });
+});
+
+test('streams an original archive from disk with an exact content length', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'nous-source-storage-test-'));
+  try {
+    const path = join(directory, 'original.zip');
+    await writeFile(path, 'original archive bytes');
+    let uploaded = '';
+    const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      uploaded = await new Response(init?.body).text();
+      return new Response('{}');
+    }) as unknown as typeof fetch;
+    await createStorage(fetcher).upload(
+      'project/original',
+      { path, byteSize: 22 },
+      'application/zip'
+    );
+    expect(uploaded).toBe('original archive bytes');
+    const init = vi.mocked(fetcher).mock.calls[0]?.[1];
+    expect(new Headers(init?.headers).get('Content-Length')).toBe('22');
+    expect(init?.body).not.toBeInstanceOf(Uint8Array);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
-import { lstat, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { lstat, mkdtemp, open, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
 
 import {
   buildOrderedSiblingItems,
@@ -262,6 +264,8 @@ type PreparedProjectSourceObject = {
   byteSize: number;
   mimeType: string;
   path: string;
+  hash?: string;
+  stream?: boolean;
 } & ({ bytes: Uint8Array; temporaryPath?: never } | { bytes?: never; temporaryPath: string });
 
 interface PreparedProjectSource {
@@ -283,7 +287,11 @@ interface ProjectSourceObjectStorage {
     start: number,
     endExclusive: number
   ): Promise<Uint8Array>;
-  upload(path: string, bytes: Uint8Array, mimeType: string): Promise<void>;
+  upload(
+    path: string,
+    bytes: Uint8Array | { path: string; byteSize: number },
+    mimeType: string
+  ): Promise<void>;
 }
 
 interface FolderRow {
@@ -647,7 +655,11 @@ export class PostgresProjectStore implements ProjectStore {
     return this.downloadProjectSourceFile(row);
   }
 
-  async loadProjectSources(userId: string, id: ProjectId): Promise<StoredProjectSourceFile[]> {
+  async loadProjectSources(
+    userId: string,
+    id: ProjectId,
+    { includeData = true }: { includeData?: boolean } = {}
+  ): Promise<StoredProjectSourceFile[]> {
     const rows = await this.sql<ProjectSourceFileRow[]>`
       select source_id, source_hash, name, mime_type, byte_size, object_path, position
       from public.project_source_files
@@ -657,7 +669,9 @@ export class PostgresProjectStore implements ProjectStore {
     return Promise.all(
       rows.map(async row => {
         return {
-          file: await this.downloadProjectSourceFile(row),
+          file: includeData
+            ? await this.downloadProjectSourceFile(row)
+            : { data: '', name: row.name, mimeType: row.mime_type, sourceId: row.source_id },
           ref: {
             byteSize: Number(row.byte_size),
             hash: row.source_hash,
@@ -1013,10 +1027,17 @@ export class PostgresProjectStore implements ProjectStore {
   async saveProject(
     userId: string,
     data: ProjectSnapshot,
-    { expectedRevision, importedAssets = [], importedCover, sourceFile }: ProjectSaveOptions = {}
+    {
+      expectedRevision,
+      importedAssets = [],
+      importedCover,
+      sourceFile,
+      sourceFiles,
+    }: ProjectSaveOptions = {}
   ): Promise<ProjectSaveResult> {
     let snapshot = normalizeProjectSnapshot(data, false, {
-      externalArchiveBytesAvailable: Boolean(sourceFile?.bytes.byteLength),
+      externalArchiveBytesAvailable: Boolean(sourceFile?.bytes?.byteLength || sourceFile?.path),
+      externalSourceFilesAvailable: Boolean(sourceFiles),
     });
     const existingMeta = await this.readProjectMeta(userId, snapshot.id);
     if (expectedRevision !== undefined && !existingMeta) {
@@ -1057,7 +1078,9 @@ export class PostgresProjectStore implements ProjectStore {
       };
     }
 
-    const sourceWrite = await this.prepareProjectSourceWrite(userId, snapshot, sourceFile);
+    const sourceWrite = sourceFiles
+      ? await this.prepareProjectSourceFiles(userId, snapshot, sourceFiles, existingSnapshot)
+      : await this.prepareProjectSourceWrite(userId, snapshot, sourceFile);
     if (sourceWrite) {
       snapshot = sourceWrite.snapshot;
     } else if (snapshot.source != null && existingSnapshot?.source == null) {
@@ -1652,6 +1675,126 @@ export class PostgresProjectStore implements ProjectStore {
       .filter((placement): placement is LibraryPlacement => Boolean(placement));
   }
 
+  private async prepareProjectSourceFiles(
+    userId: string,
+    snapshot: ProjectSnapshot,
+    upload: NonNullable<ProjectSaveOptions['sourceFiles']>,
+    existingSnapshot?: ProjectSnapshot | null
+  ): Promise<{ prepared: PreparedProjectSource; snapshot: ProjectSnapshot }> {
+    const source = isRecord(snapshot.source) ? snapshot.source : null;
+    if (!source || !Array.isArray(source.sources) || upload.files.length === 0) {
+      throw new Error('Source upload metadata does not match the project.');
+    }
+    const totalBytes = upload.files.reduce((total, file) => total + file.byteSize, 0);
+    if (
+      !Number.isSafeInteger(totalBytes) ||
+      totalBytes > COURSE_SOURCE_UPLOAD_LIMITS.maxTotalBytes ||
+      totalBytes !== (await lstat(upload.path)).size
+    ) {
+      throw new Error('Source upload size does not match the project.');
+    }
+    const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), SOURCE_PREPARATION_TMP_PREFIX));
+    activeSourcePreparationDirectories.add(temporaryDirectory);
+    let fileHandle: Awaited<ReturnType<typeof open>> | undefined;
+    const files: PreparedProjectSource['files'] = [];
+    const objects: PreparedProjectSource['objects'] = [];
+    const sourceIds = new Set<string>();
+    let offset = 0;
+    try {
+      fileHandle = await open(upload.path, 'r');
+      for (const [position, file] of upload.files.entries()) {
+        const descriptor = source.sources.find(
+          descriptor => isRecord(descriptor) && descriptor.id === file.id
+        );
+        if (
+          !isRecord(descriptor) ||
+          !isRecord(descriptor.file) ||
+          descriptor.id !== file.id ||
+          descriptor.file.name !== file.name ||
+          descriptor.file.mimeType !== file.mimeType ||
+          !/^source-[A-Za-z0-9._-]+$/u.test(file.id) ||
+          sourceIds.has(file.id) ||
+          !Number.isSafeInteger(file.byteSize) ||
+          file.byteSize < 0 ||
+          file.byteSize > COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes
+        ) {
+          throw new Error('Invalid source upload file.');
+        }
+        sourceIds.add(file.id);
+        const bytes = Buffer.alloc(file.byteSize);
+        let read = 0;
+        while (read < bytes.length) {
+          const result = await fileHandle.read(bytes, read, bytes.length - read, offset + read);
+          if (result.bytesRead === 0) throw new Error('Incomplete source upload.');
+          read += result.bytesRead;
+        }
+        offset += bytes.length;
+        const { ref: preparedRef } = prepareProjectSourceBytes(file, bytes, file.id);
+        const ref = {
+          ...preparedRef,
+          objectPath: buildProjectSourceObjectPath(userId, snapshot.id, file.id, preparedRef.hash),
+        };
+        const temporaryPath = path.join(temporaryDirectory, String(position));
+        await writeFile(temporaryPath, bytes);
+        files.push({ position, ref });
+        objects.push({
+          byteSize: bytes.length,
+          temporaryPath,
+          mimeType: file.mimeType,
+          path: ref.objectPath,
+        });
+      }
+      const uploadedById = new Map(files.map(file => [file.ref.id, file.ref]));
+      const storedSource = isRecord(existingSnapshot?.source) ? existingSnapshot.source : null;
+      const storedById = new Map(
+        (Array.isArray(storedSource?.sources) ? storedSource.sources : []).flatMap(descriptor =>
+          isRecord(descriptor) && isRecord(descriptor.ref)
+            ? [[descriptor.id, descriptor.ref] as const]
+            : []
+        )
+      );
+      if (isRecord(storedSource?.ref)) storedById.set(storedSource.ref.id, storedSource.ref);
+      const orderedFiles = source.sources.map((descriptor, position) => {
+        if (!isRecord(descriptor) || typeof descriptor.id !== 'string')
+          throw new Error('Invalid source descriptor.');
+        const uploaded = uploadedById.get(descriptor.id);
+        if (uploaded) return { position, ref: uploaded };
+        const stored = storedById.get(descriptor.id);
+        if (
+          !stored ||
+          !isRecord(descriptor.ref) ||
+          ['id', 'hash', 'byteSize', 'name', 'mimeType', 'objectPath'].some(
+            key => stored[key] !== (descriptor.ref as Record<string, unknown>)[key]
+          )
+        )
+          throw new Error('Retained source is not owned by this project.');
+        return { position, ref: stored as unknown as ProjectSourceRef };
+      });
+      const primaryRef = orderedFiles[0].ref;
+      const prepared: PreparedProjectSource = {
+        archiveEntries: [],
+        files: orderedFiles,
+        objects,
+        primaryRef,
+        sourceKind: 'file',
+        temporaryDirectory,
+      };
+      return {
+        prepared,
+        snapshot: detachProjectSources(
+          snapshot,
+          orderedFiles.map(file => file.ref)
+        ),
+      };
+    } catch (error) {
+      await rm(temporaryDirectory, { recursive: true, force: true });
+      activeSourcePreparationDirectories.delete(temporaryDirectory);
+      throw error;
+    } finally {
+      await fileHandle?.close();
+    }
+  }
+
   private async prepareProjectSourceWrite(
     userId: string,
     snapshot: ProjectSnapshot,
@@ -1729,10 +1872,37 @@ export class PostgresProjectStore implements ProjectStore {
     if (!source) {
       throw new Error('Project source is missing.');
     }
+    if (sourceFile?.path) {
+      const hash = createHash('sha256');
+      for await (const chunk of createReadStream(sourceFile.path)) hash.update(chunk);
+      const ref: ProjectSourceRef = {
+        id:
+          typeof snapshotFile?.sourceId === 'string'
+            ? snapshotFile.sourceId
+            : `source-${hash.copy().digest('hex').slice(0, 24)}`,
+        hash: hash.digest('hex'),
+        byteSize: (await lstat(sourceFile.path)).size,
+        name: sourceFile.name,
+        mimeType: sourceFile.mimeType,
+        objectPath: '',
+      };
+      ref.objectPath = buildProjectSourceObjectPath(userId, snapshot.id, ref.id, ref.hash);
+      const prepared = await this.prepareStoredProjectSource(
+        userId,
+        snapshot.id,
+        source,
+        sourceFile.path,
+        ref
+      );
+      return {
+        prepared,
+        snapshot: this.applyPreparedArchiveIndex(detachProjectSource(snapshot, ref), prepared),
+      };
+    }
     const { bytes, ref: preparedRef } = sourceFile
       ? prepareProjectSourceBytes(
           source,
-          sourceFile.bytes,
+          sourceFile.bytes as Uint8Array,
           typeof snapshotFile?.sourceId === 'string' ? snapshotFile.sourceId : undefined
         )
       : prepareProjectSource(source, source.sourceId);
@@ -2280,14 +2450,16 @@ export class PostgresProjectStore implements ProjectStore {
     userId: string,
     projectId: string,
     source: ProjectSourceFile,
-    sourceBytes: Uint8Array,
+    sourceBytes: Uint8Array | string,
     ref: ProjectSourceRef
   ): Promise<PreparedProjectSource> {
     const originalPath = buildProjectSourceObjectPath(userId, projectId, ref.id, ref.hash);
     const objects: PreparedProjectSource['objects'] = [
       {
-        byteSize: sourceBytes.byteLength,
-        bytes: sourceBytes,
+        byteSize: ref.byteSize,
+        ...(typeof sourceBytes === 'string'
+          ? { temporaryPath: sourceBytes, hash: ref.hash, stream: true }
+          : { bytes: sourceBytes }),
         mimeType: source.mimeType,
         path: originalPath,
       },
@@ -2301,7 +2473,7 @@ export class PostgresProjectStore implements ProjectStore {
         sourceKind: 'file',
       };
     }
-    assertSourceArchiveCompressedSize(sourceBytes.byteLength);
+    assertSourceArchiveCompressedSize(ref.byteSize);
 
     const admission = acquireSourceArchivePreparationAdmission(userId);
     try {
@@ -2423,16 +2595,22 @@ export class PostgresProjectStore implements ProjectStore {
     const scheduleUpload = async (object: PreparedProjectSource['objects'][number]) => {
       await waitForCapacity(object.byteSize);
       inFlightBytes += object.byteSize;
-      let bytes: Uint8Array;
+      let bytes: Uint8Array | { path: string; byteSize: number };
       try {
-        bytes = object.bytes ?? new Uint8Array(await readFile(object.temporaryPath));
+        bytes = object.stream
+          ? { path: object.temporaryPath as string, byteSize: object.byteSize }
+          : (object.bytes ?? new Uint8Array(await readFile(object.temporaryPath)));
       } catch (error) {
         inFlightBytes -= object.byteSize;
         throw error;
       }
       const task = this.uploadSourceObject(storage, object.path, bytes, {
         byteSize: object.byteSize,
-        hash: createHash('sha256').update(bytes).digest('hex'),
+        hash:
+          object.hash ??
+          createHash('sha256')
+            .update(bytes as Uint8Array)
+            .digest('hex'),
         mimeType: object.mimeType,
       })
         .then(uploaded => {
@@ -2572,7 +2750,7 @@ export class PostgresProjectStore implements ProjectStore {
   private async uploadSourceObject(
     storage: ProjectSourceObjectStorage,
     objectPath: string,
-    bytes: Uint8Array,
+    bytes: Uint8Array | { path: string; byteSize: number },
     ref: Pick<ProjectSourceRef, 'byteSize' | 'hash' | 'mimeType'>
   ): Promise<boolean> {
     try {

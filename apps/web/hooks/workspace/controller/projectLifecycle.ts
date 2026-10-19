@@ -5,6 +5,7 @@ import {
   createProjectSourceFromDescriptors,
   getCourseSourceDescriptors,
   mergeCourseSourceDescriptors,
+  sortSourceFiles,
 } from '../../../services/projects/courseSources.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import {
@@ -188,6 +189,7 @@ export const createProjectLifecycleCommands = (
       let nextSource: ProjectSource | null = null;
       let nextFile: FileData | null = null;
       let archiveFile: File | undefined;
+      let sourceFiles: readonly File[] | undefined;
 
       const zipFiles = selectedFiles.filter(file =>
         isZipFileData({ name: file.name, mimeType: file.type })
@@ -240,6 +242,7 @@ export const createProjectLifecycleCommands = (
             }
           );
           nextSource = prepared.source;
+          sourceFiles = sortSourceFiles(selectedFiles);
           nextFile = prepared.descriptors.find(source => source.status !== 'error')?.file || null;
         }
       }
@@ -290,7 +293,7 @@ export const createProjectLifecycleCommands = (
         try {
           const saved = await projectLibrary.saveCurrentProject(
             { source: nextSource },
-            { archiveFile, throwOnError: true }
+            { archiveFile, sourceFiles, throwOnError: true }
           );
           if (!isReattachCurrent()) {
             if (isReattachProjectSelected() && domain.source === nextSource) {
@@ -342,7 +345,7 @@ export const createProjectLifecycleCommands = (
           state: AppState.ASSESSMENT,
           source: nextSource,
         }),
-        { archiveFile, throwOnError: true }
+        { archiveFile, sourceFiles, throwOnError: true }
       );
       if (!saved?.snapshot.source) {
         throw new Error('La sorgente del progetto non è stata salvata.');

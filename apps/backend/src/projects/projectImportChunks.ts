@@ -12,6 +12,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
 import { projectImportConfig } from './projectImportConfig.js';
 import type { SavedProjectMeta } from './types.js';
 
@@ -22,6 +23,7 @@ const IMPORT_UPLOAD_ID_PATTERN =
 
 interface ProjectImportChunk {
   chunk: string | Uint8Array;
+  sourceUpload?: boolean;
   chunkCount: number;
   chunkIndex: number;
   expectedRevision?: number;
@@ -47,6 +49,7 @@ interface UploadSession {
   directory: string;
   expectedRevision?: number;
   format: 'binary' | 'text';
+  sourceUpload: boolean;
   key: string;
   lock: Promise<void>;
   status: 'receiving' | 'finalizing' | 'completed';
@@ -137,14 +140,25 @@ setInterval(() => {
   void cleanupExpiredSessions();
 }, projectImportConfig.cleanupIntervalMs).unref();
 
-const validateChunk = ({ chunk, chunkCount, chunkIndex, uploadId }: ProjectImportChunk): number => {
+const validateChunk = ({
+  chunk,
+  chunkCount,
+  chunkIndex,
+  uploadId,
+  sourceUpload,
+}: ProjectImportChunk): number => {
+  if (sourceUpload && typeof chunk === 'string')
+    throw new ProjectImportInputError('Le fonti richiedono un caricamento binario.');
   if (!IMPORT_UPLOAD_ID_PATTERN.test(uploadId)) {
     throw new ProjectImportInputError('Identificativo caricamento non valido.');
   }
   if (
     !Number.isSafeInteger(chunkCount) ||
     chunkCount < 1 ||
-    chunkCount > projectImportConfig.maxChunkCount
+    chunkCount >
+      (sourceUpload
+        ? Math.ceil(COURSE_SOURCE_UPLOAD_LIMITS.maxTotalBytes / projectImportConfig.maxChunkBytes)
+        : projectImportConfig.maxChunkCount)
   ) {
     throw new ProjectImportInputError('Numero di parti del backup non valido.');
   }
@@ -210,6 +224,7 @@ const createSession = async (input: ProjectImportChunk): Promise<UploadSession> 
     directory,
     expectedRevision: input.expectedRevision,
     format: typeof input.chunk === 'string' ? 'text' : 'binary',
+    sourceUpload: input.sourceUpload === true,
     key,
     lock: Promise.resolve(),
     status: 'receiving',
@@ -293,7 +308,13 @@ export const storeProjectImportChunk = async (
       };
     }
 
-    if (session.totalBytes + chunkBytes > projectImportConfig.maxSerializedBytes) {
+    if (session.sourceUpload !== (input.sourceUpload === true)) {
+      throw new ProjectImportInputError('Tipo di caricamento incoerente.');
+    }
+    const maxBytes = session.sourceUpload
+      ? COURSE_SOURCE_UPLOAD_LIMITS.maxTotalBytes
+      : projectImportConfig.maxSerializedBytes;
+    if (session.totalBytes + chunkBytes > maxBytes) {
       sessions.delete(session.key);
       await safelyRemove(session.directory);
       throw new ProjectImportInputError('Il backup supera il limite massimo di importazione.');
@@ -346,7 +367,8 @@ export const getProjectImportUploadStatus = (
 const assembleAndImport = async (
   session: UploadSession,
   importData?: (data: unknown) => Promise<CompletedImport>,
-  importBinary?: (bytes: Uint8Array, expectedRevision?: number) => Promise<CompletedImport>
+  importBinary?: (bytes: Uint8Array, expectedRevision?: number) => Promise<CompletedImport>,
+  importFile?: (path: string, expectedRevision?: number) => Promise<CompletedImport>
 ): Promise<CompletedImport> => {
   const assembledPath = join(session.directory, 'assembled');
   await writeFile(assembledPath, '', { flag: 'wx', mode: 0o600 });
@@ -357,7 +379,10 @@ const assembleAndImport = async (
     await unlink(chunkPath);
   }
 
+  if ((session.sourceUpload && !importFile) || (importFile && session.format !== 'binary'))
+    throw new ProjectImportInputError('Tipo di completamento del caricamento non valido.');
   if (session.format === 'binary') {
+    if (importFile) return importFile(assembledPath, session.expectedRevision);
     if (!importBinary) throw new ProjectImportInputError('Formato del backup non valido.');
     const bytes = new Uint8Array(await readFile(assembledPath));
     await unlink(assembledPath);
@@ -379,11 +404,13 @@ const assembleAndImport = async (
 
 export const completeProjectImportUpload = async ({
   importBinary,
+  importFile,
   importData,
   uploadId,
   userId,
 }: {
   importBinary?: (bytes: Uint8Array, expectedRevision?: number) => Promise<CompletedImport>;
+  importFile?: (path: string, expectedRevision?: number) => Promise<CompletedImport>;
   importData?: (data: unknown) => Promise<CompletedImport>;
   uploadId: string;
   userId: string;
@@ -413,7 +440,7 @@ export const completeProjectImportUpload = async ({
     session.updatedAt = Date.now();
     try {
       const completed = await runFinalization(() =>
-        assembleAndImport(session, importData, importBinary)
+        assembleAndImport(session, importData, importBinary, importFile)
       );
       session.completed = completed;
       session.status = 'completed';

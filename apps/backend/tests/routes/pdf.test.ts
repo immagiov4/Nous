@@ -54,6 +54,13 @@ describe('POST /api/pdf', () => {
     });
   });
 
+  test('rejects an oversized PDF before starting either parser', async () => {
+    const fileData = `data:application/pdf;base64,${Buffer.alloc(32_000_001).toString('base64')}`;
+    const response = await request(createApp()).post('/api/pdf/extract-text').send({ fileData });
+    expect(response.status).toBe(413);
+    expect(pdfServiceMocks.extractPdfText).not.toHaveBeenCalled();
+  });
+
   test('returns extracted text metadata', async () => {
     const response = await request(createApp())
       .post('/api/pdf/extract-text')

@@ -1,5 +1,7 @@
 // Server-only Supabase Storage client for immutable project-source objects.
 import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { Readable } from 'node:stream';
 import { readDiagnosticResponseText } from '../utils/sanitizeDiagnosticText.js';
 
 export const PROJECT_SOURCE_BUCKET = 'project-sources';
@@ -126,12 +128,15 @@ export class SupabaseProjectSourceStorage {
 
   async upload(
     path: string,
-    bytes: Uint8Array,
+    bytes: Uint8Array | { path: string; byteSize: number },
     mimeType: string,
     signal?: AbortSignal
   ): Promise<void> {
     // Bun fetch accepts ArrayBufferView bodies although its DOM BodyInit type omits them.
-    const body = bytes as unknown as BodyInit;
+    const stream = !(bytes instanceof Uint8Array);
+    const body = stream
+      ? (Readable.toWeb(createReadStream(bytes.path)) as unknown as ReadableStream<Uint8Array>)
+      : (bytes as unknown as BodyInit);
     await this.request(
       'upload-failed',
       `${this.storageUrl}/object/${this.bucket}/${encodeObjectPath(path)}`,
@@ -141,8 +146,10 @@ export class SupabaseProjectSourceStorage {
           ...this.headers,
           'Content-Type': mimeType,
           'x-upsert': 'false',
+          ...(stream ? { 'Content-Length': String(bytes.byteSize) } : {}),
         },
         method: 'POST',
+        ...(stream ? { duplex: 'half' } : {}),
         ...(signal ? { signal } : {}),
       }
     );

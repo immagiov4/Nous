@@ -359,7 +359,7 @@ test('HttpProjectRepository does not retry a non-JSON proxy 413 during chunk upl
   });
 
   const uploadCalls = fetchMock.mock.calls.filter(call =>
-    /\/api\/projects\/import\/chunks\/[^/]+\/0\?chunkCount=1$/u.test(String(call[0]))
+    /\/api\/projects\/import\/chunks\/[^/]+\/0\?chunkCount=1$/u.test(call[0] as string)
   );
   expect(uploadCalls).toHaveLength(1);
 });
@@ -767,7 +767,7 @@ test('HttpProjectRepository uses the status-backed upload flow for a single-chun
   expect(fetchMock).toHaveBeenCalledTimes(3);
   const chunkRequest = fetchMock.mock.calls[1];
   expect(String(chunkRequest?.[0])).toMatch(
-    /\/api\/projects\/import\/chunks\/.+\/0\?chunkCount=1$/u
+    /\/api\/projects\/import\/chunks\/.+\/0\?chunkCount=1&sourceUpload=true$/u
   );
   expect(chunkRequest?.[1]?.body).toBeInstanceOf(Blob);
   expect(await (chunkRequest?.[1]?.body as Blob).text()).toBe(await archiveFile.text());
@@ -840,7 +840,9 @@ test('HttpProjectRepository preserves the expected revision when saving chunked 
   expect(fetchMock).toHaveBeenCalledTimes(4);
   expect(fetchMock.mock.calls.slice(1, 3).every(call => call[1]?.body instanceof Blob)).toBe(true);
   expect(
-    fetchMock.mock.calls.slice(1, 3).every(call => String(call[0]).includes('expectedRevision=7'))
+    fetchMock.mock.calls
+      .slice(1, 3)
+      .every(call => (call[0] as string).includes('expectedRevision=7'))
   ).toBe(true);
   expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/complete');
 });
@@ -1201,14 +1203,14 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
 
   expect(fetchMock.mock.calls.length).toBeGreaterThan(2);
   const chunkCalls = fetchMock.mock.calls.filter(call =>
-    /\/chunks\/[^/]+\/\d+\?chunkCount=\d+$/u.test(String(call[0]))
+    /\/chunks\/[^/]+\/\d+\?chunkCount=\d+$/u.test(call[0] as string)
   );
   const completionCalls = fetchMock.mock.calls.filter(call =>
-    String(call[0]).includes('/complete')
+    (call[0] as string).includes('/complete')
   );
   const requests = chunkCalls.map((call: unknown[]) => ({
-    url: String(call[0]),
-    chunk: String((call[1] as RequestInit).body),
+    url: call[0] as string,
+    chunk: (call[1] as RequestInit).body as string,
   }));
   expect(requests.map(request => Number(/\/chunks\/[^/]+\/(\d+)/u.exec(request.url)?.[1]))).toEqual(
     requests.map((_, index) => index)
@@ -1228,7 +1230,7 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
   }
   expect(requests.map(request => request.chunk).join('')).toBe(JSON.stringify(largeImport));
   expect(completionCalls).toHaveLength(2);
-  expect(new Set(completionCalls.map(call => String(call[0]))).size).toBe(1);
+  expect(new Set(completionCalls.map(call => call[0] as string)).size).toBe(1);
   expect(String(completionCalls[0]?.[0])).toMatch(/\/api\/projects\/import\/chunks\/.+\/complete$/);
 });
 
@@ -1284,4 +1286,91 @@ test('subscribeToProjectRevisionStream requests catch-up on the first successful
 
   await vi.waitFor(() => expect(requestCatchUp).toHaveBeenCalledOnce());
   unsubscribe();
+});
+
+test('uploads all 30 sources in bounded binary requests and publishes metadata once', async () => {
+  const files = Array.from(
+    { length: 30 },
+    (_, index) =>
+      new File([`lesson-${index}`], `lesson-${index.toString().padStart(2, '0')}.txt`, {
+        type: 'text/plain',
+      })
+  );
+  const descriptors = buildCourseSourceDescriptors(
+    files.map((file, index) => ({
+      name: file.name,
+      mimeType: file.type,
+      data: Buffer.from(`lesson-${index}`).toString('base64'),
+    }))
+  );
+  const source = createProjectSourceFromDescriptors(descriptors);
+  for (const descriptor of descriptors) descriptor.file.data = '';
+  const snapshot = { ...buildPdfSnapshot(), source };
+  const bodies: Blob[] = [];
+  const completions: Record<string, unknown>[] = [];
+  const storedSource = createProjectSourceFromDescriptors(
+    descriptors.map(descriptor => ({
+      ...descriptor,
+      ref: {
+        id: descriptor.id,
+        name: descriptor.name,
+        mimeType: descriptor.file.mimeType,
+        hash: descriptor.hash,
+        byteSize: 8,
+        objectPath: `stored/${descriptor.id}`,
+      },
+    }))
+  );
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/api/projects/config'))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          config: {
+            import: {
+              directMaxBytes: 20,
+              maxChunkBytes: 27,
+              maxChunkCount: 32,
+              maxSerializedBytes: 280,
+              requestTimeoutMs: 120000,
+            },
+          },
+        }),
+      };
+    if (init?.method === 'PUT') {
+      bodies.push(init.body as Blob);
+      return { ok: true, status: 202, json: async () => ({ success: true }) };
+    }
+    if (init?.method === 'POST' && url.endsWith('/complete')) {
+      completions.push(JSON.parse(init.body as string));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          meta: { id: snapshot.id, revision: 1 },
+          snapshot: {
+            ...snapshot,
+            source: { ...storedSource, ref: storedSource.sources?.[0]?.ref },
+          },
+        }),
+      };
+    }
+    throw new Error(`Unexpected request ${url}`);
+  });
+  const saved = await new HttpProjectRepository('http://localhost:3301').saveProject(snapshot, {
+    sourceFiles: files,
+  });
+  expect(await new Blob(bodies).text()).toBe(
+    (await Promise.all(files.map(file => file.text()))).join('')
+  );
+  expect(bodies.every(body => body.size <= 27)).toBe(true);
+  expect(completions).toHaveLength(1);
+  expect(completions[0]).toMatchObject({
+    payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceSet,
+    sourceFiles: descriptors.map(descriptor => ({ id: descriptor.id, name: descriptor.name })),
+  });
+  expect(saved.snapshot.source?.sources).toHaveLength(30);
 });

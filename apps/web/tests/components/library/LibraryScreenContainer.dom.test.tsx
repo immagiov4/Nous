@@ -1,3 +1,4 @@
+import * as sourceSelection from '../../../services/projects/sourceFileSelection.ts';
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 
@@ -167,7 +168,7 @@ describe('LibraryScreenContainer route fallback', () => {
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:false');
   });
 
-  test('switches from library query to new course after choosing a local source', () => {
+  test('switches from library query to new course after choosing a local source', async () => {
     globalThis.history.replaceState({}, '', '/library');
 
     const { container } = render(<LibraryScreenContainer {...buildProps()} />);
@@ -179,11 +180,44 @@ describe('LibraryScreenContainer route fallback', () => {
       throw new Error('Expected the library source file input.');
     }
 
-    fireEvent.change(fileInput, {
-      target: { files: [new File(['source'], 'source.md', { type: 'text/markdown' })] },
+    await act(async () => {
+      fireEvent.change(fileInput, {
+        target: { files: [new File(['source'], 'source.md', { type: 'text/markdown' })] },
+      });
     });
 
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:false:source.md');
+  });
+
+  test('retains the latest selection when an earlier archive inspection finishes later', async () => {
+    const first = new File(['first'], 'first.zip', { type: 'application/zip' });
+    const second = new File(['second'], 'second.md', { type: 'text/markdown' });
+    let finishFirst!: (value: { files: File[]; warnings: [] }) => void;
+    const inspection = vi
+      .spyOn(sourceSelection, 'inspectSourceSelection')
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            finishFirst = resolve;
+          })
+      )
+      .mockResolvedValueOnce({ files: [second], warnings: [] });
+    try {
+      const { container } = render(<LibraryScreenContainer {...buildProps()} />);
+      const input = container.querySelector<HTMLInputElement>('#library-source-file');
+      if (!input) throw new Error('Missing source input');
+      fireEvent.change(input, { target: { files: [first] } });
+      await act(async () => {
+        fireEvent.change(input, { target: { files: [second] } });
+      });
+      expect(screen.getByTestId('new-home-surface')).toHaveTextContent('second.md');
+      await act(async () => {
+        finishFirst({ files: [first], warnings: [] });
+      });
+      expect(screen.getByTestId('new-home-surface')).toHaveTextContent('second.md');
+    } finally {
+      inspection.mockRestore();
+    }
   });
 
   test('restores an unfinished interview in the home chat without the legacy assessment screen', () => {
@@ -225,7 +259,7 @@ describe('LibraryScreenContainer route fallback', () => {
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:false');
   });
 
-  test('ignores source uploads while a library response is streaming', () => {
+  test('ignores source uploads while a library response is streaming', async () => {
     globalThis.history.replaceState({}, '', '/library');
     const props = buildProps();
     props.libraryAssistantChat.isLoading = true;
@@ -237,8 +271,10 @@ describe('LibraryScreenContainer route fallback', () => {
       throw new Error('Expected the library source file input.');
     }
 
-    fireEvent.change(fileInput, {
-      target: { files: [new File(['source'], 'source.md', { type: 'text/markdown' })] },
+    await act(async () => {
+      fireEvent.change(fileInput, {
+        target: { files: [new File(['source'], 'source.md', { type: 'text/markdown' })] },
+      });
     });
 
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('library-query:false:');

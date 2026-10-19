@@ -1,3 +1,8 @@
+import { stat } from 'node:fs/promises';
+import {
+  COURSE_SOURCE_UPLOAD_LIMITS,
+  type CourseSourceUploadFile,
+} from '@shared/courseSourceUpload';
 // Exposes project CRUD routes for the backend API.
 
 import { Readable } from 'node:stream';
@@ -964,6 +969,7 @@ router.put('/import/chunks/:uploadId/:chunkIndex', async (req: Request, res: Res
       chunkIndex: readOptionalSafeInteger(Number(getRouteParam(req.params.chunkIndex))) ?? -1,
       chunkCount: readOptionalSafeInteger(Number(req.query.chunkCount)) ?? -1,
       chunk,
+      sourceUpload: req.query.sourceUpload === 'true',
       expectedRevision: readProjectImportExpectedRevision(req.query.expectedRevision),
     });
     res.status(202).json({ success: true, complete: false, ...result });
@@ -1038,6 +1044,71 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
         publishMetaRevision(userId, imported.meta);
         return { projectId: imported.meta.id, meta: imported.meta };
       },
+      importFile:
+        completionBody.payloadKind === PROJECT_IMPORT_BINARY_KIND.sourceArchive ||
+        completionBody.payloadKind === PROJECT_IMPORT_BINARY_KIND.sourceSet
+          ? async (path, expectedRevision) => {
+              const snapshotRecord = completionBody.snapshot;
+              if (!isRecord(snapshotRecord) || typeof snapshotRecord.id !== 'string')
+                throw new ProjectImportInputError('Metadati delle fonti non validi.');
+              const sourceSet = completionBody.payloadKind === PROJECT_IMPORT_BINARY_KIND.sourceSet;
+              const snapshot = requireProjectSnapshot(
+                { snapshot: snapshotRecord },
+                snapshotRecord.id,
+                {
+                  externalArchiveBytesAvailable: !sourceSet,
+                  externalSourceFilesAvailable: sourceSet,
+                }
+              );
+              let imported: Awaited<ReturnType<typeof store.saveProject>>;
+              if (sourceSet) {
+                if (!Array.isArray(completionBody.sourceFiles))
+                  throw new ProjectImportInputError('Elenco delle fonti mancante.');
+                const files: CourseSourceUploadFile[] = completionBody.sourceFiles.map(file => {
+                  if (
+                    !isRecord(file) ||
+                    typeof file.id !== 'string' ||
+                    typeof file.name !== 'string' ||
+                    typeof file.mimeType !== 'string' ||
+                    !Number.isSafeInteger(file.byteSize) ||
+                    (file.byteSize as number) < 0 ||
+                    (file.byteSize as number) > COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes
+                  )
+                    throw new ProjectImportInputError('File sorgente non valido.');
+                  return {
+                    id: file.id,
+                    name: file.name,
+                    mimeType: file.mimeType,
+                    byteSize: file.byteSize as number,
+                  };
+                });
+                imported = await store.saveProject(userId, snapshot, {
+                  expectedRevision,
+                  sourceFiles: { path, files },
+                });
+              } else {
+                const sourceFile = completionBody.sourceFile;
+                if (
+                  !isRecord(sourceFile) ||
+                  !isRecord(snapshot.source) ||
+                  snapshot.source.kind !== 'archive' ||
+                  !isRecord(snapshot.source.file) ||
+                  snapshot.source.file.name !== sourceFile.name ||
+                  snapshot.source.file.mimeType !== sourceFile.mimeType ||
+                  typeof sourceFile.name !== 'string' ||
+                  typeof sourceFile.mimeType !== 'string' ||
+                  (await stat(path)).size > PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES
+                )
+                  throw new ProjectImportInputError('Metadati della sorgente archivio non validi.');
+                imported = await store.saveProject(userId, snapshot, {
+                  expectedRevision,
+                  sourceFile: { path, name: sourceFile.name, mimeType: sourceFile.mimeType },
+                });
+              }
+              publishMetaRevision(userId, imported.meta);
+              return { projectId: imported.meta.id, meta: imported.meta };
+            }
+          : undefined,
       importBinary: async (bytes, expectedRevision) => {
         const imported = await importBinaryProjectUpload({
           body: completionBody,

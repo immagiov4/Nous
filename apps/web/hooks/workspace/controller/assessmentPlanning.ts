@@ -17,6 +17,7 @@ import { getErrorMessage } from '../../../services/core/errorMessage.ts';
 import { recordFeedbackWorkflowSnapshot } from '../../../services/feedback/browserDiagnostics.ts';
 import type { CourseInterviewSnapshot } from '../../../services/openrouter/courseInterviewClient.ts';
 import { createGenerationProgressBridge } from '../../../services/openrouter/generationProgress.ts';
+import { sortSourceFiles } from '../../../services/projects/courseSources.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import {
   createProjectId,
@@ -75,6 +76,7 @@ interface PreparedHomeChatSource {
 
 interface PreparedFileSource {
   archiveFile?: File;
+  sourceFiles?: readonly File[];
   file: FileData;
   source: ProjectSource;
 }
@@ -827,7 +829,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     );
     const file = prepared.descriptors.find(source => source.status !== 'error')?.file;
     if (!file) throw new Error('Unable to prepare project source');
-    return { file, source: prepared.source };
+    return { file, source: prepared.source, sourceFiles: sortSourceFiles(selectedFiles) };
   };
 
   const prepareHomeChatFiles = async ({
@@ -866,25 +868,27 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
 
   const persistHomeChatArchiveSource = async ({
     archiveFile,
+    sourceFiles,
     source,
     startState,
     workspaceOwnership,
   }: {
     archiveFile?: File;
+    sourceFiles?: readonly File[];
     source: ProjectSource;
     startState: HomeChatStartState;
     workspaceOwnership: AssessmentWorkspaceOwnership;
   }): Promise<ProjectSource> => {
-    if (source.kind !== 'archive') return source;
+    if (source.kind !== 'archive' && !sourceFiles) return source;
     const projectId = createProjectId();
     startState.draftProjectId = projectId;
     workspaceOwnership.draftProjectId = projectId;
     projectLibrary.setCurrentProjectId(projectId);
     const saved = await projectLibrary.persistSnapshot(
       createProjectSnapshot({ id: projectId, state: AppState.ASSESSMENT, source }),
-      { archiveFile, throwOnError: true }
+      { archiveFile, ...(sourceFiles ? { sourceFiles } : {}), throwOnError: true }
     );
-    if (saved?.snapshot.source?.kind !== 'archive') {
+    if (!saved?.snapshot.source) {
       throw new Error('La sorgente archivio non è stata salvata.');
     }
     return saved.snapshot.source;
@@ -945,7 +949,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     });
     if (preparation.kind === 'completed') return preparation;
     let { source } = preparation.value;
-    const { archiveFile, file } = preparation.value;
+    const { archiveFile, sourceFiles, file } = preparation.value;
     if (!isRequestCurrent()) {
       return { kind: 'completed', result: await abandonCancelledStart() };
     }
@@ -958,6 +962,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     }
     source = await persistHomeChatArchiveSource({
       archiveFile,
+      sourceFiles,
       source,
       startState,
       workspaceOwnership,

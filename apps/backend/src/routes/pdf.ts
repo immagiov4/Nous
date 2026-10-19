@@ -1,8 +1,14 @@
+import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
 // Exposes PDF upload and extraction routes.
 import { Router } from 'express';
 import { extractPdfImages } from '../services/pdfImageExtractor.js';
+import { PDF_SOURCE_EXTRACTION_OPTIONS } from '../services/pdfSourceLimits.js';
 import { extractPdfText } from '../services/pdfTextExtractor.js';
-import { isPdfDataUrl, PDF_DATA_URL_REQUIRED_MESSAGE } from '../utils/pdfDataUrl.js';
+import {
+  decodePdfDataUrl,
+  isPdfDataUrl,
+  PDF_DATA_URL_REQUIRED_MESSAGE,
+} from '../utils/pdfDataUrl.js';
 
 const router = Router();
 const DEFAULT_PDF_IMAGE_LIMIT = 20;
@@ -27,7 +33,11 @@ router.post('/extract-text', async (req, res) => {
       });
     }
 
-    const result = await extractPdfText(fileData);
+    if (decodePdfDataUrl(fileData).byteLength > COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes)
+      return res
+        .status(413)
+        .json({ success: false, error: 'Il PDF supera il limite di 32 MB per file.' });
+    const result = await extractPdfText(fileData, PDF_SOURCE_EXTRACTION_OPTIONS);
     return res.json({
       success: true,
       text: result.text,

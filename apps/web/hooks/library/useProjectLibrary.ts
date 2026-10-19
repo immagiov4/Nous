@@ -132,6 +132,7 @@ const buildCurrentProjectPatch = (
 
 interface PersistSnapshotOptions {
   archiveFile?: File;
+  sourceFiles?: readonly File[];
   throwOnError?: boolean;
 }
 
@@ -714,6 +715,7 @@ export const useProjectLibrary = ({
           async () => {
             const saved = await projectRepositoryRef.current.saveProject(snapshot, {
               archiveFile: options.archiveFile,
+              sourceFiles: options.sourceFiles,
               expectedRevision: getExpectedRevision(snapshot.id),
             });
             detachedSnapshot = saved.snapshot;

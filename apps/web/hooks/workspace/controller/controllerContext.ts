@@ -1,3 +1,4 @@
+import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
 import * as OpenRouterService from '../../../services/openrouter/index.ts';
 import {
   buildCourseSourceDescriptors,
@@ -28,6 +29,8 @@ const scheduleHydrationWithMicrotask = (callback: () => void) => {
 };
 
 export const readSourceFileData = async (file: File): Promise<FileData> => {
+  if (file.size > COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes)
+    throw new Error(`Il file ${file.name} supera il limite di 32 MB.`);
   const bytes = new Uint8Array(await file.arrayBuffer());
   const kind = detectSourceFileKind({
     name: file.name,
@@ -81,18 +84,30 @@ export const prepareUploadedCourseSource = async (
   onProgress?: (completed: number, total: number) => void
 ): Promise<{ descriptors: CourseSourceDescriptor[]; source: ProjectSource }> => {
   const sortedFiles = sortSourceFiles(selectedFiles);
-  const fileData = await Promise.all(sortedFiles.map(readSourceFileData));
-  const descriptors = buildCourseSourceDescriptors(fileData);
-
-  for (let index = 0; index < descriptors.length; index += 1) {
-    const descriptor = descriptors[index];
-    onProgress?.(index, descriptors.length);
+  for (const file of sortedFiles) {
+    if (file.size > COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes)
+      throw new Error(`Il file ${file.name} supera il limite di 32 MB.`);
+  }
+  const descriptors: CourseSourceDescriptor[] = [];
+  const hashOccurrences = new Map<string, number>();
+  for (const [index, selectedFile] of sortedFiles.entries()) {
+    onProgress?.(index, sortedFiles.length);
+    const fileData = await readSourceFileData(selectedFile);
+    const [descriptor] = buildCourseSourceDescriptors([fileData], {
+      hashOccurrences,
+      positionOffset: index,
+    });
+    descriptors.push(descriptor);
     if (descriptor.kind !== 'pdf') {
+      descriptor.file.data = '';
       continue;
     }
     try {
-      await context.openRouter.validatePdfTextSource(descriptor.file);
-      const session = await context.openRouter.getPdfTextSession(descriptor.file);
+      await context.openRouter.validatePdfTextSource({ ...descriptor.file, data: fileData.data });
+      const session = await context.openRouter.getPdfTextSession({
+        ...descriptor.file,
+        data: fileData.data,
+      });
       if (!session?.extractedText.trim()) {
         throw new Error('No extracted PDF text');
       }
@@ -107,7 +122,7 @@ export const prepareUploadedCourseSource = async (
         descriptor.id
       );
     } catch (error) {
-      if (descriptors.length === 1) {
+      if (sortedFiles.length === 1) {
         throw error;
       }
       console.warn('[Nous][Sources] A PDF source could not be prepared.', {
@@ -116,6 +131,8 @@ export const prepareUploadedCourseSource = async (
       });
       descriptor.status = 'error';
       descriptor.errorMessage = UNUSABLE_PDF_SOURCE_MESSAGE;
+    } finally {
+      descriptor.file.data = '';
     }
   }
   onProgress?.(descriptors.length, descriptors.length);

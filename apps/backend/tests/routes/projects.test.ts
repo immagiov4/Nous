@@ -2226,3 +2226,17 @@ describe('/api/projects', () => {
     errorLog.mockRestore();
   });
 });
+
+test('rejects a text upload claiming the larger binary source envelope', async () => {
+  const app = createApp();
+  const id = 'a23e4567-e89b-42d3-a456-426614174000';
+  const response = await request(app)
+    .put(`/api/projects/import/chunks/${id}/0?chunkCount=1&sourceUpload=true`)
+    .set('Content-Type', 'text/plain')
+    .send('{}');
+  try {
+    expect(response.status).toBe(400);
+  } finally {
+    await request(app).delete(`/api/projects/import/chunks/${id}`);
+  }
+});

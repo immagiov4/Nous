@@ -81,10 +81,12 @@ ${excerpt}
 export const createCourseSourceMaterialReader =
   ({
     loadProjectSources,
+    loadProjectSourceById,
     loadProjectWithRevision,
     readSourceMaterial = readProjectSourceMaterial,
   }: {
     readonly loadProjectSources: ProjectStore['loadProjectSources'];
+    readonly loadProjectSourceById: ProjectStore['loadProjectSourceById'];
     readonly loadProjectWithRevision: ProjectStore['loadProjectWithRevision'];
     readonly readSourceMaterial?: ReadSourceMaterial;
   }) =>
@@ -110,7 +112,21 @@ export const createCourseSourceMaterialReader =
           message: 'The course source changed after generation started.',
         });
       }
-      const material = await readSourceMaterial(stored.file);
+      const file = await loadProjectSourceById(
+        state.request.userId,
+        state.request.projectId,
+        descriptor.id
+      );
+      const currentProject = await loadProjectWithRevision(
+        state.request.userId,
+        state.request.projectId
+      );
+      if (!file || currentProject?.revision !== state.projectRevision)
+        throw failPermanently({
+          code: 'course_source_changed',
+          message: 'The course source changed after generation started.',
+        });
+      const material = await readSourceMaterial(file);
       signal?.throwIfAborted();
       if (!material.text.trim()) {
         throw failPermanently({

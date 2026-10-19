@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-
+import { readFile } from 'node:fs/promises';
 import {
   buildOrderedSiblingItems,
   collectFolderDescendantIds,
@@ -73,6 +73,7 @@ import type {
 } from '../../src/projects/types.js';
 import { createEntityId } from '../../src/utils/ids.js';
 import { timestampIso } from '../../src/utils/time.js';
+import { isRecord } from '../../src/utils/validation.js';
 
 interface ProjectRecord {
   incarnationId: string;
@@ -363,27 +364,30 @@ export class InMemoryProjectStore implements ProjectStore {
     return snapshots.filter((snapshot): snapshot is ProjectSnapshot => snapshot !== null);
   }
 
-  async saveProject(
-    userId: string,
-    data: ProjectSnapshot,
-    { expectedRevision, importedCover, sourceFile }: ProjectSaveOptions = {}
-  ): Promise<ProjectSaveResult> {
-    this.fullSaveCount += 1;
-    const projects = this.getProjects(userId);
-    const existing = projects.get(data.id);
-    if (expectedRevision !== undefined && !existing) {
-      throw new ProjectNotFoundError();
+  private async restoreUploadedSourceFiles(
+    snapshot: ProjectSnapshot,
+    sourceFiles: ProjectSaveOptions['sourceFiles']
+  ): Promise<void> {
+    if (sourceFiles && isRecord(snapshot.source) && Array.isArray(snapshot.source.sources)) {
+      const bytes = await readFile(sourceFiles.path);
+      let offset = 0;
+      for (const file of sourceFiles.files) {
+        const descriptor = snapshot.source.sources.find(
+          descriptor => isRecord(descriptor) && descriptor.id === file.id
+        );
+        if (!isRecord(descriptor) || !isRecord(descriptor.file))
+          throw new Error('Unknown source file.');
+        descriptor.file.data = bytes.subarray(offset, offset + file.byteSize).toString('base64');
+        offset += file.byteSize;
+      }
     }
-    if (expectedRevision !== undefined && existing?.meta.revision !== expectedRevision) {
-      throw new ProjectRevisionConflictError();
-    }
+  }
 
-    let snapshot = normalizeProjectSnapshot(clone(data), false, {
-      externalArchiveBytesAvailable: Boolean(sourceFile?.bytes.byteLength),
-    });
-    if (existing) {
-      snapshot = preserveStoredProjectSource(snapshot, existing.snapshot);
-    }
+  private async storeSnapshotSources(
+    userId: string,
+    snapshot: ProjectSnapshot,
+    sourceFile: ProjectSaveOptions['sourceFile']
+  ): Promise<ProjectSnapshot> {
     const embeddedSources = readEmbeddedProjectSources(snapshot);
     if (embeddedSources.length > 0) {
       snapshot = detachProjectSources(
@@ -400,12 +404,46 @@ export class InMemoryProjectStore implements ProjectStore {
             mimeType: sourceFile?.mimeType || '',
             name: sourceFile?.name || '',
           } satisfies ProjectSourceFile);
-        const ref = await this.storeProjectSource(userId, snapshot.id, source, sourceFile?.bytes);
+        const ref = await this.storeProjectSource(
+          userId,
+          snapshot.id,
+          source,
+          sourceFile?.bytes ??
+            (sourceFile?.path ? new Uint8Array(await readFile(sourceFile.path)) : undefined)
+        );
         snapshot = detachProjectSource(snapshot, ref);
       } else if (snapshot.source != null && !this.getSources(userId).has(snapshot.id)) {
         throw new Error('Detached project source has no stored metadata.');
       }
     }
+
+    return snapshot;
+  }
+
+  async saveProject(
+    userId: string,
+    data: ProjectSnapshot,
+    { expectedRevision, importedCover, sourceFile, sourceFiles }: ProjectSaveOptions = {}
+  ): Promise<ProjectSaveResult> {
+    this.fullSaveCount += 1;
+    const projects = this.getProjects(userId);
+    const existing = projects.get(data.id);
+    if (expectedRevision !== undefined && !existing) {
+      throw new ProjectNotFoundError();
+    }
+    if (expectedRevision !== undefined && existing?.meta.revision !== expectedRevision) {
+      throw new ProjectRevisionConflictError();
+    }
+
+    let snapshot = normalizeProjectSnapshot(clone(data), false, {
+      externalArchiveBytesAvailable: Boolean(sourceFile?.bytes?.byteLength || sourceFile?.path),
+      externalSourceFilesAvailable: Boolean(sourceFiles),
+    });
+    if (existing) {
+      snapshot = preserveStoredProjectSource(snapshot, existing.snapshot);
+    }
+    await this.restoreUploadedSourceFiles(snapshot, sourceFiles);
+    snapshot = await this.storeSnapshotSources(userId, snapshot, sourceFile);
 
     if (
       expectedRevision === undefined &&
