@@ -1,6 +1,6 @@
 import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
 import JSZip from 'jszip';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import {
   inspectSourceSelection,
   readSourceZipDirectory,
@@ -12,12 +12,15 @@ test('preflights every lesson in a 30-PDF ZIP without extracting its contents', 
   const file = new File([await zip.generateAsync({ type: 'arraybuffer' })], 'course.zip', {
     type: 'application/zip',
   });
+  const reads = vi.spyOn(file, 'slice');
   const entries = await readSourceZipDirectory(file);
   expect(entries).toHaveLength(30);
   expect(entries.find(entry => entry.name === 'lesson-29.pdf')).toEqual({
     name: 'lesson-29.pdf',
     byteSize: 7,
   });
+  expect(reads.mock.calls).toHaveLength(2);
+  reads.mockRestore();
   expect(await inspectSourceSelection([file])).toEqual({ files: [file], warnings: [] });
 });
 
@@ -52,6 +55,94 @@ test('rejects a damaged ZIP instead of treating it as an empty course', async ()
     files: [],
     warnings: [{ name: 'broken.zip', message: expect.any(String) }],
   });
+});
+
+test('rejects a central directory extending past its end record before reading it', async () => {
+  const zip = new JSZip();
+  zip.file('lesson.pdf', '%PDF-example');
+  const bytes = await zip.generateAsync({ type: 'arraybuffer' });
+  const view = new DataView(bytes);
+  view.setUint32(bytes.byteLength - 22 + 12, bytes.byteLength, true);
+  const file = new File([bytes], 'invalid-size.zip');
+  const reads = vi.spyOn(file, 'slice');
+  await expect(readSourceZipDirectory(file)).rejects.toThrow('Invalid ZIP directory size');
+  expect(reads.mock.calls).toHaveLength(1);
+  reads.mockRestore();
+});
+
+test('reads a long-comment directory in bounded blocks without excluding its entries', async () => {
+  const name = new TextEncoder().encode('lesson.pdf');
+  const commentBytes = 65_535;
+  const record = new Uint8Array(46 + name.byteLength + commentBytes);
+  const header = new DataView(record.buffer);
+  header.setUint32(0, 0x02014b50, true);
+  header.setUint32(24, 7, true);
+  header.setUint16(28, name.byteLength, true);
+  header.setUint16(32, commentBytes, true);
+  record.set(name, 46);
+  const count = Math.floor(COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes / record.byteLength) + 1;
+  const end = new Uint8Array(22);
+  const endView = new DataView(end.buffer);
+  endView.setUint32(0, 0x06054b50, true);
+  endView.setUint16(10, count, true);
+  endView.setUint32(12, count * record.byteLength, true);
+  const file = new File([...Array.from({ length: count }, () => record), end], 'comments.zip');
+  const reads = vi.spyOn(file, 'slice');
+  const entries = await readSourceZipDirectory(file);
+  expect(entries).toEqual(
+    Array.from({ length: count }, () => ({ name: 'lesson.pdf', byteSize: 7 }))
+  );
+  expect(reads.mock.calls).toHaveLength(3);
+  for (const [start = 0, stop = file.size] of reads.mock.calls)
+    expect(stop - start).toBeLessThanOrEqual(COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes);
+  reads.mockRestore();
+});
+
+test.each([
+  false,
+  true,
+])('preserves ZIP64 sizes when only size is a sentinel: %s', async sizeOnly => {
+  const zip = new JSZip();
+  zip.file('lesson.pdf', '%PDF-example');
+  const bytes = new Uint8Array(await zip.generateAsync({ type: 'arraybuffer' }));
+  const endOffset = bytes.byteLength - 22;
+  const end = bytes.slice(endOffset);
+  const endView = new DataView(end.buffer);
+  const directoryOffset = endView.getUint32(16, true);
+  const directory = bytes.slice(directoryOffset, endOffset);
+  const header = new DataView(directory.buffer);
+  const byteSize = header.getUint32(24, true);
+  header.setUint32(24, 0xffff_ffff, true);
+  header.setUint16(30, 12, true);
+  const extra = new Uint8Array(12);
+  const extraView = new DataView(extra.buffer);
+  extraView.setUint16(0, 1, true);
+  extraView.setUint16(2, 8, true);
+  extraView.setBigUint64(4, BigInt(byteSize), true);
+  const zip64EndOffset = endOffset + extra.byteLength;
+  const zip64End = new Uint8Array(56);
+  const zip64View = new DataView(zip64End.buffer);
+  zip64View.setUint32(0, 0x06064b50, true);
+  zip64View.setBigUint64(4, 44n, true);
+  zip64View.setBigUint64(24, 1n, true);
+  zip64View.setBigUint64(32, 1n, true);
+  zip64View.setBigUint64(40, BigInt(directory.byteLength + extra.byteLength), true);
+  zip64View.setBigUint64(48, BigInt(directoryOffset), true);
+  const locator = new Uint8Array(20);
+  const locatorView = new DataView(locator.buffer);
+  locatorView.setUint32(0, 0x07064b50, true);
+  locatorView.setBigUint64(8, BigInt(zip64EndOffset), true);
+  locatorView.setUint32(16, 1, true);
+  if (!sizeOnly) {
+    endView.setUint16(10, 0xffff, true);
+    endView.setUint32(16, 0xffff_ffff, true);
+  }
+  endView.setUint32(12, 0xffff_ffff, true);
+  const file = new File(
+    [bytes.subarray(0, directoryOffset), directory, extra, zip64End, locator, end],
+    'zip64.zip'
+  );
+  expect(await readSourceZipDirectory(file)).toEqual([{ name: 'lesson.pdf', byteSize }]);
 });
 
 test('rejects a ZIP whose declared expanded total exceeds the existing safety envelope', async () => {

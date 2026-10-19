@@ -973,7 +973,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
 
     startState.sourceWarnings = getProjectSourceWarnings(source);
     domain.setSource(source);
-    if (source.kind === 'archive') projectLibrary.setProjectHydrated(true);
+    if (source.kind === 'archive' || sourceFiles) projectLibrary.setProjectHydrated(true);
     domain.setIsLearnMode(false);
     const assessmentContext = await buildHomeChatAssessmentContext(source, file, requestId);
     return {

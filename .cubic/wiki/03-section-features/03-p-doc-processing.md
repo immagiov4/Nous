@@ -31,7 +31,7 @@ The core of the document processing system is the `extractPdfText` function, whi
 ### Multi-Stage Parsing
 1.  **pdftotext**: The primary parser. It is invoked via a sub-process with `-layout` flags to preserve the original visual structure, which is critical for table and column detection.
 2.  **pdf-parse**: A secondary fallback parser utilized if `pdftotext` is missing from the environment or fails to produce output.
-3.  **Fallback Process**: For memory safety and isolation, `pdf-parse` is often run in a dedicated Node.js sub-process (`pdfTextFallbackProcess.mjs`) with strict memory limits (`--max-old-space-size`).
+3.  **Fallback Process**: For memory safety and isolation, `pdf-parse` is often run in a dedicated Node.js sub-process (`pdfTextFallbackProcess.mjs`) with strict memory limits (`--max-old-space-size`). The worker sends UTF-8 JSON so Bun and Node share the same protocol, including mathematical Unicode.
 
 Sources: [apps/backend/src/services/pdfTextExtractor.ts:326-373](../../../apps/backend/src/services/pdfTextExtractor.ts#L326-L373), [apps/backend/src/services/pdfTextExtractor.ts:149-198](../../../apps/backend/src/services/pdfTextExtractor.ts#L149-L198)
 
@@ -124,7 +124,7 @@ Sources: [apps/backend/tests/projects/sourceArchive.test.ts:96-150](../../../app
 
 ### Safety Constraints
 *  **Path Validation**: Rejects traversal attacks (`../`), absolute paths, or duplicate entries.
-*  **Per-file preparation**: Every eligible PDF is processed sequentially. The former 16-PDF and 64 MB cumulative admission limits are removed. A PDF input is limited to 32 MB; an oversized archive member remains available as binary data and receives an explicit warning. The browser reads ZIP directory metadata before upload and names excluded PDFs.
+*  **Per-file preparation**: Every eligible PDF is processed sequentially. The former 16-PDF and 64 MB cumulative admission limits are removed. A PDF input is limited to 32 MB; an oversized archive member remains available as binary data and receives an explicit warning. The browser reads ZIP directory metadata before upload and names excluded PDFs. Directory entries share one read buffer, bounded by the existing per-file byte budget; larger directories continue in blocks. Declared directory ranges are checked against the ZIP end record before allocation, including ZIP64 sizes.
 *  **Transfer and temporary disk**: Source files and ZIPs use the existing authenticated 16 MB chunk transfer with one final publication. Source uploads reuse the 1 GB archive safety envelope. ZIP entries retain the existing 20,000-entry, 256 MB single-entry and 1 GB expanded-size validation. The backend reads an assembled ZIP from disk, and keeps prepared file bytes in temporary files rather than retaining a complete course in memory. Backup import limits remain separate.
 *  **Storage concurrency**: The existing four uploads and 64 MB in-flight byte budget apply to active storage transfers, rather than the total course size. The original ZIP is streamed from disk.
 *  **Parser bounds**: PDF extraction uses a 15-second native stage, 15-second isolated fallback stage and 64 MB text-output bound for both separate files and ZIP members. ZIP preparation retains its 480-second deadline. The fallback heap bound is derived from one PDF input and its output budget.

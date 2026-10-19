@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { deserialize } from 'node:v8';
 import { expect, test } from 'vitest';
 
 const buildMinimalPdf = (): Buffer => {
@@ -43,11 +42,11 @@ test('extracts PDF text in the memory-bounded Node subprocess used by Bun produc
 
   const exitCode = await new Promise<number | null>((resolve, reject) => {
     child.once('error', reject);
-    child.once('exit', resolve);
+    child.once('close', resolve);
   });
 
   expect(exitCode, stderr).toBe(0);
-  expect(deserialize(Buffer.concat(stdout))).toMatchObject({
+  expect(JSON.parse(Buffer.concat(stdout).toString('utf8'))).toMatchObject({
     pageCount: 1,
     pages: [expect.objectContaining({ pageNumber: 1, text: expect.stringContaining('PDF smoke') })],
   });

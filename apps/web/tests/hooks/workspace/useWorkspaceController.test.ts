@@ -5024,7 +5024,11 @@ test('startHomeChat removes a new draft when ZIP preparation capacity is busy', 
 });
 
 test('startHomeChat reports each unusable source while continuing with valid material', async () => {
-  const { controller } = createControllerHarness({
+  const hydrationStates: boolean[] = [];
+  const { controller, projectLibrary } = createControllerHarness({
+    projectLibrary: {
+      setProjectHydrated: hydrated => hydrationStates.push(hydrated),
+    },
     openRouter: {
       validatePdfTextSource: async file => {
         if (file.name === 'scansione.pdf') {
@@ -5048,6 +5052,8 @@ test('startHomeChat reports each unusable source while continuing with valid mat
   });
 
   assert.equal(result.outcome, 'continued');
+  assert.equal(projectLibrary.persistedSnapshots.length, 1);
+  assert.equal(hydrationStates.at(-1), true);
   assert.deepEqual(result.sourceWarnings, [
     {
       message: 'Questa fonte non contiene testo PDF utilizzabile.',

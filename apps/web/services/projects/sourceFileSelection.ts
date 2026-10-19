@@ -32,8 +32,9 @@ const readZipDirectoryLocation = async (file: File) => {
     end -= 1;
   if (end < 0) throw new Error('Invalid ZIP directory');
   let count = tail.getUint16(end + 10, true);
+  let size = tail.getUint32(end + 12, true);
   let offset = tail.getUint32(end + 16, true);
-  if (count === 0xffff || offset === ZIP64_FIELD) {
+  if (count === 0xffff || size === ZIP64_FIELD || offset === ZIP64_FIELD) {
     const locator = await readView(file, tailStart + end - 20, 20);
     if (locator.getUint32(0, true) !== ZIP64_LOCATOR_SIGNATURE)
       throw new Error('Invalid ZIP64 locator');
@@ -41,38 +42,67 @@ const readZipDirectoryLocation = async (file: File) => {
     if (directory.getUint32(0, true) !== ZIP64_END_SIGNATURE)
       throw new Error('Invalid ZIP64 directory');
     count = readZipNumber(directory, 32);
+    size = readZipNumber(directory, 40);
     offset = readZipNumber(directory, 48);
   }
-  return { count, offset };
+  if (size < count * ZIP_DIRECTORY_HEADER_BYTES || offset > tailStart + end - size)
+    throw new Error('Invalid ZIP directory size');
+  return { count, offset, size };
 };
 
-const readZipDirectoryEntry = async (file: File, offset: number) => {
-  const header = await readView(file, offset, ZIP_DIRECTORY_HEADER_BYTES);
-  if (
-    header.byteLength !== ZIP_DIRECTORY_HEADER_BYTES ||
-    header.getUint32(0, true) !== ZIP_DIRECTORY_SIGNATURE
-  )
-    throw new Error('Invalid ZIP entry');
+const createDirectoryReader = (file: File, directory: { offset: number; size: number }) => {
+  let buffer = new DataView(new ArrayBuffer(0));
+  let bufferStart = 0;
+  return async (offset: number, size: number): Promise<DataView> => {
+    if (offset + size > directory.size) throw new Error('Invalid ZIP entry size');
+    if (offset < bufferStart || offset + size > bufferStart + buffer.byteLength) {
+      bufferStart = offset;
+      // Reuse the per-file memory budget without imposing a new archive admission limit.
+      buffer = await readView(
+        file,
+        directory.offset + offset,
+        Math.min(directory.size - offset, COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes)
+      );
+    }
+    return new DataView(buffer.buffer, buffer.byteOffset + offset - bufferStart, size);
+  };
+};
+
+const readZipDirectoryEntry = async (
+  readDirectory: ReturnType<typeof createDirectoryReader>,
+  offset: number
+) => {
+  const header = await readDirectory(offset, ZIP_DIRECTORY_HEADER_BYTES);
+  if (header.getUint32(0, true) !== ZIP_DIRECTORY_SIGNATURE) throw new Error('Invalid ZIP entry');
   let byteSize = header.getUint32(24, true);
   const nameBytes = header.getUint16(28, true),
     extraBytes = header.getUint16(30, true),
     commentBytes = header.getUint16(32, true);
+  const recordBytes = ZIP_DIRECTORY_HEADER_BYTES + nameBytes + extraBytes + commentBytes;
+  const record = await readDirectory(offset, recordBytes);
   const name = new TextDecoder().decode(
-    await file
-      .slice(offset + ZIP_DIRECTORY_HEADER_BYTES, offset + ZIP_DIRECTORY_HEADER_BYTES + nameBytes)
-      .arrayBuffer()
+    new Uint8Array(record.buffer, record.byteOffset + ZIP_DIRECTORY_HEADER_BYTES, nameBytes)
   );
   if (byteSize === ZIP64_FIELD) {
-    const extra = await readView(file, offset + ZIP_DIRECTORY_HEADER_BYTES + nameBytes, extraBytes);
+    const extra = new DataView(
+      record.buffer,
+      record.byteOffset + ZIP_DIRECTORY_HEADER_BYTES + nameBytes,
+      extraBytes
+    );
     let cursor = 0;
     while (cursor + 4 <= extra.byteLength && extra.getUint16(cursor, true) !== 1)
       cursor += 4 + extra.getUint16(cursor + 2, true);
-    if (cursor + 12 > extra.byteLength) throw new Error('Invalid ZIP64 entry');
+    if (
+      cursor + 12 > extra.byteLength ||
+      extra.getUint16(cursor + 2, true) < 8 ||
+      cursor + 4 + extra.getUint16(cursor + 2, true) > extra.byteLength
+    )
+      throw new Error('Invalid ZIP64 entry');
     byteSize = readZipNumber(extra, cursor + 4);
   }
   return {
     entry: { name, byteSize },
-    nextOffset: offset + ZIP_DIRECTORY_HEADER_BYTES + nameBytes + extraBytes + commentBytes,
+    nextOffset: offset + recordBytes,
   };
 };
 
@@ -83,10 +113,11 @@ export const readSourceZipDirectory = async (
   const directory = await readZipDirectoryLocation(file);
   if (directory.count > COURSE_SOURCE_UPLOAD_LIMITS.maxArchiveEntries)
     throw new ZipEntryCountError();
+  const readDirectory = createDirectoryReader(file, directory);
   const entries = [];
-  let offset = directory.offset;
+  let offset = 0;
   for (let index = 0; index < directory.count; index += 1) {
-    const next = await readZipDirectoryEntry(file, offset);
+    const next = await readZipDirectoryEntry(readDirectory, offset);
     entries.push(next.entry);
     offset = next.nextOffset;
   }
