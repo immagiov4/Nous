@@ -6,17 +6,6 @@ import { type ExtractedPdfText, extractPdfText } from './pdfTextExtractor.js';
 export const isPdfProjectSourceFile = (file: { mimeType: string; name: string }): boolean =>
   file.mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 
-export const readProjectSourceText = async (
-  file: {
-    data: string;
-    mimeType: string;
-    name: string;
-  },
-  transcription?: PdfTranscriptionOptions
-): Promise<string> => {
-  return (await readProjectSourceMaterial(file, transcription)).text;
-};
-
 export interface ProjectSourceMaterial {
   pdf?: ExtractedPdfText;
   text: string;

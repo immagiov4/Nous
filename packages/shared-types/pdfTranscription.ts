@@ -1,5 +1,7 @@
 import * as z from 'zod';
 
+export const PDF_TRANSCRIPTION_ERROR_CODE = 'PDF_PAGE_TRANSCRIPTION_FAILED';
+
 export interface PdfPageProvenance {
   kind: 'vision-transcription';
   pageNumber: number;

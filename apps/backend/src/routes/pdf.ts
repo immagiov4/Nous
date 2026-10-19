@@ -1,4 +1,5 @@
 // Exposes PDF upload and extraction routes.
+import { PDF_TRANSCRIPTION_ERROR_CODE } from '@shared/pdfTranscription';
 import { type Response, Router } from 'express';
 import { getCurrentUser } from '../auth/currentUser.js';
 import { getResolvedModelConfigForProvider } from '../config/modelConfig.js';
@@ -27,7 +28,7 @@ const sendPdfTextFailure = (res: Response, error: unknown, streamed: boolean) =>
         ? error.message
         : 'Estrazione del testo dal PDF non riuscita.',
     ...(error instanceof PdfPageTranscriptionError
-      ? { code: error.code, failedPages: error.failedPages }
+      ? { code: PDF_TRANSCRIPTION_ERROR_CODE, failedPages: error.failedPages }
       : {}),
   };
   if (streamed && res.headersSent)

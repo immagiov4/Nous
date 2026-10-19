@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { PdfPageTranscriptionError } from '../../src/services/pdfPageTranscription.js';
 
 const pdfServiceMocks = vi.hoisted(() => ({
   extractPdfImages: vi.fn(),
@@ -124,5 +125,28 @@ describe('POST /api/pdf', () => {
     ]);
     expect(events[0].progress).toEqual({ completed: 0, total: 1, failedPages: [] });
     expect(events[2].result.pages).toEqual([{ pageNumber: 1, text: 'A formula' }]);
+  });
+});
+
+test.each([
+  false,
+  true,
+])('preserves failed page identities and the public error code (streamed: %s)', async streamed => {
+  pdfServiceMocks.extractPdfText.mockImplementation(async (_file, options) => {
+    if (streamed) options.transcription.onProgress({ completed: 0, total: 1, failedPages: [] });
+    throw new PdfPageTranscriptionError([2]);
+  });
+  const response = await request(createApp())
+    .post('/api/pdf/extract-text')
+    .set('Accept', streamed ? 'application/x-ndjson' : 'application/json')
+    .send({ fileData: 'data:application/pdf;base64,ZmFrZQ==' });
+  expect(response.status).toBe(streamed ? 200 : 422);
+  const failure = streamed
+    ? JSON.parse(response.text.trim().split('\n').at(-1) || '{}')
+    : response.body;
+  expect(failure).toMatchObject({
+    code: 'PDF_PAGE_TRANSCRIPTION_FAILED',
+    failedPages: [2],
+    success: false,
   });
 });

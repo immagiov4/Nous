@@ -4,6 +4,7 @@ import { Readable } from 'node:stream';
 import { normalizeLessonInstructionPacks } from '@shared/lessonInstructionPacks';
 import { LessonQuizStateSchema } from '@shared/lessonQuizState';
 import { SOURCE_ARCHIVE_VERSION_HASH_PATTERN } from '@shared/lessonSourceContext';
+import { PDF_TRANSCRIPTION_ERROR_CODE } from '@shared/pdfTranscription';
 import { isProjectCoverMediaType, PROJECT_COVER_MAX_BYTES } from '@shared/projectBackupArchive';
 import { InvalidProjectBackupAssetError } from '@shared/projectBackupAssets';
 import {
@@ -282,7 +283,7 @@ const sendProjectWriteError = (
   if (error instanceof PdfPageTranscriptionError) {
     sendProjectWriteErrorResult(res, 422, {
       success: false,
-      code: error.code,
+      code: PDF_TRANSCRIPTION_ERROR_CODE,
       error: error.message,
       failedPages: error.failedPages,
       documentName: error.documentName,

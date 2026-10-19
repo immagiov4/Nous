@@ -20,11 +20,8 @@ import {
 } from '../config/modelConfig.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
-import {
-  type ExtractedPdfText,
-  type ExtractedPdfTextPage,
-  normalizeExtractedTextSegment,
-} from './pdfTextExtractor.js';
+import type { ExtractedPdfText, ExtractedPdfTextPage } from './pdfTextExtractor.js';
+import { normalizeExtractedTextSegment } from './pdfTextNormalization.js';
 import { getPdfTranscriptionMathErrors } from './pdfTranscriptionMath.js';
 
 const pdfJsRoot = path
@@ -39,7 +36,7 @@ const PDF_PAGE_LOAD_OPTIONS = {
 };
 
 // Technical settings are calibrated on real handwritten notes and printed math pages.
-export const PDF_TRANSCRIPTION = {
+const PDF_TRANSCRIPTION = {
   concurrency: 4,
   pageTimeoutMs: 120_000,
   renderWidth: 1800,
@@ -91,7 +88,6 @@ export interface PdfTranscriptionOptions {
   signal?: AbortSignal;
 }
 export class PdfPageTranscriptionError extends Error {
-  readonly code = 'PDF_PAGE_TRANSCRIPTION_FAILED';
   constructor(
     readonly failedPages: number[],
     readonly documentName?: string
