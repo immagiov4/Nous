@@ -166,10 +166,25 @@ const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
   collectMathRanges(markdown, analysis);
   analysis.omissions.sort((left, right) => left.start - right.start);
   analysis.inlineVisuals.sort((left, right) => left.start - right.start);
-  return analysis;
+  return {
+    ...analysis,
+    blocks: analysis.blocks.filter(
+      block => !analysis.math.some(math => math.start <= block.start && math.end >= block.end)
+    ),
+    // A heading boundary inside a visual belongs to that visual's syntax.
+    headings: analysis.headings.filter(
+      heading =>
+        !analysis.inlineVisuals.some(
+          visual =>
+            (visual.start < heading.start && visual.end > heading.start) ||
+            (visual.start < heading.end && visual.end > heading.end)
+        )
+    ),
+  };
 };
 
 const collectMathRanges = (markdown: string, analysis: MarkdownAnalysis): void => {
+  const blockRanges = new Set<PlaybackRange>(analysis.blocks);
   const protectedRanges = [
     ...analysis.blocks,
     ...analysis.inlineCode,
@@ -185,7 +200,16 @@ const collectMathRanges = (markdown: string, analysis: MarkdownAnalysis): void =
       continue;
     }
     const mathRange = getMarkdownMathRangeAt(markdown, cursor);
-    if (mathRange && (!protectedRange || mathRange.end <= protectedRange.start)) {
+    // A formula can contain complete parser blocks, but cannot close inside protected syntax.
+    const overlapsProtectedSyntax =
+      mathRange &&
+      protectedRanges
+        .slice(protectedIndex)
+        .some(
+          range =>
+            range.start < mathRange.end && (!blockRanges.has(range) || range.end > mathRange.end)
+        );
+    if (mathRange && !overlapsProtectedSyntax) {
       analysis.omissions.push(mathRange);
       analysis.inlineVisuals.push(mathRange);
       analysis.math.push(mathRange);
@@ -348,6 +372,11 @@ const markdownChunks = (markdown: string, analysis: MarkdownAnalysis): MarkdownC
     const lineStart = line.start;
     const lineEnd = line.contentEnd;
     if (lineStart < consumedEnd) continue;
+    // Internal visual lines cannot end the surrounding spoken passage.
+    if (analysis.inlineVisuals.some(visual => visual.start < lineStart && visual.end > lineStart)) {
+      end = lineEnd;
+      continue;
+    }
     const block = analysis.blocks[blockIndex];
     if (block && block.start >= lineStart && block.start <= lineEnd) {
       flush();
