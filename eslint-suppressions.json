@@ -516,200 +516,6 @@
       "count": 1
     }
   },
-  "apps/web/tests/components/account/AccountSetupFlow.test.tsx": {
-    "unicorn/consistent-function-scoping": {
-      "count": 2
-    }
-  },
-  "apps/web/tests/components/auth/AuthGate.test.tsx": {
-    "unicorn/consistent-function-scoping": {
-      "count": 1
-    },
-    "unicorn/prefer-string-replace-all": {
-      "count": 3
-    }
-  },
-  "apps/web/tests/components/library/DiagnosticFlow.test.tsx": {
-    "unicorn/consistent-function-scoping": {
-      "count": 1
-    }
-  },
-  "apps/web/tests/components/library/HomeChatPanel.test.tsx": {
-    "unicorn/consistent-function-scoping": {
-      "count": 2
-    }
-  },
-  "apps/web/tests/components/library/LibraryScreenContainer.dom.test.tsx": {
-    "unicorn/consistent-function-scoping": {
-      "count": 1
-    }
-  },
-  "apps/web/tests/components/newHome/NewHomeView.test.tsx": {
-    "unicorn/consistent-function-scoping": {
-      "count": 1
-    }
-  },
-  "apps/web/tests/components/shared/AnimatedLessonScene.test.tsx": {
-    "unicorn/consistent-function-scoping": {
-      "count": 1
-    }
-  },
-  "apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx": {
-    "unicorn/prefer-string-raw": {
-      "count": 1
-    }
-  },
-  "apps/web/tests/components/shared/LessonSceneLabCatalog.test.tsx": {
-    "sonarjs/no-alphabetical-sort": {
-      "count": 2
-    }
-  },
-  "apps/web/tests/components/shared/MarkdownRenderer.test.tsx": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 6
-    },
-    "unicorn/consistent-function-scoping": {
-      "count": 1
-    }
-  },
-  "apps/web/tests/components/shared/SceneChart.test.tsx": {
-    "unicorn/consistent-function-scoping": {
-      "count": 1
-    }
-  },
-  "apps/web/tests/components/shared/SpeechInputButton.test.tsx": {
-    "unicorn/consistent-function-scoping": {
-      "count": 1
-    }
-  },
-  "apps/web/tests/components/shared/ThinkingStream.test.tsx": {
-    "unicorn/prefer-string-raw": {
-      "count": 1
-    }
-  },
-  "apps/web/tests/components/workspace/AnimatedPlaybackScene.test.tsx": {
-    "sonarjs/no-nested-conditional": {
-      "count": 1
-    }
-  },
-  "apps/web/tests/components/workspace/LessonPlaybackStage.test.tsx": {
-    "unicorn/consistent-function-scoping": {
-      "count": 1
-    }
-  },
-  "apps/web/tests/components/workspace/UnifiedAudioPanel.test.tsx": {
-    "unicorn/consistent-function-scoping": {
-      "count": 1
-    }
-  },
-  "apps/web/tests/components/workspace/shell/ContextAnswerPanel.test.tsx": {
-    "unicorn/consistent-function-scoping": {
-      "count": 2
-    }
-  },
-  "apps/web/tests/hooks/chat/useChatResponseControl.test.tsx": {
-    "unicorn/consistent-function-scoping": {
-      "count": 2
-    }
-  },
-  "apps/web/tests/hooks/library/useLibraryAssistantChat.test.tsx": {
-    "unicorn/consistent-function-scoping": {
-      "count": 3
-    }
-  },
-  "apps/web/tests/hooks/reader/useLessonPlayback.test.tsx": {
-    "unicorn/consistent-function-scoping": {
-      "count": 3
-    }
-  },
-  "apps/web/tests/hooks/workspace/useWorkspaceController.test.ts": {
-    "unicorn/consistent-function-scoping": {
-      "count": 74
-    }
-  },
-  "apps/web/tests/services/auth/supabaseAuth.test.ts": {
-    "unicorn/consistent-function-scoping": {
-      "count": 1
-    },
-    "unicorn/prefer-string-replace-all": {
-      "count": 3
-    }
-  },
-  "apps/web/tests/services/openrouter/artifactDrafts.test.ts": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 3
-    }
-  },
-  "apps/web/tests/services/openrouter/client.test.ts": {
-    "unicorn/prefer-string-raw": {
-      "count": 1
-    }
-  },
-  "apps/web/tests/services/openrouter/courseGenerationClient.test.ts": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 1
-    }
-  },
-  "apps/web/tests/services/openrouter/json.test.ts": {
-    "unicorn/prefer-string-raw": {
-      "count": 1
-    }
-  },
-  "apps/web/tests/services/openrouter/lessonGenerationClient.test.ts": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 2
-    }
-  },
-  "apps/web/tests/services/projects/httpProjectRepository.test.ts": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 2
-    }
-  },
-  "apps/web/tests/services/projects/projectArchive.test.ts": {
-    "sonarjs/no-alphabetical-sort": {
-      "count": 4
-    }
-  },
-  "apps/web/tests/utils/context/conversationNote.test.ts": {
-    "unicorn/prefer-string-raw": {
-      "count": 2
-    }
-  },
-  "apps/web/tests/utils/context/highlightSelection.test.ts": {
-    "unicorn/prefer-string-raw": {
-      "count": 2
-    }
-  },
-  "apps/web/tests/utils/context/menuSelection.test.ts": {
-    "unicorn/prefer-string-raw": {
-      "count": 2
-    }
-  },
-  "apps/web/tests/utils/learning/sectionAnnotationResolutionPerformance.test.ts": {
-    "unicorn/consistent-function-scoping": {
-      "count": 2
-    }
-  },
-  "apps/web/tests/utils/learning/sectionAnnotations.test.ts": {
-    "unicorn/prefer-string-raw": {
-      "count": 2
-    }
-  },
-  "apps/web/tests/utils/markdown/codeRanges.test.ts": {
-    "unicorn/prefer-string-raw": {
-      "count": 3
-    }
-  },
-  "apps/web/tests/utils/markdown/mathNormalization.test.ts": {
-    "unicorn/prefer-string-raw": {
-      "count": 2
-    }
-  },
-  "apps/web/tests/utils/markdown/render.test.ts": {
-    "unicorn/prefer-string-raw": {
-      "count": 17
-    }
-  },
   "apps/web/utils/context/highlightSelection.ts": {
     "sonarjs/cognitive-complexity": {
       "count": 1
@@ -771,16 +577,6 @@
       "count": 1
     }
   },
-  "e2e/nous/tests/adapter.test.ts": {
-    "sonarjs/no-nested-template-literals": {
-      "count": 1
-    }
-  },
-  "e2e/nous/tests/migrations.test.ts": {
-    "sonarjs/no-alphabetical-sort": {
-      "count": 1
-    }
-  },
   "packages/playtest/src/operator/observe.ts": {
     "unicorn/consistent-function-scoping": {
       "count": 1
@@ -797,21 +593,6 @@
   "packages/playtest/src/report/writeReports.ts": {
     "unicorn/prefer-string-replace-all": {
       "count": 2
-    }
-  },
-  "packages/playtest/tests/operator.test.ts": {
-    "sonarjs/no-nested-template-literals": {
-      "count": 1
-    }
-  },
-  "packages/playtest/tests/probes.test.ts": {
-    "sonarjs/no-nested-functions": {
-      "count": 1
-    }
-  },
-  "packages/playtest/tests/runner.test.ts": {
-    "unicorn/consistent-function-scoping": {
-      "count": 1
     }
   },
   "packages/shared-types/lessonPlayback.ts": {
@@ -861,18 +642,8 @@
       "count": 1
     }
   },
-  "scripts/feature-map.test.ts": {
-    "sonarjs/no-alphabetical-sort": {
-      "count": 1
-    }
-  },
   "scripts/project-source-storage-artifact.ts": {
     "unicorn/prefer-top-level-await": {
-      "count": 1
-    }
-  },
-  "scripts/run-workflow-postgres-contract.test.ts": {
-    "unicorn/consistent-function-scoping": {
       "count": 1
     }
   },

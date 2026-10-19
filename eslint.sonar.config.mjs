@@ -1,10 +1,38 @@
+import { readFileSync } from 'node:fs';
+
 import tsPlugin from '@typescript-eslint/eslint-plugin';
 import tsParser from '@typescript-eslint/parser';
 import reactHooks from 'eslint-plugin-react-hooks';
 import sonarjs from 'eslint-plugin-sonarjs';
 import unicorn from 'eslint-plugin-unicorn';
+import lintProject from './tsconfig.eslint.json' with { type: 'json' };
 
-export default [
+const sonarProperties = readFileSync(
+  new URL('./sonar-project.properties', import.meta.url),
+  'utf8'
+);
+const testProperties = new Map(
+  [
+    ...sonarProperties.matchAll(
+      /^[ \t]*(sonar\.tests|sonar\.test\.inclusions)[ \t]*=[ \t]*(.*)$/gmu
+    ),
+  ].map(([, key, value]) => [
+    key,
+    value
+      .split(',')
+      .map(entry => entry.trim())
+      .filter(Boolean),
+  ])
+);
+const testDirectories = testProperties.get('sonar.tests');
+const testInclusions = testProperties.get('sonar.test.inclusions');
+if (!testDirectories?.length || !testInclusions?.length) {
+  throw new Error(
+    'sonar.tests and sonar.test.inclusions must define the Sonar test classification.'
+  );
+}
+
+const config = [
   {
     ignores: [
       '**/node_modules/**',
@@ -19,13 +47,7 @@ export default [
     ],
   },
   {
-    files: [
-      'apps/web/**/*.{ts,tsx}',
-      'apps/backend/src/**/*.{ts,tsx}',
-      'packages/**/*.{ts,tsx}',
-      'scripts/**/*.{ts,tsx}',
-      'e2e/**/*.{ts,tsx}',
-    ],
+    files: lintProject.include,
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -54,5 +76,16 @@ export default [
       'unicorn/consistent-function-scoping': 'error', // S7721
       'unicorn/prefer-top-level-await': 'error', // S7785
     },
+  },
+];
+
+// Match sonar.tests and sonar.test.inclusions: the selected rules all have Main scope.
+export default [
+  ...config,
+  {
+    files: testDirectories.flatMap(directory =>
+      testInclusions.map(inclusion => [`${directory.replace(/\/$/u, '')}/**/*`, inclusion])
+    ),
+    rules: Object.fromEntries(Object.keys(config[1].rules).map(rule => [rule, 'off'])),
   },
 ];

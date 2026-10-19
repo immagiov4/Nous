@@ -1,4 +1,5 @@
 import type { LessonPlaybackBlock, PlaybackRange, PlaybackVisual } from '@shared/lessonPlayback';
+import { resolvePlaybackNarration } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
 import {
   Fragment,
@@ -282,7 +283,7 @@ function PlaybackVisualContent({
 }
 
 export default function LessonPlaybackStage({
-  block,
+  block: sourceBlock,
   time,
   duration,
   content,
@@ -296,6 +297,7 @@ export default function LessonPlaybackStage({
   speed?: number;
   readTime?: () => number;
 }>) {
+  const block = useMemo(() => resolvePlaybackNarration(sourceBlock), [sourceBlock]);
   const sources = useMemo(
     () =>
       content.sectionContentBlocks?.length

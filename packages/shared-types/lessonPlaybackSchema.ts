@@ -1,5 +1,5 @@
 import * as z from 'zod';
-import type { LessonPlayback } from './lessonPlayback';
+import { type LessonPlayback, validatePlaybackSpokenMath } from './lessonPlayback';
 import { isLessonScene, LessonSceneSchema } from './lessonScene';
 import { isValidProjectAssetRef, type ProjectAssetRef } from './projectAsset';
 
@@ -21,8 +21,13 @@ const PlaybackRangeSchema = z.object({
   end: z.number().int().nonnegative(),
 });
 
-const createPlaybackPreparedSchema = (sceneSchema = LessonSceneSchema) =>
-  z.object({
+export const PlaybackSpokenMathSchema = z.array(
+  z.object({ formula: z.string().min(1), spoken: z.string().regex(/\S/u) })
+);
+
+const createPlaybackPreparedSchema = (sceneSchema = LessonSceneSchema, spokenMath = false) => {
+  const schema = z.object({
+    spokenMath: PlaybackSpokenMathSchema.optional(),
     scene: sceneSchema.optional(),
     motion: z.array(
       z.object({
@@ -32,8 +37,13 @@ const createPlaybackPreparedSchema = (sceneSchema = LessonSceneSchema) =>
       })
     ),
   });
+  // Rebuild historical definitions without the new field, retaining the common internal type.
+  return spokenMath
+    ? schema
+    : (z.object({ scene: schema.shape.scene, motion: schema.shape.motion }) as typeof schema);
+};
 
-export const PlaybackPreparedSchema = createPlaybackPreparedSchema();
+export const PlaybackPreparedSchema = createPlaybackPreparedSchema(LessonSceneSchema, true);
 
 export const PlaybackAudioSchema = z.object({
   model: z.string().min(1),
@@ -42,17 +52,28 @@ export const PlaybackAudioSchema = z.object({
   durationSeconds: z.number().positive(),
 });
 
-export const createLessonPlaybackBlockSchema = (sceneSchema = LessonSceneSchema) =>
-  z.object({
+export const createLessonPlaybackBlockSchema = (
+  sceneSchema = LessonSceneSchema,
+  spokenMath = false
+) => {
+  const spanSchema = z.object({
+    math: z.string().min(1).optional(),
+    speech: PlaybackRangeSchema,
+    sourceBlockIndex: z.number().int().nonnegative(),
+    source: PlaybackRangeSchema,
+  });
+  return z.object({
     id: z.string().min(1),
     heading: z.string(),
     speech: z.string(),
     spans: z.array(
-      z.object({
-        speech: PlaybackRangeSchema,
-        sourceBlockIndex: z.number().int().nonnegative(),
-        source: PlaybackRangeSchema,
-      })
+      spokenMath
+        ? spanSchema
+        : (z.object({
+            speech: spanSchema.shape.speech,
+            sourceBlockIndex: spanSchema.shape.sourceBlockIndex,
+            source: spanSchema.shape.source,
+          }) as typeof spanSchema)
     ),
     visuals: z.array(
       z.union([
@@ -61,11 +82,12 @@ export const createLessonPlaybackBlockSchema = (sceneSchema = LessonSceneSchema)
         z.object({ kind: z.literal('scene'), scene: sceneSchema }),
       ])
     ),
-    prepared: createPlaybackPreparedSchema(sceneSchema).optional(),
+    prepared: createPlaybackPreparedSchema(sceneSchema, spokenMath).optional(),
     audio: z.array(PlaybackAudioSchema),
   });
+};
 
-export const LessonPlaybackBlockSchema = createLessonPlaybackBlockSchema();
+export const LessonPlaybackBlockSchema = createLessonPlaybackBlockSchema(LessonSceneSchema, true);
 
 const LessonPlaybackSchema = z.object({
   version: z.literal(1),
@@ -77,6 +99,13 @@ const LessonPlaybackSchema = z.object({
 export const isValidLessonPlayback = (value: unknown): value is LessonPlayback => {
   const parsed = LessonPlaybackSchema.safeParse(value);
   if (!parsed.success) return false;
+  try {
+    for (const block of parsed.data.blocks) {
+      if (block.prepared?.spokenMath) validatePlaybackSpokenMath(block, block.prepared.spokenMath);
+    }
+  } catch {
+    return false;
+  }
   return parsed.data.blocks.every(
     block =>
       block.spans.every(
