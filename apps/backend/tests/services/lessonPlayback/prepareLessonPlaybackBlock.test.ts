@@ -174,7 +174,7 @@ test('keeps a paid scene when motion fails before it can be recorded', async () 
   expect(motion).toHaveBeenCalledTimes(2);
 });
 
-test('generates from the complete block speech only when visuals are absent', async () => {
+test('grounds generated visuals in block speech without lesson-wide metadata', async () => {
   const request = input();
   const snapshot = structuredClone(request.block);
   expect(await prepareLessonPlaybackBlock(request)).toEqual({
@@ -185,7 +185,8 @@ test('generates from the complete block speech only when visuals are absent', as
   const sceneRequest = sceneGeneration.mock.calls[0][0];
   expect(sceneRequest).toMatchObject({
     lessonMarkdown: request.block.speech,
-    sectionTitle: 'Componenti',
+    sectionTitle: '',
+    sectionDescription: '',
     signal: request.signal,
   });
   expect(sceneRequest.plan).toBeUndefined();
