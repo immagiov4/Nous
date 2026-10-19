@@ -140,3 +140,20 @@ test.each(
   const prompt = JSON.parse(structured.mock.calls[0][0].prompt);
   expect(prompt.formulas).toEqual(fixture.spokenMath.map(entry => entry.formula));
 });
+
+// The language scope is an explicit prompt contract; pronunciation quality needs provider evaluation.
+test('keeps Italian examples conditional when preparing English narration', async () => {
+  const block = segmentLessonPlayback([
+    { type: 'markdown', markdown: 'Let $p$ be a probability.' },
+  ])[0];
+  structured.mockResolvedValue({ spokenMath: [{ formula: '$p$', spoken: 'pee' }] });
+  const pronunciations = await generatePlaybackSpokenMath({
+    block,
+    config: getGlobalModelConfig(),
+    signal: new AbortController().signal,
+  });
+  const request = structured.mock.calls[0][0];
+  expect(JSON.parse(request.prompt).narration).toBe(block.speech);
+  expect(request.system).not.toContain('The Latin letter p is pi, never pi greco.');
+  expect(resolvePlaybackNarration(block, pronunciations).speech).toBe('Let pee be a probability.');
+});
