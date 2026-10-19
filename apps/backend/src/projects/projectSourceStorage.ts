@@ -5,8 +5,10 @@ import { Readable } from 'node:stream';
 import { readDiagnosticResponseText } from '../utils/sanitizeDiagnosticText.js';
 
 export const PROJECT_SOURCE_BUCKET = 'project-sources';
+const MAX_SOURCE_OBJECT_BYTES = 200 * 1024 * 1024;
 
 export type ProjectSourceStorageErrorCode =
+  | 'object-too-large'
   | 'configuration-invalid'
   | 'delete-failed'
   | 'download-failed'
@@ -16,6 +18,7 @@ export type ProjectSourceStorageErrorCode =
   | 'upload-failed';
 
 const ERROR_MESSAGES: Record<ProjectSourceStorageErrorCode, string> = {
+  'object-too-large': 'The source object exceeds the 200 MiB storage limit.',
   'configuration-invalid': 'Supabase project source storage configuration is invalid.',
   'delete-failed': 'Supabase project source deletion failed.',
   'download-failed': 'Supabase project source download failed.',
@@ -132,6 +135,8 @@ export class SupabaseProjectSourceStorage {
     mimeType: string,
     signal?: AbortSignal
   ): Promise<void> {
+    const byteSize = bytes instanceof Uint8Array ? bytes.byteLength : bytes.byteSize;
+    if (byteSize > MAX_SOURCE_OBJECT_BYTES) throw new ProjectSourceStorageError('object-too-large');
     // Bun fetch accepts ArrayBufferView bodies although its DOM BodyInit type omits them.
     const stream = !(bytes instanceof Uint8Array);
     const body = stream

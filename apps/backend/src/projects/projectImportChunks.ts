@@ -13,8 +13,15 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
+import {
+  SOURCE_PREPARATION_CANCELLED_CODE,
+  SOURCE_PREPARATION_CANCELLED_MESSAGE,
+  type SourcePreparationProgress,
+} from '@shared/sourcePreparation';
 import { projectImportConfig } from './projectImportConfig.js';
-import type { SavedProjectMeta } from './types.js';
+import type { SourcePreparationJobContext } from './sourcePreparationContext.js';
+import { assertSourceStagingAvailable } from './sourceStaging.js';
+import type { ProjectSnapshot, SavedProjectMeta } from './types.js';
 
 const IMPORT_ROOT_PREFIX = 'nous-project-imports-';
 const IMPORT_ROOT_PROMISE = mkdtemp(join(tmpdir(), IMPORT_ROOT_PREFIX));
@@ -37,6 +44,7 @@ interface StoredChunk {
 }
 
 interface CompletedImport {
+  snapshot?: ProjectSnapshot;
   meta: SavedProjectMeta;
   projectId: string;
 }
@@ -52,7 +60,10 @@ interface UploadSession {
   sourceUpload: boolean;
   key: string;
   lock: Promise<void>;
-  status: 'receiving' | 'finalizing' | 'completed';
+  status: 'receiving' | 'finalizing' | 'completed' | 'failed';
+  controller: AbortController;
+  progress?: SourcePreparationProgress;
+  failure?: unknown;
   totalBytes: number;
   updatedAt: number;
   uploadId: string;
@@ -61,6 +72,12 @@ interface UploadSession {
 
 export class ProjectImportInputError extends Error {}
 export class ProjectImportCapacityError extends Error {}
+export class SourcePreparationCancelledError extends Error {
+  readonly code = SOURCE_PREPARATION_CANCELLED_CODE;
+  constructor() {
+    super(SOURCE_PREPARATION_CANCELLED_MESSAGE);
+  }
+}
 
 const sessions = new Map<string, UploadSession>();
 const pendingSessions = new Map<string, Promise<UploadSession>>();
@@ -210,7 +227,8 @@ const runFinalization = async <T>(operation: () => Promise<T>): Promise<T> => {
 
 const countActiveUserSessions = (userId: string): number =>
   [...sessions.values()].filter(
-    session => session.userId === userId && session.status !== 'completed'
+    session =>
+      session.userId === userId && session.status !== 'completed' && session.status !== 'failed'
   ).length;
 
 const createSession = async (input: ProjectImportChunk): Promise<UploadSession> => {
@@ -228,6 +246,7 @@ const createSession = async (input: ProjectImportChunk): Promise<UploadSession> 
     key,
     lock: Promise.resolve(),
     status: 'receiving',
+    controller: new AbortController(),
     totalBytes: 0,
     updatedAt: Date.now(),
     uploadId: input.uploadId,
@@ -252,7 +271,7 @@ const getOrCreateSession = async (input: ProjectImportChunk): Promise<UploadSess
     pendingKey.startsWith(userKeyPrefix)
   ).length;
   const activeGlobal = [...sessions.values()].filter(
-    session => session.status !== 'completed'
+    session => session.status !== 'completed' && session.status !== 'failed'
   ).length;
   if (activeGlobal + pendingSessions.size >= projectImportConfig.activeUploadsGlobal) {
     throw new ProjectImportCapacityError(
@@ -278,6 +297,7 @@ export const storeProjectImportChunk = async (
   input: ProjectImportChunk
 ): Promise<{ ready: boolean; receivedCount: number }> => {
   const chunkBytes = validateChunk(input);
+  if (input.sourceUpload) await assertSourceStagingAvailable();
   await cleanupExpiredSessions();
   const session = await getOrCreateSession(input);
 
@@ -343,8 +363,13 @@ export const cancelProjectImportUpload = async (
   }
   const session = sessions.get(getSessionKey(userId, uploadId));
   if (!session) return;
+  if (session.sourceUpload && session.status === 'completed') return;
+  if (session.sourceUpload && session.status === 'finalizing') {
+    session.controller.abort();
+    return;
+  }
   await withSessionLock(session, async () => {
-    if (session.status !== 'receiving') {
+    if (session.status !== 'receiving' && session.status !== 'failed') {
       throw new ProjectImportInputError('Questo backup non puo piu essere annullato.');
     }
     sessions.delete(session.key);
@@ -355,20 +380,36 @@ export const cancelProjectImportUpload = async (
 export const getProjectImportUploadStatus = (
   userId: string,
   uploadId: string
-): { completed?: CompletedImport; status: UploadSession['status'] } | undefined => {
+):
+  | {
+      completed?: CompletedImport;
+      status: UploadSession['status'];
+      progress?: SourcePreparationProgress;
+      failure?: unknown;
+    }
+  | undefined => {
   if (!IMPORT_UPLOAD_ID_PATTERN.test(uploadId)) {
     throw new ProjectImportInputError('Identificativo caricamento non valido.');
   }
   const session = sessions.get(getSessionKey(userId, uploadId));
   if (!session) return undefined;
-  return { completed: session.completed, status: session.status };
+  return {
+    completed: session.completed,
+    status: session.status,
+    progress: session.progress,
+    failure: session.failure,
+  };
 };
 
 const assembleAndImport = async (
   session: UploadSession,
   importData?: (data: unknown) => Promise<CompletedImport>,
   importBinary?: (bytes: Uint8Array, expectedRevision?: number) => Promise<CompletedImport>,
-  importFile?: (path: string, expectedRevision?: number) => Promise<CompletedImport>
+  importFile?: (
+    path: string,
+    expectedRevision?: number,
+    context?: SourcePreparationJobContext
+  ) => Promise<CompletedImport>
 ): Promise<CompletedImport> => {
   const assembledPath = join(session.directory, 'assembled');
   await writeFile(assembledPath, '', { flag: 'wx', mode: 0o600 });
@@ -410,7 +451,11 @@ export const completeProjectImportUpload = async ({
   userId,
 }: {
   importBinary?: (bytes: Uint8Array, expectedRevision?: number) => Promise<CompletedImport>;
-  importFile?: (path: string, expectedRevision?: number) => Promise<CompletedImport>;
+  importFile?: (
+    path: string,
+    expectedRevision?: number,
+    context?: SourcePreparationJobContext
+  ) => Promise<CompletedImport>;
   importData?: (data: unknown) => Promise<CompletedImport>;
   uploadId: string;
   userId: string;
@@ -448,10 +493,54 @@ export const completeProjectImportUpload = async ({
       await safelyRemove(session.directory);
       return completed;
     } catch (error) {
-      sessions.delete(session.key);
+      if (session.sourceUpload) {
+        session.failure = session.controller.signal.aborted
+          ? new SourcePreparationCancelledError()
+          : error;
+        session.status = 'failed';
+        session.updatedAt = Date.now();
+      } else {
+        sessions.delete(session.key);
+      }
       await safelyRemove(session.directory);
       throw error;
     }
   });
   return session.completion;
+};
+
+/** Accept source work without keeping an HTTP request open for preparation. */
+export const startSourcePreparation = (input: {
+  uploadId: string;
+  userId: string;
+  importFile: (
+    path: string,
+    expectedRevision: number | undefined,
+    context: SourcePreparationJobContext
+  ) => Promise<CompletedImport>;
+}): void => {
+  const session = sessions.get(getSessionKey(input.userId, input.uploadId));
+  if (!session?.sourceUpload)
+    throw new ProjectImportInputError('Caricamento delle fonti non trovato o scaduto.');
+  if (session.status === 'failed') throw session.failure;
+  if (session.completion || session.completed || session.status === 'finalizing') return;
+  if (session.chunks.size !== session.chunkCount)
+    throw new ProjectImportInputError('Non tutte le parti delle fonti sono state ricevute.');
+  session.status = 'finalizing';
+  const context: SourcePreparationJobContext = {
+    signal: session.controller.signal,
+    reportProgress: progress => {
+      session.progress = structuredClone(progress);
+      session.updatedAt = Date.now();
+    },
+  };
+  void completeProjectImportUpload({
+    ...input,
+    importFile: (path, revision) => {
+      context.signal.throwIfAborted();
+      return input.importFile(path, revision, context);
+    },
+  }).catch(() => {
+    // The session retains the failure for authenticated status polling.
+  });
 };

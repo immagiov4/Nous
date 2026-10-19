@@ -1818,6 +1818,49 @@ describe('PostgresProjectStore', () => {
     }
   });
 
+  test('cancellation during source publication removes uncommitted originals and never creates a project', async () => {
+    const controller = new AbortController();
+    const transactionSql = Object.assign(
+      vi.fn(async (strings: TemplateStringsArray) =>
+        strings.join('?').includes('returning meta, revision')
+          ? [{ meta: PROJECT_META, revision: 1 }]
+          : []
+      ),
+      { json: vi.fn((value: unknown) => value) }
+    );
+    const sql = Object.assign(
+      vi.fn(async () => []),
+      {
+        json: vi.fn((value: unknown) => value),
+        begin: vi.fn(async (operation: (sql: typeof transactionSql) => Promise<unknown>) =>
+          operation(transactionSql)
+        ),
+      }
+    );
+    const storage = {
+      upload: vi.fn(async () => {
+        controller.abort();
+      }),
+      download: vi.fn(),
+      delete: vi.fn(async () => {}),
+    };
+    const store = createPostgresProjectStore(sql, storage);
+    await expect(
+      store.saveProject('user-1', createMultiSourceSnapshot(), {
+        sourcePreparation: { signal: controller.signal, reportProgress: () => {} },
+      })
+    ).rejects.toThrow();
+    expect(
+      transactionSql.mock.calls.some(
+        ([strings]) =>
+          strings.join('?').includes('insert into public.projects') ||
+          strings.join('?').includes('insert into public.project_snapshots')
+      )
+    ).toBe(false);
+    expect(storage.upload).toHaveBeenCalledTimes(1);
+    expect(storage.delete).toHaveBeenCalledTimes(1);
+  });
+
   test('loads source bytes from object storage and verifies persisted integrity metadata', async () => {
     const sourceBytes = new TextEncoder().encode('stored outside Postgres');
     const hash = createHash('sha256').update(sourceBytes).digest('hex');

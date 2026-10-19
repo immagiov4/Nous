@@ -157,3 +157,19 @@ test('rejects a ZIP whose declared expanded total exceeds the existing safety en
   expect(result.files).toEqual([]);
   expect(result.warnings).toEqual([{ name: 'expanded.zip', message: expect.any(String) }]);
 });
+
+test('names nested archives and unsafe paths before any transfer', async () => {
+  const zip = new JSZip();
+  zip.file('notes/nested.zip', 'PK nested');
+  zip.file('notes/lesson.txt', 'Usable text');
+  zip.file('../outside.txt', 'unsafe');
+  const file = new File([await zip.generateAsync({ type: 'arraybuffer' })], 'course.zip', {
+    type: 'application/zip',
+  });
+  const result = await inspectSourceSelection([file]);
+  expect(result.files).toEqual([file]);
+  expect(result.warnings.map(warning => warning.name)).toEqual([
+    'notes/nested.zip',
+    '../outside.txt',
+  ]);
+});

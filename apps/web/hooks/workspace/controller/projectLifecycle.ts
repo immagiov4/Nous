@@ -13,7 +13,6 @@ import {
   createProjectSnapshot,
 } from '../../../services/projects/projectSnapshot.ts';
 import {
-  createProjectSourceFromFile,
   decodeTextBase64,
   getProjectSourceFile,
   getProjectSourceName,
@@ -40,10 +39,11 @@ import {
   getPdfProjectHydrationState,
   needsPdfProjectHydration,
 } from '../../../utils/pdf/projectHydration.ts';
+import { createAssessmentWorkspaceOwnership } from './assessmentSession.ts';
 import {
+  formatSourcePreparationProgress,
   getProjectSourceWarnings,
   prepareUploadedCourseSource,
-  readSourceFileData,
 } from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
@@ -117,7 +117,15 @@ export const createProjectLifecycleCommands = (
     settleHomeChatWorkspaceOpen,
   }: ProjectLifecycleDependencies
 ) => {
-  const { domain, openRouter, persistHydratedSnapshot, projectLibrary, state, stopAudio } = context;
+  const {
+    assessmentSession: session,
+    domain,
+    openRouter,
+    persistHydratedSnapshot,
+    projectLibrary,
+    state,
+    stopAudio,
+  } = context;
 
   const refreshLibraryMetadataInBackground = (projectId: string, requestId: number) => {
     void (async () => {
@@ -164,6 +172,15 @@ export const createProjectLifecycleCommands = (
     outcome: 'failed' | 'imported' | 'started-assessment' | 'reattached';
     sourceWarnings?: ProjectSourceWarning[];
   }> {
+    session.activeSourceAttachmentOwnership?.sourcePreparationController?.abort();
+    const preparationController = new AbortController();
+    const ownership = createAssessmentWorkspaceOwnership(
+      session,
+      Symbol('source-attachment'),
+      state.getWorkflowState().openProject.requestId
+    );
+    ownership.sourcePreparationController = preparationController;
+    session.activeSourceAttachmentOwnership = ownership;
     const requestId = state.beginWorkflow('attachSource', t('Caricamento...'));
     const selectedFiles = Array.isArray(selectedFilesInput)
       ? selectedFilesInput
@@ -185,20 +202,45 @@ export const createProjectLifecycleCommands = (
     });
     let sourceWarnings: ProjectSourceWarning[] = [];
 
+    const isUploadCurrent = () =>
+      !preparationController.signal.aborted && state.isWorkflowCurrent('attachSource', requestId);
+    const abandonSourceUpload = async () => {
+      try {
+        while (ownership.pendingOpenProjects.size) {
+          await Promise.all(
+            [...ownership.pendingOpenProjects.values()].map(opening => opening.outcome)
+          );
+        }
+        if (
+          ownership.draftProjectId &&
+          !ownership.adoptedProjectIds.has(ownership.draftProjectId)
+        ) {
+          ownership.draftCleanupPromise = projectLibrary.deleteStoredProject(
+            ownership.draftProjectId
+          );
+          await ownership.draftCleanupPromise;
+        }
+        return { outcome: 'failed' as const };
+      } catch (error) {
+        pushNousDebugTrace('attach-source:abandoned-draft-cleanup-failed', {
+          projectId: ownership.draftProjectId,
+          errorMessage: getErrorMessage(error),
+        });
+        return { outcome: 'failed' as const, errorMessage: t('Operazione non riuscita. Riprova.') };
+      } finally {
+        if (state.isWorkflowCurrent('attachSource', requestId))
+          state.invalidateWorkflows(['attachSource']);
+      }
+    };
     try {
       let nextSource: ProjectSource | null = null;
       let nextFile: FileData | null = null;
-      let archiveFile: File | undefined;
       let sourceFiles: readonly File[] | undefined;
 
       const zipFiles = selectedFiles.filter(file =>
         isZipFileData({ name: file.name, mimeType: file.type })
       );
-      if (zipFiles.length > 0 && selectedFiles.length !== 1) {
-        throw new Error('Gli archivi ZIP devono essere caricati da soli.');
-      }
-
-      if (zipFiles.length === 1) {
+      if (zipFiles.length === 1 && selectedFiles.length === 1) {
         const isBackupArchive = await isNousBackupArchive(selectedFile);
 
         if (isBackupArchive) {
@@ -218,45 +260,28 @@ export const createProjectLifecycleCommands = (
           state.succeedWorkflow('attachSource', requestId);
           return { outcome: 'imported' };
         }
-
-        const archiveSource = await import('../../../utils/project/codebaseBundle.ts').then(
-          module => module.createSourceArchiveFromZip(selectedFile)
-        );
-        nextSource = archiveSource;
-        nextFile = archiveSource.file;
-        archiveFile = selectedFile;
-      } else {
-        if (selectedFiles.length === 1) {
-          nextFile = await readSourceFileData(selectedFile);
-          nextSource = createProjectSourceFromFile(nextFile);
-        } else {
-          const prepared = await prepareUploadedCourseSource(
-            context,
-            selectedFiles,
-            (completed, total) => {
-              state.setWorkflowMessage(
-                'attachSource',
-                requestId,
-                t('Preparazione fonti... {completed}/{total}', { completed, total })
-              );
-            }
-          );
-          nextSource = prepared.source;
-          sourceFiles = sortSourceFiles(selectedFiles);
-          nextFile = prepared.descriptors.find(source => source.status !== 'error')?.file || null;
-        }
       }
+      const prepared = await prepareUploadedCourseSource(
+        context,
+        selectedFiles,
+        (completed, total) => {
+          state.setWorkflowMessage(
+            'attachSource',
+            requestId,
+            t('Preparazione fonti... {completed}/{total}', { completed, total })
+          );
+        }
+      );
+      if (!isUploadCurrent()) return { outcome: 'failed' };
+      nextSource = prepared.source;
+      sourceFiles = sortSourceFiles(selectedFiles);
+      nextFile = prepared.descriptors[0]?.file ?? null;
 
       if (!nextSource || !nextFile) {
         throw new Error('Unable to prepare project source');
       }
 
       sourceWarnings = getProjectSourceWarnings(nextSource);
-
-      if (nextSource.kind === 'pdf' && !nextSource.sources?.length) {
-        state.setWorkflowMessage('attachSource', requestId, t('Verifica testo PDF...'));
-        await openRouter.validatePdfTextSource(nextFile);
-      }
 
       pushNousDebugTrace('attach-source:prepared', {
         name: nextFile.name,
@@ -270,8 +295,7 @@ export const createProjectLifecycleCommands = (
         const reattachProjectId = projectLibrary.currentProjectId;
         const isReattachProjectSelected = () =>
           projectLibrary.getCurrentProjectId() === reattachProjectId;
-        const isReattachCurrent = () =>
-          state.isWorkflowCurrent('attachSource', requestId) && isReattachProjectSelected();
+        const isReattachCurrent = () => isUploadCurrent() && isReattachProjectSelected();
         const replacementSources = getCourseSourceDescriptors(nextSource);
         const existingSources = getCourseSourceDescriptors(domain.source);
         if (replacementSources.length > 0 && existingSources.length > 0) {
@@ -293,7 +317,17 @@ export const createProjectLifecycleCommands = (
         try {
           const saved = await projectLibrary.saveCurrentProject(
             { source: nextSource },
-            { archiveFile, sourceFiles, throwOnError: true }
+            {
+              sourceFiles,
+              signal: preparationController.signal,
+              throwOnError: true,
+              onSourceProgress: progress =>
+                state.setWorkflowMessage(
+                  'attachSource',
+                  requestId,
+                  formatSourcePreparationProgress(progress)
+                ),
+            }
           );
           if (!isReattachCurrent()) {
             if (isReattachProjectSelected() && domain.source === nextSource) {
@@ -304,14 +338,10 @@ export const createProjectLifecycleCommands = (
           if (!saved) {
             throw new Error('La sorgente del progetto non è stata salvata.');
           }
-          if (nextSource.kind === 'archive') {
-            if (saved.snapshot.source?.kind !== 'archive') {
-              throw new Error('La sorgente archivio salvata non è valida.');
-            }
-            nextSource = saved.snapshot.source;
-            sourceWarnings = getProjectSourceWarnings(nextSource);
-            domain.setSource(nextSource);
-          }
+          if (!saved.snapshot.source) throw new Error('La sorgente salvata non è valida.');
+          nextSource = saved.snapshot.source;
+          sourceWarnings = getProjectSourceWarnings(nextSource);
+          domain.setSource(nextSource);
         } catch (error) {
           if (!isReattachCurrent()) {
             if (isReattachProjectSelected() && domain.source === nextSource) {
@@ -333,6 +363,7 @@ export const createProjectLifecycleCommands = (
       }
 
       const nextProjectId = createProjectId();
+      ownership.draftProjectId = nextProjectId;
       projectLibrary.setProjectHydrated(false);
       domain.resetDomain();
       state.resetSessionState();
@@ -345,8 +376,21 @@ export const createProjectLifecycleCommands = (
           state: AppState.ASSESSMENT,
           source: nextSource,
         }),
-        { archiveFile, sourceFiles, throwOnError: true }
+        {
+          sourceFiles,
+          signal: preparationController.signal,
+          throwOnError: true,
+          onSourceProgress: progress =>
+            state.setWorkflowMessage(
+              'attachSource',
+              requestId,
+              formatSourcePreparationProgress(progress)
+            ),
+        }
       );
+      if (!isUploadCurrent() || projectLibrary.getCurrentProjectId() !== nextProjectId) {
+        return abandonSourceUpload();
+      }
       if (!saved?.snapshot.source) {
         throw new Error('La sorgente del progetto non è stata salvata.');
       }
@@ -361,7 +405,7 @@ export const createProjectLifecycleCommands = (
         sourceKind: nextSource.kind,
       });
       await startAssessment(
-        (nextSource.sources?.length || 0) > 1
+        (nextSource.sources?.length || 0) > 0
           ? { sources: nextSource.sources }
           : nextSource.kind === 'archive'
             ? {
@@ -383,17 +427,28 @@ export const createProjectLifecycleCommands = (
       );
       return { outcome: 'started-assessment', sourceWarnings };
     } catch (error) {
+      if (
+        !isUploadCurrent() ||
+        (ownership.draftProjectId &&
+          projectLibrary.getCurrentProjectId() !== ownership.draftProjectId)
+      ) {
+        return abandonSourceUpload();
+      }
       if (error instanceof ProjectStorageError && error.sourceWarnings?.length) {
         sourceWarnings = error.sourceWarnings;
       }
       if (
         options?.mode !== 'reattach-source' &&
         error instanceof ProjectStorageError &&
-        (error.code === 'source-archive-unusable' ||
+        (error.code === 'source-preparation-failed' ||
+          error.code === 'source-staging-unavailable' ||
+          error.code === 'source-preparation-interrupted' ||
+          error.code === 'source-ingestion-required' ||
+          error.code === 'source-archive-unusable' ||
           error.code === 'source-archive-busy' ||
           error.code === 'source-archive-invalid')
       ) {
-        const rejectedProjectId = projectLibrary.getCurrentProjectId();
+        const rejectedProjectId = ownership.draftProjectId;
         if (rejectedProjectId) {
           try {
             await projectLibrary.deleteStoredProject(rejectedProjectId);
@@ -416,6 +471,9 @@ export const createProjectLifecycleCommands = (
         errorMessage,
         sourceWarnings,
       };
+    } finally {
+      if (session.activeSourceAttachmentOwnership === ownership)
+        session.activeSourceAttachmentOwnership = null;
     }
   }
 
@@ -440,6 +498,7 @@ export const createProjectLifecycleCommands = (
     options: OpenProjectOptions = {}
   ): Promise<{ errorMessage?: string; outcome: 'failed' | 'missing' | 'opened' | 'stale' }> {
     state.invalidateOpenSectionRequests();
+    session.activeSourceAttachmentOwnership?.sourcePreparationController?.abort();
     const requestId = state.beginWorkflow('openProject', t('Apertura progetto...'));
     let didSettleOpenWorkflow = false;
 
@@ -605,7 +664,10 @@ export const createProjectLifecycleCommands = (
 
       if (!preparedSnapshot.learningPlan) {
         const assessmentSources = getCourseSourceDescriptors(preparedSnapshot.source);
-        if (assessmentSources.length > 1) {
+        if (
+          assessmentSources.length > 1 ||
+          assessmentSources.some(source => source.documentIndex?.chunks.length)
+        ) {
           await startAssessment({ sources: assessmentSources });
         } else if (preparedSnapshot.source?.kind === 'archive') {
           pushNousDebugTrace('open-project:start-text-assessment', {

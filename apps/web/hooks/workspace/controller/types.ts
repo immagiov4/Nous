@@ -1,5 +1,6 @@
 import type { GenerationProgressSnapshot } from '../../../services/openrouter/generationProgress.ts';
 import type {
+  ProjectPersistenceOptions,
   ProjectSaveResult,
   ProjectSnapshotWithRevision,
 } from '../../../services/projects/projectRepository.ts';
@@ -134,7 +135,7 @@ export interface WorkspaceProjectLibraryAdapter {
   ) => Promise<LibraryPlacement[]>;
   persistSnapshot: (
     snapshot: ProjectSnapshot,
-    options?: { archiveFile?: File; sourceFiles?: readonly File[]; throwOnError?: boolean }
+    options?: ProjectPersistenceOptions
   ) => Promise<ProjectSaveResult | null>;
   refreshLibraryOrganization: () => Promise<void>;
   refreshLibraryState: () => Promise<void>;
@@ -142,7 +143,7 @@ export interface WorkspaceProjectLibraryAdapter {
   renameFolder: (folderId: string, name: string) => Promise<LibraryFolder | null>;
   saveCurrentProject: (
     overrides?: Partial<ProjectSnapshot>,
-    options?: { archiveFile?: File; sourceFiles?: readonly File[]; throwOnError?: boolean }
+    options?: ProjectPersistenceOptions
   ) => Promise<ProjectSaveResult | null>;
   patchCurrentProject: (
     overrides?: Partial<ProjectSnapshot>,

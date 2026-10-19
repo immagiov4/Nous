@@ -74,6 +74,8 @@ import {
   SourceArchiveUnusableError,
   streamSourceArchive,
 } from './sourceArchive.js';
+import type { SourcePreparationJobContext } from './sourcePreparationContext.js';
+import { collectReleasedSourceMemory } from './sourcePreparationMemory.js';
 import type {
   LibraryExportSnapshot,
   LibraryFolder,
@@ -1033,6 +1035,7 @@ export class PostgresProjectStore implements ProjectStore {
       importedCover,
       sourceFile,
       sourceFiles,
+      sourcePreparation,
     }: ProjectSaveOptions = {}
   ): Promise<ProjectSaveResult> {
     let snapshot = normalizeProjectSnapshot(data, false, {
@@ -1078,6 +1081,7 @@ export class PostgresProjectStore implements ProjectStore {
       };
     }
 
+    sourcePreparation?.signal.throwIfAborted();
     const sourceWrite = sourceFiles
       ? await this.prepareProjectSourceFiles(userId, snapshot, sourceFiles, existingSnapshot)
       : await this.prepareProjectSourceWrite(userId, snapshot, sourceFile);
@@ -1096,17 +1100,19 @@ export class PostgresProjectStore implements ProjectStore {
     try {
       if (sourceWrite) {
         sourceUploadSql = await this.sql.reserve();
-        await this.uploadPreparedProjectSource(
-          sourceUploadSql,
-          this.getSourceStorage(),
-          sourceWrite.prepared,
+        await this.uploadPreparedProjectSource({
+          sql: sourceUploadSql,
+          storage: this.getSourceStorage(),
+          prepared: sourceWrite.prepared,
           uploadedObjectPaths,
-          lockedObjectPaths
-        );
+          lockedObjectPaths,
+          context: sourcePreparation,
+        });
         snapshot = this.applyPreparedArchiveIndex(snapshot, sourceWrite.prepared);
       }
 
       const persistProject = async (sql: ProjectTransactionSql) => {
+        sourcePreparation?.signal.throwIfAborted();
         if (sourceWrite && lockedObjectPaths.length === 0) {
           throw new Error('Project source upload locks are missing.');
         }
@@ -1177,7 +1183,11 @@ export class PostgresProjectStore implements ProjectStore {
         };
       };
       const transactionResult = sourceUploadSql
-        ? await this.runReservedTransaction(sourceUploadSql, persistProject)
+        ? await this.runReservedTransaction(
+            sourceUploadSql,
+            persistProject,
+            sourcePreparation?.signal
+          )
         : await this.sql.begin(persistProject);
       replacedObjectPaths = transactionResult.replacedObjectPaths;
       savedMeta = transactionResult.meta;
@@ -2575,13 +2585,23 @@ export class PostgresProjectStore implements ProjectStore {
     }
   }
 
-  private async uploadPreparedProjectSource(
-    sql: postgres.ReservedSql,
-    storage: ProjectSourceObjectStorage,
-    prepared: PreparedProjectSource,
-    uploadedObjectPaths: string[],
-    lockedObjectPaths: string[]
-  ): Promise<void> {
+  private async uploadPreparedProjectSource({
+    sql,
+    storage,
+    prepared,
+    uploadedObjectPaths,
+    lockedObjectPaths,
+    context,
+  }: {
+    sql: postgres.ReservedSql;
+    storage: ProjectSourceObjectStorage;
+    prepared: PreparedProjectSource;
+    uploadedObjectPaths: string[];
+    lockedObjectPaths: string[];
+    context?: SourcePreparationJobContext;
+  }): Promise<void> {
+    let completed = 0;
+    const names = new Map(prepared.files.map(file => [file.ref.objectPath, file.ref.name]));
     const inFlight = new Set<Promise<void>>();
     let inFlightBytes = 0;
     let uploadFailure: unknown;
@@ -2608,6 +2628,7 @@ export class PostgresProjectStore implements ProjectStore {
 
     const scheduleUpload = async (object: PreparedProjectSource['objects'][number]) => {
       await waitForCapacity(object.byteSize);
+      context?.signal.throwIfAborted();
       inFlightBytes += object.byteSize;
       let bytes: Uint8Array | { path: string; byteSize: number };
       try {
@@ -2631,6 +2652,13 @@ export class PostgresProjectStore implements ProjectStore {
           if (uploaded) {
             uploadedObjectPaths.push(object.path);
           }
+          completed += 1;
+          context?.reportProgress({
+            step: 'persistence',
+            completed,
+            total: prepared.objects.length,
+            documentName: names.get(object.path),
+          });
         })
         .catch(error => {
           uploadFailure ??= error;
@@ -2638,6 +2666,7 @@ export class PostgresProjectStore implements ProjectStore {
         .finally(() => {
           inFlight.delete(task);
           inFlightBytes -= object.byteSize;
+          if (context) collectReleasedSourceMemory();
         });
       inFlight.add(task);
     };
@@ -2672,6 +2701,7 @@ export class PostgresProjectStore implements ProjectStore {
     if (uploadFailure) {
       throw uploadFailure;
     }
+    context?.signal.throwIfAborted();
   }
 
   private applyPreparedArchiveIndex(
@@ -2714,11 +2744,13 @@ export class PostgresProjectStore implements ProjectStore {
 
   private async runReservedTransaction<T>(
     sql: postgres.ReservedSql,
-    operation: (sql: ProjectTransactionSql) => Promise<T>
+    operation: (sql: ProjectTransactionSql) => Promise<T>,
+    signal?: AbortSignal
   ): Promise<T> {
     await sql.unsafe('begin');
     try {
       const result = await operation(sql);
+      signal?.throwIfAborted();
       await sql.unsafe('commit');
       return result;
     } catch (error) {

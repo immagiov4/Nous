@@ -1,5 +1,6 @@
 import type { LibraryExportProgress } from '@shared/libraryExportContract';
 import type { DecodedProjectSnapshotWire } from '@shared/projectSnapshotWire';
+import type { SourcePreparationProgress } from '@shared/sourcePreparation';
 
 import type {
   FileData,
@@ -34,6 +35,11 @@ export class ProjectStorageError extends Error {
     | 'cover-revision-conflict'
     | 'quota-exceeded'
     | 'revision-conflict'
+    | 'source-preparation-cancelled'
+    | 'source-preparation-failed'
+    | 'source-staging-unavailable'
+    | 'source-ingestion-required'
+    | 'source-preparation-interrupted'
     | 'source-archive-busy'
     | 'source-archive-changed'
     | 'source-archive-invalid'
@@ -80,7 +86,14 @@ export type LibraryExportProgressListener = (progress: LibraryExportProgress) =>
 export interface ProjectSaveOptions extends ProjectWriteOptions {
   archiveFile?: File;
   sourceFiles?: readonly File[];
+  signal?: AbortSignal;
+  onSourceProgress?: (progress: SourcePreparationProgress) => void;
 }
+
+export type ProjectPersistenceOptions = Pick<
+  ProjectSaveOptions,
+  'archiveFile' | 'sourceFiles' | 'signal' | 'onSourceProgress'
+> & { throwOnError?: boolean };
 
 export interface ProjectRepository {
   createFolder: (args: { name: string; parentFolderId?: string | null }) => Promise<LibraryFolder>;

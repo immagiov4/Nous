@@ -1,4 +1,5 @@
 import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
+import { isSafeZipEntryPath, updateZipCrc32 } from '@shared/zipSafety';
 
 const ZIP_END_BYTES = 22;
 const ZIP_MAX_COMMENT_BYTES = 65_535;
@@ -118,6 +119,10 @@ const readZipDirectoryEntry = async (
       byteSize,
       compressedSize,
       localHeaderOffset,
+      flags: header.getUint16(8, true),
+      compression: header.getUint16(10, true),
+      crc32: header.getUint32(16, true),
+      unixMode: header.getUint32(38, true) >>> 16,
       record: includeRecords
         ? new Uint8Array(record.buffer, record.byteOffset, record.byteLength).slice()
         : undefined,
@@ -178,4 +183,62 @@ export const readZipEntryArchive = async (
   endView.setUint32(12, entry.record.byteLength, true);
   endView.setUint32(16, localBytes, true);
   return new Blob([local, entry.record, end]);
+};
+
+/** Streams a single admitted member; expansion never buffers the archive or trusts declared size. */
+export const readZipEntryStream = async (
+  file: Blob,
+  entry: Awaited<ReturnType<typeof readZipDirectory>>[number]
+): Promise<ReadableStream<Uint8Array>> => {
+  const zipSymlinkMode = 0xa000;
+  const zipFileTypeMask = 0xf000;
+  const zipDeflateMethod = 8;
+  if (
+    !isSafeZipEntryPath(entry.name) ||
+    entry.flags & 1 ||
+    (entry.unixMode & zipFileTypeMask) === zipSymlinkMode ||
+    entry.byteSize > COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes
+  )
+    throw new Error('Invalid ZIP member');
+  const header = await readView(file, entry.localHeaderOffset, ZIP_LOCAL_HEADER_BYTES);
+  if (
+    header.getUint32(0, true) !== ZIP_LOCAL_HEADER_SIGNATURE ||
+    header.getUint16(6, true) & 1 ||
+    header.getUint16(8, true) !== entry.compression
+  )
+    throw new Error('Invalid ZIP member header');
+  const nameBytes = header.getUint16(26, true);
+  const name = new TextDecoder().decode(
+    await file
+      .slice(
+        entry.localHeaderOffset + ZIP_LOCAL_HEADER_BYTES,
+        entry.localHeaderOffset + ZIP_LOCAL_HEADER_BYTES + nameBytes
+      )
+      .arrayBuffer()
+  );
+  const start =
+    entry.localHeaderOffset + ZIP_LOCAL_HEADER_BYTES + nameBytes + header.getUint16(28, true);
+  if (name !== entry.name || start + entry.compressedSize > file.size)
+    throw new Error('Invalid ZIP member size');
+  let stream = file.slice(start, start + entry.compressedSize).stream();
+  if (entry.compression === zipDeflateMethod)
+    stream = stream.pipeThrough(new DecompressionStream('deflate-raw'));
+  else if (entry.compression !== 0) throw new Error('Unsupported ZIP compression');
+  let bytes = 0;
+  let crc = 0xffff_ffff;
+  return stream.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        bytes += chunk.byteLength;
+        if (bytes > entry.byteSize || bytes > COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes)
+          throw new Error('Invalid ZIP member size');
+        crc = updateZipCrc32(crc, chunk);
+        controller.enqueue(chunk);
+      },
+      flush() {
+        if (bytes !== entry.byteSize || (crc ^ 0xffff_ffff) >>> 0 !== entry.crc32)
+          throw new Error('Invalid ZIP member integrity');
+      },
+    })
+  );
 };

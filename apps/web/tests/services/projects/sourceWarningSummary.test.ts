@@ -21,7 +21,7 @@ describe('formatSourceWarningSummary', () => {
     const summary = formatSourceWarningSummary(warnings);
 
     expect(summary).toContain(
-      '5 PDF non usati: 2 senza testo utile, 1 non leggibili, 1 oltre i limiti, 1 scaduti.'
+      '5 fonti non usate: 2 senza testo utile, 1 non leggibili, 1 oltre i limiti, 1 scaduti.'
     );
     expect(summary).toContain('Esempi: a/scanned.pdf; b/unreadable.pdf; c/cartella/');
     expect(summary).toContain('…');
@@ -46,7 +46,7 @@ describe('formatSourceWarningSummary', () => {
       { continues: false }
     );
 
-    expect(summary).toContain('1 PDF non usati: 1 senza testo utile. Esempi: scansione.pdf.');
+    expect(summary).toContain('1 fonti non usate: 1 senza testo utile. Esempi: scansione.pdf.');
     expect(summary).not.toContain('continua');
   });
 

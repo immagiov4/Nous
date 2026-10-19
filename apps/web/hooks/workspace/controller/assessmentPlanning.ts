@@ -23,11 +23,7 @@ import {
   createProjectId,
   createProjectSnapshot,
 } from '../../../services/projects/projectSnapshot.ts';
-import {
-  createProjectSourceFromFile,
-  getProjectSourceName,
-  isZipFileData,
-} from '../../../services/projects/projectSource.ts';
+import { getProjectSourceName, isZipFileData } from '../../../services/projects/projectSource.ts';
 import {
   ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
   formatSourceArchiveIndex,
@@ -40,15 +36,16 @@ import {
   type ProjectSourceWarning,
   type UserProfile,
 } from '../../../types.ts';
-import type {
-  AssessmentWorkspaceOwnership,
-  HomeChatStartResult,
-  PendingAssessmentInterviewRun,
+import {
+  type AssessmentWorkspaceOwnership,
+  createAssessmentWorkspaceOwnership,
+  type HomeChatStartResult,
+  type PendingAssessmentInterviewRun,
 } from './assessmentSession.ts';
 import {
+  formatSourcePreparationProgress,
   getProjectSourceWarnings,
   prepareUploadedCourseSource,
-  readSourceFileData,
 } from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type { AssessmentSourceInput, WorkspaceControllerContext } from './types.ts';
@@ -128,29 +125,6 @@ const getCourseInterviewOutcome = (snapshot: CourseInterviewSnapshot): CourseInt
 
 export const createAssessmentPlanningCommands = (context: WorkspaceControllerContext) => {
   const { assessmentSession: session, domain, openRouter, projectLibrary, state } = context;
-
-  const createAssessmentWorkspaceOwnership = (
-    requestToken: symbol
-  ): AssessmentWorkspaceOwnership => {
-    const ownership: AssessmentWorkspaceOwnership = {
-      adoptedProjectIds: new Set(),
-      draftCleanupPromise: null,
-      draftProjectId: null,
-      pendingOpenProjects: new Map(),
-      requestToken,
-      requiresCancellationRetry: false,
-    };
-    const openProjectRequestId = state.getWorkflowState().openProject.requestId;
-    const pendingOpenProject = session.openProjectAttempts.get(openProjectRequestId);
-    if (pendingOpenProject) {
-      ownership.pendingOpenProjects.set(openProjectRequestId, pendingOpenProject);
-      const owners =
-        session.workspaceOwnershipByOpenProjectRequestId.get(openProjectRequestId) ?? new Set();
-      owners.add(ownership);
-      session.workspaceOwnershipByOpenProjectRequestId.set(openProjectRequestId, owners);
-    }
-    return ownership;
-  };
 
   const applyInterviewSnapshot = (snapshot: CourseInterviewSnapshot): CourseInterviewOutcome => {
     if (snapshot.diagnostic && (snapshot.status === 'failed' || snapshot.status === 'expired')) {
@@ -649,6 +623,8 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
       );
     };
     session.latestHomeChatRequestToken = null;
+    homeChatWorkspaceOwnership?.sourcePreparationController?.abort();
+    session.activeSourceAttachmentOwnership?.sourcePreparationController?.abort();
     const cancellationRequestId = state.beginWorkflow('assessment', t('Caricamento...'));
     try {
       await retryPendingCancelledDraftCleanup();
@@ -801,15 +777,9 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
       return { kind: 'completed', result: { outcome: 'imported' } };
     }
 
-    const source = await import('../../../utils/project/codebaseBundle.ts').then(module =>
-      module.createSourceArchiveFromZip(selectedFile)
-    );
-    if (!isRequestCurrent()) {
-      return { kind: 'completed', result: await abandonCancelledStart() };
-    }
     return {
       kind: 'ready',
-      value: { archiveFile: selectedFile, file: source.file, source },
+      value: await prepareRegularHomeChatSource([selectedFile], requestId),
     };
   };
 
@@ -817,10 +787,6 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     selectedFiles: File[],
     requestId: number
   ): Promise<PreparedFileSource> => {
-    if (selectedFiles.length === 1) {
-      const file = await readSourceFileData(selectedFiles[0]);
-      return { file, source: createProjectSourceFromFile(file) };
-    }
     const prepared = await prepareUploadedCourseSource(
       context,
       selectedFiles,
@@ -855,10 +821,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     const zipFiles = selectedFiles.filter(file =>
       isZipFileData({ name: file.name, mimeType: file.type })
     );
-    if (zipFiles.length > 0 && selectedFiles.length !== 1) {
-      throw new Error('Gli archivi ZIP devono essere caricati da soli.');
-    }
-    if (zipFiles.length === 1) {
+    if (zipFiles.length === 1 && selectedFiles.length === 1) {
       return prepareZipHomeChatSource({
         abandonCancelledStart,
         isRequestCurrent,
@@ -871,18 +834,20 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     return { kind: 'ready', value: await prepareRegularHomeChatSource(selectedFiles, requestId) };
   };
 
-  const persistHomeChatArchiveSource = async ({
+  const persistHomeChatSources = async ({
     archiveFile,
     sourceFiles,
     source,
     startState,
     workspaceOwnership,
+    requestId,
   }: {
     archiveFile?: File;
     sourceFiles?: readonly File[];
     source: ProjectSource;
     startState: HomeChatStartState;
     workspaceOwnership: AssessmentWorkspaceOwnership;
+    requestId: number;
   }): Promise<ProjectSource> => {
     if (source.kind !== 'archive' && !sourceFiles) return source;
     const projectId = createProjectId();
@@ -891,7 +856,19 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     projectLibrary.setCurrentProjectId(projectId);
     const saved = await projectLibrary.persistSnapshot(
       createProjectSnapshot({ id: projectId, state: AppState.ASSESSMENT, source }),
-      { archiveFile, ...(sourceFiles ? { sourceFiles } : {}), throwOnError: true }
+      {
+        archiveFile,
+        ...(sourceFiles ? { sourceFiles } : {}),
+        throwOnError: true,
+        signal: workspaceOwnership.sourcePreparationController?.signal,
+        onSourceProgress: progress => {
+          state.setWorkflowMessage(
+            'assessment',
+            requestId,
+            formatSourcePreparationProgress(progress)
+          );
+        },
+      }
     );
     if (!saved?.snapshot.source) {
       throw new Error('La sorgente archivio non è stata salvata.');
@@ -958,19 +935,13 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     if (!isRequestCurrent()) {
       return { kind: 'completed', result: await abandonCancelledStart() };
     }
-    if (source.kind === 'pdf' && !source.sources?.length) {
-      state.setWorkflowMessage('assessment', requestId, t('Verifica testo PDF...'));
-      await openRouter.validatePdfTextSource(file);
-      if (!isRequestCurrent()) {
-        return { kind: 'completed', result: await abandonCancelledStart() };
-      }
-    }
-    source = await persistHomeChatArchiveSource({
+    source = await persistHomeChatSources({
       archiveFile,
       sourceFiles,
       source,
       startState,
       workspaceOwnership,
+      requestId,
     });
     if (!isRequestCurrent()) {
       return { kind: 'completed', result: await abandonCancelledStart() };
@@ -1054,7 +1025,12 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     );
     const requestToken = Symbol('home-chat-request');
     session.latestHomeChatRequestToken = requestToken;
-    const workspaceOwnership = createAssessmentWorkspaceOwnership(requestToken);
+    const workspaceOwnership = createAssessmentWorkspaceOwnership(
+      session,
+      requestToken,
+      state.getWorkflowState().openProject.requestId
+    );
+    workspaceOwnership.sourcePreparationController = new AbortController();
     session.activeHomeChatWorkspaceOwnership = workspaceOwnership;
     const startState: HomeChatStartState = { draftProjectId: null, sourceWarnings: [] };
     const isRequestCurrent = () => state.isWorkflowCurrent('assessment', requestId);
@@ -1165,10 +1141,14 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     session.openProjectAttempts.set(openProjectRequestId, pendingOpenProject);
     const owners =
       session.workspaceOwnershipByOpenProjectRequestId.get(openProjectRequestId) ?? new Set();
-    const activeOwnership = session.activeHomeChatWorkspaceOwnership;
-    if (activeOwnership) {
-      activeOwnership.pendingOpenProjects.set(openProjectRequestId, pendingOpenProject);
-      owners.add(activeOwnership);
+    for (const activeOwnership of [
+      session.activeHomeChatWorkspaceOwnership,
+      session.activeSourceAttachmentOwnership,
+    ]) {
+      if (activeOwnership) {
+        activeOwnership.pendingOpenProjects.set(openProjectRequestId, pendingOpenProject);
+        owners.add(activeOwnership);
+      }
     }
     const pendingCleanup = session.pendingCancelledDraftCleanup;
     if (pendingCleanup?.projectId === projectId) {
@@ -1220,7 +1200,11 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     const requestId = state.beginWorkflow('assessment', t('Valutazione risposta...'));
     const requestToken = Symbol('home-chat-follow-up');
     session.latestHomeChatRequestToken = requestToken;
-    session.activeHomeChatWorkspaceOwnership = createAssessmentWorkspaceOwnership(requestToken);
+    session.activeHomeChatWorkspaceOwnership = createAssessmentWorkspaceOwnership(
+      session,
+      requestToken,
+      state.getWorkflowState().openProject.requestId
+    );
 
     let resolveRunId: (runId: string | null) => void = () => {};
     let hasResolvedRunId = false;

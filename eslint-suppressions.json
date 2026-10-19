@@ -465,15 +465,7 @@
     }
   },
   "apps/web/services/projects/courseSources.ts": {
-    "sonarjs/cognitive-complexity": {
-      "count": 1
-    },
     "sonarjs/no-nested-conditional": {
-      "count": 1
-    }
-  },
-  "apps/web/services/projects/httpProjectRepository.ts": {
-    "sonarjs/cognitive-complexity": {
       "count": 1
     }
   },

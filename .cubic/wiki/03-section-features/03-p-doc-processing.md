@@ -58,7 +58,7 @@ Sources: [apps/backend/src/services/pdfTextExtractor.ts:375-395](../../../apps/b
 | `maxOutputBytes` | Variable | Caps the total text volume to prevent heap exhaustion. |
 | `pdftotextTimeoutMs` | 15,000ms (Archive) | Max time allowed for the primary OS-level parser. |
 | `fallbackTimeoutMs` | 15,000ms (Archive) | Max time for the isolated Node.js fallback process. |
-| `max-old-space-size` | ~272MB (Typical) | Memory limit for the fallback sub-process. |
+| `max-old-space-size` | Derived from input and output budgets | Memory limit for the fallback sub-process. |
 
 Sources: [apps/backend/tests/projects/sourceArchive.test.ts:114-120](../../../apps/backend/tests/projects/sourceArchive.test.ts#L114-L120), [apps/backend/tests/services/pdfTextExtractor.test.ts:86-90](../../../apps/backend/tests/services/pdfTextExtractor.test.ts#L86-L90)
 
@@ -101,37 +101,37 @@ Sources: [packages/shared-types/pdfTextIndex.ts:118-136](../../../packages/share
 
 ## Source Archive Preparation
 
-ZIP sources are inspected before transfer and prepared under the existing single-archive admission. Separate course files also use binary chunk transfer; the browser encodes only one file at a time for extraction and keeps original File handles for persistence.
+New courses use one source-ingestion module for separate files and ZIPs. Its browser interface, `ingestSources({ inputs, destination, signal, onProgress })`, hides expansion, transport and preparation. ZIP members are streamed one at a time into browser-private filesystem files, validated against their declared size and CRC, and sent as individual files through the same transport used by separate uploads. The ZIP container stays in the browser. Existing saved archive projects retain their server-side reader.
 
 ```mermaid
-sequenceDiagram
-    participant User as User Service
-    participant Archive as SourceArchive Service
-    participant Extract as TextExtractor
-    
-    User->>Archive: indexSourceArchive(buffer)
-    Archive->>Archive: Validate path safety (no traversal)
-    Archive->>Archive: Inspect directory metadata and safety limits
-    loop For each PDF
-        Archive->>Extract: extractPdfText()
-    end
-    Archive->>Archive: Build directory tree
-    Archive-->>User: SourceArchiveIndex
+flowchart LR
+    Inputs[Files or ZIPs] --> Gateway[ingestSources]
+    Gateway --> Expand[Browser: expand ZIP members]
+    Expand --> Transfer[One chunked file-only transport]
+    Transfer --> Job[202 acceptance and status polling]
+    Job --> Prepare[Sequential per-file extraction and indexing]
+    Prepare --> Objects[Immutable per-file Storage objects]
+    Objects --> Publish[Atomic source-set publication]
+    Job --> Progress[Per-file and per-step progress]
 ```
 
-The sequence illustrates the validation and selective extraction of PDF content hidden within source code archives.
-Sources: [apps/backend/tests/projects/sourceArchive.test.ts:96-150](../../../apps/backend/tests/projects/sourceArchive.test.ts#L96-L150), [apps/backend/tests/projects/sourceArchive.test.ts:373-388](../../../apps/backend/tests/projects/sourceArchive.test.ts#L373-L388)
+The PDF step owns native extraction; the collection context is the internal seam for scanned-page detection and transcription. Text files use the shared deterministic Markdown outline and text-index implementation. Preparation retains text/index metadata while original bytes use one reusable per-file buffer. Bun collects released buffers after each extraction and source-object transfer. The `/api/pdf` utility remains available to its other callers.
 
-### Safety Constraints
-*  **Path Validation**: Rejects traversal attacks (`../`), absolute paths, or duplicate entries.
-*  **Per-file preparation**: Every eligible PDF is processed sequentially. The former 16-PDF and 64 MB cumulative admission limits are removed. A PDF input is limited to 32 MB; an oversized archive member remains available as binary data and receives an explicit warning. The browser reads ZIP directory metadata before upload and names excluded PDFs. Directory entries share one read buffer, bounded by the existing per-file byte budget; larger directories continue in blocks. Declared directory ranges are checked against the ZIP end record before allocation, including ZIP64 sizes.
-*  **Transfer and temporary disk**: Source files and ZIPs use the existing authenticated 16 MB chunk transfer with one final publication. The snapshot, including source indexes and file metadata, is a UTF-8 JSON prefix of that binary transfer; the completion request sends its byte length and write options. The backend reads that prefix independently, then processes source files at the recorded offset or streams a ZIP to its own file. Source uploads reuse the 1 GB archive safety envelope, including transferred metadata. ZIP entries retain the existing 20,000-entry, 256 MB single-entry and 1 GB expanded-size validation. The backend keeps prepared file bytes in temporary files rather than retaining a complete course in memory. Backup recognition reads the directory and bounded manifest member; actual backup import limits remain separate.
-*  **Storage concurrency**: The existing four uploads and 64 MB in-flight byte budget apply to active storage transfers, rather than the total course size. The original ZIP is streamed from disk.
-*  **Parser bounds**: PDF extraction uses a 15-second native stage, 15-second isolated fallback stage and 64 MB text-output bound for both separate files and ZIP members. ZIP preparation retains its 480-second deadline. The fallback heap bound is derived from one PDF input and its output budget.
-*  **Atomic publication and ownership**: Source metadata and references are published only after all objects are ready. Reattached retained sources must belong to the same project and stay out of replacement cleanup. Temporary files are removed after completion or failure.
-*  **Lexicographic Stability**: Archives are processed and indexed in a stable alphabetical order to ensure deterministic IDs.
+### Transfer, jobs and resource limits
 
-Sources: [apps/backend/tests/projects/sourceArchive.test.ts:241-260](../../../apps/backend/tests/projects/sourceArchive.test.ts#L241-L260), [apps/backend/tests/projects/sourceArchive.test.ts:291-305](../../../apps/backend/tests/projects/sourceArchive.test.ts#L291-L305)
+| Resource | Contract |
+| --- | --- |
+| Source originals | 32,000,000 bytes per individual file, including ZIP members. The picker names known exclusions before transfer. Failed preparation retains each file name and reason. |
+| Collection | 1,000,000,000 bytes for transfer, including the metadata prefix, and for expanded ZIP content; at most 20,000 ZIP entries. The ZIP directory is read in bounded blocks, including ZIP64 ranges. |
+| Transport | Authenticated binary parts contain at most 16,000,000 bytes. The final request carries the metadata-prefix length and write options. Both the production HTTP adapter and the configurable loopback proxy use `sourceTransfer.ts` for the 100 MB body, approximately 100 s first-byte and 30 s origin-write model. Source requests use a 90 s deadline; long processing runs asynchronously. |
+| Job | The existing import-session owner, finalization queue and status route provide 202 acceptance, progress polling, replay and cancellation. A lost process-local job produces an explicit interrupted/retry state. Durable restart recovery remains part of #170. |
+| Temporary files | Compose mounts the disk-backed `source-staging` volume and sets `TMPDIR=/var/lib/nous/source-staging`. Parser subprocesses inherit it. Source admission rejects tmpfs/ramfs before accepting original bytes when that deployment configuration is missing. |
+| Object persistence | Originals are stored separately, within the per-file envelope and the production 200 MiB object ceiling. The ZIP container is not stored. Existing concurrency four and the 64,000,000-byte in-flight budget apply to active object transfers. |
+| PDF extraction | Native and isolated fallback stages retain their 15 s limits and the 64 MB text-output bound. The fallback heap derives from one file and its output budget. The 480 s archive deadline applies to the legacy archive preparer. |
+
+Publication preserves revision and ownership checks, retains existing source references during partial replacement, and exposes usable sources together with named failures. Temporary files and uncommitted objects belong to the existing cleanup owners. Backup recognition still reads bounded directory/manifest ranges; backup import/export decoding and publication remain separate and can adopt the same transport seam later.
+
+Sources: [browser module](../../../apps/web/services/projects/sourceIngestion.ts), [server module](../../../apps/backend/src/projects/sourceIngestion.ts), [job owner](../../../apps/backend/src/projects/projectImportChunks.ts), [transfer model](../../../packages/shared-types/sourceTransfer.ts), [fake proxy](../../../e2e/nous/fakeCloudflareProxy.ts), [project store](../../../apps/backend/src/projects/postgresProjectStore.ts), [staging admission](../../../apps/backend/src/projects/sourceStaging.ts).
 
 ## Data Structures
 

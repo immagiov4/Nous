@@ -16,6 +16,7 @@ import {
 import { downloadProjectAssetBytes } from '../../services/projects/projectAssetClient.ts';
 import {
   type LibraryExportProgressListener,
+  type ProjectPersistenceOptions,
   type ProjectSaveResult,
   type ProjectSnapshotWithRevision,
   ProjectStorageError,
@@ -130,11 +131,7 @@ const buildCurrentProjectPatch = (
   return patch;
 };
 
-interface PersistSnapshotOptions {
-  archiveFile?: File;
-  sourceFiles?: readonly File[];
-  throwOnError?: boolean;
-}
+type PersistSnapshotOptions = ProjectPersistenceOptions;
 
 interface ProjectWriteState {
   batchFailed: boolean;
@@ -716,6 +713,8 @@ export const useProjectLibrary = ({
             const saved = await projectRepositoryRef.current.saveProject(snapshot, {
               archiveFile: options.archiveFile,
               sourceFiles: options.sourceFiles,
+              signal: options.signal,
+              onSourceProgress: options.onSourceProgress,
               expectedRevision: getExpectedRevision(snapshot.id),
             });
             detachedSnapshot = saved.snapshot;

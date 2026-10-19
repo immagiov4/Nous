@@ -1,4 +1,5 @@
 import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
+import { DEFAULT_MAX_ZIP_ENTRY_NAME_CHARS, isSafeZipEntryPath } from '@shared/zipSafety';
 import { translateUiMessage } from '../../i18n/uiMessages';
 import type { ProjectSourceWarning } from '../../types';
 import { isZipFileData } from './projectSource';
@@ -6,6 +7,24 @@ import { isZipFileData } from './projectSource';
 import { readSourceZipDirectory, ZipEntryCountError } from './zipDirectory';
 
 export { readSourceZipDirectory } from './zipDirectory';
+
+/** Shared admission report for the picker and the ingestion gateway. */
+export const getSourceFileExclusion = (
+  { name, byteSize }: { name: string; byteSize: number },
+  archiveMember = false
+): ProjectSourceWarning | undefined => {
+  if (!isSafeZipEntryPath(name) || name.length > DEFAULT_MAX_ZIP_ENTRY_NAME_CHARS)
+    return { name, message: translateUiMessage('Il percorso del file non è valido.') };
+  if (byteSize > COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes)
+    return { name, message: translateUiMessage('Supera il limite di 32 MB per file.') };
+  if (archiveMember && isZipFileData({ name, mimeType: '' }))
+    return {
+      name,
+      message: translateUiMessage(
+        'Gli archivi annidati devono essere estratti prima di aggiungere i file.'
+      ),
+    };
+};
 
 const inspectSourceFile = async (
   file: File
@@ -28,17 +47,6 @@ const inspectSourceFile = async (
     };
   try {
     const entries = await readSourceZipDirectory(file);
-    const invalidEntries = entries.filter(
-      entry => entry.byteSize > COURSE_SOURCE_UPLOAD_LIMITS.maxArchiveEntryBytes
-    );
-    if (invalidEntries.length)
-      return {
-        accepted: false,
-        warnings: invalidEntries.map(entry => ({
-          name: entry.name,
-          message: translateUiMessage('Supera il limite di 256 MB per file nell’archivio.'),
-        })),
-      };
     if (
       entries.reduce((bytes, entry) => bytes + entry.byteSize, 0) >
       COURSE_SOURCE_UPLOAD_LIMITS.maxTotalBytes
@@ -55,15 +63,11 @@ const inspectSourceFile = async (
     return {
       accepted: true,
       warnings: entries
-        .filter(
-          entry =>
-            entry.name.toLowerCase().endsWith('.pdf') &&
-            entry.byteSize > COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes
-        )
-        .map(entry => ({
-          name: entry.name,
-          message: translateUiMessage('Supera il limite di 32 MB per file.'),
-        })),
+        .filter(entry => !entry.name.endsWith('/'))
+        .flatMap(entry => {
+          const exclusion = getSourceFileExclusion(entry, true);
+          return exclusion ? [exclusion] : [];
+        }),
     };
   } catch (error) {
     if (error instanceof ZipEntryCountError)

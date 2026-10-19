@@ -51,6 +51,19 @@ describe('SupabaseProjectSourceStorage', () => {
     );
   });
 
+  test('rejects a source object above the production 200 MiB ceiling before starting a transfer', async () => {
+    const fetcher = createFetchMock(new Response('{}', { status: 200 }));
+    const storage = createStorage(fetcher);
+    await expect(
+      storage.upload(
+        'user/project/hash',
+        { path: import.meta.filename, byteSize: 200 * 1024 * 1024 + 1 },
+        'application/zip'
+      )
+    ).rejects.toMatchObject({ code: 'object-too-large' });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   test('aborts an in-flight upload with the workflow signal', async () => {
     const fetcher = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
       return new Promise<Response>((_resolve, reject) => {
