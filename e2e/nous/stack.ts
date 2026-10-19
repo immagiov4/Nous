@@ -1,4 +1,3 @@
-import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { closeSync, openSync } from 'node:fs';
 import { appendFile, cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -6,7 +5,6 @@ import { createServer } from 'node:net';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import { parse as parseToml } from 'smol-toml';
 import * as z from 'zod';
 import { recordDiagnostic } from '../../packages/playtest/src/diagnostics';
@@ -44,7 +42,70 @@ const stackClock: StackClock = {
     await delay(milliseconds, undefined, { signal });
   },
 };
-const executeFile = promisify(execFile);
+// Preserve the output budget of the execFile calls used before native Bun spawning.
+const EXEC_FILE_MAX_BUFFER_BYTES = 1024 * 1024;
+
+async function captureCommandOutput(
+  stream: ReadableStream<Uint8Array>,
+  options: { logPath?: string; maxBytes?: number; streamName?: string } = {}
+): Promise<string> {
+  const chunks: string[] = [];
+  const decoder = new TextDecoder();
+  const reader = stream.getReader();
+  let byteCount = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteCount += value.byteLength;
+      if (options.maxBytes !== undefined && byteCount > options.maxBytes) {
+        throw new RangeError(`${options.streamName} maxBuffer length exceeded`);
+      }
+      const text = decoder.decode(value, { stream: true });
+      chunks.push(text);
+      if (options.logPath) await appendFile(options.logPath, text);
+    }
+    const final = decoder.decode();
+    chunks.push(final);
+    if (options.logPath) await appendFile(options.logPath, final);
+    return chunks.join('');
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function executeFile(
+  executable: string,
+  args: string[],
+  options: { env?: NodeJS.ProcessEnv; windowsHide?: boolean } = {}
+): Promise<{ stdout: string }> {
+  const child = Bun.spawn([executable, ...args], {
+    ...options,
+    windowsHide: true,
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  try {
+    const [stdout, stderr, code] = await Promise.all([
+      captureCommandOutput(child.stdout, {
+        maxBytes: EXEC_FILE_MAX_BUFFER_BYTES,
+        streamName: 'stdout',
+      }),
+      captureCommandOutput(child.stderr, {
+        maxBytes: EXEC_FILE_MAX_BUFFER_BYTES,
+        streamName: 'stderr',
+      }),
+      child.exited,
+    ]);
+    if (code !== 0) throw Object.assign(new Error(stderr), { code });
+    return { stdout };
+  } catch (error) {
+    if (child.exitCode === null) child.kill();
+    await child.exited;
+    throw error;
+  }
+}
 const ownedProcessSchema = z.object({
   pid: z.number().int().positive(),
   repoRoot: z.string().min(1),
@@ -162,35 +223,20 @@ const SUPABASE_CLI_PATH = join(
 
 async function supabaseCommand(args: string[], signal?: AbortSignal): Promise<string> {
   signal?.throwIfAborted();
-  const child = spawn(SUPABASE_CLI_PATH, [...args, '--workdir', join(dataRoot(), 'stack')], {
+  const child = Bun.spawn([SUPABASE_CLI_PATH, ...args, '--workdir', join(dataRoot(), 'stack')], {
     cwd: REPO_ROOT,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
     windowsHide: true,
-  });
-  const exited = new Promise<number | null>((resolveExit, reject) => {
-    child.once('error', reject);
-    child.once('close', resolveExit);
   });
   const abort = () => terminateChild(child);
   signal?.addEventListener('abort', abort, { once: true });
   // stdout carries machine-readable status with service keys and JWT secrets: parse it, never log it.
-  const captureOutput = async (stream: NonNullable<typeof child.stdout>, logPath?: string) => {
-    const chunks: string[] = [];
-    const decoder = new TextDecoder();
-    for await (const chunk of stream) {
-      const text = decoder.decode(chunk, { stream: true });
-      chunks.push(text);
-      if (logPath) await appendFile(logPath, text);
-    }
-    const final = decoder.decode();
-    chunks.push(final);
-    if (logPath) await appendFile(logPath, final);
-    return chunks.join('');
-  };
   const [stdout, stderr, code] = await Promise.all([
-    captureOutput(child.stdout),
-    captureOutput(child.stderr, join(dataRoot(), 'stack', 'supabase.log')),
-    exited,
+    captureCommandOutput(child.stdout),
+    captureCommandOutput(child.stderr, { logPath: join(dataRoot(), 'stack', 'supabase.log') }),
+    child.exited,
   ]).finally(() => signal?.removeEventListener('abort', abort));
   if (code !== 0) {
     recordDiagnostic('stack-supabase-command', new Error(stderr));
@@ -303,27 +349,22 @@ export async function startServer(
   signal?.throwIfAborted();
   const logPath = join(dataRoot(), 'stack', `${name}.log`);
   const log = openSync(logPath, 'w');
-  const child = spawn(process.execPath, args, {
-    cwd: REPO_ROOT,
-    env,
-    detached: true,
-    windowsHide: true,
-    stdio: ['ignore', log, log],
-  });
-  closeSync(log);
-  let startupComplete = false;
-  // Register exit/error listeners immediately: even an exit before the PID write must settle readiness.
-  const exited = new Promise<never>((_resolve, reject) => {
-    const fail = (detail: string) => {
-      if (startupComplete) return;
-      reject(stageError(name, detail));
-    };
-    child.once('error', error => {
-      fail(error.message);
+  let child: Bun.Subprocess<'ignore', number, number>;
+  try {
+    child = Bun.spawn([process.execPath, ...args], {
+      cwd: REPO_ROOT,
+      env,
+      detached: true,
+      windowsHide: true,
+      stdin: 'ignore',
+      stdout: log,
+      stderr: log,
     });
-    child.once('exit', (code, signal) => {
-      fail(`process exited (${signal ?? code})`);
-    });
+  } finally {
+    closeSync(log);
+  }
+  const exited = child.exited.then<never>(code => {
+    throw stageError(name, `process exited (${child.signalCode ?? code})`);
   });
   // Keep a rejection handled while the PID record is being written.
   void exited.catch(() => {});
@@ -336,7 +377,6 @@ export async function startServer(
     signal?.addEventListener('abort', abort, { once: true });
   });
   try {
-    if (!child.pid) return await exited;
     const identity = await Promise.race([processIdentity(child.pid), exited, interrupted]);
     if (!identity) return await exited;
     await writeFile(
@@ -349,11 +389,10 @@ export async function startServer(
       signal,
       exited: Promise.race([exited, interrupted]),
     });
-    startupComplete = true;
     child.unref();
     return child.pid;
   } catch (error) {
-    if (child.exitCode === null && child.signalCode === null) terminateChild(child, true);
+    if (child.exitCode === null) terminateChild(child, true);
     throw error;
   } finally {
     if (abort) signal?.removeEventListener('abort', abort);
