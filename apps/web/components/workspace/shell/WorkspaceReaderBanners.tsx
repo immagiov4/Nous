@@ -14,7 +14,7 @@ export default function WorkspaceReaderBanners({
 }: WorkspaceReaderBannersModel) {
   return (
     <>
-      {lessonError ? (
+      {lessonError && !needsSourceFile ? (
         <div
           role="alert"
           className="mx-4 mt-4 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-red-200 bg-red-50/80 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300 sm:mx-8 sm:mt-5"

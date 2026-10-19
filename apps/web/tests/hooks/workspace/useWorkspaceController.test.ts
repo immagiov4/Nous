@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import type { LessonWorkflowSnapshot } from '@shared/lessonWorkflowContract';
 import JSZip from 'jszip';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, expect, test, vi } from 'vitest';
+import WorkspaceReaderBanners from '../../../components/workspace/shell/WorkspaceReaderBanners.tsx';
 import { createAssessmentSessionState } from '../../../hooks/workspace/controller/assessmentSession.ts';
 import type {
   WorkspaceControllerStateAdapter,
@@ -6567,7 +6570,7 @@ test('openSection does not start durable work when its generation target was not
   );
   expect(generateDurableLesson).not.toHaveBeenCalled();
   expect(harness.domain.activeSectionId).toBeNull();
-  expect(harness.state.internalState.workflowState.loadSection.status).toBe('failed');
+  expect(harness.state.internalState.workflowState.loadSection.status).toBe('idle');
 });
 
 test('force regeneration clears its retained intent when target persistence fails', async () => {
@@ -6660,7 +6663,7 @@ test('openSection exposes a durable busy error instead of silently ignoring it',
     },
   });
 
-  await assert.rejects(controller.openSection(getLessons(plan)[0]), busyError);
+  await expect(controller.openSection(getLessons(plan)[0])).resolves.toBe('failed');
   assert.equal(state.internalState.workflowState.loadSection.status, 'failed');
   assert.equal(state.internalState.workflowState.loadSection.error, busyError.message);
   assert.equal(disposeProgressObserver.mock.calls.length, 1);
@@ -6689,7 +6692,7 @@ test('openSection marks a missing durable source for reattachment', async () => 
     },
   });
 
-  await assert.rejects(controller.openSection(getLessons(plan)[0]), sourceError);
+  await expect(controller.openSection(getLessons(plan)[0])).resolves.toBe('blocked-missing-source');
   assert.equal(state.internalState.missingSourceProjects.has('project-1'), true);
   assert.equal(state.internalState.workflowState.loadSection.status, 'failed');
   assert.equal(
@@ -7490,7 +7493,7 @@ test('lesson generation reports a terminal failure after workflow invalidation a
   expect(await controller.openSection(getLessons(plan)[0])).toBe('reopened-generating');
   rejectGeneration?.(new Error('Generazione interrotta'));
 
-  await expect(invalidatedGeneration).rejects.toThrow('Generazione interrotta');
+  await expect(invalidatedGeneration).resolves.toBe('failed');
   expect(generateDurableLesson).toHaveBeenCalledTimes(1);
   expect(state.internalState.workflowState.loadSection.status).toBe('failed');
   expect(state.internalState.workflowState.loadSection.error).toBe('Generazione interrotta');
@@ -7666,7 +7669,7 @@ test('lesson generation reattaches while another project owns the pending workfl
   expect(await harness.controller.openSection(lesson)).toBe('reopened-generating');
   rejectProjectA?.(new Error('Generazione A interrotta'));
 
-  await expect(projectAGeneration).rejects.toThrow('Generazione A interrotta');
+  await expect(projectAGeneration).resolves.toBe('failed');
   expect(harness.state.internalState.workflowState.loadSection.status).toBe('failed');
   expect(harness.state.internalState.workflowState.loadSection.error).toBe(
     'Generazione A interrotta'
@@ -7748,7 +7751,7 @@ test('out-of-order detached missing-source failures retain every affected projec
   await Promise.resolve();
 
   rejectGenerationByProject.get('project-b')?.(new LessonSourceUnavailableError());
-  await expect(projectBGeneration).rejects.toBeInstanceOf(LessonSourceUnavailableError);
+  await expect(projectBGeneration).resolves.toBe('blocked-missing-source');
   rejectGenerationByProject.get('project-a')?.(new LessonSourceUnavailableError());
   expect(await projectAGeneration).toBe('ignored-busy');
 
@@ -9162,4 +9165,113 @@ test('a failed navigation save cannot offer regeneration of the previous ready l
   expect(harness.domain.activeSectionId).toBe(previousLesson.id);
   expect(harness.state.internalState.workflowState.loadSection.error).toBeUndefined();
   expect(generateDurableLesson).not.toHaveBeenCalled();
+});
+
+// Commands consume failures displayed by the current reader; a new lesson operation replaces them.
+test.each([
+  { action: 'settings', sourceMissing: false, owner: 'lesson' },
+  { action: 'retry-box', sourceMissing: false, owner: 'lesson' },
+  { action: 'ungenerated', sourceMissing: false, owner: 'lesson' },
+  { action: 'settings', sourceMissing: true, owner: 'source' },
+  { action: 'ungenerated', sourceMissing: true, owner: 'source' },
+  { action: 'sublesson-blocked', sourceMissing: false, owner: 'lesson' },
+  { action: 'sublesson-start', sourceMissing: false, owner: 'none' },
+  { action: 'sublesson-open', sourceMissing: false, owner: 'none' },
+])('reader failure ownership: $action / $owner', async ({ action, sourceMissing, owner }) => {
+  setRenderingLocaleOverride('it');
+  const parent = buildTestLesson({ id: 'lesson-1', content: '# Salvata' });
+  const target = buildTestLesson({ id: 'lesson-2' });
+  const childContent = '# Nuova';
+  const child = buildTestLesson({
+    id: 'deep-new',
+    parentId: parent.id,
+    type: 'deep-dive',
+    content: childContent,
+  });
+  const failure = sourceMissing
+    ? new LessonSourceUnavailableError()
+    : new Error('Verifica delle fonti non riuscita.');
+  let finishSublesson!: () => void;
+  const sublessonStarted = vi.fn();
+  const harness = createControllerHarness({
+    domain: { activeSectionId: parent.id, learningPlan: buildPlan({ sections: [parent, target] }) },
+    projectLibrary: { currentProjectId: 'project-1' },
+    openRouter: {
+      generateDurableLesson: async () => {
+        throw failure;
+      },
+      generateDurableSublesson: async () => {
+        sublessonStarted();
+        await new Promise<void>(resolve => {
+          finishSublesson = resolve;
+        });
+        if (action === 'sublesson-start') throw new Error('Approfondimento non riuscito.');
+        return {
+          content: childContent,
+          contentBlocks: [],
+          generatedVisuals: [],
+          imageRefs: [],
+          learningAids: [],
+          projectId: 'project-1',
+          projectRevision: 2,
+          quiz: [],
+          sectionId: child.id,
+          warnings: [],
+        };
+      },
+    },
+  });
+  let notifications = 0;
+  const receiveUnownedFailure = () => {
+    notifications += 1;
+  };
+  if (action.startsWith('sublesson-')) {
+    await harness.controller.regenerateActiveSection().catch(receiveUnownedFailure);
+    expect(harness.state.adapter.getWorkflowState().loadSection.status).toBe('failed');
+    harness.projectLibrary.adapter.applyPersistedProjectRevision = async () => {
+      harness.domain.setLearningPlan(buildPlan({ sections: [parent, child] }));
+      harness.domain.setActiveSectionId(child.id);
+      return true;
+    };
+    if (action === 'sublesson-blocked')
+      harness.state.adapter.tryBeginGeneration('project-1', 'lesson');
+    const creating = harness.controller.createLessonFromSelection({
+      instructions: 'Approfondisci',
+      selectedText: 'testo',
+    });
+    if (action === 'sublesson-blocked') {
+      expect((await creating).outcome).toBe('failed');
+      expect(sublessonStarted).not.toHaveBeenCalled();
+    } else {
+      await vi.waitFor(() => expect(sublessonStarted).toHaveBeenCalledOnce());
+      // The old retry action must disappear while the new request is still pending.
+      expect(harness.state.adapter.getWorkflowState().loadSection.error).toBeUndefined();
+      finishSublesson();
+      expect((await creating).outcome).toBe(action === 'sublesson-open' ? 'created' : 'failed');
+    }
+  } else {
+    const command =
+      action === 'ungenerated'
+        ? harness.controller.openSection(target)
+        : harness.controller.regenerateActiveSection();
+    await expect(command.catch(receiveUnownedFailure)).resolves.toBe(
+      sourceMissing ? 'blocked-missing-source' : 'failed'
+    );
+  }
+  const html = renderToStaticMarkup(
+    createElement(WorkspaceReaderBanners, {
+      lessonError: harness.state.adapter.getWorkflowState().loadSection.error,
+      needsSourceFile: harness.state.internalState.missingSourceProjects.has('project-1'),
+      onAttachSourceFile: vi.fn(),
+      onBackToLibrary: vi.fn(),
+      onExportProject: vi.fn(),
+      onRetryLesson: vi.fn(),
+      pdfMappingWarning: null,
+      storageError: null,
+    })
+  );
+  expect(notifications).toBe(0);
+  expect(html.includes('role="alert"')).toBe(owner === 'lesson');
+  expect(html.includes('Riprova')).toBe(owner === 'lesson');
+  expect(html.includes('Ricollega sorgente')).toBe(owner === 'source');
 });

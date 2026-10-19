@@ -91,6 +91,17 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     return lessons[currentIndex + 1] || null;
   };
 
+  // A new lesson operation owns the reader feedback from its accepted start.
+  function beginLessonWorkflow(workflowId: 'loadSection' | 'createLesson', message: string) {
+    if (state.getWorkflowState().loadSection.status === 'failed') {
+      state.invalidateWorkflows(['loadSection']);
+    }
+    return state.beginWorkflow(workflowId, message);
+  }
+
+  const beginSublessonWorkflow = () =>
+    beginLessonWorkflow('createLesson', t('Creazione approfondimento...'));
+
   async function openExercise(exercise: ApplicationExerciseNode): Promise<void> {
     const learningPlan = domain.learningPlan;
     const needsBrief = !exercise.brief?.trim() && learningPlan !== null;
@@ -582,7 +593,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
     state.setGeneratingSectionId(activeGeneration.projectId, activeGeneration.token, section.id);
     const beginLessonLoadWorkflow = () =>
-      state.beginWorkflow(
+      beginLessonWorkflow(
         'loadSection',
         t(forceRegenerate ? 'Rigenerazione lezione...' : 'Analisi contenuti...')
       );
@@ -727,10 +738,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         ? isGenerationViewCurrent()
         : isOpenSectionNavigationCurrent() && isGenerationWorkflowCurrent();
       if (isGenerationWorkflowCurrent()) {
-        if (
-          shouldReportToCurrentView &&
-          (domain.getDomainState().activeSectionId === null || isGenerationViewCurrent())
-        ) {
+        if (shouldReportToCurrentView && isGenerationViewCurrent()) {
           state.failWorkflow(
             'loadSection',
             requestId,
@@ -738,11 +746,10 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
               ? t(LESSON_SOURCE_UNAVAILABLE_MESSAGE)
               : getErrorMessage(error)
           );
-          // The scoped reader banner owns a regeneration failure already recorded here.
-          if (forceRegenerate)
-            return error instanceof LessonSourceUnavailableError
-              ? 'blocked-missing-source'
-              : 'failed';
+          // Recording a current lesson failure transfers display ownership to the reader.
+          return error instanceof LessonSourceUnavailableError
+            ? 'blocked-missing-source'
+            : 'failed';
         } else {
           state.invalidateWorkflows(['loadSection']);
         }
@@ -840,8 +847,6 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     }
     const activeGeneration = { projectId, token: generationToken };
 
-    const beginSublessonWorkflow = () =>
-      state.beginWorkflow('createLesson', t('Creazione approfondimento...'));
     let requestId = beginSublessonWorkflow();
     state.setLessonGenerationReattachHandler(
       projectId,
@@ -981,9 +986,6 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
     const openGeneratedSublesson = (sectionId: string) => {
       if (projectLibrary.getCurrentProjectId() !== projectId) return;
-      if (state.getWorkflowState().loadSection.status === 'failed') {
-        state.invalidateWorkflows(['loadSection']);
-      }
       if (domain.activeSectionId === sectionId) return;
       stopAudio(true);
       domain.setActiveSectionId(sectionId);
