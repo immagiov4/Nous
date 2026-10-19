@@ -19,7 +19,7 @@ The following files were used as context for generating this wiki page:
 
 # Testing & Quality Gates
 
-Nous Reader uses focused local checks during development, GitHub Actions on pull-request updates and pushes to `main`, and one local SonarQube scan on the final merge candidate. Fallow blocks new dead-code findings against a committed baseline.
+Nous Reader uses focused local checks during development, GitHub Actions on pull-request updates and pushes to `main`, and SonarQube Cloud analysis of the exact pull-request head. During the transition, the final merge candidate also requires a local SonarQube scan for comparison. Fallow blocks new dead-code findings against a committed baseline.
 
 Sources: [AGENTS.md:143-162](../../../AGENTS.md#L143-L162), [scripts/run-full-quality-gate.ts:1-20](../../../scripts/run-full-quality-gate.ts#L1-L20)
 
@@ -239,7 +239,7 @@ Node-only tests retain matcher registration and mock/timer cleanup while React T
 
 ## Continuous Integration (CI) Contracts
 
-The CI pipeline mirrors local gates but adds specialized logic for PostgreSQL and Supabase contract testing. The test job installs Chromium and its Linux dependencies with `bunx playwright install --with-deps chromium` before the Vitest suite, following the [Playwright CI setup](https://playwright.dev/docs/ci). Playtest process fixtures use Node APIs so the same tests can run under Bun and Node coverage.
+The CI test job checks out the exact pull-request head with full Git history, installs the Node major from `.node-version`, and runs the shared `gate:ci` command. Its single suite run produces `coverage/lcov.info`; the job uploads that report for same-head comparison and passes it to SonarQube Cloud. A failed scan or quality gate fails the test job. The workflow uses `pull_request`, and only same-repository pull requests and main pushes receive the Sonar token in the scan step; fork pull requests run the checks and coverage without the authenticated scan. Separate jobs cover PostgreSQL and Supabase contracts. The test job installs Chromium and its Linux dependencies with `bunx playwright install --with-deps chromium` before the Vitest suite, following the [Playwright CI setup](https://playwright.dev/docs/ci). Playtest process fixtures use Node APIs so the same tests can run under Bun and Node coverage.
 
 Pull requests run the Auth/RLS contract against the disposable local Supabase stack. The managed staging contract receives staging credentials only on trusted pushes to `main`; its checkout does not persist the GitHub token.
 
@@ -300,7 +300,9 @@ const [exitCode, stdout, stderr] = await Promise.all([
 Sources: [scripts/run-full-quality-gate.ts:39-53](../../../scripts/run-full-quality-gate.ts#L39-L53)
 
 ### SonarQube Integration
-SonarQube acts as a local-only merge gate and is intentionally excluded from GitHub Actions.
+SonarQube Cloud runs in the CI test job and publishes its pull-request quality-gate result. The official scan action reads `sonar-project.properties`, overriding only the Cloud organization and project key from repository variables, the host, the exact source revision, and the React Hooks report path. Existing analysis scopes, exclusions, LCOV path, quality-gate wait and timeout continue to apply. The local scanner retains its local project key and loopback server.
+
+The local merge requirement remains active during the transition. Compare the Cloud and local analyses on the same commit, including issues, coverage, quality-gate conditions, quality profiles and new-code definitions. The maintainer decides when this evidence justifies replacing the local requirement with required CI checks. Automatic analysis must be disabled in the Cloud project before CI-based analysis can run: Project > Administration > Analysis Method > Automatic Analysis off.
 - **Lifecycle:** `gate:full` starts or reuses the local service immediately before analysis and keeps it running afterward. Stop it explicitly with `bun run sonar:stop` when finished.
 - **Configuration:** Docker binds the local service to `127.0.0.1:9000`. Its Docker-internal one-shot provisioner grants `Anyone` the global `Create Projects` and `Execute Analysis` permissions on a fresh volume, enabling anonymous analysis without scanner credentials. The `gate` Doctor profile requires that provisioner to complete successfully before it reports anonymous analysis ready.
 - **Merge Block:** A required Sonar scan that is skipped, failed, or unreachable blocks the merge.
