@@ -39,6 +39,10 @@ Fresh databases receive Gemini and Zephyr from the global configuration seed. Th
 
 Sources: [speech service](../../../apps/backend/src/services/ttsClient.ts), [TTS route](../../../apps/backend/src/routes/tts.ts), [global configuration seed](../../../supabase/migrations/20260814203920_restore_global_model_config_seed.sql), [reader voices](../../../apps/web/services/audio/voiceProfile.ts).
 
+### Historical lesson visuals in playback
+
+The shared playback projection recognizes historical `VISUAL_EXAMPLE` references in parsed prose, omits their syntax from narration and captions, and attaches the referenced stored visual to the spoken passage. The projection retains references inside authored code as literal source instead of narration dependencies. Referenced visual content contributes to playback identity, including when the reference is embedded in Markdown. Parsed code blocks explicitly tagged `mermaid` become diagram visuals rendered by the existing generated-visual frame; ordinary code remains a Markdown visual. This playback projection preserves the imported source and its text offsets. It does not enable Mermaid fences in generated lesson prose: new lessons continue to use the scene pipeline. Durable playback definitions retain the earlier visual schemas for resumed runs.
+
 ### Playback block preparation
 
 `prepareLessonPlaybackBlock` prepares one `LessonPlaybackBlock` and returns `prepared` plus MP3 bytes, duration, and the model and voice actually used by TTS. The existing TTS text limit is checked before either audio or visual provider work begins, including when visuals are reused. Gemini PCM16 WAV is downmixed to mono and encoded at 64 kb/s with `@breezystack/lamejs` 1.2.7; duration comes from the PCM sample count. Provider MP3 responses are decoded with the prebuilt WebAssembly package `mpg123-decoder` 1.0.3, downmixed to mono, and re-encoded through the same encoder and bitrate constants as WAV responses. Their duration is measured from the re-encoded MPEG Layer III frames. Cancellation reaches the TTS request.

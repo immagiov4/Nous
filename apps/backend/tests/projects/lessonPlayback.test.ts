@@ -25,6 +25,38 @@ import {
 } from '../helpers/lessonPlayback.js';
 
 describe('playback persistence and assets', () => {
+  test('literal visual references in table code do not depend on stored visuals', () => {
+    const section = playbackSection();
+    section.contentBlocks = [
+      {
+        type: 'markdown',
+        markdown: 'Introduction.\n\n| Code |\n| --- |\n| `{{VISUAL_EXAMPLE:old-visual}}` |',
+      },
+    ];
+    const key = buildLessonPlaybackKey(section);
+    section.generatedVisuals = [
+      { id: 'old-visual', kind: 'svg', code: '<svg />', title: 'Unused', createdAt: 'now' },
+    ];
+    expect(buildLessonPlaybackKey(section)).toBe(key);
+  });
+  test.each([
+    'Introduction.\n\n{{VISUAL_EXAMPLE:old-visual}}',
+    'Introduction.\n\n| Diagram |\n| --- |\n| {{VISUAL_EXAMPLE:old-visual}} |',
+  ])('historical Markdown visual references include their stored content in playback identity: %s', markdown => {
+    const section = playbackSection();
+    section.contentBlocks = [{ type: 'markdown', markdown }];
+    section.generatedVisuals = [
+      { id: 'old-visual', kind: 'svg', code: '<svg />', title: 'Diagram', createdAt: 'now' },
+    ];
+    const key = buildLessonPlaybackKey(section);
+    const blocks = readLessonPlayback(section).blocks;
+    expect(blocks[0].speech).toBe('Introduction.');
+    expect(blocks[0].visuals).toHaveLength(1);
+    section.generatedVisuals = [
+      { ...section.generatedVisuals[0], code: '<svg><title>Updated</title></svg>' },
+    ];
+    expect(buildLessonPlaybackKey(section)).not.toBe(key);
+  });
   test('ordinary saves preserve server playback and their concurrent annotations', () => {
     const original = playbackSection();
     original.playback = preparedPlayback(original);

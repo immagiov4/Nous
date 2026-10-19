@@ -545,10 +545,13 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     ],
   });
   registry.register({
-    current: currentScenes.spokenMathPlayback,
+    current: createLessonPlaybackWorkflow(
+      playbackExecutionDefaults,
+      createLessonPlaybackBlockSchema(sceneSchema, true, true)
+    ),
     previous: [
       ...[currentScenes, ...historicalScenes].map(definition => definition.playback),
-      ...historicalScenes.map(definition => definition.spokenMathPlayback),
+      ...[currentScenes, ...historicalScenes].map(definition => definition.spokenMathPlayback),
     ],
   });
   return registry;
