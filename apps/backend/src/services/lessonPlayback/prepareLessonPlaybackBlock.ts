@@ -71,7 +71,7 @@ export const validatePlaybackSceneTypes = (
 const prepareScene = async (
   input: PrepareLessonPlaybackBlockInput
 ): Promise<LessonScene | undefined> => {
-  const { block, lesson, config, signal } = input;
+  const { block, config, signal } = input;
   if (block.visuals.length) {
     const scenes = existingScenes(input);
     // Motion events carry no scene id, so a block with several scenes shows them without motion.
@@ -90,8 +90,9 @@ const prepareScene = async (
       config: resolveLessonVisualModelConfig(config),
       lessonMarkdown: block.speech,
       retryFeedback,
-      sectionDescription: lesson.description ?? '',
-      sectionTitle: block.heading || lesson.title,
+      // Only this block is admissible evidence; lesson metadata can describe other passages.
+      sectionDescription: '',
+      sectionTitle: '',
       signal,
     });
     signal.throwIfAborted();
