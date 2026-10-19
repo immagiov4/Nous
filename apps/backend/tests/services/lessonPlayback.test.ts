@@ -20,6 +20,11 @@ const expectExactSpans = (
     if (content?.type !== 'markdown') throw new Error('Expected a markdown source block.');
     const { markdown } = content;
     expect(span.speech.start).toBe(speechEnd);
+    if (span.math) {
+      expect(span.speech.end).toBe(span.speech.start);
+      expect(markdown.slice(span.source.start, span.source.end)).toBe(span.math);
+      continue;
+    }
     expect(span.speech.end).toBeGreaterThan(span.speech.start);
     expect(span.source.start).toBeGreaterThanOrEqual(0);
     expect(span.source.end).toBeLessThanOrEqual(markdown.length);
@@ -170,7 +175,7 @@ describe('lesson playback segmentation', () => {
     String.raw`\(x + y\)`,
     '$$\nE = mc^2\n$$',
     String.raw`\[E = mc^2\]`,
-  ])('keeps delimited math visual-only with exact source spans: %s', formula => {
+  ])('retains delimited math and pending inline pronunciations with exact source spans: %s', formula => {
     const markdown = `Prima ${formula} dopo.\n\n ${formula} \n\nPoi.`;
     const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
     expect(blocks.map(block => block.speech)).toEqual(['Prima  dopo.', 'Poi.']);
@@ -184,7 +189,7 @@ describe('lesson playback segmentation', () => {
   test('retains literal math in code and escaped dollar text', () => {
     const markdown = 'Prima `$x$` e `\\(x\\)`, poi \\$ prezzo.\n\n```tex\n$x$\n```';
     const [block] = segmentLessonPlayback([markdownBlock(markdown)]);
-    expect(block?.speech).toBe('Prima $x$ e \\(x\\), poi $ prezzo.');
+    expect(block?.speech).toBe(String.raw`Prima $x$ e \(x\), poi $ prezzo.`);
     expect(block?.visuals).toEqual([{ kind: 'markdown', markdown: '```tex\n$x$\n```' }]);
     expectExactSpans(block as LessonPlaybackBlock, markdown);
   });
@@ -572,14 +577,13 @@ test.each([
 });
 
 test('keeps an inline mathematical reading and its definitions in one contextual visual', () => {
-  const passage =
-    '<mark data-nous-annotation-id="a">Read “the chance of </mark>$y$<mark data-nous-annotation-id="b"> given </mark>$x$<mark data-nous-annotation-id="c">”. The bar </mark>$\\mid$<mark data-nous-annotation-id="d"> means given.</mark>';
+  const passage = String.raw`<mark data-nous-annotation-id="a">Read “the chance of </mark>$y$<mark data-nous-annotation-id="b"> given </mark>$x$<mark data-nous-annotation-id="c">”. The bar </mark>$\mid$<mark data-nous-annotation-id="d"> means given.</mark>`;
   const [block] = segmentLessonPlayback([markdownBlock(passage)]);
   expect(block.speech).toBe('Read “the chance of  given ”. The bar  means given.');
   expect(block.visuals).toEqual([
     {
       kind: 'markdown',
-      markdown: 'Read “the chance of $y$ given $x$”. The bar $\\mid$ means given.',
+      markdown: String.raw`Read “the chance of $y$ given $x$”. The bar $\mid$ means given.`,
     },
   ]);
   expectExactSpans(block, passage);
@@ -588,6 +592,8 @@ test('keeps an inline mathematical reading and its definitions in one contextual
 test('keeps the explanation of mathematical symbols in spoken headings', () => {
   const markdown = '# The bar $\\mid$ means given\n\nContinue with the reading.';
   const [block] = segmentLessonPlayback([markdownBlock(markdown)]);
-  expect(block.visuals).toEqual([{ kind: 'markdown', markdown: '# The bar $\\mid$ means given' }]);
+  expect(block.visuals).toEqual([
+    { kind: 'markdown', markdown: String.raw`# The bar $\mid$ means given` },
+  ]);
   expectExactSpans(block, markdown);
 });

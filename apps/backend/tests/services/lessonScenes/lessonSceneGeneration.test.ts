@@ -350,6 +350,18 @@ test('generates scenes on the provider resolved for the run, with grounded conte
   expect(chooseIconsMock.mock.calls[0]?.[0].config.aiProvider).toBe('codex');
 });
 
+test('grounds support quotations across source whitespace without changing scene text', async () => {
+  const speech = 'The client sends a request;\nthe server returns a response.';
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...quoteDraft(speech),
+    evidence: 'The client sends a request; the server returns a response.',
+  });
+  expect(await generateLessonScene(unplannedInput(speech))).toMatchObject({
+    kind: 'scene',
+    scene: { quote: speech },
+  });
+});
+
 test('reports ungrounded evidence as contract problems instead of a scene', async () => {
   generateStructuredOutputMock.mockResolvedValueOnce({
     body: '',

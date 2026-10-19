@@ -375,11 +375,15 @@ const iconEntries = (draft: SceneDraft): SceneIconEntry[] => [
   ),
 ];
 
+// Support quotations carry no offsets; source line wrapping does not change their words.
+const supportQuotationText = (text: string): string => text.replaceAll(/\s+/gu, ' ').trim();
+
 const findDraftProblems = (draft: SceneDraft, scene: LessonScene, source: string): string[] => [
   ...(isAnimatedLessonScene(scene) && scene.autoplay !== true
     ? ['Generated animated scenes must enable autoplay.']
     : []),
-  ...(draft.evidence.trim() && source.includes(draft.evidence)
+  ...(draft.evidence.trim() &&
+  supportQuotationText(source).includes(supportQuotationText(draft.evidence))
     ? []
     : ['evidence must be an exact quotation from the lesson.']),
   ...(draft.groups.every(group => group.iconQueries.length === group.items.length)
