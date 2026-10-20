@@ -45,21 +45,9 @@ export const createProductionLessonPlaybackServices = (
       });
     }
     signal.throwIfAborted();
-    const dossier = readExistingDossier(project.snapshot, input.sectionId);
-    const transcribedSources = readStoredTranscribedSources(
-      typeof dossier?.evidencePacketJson === 'string' ? dossier.evidencePacketJson : undefined
-    );
     const lesson = {
       title: typeof section.title === 'string' ? section.title : '',
       description: typeof section.description === 'string' ? section.description : '',
-      ...(transcribedSources.length
-        ? {
-            sourceProvenance: {
-              kind: 'vision-transcription' as const,
-              sources: transcribedSources,
-            },
-          }
-        : {}),
       generatedVisuals: lessonPlaybackVisuals(section),
     };
     validatePlaybackSceneTypes({ block, lesson, allowedSceneTypes });
@@ -69,12 +57,34 @@ export const createProductionLessonPlaybackServices = (
       return { target: input, block: LessonPlaybackBlockSchema.parse(block) };
     }
     if (!providerEffect) throw new Error('Playback preparation requires durable provider results.');
+    const dossier = readExistingDossier(project.snapshot, input.sectionId);
+    let transcribedSources: ReturnType<typeof readStoredTranscribedSources> = [];
+    try {
+      transcribedSources = readStoredTranscribedSources(
+        typeof dossier?.evidencePacketJson === 'string' ? dossier.evidencePacketJson : undefined
+      );
+    } catch {
+      console.warn(
+        '[lesson-playback] Stored evidence is unreadable; omitting optional provenance.'
+      );
+    }
+
     const prepared = await prepareLessonPlaybackBlock({
       allowedSceneTypes,
       supportsSpokenMath,
       supportsFencedCode,
       block,
-      lesson,
+      lesson: {
+        ...lesson,
+        ...(transcribedSources.length
+          ? {
+              sourceProvenance: {
+                kind: 'vision-transcription' as const,
+                sources: transcribedSources,
+              },
+            }
+          : {}),
+      },
       config: await getResolvedGlobalModelConfig(),
       voice: input.voice,
       ttsModel: input.model,

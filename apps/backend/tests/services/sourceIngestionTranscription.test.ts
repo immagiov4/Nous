@@ -119,7 +119,7 @@ test('course admission errors reach the job instead of becoming per-file parser 
   const input = await fixture();
   mocks.prepare.mockRejectedValue(new PdfScannedPageLimitError(300));
   await expect(prepareSourceCollection(input)).rejects.toMatchObject({
-    code: 'PDF_SCANNED_PAGE_LIMIT',
+    name: 'PdfScannedPageLimitError',
   });
 });
 
@@ -139,5 +139,37 @@ test('retains document and failed page identities when the whole collection has 
   mocks.prepare.mockResolvedValue({ completion: Promise.resolve(pdf) });
   await expect(prepareSourceCollection(input)).rejects.toMatchObject({
     failures: [{ name: 'scan.pdf', reason: 'no-usable-text', failedPages: [1] }],
+  });
+});
+
+test('restores authoritative retained transcripts before publishing the prepared collection', async () => {
+  const input = await fixture();
+  const preparedPdfText = {
+    sourceHash: 'saved-hash',
+    pages: [{ pageNumber: 1, text: 'Stored text' }],
+  };
+  const retained = {
+    ...input.snapshot.source.sources[0],
+    id: 'retained',
+    hash: 'saved-hash',
+    preparedPdfText: { text: 'Client forged text' },
+  };
+  input.snapshot.source.sources.push(retained);
+  mocks.prepare.mockResolvedValue({
+    completion: Promise.resolve({
+      ...input.extracted,
+      text: 'New upload',
+      pages: [{ pageNumber: 1, text: 'New upload' }],
+    }),
+  });
+  const result = await prepareSourceCollection({
+    ...input,
+    storedSnapshot: {
+      ...input.snapshot,
+      source: { sources: [{ ...retained, preparedPdfText }] },
+    },
+  });
+  expect(result.snapshot.source).toMatchObject({
+    sources: [{ preparedPdfText: { text: 'New upload' } }, { id: 'retained', preparedPdfText }],
   });
 });

@@ -46,6 +46,8 @@ export type StructuredGenerationRequest = StructuredModelTarget & {
   readonly reasoningEffort?: ReasoningEffort;
   readonly signal: AbortSignal;
   readonly system: string;
+  /** Enables interpretation of source transcription errors; exact-copy tasks leave it disabled. */
+  readonly sourceAware?: boolean;
   /** Lets the model search the web; local tools and files stay forbidden. */
   readonly webSearch?: boolean;
 };
@@ -83,9 +85,10 @@ export const generateStructuredOutput = async <T>(
 ): Promise<T> => {
   const { image, maxRetries = 0, output, prompt, signal, system, webSearch = false } = request;
   const target = resolveTarget(request);
-  const sourceAwareSystem = system.includes(TRANSCRIBED_SOURCE_RULE)
-    ? system
-    : `${system}\n${TRANSCRIBED_SOURCE_RULE}`;
+  const sourceAwareSystem =
+    request.sourceAware && !system.includes(TRANSCRIBED_SOURCE_RULE)
+      ? `${system}\n${TRANSCRIBED_SOURCE_RULE}`
+      : system;
   request.onOutputPath?.('direct');
   const strictOutput = prepareStrictStructuredOutput(output.schema);
   if (target.provider === 'codex') {

@@ -59,7 +59,7 @@ test('Codex turns are tool-free, schema-bound, and parsed as JSON', async () => 
   expect(runCodexAppServerTurn).toHaveBeenCalledWith(
     expect.objectContaining({
       allowWebSearch: false,
-      developerInstructions: `Rispondi.\n${TRANSCRIBED_SOURCE_RULE} Do not use tools or access local files.`,
+      developerInstructions: 'Rispondi. Do not use tools or access local files.',
       input: [{ text: 'Domanda', type: 'text' }],
       outputSchema: OUTPUT.schema,
       reasoningEffort: 'medium',
@@ -76,7 +76,7 @@ test('web search lets Codex search while still forbidding local files', async ()
   expect(runCodexAppServerTurn).toHaveBeenCalledWith(
     expect.objectContaining({
       allowWebSearch: true,
-      developerInstructions: `Rispondi.\n${TRANSCRIBED_SOURCE_RULE} Do not access local files.`,
+      developerInstructions: 'Rispondi. Do not access local files.',
     })
   );
 });
@@ -127,7 +127,7 @@ test('AI SDK providers receive the system prompt unchanged', async () => {
     maxRetries: 0,
     prompt: 'Domanda',
     providerOptions: { p: {} },
-    system: `Rispondi.\n${TRANSCRIBED_SOURCE_RULE}`,
+    system: 'Rispondi.',
   });
   await expect(call.output.responseFormat).resolves.toMatchObject({
     name: 'answer',
@@ -216,7 +216,7 @@ test('schema rejection preserves the original contract for the envelope model to
   expect(generateText).toHaveBeenCalledTimes(2);
   const fallback = generateText.mock.calls[1][0];
   expect(fallback.prompt.startsWith(`${original.prompt}\n\n`)).toBe(true);
-  expect(fallback.system).toBe(`${original.system}\n${TRANSCRIBED_SOURCE_RULE}`);
+  expect(fallback.system).toBe(original.system);
   await expect(fallback.output.responseFormat).resolves.toMatchObject({
     schema: {
       additionalProperties: false,
@@ -450,4 +450,11 @@ test.each([
   expect(contract.parse(result)).toEqual(
     Array.isArray(payload) ? [{ nullable: null }] : { kind: 'first', nullable: null }
   );
+});
+
+test('enables source interpretation only when explicitly requested', async () => {
+  createConfiguredTextModelFromResolution.mockReturnValue({ model: 'model', providerOptions: {} });
+  generateText.mockResolvedValue({ output: { answer: '42' } });
+  await generateStructuredOutput({ ...request('openrouter'), sourceAware: true });
+  expect(generateText.mock.lastCall?.[0].system).toBe(`Rispondi.\n${TRANSCRIBED_SOURCE_RULE}`);
 });

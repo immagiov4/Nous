@@ -2,6 +2,7 @@ import {
   COURSE_SOURCE_UPLOAD_LIMITS,
   type CourseSourceUploadFile,
 } from '@shared/courseSourceUpload';
+import { PDF_SCANNED_PAGE_LIMIT_CODE } from '@shared/pdfTranscription';
 import {
   SOURCE_INGESTION_REQUIRED_CODE,
   SOURCE_PREPARATION_CANCELLED_CODE,
@@ -217,7 +218,9 @@ const sendProjectWriteError = (
     return;
   }
   if (error instanceof PdfScannedPageLimitError) {
-    res.status(422).json({ success: false, code: error.code, error: error.message });
+    res
+      .status(422)
+      .json({ success: false, code: PDF_SCANNED_PAGE_LIMIT_CODE, error: error.message });
     return;
   }
   if (error instanceof SourcePreparationCancelledError) {
@@ -1086,13 +1089,14 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
                 };
               });
               if (!jobContext) throw new Error('Source preparation context is missing.');
+              const storedSnapshot = await store.loadProject(userId, snapshot.id);
               const context = {
                 ...jobContext,
                 userId,
                 uploadId: completionInput.uploadId,
                 projectId: snapshot.id,
                 previousScannedPages: countRetainedScannedPages(
-                  (await store.loadProject(userId, snapshot.id))?.source,
+                  storedSnapshot?.source,
                   snapshot.source,
                   files.map(file => file.id)
                 ),
@@ -1103,7 +1107,7 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
                 offset: completionBody.metadataBytes as number | undefined,
               };
               const prepared = await withPdfTranscriptionCollection(context, () =>
-                prepareSourceCollection({ snapshot, upload, context })
+                prepareSourceCollection({ snapshot, upload, context, storedSnapshot })
               );
               context.signal.throwIfAborted();
               context.reportProgress({ step: 'persistence', completed: 0, total: files.length });

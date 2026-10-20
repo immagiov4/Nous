@@ -1,7 +1,4 @@
-import {
-  PDF_SCANNED_PAGE_LIMIT_CODE,
-  PDF_SCANNED_PAGE_LIMIT_MESSAGE,
-} from '@shared/pdfTranscription';
+import { PDF_SCANNED_PAGE_LIMIT_MESSAGE } from '@shared/pdfTranscription';
 import * as z from 'zod';
 
 const effort = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
@@ -36,7 +33,6 @@ export interface PdfTranscriptionSelection {
 }
 
 export class PdfScannedPageLimitError extends Error {
-  readonly code = PDF_SCANNED_PAGE_LIMIT_CODE;
   constructor(readonly limit: number) {
     super(PDF_SCANNED_PAGE_LIMIT_MESSAGE);
     this.name = 'PdfScannedPageLimitError';

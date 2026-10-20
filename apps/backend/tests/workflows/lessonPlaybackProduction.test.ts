@@ -34,15 +34,17 @@ const setup = () => {
     stage: vi.fn(async () => playbackAsset),
     adoptNodeAssets: vi.fn(async () => []),
   };
+  const snapshot = playbackProject(section);
   const services = createProductionLessonPlaybackServices(assets, {
     loadProjectWithRevision: async () => ({
-      snapshot: playbackProject(section),
+      snapshot,
       incarnationId: 'incarnation-1',
       revision: 1,
     }),
   });
   return {
     section,
+    snapshot,
     assets,
     services,
     context: {
@@ -207,4 +209,44 @@ test('reuses prepared playback after source replacement even when old source chu
   expect(result.block.audio[0]?.asset).toEqual(playbackAsset);
   expect(prepare).not.toHaveBeenCalled();
   expect(assets.stage).not.toHaveBeenCalled();
+});
+
+test('reuses ready audio despite malformed optional evidence metadata', async () => {
+  const { snapshot, services, context, assets } = setup();
+  snapshot.researchDossiersBySectionId = {
+    [context.input.sectionId]: { evidencePacketJson: '{invalid' },
+  };
+  const result = await services.preparePlayback(context);
+  expect(result.block.audio[0]?.asset).toEqual(playbackAsset);
+  expect(prepare).not.toHaveBeenCalled();
+  expect(assets.stage).not.toHaveBeenCalled();
+});
+
+test('prepares another voice when optional evidence metadata cannot be read', async () => {
+  const { snapshot, services, context } = setup();
+  snapshot.researchDossiersBySectionId = {
+    [context.input.sectionId]: { evidencePacketJson: '{invalid' },
+  };
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  prepare.mockResolvedValue({
+    prepared: preparedPlayback(playbackSection()).blocks[0].prepared,
+    audio: {
+      bytes: new Uint8Array([1]),
+      mediaType: 'audio/mpeg',
+      voice: 'Puck',
+      model: 'tts-model',
+      durationSeconds: 1,
+    },
+  });
+  try {
+    await services.preparePlayback({ ...context, input: { ...context.input, voice: 'Puck' } });
+    expect(prepare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lesson: expect.not.objectContaining({ sourceProvenance: expect.anything() }),
+      })
+    );
+    expect(warn).toHaveBeenCalledOnce();
+  } finally {
+    warn.mockRestore();
+  }
 });

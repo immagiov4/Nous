@@ -12,7 +12,11 @@ import * as z from 'zod';
 import { type GlobalModelConfig, getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import type { SourcePreparationContext } from '../projects/sourcePreparationContext.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
-import type { ExtractedPdfText, ExtractedPdfTextPage } from './pdfTextExtractor.js';
+import {
+  type ExtractedPdfText,
+  type ExtractedPdfTextPage,
+  PdfTextExtractionTimeoutError,
+} from './pdfTextExtractor.js';
 import { normalizeExtractedTextSegment } from './pdfTextNormalization.js';
 import {
   getPdfTranscriptionMathErrors,
@@ -34,6 +38,7 @@ const PDF_PAGE_LOAD_OPTIONS = {
 
 // Technical settings are calibrated on real handwritten notes and printed math pages.
 const PDF_TRANSCRIPTION = {
+  inspectionTimeoutMs: 15_000,
   renderTimeoutMs: 75_000,
   attemptTimeoutMs: 150_000,
   renderWidth: 1800,
@@ -364,14 +369,23 @@ const renderPdfPage = async (bytes: Buffer, pageNumber: number, signal: AbortSig
 const inspectPdfTextPages = async (
   bytes: Buffer,
   extracted: ExtractedPdfText,
-  signal?: AbortSignal
+  parentSignal?: AbortSignal
 ) => {
+  const signal = AbortSignal.any([
+    AbortSignal.timeout(PDF_TRANSCRIPTION.inspectionTimeoutMs),
+    ...(parentSignal ? [parentSignal] : []),
+  ]);
+  signal.throwIfAborted();
   const parser = new PDFParse({ data: bytes, ...PDF_PAGE_LOAD_OPTIONS });
-  const abort = () => {
-    void parser.destroy().catch(() => undefined);
-  };
-  signal?.addEventListener('abort', abort, { once: true });
-  try {
+  let abort!: () => void;
+  const aborted = new Promise<never>((_, reject) => {
+    abort = () =>
+      reject(
+        parentSignal?.aborted ? parentSignal.reason : new PdfTextExtractionTimeoutError('pdf-parse')
+      );
+    signal.addEventListener('abort', abort, { once: true });
+  });
+  const inspect = async () => {
     await parser.getInfo();
     // pdf-parse owns the already loaded PDF.js document and page renderer.
     const document = (parser as unknown as { doc: PdfDocument }).doc;
@@ -405,9 +419,13 @@ const inspectPdfTextPages = async (
       }
     }
     return { pages, planned, pageCount: document.numPages };
+  };
+  try {
+    return await Promise.race([inspect(), aborted]);
   } finally {
-    signal?.removeEventListener('abort', abort);
-    await parser.destroy().catch(() => undefined);
+    signal.removeEventListener('abort', abort);
+    const destroyed = parser.destroy().catch(() => undefined);
+    if (!signal.aborted) await destroyed;
   }
 };
 

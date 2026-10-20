@@ -418,6 +418,7 @@ export const generateLessonScene = async (
   const diagnostic = (stage: 'schema' | 'domain', problems: unknown) =>
     toWorkflowErrorDiagnostic(new Error(JSON.stringify({ outputPath, stage, problems })));
   const response = await generateStructuredOutput<unknown>({
+    sourceAware: Boolean(input.sourceProvenance),
     onOutputPath: path => {
       outputPath = path;
     },

@@ -25,6 +25,7 @@ import {
 } from '../services/projectSourceText.js';
 import { isRecord } from '../utils/validation.js';
 import { ProjectImportInputError } from './projectImportChunks.js';
+import { restoreStoredPreparedPdfText } from './projectSource.js';
 import type { SourcePreparationContext } from './sourcePreparationContext.js';
 import { collectReleasedSourceMemory } from './sourcePreparationMemory.js';
 import type { ProjectSaveOptions, ProjectSnapshot } from './types.js';
@@ -155,11 +156,14 @@ export const prepareSourceCollection = async ({
   snapshot,
   upload,
   context,
+  storedSnapshot,
 }: {
+  storedSnapshot?: ProjectSnapshot | null;
   snapshot: ProjectSnapshot;
   upload: SourceUpload;
   context: SourcePreparationContext;
 }): Promise<{ snapshot: ProjectSnapshot; failures: SourcePreparationFailure[] }> => {
+  snapshot = restoreStoredPreparedPdfText(snapshot, storedSnapshot);
   if (!isRecord(snapshot.source) || !Array.isArray(snapshot.source.sources))
     throw new ProjectImportInputError('Metadati delle fonti non validi.');
   const submittedSources = snapshot.source.sources;

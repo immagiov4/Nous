@@ -61,6 +61,7 @@ import {
   preserveStoredProjectSource,
   readEmbeddedProjectSource,
   readEmbeddedProjectSources,
+  restoreStoredPreparedPdfText,
 } from './projectSource.js';
 import {
   type ProjectSourceDiskFile,
@@ -1057,6 +1058,11 @@ export class PostgresProjectStore implements ProjectStore {
     if (existingSnapshot) {
       snapshot = preserveStoredProjectSource(snapshot, existingSnapshot);
     }
+    snapshot = restoreStoredPreparedPdfText(
+      snapshot,
+      existingSnapshot,
+      new Set(sourcePreparation ? sourceFiles?.files.map(file => file.id) : [])
+    );
     if (existingSnapshot?.source) {
       snapshot = await this.detachUnchangedEmbeddedSource(userId, snapshot, existingSnapshot);
     }

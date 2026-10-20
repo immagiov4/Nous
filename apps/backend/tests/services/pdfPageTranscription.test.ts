@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { formatPdfTranscriptionMarker } from '@shared/pdfTranscription';
 import { APICallError } from 'ai';
+import { PDFParse } from 'pdf-parse';
 import { beforeEach, expect, test, vi } from 'vitest';
 import type { SourcePreparationContext } from '../../src/projects/sourcePreparationContext.js';
 import { extractPdfTextLayer } from '../../src/services/pdfTextExtractor.js';
@@ -765,7 +766,7 @@ test('stops over-limit scanned material before rendering or calling a provider',
         pool,
         config: await getResolvedGlobalModelConfig(),
       })
-    ).rejects.toMatchObject({ code: 'PDF_SCANNED_PAGE_LIMIT', limit: 300 });
+    ).rejects.toMatchObject({ name: 'PdfScannedPageLimitError', limit: 300 });
     expect(provider.generateText).not.toHaveBeenCalled();
     expect(pool.measurements.maxRenderedImages).toBe(0);
   } finally {
@@ -880,4 +881,30 @@ test('accepts mathematical OCR whose Greek symbols become delimited math in tran
   expect(result.transcription?.pages).toEqual([1]);
   expect(result.pages[0].text).toContain(markdown);
   expect(provider.generateText).toHaveBeenCalledOnce();
+});
+
+test('bounds a stalled PDF inspection and releases the parser without starting provider calls', async () => {
+  const deadline = new AbortController();
+  const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal);
+  const info = vi
+    .spyOn(PDFParse.prototype, 'getInfo')
+    .mockImplementation(() => new Promise(() => {}));
+  const destroy = vi
+    .spyOn(PDFParse.prototype, 'destroy')
+    .mockImplementation(() => new Promise(() => {}));
+  try {
+    const result = preparePdfTextExtraction(bytes, textLayer(''));
+    const rejected = expect(result).rejects.toMatchObject({
+      name: 'PdfTextExtractionTimeoutError',
+    });
+    expect(timeout).toHaveBeenCalledWith(15_000);
+    deadline.abort(new DOMException('Inspection deadline', 'TimeoutError'));
+    await rejected;
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(provider.generateText).not.toHaveBeenCalled();
+  } finally {
+    info.mockRestore();
+    destroy.mockRestore();
+    timeout.mockRestore();
+  }
 });
