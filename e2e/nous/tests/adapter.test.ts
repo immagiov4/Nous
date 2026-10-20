@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -32,9 +33,11 @@ import {
   waitForReadiness,
 } from '../stack';
 import * as workflowCleanup from '../workflowCleanup';
+import { installBunProcessFixture } from './helpers/bunProcessFixture';
 
 let temporaryRoot: string | undefined;
 beforeEach(() => {
+  installBunProcessFixture();
   vi.spyOn(workflowCleanup, 'settleAccountWorkflows').mockResolvedValue();
   vi.spyOn(PostgresAccountStore.prototype, 'finishSetup').mockResolvedValue();
 });
@@ -268,16 +271,14 @@ describe('Nous adapter', () => {
         identity: 'different-process-birth-time',
       })
     );
-    const child = Bun.spawn([process.execPath, join(REPO_ROOT, 'e2e/nous/stack.ts'), '--stop'], {
+    const child = spawnSync('bun', [join(REPO_ROOT, 'e2e/nous/stack.ts'), '--stop'], {
       env: { ...process.env, NOUS_E2E_DATA: temporaryRoot },
       windowsHide: true,
-      stdin: 'ignore',
-      stdout: 'ignore',
-      stderr: 'pipe',
+      encoding: 'utf8',
+      stdio: ['ignore', 'ignore', 'pipe'],
     });
-    const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-    expect(code).toBe(1);
-    expect(stderr).toContain('process identity changed');
+    expect(child.status).toBe(1);
+    expect(child.stderr).toContain('process identity changed');
     expect(() => process.kill(process.pid, 0)).not.toThrow();
     expect(
       JSON.parse(await readFile(join(temporaryRoot, 'stack', 'frontend-pid.json'), 'utf8')).pid

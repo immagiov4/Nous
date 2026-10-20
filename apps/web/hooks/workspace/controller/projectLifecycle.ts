@@ -389,7 +389,7 @@ export const createProjectLifecycleCommands = (
         }
       );
       if (!isUploadCurrent() || projectLibrary.getCurrentProjectId() !== nextProjectId) {
-        return abandonSourceUpload();
+        return await abandonSourceUpload();
       }
       if (!saved?.snapshot.source) {
         throw new Error('La sorgente del progetto non è stata salvata.');
@@ -432,7 +432,7 @@ export const createProjectLifecycleCommands = (
         (ownership.draftProjectId &&
           projectLibrary.getCurrentProjectId() !== ownership.draftProjectId)
       ) {
-        return abandonSourceUpload();
+        return await abandonSourceUpload();
       }
       if (error instanceof ProjectStorageError && error.sourceWarnings?.length) {
         sourceWarnings = error.sourceWarnings;
@@ -472,6 +472,11 @@ export const createProjectLifecycleCommands = (
         sourceWarnings,
       };
     } finally {
+      if (
+        preparationController.signal.aborted &&
+        state.isWorkflowCurrent('attachSource', requestId)
+      )
+        state.invalidateWorkflows(['attachSource']);
       if (session.activeSourceAttachmentOwnership === ownership)
         session.activeSourceAttachmentOwnership = null;
     }

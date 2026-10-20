@@ -62,7 +62,11 @@ import {
   readEmbeddedProjectSource,
   readEmbeddedProjectSources,
 } from './projectSource.js';
-import { ProjectSourceStorageError, SupabaseProjectSourceStorage } from './projectSourceStorage.js';
+import {
+  type ProjectSourceDiskFile,
+  ProjectSourceStorageError,
+  SupabaseProjectSourceStorage,
+} from './projectSourceStorage.js';
 import {
   ProjectTransactionTargetNotFoundError,
   patchProjectInTransaction,
@@ -268,6 +272,7 @@ type PreparedProjectSourceObject = {
   path: string;
   hash?: string;
   stream?: boolean;
+  offset?: number;
 } & ({ bytes: Uint8Array; temporaryPath?: never } | { bytes?: never; temporaryPath: string });
 
 interface PreparedProjectSource {
@@ -289,11 +294,7 @@ interface ProjectSourceObjectStorage {
     start: number,
     endExclusive: number
   ): Promise<Uint8Array>;
-  upload(
-    path: string,
-    bytes: Uint8Array | { path: string; byteSize: number },
-    mimeType: string
-  ): Promise<void>;
+  upload(path: string, bytes: Uint8Array | ProjectSourceDiskFile, mimeType: string): Promise<void>;
 }
 
 interface FolderRow {
@@ -1706,8 +1707,6 @@ export class PostgresProjectStore implements ProjectStore {
     ) {
       throw new Error('Source upload size does not match the project.');
     }
-    const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), SOURCE_PREPARATION_TMP_PREFIX));
-    activeSourcePreparationDirectories.add(temporaryDirectory);
     let fileHandle: Awaited<ReturnType<typeof open>> | undefined;
     const files: PreparedProjectSource['files'] = [];
     const objects: PreparedProjectSource['objects'] = [];
@@ -1744,18 +1743,18 @@ export class PostgresProjectStore implements ProjectStore {
           if (result.bytesRead === 0) throw new Error('Incomplete source upload.');
           read += result.bytesRead;
         }
+        const fileOffset = offset;
         offset += bytes.length;
         const { ref: preparedRef } = prepareProjectSourceBytes(file, bytes, file.id);
         const ref = {
           ...preparedRef,
           objectPath: buildProjectSourceObjectPath(userId, snapshot.id, file.id, preparedRef.hash),
         };
-        const temporaryPath = path.join(temporaryDirectory, String(position));
-        await writeFile(temporaryPath, bytes);
         files.push({ position, ref });
         objects.push({
           byteSize: bytes.length,
-          temporaryPath,
+          temporaryPath: upload.path,
+          offset: fileOffset,
           hash: ref.hash,
           stream: true,
           mimeType: file.mimeType,
@@ -1795,7 +1794,6 @@ export class PostgresProjectStore implements ProjectStore {
         objects,
         primaryRef,
         sourceKind: 'file',
-        temporaryDirectory,
       };
       return {
         prepared,
@@ -1804,10 +1802,6 @@ export class PostgresProjectStore implements ProjectStore {
           orderedFiles.map(file => file.ref)
         ),
       };
-    } catch (error) {
-      await rm(temporaryDirectory, { recursive: true, force: true });
-      activeSourcePreparationDirectories.delete(temporaryDirectory);
-      throw error;
     } finally {
       await fileHandle?.close();
     }
@@ -2630,10 +2624,14 @@ export class PostgresProjectStore implements ProjectStore {
       await waitForCapacity(object.byteSize);
       context?.signal.throwIfAborted();
       inFlightBytes += object.byteSize;
-      let bytes: Uint8Array | { path: string; byteSize: number };
+      let bytes: Uint8Array | ProjectSourceDiskFile;
       try {
         bytes = object.stream
-          ? { path: object.temporaryPath as string, byteSize: object.byteSize }
+          ? {
+              path: object.temporaryPath as string,
+              byteSize: object.byteSize,
+              offset: object.offset,
+            }
           : (object.bytes ?? new Uint8Array(await readFile(object.temporaryPath)));
       } catch (error) {
         inFlightBytes -= object.byteSize;
@@ -2796,7 +2794,7 @@ export class PostgresProjectStore implements ProjectStore {
   private async uploadSourceObject(
     storage: ProjectSourceObjectStorage,
     objectPath: string,
-    bytes: Uint8Array | { path: string; byteSize: number },
+    bytes: Uint8Array | ProjectSourceDiskFile,
     ref: Pick<ProjectSourceRef, 'byteSize' | 'hash' | 'mimeType'>
   ): Promise<boolean> {
     try {

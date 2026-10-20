@@ -271,3 +271,26 @@ test('streams an original archive from disk with an exact content length', async
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('streams only one original from an assembled source upload', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'nous-source-storage-range-test-'));
+  try {
+    const path = join(directory, 'collection');
+    await writeFile(path, 'metadataFIRSTsecond');
+    const uploaded: string[] = [];
+    const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      uploaded.push(await new Response(init?.body).text());
+      return new Response('{}');
+    }) as unknown as typeof fetch;
+    const storage = createStorage(fetcher);
+    await storage.upload('project/first', { path, byteSize: 5, offset: 8 }, 'application/pdf');
+    await storage.upload('project/second', { path, byteSize: 6, offset: 13 }, 'application/pdf');
+    await storage.upload('project/empty', { path, byteSize: 0, offset: 19 }, 'text/plain');
+    expect(uploaded).toEqual(['FIRST', 'second', '']);
+    expect(
+      vi.mocked(fetcher).mock.calls.map(call => new Headers(call[1]?.headers).get('Content-Length'))
+    ).toEqual(['5', '6', '0']);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

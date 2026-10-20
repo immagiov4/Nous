@@ -2,8 +2,11 @@ import { closeSync, fstatSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { startServer } from '../stack';
+import { installBunProcessFixture } from './helpers/bunProcessFixture';
+
+beforeEach(installBunProcessFixture);
 
 let root: string | undefined;
 const children: Bun.Subprocess[] = [];

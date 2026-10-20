@@ -119,7 +119,7 @@ flowchart LR
     Job --> Progress[Per-file and per-step progress]
 ```
 
-The PDF step owns native extraction; the collection context is the internal seam for scanned-page detection and transcription. Text files use the shared deterministic Markdown outline and text-index implementation. Preparation retains text/index metadata while original bytes use one reusable per-file buffer. Bun collects released buffers after each extraction and source-object transfer. The `/api/pdf` utility remains available to its other callers.
+The PDF step owns native extraction; the collection context is the internal seam for scanned-page detection and transcription. Text files use the shared deterministic Markdown outline and text-index implementation. Preparation retains text/index metadata while original bytes use one reusable per-file buffer. Originals stream to Storage as bounded ranges of the assembled upload, with one immutable object per file. Bun collects released buffers after each extraction and source-object transfer. The `/api/pdf` utility remains available to its other callers.
 
 ### Transfer, jobs and resource limits
 

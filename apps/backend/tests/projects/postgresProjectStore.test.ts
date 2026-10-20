@@ -1808,8 +1808,9 @@ describe('PostgresProjectStore', () => {
       expect(upload).toHaveBeenCalledWith(
         expect.any(String),
         {
-          path: expect.any(String),
+          path,
           byteSize: 9,
+          offset: 0,
         },
         'text/plain'
       );

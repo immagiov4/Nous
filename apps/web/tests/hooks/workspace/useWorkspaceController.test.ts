@@ -9409,3 +9409,102 @@ test.each([
   expect(html.includes('Riprova')).toBe(owner === 'lesson');
   expect(html.includes('Ricollega sorgente')).toBe(owner === 'source');
 });
+
+test('an attachment retains ownership across overlapping opens while cleanup waits', async () => {
+  const published = createDeferred(),
+    reply = createDeferred(),
+    firstRead = createDeferred(),
+    secondRead = createDeferred();
+  const firstLoaded = createDeferred(),
+    secondLoaded = createDeferred();
+  let draftId = '';
+  let reads = 0;
+  const { controller, projectLibrary } = createControllerHarness({
+    projectLibrary: {
+      persistSnapshot: async (snapshot, options) => {
+        if (options?.sourceFiles) {
+          draftId = snapshot.id;
+          published.resolve();
+          await reply.promise;
+        }
+        return { meta: buildMeta(snapshot.id), snapshot };
+      },
+      loadStoredProject: async () => {
+        if (++reads === 1) {
+          firstRead.resolve();
+          await firstLoaded.promise;
+        } else {
+          secondRead.resolve();
+          await secondLoaded.promise;
+        }
+        return createProjectSnapshot({
+          id: draftId,
+          learningPlan: buildPlan(),
+          state: AppState.READING,
+        });
+      },
+    },
+  });
+  const uploading = controller.handleSourceUpload(
+    new File(['notes'], 'notes.txt', { type: 'text/plain' }),
+    { mode: 'new-project' }
+  );
+  await published.promise;
+  const firstOpening = controller.openProject(draftId);
+  await firstRead.promise;
+  reply.resolve();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const secondOpening = controller.openProject(draftId);
+  await secondRead.promise;
+  try {
+    firstLoaded.resolve();
+    expect((await firstOpening).outcome).toBe('stale');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(projectLibrary.deletedProjectIds).not.toContain(draftId);
+    secondLoaded.resolve();
+    expect((await secondOpening).outcome).toBe('opened');
+    expect((await uploading).outcome).toBe('failed');
+    expect(projectLibrary.deletedProjectIds).not.toContain(draftId);
+  } finally {
+    firstLoaded.resolve();
+    secondLoaded.resolve();
+    await Promise.allSettled([firstOpening, secondOpening, uploading]);
+  }
+});
+
+test.each([
+  'success',
+  'failure',
+] as const)('a same-project reopen concludes a cancelled reattach after %s', async outcome => {
+  const started = createDeferred(),
+    finish = createDeferred();
+  const source = createProjectSourceFromFile(markdownFile);
+  const snapshot = createProjectSnapshot({
+    id: 'reattach-opened',
+    source,
+    learningPlan: buildPlan(),
+    state: AppState.READING,
+  });
+  const { controller, state } = createControllerHarness({
+    loadedSnapshot: snapshot,
+    domain: { source },
+    projectLibrary: {
+      currentProjectId: snapshot.id,
+      saveCurrentProject: async () => {
+        started.resolve();
+        await finish.promise;
+        if (outcome === 'failure') throw new Error('Synthetic failed save');
+        return { meta: buildMeta(snapshot.id), snapshot };
+      },
+    },
+  });
+  const uploading = controller.handleSourceUpload(
+    new File(['replacement'], 'replacement.md', { type: 'text/markdown' }),
+    { mode: 'reattach-source' }
+  );
+  await started.promise;
+  expect((await controller.openProject(snapshot.id)).outcome).toBe('opened');
+  finish.resolve();
+  expect((await uploading).outcome).toBe('failed');
+  expect(state.internalState.workflowState.attachSource.status).not.toBe('pending');
+});

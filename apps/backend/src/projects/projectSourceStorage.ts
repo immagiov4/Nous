@@ -39,6 +39,12 @@ export class ProjectSourceStorageError extends Error {
   }
 }
 
+export interface ProjectSourceDiskFile {
+  path: string;
+  byteSize: number;
+  offset?: number;
+}
+
 export interface ProjectSourceIntegrity {
   byteSize: number;
   hash: string;
@@ -131,7 +137,7 @@ export class SupabaseProjectSourceStorage {
 
   async upload(
     path: string,
-    bytes: Uint8Array | { path: string; byteSize: number },
+    bytes: Uint8Array | ProjectSourceDiskFile,
     mimeType: string,
     signal?: AbortSignal
   ): Promise<void> {
@@ -139,9 +145,18 @@ export class SupabaseProjectSourceStorage {
     if (byteSize > MAX_SOURCE_OBJECT_BYTES) throw new ProjectSourceStorageError('object-too-large');
     // Bun fetch accepts ArrayBufferView bodies although its DOM BodyInit type omits them.
     const stream = !(bytes instanceof Uint8Array);
-    const body = stream
-      ? (Readable.toWeb(createReadStream(bytes.path)) as unknown as ReadableStream<Uint8Array>)
-      : (bytes as unknown as BodyInit);
+    let body = bytes as unknown as BodyInit;
+    if (stream) {
+      body =
+        bytes.byteSize === 0
+          ? (new Uint8Array() as unknown as BodyInit)
+          : (Readable.toWeb(
+              createReadStream(bytes.path, {
+                start: bytes.offset ?? 0,
+                end: (bytes.offset ?? 0) + bytes.byteSize - 1,
+              })
+            ) as unknown as BodyInit);
+    }
     await this.request(
       'upload-failed',
       `${this.storageUrl}/object/${this.bucket}/${encodeObjectPath(path)}`,
