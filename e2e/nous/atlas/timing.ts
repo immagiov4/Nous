@@ -41,6 +41,7 @@ export function installAtlasFrameClock(frameMilliseconds: number) {
       () => callback(performance.now()),
       frameMilliseconds - (Date.now() % frameMilliseconds)
     );
+  // eslint-disable-next-line unicorn/consistent-function-scoping -- Playwright serializes this clock installer into each page and frame.
   const cancelFrame = (id: number) => clearTimeout(id);
   // Keep the fixture's RAF grid aligned to wall time when Playwright installs its clock in either order.
   Object.defineProperties(globalThis, {

@@ -87,9 +87,7 @@ export function inspectAtlasDom(rootSelector: string): AtlasDom {
     if (!painted(element) || element.closest('.katex, .meaning-icon')) return false;
     return !(element instanceof SVGSVGElement) || Boolean(element.querySelector(svgGraphics));
   });
-  for (const element of media) {
-    inspectBox(boxOf(element.getBoundingClientRect()), element, element.tagName);
-    if (!(element instanceof SVGSVGElement)) continue;
+  const inspectSvgGraphics = (element: SVGSVGElement) => {
     for (const graphic of element.querySelectorAll(svgGraphics)) {
       if (
         graphic.closest('svg') !== element ||
@@ -99,6 +97,10 @@ export function inspectAtlasDom(rootSelector: string): AtlasDom {
         continue;
       inspectBox(boxOf(graphic.getBoundingClientRect()), graphic, graphic.tagName);
     }
+  };
+  for (const element of media) {
+    inspectBox(boxOf(element.getBoundingClientRect()), element, element.tagName);
+    if (element instanceof SVGSVGElement) inspectSvgGraphics(element);
   }
   for (const frame of root.querySelectorAll('iframe')) {
     inspectBox(boxOf(frame.getBoundingClientRect()), frame, 'iframe');

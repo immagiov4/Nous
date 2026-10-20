@@ -260,7 +260,9 @@ if (import.meta.main) {
           tile.incomplete &&
           tile.findings.some(
             finding =>
-              finding.kind === 'render-error' && String(finding.detail).includes('terminated')
+              finding.kind === 'render-error' &&
+              typeof finding.detail === 'string' &&
+              finding.detail.includes('terminated')
           )
       )
     );

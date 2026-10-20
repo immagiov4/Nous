@@ -160,8 +160,8 @@ async function settleStage(page: Page, timeSeconds: number) {
     Promise.all(
       frames.map(
         frame =>
-          new Promise<void>(resolve => {
-            frame.addEventListener('load', () => resolve(), { once: true });
+          new Promise<Event>(resolve => {
+            frame.addEventListener('load', resolve, { once: true });
             const source = frame.getAttribute('srcdoc');
             if (source === null) throw new Error('Atlas embedded documents must use srcdoc.');
             frame.setAttribute('srcdoc', source);
