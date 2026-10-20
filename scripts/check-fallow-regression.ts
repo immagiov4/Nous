@@ -1,11 +1,18 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
-const BASELINE_PATH = '.fallow-baselines/regression.json';
+const BASELINE_PATH = 'config/fallow-baselines/regression.json';
 const FINGERPRINT_SCHEMA_VERSION = 1;
 const IGNORED_IDENTITY_FIELDS = new Set(['actions', 'col', 'line', 'span_start', 'specifier_col']);
 const NON_FINDING_ARRAYS = new Set(['next_steps']);
-export const FALLOW_DEAD_CODE_JSON_COMMAND = ['fallow', 'dead-code', '--format', 'json'] as const;
+export const FALLOW_DEAD_CODE_JSON_COMMAND = [
+  'fallow',
+  'dead-code',
+  '--config',
+  'config/fallowrc.json',
+  '--format',
+  'json',
+] as const;
 
 type JsonPrimitive = boolean | null | number | string;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };

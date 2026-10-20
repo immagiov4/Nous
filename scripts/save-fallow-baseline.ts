@@ -5,7 +5,7 @@ import {
   FALLOW_DEAD_CODE_JSON_COMMAND,
 } from './check-fallow-regression';
 
-const BASELINE_PATH = '.fallow-baselines/regression.json';
+const BASELINE_PATH = 'config/fallow-baselines/regression.json';
 const CANDIDATE_PATH = `${BASELINE_PATH}.next`;
 
 await mkdir(dirname(BASELINE_PATH), { recursive: true });

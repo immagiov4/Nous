@@ -65,6 +65,8 @@ Copy `deploy/.env.production.example` to `.env.production`, choose `SUPABASE_DEP
 
 ## What Lives Where
 
+Shared tool settings live in `config/`; package scripts and CI select their paths explicitly. Application code lives in `apps/` and `packages/`, deployment tooling in `deploy/`, and contributor documentation in `docs/` and `.cubic/wiki/`.
+
 Code-level structure, package responsibilities, workspace boundaries, and dependency ownership are
 maintained in the [Cubic wiki](.cubic/wiki/index.md). Product intent remains in the
 [manifesto](https://github.com/immagiov4/Lumina-Reader/discussions/33); deployment and quality
@@ -75,9 +77,7 @@ Authenticated sessions use server storage. Import/export remains available for m
 
 ## Useful Commands
 
-Use `bun run doctor` for an actionable local health report. GitHub CI runs the complete Bun suite;
-`bun run gate:full` adds coverage and Sonar on the final commit. See
-[Testing and quality gates](docs/TESTING.md) for the canonical command list and CI contract.
+Use `bun run doctor` for an actionable local health report. GitHub CI runs the complete Node suite with coverage and SonarQube Cloud on the exact pull-request head. Use `bun run gate:full` for Windows-specific diagnosis. See [Testing and quality gates](docs/TESTING.md) for the canonical command list and CI contract.
 
 Validate a pull-request or issue body from a Markdown file before publishing it:
 

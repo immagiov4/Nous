@@ -19,7 +19,7 @@ The following files were used as context for generating this wiki page:
 
 # Testing & Quality Gates
 
-Nous Reader uses focused local checks during development, GitHub Actions on pull-request updates and pushes to `main`, and SonarQube Cloud analysis of the exact pull-request head. During the transition, the final merge candidate also requires a local SonarQube scan for comparison. Fallow blocks new dead-code findings against a committed baseline.
+Nous Reader uses focused local checks during development, GitHub Actions on pull-request updates and pushes to `main`, and SonarQube Cloud analysis of the exact pull-request head. Merge readiness requires green CI on that exact head, including SonarCloud. Local SonarQube supports Windows-specific diagnosis. Fallow blocks new dead-code findings against a committed baseline.
 
 Sources: [AGENTS.md:143-162](../../../AGENTS.md#L143-L162), [scripts/run-full-quality-gate.ts:1-20](../../../scripts/run-full-quality-gate.ts#L1-L20)
 
@@ -57,7 +57,7 @@ Sources: [scripts/doctor.ts:98-124](../../../scripts/doctor.ts#L98-L124), [AGENT
 
 ### The Full Quality Gate
 
-The `gate:full` command runs one heavy process at a time after GitHub CI passes on the same commit. The CI test job runs `gate:ci`: shared `gate:checks` (`quality:ci`, including dependency-cruiser, then Fallow) followed by the complete suite once under Node with V8 coverage. The local full gate invokes those two commands as separate sequential stages, so coverage still runs after a static-check failure. The same execution supplies the test result and `coverage/lcov.info`. CI must provision the Node major from `.node-version` before invoking that command. A behavior test expands the shared gate commands, compares CI and local checks, and requires exactly one coverage-producing suite. The local gate consumes that LCOV report when it starts or reuses SonarQube. After startup, `doctor:gate` verifies the pinned Bun runtime and Sonar readiness before analysis. The gate keeps SonarQube running after success or failure. Each invocation starts or reuses the server, repeats readiness and doctor checks, and runs the same quality gate. Run `bun run sonar:stop` when finished to release the server resources. The SonarJS bridge uses `sonar.javascript.node.maxspace=8192`; run only one scan at a time.
+The `gate:full` command runs one heavy process at a time for Windows-specific diagnosis. The CI test job runs `gate:ci`: shared `gate:checks` (`quality:ci`, including dependency-cruiser, then Fallow) followed by the complete suite once under Node with V8 coverage. The local full gate invokes those two commands as separate sequential stages, so coverage still runs after a static-check failure. The same execution supplies the test result and `coverage/lcov.info`. CI must provision the Node major from `.node-version` before invoking that command. A behavior test expands the shared gate commands, compares CI and local checks, and requires exactly one coverage-producing suite. The local gate consumes that LCOV report when it starts or reuses SonarQube. After startup, `doctor:gate` verifies the pinned Bun runtime and Sonar readiness before analysis. The gate keeps SonarQube running after success or failure. Each invocation starts or reuses the server, repeats readiness and doctor checks, and runs the same quality gate. Run `bun run sonar:stop` when finished to release the server resources. The SonarJS bridge uses `sonar.javascript.node.maxspace=8192`; run only one scan at a time.
 
 ```mermaid
 flowchart TD
@@ -66,7 +66,7 @@ flowchart TD
     Cov --> Up[sonar:up]
     Up --> Preflight[doctor:gate]
     Preflight --> Sonar[sonar:scan]
-    Sonar --> End[Merge Admission]
+    Sonar --> End[Diagnostic result]
 ```
 
 The shared `gate:ci` command stops at its first failed check, matching CI. A failed full-gate stage does not skip the later coverage or Sonar stages; the command reports every failed stage after analysis completes. Separate pull-request service contracts and remote PR-body checks remain CI merge prerequisites; main-push PostgreSQL and credential-dependent managed-staging checks run after merge.
@@ -93,7 +93,7 @@ The capture records process creation times to distinguish reused Windows PIDs an
 
 ### Fallow: Dead Code Detection
 The project uses "Fallow" to detect unused files, exports, and dependencies. It maintains a baseline to prevent regressions in debt. Fallow 3.16.0 is pinned as a development dependency and installed through the repository lockfile. The informational check, regression check, and baseline writer invoke the local binary; CI uses the same regression command after its frozen dependency installation.
-- **Baseline Path:** `.fallow-baselines/regression.json`
+- **Baseline Path:** `config/fallow-baselines/regression.json`
 - **Metric Categories:** Unused files, unused dependencies, and unused exports.
 - **Enforcement:** The doctor tool warns if the total issues in the baseline are greater than zero.
 
@@ -105,11 +105,11 @@ The frontend uses Vite 8 with Rolldown/Oxc and the matching React plugin 6. Vite
 
 ### Quality checks
 
-The local `quality` script runs TypeScript checks, Biome, the React Hooks lint report, and `check:eslint-sonar`. Both CI and the local full gate run `quality:ci` through the shared `gate:checks` command; it adds dependency-cruiser. Fallow separately blocks new dead-code and dependency findings against `.fallow-baselines/regression.json`.
+The local `quality` script runs TypeScript checks, Biome, the React Hooks lint report, and `check:eslint-sonar`. Both CI and the local full gate run `quality:ci` through the shared `gate:checks` command; it adds dependency-cruiser. Fallow separately blocks new dead-code and dependency findings against `config/fallow-baselines/regression.json`.
 
 React Hooks linting keeps ESLint's persistent cache under the ignored `.temp/eslint/` directory. The cache filename includes the `bun.lock` hash so dependency upgrades force fresh linting; ESLint invalidates changed files and configuration. Every run writes the complete Sonar report and retains the zero-warning check.
 
-`bun run check:eslint-sonar` runs ESLint 10 with exact-pinned SonarJS and the TypeScript ESLint and Unicorn rules that Sonar delegates to those plugins. Its separate configuration covers TS/TSX in `apps/web`, `apps/backend/src`, `apps/backend/tests`, `packages`, `scripts`, and `e2e`, excluding declaration files, generated code, vendor code, dependencies, build output, coverage, and fixtures. `tsconfig.eslint.json` owns the shared TS/TSX scope consumed by the ESLint configuration and runner, and supplies type information for deprecation, sorting, optional properties, string conversion, optional chaining, and awaited values. The selected set covers the requested SonarWay findings; the broader recommended preset also introduces unrelated policies and thresholds.
+`bun run check:eslint-sonar` runs ESLint 10 with exact-pinned SonarJS and the TypeScript ESLint and Unicorn rules that Sonar delegates to those plugins. Its separate configuration covers TS/TSX in `apps/web`, `apps/backend/src`, `apps/backend/tests`, `packages`, `scripts`, and `e2e`, excluding declaration files, generated code, vendor code, dependencies, build output, coverage, and fixtures. `config/tsconfig.eslint.json` owns the shared TS/TSX scope consumed by the ESLint configuration and runner, and supplies type information for deprecation, sorting, optional properties, string conversion, optional chaining, and awaited values. The selected set covers the requested SonarWay findings; the broader recommended preset also introduces unrelated policies and thresholds.
 
 | Sonar TypeScript key | ESLint rule | Configuration |
 | --- | --- | --- |
@@ -129,15 +129,15 @@ React Hooks linting keeps ESLint's persistent cache under the ignored `.temp/esl
 | S7721 | `unicorn/consistent-function-scoping` | Error |
 | S7785 | `unicorn/prefer-top-level-await` | Error |
 
-The selected rules all have Sonar `Main` scope. The ESLint configuration reads `sonar.tests` and `sonar.test.inclusions` directly from `sonar-project.properties`, so classification changes automatically apply to the fast check. Files matching both `sonar.tests` directories and `sonar.test.inclusions` suffixes (`.test.ts`, `.test.tsx`, `.spec.ts`, `.spec.tsx`) therefore disable those rules consistently across frontend, backend, scripts, Playtest and Nous end-to-end tests. Support files without a test suffix retain the rules, including helpers under `apps/backend/tests`.
+The selected rules all have Sonar `Main` scope. The ESLint configuration reads `sonar.tests` and `sonar.test.inclusions` directly from `config/sonar-project.properties`, so classification changes automatically apply to the fast check. Files matching both `sonar.tests` directories and `sonar.test.inclusions` suffixes (`.test.ts`, `.test.tsx`, `.spec.ts`, `.spec.tsx`) therefore disable those rules consistently across frontend, backend, scripts, Playtest and Nous end-to-end tests. Support files without a test suffix retain the rules, including helpers under `apps/backend/tests`.
 
-ESLint's [bulk suppressions](https://eslint.org/docs/latest/use/suppressions) store existing error counts per file and rule in the tracked `eslint-suppressions.json`. A new file or a count above its baseline fails the check. Replacing an old violation with another violation of the same rule in the same file can stay within that count, so this check complements the final Sonar scan. Unused suppressions fail too: after fixing existing violations, run `bun run check:eslint-sonar --prune-suppressions` and include the reduced baseline with the fix. The initial baseline was generated once with `bun run check:eslint-sonar --suppress-all`; repeating that command accepts all current errors and requires explicit maintainer approval.
+ESLint's [bulk suppressions](https://eslint.org/docs/latest/use/suppressions) store existing error counts per file and rule in the tracked `config/eslint-suppressions.json`. A new file or a count above its baseline fails the check. Replacing an old violation with another violation of the same rule in the same file can stay within that count, so this check complements the final Sonar scan. Unused suppressions fail too: after fixing existing violations, run `bun run check:eslint-sonar --prune-suppressions` and include the reduced baseline with the fix. The initial baseline was generated once with `bun run check:eslint-sonar --suppress-all`; repeating that command accepts all current errors and requires explicit maintainer approval.
 
-After regenerating or pruning, run `bunx biome format --write eslint-suppressions.json`: ESLint writes the baseline without the trailing newline required by Biome.
+After regenerating or pruning, run `bunx biome format --write config/eslint-suppressions.json`: ESLint writes the baseline without the trailing newline required by Biome.
 
 The Sonar-style runner shares the lockfile-keyed, content-based persistent cache implementation with React Hooks, using a separate `sonar-*.cache` file under `.temp/eslint/`. Bulk suppressions are applied after cached diagnostics are loaded, so baseline changes take effect on warm runs. An unchanged consumer can retain cached type diagnostics when only an imported declaration changes; choose an unused path with `--cache-location` for a complete reevaluation. The React Hooks JSON report and `SONAR_ESLINT_REPORT_PATH` override continue to serve Sonar's report import independently.
 
-Sources: [Sonar's rule catalogue and external-plugin mappings](https://github.com/SonarSource/SonarJS/blob/master/packages/analysis/src/jsts/rules/README.md), [Sonar ESLint configuration](../../../eslint.sonar.config.mjs), [Sonar runner](../../../scripts/run-eslint-sonar.ts), [shared cache](../../../scripts/eslint-cache.ts), [lint type configuration](../../../tsconfig.eslint.json), [suppressions](../../../eslint-suppressions.json).
+Sources: [Sonar's rule catalogue and external-plugin mappings](https://github.com/SonarSource/SonarJS/blob/master/packages/analysis/src/jsts/rules/README.md), [Sonar ESLint configuration](../../../config/eslint.sonar.config.mjs), [Sonar runner](../../../scripts/run-eslint-sonar.ts), [shared cache](../../../scripts/eslint-cache.ts), [lint type configuration](../../../config/tsconfig.eslint.json), [suppressions](../../../config/eslint-suppressions.json).
 
 Lesson review tests isolate the Mermaid process with explicit classification fixtures. A real-parser integration test validates the entire shared fixture set in one batch, keeping parser checks while avoiding a new DOM process for each review case.
 Sources: [package.json](../../../package.json), [scripts/check-fallow-regression.ts](../../../scripts/check-fallow-regression.ts), [scripts/run-eslint-react-hooks.ts](../../../scripts/run-eslint-react-hooks.ts), [apps/backend/tests/services/mermaidValidation.test.ts](../../../apps/backend/tests/services/mermaidValidation.test.ts)
@@ -300,9 +300,9 @@ const [exitCode, stdout, stderr] = await Promise.all([
 Sources: [scripts/run-full-quality-gate.ts:39-53](../../../scripts/run-full-quality-gate.ts#L39-L53)
 
 ### SonarQube Integration
-SonarQube Cloud runs in the CI test job and publishes its pull-request quality-gate result. The official scan action reads `sonar-project.properties`, overriding only the Cloud organization and project key from repository variables, the host, the exact source revision, and the React Hooks report path. Existing analysis scopes, exclusions, LCOV path, quality-gate wait and timeout continue to apply. The local scanner retains its local project key and loopback server.
+SonarQube Cloud runs in the CI test job and publishes its pull-request quality-gate result. The official scan action selects `config/sonar-project.properties` with `-Dproject.settings`, overriding only the Cloud organization and project key from repository variables, the host, the exact source revision, and the React Hooks report path. Existing analysis scopes, exclusions, LCOV path, quality-gate wait and timeout continue to apply. The local scanner retains its local project key and loopback server.
 
-The local merge requirement remains active during the transition. Compare the Cloud and local analyses on the same commit, including issues, coverage, quality-gate conditions, quality profiles and new-code definitions. The maintainer decides when this evidence justifies replacing the local requirement with required CI checks. Automatic analysis must be disabled in the Cloud project before CI-based analysis can run: Project > Administration > Analysis Method > Automatic Analysis off.
+For merge admission, follow [AGENTS.md](../../../AGENTS.md). CI-based Cloud analysis requires Automatic Analysis to be disabled in the Cloud project under Project > Administration > Analysis Method.
 - **Lifecycle:** `gate:full` starts or reuses the local service immediately before analysis and keeps it running afterward. Stop it explicitly with `bun run sonar:stop` when finished.
 - **Configuration:** Docker binds the local service to `127.0.0.1:9000`. Its Docker-internal one-shot provisioner grants `Anyone` the global `Create Projects` and `Execute Analysis` permissions on a fresh volume, enabling anonymous analysis without scanner credentials. The `gate` Doctor profile requires that provisioner to complete successfully before it reports anonymous analysis ready.
 - **Merge Block:** A required Sonar scan that is skipped, failed, or unreachable blocks the merge.

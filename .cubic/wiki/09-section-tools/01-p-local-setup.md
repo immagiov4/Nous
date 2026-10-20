@@ -10,7 +10,7 @@ The following files were used as context for generating this wiki page:
 
 - [scripts/ensure-local-dev-services.ts](../../../scripts/ensure-local-dev-services.ts)
 - [scripts/doctor.ts](../../../scripts/doctor.ts)
-- [docker-compose.sonarqube.yml](../../../docker-compose.sonarqube.yml)
+- [config/docker-compose.sonarqube.yml](../../../config/docker-compose.sonarqube.yml)
 - [README.md](../../../README.md)
 - [AGENTS.md](../../../AGENTS.md)
 - [.node-version](../../../.node-version)
@@ -91,7 +91,7 @@ The `doctor` script supports multiple profiles to probe different aspects of the
 Sources: [scripts/doctor.ts:152-165](../../../scripts/doctor.ts#L152-L165), [scripts/doctor.ts:245-276](../../../scripts/doctor.ts#L245-L276)
 
 ### Local SonarQube Setup
-For deep code analysis, a local SonarQube instance is used as a merge gate. Docker binds it only to `127.0.0.1:9000`. On a fresh volume, a Docker-internal one-shot provisioner grants the `Anyone` pseudo-group the global `Create Projects` and `Execute Analysis` permissions, so no scanner token or developer credential bootstrap is required. `gate:full` starts or reuses SonarQube after coverage and keeps it running after success or failure. Each invocation repeats readiness and doctor checks before the same quality gate. Run `bun run sonar:stop` when finished to release the server resources. `sonar:up` remains available for startup diagnosis. The provisioner polls SonarQube every second, fails immediately on `DB_MIGRATION_NEEDED`, and uses the approved 133-second ceiling derived from twice the slowest observed local successful startup. For a legacy volume with a changed administrator password, `sonar:up` automatically passes the ignored legacy local administrator settings only to that internal provisioner; if they are stale, it retries the fresh-volume default. The scanner never reads those settings or an inherited `SONAR_TOKEN`.
+For Windows-specific quality-gate diagnosis, a local SonarQube instance is available. Docker binds it only to `127.0.0.1:9000`. On a fresh volume, a Docker-internal one-shot provisioner grants the `Anyone` pseudo-group the global `Create Projects` and `Execute Analysis` permissions, so no scanner token or developer credential bootstrap is required. `gate:full` starts or reuses SonarQube after coverage and keeps it running after success or failure. Each invocation repeats readiness and doctor checks before the same quality gate. Run `bun run sonar:stop` when finished to release the server resources. `sonar:up` remains available for startup diagnosis. The provisioner polls SonarQube every second, fails immediately on `DB_MIGRATION_NEEDED`, and uses the approved 133-second ceiling derived from twice the slowest observed local successful startup. For a legacy volume with a changed administrator password, `sonar:up` automatically passes the ignored legacy local administrator settings only to that internal provisioner; if they are stale, it retries the fresh-volume default. The scanner never reads those settings or an inherited `SONAR_TOKEN`.
 
 ```mermaid
 sequenceDiagram
@@ -108,7 +108,7 @@ sequenceDiagram
 ```
 
 *Tokenless local SonarQube analysis workflow.*
-Sources: [docker-compose.sonarqube.yml](../../../docker-compose.sonarqube.yml), [scripts/sonar-local.ts](../../../scripts/sonar-local.ts), [scripts/run-sonar-scan.ts](../../../scripts/run-sonar-scan.ts), [AGENTS.md:157-163](../../../AGENTS.md#L157-L163)
+Sources: [config/docker-compose.sonarqube.yml](../../../config/docker-compose.sonarqube.yml), [scripts/sonar-local.ts](../../../scripts/sonar-local.ts), [scripts/run-sonar-scan.ts](../../../scripts/run-sonar-scan.ts), [AGENTS.md:157-163](../../../AGENTS.md#L157-L163)
 
 ## Configuration Management
 
