@@ -374,3 +374,62 @@ test.each([
   );
   expect(result.current.chunkTexts).toEqual([markdown]);
 });
+
+test('drops old recordings when the same section source changes, but preserves identical content', async () => {
+  const initial = 'Prima parte.\n\nSeconda parte.';
+  const { result, rerender } = renderHook(
+    ({ markdown }) =>
+      useTtsPlayer({
+        projectId: 'project-1',
+        activeSectionId: 'same-section',
+        sectionContent: markdown,
+        contentBlocks: [{ type: 'markdown', markdown }],
+      }),
+    { initialProps: { markdown: initial } }
+  );
+  await waitFor(() => expect(result.current.ttsConnected).toBe(true));
+  act(() => result.current.togglePlayPause());
+  await waitFor(() => expect(result.current.audioState.chunks[0]?.blobUrl).toBeTruthy());
+  rerender({ markdown: initial });
+  expect(result.current.audioState.chunks).toHaveLength(2);
+  rerender({ markdown: 'Nuova formula $x=2$.' });
+  await waitFor(() => expect(result.current.audioState.chunks).toHaveLength(0));
+  expect(URL.revokeObjectURL).toHaveBeenCalled();
+  act(() => result.current.togglePlayPause());
+  await waitFor(() =>
+    expect(openRouterMocks.generateSpeech.mock.calls.at(-1)?.[0].text).toBe('Nuova formula $x=2$.')
+  );
+  const request = openRouterMocks.generateSpeech.mock.calls.at(-1)?.[0];
+  expect(
+    request.block.spans.flatMap((span: { math?: string }) => (span.math ? [span.math] : []))
+  ).toEqual(['$x=2$']);
+});
+
+test('ignores an old source response after the next source starts with identical text', async () => {
+  let release!: (audio: { audioBuffer: ArrayBuffer; contentType: string }) => void;
+  openRouterMocks.generateSpeech.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        release = resolve;
+      })
+  );
+  const { result, rerender } = renderHook(
+    ({ projectId }) =>
+      useTtsPlayer({
+        projectId,
+        activeSectionId: 'same-section',
+        sectionContent: 'Stesso testo.',
+      }),
+    { initialProps: { projectId: 'first-project' } }
+  );
+  await waitFor(() => expect(result.current.ttsConnected).toBe(true));
+  act(() => result.current.togglePlayPause());
+  await waitFor(() => expect(openRouterMocks.generateSpeech).toHaveBeenCalledOnce());
+  rerender({ projectId: 'next-project' });
+  act(() => result.current.togglePlayPause());
+  await waitFor(() => expect(result.current.audioState.chunks[0]?.blobUrl).toBeTruthy());
+  expect(URL.createObjectURL).toHaveBeenCalledOnce();
+  await act(async () => release({ audioBuffer: new ArrayBuffer(480), contentType: 'audio/wav' }));
+  expect(URL.createObjectURL).toHaveBeenCalledOnce();
+  expect(result.current.audioState.chunks[0]?.blobUrl).toBe('blob:nous-audio');
+});

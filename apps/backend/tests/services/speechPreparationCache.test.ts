@@ -14,30 +14,28 @@ import {
   speechPreparationCache,
 } from '../../src/services/speechPreparationCache.js';
 
-// Exercise the cache through the SQL transaction interface; the real PostgreSQL concurrency
-// and rollback contract is also exercised by the configured-provider headless proof.
-const sql = {
+// The SQL fake implements atomic conflict insertion; real PostgreSQL is checked separately.
+let activeTransactions = 0;
+const execute = async (parts: TemplateStringsArray, ...values: unknown[]) => {
+  const query = parts.join('?');
+  const key = JSON.stringify(values.slice(0, 2));
+  if (query.startsWith('select narration'))
+    return state.stored.has(key) ? [{ narration: state.stored.get(key) }] : [];
+  if (query.startsWith('insert into') && !state.stored.has(key)) state.stored.set(key, values[2]);
+  return [];
+};
+const sql = Object.assign(execute, {
+  json: (value: unknown) => value,
   begin: async (operation: (transaction: unknown) => Promise<unknown>) => {
-    const pending = new Map(state.stored);
-    const transaction = Object.assign(
-      async (parts: TemplateStringsArray, ...values: unknown[]) => {
-        const query = parts.join('?');
-        if (query.startsWith('select narration')) {
-          const key = JSON.stringify(values);
-          return pending.has(key) ? [{ narration: pending.get(key) }] : [];
-        }
-        if (query.startsWith('insert into'))
-          pending.set(JSON.stringify(values.slice(0, 2)), values[2]);
-        return [];
-      },
-      { json: (value: unknown) => value }
-    );
-    const result = await operation(transaction);
-    state.stored = pending;
-    return result;
+    activeTransactions += 1;
+    try {
+      return await operation(sql);
+    } finally {
+      activeTransactions -= 1;
+    }
   },
   end: state.close,
-} as unknown as Sql;
+}) as unknown as Sql;
 
 beforeEach(() => {
   state.stored.clear();
@@ -96,4 +94,39 @@ test('requires database configuration, reuses its connection and closes it expli
   expect(state.connect).toHaveBeenCalledOnce();
   await closeSpeechPreparationCache();
   expect(state.close).toHaveBeenCalledOnce();
+});
+
+test('prepares without an open transaction and shares an in-process cold request', async () => {
+  const cache = createSpeechPreparationCache(sql);
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const prepare = vi.fn(async () => {
+    expect(activeTransactions).toBe(0);
+    await pending;
+    return 'pi';
+  });
+  const first = cache.resolve('one', 'cold', parse, prepare);
+  const second = cache.resolve('one', 'cold', parse, prepare);
+  release();
+  expect(await Promise.all([first, second])).toEqual(['pi', 'pi']);
+  expect(prepare).toHaveBeenCalledOnce();
+});
+
+test('independent workers return the stored winner of concurrent cold preparations', async () => {
+  const first = createSpeechPreparationCache(sql);
+  const second = createSpeechPreparationCache(sql);
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const resolveFirst = first.resolve('one', 'race', parse, async () => {
+    await pending;
+    return 'first';
+  });
+  const winner = await second.resolve('one', 'race', parse, async () => 'second');
+  release();
+  expect(await resolveFirst).toBe(winner);
+  expect(winner).toBe('second');
 });

@@ -742,10 +742,10 @@ export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlo
   let pendingIntroductions: SpokenText[] = [];
   let pendingVisuals: PlaybackVisual[] = [];
   const attachVisual = (visual: PlaybackVisual) => {
-    const hasPendingFence = pendingIntroductions.some(text =>
-      text.spans.some(span => span.fencedCode)
+    const hasPendingSpeech = pendingIntroductions.some(text =>
+      text.spans.some(span => span.fencedCode || span.math)
     );
-    const previous = hasPendingFence ? undefined : blocks.at(-1);
+    const previous = hasPendingSpeech ? undefined : blocks.at(-1);
     if (previous) previous.visuals.push(visual);
     else pendingVisuals.push(visual);
   };
@@ -799,6 +799,18 @@ export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlo
     visuals.push(visual);
   };
 
+  const attachSilentText = (text: SpokenText): void => {
+    const formulas = text.spans.filter(span => span.math);
+    if (formulas.length) {
+      const previous = pendingIntroductions.length ? undefined : blocks.at(-1);
+      const offset = previous?.speech.length ?? 0;
+      const spans = formulas.map(span => ({ ...span, speech: { start: offset, end: offset } }));
+      if (previous) previous.spans = [...previous.spans, ...spans];
+      else pendingIntroductions.push({ ...text, speech: '', spans, visuals: [] });
+    }
+    for (const visual of text.visuals) attachVisual(visual);
+  };
+
   const appendMarkdown = (markdown: string, sourceBlockIndex: number): void => {
     const analysis = analyzeMarkdown(markdown);
     recordContentProjection(markdown, sourceBlockIndex, analysis);
@@ -816,15 +828,7 @@ export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlo
         continue;
       }
       if (!text.speech.trim()) {
-        const formulas = text.spans.filter(span => span.math);
-        if (formulas.length) {
-          const previous = pendingIntroductions.length ? undefined : blocks.at(-1);
-          const offset = previous?.speech.length ?? 0;
-          const spans = formulas.map(span => ({ ...span, speech: { start: offset, end: offset } }));
-          if (previous) previous.spans = [...previous.spans, ...spans];
-          else pendingIntroductions.push({ ...text, speech: '', spans, visuals: [] });
-        }
-        for (const visual of text.visuals) attachVisual(visual);
+        attachSilentText(text);
         continue;
       }
       const spoken = joinSpokenText([...pendingIntroductions, text]);
@@ -985,42 +989,41 @@ export const resolvePlaybackNarration = (
   let formulaIndex = 0;
   let fenceIndex = 0;
   const visuals = [...block.visuals];
+  const appendFencedSpeech = (span: PlaybackTextSpan, index: number) => {
+    const decision = fencedCode?.[fenceIndex++];
+    if (decision?.kind !== 'prose' || !span.fencedCode) return;
+    if (speech && !speech.endsWith('\n')) speech += '\n';
+    speech += decision.spoken;
+    const hasFollowingSpeech =
+      block.speech.slice(span.speech.end) || block.spans.slice(index + 1).some(next => next.math);
+    if (hasFollowingSpeech && block.speech[span.speech.end] !== '\n') speech += '\n';
+    // Escape leading whitespace so classified prose cannot become indented Markdown code.
+    visuals[decision.visualIndex] = {
+      kind: 'markdown',
+      markdown: span.fencedCode.markdown.replaceAll(/^[ \t]/gmu, character =>
+        character === '\t' ? '&#9;' : '&#32;'
+      ),
+    };
+  };
+  const appendMathSpeech = (span: PlaybackTextSpan, index: number) => {
+    if (!span.math || !spokenMath) {
+      speech += block.speech.slice(span.speech.start, span.speech.end);
+      return;
+    }
+    const display = span.math.startsWith('$$') || span.math.startsWith(String.raw`\[`);
+    if (display && speech && !/\s$/u.test(speech)) speech += '\n';
+    speech += spokenMath[formulaIndex++].spoken;
+    if (
+      display &&
+      index < block.spans.length - 1 &&
+      !/^[\s.,;:!?]/u.test(block.speech.slice(span.speech.end))
+    )
+      speech += '\n';
+  };
   const spans = block.spans.map((span, index) => {
     const start = speech.length;
-    if (span.fencedCode) {
-      const decision = fencedCode?.[fenceIndex++];
-      if (decision?.kind === 'prose') {
-        if (speech && !speech.endsWith('\n')) speech += '\n';
-        speech += decision.spoken;
-        if (
-          (block.speech.slice(span.speech.end) ||
-            block.spans.slice(index + 1).some(next => next.math)) &&
-          block.speech[span.speech.end] !== '\n'
-        )
-          speech += '\n';
-        // Escape leading whitespace so classified prose cannot become indented Markdown code.
-        visuals[decision.visualIndex] = {
-          kind: 'markdown',
-          markdown: span.fencedCode.markdown.replaceAll(/^[ \t]/gmu, character =>
-            character === '\t' ? '&#9;' : '&#32;'
-          ),
-        };
-      }
-    } else {
-      if (span.math && spokenMath) {
-        const display = span.math.startsWith('$$') || span.math.startsWith(String.raw`\[`);
-        if (display && speech && !/\s$/u.test(speech)) speech += '\n';
-        speech += spokenMath[formulaIndex++].spoken;
-        if (
-          display &&
-          index < block.spans.length - 1 &&
-          !/^[\s.,;:!?]/u.test(block.speech.slice(span.speech.end))
-        )
-          speech += '\n';
-      } else {
-        speech += block.speech.slice(span.speech.start, span.speech.end);
-      }
-    }
+    if (span.fencedCode) appendFencedSpeech(span, index);
+    else appendMathSpeech(span, index);
     return { ...span, speech: { start, end: speech.length } };
   });
   return { ...block, speech, spans, visuals };

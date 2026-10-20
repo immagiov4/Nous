@@ -103,7 +103,7 @@ export const normalizeLooseText = (value: string): string =>
     .trim();
 
 interface VisibleProjectionState {
-  literalSourceRanges: readonly MarkdownRange[];
+  literalSource: Uint8Array;
   activeCodeDelimiter: string | null;
   atLineStart: boolean;
   boundaryRangesByStart: Map<number, MarkdownRange>;
@@ -123,7 +123,7 @@ interface VisibleProjectionState {
 }
 
 const isLiteralSource = (state: VisibleProjectionState): boolean =>
-  state.literalSourceRanges.some(range => range.start <= state.index && state.index < range.end);
+  state.literalSource[state.index] === 1;
 
 const pushVisibleCharacter = (
   state: VisibleProjectionState,
@@ -366,8 +366,10 @@ export const buildVisibleProjection = (
   tableSyntaxRanges: readonly MarkdownProjectionRange[] = [],
   literalSourceRanges: readonly MarkdownRange[] = []
 ): VisibleProjection => {
+  const literalSource = new Uint8Array(content.length);
+  for (const range of literalSourceRanges) literalSource.fill(1, range.start, range.end);
   const state: VisibleProjectionState = {
-    literalSourceRanges,
+    literalSource,
     activeCodeDelimiter: null,
     atLineStart: true,
     boundaryRangesByStart: indexLongestRangeByStart(

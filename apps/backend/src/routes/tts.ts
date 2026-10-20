@@ -16,6 +16,12 @@ const router = Router();
 const speechTargetSchema = z
   .object({ projectId: z.string().trim().min(1), sectionId: z.string().trim().min(1) })
   .strict();
+const speechSourceSchema = z
+  .object({
+    block: LessonPlaybackBlockSchema.optional(),
+    target: speechTargetSchema.optional(),
+  })
+  .refine(source => Boolean(source.block) === Boolean(source.target));
 const TTS_AUDIO_CACHE_MAX_AGE_SECONDS = 3_600;
 
 /**
@@ -48,7 +54,7 @@ router.get('/models', async (_req: Request, res: Response) => {
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { text, speed, voice, block: sourceBlock, target } = req.body;
+    const { text, speed, voice } = req.body;
     const modelConfig = await getResolvedGlobalModelConfig();
 
     if (!text || typeof text !== 'string') {
@@ -61,23 +67,17 @@ router.post('/', async (req: Request, res: Response) => {
     const controller = new AbortController();
     res.once('close', () => controller.abort());
     const signal = controller.signal;
-    const parsedBlock =
-      sourceBlock === undefined ? undefined : LessonPlaybackBlockSchema.safeParse(sourceBlock);
-    if (parsedBlock && !parsedBlock.success) {
+    const source = speechSourceSchema.safeParse(req.body);
+    if (!source.success)
       return res.status(400).json({ success: false, error: 'Richiesta di ascolto non valida.' });
-    }
-    const parsedTarget = target === undefined ? undefined : speechTargetSchema.safeParse(target);
-    if (parsedTarget && (!parsedTarget.success || !parsedBlock?.success))
-      return res.status(400).json({ success: false, error: 'Richiesta di ascolto non valida.' });
-    if (parsedBlock && !parsedTarget)
-      return res.status(400).json({ success: false, error: 'Richiesta di ascolto non valida.' });
-    if (!parsedTarget && text.trim().length > MAX_TTS_TEXT_CHARS)
+    const { block: sourceBlock, target } = source.data;
+    if (!target && text.trim().length > MAX_TTS_TEXT_CHARS)
       return res.status(400).json({
         success: false,
         error: `Testo troppo lungo. Massimo ${MAX_TTS_TEXT_CHARS} caratteri per richiesta.`,
       });
-    const blocks = parsedBlock?.success
-      ? [parsedBlock.data]
+    const blocks = sourceBlock
+      ? [sourceBlock]
       : segmentLessonPlayback([{ type: 'markdown', markdown: text }]);
     const prepared = [];
     for (const source of blocks) {
@@ -87,7 +87,7 @@ router.post('/', async (req: Request, res: Response) => {
         await prepareSpeech({
           userId: getCurrentUser(req).id,
           block,
-          ...(parsedTarget?.success ? { target: parsedTarget.data } : {}),
+          target,
           config: modelConfig,
           signal,
         })

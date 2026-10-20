@@ -1,27 +1,43 @@
 import postgres, { type Sql } from 'postgres';
 
-/** Serialized, owner-scoped reuse of paid narration, shared by every speech consumer. */
-export const createSpeechPreparationCache = (sql: Sql) => ({
-  async resolve<T>(
-    owner: string,
-    key: string,
-    parse: (value: unknown) => T,
-    prepare: () => Promise<T>
-  ): Promise<T> {
-    return sql.begin(async transaction => {
-      // The transaction lock deduplicates the same content across HTTP requests and workflow workers.
-      await transaction`select pg_advisory_xact_lock(hashtextextended(${JSON.stringify([owner, key])}, 0))`;
-      const rows =
-        await transaction`select narration from public.speech_preparations where owner_id = ${owner} and cache_key = ${key}`;
-      if (rows.length) return parse(rows[0].narration);
-      const narration = await prepare();
-      await transaction`insert into public.speech_preparations (owner_id, cache_key, narration) values (${owner}, ${key}, ${transaction.json(JSON.parse(JSON.stringify(narration)))})`;
-      return narration;
-    }) as Promise<T>;
-  },
-});
+/** Owner-scoped reuse with short queries and one stored winner across independent workers. */
+export const createSpeechPreparationCache = (sql: Sql) => {
+  const inFlight = new Map<string, Promise<unknown>>();
+  const resolveStored = async <T>(owner: string, key: string, prepare: () => Promise<T>) => {
+    const rows =
+      await sql`select narration from public.speech_preparations where owner_id = ${owner} and cache_key = ${key}`;
+    if (rows.length) return rows[0].narration;
+    const narration = await prepare();
+    await sql`insert into public.speech_preparations (owner_id, cache_key, narration) values (${owner}, ${key}, ${sql.json(JSON.parse(JSON.stringify(narration)))}) on conflict (owner_id, cache_key) do nothing`;
+    const stored =
+      await sql`select narration from public.speech_preparations where owner_id = ${owner} and cache_key = ${key}`;
+    if (!stored.length) throw new Error('The prepared narration was not stored.');
+    return stored[0].narration;
+  };
+  return {
+    async resolve<T>(
+      owner: string,
+      key: string,
+      parse: (value: unknown) => T,
+      prepare: () => Promise<T>
+    ): Promise<T> {
+      const identity = JSON.stringify([owner, key]);
+      let pending = inFlight.get(identity);
+      if (!pending) {
+        pending = resolveStored(owner, key, prepare);
+        inFlight.set(identity, pending);
+      }
+      try {
+        return parse(await pending);
+      } finally {
+        if (inFlight.get(identity) === pending) inFlight.delete(identity);
+      }
+    },
+  };
+};
 
 let sql: Sql | undefined;
+let cache: ReturnType<typeof createSpeechPreparationCache> | undefined;
 export const speechPreparationCache = {
   resolve<T>(
     owner: string,
@@ -33,12 +49,15 @@ export const speechPreparationCache = {
       const databaseUrl = process.env.DATABASE_URL?.trim();
       if (!databaseUrl) throw new Error('DATABASE_URL is required for speech preparation.');
       sql = postgres(databaseUrl);
+      cache = createSpeechPreparationCache(sql);
     }
-    return createSpeechPreparationCache(sql).resolve(owner, key, parse, prepare);
+    if (!cache) throw new Error('The speech preparation cache is missing.');
+    return cache.resolve(owner, key, parse, prepare);
   },
 };
 
 export const closeSpeechPreparationCache = async (): Promise<void> => {
   await sql?.end();
   sql = undefined;
+  cache = undefined;
 };

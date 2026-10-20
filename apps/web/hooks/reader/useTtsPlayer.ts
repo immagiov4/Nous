@@ -158,18 +158,16 @@ export const useTtsPlayer = ({
   const ttsCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const playbackRunRef = useRef<PlaybackRun>(createIdlePlaybackRun());
   const pausedTimeRef = useRef(0);
-  const activeSectionIdRef = useRef(activeSectionId);
+  const sourceIdentity = useMemo(
+    () => JSON.stringify([projectId, activeSectionId, sourceBlocks]),
+    [projectId, activeSectionId, sourceBlocks]
+  );
+  const sourceIdentityRef = useRef(sourceIdentity);
 
-  // Section changes release recordings and stop every active audio element.
+  // Source changes release recordings and invalidate pending playback requests.
   useEffect(() => {
-    const sectionChanged = activeSectionIdRef.current !== activeSectionId;
-    if (sectionChanged) {
-      activeSectionIdRef.current = activeSectionId;
-    }
-
-    if (!sectionChanged) {
-      return;
-    }
+    if (sourceIdentityRef.current === sourceIdentity) return;
+    sourceIdentityRef.current = sourceIdentity;
 
     // Abort any in-flight playback and drop stale chunks so the next
     // togglePlayPause() call will re-chunk from the fresh content.
@@ -205,6 +203,8 @@ export const useTtsPlayer = ({
     playbackSessionRef.current += 1;
     chunkPromisesRef.current = {};
     failedChunkIndexesRef.current.clear();
+    for (const url of generatedObjectUrlsRef.current) URL.revokeObjectURL(url);
+    generatedObjectUrlsRef.current.clear();
     pausedTimeRef.current = 0;
 
     // Use setAudioState directly instead of setTrackedAudioState (defined
@@ -225,7 +225,7 @@ export const useTtsPlayer = ({
     };
     setPlayerCurrentTime(0);
     setPlayerDuration(0);
-  }, [activeSectionId]);
+  }, [sourceIdentity]);
 
   const logPlayback = useCallback((event: string, details: Record<string, unknown> = {}) => {
     if (!DEBUG_TTS_PLAYER) {
@@ -444,10 +444,12 @@ export const useTtsPlayer = ({
 
   const generateChunkAudio = useCallback(
     async (index: number, retries = TTS_GENERATION_MAX_RETRIES): Promise<string | null> => {
+      const sessionId = playbackSessionRef.current;
       const generateChunkAudioWithRetries = async (
         retryIndex: number,
         remainingRetries: number
       ): Promise<string | null> => {
+        if (sessionId !== playbackSessionRef.current) return null;
         const chunk = audioStateRef.current.chunks[retryIndex];
         if (!chunk?.text.trim()) {
           // Empty chunk (e.g. produced from an image-only section). Skip the
@@ -477,6 +479,7 @@ export const useTtsPlayer = ({
             block: sourceBlocks[retryIndex],
             target: { projectId, sectionId: activeSectionId },
           });
+          if (sessionId !== playbackSessionRef.current) return null;
           const audioBlob = new Blob([speechAudio.audioBuffer], { type: speechAudio.contentType });
           const url = URL.createObjectURL(audioBlob);
           generatedObjectUrlsRef.current.add(url);
@@ -516,6 +519,7 @@ export const useTtsPlayer = ({
           setErrorMessage(null);
           return url;
         } catch (error) {
+          if (sessionId !== playbackSessionRef.current) return null;
           if (remainingRetries > 0 && isRetryableTtsError(error)) {
             delete chunkPromisesRef.current[retryIndex];
             await new Promise(resolve => setTimeout(resolve, TTS_GENERATION_RETRY_DELAY_MS));
