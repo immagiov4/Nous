@@ -25,6 +25,7 @@ const LOAD_SENSITIVE_TESTS = [
   'apps/backend/tests/workflows/lessonPlaybackStart.integration.test.ts',
   'apps/backend/tests/routes/lessonPlayback.test.ts',
   'scripts/run-eslint-sonar.test.ts',
+  'scripts/heavy-run.test.ts',
   'scripts/select-workflow-postgres-contract.test.ts',
   'scripts/summarize-gate-load.test.ts',
 ];

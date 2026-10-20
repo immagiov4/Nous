@@ -26,6 +26,7 @@ export interface PlaybackTextSpan {
 
 export type PlaybackVisual =
   | { readonly kind: 'markdown'; readonly markdown: string }
+  | { readonly kind: 'mermaid'; readonly code: string }
   | { readonly kind: 'generated-visual'; readonly visualId: string }
   | { readonly kind: 'scene'; readonly scene: LessonScene };
 
@@ -116,11 +117,13 @@ export type PlaybackContentBlock =
 
 interface MarkdownChunk extends PlaybackRange {
   readonly kind: 'heading' | 'speech' | 'visual' | 'omitted';
+  readonly visual?: PlaybackVisual;
   readonly fencedProseCandidate?: { readonly markdown: string; readonly source: PlaybackRange };
 }
 
 const IMAGE_CHUNK = /^!\[[^\]\r\n]*\]\((?:[^()\r\n]|\([^()\r\n]*\))*\)$/u;
 const PDF_IMAGE = /\{\{PDF_IMAGE:[^|{}]+(?:\|alt=[^|{}]*)?(?:\|caption=[^{}]*)?\}\}/gu;
+const VISUAL_EXAMPLE = /\{\{VISUAL_EXAMPLE:([^|{}]+)(?:\|title=[^{}]*)?\}\}/gu;
 const markdownParser = unified().use(remarkParse).use(remarkGfm);
 
 interface MarkdownAnalysis {
@@ -130,7 +133,7 @@ interface MarkdownAnalysis {
   readonly text: PlaybackRange[];
   readonly omissions: PlaybackRange[];
   readonly annotationTags: PlaybackRange[];
-  readonly inlineVisuals: PlaybackRange[];
+  readonly inlineVisuals: (PlaybackRange & { readonly visual?: PlaybackVisual })[];
   readonly math: PlaybackRange[];
 }
 
@@ -144,6 +147,13 @@ interface MarkdownNode {
   };
   readonly children?: readonly MarkdownNode[];
 }
+
+/** Include table-cell prose while keeping code and link destinations out of visual references. */
+const collectParsedTextRanges = (node: MarkdownNode, analysis: MarkdownAnalysis): void => {
+  if (node.type === 'text')
+    analysis.text.push({ start: node.position.start.offset, end: node.position.end.offset });
+  if (node.children) for (const child of node.children) collectParsedTextRanges(child, analysis);
+};
 
 /** Parser-recognized fence bodies retain source offsets, including unclosed fences. */
 const ambiguousFence = (node: MarkdownNode, markdown: string) => {
@@ -207,6 +217,9 @@ const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
         start,
         end,
         kind: node.type === 'code' || node.type === 'table' ? 'visual' : 'omitted',
+        ...(node.type === 'code' && node.lang?.toLowerCase() === 'mermaid'
+          ? { visual: { kind: 'mermaid' as const, code: node.value ?? '' } }
+          : {}),
         fencedProseCandidate: ambiguousFence(node, markdown),
       });
       return;
@@ -215,7 +228,23 @@ const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
     collectInlineRanges(node, markdown, analysis);
     if (node.children) for (const child of node.children) visit(child);
   };
-  visit(markdownParser.parse(markdown) as MarkdownNode);
+  const parsed = markdownParser.parse(markdown) as MarkdownNode;
+  collectParsedTextRanges(parsed, analysis);
+  visit(parsed);
+  if (analysis.annotationTags.length) {
+    // Mask supported wrappers without changing UTF-16 source offsets before parsing their prose.
+    const unwrapped = analysis.annotationTags.reduce(
+      (source, tag) =>
+        source.slice(0, tag.start) +
+        source
+          .slice(tag.start, tag.end)
+          .replaceAll(/[^\r\n]/gu, character => ' '.repeat(character.length)) +
+        source.slice(tag.end),
+      markdown
+    );
+    collectParsedTextRanges(markdownParser.parse(unwrapped) as MarkdownNode, analysis);
+  }
+  collectVisualReferences(markdown, analysis);
   collectMathRanges(markdown, analysis);
   analysis.omissions.sort((left, right) => left.start - right.start);
   analysis.inlineVisuals.sort((left, right) => left.start - right.start);
@@ -308,7 +337,6 @@ const collectInlineRanges = (
       analysis.omissions.push({ start, end });
     }
   } else if (node.type === 'text') {
-    analysis.text.push({ start, end });
     collectTextRanges(node, markdown, analysis);
   }
 };
@@ -328,6 +356,19 @@ const collectTextRanges = (
   for (const match of text.matchAll(PDF_IMAGE)) {
     const range = { start: start + match.index, end: start + match.index + match[0].length };
     analysis.inlineVisuals.push(range);
+    analysis.omissions.push(range);
+  }
+};
+
+/** A placeholder title can span parsed emphasis or inline-code nodes. */
+const collectVisualReferences = (markdown: string, analysis: MarkdownAnalysis): void => {
+  for (const match of markdown.matchAll(VISUAL_EXAMPLE)) {
+    if (!analysis.text.some(text => text.start <= match.index && text.end > match.index)) continue;
+    const range = { start: match.index, end: match.index + match[0].length };
+    analysis.inlineVisuals.push({
+      ...range,
+      visual: { kind: 'generated-visual', visualId: match[1].trim() },
+    });
     analysis.omissions.push(range);
   }
 };
@@ -464,6 +505,23 @@ const markdownChunks = (markdown: string, analysis: MarkdownAnalysis): MarkdownC
   return chunks;
 };
 
+/** Keep container structure while moving its recognized references into typed playback visuals. */
+const projectBlockVisuals = (
+  markdown: string,
+  chunk: MarkdownChunk,
+  analysis: MarkdownAnalysis
+): PlaybackVisual[] => {
+  if (chunk.visual) return [chunk.visual];
+  const references = analysis.inlineVisuals.filter(
+    (range): range is PlaybackRange & { readonly visual: PlaybackVisual } =>
+      range.visual !== undefined && range.start >= chunk.start && range.end <= chunk.end
+  );
+  return [
+    { kind: 'markdown', markdown: omitMarkdownRanges(markdown, chunk, references) },
+    ...references.map(reference => reference.visual),
+  ];
+};
+
 interface SpokenText {
   speech: string;
   spans: PlaybackTextSpan[];
@@ -523,7 +581,9 @@ const appendInline = (
   appendSource(result, markdown, cursor, range.end);
   for (const visual of analysis.inlineVisuals) {
     if (visual.start >= range.start && visual.start < range.end) {
-      result.visuals.push({ kind: 'markdown', markdown: markdown.slice(visual.start, visual.end) });
+      result.visuals.push(
+        visual.visual ?? { kind: 'markdown', markdown: markdown.slice(visual.start, visual.end) }
+      );
     }
   }
 };
@@ -534,8 +594,8 @@ const speechPrefixLength = (line: string): number => {
   return indentation + (marker?.[0].length ?? 0);
 };
 
-/** Remove parsed annotation wrappers without changing the authored content around them. */
-const annotationFreeMarkdown = (
+/** Omit recognized markup from a visual or identity projection while retaining the source. */
+const omitMarkdownRanges = (
   markdown: string,
   range: PlaybackRange,
   tags: readonly PlaybackRange[]
@@ -556,10 +616,16 @@ const contextualMarkdown = (
   range: PlaybackRange,
   analysis: MarkdownAnalysis
 ): string => {
-  let text = annotationFreeMarkdown(markdown, range, analysis.annotationTags);
-  const tags = analysis.annotationTags
+  const references = analysis.inlineVisuals.filter(visual => visual.visual !== undefined);
+  const tags = [
+    ...analysis.annotationTags.filter(
+      tag => !references.some(reference => reference.start <= tag.start && reference.end >= tag.end)
+    ),
+    ...references,
+  ]
     .filter(tag => tag.start >= range.start && tag.end <= range.end)
     .sort((left, right) => left.start - right.start);
+  let text = omitMarkdownRanges(markdown, range, tags);
   if (!tags.length) return text;
   const escapes = new Set<number>();
   const visit = (node: MarkdownNode): void => {
@@ -615,6 +681,7 @@ const spokenText = (
         kind: 'markdown',
         markdown: contextualMarkdown(markdown, range, analysis),
       },
+      ...result.visuals.filter(visual => visual.kind !== 'markdown'),
     ];
   }
   return result;
@@ -662,6 +729,8 @@ const appendHeadingSeparator = (text: SpokenText, markdown: string, end: number)
 export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlock[]) => {
   const projectedContent = [...contentBlocks];
   let hasAnnotations = false;
+  let hasLegacyVisuals = false;
+  const referencedVisualIds = new Set<string>();
   const blocks: (Omit<LessonPlaybackBlock, 'visuals' | 'spans'> & {
     visuals: PlaybackVisual[];
     spans: readonly PlaybackTextSpan[];
@@ -678,10 +747,31 @@ export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlo
     else pendingVisuals.push(visual);
   };
 
+  const recordContentProjection = (
+    markdown: string,
+    sourceBlockIndex: number,
+    analysis: MarkdownAnalysis
+  ): void => {
+    for (const range of [...analysis.inlineVisuals, ...analysis.blocks]) {
+      if (range.visual) hasLegacyVisuals = true;
+      if (range.visual?.kind === 'generated-visual') referencedVisualIds.add(range.visual.visualId);
+    }
+    if (analysis.annotationTags.length) {
+      hasAnnotations = true;
+      const projectedMarkdown = omitMarkdownRanges(
+        markdown,
+        { start: 0, end: markdown.length },
+        analysis.annotationTags
+      );
+      projectedContent[sourceBlockIndex] = { type: 'markdown', markdown: projectedMarkdown };
+    }
+  };
+
   const attachMarkdownVisual = (
     chunk: MarkdownChunk,
     markdown: string,
-    sourceBlockIndex: number
+    sourceBlockIndex: number,
+    analysis: MarkdownAnalysis
   ) => {
     const visual: PlaybackVisual = {
       kind: 'markdown',
@@ -689,7 +779,8 @@ export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlo
     };
     const candidate = chunk.fencedProseCandidate;
     if (!candidate) {
-      attachVisual(visual);
+      for (const projected of projectBlockVisuals(markdown, chunk, analysis))
+        attachVisual(projected);
       return;
     }
     const previous = pendingIntroductions.length ? undefined : blocks.at(-1);
@@ -707,20 +798,11 @@ export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlo
 
   const appendMarkdown = (markdown: string, sourceBlockIndex: number): void => {
     const analysis = analyzeMarkdown(markdown);
-    if (analysis.annotationTags.length) {
-      hasAnnotations = true;
-      const projectedMarkdown = annotationFreeMarkdown(
-        markdown,
-        { start: 0, end: markdown.length },
-        analysis.annotationTags
-      );
-      projectedContent[sourceBlockIndex] = { type: 'markdown', markdown: projectedMarkdown };
-    }
+    recordContentProjection(markdown, sourceBlockIndex, analysis);
     for (const chunk of markdownChunks(markdown, analysis)) {
       if (chunk.kind === 'omitted') continue;
       if (chunk.kind === 'visual') {
-        // A fence below a heading belongs to its next introduction, not the previous topic.
-        attachMarkdownVisual(chunk, markdown, sourceBlockIndex);
+        attachMarkdownVisual(chunk, markdown, sourceBlockIndex, analysis);
         continue;
       }
       const text = spokenText(markdown, chunk, sourceBlockIndex, analysis);
@@ -750,7 +832,10 @@ export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlo
 
   for (const [sourceBlockIndex, content] of contentBlocks.entries()) {
     if (content.type === 'generated-visual') {
-      if (content.visualId) attachVisual({ kind: 'generated-visual', visualId: content.visualId });
+      if (content.visualId) {
+        referencedVisualIds.add(content.visualId);
+        attachVisual({ kind: 'generated-visual', visualId: content.visualId });
+      }
       continue;
     }
     if (content.type === 'markdown') appendMarkdown(content.markdown, sourceBlockIndex);
@@ -794,7 +879,13 @@ export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlo
       ],
     };
   }
-  return { blocks, contentBlocks: projectedContent, hasAnnotations };
+  return {
+    blocks,
+    contentBlocks: projectedContent,
+    hasAnnotations,
+    hasLegacyVisuals,
+    referencedVisualIds,
+  };
 };
 
 /** Deterministically segment authored lesson text and attach visuals to its spoken introductions. */

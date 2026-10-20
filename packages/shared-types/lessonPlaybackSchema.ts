@@ -78,7 +78,8 @@ export const PlaybackAudioSchema = z.object({
 export const createLessonPlaybackBlockSchema = (
   sceneSchema = LessonSceneSchema,
   spokenMath = false,
-  fencedCode = false
+  fencedCode = false,
+  legacyVisuals = false
 ) => {
   const spanSchema = z.object({
     fencedCode: z
@@ -115,6 +116,7 @@ export const createLessonPlaybackBlockSchema = (
         z.object({ kind: z.literal('markdown'), markdown: z.string() }),
         z.object({ kind: z.literal('generated-visual'), visualId: z.string().min(1) }),
         z.object({ kind: z.literal('scene'), scene: sceneSchema }),
+        ...(legacyVisuals ? [z.object({ kind: z.literal('mermaid'), code: z.string() })] : []),
       ])
     ),
     prepared: createPlaybackPreparedSchema(sceneSchema, spokenMath, fencedCode).optional(),
@@ -124,6 +126,7 @@ export const createLessonPlaybackBlockSchema = (
 
 export const LessonPlaybackBlockSchema = createLessonPlaybackBlockSchema(
   LessonSceneSchema,
+  true,
   true,
   true
 );
