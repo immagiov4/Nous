@@ -25,3 +25,22 @@ export async function boundedRender<T>(
   if (!outcome.ok) throw outcome.error;
   return outcome.value;
 }
+
+/** Retain a pending process launch so cancellation also owns a server that arrives late. */
+export function ownRendererLaunch<T extends { kill(): Promise<void> }>(launch: Promise<T>) {
+  let cancelled = false;
+  return {
+    ready: launch.then(server => {
+      if (cancelled) throw new Error('Renderer startup was cancelled.');
+      return server;
+    }),
+    async terminate() {
+      cancelled = true;
+      // A failed launch has no server; its original rejection remains available through ready.
+      await launch.then(
+        server => server.kill(),
+        () => undefined
+      );
+    },
+  };
+}

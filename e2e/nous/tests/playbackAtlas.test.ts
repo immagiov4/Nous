@@ -53,9 +53,8 @@ describe('playback atlas structural contracts', () => {
     expect(visualFindings({ ...empty, text: ' + → ' }, 'Speech.', true)[0].kind).toBe(
       'visual-symbol-only'
     );
-    expect(visualFindings({ ...empty, text: 'σ', mathCount: 1 }, 'Speech.', true)[0].kind).toBe(
-      'visual-symbol-only'
-    );
+    expect(visualFindings({ ...empty, text: 'σ', mathCount: 1 }, 'Speech.', true)).toEqual([]);
+    expect(visualFindings({ ...empty, text: 'x = 2y', mathCount: 1 }, 'Speech.', true)).toEqual([]);
     expect(
       visualFindings({ ...empty, text: 'Quantity σ', prose: 'Quantity' }, 'Speech.', true)
     ).toEqual([]);

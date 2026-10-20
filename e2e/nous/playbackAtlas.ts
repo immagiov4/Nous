@@ -26,7 +26,7 @@ import {
 } from './atlas/checks';
 import type { AtlasSample } from './atlas/contracts';
 import { inspectAtlasDom, inspectAtlasGeometry } from './atlas/dom';
-import { boundedRender } from './atlas/execution';
+import { boundedRender, ownRendererLaunch } from './atlas/execution';
 import { type AtlasCourse, type AtlasLesson, atlasCourses, atlasLessons } from './atlas/input';
 import {
   type AtlasTile,
@@ -413,7 +413,7 @@ async function captureCourse(input: {
     };
     records.lessons.push(summary);
     for (const viewport of scenario.viewports) {
-      let ownedServer: BrowserServer | undefined;
+      let ownedServer: ReturnType<typeof ownRendererLaunch<BrowserServer>> | undefined;
       let renderer: Browser | undefined;
       let context: BrowserContext | undefined;
       let page: Page;
@@ -422,12 +422,16 @@ async function captureCourse(input: {
         ownedServer = undefined;
         renderer = undefined;
         context = undefined;
-        await current?.kill();
+        await current?.terminate();
       };
       const openRenderer = async () => {
         if (!renderer) {
-          ownedServer = await chromium.launchServer({ headless: true });
-          renderer = await chromium.connect(ownedServer.wsEndpoint());
+          const launch = ownRendererLaunch(
+            chromium.launchServer({ headless: true, timeout: options.renderTimeoutMs })
+          );
+          ownedServer = launch;
+          const server = await launch.ready;
+          renderer = await chromium.connect(server.wsEndpoint());
         }
         context = await renderer.newContext(viewportOptions(viewport));
         await context.route('**/*', async route => {

@@ -22,13 +22,13 @@ export interface VisualFacts {
   mathCount: number;
 }
 
-/** A formula without prose is symbolic content, including MathML identifiers such as sigma. */
+/** Rendered mathematics is content; punctuation-only prose remains a structural finding. */
 export function visualFindings(
   facts: VisualFacts,
   speech: string,
   expectedVisual: boolean
 ): AtlasFinding[] {
-  if (!expectedVisual || !speech.trim() || facts.mediaCount) return [];
+  if (!expectedVisual || !speech.trim() || facts.mediaCount || facts.mathCount) return [];
   if (!facts.text.trim() && !facts.mathCount) return [{ kind: 'visual-empty', detail: facts }];
   if (!/[\p{L}\p{N}]/u.test(facts.prose)) return [{ kind: 'visual-symbol-only', detail: facts }];
   return [];
