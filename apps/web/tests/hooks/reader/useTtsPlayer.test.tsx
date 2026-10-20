@@ -16,7 +16,7 @@ vi.mock('../../../services/openrouter', () => ({
   getTTSVoices: openRouterMocks.getTTSVoices,
 }));
 
-const { splitContentIntoChunks, splitOversizedText, useTtsPlayer } = await import(
+const { splitContentIntoChunks, useTtsPlayer } = await import(
   '../../../hooks/reader/useTtsPlayer.ts'
 );
 
@@ -46,74 +46,73 @@ class FakeAudio {
   }
 }
 
-describe('useTtsPlayer', () => {
-  beforeEach(() => {
-    openRouterMocks.checkTTSStatus.mockReset();
-    openRouterMocks.generateSpeech.mockReset();
-    openRouterMocks.getTTSModels.mockReset();
-    openRouterMocks.getTTSVoices.mockReset();
+beforeEach(() => {
+  openRouterMocks.checkTTSStatus.mockReset();
+  openRouterMocks.generateSpeech.mockReset();
+  openRouterMocks.getTTSModels.mockReset();
+  openRouterMocks.getTTSVoices.mockReset();
 
-    openRouterMocks.checkTTSStatus.mockResolvedValue({
-      isReady: true,
-      isRunning: true,
-    });
-    openRouterMocks.generateSpeech.mockResolvedValue({
-      audioBuffer: new ArrayBuffer(480),
-      contentType: 'audio/wav',
-    });
-    openRouterMocks.getTTSModels.mockResolvedValue({
-      defaultModel: 'google/gemini-3.8-flash-lite-tts',
-      models: [
-        {
-          contextLength: 4096,
-          id: 'google/gemini-3.8-flash-lite-tts',
-          name: 'Google: Gemini 3.8 Flash Lite TTS',
-          pricing: { completion: '0.000006', prompt: '0.0000005' },
-          supportedParameters: ['response_format'],
-          supportsVoiceCloning: false,
-        },
-      ],
-    });
-    openRouterMocks.getTTSVoices.mockResolvedValue([
-      { id: 'Zephyr', label: 'Zephyr', language: 'it-IT' },
-    ]);
-
-    vi.stubGlobal('Audio', FakeAudio as unknown as typeof Audio);
-    globalThis.Audio = FakeAudio as unknown as typeof Audio;
-    Object.defineProperty(URL, 'createObjectURL', {
-      configurable: true,
-      writable: true,
-      value: vi.fn(() => 'blob:nous-audio'),
-    });
-    Object.defineProperty(URL, 'revokeObjectURL', {
-      configurable: true,
-      writable: true,
-      value: vi.fn(),
-    });
+  openRouterMocks.checkTTSStatus.mockResolvedValue({
+    isReady: true,
+    isRunning: true,
   });
+  openRouterMocks.generateSpeech.mockResolvedValue({
+    audioBuffer: new ArrayBuffer(480),
+    contentType: 'audio/wav',
+  });
+  openRouterMocks.getTTSModels.mockResolvedValue({
+    defaultModel: 'google/gemini-3.8-flash-lite-tts',
+    models: [
+      {
+        contextLength: 4096,
+        id: 'google/gemini-3.8-flash-lite-tts',
+        name: 'Google: Gemini 3.8 Flash Lite TTS',
+        pricing: { completion: '0.000006', prompt: '0.0000005' },
+        supportedParameters: ['response_format'],
+        supportsVoiceCloning: false,
+      },
+    ],
+  });
+  openRouterMocks.getTTSVoices.mockResolvedValue([
+    { id: 'Zephyr', label: 'Zephyr', language: 'it-IT' },
+  ]);
 
-  test('splits oversized text and groups speech blocks predictably', () => {
-    expect(splitOversizedText('alfa beta gamma delta', 9)).toEqual(['alfa beta', 'gamma', 'delta']);
+  vi.stubGlobal('Audio', FakeAudio as unknown as typeof Audio);
+  globalThis.Audio = FakeAudio as unknown as typeof Audio;
+  Object.defineProperty(URL, 'createObjectURL', {
+    configurable: true,
+    writable: true,
+    value: vi.fn(() => 'blob:nous-audio'),
+  });
+  Object.defineProperty(URL, 'revokeObjectURL', {
+    configurable: true,
+    writable: true,
+    value: vi.fn(),
+  });
+});
 
-    const chunks = splitContentIntoChunks('', [
-      'Prima frase. Seconda frase con abbastanza testo da restare nello stesso blocco.',
-      'Terza frase finale.',
-    ]);
+describe('useTtsPlayer', () => {
+  test('preserves authored paragraph order', () => {
+    const chunks = splitContentIntoChunks(
+      [
+        'Prima frase. Seconda frase con abbastanza testo da restare nello stesso blocco.',
+        'Terza frase finale.',
+      ].join('\n\n')
+    );
 
     expect(chunks.length).toBeGreaterThan(0);
     expect(chunks.join(' ')).toContain('Prima frase.');
     expect(chunks.join(' ')).toContain('Terza frase finale.');
   });
 
-  test('removes image placeholders and figure markup from fallback speech chunks', () => {
+  test('keeps visual-only source out of speech chunks', () => {
     const chunks = splitContentIntoChunks(
       [
         'Prima parte.',
         '{{PDF_IMAGE:pdf-img-001|alt=Schema sensibile|caption=Figura da saltare}}',
         '<figure><img src="x" alt="Alt da saltare" /><figcaption>Caption da saltare</figcaption></figure>',
         'Seconda parte.',
-      ].join('\n\n'),
-      []
+      ].join('\n\n')
     );
 
     const spokenText = chunks.join(' ');
@@ -129,7 +128,6 @@ describe('useTtsPlayer', () => {
       useTtsPlayer({
         activeSectionId: 'lesson-1',
         sectionContent: 'Contenuto della lezione',
-        speechBlocks: [],
       })
     );
 
@@ -149,7 +147,6 @@ describe('useTtsPlayer', () => {
         useTtsPlayer({
           activeSectionId: 'lesson-1',
           sectionContent: 'Contenuto della lezione',
-          speechBlocks: [],
         })
       );
 
@@ -175,7 +172,6 @@ describe('useTtsPlayer', () => {
       useTtsPlayer({
         activeSectionId: 'lesson-1',
         sectionContent: 'Prima parte.\n\nSeconda parte.',
-        speechBlocks: [],
       })
     );
 
@@ -188,11 +184,12 @@ describe('useTtsPlayer', () => {
     await waitFor(() => expect(result.current.audioState.chunks.length).toBeGreaterThan(0));
     await waitFor(() => expect(result.current.audioState.isPlaying).toBe(true));
 
-    expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(1);
+    expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(2);
     expect(openRouterMocks.generateSpeech).toHaveBeenCalledWith(
       expect.any(String),
       'Zephyr',
-      'google/gemini-3.8-flash-lite-tts'
+      'google/gemini-3.8-flash-lite-tts',
+      expect.objectContaining({ speech: expect.any(String) })
     );
     expect(result.current.audioState.currentChunkIndex).toBe(0);
 
@@ -213,7 +210,6 @@ describe('useTtsPlayer', () => {
       useTtsPlayer({
         activeSectionId: 'lesson-1',
         sectionContent,
-        speechBlocks: [],
       })
     );
 
@@ -242,7 +238,6 @@ describe('useTtsPlayer', () => {
       useTtsPlayer({
         activeSectionId: 'lesson-1',
         sectionContent: 'Contenuto',
-        speechBlocks: [],
       })
     );
 
@@ -258,7 +253,6 @@ describe('useTtsPlayer', () => {
         useTtsPlayer({
           activeSectionId,
           sectionContent,
-          speechBlocks: [],
         }),
       {
         initialProps: {
@@ -298,7 +292,6 @@ describe('useTtsPlayer', () => {
         useTtsPlayer({
           activeSectionId: 'lesson-1',
           sectionContent,
-          speechBlocks: [],
         })
       );
 
@@ -326,4 +319,25 @@ describe('useTtsPlayer', () => {
       vi.useRealTimers();
     }
   });
+});
+
+test('preserves mathematical source even when rendered speech blocks omit KaTeX', () => {
+  const markdown = String.raw`Consideriamo $\mathcal{P}(A)$ e $f: A\to B$.`;
+  expect(splitContentIntoChunks(markdown).join(' ')).toBe(markdown);
+});
+
+test('keeps selection text aligned with the rendered prose while sending original math for speech', async () => {
+  const markdown = String.raw`Consideriamo $\mathcal{P}(A)$ e $f: A\to B$.`;
+  const { result } = renderHook(() =>
+    useTtsPlayer({ activeSectionId: 'math', sectionContent: markdown })
+  );
+  expect(result.current.chunkTexts).toEqual(['Consideriamo  e .']);
+  await waitFor(() => expect(result.current.ttsConnected).toBe(true));
+  act(() => result.current.togglePlayPause());
+  await waitFor(() => expect(openRouterMocks.generateSpeech).toHaveBeenCalled());
+  expect(
+    openRouterMocks.generateSpeech.mock.calls[0][3].spans.flatMap((span: { math?: string }) =>
+      span.math ? [span.math] : []
+    )
+  ).toEqual([String.raw`$\mathcal{P}(A)$`, String.raw`$f: A\to B$`]);
 });

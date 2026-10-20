@@ -9,6 +9,17 @@ import type { ProjectLessonVisual } from '@shared/projectAsset';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { discreteMathCases } from '../../helpers/discreteMath';
 
+vi.mock('../../../src/services/speechPreparationCache.js', () => ({
+  speechPreparationCache: {
+    resolve: async (
+      _owner: string,
+      _key: string,
+      _parse: unknown,
+      prepare: () => Promise<unknown>
+    ) => prepare(),
+  },
+}));
+
 const { audio, sceneGeneration, motion, structured } = vi.hoisted(() => ({
   structured: vi.fn(),
   audio: vi.fn(),
@@ -79,6 +90,7 @@ const input = (
   visuals: readonly PlaybackVisual[] = [],
   generatedVisuals: readonly ProjectLessonVisual[] = []
 ) => ({
+  userId: 'speech-test-user',
   block: block(visuals),
   lesson: { title: 'Architettura', description: 'Sistemi', generatedVisuals },
   voice: 'Kore',
@@ -532,17 +544,22 @@ test('never classifies a fence with a programming language', async () => {
   expect(audio).toHaveBeenCalledWith(expect.objectContaining({ text: 'Introduction.' }));
 });
 
-test('classifies a fenced introduction and pronounces inline math in one recorded response', async () => {
+test('classifies a fenced introduction and pronounces display math in one recorded response', async () => {
   const markdown =
     'Before.\n\n## Topic\n\n```text\nA vector has components.\n```\n\n$$x = 2$$\n\nThen $x$ is the input.';
   const raw = segmentLessonPlayback([{ type: 'markdown', markdown }])[1];
   structured.mockResolvedValue({
-    spokenMath: [{ formula: '$x$', spoken: 'ics' }],
+    spokenMath: [
+      { formula: '$$x = 2$$', spoken: 'ics uguale due' },
+      { formula: '$x$', spoken: 'ics' },
+    ],
     fencedCode: [{ visualIndex: 0, kind: 'prose', spoken: 'A vector has components.' }],
   });
   const result = await prepareLessonPlaybackBlock({ ...input(), block: raw });
   const resolved = resolvePlaybackNarration({ ...raw, prepared: result.prepared });
-  expect(resolved.speech).toBe('Topic\nA vector has components.\nThen ics is the input.');
+  expect(resolved.speech).toBe(
+    'Topic\nA vector has components.\nics uguale due\nThen ics is the input.'
+  );
   expect(audio).toHaveBeenCalledWith(expect.objectContaining({ text: resolved.speech }));
   expect(structured).toHaveBeenCalledOnce();
   expect(resolved.visuals).toEqual([

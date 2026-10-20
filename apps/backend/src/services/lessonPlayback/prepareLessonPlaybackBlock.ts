@@ -1,14 +1,9 @@
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
-import {
-  type LessonPlaybackBlock,
-  resolvePlaybackNarration,
-  validatePlaybackSpokenMath,
-} from '@shared/lessonPlayback';
+import type { LessonPlaybackBlock } from '@shared/lessonPlayback';
 import {
   LessonSceneSchema,
   PlaybackAudioSchema,
   PlaybackPreparedSchema,
-  PlaybackSpokenMathSchema,
 } from '@shared/lessonPlaybackSchema';
 import { isAnimatedLessonScene, type LessonScene, type LessonSceneType } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
@@ -19,19 +14,16 @@ import type { WorkflowProviderEffectExecutor } from '../../workflows/types.js';
 import type { WorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
 import { generateLessonScene } from '../lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../lessonVisualModelConfig.js';
+import { prepareSpeech } from '../speechPreparation.js';
 import {
   type PreparedPlaybackAudio,
   preparePlaybackAudio,
   validatePlaybackText,
 } from './playbackAudio.js';
 import { MAX_PLAYBACK_PREPARATION_ATTEMPTS, planPlaybackMotion } from './playbackMotion.js';
-import {
-  generatePlaybackNarration,
-  generatePlaybackSpokenMath,
-  PlaybackNarrationResponseSchema,
-} from './playbackSpokenMath.js';
 
 interface PrepareLessonPlaybackBlockInput {
+  readonly userId: string;
   readonly supportsSpokenMath?: boolean;
   readonly supportsFencedCode?: boolean;
   readonly allowedSceneTypes?: readonly LessonSceneType[];
@@ -127,11 +119,12 @@ export const prepareLessonPlaybackBlock = async (
   signal.throwIfAborted();
   validatePlaybackText(input.block.speech);
   validatePlaybackSceneTypes(input);
-  const narration = await prepareNarration(input);
+  const speech = await prepareSpeech(input);
+  const { narration } = speech;
   signal.throwIfAborted();
   const request = {
     ...input,
-    block: resolvePlaybackNarration(input.block, narration.spokenMath, narration.fencedCode),
+    block: speech.block,
   };
   validatePlaybackText(request.block.speech);
   // Audio does not depend on the scene, so both are prepared at the same time. Both settle
@@ -147,39 +140,6 @@ export const prepareLessonPlaybackBlock = async (
     prepared: !input.block.prepared ? { ...visuals.value, ...narration } : visuals.value,
     audio: audio.value,
   };
-};
-
-const prepareNarration = async (input: PrepareLessonPlaybackBlockInput) => {
-  const { block } = input;
-  if (block.prepared)
-    return { spokenMath: block.prepared.spokenMath, fencedCode: block.prepared.fencedCode };
-  if (input.supportsFencedCode !== false && block.spans.some(span => span.fencedCode)) {
-    return input.providerEffect
-      ? input.providerEffect.run({
-          key: 'narration',
-          outputSchema: PlaybackNarrationResponseSchema,
-          operation: () => generatePlaybackNarration(input),
-        })
-      : generatePlaybackNarration(input);
-  }
-  const spokenMath = await prepareSpokenMath(input);
-  return spokenMath ? { spokenMath } : {};
-};
-
-const prepareSpokenMath = async (input: PrepareLessonPlaybackBlockInput) => {
-  const { block } = input;
-  if (block.prepared) return block.prepared.spokenMath;
-  if (input.supportsSpokenMath === false || !block.spans.some(span => span.math)) return undefined;
-  const operation = () => generatePlaybackSpokenMath(input);
-  const spokenMath = input.providerEffect
-    ? await input.providerEffect.run({
-        key: 'spoken-math',
-        outputSchema: PlaybackSpokenMathSchema,
-        operation,
-      })
-    : await operation();
-  validatePlaybackSpokenMath(block, spokenMath);
-  return spokenMath;
 };
 
 const prepareVisuals = async (

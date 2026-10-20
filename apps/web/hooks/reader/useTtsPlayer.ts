@@ -1,11 +1,10 @@
+import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE } from '../../services/audio/voiceProfile';
 import * as OpenRouterService from '../../services/openrouter';
 import type { AudioChunk, AudioState, TtsModelSummary, VoiceProfileId } from '../../types';
-import { prepareMarkdownForSpeech } from '../../utils/reader/readingText';
 
-const CHUNK_SIZE_APPROX = 580;
 const CHUNK_LABEL_MAX_CHARACTERS = 72;
 const CHUNK_CROSSFADE_SECONDS = 0.035;
 const TTS_GENERATION_MAX_RETRIES = 1;
@@ -27,7 +26,6 @@ const isRetryableTtsError = (error: unknown): boolean => {
 interface UseTtsPlayerParams {
   activeSectionId: string | null;
   sectionContent: string;
-  speechBlocks: string[];
 }
 
 interface UseTtsPlayerResult {
@@ -62,196 +60,13 @@ interface PlaybackRun {
   cancelled: boolean;
 }
 
-const splitSentencesByTerminator = (text: string): string[] => {
-  const sentences: string[] = [];
-  let segmentStartIndex = 0;
-  let index = 0;
-
-  while (index < text.length) {
-    const character = text[index];
-    if (character !== '.' && character !== '!' && character !== '?') {
-      index += 1;
-      continue;
-    }
-
-    let nextIndex = index + 1;
-    while (nextIndex < text.length && /\s/u.test(text[nextIndex] || '')) {
-      nextIndex += 1;
-    }
-
-    sentences.push(text.slice(segmentStartIndex, nextIndex));
-    segmentStartIndex = nextIndex;
-    index = nextIndex;
-  }
-
-  if (segmentStartIndex < text.length) {
-    sentences.push(text.slice(segmentStartIndex));
-  }
-
-  return sentences.filter(sentence => sentence.trim().length > 0);
-};
-
-export const splitOversizedText = (text: string, maxLength: number): string[] => {
-  if (text.length <= maxLength) {
-    return [text];
-  }
-
-  const clauseParts = text.split(/(?<=[,;:])\s+/);
-  if (clauseParts.length > 1) {
-    return clauseParts.flatMap(part => splitOversizedText(part.trim(), maxLength));
-  }
-
-  const wordParts = text.split(/\s+/);
-  if (wordParts.length > 1) {
-    const segments: string[] = [];
-    let currentSegment = '';
-
-    wordParts.forEach(word => {
-      const candidate = currentSegment ? `${currentSegment} ${word}` : word;
-      if (candidate.length <= maxLength) {
-        currentSegment = candidate;
-        return;
-      }
-
-      if (currentSegment) {
-        segments.push(currentSegment);
-      }
-
-      if (word.length <= maxLength) {
-        currentSegment = word;
-        return;
-      }
-
-      for (let index = 0; index < word.length; index += maxLength) {
-        segments.push(word.slice(index, index + maxLength));
-      }
-      currentSegment = '';
-    });
-
-    if (currentSegment) {
-      segments.push(currentSegment);
-    }
-
-    return segments;
-  }
-
-  const segments: string[] = [];
-  for (let index = 0; index < text.length; index += maxLength) {
-    segments.push(text.slice(index, index + maxLength));
-  }
-  return segments;
-};
-
-export const splitContentIntoChunks = (text: string, speechBlocks: string[]): string[] => {
-  const normalizedBlocks = speechBlocks
-    .map(block => block.replaceAll(/\s+/g, ' ').trim())
-    .filter(Boolean);
-
-  if (normalizedBlocks.length > 0) {
-    const chunks: string[] = [];
-    let currentChunk = '';
-
-    const flushChunk = () => {
-      if (currentChunk.trim()) {
-        chunks.push(currentChunk.trim());
-        currentChunk = '';
-      }
-    };
-
-    const appendUnit = (unit: string, separator = '\n\n') => {
-      if (!unit) {
-        return;
-      }
-
-      if (!currentChunk) {
-        currentChunk = unit;
-        return;
-      }
-
-      if (currentChunk.length + separator.length + unit.length > CHUNK_SIZE_APPROX) {
-        flushChunk();
-        currentChunk = unit;
-        return;
-      }
-
-      currentChunk += `${separator}${unit}`;
-    };
-
-    const appendBoundedUnit = (unit: string, separator = '\n\n') => {
-      splitOversizedText(unit, CHUNK_SIZE_APPROX).forEach((part, index) => {
-        appendUnit(part.trim(), index === 0 ? separator : ' ');
-      });
-    };
-
-    normalizedBlocks.forEach(block => {
-      if (block.length <= CHUNK_SIZE_APPROX) {
-        appendUnit(block);
-        return;
-      }
-
-      const sentences = splitSentencesByTerminator(block);
-      sentences.forEach(sentence => {
-        appendBoundedUnit(sentence.trim(), ' ');
-      });
-    });
-
-    flushChunk();
-    return chunks;
-  }
-
-  const cleanText = prepareMarkdownForSpeech(text);
-  const paragraphs = cleanText.split(/\n\n+/);
-  const chunks: string[] = [];
-  let currentChunk = '';
-
-  const pushCurrentChunk = () => {
-    if (currentChunk.trim()) {
-      chunks.push(currentChunk.trim());
-      currentChunk = '';
-    }
-  };
-
-  const appendParagraphPart = (part: string, separator = '\n\n') => {
-    if (!part) {
-      return;
-    }
-
-    if (!currentChunk) {
-      currentChunk = part;
-      return;
-    }
-
-    if (currentChunk.length + separator.length + part.length > CHUNK_SIZE_APPROX) {
-      pushCurrentChunk();
-      currentChunk = part;
-      return;
-    }
-
-    currentChunk += `${separator}${part}`;
-  };
-
-  paragraphs.forEach(paragraph => {
-    if (paragraph.length > CHUNK_SIZE_APPROX) {
-      const sentences = splitSentencesByTerminator(paragraph);
-      sentences.forEach(sentence => {
-        splitOversizedText(sentence.trim(), CHUNK_SIZE_APPROX).forEach(part => {
-          appendParagraphPart(part, ' ');
-        });
-      });
-      return;
-    }
-
-    if (currentChunk.length + paragraph.length > CHUNK_SIZE_APPROX) {
-      pushCurrentChunk();
-      currentChunk = paragraph;
-    } else {
-      currentChunk += `${currentChunk ? '\n\n' : ''}${paragraph}`;
-    }
+/** Retain authored notation until the backend prepares the same blocks as lesson playback. */
+export const splitContentIntoChunks = (text: string): string[] => {
+  return segmentLessonPlayback([{ type: 'markdown', markdown: text }]).map(block => {
+    const starts = block.spans.map(span => span.source.start);
+    const ends = block.spans.map(span => span.source.end);
+    return text.slice(Math.min(...starts), Math.max(...ends)).trim();
   });
-
-  pushCurrentChunk();
-
-  return chunks;
 };
 
 const createAudioChunks = (chunks: string[]): AudioChunk[] =>
@@ -285,11 +100,14 @@ const createIdlePlaybackRun = (): PlaybackRun => ({
 export const useTtsPlayer = ({
   activeSectionId,
   sectionContent,
-  speechBlocks,
 }: UseTtsPlayerParams): UseTtsPlayerResult => {
+  const sourceBlocks = useMemo(
+    () => segmentLessonPlayback([{ type: 'markdown', markdown: sectionContent }]),
+    [sectionContent]
+  );
   const preparedChunkTexts = useMemo(
-    () => splitContentIntoChunks(sectionContent, speechBlocks),
-    [sectionContent, speechBlocks]
+    () => splitContentIntoChunks(sectionContent),
+    [sectionContent]
   );
   const chunkOptions = useMemo(
     () =>
@@ -329,22 +147,13 @@ export const useTtsPlayer = ({
   const playbackRunRef = useRef<PlaybackRun>(createIdlePlaybackRun());
   const pausedTimeRef = useRef(0);
   const activeSectionIdRef = useRef(activeSectionId);
-  const speechBlocksVersionRef = useRef(0);
 
-  // Reset playback state when the active section changes or speech blocks are
-  // rebuilt (e.g. after the DOM re-renders a chapter that contains images).
-  // Without this, stale chunks from the previous section can survive inside
-  // audioStateRef and the player may try to generate audio for text that no
-  // longer matches the visible content — causing a silent stall.
+  // Section changes release recordings and stop every active audio element.
   useEffect(() => {
     const sectionChanged = activeSectionIdRef.current !== activeSectionId;
     if (sectionChanged) {
       activeSectionIdRef.current = activeSectionId;
     }
-
-    // Bump a version counter whenever the speech-block array identity changes
-    // (useReaderSpeech returns a new array on every update).
-    speechBlocksVersionRef.current += 1;
 
     if (!sectionChanged) {
       return;
@@ -650,7 +459,8 @@ export const useTtsPlayer = ({
           const speechAudio = await OpenRouterService.generateSpeech(
             requestedText,
             requestedVoice,
-            requestedModel
+            requestedModel,
+            sourceBlocks[retryIndex]
           );
           const audioBlob = new Blob([speechAudio.audioBuffer], { type: speechAudio.contentType });
           const url = URL.createObjectURL(audioBlob);
@@ -734,7 +544,7 @@ export const useTtsPlayer = ({
       chunkPromisesRef.current[index] = promise;
       return promise;
     },
-    [revokeTrackedUrl, setTrackedAudioState]
+    [revokeTrackedUrl, sourceBlocks, setTrackedAudioState]
   );
 
   const playAudioRef = useRef<(startIndex?: number, startTime?: number) => Promise<void>>(
@@ -1359,7 +1169,7 @@ export const useTtsPlayer = ({
     availableVoices,
     audioState,
     chunkOptions,
-    chunkTexts: preparedChunkTexts,
+    chunkTexts: sourceBlocks.map(block => block.speech),
     errorMessage,
     handleModelChange,
     handleSeek,

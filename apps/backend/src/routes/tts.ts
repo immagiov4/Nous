@@ -1,7 +1,10 @@
 // Exposes text-to-speech routes for the backend API.
+import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
 import { type Request, type Response, Router } from 'express';
-
+import { getCurrentUser } from '../auth/currentUser.js';
 import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
+import { prepareSpeech, synthesizeSpeech } from '../services/speechPreparation.js';
 import { DEFAULT_TTS_MODEL, MAX_TTS_TEXT_CHARS, ttsClient } from '../services/ttsClient.js';
 
 const router = Router();
@@ -37,7 +40,7 @@ router.get('/models', async (_req: Request, res: Response) => {
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { text, speed, voice } = req.body;
+    const { text, speed, voice, block: sourceBlock } = req.body;
     const modelConfig = await getResolvedGlobalModelConfig();
 
     if (!text || typeof text !== 'string') {
@@ -47,7 +50,7 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    const normalizedText = text.replaceAll(/\s+/g, ' ').trim();
+    const normalizedText = text.trim();
 
     if (normalizedText.length > MAX_TTS_TEXT_CHARS) {
       return res.status(400).json({
@@ -56,8 +59,32 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    const generatedAudio = await ttsClient.generateSpeech({
-      text: normalizedText,
+    const signal = new AbortController().signal;
+    const parsedBlock =
+      sourceBlock === undefined ? undefined : LessonPlaybackBlockSchema.safeParse(sourceBlock);
+    if (parsedBlock && !parsedBlock.success) {
+      return res.status(400).json({ success: false, error: 'Richiesta di ascolto non valida.' });
+    }
+    const blocks = parsedBlock?.success
+      ? [parsedBlock.data]
+      : segmentLessonPlayback([{ type: 'markdown', markdown: text }]);
+    const prepared = [];
+    for (const source of blocks) {
+      const { prepared: _clientPrepared, audio: _clientAudio, ...raw } = source;
+      const block = { ...raw, audio: [] };
+      prepared.push(
+        await prepareSpeech({ userId: getCurrentUser(req).id, block, config: modelConfig, signal })
+      );
+    }
+    const speech = prepared.map(result => result.block.speech).join(' ');
+    if (speech.length > MAX_TTS_TEXT_CHARS) {
+      return res.status(400).json({
+        success: false,
+        error: `Testo troppo lungo. Massimo ${MAX_TTS_TEXT_CHARS} caratteri per richiesta.`,
+      });
+    }
+    const generatedAudio = await synthesizeSpeech({
+      text: speech,
       model: modelConfig.ttsModel,
       voice: typeof voice === 'string' && voice.trim() ? voice.trim() : modelConfig.ttsVoice,
       speed,

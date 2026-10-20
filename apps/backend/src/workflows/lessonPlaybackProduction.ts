@@ -56,6 +56,7 @@ export const createProductionLessonPlaybackServices = (
     }
     if (!providerEffect) throw new Error('Playback preparation requires durable provider results.');
     const prepared = await prepareLessonPlaybackBlock({
+      userId: input.userId,
       allowedSceneTypes,
       supportsSpokenMath,
       supportsFencedCode,

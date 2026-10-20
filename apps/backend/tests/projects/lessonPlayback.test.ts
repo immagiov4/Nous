@@ -556,3 +556,27 @@ test('reprepares ambiguous historical fences once and then reuses the classified
     'Introduction.\n\n```text\nAn ordered pair has two components.\n```'
   );
 });
+
+test('keeps recorded inline pronunciations and audio when display math gains a source marker', () => {
+  const section = playbackSection();
+  section.contentBlocks = [
+    {
+      type: 'markdown',
+      markdown: 'Consideriamo $x$.\n\n$$x = 2$$\n\nPoi proseguiamo.'.replaceAll('\\n', '\n'),
+    },
+  ];
+  const saved = preparedPlayback(section);
+  const first = saved.blocks[0];
+  const prepared = { ...first.prepared, motion: [], spokenMath: [{ formula: '$x$', spoken: 'ics' }] };
+  section.playback = {
+    ...saved,
+    blocks: [
+      { ...first, spans: first.spans.filter(span => !span.math?.startsWith('$$')), prepared },
+      ...saved.blocks.slice(1),
+    ],
+  };
+  const restored = readLessonPlayback(section).blocks[0];
+  expect(restored.audio).toEqual(first.audio);
+  expect(restored.prepared).toBe(prepared);
+  expect(restored.spans.flatMap(span => (span.math ? [span.math] : []))).toEqual(['$x$']);
+});

@@ -4,7 +4,8 @@ import { MPEGDecoder } from 'mpg123-decoder';
 
 import { getResolvedGlobalModelConfig } from '../../config/modelConfig.js';
 import { failPermanently } from '../../workflows/retryPolicy.js';
-import { MAX_TTS_TEXT_CHARS, ttsClient } from '../ttsClient.js';
+import { synthesizeSpeech } from '../speechPreparation.js';
+import { MAX_TTS_TEXT_CHARS } from '../ttsClient.js';
 import { mp3DurationSeconds } from './playbackMp3.js';
 
 export type PreparedPlaybackAudio = Omit<PlaybackAudio, 'asset'> & {
@@ -116,7 +117,7 @@ export const preparePlaybackAudio = async ({
   validatePlaybackText(text);
   const model = requestedModel ?? (await getResolvedGlobalModelConfig()).ttsModel;
   signal.throwIfAborted();
-  const audio = await ttsClient.generateSpeech({ model, signal, text, voice });
+  const audio = await synthesizeSpeech({ model, signal, text, voice });
   signal.throwIfAborted();
   const mediaType = audio.contentType.split(';', 1)[0].trim().toLowerCase();
   let prepared: { bytes: Uint8Array; durationSeconds: number };

@@ -22,7 +22,6 @@ import {
 } from '../../utils/reader/workspaceReader.ts';
 import { useReaderChrome } from '../reader/useReaderChrome.ts';
 import { useReaderContext } from '../reader/useReaderContext.ts';
-import { useReaderSpeechBlocks } from '../reader/useReaderSpeech.ts';
 import { useTtsPlayer } from '../reader/useTtsPlayer.ts';
 import { useTtsTextPicker } from '../reader/useTtsTextPicker.ts';
 
@@ -88,14 +87,9 @@ export const useWorkspaceReaderState = ({
     sectionAnnotations: activeSection?.annotations,
     sectionContent,
   });
-  const { speechBlocks } = useReaderSpeechBlocks({
-    contentRef,
-    sectionContent,
-  });
   const ttsPlayer = useTtsPlayer({
     activeSectionId,
     sectionContent,
-    speechBlocks,
   });
   const ttsTextPicker = useTtsTextPicker({
     chunkTexts: ttsPlayer.chunkTexts,

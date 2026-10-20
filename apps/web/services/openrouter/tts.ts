@@ -1,3 +1,4 @@
+import type { LessonPlaybackBlock } from '@shared/lessonPlayback';
 import {
   DEFAULT_TTS_MODEL,
   DEFAULT_VOICE_OPTIONS,
@@ -17,11 +18,13 @@ import type { TtsModelSummary } from './types.ts';
 export const generateSpeech = async (
   text: string,
   voice: VoiceProfileId,
-  model = DEFAULT_TTS_MODEL
+  model = DEFAULT_TTS_MODEL,
+  block?: LessonPlaybackBlock
 ): Promise<SpeechAudioResponse> => {
   try {
     return await requestSpeechAudio({
       model,
+      ...(block ? { block } : {}),
       text,
       voice,
       speed: 1,

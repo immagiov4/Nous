@@ -2,6 +2,7 @@ type ShutdownAction = () => void | Promise<void>;
 
 interface BackendShutdownResources {
   closeAccountStore: ShutdownAction;
+  closeSpeechPreparation?: ShutdownAction;
   closeCodex: ShutdownAction;
   closeHttpServer: ShutdownAction;
   closeLibraryExports: ShutdownAction;
@@ -11,6 +12,7 @@ interface BackendShutdownResources {
 
 export const closeBackendResources = async ({
   closeAccountStore,
+  closeSpeechPreparation,
   closeCodex,
   closeHttpServer,
   closeLibraryExports,
@@ -33,6 +35,7 @@ export const closeBackendResources = async ({
   await attempt(closeWorkflow);
   await httpClosed;
   await attempt(closeAccountStore);
+  if (closeSpeechPreparation) await attempt(closeSpeechPreparation);
 
   if (failures.length > 0) {
     throw new AggregateError(failures, 'Backend shutdown did not close every resource cleanly.');

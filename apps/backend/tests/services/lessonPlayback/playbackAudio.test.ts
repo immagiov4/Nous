@@ -58,7 +58,11 @@ test.each([
   });
   const input = request();
   const result = await preparePlaybackAudio(input);
-  expect(generateSpeech).toHaveBeenCalledWith({ ...input, model: 'google/gemini-3.8-flash-tts' });
+  expect(generateSpeech).toHaveBeenCalledWith({
+    ...input,
+    model: 'google/gemini-3.8-flash-tts',
+    speed: 1,
+  });
   expect(result).toMatchObject({ mediaType: 'audio/mpeg', durationSeconds: 1, voice: 'Kore' });
   // Independently inspect every MPEG-2 Layer III frame: 24 kHz, 64 kb/s, mono, 576 samples.
   const bytes = Buffer.from(result.bytes);
