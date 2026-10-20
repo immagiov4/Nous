@@ -1,7 +1,7 @@
 import JSZip from 'jszip';
 
 const DEFAULT_MAX_ZIP_ENTRIES = 1_000;
-const DEFAULT_MAX_ZIP_ENTRY_NAME_CHARS = 512;
+export const DEFAULT_MAX_ZIP_ENTRY_NAME_CHARS = 512;
 const DEFAULT_INVALID_ARCHIVE_MESSAGE = 'Invalid ZIP archive.';
 
 export class ZipEntryTooLargeError extends Error {
@@ -43,7 +43,7 @@ export const isSafeZipEntryPath = (path: string): boolean => {
   if (!path || path.startsWith('/') || path.startsWith('\\') || hasWindowsDrivePrefix(path)) {
     return false;
   }
-  if (path.includes('\\')) return false;
+  if (path.includes('\\') || path.includes('\0')) return false;
   const normalizedPath = path.endsWith('/') ? path.slice(0, -1) : path;
   return normalizedPath.split('/').every(part => part !== '' && part !== '.' && part !== '..');
 };
@@ -81,7 +81,7 @@ export const getZipTotalUncompressedBytes = (
   return totalUncompressedBytes;
 };
 
-const updateCrc32 = (crc: number, bytes: Uint8Array): number => {
+export const updateZipCrc32 = (crc: number, bytes: Uint8Array): number => {
   let next = crc;
   for (const byte of bytes) {
     next = Number(CRC32_TABLE[(next ^ byte) & 0xff]) ^ (next >>> 8);
@@ -148,7 +148,7 @@ export const readZipEntryBytesWithinLimit = async (
         }
         chunks.push(chunk);
         byteLength += chunk.byteLength;
-        crc32 = updateCrc32(crc32, chunk);
+        crc32 = updateZipCrc32(crc32, chunk);
       })
       .on('error', rejectInvalidArchive)
       .on('end', () => {

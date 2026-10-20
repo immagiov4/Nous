@@ -17,6 +17,7 @@ const LOAD_SENSITIVE_TESTS = [
   'packages/playtest/tests/**/*.{test,spec}.ts',
   'e2e/**/tests/**/*.{test,spec}.ts',
   'apps/backend/tests/services/pdfTextFallbackProcess.test.ts',
+  'apps/backend/tests/services/pdfFallbackProtocol.test.ts',
   'apps/backend/tests/workflows/*Compatibility.test.ts',
   'apps/backend/tests/workflows/workflowRuntimeComposition.test.ts',
   'apps/backend/tests/workflows/workflowProcessCrash.integration.test.ts',

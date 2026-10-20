@@ -51,6 +51,14 @@ flowchart TD
 *The diagram shows the flow from user action to persistent storage, highlighting the distinction between full snapshots and granular patches.*
 Sources: [apps/web/hooks/library/useProjectLibrary.ts:1145-1175](../../../apps/web/hooks/library/useProjectLibrary.ts#L1145-L1175), [apps/web/hooks/library/useProjectLibrary.ts:684-725](../../../apps/web/hooks/library/useProjectLibrary.ts#L684-L725)
 
+### Source ingestion
+
+Both new-course creation and source attachment hand original files to the source-ingestion module through the project repository. Callers provide the destination snapshot/revision and receive the canonical prepared source set; they do not choose separate ZIP or PDF preparation paths. Metadata-only saves retain their ordinary snapshot contract. The ingestion module expands ZIPs in the browser, uses one file-only chunk protocol, and publishes sources through the existing project store after background preparation.
+
+Source completion acknowledges acceptance with 202. The client polls the authenticated import status route for the current file/step and N/M progress, then applies the saved snapshot. A backend restart produces an explicit preparation-interrupted error rather than an endless pending state. Existing saved archives and compatible backup import/export remain readable through their existing modules.
+
+Sources: [HttpProjectRepository](../../../apps/web/services/projects/httpProjectRepository.ts), [source ingestion](../../../apps/web/services/projects/sourceIngestion.ts), [project routes](../../../apps/backend/src/routes/projects.ts).
+
 ### Source and Metadata Handling
 Projects are categorized by `sourceKind` (e.g., `document`, `codebase`, `learn-mode`). The system differentiates between the **Project Snapshot** (the full state including learning plans) and **Project Meta** (lightweight information used for library listings).
 

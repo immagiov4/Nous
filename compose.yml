@@ -46,6 +46,7 @@ services:
       DECODO_SCRAPING_API_KEY: ${DECODO_SCRAPING_API_KEY:-}
       GITHUB_FEEDBACK_REPOSITORY: ${GITHUB_FEEDBACK_REPOSITORY:-}
       GITHUB_FEEDBACK_TOKEN: ${GITHUB_FEEDBACK_TOKEN:-}
+      TMPDIR: /var/lib/nous/source-staging
       LESSON_SCENE_ICON_INDEX_DIR: /var/lib/nous/icon-index
       LIBRARY_EXPORT_ROOT: /var/lib/nous/library-exports
       LIBRARY_EXPORT_EXECUTIONS_GLOBAL: ${LIBRARY_EXPORT_EXECUTIONS_GLOBAL:-}
@@ -108,6 +109,7 @@ services:
     volumes:
       - icon-index:/var/lib/nous/icon-index
       - library-exports:/var/lib/nous/library-exports
+      - source-staging:/var/lib/nous/source-staging
     tmpfs:
       - /tmp:size=${NOUS_BACKEND_TMPFS_SIZE:-1g}
     security_opt:
@@ -228,3 +230,4 @@ volumes:
   frontend-assets:
   icon-index:
   library-exports:
+  source-staging:

@@ -43,6 +43,8 @@ interface HomeChatPanelProps {
   readonly newCourseLoadingStatus: string;
   readonly pendingFileName: string | null;
   readonly pendingFileNames?: string[];
+  readonly pendingFileWarnings?: string[];
+  readonly isSourceSelectionPending?: boolean;
   readonly draftValueOverride?: string;
   readonly draftTemplate?: {
     id: string;
@@ -109,6 +111,8 @@ export default function HomeChatPanel({
   newCourseLoadingStatus,
   pendingFileName,
   pendingFileNames,
+  pendingFileWarnings,
+  isSourceSelectionPending = false,
   draftValueOverride,
   draftTemplate,
   scrollProgressOverride,
@@ -240,6 +244,8 @@ export default function HomeChatPanel({
           onUploadSourceClick={onUploadSourceClick}
           pendingFileName={pendingFileName}
           pendingFileNames={pendingFileNames}
+          pendingFileWarnings={pendingFileWarnings}
+          isSourceSelectionPending={isSourceSelectionPending}
           viewportHeight={viewportHeight}
         />
       )}

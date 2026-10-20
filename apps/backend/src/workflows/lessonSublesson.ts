@@ -122,6 +122,7 @@ interface LessonSublessonDependencies {
     | 'loadProjectSourceArchiveEntryRange'
     | 'loadProjectSourceArchiveIndex'
     | 'loadProjectSources'
+    | 'loadProjectSourceById'
     | 'loadProjectWithRevision'
   >;
   readonly readSourceMaterial?: ReadSourceMaterial;
@@ -172,11 +173,19 @@ const loadSourceMaterials = async (
   request: { projectId: string; userId: string },
   signal: AbortSignal
 ): Promise<CourseSourceMaterial[]> => {
-  const storedSources = await store.loadProjectSources(request.userId, request.projectId);
+  const storedSources = await store.loadProjectSources(request.userId, request.projectId, {
+    includeData: false,
+  });
   const materials: CourseSourceMaterial[] = [];
   for (const source of storedSources) {
     signal.throwIfAborted();
-    const material = await readSourceMaterial(source.file);
+    const file = await store.loadProjectSourceById(
+      request.userId,
+      request.projectId,
+      source.ref.id
+    );
+    if (!file) throw sourceChanged();
+    const material = await readSourceMaterial(file);
     signal.throwIfAborted();
     if (!material.text.trim()) {
       throw failPermanently({

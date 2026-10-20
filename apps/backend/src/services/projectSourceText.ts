@@ -1,3 +1,4 @@
+import { PDF_SOURCE_EXTRACTION_OPTIONS } from './pdfSourceLimits.js';
 import { type ExtractedPdfText, extractPdfText } from './pdfTextExtractor.js';
 
 export const isPdfProjectSourceFile = (file: { mimeType: string; name: string }): boolean =>
@@ -22,7 +23,10 @@ export const readProjectSourceMaterial = async (file: {
   name: string;
 }): Promise<ProjectSourceMaterial> => {
   if (isPdfProjectSourceFile(file)) {
-    const pdf = await extractPdfText(`data:${file.mimeType};base64,${file.data}`);
+    const pdf = await extractPdfText(
+      `data:${file.mimeType};base64,${file.data}`,
+      PDF_SOURCE_EXTRACTION_OPTIONS
+    );
     return { pdf, text: pdf.text };
   }
   return { text: Buffer.from(file.data, 'base64').toString('utf8') };

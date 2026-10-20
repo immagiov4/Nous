@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   createProjectBackupArchive,
   PROJECT_BACKUP_MAX_ENTRIES,
@@ -1740,6 +1743,123 @@ describe('PostgresProjectStore', () => {
 
     expect(storage.delete).toHaveBeenCalledWith('storage/old-primary');
     expect(storage.delete).toHaveBeenCalledWith('storage/old-secondary');
+  });
+
+  test('does not queue retained sources for cleanup during a partial binary reattach', async () => {
+    const original = createMultiSourceSnapshot();
+    const sources = (original.source as { sources: Array<Record<string, unknown>> }).sources;
+    const refs = ['first', 'second'].map((text, position) => ({
+      byteSize: text.length,
+      hash: createHash('sha256').update(text).digest('hex'),
+      id: position === 0 ? 'source-first' : 'source-second',
+      name: 'notes.txt',
+      mimeType: 'text/plain',
+      objectPath: `storage/original-${position}`,
+    }));
+    const detached = {
+      ...original,
+      source: {
+        ...(original.source as object),
+        file: { data: '', name: 'notes.txt', mimeType: 'text/plain', sourceId: refs[0].id },
+        sources: sources.map((source, position) => ({
+          ...source,
+          file: { ...(source.file as object), data: '' },
+          ref: refs[position],
+        })),
+      },
+    };
+    const queued: unknown[] = [];
+    const transactionSql = Object.assign(
+      vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        const statement = strings.join('?');
+        if (statement.includes('for update') && statement.includes('from public.project_source'))
+          return refs.map(ref => ({ object_path: ref.objectPath }));
+        if (statement.includes('select queued.object_path')) queued.push(values[0]);
+        if (statement.includes('returning meta, revision'))
+          return [{ meta: PROJECT_META, revision: 2 }];
+        return [];
+      }),
+      { json: vi.fn((value: unknown) => value) }
+    );
+    const sql = Object.assign(
+      vi.fn(async () => []),
+      {
+        begin: vi.fn(async (operation: (sql: typeof transactionSql) => Promise<unknown>) =>
+          operation(transactionSql)
+        ),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const upload = vi.fn();
+    const store = createPostgresProjectStore(sql, {
+      delete: vi.fn(),
+      download: vi.fn(),
+      upload,
+    });
+    vi.spyOn(store, 'loadProject').mockResolvedValue(detached);
+    const directory = await mkdtemp(join(tmpdir(), 'nous-retained-regression-'));
+    const path = join(directory, 'upload');
+    await writeFile(path, 'new first');
+    try {
+      await store.saveProject('user-1', detached, {
+        sourceFiles: { path, files: [{ ...refs[0], byteSize: 9 }] },
+      });
+      expect(queued).toEqual([[{ object_path: refs[0].objectPath }]]);
+      expect(upload).toHaveBeenCalledWith(
+        expect.any(String),
+        {
+          path,
+          byteSize: 9,
+          offset: 0,
+        },
+        'text/plain'
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('cancellation during source publication removes uncommitted originals and never creates a project', async () => {
+    const controller = new AbortController();
+    const transactionSql = Object.assign(
+      vi.fn(async (strings: TemplateStringsArray) =>
+        strings.join('?').includes('returning meta, revision')
+          ? [{ meta: PROJECT_META, revision: 1 }]
+          : []
+      ),
+      { json: vi.fn((value: unknown) => value) }
+    );
+    const sql = Object.assign(
+      vi.fn(async () => []),
+      {
+        json: vi.fn((value: unknown) => value),
+        begin: vi.fn(async (operation: (sql: typeof transactionSql) => Promise<unknown>) =>
+          operation(transactionSql)
+        ),
+      }
+    );
+    const storage = {
+      upload: vi.fn(async () => {
+        controller.abort();
+      }),
+      download: vi.fn(),
+      delete: vi.fn(async () => {}),
+    };
+    const store = createPostgresProjectStore(sql, storage);
+    await expect(
+      store.saveProject('user-1', createMultiSourceSnapshot(), {
+        sourcePreparation: { signal: controller.signal, reportProgress: () => {} },
+      })
+    ).rejects.toThrow();
+    expect(
+      transactionSql.mock.calls.some(
+        ([strings]) =>
+          strings.join('?').includes('insert into public.projects') ||
+          strings.join('?').includes('insert into public.project_snapshots')
+      )
+    ).toBe(false);
+    expect(storage.upload).toHaveBeenCalledTimes(1);
+    expect(storage.delete).toHaveBeenCalledTimes(1);
   });
 
   test('loads source bytes from object storage and verifies persisted integrity metadata', async () => {
