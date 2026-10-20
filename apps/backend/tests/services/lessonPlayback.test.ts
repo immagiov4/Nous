@@ -2,8 +2,13 @@ import {
   type LessonPlaybackBlock,
   type PlaybackContentBlock,
   projectLessonPlayback,
+  resolvePlaybackNarration,
   segmentLessonPlayback,
 } from '@shared/lessonPlayback';
+import {
+  createLessonPlaybackBlockSchema,
+  LessonPlaybackBlockSchema,
+} from '@shared/lessonPlaybackSchema';
 import { describe, expect, test } from 'vitest';
 
 const markdownBlock = (markdown: string): PlaybackContentBlock => ({ type: 'markdown', markdown });
@@ -41,6 +46,64 @@ const expectExactSpans = (
 };
 
 describe('lesson playback segmentation', () => {
+  test('round-trips projected Mermaid through the current transport while freezing historical schemas', () => {
+    const block = segmentLessonPlayback([
+      markdownBlock('An exchange.\n\n```mermaid\nsequenceDiagram\nClient->>Server: Request\n```'),
+    ])[0];
+    expect(LessonPlaybackBlockSchema.parse(block)).toEqual(block);
+    expect(createLessonPlaybackBlockSchema(undefined, true).safeParse(block).success).toBe(false);
+  });
+  test.each([
+    'Diagram',
+    '**Diagram**',
+    '`Diagram`',
+  ])('projects historical visual references with title %s without shifting source spans', title => {
+    const markdown = `Before {{VISUAL_EXAMPLE:diagram-1|title=${title}}} after.`;
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.speech)).toEqual(['Before  after.']);
+    expect(blocks[0].visuals).toEqual([{ kind: 'generated-visual', visualId: 'diagram-1' }]);
+    expectExactSpans(blocks[0], markdown);
+    const standalone = segmentLessonPlayback([
+      markdownBlock('Introduction.\n\n{{VISUAL_EXAMPLE:diagram-1}}\n\nConclusion.'),
+    ]);
+    expect(standalone.map(block => block.speech)).toEqual(['Introduction.', 'Conclusion.']);
+    expect(standalone[0].visuals).toEqual([{ kind: 'generated-visual', visualId: 'diagram-1' }]);
+  });
+
+  test('projects parsed Mermaid as a diagram while preserving ordinary authored code', () => {
+    const code = 'sequenceDiagram\n  Client->>Server: Request';
+    const markdown = `An exchange.\n\n~~~mermaid\n${code}\n~~~\n\nAn example.\n\n\`\`\`ts\nconst literal = "sequenceDiagram";\n\`\`\``;
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.speech)).toEqual(['An exchange.', 'An example.']);
+    expect(blocks[0].visuals).toEqual([{ kind: 'mermaid', code }]);
+    expect(blocks[1].visuals).toEqual([
+      { kind: 'markdown', markdown: '```ts\nconst literal = "sequenceDiagram";\n```' },
+    ]);
+    for (const block of blocks) expectExactSpans(block, markdown);
+  });
+
+  test('keeps historical visual references literal in authored code', () => {
+    const markdown =
+      'Use `{{VISUAL_EXAMPLE:diagram-1}}` literally.\n\n```text\n{{VISUAL_EXAMPLE:diagram-2}}\n```';
+    const projection = projectLessonPlayback([markdownBlock(markdown)]);
+    expect(projection.blocks[0].speech).toBe('Use {{VISUAL_EXAMPLE:diagram-1}} literally.');
+    expect(projection.blocks[0].visuals).toEqual([
+      { kind: 'markdown', markdown: '```text\n{{VISUAL_EXAMPLE:diagram-2}}\n```' },
+    ]);
+    expect([...projection.referencedVisualIds]).toEqual([]);
+    expect(projection.hasLegacyVisuals).toBe(false);
+  });
+
+  test('does not resolve visual references from link destinations or HTML attributes', () => {
+    const projection = projectLessonPlayback([
+      markdownBlock('[Example](https://example.test/{{VISUAL_EXAMPLE:diagram-1}}).'),
+      markdownBlock('<span title="{{VISUAL_EXAMPLE:diagram-2}}">Example</span>'),
+    ]);
+    expect(projection.blocks[0].speech).toBe('Example.');
+    expect(projection.blocks.every(block => block.visuals.length === 0)).toBe(true);
+    expect([...projection.referencedVisualIds]).toEqual([]);
+  });
+
   test('preserves authored words, punctuation and UTF-16 offsets', () => {
     const markdown = 'È così: 10–12, «perché?» 🧠\nAncora qui!\n\nSecondo paragrafo.';
     const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
@@ -602,6 +665,47 @@ test('keeps the explanation of mathematical symbols in spoken headings', () => {
   expectExactSpans(block, markdown);
 });
 
+test('projects visual references inside multiline annotations with original source offsets', () => {
+  const markdown =
+    '<mark data-nous-annotation-id="note-🌱">\nSee {{VISUAL_EXAMPLE:diagram-1}}.\n</mark>';
+  const projection = projectLessonPlayback([markdownBlock(markdown)]);
+  expect(projection.blocks[0].speech.trim()).toBe('See .');
+  expect(projection.blocks[0].visuals).toEqual([
+    { kind: 'generated-visual', visualId: 'diagram-1' },
+  ]);
+  expect([...projection.referencedVisualIds]).toEqual(['diagram-1']);
+  expectExactSpans(projection.blocks[0], markdown);
+  const literal = projectLessonPlayback([
+    markdownBlock('<mark>\nUse `{{VISUAL_EXAMPLE:literal}}`.\n</mark>'),
+  ]);
+  expect([...literal.referencedVisualIds]).toEqual([]);
+});
+
+test('projects table visual references as typed visuals while retaining the table structure', () => {
+  const markdown = 'Introduction.\n\n| Diagram |\n| --- |\n| {{VISUAL_EXAMPLE:diagram-1}} |';
+  const [block] = segmentLessonPlayback([markdownBlock(markdown)]);
+  expect(block.speech).toBe('Introduction.');
+  expect(block.visuals).toEqual([
+    { kind: 'markdown', markdown: '| Diagram |\n| --- |\n|  |' },
+    { kind: 'generated-visual', visualId: 'diagram-1' },
+  ]);
+  expectExactSpans(block, markdown);
+});
+
+test.each([
+  'Read',
+  '<mark data-nous-annotation-id="note">Read</mark>',
+])('keeps typed visual references beside contextual formulas after %s', introduction => {
+  const markdown = `${introduction} $x$ with {{VISUAL_EXAMPLE:diagram-1|title=**Diagram**}}.`;
+  const [block] = segmentLessonPlayback([markdownBlock(markdown)]);
+  expect(block.speech).toBe('Read  with .');
+  expect(block.visuals).toEqual([
+    { kind: 'markdown', markdown: 'Read $x$ with .' },
+    { kind: 'generated-visual', visualId: 'diagram-1' },
+  ]);
+  expectExactSpans(block, markdown);
+});
+
 test('retains declared code below a trailing heading', () => {
   const code = '```python\nprint(1)\n```';
   const [block] = segmentLessonPlayback([markdownBlock(`Introduction.\n\n## Example\n\n${code}`)]);
@@ -615,4 +719,28 @@ test('preserves the contextual math card of a trailing heading above an ambiguou
     { kind: 'markdown', markdown: code },
     { kind: 'markdown', markdown: '## Topic $x$' },
   ]);
+});
+
+test('preserves imported visuals when an adjacent fenced explanation becomes narrated prose', () => {
+  const prose = 'A mathematical explanation with two components.';
+  const fence = `\`\`\`text\n${prose}\n\`\`\``;
+  const markdown = `See {{VISUAL_EXAMPLE:diagram-1}}.\n\n${fence}\n\nContinue.`;
+  const [block] = segmentLessonPlayback([markdownBlock(markdown)]);
+  expect(block.visuals).toEqual([
+    { kind: 'generated-visual', visualId: 'diagram-1' },
+    { kind: 'markdown', markdown: fence },
+  ]);
+  const prepared = {
+    motion: [],
+    fencedCode: [{ visualIndex: 1, kind: 'prose' as const, spoken: prose }],
+  };
+  const stored = { ...block, prepared };
+  expect(LessonPlaybackBlockSchema.parse(stored)).toEqual(stored);
+  const resolved = resolvePlaybackNarration(stored);
+  expect(resolved.visuals).toEqual([
+    { kind: 'generated-visual', visualId: 'diagram-1' },
+    { kind: 'markdown', markdown: prose },
+  ]);
+  expect(resolved.speech).toContain(prose);
+  expect(resolved.speech).not.toContain('VISUAL_EXAMPLE');
 });

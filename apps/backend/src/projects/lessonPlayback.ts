@@ -45,11 +45,7 @@ const visualContent = (visual: ProjectLessonVisual) => {
 };
 
 export const lessonPlaybackVisuals = (section: LearningPlanNodeSnapshot): ProjectLessonVisual[] => {
-  const referenced = new Set(
-    lessonPlaybackContent(section).flatMap(block =>
-      block.type === 'generated-visual' && block.visualId ? [block.visualId] : []
-    )
-  );
+  const referenced = projectLessonPlayback(lessonPlaybackContent(section)).referencedVisualIds;
   return (
     Array.isArray(section.generatedVisuals)
       ? (section.generatedVisuals as ProjectLessonVisual[])
@@ -67,6 +63,9 @@ const lessonPlaybackKey = (
     .update(
       canonicalJson({
         contentBlocks: projection.contentBlocks,
+        ...(projection.hasLegacyVisuals
+          ? { visualProjection: projection.blocks.map(block => block.visuals) }
+          : {}),
         ...(projection.hasAnnotations
           ? {
               speechProjection: projection.blocks.map(block => block.speech),
