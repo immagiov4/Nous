@@ -117,6 +117,22 @@ it('adopts a healthy replacement after an incomplete initialization of another c
   expect(options.run.mock.calls.map(([args]) => args)).toEqual([['status', '--output', 'json']]);
   await releaseSharedSupabase();
 });
+it('retains incomplete initialization while temporarily adopting the other project', async () => {
+  await writeFile(join(root, 'managed'), 'container-owned');
+  await writeFile(join(root, 'incomplete'), 'container-owned');
+  const options = runtime();
+  options.run.mockResolvedValueOnce(
+    JSON.stringify({
+      ...status,
+      API_URL: 'http://127.0.0.1:55321',
+      DB_URL: 'postgresql://postgres:test@127.0.0.1:55322/postgres',
+    })
+  );
+  await ensureSharedSupabase(options);
+  await releaseSharedSupabase();
+  expect(await readFile(join(root, 'incomplete'), 'utf8')).toBe('container-owned');
+  await expect(ensureSharedSupabase(options)).rejects.toThrow('initialization is incomplete');
+});
 it('continues watching after Docker becomes temporarily unavailable', async () => {
   let now = 0;
   await writeFile(join(root, 'managed'), 'container-owned');

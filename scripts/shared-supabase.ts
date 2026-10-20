@@ -198,11 +198,12 @@ export async function ensureSharedSupabase(
     if (incomplete) {
       const project =
         Number(new URL(current.API_URL).port) === STACK_PORTS[0].api ? PROJECT : LEGACY_PROJECT;
-      if (incomplete === (await (options.container ?? databaseContainer)(project)))
+      const initializingContainer = await (options.container ?? databaseContainer)(PROJECT);
+      if (project === PROJECT && incomplete === initializingContainer)
         throw new Error(
           'Shared Supabase initialization is incomplete. Inspect the failed initialization before running a proof.'
         );
-      await rm(join(root, 'incomplete'));
+      if (incomplete !== initializingContainer) await rm(join(root, 'incomplete'));
     }
     await (options.health ?? healthy)(current, options.signal);
     await writeFile(join(root, 'runs', lease), String(process.pid));
@@ -332,14 +333,13 @@ export async function watchIdleSupabase(
   }
 }
 
-if (import.meta.main) {
-  if (process.argv[2] === '--idle-stop') {
+export async function main(args = process.argv.slice(2)): Promise<void> {
+  if (args[0] === '--idle-stop') {
     await stopIdleSupabase();
-  } else if (process.argv[2] === '--watch-idle') {
+  } else if (args[0] === '--watch-idle') {
     await watchIdleSupabase();
     await rm(join(stateRoot(), 'watcher'), { force: true });
   } else {
-    const args = process.argv.slice(2);
     if (args[0] !== '--' || !args[1])
       throw new Error('Usage: shared-supabase.ts -- command [args...]');
     const status = await ensureSharedSupabase();
@@ -360,3 +360,5 @@ if (import.meta.main) {
     }
   }
 }
+
+if (import.meta.main) await main();
