@@ -17,7 +17,7 @@ Route tests can use controlled stores and identities. Real Supabase checks exerc
 
 ## Shared local execution
 
-Browser suites, provider batches, full gates and coverage enter one FIFO queue shared by worktrees. Package scripts acquire and release their turn automatically; nested commands share the held turn. Use `bun scripts/heavy-run.mjs status` to inspect the owner and waiting work. Additional browser or Docker proofs run through `bun scripts/heavy-run.mjs --label "who/what" -- <command...>`. Fast checks run independently so a browser test cannot block a documentation check. The [queue wrapper](../../../scripts/heavy-run.mjs) owns admission, process-liveness checks and cleanup; CI bypasses local coordination.
+Heavy commands share a FIFO counting semaphore across worktrees, with four concurrent slots by default. Set `HEAVY_RUN_SLOTS` to a positive integer to choose capacity, and add `--weight 2` after `--label "who/what"` for a command that needs two slots. The first waiting command enters when its full weight fits; later tickets wait behind it. Package scripts acquire and release slots automatically, and nested commands share their parent's reservation. Use `bun scripts/heavy-run.mjs status` to inspect all running owners, their weights and the waiting queue. Additional Docker proofs run through `bun scripts/heavy-run.mjs --label "who/what" --weight 2 -- <command...>`. The [queue wrapper](../../../scripts/heavy-run.mjs) owns admission, heartbeats, process-liveness checks and stale reservation recovery; CI bypasses local coordination.
 
 ## Final candidate
 
