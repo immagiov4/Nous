@@ -249,6 +249,7 @@ export interface CreateWorkspaceControllerArgs {
 }
 
 export type OpenSectionOutcome =
+  | 'failed'
   | 'loaded'
   | 'reopened-generating'
   | 'reused-cached'

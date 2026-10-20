@@ -18,7 +18,7 @@ interface PdfImageCaptionInput {
 }
 
 const OPENROUTER_PDF_IMAGE_CAPTION_MODEL =
-  process.env.MODEL_PDF_IMAGE_CAPTION || 'nvidia/nemotron-nano-12b-v2-vl';
+  process.env.MODEL_PDF_IMAGE_CAPTION || 'google/gemini-3.1-flash-lite';
 
 const buildCaptionPrompt = (image: PdfImageCaptionInput): string => {
   const context = [

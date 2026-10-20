@@ -73,6 +73,10 @@ To avoid extracting incidental UI elements (icons, watermarks, or lines), the sy
 
 Sources: [apps/backend/src/services/pdfImageExtractor.ts:7-22](../../../apps/backend/src/services/pdfImageExtractor.ts#L7-L22), [apps/backend/src/services/pdfImageExtractor.ts:219-257](../../../apps/backend/src/services/pdfImageExtractor.ts#L219-L257)
 
+### Optional Figure Captions
+
+The lesson document stage stores extracted figure bytes before requesting optional Italian captions. For OpenRouter, `pdfImageCaption.ts` defaults to the image-capable `google/gemini-3.1-flash-lite` route; `MODEL_PDF_IMAGE_CAPTION` can override it. The former `nvidia/nemotron-nano-12b-v2-vl` route returned HTTP 404 with no available endpoints. Caption failures remain optional and do not remove stored figures. Codex captions use the configured lesson model through the research provider slot.
+
 ### Spatial Context Reconstruction
 The `buildLocalImageTextContext` function analyzes the `centerY` coordinates of text lines relative to the bounding box of the extracted image.
 *  **textBefore**: The last 5 lines appearing above the image.

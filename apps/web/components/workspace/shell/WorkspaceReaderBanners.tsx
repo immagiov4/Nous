@@ -2,16 +2,36 @@ import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { WorkspaceReaderBannersModel } from './types.ts';
 
 export default function WorkspaceReaderBanners({
+  lessonError,
   needsSourceFile,
   onAttachSourceFile,
   onBackToLibrary,
   onExportProject,
+  onRetryLesson,
   pdfMappingWarning,
   sourceKind,
   storageError,
 }: WorkspaceReaderBannersModel) {
   return (
     <>
+      {lessonError && !needsSourceFile ? (
+        <div
+          role="alert"
+          className="mx-4 mt-4 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-red-200 bg-red-50/80 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300 sm:mx-8 sm:mt-5"
+        >
+          <span>{lessonError}</span>
+          {onRetryLesson ? (
+            <button
+              type="button"
+              onClick={onRetryLesson}
+              className="inline-flex items-center justify-center rounded-full border border-red-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-red-700 transition-colors hover:bg-red-100 dark:border-red-900/60 dark:text-red-300 dark:hover:bg-red-950/60"
+            >
+              {t('Riprova')}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       {storageError ? (
         <div className="mx-4 mt-4 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-red-200 bg-red-50/80 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300 sm:mx-8 sm:mt-5">
           <span>{storageError}</span>
