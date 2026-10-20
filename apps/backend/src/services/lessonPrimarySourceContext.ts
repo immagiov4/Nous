@@ -1,7 +1,8 @@
 import * as z from 'zod';
 
-const PrimarySourceIdentitySchema = z.object({
+export const PrimarySourceIdentitySchema = z.object({
   title: z.string(),
+  transcribedPages: z.array(z.number().int().positive()).optional(),
   sourceId: z.string().optional(),
   chunkIds: z.array(z.string()).optional(),
   pageStart: z.number().optional(),
@@ -14,6 +15,11 @@ const PrimarySourceContextSchema = z.object({
 });
 
 export type LessonPrimarySourceIdentity = z.infer<typeof PrimarySourceIdentitySchema>;
+export interface LessonSourceProvenance {
+  kind: 'vision-transcription';
+  sources: readonly LessonPrimarySourceIdentity[];
+}
+
 export type LessonPrimarySourcePart = z.infer<typeof PrimarySourceContextSchema>['parts'][number];
 
 export const encodeLessonPrimarySources = (parts: LessonPrimarySourcePart[]): string =>

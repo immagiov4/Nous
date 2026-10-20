@@ -23,10 +23,7 @@ import {
 } from '../services/youtubeResearch.js';
 import type { createCourseArchiveOpener } from './courseGenerationArchiveAccess.js';
 import { CourseModelProviderError, generateCourseObject } from './courseGenerationModel.js';
-import {
-  type CourseSourceMaterial,
-  formatCourseSourceMaterials,
-} from './courseGenerationSources.js';
+import { formatCourseSourceMaterials } from './courseGenerationSources.js';
 import {
   COURSE_YOUTUBE_QUERY_MAX_CHARS,
   type CourseGenerationStage,
@@ -73,10 +70,7 @@ const CourseResearchBranchOutputSchema = z.discriminatedUnion('branch', [
 ]);
 
 type GenerateCourseObject = typeof generateCourseObject;
-type ReadSourceMaterials = (
-  state: z.infer<typeof CoursePreparationStateSchema>,
-  signal: AbortSignal
-) => Promise<CourseSourceMaterial[]>;
+type ReadSourceMaterials = import('./courseGenerationSources.js').ReadCourseSourceMaterials;
 type ResearchYoutube = (
   query: string,
   language: string,
@@ -188,7 +182,7 @@ export const createCourseResearchServices = ({
       });
     } else {
       sourceContext = formatCourseSourceMaterials(
-        await readSourceMaterials(context.input, context.signal),
+        await readSourceMaterials(context.input, context.signal, context.config.models),
         COURSE_RESEARCH_SOURCE_MAX_CHARS
       );
     }
@@ -240,7 +234,7 @@ export const createCourseResearchServices = ({
     const materials =
       context.input.strategy === 'archive'
         ? []
-        : await readSourceMaterials(context.input, context.signal);
+        : await readSourceMaterials(context.input, context.signal, context.config.models);
     const sourceContext = formatCourseSourceMaterials(materials, COURSE_RESEARCH_SOURCE_MAX_CHARS);
     const research = await generateObject({
       config: context.config.models,

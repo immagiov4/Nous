@@ -36,6 +36,7 @@ export class ProjectStorageError extends Error {
     | 'quota-exceeded'
     | 'revision-conflict'
     | 'source-preparation-cancelled'
+    | 'scanned-page-limit'
     | 'source-preparation-failed'
     | 'source-staging-unavailable'
     | 'source-ingestion-required'

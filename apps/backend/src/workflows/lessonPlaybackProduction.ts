@@ -6,6 +6,8 @@ import type { ProjectAssetWriter } from '../projects/projectAsset.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
 import { getProjectStore } from '../projects/projectStore.js';
 import type { ProjectStore } from '../projects/types.js';
+import { readStoredTranscribedSources } from '../services/lessonEvidence.js';
+import { readExistingDossier } from '../services/lessonGenerationSources.js';
 import {
   prepareLessonPlaybackBlock,
   validatePlaybackSceneTypes,
@@ -55,12 +57,34 @@ export const createProductionLessonPlaybackServices = (
       return { target: input, block: LessonPlaybackBlockSchema.parse(block) };
     }
     if (!providerEffect) throw new Error('Playback preparation requires durable provider results.');
+    const dossier = readExistingDossier(project.snapshot, input.sectionId);
+    let transcribedSources: ReturnType<typeof readStoredTranscribedSources> = [];
+    try {
+      transcribedSources = readStoredTranscribedSources(
+        typeof dossier?.evidencePacketJson === 'string' ? dossier.evidencePacketJson : undefined
+      );
+    } catch {
+      console.warn(
+        '[lesson-playback] Stored evidence is unreadable; omitting optional provenance.'
+      );
+    }
+
     const prepared = await prepareLessonPlaybackBlock({
       allowedSceneTypes,
       supportsSpokenMath,
       supportsFencedCode,
       block,
-      lesson,
+      lesson: {
+        ...lesson,
+        ...(transcribedSources.length
+          ? {
+              sourceProvenance: {
+                kind: 'vision-transcription' as const,
+                sources: transcribedSources,
+              },
+            }
+          : {}),
+      },
       config: await getResolvedGlobalModelConfig(),
       voice: input.voice,
       ttsModel: input.model,

@@ -26,6 +26,7 @@ export const SOURCE_PREPARATION_UNUSABLE_CODE = 'SOURCE_PREPARATION_UNUSABLE';
 export const SOURCE_PREPARATION_UNUSABLE_MESSAGE =
   'Nessuna delle fonti contiene testo utilizzabile.';
 export interface SourcePreparationFailure {
+  failedPages?: number[];
   name: string;
   reason: SourceArchivePdfWarningReason;
 }

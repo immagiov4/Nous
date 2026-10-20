@@ -67,10 +67,7 @@ export const getCoursePlanRefinementProviderEffectKeys = (
 
 type CourseResearchSource = z.infer<typeof CourseResearchSourceSchema>;
 type GenerateCourseObject = typeof generateCourseObject;
-type ReadSourceMaterials = (
-  state: Pick<CourseResearchState, 'context' | 'projectRevision' | 'request'>,
-  signal: AbortSignal
-) => Promise<CourseSourceMaterial[]>;
+type ReadSourceMaterials = import('./courseGenerationSources.js').ReadCourseSourceMaterials;
 
 const collectResearchSources = (state: CourseResearchState): Map<string, CourseResearchSource> =>
   new Map(
@@ -457,7 +454,7 @@ export const createCoursePlanningStages = ({
       materials:
         context.input.strategy === 'learn'
           ? []
-          : await readSourceMaterials(context.input, context.signal),
+          : await readSourceMaterials(context.input, context.signal, context.config.models),
     });
     return buildCourseDraftPlanState(generated.rawPlan, generated.state, now());
   },
@@ -480,7 +477,7 @@ export const createCoursePlanningStages = ({
             materials:
               context.input.strategy === 'learn'
                 ? []
-                : await readSourceMaterials(context.input, context.signal),
+                : await readSourceMaterials(context.input, context.signal, context.config.models),
             verification: refinementInput.verification,
           }),
         outputSchema: CoursePlanGenerationResultSchema,

@@ -1228,7 +1228,39 @@
     min-height: 360px;
   }
 }
+
+.lesson-player-stage .lesson-scene .causal-flow {
+  position: relative;
+}
+.lesson-player-stage .lesson-scene .causal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(min-content, 1fr));
+  gap: calc(var(--diagram-gap) + var(--icon-size));
+  align-items: stretch;
+  position: relative;
+}
+.lesson-player-stage .lesson-scene .causal-grid > .cause {
+  width: auto;
+  line-height: normal;
+  position: relative;
+}
+.lesson-player-stage .lesson-scene .causal-grid .step-index {
+  align-self: start;
+}
+.lesson-player-stage .lesson-scene .causal-connectors {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  color: var(--blue);
+}
+
 @container (max-width: 460px) {
+  .lesson-player-stage .lesson-scene .causal-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .lesson-player-stage .lesson-scene .groups.related {
     grid-template-columns: 1fr;
     gap: 16px;

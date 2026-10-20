@@ -14,10 +14,12 @@ const TEST_FILES = [
 const MERMAID_PARSER_TEST = 'apps/backend/tests/services/mermaidValidation.test.ts';
 // These suites own browser/parser subprocesses, process fixtures, or production registry rebuilds.
 const LOAD_SENSITIVE_TESTS = [
+  'apps/web/tests/components/workspace/PlaybackCausalLayout.test.ts',
   'packages/playtest/tests/**/*.{test,spec}.ts',
   'e2e/**/tests/**/*.{test,spec}.ts',
   'apps/backend/tests/services/pdfTextFallbackProcess.test.ts',
   'apps/backend/tests/services/pdfFallbackProtocol.test.ts',
+  'apps/backend/tests/services/pdfPageTranscription.test.ts',
   'apps/backend/tests/workflows/*Compatibility.test.ts',
   'apps/backend/tests/workflows/workflowRuntimeComposition.test.ts',
   'apps/backend/tests/workflows/workflowProcessCrash.integration.test.ts',

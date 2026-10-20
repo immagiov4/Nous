@@ -1,10 +1,13 @@
+import type { GlobalModelConfig } from '../config/modelConfig.js';
 import type { ProjectStore } from '../projects/types.js';
 import {
   type ProjectSourceMaterial,
+  readPreparedProjectPdfText,
   readProjectSourceMaterial,
 } from '../services/projectSourceText.js';
 import type { CoursePreparationState } from './courseGenerationWorkflowContract.js';
 import { failPermanently } from './retryPolicy.js';
+import type { DeepReadonly } from './types.js';
 
 type CourseSourceDescriptor = CoursePreparationState['context']['sources'][number];
 type CourseSourceState = Pick<CoursePreparationState, 'context' | 'projectRevision' | 'request'>;
@@ -69,8 +72,13 @@ export const formatCourseSourceMaterials = (
       const outline = formatOutline(material);
       const excerpt = sampleSourceText(material.text, baseTextChars + (index < extraChars ? 1 : 0));
       const outlineBlock = outline ? `<outline>\n${outline}\n</outline>\n` : '';
+      const transcribedPages =
+        material.pdf?.pages.filter(page => page.provenance).map(page => page.pageNumber) || [];
+      const provenanceBlock = transcribedPages.length
+        ? `<source-provenance>${JSON.stringify({ kind: 'vision-transcription', transcribedPages })}</source-provenance>\n`
+        : '';
       return `<source id="${material.descriptor.id}" name="${material.descriptor.name}">
-${outlineBlock}<excerpt>
+${outlineBlock}${provenanceBlock}<excerpt>
 ${excerpt}
 </excerpt>
 </source>`;
@@ -90,7 +98,11 @@ export const createCourseSourceMaterialReader =
     readonly loadProjectWithRevision: ProjectStore['loadProjectWithRevision'];
     readonly readSourceMaterial?: ReadSourceMaterial;
   }) =>
-  async (state: CourseSourceState, signal?: AbortSignal): Promise<CourseSourceMaterial[]> => {
+  async (
+    state: CourseSourceState,
+    signal?: AbortSignal,
+    _models?: DeepReadonly<GlobalModelConfig>
+  ): Promise<CourseSourceMaterial[]> => {
     signal?.throwIfAborted();
     const project = await loadProjectWithRevision(state.request.userId, state.request.projectId);
     if (project?.revision !== state.projectRevision) {
@@ -100,7 +112,9 @@ export const createCourseSourceMaterialReader =
       });
     }
 
-    const storedSources = await loadProjectSources(state.request.userId, state.request.projectId);
+    const storedSources = await loadProjectSources(state.request.userId, state.request.projectId, {
+      includeData: false,
+    });
     const storedById = new Map(storedSources.map(source => [source.ref.id, source]));
     const materials: CourseSourceMaterial[] = [];
     for (const descriptor of state.context.sources) {
@@ -112,21 +126,30 @@ export const createCourseSourceMaterialReader =
           message: 'The course source changed after generation started.',
         });
       }
-      const file = await loadProjectSourceById(
-        state.request.userId,
-        state.request.projectId,
-        descriptor.id
+      const pdf = readPreparedProjectPdfText(
+        project.snapshot.source,
+        descriptor.id,
+        descriptor.hash
       );
-      const currentProject = await loadProjectWithRevision(
-        state.request.userId,
-        state.request.projectId
-      );
-      if (!file || currentProject?.revision !== state.projectRevision)
-        throw failPermanently({
-          code: 'course_source_changed',
-          message: 'The course source changed after generation started.',
-        });
-      const material = await readSourceMaterial(file);
+      let material: ProjectSourceMaterial;
+      if (pdf) material = { pdf, text: pdf.text };
+      else {
+        const file = await loadProjectSourceById(
+          state.request.userId,
+          state.request.projectId,
+          descriptor.id
+        );
+        const currentProject = await loadProjectWithRevision(
+          state.request.userId,
+          state.request.projectId
+        );
+        if (!file || currentProject?.revision !== state.projectRevision)
+          throw failPermanently({
+            code: 'course_source_changed',
+            message: 'The course source changed after generation started.',
+          });
+        material = await readSourceMaterial(file);
+      }
       signal?.throwIfAborted();
       if (!material.text.trim()) {
         throw failPermanently({
@@ -138,3 +161,5 @@ export const createCourseSourceMaterialReader =
     }
     return materials;
   };
+
+export type ReadCourseSourceMaterials = ReturnType<typeof createCourseSourceMaterialReader>;
