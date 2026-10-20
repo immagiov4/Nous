@@ -101,6 +101,40 @@ if (import.meta.main) {
     lesson.generatedVisuals = [
       {
         id: 'scene',
+        kind: 'mermaid',
+        title: 'Cold Mermaid module contract',
+        createdAt: new Date(0).toISOString(),
+        code: 'flowchart LR\nA[First] --> B[Second]',
+      },
+      {
+        id: 'script-after-diagram',
+        kind: 'html',
+        title: 'Clock after a cold diagram',
+        createdAt: new Date(0).toISOString(),
+        code: `<p id="initial"></p><p id="tick"></p><script>
+          document.getElementById('initial').textContent = [Date.now(), performance.now(), Math.random()].join(' / ');
+          const tick = () => { document.getElementById('tick').textContent = performance.now(); requestAnimationFrame(tick); };
+          requestAnimationFrame(tick);
+        </script>`,
+      },
+    ];
+    await writeFile(input, JSON.stringify(snapshot));
+    const diagram = await runAtlas(args);
+    const repeatedDiagram = await runAtlas(args);
+    assert.equal(diagram.report.status, 'passed', JSON.stringify(diagram.report.counts));
+    assert.equal(repeatedDiagram.report.status, 'passed');
+    for (const tile of diagram.report.tiles) {
+      assert(!tile.incomplete, tile.id);
+      assert.deepEqual(
+        await readFile(join(diagram.directory, tile.image)),
+        await readFile(join(repeatedDiagram.directory, tile.image)),
+        `Cold Mermaid: ${tile.id}`
+      );
+    }
+
+    lesson.generatedVisuals = [
+      {
+        id: 'scene',
         kind: 'html',
         title: 'Script determinism contract',
         createdAt: new Date(0).toISOString(),
@@ -281,6 +315,8 @@ if (import.meta.main) {
       JSON.stringify({
         positive: positive.directory,
         repeated: settled.directory,
+        coldMermaid: diagram.directory,
+        repeatedMermaid: repeatedDiagram.directory,
         clipped: negative.directory,
         missingMath: missingMath.directory,
         scripted: scripted.directory,

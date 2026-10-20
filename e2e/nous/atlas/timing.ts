@@ -16,6 +16,14 @@ export function resetAtlasRandom() {
   };
 }
 
+/** Frame creation must not expose the native performance clock before its first controlled tick. */
+export function installAtlasPerformanceClock() {
+  Object.defineProperties(performance, {
+    now: { configurable: true, value: () => Date.now() },
+    timeOrigin: { configurable: true, value: 0 },
+  });
+}
+
 export async function installAtlasClock(page: Page) {
   await page.clock.install({ time: new Date(CLOCK_START) });
   await page.clock.pauseAt(new Date(CLOCK_EPOCH));

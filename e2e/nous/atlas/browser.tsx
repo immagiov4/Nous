@@ -15,6 +15,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { type AtlasFinding, captionFindings, POSITIONS } from './checks';
 import type { AtlasRendered, AtlasSample } from './contracts';
+import { waitForAtlasStageReady } from './dom';
 import { speechMathFindings } from './speech';
 import '@atlas-web/styles/app.css';
 import '@atlas-katex.css';
@@ -139,4 +140,4 @@ async function render(sample: AtlasSample): Promise<AtlasRendered> {
   };
 }
 
-window.playbackAtlas = { prepare, render };
+window.playbackAtlas = { prepare, render, ready: waitForAtlasStageReady };

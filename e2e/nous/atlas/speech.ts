@@ -27,9 +27,11 @@ function omittedMath(input: {
   )
     return [];
   // Source block and UTF-16 offset define the authored reading order.
-  const before = spans.findLast(
-    mapped => (mapped.sourceBlockIndex - sourceBlockIndex || mapped.source.end - range.start) <= 0
-  );
+  const before = [...spans]
+    .reverse()
+    .find(
+      mapped => (mapped.sourceBlockIndex - sourceBlockIndex || mapped.source.end - range.start) <= 0
+    );
   const after = spans.find(
     mapped => (mapped.sourceBlockIndex - sourceBlockIndex || mapped.source.start - range.end) >= 0
   );

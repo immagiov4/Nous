@@ -173,3 +173,22 @@ export function atlasStageReady() {
   }
   return Array.from(root.querySelectorAll('img')).every(image => image.complete);
 }
+
+/** Resource and DOM events remain live while the sampled animation clock is paused. */
+export function waitForAtlasStageReady(): Promise<void> {
+  if (atlasStageReady()) return Promise.resolve();
+  return new Promise(resolve => {
+    const finish = () => {
+      if (!atlasStageReady()) return;
+      observer.disconnect();
+      document.removeEventListener('load', finish, true);
+      document.removeEventListener('error', finish, true);
+      resolve();
+    };
+    const observer = new MutationObserver(finish);
+    observer.observe(document, { childList: true, subtree: true, attributes: true });
+    document.addEventListener('load', finish, true);
+    document.addEventListener('error', finish, true);
+    finish();
+  });
+}

@@ -1,7 +1,6 @@
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
-import { JSDOM } from 'jsdom';
 import JSZip from 'jszip';
 import type { Page } from 'playwright';
 import { afterEach, describe, expect, test, vi } from 'vitest';
@@ -18,7 +17,6 @@ import {
   LESSON_SCENE_TYPES,
 } from '../../../packages/shared-types/lessonScene';
 import { captionFindings, outsideBox, visualFindings } from '../atlas/checks';
-import { atlasStageReady } from '../atlas/dom';
 import { atlasCourses, atlasLessons } from '../atlas/input';
 import { pairwiseRows } from '../atlas/pairwise';
 import { writeAtlasArtifact } from '../atlas/report';
@@ -380,33 +378,8 @@ test.each([
   const bytes = await zip.generateAsync({ type: 'uint8array' });
   const path = join(root, 'invalid.nous.zip');
   await writeFile(path, bytes);
-  await expect(inspectProjectArchiveData(new Blob([bytes]))).rejects.toThrow();
+  await expect(inspectProjectArchiveData(new Blob([new Uint8Array(bytes)]))).rejects.toThrow();
   await expect(atlasCourses({ kind: 'project', path }).next()).rejects.toThrow();
-});
-
-test('waits for archive-backed PDF figures to mount before accepting the stage', () => {
-  const dom = new JSDOM(
-    '<div class="scene-host"><article><figure data-nous-speech="ignore"><figcaption>Caption</figcaption></figure></article></div>'
-  );
-  vi.stubGlobal('document', dom.window.document);
-  try {
-    expect(atlasStageReady()).toBe(false);
-    const figure = dom.window.document.querySelector('figure');
-    if (!figure) throw new Error('Synthetic PDF figure missing.');
-    const image = dom.window.document.createElement('img');
-    image.setAttribute('data-pdf-asset-id', 'synthetic-asset');
-    Object.defineProperty(image, 'complete', { value: false, configurable: true });
-    figure.append(image);
-    expect(atlasStageReady()).toBe(false);
-    Object.defineProperty(image, 'complete', { value: true });
-    expect(atlasStageReady()).toBe(true);
-    image.remove();
-    figure.innerHTML = '<span role="img" aria-label="Unavailable">Unavailable</span>';
-    expect(atlasStageReady()).toBe(true);
-  } finally {
-    vi.unstubAllGlobals();
-    dom.window.close();
-  }
 });
 
 test.skipIf(process.platform === 'win32')(

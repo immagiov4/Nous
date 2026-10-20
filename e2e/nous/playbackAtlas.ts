@@ -19,7 +19,7 @@ import {
   visualFindings,
 } from './atlas/checks';
 import type { AtlasSample } from './atlas/contracts';
-import { atlasStageReady, inspectAtlasDom, inspectAtlasGeometry } from './atlas/dom';
+import { inspectAtlasDom, inspectAtlasGeometry } from './atlas/dom';
 import { boundedRender } from './atlas/execution';
 import { type AtlasCourse, type AtlasLesson, atlasCourses, atlasLessons } from './atlas/input';
 import {
@@ -40,6 +40,7 @@ import { speechPunctuationTokens } from './atlas/speech';
 import {
   advanceAtlasLayout,
   installAtlasClock,
+  installAtlasPerformanceClock,
   resetAtlasRandom,
   resetAtlasSample,
 } from './atlas/timing';
@@ -136,19 +137,21 @@ async function settleAtlasDocument(timeSeconds: number) {
 }
 
 async function settleStage(page: Page, timeSeconds: number) {
-  await page.waitForFunction(atlasStageReady);
+  // Lazy diagram modules must load before their controlled animation callbacks can run.
+  await page.waitForLoadState('networkidle', { timeout: 0 });
+  await advanceAtlasLayout(page, timeSeconds);
+  await page.evaluate(() => window.playbackAtlas.ready());
   for (const frame of page.frames()) {
     await frame.waitForLoadState('load');
     await frame.evaluate(settleAtlasDocument, timeSeconds);
   }
-  await advanceAtlasLayout(page, timeSeconds);
+  await advanceAtlasLayout(page);
 }
 
 async function captureSample(page: Page, sample: AtlasSample) {
   const started = performance.now();
   await resetAtlasSample(page);
   const prepared = await page.evaluate(input => window.playbackAtlas.render(input), sample);
-  await advanceAtlasLayout(page);
   await settleStage(page, prepared.time);
   const dom = await page.evaluate(inspectAtlasDom, '.scene-host');
   const frameGeometry: { minFontPx: number | null; scale: number | null }[] = [];
@@ -396,6 +399,7 @@ async function captureCourse(input: {
           else await route.abort('blockedbyclient');
         });
         await context.addInitScript(resetAtlasRandom);
+        await context.addInitScript(installAtlasPerformanceClock);
         page = await context.newPage();
         await installAtlasClock(page);
         await installProbes(page);
