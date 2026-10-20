@@ -659,3 +659,44 @@ test('keeps the explanation of mathematical symbols in spoken headings', () => {
   ]);
   expectExactSpans(block, markdown);
 });
+
+test('projects visual references inside multiline annotations with original source offsets', () => {
+  const markdown =
+    '<mark data-nous-annotation-id="note-🌱">\nSee {{VISUAL_EXAMPLE:diagram-1}}.\n</mark>';
+  const projection = projectLessonPlayback([markdownBlock(markdown)]);
+  expect(projection.blocks[0].speech.trim()).toBe('See .');
+  expect(projection.blocks[0].visuals).toEqual([
+    { kind: 'generated-visual', visualId: 'diagram-1' },
+  ]);
+  expect([...projection.referencedVisualIds]).toEqual(['diagram-1']);
+  expectExactSpans(projection.blocks[0], markdown);
+  const literal = projectLessonPlayback([
+    markdownBlock('<mark>\nUse `{{VISUAL_EXAMPLE:literal}}`.\n</mark>'),
+  ]);
+  expect([...literal.referencedVisualIds]).toEqual([]);
+});
+
+test('projects table visual references as typed visuals while retaining the table structure', () => {
+  const markdown = 'Introduction.\n\n| Diagram |\n| --- |\n| {{VISUAL_EXAMPLE:diagram-1}} |';
+  const [block] = segmentLessonPlayback([markdownBlock(markdown)]);
+  expect(block.speech).toBe('Introduction.');
+  expect(block.visuals).toEqual([
+    { kind: 'markdown', markdown: '| Diagram |\n| --- |\n|  |' },
+    { kind: 'generated-visual', visualId: 'diagram-1' },
+  ]);
+  expectExactSpans(block, markdown);
+});
+
+test.each([
+  'Read',
+  '<mark data-nous-annotation-id="note">Read</mark>',
+])('keeps typed visual references beside contextual formulas after %s', introduction => {
+  const markdown = `${introduction} $x$ with {{VISUAL_EXAMPLE:diagram-1|title=**Diagram**}}.`;
+  const [block] = segmentLessonPlayback([markdownBlock(markdown)]);
+  expect(block.speech).toBe('Read  with .');
+  expect(block.visuals).toEqual([
+    { kind: 'markdown', markdown: 'Read $x$ with .' },
+    { kind: 'generated-visual', visualId: 'diagram-1' },
+  ]);
+  expectExactSpans(block, markdown);
+});

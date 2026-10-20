@@ -51,7 +51,9 @@ describe('playback persistence and assets', () => {
     const key = buildLessonPlaybackKey(section);
     const blocks = readLessonPlayback(section).blocks;
     expect(blocks[0].speech).toBe('Introduction.');
-    expect(blocks[0].visuals).toHaveLength(1);
+    expect(blocks[0].visuals.filter(visual => visual.kind === 'generated-visual')).toEqual([
+      { kind: 'generated-visual', visualId: 'old-visual' },
+    ]);
     section.generatedVisuals = [
       { ...section.generatedVisuals[0], code: '<svg><title>Updated</title></svg>' },
     ];
