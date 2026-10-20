@@ -9,7 +9,7 @@ vi.mock('../../src/config/modelConfig.js', async importOriginal => ({
   getGlobalModelConfig: () => fixture.modelConfig,
 }));
 
-// Captured on e0727a8 before schema fingerprint reuse; covers every historical hash mode.
+// The fixture identifies the main revision defining these current and historical registry outputs.
 const registry = createProductionRegistry();
 const sha256 = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
