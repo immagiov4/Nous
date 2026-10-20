@@ -6,7 +6,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { deserialize } from 'node:v8';
 
 import { buildSha256HexDigest } from '../utils/hash.js';
 import { decodePdfDataUrl } from '../utils/pdfDataUrl.js';
@@ -294,7 +293,7 @@ const runPdfTextFallbackProcess = (
         }
         let result: PdfTextProcessResult;
         try {
-          result = deserialize(Buffer.concat(stdoutChunks)) as PdfTextProcessResult;
+          result = JSON.parse(Buffer.concat(stdoutChunks).toString('utf8')) as PdfTextProcessResult;
         } catch {
           reject(new Error('PDF fallback process returned an invalid response.'));
           return;

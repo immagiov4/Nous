@@ -1,228 +1,34 @@
 ---
-title: "Multimedia: TTS, STT & Generated Visuals"
+title: "Narration and synchronized playback"
 wiki_page_id: "p-multimedia"
 ---
 
-<details>
-<summary>Relevant source files</summary>
+[Up one level](../05-section-frontend/01-p-reader-shell.md)
 
-The following files were used as context for generating this wiki page:
+# Narration and synchronized playback
 
-- [apps/web/hooks/reader/useTtsPlayer.ts](../../../apps/web/hooks/reader/useTtsPlayer.ts)
-- [apps/web/utils/reader/readingText.ts](../../../apps/web/utils/reader/readingText.ts)
-- [packages/shared-types/lessonVisualContracts.ts](../../../packages/shared-types/lessonVisualContracts.ts)
-- [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
-- [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts)
-- [apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx](../../../apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx)
-- [apps/backend/tests/workflows/lessonVisualWorkflow.test.ts](../../../apps/backend/tests/workflows/lessonVisualWorkflow.test.ts)
-</details>
+Narration and a rendered lesson do not use identical text. A formula is displayed as symbols but spoken as words; the player needs a connection between those representations to highlight what the voice is explaining. Nous prepares each saved lesson block with audio, visual references and timing cues, then lets the browser play that prepared result.
 
-# Multimedia: TTS, STT & Generated Visuals
+## Project authored content into spoken blocks
 
-The multimedia system in Nous provides an immersive learning experience by integrating Text-to-Speech (TTS) capabilities and dynamically generated pedagogical visuals. The system is designed to handle complex content transformation, converting raw lesson markdown into speech-optimized text and structured visual artifacts such as SVGs, HTML simulations, and Mermaid diagrams.
+Imported content can embed stored visual references in prose, annotation wrappers, tables or formula cards. The shared projection attaches the referenced visual to its spoken passage and includes that visual content in playback identity, while leaving the authored source and text offsets intact. Reference syntax inside authored code stays literal. Explicit Mermaid code blocks become diagram visuals; generated lesson prose uses the scene pipeline.
 
-The scope of this module includes content preprocessing (whitespace collapse, link normalization, and removal of non-speech elements), real-time audio playback management with crossfading, and a robust workflow for generating and rendering multi-format visual aids. These components work together to ensure that lessons are both accessible through audio and enhanced by relevant, context-aware imagery.
+A text-labelled or unlabelled fence can contain either an explanation or code. Structured narration preparation classifies every eligible occurrence before audio work, so explanatory prose receives narration and a wrapping card while logs, diagrams and code retain fenced visuals. Exact occurrence coverage is validated, and saved decisions are reused across voices; audio lacking a required decision needs preparation again. The [shared projection](../../../packages/shared-types/lessonPlayback.ts) and [narration preparation](../../../apps/backend/src/services/lessonPlayback/playbackSpokenMath.ts) own that distinction. Lesson writing and code-structure review require mathematical explanations outside code fences and reject incomplete classifications or remaining prose for correction.
 
-## Text-to-Speech (TTS) Architecture
+## Prepare the explanation being spoken
 
-The TTS system centers around the `useTtsPlayer` hook, which manages the lifecycle of audio generation and playback. It utilizes a chunk-based approach to handle long lesson content, ensuring low latency and smooth transitions between audio segments.
+The [block preparation service](../../../apps/backend/src/services/lessonPlayback/prepareLessonPlaybackBlock.ts) validates speech and scene compatibility and prepares spoken mathematics where needed. Formula spans connect the resulting speech to the symbols displayed in the lesson, as shown in the README illustration.
 
-### Model, voices, and audio format
+Visual preparation uses the block's existing scene references or requests a scene grounded in that block's speech. Using general lesson metadata here could illustrate a different passage. Motion cues connect explanation points to scene elements; when several scenes would make a motion target ambiguous, the scenes remain visible without that target.
 
-The default model is `google/gemini-3.8-flash-lite-tts` through OpenRouter's `/audio/speech` endpoint. The reader offers Zephyr, Puck, Charon, Kore, and Fenrir, with Zephyr as its default. Saved reader preferences outside that catalog reset to Zephyr. The backend selects the model from the global configuration and resolves the requested voice before contacting OpenRouter.
+Audio and visual preparation run concurrently. Both operations settle before a failure propagates, so an attempted retry does not overlap unfinished paid work from that attempt. The [playback workflow](../../../apps/backend/src/workflows/lessonPlaybackWorkflow.ts) keeps this provider preparation separate from persistence.
 
-During the Grok-to-Gemini transition, the speech service converts legacy Grok voices and `coral` to Zephyr for Gemini. For a persisted Grok model, it converts the reader's Gemini voices and `coral` to Ara. Other provider-specific voice values pass through. This normalization covers both reader requests and the configured administrative voice.
+## Adopt results only for the matching content
 
-Gemini requests use `response_format: pcm`. The service reads the PCM media type and its `rate` and `channels` parameters independently, then wraps the 16-bit samples in a WAV header. The API returns `audio/wav`, which the reader preserves when creating its audio blob. Other configured models request MP3 and retain the provider's content type and bytes. Gemini catalog metadata always carries the Gemini model ID, including when an environment variable selects another default model.
+Preparation identifies the project incarnation, section, lesson content key, block, voice and speech model. These identities let persistence attach the audio and cues to the content that requested them. Otherwise, a changed lesson could receive a valid audio file that narrates its earlier version. [Asset adoption](../04-section-data/02-p-asset-management.md) owns the stored file references.
 
-Fresh databases receive Gemini and Zephyr from the global configuration seed. The seed uses `ON CONFLICT DO NOTHING`, so existing saved model choices remain authoritative. For production deployment, back up persistent state, deploy the compatible backend, then update the saved model and voice to Gemini and Zephyr together and align `TTS_VOICE`. Verify that the deployed TTS route returns a playable WAV response.
+Speech synthesis uses the backend's [OpenRouter speech client](../../../apps/backend/src/services/ttsClient.ts), which resolves model-specific voices and normalizes supported responses. A Codex text connection therefore still needs OpenRouter for narration.
 
-Sources: [speech service](../../../apps/backend/src/services/ttsClient.ts), [TTS route](../../../apps/backend/src/routes/tts.ts), [global configuration seed](../../../supabase/migrations/20260814203920_restore_global_model_config_seed.sql), [reader voices](../../../apps/web/services/audio/voiceProfile.ts).
+With those results ready, the [reader](../05-section-frontend/01-p-reader-shell.md) owns seeking, speed and presentation. Reduced-motion preferences retain the visual while suppressing motion, leaving the explanation available under a different presentation preference.
 
-### Playback block preparation
-
-`prepareLessonPlaybackBlock` prepares one `LessonPlaybackBlock` and returns `prepared` plus MP3 bytes, duration, and the model and voice actually used by TTS. The existing TTS text limit is checked before either audio or visual provider work begins, including when visuals are reused. Gemini PCM16 WAV is downmixed to mono and encoded at 64 kb/s with `@breezystack/lamejs` 1.2.7; duration comes from the PCM sample count. Provider MP3 responses are decoded with the prebuilt WebAssembly package `mpg123-decoder` 1.0.3, downmixed to mono, and re-encoded through the same encoder and bitrate constants as WAV responses. Their duration is measured from the re-encoded MPEG Layer III frames. Cancellation reaches the TTS request.
-
-A block without visuals receives a validated lesson scene generated from its complete speech without a visual plan. When a scene is needed, speech exceeding the generator's existing text limit fails explicitly rather than being marked prepared from an excerpt. Existing scenes, including resolved `generated-visual` references, are reused; visuals without scene data receive audio and an empty motion list. Multiple available scenes remain static because the block's motion events have a single target namespace.
-
-Inline formulas inside spoken paragraphs or headings retain zero-length speech spans with their exact delimited `math` source. Before an unprepared block starts visual or audio work, `playbackPreparation` asks the configured model for `spokenMath: [{formula, spoken}]`, one entry per occurrence in source order. Validation requires exact formula coverage and nonblank pronunciations, including repeated occurrences; malformed output uses the existing preparation attempt count and fails explicitly on exhaustion. The model authors the pronunciations under prompt guidance for narration-language letter names, numbers, subscripts, superscripts, parenthesized grouping and parameter indices. Italian letter-name examples apply to Italian narration; other languages use their own conventions. Runtime validation checks occurrence coverage and nonblank text rather than pronunciation quality. A durable `spoken-math` provider result is reused after later provider failures.
-
-`prepared.spokenMath` stores those pronunciations. `resolvePlaybackNarration` inserts them into the source projection and shifts speech offsets while preserving original Markdown ranges; TTS, visual/motion anchors, captions and sentence selection use that same resolved narration. Captions display the spoken words, while the visual retains authored KaTeX. A spoken formula maps back to the entire original source formula for notes, rather than treating speech and LaTeX as equal-length strings. The source projection and lesson key remain stable.
-
-Existing prepared blocks retain their scenes, motion and recordings, including when another voice is requested. `hasOmittedPlaybackMath` deterministically identifies prepared audio whose current source projection contains inline formulas without saved pronunciations; detection performs no regeneration. Historical workflow definitions keep their previous schemas and pronunciation capability. Updating already prepared blocks is a separate product decision. Portable project/library backups deliberately omit playback preparation and audio, so a backup inventory cannot establish how many such recordings exist in the operational store.
-
-The `playbackPreparation` model uses the laboratory motion prompt and a Zod-derived output schema. `motionTargets` in the shared playback contract supplies the same element IDs to preparation and the future player. Validation requires exact, unique, non-whitespace speech quotations with non-overlapping ranges, known targets, complete focus coverage or none, and complete single-target reveals only for checklist, steps, hypothesis, timeline, and parts scenes. List forms require reveals; empty events are valid. Sequence scenes and scenes without targets remain static, as in the laboratory. Single-target scenes allow only reveal when their form supports it; other single-target forms remain static. Scene generation and motion planning each allow up to three attempts including the initial request, feeding validation problems into the next request; validation exhaustion is permanent, while operational failures propagate to the workflow retry policy. The returned events contain quotes rather than timestamps, and the caller supplies the eventual audio asset reference. When `block.prepared` already exists, preparation reuses its scene and motion while generating audio for the requested voice.
-
-The shared segmenter uses the existing CommonMark/GFM parser for heading, code and table ranges, including ATX and Setext headings, nested containers and tables without leading pipes. Parsed reference-link definitions and thematic breaks are omitted from speech and visuals, while linked text remains spoken. Adjacent paragraphs, lists and quotations keep separate speech boundaries. Inline images, canonical PDF image placeholders and explicitly delimited math attach as visuals; parsed inline code protects literal syntax, including escaped backtick runs and multiline spans. Playback and the reader share the same math delimiter recognizer for `$...$`, `$$...$$`, `\(...\)` and `\[...\]`. Internal lines of an inline visual, including blank lines inside delimited display math, stay within the surrounding spoken passage. Heading boundaries contained in a visual do not turn surrounding prose into a heading. Parser blocks fully contained in recognized math are excluded from outer segmentation, so later code and tables remain visual and later definitions and thematic breaks remain omitted. A math delimiter inside an external protected block cannot close an earlier formula. Genuine paragraph boundaries outside the visual still create separate speech blocks. Spoken spans retain original UTF-16 source offsets.
-
-Sources: [block preparation](../../../apps/backend/src/services/lessonPlayback/prepareLessonPlaybackBlock.ts), [audio preparation](../../../apps/backend/src/services/lessonPlayback/playbackAudio.ts), [motion planning](../../../apps/backend/src/services/lessonPlayback/playbackMotion.ts), [shared playback contract](../../../packages/shared-types/lessonPlayback.ts).
-
-### Durable playback storage and API
-
-Each lesson section can store `playback: LessonPlayback`. `lessonKey` hashes the canonical content blocks, their referenced generated visuals, the lesson title and description, and `lastGenerationRunId`; legacy lessons use their Markdown as one content block. Referenced historical visuals without a `render` wrapper retain their original representation in the key. Notes and project revisions leave the key unchanged. Asset references contribute their content hashes rather than project-local IDs. Playback is excluded from lesson-generation input fingerprints and rollback snapshots.
-
-| Request | Result |
-| --- | --- |
-| `GET /api/projects/:projectId/sections/:sectionId/playback` | `{ lessonKey, blocks }`, with current segmentation merged with saved preparation and audio for that key. Reading never starts generation. |
-| `POST /api/projects/:projectId/sections/:sectionId/playback/blocks/:blockId/prepare` with `{ lessonKey, voice }` | `200 { block, voice, model }` when scene/motion preparation and audio for the resolved voice and configured TTS model are already saved; otherwise `202 { runId, blockId, voice }`. The ready response identifies the exact audio profile to play. A stale key returns `409`; another user's project or a missing target returns `404`. |
-
-Both routes use the authenticated owner's project and return `Cache-Control: private, no-store`. Preparation accepts only IDs from the configured TTS voice profiles, the same catalog offered by the audio player. The existing workflow-run route reports progress, and the existing project-asset route downloads the MP3. `lessonPlaybackClient.ts` exposes the two requests to the player. Concurrent requests share one active run per project incarnation, section and lesson key, including requests for different blocks or voices. The `202` response identifies the block and requested voice of that active run; after that run finishes, the player must read playback again and repeat its own request if necessary.
-
-`prepare-lesson-playback-block` rechecks the lesson key and project incarnation before calling `prepareLessonPlaybackBlock`. It records scene, motion and audio provider results separately, so retries reuse successful parts, then stages the MP3 under the preparation node. Existing scene and motion data are reused across voice changes. The TTS model is fixed when the run starts. The workflow reuses the visual workflow's attempt count and timeout. Its final checkpoint adopts the audio, checks the locked project's lesson key and incarnation, merges only the prepared block into the latest section, and publishes the project revision in the same transaction. Concurrent notes, other blocks and audio for other voice/model pairs are preserved.
-
-Lesson generation explicitly clears playback in its content replacement patch. `commitProjectRevision` also invalidates playback when another save changes the lesson inputs, including a visual retry, while ordinary saves preserve the server's prepared blocks even if the client carries older playback. Project input validation checks ordered source/speech ranges, the shared asset-reference contract with canonical `audio/mpeg` for playback audio, and the complete stored scene contract without adding custom checks to durable schemas. Asset reconciliation includes every saved audio reference; removed audio enters the existing deletion queue, and abandoned staged assets follow terminal-run cleanup. Project backups and library exports omit playback and its audio because they can be prepared again. Older archives still import successfully after their playback and audio are validated and discarded. As with visual generation, provider-result records hold an intermediate base64 copy of paid media until the preparation node completes, fails or is cancelled; the existing database trigger then clears that copy. A process failure between a provider response and recording its result can still repeat that provider call.
-
-Sources: [playback identity and invalidation](../../../apps/backend/src/projects/lessonPlayback.ts), [workflow](../../../apps/backend/src/workflows/lessonPlaybackWorkflow.ts), [transactional save](../../../apps/backend/src/workflows/lessonPlaybackPersistence.ts), [API](../../../apps/backend/src/routes/lessonPlayback.ts), [client](../../../apps/web/services/openrouter/lessonPlaybackClient.ts), [asset collection and remapping](../../../packages/shared-types/projectBackupAssets.ts).
-
-Playback segmentation omits parsed inline `mark` annotation wrappers from speech while preserving the annotated words and their original Markdown offsets. Scene evidence, motion anchors, captions and audio therefore use the same visible text. Literal markup in inline code, escaped text and unsupported tags keeps its parsed Markdown meaning. Saved scenes and recordings are reused only when the stored speech still matches the current projection; the source lesson and annotations remain intact. Annotated content uses a key containing projected speech and Markdown with parsed annotation wrappers removed, so the first annotation invalidates legacy preparation once; subsequent annotation-id or range changes that preserve visible content keep that key. Unannotated lessons retain their earlier keys, and removing the last wrapper returns to the unannotated key. Existing workflow staleness checks reject old provider-effect resumes, while the commit boundary also requires equal speech before attaching a checkpointed result.
-
-When a spoken Markdown chunk contains math, its visual retains the complete authored passage, including the formulas and their definitions, as one Markdown card. Parsed annotation wrappers are removed from that card. The existing Markdown parser identifies syntax newly exposed by unwrapping; punctuation that belonged to literal source text is encoded on the card, preserving literal markers while retaining authored lists, headings and quotations. This prevents inline symbols such as a conditioning bar from becoming separate cards on the player's evenly divided visual timeline. Standalone visual-only formulas still attach to the preceding spoken block. Speech and its source spans remain unchanged, and playback reads recompute the visual projection while preserving matching saved audio. Caption tokenization projects visible text before finding words, so an annotation boundary inside a word does not insert a space; motion anchors retain the complete word's speech range.
-
-### Content Preprocessing for Speech
-Before text is sent to the TTS provider, it undergoes rigorous cleaning to remove visual-only elements and formatting artifacts. This is handled primarily by `prepareMarkdownForSpeech` in `apps/web/utils/reader/readingText.ts`.
-
-*  **Placeholder Removal**: Strips tokens for PDF images, visual examples, and YouTube clips.
-*  **Markdown Normalization**: Removes formatting markers (`*`, `_`, `~`), list markers, and converts links to their text labels.
-*  **HTML Stripping**: Drops non-speech figures and images, removes renderer-hidden comments and declarations, and strips supported `mark` tags while keeping their visible text. Unsupported tags remain literal because the lesson renderer escapes and displays them.
-*  **Whitespace Collapsing**: Collapses multiple newlines and tabs into a clean, speech-friendly format.
-
-Sources: `[apps/web/utils/reader/readingText.ts:316-339](../../../apps/web/utils/reader/readingText.ts#L316-L339)`, `[apps/web/hooks/reader/useTtsPlayer.ts:187-236](../../../apps/web/hooks/reader/useTtsPlayer.ts#L187-L236)`
-
-### Playback Management & Crossfading
-The player splits content into chunks of approximately 580 characters to optimize API calls and memory usage. To prevent audible gaps between these chunks, the system implements a crossfading mechanism.
-
-```mermaid
-flowchart TD
-    Start[Start Playback] --> Chunk1[Load Chunk N]
-    Chunk1 --> Play1[Play Audio N]
-    Play1 --> Check{Near End?}
-    Check -- No --> Play1
-    Check -- Yes --> LoadNext[Preload Chunk N+1]
-    LoadNext --> Fade[Crossfade: Fade Out N / Fade In N+1]
-    Fade --> Promote[Chunk N+1 becomes Current]
-    Promote --> Play1
-```
-
-The crossfade duration is set to a precise `0.035` seconds, triggered when the current chunk is nearly finished.
-
-Sources: `[apps/web/hooks/reader/useTtsPlayer.ts:13-17](../../../apps/web/hooks/reader/useTtsPlayer.ts#L13-L17)`, `[apps/web/hooks/reader/useTtsPlayer.ts:1012-1110](../../../apps/web/hooks/reader/useTtsPlayer.ts#L1012-L1110)`
-
-## Pedagogical Visuals Generation
-
-The project employs a structured workflow to generate visuals that complement the text. These visuals are not decorative; they are intended to facilitate the understanding of complex concepts that prose alone cannot fully explain.
-
-### Visual Types and Planning Rules
-The system supports multiple visual formats, each selected based on the pedagogical goal.
-
-| Visual Type | Description |
-| :--- | :--- |
-| `illustrative_image` | Raster illustration for physical reality, textures, or anatomy. |
-| `lesson_scene` | Abstract structures, relations, quantities, and diagrams drawn from the scene catalog. |
-| `interactive_html` | HTML/JS labs for hands-on exploration; charts that need interaction belong here. |
-
-New planning chooses only these three types (`PLANNABLE_LESSON_VISUAL_TYPES`). Stored plans may still carry the legacy `flowchart_svg`, `structural_svg`, `chart_html`, `mermaid_erd`, and `mermaid_class` types; current retries render them as lesson scenes, while retries resumed on pre-scene workflow definitions keep the legacy renderer. Visuals already stored as `svg` or `mermaid` remain readable; current definitions never produce them again.
-
-Sources: [packages/shared-types/lessonGenerationPolicy.ts:96-117](../../../packages/shared-types/lessonGenerationPolicy.ts#L96-L117), [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts:419-454](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts#L419-L454)
-
-### Generation Logic & Prompts
-The generation is governed by strict planning rules defined in `LESSON_VISUAL_PLANNING_RULES`. Key constraints include:
-*  **Limit**: Maximum of 3 visuals per lesson.
-*  **Relevance**: Every visual must teach something new; no decorative variations.
-*  **Language**: Visuals must use the same language as the lesson text.
-*  **Anchoring**: Visuals must be anchored to specific headings (`anchorHeading`) within the markdown.
-
-Sources: [packages/shared-types/lessonVisualContracts.ts:153-164](../../../packages/shared-types/lessonVisualContracts.ts#L153-L164)
-
-### Lesson Scenes
-
-A lesson scene is a validated JSON description of one visual, built from a fixed catalog of 37 forms, including `proportional` and `guided-path` animations. The model chooses the form and fills content; the reader components own geometry and style, so stored scenes follow later design changes without regeneration.
-
-1. **Contract.** `packages/shared-types/lessonScene.ts` owns the catalog, the scene type, and `findLessonSceneProblems`. Validation checks each form's structure. With lesson text, it also grounds quotations, static numeric values, proportional bounds and unit amounts, non-versus relations, and diagram connections. Complete animation anchors are checked against both the lesson text and any stored `narration`; supplied narration must quote the lesson exactly. Source-less validation checks the same stored narration, so a generated scene remains valid when loaded. Persisted visuals use the `scene` kind of `ProjectVisual`.
-Playback scene generation receives only the spoken block as evidence, with empty lesson title and description fields. Lesson-wide metadata can describe other passages and must not become a support quotation for the current block. Ordinary lesson visual generation retains its lesson context. The draft support quotation compares source and quotation with whitespace collapsed, so line wrapping does not reject identical words and punctuation. Stored scene text and offset-based animation anchors retain their original contracts.
-
-2. **Generation.** The `render-scene` step of the lesson visual workflow calls `generateLessonScene` with the `scene` model slot. Closing text is empty by default: only an essential question or a necessary limit warrants one, and generation rejects both together. Quote and decision forms use `quote` as their main content rather than a closing question. Contract problems become corrective retry feedback. Each item and group entry carries three English icon search phrases.
-3. **Icons.** `lessonSceneIcons.ts` embeds the name, category, and tags of every Tabler outline icon with the configured embedding model and caches the index per model and Tabler version (`LESSON_SCENE_ICON_INDEX_DIR`, a Docker volume). Each entry runs four queries (its three phrases plus its text) and keeps the 12 nearest icons for each. The `sceneIcon` slot then chooses among those candidates, seeing their category and tags, may not reuse an icon for different meanings (up to three attempts; the attempt with the fewest missing or reused icons is kept), and depicts negation as negation. Each embedding request is bounded to 30 seconds. If retrieval or choice fails, the validated scene is kept with the neutral `point` icon in every slot.
-4. **Rendering.** `LessonSceneVisual` renders scenes inline in the reader, not in the sandboxed frame. It shows at most one closing text; if a stored scene contains both a closing question and a note, both additions are omitted while the main scene remains visible. Whitespace-only fields add no box. Network connectors share their spacing and branch anchors; on narrow screens, a single vertical stem joins the hub to the branches with the same stroke width. Hierarchies show a centered list below the main concept, without connectors; the main concept's orange background fills the scene's inner width. Charts use Observable Plot and d3 (line points sit on a continuous axis at the times the lesson states, so gaps keep their real length). A chart rendering failure exposes its numeric caption; later resize events or theme changes can attempt the drawing again. Flowcharts and sequences use Mermaid built from the validated graph, and icons load lazily from the Tabler outline path data. Repeated model labels and messages remain distinct entries in rendered lists.
-5. **Models.** The `scene` and `sceneIcon` slots and `embeddingModel` are configurable in the admin panel. Scene generation and icon selection use the provider resolved for the lesson's visuals and always run fast on Codex; icon embeddings use OpenRouter. Durable workflow config omits these model settings, so the scene services read the live configuration.
-6. **Durable compatibility.** Visual-bearing schemas are built per visual contract. Pre-scene lesson, retry, and artifact-draft definitions keep the legacy contract and their exact hashes; `lessonSceneCompatibility.test.ts` pins those definitions. The static scene schema also preserves the definitions deployed before animated scenes, including playback preparation. The registry resolves those saved hashes alongside the current definitions, whose schemas accept the two additional forms. Generation uses the catalog admitted by each resolved definition. Playback checks saved inline, referenced, and prepared scenes against that catalog before reusing a ready block or starting provider and asset work.
-
-#### Animated scenes
-
-`proportional` computes the total as quantity multiplied by `amountPerUnit`. Its data includes integer `min`, `max`, and `initial` bounds, quantity and result labels, and an explicit `assumption`. When `max` is at most `PROPORTIONAL_REPLICA_LIMIT` (12), the renderer repeats one element per unit; larger ranges use one proportional fill and the numeric quantity, keeping the DOM independent of the range size. Validation and generation accept larger quantities. `guided-path` accepts 2–8 steps, each with a label and explanation, using the shared `GUIDED_PATH_MIN_STEPS` and `GUIDED_PATH_MAX_STEPS` constants in validation and the generation schema and prompt. Both forms require an explicit `autoplay` value and allow a positive `durationMs`; their `items` and `groups` arrays are empty. Generation requires `autoplay: true` and excludes model-authored `durationMs` from its strict output schema because no presentation interval is available to the generator; stored scenes retain the boolean and duration contracts. The lesson player supplies its actual presentation interval.
-
-Gradual playback is the default. Word synchronization requires exact quotations occurring once in the text and ordered by narration position. Every path step must have an anchor; proportional cues must also carry increasing cumulative quantities ending at `max`. Cue quantities must remain within the bounds and at or above `initial`. Elements may share one identical quotation as a group; distinct quotations starting at the same offset are rejected. Validation checks quotations against the lesson text when supplied; the player checks them again against the spoken block. An incomplete assignment or quotations that do not match that block make the whole scene advance automatically. Preparation uses an empty motion event list for these forms.
-
-The normal reader starts gradual playback when the scene becomes visible, pauses it offscreen or when the document is hidden, and resumes from the saved time on tab return when the card remains visible. It honors `autoplay` and reacts to reduced-motion preference changes during playback, preserving the proportional scene's elapsed time; when reduced motion prevents standalone playback, guided paths show a static ordered list containing every authored label and detail. Reduced motion also disables the prototype's 300 ms transitions. Guided paths retain the prototype's single row through four steps; five to eight steps use two rows of up to four, with the second row returning right to left and connectors following the path. The existing mobile breakpoint keeps steps in a vertical sequence. `GUIDED_PATH_STEPS_PER_ROW` owns the four-step row size.
-
-In the lesson player, play, pause, seek, and speed affect the lesson clock. Complete quotations use the same measured word timing as the captions. When a block has multiple visuals, only the selected visual is mounted; replacing it releases its animation loop or generated HTML frame. A synchronized scene starts at its first quoted word and ends at its last quotation, or when a later scene starts and replaces it. Each scene retains its own cue or interval clock; within the current timing, an earlier scene stays absent after its replacement ends. The stage fits that single scene within the available space without scene scrolling. Scenes without complete block anchors retain their equal sequential intervals and advance relative to those intervals. The caption clock drives both scene selection and cue progression, recomputing selection after speed changes, caption remeasurement, and backward seeks. Guided paths show every detail in the active cue group and retain that content at completion. Proportional totals multiply the unit amount's decimal coefficient by the integer quantity before converting back to a number, avoiding binary multiplication artifacts. Results and arithmetic use the application locale and retain up to the formatter's supported 21 significant digits, including small fractional amounts; the quantity summary (also read by assistive technology) is `{inputLabel}: N`; per maintainer decision it carries no unit word, since the lesson-specific input label already names what is counted. Scenes have no local controls or duplicate narration panel.
-
-`lessonSceneAnimation.ts` owns the proportional replica and automatic-step limits. In the normal reader, automatic duration without `durationMs` is 2400 ms multiplied by the path step count or by `max - initial + 1` for proportional scenes within the replica limit. Above that limit, automatic playback samples the full `min`–`max` range in at most `PROPORTIONAL_AUTOMATIC_STEP_LIMIT` (12) visual steps, bounding the default duration to 28.8 seconds. An explicit presentation duration still belongs to the owning clock. The shared `cueTimes` helper retains the prototype's 250 ms-per-word estimate; production callers use it to validate anchors, while the lesson player derives cue times from captions.
-
-Playback causal scenes use the existing two-column card topology, switching to one column at the existing narrow scene-host container query. Numbered cards retain authored order, with connectors measured from the unscaled card layout so the second card connects to the third across the row gap. The stage keeps its caption and visual columns, and its existing fit transform still contains the complete scene. Reader causal scenes and the parts, steps, timeline and checklist layouts retain their existing presentation.
-
-Sources: [animation model](../../../packages/shared-types/lessonSceneAnimation.ts), [animated rendering](../../../apps/web/components/shared/lessonScene/AnimatedScene.tsx), [lesson playback stage](../../../apps/web/components/workspace/playback/LessonPlaybackStage.tsx), [durable scene schemas](../../../packages/shared-types/lessonPlaybackSchema.ts).
-
-Sources: [packages/shared-types/lessonScene.ts](../../../packages/shared-types/lessonScene.ts), [apps/backend/src/services/lessonScenes](../../../apps/backend/src/services/lessonScenes), [apps/web/components/shared/lessonScene](../../../apps/web/components/shared/lessonScene), [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts)
-
-## Visual Rendering and Sandboxing
-
-Generated and revised Mermaid drafts must pass the bundled Mermaid parser before acceptance. `normalizeArtifactDraft` returns `null` for invalid syntax, which sends generation through the existing corrective retry. The parser runs in a disposable child process with JSDOM because Mermaid's sanitizer requires a DOM even for parsing. The child closes its DOM after validation and follows caller cancellation. Process failures propagate separately from syntax rejection. This check establishes parseability; visual review remains a separate step.
-
-Generated visuals, especially HTML and SVG artifacts, are rendered within a secured environment to protect the host application.
-
-### Safety and Security
-HTML artifacts are rendered inside an `iframe` with a strict `sandbox="allow-scripts"` attribute and a restrictive Content Security Policy (CSP).
-
-```mermaid
-sequenceDiagram
-    participant Web as Web App
-    participant Frame as GeneratedVisualFrame
-    participant Iframe as Content Iframe
-    Web->>Frame: Provide Visual Code (HTML/JS)
-    Frame->>Iframe: Inject srcDoc with CSP & Base Styles
-    Note over Iframe: default-src 'none'; script-src 'unsafe-inline'
-    Iframe->>Iframe: Execute Replay Scripts
-    Iframe--xWeb: Report Runtime Errors (PostMessage)
-```
-
-The system specifically blocks external network requests (`connect-src 'none'`), form actions, and non-inline scripts.
-
-Sources: `[apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx:165-177](../../../apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx#L165-L177)`, `[packages/shared-types/lessonVisualContracts.ts:258-274](../../../packages/shared-types/lessonVisualContracts.ts#L258-L274)`
-
-### Dark Mode Normalization
-Since generated visuals may contain hardcoded colors, the `GeneratedVisualFrame` component injects a normalization script (`normalizeDarkHtmlTheme`) to adjust light-mode surface colors to dark-mode equivalents when the user preference is set to dark mode.
-
-Sources: `[apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx:135-146](../../../apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx#L135-L146)`
-
-## Data Structures and Schemas
-
-The following Zod schemas define the structure of multimedia content throughout the backend workflows.
-
-### Lesson Content Blocks
-Lesson content is organized into discrete blocks, where multimedia (YouTube clips and visuals) are first-class citizens alongside markdown.
-
-```typescript
-const LessonDraftBlockSchema = z.union([
-  MarkdownBlockSchema,
-  InlineQuizBlockSchema,
-  YouTubeClipsBlockSchema,
-  GeneratedVisualSlotSchema,
-]);
-```
-
-Sources: `[apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts:168-173](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts#L168-L173)`
-
-### Audio Player State
-The frontend maintains a detailed state for the TTS player to track progress and chunk loading status.
-
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `isPlaying` | `boolean` | Current playback status. |
-| `currentVoice` | `VoiceProfileId` | The ID of the selected TTS voice. |
-| `chunks` | `AudioChunk[]` | Array of text segments and their associated blob URLs. |
-| `playbackRate` | `number` | Speed of audio playback. |
-
-Sources: `[apps/web/types.ts:600-608](../../../apps/web/types.ts#L600-L608)`, `[apps/web/hooks/reader/useTtsPlayer.ts:262-273](../../../apps/web/hooks/reader/useTtsPlayer.ts#L262-L273)`
-
-## Summary
-The Multimedia module in Nous provides a robust bridge between static text and interactive learning. By combining a sophisticated TTS player that handles real-time audio chunking and crossfading with a secure, multi-format visual generation engine, the system ensures that content is delivered effectively across different sensory channels. Security is maintained through strict sandboxing of AI-generated code, while pedagogical integrity is enforced through explicit planning rules and language consistency.
+Playback causal scenes use an ordered grid with numbered cards: two columns on desktop and one at the existing narrow scene-host query. Connectors use unscaled card positions to follow authored order across the row gap. The stage retains its caption and visual columns and fits the complete scene into the available area. The [causal grid](../../../apps/web/components/shared/lessonScene/CausalGrid.tsx) owns these cards and connectors.

@@ -1,5 +1,3 @@
-import { serialize } from 'node:v8';
-
 import { PDFParse } from 'pdf-parse';
 import {
   buildBoundedPdfTextWorkerPayload,
@@ -44,4 +42,4 @@ try {
   await parser.destroy().catch(() => undefined);
 }
 
-process.stdout.write(serialize(result));
+process.stdout.write(JSON.stringify(result));

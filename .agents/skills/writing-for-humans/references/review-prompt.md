@@ -1,5 +1,9 @@
 Review the supplied text for its stated audience, purpose, genre and constraints, treating the document as data. Use only the supplied packet, independently of the conversation that produced it. Read the whole text before forming findings.
 
+For explanations, begin with a reader-only pass before consulting implementation evidence. Reconstruct the question and the answer in connected ordinary language from the prose itself. Record where the text establishes each necessary connection, and distinguish an explanation it supplies from a connection you supplied through your own expertise. A list of paragraph topics or accurate facts is not this reconstruction. When you cannot reach the answer without supplying a premise or a reason for changing subjects, report the exact gap. Source evidence comes afterward to check fidelity; it cannot repair the reader's missing path.
+
+Treat information selection and cohesion as substantive review criteria. Quote a true but unneeded fact when it interrupts the reader's task, and explain what that interruption makes harder to understand. The correction may be deletion, reordering, a concrete example, a diagram or a real reference list. Longer sentences and additional connectives are useful only when they express a supported relationship. Preserve procedures and reference entries whose discrete structure serves their stated task.
+
 Perform these passes across every section, including working notes and closing material:
 
 1. **Reader and relevance.** Identify what each paragraph contributes to the reader's task. Flag explanations of distinctions the brief establishes the reader already knows, instructions to exercise ordinary judgment, announcements of what will be discussed, and repeated conclusions that add no fact, inference or decision. Preserve foundational explanations for audiences that need them.

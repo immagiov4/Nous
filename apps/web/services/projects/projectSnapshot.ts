@@ -278,6 +278,9 @@ const parseCourseSources = (value: unknown): CourseSourceDescriptor[] | undefine
       return {
         documentIndex: parseDocumentIndex(source.documentIndex),
         errorMessage: ensureString(source.errorMessage) || undefined,
+        errorReason: isSourceArchivePdfWarningReason(source.errorReason)
+          ? source.errorReason
+          : undefined,
         file: { ...file, sourceId: file.sourceId || source.id },
         hash: source.hash,
         id: source.id,
@@ -376,6 +379,21 @@ const parseProjectSource = (value: unknown): ProjectSource | null => {
     return null;
   }
 
+  const preparationWarnings = Array.isArray(value.preparationWarnings)
+    ? value.preparationWarnings.flatMap(warning =>
+        isRecord(warning) && isString(warning.name) && isString(warning.message)
+          ? [
+              {
+                name: warning.name,
+                message: warning.message,
+                ...(isSourceArchivePdfWarningReason(warning.reason)
+                  ? { reason: warning.reason }
+                  : {}),
+              },
+            ]
+          : []
+      )
+    : [];
   const ref = parseProjectSourceRef(value.ref);
   const sources = parseCourseSources(value.sources);
   if (Array.isArray(value.sources) && !sources) {
@@ -390,6 +408,7 @@ const parseProjectSource = (value: unknown): ProjectSource | null => {
           file,
           ...(ref ? { ref } : {}),
           ...(sources ? { sources } : {}),
+          ...(preparationWarnings.length ? { preparationWarnings } : {}),
         }
       : null;
   }
@@ -402,6 +421,7 @@ const parseProjectSource = (value: unknown): ProjectSource | null => {
           kind: 'document',
           ...(ref ? { ref } : {}),
           ...(sources ? { sources } : {}),
+          ...(preparationWarnings.length ? { preparationWarnings } : {}),
         }
       : null;
   }
@@ -417,6 +437,7 @@ const parseProjectSource = (value: unknown): ProjectSource | null => {
           name: value.name,
           ...(ref ? { ref } : {}),
           ...(sources ? { sources } : {}),
+          ...(preparationWarnings.length ? { preparationWarnings } : {}),
         }
       : null;
   }

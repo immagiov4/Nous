@@ -18,8 +18,6 @@ export const MODEL_ASSESSMENT = process.env.MODEL_ASSESSMENT || MODEL_CONTEXT;
 export const MODEL_RESEARCH_PLANNER =
   process.env.MODEL_RESEARCH_PLANNER || 'perplexity/sonar-pro-search';
 export const MODEL_RESEARCH_DOSSIER = process.env.MODEL_RESEARCH_DOSSIER || MODEL_RESEARCH_PLANNER;
-export const MODEL_PDF_IMAGE_CAPTION =
-  process.env.MODEL_PDF_IMAGE_CAPTION || 'nvidia/nemotron-nano-12b-v2-vl';
 export const MODEL_VISUAL_PLANNER = process.env.MODEL_VISUAL_PLANNER || MODEL_FLASH;
 export const MODEL_VISUAL_RENDERER = process.env.MODEL_VISUAL_RENDERER || MODEL_REASONING;
 

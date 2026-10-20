@@ -191,3 +191,12 @@ test('detaches and rehydrates every document source without losing source identi
   );
   assert.equal(hydrated.file.data, descriptors[0]?.file.data);
 });
+
+test('preserves CRLF Markdown headings and their original source offsets', () => {
+  const text = 'Preamble\r\n# First\r\nContent\r\n## Second\r\nMore';
+  const outlines = parseMarkdownOutline(text, 'source');
+  assert.equal(outlines[0]?.title, 'First');
+  assert.equal(outlines[0]?.startOffset, text.indexOf('# First'));
+  assert.equal(outlines[0]?.children[0]?.title, 'Second');
+  assert.equal(outlines[0]?.children[0]?.startOffset, text.indexOf('## Second'));
+});

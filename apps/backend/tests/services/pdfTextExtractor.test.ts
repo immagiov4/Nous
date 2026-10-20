@@ -1,6 +1,8 @@
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
-import { serialize } from 'node:v8';
+
+const serialize = (value: unknown) => Buffer.from(JSON.stringify(value));
+
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { buildPdfTextDataUrl } from '../fixtures/pdfText.js';
 

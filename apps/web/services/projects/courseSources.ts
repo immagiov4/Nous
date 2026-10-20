@@ -1,18 +1,25 @@
+import {
+  buildTextSourceIndex,
+  flattenOutline,
+  parseMarkdownOutline,
+} from '@shared/courseSourceText';
+
+export { parseMarkdownOutline } from '@shared/courseSourceText';
+
+import { combineCourseSourceIndexes } from '@shared/courseSourceIndex';
 import { buildStableProjectSourceHash } from '@shared/projectSnapshotWire';
 import type {
   CourseSourceDescriptor,
   FileData,
-  PdfTextChunk,
   PdfTextIndex,
   ProjectSource,
   ProjectSourceRef,
-  SourceOutlineNode,
+  ProjectSourceWarning,
 } from '../../types.ts';
 import { timestampIso } from '../../utils/time.ts';
 import { decodeTextBase64, isPdfFileData } from './projectSource.ts';
 
 const MAX_SOURCE_CONTEXT_CHARS = 8_000;
-const TEXT_CHUNK_CHARS = 8_000;
 
 const compareSourceNames = (left: string, right: string): number => {
   const normalizedLeft = left.normalize('NFKC').toLowerCase();
@@ -26,15 +33,6 @@ const compareSourceNames = (left: string, right: string): number => {
 export const sortSourceFiles = <T extends Pick<FileData, 'name'>>(files: readonly T[]): T[] =>
   [...files].sort((left, right) => compareSourceNames(left.name, right.name));
 
-const slugify = (value: string): string =>
-  value
-    .normalize('NFKD')
-    .replaceAll(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replaceAll(/[^a-z0-9]+/g, '-')
-    .replaceAll(/^-|-$/g, '')
-    .slice(0, 48) || 'section';
-
 const getSourceKind = (file: FileData): CourseSourceDescriptor['kind'] => {
   if (isPdfFileData(file)) {
     return 'pdf';
@@ -45,159 +43,13 @@ const getSourceKind = (file: FileData): CourseSourceDescriptor['kind'] => {
     : 'text';
 };
 
-interface TextLine {
-  start: number;
-  text: string;
-}
-
-const splitTextLines = (text: string): TextLine[] => {
-  const lines: TextLine[] = [];
-  let start = 0;
-  for (const match of text.matchAll(/.*(?:\n|$)/gu)) {
-    const raw = match[0];
-    if (!raw) {
-      continue;
-    }
-    const lineText = raw.endsWith('\n') ? raw.slice(0, -1) : raw;
-    lines.push({ start, text: lineText.replace(/\r$/u, '') });
-    start += raw.length;
-  }
-  return lines;
-};
-
-export const parseMarkdownOutline = (text: string, sourceId: string): SourceOutlineNode[] => {
-  const lines = splitTextLines(text);
-  const flatNodes: SourceOutlineNode[] = [];
-  const duplicateCounts = new Map<string, number>();
-  let fenceMarker = '';
-
-  const appendHeading = (title: string, level: number, startOffset: number) => {
-    const normalizedTitle = title.replace(/[ \t]+#+[ \t]*$/u, '').trim();
-    if (!normalizedTitle) {
-      return;
-    }
-    const slug = slugify(normalizedTitle);
-    const occurrence = (duplicateCounts.get(slug) || 0) + 1;
-    duplicateCounts.set(slug, occurrence);
-    flatNodes.push({
-      children: [],
-      id: `${sourceId}:outline:${slug}-${occurrence}`,
-      level,
-      startOffset,
-      title: normalizedTitle,
-    });
-  };
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    const fenceMatch = line.text.match(/^ {0,3}(`{3,}|~{3,})/u);
-    if (fenceMatch) {
-      const marker = fenceMatch[1][0];
-      if (!fenceMarker) {
-        fenceMarker = marker;
-      } else if (fenceMarker === marker) {
-        fenceMarker = '';
-      }
-      continue;
-    }
-    if (fenceMarker) {
-      continue;
-    }
-
-    const atxMatch = line.text.match(/^ {0,3}(#{1,6})[ \t]+(.+?)\s*$/u);
-    if (atxMatch) {
-      appendHeading(atxMatch[2], atxMatch[1].length, line.start);
-      continue;
-    }
-
-    const setextMatch = line.text.match(/^ {0,3}(=+|-+)\s*$/u);
-    const previousLine = lines[index - 1];
-    if (setextMatch && previousLine?.text.trim()) {
-      appendHeading(
-        previousLine.text.trim(),
-        setextMatch[1][0] === '=' ? 1 : 2,
-        previousLine.start
-      );
-    }
-  }
-
-  flatNodes.forEach((node, index) => {
-    node.endOffset =
-      flatNodes.slice(index + 1).find(nextNode => nextNode.level <= node.level)?.startOffset ??
-      text.length;
-  });
-
-  const roots: SourceOutlineNode[] = [];
-  const stack: SourceOutlineNode[] = [];
-  for (const node of flatNodes) {
-    while (stack.length > 0 && (stack.at(-1) as SourceOutlineNode).level >= node.level) {
-      stack.pop();
-    }
-    const parent = stack.at(-1);
-    (parent?.children || roots).push(node);
-    stack.push(node);
-  }
-  return roots;
-};
-
-const flattenOutline = (
-  nodes: SourceOutlineNode[],
-  parentTitles: string[] = []
-): Array<{ node: SourceOutlineNode; path: string[] }> =>
-  nodes.flatMap(node => {
-    const path = [...parentTitles, node.title];
-    return [{ node, path }, ...flattenOutline(node.children, path)];
-  });
-
-const buildTextIndex = (
-  text: string,
-  descriptor: Pick<CourseSourceDescriptor, 'hash' | 'id' | 'name' | 'outline'>
-): PdfTextIndex => {
-  const outlineEntries = flattenOutline(descriptor.outline).filter(
-    entry => entry.node.startOffset !== undefined
-  );
-  const outlinedRanges = outlineEntries.map((entry, index) => ({
-    end: outlineEntries[index + 1]?.node.startOffset ?? text.length,
-    headingPath: entry.path,
-    start: entry.node.startOffset || 0,
-  }));
-  const ranges = outlinedRanges.length
-    ? outlinedRanges
-    : [{ end: text.length, headingPath: [descriptor.name], start: 0 }];
-  const chunks: PdfTextChunk[] = [];
-
-  for (const range of ranges) {
-    for (let offset = range.start; offset < range.end; offset += TEXT_CHUNK_CHARS) {
-      const chunkText = text.slice(offset, Math.min(range.end, offset + TEXT_CHUNK_CHARS)).trim();
-      if (!chunkText) {
-        continue;
-      }
-      chunks.push({
-        id: `${descriptor.id}:chunk-${String(chunks.length + 1).padStart(3, '0')}`,
-        sourceId: descriptor.id,
-        sequence: chunks.length,
-        text: chunkText,
-        headingPath: range.headingPath,
-        startOffset: offset,
-        endOffset: Math.min(range.end, offset + TEXT_CHUNK_CHARS),
-      });
-    }
-  }
-
-  return {
-    kind: 'pdf-text-index',
-    parsedAt: timestampIso(),
-    sourceHash: descriptor.hash,
-    sourceIds: [descriptor.id],
-    documentTitle: descriptor.name,
-    chunks,
-  };
-};
-
 export const buildCourseSourceDescriptors = (
-  files: readonly FileData[]
+  files: readonly FileData[],
+  {
+    hashOccurrences = new Map<string, number>(),
+    positionOffset = 0,
+  }: { hashOccurrences?: Map<string, number>; positionOffset?: number } = {}
 ): CourseSourceDescriptor[] => {
-  const hashOccurrences = new Map<string, number>();
   return sortSourceFiles(files).map((originalFile, position) => {
     const hash = buildStableProjectSourceHash(originalFile);
     const occurrence = (hashOccurrences.get(hash) || 0) + 1;
@@ -215,11 +67,11 @@ export const buildCourseSourceDescriptors = (
       name: file.name,
       outline,
       outlineOrigin: outline.length > 0 ? 'deterministic' : 'none',
-      position,
+      position: position + positionOffset,
       status: 'ready',
     };
     if (kind !== 'pdf') {
-      descriptor.documentIndex = buildTextIndex(text, descriptor);
+      descriptor.documentIndex = buildTextSourceIndex(text, descriptor);
     }
     return descriptor;
   });
@@ -229,8 +81,7 @@ export const createProjectSourceFromDescriptors = (
   descriptors: readonly CourseSourceDescriptor[]
 ): ProjectSource => {
   const sources = normalizeCourseSourceOrder(descriptors);
-  const primary =
-    sources.find(source => source.status !== 'error' && source.file.data) || sources[0];
+  const primary = sources.find(source => source.status !== 'error') || sources[0];
   if (!primary) {
     throw new Error('At least one course source is required.');
   }
@@ -267,6 +118,7 @@ export const getCourseSourceDescriptors = (
         file: { ...descriptor.file, sourceId: source.ref.id },
         hash: source.ref.hash,
         id: source.ref.id,
+        ref: source.ref,
       },
     ];
   }
@@ -425,33 +277,8 @@ export const normalizeCourseSourceOrder = (
 
 export const buildCombinedSourceIndex = (
   sources: readonly CourseSourceDescriptor[]
-): PdfTextIndex | null => {
-  const readySources = normalizeCourseSourceOrder(sources).filter(
-    source => source.status !== 'error' && source.documentIndex?.chunks.length
-  );
-  if (readySources.length === 0) {
-    return null;
-  }
-  const chunks = readySources.flatMap(source =>
-    (source.documentIndex?.chunks || []).map(chunk => ({
-      ...chunk,
-      headingPath:
-        chunk.headingPath[0] === source.name
-          ? chunk.headingPath
-          : [source.name, ...chunk.headingPath],
-      id: chunk.id.startsWith(`${source.id}:`) ? chunk.id : `${source.id}:${chunk.id}`,
-      sourceId: source.id,
-    }))
-  );
-  return {
-    kind: 'pdf-text-index',
-    parsedAt: timestampIso(),
-    sourceHash: readySources.map(source => source.hash).join(':'),
-    sourceIds: readySources.map(source => source.id),
-    documentTitle: readySources.map(source => source.name).join(', '),
-    chunks: chunks.map((chunk, sequence) => ({ ...chunk, sequence })),
-  };
-};
+): PdfTextIndex | null =>
+  combineCourseSourceIndexes(normalizeCourseSourceOrder(sources), timestampIso);
 
 const sampleSourceChunks = (source: CourseSourceDescriptor): string => {
   const chunks = source.documentIndex?.chunks || [];
@@ -487,3 +314,33 @@ export const formatCourseSourceSetContext = (sources: readonly CourseSourceDescr
       });
     })
     .join('\n');
+
+const UNUSABLE_PDF_SOURCE_MESSAGE = 'Questa fonte non contiene testo PDF utilizzabile.';
+
+export const getProjectSourceWarnings = (source: ProjectSource): ProjectSourceWarning[] => {
+  const descriptorWarnings = (source.sources || [])
+    .filter(descriptor => descriptor.status === 'error')
+    .map(descriptor => ({
+      message: descriptor.errorMessage || 'Questa fonte non è utilizzabile.',
+      name: descriptor.name,
+      reason: descriptor.errorReason,
+    }));
+  if (source.kind !== 'archive') {
+    return [...(source.preparationWarnings ?? []), ...descriptorWarnings];
+  }
+
+  const archivePdfWarnings = source.index.entries.flatMap(entry =>
+    entry.kind === 'file' &&
+    entry.contentKind === 'binary' &&
+    entry.path.toLowerCase().endsWith('.pdf')
+      ? [
+          {
+            message: UNUSABLE_PDF_SOURCE_MESSAGE,
+            name: entry.path,
+            reason: entry.warningReason || 'no-usable-text',
+          },
+        ]
+      : []
+  );
+  return [...descriptorWarnings, ...archivePdfWarnings];
+};

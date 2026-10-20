@@ -24,6 +24,11 @@ import {
   LessonGenerationBusyError,
   LessonSourceUnavailableError,
 } from '../../../services/openrouter/lessonGenerationClient.ts';
+import {
+  buildCourseSourceDescriptors,
+  createProjectSourceFromDescriptors,
+  formatCourseSourceSetContext,
+} from '../../../services/projects/courseSources';
 import { createProjectArchiveBlob } from '../../../services/projects/projectArchive.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import { createProjectSnapshot } from '../../../services/projects/projectSnapshot.ts';
@@ -52,6 +57,7 @@ import {
   flattenLessons,
   updateLessons,
 } from '../../../utils/learning/pathNodes.ts';
+import { createDeferred } from '../../helpers/deferred.ts';
 import {
   buildTestLearningPlan,
   buildTestLesson,
@@ -59,6 +65,47 @@ import {
 } from '../../helpers/learningPlan.ts';
 
 afterEach(() => setRenderingLocaleOverride(null));
+
+const preparedSourceSet = (
+  entries: { path: string; contentKind: 'binary' | 'text'; preview?: string }[]
+) => {
+  const descriptors = buildCourseSourceDescriptors(
+    entries.map(entry => ({
+      name: entry.path,
+      mimeType: entry.path.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'text/plain',
+      data: Buffer.from(entry.preview ?? '').toString('base64'),
+    }))
+  );
+  for (const descriptor of descriptors) {
+    const entry = entries.find(entry => entry.path === descriptor.name);
+    assert(entry);
+    if (entry.contentKind === 'binary') {
+      descriptor.status = 'error';
+      descriptor.errorReason = 'no-usable-text';
+      descriptor.errorMessage = 'Questa fonte non contiene testo PDF utilizzabile.';
+    }
+    if (descriptor.kind === 'pdf' && entry.contentKind === 'text')
+      descriptor.documentIndex = {
+        kind: 'pdf-text-index',
+        sourceHash: descriptor.hash,
+        documentTitle: descriptor.name,
+        parsedAt: '',
+        chunks: [
+          {
+            id: `${descriptor.id}:chunk-1`,
+            sequence: 0,
+            sourceId: descriptor.id,
+            text: entry.preview ?? '',
+            headingPath: [descriptor.name],
+            startOffset: 0,
+            endOffset: entry.preview?.length ?? 0,
+          },
+        ],
+      };
+    descriptor.file.data = '';
+  }
+  return createProjectSourceFromDescriptors(descriptors);
+};
 
 const pdfFile: FileData = {
   name: 'dispensa.pdf',
@@ -508,7 +555,20 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
     loadStoredProjectSources: async () => [],
     moveFolder: async () => null,
     moveProjects: async () => [],
-    persistSnapshot: async snapshot => {
+    persistSnapshot: async (snapshot, options) => {
+      if (
+        options?.sourceFiles &&
+        !options.sourceFiles.some(file => file.name.toLowerCase().endsWith('.zip'))
+      ) {
+        const entries = await Promise.all(
+          options.sourceFiles.map(async file => ({
+            path: file.name,
+            contentKind: 'text' as const,
+            preview: await file.text(),
+          }))
+        );
+        snapshot = { ...snapshot, source: preparedSourceSet(entries) };
+      }
       persistedSnapshots.push(snapshot);
       return {
         meta: buildMeta(snapshot.id),
@@ -2176,7 +2236,12 @@ test('openProject starts assessment from stored text sources without rebuilding 
         fileAssessmentCalls += 1;
         return { content: 'Non dovrebbe partire', hasReliableSourceContext: true };
       },
-      buildAssessmentDocumentContextFromTextSource: source => {
+      buildAssessmentDocumentContextFromSourceSet: sources => {
+        const descriptor = sources[0];
+        const source = {
+          name: descriptor.name,
+          text: descriptor.documentIndex?.chunks.map(chunk => chunk.text).join('\n') ?? '',
+        };
         textAssessmentCalls += 1;
         assert.equal(source.name, 'notes.md');
         assert.equal(source.text.includes('Titolo'), true);
@@ -2303,31 +2368,22 @@ test('handleSourceUpload persists opaque ZIP bytes once and assesses the canonic
   const persistenceOrder: string[] = [];
   const { controller, domain } = createControllerHarness({
     openRouter: {
-      buildAssessmentDocumentContextFromTextSource: source => {
-        assessmentText = source.text;
-        return { content: source.text, hasReliableSourceContext: true };
+      buildAssessmentDocumentContextFromSourceSet: sources => {
+        assessmentText = formatCourseSourceSetContext(sources);
+        return { content: assessmentText, hasReliableSourceContext: true };
       },
     },
     projectLibrary: {
       persistSnapshot: async (snapshot, options) => {
         persistenceOrder.push('persist');
         persistedWrites += 1;
-        assert.equal(options?.archiveFile, uploadedFile);
-        assert.equal(snapshot.source?.kind, 'archive');
-        if (snapshot.source?.kind !== 'archive') {
-          throw new Error('Expected archive source');
-        }
-        assert.deepEqual(snapshot.source.index.entries, []);
-        assert.equal(snapshot.source.file.data, '');
+        assert.deepEqual(options?.sourceFiles, [uploadedFile]);
+        assert.equal(snapshot.source?.file.data, '');
         return {
           meta: buildMeta(snapshot.id),
           snapshot: {
             ...snapshot,
-            source: {
-              ...snapshot.source,
-              file: { ...snapshot.source.file, data: '' },
-              index: { entries: [canonicalEntry] },
-            },
+            source: preparedSourceSet([canonicalEntry]),
           },
         };
       },
@@ -2350,10 +2406,11 @@ test('handleSourceUpload persists opaque ZIP bytes once and assesses the canonic
   assert.equal(persistedWrites, 1);
   assert.equal(readArchiveBytes.mock.calls.length, 0);
   assert.deepEqual(persistenceOrder, ['hydrated:false', 'persist', 'hydrated:true']);
-  assert.equal(domain.source?.kind, 'archive');
-  assert.deepEqual(domain.source?.kind === 'archive' ? domain.source.index.entries : [], [
-    canonicalEntry,
-  ]);
+  assert.equal(domain.source?.kind, 'document');
+  assert.deepEqual(
+    domain.source?.sources?.map(source => source.name),
+    [canonicalEntry.path]
+  );
   assert.equal(assessmentText.includes('src/server-entry.ts'), true);
 });
 
@@ -2652,7 +2709,7 @@ test('handleSourceUpload restores hydration after a stale reattach succeeds', as
   expect(hydrationStates).toEqual([false, true]);
 });
 
-test('handleSourceUpload preserves archive identity when reattaching changed ZIP bytes', async () => {
+test('handleSourceUpload hands replacement ZIP files to ingestion and uses the saved result', async () => {
   const existingSourceId = 'source-existing-archive';
   const existingSource = {
     file: {
@@ -2738,13 +2795,12 @@ test('handleSourceUpload preserves archive identity when reattaching changed ZIP
 
   assert.equal(result.outcome, 'reattached');
   expect(saveCurrentProject).toHaveBeenCalledWith(
+    expect.objectContaining({ source: expect.anything() }),
     expect.objectContaining({
-      source: expect.objectContaining({
-        file: expect.objectContaining({ sourceId: existingSourceId }),
-        kind: 'archive',
-      }),
-    }),
-    { archiveFile: uploadedFile, throwOnError: true }
+      sourceFiles: [uploadedFile],
+      throwOnError: true,
+      onSourceProgress: expect.any(Function),
+    })
   );
   assert.deepEqual(result.sourceWarnings, [
     {
@@ -2755,52 +2811,163 @@ test('handleSourceUpload preserves archive identity when reattaching changed ZIP
   ]);
 });
 
-test('handleSourceUpload bounds previews for a 20k-file archive before starting assessment', async () => {
-  const previewMarker = '§';
-  const canonicalEntries = Array.from({ length: 20_000 }, (_, index) => ({
-    byteSize: 8_000,
-    contentKind: 'text' as const,
-    kind: 'file' as const,
-    path: `src/file-${index.toString().padStart(5, '0')}.ts`,
-    preview: previewMarker.repeat(100),
-  }));
-  let assessmentText = '';
-  const { controller } = createControllerHarness({
-    openRouter: {
-      buildAssessmentDocumentContextFromTextSource: source => {
-        assessmentText = source.text;
-        return { content: source.text, hasReliableSourceContext: true };
-      },
-    },
+test.each([
+  'cancel',
+  'open',
+  'open-then-fail',
+  'import-then-fail',
+] as const)('an attachment job cannot resume after %s', async action => {
+  const started = createDeferred();
+  const finish = createDeferred();
+  let signal: AbortSignal | undefined;
+  let draftId: string | undefined;
+  const opened = createProjectSnapshot({
+    id: 'opened-during-attachment',
+    learningPlan: buildPlan(),
+    state: AppState.READING,
+  });
+  const startCourseInterview = vi.fn();
+  const { controller, projectLibrary, state } = createControllerHarness({
+    loadedSnapshot: opened,
+    openRouter: { startCourseInterview },
     projectLibrary: {
-      persistSnapshot: async snapshot => {
-        assert.equal(snapshot.source?.kind, 'archive');
-        if (snapshot.source?.kind !== 'archive') {
-          throw new Error('Expected archive source');
+      importProjectData: async () => ({ meta: buildMeta(opened.id), snapshot: opened }),
+      persistSnapshot: async (snapshot, options) => {
+        if (options?.sourceFiles) {
+          signal = options.signal;
+          draftId = snapshot.id;
+          started.resolve();
+          await finish.promise;
+          if (action.endsWith('then-fail'))
+            throw new ProjectStorageError('Preparation failed', 'source-preparation-failed');
         }
-        return {
-          meta: buildMeta(snapshot.id),
-          snapshot: {
-            ...snapshot,
-            source: {
-              ...snapshot.source,
-              file: { ...snapshot.source.file, data: '' },
-              index: { entries: canonicalEntries },
-            },
-          },
-        };
+        return { meta: buildMeta(snapshot.id), snapshot };
       },
     },
   });
-
-  const result = await controller.handleSourceUpload(
-    new File(['opaque archive'], 'engine.zip', { type: 'application/zip' }),
+  const uploading = controller.handleSourceUpload(
+    new File(['notes'], 'notes.txt', { type: 'text/plain' }),
     { mode: 'new-project' }
   );
+  try {
+    await started.promise;
+    if (action === 'cancel') await controller.cancelAssessment();
+    else if (action === 'import-then-fail')
+      expect(
+        (
+          await controller.importProjectFile(
+            new File([JSON.stringify(opened)], 'course.nous.json', { type: 'application/json' })
+          )
+        ).outcome
+      ).toBe('imported');
+    else expect((await controller.openProject(opened.id)).outcome).toBe('opened');
+    if (action !== 'import-then-fail') expect(signal?.aborted).toBe(true);
+  } finally {
+    finish.resolve();
+    await uploading;
+  }
+  expect(startCourseInterview).not.toHaveBeenCalled();
+  expect(projectLibrary.adapter.currentProjectId).toBe(action === 'cancel' ? null : opened.id);
+  expect(projectLibrary.deletedProjectIds).toContain(draftId);
+  expect(projectLibrary.deletedProjectIds).not.toContain(opened.id);
+  if (action !== 'cancel') expect(state.internalState.screenState).toBe(AppState.READING);
+  expect(state.internalState.workflowState.attachSource.status).not.toBe('pending');
+});
 
-  assert.equal(result.errorMessage, undefined);
-  assert.equal(assessmentText.split(previewMarker).length - 1, 20_000);
-  assert.equal(assessmentText.includes('src/file-19999.ts'), true);
+test.each([
+  true,
+  false,
+])('an attachment waits for an opening of its published draft (opened=%s)', async opened => {
+  const published = createDeferred(),
+    reply = createDeferred(),
+    loaded = createDeferred(),
+    read = createDeferred();
+  let draftId = '';
+  const { controller, projectLibrary, state } = createControllerHarness({
+    projectLibrary: {
+      persistSnapshot: async (snapshot, options) => {
+        if (options?.sourceFiles) {
+          draftId = snapshot.id;
+          published.resolve();
+          await reply.promise;
+        }
+        return { meta: buildMeta(snapshot.id), snapshot };
+      },
+      loadStoredProject: async id => {
+        read.resolve();
+        await loaded.promise;
+        return opened
+          ? createProjectSnapshot({ id, learningPlan: buildPlan(), state: AppState.READING })
+          : null;
+      },
+    },
+  });
+  const uploading = controller.handleSourceUpload(
+    new File(['notes'], 'notes.txt', { type: 'text/plain' }),
+    { mode: 'new-project' }
+  );
+  await published.promise;
+  const opening = controller.openProject(draftId);
+  await read.promise;
+  reply.resolve();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(projectLibrary.deletedProjectIds).not.toContain(draftId);
+  loaded.resolve();
+  expect((await opening).outcome).toBe(opened ? 'opened' : 'missing');
+  expect((await uploading).outcome).toBe('failed');
+  expect(projectLibrary.deletedProjectIds.includes(draftId)).toBe(!opened);
+  expect(state.internalState.workflowState.attachSource.status).not.toBe('pending');
+});
+
+test('reopens one prepared PDF from its index without downloading or parsing the original', async () => {
+  const source = preparedSourceSet([
+    { path: 'prepared.pdf', contentKind: 'text', preview: 'Prepared source content' },
+  ]);
+  const descriptor = source.sources?.[0];
+  assert(descriptor);
+  descriptor.ref = {
+    id: descriptor.id,
+    name: descriptor.name,
+    mimeType: descriptor.file.mimeType,
+    hash: descriptor.hash,
+    byteSize: 1024,
+    objectPath: 'stored/prepared.pdf',
+  };
+  source.ref = descriptor.ref;
+  const snapshot = createProjectSnapshot({
+    id: 'prepared-course',
+    source,
+    documentIndex: descriptor.documentIndex,
+    state: AppState.ASSESSMENT,
+  });
+  const loadStoredProjectSource = vi.fn(async () => {
+    throw new Error('The prepared PDF must not be downloaded');
+  });
+  const buildAssessmentDocumentPrompt = vi.fn(async () => {
+    throw new Error('The prepared PDF must not be parsed');
+  });
+  const fromSources = vi.fn(
+    (sources: readonly import('../../../types').CourseSourceDescriptor[]) => ({
+      content: formatCourseSourceSetContext(sources),
+      hasReliableSourceContext: true,
+    })
+  );
+  const { controller } = createControllerHarness({
+    loadedSnapshot: snapshot,
+    projectLibrary: { loadStoredProjectSource },
+    openRouter: {
+      buildAssessmentDocumentPrompt,
+      buildAssessmentDocumentContextFromSourceSet: fromSources,
+    },
+  });
+  expect((await controller.openProject(snapshot.id)).outcome).toBe('opened');
+  expect(fromSources).toHaveBeenCalledWith(
+    expect.arrayContaining([
+      expect.objectContaining({ id: descriptor.id, documentIndex: descriptor.documentIndex }),
+    ])
+  );
+  expect(loadStoredProjectSource).not.toHaveBeenCalled();
+  expect(buildAssessmentDocumentPrompt).not.toHaveBeenCalled();
 });
 
 test('handleSourceUpload accepts markdown sources with missing mime and stores them as document projects', async () => {
@@ -2812,7 +2979,12 @@ test('handleSourceUpload accepts markdown sources with missing mime and stores t
         fileAssessmentCalls += 1;
         return { content: 'Non dovrebbe partire', hasReliableSourceContext: true };
       },
-      buildAssessmentDocumentContextFromTextSource: source => {
+      buildAssessmentDocumentContextFromSourceSet: sources => {
+        const descriptor = sources[0];
+        const source = {
+          name: descriptor.name,
+          text: descriptor.documentIndex?.chunks.map(chunk => chunk.text).join('\n') ?? '',
+        };
         textAssessmentCalls += 1;
         assert.equal(source.name, 'notes.md');
         assert.equal(source.text.includes('Titolo'), true);
@@ -2924,7 +3096,16 @@ test('handleSourceUpload removes a restored project when post-import hydration f
 });
 
 test('handleSourceUpload rejects unsupported binary sources with a clear error', async () => {
-  const { controller, domain, projectLibrary, state } = createControllerHarness();
+  const { controller, domain, projectLibrary, state } = createControllerHarness({
+    projectLibrary: {
+      persistSnapshot: async () => {
+        throw new ProjectStorageError(
+          'Sono supportati PDF, ZIP o file di testo.',
+          'source-preparation-failed'
+        );
+      },
+    },
+  });
   const uploadedFile = new File(
     [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 255])],
     'diagram.bin'
@@ -2956,48 +3137,31 @@ test('startHomeChat persists the uploaded source before React state propagates',
 });
 
 test('cancelAssessment invalidates source preparation before startHomeChat persists a draft', async () => {
-  let resolveSourcePreparation: (
-    value: Awaited<
-      ReturnType<
-        typeof import('../../../services/openrouter/index.ts').buildAssessmentDocumentPrompt
-      >
-    >
-  ) => void = () => {};
-  let markSourcePreparationStarted: () => void = () => {};
-  const sourcePreparationStarted = new Promise<void>(resolve => {
-    markSourcePreparationStarted = resolve;
-  });
-  const sourcePreparation = new Promise<
-    Awaited<
-      ReturnType<
-        typeof import('../../../services/openrouter/index.ts').buildAssessmentDocumentPrompt
-      >
-    >
-  >(resolve => {
-    resolveSourcePreparation = resolve;
-  });
+  const started = createDeferred();
+  const pending = createDeferred();
+  let observedSignal: AbortSignal | undefined;
   const startCourseInterview = vi.fn();
   const { controller, projectLibrary, state } = createControllerHarness({
-    openRouter: {
-      buildAssessmentDocumentPrompt: async () => {
-        markSourcePreparationStarted();
-        return sourcePreparation;
+    projectLibrary: {
+      persistSnapshot: async (snapshot, options) => {
+        observedSignal = options?.signal;
+        started.resolve();
+        await pending.promise;
+        return { meta: buildMeta(snapshot.id), snapshot };
       },
-      startCourseInterview,
     },
+    openRouter: { startCourseInterview },
   });
 
   const startPromise = controller.startHomeChat({
     input: 'Crea un corso da questo PDF',
     selectedFile: new File(['pdf'], 'source.pdf', { type: 'application/pdf' }),
   });
-  await sourcePreparationStarted;
+  await started.promise;
 
   const cancellation = controller.cancelAssessment();
-  resolveSourcePreparation({
-    content: 'source.pdf\nMateriale sorgente',
-    hasReliableSourceContext: true,
-  });
+  assert.equal(observedSignal?.aborted, true);
+  pending.resolve();
   await cancellation;
   const result = await startPromise;
 
@@ -3093,40 +3257,6 @@ test('cancelAssessment aborts and cancels an interview started by source upload'
   });
   expect(getActiveCourseInterview).toHaveBeenCalledOnce();
   assert.equal((await uploadPromise).outcome, 'started-assessment');
-});
-
-test('cancelAssessment prevents delayed PDF preparation from recreating a project', async () => {
-  let finishSourcePreparation: () => void = () => {};
-  let markSourcePreparationStarted: () => void = () => {};
-  const sourcePreparationStarted = new Promise<void>(resolve => {
-    markSourcePreparationStarted = resolve;
-  });
-  const sourcePreparationCanFinish = new Promise<void>(resolve => {
-    finishSourcePreparation = resolve;
-  });
-  const { controller, projectLibrary } = createControllerHarness({
-    openRouter: {
-      buildAssessmentDocumentPrompt: async () => {
-        markSourcePreparationStarted();
-        await sourcePreparationCanFinish;
-        return { content: 'Materiale PDF', hasReliableSourceContext: true };
-      },
-    },
-  });
-
-  const uploadPromise = controller.handleSourceUpload(
-    new File(['fake pdf'], 'dispensa.pdf', { type: 'application/pdf' }),
-    { mode: 'new-project' }
-  );
-  await sourcePreparationStarted;
-  expect(projectLibrary.persistedSnapshots).toHaveLength(1);
-
-  await controller.cancelAssessment();
-  finishSourcePreparation();
-  assert.equal((await uploadPromise).outcome, 'started-assessment');
-
-  assert.equal(projectLibrary.persistedSnapshots.length, 1);
-  assert.equal(projectLibrary.adapter.currentProjectId, null);
 });
 
 test('cancelAssessment aborts interview startup and cancels its recovered durable run', async () => {
@@ -3598,31 +3728,16 @@ test('a failed cleanup retry settles a concurrent draft reopen before the next S
 });
 
 test('a cancelled startHomeChat cannot clear a newer completed request', async () => {
-  let resolveSourcePreparation: (
-    value: Awaited<
-      ReturnType<
-        typeof import('../../../services/openrouter/index.ts').buildAssessmentDocumentPrompt
-      >
-    >
-  ) => void = () => {};
-  let markSourcePreparationStarted: () => void = () => {};
-  const sourcePreparationStarted = new Promise<void>(resolve => {
-    markSourcePreparationStarted = resolve;
-  });
-  const sourcePreparation = new Promise<
-    Awaited<
-      ReturnType<
-        typeof import('../../../services/openrouter/index.ts').buildAssessmentDocumentPrompt
-      >
-    >
-  >(resolve => {
-    resolveSourcePreparation = resolve;
-  });
+  const started = createDeferred();
+  const pending = createDeferred();
+  let observedSignal: AbortSignal | undefined;
   const { controller, projectLibrary, state } = createControllerHarness({
-    openRouter: {
-      buildAssessmentDocumentPrompt: async () => {
-        markSourcePreparationStarted();
-        return sourcePreparation;
+    projectLibrary: {
+      persistSnapshot: async (snapshot, options) => {
+        observedSignal = options?.signal;
+        started.resolve();
+        await pending.promise;
+        return { meta: buildMeta(snapshot.id), snapshot };
       },
     },
   });
@@ -3631,12 +3746,10 @@ test('a cancelled startHomeChat cannot clear a newer completed request', async (
     input: 'Crea un corso da questo PDF',
     selectedFile: new File(['pdf'], 'source.pdf', { type: 'application/pdf' }),
   });
-  await sourcePreparationStarted;
+  await started.promise;
   const cancellation = controller.cancelAssessment();
-  resolveSourcePreparation({
-    content: 'source.pdf\nMateriale sorgente',
-    hasReliableSourceContext: true,
-  });
+  assert.equal(observedSignal?.aborted, true);
+  pending.resolve();
   await cancellation;
   const cancelledResult = await cancelledStart;
   const newerResult = await controller.startHomeChat({ input: 'Voglio imparare Rust' });
@@ -3650,26 +3763,9 @@ test('a cancelled startHomeChat cannot clear a newer completed request', async (
 });
 
 test('a cancelled source preparation cannot clear a project opened afterward', async () => {
-  let resolveSourcePreparation: (
-    value: Awaited<
-      ReturnType<
-        typeof import('../../../services/openrouter/index.ts').buildAssessmentDocumentPrompt
-      >
-    >
-  ) => void = () => {};
-  let markSourcePreparationStarted: () => void = () => {};
-  const sourcePreparationStarted = new Promise<void>(resolve => {
-    markSourcePreparationStarted = resolve;
-  });
-  const sourcePreparation = new Promise<
-    Awaited<
-      ReturnType<
-        typeof import('../../../services/openrouter/index.ts').buildAssessmentDocumentPrompt
-      >
-    >
-  >(resolve => {
-    resolveSourcePreparation = resolve;
-  });
+  const started = createDeferred();
+  const pending = createDeferred();
+  let observedSignal: AbortSignal | undefined;
   const openedProject = createProjectSnapshot({
     id: 'opened-project',
     learningPlan: buildPlan(),
@@ -3677,10 +3773,12 @@ test('a cancelled source preparation cannot clear a project opened afterward', a
   });
   const { controller, domain, projectLibrary, state } = createControllerHarness({
     loadedSnapshot: openedProject,
-    openRouter: {
-      buildAssessmentDocumentPrompt: async () => {
-        markSourcePreparationStarted();
-        return sourcePreparation;
+    projectLibrary: {
+      persistSnapshot: async (snapshot, options) => {
+        observedSignal = options?.signal;
+        started.resolve();
+        await pending.promise;
+        return { meta: buildMeta(snapshot.id), snapshot };
       },
     },
   });
@@ -3689,12 +3787,10 @@ test('a cancelled source preparation cannot clear a project opened afterward', a
     input: 'Crea un corso da questo PDF',
     selectedFile: new File(['pdf'], 'source.pdf', { type: 'application/pdf' }),
   });
-  await sourcePreparationStarted;
+  await started.promise;
   const cancellation = controller.cancelAssessment();
-  resolveSourcePreparation({
-    content: 'source.pdf\nMateriale sorgente',
-    hasReliableSourceContext: true,
-  });
+  assert.equal(observedSignal?.aborted, true);
+  pending.resolve();
   await cancellation;
   const cancelledResult = await cancelledStart;
   const openResult = await controller.openProject(openedProject.id);
@@ -4812,6 +4908,43 @@ test('startHomeChat clears client state after semantic cancellation by the model
   assert.deepEqual(state.internalState.assessmentMessages, []);
 });
 
+test.each([
+  false,
+  true,
+])('startHomeChat starts the saved course before the library selection rerenders (archive: %s)', async archive => {
+  let savedSnapshot: ProjectSnapshot | undefined;
+  const capturedProjectId: string | null = null;
+  const { controller, projectLibrary } = createControllerHarness({
+    projectLibrary: {
+      persistSnapshot: async snapshot => {
+        savedSnapshot = snapshot;
+        return { meta: buildMeta(snapshot.id), snapshot };
+      },
+      saveCurrentProject: async overrides => {
+        const id = overrides?.id || capturedProjectId;
+        if (!id || !savedSnapshot) return null;
+        return { meta: buildMeta(id), snapshot: { ...savedSnapshot, ...overrides, id } };
+      },
+    },
+  });
+  const selectedFiles = archive
+    ? [new File(['opaque source archive'], 'course.zip', { type: 'application/zip' })]
+    : [
+        new File(['# First lesson'], 'first.md', { type: 'text/markdown' }),
+        new File(['# Second lesson'], 'second.md', { type: 'text/markdown' }),
+      ];
+
+  const result = await controller.startHomeChat({
+    input: 'Prepare a course using these sources',
+    selectedFiles,
+  });
+
+  expect(result.outcome).toBe('continued');
+  expect(result.errorMessage).toBeUndefined();
+  expect(projectLibrary.deletedProjectIds).toEqual([]);
+  expect(projectLibrary.adapter.currentProjectId).toBe(savedSnapshot?.id);
+});
+
 test('startHomeChat saves a ZIP before assessment and uses only the server index', async () => {
   const canonicalEntry = {
     byteSize: 18,
@@ -4824,32 +4957,21 @@ test('startHomeChat saves a ZIP before assessment and uses only the server index
   let assessmentText = '';
   const { controller, domain } = createControllerHarness({
     openRouter: {
-      buildAssessmentDocumentContextFromTextSource: source => {
-        assessmentText = source.text;
-        return { content: source.text, hasReliableSourceContext: true };
+      buildAssessmentDocumentContextFromSourceSet: sources => {
+        assessmentText = formatCourseSourceSetContext(sources);
+        return { content: assessmentText, hasReliableSourceContext: true };
       },
     },
     projectLibrary: {
       persistSnapshot: async (snapshot, options) => {
         persistedWrites += 1;
-        assert.deepEqual(options, { archiveFile: uploadedFile, throwOnError: true });
-        assert.equal(snapshot.source?.kind, 'archive');
-        assert.deepEqual(
-          snapshot.source?.kind === 'archive' ? snapshot.source.index.entries : [],
-          []
-        );
-        if (snapshot.source?.kind !== 'archive') {
-          throw new Error('Expected archive source');
-        }
+        assert.deepEqual(options?.sourceFiles, [uploadedFile]);
+        assert.equal(options?.throwOnError, true);
         return {
           meta: buildMeta(snapshot.id),
           snapshot: {
             ...snapshot,
-            source: {
-              ...snapshot.source,
-              file: { ...snapshot.source.file, data: '' },
-              index: { entries: [canonicalEntry] },
-            },
+            source: preparedSourceSet([canonicalEntry]),
           },
         };
       },
@@ -4867,9 +4989,10 @@ test('startHomeChat saves a ZIP before assessment and uses only the server index
   assert.equal(result.outcome, 'continued');
   assert.equal(result.errorMessage, undefined);
   assert.equal(persistedWrites, 1);
-  assert.deepEqual(domain.source?.kind === 'archive' ? domain.source.index.entries : [], [
-    canonicalEntry,
-  ]);
+  assert.deepEqual(
+    domain.source?.sources?.map(source => source.name),
+    [canonicalEntry.path]
+  );
   assert.equal(assessmentText.includes('docs/server.md'), true);
 });
 
@@ -4905,24 +5028,18 @@ test('startHomeChat assesses extracted ZIP PDFs and reports each unusable PDF en
   let assessmentText = '';
   const { controller } = createControllerHarness({
     openRouter: {
-      buildAssessmentDocumentContextFromTextSource: source => {
-        assessmentText = source.text;
-        return { content: source.text, hasReliableSourceContext: true };
+      buildAssessmentDocumentContextFromSourceSet: sources => {
+        assessmentText = formatCourseSourceSetContext(sources);
+        return { content: assessmentText, hasReliableSourceContext: true };
       },
     },
     projectLibrary: {
       persistSnapshot: async snapshot => {
-        if (snapshot.source?.kind !== 'archive') {
-          throw new Error('Expected archive source');
-        }
         return {
           meta: buildMeta(snapshot.id),
           snapshot: {
             ...snapshot,
-            source: {
-              ...snapshot.source,
-              index: { entries: canonicalEntries },
-            },
+            source: preparedSourceSet(canonicalEntries),
           },
         };
       },
@@ -4938,12 +5055,12 @@ test('startHomeChat assesses extracted ZIP PDFs and reports each unusable PDF en
   expect(result.sourceWarnings).toEqual([
     {
       message: 'Questa fonte non contiene testo PDF utilizzabile.',
-      name: 'scansioni/allegato.pdf',
+      name: 'corrotti/non-leggibile.PDF',
       reason: 'no-usable-text',
     },
     {
       message: 'Questa fonte non contiene testo PDF utilizzabile.',
-      name: 'corrotti/non-leggibile.PDF',
+      name: 'scansioni/allegato.pdf',
       reason: 'no-usable-text',
     },
   ]);
@@ -5027,7 +5144,21 @@ test('startHomeChat removes a new draft when ZIP preparation capacity is busy', 
 });
 
 test('startHomeChat reports each unusable source while continuing with valid material', async () => {
+  const hydrationStates: boolean[] = [];
   const { controller } = createControllerHarness({
+    projectLibrary: {
+      setProjectHydrated: hydrated => hydrationStates.push(hydrated),
+      persistSnapshot: async snapshot => ({
+        meta: buildMeta(snapshot.id),
+        snapshot: {
+          ...snapshot,
+          source: preparedSourceSet([
+            { path: 'scansione.pdf', contentKind: 'binary' },
+            { path: 'appunti.md', contentKind: 'text', preview: '# Materiale valido' },
+          ]),
+        },
+      }),
+    },
     openRouter: {
       validatePdfTextSource: async file => {
         if (file.name === 'scansione.pdf') {
@@ -5051,10 +5182,13 @@ test('startHomeChat reports each unusable source while continuing with valid mat
   });
 
   assert.equal(result.outcome, 'continued');
+
+  assert.equal(hydrationStates.at(-1), true);
   assert.deepEqual(result.sourceWarnings, [
     {
       message: 'Questa fonte non contiene testo PDF utilizzabile.',
       name: 'scansione.pdf',
+      reason: 'no-usable-text',
     },
   ]);
 });
@@ -9274,4 +9408,103 @@ test.each([
   expect(html.includes('role="alert"')).toBe(owner === 'lesson');
   expect(html.includes('Riprova')).toBe(owner === 'lesson');
   expect(html.includes('Ricollega sorgente')).toBe(owner === 'source');
+});
+
+test('an attachment retains ownership across overlapping opens while cleanup waits', async () => {
+  const published = createDeferred(),
+    reply = createDeferred(),
+    firstRead = createDeferred(),
+    secondRead = createDeferred();
+  const firstLoaded = createDeferred(),
+    secondLoaded = createDeferred();
+  let draftId = '';
+  let reads = 0;
+  const { controller, projectLibrary } = createControllerHarness({
+    projectLibrary: {
+      persistSnapshot: async (snapshot, options) => {
+        if (options?.sourceFiles) {
+          draftId = snapshot.id;
+          published.resolve();
+          await reply.promise;
+        }
+        return { meta: buildMeta(snapshot.id), snapshot };
+      },
+      loadStoredProject: async () => {
+        if (++reads === 1) {
+          firstRead.resolve();
+          await firstLoaded.promise;
+        } else {
+          secondRead.resolve();
+          await secondLoaded.promise;
+        }
+        return createProjectSnapshot({
+          id: draftId,
+          learningPlan: buildPlan(),
+          state: AppState.READING,
+        });
+      },
+    },
+  });
+  const uploading = controller.handleSourceUpload(
+    new File(['notes'], 'notes.txt', { type: 'text/plain' }),
+    { mode: 'new-project' }
+  );
+  await published.promise;
+  const firstOpening = controller.openProject(draftId);
+  await firstRead.promise;
+  reply.resolve();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const secondOpening = controller.openProject(draftId);
+  await secondRead.promise;
+  try {
+    firstLoaded.resolve();
+    expect((await firstOpening).outcome).toBe('stale');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(projectLibrary.deletedProjectIds).not.toContain(draftId);
+    secondLoaded.resolve();
+    expect((await secondOpening).outcome).toBe('opened');
+    expect((await uploading).outcome).toBe('failed');
+    expect(projectLibrary.deletedProjectIds).not.toContain(draftId);
+  } finally {
+    firstLoaded.resolve();
+    secondLoaded.resolve();
+    await Promise.allSettled([firstOpening, secondOpening, uploading]);
+  }
+});
+
+test.each([
+  'success',
+  'failure',
+] as const)('a same-project reopen concludes a cancelled reattach after %s', async outcome => {
+  const started = createDeferred(),
+    finish = createDeferred();
+  const source = createProjectSourceFromFile(markdownFile);
+  const snapshot = createProjectSnapshot({
+    id: 'reattach-opened',
+    source,
+    learningPlan: buildPlan(),
+    state: AppState.READING,
+  });
+  const { controller, state } = createControllerHarness({
+    loadedSnapshot: snapshot,
+    domain: { source },
+    projectLibrary: {
+      currentProjectId: snapshot.id,
+      saveCurrentProject: async () => {
+        started.resolve();
+        await finish.promise;
+        if (outcome === 'failure') throw new Error('Synthetic failed save');
+        return { meta: buildMeta(snapshot.id), snapshot };
+      },
+    },
+  });
+  const uploading = controller.handleSourceUpload(
+    new File(['replacement'], 'replacement.md', { type: 'text/markdown' }),
+    { mode: 'reattach-source' }
+  );
+  await started.promise;
+  expect((await controller.openProject(snapshot.id)).outcome).toBe('opened');
+  finish.resolve();
+  expect((await uploading).outcome).toBe('failed');
+  expect(state.internalState.workflowState.attachSource.status).not.toBe('pending');
 });

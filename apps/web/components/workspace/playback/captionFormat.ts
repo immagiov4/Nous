@@ -23,9 +23,22 @@ export interface CaptionPause {
 }
 
 function captionSourceLines(block: LessonPlaybackBlock, sources: readonly PlaybackContentBlock[]) {
-  const lines = new Map<string, { text: string; start: number; sourceBlockIndex: number }>();
+  const lines = new Map<
+    string,
+    { text: string; start: number; sourceBlockIndex: number; fencedSpeech?: PlaybackRange }
+  >();
   for (const span of block.spans) {
     if (span.source.start === span.source.end) continue;
+    if (span.fencedCode) {
+      if (span.speech.start !== span.speech.end)
+        lines.set(`fence:${span.sourceBlockIndex}:${span.source.start}`, {
+          text: block.speech.slice(span.speech.start, span.speech.end),
+          start: span.source.start,
+          sourceBlockIndex: span.sourceBlockIndex,
+          fencedSpeech: span.speech,
+        });
+      continue;
+    }
     const source = sources[span.sourceBlockIndex];
     if (source?.type !== 'markdown') throw new Error('Caption source must be Markdown');
     const markdown = source.markdown;
@@ -53,10 +66,22 @@ export function captionSource(
   let markdown = '';
   const ranges: { source: PlaybackRange; speech: PlaybackRange }[] = [];
   for (const line of lines.values()) {
+    if (line.fencedSpeech) {
+      ranges.push({
+        source: { start: markdown.length, end: markdown.length + line.text.length },
+        speech: line.fencedSpeech,
+      });
+      markdown += `${line.text}\n`;
+      continue;
+    }
     let cursor = line.start;
-    for (const span of block.spans) {
-      if (span.sourceBlockIndex !== line.sourceBlockIndex || span.speech.start === span.speech.end)
-        continue;
+    const lineSpans = block.spans.filter(
+      span =>
+        !span.fencedCode &&
+        span.sourceBlockIndex === line.sourceBlockIndex &&
+        span.speech.start !== span.speech.end
+    );
+    for (const span of lineSpans) {
       const start = Math.max(line.start, span.source.start);
       const end = Math.min(line.start + line.text.length, span.source.end);
       if (start >= end) continue;

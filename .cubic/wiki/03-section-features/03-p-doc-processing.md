@@ -1,167 +1,42 @@
 ---
-title: "Document Processing & PDF Extraction"
+title: "Source ingestion"
 wiki_page_id: "p-doc-processing"
 ---
 
-<details>
-<summary>Relevant source files</summary>
+[Up one level](../01-section-overview/01-p-overview.md)
 
-The following files were used as context for generating this wiki page:
+# Source ingestion
 
-- [apps/backend/src/services/pdfTextExtractor.ts](../../../apps/backend/src/services/pdfTextExtractor.ts)
-- [apps/backend/src/services/pdfImageExtractor.ts](../../../apps/backend/src/services/pdfImageExtractor.ts)
-- [packages/shared-types/pdfTextIndex.ts](../../../packages/shared-types/pdfTextIndex.ts)
-- [apps/backend/src/services/lessonGenerationSources.ts](../../../apps/backend/src/services/lessonGenerationSources.ts)
-- [apps/web/services/projects/courseSources.ts](../../../apps/web/services/projects/courseSources.ts)
-- [apps/backend/src/projects/postgresProjectStore.ts](../../../apps/backend/src/projects/postgresProjectStore.ts) (Referenced via tests)
-- [apps/backend/src/projects/sourceArchive.ts](../../../apps/backend/src/projects/sourceArchive.ts) (Referenced via tests)
+Generation needs the passage that supports a lesson objective, together with enough context to interpret it. Sending an entire PDF or code archive would spend context on unrelated material and obscure where a claim came from. Ingestion instead prepares retrievable text while retaining its page, heading or file location and the references to associated files.
 
-</details>
+## Prepare files before publishing their source set
 
-# Document Processing & PDF Extraction
-
-Document Processing and PDF Extraction within the Nous platform is a multi-layered system designed to transform raw file uploads (PDFs, Markdown, and ZIP archives) into structured, queryable data for AI-driven lesson generation. The system handles text extraction, image recovery, and hierarchical indexing to ensure that pedagogical content remains grounded in the original source material.
-
-The pipeline emphasizes resilience through a multi-parser fallback strategy for PDFs, ensuring that even complex layouts can be converted into usable text. This processed data is then segmented into semantic chunks and indexed by page number and heading path, allowing for precise citations within the generated lessons.
-
-## Text Extraction Pipeline
-
-The core of the document processing system is the `extractPdfText` function, which utilizes a primary high-fidelity parser with a robust fallback mechanism.
-
-### Multi-Stage Parsing
-1.  **pdftotext**: The primary parser. It is invoked via a sub-process with `-layout` flags to preserve the original visual structure, which is critical for table and column detection.
-2.  **pdf-parse**: A secondary fallback parser utilized if `pdftotext` is missing from the environment or fails to produce output.
-3.  **Fallback Process**: For memory safety and isolation, `pdf-parse` is often run in a dedicated Node.js sub-process (`pdfTextFallbackProcess.mjs`) with strict memory limits (`--max-old-space-size`).
-
-Sources: [apps/backend/src/services/pdfTextExtractor.ts:326-373](../../../apps/backend/src/services/pdfTextExtractor.ts#L326-L373), [apps/backend/src/services/pdfTextExtractor.ts:149-198](../../../apps/backend/src/services/pdfTextExtractor.ts#L149-L198)
+New-course creation and source attachment use the same [browser ingestion module](../../../apps/web/services/projects/sourceIngestion.ts). It expands ZIP members one at a time and sends each member through the same chunked transport as a separate file. Keeping the ZIP container in the browser lets the backend prepare and store originals individually instead of holding an entire archive in memory.
 
 ```mermaid
-flowchart TD
-    Start[PDF Data URL] --> Decode[Decode to Buffer]
-    Decode --> Hash[Generate SHA256 Hash]
-    Hash --> Pdftotext[Try pdftotext -layout]
-    Pdftotext -- Success --> Outline[Attach Outline]
-    Pdftotext -- Failure --> Fallback[Spawn pdf-parse Sub-process]
-    Fallback -- Success --> Warning[Add Quality Warning]
-    Warning --> Outline
-    Fallback -- Timeout/Limit --> Error[Throw Extraction Error]
-    Outline --> Result[ExtractedPdfText Object]
+flowchart LR
+    I[Files or ZIP] --> E[Browser expands members]
+    E --> T[Chunked file transport]
+    T --> J[Accepted preparation job]
+    J --> P[Sequential extraction and indexing]
+    P --> S[Per-file stored originals]
+    S --> C[Atomic source-set publication]
 ```
 
-The diagram shows the decision flow between high-fidelity layout preservation and isolated fallback extraction. 
-Sources: [apps/backend/src/services/pdfTextExtractor.ts:375-395](../../../apps/backend/src/services/pdfTextExtractor.ts#L375-L395)
+Completion accepts preparation with HTTP 202. The client follows the authenticated import status route for per-file and per-step progress, then applies the saved snapshot. Publication checks ownership and revision, retains existing source references during partial replacement and returns usable sources alongside named failures. A server restart interrupts the process-local preparation job explicitly, allowing the client to report the failure rather than poll forever; this job has a different recovery boundary from durable generation workflows.
 
-### Extraction Specifications
+ZIP members are checked against declared size and CRC, and duplicate paths reject the selection. Browser-private filesystem streams provide staging where available; a bounded Blob path supports browsers without writable filesystem streams. Browsers missing the required decompression or streaming APIs require separately extracted files. The [server module](../../../apps/backend/src/projects/sourceIngestion.ts) and [shared transfer contract](../../../packages/shared-types/sourceTransfer.ts) own admission and transport limits, while [staging](../../../apps/backend/src/projects/sourceStaging.ts) enforces disk-backed temporary storage. Saved archive projects and backup restoration retain their own readers.
 
-| Parameter | Default / Limit | Description |
-| :--- | :--- | :--- |
-| `maxOutputBytes` | Variable | Caps the total text volume to prevent heap exhaustion. |
-| `pdftotextTimeoutMs` | 15,000ms (Archive) | Max time allowed for the primary OS-level parser. |
-| `fallbackTimeoutMs` | 15,000ms (Archive) | Max time for the isolated Node.js fallback process. |
-| `max-old-space-size` | ~272MB (Typical) | Memory limit for the fallback sub-process. |
+## Keep a PDF passage with its evidence
 
-Sources: [apps/backend/tests/projects/sourceArchive.test.ts:114-120](../../../apps/backend/tests/projects/sourceArchive.test.ts#L114-L120), [apps/backend/tests/services/pdfTextExtractor.test.ts:86-90](../../../apps/backend/tests/services/pdfTextExtractor.test.ts#L86-L90)
+PDF extraction attempts to preserve layout and reading order, so selected text can still be understood as a passage. Figures keep their page and nearby text for the same reason: an image without its surrounding explanation may be the wrong evidence for an objective. Filtering removes likely decorative marks, while optional captions help retrieval identify informational candidates without replacing the source image. Figure extraction and captioning run in the backend lesson document stage, after the figure bytes are stored; an optional caption failure leaves the stored figure available.
 
-## Image Extraction & Contextualization
+A figure reference must resolve against the source version that supplied this context. If a PDF is replaced, retaining an earlier caption or placement could attach the new file to an old interpretation. [Asset lifecycle](../04-section-data/02-p-asset-management.md) explains how replacement refreshes those references.
 
-Beyond text, the system extracts standalone figures and images from PDFs using `pdfjs-dist`. Unlike simple extraction, this module attempts to reconstruct the semantic context surrounding each image.
+Extraction also determines what downstream research can claim to cover. An isolated fallback parser can attempt the work when the primary path fails or is unavailable, and its result can carry a quality warning. Its memory budget derives from the individual input and output budgets, and its UTF-8 JSON protocol preserves mathematical Unicode across Bun and Node. Resource limits fail explicitly rather than presenting a truncated document as complete. Scanned or damaged PDFs may still yield too little usable text; [planning](01-p-course-gen.md#research-routing) separately decides whether the prepared evidence is sufficient.
 
-### Filtering Logic
-To avoid extracting incidental UI elements (icons, watermarks, or lines), the system applies strict thresholds based on both rendered and intrinsic dimensions.
-*  **Standalone Figures**: Requires a minimum area (e.g., 24,000 intrinsic pixels) or specific side length ratios.
-*  **Inline Images**: Higher area requirements to distinguish between decorative icons and substantive diagrams.
+## Preserve navigation for structured sources
 
-Sources: [apps/backend/src/services/pdfImageExtractor.ts:7-22](../../../apps/backend/src/services/pdfImageExtractor.ts#L7-L22), [apps/backend/src/services/pdfImageExtractor.ts:219-257](../../../apps/backend/src/services/pdfImageExtractor.ts#L219-L257)
+Markdown headings give a selected section its place in the document. Code archives use a file index instead: generation or chat can search that index and retrieve particular indexed text files, retaining their paths and source version. This avoids flattening unrelated files into one passage and gives [contextual chat](07-p-chat-ui.md) a bounded retrieval target.
 
-### Optional Figure Captions
-
-The lesson document stage stores extracted figure bytes before requesting optional Italian captions. For OpenRouter, `pdfImageCaption.ts` defaults to the image-capable `google/gemini-3.1-flash-lite` route; `MODEL_PDF_IMAGE_CAPTION` can override it. The former `nvidia/nemotron-nano-12b-v2-vl` route returned HTTP 404 with no available endpoints. Caption failures remain optional and do not remove stored figures. Codex captions use the configured lesson model through the research provider slot.
-
-### Spatial Context Reconstruction
-The `buildLocalImageTextContext` function analyzes the `centerY` coordinates of text lines relative to the bounding box of the extracted image.
-*  **textBefore**: The last 5 lines appearing above the image.
-*  **textCurrent**: Lines overlapping the vertical span of the image.
-*  **textAfter**: The first 5 lines appearing below the image.
-
-Sources: [apps/backend/src/services/pdfImageExtractor.ts:98-120](../../../apps/backend/src/services/pdfImageExtractor.ts#L98-L120)
-
-## Content Indexing and Segmentation
-
-Once text is extracted, it is transformed into a `PdfTextIndex`. This structure is the basis for AI retrieval and user-facing citations.
-
-### Chunking Strategy
-Text is not stored as a single block but divided into `PdfTextChunk` objects.
-*  **Target Size**: Chunks target approximately 8,000 characters (on web) or smaller semantic segments defined by headings.
-*  **Heading Inference**: The system detects headings using regex patterns (e.g., `1.1 Concetti`) or visual cues (high ratio of uppercase/title-case characters).
-*  **Overlapping**: Paragraphs are preserved, and chunks may include overlapping context to maintain flow.
-
-Sources: [packages/shared-types/pdfTextIndex.ts:36-65](../../../packages/shared-types/pdfTextIndex.ts#L36-L65), [apps/web/services/projects/courseSources.ts:6-7](../../../apps/web/services/projects/courseSources.ts#L6-L7)
-
-### Page Mapping
-For PDF sources, every chunk is mapped to a physical page range. If exact layout data is missing, the system uses a progress-based estimation:
-`startPage = floor(startOffset / totalChars * pageCount) + 1`
-
-Sources: [packages/shared-types/pdfTextIndex.ts:118-136](../../../packages/shared-types/pdfTextIndex.ts#L118-L136)
-
-## Source Archive Preparation
-
-For `codebase` projects, the system processes ZIP archives. This involves a high-intensity "Admission" phase to prevent server overload.
-
-```mermaid
-sequenceDiagram
-    participant User as User Service
-    participant Archive as SourceArchive Service
-    participant Extract as TextExtractor
-    
-    User->>Archive: indexSourceArchive(buffer)
-    Archive->>Archive: Validate path safety (no traversal)
-    Archive->>Archive: Check entry limits (max 16 PDFs)
-    loop For each PDF
-        Archive->>Extract: extractPdfText()
-    end
-    Archive->>Archive: Build directory tree
-    Archive-->>User: SourceArchiveIndex
-```
-
-The sequence illustrates the validation and selective extraction of PDF content hidden within source code archives.
-Sources: [apps/backend/tests/projects/sourceArchive.test.ts:96-150](../../../apps/backend/tests/projects/sourceArchive.test.ts#L96-L150), [apps/backend/tests/projects/sourceArchive.test.ts:373-388](../../../apps/backend/tests/projects/sourceArchive.test.ts#L373-L388)
-
-### Safety Constraints
-*  **Path Validation**: Rejects traversal attacks (`../`), absolute paths, or duplicate entries.
-*  **Safety Limits**: Caps PDF processing to the first 16 eligible files or a cumulative 64MB budget per archive to prevent DoS.
-*  **Lexicographic Stability**: Archives are processed and indexed in a stable alphabetical order to ensure deterministic IDs.
-
-Sources: [apps/backend/tests/projects/sourceArchive.test.ts:241-260](../../../apps/backend/tests/projects/sourceArchive.test.ts#L241-L260), [apps/backend/tests/projects/sourceArchive.test.ts:291-305](../../../apps/backend/tests/projects/sourceArchive.test.ts#L291-L305)
-
-## Data Structures
-
-### ExtractedPdfText
-The primary result of a successful extraction.
-
-```typescript
-interface ExtractedPdfText {
-  text: string;
-  pages: ExtractedPdfTextPage[];
-  sourceHash: string;
-  parser: 'pdftotext' | 'pdf-parse';
-  usedFallbackParser: boolean;
-  outline: ExtractedPdfOutlineNode[];
-  outlineOrigin: 'deterministic' | 'native' | 'none';
-}
-```
-
-Sources: [apps/backend/src/services/pdfTextExtractor.ts:89-102](../../../apps/backend/src/services/pdfTextExtractor.ts#L89-L102)
-
-### PdfTextChunk
-The unit of content used during lesson generation.
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `id` | `string` | Unique identifier (e.g., `source-hash:chunk-001`). |
-| `text` | `string` | The actual text content. |
-| `headingPath` | `string[]` | Hierarchy of headings leading to this chunk. |
-| `pageStart` | `number` | The physical page where this chunk begins. |
-
-Sources: [packages/shared-types/pdfTextIndex.ts:20-31](../../../packages/shared-types/pdfTextIndex.ts#L20-L31)
-
-## Conclusion
-The Document Processing system acts as a robust gateway between unstructured user uploads and structured pedagogical data. By combining isolated sub-process extraction for stability, dimension-based filtering for images, and semantic chunking for text, it provides a highly reliable foundation for generating accurate, cited educational content. Significant emphasis is placed on security and resource management, particularly when handling untrusted ZIP archives and complex PDF structures.
+Start changes at [source text services](../../../apps/backend/src/services/projectSourceText.ts), [PDF text extraction](../../../apps/backend/src/services/pdfTextExtractor.ts) or [PDF image extraction](../../../apps/backend/src/services/pdfImageExtractor.ts), according to the lost context. Once preparation succeeds, [lesson generation](02-p-lesson-gen.md) selects and reviews how the evidence is used.

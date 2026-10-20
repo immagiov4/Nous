@@ -38,11 +38,11 @@ export const formatSourceWarningSummary = (
   warnings: readonly ProjectSourceWarning[],
   { continues = true }: { continues?: boolean } = {}
 ): string => {
-  const pdfWarnings = warnings.filter(
+  const reasonedWarnings = warnings.filter(
     (warning): warning is ProjectSourceWarning & { reason: SourceArchivePdfWarningReason } =>
       warning.reason !== undefined
   );
-  if (pdfWarnings.length === 0) {
+  if (reasonedWarnings.length === 0) {
     const sourceNames = warnings.map(warning => warning.name).join(', ');
     return continues
       ? t('Alcune fonti non sono state usate: {sourceNames}. Il corso continua con le altre.', {
@@ -51,9 +51,9 @@ export const formatSourceWarningSummary = (
       : t('Alcune fonti non sono state usate: {sourceNames}.', { sourceNames });
   }
 
-  const sortedPdfWarnings = [...pdfWarnings].sort(compareNames);
+  const sortedWarnings = [...reasonedWarnings].sort(compareNames);
   const reasonCounts = new Map<SourceArchivePdfWarningReason, number>();
-  for (const warning of sortedPdfWarnings) {
+  for (const warning of sortedWarnings) {
     reasonCounts.set(warning.reason, (reasonCounts.get(warning.reason) || 0) + 1);
   }
   const reasons = warningReasonOrder
@@ -62,11 +62,11 @@ export const formatSourceWarningSummary = (
       return count ? [formatReasonCount(reason, count)] : [];
     })
     .join(', ');
-  const paths = sortedPdfWarnings
+  const paths = sortedWarnings
     .slice(0, REPRESENTATIVE_PATH_LIMIT)
     .map(warning => elidePath(warning.name))
     .join('; ');
-  const hiddenCount = sortedPdfWarnings.length - REPRESENTATIVE_PATH_LIMIT;
+  const hiddenCount = sortedWarnings.length - REPRESENTATIVE_PATH_LIMIT;
   const hidden =
     hiddenCount > 0 ? ` ${t('Altri {count} non mostrati.', { count: hiddenCount })}` : '';
   const otherWarnings = warnings.filter(warning => warning.reason === undefined);
@@ -78,9 +78,14 @@ export const formatSourceWarningSummary = (
       : '';
 
   const continuation = continues ? ` ${t('Il corso continua con le fonti valide.')}` : '';
-  return `${t('{count} PDF non usati: {reasons}. Esempi: {paths}.', {
-    count: sortedPdfWarnings.length,
-    paths,
-    reasons,
-  })}${hidden}${other}${continuation}`;
+  return `${t(
+    sortedWarnings.length === 1
+      ? '1 fonte non usata: {reasons}. Esempi: {paths}.'
+      : '{count} fonti non usate: {reasons}. Esempi: {paths}.',
+    {
+      count: sortedWarnings.length,
+      paths,
+      reasons,
+    }
+  )}${hidden}${other}${continuation}`;
 };
