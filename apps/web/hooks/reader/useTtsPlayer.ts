@@ -468,14 +468,14 @@ export const useTtsPlayer = ({
           const requestedVoice = audioStateRef.current.currentVoice;
           const requestedText = chunk.text;
           const requestedModel = audioStateRef.current.currentModel;
+          if (!projectId || !activeSectionId)
+            throw new Error('Lesson speech requires a saved project and section.');
           const speechAudio = await OpenRouterService.generateSpeech({
             text: requestedText,
             voice: requestedVoice,
             model: requestedModel,
             block: sourceBlocks[retryIndex],
-            ...(projectId && activeSectionId
-              ? { target: { projectId, sectionId: activeSectionId } }
-              : {}),
+            target: { projectId, sectionId: activeSectionId },
           });
           const audioBlob = new Blob([speechAudio.audioBuffer], { type: speechAudio.contentType });
           const url = URL.createObjectURL(audioBlob);

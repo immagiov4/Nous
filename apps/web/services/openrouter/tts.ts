@@ -25,8 +25,8 @@ export const generateSpeech = async ({
   text: string;
   voice: VoiceProfileId;
   model?: string;
-  block?: LessonPlaybackBlock;
-  target?: { projectId: string; sectionId: string };
+  block: LessonPlaybackBlock;
+  target: { projectId: string; sectionId: string };
 }): Promise<SpeechAudioResponse> => {
   try {
     return await requestSpeechAudio({
@@ -34,8 +34,8 @@ export const generateSpeech = async ({
       text,
       voice,
       speed: 1,
-      ...(block ? { block } : {}),
-      ...(target ? { target } : {}),
+      block,
+      target,
     });
   } catch (error) {
     throw normalizeTtsConnectionError(error);

@@ -91,10 +91,23 @@ test.each([
     config: getGlobalModelConfig(),
     signal: new AbortController().signal,
   };
+  const section = {
+    ...playbackSection(),
+    content: markdown,
+    contentBlocks: [{ type: 'markdown' as const, markdown }],
+  };
+  const store = new InMemoryProjectStore();
+  await store.saveProject('local-user', playbackProject(section));
+  setProjectStoreForTesting(store);
   const reader = async () => {
     const response = await request(createApp())
       .post('/api/tts')
-      .send({ text: markdown, block, voice: 'Zephyr' });
+      .send({
+        text: markdown,
+        block,
+        voice: 'Zephyr',
+        target: { projectId: 'project-1', sectionId: 'section-1' },
+      });
     expect(response.status).toBe(200);
   };
   const playback = async () =>
@@ -337,4 +350,16 @@ test('listens to an owner-scoped long lesson without oversized provider calls', 
   expect(mocks.speech.mock.calls.length).toBeGreaterThan(1);
   expect(mocks.speech.mock.calls.every(([request]) => request.text.length <= 10_000)).toBe(true);
   expect(mocks.generate).not.toHaveBeenCalled();
+});
+
+test('rejects unscoped structured visual context before paid preparation', async () => {
+  const source = `Consideriamo $x$.\n\n\`\`\`js\n${'long source '.repeat(1000)}\n\`\`\``.replaceAll(
+    '\\n',
+    '\n'
+  );
+  const block = segmentLessonPlayback([{ type: 'markdown', markdown: source }])[0];
+  const response = await request(createApp()).post('/api/tts').send({ text: source, block });
+  expect(response.status).toBe(400);
+  expect(mocks.generate).not.toHaveBeenCalled();
+  expect(mocks.speech).not.toHaveBeenCalled();
 });

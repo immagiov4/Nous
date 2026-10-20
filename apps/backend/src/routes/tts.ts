@@ -69,14 +69,9 @@ router.post('/', async (req: Request, res: Response) => {
     const parsedTarget = target === undefined ? undefined : speechTargetSchema.safeParse(target);
     if (parsedTarget && (!parsedTarget.success || !parsedBlock?.success))
       return res.status(400).json({ success: false, error: 'Richiesta di ascolto non valida.' });
-    const sourceLength = parsedBlock?.success
-      ? parsedBlock.data.speech.length +
-        parsedBlock.data.spans.reduce(
-          (length, span) => length + (span.math?.length ?? span.fencedCode?.markdown.length ?? 0),
-          0
-        )
-      : text.trim().length;
-    if (!parsedTarget && sourceLength > MAX_TTS_TEXT_CHARS)
+    if (parsedBlock && !parsedTarget)
+      return res.status(400).json({ success: false, error: 'Richiesta di ascolto non valida.' });
+    if (!parsedTarget && text.trim().length > MAX_TTS_TEXT_CHARS)
       return res.status(400).json({
         success: false,
         error: `Testo troppo lungo. Massimo ${MAX_TTS_TEXT_CHARS} caratteri per richiesta.`,

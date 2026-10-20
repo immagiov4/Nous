@@ -93,7 +93,11 @@ describe('useTtsPlayer', () => {
   test('preserves authored paragraph order', () => {
     const markdown = 'Prima frase. Seconda frase.\n\nTerza frase finale.';
     const { result } = renderHook(() =>
-      useTtsPlayer({ activeSectionId: 'paragraphs', sectionContent: markdown })
+      useTtsPlayer({
+        projectId: 'project-1',
+        activeSectionId: 'paragraphs',
+        sectionContent: markdown,
+      })
     );
     expect(result.current.chunkTexts).toEqual([
       'Prima frase. Seconda frase.',
@@ -109,7 +113,7 @@ describe('useTtsPlayer', () => {
       'Seconda parte.',
     ].join('\n\n');
     const { result } = renderHook(() =>
-      useTtsPlayer({ activeSectionId: 'figures', sectionContent: markdown })
+      useTtsPlayer({ projectId: 'project-1', activeSectionId: 'figures', sectionContent: markdown })
     );
     expect(result.current.chunkTexts).toEqual(['Prima parte.', 'Seconda parte.']);
   });
@@ -117,6 +121,7 @@ describe('useTtsPlayer', () => {
   test('loads TTS connectivity and available voices on mount', async () => {
     const { result } = renderHook(() =>
       useTtsPlayer({
+        projectId: 'project-1',
         activeSectionId: 'lesson-1',
         sectionContent: 'Contenuto della lezione',
       })
@@ -136,6 +141,7 @@ describe('useTtsPlayer', () => {
     try {
       renderHook(() =>
         useTtsPlayer({
+          projectId: 'project-1',
           activeSectionId: 'lesson-1',
           sectionContent: 'Contenuto della lezione',
         })
@@ -161,6 +167,7 @@ describe('useTtsPlayer', () => {
   test('creates audio chunks, starts playback and updates playback rate', async () => {
     const { result } = renderHook(() =>
       useTtsPlayer({
+        projectId: 'project-1',
         activeSectionId: 'lesson-1',
         sectionContent: 'Prima parte.\n\nSeconda parte.',
       })
@@ -201,6 +208,7 @@ describe('useTtsPlayer', () => {
     const sectionContent = `${'Prima parte della lezione con concetti introduttivi. '.repeat(16)}\n\n${'Seconda parte dedicata agli esempi applicativi. '.repeat(16)}`;
     const { result } = renderHook(() =>
       useTtsPlayer({
+        projectId: 'project-1',
         activeSectionId: 'lesson-1',
         sectionContent,
       })
@@ -229,6 +237,7 @@ describe('useTtsPlayer', () => {
 
     const { result } = renderHook(() =>
       useTtsPlayer({
+        projectId: 'project-1',
         activeSectionId: 'lesson-1',
         sectionContent: 'Contenuto',
       })
@@ -244,6 +253,7 @@ describe('useTtsPlayer', () => {
     const { result, rerender } = renderHook(
       ({ activeSectionId, sectionContent }) =>
         useTtsPlayer({
+          projectId: 'project-1',
           activeSectionId,
           sectionContent,
         }),
@@ -283,6 +293,7 @@ describe('useTtsPlayer', () => {
       const sectionContent = `${'Prima parte abbastanza lunga. '.repeat(30)}\n\n${'Seconda parte abbastanza lunga. '.repeat(30)}`;
       const { result } = renderHook(() =>
         useTtsPlayer({
+          projectId: 'project-1',
           activeSectionId: 'lesson-1',
           sectionContent,
         })
@@ -317,7 +328,7 @@ describe('useTtsPlayer', () => {
 test('keeps selection text aligned with the rendered prose while sending original math for speech', async () => {
   const markdown = String.raw`Consideriamo $\mathcal{P}(A)$ e $f: A\to B$.`;
   const { result } = renderHook(() =>
-    useTtsPlayer({ activeSectionId: 'math', sectionContent: markdown })
+    useTtsPlayer({ projectId: 'project-1', activeSectionId: 'math', sectionContent: markdown })
   );
   expect(result.current.chunkTexts).toEqual(['Consideriamo e .']);
   await waitFor(() => expect(result.current.ttsConnected).toBe(true));
@@ -333,9 +344,22 @@ test('keeps selection text aligned with the rendered prose while sending origina
 test('projects rendered entities for text selection while retaining literal code entities', () => {
   const { result } = renderHook(() =>
     useTtsPlayer({
+      projectId: 'project-1',
       activeSectionId: 'entities',
       sectionContent: 'Consideriamo A &amp; B e `$x &amp; y$`.',
     })
   );
   expect(result.current.chunkTexts).toEqual(['Consideriamo A & B e $x &amp; y$.']);
+});
+
+test.each([
+  'La variabile foo_bar vale uno.',
+  'Il costo è $5.',
+  'Usa [x] come etichetta.',
+  'A * B = C.',
+])('keeps parser-recognized literal text selectable: %s', markdown => {
+  const { result } = renderHook(() =>
+    useTtsPlayer({ projectId: 'project-1', activeSectionId: 'literal', sectionContent: markdown })
+  );
+  expect(result.current.chunkTexts).toEqual([markdown]);
 });

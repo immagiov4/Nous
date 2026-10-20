@@ -92,8 +92,21 @@ export const projectReadableSpeech = (
   blocks: readonly LessonPlaybackBlock[],
   content: readonly PlaybackContentBlock[]
 ): string[] => {
-  const projections = content.map(block =>
-    block.type === 'markdown' ? buildVisibleProjection(block.markdown) : null
+  const projections = content.map((block, sourceBlockIndex) =>
+    block.type === 'markdown'
+      ? buildVisibleProjection(
+          block.markdown,
+          undefined,
+          [],
+          blocks.flatMap(speech =>
+            speech.spans
+              .filter(
+                span => span.sourceBlockIndex === sourceBlockIndex && !span.math && !span.fencedCode
+              )
+              .map(span => span.source)
+          )
+        )
+      : null
   );
   return blocks.map(block =>
     collapseWhitespace(
