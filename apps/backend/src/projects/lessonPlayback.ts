@@ -96,7 +96,9 @@ export const readLessonPlayback = (section: LearningPlanNodeSnapshot): LessonPla
     lessonKey,
     blocks: projection.blocks.map(block => {
       const prepared = saved.get(block.id);
-      return prepared?.speech === block.speech
+      const needsFenceClassification =
+        block.spans.some(span => span.fencedCode) && !prepared?.prepared?.fencedCode;
+      return prepared?.speech === block.speech && !needsFenceClassification
         ? { ...block, prepared: prepared.prepared, audio: prepared.audio }
         : block;
     }),
