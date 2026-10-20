@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
-const BASELINE_PATH = 'config/fallow-baselines/regression.json';
+export const FALLOW_BASELINE_PATH = 'config/fallow-baselines/regression.json';
 const FINGERPRINT_SCHEMA_VERSION = 1;
 const IGNORED_IDENTITY_FIELDS = new Set(['actions', 'col', 'line', 'span_start', 'specifier_col']);
 const NON_FINDING_ARRAYS = new Set(['next_steps']);
@@ -122,18 +122,18 @@ export const attachFallowFindingsToBaseline = (baseline: unknown, report: unknow
 
 export const parseFallowBaselineFingerprints = (baseline: unknown): string[] => {
   if (!isRecord(baseline) || !isRecord(baseline.check) || !isRecord(baseline.finding_identity)) {
-    throw new TypeError(`Invalid Fallow regression baseline: ${BASELINE_PATH}.`);
+    throw new TypeError(`Invalid Fallow regression baseline: ${FALLOW_BASELINE_PATH}.`);
   }
   if (
     baseline.finding_identity.schema_version !== FINGERPRINT_SCHEMA_VERSION ||
     !Array.isArray(baseline.finding_identity.finding_fingerprints)
   ) {
-    throw new TypeError(`Unsupported Fallow finding identity schema in ${BASELINE_PATH}.`);
+    throw new TypeError(`Unsupported Fallow finding identity schema in ${FALLOW_BASELINE_PATH}.`);
   }
 
   const fingerprints = baseline.finding_identity.finding_fingerprints.map(candidate => {
     if (typeof candidate !== 'string' || !/^[a-z][a-z0-9_]*:[a-f0-9]{64}$/u.test(candidate)) {
-      throw new TypeError(`Invalid Fallow finding fingerprint in ${BASELINE_PATH}.`);
+      throw new TypeError(`Invalid Fallow finding fingerprint in ${FALLOW_BASELINE_PATH}.`);
     }
     return candidate;
   });
@@ -198,7 +198,7 @@ export const assertNoFallowRegression = (comparison: FallowFindingComparison) =>
 };
 
 const runFallowRegressionCheck = async () => {
-  const baseline = JSON.parse(await readFile(BASELINE_PATH, 'utf8')) as unknown;
+  const baseline = JSON.parse(await readFile(FALLOW_BASELINE_PATH, 'utf8')) as unknown;
   const baselineFingerprints = parseFallowBaselineFingerprints(baseline);
 
   const fallowProcess = Bun.spawn(FALLOW_DEAD_CODE_JSON_COMMAND, {

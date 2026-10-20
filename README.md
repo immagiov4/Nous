@@ -65,7 +65,7 @@ Copy `deploy/.env.production.example` to `.env.production`, choose `SUPABASE_DEP
 
 ## What Lives Where
 
-Shared tool settings live in `config/`; package scripts and CI select their paths explicitly. Application code lives in `apps/` and `packages/`, deployment tooling in `deploy/`, and contributor documentation in `docs/` and `.cubic/wiki/`.
+Tool and backend file settings live in `config/`; commands and loaders select their paths explicitly. The backend reads `config/server.config.json`, with `BACKEND_HOST` and `BACKEND_PORT` environment variables taking precedence. Application code lives in `apps/` and `packages/`, deployment tooling in `deploy/`, and contributor documentation in `docs/` and `.cubic/wiki/`.
 
 Code-level structure, package responsibilities, workspace boundaries, and dependency ownership are
 maintained in the [Cubic wiki](.cubic/wiki/index.md). Product intent remains in the

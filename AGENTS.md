@@ -116,6 +116,8 @@ a feature is core or better left to external tools.
 
 ## Validation Commands
 
+Local browser suites, provider batches, full gates and coverage queue automatically across worktrees and run one at a time. Fast checks use `bun run check:changed` without the lock. Use `bun scripts/heavy-run.mjs status` to see the owner and queue; wrap additional browser or Docker proofs with `bun scripts/heavy-run.mjs --label "who/what" -- <command...>`.
+
 After installing dependencies, run `bunx playwright install chromium` for browser tests under `bun run test` and Node coverage. `bun run prepare:coverage` also installs Chromium after the Node preflight.
 
 ```bash
@@ -124,7 +126,8 @@ bun run doctor        # Read-only diagnostic; defaults to the checks profile
 bun run doctor -- --profile gate   # Probe the existing local Sonar service
 bun run doctor -- --profile local  # Probe local Supabase services and migration parity
 bun run doctor -- --profile all    # Run checks plus every service probe
-bun run quality       # Local TypeScript, Biome, React Hooks, and Sonar-style checks
+bun run check:changed # Biome and ESLint on files changed against origin/main
+bun run quality       # Complete TypeScript, Biome, React Hooks, and Sonar-style checks
 bun run check:eslint-sonar # Cached Sonar-style TS/TSX rules against bulk suppressions
 bun run quality:ci    # CI quality checks, including dependency graph validation
 bun run check:fallow  # Static dead-code & duplication analysis (info only)
@@ -139,7 +142,7 @@ bun run playtest      # Headless agentic stories; requires NOUS_E2E_DATA, --prov
 
 `check:eslint-sonar` uses `config/eslint.sonar.config.mjs` and the tracked `config/eslint-suppressions.json` baseline. After fixing baseline violations, run `bun run check:eslint-sonar --prune-suppressions` and include the reduced baseline with the fix. Regeneration with `bun run check:eslint-sonar --suppress-all` accepts every current violation and requires explicit maintainer approval. After either maintenance command, run `bunx biome format --write config/eslint-suppressions.json` to restore the required trailing newline. Scope, rule mappings, and suppression semantics are documented in [.cubic/wiki/09-section-tools/02-p-testing-quality.md](.cubic/wiki/09-section-tools/02-p-testing-quality.md).
 
-Run focused tests and relevant type or lint checks while editing, then `bun run quality` before pushing. Use GitHub CI for the full suite after each pull-request update.
+Run focused tests and `bun run check:changed` before pushing. Run `bun run lint:types` when types or interfaces change. GitHub CI runs the complete quality checks and test suite on each pull-request update.
 
 Merge only when CI is green on the exact pull-request head, including `test`, `SonarCloud Code Analysis`, and the applicable contract and pull-request-body checks. Resolve every new Sonar finding with an owner-visible disposition before merging. Each new commit needs its own passing checks.
 

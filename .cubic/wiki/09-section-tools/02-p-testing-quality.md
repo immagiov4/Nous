@@ -10,6 +10,10 @@ The following files were used as context for generating this wiki page:
 
 - [scripts/run-full-quality-gate.ts](../../../scripts/run-full-quality-gate.ts)
 - [scripts/run-full-quality-gate.test.ts](../../../scripts/run-full-quality-gate.test.ts)
+- [scripts/heavy-run.mjs](../../../scripts/heavy-run.mjs)
+- [scripts/heavy-run.test.ts](../../../scripts/heavy-run.test.ts)
+- [scripts/check-changed.mjs](../../../scripts/check-changed.mjs)
+- [scripts/check-changed.test.ts](../../../scripts/check-changed.test.ts)
 - [scripts/doctor.ts](../../../scripts/doctor.ts)
 - [scripts/doctor.test.ts](../../../scripts/doctor.test.ts)
 - [scripts/select-workflow-postgres-contract.ts](../../../scripts/select-workflow-postgres-contract.ts)
@@ -19,9 +23,19 @@ The following files were used as context for generating this wiki page:
 
 # Testing & Quality Gates
 
-Nous Reader uses focused local checks during development, GitHub Actions on pull-request updates and pushes to `main`, and SonarQube Cloud analysis of the exact pull-request head. Merge readiness requires green CI on that exact head, including SonarCloud. Local SonarQube supports Windows-specific diagnosis. Fallow blocks new dead-code findings against a committed baseline.
+Nous Reader uses focused local checks during development, GitHub Actions on pull-request updates and pushes to `main`, and SonarQube Cloud analysis of the exact pull-request head. Fallow blocks new dead-code findings against a committed baseline.
 
 Sources: [AGENTS.md:143-162](../../../AGENTS.md#L143-L162), [scripts/run-full-quality-gate.ts:1-20](../../../scripts/run-full-quality-gate.ts#L1-L20)
+
+## Shared local heavy-run queue
+
+Local browser suites, provider batches, full gates and coverage enter one FIFO queue shared by all worktrees. `bun scripts/heavy-run.mjs status` lists the current owner and waiters. Additional browser or Docker proofs use `bun scripts/heavy-run.mjs --label "who/what" -- <command...>`.
+
+The queue lives in `HEAVY_RUN_DIR`, defaulting to the user's `.agent-questions/heavy-run/` directory. Each waiter atomically creates a ticket; creation time and sequence determine admission order. Only the first ticket may atomically publish a populated lock directory, preserving ownership during handoff. Ticket and lock names share one filesystem record and heartbeat. The wrapper updates ticket and lock heartbeats every 30 seconds independently of child output. Dead owners are removed immediately; entries without a heartbeat for 10 minutes are stale. A lock remains held while its recorded child process is alive, including when the supervisor is stale. `HEAVY_RUN_STALE_MS` overrides the stale duration and must exceed the 30-second heartbeat interval. The wrapper releases its records after completion, errors, SIGINT and SIGTERM. Child commands inherit `HEAVY_RUN_HELD=1` so nested package scripts share admission; `CI=true` bypasses local coordination. Package expressions use `--shell "expression" --` to preserve environment assignments, command chains and appended arguments.
+
+Before pushing, `bun run check:changed` runs Biome and both ESLint configurations on existing files changed since the merge base with `origin/main`, including staged, unstaged and untracked files. It skips deleted files and preserves filenames with spaces. These checks run directly; CI runs the complete quality checks. Run `bun run lint:types` when types or interfaces change.
+
+CLI tests exercise the exported entry points under Node coverage and retain separate-process proofs for FIFO admission, mutual exclusion, interruption and silent-child heartbeats.
 
 ## Validation Hierarchy
 
@@ -29,7 +43,7 @@ The quality process is organized into discrete profiles and stages, allowing dev
 
 ### Implementation quality workflow
 
-Every implementation task follows `.agents/skills/quality-workflow/SKILL.md`, which AGENTS.md references. The agent states a level at the start: a local fix needs behaviour tests and `bun run quality`; a medium feature adds real-flow provider integration, a step-by-step review of the recorded run trace and an agentic playtest; a large or visual feature also starts from a functioning mockup on a temporary app page that the maintainer approves before production code. The ordered test ladder is behaviour tests that are shown to fail when the code is broken, performance measurements recorded per run (thresholds come from the maintainer), integration on each provider the changed flow supports, trace review, playtest, and maintainer visual QA with the playtest evidence. The skill also routes bugs found outside the work, requires a zoom-out check before fixes, and keeps Sonar to one run on the final candidate. Vendored third-party skills follow the precedence rules in `.agents/skills/THIRD_PARTY_SKILLS.md`.
+Every implementation task follows `.agents/skills/quality-workflow/SKILL.md`, which AGENTS.md references. The agent states a level at the start: a local fix needs behaviour tests and `bun run check:changed`; a medium feature adds real-flow provider integration, a step-by-step review of the recorded run trace and an agentic playtest; a large or visual feature also starts from a functioning mockup on a temporary app page that the maintainer approves before production code. The ordered test ladder is behaviour tests that are shown to fail when the code is broken, performance measurements recorded per run (thresholds come from the maintainer), integration on each provider the changed flow supports, trace review, playtest, and maintainer visual QA with the playtest evidence. The skill also routes bugs found outside the work, requires a zoom-out check before fixes, and keeps Sonar to one run on the final candidate. Vendored third-party skills follow the precedence rules in `.agents/skills/THIRD_PARTY_SKILLS.md`.
 
 ### Real-provider model exchanges
 
@@ -302,14 +316,14 @@ Sources: [scripts/run-full-quality-gate.ts:39-53](../../../scripts/run-full-qual
 ### SonarQube Integration
 SonarQube Cloud runs in the CI test job and publishes its pull-request quality-gate result. The official scan action selects `config/sonar-project.properties` with `-Dproject.settings` and an empty `projectBaseDir` input to omit the incompatible default base-directory argument, overriding only the Cloud organization and project key from repository variables, the host, the exact source revision, and the React Hooks report path. Existing analysis scopes, exclusions, LCOV path, quality-gate wait and timeout continue to apply. The local scanner retains its local project key and loopback server.
 
-For merge admission, follow [AGENTS.md](../../../AGENTS.md). CI-based Cloud analysis requires Automatic Analysis to be disabled in the Cloud project under Project > Administration > Analysis Method.
+Merge readiness requires green CI on the exact pull-request head, including SonarCloud. The local gate diagnoses Windows-specific failures. Automatic analysis must be disabled in the Cloud project before CI-based analysis can run: Project > Administration > Analysis Method > Automatic Analysis off.
 - **Lifecycle:** `gate:full` starts or reuses the local service immediately before analysis and keeps it running afterward. Stop it explicitly with `bun run sonar:stop` when finished.
 - **Configuration:** Docker binds the local service to `127.0.0.1:9000`. Its Docker-internal one-shot provisioner grants `Anyone` the global `Create Projects` and `Execute Analysis` permissions on a fresh volume, enabling anonymous analysis without scanner credentials. The `gate` Doctor profile requires that provisioner to complete successfully before it reports anonymous analysis ready.
 - **Merge Block:** A required Sonar scan that is skipped, failed, or unreachable blocks the merge.
 
 Sources: [AGENTS.md:156-162](../../../AGENTS.md#L156-L162), [scripts/doctor.ts:233-275](../../../scripts/doctor.ts#L233-L275)
 
-Use focused checks while editing. Use GitHub CI for the full suite after pull-request updates and pushes to `main`. After CI passes, run `gate:full` once on the same commit after implementation and review feedback are complete. Coverage uses any Node 26.x release; `.node-version` pins only the major. The coverage preflight deletes the previous LCOV report before it checks that pin, so Sonar cannot consume stale coverage after a runtime mismatch. Coverage uses the same ordered projects as the Bun suite and writes one combined LCOV report consumed by Sonar.
+Use focused checks while editing. Use GitHub CI for the full suite after pull-request updates and pushes to `main`. Run `bun run check:changed` before pushing; use `gate:full` only to diagnose Windows-specific failures. Coverage uses any Node 26.x release; `.node-version` pins only the major. The coverage preflight deletes the previous LCOV report before it checks that pin, so Sonar cannot consume stale coverage after a runtime mismatch. Coverage uses the same ordered projects as the Bun suite and writes one combined LCOV report consumed by Sonar.
 
 Sources: [AGENTS.md:155-162](../../../AGENTS.md#L155-L162)
 

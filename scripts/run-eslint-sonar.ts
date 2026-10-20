@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolveEslintCachePath } from './eslint-cache.ts';
 
 // Use the CLI so ESLint owns applying, regenerating, and pruning bulk suppressions.
-if (import.meta.main) {
+export const main = async (args = process.argv.slice(2)): Promise<number> => {
   const project: { include: string[] } = JSON.parse(
     await readFile('config/tsconfig.eslint.json', 'utf8')
   );
@@ -24,9 +24,11 @@ if (import.meta.main) {
       '--suppressions-location',
       'config/eslint-suppressions.json',
       ...directories,
-      ...process.argv.slice(2),
+      ...args,
     ],
     { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }
   );
-  process.exitCode = await child.exited;
-}
+  return child.exited;
+};
+
+if (import.meta.main) process.exitCode = await main();

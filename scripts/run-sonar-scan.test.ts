@@ -1,10 +1,13 @@
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
   createAnonymousScannerEnvironment,
   createLocalScannerArguments,
+  main,
 } from './run-sonar-scan.ts';
 
 describe('createAnonymousScannerEnvironment', () => {
@@ -43,5 +46,36 @@ describe('relocated Sonar settings', () => {
     );
     expect(args).toContain('-Dsonar.projectName=Test Reader');
     expect(args.at(-2)).toBe('-Dsonar.host.url=http://127.0.0.1:9000');
+  });
+});
+
+describe('local Sonar command entry', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  test.each([0, 7])('loads relocated settings and returns scanner status %s', async code => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'nous-sonar-entry-'));
+    try {
+      const reportPath = path.join(directory, 'eslint-report.json');
+      await writeFile(reportPath, '[]');
+      vi.stubEnv('SONAR_ESLINT_REPORT_PATH', reportPath);
+      vi.stubEnv('SONAR_TOKEN', 'synthetic-inherited-token');
+      const spawn = vi.fn().mockReturnValue({ exited: Promise.resolve(code) });
+      vi.stubGlobal('Bun', { spawn });
+      expect(await main()).toBe(code);
+      const [command, options] = spawn.mock.calls[0];
+      expect(command).toEqual(
+        await createLocalScannerArguments(
+          await readFile('config/sonar-project.properties', 'utf8'),
+          reportPath
+        )
+      );
+      expect(options.env.SONAR_TOKEN).toBeUndefined();
+      expect(process.env.SONAR_TOKEN).toBe('synthetic-inherited-token');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

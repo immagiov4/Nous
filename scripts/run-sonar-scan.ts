@@ -41,7 +41,7 @@ const runCommand = async (command: string[]) => {
   return processHandle.exited;
 };
 
-const main = async () => {
+export const main = async (): Promise<number> => {
   const eslintReportPath = resolveEslintReportPath();
   const preparedByFullGate = Boolean(process.env.SONAR_ESLINT_REPORT_PATH);
   if (!preparedByFullGate || !existsSync(eslintReportPath)) {
@@ -49,10 +49,7 @@ const main = async () => {
   }
 
   const settings = await readFile('config/sonar-project.properties', 'utf8');
-  const exitCode = await runCommand(createLocalScannerArguments(settings, eslintReportPath));
-  if (exitCode !== 0) {
-    process.exit(exitCode);
-  }
+  return runCommand(createLocalScannerArguments(settings, eslintReportPath));
 };
 
-if (import.meta.main) await main();
+if (import.meta.main) process.exitCode = await main();

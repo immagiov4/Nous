@@ -6,7 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { ESLint } from 'eslint';
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { main } from './run-eslint-sonar.ts';
 
 describe('Sonar ESLint bulk suppressions', () => {
   let directory: string;
@@ -188,5 +189,30 @@ describe('Sonar ESLint test classification', () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+});
+
+describe('Sonar ESLint command entry', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  test.each([0, 7])('loads relocated lint inputs and returns child status %s', async code => {
+    const spawn = vi.fn().mockReturnValue({ exited: Promise.resolve(code) });
+    vi.stubGlobal('Bun', { spawn });
+    expect(await main(['--format', 'json'])).toBe(code);
+    const command = spawn.mock.calls[0][0] as string[];
+    expect(command[command.indexOf('--config') + 1]).toBe('config/eslint.sonar.config.mjs');
+    expect(command[command.indexOf('--suppressions-location') + 1]).toBe(
+      'config/eslint-suppressions.json'
+    );
+    expect(command.slice(-8)).toEqual([
+      'apps/web',
+      'apps/backend/src',
+      'apps/backend/tests',
+      'packages',
+      'scripts',
+      'e2e',
+      '--format',
+      'json',
+    ]);
   });
 });
