@@ -1,19 +1,38 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
+import { JSDOM } from 'jsdom';
+import JSZip from 'jszip';
+import type { Page } from 'playwright';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createLibraryArchiveBlob } from '../../../apps/web/services/projects/libraryArchive';
-import { createProjectArchiveBlob } from '../../../apps/web/services/projects/projectArchive';
+import {
+  createProjectArchiveBlob,
+  inspectProjectArchiveData,
+} from '../../../apps/web/services/projects/projectArchive';
 import { normalizeStoredProject } from '../../../apps/web/services/projects/projectSnapshot';
+import { parseMarkdownAnalysis } from '../../../apps/web/utils/markdown/codeRanges';
+import { segmentLessonPlayback } from '../../../packages/shared-types/lessonPlayback';
 import {
   findLessonSceneProblems,
   LESSON_SCENE_TYPES,
 } from '../../../packages/shared-types/lessonScene';
 import { captionFindings, outsideBox, visualFindings } from '../atlas/checks';
+import { atlasStageReady } from '../atlas/dom';
 import { atlasCourses, atlasLessons } from '../atlas/input';
 import { pairwiseRows } from '../atlas/pairwise';
+import { writeAtlasArtifact } from '../atlas/report';
 import { AtlasScenarioSchema, DEFAULT_PLAYBACK_SCENARIO, viewportOptions } from '../atlas/scenario';
+import { speechMathFindings, speechPunctuationTokens } from '../atlas/speech';
 import { SYNTHETIC_FACTORS, syntheticPairwiseCourse, syntheticScene } from '../atlas/synthetic';
+import { resetAtlasRandom } from '../atlas/timing';
+import {
+  assertWindowsAtlasLocation,
+  atlasKatexCss,
+  atlasStatus,
+  captureTile,
+  privateAtlasDirectory,
+} from '../playbackAtlas';
 import { syntheticCourse } from '../syntheticCourse';
 
 const roots: string[] = [];
@@ -157,6 +176,8 @@ describe('deterministic pairwise synthetic lessons', () => {
 });
 describe('read-only product archive input', () => {
   test('loads normalized real-format library courses without changing the archive', async () => {
+    // The archive is generated below; exercise the local reader independently of the host CI flag.
+    vi.stubEnv('CI', '');
     const root = await temporaryRoot();
     const snapshot = normalizeStoredProject(syntheticCourse());
     const project = await createProjectArchiveBlob(snapshot);
@@ -188,10 +209,6 @@ describe('read-only product archive input', () => {
   });
 });
 
-import type { Page } from 'playwright';
-import { segmentLessonPlayback } from '../../../packages/shared-types/lessonPlayback';
-import { atlasStatus, captureTile } from '../playbackAtlas';
-
 test('keeps a failed capture incomplete even when render-error is not an enabled check', async () => {
   const directory = await temporaryRoot();
   const png = await readFile(
@@ -215,7 +232,206 @@ test('keeps a failed capture incomplete even when render-error is not an enabled
     basename: 'failed-capture',
   });
   expect(result.tile.incomplete).toBe(true);
+  expect(result.tile.speech).toBe(segmentLessonPlayback(lesson.sources)[0].speech);
   expect(result.tile.findings.map(finding => finding.kind)).toContain('render-error');
   expect(atlasStatus([], result.tile.findings, result.tile.incomplete)).toBe('incomplete');
-  expect(await readFile(join(directory, result.tile.image))).toEqual(png);
+  expect((await readFile(join(directory, result.tile.image))).subarray(1, 4).toString()).toBe(
+    'PNG'
+  );
+  expect(page.screenshot).not.toHaveBeenCalled();
+});
+
+function inspectSyntheticSpeech(markdown: string) {
+  const sources = [{ type: 'markdown' as const, markdown }];
+  const blocks = segmentLessonPlayback(sources);
+  const analyzed = [{ sourceBlockIndex: 0, markdown, analysis: parseMarkdownAnalysis(markdown) }];
+  return {
+    blocks,
+    findings: blocks.flatMap(block => speechMathFindings({ block, blocks, sources: analyzed })),
+  };
+}
+
+test('flags source inline math missing from real speech and retains its exact gap', () => {
+  const {
+    blocks: [block],
+    findings,
+  } = inspectSyntheticSpeech('The value $y$ can be $0$ or $1$: for example.');
+  expect(block.speech).toBe('The value  can be  or : for example.');
+  expect(findings.map(finding => finding.kind)).toEqual([
+    'speech-inline-math-omitted',
+    'speech-inline-math-omitted',
+    'speech-inline-math-omitted',
+  ]);
+  expect(findings.map(finding => (finding.detail as { markdown: string }).markdown)).toEqual([
+    '$y$',
+    '$0$',
+    '$1$',
+  ]);
+  const last = findings.at(-1)?.detail as { speechGap: { start: number; end: number } };
+  expect(block.speech.slice(last.speechGap.start, last.speechGap.end)).toBe('');
+  expect(block.speech[last.speechGap.end]).toBe(':');
+});
+
+test('accepts mapped spoken forms and excludes code and display math from the inline check', () => {
+  const markdown = '$x$ plus $y$';
+  const original = segmentLessonPlayback([{ type: 'markdown', markdown }])[0];
+  const block = {
+    ...original,
+    speech: 'x plus y',
+    spans: [
+      {
+        sourceBlockIndex: 0,
+        source: { start: 0, end: markdown.length },
+        speech: { start: 0, end: 8 },
+      },
+    ],
+  };
+  expect(
+    speechMathFindings({
+      block,
+      blocks: [block],
+      sources: [{ sourceBlockIndex: 0, markdown, analysis: parseMarkdownAnalysis(markdown) }],
+    })
+  ).toEqual([]);
+  for (const text of [
+    'Photo ![image](https://example.test/$x$).',
+    'A [link](https://example.test/$x$).',
+    'Text <mark title="$x$">content</mark>.',
+    'A literal `$x$` value.',
+    'Introduction.\n\n$$x=1$$\n\nContinue.',
+  ]) {
+    expect(inspectSyntheticSpeech(text).findings).toEqual([]);
+  }
+});
+
+test('records standalone punctuation as raw tokens without making it a failure', () => {
+  expect(speechPunctuationTokens('Value  or : example.')).toEqual([
+    { text: ':', start: 10, end: 11 },
+  ]);
+  expect(speechPunctuationTokens('A sentence.')).toEqual([]);
+});
+
+test('finds inline math on unspoken source lines without attributing other blocks math', () => {
+  const trailing = inspectSyntheticSpeech('The value is:\n$x$');
+  expect(trailing.findings).toHaveLength(1);
+  expect(trailing.findings[0].detail).toMatchObject({ markdown: '$x$', adjacentBlockIds: ['0'] });
+  const separated = inspectSyntheticSpeech('First $x$.\n\nSecond $y$.');
+  expect(separated.findings.map(finding => finding.detail)).toMatchObject([
+    { markdown: '$x$', adjacentBlockIds: ['0'] },
+    { markdown: '$y$', adjacentBlockIds: ['1'] },
+  ]);
+  const between = inspectSyntheticSpeech('First.\n\n$x$\n\nSecond.');
+  expect(between.findings).toHaveLength(2);
+  expect(
+    between.findings.every(
+      finding =>
+        (finding.detail as { adjacentBlockIds: string[] }).adjacentBlockIds.join(',') === '0,1'
+    )
+  ).toBe(true);
+});
+
+test('requires canonical Windows atlas output inside the user profile', () => {
+  expect(() =>
+    assertWindowsAtlasLocation('C:/Users/owner/nous-atlas/run', 'C:/Users/owner')
+  ).not.toThrow();
+  for (const path of [
+    'D:/shared/run',
+    'C:/Users/owner-neighbor/run',
+    'C:/Users/owner/../public/run',
+  ]) {
+    expect(() => assertWindowsAtlasLocation(path, 'C:/Users/owner')).toThrow('user profile');
+  }
+  expect(() =>
+    assertWindowsAtlasLocation(win32.resolve('C:/Users/owner'), 'C:/Users/owner')
+  ).not.toThrow();
+});
+
+test('resolves KaTeX CSS through the selected source checkout dependencies', async () => {
+  const root = await temporaryRoot();
+  const { mkdir } = await import('node:fs/promises');
+  await mkdir(join(root, 'node_modules/rehype-katex/node_modules/katex/dist'), { recursive: true });
+  await writeFile(join(root, 'package.json'), '{}');
+  await writeFile(join(root, 'node_modules/rehype-katex/package.json'), '{"main":"index.js"}');
+  await writeFile(join(root, 'node_modules/rehype-katex/index.js'), '');
+  await writeFile(join(root, 'node_modules/rehype-katex/node_modules/katex/package.json'), '{}');
+  const css = join(root, 'node_modules/rehype-katex/node_modules/katex/dist/katex.min.css');
+  await writeFile(css, '/* selected checkout */');
+  expect(atlasKatexCss(root)).toBe(css);
+});
+
+test.each([
+  'version',
+  'isLearnMode',
+  'syllabus',
+  'learningPlan',
+])('rejects project ZIPs refused by the app when %s is missing', async field => {
+  const root = await temporaryRoot();
+  const snapshot = normalizeStoredProject(syntheticCourse());
+  const archive = await createProjectArchiveBlob(snapshot);
+  const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+  const entry = zip.file('project.json');
+  if (!entry) throw new Error('Synthetic archive manifest missing.');
+  const manifest = JSON.parse(await entry.async('string'));
+  manifest.archiveVersion = 1;
+  delete manifest.attachments;
+  delete manifest.project.projectFormatVersion;
+  delete manifest.project[field];
+  zip.file('project.json', JSON.stringify(manifest));
+  const bytes = await zip.generateAsync({ type: 'uint8array' });
+  const path = join(root, 'invalid.nous.zip');
+  await writeFile(path, bytes);
+  await expect(inspectProjectArchiveData(new Blob([bytes]))).rejects.toThrow();
+  await expect(atlasCourses({ kind: 'project', path }).next()).rejects.toThrow();
+});
+
+test('waits for archive-backed PDF figures to mount before accepting the stage', () => {
+  const dom = new JSDOM(
+    '<div class="scene-host"><article><figure data-nous-speech="ignore"><figcaption>Caption</figcaption></figure></article></div>'
+  );
+  vi.stubGlobal('document', dom.window.document);
+  try {
+    expect(atlasStageReady()).toBe(false);
+    const figure = dom.window.document.querySelector('figure');
+    if (!figure) throw new Error('Synthetic PDF figure missing.');
+    const image = dom.window.document.createElement('img');
+    image.setAttribute('data-pdf-asset-id', 'synthetic-asset');
+    Object.defineProperty(image, 'complete', { value: false, configurable: true });
+    figure.append(image);
+    expect(atlasStageReady()).toBe(false);
+    Object.defineProperty(image, 'complete', { value: true });
+    expect(atlasStageReady()).toBe(true);
+    image.remove();
+    figure.innerHTML = '<span role="img" aria-label="Unavailable">Unavailable</span>';
+    expect(atlasStageReady()).toBe(true);
+  } finally {
+    vi.unstubAllGlobals();
+    dom.window.close();
+  }
+});
+
+test.skipIf(process.platform === 'win32')(
+  'keeps private run directories and artifacts owner-only on POSIX',
+  async () => {
+    const root = await temporaryRoot();
+    const { directory } = await privateAtlasDirectory(root, process.cwd());
+    const path = join(directory, 'private.json');
+    await writeAtlasArtifact(path, '{}');
+    expect((await stat(directory)).mode & 0o777).toBe(0o700);
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+  }
+);
+
+test('restarts the same random sequence before each visual executes', () => {
+  const original = Math.random;
+  try {
+    resetAtlasRandom();
+    const first = Array.from({ length: 4 }, () => Math.random());
+    resetAtlasRandom();
+    const second = Array.from({ length: 4 }, () => Math.random());
+    expect(second).toEqual(first);
+    expect(new Set(first).size).toBe(first.length);
+    expect(first.every(value => value >= 0 && value < 1)).toBe(true);
+  } finally {
+    Math.random = original;
+  }
 });

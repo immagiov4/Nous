@@ -7,6 +7,7 @@ export interface AtlasFinding {
     | 'visual-empty'
     | 'visual-symbol-only'
     | 'caption-word-mismatch'
+    | 'speech-inline-math-omitted'
     | 'visual-clipped'
     | 'console-error'
     | 'render-error'

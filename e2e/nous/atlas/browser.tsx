@@ -5,6 +5,7 @@ import {
 } from '@atlas-web/components/workspace/playback/captionFormat.ts';
 import LessonPlaybackStage from '@atlas-web/components/workspace/playback/LessonPlaybackStage.tsx';
 import type { WorkspaceReaderContentModel } from '@atlas-web/components/workspace/shell/types.ts';
+import { parseMarkdownAnalysis } from '@atlas-web/utils/markdown/codeRanges.ts';
 import { playbackTimeline } from '@atlas-web/utils/reader/lessonPlayback.ts';
 import { buildLessonImageRefMap } from '@atlas-web/utils/reader/workspaceReader.ts';
 import { getStoredLessonVisualScene } from '@atlas-web/utils/visuals/storedLessonVisual.ts';
@@ -12,8 +13,9 @@ import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { findLessonSceneProblems } from '@shared/lessonScene';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import { captionFindings, POSITIONS } from './checks';
-import type { AtlasSample } from './contracts';
+import { type AtlasFinding, captionFindings, POSITIONS } from './checks';
+import type { AtlasRendered, AtlasSample } from './contracts';
+import { speechMathFindings } from './speech';
 import '@atlas-web/styles/app.css';
 import '@atlas-katex.css';
 import './page.css';
@@ -35,12 +37,32 @@ const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Atlas root is missing.');
 const root = createRoot(rootElement);
 
-async function frame() {
-  await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+let preparedSpeechFindings: Record<string, AtlasFinding[]> | undefined;
+
+function prepare(lesson: AtlasSample['lesson']) {
+  preparedSpeechFindings = undefined;
+  const blocks = segmentLessonPlayback(lesson.sources);
+  const sources = lesson.sources.flatMap((source, sourceBlockIndex) =>
+    source.type === 'markdown'
+      ? [
+          {
+            sourceBlockIndex,
+            markdown: source.markdown,
+            analysis: parseMarkdownAnalysis(source.markdown),
+          },
+        ]
+      : []
+  );
+  preparedSpeechFindings = Object.fromEntries(
+    blocks.map(block => [block.id, speechMathFindings({ block, blocks, sources })])
+  );
+  return blocks;
 }
 
 /** Advance the production stage through explicit positions; its readTime never follows wall time. */
-async function render(sample: AtlasSample) {
+async function render(sample: AtlasSample): Promise<AtlasRendered> {
+  const speechFindings = preparedSpeechFindings?.[sample.block.id];
+  if (!speechFindings) throw new Error('Prepare the lesson before rendering its blocks.');
   await iconsReady;
   flushSync(() => root.render(null));
   const { lesson, position, visualIndex } = sample;
@@ -79,8 +101,6 @@ async function render(sample: AtlasSample) {
     )
   );
   await document.fonts.ready;
-  await frame();
-  await frame();
   const source = captionSource(block, lesson.sources);
   const formatted = captionFormat(source.markdown, source.ranges);
   const ranges = captionSpeechRanges(formatted.words, source.ranges);
@@ -108,6 +128,7 @@ async function render(sample: AtlasSample) {
     expectedVisual: Boolean(block.visuals.length || block.prepared?.scene),
     findings: [
       ...captionFindings(block.speech, captions),
+      ...speechFindings,
       ...scenes.flatMap(scene =>
         findLessonSceneProblems(scene, lesson.content).map(problem => ({
           kind: 'scene-invalid' as const,
@@ -118,4 +139,4 @@ async function render(sample: AtlasSample) {
   };
 }
 
-window.playbackAtlas = { prepare: lesson => segmentLessonPlayback(lesson.sources), render };
+window.playbackAtlas = { prepare, render };

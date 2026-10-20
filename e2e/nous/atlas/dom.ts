@@ -102,6 +102,12 @@ export function inspectAtlasDom(rootSelector: string): AtlasDom {
     .map(() => 'Image failed to decode.');
   errors.push(
     ...Array.from(
+      root.querySelectorAll('article > figure[data-nous-speech="ignore"] [role="img"]'),
+      () => 'Archive-backed PDF image failed to resolve.'
+    )
+  );
+  errors.push(
+    ...Array.from(
       root.querySelectorAll('[role="alert"], output[aria-busy="false"]'),
       element => element.textContent ?? 'Visual rendering failed.'
     )
@@ -143,4 +149,27 @@ export function inspectAtlasGeometry(element: Element) {
     .filter(child => child.textContent?.trim() && child.checkVisibility({ checkOpacity: true }))
     .map(child => Number.parseFloat(getComputedStyle(child).fontSize) * scale);
   return { sceneScale: scale, minFontPx: fonts.length ? Math.min(...fonts) : null };
+}
+
+export function atlasStageReady() {
+  const root = document.querySelector('.scene-host');
+  if (!root || root.querySelector('[aria-busy="true"]')) return false;
+  for (const chart of root.querySelectorAll('.data-chart')) {
+    if (!chart.querySelector('svg') && !chart.querySelector('figcaption:not(.sr-only)'))
+      return false;
+  }
+  for (const host of root.querySelectorAll('.mermaid-diagram')) {
+    if (
+      !host.querySelector('svg') &&
+      !host
+        .closest('.diagram-scroll')
+        ?.nextElementSibling?.matches('.diagram-description:not(.sr-only)')
+    )
+      return false;
+  }
+  // MarkdownRenderer leaves these PDF figures empty while archive bytes resolve and hash.
+  for (const figure of root.querySelectorAll('article > figure[data-nous-speech="ignore"]')) {
+    if (!figure.querySelector('img[data-pdf-asset-id], [role="img"]')) return false;
+  }
+  return Array.from(root.querySelectorAll('img')).every(image => image.complete);
 }

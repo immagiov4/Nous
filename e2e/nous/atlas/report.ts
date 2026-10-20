@@ -3,7 +3,12 @@ import { join } from 'node:path';
 import type { Page } from 'playwright';
 import type { AtlasFinding, Position } from './checks';
 
-export const escapeHtml = (value: string) =>
+/** Run directories protect renderer assets too; explicit file modes also protect copied evidence. */
+export async function writeAtlasArtifact(path: string, content: string | Uint8Array) {
+  await writeFile(path, content, { mode: 0o600 });
+}
+
+const escapeHtml = (value: string) =>
   value
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
@@ -26,6 +31,7 @@ export interface AtlasTile {
   html: string;
   sheet: string;
   caption: string;
+  speech: string;
   findings: AtlasFinding[];
   metrics: unknown;
   incomplete: boolean;
@@ -35,6 +41,11 @@ const visualLabel = (index: number | null) =>
   index === null ? 'production selection' : `isolated visual ${index}`;
 
 export const THRESHOLD_DECISIONS = [
+  {
+    metric: 'speechPunctuationTokens',
+    decision:
+      'Which standalone punctuation or symbol tokens are orphaned rather than intentional; raw tokens do not fail a run.',
+  },
   {
     metric: 'visibleCharacters / visibleWords',
     decision: 'When nonzero textual content is too sparse.',
@@ -60,7 +71,7 @@ export async function writeAtlasSheet(
       (tile, index) => `<figure id="${escapeHtml(tile.id)}">
 <figcaption>${escapeHtml(tile.lessonTitle)} · block ${escapeHtml(tile.blockId)} · ${visualLabel(tile.visualIndex)} · ${tile.position} · ${tile.viewport}</figcaption>
 <img width="${tile.viewportSize.width}" src="data:image/png;base64,${pngs[index].toString('base64')}" alt="">
-<p>${escapeHtml(tile.caption)}</p></figure>`
+<p>${escapeHtml(tile.caption)}</p><details><summary>Speech</summary><p>${escapeHtml(tile.speech)}</p></details></figure>`
     )
     .join('');
   await page.setViewportSize({
@@ -83,7 +94,10 @@ body{margin:0;font-family:system-ui;background:white;color:black}main{display:fl
   tiles.forEach((tile, index) => {
     tile.sheetBox = boxes[index];
   });
-  await page.screenshot({ path: join(directory, tiles[0].sheet), fullPage: true });
+  await writeAtlasArtifact(
+    join(directory, tiles[0].sheet),
+    await page.screenshot({ fullPage: true })
+  );
   let localDocument = document;
   pngs.forEach((png, index) => {
     localDocument = localDocument.replace(
@@ -91,7 +105,7 @@ body{margin:0;font-family:system-ui;background:white;color:black}main{display:fl
       tiles[index].image
     );
   });
-  await writeFile(join(directory, tiles[0].html), localDocument);
+  await writeAtlasArtifact(join(directory, tiles[0].html), localDocument);
 }
 
 export async function writeAtlasIndex(directory: string, tiles: AtlasTile[]) {
@@ -102,7 +116,7 @@ export async function writeAtlasIndex(directory: string, tiles: AtlasTile[]) {
         `<li><a href="${escapeHtml(tile.html)}">${escapeHtml(tile.courseTitle)} / ${escapeHtml(tile.lessonTitle)} · block ${escapeHtml(tile.blockId)} · ${tile.viewport} · ${visualLabel(tile.visualIndex)}</a></li>`
     )
     .join('');
-  await writeFile(
+  await writeAtlasArtifact(
     join(directory, 'index.html'),
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Playback visual atlas</title></head><body><h1>Playback visual atlas</h1><p>Private local evidence. Captions beneath each tile transcribe the production caption DOM, including when the mobile stage hides it.</p><p><a href="report.json">Structural findings and raw measurements</a></p><ul>${links}</ul></body></html>`
   );

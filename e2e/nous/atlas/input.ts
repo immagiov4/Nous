@@ -1,7 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { readLibraryArchive } from '../../../apps/web/services/projects/libraryArchive';
-import { PROJECT_ARCHIVE_LIMITS } from '../../../apps/web/services/projects/projectArchive';
+import {
+  inspectProjectArchiveData,
+  PROJECT_ARCHIVE_LIMITS,
+  readLegacyProjectImportData,
+} from '../../../apps/web/services/projects/projectArchive';
 import { normalizeStoredProject } from '../../../apps/web/services/projects/projectSnapshot';
 import type { LessonNode, PdfDocumentImageAsset, ProjectSnapshot } from '../../../apps/web/types';
 import { flattenLessons } from '../../../apps/web/utils/learning/pathNodes';
@@ -10,7 +14,6 @@ import {
   decodeProjectBackupArchive,
   type ProjectBackupAssetInput,
 } from '../../../packages/shared-types/projectBackupArchive';
-import { omitProjectPlayback } from '../../../packages/shared-types/projectBackupAssets';
 import { decodeProjectSnapshotWire } from '../../../packages/shared-types/projectSnapshotWire';
 import { syntheticCourse } from '../syntheticCourse';
 import type { AtlasScenario } from './scenario';
@@ -72,16 +75,15 @@ export async function* atlasCourses(
   if (input.kind === 'project') {
     const bytes = await readFile(input.path);
     if (input.path.endsWith('.zip')) {
+      const snapshot = await inspectProjectArchiveData(new Blob([bytes]));
       const decoded = await decodeProjectBackupArchive(
         new Uint8Array(bytes),
         PROJECT_ARCHIVE_LIMITS
       );
-      yield { snapshot: normalizeStoredProject(decoded.project), assets: decoded.assets };
+      yield { snapshot: normalizeStoredProject(snapshot), assets: decoded.assets };
     } else {
       yield {
-        snapshot: normalizeStoredProject(
-          decodeProjectSnapshotWire(omitProjectPlayback(JSON.parse(bytes.toString('utf8'))))
-        ),
+        snapshot: normalizeStoredProject(await readLegacyProjectImportData(new Blob([bytes]))),
         assets: [],
       };
     }

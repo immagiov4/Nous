@@ -1,12 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, realpath } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { type Browser, chromium, type Page } from 'playwright';
+import { Resvg } from '@resvg/resvg-js';
+import { type BrowserServer, chromium, type Page } from 'playwright';
 import { build, type CSSOptions, normalizePath, preview } from 'vite';
 import { drainConsoleSignals, installProbes } from '../../packages/playtest/src/probes/collect';
 import type { LessonPlaybackBlock } from '../../packages/shared-types/lessonPlayback';
@@ -18,11 +19,13 @@ import {
   visualFindings,
 } from './atlas/checks';
 import type { AtlasSample } from './atlas/contracts';
-import { inspectAtlasDom, inspectAtlasGeometry } from './atlas/dom';
+import { atlasStageReady, inspectAtlasDom, inspectAtlasGeometry } from './atlas/dom';
+import { boundedRender } from './atlas/execution';
 import { type AtlasCourse, type AtlasLesson, atlasCourses, atlasLessons } from './atlas/input';
 import {
   type AtlasTile,
   THRESHOLD_DECISIONS,
+  writeAtlasArtifact,
   writeAtlasIndex,
   writeAtlasSheet,
 } from './atlas/report';
@@ -33,6 +36,13 @@ import {
   readAtlasScenario,
   viewportOptions,
 } from './atlas/scenario';
+import { speechPunctuationTokens } from './atlas/speech';
+import {
+  advanceAtlasLayout,
+  installAtlasClock,
+  resetAtlasRandom,
+  resetAtlasSample,
+} from './atlas/timing';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -48,6 +58,7 @@ export function parseAtlasArgs(args: string[]) {
       'source-root': { type: 'string' },
       'output-root': { type: 'string' },
       course: { type: 'string' },
+      'render-timeout-ms': { type: 'string' },
       lesson: { type: 'string' },
     },
   });
@@ -55,7 +66,11 @@ export function parseAtlasArgs(args: string[]) {
     throw new Error('Choose one input: --library, --fixture or --synthetic.');
   if (values.synthetic && !['synthetic-short', 'synthetic-law-short'].includes(values.synthetic))
     throw new Error('Unknown synthetic course.');
+  const renderTimeoutMs = Number(values['render-timeout-ms']);
+  if (!Number.isFinite(renderTimeoutMs) || renderTimeoutMs <= 0)
+    throw new Error('Choose a measured positive --render-timeout-ms execution bound.');
   return {
+    renderTimeoutMs,
     scenarioPath: values.scenario,
     library: values.library,
     fixture: values.fixture,
@@ -74,9 +89,23 @@ const git = (root: string, ...args: string[]) =>
     stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
 
+export function assertWindowsAtlasLocation(path: string, profile: string) {
+  const location = win32.relative(win32.resolve(profile), win32.resolve(path));
+  if (location === '..' || location.startsWith(`..${win32.sep}`) || win32.isAbsolute(location))
+    throw new Error('Windows atlas output must be inside the user profile and inherit its ACLs.');
+}
+
+export function atlasKatexCss(sourceRoot: string) {
+  const sourceRequire = createRequire(join(sourceRoot, 'package.json'));
+  return createRequire(sourceRequire.resolve('rehype-katex')).resolve('katex/dist/katex.min.css');
+}
+
 export async function privateAtlasDirectory(outputRoot: string, sourceRoot: string) {
-  await mkdir(outputRoot, { recursive: true });
+  if (process.platform === 'win32') assertWindowsAtlasLocation(outputRoot, homedir());
+  await mkdir(outputRoot, { recursive: true, mode: 0o700 });
   const canonical = await realpath(outputRoot);
+  if (process.platform === 'win32')
+    assertWindowsAtlasLocation(canonical, await realpath(homedir()));
   for (const root of [REPO_ROOT, sourceRoot]) {
     const path = relative(await realpath(root), canonical);
     if (!path || (!path.startsWith('..') && !isAbsolute(path)))
@@ -92,7 +121,7 @@ export async function privateAtlasDirectory(outputRoot: string, sourceRoot: stri
   if (repository) throw new Error('Atlas output must stay outside every Git repository.');
   const runId = `${new Date().toISOString().replaceAll(':', '-')}-${crypto.randomUUID()}`;
   const directory = join(canonical, runId);
-  await mkdir(directory);
+  await mkdir(directory, { mode: 0o700 });
   return { directory, runId };
 }
 
@@ -104,38 +133,22 @@ async function settleAtlasDocument(timeSeconds: number) {
       animation.currentTime = timeSeconds * 1000;
     } else animation.finish();
   }
-  await new Promise<void>(resolveFrame => requestAnimationFrame(() => resolveFrame()));
-  await new Promise<void>(resolveFrame => requestAnimationFrame(() => resolveFrame()));
 }
 
 async function settleStage(page: Page, timeSeconds: number) {
-  await page.waitForFunction(() => {
-    const root = document.querySelector('.scene-host');
-    if (!root || root.querySelector('[aria-busy="true"]')) return false;
-    for (const chart of root.querySelectorAll('.data-chart')) {
-      if (!chart.querySelector('svg') && !chart.querySelector('figcaption:not(.sr-only)'))
-        return false;
-    }
-    for (const host of root.querySelectorAll('.mermaid-diagram')) {
-      if (
-        !host.querySelector('svg') &&
-        !host
-          .closest('.diagram-scroll')
-          ?.nextElementSibling?.matches('.diagram-description:not(.sr-only)')
-      )
-        return false;
-    }
-    return Array.from(root.querySelectorAll('img')).every(image => image.complete);
-  });
+  await page.waitForFunction(atlasStageReady);
   for (const frame of page.frames()) {
     await frame.waitForLoadState('load');
     await frame.evaluate(settleAtlasDocument, timeSeconds);
   }
+  await advanceAtlasLayout(page, timeSeconds);
 }
 
 async function captureSample(page: Page, sample: AtlasSample) {
   const started = performance.now();
+  await resetAtlasSample(page);
   const prepared = await page.evaluate(input => window.playbackAtlas.render(input), sample);
+  await advanceAtlasLayout(page);
   await settleStage(page, prepared.time);
   const dom = await page.evaluate(inspectAtlasDom, '.scene-host');
   const frameGeometry: { minFontPx: number | null; scale: number | null }[] = [];
@@ -190,8 +203,10 @@ async function captureSample(page: Page, sample: AtlasSample) {
     png,
     findings,
     caption: prepared.captions.join(' '),
+    speech: prepared.speech,
     metrics: {
       renderMs: performance.now() - started,
+      speechPunctuationTokens: speechPunctuationTokens(prepared.speech),
       ...geometry,
       frameGeometry,
       visibleCharacters: Array.from(dom.text.trim()).length,
@@ -218,25 +233,46 @@ interface CaptureLessonInput {
   viewport: AtlasViewport;
   ordinal: number;
   checks: AtlasScenario['checks'];
+  renderSample?: (sample: AtlasSample) => ReturnType<typeof captureSample>;
 }
 type CaptureTileInput = AtlasSample &
-  Pick<CaptureLessonInput, 'page' | 'directory' | 'viewport' | 'checks'> & {
+  Pick<CaptureLessonInput, 'page' | 'directory' | 'viewport' | 'checks' | 'renderSample'> & {
     basename: string;
   };
 
 export async function captureTile(input: CaptureTileInput) {
   const { page, directory, lesson, block, position, visualIndex, viewport, basename } = input;
   const id = `${basename}-${position}`;
-  let captured: { png: Buffer; caption: string; findings: AtlasFinding[]; metrics: unknown };
+  const started = performance.now();
+  let captured: {
+    png: Buffer;
+    caption: string;
+    speech: string;
+    findings: AtlasFinding[];
+    metrics: unknown;
+  };
   let incomplete = false;
   try {
-    captured = await captureSample(page, { lesson, block, position, visualIndex });
+    captured = await (input.renderSample ?? (sample => captureSample(page, sample)))({
+      lesson,
+      block,
+      position,
+      visualIndex,
+    });
   } catch (error) {
     incomplete = true;
     captured = {
-      png: await page.screenshot({ animations: 'disabled' }),
+      // A failure card is generated outside the untrusted renderer; it is not a screenshot.
+      png: Buffer.from(
+        new Resvg(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="${page.viewportSize()?.width}" height="${page.viewportSize()?.height}"><rect width="100%" height="100%" fill="white"/><text x="24" y="48" font-size="20" fill="black">RENDER FAILED - generated failure card</text></svg>`
+        )
+          .render()
+          .asPng()
+      ),
       caption: '',
-      metrics: { incomplete: true },
+      speech: block.speech,
+      metrics: { incomplete: true, elapsedMs: performance.now() - started },
       findings: [
         { kind: 'render-error', detail: error instanceof Error ? error.message : String(error) },
       ],
@@ -249,7 +285,7 @@ export async function captureTile(input: CaptureTileInput) {
     );
   }
   const image = `${id}.png`;
-  await writeFile(join(directory, image), captured.png);
+  await writeAtlasArtifact(join(directory, image), captured.png);
   const tile: AtlasTile = {
     id,
     lessonId: lesson.id,
@@ -265,6 +301,7 @@ export async function captureTile(input: CaptureTileInput) {
     html: `${basename}.html`,
     sheet: `${basename}.png`,
     caption: captured.caption,
+    speech: captured.speech,
     findings: captured.findings.filter(
       finding =>
         incomplete || input.checks.includes(finding.kind as AtlasScenario['checks'][number])
@@ -313,7 +350,6 @@ interface CaptureRecords {
 }
 
 async function captureCourse(input: {
-  browser: Browser;
   sheets: Page;
   course: AtlasCourse;
   options: Options;
@@ -322,7 +358,7 @@ async function captureCourse(input: {
   directory: string;
   records: CaptureRecords;
 }) {
-  const { browser, sheets, course, options, scenario, origin, directory, records } = input;
+  const { sheets, course, options, scenario, origin, directory, records } = input;
   for (const lesson of atlasLessons(course.snapshot)) {
     if (options.lesson && lesson.id !== options.lesson) continue;
     const summary: AtlasLessonSummary = {
@@ -334,8 +370,17 @@ async function captureCourse(input: {
     };
     records.lessons.push(summary);
     for (const viewport of scenario.viewports) {
-      const context = await browser.newContext(viewportOptions(viewport));
-      try {
+      let ownedServer: BrowserServer | undefined;
+      let page: Page;
+      const closeRenderer = async () => {
+        const current = ownedServer;
+        ownedServer = undefined;
+        await current?.kill();
+      };
+      const openRenderer = async () => {
+        ownedServer = await chromium.launchServer({ headless: true });
+        const renderer = await chromium.connect(ownedServer.wsEndpoint());
+        const context = await renderer.newContext(viewportOptions(viewport));
         await context.route('**/*', async route => {
           const url = new URL(route.request().url());
           const assetId = /\/api\/projects\/[^/]+\/assets\/([^/]+)$/u.exec(url.pathname)?.[1];
@@ -350,22 +395,28 @@ async function captureCourse(input: {
             await route.continue();
           else await route.abort('blockedbyclient');
         });
-        const page = await context.newPage();
+        await context.addInitScript(resetAtlasRandom);
+        page = await context.newPage();
+        await installAtlasClock(page);
         await installProbes(page);
         await page.goto(origin);
         await page.waitForFunction(() => Boolean(window.playbackAtlas));
         const blocks = await page.evaluate(value => window.playbackAtlas.prepare(value), lesson);
         const fingerprint = createHash('sha256').update(JSON.stringify(blocks)).digest('hex');
         if (summary.preparationSha256 && summary.preparationSha256 !== fingerprint)
-          throw new Error('Playback preparation changed between viewport captures.');
+          throw new Error('Playback preparation changed between renderer captures.');
         summary.blocks = blocks.length;
         if (!blocks.length)
           summary.skipReason = 'The production playback projection has no spoken blocks.';
         summary.preparationSha256 = fingerprint;
         summary.preparedBlocks = blocks;
+        return { blocks, page };
+      };
+      try {
+        const { blocks, page: initialPage } = await openRenderer();
         records.tiles.push(
           ...(await captureLesson({
-            page,
+            page: initialPage,
             sheets,
             directory,
             lesson,
@@ -373,11 +424,18 @@ async function captureCourse(input: {
             viewport,
             ordinal: records.lessons.length,
             checks: scenario.checks,
+            renderSample: async sample => {
+              if (!ownedServer) await openRenderer();
+              return boundedRender(() => captureSample(page, sample), {
+                milliseconds: options.renderTimeoutMs,
+                terminate: closeRenderer,
+              });
+            },
           }))
         );
         await writeAtlasIndex(directory, records.tiles);
       } finally {
-        await context.close();
+        await closeRenderer();
       }
     }
   }
@@ -441,9 +499,7 @@ async function startRenderer(options: Options, directory: string) {
     resolve: {
       alias: {
         '@atlas-web': join(options.sourceRoot, 'apps/web'),
-        '@atlas-katex.css': createRequire(
-          createRequire(import.meta.url).resolve('rehype-katex')
-        ).resolve('katex/dist/katex.min.css'),
+        '@atlas-katex.css': atlasKatexCss(options.sourceRoot),
       },
     },
     build: { outDir, emptyOutDir: false },
@@ -488,7 +544,6 @@ export async function runPlaybackAtlas(options: Options) {
     for await (const course of atlasCourses(scenario.fixture, options.course)) {
       if (options.course && course.snapshot.id !== options.course) continue;
       await captureCourse({
-        browser,
         sheets,
         course,
         options,
@@ -545,11 +600,12 @@ export async function runPlaybackAtlas(options: Options) {
     counts,
     findings,
     errors,
+    renderTimeoutMs: options.renderTimeoutMs,
     thresholdDecisions: THRESHOLD_DECISIONS,
     tiles,
   };
   await writeAtlasIndex(directory, tiles);
-  await writeFile(join(directory, 'report.json'), JSON.stringify(report, null, 2));
+  await writeAtlasArtifact(join(directory, 'report.json'), JSON.stringify(report, null, 2));
   return { directory, report };
 }
 

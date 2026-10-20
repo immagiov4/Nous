@@ -169,6 +169,7 @@ A scenario declares its identity, tags, fixture, viewports or named Playwright d
     "visual-empty",
     "visual-symbol-only",
     "caption-word-mismatch",
+    "speech-inline-math-omitted",
     "visual-clipped",
     "console-error",
     "render-error",
@@ -183,8 +184,17 @@ Each run creates a fresh directory under `~/nous-atlas/`, or under an explicit `
 
 Checks identify rendered empty content, symbolic content without prose, captions crossing canonical spoken-word boundaries, exact clipping, scene contract failures and rendering or console errors. A formula can satisfy the symbolic-content check while remaining valid teaching content: structural findings still require interpretation against the lesson. Sparse nonempty content, fitted font size, canvas occupancy and rendering duration retain raw measurements and maintainer decisions instead of numerical quality cutoffs. The command exits unsuccessfully when findings or operational errors are present. Lessons without spoken playback blocks are explicitly recorded as incomplete coverage rather than silently counted as captured.
 
-Contact sheets include a transcript of the actual caption DOM beneath every image, including on mobile where the production stage hides that caption region. The report initially marks agent visual review as pending; the reviewing agent records inspected tile paths and observations separately from automatic findings.
+Contact sheets include a transcript of the actual caption DOM beneath every image, including on mobile where the production stage hides that caption region. Each tile records its canonical `speech` text in JSON, including failed captures; its HTML sheet also exposes that text under Speech. `speech-inline-math-omitted` compares parsed inline mathematical ranges with the production source-to-speech mapping and flags ranges with no mapped spoken text. It analyzes the original source blocks, including lines with no spoken span. A gap between spoken blocks is recorded on both adjacent blocks with their IDs and the original source-block index. It excludes display math and math inside code, image sources, link destinations and HTML syntax. Standalone punctuation or symbol tokens are retained with their speech offsets in `speechPunctuationTokens`; these raw tokens require interpretation and do not fail a run. This records the spoken-form regression tracked separately in #350 without changing the product projection.
 
-Run `bun run test -- e2e/nous/tests/playbackAtlas.test.ts` for the deterministic contracts. Run `bun run e2e/nous/tests/playbackAtlas.browser.ts` for the sequential Chromium contract: it compares repeated PNGs byte for byte and checks animated content clipped inside an iframe and an iframe clipped by its outer stage. An optional positional source checkout path exercises that version of the application.
+The report initially marks agent visual review as pending; the reviewing agent records inspected tile paths and observations separately from automatic findings.
+
+Run `bun run test -- e2e/nous/tests/playbackAtlas.test.ts` for the deterministic contracts. Run `bun run test:atlas:browser` for the sequential Chromium contract: it compares repeated PNGs byte for byte and checks animated content clipped inside an iframe and an iframe clipped by its outer stage. An optional positional source checkout path exercises that version of the application. The contract uses only generated synthetic inputs and runs with `CI=1`. Fallow registers the Vite-only browser entry as test code and recognizes the build-resolved KaTeX CSS alias; the standalone contract has its own package script entry.
 
 Sources: [command](../../../e2e/nous/playbackAtlas.ts), [scenario contract](../../../e2e/nous/atlas/scenario.ts), [synthetic generator](../../../e2e/nous/atlas/synthetic.ts), [behavior tests](../../../e2e/nous/tests/playbackAtlas.test.ts).
+
+
+Private atlas runs use owner-only POSIX directories (`0700`) and evidence files (`0600`), including when the parent directory already exists. On Windows, output must resolve under the current user's profile, including after resolving junctions; the atlas relies on that profile's inherited ACLs. Custom Windows output roots outside the profile are rejected. Run evidence and the renderer bundle remain outside Git repositories.
+
+The selected `--source-root` supplies KaTeX CSS through its own `rehype-katex` dependency. Direct project ZIP and JSON fixtures use the application's import readers before normalization; ZIP decoding also retains archived asset bytes. Capture waits for PDF image figures to mount an image or report a resolution failure, then waits for image decoding. Failed PDF resolution is a render finding.
+
+Before application code loads, Playwright installs and pauses its clock at a fixed fixture instant; each sample resets wall time and the main document's seeded random sequence. Every new iframe receives the same random seed before its scripts execute. The controlled clock advances through the sampled playback time and the existing two layout frames, covering timers, animation frames and performance time. Web Animations are settled in every frame. These controls do not impose an execution deadline: a non-terminating visual script still requires a separately approved external deadline or a restricted rendering policy.

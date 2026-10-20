@@ -135,7 +135,7 @@ function syntaxText(kind: string) {
     case 'display-math':
       return 'The relation is explicit.\n\n$$x = 2y$$\n\nThe result follows the equation.';
     case 'code':
-      return 'The function returns a value.\n\n```ts\nconst result = 1 + 2;\n```';
+      return 'Use the pre`fix` label.\n\n```ts\nconst result = 1 + 2;\n```';
     case 'annotations':
       return String.raw`The Greek <mark data-nous-annotation-id="first">let</mark><mark data-nous-annotation-id="second">ter</mark> $\sigma$ represents a quantity.`;
     case 'quote':

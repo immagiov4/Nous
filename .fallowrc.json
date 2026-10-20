@@ -6,8 +6,19 @@
     "src/main.{ts,tsx,js,jsx}",
     "apps/backend/src/services/pdfTextFallbackProcess.mjs"
   ],
-  "ignoreDependencies": ["@tabler/icons", "@tabler-icon-nodes"],
+  "ignoreDependencies": ["@tabler/icons", "@tabler-icon-nodes", "@atlas-katex.css"],
   "rules": {
     "unused-dependencies": "warn"
-  }
+  },
+  "framework": [
+    {
+      "name": "playback-atlas",
+      "entryPoints": ["e2e/nous/atlas/browser.tsx"],
+      "entryPointRole": "test",
+      "detection": {
+        "type": "fileExists",
+        "pattern": "e2e/nous/atlas/index.html"
+      }
+    }
+  ]
 }

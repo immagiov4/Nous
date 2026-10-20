@@ -3,10 +3,11 @@ import { type BrowserContextOptions, devices } from 'playwright';
 import * as z from 'zod';
 import { VIEWPORTS } from '../../../packages/playtest/src/operator/viewports';
 
-export const ATLAS_CHECKS = [
+const ATLAS_CHECKS = [
   'visual-empty',
   'visual-symbol-only',
   'caption-word-mismatch',
+  'speech-inline-math-omitted',
   'visual-clipped',
   'console-error',
   'render-error',
