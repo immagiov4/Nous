@@ -1,168 +1,24 @@
 ---
-title: "Interactive Exercises & Quizzes"
+title: "Exercise and answer state"
 wiki_page_id: "p-interactive-exercises"
 ---
 
-<details>
-<summary>Relevant source files</summary>
+[Up one level](../03-section-features/02-p-lesson-gen.md)
 
-The following files were used as context for generating this wiki page:
+# Exercise and answer state
 
-- [apps/backend/src/services/lessonGenerationModel.ts](../../../apps/backend/src/services/lessonGenerationModel.ts)
-- [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
-- [apps/web/services/openrouter/exercises/brief.ts](../../../apps/web/services/openrouter/exercises/brief.ts)
-- [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx)
-- [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts)
-- [apps/web/types.ts](../../../apps/web/types.ts)
-- [apps/web/tests/components/workspace/shell/WorkspaceReaderContent.test.tsx](../../../apps/web/tests/components/workspace/shell/WorkspaceReaderContent.test.tsx)
-</details>
+A saved answer refers to a particular quiz in a particular lesson. Regenerating the lesson can change the question or its choices, making the old answer meaningless. Nous therefore ties inline answers to committed lesson content: they survive navigation and reopening, but a successful content replacement clears them along with the old annotations.
 
-# Interactive Exercises & Quizzes
+## Reset at replacement, not when work starts
 
-Interactive Exercises and Quizzes represent the active learning layer of the Nous platform. This system is designed to transform passive reading into an engaging pedagogical experience by integrating two primary types of interaction: **Inline Quizzes** (referred to as "Active Pauses") and **Application Exercises** (hands-on labs). These elements are strategically placed within the lesson flow to require application, inference, diagnosis, or synthesis from the student.
+The saved lesson stays available while regeneration runs. Its answers remain valid against that saved content, so a pending replacement must not clear them. A failed attempt preserves both the previous lesson and its progress; only the successful commit establishes the new content identities. [Lesson generation](02-p-lesson-gen.md) owns this boundary, and [project revisions](05-p-project-workspace.md) protect saved progress against concurrent writers.
 
-The system ensures that these interactive components are self-sufficient, meaning all information required to solve a quiz or complete an exercise is provided within the preceding lesson content or the exercise brief itself. This architecture supports the project's manifesto of being an ADHD-friendly, step-by-step learning environment.
+## Inline quiz content and validation
 
-Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:84-90](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L84-L90), [apps/web/services/openrouter/exercises/brief.ts:182-195](../../../apps/web/services/openrouter/exercises/brief.ts#L182-L195), [AGENTS.md:104-108](../../../AGENTS.md#L104-L108)
+Inline quizzes are generated and reviewed with the explanation they assess. They ask for application, prediction, diagnosis or sequencing, with plausible mistaken answers and feedback explaining the intended distinction. The accepted shape allows up to three quizzes with four choices each. That shape can be checked deterministically; whether the alternatives test the objective needs [content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content).
 
-## Inline Quizzes (Active Pauses)
+## Keep practical activity progress with its own task
 
-Inline quizzes, internally typed as `inline-quiz`, are micro-assessments embedded directly within the markdown content blocks of a lesson. They are governed by strict pedagogical rules to ensure they consume the preceding explanatory context and do not merely ask for simple paraphrasing.
+Practical exercises are separately planned activities with briefs, responses and AI feedback. Their briefs can finish generating while another lesson is already readable, so readiness does not follow the active reader page. Responses can include supported attachments and are assessed against that activity's task context.
 
-### Architecture and Data Flow
-
-Quizzes are generated as part of the `contentBlocks` array within a lesson. A lesson can contain between zero and three active pauses. The backend enforces a contract where an `inline-quiz` must be preceded by at least one `markdown` block that provides the necessary context for the question.
-
-```mermaid
-flowchart TD
-    LG[Lesson Generator] -->|Produces| CB[Content Blocks Array]
-    CB --> M1[Markdown Block]
-    CB --> Q1[Inline Quiz Block]
-    CB --> M2[Markdown Block]
-    Q1 -.->|Consumes Context| M1
-    
-    subgraph Quiz Structure
-        QS[Question Text]
-        OP[4 Distinct Options]
-        CI[Correct Index 0-3]
-        ET[Exercise Type]
-    end
-    Q1 --- Quiz Structure
-```
-
-*The diagram shows the sequential requirement where a quiz must follow a markdown block that provides its factual grounding.*
-Sources: [apps/backend/src/services/lessonGenerationModel.ts:31-40](../../../apps/backend/src/services/lessonGenerationModel.ts#L31-L40), [apps/backend/src/services/lessonGenerationPrompt.ts:84-90](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L84-L90)
-
-### Quiz Configuration and Types
-
-Quizzes must use one of the approved `exerciseType` values, such as `prediction`, `application-card`, `diagnosis`, or `sequencing`. The data structure is strictly validated via JSON schema to ensure four options and a valid correct index.
-
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `question` | string | The pedagogical query posed to the student. |
-| `options` | string[] | Exactly four options: one correct answer and three plausible distractors. |
-| `correctIndex` | integer | Index (0-3) of the correct option. |
-| `explanation` | string, optional in saved quizzes | Case-specific solution shown after answer selection. |
-| `exerciseType` | string | The cognitive task required (e.g., inference, classification). |
-
-Sources: [apps/backend/src/services/lessonGenerationModel.ts:31-40](../../../apps/backend/src/services/lessonGenerationModel.ts#L31-L40), [apps/web/types.ts:251-257](../../../apps/web/types.ts#L251-L257)
-
-### Saved learner answers
-
-Each lesson stores `quizState` alongside its annotations in the project snapshot. `answers` follows the lesson's quiz order, with `-1` for unanswered questions, and `isSubmitted` preserves submission state. Selecting an answer persists it through the existing revision-checked section PATCH; the reader derives its selection and revealed explanation from this saved state. Navigation, generation of another lesson, course reopening, and library export/import preserve it.
-
-Quiz writes use the narrow `quiz` rebase mode and the observed `lastGenerationRunId`. The project transaction checks that identity while holding the project lock: another lesson can advance the revision, while regeneration of the answered lesson rejects the old answer. Reopening and archive exports wait for pending local writes. A quiz write advances the saved UI signature only when its preceding domain state was already saved, preserving unrelated edits for autosave.
-
-Successful lesson generation clears that lesson's quiz state and all previous annotations in the same content commit. Questions and annotations are not matched against the replacement text. A failure before commit preserves the old state; compensation after commit restores it. Regeneration uses the existing action without a confirmation or stale-annotation warning.
-
-Sources: [reader state](../../../apps/web/hooks/workspace/useWorkspaceReaderState.ts), [learner-state persistence](../../../apps/web/hooks/library/useProjectLibrary.ts), [lesson commit and compensation](../../../apps/backend/src/workflows/lessonGenerationPersistence.ts).
-
-### Question quality and answer disclosure
-
-`EXERCISE_TASK_DISCLOSURE_RULE` supplies the shared boundary for lesson questions and lab briefs: provide the facts and constraints needed to solve the task, without supplying the inference, classification, diagnosis, or procedure being tested. Teaching the prerequisite concept remains necessary.
-
-The lesson writer and the existing `quiz-quality` model check consume `ACTIVE_PAUSE_OPTIONS_RULE` and `ACTIVE_PAUSE_FEEDBACK_RULE`. Each distractor must have a concrete contextual error, with only one defensible answer. Comparable grammar and detail prevent wording or conspicuous length from identifying the correct option. The verifier records its rationale for the correct answer and every distractor in the internal check evidence. This is model judgment, not a deterministic proof of quality or a diagnosis of the learner's misconception.
-
-New generations put the case-specific solution in `quiz.explanation`, alongside `correctIndex`. The strict model output requires nonblank text, and final verification requests correction if it is missing or blank. Workflow and saved-project schemas accept its absence for existing quizzes. Normalization preserves it in both `contentBlocks` and the derived quiz array, and persistence saves those representations unchanged.
-
-The workflow registry retains the definition before quiz explanations were added, alongside the existing historical definitions. Those definitions use their preceding quiz, draft, and result schemas so their durable identifiers remain unchanged and in-flight runs can resume under their original contract. The improvement applies to new generations. Historical runs can omit the new explanation even when current model services produce it; they are not migrated.
-
-`WorkspaceReaderInlineQuestion` displays the explanation only after answer selection, whether the answer is right or wrong. Both the typed-block reader and the earlier marker/quiz path use this component. Ordinary lesson Markdown stays visible throughout. The model verifier moves case-specific solutions out of any lesson Markdown into the explanation field while preserving teaching context. This semantic separation is model-owned; there is no text classifier or retrospective rewriting of saved lessons.
-
-Quiz instructions are written in English. Generated questions, options, and explanations follow the requested lesson language.
-
-Sources: [shared rules](../../../packages/shared-types/lessonGenerationPolicy.ts), [writer](../../../apps/backend/src/services/lessonGenerationPrompt.ts), [verifier](../../../apps/backend/src/services/lessonGenerationVerification.ts), [answer display](../../../apps/web/components/workspace/shell/WorkspaceReaderInlineQuestion.tsx), [lab brief](../../../apps/web/services/openrouter/exercises/brief.ts).
-
-## Application Exercises (Labs)
-
-Application Exercises are high-level tasks where students produce artifacts such as reports, procedures, or code. Unlike inline quizzes, these are standalone nodes within the `LearningPlan` that focus on assessed objectives.
-
-### Exercise Brief Generation
-
-The system generates an "Exercise Brief" (consign) that provides a realistic scenario. The generation logic strictly forbids asking the student to search for external material; all data or datasets required must be included in the brief.
-
-```mermaid
-sequenceDiagram
-    participant UI as Workspace UI
-    participant S as OpenRouter Service
-    participant LLM as Model (Reasoning)
-    
-    UI->>S: generateApplicationExerciseBrief(args)
-    S->>LLM: buildBriefPrompt(focusLessons, profile, sources)
-    LLM-->>S: JSON(briefMarkdown, groundingSources)
-    S-->>UI: ExerciseBriefResult
-    Note over UI: Renders Brief & Interaction UI
-```
-
-*Sequence of generating the hands-on exercise brief based on focus lessons and student profile.*
-Sources: [apps/web/services/openrouter/exercises/brief.ts:173-205](../../../apps/web/services/openrouter/exercises/brief.ts#L173-L205), [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:431-450](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L431-L450)
-
-### Student Interaction and Evaluation
-
-The `ApplicationExerciseViewer` provides a multi-modal interface for exercise completion:
-1.  **Internal Text Editor:** A markdown-enabled editor for writing reports or procedures with live preview.
-2.  **File Attachments:** Support for uploading `.zip` archives, code files, or text documents.
-3.  **AI Feedback:** Students can request feedback, which returns a score (0-100), qualitative labels, strengths, and improvements.
-
-Sources: [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:498-580](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L498-L580), [apps/web/types.ts:402-411](../../../apps/web/types.ts#L402-L411)
-
-## Implementation Details
-
-### Validation and Logic
-
-The backend performs strict validation of interactive components during the generation phase to prevent broken pedagogical flows.
-
-```typescript
-// apps/backend/src/services/lessonGenerationModel.ts:279-289
-const hasInvalidQuizPlacement = (draft: LessonContentDraft): boolean => {
-  let hasExplanatoryMarkdown = false;
-  for (const block of draft.contentBlocks) {
-    if (block.type === 'markdown') {
-      hasExplanatoryMarkdown = Boolean(block.markdown.trim());
-      continue;
-    }
-    if (block.type !== 'inline-quiz') continue;
-    if (!hasExplanatoryMarkdown) return true; // Error: Quiz without preceding context
-    hasExplanatoryMarkdown = false; // Reset: Next quiz needs new markdown
-  }
-  return false;
-};
-```
-
-Sources: [apps/backend/src/services/lessonGenerationModel.ts:279-291](../../../apps/backend/src/services/lessonGenerationModel.ts#L279-L291), [apps/web/tests/utils/reader/lessonContentBlocks.test.ts:31-49](../../../apps/web/tests/utils/reader/lessonContentBlocks.test.ts#L31-L49)
-
-### UI Components
-
-The `WorkspaceReaderContent` component acts as the orchestrator for rendering these interactions. It manages the state of quiz answers and visibility of exercise deliverables.
-
-*  `WorkspaceReaderInlineQuestion`: Renders the four-option quiz card.
-*  `WorkspaceReaderQuizFooter`: Controls the ability to advance to the next section; completion is blocked until all inline questions are answered.
-*  `ExerciseInternalTextEditor`: Provides the workspace for application exercise output.
-
-Sources: [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:758-769](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L758-L769), [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:498-508](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L498-L508)
-
-## Summary
-
-Interactive exercises and quizzes support active learning when a lesson or learning plan needs them. A lesson may contain zero to three active pauses, each grounded in preceding explanatory content, while application exercises remain standalone learning-plan nodes with their own briefs.
-
-Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:84-90](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L84-L90), [apps/web/types.ts:590-598](../../../apps/web/types.ts#L590-L598)
+This work persists with the project rather than living only in a browser component. Follow the [shared activity and answer contracts](../../../packages/shared-types/) when changing persistence, and [instruction composition](../07-section-ai/02-p-prompt-engineering.md) when changing what drafting and feedback ask of the learner.
