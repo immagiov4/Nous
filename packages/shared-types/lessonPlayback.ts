@@ -15,6 +15,8 @@ export interface PlaybackRange {
 /** Maps spoken text to the original markdown of its source content block. */
 export interface PlaybackTextSpan {
   readonly speech: PlaybackRange;
+  /** Inline formula omitted from the source projection until the model supplies its pronunciation. */
+  readonly math?: string;
   readonly sourceBlockIndex: number;
   /** Empty at the source boundary for an inserted separator between content blocks. */
   readonly source: PlaybackRange;
@@ -91,6 +93,7 @@ export interface LessonPlaybackBlock {
   readonly spans: readonly PlaybackTextSpan[];
   readonly visuals: readonly PlaybackVisual[];
   readonly prepared?: {
+    readonly spokenMath?: readonly PlaybackSpokenMath[];
     readonly scene?: LessonScene;
     readonly motion: readonly PlaybackMotionEvent[];
   };
@@ -120,9 +123,11 @@ interface MarkdownAnalysis {
   readonly headings: PlaybackRange[];
   readonly blocks: MarkdownChunk[];
   readonly inlineCode: PlaybackRange[];
+  readonly text: PlaybackRange[];
   readonly omissions: PlaybackRange[];
   readonly annotationTags: PlaybackRange[];
   readonly inlineVisuals: PlaybackRange[];
+  readonly math: PlaybackRange[];
 }
 
 interface MarkdownNode {
@@ -139,9 +144,11 @@ const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
     headings: [],
     blocks: [],
     inlineCode: [],
+    text: [],
     omissions: [],
     annotationTags: [],
     inlineVisuals: [],
+    math: [],
   };
   const visit = (node: MarkdownNode): void => {
     const start = node.position.start.offset;
@@ -162,10 +169,25 @@ const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
   collectMathRanges(markdown, analysis);
   analysis.omissions.sort((left, right) => left.start - right.start);
   analysis.inlineVisuals.sort((left, right) => left.start - right.start);
-  return analysis;
+  return {
+    ...analysis,
+    blocks: analysis.blocks.filter(
+      block => !analysis.math.some(math => math.start <= block.start && math.end >= block.end)
+    ),
+    // A heading boundary inside a visual belongs to that visual's syntax.
+    headings: analysis.headings.filter(
+      heading =>
+        !analysis.inlineVisuals.some(
+          visual =>
+            (visual.start < heading.start && visual.end > heading.start) ||
+            (visual.start < heading.end && visual.end > heading.end)
+        )
+    ),
+  };
 };
 
 const collectMathRanges = (markdown: string, analysis: MarkdownAnalysis): void => {
+  const blockRanges = new Set<PlaybackRange>(analysis.blocks);
   const protectedRanges = [
     ...analysis.blocks,
     ...analysis.inlineCode,
@@ -181,9 +203,19 @@ const collectMathRanges = (markdown: string, analysis: MarkdownAnalysis): void =
       continue;
     }
     const mathRange = getMarkdownMathRangeAt(markdown, cursor);
-    if (mathRange && (!protectedRange || mathRange.end <= protectedRange.start)) {
+    // A formula can contain complete parser blocks, but cannot close inside protected syntax.
+    const overlapsProtectedSyntax =
+      mathRange &&
+      protectedRanges
+        .slice(protectedIndex)
+        .some(
+          range =>
+            range.start < mathRange.end && (!blockRanges.has(range) || range.end > mathRange.end)
+        );
+    if (mathRange && !overlapsProtectedSyntax) {
       analysis.omissions.push(mathRange);
       analysis.inlineVisuals.push(mathRange);
+      analysis.math.push(mathRange);
       cursor = mathRange.end;
     } else {
       cursor += 1;
@@ -226,6 +258,7 @@ const collectInlineRanges = (
       analysis.omissions.push({ start, end });
     }
   } else if (node.type === 'text') {
+    analysis.text.push({ start, end });
     collectTextRanges(node, markdown, analysis);
   }
 };
@@ -342,6 +375,11 @@ const markdownChunks = (markdown: string, analysis: MarkdownAnalysis): MarkdownC
     const lineStart = line.start;
     const lineEnd = line.contentEnd;
     if (lineStart < consumedEnd) continue;
+    // Internal visual lines cannot end the surrounding spoken passage.
+    if (analysis.inlineVisuals.some(visual => visual.start < lineStart && visual.end > lineStart)) {
+      end = lineEnd;
+      continue;
+    }
     const block = analysis.blocks[blockIndex];
     if (block && block.start >= lineStart && block.start <= lineEnd) {
       flush();
@@ -388,7 +426,11 @@ const appendSource = (result: SpokenText, markdown: string, start: number, end: 
   const speechStart = result.speech.length;
   result.speech += markdown.slice(start, end);
   const previous = result.spans.at(-1);
-  if (previous?.source.end === start && previous.sourceBlockIndex === result.sourceBlockIndex) {
+  if (
+    previous?.source.end === start &&
+    !previous.math &&
+    previous.sourceBlockIndex === result.sourceBlockIndex
+  ) {
     result.spans[result.spans.length - 1] = {
       speech: { start: previous.speech.start, end: result.speech.length },
       source: { start: previous.source.start, end },
@@ -414,6 +456,18 @@ const appendInline = (
   for (const omitted of analysis.omissions) {
     if (omitted.end <= cursor || omitted.start >= range.end) continue;
     appendSource(result, markdown, cursor, Math.max(cursor, omitted.start));
+    if (
+      analysis.math.includes(omitted) &&
+      (markdown.startsWith(String.raw`\(`, omitted.start) ||
+        (markdown[omitted.start] === '$' && markdown[omitted.start + 1] !== '$'))
+    ) {
+      result.spans.push({
+        speech: { start: result.speech.length, end: result.speech.length },
+        source: { start: omitted.start, end: omitted.end },
+        sourceBlockIndex: result.sourceBlockIndex,
+        math: markdown.slice(omitted.start, omitted.end),
+      });
+    }
     cursor = Math.min(range.end, omitted.end);
   }
   appendSource(result, markdown, cursor, range.end);
@@ -428,6 +482,60 @@ const speechPrefixLength = (line: string): number => {
   const indentation = /^[ \t>]*/u.exec(line)?.[0].length ?? 0;
   const marker = /^(?:#{1,6}|[-+*]|\d+[.)])[ \t]+/u.exec(line.slice(indentation));
   return indentation + (marker?.[0].length ?? 0);
+};
+
+/** Remove parsed annotation wrappers without changing the authored content around them. */
+const annotationFreeMarkdown = (
+  markdown: string,
+  range: PlaybackRange,
+  tags: readonly PlaybackRange[]
+): string => {
+  let text = markdown.slice(range.start, range.end);
+  const contained = tags
+    .filter(tag => tag.start >= range.start && tag.end <= range.end)
+    .sort((left, right) => right.start - left.start);
+  for (const tag of contained) {
+    text = text.slice(0, tag.start - range.start) + text.slice(tag.end - range.start);
+  }
+  return text;
+};
+
+/** Escape syntax that reparsing would consume from originally literal text after unwrapping. */
+const contextualMarkdown = (
+  markdown: string,
+  range: PlaybackRange,
+  analysis: MarkdownAnalysis
+): string => {
+  let text = annotationFreeMarkdown(markdown, range, analysis.annotationTags);
+  const tags = analysis.annotationTags
+    .filter(tag => tag.start >= range.start && tag.end <= range.end)
+    .sort((left, right) => left.start - right.start);
+  if (!tags.length) return text;
+  const escapes = new Set<number>();
+  const visit = (node: MarkdownNode): void => {
+    if (node.type === 'text') return;
+    const end = node.children?.[0]?.position.start.offset ?? node.position.end.offset;
+    for (let offset = node.position.start.offset; offset < end; offset += 1) {
+      if (!/[!"#$%&'()*+,\-./:;<=>?@[\]^_`{|}~]/u.test(text[offset])) continue;
+      let sourceOffset = range.start + offset;
+      for (const tag of tags) {
+        if (tag.start > sourceOffset) break;
+        sourceOffset += tag.end - tag.start;
+      }
+      if (
+        analysis.text.some(source => source.start <= sourceOffset && source.end > sourceOffset) &&
+        !analysis.math.some(math => math.start <= sourceOffset && math.end > sourceOffset)
+      ) {
+        escapes.add(offset);
+      }
+    }
+    if (node.children) for (const child of node.children) visit(child);
+  };
+  visit(markdownParser.parse(text) as MarkdownNode);
+  for (const offset of [...escapes].sort((left, right) => right - left)) {
+    text = `${text.slice(0, offset)}&#${text[offset].codePointAt(0)};${text.slice(offset + 1)}`;
+  }
+  return text;
 };
 
 const spokenText = (
@@ -446,6 +554,18 @@ const spokenText = (
     const prefixLength = insideCode ? 0 : speechPrefixLength(text.slice(line.start, line.end));
     const start = lineStart + prefixLength;
     appendInline(result, markdown, { start, end: range.start + line.end }, analysis);
+  }
+  // Inline symbols need their authored explanation, rather than isolated timed cards.
+  if (
+    result.speech.trim() &&
+    analysis.math.some(math => math.start >= range.start && math.end <= range.end)
+  ) {
+    result.visuals = [
+      {
+        kind: 'markdown',
+        markdown: contextualMarkdown(markdown, range, analysis),
+      },
+    ];
   }
   return result;
 };
@@ -506,9 +626,11 @@ export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlo
     const analysis = analyzeMarkdown(markdown);
     if (analysis.annotationTags.length) {
       hasAnnotations = true;
-      const projectedMarkdown = [...analysis.annotationTags]
-        .sort((left, right) => right.start - left.start)
-        .reduce((text, tag) => text.slice(0, tag.start) + text.slice(tag.end), markdown);
+      const projectedMarkdown = annotationFreeMarkdown(
+        markdown,
+        { start: 0, end: markdown.length },
+        analysis.annotationTags
+      );
       projectedContent[sourceBlockIndex] = { type: 'markdown', markdown: projectedMarkdown };
     }
     for (const chunk of markdownChunks(markdown, analysis)) {
@@ -556,3 +678,51 @@ export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlo
 export const segmentLessonPlayback = (
   contentBlocks: readonly PlaybackContentBlock[]
 ): LessonPlaybackBlock[] => projectLessonPlayback(contentBlocks).blocks;
+
+/** Model-authored pronunciations, one per inline formula occurrence in source order. */
+export interface PlaybackSpokenMath {
+  readonly formula: string;
+  readonly spoken: string;
+}
+
+/** Validate complete occurrence coverage; repeated formulas remain separate entries. */
+export const validatePlaybackSpokenMath = (
+  block: LessonPlaybackBlock,
+  spokenMath: readonly PlaybackSpokenMath[]
+): void => {
+  const formulas = block.spans.flatMap(span => (span.math ? [span.math] : []));
+  if (
+    formulas.length !== spokenMath.length ||
+    spokenMath.some((entry, index) => entry.formula !== formulas[index] || !entry.spoken.trim())
+  )
+    throw new Error('Spoken math must cover every inline formula in source order.');
+};
+
+/** Resolve one shared narration for captions, motion, sentence anchors and TTS. Idempotent. */
+export const resolvePlaybackNarration = (
+  block: LessonPlaybackBlock,
+  spokenMath = block.prepared?.spokenMath
+): LessonPlaybackBlock => {
+  if (!spokenMath) return block;
+  validatePlaybackSpokenMath(block, spokenMath);
+  if (!spokenMath.length) return block;
+  let speech = '';
+  let formulaIndex = 0;
+  const spans = block.spans.map(span => {
+    const start = speech.length;
+    speech += span.math
+      ? spokenMath[formulaIndex++].spoken
+      : block.speech.slice(span.speech.start, span.speech.end);
+    return { ...span, speech: { start, end: speech.length } };
+  });
+  return { ...block, speech, spans };
+};
+
+/** Detect saved audio that still uses the projection with silent inline formulas. No regeneration. */
+export const hasOmittedPlaybackMath = (block: LessonPlaybackBlock): boolean =>
+  Boolean(
+    block.prepared &&
+      block.audio.length &&
+      block.spans.some(span => span.math) &&
+      !block.prepared.spokenMath
+  );

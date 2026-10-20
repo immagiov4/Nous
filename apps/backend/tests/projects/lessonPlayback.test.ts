@@ -1,3 +1,4 @@
+import { hasOmittedPlaybackMath } from '@shared/lessonPlayback';
 import {
   collectProjectAssetReferences,
   remapProjectAssetReferences,
@@ -432,6 +433,38 @@ test('multiline annotations gain a stable visible speech identity', () => {
   );
 });
 
+test('refreshes contextual math visuals while reusing matching stored speech and audio', () => {
+  const section = {
+    ...playbackSection(),
+    contentBlocks: [{ type: 'markdown', markdown: 'Read $x$ as the input; $y$ as the output.' }],
+  };
+  const current = readLessonPlayback(section);
+  const audio = [{ model: 'tts', voice: 'Kore', asset: playbackAsset, durationSeconds: 12 }];
+  const saved = {
+    ...section,
+    playback: {
+      ...current,
+      blocks: current.blocks.map(block => ({
+        ...block,
+        visuals: [
+          { kind: 'markdown' as const, markdown: '$x$' },
+          { kind: 'markdown' as const, markdown: '$y$' },
+        ],
+        prepared: { motion: [] },
+        audio,
+      })),
+    },
+  };
+  const restored = readLessonPlayback(saved);
+  expect(restored.lessonKey).toBe(current.lessonKey);
+  expect(restored.blocks[0].visuals).toEqual([
+    { kind: 'markdown', markdown: section.contentBlocks[0].markdown },
+  ]);
+  expect(restored.blocks[0].speech).toBe(current.blocks[0].speech);
+  expect(restored.blocks[0].audio).toEqual(audio);
+  expect(restored.blocks[0].prepared).toEqual({ motion: [] });
+});
+
 test('quiz learner state preserves prepared playback for annotated lessons', () => {
   const section = annotatedSection(
     'A <mark data-nous-annotation-id="note">system</mark> has boundaries.'
@@ -440,4 +473,23 @@ test('quiz learner state preserves prepared playback for annotated lessons', () 
   const answered = { ...section, playback, quizState: { answers: [1], isSubmitted: true } };
   expect(buildLessonPlaybackKey(answered)).toBe(buildLessonPlaybackKey(section));
   expect(readLessonPlayback(answered).blocks[0].audio).toEqual(playback.blocks[0].audio);
+});
+
+test('reading source math identifies legacy silent audio while preserving its saved preparation', () => {
+  const section = playbackSection();
+  section.contentBlocks = [{ type: 'markdown', markdown: 'Consideriamo $x^2$. Poi proseguiamo.' }];
+  const saved = preparedPlayback(section);
+  // The old writer had no inline-math markers; source projection must recover them on read.
+  section.playback = {
+    ...saved,
+    blocks: saved.blocks.map(block => ({
+      ...block,
+      spans: block.spans.filter(span => !span.math),
+    })),
+  };
+  const actual = readLessonPlayback(section).blocks[0];
+  expect(hasOmittedPlaybackMath(actual)).toBe(true);
+  expect(actual.audio).toEqual(saved.blocks[0].audio);
+  expect(actual.prepared).toBe(saved.blocks[0].prepared);
+  expect(readLessonPlayback(section).lessonKey).toBe(saved.lessonKey);
 });
