@@ -17,7 +17,7 @@ Account provider assignments can authorize use of the installation's [private Co
 
 ## Diagnostic tools expose stage evidence
 
-The Research Lab presents video candidates, transcript availability, timings and selection reasoning from the [research pipeline](../03-section-features/06-p-youtube-research.md). It helps distinguish failed discovery from a poor model selection without rerouting that responsibility into the reader. Its data is diagnostic evidence, rather than a separate source of project truth.
+The Research Lab exposes retrieval diagnostics from the [research pipeline](../03-section-features/06-p-youtube-research.md), helping developers inspect why a transcript was retrieved or admitted to model context. That diagnostic route is separate from the candidate classification recorded by lesson generation. The video-research page explains where each decision is retained.
 
 Feedback management operates on saved local reports and their optional GitHub issue relationship. Failed delivery leaves the local record available; synchronization updates the recorded issue state. [Feedback delivery](../06-section-backend/04-p-feedback-system.md) owns redaction and publication semantics.
 
