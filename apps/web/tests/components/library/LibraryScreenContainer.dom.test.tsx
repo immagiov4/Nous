@@ -1,3 +1,4 @@
+import * as sourceSelection from '../../../services/projects/sourceFileSelection.ts';
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 
@@ -26,6 +27,7 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       onHomeChatModeChange: (mode: 'library-query' | 'new-course') => void;
       onSendAssessmentMessage: (message: string) => Promise<void>;
       pendingFileNames?: string[];
+      pendingFileWarnings?: string[];
     };
     onPageChange: (page: 'home' | 'library') => void;
   }) => (
@@ -33,6 +35,7 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       <div data-testid="new-home-surface">
         {chatProps.homeChatMode}:{String(chatProps.assessmentComplete)}:
         {chatProps.pendingFileNames?.join(',')}
+        {chatProps.pendingFileWarnings?.join(',')}
       </div>
       <div data-testid="confirmation-messages">
         {chatProps.assessmentMessages.map(message => message.text).join('\n')}
@@ -167,7 +170,7 @@ describe('LibraryScreenContainer route fallback', () => {
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:false');
   });
 
-  test('switches from library query to new course after choosing a local source', () => {
+  test('switches from library query to new course after choosing a local source', async () => {
     globalThis.history.replaceState({}, '', '/library');
 
     const { container } = render(<LibraryScreenContainer {...buildProps()} />);
@@ -179,11 +182,101 @@ describe('LibraryScreenContainer route fallback', () => {
       throw new Error('Expected the library source file input.');
     }
 
-    fireEvent.change(fileInput, {
-      target: { files: [new File(['source'], 'source.md', { type: 'text/markdown' })] },
+    await act(async () => {
+      fireEvent.change(fileInput, {
+        target: { files: [new File(['source'], 'source.md', { type: 'text/markdown' })] },
+      });
     });
 
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:false:source.md');
+  });
+
+  test('retains the latest selection when an earlier archive inspection finishes later', async () => {
+    const first = new File(['first'], 'first.zip', { type: 'application/zip' });
+    const second = new File(['second'], 'second.md', { type: 'text/markdown' });
+    let finishFirst!: (value: { files: File[]; warnings: [] }) => void;
+    const inspection = vi
+      .spyOn(sourceSelection, 'inspectSourceSelection')
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            finishFirst = resolve;
+          })
+      )
+      .mockResolvedValueOnce({ files: [second], warnings: [] });
+    try {
+      const { container } = render(<LibraryScreenContainer {...buildProps()} />);
+      const input = container.querySelector<HTMLInputElement>('#library-source-file');
+      if (!input) throw new Error('Missing source input');
+      fireEvent.change(input, { target: { files: [first] } });
+      await act(async () => {
+        fireEvent.change(input, { target: { files: [second] } });
+      });
+      expect(screen.getByTestId('new-home-surface')).toHaveTextContent('second.md');
+      await act(async () => {
+        finishFirst({ files: [first], warnings: [] });
+      });
+      expect(screen.getByTestId('new-home-surface')).toHaveTextContent('second.md');
+    } finally {
+      inspection.mockRestore();
+    }
+  });
+
+  test.each([
+    'continued',
+    'abandoned',
+  ] as const)('clears exclusion notices when the source selection is %s', async outcome => {
+    const file = new File(['valid'], 'valid.md', { type: 'text/markdown' });
+    const inspection = vi.spyOn(sourceSelection, 'inspectSourceSelection').mockResolvedValue({
+      files: [file],
+      warnings: [{ name: 'excluded.pdf', message: 'Too large' }],
+    });
+    const props = buildProps();
+    props.controller.startHomeChat = vi.fn().mockResolvedValue({ outcome });
+    try {
+      const { container } = render(<LibraryScreenContainer {...props} />);
+      const input = container.querySelector<HTMLInputElement>('#library-source-file');
+      if (!input) throw new Error('Missing source input');
+      await act(async () => fireEvent.change(input, { target: { files: [file] } }));
+      expect(screen.getByTestId('new-home-surface')).toHaveTextContent('excluded.pdf');
+      await act(async () =>
+        fireEvent.click(screen.getByRole('button', { name: 'Invia nuovo corso' }))
+      );
+      expect(screen.getByTestId('new-home-surface')).not.toHaveTextContent('excluded.pdf');
+    } finally {
+      inspection.mockRestore();
+    }
+  });
+
+  test('keeps a cancelled selection cleared when its inspection finishes later', async () => {
+    const file = new File(['archive'], 'abandoned.zip', { type: 'application/zip' });
+    let finish!: (
+      result: Awaited<ReturnType<typeof sourceSelection.inspectSourceSelection>>
+    ) => void;
+    const inspection = vi.spyOn(sourceSelection, 'inspectSourceSelection').mockImplementation(
+      () =>
+        new Promise(resolve => {
+          finish = resolve;
+        })
+    );
+    const props = buildProps();
+    props.controller.assessmentMessages = [{ role: 'model', text: 'Existing interview' }];
+    try {
+      const { container } = render(<LibraryScreenContainer {...props} />);
+      const input = container.querySelector<HTMLInputElement>('#library-source-file');
+      if (!input) throw new Error('Missing source input');
+      fireEvent.change(input, { target: { files: [file] } });
+      await act(async () =>
+        fireEvent.click(screen.getByRole('button', { name: 'Ferma nuovo corso' }))
+      );
+      await act(async () =>
+        finish({ files: [file], warnings: [{ name: 'excluded.pdf', message: 'Too large' }] })
+      );
+      expect(screen.getByTestId('new-home-surface')).not.toHaveTextContent('abandoned.zip');
+      expect(screen.getByTestId('new-home-surface')).not.toHaveTextContent('excluded.pdf');
+    } finally {
+      inspection.mockRestore();
+    }
   });
 
   test('restores an unfinished interview in the home chat without the legacy assessment screen', () => {
@@ -225,7 +318,7 @@ describe('LibraryScreenContainer route fallback', () => {
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:false');
   });
 
-  test('ignores source uploads while a library response is streaming', () => {
+  test('ignores source uploads while a library response is streaming', async () => {
     globalThis.history.replaceState({}, '', '/library');
     const props = buildProps();
     props.libraryAssistantChat.isLoading = true;
@@ -237,8 +330,10 @@ describe('LibraryScreenContainer route fallback', () => {
       throw new Error('Expected the library source file input.');
     }
 
-    fireEvent.change(fileInput, {
-      target: { files: [new File(['source'], 'source.md', { type: 'text/markdown' })] },
+    await act(async () => {
+      fireEvent.change(fileInput, {
+        target: { files: [new File(['source'], 'source.md', { type: 'text/markdown' })] },
+      });
     });
 
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('library-query:false:');

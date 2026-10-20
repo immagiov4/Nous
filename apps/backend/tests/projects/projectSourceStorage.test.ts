@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { describe, expect, test, vi } from 'vitest';
 
@@ -46,6 +49,19 @@ describe('SupabaseProjectSourceStorage', () => {
         signal,
       }
     );
+  });
+
+  test('rejects a source object above the production 200 MiB ceiling before starting a transfer', async () => {
+    const fetcher = createFetchMock(new Response('{}', { status: 200 }));
+    const storage = createStorage(fetcher);
+    await expect(
+      storage.upload(
+        'user/project/hash',
+        { path: import.meta.filename, byteSize: 200 * 1024 * 1024 + 1 },
+        'application/zip'
+      )
+    ).rejects.toMatchObject({ code: 'object-too-large' });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   test('aborts an in-flight upload with the workflow signal', async () => {
@@ -230,4 +246,51 @@ describe('verifyProjectSourceBytes', () => {
       );
     }
   });
+});
+
+test('streams an original archive from disk with an exact content length', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'nous-source-storage-test-'));
+  try {
+    const path = join(directory, 'original.zip');
+    await writeFile(path, 'original archive bytes');
+    let uploaded = '';
+    const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      uploaded = await new Response(init?.body).text();
+      return new Response('{}');
+    }) as unknown as typeof fetch;
+    await createStorage(fetcher).upload(
+      'project/original',
+      { path, byteSize: 22 },
+      'application/zip'
+    );
+    expect(uploaded).toBe('original archive bytes');
+    const init = vi.mocked(fetcher).mock.calls[0]?.[1];
+    expect(new Headers(init?.headers).get('Content-Length')).toBe('22');
+    expect(init?.body).not.toBeInstanceOf(Uint8Array);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('streams only one original from an assembled source upload', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'nous-source-storage-range-test-'));
+  try {
+    const path = join(directory, 'collection');
+    await writeFile(path, 'metadataFIRSTsecond');
+    const uploaded: string[] = [];
+    const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      uploaded.push(await new Response(init?.body).text());
+      return new Response('{}');
+    }) as unknown as typeof fetch;
+    const storage = createStorage(fetcher);
+    await storage.upload('project/first', { path, byteSize: 5, offset: 8 }, 'application/pdf');
+    await storage.upload('project/second', { path, byteSize: 6, offset: 13 }, 'application/pdf');
+    await storage.upload('project/empty', { path, byteSize: 0, offset: 19 }, 'text/plain');
+    expect(uploaded).toEqual(['FIRST', 'second', '']);
+    expect(
+      vi.mocked(fetcher).mock.calls.map(call => new Headers(call[1]?.headers).get('Content-Length'))
+    ).toEqual(['5', '6', '0']);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

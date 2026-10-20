@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react';
 import type { ChangeEvent } from 'react';
 import { expect, test, vi } from 'vitest';
 import { useWorkspaceFileActions } from '../../../hooks/workspace/useWorkspaceFileActions.ts';
+import * as sourceSelection from '../../../services/projects/sourceFileSelection.ts';
 
 type HookArgs = Parameters<typeof useWorkspaceFileActions>[0];
 
@@ -141,4 +142,46 @@ test('reports unusable sources while continuing the multifonte upload', async ()
     'Alcune fonti non sono state usate: scansione.pdf, vuoto.pdf. Il corso continua con le altre.'
   );
   expect(notify.mock.calls.flat().join(' ')).not.toContain('internal extraction detail');
+});
+
+test('keeps the requested reattachment mode while overlapping ZIP inspections finish', async () => {
+  const files = [new File(['zip'], 'notes.zip', { type: 'application/zip' })];
+  let finishInspection!: (
+    selection: Awaited<ReturnType<typeof sourceSelection.inspectSourceSelection>>
+  ) => void;
+  const inspection = vi
+    .spyOn(sourceSelection, 'inspectSourceSelection')
+    .mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          finishInspection = resolve;
+        })
+    )
+    .mockResolvedValueOnce({ files: [], warnings: [] });
+  const handleSourceUpload = vi.fn(async () => ({}));
+  const { result } = renderHook(() =>
+    useWorkspaceFileActions(buildHookArgs({ handleSourceUpload }))
+  );
+  const first = { files, value: 'first' };
+  const second = { files: [new File(['oversized'], 'oversized.pdf')], value: 'second' };
+  try {
+    let firstUpload!: Promise<void>;
+    act(() => {
+      result.current.handleAttachSourceFile();
+      firstUpload = result.current.handleFileUpload({
+        target: first,
+      } as unknown as ChangeEvent<HTMLInputElement>);
+      result.current.handleAttachSourceFile();
+    });
+    await act(async () => {
+      await result.current.handleFileUpload({
+        target: second,
+      } as unknown as ChangeEvent<HTMLInputElement>);
+      finishInspection({ files, warnings: [] });
+      await firstUpload;
+    });
+    expect(handleSourceUpload).toHaveBeenCalledExactlyOnceWith(files, { mode: 'reattach-source' });
+  } finally {
+    inspection.mockRestore();
+  }
 });

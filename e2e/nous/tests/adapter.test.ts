@@ -1,10 +1,9 @@
-import { execFile } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import { chromium } from 'playwright';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PostgresAccountStore } from '../../../apps/backend/src/account/accountStore';
@@ -34,9 +33,11 @@ import {
   waitForReadiness,
 } from '../stack';
 import * as workflowCleanup from '../workflowCleanup';
+import { installBunProcessFixture } from './helpers/bunProcessFixture';
 
 let temporaryRoot: string | undefined;
 beforeEach(() => {
+  installBunProcessFixture();
   vi.spyOn(workflowCleanup, 'settleAccountWorkflows').mockResolvedValue();
   vi.spyOn(PostgresAccountStore.prototype, 'finishSetup').mockResolvedValue();
 });
@@ -98,6 +99,14 @@ async function createShutdownFixture(name = 'backend'): Promise<string> {
     JSON.stringify({ pid: process.pid, repoRoot: REPO_ROOT, identity: 'owned-process' })
   );
   return pidPath;
+}
+
+function stopSyntheticProcess(pid: number): void {
+  try {
+    process.kill(pid);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+  }
 }
 
 describe('Nous adapter', () => {
@@ -262,13 +271,14 @@ describe('Nous adapter', () => {
         identity: 'different-process-birth-time',
       })
     );
-    const failure = await promisify(execFile)(
-      'bun',
-      ['run', join(REPO_ROOT, 'e2e/nous/stack.ts'), '--stop'],
-      { env: { ...process.env, NOUS_E2E_DATA: temporaryRoot }, windowsHide: true }
-    ).catch(error => error as { code: number; stderr: string });
-    expect('code' in failure && failure.code).toBe(1);
-    expect(failure.stderr).toContain('process identity changed');
+    const child = spawnSync('bun', [join(REPO_ROOT, 'e2e/nous/stack.ts'), '--stop'], {
+      env: { ...process.env, NOUS_E2E_DATA: temporaryRoot },
+      windowsHide: true,
+      encoding: 'utf8',
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    expect(child.status).toBe(1);
+    expect(child.stderr).toContain('process identity changed');
     expect(() => process.kill(process.pid, 0)).not.toThrow();
     expect(
       JSON.parse(await readFile(join(temporaryRoot, 'stack', 'frontend-pid.json'), 'utf8')).pid
@@ -490,6 +500,30 @@ describe('Nous adapter', () => {
     expect(await runStackStage({ name: 'backend', work: async () => 'healthy' })).toBe('healthy');
     expect(vi.getTimerCount()).toBe(0);
   });
+  it.runIf(process.platform === 'win32')(
+    'stops a real identity-verified Windows child before removing its record',
+    async () => {
+      const pidPath = await createShutdownFixture('frontend');
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response('healthy'))
+      );
+      const pid = await startServer(
+        'frontend',
+        ['-e', 'setInterval(() => {}, 1000)'],
+        'http://synthetic.test',
+        process.env
+      );
+      try {
+        await stopStack({ stopSupabase: async () => {} });
+        expect(() => process.kill(pid, 0)).toThrow();
+        await expect(readFile(pidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      } finally {
+        stopSyntheticProcess(pid);
+      }
+    }
+  );
+
   it('starts a cold child from HTTP readiness even without a ready log marker', async () => {
     temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-startup-'));
     vi.stubEnv('NOUS_E2E_DATA', temporaryRoot);
@@ -515,7 +549,7 @@ describe('Nous adapter', () => {
         JSON.parse(await readFile(join(temporaryRoot, 'stack', 'fixture-pid.json'), 'utf8'))
       ).toMatchObject({ pid, repoRoot: REPO_ROOT, identity: expect.any(String) });
     } finally {
-      process.kill(pid);
+      stopSyntheticProcess(pid);
     }
   });
 

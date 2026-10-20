@@ -1,3 +1,8 @@
+export { getProjectSourceWarnings } from '../../../services/projects/courseSources.ts';
+
+import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
+import type { SourcePreparationProgress } from '@shared/sourcePreparation';
+import { translateUiMessage as t } from '../../../i18n/uiMessages';
 import * as OpenRouterService from '../../../services/openrouter/index.ts';
 import {
   buildCourseSourceDescriptors,
@@ -10,13 +15,27 @@ import {
   normalizeSourceFileMimeType,
 } from '../../../services/projects/projectSource.ts';
 import { resolveScreenStateForSnapshot } from '../../../services/workspace/controller/snapshotHydration.ts';
-import type {
-  CourseSourceDescriptor,
-  FileData,
-  ProjectSource,
-  ProjectSourceWarning,
-} from '../../../types.ts';
+import type { CourseSourceDescriptor, FileData, ProjectSource } from '../../../types.ts';
 import type { CreateWorkspaceControllerArgs, WorkspaceControllerContext } from './types.ts';
+
+export const formatSourcePreparationProgress = (progress: SourcePreparationProgress): string => {
+  if (progress.step === 'upload')
+    return t('Caricamento fonti... {percent}%', {
+      percent: Math.round(progress.total ? (progress.completed / progress.total) * 100 : 0),
+    });
+  const labels = {
+    expansion: 'Estrazione archivio',
+    extraction: 'Lettura fonti',
+    'pdf-transcription': 'Trascrizione pagine',
+    persistence: 'Salvataggio fonti',
+  } as const;
+  const message = t('{step}: {completed}/{total}', {
+    step: t(labels[progress.step]),
+    completed: progress.completed,
+    total: progress.total,
+  });
+  return progress.documentName ? `${message} · ${progress.documentName}` : message;
+};
 
 const createSleep = (ms: number) =>
   new Promise<void>(resolve => {
@@ -28,6 +47,8 @@ const scheduleHydrationWithMicrotask = (callback: () => void) => {
 };
 
 export const readSourceFileData = async (file: File): Promise<FileData> => {
+  if (file.size > COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes)
+    throw new Error(`Il file ${file.name} supera il limite di 32 MB.`);
   const bytes = new Uint8Array(await file.arrayBuffer());
   const kind = detectSourceFileKind({
     name: file.name,
@@ -46,88 +67,27 @@ export const readSourceFileData = async (file: File): Promise<FileData> => {
   };
 };
 
-const UNUSABLE_PDF_SOURCE_MESSAGE = 'Questa fonte non contiene testo PDF utilizzabile.';
-
-export const getProjectSourceWarnings = (source: ProjectSource): ProjectSourceWarning[] => {
-  const descriptorWarnings = (source.sources || [])
-    .filter(descriptor => descriptor.status === 'error')
-    .map(descriptor => ({
-      message: descriptor.errorMessage || 'Questa fonte non è utilizzabile.',
-      name: descriptor.name,
-    }));
-  if (source.kind !== 'archive') {
-    return descriptorWarnings;
-  }
-
-  const archivePdfWarnings = source.index.entries.flatMap(entry =>
-    entry.kind === 'file' &&
-    entry.contentKind === 'binary' &&
-    entry.path.toLowerCase().endsWith('.pdf')
-      ? [
-          {
-            message: UNUSABLE_PDF_SOURCE_MESSAGE,
-            name: entry.path,
-            reason: entry.warningReason || 'no-usable-text',
-          },
-        ]
-      : []
-  );
-  return [...descriptorWarnings, ...archivePdfWarnings];
-};
-
+/** Creates pending descriptors only; ingestion prepares bytes and indexes on the server. */
 export const prepareUploadedCourseSource = async (
-  context: Pick<WorkspaceControllerContext, 'openRouter'>,
+  _context: Pick<WorkspaceControllerContext, 'openRouter'>,
   selectedFiles: readonly File[],
   onProgress?: (completed: number, total: number) => void
 ): Promise<{ descriptors: CourseSourceDescriptor[]; source: ProjectSource }> => {
-  const sortedFiles = sortSourceFiles(selectedFiles);
-  const fileData = await Promise.all(sortedFiles.map(readSourceFileData));
-  const descriptors = buildCourseSourceDescriptors(fileData);
-
-  for (let index = 0; index < descriptors.length; index += 1) {
-    const descriptor = descriptors[index];
-    onProgress?.(index, descriptors.length);
-    if (descriptor.kind !== 'pdf') {
-      continue;
-    }
-    try {
-      await context.openRouter.validatePdfTextSource(descriptor.file);
-      const session = await context.openRouter.getPdfTextSession(descriptor.file);
-      if (!session?.extractedText.trim()) {
-        throw new Error('No extracted PDF text');
-      }
-      descriptor.hash = session.sourceHash || descriptor.hash;
-      descriptor.outline = session.outline;
-      descriptor.outlineOrigin = session.outlineOrigin;
-      descriptor.documentIndex = context.openRouter.buildPdfTextIndex(
-        session.extractedText,
-        descriptor.hash,
-        descriptor.name,
-        session.pages,
-        descriptor.id
-      );
-    } catch (error) {
-      if (descriptors.length === 1) {
-        throw error;
-      }
-      console.warn('[Nous][Sources] A PDF source could not be prepared.', {
-        error,
-        name: descriptor.name,
-      });
-      descriptor.status = 'error';
-      descriptor.errorMessage = UNUSABLE_PDF_SOURCE_MESSAGE;
-    }
-  }
-  onProgress?.(descriptors.length, descriptors.length);
-
-  if (descriptors.every(descriptor => descriptor.status === 'error')) {
-    throw new Error('Nessuna delle fonti selezionate contiene materiale utilizzabile.');
-  }
-
-  return {
-    descriptors,
-    source: createProjectSourceFromDescriptors(descriptors),
-  };
+  onProgress?.(0, selectedFiles.length);
+  const descriptors = buildCourseSourceDescriptors(
+    sortSourceFiles(selectedFiles).map(file => ({
+      name: file.name,
+      mimeType:
+        file.type ||
+        normalizeSourceFileMimeType(
+          file.name,
+          file.type,
+          detectSourceFileKind({ name: file.name, mimeType: file.type })
+        ),
+      data: '',
+    }))
+  );
+  return { descriptors, source: createProjectSourceFromDescriptors(descriptors) };
 };
 
 export const createWorkspaceControllerContext = ({

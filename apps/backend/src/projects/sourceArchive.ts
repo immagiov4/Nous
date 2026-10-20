@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
+import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
 import { assessPdfTextQuality } from '@shared/pdfTextQuality';
 import { createSourceArchivePreview } from '@shared/sourceArchivePreview';
 import type {
@@ -7,12 +8,14 @@ import type {
   SourceArchivePdfWarningReason,
 } from '@shared/sourceArchiveWarnings';
 import JSZip from 'jszip';
+import { PDF_SOURCE_EXTRACTION_OPTIONS } from '../services/pdfSourceLimits.js';
 import {
   extractPdfText,
   PdfTextExtractionOutputLimitError,
   PdfTextExtractionTimeoutError,
 } from '../services/pdfTextExtractor.js';
 import { encodePdfDataUrl } from '../utils/pdfDataUrl.js';
+import { openFileSourceArchive } from './fileSourceArchive.js';
 
 export interface SourceArchiveLimits {
   maxEntries: number;
@@ -21,24 +24,17 @@ export interface SourceArchiveLimits {
 }
 
 export const PROJECT_SOURCE_ARCHIVE_LIMITS: SourceArchiveLimits = {
-  maxEntries: 20_000,
-  maxEntryBytes: 256_000_000,
-  maxExpandedBytes: 1_000_000_000,
+  maxEntries: COURSE_SOURCE_UPLOAD_LIMITS.maxArchiveEntries,
+  maxEntryBytes: COURSE_SOURCE_UPLOAD_LIMITS.maxArchiveEntryBytes,
+  maxExpandedBytes: COURSE_SOURCE_UPLOAD_LIMITS.maxTotalBytes,
 };
 
-export const PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES = 256_000_000;
-const BYTES_PER_MEGABYTE = 1_000_000;
-// pdf-parse can hold both aggregate and per-page JavaScript strings; UTF-16 needs up to
-// two heap bytes per output byte, so the approved input/output budgets derive this cap.
-const PDF_FALLBACK_TEXT_HEAP_MULTIPLIER = 4;
-
+export const PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES =
+  COURSE_SOURCE_UPLOAD_LIMITS.maxTotalBytes;
 export const PROJECT_SOURCE_ARCHIVE_PDF_POLICY = {
   archivePreparationTimeoutMs: 480_000,
-  fallbackTimeoutMs: 15_000,
-  maxCumulativeBytes: 64_000_000,
-  maxEligibleEntries: 16,
-  maxEntryBytes: 16_000_000,
-  pdftotextTimeoutMs: 15_000,
+  ...PDF_SOURCE_EXTRACTION_OPTIONS,
+  maxEntryBytes: COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes,
 } as const;
 
 export class SourceArchivePreparationCapacityError extends Error {
@@ -299,6 +295,19 @@ const loadArchive = async (archiveBytes: Uint8Array) => {
   }
 };
 
+const validateLoadedEntrySize = (
+  entry: JsZipEntryWithMetadata,
+  path: string,
+  expectedSize: number
+) => {
+  const size = entry._data?.uncompressedSize;
+  // Empty JSZip entries expose promises, so the directory remains authoritative for their size.
+  if (size === undefined && expectedSize === 0) return;
+  if (typeof size !== 'number' || !Number.isSafeInteger(size) || size < 0)
+    throw invalidArchive('missing uncompressed size metadata');
+  if (size !== expectedSize) throw invalidArchive(`inconsistent uncompressed size for "${path}"`);
+};
+
 const mapLoadedEntries = (
   loadedArchive: JSZip,
   centralEntriesByPath: Map<string, { directory: boolean; uncompressedSize: number }>
@@ -329,17 +338,7 @@ const mapLoadedEntries = (
       continue;
     }
 
-    const loadedSize = loadedEntry._data?.uncompressedSize;
-    // JSZip represents empty entries as promises publicly; their central metadata remains exact.
-    if (loadedSize === undefined && metadata.uncompressedSize === 0) {
-      continue;
-    }
-    if (typeof loadedSize !== 'number' || !Number.isSafeInteger(loadedSize) || loadedSize < 0) {
-      throw invalidArchive('missing uncompressed size metadata');
-    }
-    if (loadedSize !== metadata.uncompressedSize) {
-      throw invalidArchive(`inconsistent uncompressed size for "${path}"`);
-    }
+    validateLoadedEntrySize(loadedEntry, path, metadata.uncompressedSize);
   }
 
   return loadedEntriesByPath;
@@ -455,8 +454,6 @@ const toBinarySourceArchiveFile = (
 
 interface PdfPreparationBudget {
   deadlineAt: number;
-  eligibleBytes: number;
-  eligibleEntries: number;
 }
 
 const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
@@ -502,18 +499,12 @@ const admitPdfEntry = (
   entry: SourceArchiveFileEntry,
   budget: PdfPreparationBudget
 ): SourceArchivePdfWarningReason | undefined => {
-  if (
-    entry.byteSize > PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEntryBytes ||
-    budget.eligibleEntries >= PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEligibleEntries ||
-    budget.eligibleBytes + entry.byteSize > PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxCumulativeBytes
-  ) {
+  if (entry.byteSize > PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEntryBytes) {
     return 'safety-limit';
   }
   if (Date.now() >= budget.deadlineAt) {
     return 'timeout';
   }
-  budget.eligibleEntries += 1;
-  budget.eligibleBytes += entry.byteSize;
   return undefined;
 };
 
@@ -554,15 +545,11 @@ const prepareSourceArchiveFile = async (
         fallbackTimeoutMs,
         maxOutputBytes: Math.min(
           maxPreparedBytes,
-          PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxCumulativeBytes
+          PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxOutputBytes
         ),
         pdftotextTimeoutMs,
-        fallbackProcessMaxOldGenerationSizeMb: Math.ceil(
-          (PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEntryBytes +
-            PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxCumulativeBytes *
-              PDF_FALLBACK_TEXT_HEAP_MULTIPLIER) /
-            BYTES_PER_MEGABYTE
-        ),
+        fallbackProcessMaxOldGenerationSizeMb:
+          PDF_SOURCE_EXTRACTION_OPTIONS.fallbackProcessMaxOldGenerationSizeMb,
       }),
       pdfTimeoutMs
     );
@@ -605,93 +592,124 @@ const prepareSourceArchiveFile = async (
   return toBinarySourceArchiveFile(entry, 'no-usable-text');
 };
 
+const openArchiveContent = async (
+  input: Uint8Array | string,
+  limits: SourceArchiveLimits,
+  deadlineAt: number
+) => {
+  if (typeof input === 'string') {
+    const archive = await openFileSourceArchive(input, limits.maxEntries, deadlineAt).catch(() => {
+      throw invalidArchive('unreadable ZIP');
+    });
+    try {
+      return {
+        ...inspectCentralDirectory(archive.entries, limits),
+        close: archive.close,
+        read: (path: string) =>
+          archive.read(path, deadlineAt).catch(() => {
+            throw invalidArchive(`cannot decompress "${path}"`);
+          }),
+      };
+    } catch (error) {
+      archive.close();
+      throw error;
+    }
+  }
+  const inspected = inspectCentralDirectory(parseCentralDirectory(input), limits);
+  const entries = mapLoadedEntries(
+    await withArchivePreparationDeadline(loadArchive(input), deadlineAt),
+    inspected.entriesByPath
+  );
+  return {
+    ...inspected,
+    close: () => {},
+    read: (path: string, remaining: number) => {
+      const entry = entries.get(path),
+        metadata = inspected.entriesByPath.get(path);
+      if (!entry || !metadata) throw invalidArchive(`missing path "${path}"`);
+      return readEntryContent(
+        entry,
+        path,
+        metadata.uncompressedSize,
+        limits.maxEntryBytes,
+        remaining,
+        deadlineAt
+      );
+    },
+  };
+};
+
 export async function* streamSourceArchive(
-  archiveBytes: Uint8Array,
+  archiveBytes: Uint8Array | string,
   limits: SourceArchiveLimits
 ): AsyncGenerator<SourceArchiveEntry> {
   validateLimits(limits);
   const deadlineAt = Date.now() + PROJECT_SOURCE_ARCHIVE_PDF_POLICY.archivePreparationTimeoutMs;
-  const centralEntries = parseCentralDirectory(archiveBytes);
-  const { entriesByPath, totalExpandedBytes: originalTotalExpandedBytes } = inspectCentralDirectory(
-    centralEntries,
-    limits
-  );
-  const loadedArchive = await withArchivePreparationDeadline(loadArchive(archiveBytes), deadlineAt);
-  const loadedEntriesByPath = mapLoadedEntries(loadedArchive, entriesByPath);
-  const directories = new Map<string, SourceArchiveDirectoryEntry>();
-  const filePaths: string[] = [];
+  const archive = await openArchiveContent(archiveBytes, limits, deadlineAt);
+  try {
+    const { entriesByPath, totalExpandedBytes: originalTotalExpandedBytes } = archive;
+    const directories = new Map<string, SourceArchiveDirectoryEntry>();
+    const filePaths: string[] = [];
 
-  for (const [path, metadata] of entriesByPath) {
-    addParentDirectories(directories, path);
-    if (metadata.directory) {
-      directories.set(path, {
-        explicit: true,
-        kind: 'directory',
-        path,
-      });
-      continue;
-    }
-    filePaths.push(path);
-  }
-
-  const orderedEntries: Array<SourceArchiveDirectoryEntry | { kind: 'file'; path: string }> = [
-    ...directories.values(),
-    ...filePaths.map(path => ({ kind: 'file' as const, path })),
-  ].sort(compareEntryPaths);
-  let actualExpandedBytes = 0;
-  let preparedExpandedBytes = 0;
-  const pdfBudget: PdfPreparationBudget = {
-    deadlineAt,
-    eligibleBytes: 0,
-    eligibleEntries: 0,
-  };
-  for (const entry of orderedEntries) {
-    if (Date.now() >= deadlineAt) throw invalidArchive('preparation deadline exceeded');
-    if (entry.kind === 'directory') {
-      yield entry;
-      continue;
-    }
-    const metadata = entriesByPath.get(entry.path);
-    const path = entry.path;
-    const loadedEntry = loadedEntriesByPath.get(path);
-    if (!metadata || !loadedEntry) {
-      throw invalidArchive(`missing path "${path}"`);
+    for (const [path, metadata] of entriesByPath) {
+      addParentDirectories(directories, path);
+      if (metadata.directory) {
+        directories.set(path, {
+          explicit: true,
+          kind: 'directory',
+          path,
+        });
+        continue;
+      }
+      filePaths.push(path);
     }
 
-    const content = await readEntryContent(
-      loadedEntry,
-      path,
-      metadata.uncompressedSize,
-      limits.maxEntryBytes,
-      limits.maxExpandedBytes - actualExpandedBytes,
-      deadlineAt
-    );
-    actualExpandedBytes += content.byteLength;
-
-    const text = decodeUtf8(content);
-    const sourceEntry: SourceArchiveFileEntry = {
-      byteSize: content.byteLength,
-      content,
-      hash: createHash('sha256').update(content).digest('hex'),
-      kind: 'file',
-      path,
-      ...(text === undefined
-        ? {}
-        : {
-            preview: createSourceArchivePreview(text),
-            text,
-          }),
+    const orderedEntries: Array<SourceArchiveDirectoryEntry | { kind: 'file'; path: string }> = [
+      ...directories.values(),
+      ...filePaths.map(path => ({ kind: 'file' as const, path })),
+    ].sort(compareEntryPaths);
+    let actualExpandedBytes = 0;
+    let preparedExpandedBytes = 0;
+    const pdfBudget: PdfPreparationBudget = {
+      deadlineAt,
     };
-    const remainingOriginalBytes = originalTotalExpandedBytes - actualExpandedBytes;
-    const remainingPreparedBytes =
-      limits.maxExpandedBytes - preparedExpandedBytes - remainingOriginalBytes;
-    const preparedEntry = await prepareSourceArchiveFile(
-      sourceEntry,
-      Math.min(limits.maxEntryBytes, remainingPreparedBytes),
-      pdfBudget
-    );
-    preparedExpandedBytes += preparedEntry.byteSize;
-    yield preparedEntry;
+    for (const entry of orderedEntries) {
+      if (Date.now() >= deadlineAt) throw invalidArchive('preparation deadline exceeded');
+      if (entry.kind === 'directory') {
+        yield entry;
+        continue;
+      }
+      const path = entry.path;
+      const content = await archive.read(path, limits.maxExpandedBytes - actualExpandedBytes);
+      actualExpandedBytes += content.byteLength;
+
+      const text = decodeUtf8(content);
+      const sourceEntry: SourceArchiveFileEntry = {
+        byteSize: content.byteLength,
+        content,
+        hash: createHash('sha256').update(content).digest('hex'),
+        kind: 'file',
+        path,
+        ...(text === undefined
+          ? {}
+          : {
+              preview: createSourceArchivePreview(text),
+              text,
+            }),
+      };
+      const remainingOriginalBytes = originalTotalExpandedBytes - actualExpandedBytes;
+      const remainingPreparedBytes =
+        limits.maxExpandedBytes - preparedExpandedBytes - remainingOriginalBytes;
+      const preparedEntry = await prepareSourceArchiveFile(
+        sourceEntry,
+        Math.min(limits.maxEntryBytes, remainingPreparedBytes),
+        pdfBudget
+      );
+      preparedExpandedBytes += preparedEntry.byteSize;
+      yield preparedEntry;
+    }
+  } finally {
+    archive.close();
   }
 }
 
