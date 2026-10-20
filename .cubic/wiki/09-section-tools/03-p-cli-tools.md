@@ -33,7 +33,7 @@ bun scripts/github-body.mjs verify --kind pr --repo immagiov4/Nous --number 123 
 
 ## Capture the production playback stage
 
-The playback atlas renders normalized lessons through the production stage in headless Chromium, sampling each spoken block at its start, middle and end. Separate visual sheets cover authored figures that those positions could miss. The default input is a deterministic pairwise matrix over content, visual and scene types and Markdown syntax; a short synthetic course gives a smaller first run.
+The playback atlas renders normalized lessons through the isolated production stage in headless Chromium, sampling each spoken block at its start, middle and end. The requested viewport is the stage’s available box; application playtests cover the player header, controls and audio interactions. Separate visual sheets cover authored figures that those positions could miss. The default input is a deterministic pairwise matrix over content, visual and scene types and Markdown syntax; a short synthetic course gives a smaller first run.
 
 ```bash
 bun run atlas:playback -- --synthetic synthetic-short

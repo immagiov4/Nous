@@ -130,10 +130,20 @@ if (import.meta.main) {
       },
     ];
     await writeFile(input, JSON.stringify(snapshot));
+    lesson.contentBlocks.push({
+      type: 'generated-visual',
+      slotId: 'script-slot',
+      visualId: 'script-after-diagram',
+    });
+    await writeFile(input, JSON.stringify(snapshot));
     const diagram = await runAtlas(args);
     const repeatedDiagram = await runAtlas(args);
     assert.equal(diagram.report.status, 'passed', JSON.stringify(diagram.report.counts));
     assert.equal(repeatedDiagram.report.status, 'passed');
+    assert(
+      diagram.report.tiles.some(tile => tile.visualIndex === 1 && !tile.incomplete),
+      'The scripted visual following the cold diagram must be captured.'
+    );
     for (const tile of diagram.report.tiles) {
       assert(!tile.incomplete, tile.id);
       assert.deepEqual(
@@ -143,6 +153,7 @@ if (import.meta.main) {
       );
     }
 
+    lesson.contentBlocks.pop();
     lesson.generatedVisuals = [
       {
         id: 'scene',

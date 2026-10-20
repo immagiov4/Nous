@@ -1,4 +1,4 @@
-/* The isolated stage receives the same full-height flex constraint as LessonPlayer. */
+/* The requested viewport is the available box for the isolated production stage. */
 #root {
   display: flex;
   flex-direction: column;

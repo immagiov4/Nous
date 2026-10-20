@@ -545,8 +545,10 @@ function atlasPostcss(sourceRoot: string): AtlasPostcss {
   const configPath = join(sourceRoot, 'apps/web/postcss.config.cjs');
   const load = createRequire(configPath);
   const configured = load(configPath) as { plugins: Record<string, Record<string, unknown>> };
-  const tailwindOptions = configured.plugins.tailwindcss as { config: string };
-  const tailwind = load(tailwindOptions.config) as { content: string[] };
+  const tailwindOptions = configured.plugins.tailwindcss as { config?: string };
+  const tailwind = load(tailwindOptions.config ?? join(sourceRoot, 'tailwind.config.cjs')) as {
+    content: string[];
+  };
   return {
     plugins: Object.entries(configured.plugins).map(([name, options]) => {
       const plugin = load(name) as (
