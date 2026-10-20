@@ -132,6 +132,8 @@ export interface WorkspaceReaderSidebarModel {
 }
 
 export interface WorkspaceReaderBannersModel {
+  lessonError?: string | null;
+  onRetryLesson?: () => void;
   pdfMappingWarning: string | null;
   needsSourceFile: boolean;
   onAttachSourceFile: () => void;

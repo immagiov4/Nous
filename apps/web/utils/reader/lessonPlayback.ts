@@ -1,5 +1,9 @@
 import { deriveLegacyLessonContent } from '@shared/lessonContent';
-import type { LessonPlaybackBlock, PlaybackContentBlock } from '@shared/lessonPlayback';
+import {
+  type LessonPlaybackBlock,
+  type PlaybackContentBlock,
+  resolvePlaybackNarration,
+} from '@shared/lessonPlayback';
 import { createSectionAnnotationSelector } from '../learning/sectionAnnotationAnchors.ts';
 import { buildVisibleProjection } from '../markdown/textProjection.ts';
 
@@ -21,7 +25,7 @@ export function playbackTimeline(
   model?: string
 ) {
   const fallbackWordsPerMinute = 240;
-  const counts = blocks.map(block => playbackWords(block.speech).length);
+  const counts = blocks.map(block => playbackWords(resolvePlaybackNarration(block).speech).length);
   const recordings = blocks.map(block =>
     block.audio.find(audio => audio.voice === voice && (!model || audio.model === model))
   );
@@ -36,11 +40,12 @@ export function playbackTimeline(
 
 /** Maps the current sentence through source spans to the reader's annotation selector. */
 export function playbackSentenceSelector(
-  block: LessonPlaybackBlock,
+  sourceBlock: LessonPlaybackBlock,
   time: number,
   duration: number,
   contentBlocks: readonly PlaybackContentBlock[]
 ) {
+  const block = resolvePlaybackNarration(sourceBlock);
   const words = playbackWords(block.speech);
   const offset = words[playbackWordIndex(words.length, time, duration)]?.start ?? 0;
   const sentences = Array.from(
@@ -64,8 +69,8 @@ export function playbackSentenceSelector(
       (source.markdown.length - source.markdown.trimStart().length);
     return [
       {
-        start: base + span.source.start + start - span.speech.start,
-        end: base + span.source.start + end - span.speech.start,
+        start: base + span.source.start + (span.math ? 0 : start - span.speech.start),
+        end: base + (span.math ? span.source.end : span.source.start + end - span.speech.start),
       },
     ];
   });

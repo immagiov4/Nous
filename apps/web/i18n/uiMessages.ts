@@ -923,6 +923,10 @@ const ENGLISH_UI_MESSAGES = {
     'This project was imported without its source file. Reconnect the PDF or ZIP to generate new lessons.',
   'Il PDF originale di questo corso non è disponibile. Ricaricalo per generare o rigenerare le lezioni senza perdere il corso.':
     'The original PDF for this course is unavailable. Upload it again to generate or regenerate lessons without losing the course.',
+  'Non è stato possibile verificare che tutti i contenuti della nuova lezione siano supportati dalle fonti. Puoi riprovare a generarla.':
+    'The new lesson could not be fully verified against the sources. You can try generating it again.',
+  'La verifica delle fonti della nuova lezione non è stata completata. Puoi riprovare a generarla.':
+    'The source check for the new lesson could not be completed. You can try generating it again.',
   'Il materiale sorgente originale non è disponibile. Ricollegalo per generare o rigenerare le lezioni.':
     'The original source material is unavailable. Reconnect it to generate or regenerate lessons.',
   'Ricarica PDF': 'Upload PDF again',

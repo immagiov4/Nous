@@ -43,7 +43,10 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
     audioElementRef: RefObject<HTMLAudioElement>;
   } | null>(null);
   const hasBanners = Boolean(
-    banners.needsSourceFile || banners.storageError || banners.pdfMappingWarning
+    banners.lessonError ||
+      banners.needsSourceFile ||
+      banners.storageError ||
+      banners.pdfMappingWarning
   );
   const canPlayLesson = isLessonPlayable(content, header);
   const openPlayer = (autoPlay: boolean) => {

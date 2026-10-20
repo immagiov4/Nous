@@ -470,6 +470,11 @@ export const useReaderShellProps = ({
   return useMemo(
     () => ({
       banners: {
+        lessonError: activeExercise ? null : controller.workflowState.loadSection.error,
+        onRetryLesson:
+          !controller.activeSection || controller.needsSourceFile
+            ? undefined
+            : readerActions.handleRegenerateActiveSection,
         needsSourceFile: controller.needsSourceFile,
         onAttachSourceFile: handleAttachSourceFile,
         onBackToLibrary: handleBackToLibrary,
@@ -680,6 +685,7 @@ export const useReaderShellProps = ({
       controller.workflowState.evaluateExercise.error,
       controller.workflowState.evaluateExercise.message,
       controller.workflowState.generateExercise.status,
+      controller.workflowState.loadSection.error,
       controller.workflowState.loadSection.status,
       controller.workflowState.loadSection.reasoning,
       controller.workflowState.loadSection.progress,

@@ -128,9 +128,9 @@ bun run quality       # Local TypeScript, Biome, React Hooks, and Sonar-style ch
 bun run check:eslint-sonar # Cached Sonar-style TS/TSX rules against bulk suppressions
 bun run quality:ci    # CI quality checks, including dependency graph validation
 bun run check:fallow  # Static dead-code & duplication analysis (info only)
-bun run gate:full     # Final local merge gate after green CI: checks + coverage + Sonar
+bun run gate:full     # Diagnose Windows-specific failures: checks + coverage + local Sonar
 bun run sonar:stop    # Stop the local Sonar service when finished
-bun run gate:ci       # Shared CI gate: quality:ci + Fallow regression + Bun tests
+bun run gate:ci       # Shared CI gate: quality:ci + Fallow regression + Node tests with LCOV
 bun run fix           # Auto-fix Biome lint, format, and import ordering
 bun run format        # Format all files (Biome)
 bun run test          # Vitest test suite (runs under Bun runtime)
@@ -139,37 +139,13 @@ bun run playtest      # Headless agentic stories; requires NOUS_E2E_DATA, --prov
 
 `check:eslint-sonar` uses `eslint.sonar.config.mjs` and the tracked `eslint-suppressions.json` baseline. After fixing baseline violations, run `bun run check:eslint-sonar --prune-suppressions` and include the reduced baseline with the fix. Regeneration with `bun run check:eslint-sonar --suppress-all` accepts every current violation and requires explicit maintainer approval. After either maintenance command, run `bunx biome format --write eslint-suppressions.json` to restore the required trailing newline. Scope, rule mappings, and suppression semantics are documented in [.cubic/wiki/09-section-tools/02-p-testing-quality.md](.cubic/wiki/09-section-tools/02-p-testing-quality.md).
 
-`doctor` is observational in every profile: it reports `PASS`/`FAIL`/`WARN`/`SKIP` results without starting, restarting, configuring, migrating services, or running the test suite. The default `checks` profile inspects the service-free environment; `gate` probes Sonar, `local` probes Supabase and migration parity, and `all` combines them. `gate:full` runs the shared `gate:ci` command (CI quality including dependency validation, Fallow, and the complete Bun suite), then Node coverage, one stage at a time after GitHub CI passes on the exact commit. The CI test job uses that same command; a behavior test compares its workflow checks with the scripts actually invoked by the local gate. It starts or reuses Sonar for the final analysis and keeps the local service running afterward, including after a failed scan. Each gate repeats readiness and doctor checks before the same quality gate. Stop the service explicitly with `bun run sonar:stop` when finished. It completes every stage that can run and exits with failure if any stage fails. The Sonar container has no automatic restart policy.
+Run focused tests and relevant type or lint checks while editing, then `bun run quality` before pushing. Use GitHub CI for the full suite after each pull-request update.
 
-Keep the development loop narrow. Run focused tests and the relevant type or lint checks for the
-changed area. After a pull-request update or a push to `main`, use GitHub CI as the full-suite signal
-unless a failure needs local diagnosis. Do not rerun the full local suite, coverage, or Sonar after
-each incremental commit. On a
-resource-constrained Windows host, run only one heavy analysis process at a time. If a broad run
-times out in unrelated tests, rerun those files in isolation before treating them as regressions or
-changing timeout policy.
+Merge only when CI is green on the exact pull-request head, including `test`, `SonarCloud Code Analysis`, and the applicable contract and pull-request-body checks. Resolve every new Sonar finding with an owner-visible disposition before merging. Each new commit needs its own passing checks.
 
-Coverage requires Node 26 (any 26.x release), the major version pinned in `.node-version`. The command fails before Vitest if PATH resolves to another major. The preflight removes the previous LCOV first, so Sonar cannot consume stale coverage after that failure. Coverage uses the ordered Vitest projects in `apps/web/vitest.config.ts` and writes one combined LCOV report consumed by Sonar. Do not add another complete coverage pass to CI or raise test timeouts to hide local resource contention.
+Use `bun run gate:full` only to diagnose Windows-specific failures. It runs checks, Node coverage, and local Sonar sequentially; stop the local service afterward with `bun run sonar:stop`. Run one heavy analysis process at a time. If unrelated tests time out under load, run those files in isolation before changing timeout policy.
 
-After GitHub CI passes, run `bun run gate:full` once on the same final merge candidate, after
-implementation and review feedback are complete. A mid-cycle full gate is reserved for a large or
-high-risk batch, or for diagnosing a gate-specific finding. If later analyzable code changes
-invalidate the final result, use focused checks while iterating and run the full gate again only
-when the next merge candidate is ready. SonarQube remains a local-only merge gate and is
-intentionally not part of GitHub Actions. It
-is mandatory for pull requests that change analyzable application source (`apps/`, `packages/`, or
-analyzed tooling under `scripts/`), tests that change or establish behavioral contracts,
-source/build/dependency/security configuration that changes analyzed runtime behavior, or an
-explicit review or CI request. For a trivially scoped pull request limited to documentation,
-metadata, or workflow files, with no analyzable application-code or runtime-behavior change, clean
-CI and review, and no explicit Sonar request, the merge owner may skip the local scan only after
-recording that rationale. Diff size or file count alone never qualifies. A required Sonar scan that
-is skipped, failed, or unreachable blocks the merge. `gate:full` starts the local Sonar service
-through `bun run sonar:up`. If startup fails, diagnose that command before rerunning the gate.
-Triage every new Sonar bug, vulnerability, and security hotspot, and fix or explicitly resolve each
-new finding before merging.
-Use `bun run fix` to auto-fix lint and format issues.
-Do not claim validation passed unless it was actually run.
+For environment diagnostics, coverage prerequisites, and CI details, see [Testing](docs/TESTING.md). Use `bun run fix` to apply lint and format fixes. Report validation as passed only after observing a successful run.
 
 ## Core Philosophy
 
@@ -344,6 +320,23 @@ Do not infer semantic meaning, workflow state, user intent, generation phase, co
 
 For manual-only projects, explain what must be verified and where. If validation reveals unrelated pre-existing failures, mention them clearly instead of hiding them.
 
+## Verification: prove it, don't ask to try it
+
+- Prove that each change works with observable evidence; never ask the maintainer to try it as a substitute for verification.
+- Scale evidence to the change: for backend-only changes, use behavior tests and observable outputs at the selected quality level, with integration evidence where integrations are affected; documentation-only changes need no browser run. For changes affecting UI or user-visible behavior, include appropriate screenshots, short videos, render atlases, and integration results across the relevant resolutions and devices.
+- For changes affecting UI or user-visible behavior, apply extreme observational TDD: observe and profile what a human would experience, including intermediate states and the final result.
+- For those changes, including backend changes that affect what users see, prove the affected end-to-end flow with human-like Playwright actions and verify its expected outcome; for example, navigate, ask a question, press the relevant button, and verify the answer arrives.
+- Inspect the artifacts yourself for visual and interaction anomalies. Passing tests and one satisfactory screenshot are insufficient evidence.
+- For each change, run the shared verification scenarios tagged for the touched features and regression scenarios for existing features they can affect.
+- Prefer deterministic integration checks and render atlases over real and synthetic content; generate synthetic fixtures from the app's types in compact combinations of supported states.
+- Use real-AI end-to-end runs for nondeterministic stress and long, articulated sessions. For workflows whose output format matters, run integration across every supported provider and feed the outputs into rendering checks.
+- Use the maintainer's real course library through the existing explicit local opt-in; keep private courses and their evidence local and outside Git. Use synthetic fixtures for CI and public artifacts.
+- Reuse pre-generated lessons as fixtures and retain a small fresh set to exercise current generation behavior.
+- Keep scenarios declarative in one shared system rather than rebuilding a harness per PR. The shared verification scenarios are being built, starting with the playback atlas; use existing capabilities and report missing coverage explicitly.
+- Parallelize independent scenarios and aggregate results only within the shared machine's capacity; keep heavy runs serialized.
+- Fix obvious defects yourself. Escalate only odd or ambiguous visual results with links to the exact artifacts; obtain the maintainer's approval of visible changes from those artifacts.
+- Run Sonar-equivalent checks early and during development, including backend tests, and resolve findings as they appear so the final gate confirms the result. Follow the [quality workflow](.agents/skills/quality-workflow/SKILL.md) and [testing wiki](.cubic/wiki/09-section-tools/02-p-testing-quality.md) for existing checks, fixtures, evidence, and final-gate rules.
+
 ## Bug Fixing Methodology
 
 When fixing a bug, identify the root pattern, then search for similar occurrences:
@@ -408,6 +401,8 @@ For debugging tasks: show exact evidence (files, functions, lines), explain the 
 Do not run state-changing version control commands without explicit approval. Never commit, push, rebase, reset, amend, stash, stage, or otherwise mutate repository state unless explicitly requested. Read-only commands are acceptable for context.
 
 Write every GitHub issue and pull-request title and description in English.
+
+Before writing any human-facing text, read and follow `.agents/skills/writing-for-humans/SKILL.md`. This covers PR and issue bodies, commit messages, documentation, wiki pages, and comments intended for people.
 
 When creating or rewriting any GitHub issue, or preparing one for autonomous work, read
 `.agents/skills/problem-to-github-issue/SKILL.md` and follow its evidence and lifecycle contract.

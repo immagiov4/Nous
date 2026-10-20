@@ -53,21 +53,31 @@ export function captionSource(
   let markdown = '';
   const ranges: { source: PlaybackRange; speech: PlaybackRange }[] = [];
   for (const line of lines.values()) {
-    const offset = markdown.length;
+    let cursor = line.start;
     for (const span of block.spans) {
-      if (span.sourceBlockIndex !== line.sourceBlockIndex) continue;
+      if (span.sourceBlockIndex !== line.sourceBlockIndex || span.speech.start === span.speech.end)
+        continue;
       const start = Math.max(line.start, span.source.start);
       const end = Math.min(line.start + line.text.length, span.source.end);
       if (start >= end) continue;
+      markdown += line.text.slice(cursor - line.start, start - line.start);
+      const speech = span.math
+        ? span.speech
+        : {
+            start: span.speech.start + start - span.source.start,
+            end: span.speech.start + end - span.source.start,
+          };
+      const text = span.math
+        ? block.speech.slice(speech.start, speech.end)
+        : line.text.slice(start - line.start, end - line.start);
       ranges.push({
-        source: { start: offset + start - line.start, end: offset + end - line.start },
-        speech: {
-          start: span.speech.start + start - span.source.start,
-          end: span.speech.start + end - span.source.start,
-        },
+        source: { start: markdown.length, end: markdown.length + text.length },
+        speech,
       });
+      markdown += text;
+      cursor = end;
     }
-    markdown += `${line.text}\n`;
+    markdown += `${line.text.slice(cursor - line.start)}\n`;
   }
   return { markdown, ranges };
 }
