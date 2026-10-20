@@ -61,6 +61,7 @@ import {
   preserveStoredProjectSource,
   readEmbeddedProjectSource,
   readEmbeddedProjectSources,
+  restoreStoredPreparedPdfText,
 } from './projectSource.js';
 import {
   type ProjectSourceDiskFile,
@@ -1143,10 +1144,15 @@ export class PostgresProjectStore implements ProjectStore {
             previousSnapshot = await lockPreviousSnapshot();
           }
         }
-        const snapshotToPersist =
+        const canonicalSnapshot =
           !sourceWrite && snapshot.source != null
             ? await this.canonicalizeDetachedProjectSource(sql, userId, snapshot)
             : snapshot;
+        const snapshotToPersist = restoreStoredPreparedPdfText(
+          canonicalSnapshot,
+          previousSnapshot ?? existingSnapshot,
+          new Set(sourcePreparation ? sourceFiles?.files.map(file => file.id) : [])
+        );
         let sourceObjectPaths: string[] = [];
         const meta = await commitProjectRevision(sql, {
           expectedRevision,

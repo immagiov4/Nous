@@ -133,6 +133,7 @@ export interface CodexTurnInput {
   input: Array<{ text: string; type: 'text' } | { type: 'image'; url: string }>;
   model: string;
   onImageGenerated?: (result: string) => void;
+  onUsage?: (usage: Omit<WorkflowAiUsage, 'model' | 'provider'>) => void;
   onReasoningDelta?: (delta: string) => void;
   onTextDelta?: (delta: string) => void;
   onToolEnd?: (callId: string, output: unknown) => void;
@@ -423,6 +424,25 @@ export const buildCodexAppServerEnvironment = (
     environment.CODEX_HOME = codexHome;
   }
   return environment;
+};
+
+declare const Bun: {
+  spawn(
+    command: string[],
+    options: {
+      cwd: string;
+      env: Record<string, string>;
+      stdin: 'pipe';
+      stdout: 'pipe';
+      stderr: 'pipe';
+    }
+  ): {
+    exited: Promise<number>;
+    kill(): void;
+    stdin: { end(): void; write(chunk: string): void };
+    stdout: ReadableStream<Uint8Array>;
+    stderr: ReadableStream<Uint8Array>;
+  };
 };
 
 const spawnCodexAppServer = (options: { allowImageGeneration?: boolean } = {}): CodexProcess => {
@@ -1019,6 +1039,7 @@ const executeCodexAppServerTurn = async (
         error => ({ error })
       );
       const usage = usageByTurnId.get(turnId);
+      if (usage) turn.onUsage?.(usage);
       if (capture) {
         capture.exchange.response ??= completedText || streamedText;
         capture.exchange.usage = usage;

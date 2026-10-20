@@ -274,3 +274,16 @@ test('propagates cancellation without corrective retry', async () => {
   await expect(planPlaybackMotion({ ...input(), signal: controller.signal })).rejects.toThrow();
   expect(generate).toHaveBeenCalledTimes(1);
 });
+
+test('retains transcription provenance beside the exact motion evidence', async () => {
+  const sourceProvenance = {
+    kind: 'vision-transcription' as const,
+    sources: [{ title: 'Synthetic notes', transcribedPages: [7] }],
+  };
+  generate.mockResolvedValue(response(focus));
+  expect(await planPlaybackMotion({ ...input(), sourceProvenance })).toEqual(focus);
+  expect(JSON.parse(generate.mock.calls[0][0].prompt)[0]).toMatchObject({
+    text: speech,
+    sourceProvenance,
+  });
+});

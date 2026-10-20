@@ -1,3 +1,4 @@
+import { TRANSCRIBED_SOURCE_RULE } from '@shared/pdfTranscription';
 import { NoObjectGeneratedError } from 'ai';
 import { describe, expect, test, vi } from 'vitest';
 import * as z from 'zod';
@@ -34,6 +35,7 @@ describe('course generation structured model adapter', () => {
     expect(runAiObject).not.toHaveBeenCalled();
     expect(runCodexObject).toHaveBeenCalledWith(
       expect.objectContaining({
+        developerInstructions: expect.stringContaining(TRANSCRIBED_SOURCE_RULE),
         allowWebSearch: false,
         model: config.codexCourseModel,
         signal,

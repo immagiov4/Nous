@@ -476,6 +476,31 @@ test('retains legacy preparation without buying pronunciations when adding anoth
   );
 });
 
+test('carries identified transcription provenance to scene, spoken math and motion preparation', async () => {
+  const sourceProvenance = {
+    kind: 'vision-transcription' as const,
+    sources: [{ title: 'Synthetic notes', transcribedPages: [7] }],
+  };
+  const request = input();
+  const raw = {
+    ...segmentLessonPlayback([{ type: 'markdown', markdown: 'Consideriamo $x$.' }])[0],
+    visuals: [],
+  };
+  structured.mockResolvedValue({ spokenMath: [{ formula: '$x$', spoken: 'ics' }] });
+  await prepareLessonPlaybackBlock({
+    ...request,
+    block: raw,
+    lesson: { ...request.lesson, sourceProvenance },
+  });
+  expect(sceneGeneration.mock.calls[0][0]).toMatchObject({
+    sourceProvenance,
+    sectionDescription: '',
+    sectionTitle: '',
+  });
+  expect(JSON.parse(structured.mock.calls[0][0].prompt).sourceProvenance).toEqual(sourceProvenance);
+  expect(motion.mock.calls[0][0].sourceProvenance).toEqual(sourceProvenance);
+});
+
 test.each([
   {
     language: 'text',

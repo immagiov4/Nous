@@ -101,6 +101,7 @@ export interface LessonGenerationStageDependencies {
   readonly planYouTube: (input: LessonYouTubeSearchInput) => Promise<LessonYouTubeSearchPlan>;
   readonly researchYouTube: ResearchYouTube;
   readonly resolveSourceMaterials: (input: {
+    config?: GlobalModelConfig;
     project: ProjectSnapshot;
     projectId: string;
     section: Record<string, unknown>;
@@ -319,6 +320,7 @@ const prepareLesson =
     >;
     try {
       sourceMaterials = await dependencies.resolveSourceMaterials({
+        config: modelConfig(context),
         project: record.snapshot,
         projectId,
         section,

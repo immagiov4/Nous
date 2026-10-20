@@ -1,9 +1,9 @@
 import { motionTargets, type PlaybackMotionEvent } from '@shared/lessonPlayback';
 import type { LessonScene, LessonSceneType } from '@shared/lessonScene';
 import * as z from 'zod';
-
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
 import { isInvalidLessonVisualStructuredOutput } from '../lessonGenerationVisuals.js';
+import type { LessonSourceProvenance } from '../lessonPrimarySourceContext.js';
 import { generateStructuredOutput } from '../structuredGeneration.js';
 import { PLAYBACK_MOTION_SYSTEM_PROMPT } from './playbackMotionPrompt.js';
 
@@ -142,11 +142,13 @@ export const planPlaybackMotion = async ({
   speech,
   config,
   signal,
+  sourceProvenance,
 }: {
   readonly scene: LessonScene;
   readonly speech: string;
   readonly config: GlobalModelConfig;
   readonly signal: AbortSignal;
+  readonly sourceProvenance?: LessonSourceProvenance;
 }): Promise<readonly PlaybackMotionEvent[]> => {
   signal.throwIfAborted();
   const targets = motionTargets(scene);
@@ -155,7 +157,7 @@ export const planPlaybackMotion = async ({
   // Focus needs a selection; a single element can still appear progressively in reveal forms.
   if (targets.length === 1 && !REVEAL_SCENE_TYPES.has(scene.type)) return [];
   const request = JSON.stringify([
-    { chunk: 0, type: scene.type, title: scene.title, text: speech, targets },
+    { chunk: 0, type: scene.type, title: scene.title, text: speech, targets, sourceProvenance },
   ]);
   let feedback = '';
   let problem = '';

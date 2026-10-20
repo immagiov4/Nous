@@ -2,12 +2,18 @@ import {
   COURSE_SOURCE_UPLOAD_LIMITS,
   type CourseSourceUploadFile,
 } from '@shared/courseSourceUpload';
+import { PDF_SCANNED_PAGE_LIMIT_CODE } from '@shared/pdfTranscription';
 import {
   SOURCE_INGESTION_REQUIRED_CODE,
   SOURCE_PREPARATION_CANCELLED_CODE,
   SOURCE_PREPARATION_UNUSABLE_CODE,
   SOURCE_STAGING_UNAVAILABLE_CODE,
 } from '@shared/sourcePreparation';
+import {
+  countRetainedScannedPages,
+  withPdfTranscriptionCollection,
+} from '../services/pdfTranscriptionCollection.js';
+import { PdfScannedPageLimitError } from '../services/pdfTranscriptionPolicy.js';
 // Exposes project CRUD routes for the backend API.
 
 import { normalizeLessonInstructionPacks } from '@shared/lessonInstructionPacks';
@@ -211,6 +217,12 @@ const sendProjectWriteError = (
     res.status(409).json({ code: error.code, error: error.message, success: false });
     return;
   }
+  if (error instanceof PdfScannedPageLimitError) {
+    res
+      .status(422)
+      .json({ success: false, code: PDF_SCANNED_PAGE_LIMIT_CODE, error: error.message });
+    return;
+  }
   if (error instanceof SourcePreparationCancelledError) {
     res
       .status(409)
@@ -265,11 +277,7 @@ const sendProjectWriteError = (
   }
   sendErrorResponse(
     res,
-    error instanceof ProjectNotFoundError
-      ? 404
-      : error instanceof ProjectRevisionConflictError
-        ? 409
-        : fallbackStatus,
+    error instanceof ProjectNotFoundError ? 404 : fallbackStatus,
     error,
     fallbackMessage
   );
@@ -1081,18 +1089,26 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
                 };
               });
               if (!jobContext) throw new Error('Source preparation context is missing.');
+              const storedSnapshot = await store.loadProject(userId, snapshot.id);
               const context = {
                 ...jobContext,
                 userId,
                 uploadId: completionInput.uploadId,
                 projectId: snapshot.id,
+                previousScannedPages: countRetainedScannedPages(
+                  storedSnapshot?.source,
+                  snapshot.source,
+                  files.map(file => file.id)
+                ),
               };
               const upload = {
                 path,
                 files,
                 offset: completionBody.metadataBytes as number | undefined,
               };
-              const prepared = await prepareSourceCollection({ snapshot, upload, context });
+              const prepared = await withPdfTranscriptionCollection(context, () =>
+                prepareSourceCollection({ snapshot, upload, context, storedSnapshot })
+              );
               context.signal.throwIfAborted();
               context.reportProgress({ step: 'persistence', completed: 0, total: files.length });
               const imported = await store.saveProject(userId, prepared.snapshot, {

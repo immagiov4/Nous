@@ -11,7 +11,7 @@ import {
   parseMarkdownOutline,
 } from '../../../services/projects/courseSources.ts';
 import { encodeTextBase64 } from '../../../services/projects/projectSource.ts';
-import type { FileData, ProjectSourceRef } from '../../../types.ts';
+import type { FileData, ProjectSource, ProjectSourceRef } from '../../../types.ts';
 
 const textFile = (name: string, text: string, mimeType = 'text/plain'): FileData => ({
   data: encodeTextBase64(text),
@@ -190,6 +190,43 @@ test('detaches and rehydrates every document source without losing source identi
     descriptors.map(descriptor => descriptor.file.data)
   );
   assert.equal(hydrated.file.data, descriptors[0]?.file.data);
+});
+
+test('retains a reattached PDF transcript when converting and merging source descriptors', () => {
+  const file: FileData = { name: 'notes.pdf', mimeType: 'application/pdf', data: 'cGRm' };
+  const [original] = buildCourseSourceDescriptors([file]);
+  const preparedPdfText = {
+    text: 'Machine transcription $x=2$.',
+    sourceHash: original.hash,
+    pages: [
+      {
+        pageNumber: 7,
+        text: 'Machine transcription $x=2$.',
+        provenance: {
+          kind: 'vision-transcription' as const,
+          pageNumber: 7,
+          model: 'recorded',
+          provider: 'recorded',
+        },
+      },
+    ],
+    parser: 'pdf-parse' as const,
+    usedFallbackParser: true,
+    outline: [],
+    outlineOrigin: 'none' as const,
+  };
+  const incoming: ProjectSource = { kind: 'pdf', file, preparedPdfText };
+  const old = {
+    ...original,
+    id: 'retained-source',
+    file: { ...file, sourceId: 'retained-source' },
+  };
+  const replacement = createProjectSourceFromDescriptors(
+    mergeCourseSourceDescriptors([old], getCourseSourceDescriptors(incoming))
+  );
+  assert.deepEqual(replacement.sources?.[0].preparedPdfText, preparedPdfText);
+  assert.equal(replacement.sources?.[0].id, 'retained-source');
+  assert.equal(replacement.sources?.[0].preparedPdfText?.sourceHash, replacement.sources?.[0].hash);
 });
 
 test('preserves CRLF Markdown headings and their original source offsets', () => {
