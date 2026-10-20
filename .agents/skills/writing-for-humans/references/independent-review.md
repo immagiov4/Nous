@@ -19,7 +19,7 @@ reviews, corrected answers, grading keys and the conversation outside its scope.
 Supply actual requirements as requirements, rather than a list of mistakes the
 reviewer is expected to discover.
 
-Read [review prompt](review-prompt.md) and dispatch it with the packet. Preserve
+Read [review prompt](review-prompt.md) and dispatch it with the packet. For explanations, start with its reader-only reconstruction before the factual pass. Keep implementation evidence out of that first reading when it would let the reviewer silently fill gaps; supply it for the subsequent fidelity check. A prose review must be able to report defects of relevance and reasoning even when every assertion is true. A source-correctness verdict or a table of covered topics cannot substitute for that reading. Preserve
 the full findings so the author can assess quotes and proposed corrections.
 
 ## Resolve findings
