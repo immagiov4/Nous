@@ -4,8 +4,6 @@ export const PDF_SCANNED_PAGE_LIMIT_MESSAGE =
   'Il materiale scansionato è troppo per un solo corso. Seleziona solo le parti che ti servono.';
 export const PDF_SCANNED_PAGE_LIMIT_CODE = 'PDF_SCANNED_PAGE_LIMIT';
 
-export const PDF_TRANSCRIPTION_ERROR_CODE = 'PDF_PAGE_TRANSCRIPTION_FAILED';
-
 export interface PdfPageProvenance {
   kind: 'vision-transcription';
   pageNumber: number;

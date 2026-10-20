@@ -197,13 +197,22 @@ export const prepareSourceCollection = async ({
   const markFailure = (descriptor: SourceDescriptor, error: unknown) => {
     context.signal.throwIfAborted();
     if (error instanceof PdfScannedPageLimitError) throw error;
-    console.warn('[Sources] Per-file preparation failed.', { name: descriptor.name, error });
     descriptor.status = 'error';
     const reason = failureReason(error);
     descriptor.errorReason = reason;
     descriptor.errorMessage = SOURCE_PREPARATION_FAILURE_MESSAGES[reason];
     delete descriptor.documentIndex;
-    failures.push({ name: descriptor.name, reason });
+    const prepared = descriptor.preparedPdfText;
+    const failedPages =
+      isRecord(prepared) && Array.isArray(prepared.failedPages)
+        ? (prepared.failedPages as number[])
+        : [];
+    failures.push({
+      name: descriptor.name,
+      reason,
+      ...(failedPages.length ? { failedPages } : {}),
+    });
+    console.warn('[Sources] Per-file preparation failed.', { name: descriptor.name, reason });
   };
   let offset = upload.offset ?? 0;
   const uploadedIds = new Set<string>();

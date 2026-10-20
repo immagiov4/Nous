@@ -122,3 +122,22 @@ test('course admission errors reach the job instead of becoming per-file parser 
     code: 'PDF_SCANNED_PAGE_LIMIT',
   });
 });
+
+test('retains document and failed page identities when the whole collection has no usable text', async () => {
+  const input = await fixture();
+  const pdf = {
+    ...input.extracted,
+    transcription: {
+      pages: [],
+      failedPages: [1],
+      blankPages: [],
+      measurements: [],
+      inputTokens: 1,
+      outputTokens: 2,
+    },
+  };
+  mocks.prepare.mockResolvedValue({ completion: Promise.resolve(pdf) });
+  await expect(prepareSourceCollection(input)).rejects.toMatchObject({
+    failures: [{ name: 'scan.pdf', reason: 'no-usable-text', failedPages: [1] }],
+  });
+});

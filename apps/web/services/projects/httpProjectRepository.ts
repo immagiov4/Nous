@@ -232,7 +232,14 @@ const readSourceWarnings = (value: unknown): ProjectSourceWarning[] | undefined 
     isSourceArchivePdfWarningReason(warning.reason)
       ? [
           {
-            message: translateUiMessage(SOURCE_PREPARATION_FAILURE_MESSAGES[warning.reason]),
+            message:
+              Array.isArray(warning.failedPages) &&
+              warning.failedPages.length &&
+              warning.failedPages.every(page => Number.isSafeInteger(page) && Number(page) > 0)
+                ? translateUiMessage('Trascrizione non riuscita per le pagine: {pages}.', {
+                    pages: warning.failedPages.join(', '),
+                  })
+                : translateUiMessage(SOURCE_PREPARATION_FAILURE_MESSAGES[warning.reason]),
             name: (warning.name ?? warning.path) as string,
             reason: warning.reason,
           },

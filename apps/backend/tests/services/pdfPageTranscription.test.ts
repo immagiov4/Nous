@@ -28,9 +28,12 @@ vi.mock('../../src/services/aiSdkTextModel.js', () => ({
 
 import { getResolvedGlobalModelConfig } from '../../src/config/modelConfig.js';
 
-const { completePdfTextExtraction, preparePdfTextExtraction, inspectPdfPageText } = await import(
+const { preparePdfTextExtraction, inspectPdfPageText } = await import(
   '../../src/services/pdfPageTranscription.js'
 );
+
+const completePdfTextExtraction = async (...args: Parameters<typeof preparePdfTextExtraction>) =>
+  (await preparePdfTextExtraction(...args)).completion;
 
 const recordedPage = recording.response;
 const textLayer = (text: string) => ({
@@ -170,32 +173,22 @@ test('detects unknown glyphs while keeping a private-font bullet as usable text'
   expect(await inspectPdfPageText(page, '\uf0b7 Text')).toEqual([]);
 });
 
-test('uses the configured Codex provider and records its reported token usage', async () => {
-  provider.runCodexAppServerTurn.mockImplementation(async request => {
-    request.onUsage({ inputTokens: 90, outputTokens: 30 });
-    return JSON.stringify(recordedPage);
-  });
+test('pins transcription to OpenRouter/OpenAI even when account research uses Codex', async () => {
   const config = {
     ...(await getResolvedGlobalModelConfig()),
     aiProvider: 'codex' as const,
-    aiProviderOverrides: {},
-    codexResearchModel: 'research-vision-fixture',
-    codexLessonModel: 'lesson-fixture',
-    codexFastModelSlots: ['research' as const],
-    researchReasoningEffort: 'low' as const,
-    lessonReasoningEffort: 'high' as const,
+    aiProviderOverrides: { research: 'codex' as const },
   };
-  const result = await completePdfTextExtraction(bytes, textLayer(''), { config });
-  expect(result.text).toContain(recordedPage.markdown);
-  expect(result.transcription).toMatchObject({ inputTokens: 90, outputTokens: 30 });
-  expect(provider.generateText).not.toHaveBeenCalled();
-  expect(provider.runCodexAppServerTurn).toHaveBeenCalledWith(
+  const result = await completePdfTextExtraction(scannedBytes, textLayer(''), { config });
+  expect(result.transcription?.pages).toEqual([1]);
+  expect(provider.runCodexAppServerTurn).not.toHaveBeenCalled();
+  expect(provider.createConfiguredTextModel).toHaveBeenCalledWith(
     expect.objectContaining({
-      model: 'research-vision-fixture',
-      reasoningEffort: 'low',
-      serviceTier: 'fast',
-      slot: 'research',
-    })
+      aiProvider: 'openrouter',
+      aiProviderOverrides: { research: 'openrouter' },
+    }),
+    'research',
+    expect.objectContaining({ model: 'openai/gpt-6-luna', reasoningEffort: 'xhigh' })
   );
 });
 
@@ -297,31 +290,6 @@ test('counts a billed response even when its syntax correction fails', async () 
         costUsd: 0.001,
         failedPages: [1],
       })
-    );
-  } finally {
-    log.mockRestore();
-  }
-});
-
-test('records Codex usage before rejecting malformed JSON', async () => {
-  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
-  provider.runCodexAppServerTurn.mockImplementation(async request => {
-    request.onUsage({ inputTokens: 90, outputTokens: 30 });
-    return 'malformed response';
-  });
-  try {
-    await expect(
-      completePdfTextExtraction(bytes, textLayer(''), {
-        config: {
-          ...(await getResolvedGlobalModelConfig()),
-          aiProvider: 'codex',
-          aiProviderOverrides: {},
-        },
-      })
-    ).resolves.toMatchObject({ transcription: { failedPages: [1] } });
-    expect(log).toHaveBeenCalledWith(
-      '[Nous][PDF] Document transcription',
-      expect.objectContaining({ inputTokens: 90, outputTokens: 30, failedPages: [1] })
     );
   } finally {
     log.mockRestore();
@@ -556,23 +524,7 @@ test('retries an unreadable response once with the original image and a fresh re
   expect(requests[1].messages).toEqual(requests[0].messages);
 });
 
-test.each([
-  true,
-  false,
-])('retries a dominant script mismatch against OCR prose and bounds failure: recovered=%s', async recovered => {
-  const fixture = buildPdfPageFixture(['BT /F1 12 Tf 3 Tr 10 100 Td (Scanner OCR prose) Tj ET']);
-  const drift = { output: { status: 'ok', markdown: 'משפט מתמטי הוכחה ארוכה ומפורטת' }, usage: {} };
-  provider.generateText.mockResolvedValueOnce(drift);
-  if (!recovered) provider.generateText.mockResolvedValue(drift);
-  const result = completePdfTextExtraction(fixture, textLayer('Scanner OCR prose'), {
-    config: await getResolvedGlobalModelConfig(),
-  });
-  if (recovered) expect((await result).text).toContain(recordedPage.markdown);
-  else await expect(result).resolves.toMatchObject({ transcription: { failedPages: [1] } });
-  expect(provider.generateText).toHaveBeenCalledTimes(2);
-});
-
-test('excludes formulas from script comparison and preserves a non-Latin source language', async () => {
+test('preserves a non-Latin source language with mathematical formulas', async () => {
   const original = 'Ελληνική μαθηματική πρόταση';
   const fixture = buildPdfPageFixture(['BT /F1 12 Tf 3 Tr 10 100 Td (OCR) Tj ET']);
   provider.generateText.mockResolvedValue({
@@ -677,20 +629,18 @@ test('pins the default transcription model to OpenAI without upstream fallback',
   });
   expect(provider.generateText.mock.calls[0][0].providerOptions.openrouter.provider).toEqual({
     only: ['openai'],
-    order: ['openai'],
     allow_fallbacks: false,
   });
 });
 
-test('uses the configured transcription-only upstream override', async () => {
+test('keeps the OpenAI allowlist despite an obsolete upstream environment override', async () => {
   vi.stubEnv('PDF_TRANSCRIPTION_OPENROUTER_PROVIDER', 'recorded/region');
   try {
     await completePdfTextExtraction(scannedBytes, textLayer(''), {
       config: await getResolvedGlobalModelConfig(),
     });
     expect(provider.generateText.mock.calls[0][0].providerOptions.openrouter.provider).toEqual({
-      only: ['recorded/region'],
-      order: ['recorded/region'],
+      only: ['openai'],
       allow_fallbacks: false,
     });
   } finally {
@@ -715,7 +665,6 @@ test('reports a missing pinned endpoint as a page failure with no cross-provider
   expect(provider.generateText).toHaveBeenCalledOnce();
   expect(provider.generateText.mock.calls[0][0].providerOptions.openrouter.provider).toEqual({
     only: ['openai'],
-    order: ['openai'],
     allow_fallbacks: false,
   });
 });
@@ -800,8 +749,8 @@ test('uses the correct model effort at the course tier boundary and never counts
     expect(
       provider.generateText.mock.calls.map(call => call[0].providerOptions.openrouter.provider)
     ).toEqual([
-      { only: ['openai'], order: ['openai'], allow_fallbacks: false },
-      { only: ['openai'], order: ['openai'], allow_fallbacks: false },
+      { only: ['openai'], allow_fallbacks: false },
+      { only: ['openai'], allow_fallbacks: false },
     ]);
   } finally {
     await pool.close();
@@ -890,4 +839,45 @@ test('honours job cancellation before inspecting or requesting a PDF page', asyn
     })
   ).rejects.toBe(reason);
   expect(provider.generateText).not.toHaveBeenCalled();
+});
+
+test('logs only a safe category for a provider failure with private request and response content', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  provider.generateText.mockRejectedValue(
+    new APICallError({
+      message: 'private transcript',
+      url: 'https://provider.invalid',
+      statusCode: 400,
+      requestBodyValues: { image: 'private page image' },
+      responseBody: 'private answer',
+    })
+  );
+  try {
+    const result = await completePdfTextExtraction(scannedBytes, textLayer(''), {
+      config: await getResolvedGlobalModelConfig(),
+    });
+    expect(result.transcription?.failedPages).toEqual([1]);
+    expect(warn).toHaveBeenCalledWith('[Nous][PDF] Page transcription failed', {
+      sourceHash: 'synthetic',
+      pageNumber: 1,
+      failure: 'provider-error',
+      statusCode: 400,
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('private');
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+test('accepts mathematical OCR whose Greek symbols become delimited math in transcription', async () => {
+  const fixture = buildPdfPageFixture(['BT /F1 12 Tf 3 Tr 10 100 Td (OCR) Tj ET']);
+  const original = 'Sia α+β=γ, α+β=γ, α+β=γ';
+  const markdown = String.raw`Sia $\alpha+\beta=\gamma$, $\alpha+\beta=\gamma$, $\alpha+\beta=\gamma$.`;
+  provider.generateText.mockResolvedValue({ output: { status: 'ok', markdown }, usage: {} });
+  const result = await completePdfTextExtraction(fixture, textLayer(original), {
+    config: await getResolvedGlobalModelConfig(),
+  });
+  expect(result.transcription?.pages).toEqual([1]);
+  expect(result.pages[0].text).toContain(markdown);
+  expect(provider.generateText).toHaveBeenCalledOnce();
 });

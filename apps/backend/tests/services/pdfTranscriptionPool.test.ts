@@ -59,7 +59,7 @@ test('bounds requests and rendered images across documents and admits the next p
 
 test.each([
   429, 503,
-])('honours Retry-After and reduces shared concurrency after HTTP %s', async statusCode => {
+])('honours Retry-After and retains shared concurrency after HTTP %s', async statusCode => {
   vi.spyOn(Date, 'now').mockImplementation(() => timing.now);
   vi.spyOn(Math, 'random').mockReturnValue(0);
   const pool = new PdfTranscriptionPool(4);
@@ -83,7 +83,7 @@ test.each([
     expect(transcribe).toHaveBeenCalledTimes(2);
     expect(timing.delays).toEqual([3_000]);
     expect(pool.measurements).toMatchObject({
-      concurrency: 2,
+      concurrency: 4,
       transientRetries: 1,
       maxRenderedImages: 1,
     });
@@ -198,6 +198,38 @@ test('honours both model/effort/threshold environment overrides for the course b
     expect(() => pool.allocateScannedPages(1)).toThrow(expect.objectContaining({ limit: 2 }));
   } finally {
     vi.unstubAllEnvs();
+    await pool.close();
+  }
+});
+
+test('applies the same transient retry budget to an OpenRouter error body returned with HTTP 200', async () => {
+  vi.spyOn(Date, 'now').mockImplementation(() => timing.now);
+  vi.spyOn(Math, 'random').mockReturnValue(0);
+  const pool = new PdfTranscriptionPool(4);
+  const transcribe = vi
+    .fn()
+    .mockRejectedValueOnce(
+      new APICallError({
+        message: 'Unavailable',
+        requestBodyValues: {},
+        statusCode: 200,
+        data: { code: 502, message: 'Unavailable' },
+        responseHeaders: { 'retry-after': '3' },
+        url: 'https://provider.invalid',
+      })
+    )
+    .mockResolvedValue('accepted');
+  try {
+    const queued = await pool.schedule({
+      render: async () => image,
+      transcribe,
+      timeoutMs: TIMEOUT_MS,
+      canRetry: () => transcribe.mock.calls.length < 2,
+    });
+    await expect(queued.completion).resolves.toBe('accepted');
+    expect(transcribe).toHaveBeenCalledTimes(2);
+    expect(pool.measurements).toMatchObject({ concurrency: 4, transientRetries: 1 });
+  } finally {
     await pool.close();
   }
 });

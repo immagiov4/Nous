@@ -1,5 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { APICallError } from 'ai';
+import { isRecord } from '../utils/validation.js';
 import { getOperationalRetryDelayMs, readRetryAfterMs } from '../workflows/retryPolicy.js';
 import {
   PdfScannedPageLimitError,
@@ -23,6 +24,12 @@ const readConcurrency = (): number => {
   return concurrency;
 };
 
+const readProviderFailureStatus = (error: APICallError): number | undefined => {
+  if (error.statusCode === 200 && isRecord(error.data) && typeof error.data.code === 'number')
+    return error.data.code;
+  return error.statusCode;
+};
+
 /** One import shares request slots; a slot is reserved before rendering to bound image memory. */
 export class PdfTranscriptionPool {
   private readonly controller = new AbortController();
@@ -41,7 +48,7 @@ export class PdfTranscriptionPool {
   private readonly counters = { maxInFlight: 0, maxRenderedImages: 0, transientRetries: 0 };
 
   constructor(
-    private concurrency = readConcurrency(),
+    private readonly concurrency = readConcurrency(),
     previousScannedPages = 0
   ) {
     if (!Number.isSafeInteger(previousScannedPages) || previousScannedPages < 0)
@@ -134,25 +141,26 @@ export class PdfTranscriptionPool {
       try {
         return await operation();
       } catch (error) {
+        const statusCode = APICallError.isInstance(error)
+          ? readProviderFailureStatus(error)
+          : undefined;
         if (
           canRetry?.() === false ||
           !APICallError.isInstance(error) ||
-          typeof error.statusCode !== 'number' ||
-          (error.statusCode !== 429 && (error.statusCode < 500 || error.statusCode > 599))
+          typeof statusCode !== 'number' ||
+          (statusCode !== 429 && (statusCode < 500 || statusCode > 599))
         )
           throw error;
         signal.throwIfAborted();
         attemptNumber += 1;
         this.counters.transientRetries += 1;
-        // Multiplicative decrease prevents subsequent files from sustaining a throttled burst.
-        this.concurrency = Math.max(1, Math.floor(this.concurrency / 2));
         const retryAfterMs = getOperationalRetryDelayMs({
           attemptNumber,
           retryAfterMs: readRetryAfterMs(error),
         });
         this.notBefore = Math.max(this.notBefore, Date.now() + retryAfterMs);
         console.warn('[Nous][PDF] Provider backoff', {
-          status: error.statusCode,
+          status: statusCode,
           retryAfterMs,
           concurrency: this.concurrency,
         });

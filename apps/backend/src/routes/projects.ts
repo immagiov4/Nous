@@ -8,7 +8,6 @@ import {
   SOURCE_PREPARATION_UNUSABLE_CODE,
   SOURCE_STAGING_UNAVAILABLE_CODE,
 } from '@shared/sourcePreparation';
-import { withPdfTranscriptionProvider } from '../services/pdfPageTranscription.js';
 import {
   countRetainedScannedPages,
   withPdfTranscriptionCollection,
@@ -97,7 +96,6 @@ import {
 } from '../utils/validation.js';
 
 const router = Router();
-router.use((req, _res, next) => withPdfTranscriptionProvider(getCurrentUser(req), next));
 
 const PROJECT_EVENT_HEARTBEAT_MS = 25_000;
 const BASE64_DATA_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/u;

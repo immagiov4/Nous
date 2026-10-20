@@ -199,3 +199,12 @@ test('rejects legacy annotated input before resuming stored audio or scene provi
   expect(prepare).not.toHaveBeenCalled();
   expect(assets.stage).not.toHaveBeenCalled();
 });
+
+test('reuses prepared playback after source replacement even when old source chunk IDs disappeared', async () => {
+  const { section, assets, services, context } = setup();
+  Object.assign(section, { primaryChunkIds: ['missing-old-source:chunk-001'] });
+  const result = await services.preparePlayback(context);
+  expect(result.block.audio[0]?.asset).toEqual(playbackAsset);
+  expect(prepare).not.toHaveBeenCalled();
+  expect(assets.stage).not.toHaveBeenCalled();
+});

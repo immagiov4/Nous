@@ -1568,3 +1568,29 @@ test.each([
     message,
   });
 });
+
+test('retains failed physical pages in the terminal all-unusable source response', async () => {
+  setRenderingLocaleOverride('it');
+  fetchMock.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        success: false,
+        code: 'SOURCE_PREPARATION_UNUSABLE',
+        sourceWarnings: [{ name: 'scan.pdf', reason: 'no-usable-text', failedPages: [2, 7] }],
+      }),
+      { status: 422 }
+    )
+  );
+  await expect(
+    new HttpProjectRepository('http://localhost:3301').listFolders()
+  ).rejects.toMatchObject({
+    code: 'source-preparation-failed',
+    sourceWarnings: [
+      {
+        name: 'scan.pdf',
+        reason: 'no-usable-text',
+        message: 'Trascrizione non riuscita per le pagine: 2, 7.',
+      },
+    ],
+  });
+});

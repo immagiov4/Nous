@@ -7,15 +7,11 @@ import { findProjectLessonSection } from '../projects/projectLesson.js';
 import { getProjectStore } from '../projects/projectStore.js';
 import type { ProjectStore } from '../projects/types.js';
 import { readStoredTranscribedSources } from '../services/lessonEvidence.js';
-import {
-  buildMappedSourceContext,
-  readExistingDossier,
-} from '../services/lessonGenerationSources.js';
+import { readExistingDossier } from '../services/lessonGenerationSources.js';
 import {
   prepareLessonPlaybackBlock,
   validatePlaybackSceneTypes,
 } from '../services/lessonPlayback/prepareLessonPlaybackBlock.js';
-import { readLessonPrimarySources } from '../services/lessonPrimarySourceContext.js';
 import { ttsClient } from '../services/ttsClient.js';
 import { isPlaybackBlockReady } from './lessonPlaybackApi.js';
 import { createLessonPlaybackPersistence } from './lessonPlaybackPersistence.js';
@@ -49,17 +45,10 @@ export const createProductionLessonPlaybackServices = (
       });
     }
     signal.throwIfAborted();
-    const mappedTranscribedSources =
-      readLessonPrimarySources(buildMappedSourceContext(project.snapshot, section))
-        ?.map(part => part.source)
-        .filter(source => source.transcribedPages?.length) || [];
     const dossier = readExistingDossier(project.snapshot, input.sectionId);
-    const transcribedSources = [
-      ...mappedTranscribedSources,
-      ...readStoredTranscribedSources(
-        typeof dossier?.evidencePacketJson === 'string' ? dossier.evidencePacketJson : undefined
-      ),
-    ];
+    const transcribedSources = readStoredTranscribedSources(
+      typeof dossier?.evidencePacketJson === 'string' ? dossier.evidencePacketJson : undefined
+    );
     const lesson = {
       title: typeof section.title === 'string' ? section.title : '',
       description: typeof section.description === 'string' ? section.description : '',
