@@ -13,6 +13,7 @@ import {
   sharedSupabaseEnvironment,
   sharedSupabaseStatus,
 } from '../../scripts/shared-supabase';
+import { processIdentity as readProcessIdentity } from './processIdentity';
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export const APP_URL = 'http://127.0.0.1:5173';
@@ -109,33 +110,17 @@ const ownedProcessSchema = z.object({
   repoRoot: z.string().min(1),
   identity: z.string().min(1),
 });
-/** Birth time and command distinguish an owned server from a recycled PID. */
-async function processIdentity(pid: number): Promise<string | undefined> {
-  if (process.platform === 'win32') {
-    const command = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}'; if ($p) { @{ startedAt = $p.CreationDate.ToUniversalTime().ToString('o'); command = $p.CommandLine } | ConvertTo-Json -Compress }`;
-    const { stdout } = await executeFile('powershell.exe', ['-NoProfile', '-Command', command], {
-      windowsHide: true,
-    });
-    if (!stdout.trim()) return undefined;
-    return JSON.stringify(
-      z
-        .object({ startedAt: z.string().min(1), command: z.string().min(1) })
-        .parse(JSON.parse(stdout))
-    );
-  }
-  try {
-    const { stdout } = await executeFile(
-      'ps',
-      ['-ww', '-p', String(pid), '-o', 'lstart=', '-o', 'args='],
-      { env: { ...process.env, LC_ALL: 'C' } }
-    );
-    return stdout.trim() || undefined;
-  } catch (error) {
-    if ((error as { code?: number }).code === 1) return undefined;
-    throw error;
-  }
-}
 
+/** App shutdown requires the command line captured in its ownership registry. */
+async function processIdentity(pid: number): Promise<string | undefined> {
+  const identity = await readProcessIdentity(pid);
+  if (identity && process.platform === 'win32') {
+    z.object({ startedAt: z.string().min(1), command: z.string().min(1) }).parse(
+      JSON.parse(identity)
+    );
+  }
+  return identity;
+}
 async function ownedProcess(name: string) {
   return readFile(join(dataRoot(), 'stack', `${name}-pid.json`), 'utf8')
     .then(text => {
@@ -314,7 +299,7 @@ export async function startServer(
 }
 
 /** Every proof reuses the shared stack; prepare() creates its own disposable account. */
-export async function initializeIsolatedDatabase(
+async function initializeSharedDatabase(
   options: { signal?: AbortSignal } = {}
 ): Promise<StackStatus> {
   options.signal?.throwIfAborted();
@@ -336,7 +321,7 @@ export async function ensureStack(
   process.stderr.write('[playtest] Supabase: checking shared local project\n');
   const status = await runStackStage({
     name: 'Supabase',
-    work: options.initializeSupabase ?? (signal => initializeIsolatedDatabase({ signal })),
+    work: options.initializeSupabase ?? (signal => initializeSharedDatabase({ signal })),
   });
   process.stderr.write('[playtest] Supabase: shared project ready\n');
   const env = {

@@ -12,6 +12,7 @@ import {
   stopIdleSupabase,
   watchIdleSupabase,
 } from '../../../scripts/shared-supabase';
+import { processIdentity } from '../processIdentity';
 
 let root: string;
 const status = {
@@ -99,7 +100,10 @@ it.each([
   if (kind === 'exited-owner') {
     const child = spawn(process.execPath, ['-e', ''], { windowsHide: true, stdio: 'ignore' });
     await once(child, 'exit');
-    await writeFile(join(reservation, 'exited-owner'), String(child.pid));
+    await writeFile(
+      join(reservation, 'exited-owner'),
+      JSON.stringify({ pid: child.pid, identity: 'exited-process-identity' })
+    );
   }
   const options = runtime();
   expect(await ensureSharedSupabase(options)).toEqual(status);
@@ -109,14 +113,48 @@ it.each([
 it('cancels a waiting admission without removing the live reservation', async () => {
   const reservation = join(root, 'lifecycle.lock');
   await mkdir(reservation);
-  await writeFile(join(reservation, 'live-owner'), String(process.pid));
+  const identity = await processIdentity(process.pid, { includeCommand: false });
+  await writeFile(join(reservation, 'live-owner'), JSON.stringify({ pid: process.pid, identity }));
   const options = runtime();
   await expect(
     ensureSharedSupabase({ ...options, signal: AbortSignal.abort(new Error('cancelled')) })
   ).rejects.toThrow('cancelled');
   expect(options.run).not.toHaveBeenCalled();
-  expect(await readFile(join(reservation, 'live-owner'), 'utf8')).toBe(String(process.pid));
+  expect(JSON.parse(await readFile(join(reservation, 'live-owner'), 'utf8'))).toEqual({
+    pid: process.pid,
+    identity,
+  });
   expect((await readdir(root)).filter(name => name.startsWith('lifecycle-'))).toEqual([]);
+});
+it('reclaims a lifecycle reservation whose PID has been recycled', async () => {
+  const reservation = join(root, 'lifecycle.lock');
+  await mkdir(reservation);
+  await writeFile(
+    join(reservation, 'previous-owner'),
+    JSON.stringify({ pid: process.pid, identity: 'previous-process-identity' })
+  );
+  const options = runtime();
+  expect(await ensureSharedSupabase(options)).toEqual(status);
+  await releaseSharedSupabase();
+});
+it('does not retain an idle stack for a recycled proof PID', async () => {
+  const options = runtime();
+  await ensureSharedSupabase(options);
+  await releaseSharedSupabase();
+  await writeFile(join(root, 'managed'), 'container-owned');
+  await writeFile(
+    join(root, 'runs', 'previous-proof'),
+    JSON.stringify({ pid: process.pid, identity: 'previous-process-identity' })
+  );
+  const stop = vi.fn(async () => {});
+  expect(
+    await stopIdleSupabase({
+      now: Date.now() + SUPABASE_IDLE_MS,
+      stop,
+      container: options.container,
+    })
+  ).toBe(true);
+  expect(stop).toHaveBeenCalledOnce();
 });
 it.each(['migration', 'health'])('schedules idle cleanup after a failed %s', async failure => {
   const options = runtime();
@@ -135,6 +173,27 @@ it.each(['migration', 'health'])('schedules idle cleanup after a failed %s', asy
   expect(Number(await readFile(join(root, 'last-run'), 'utf8'))).toBeGreaterThan(0);
   if (failure === 'migration')
     await expect(ensureSharedSupabase(options)).rejects.toThrow('initialization is incomplete');
+});
+it('retains startup ownership when Docker inspection fails after start', async () => {
+  const options = runtime();
+  options.run.mockRejectedValueOnce(new Error('absent'));
+  options.container
+    .mockResolvedValueOnce('')
+    .mockRejectedValueOnce(new Error('Docker inspection unavailable'));
+  await expect(ensureSharedSupabase(options)).rejects.toThrow('Docker inspection unavailable');
+  expect(await readFile(join(root, 'starting'), 'utf8')).toBe('nous-reader');
+  expect(options.watch).toHaveBeenCalledOnce();
+  await expect(ensureSharedSupabase(options)).rejects.toThrow('initialization is incomplete');
+  expect(await readFile(join(root, 'managed'), 'utf8')).toBe('container-owned');
+  const stop = vi.fn(async () => {});
+  expect(
+    await stopIdleSupabase({
+      now: Date.now() + SUPABASE_IDLE_MS,
+      stop,
+      container: options.container,
+    })
+  ).toBe(true);
+  expect(stop).toHaveBeenCalledOnce();
 });
 
 it('rechecks at the release deadline instead of waiting a second full idle interval', async () => {

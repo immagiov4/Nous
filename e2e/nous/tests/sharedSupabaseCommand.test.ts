@@ -42,6 +42,11 @@ beforeEach(async () => {
   host.execute.mockReset();
   host.spawn.mockReset();
   host.execute.mockImplementation(async (binary: string, args: string[]) => {
+    if (binary === 'powershell.exe')
+      return {
+        stdout: JSON.stringify({ startedAt: 'test-start-time', command: 'test-proof-process' }),
+      };
+    if (binary === 'ps') return { stdout: 'test-start-time test-proof-process' };
     if (binary === 'docker') {
       const filter = args[args.indexOf('--filter') + 1];
       const matching = containers.filter(
@@ -161,6 +166,17 @@ it('keeps service credentials out of command errors while retaining private diag
     expect(error).not.toHaveProperty('stdout');
   }
   expect(await readFile(join(root, 'supabase-error.log'), 'utf8')).toBe('Container unavailable');
+});
+it('starts a replacement watcher when its recorded PID belongs to another process', async () => {
+  containers = [];
+  await ensureSharedSupabase();
+  await writeFile(
+    join(root, 'watcher'),
+    JSON.stringify({ pid: process.pid, identity: 'previous-process-identity' })
+  );
+  await ensureSharedSupabase();
+  expect(host.spawn).toHaveBeenCalledTimes(2);
+  await releaseSharedSupabase();
 });
 
 it.each([

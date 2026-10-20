@@ -7,6 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import * as z from 'zod';
+import { processIdentity } from '../e2e/nous/processIdentity';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const SUPABASE_IDLE_MS = 20 * 60_000;
@@ -27,6 +28,32 @@ const statusSchema = z.object({
 });
 export type SharedSupabaseStatus = z.infer<typeof statusSchema>;
 const lease = `${process.pid}-${crypto.randomUUID()}`;
+const processOwnerSchema = z.object({
+  pid: z.number().int().positive(),
+  identity: z.string().min(1),
+});
+type ProcessOwner = z.infer<typeof processOwnerSchema>;
+let ownIdentity: Promise<ProcessOwner> | undefined;
+
+async function processOwner(pid: number): Promise<ProcessOwner | undefined> {
+  const identity = await processIdentity(pid, { includeCommand: false });
+  return identity ? { pid, identity } : undefined;
+}
+
+function currentOwner(): Promise<ProcessOwner> {
+  ownIdentity ??= processOwner(process.pid).then(owner => {
+    if (!owner) throw new Error('The current proof process could not be identified.');
+    return owner;
+  });
+  return ownIdentity;
+}
+
+async function ownerAlive(text: string): Promise<boolean> {
+  const owner = processOwnerSchema.parse(JSON.parse(text));
+  if (!alive(owner.pid)) return false;
+  const current = owner.pid === process.pid ? await currentOwner() : await processOwner(owner.pid);
+  return current?.identity === owner.identity;
+}
 const stateRoot = () =>
   process.env.NOUS_SHARED_SUPABASE_DATA || join(homedir(), '.cache', 'nous-supabase');
 
@@ -54,8 +81,8 @@ async function retireStaleReservation(reservation: string): Promise<void> {
     await removeReservation(reservation);
     return;
   }
-  const pid = await readOptional(join(reservation, previous));
-  if (pid && !alive(Number(pid))) await removeReservation(reservation, previous);
+  const record = await readOptional(join(reservation, previous));
+  if (record && !(await ownerAlive(record))) await removeReservation(reservation, previous);
 }
 
 /** Publish a complete owner record atomically; stale cleanup removes only that owner's file. */
@@ -67,7 +94,7 @@ async function withSharedLifecycle<T>(work: () => Promise<T>, signal?: AbortSign
   await mkdir(prepared, { recursive: true });
   let acquired = false;
   try {
-    await writeFile(join(prepared, owner), String(process.pid));
+    await writeFile(join(prepared, owner), JSON.stringify(await currentOwner()));
     while (!acquired) {
       signal?.throwIfAborted();
       try {
@@ -194,23 +221,40 @@ async function databaseContainer(project?: string): Promise<string> {
   return stdout.trim();
 }
 
+async function hasStackOwnership(): Promise<boolean> {
+  return Boolean(
+    (await readOptional(join(stateRoot(), 'managed'))) ||
+      (await readOptional(join(stateRoot(), 'starting')))
+  );
+}
+
+/** Startup intent survives a failed Docker inspection until the owned identity can be recorded. */
+async function settleStartOwnership(container: typeof databaseContainer): Promise<void> {
+  const root = stateRoot();
+  if (!(await readOptional(join(root, 'starting')))) return;
+  const current = await container(PROJECT);
+  const recorded = await readOptional(join(root, 'managed'));
+  if (current && (!recorded || recorded === current)) {
+    await writeFile(join(root, 'managed'), current);
+    await writeFile(join(root, 'incomplete'), current);
+  }
+  await rm(join(root, 'starting'), { force: true });
+}
+
 async function startSharedSupabase(
   run: typeof command,
   container: typeof databaseContainer,
   signal?: AbortSignal
 ): Promise<SharedSupabaseStatus> {
   const root = stateRoot();
-  let startedContainer: string | undefined;
+  await writeFile(join(root, 'starting'), PROJECT);
   try {
     await run(['start'], signal);
   } finally {
-    startedContainer = await container(PROJECT);
-    if (startedContainer) {
-      await writeFile(join(root, 'managed'), startedContainer);
-      await writeFile(join(root, 'incomplete'), startedContainer);
-    }
+    await settleStartOwnership(container);
   }
-  if (!startedContainer) throw new Error('Shared Supabase database container is missing.');
+  if (!(await readOptional(join(root, 'managed'))))
+    throw new Error('Shared Supabase database container is missing.');
   const current = await sharedSupabaseStatus(run, signal);
   await run(['migration', 'up', '--local'], signal);
   await rm(join(root, 'incomplete'), { force: true });
@@ -250,6 +294,7 @@ export async function ensureSharedSupabase(
           options.signal
         );
       }
+      await settleStartOwnership(options.container ?? databaseContainer);
       const incomplete = await readOptional(join(root, 'incomplete'));
       if (incomplete) {
         const project =
@@ -262,11 +307,11 @@ export async function ensureSharedSupabase(
         if (incomplete !== initializingContainer) await rm(join(root, 'incomplete'));
       }
       await (options.health ?? healthy)(current, options.signal);
-      await writeFile(join(root, 'runs', lease), String(process.pid));
+      await writeFile(join(root, 'runs', lease), JSON.stringify(await currentOwner()));
       return current;
     } finally {
       await writeFile(join(root, 'last-run'), String(Date.now()));
-      if (await readOptional(join(root, 'managed'))) await (options.watch ?? startIdleWatcher)();
+      if (await hasStackOwnership()) await (options.watch ?? startIdleWatcher)();
     }
   }, options.signal);
 }
@@ -302,13 +347,14 @@ export async function stopIdleSupabase(
 ): Promise<boolean> {
   return withSharedLifecycle(async () => {
     const root = stateRoot();
+    await settleStartOwnership(options.container ?? databaseContainer);
     const managed = await readOptional(join(root, 'managed'));
     if (!managed) return false;
     const last = await readOptional(join(root, 'last-run'));
     if (!last || (options.now ?? Date.now()) - Number(last) < SUPABASE_IDLE_MS) return false;
     for (const name of await readdir(join(root, 'runs'))) {
-      const pid = Number(await readOptional(join(root, 'runs', name)));
-      if (alive(pid)) return false;
+      const record = await readOptional(join(root, 'runs', name));
+      if (record && (await ownerAlive(record))) return false;
       await rm(join(root, 'runs', name), { force: true });
     }
     if (managed !== (await (options.container ?? databaseContainer)(PROJECT))) {
@@ -326,9 +372,9 @@ export async function stopIdleSupabase(
 
 async function startIdleWatcher(): Promise<void> {
   const root = stateRoot();
-  if (!(await readOptional(join(root, 'managed')))) return;
+  if (!(await hasStackOwnership())) return;
   const watcher = await readOptional(join(root, 'watcher'));
-  if (watcher && alive(Number(watcher))) return;
+  if (watcher && (await ownerAlive(watcher))) return;
   const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--watch-idle'], {
     detached: true,
     windowsHide: true,
@@ -339,7 +385,10 @@ async function startIdleWatcher(): Promise<void> {
     child.once('spawn', resolveSpawn);
     child.once('error', reject);
   });
-  await writeFile(join(root, 'watcher'), String(child.pid));
+  if (child.pid === undefined) throw new Error('The idle watcher has no process identifier.');
+  const owner = await processOwner(child.pid);
+  if (!owner) throw new Error('The idle watcher could not be identified.');
+  await writeFile(join(root, 'watcher'), JSON.stringify(owner));
   child.unref();
 }
 
@@ -377,7 +426,7 @@ export async function watchIdleSupabase(
   const root = stateRoot();
   const wait = options.wait ?? delay;
   const now = options.now ?? Date.now;
-  while (await readOptional(join(root, 'managed'))) {
+  while (await hasStackOwnership()) {
     const last = Number(await readOptional(join(root, 'last-run')));
     await wait(Math.max(0, last + SUPABASE_IDLE_MS - now()));
     try {
@@ -386,7 +435,7 @@ export async function watchIdleSupabase(
       // Docker availability can change while the watcher observes the same owned stack.
       await writeFile(join(root, 'idle-error.log'), String(error));
     }
-    if (await readOptional(join(root, 'managed'))) {
+    if (await hasStackOwnership()) {
       const updated = Number(await readOptional(join(root, 'last-run')));
       // A live proof can outlast the idle interval; its eventual release starts a fresh deadline.
       if (now() - updated >= SUPABASE_IDLE_MS) await wait(SUPABASE_IDLE_MS);
