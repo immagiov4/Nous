@@ -1,6 +1,6 @@
 # Change reports
 
-Pull requests, issues, commit messages and status reports. The reader is busy, reviews several of these a day, and can read the code. They open the text to learn what changed and whether it worked, not how the work went.
+Pull requests, issues, commit messages and status reports. The reader is busy, reviews several of these a day, and can read the code. They arrive looking, so there is no hook: the opening is the click (what problem, what result), then the approach, then only the pressing questions. They open the text to learn what changed and whether it worked, not how the work went.
 
 ## Pull request shape
 

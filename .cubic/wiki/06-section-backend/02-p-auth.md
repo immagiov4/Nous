@@ -1,134 +1,26 @@
 ---
-title: "Authentication & Access Control"
+title: "Authentication and authorization"
 wiki_page_id: "p-auth"
 ---
 
-<details>
-<summary>Relevant source files</summary>
+[Up one level](../02-section-architecture/01-p-architecture.md)
 
-The following files were used as context for generating this wiki page:
+# Authentication and authorization
 
-- [apps/backend/src/auth/currentUser.ts](../../../apps/backend/src/auth/currentUser.ts)
-- [apps/web/tests/services/auth/supabaseAuth.test.ts](../../../apps/web/tests/services/auth/supabaseAuth.test.ts)
-- [scripts/sync-supabase-auth-emails.ts](../../../scripts/sync-supabase-auth-emails.ts)
-- [supabase/migrations/202607070001_initial_user_backend.sql](../../../supabase/migrations/202607070001_initial_user_backend.sql)
-- [apps/backend/tests/integration/supabaseLocal.integration.test.ts](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts)
-- [scripts/supabaseAuthTemplates.ts](../../../scripts/supabaseAuthTemplates.ts)
-- [README.md](../../../README.md)
+The backend connects to PostgreSQL and storage with privileged credentials, so those services cannot infer which browser account may access a requested project. Nous must first verify the Supabase session, then enforce the account's role and ownership at the operation boundary. A valid session identifies who is asking; it does not authorize every project identifier in a request.
 
-</details>
+## Verify the session before trusting its claims
 
-# Authentication & Access Control
+The [current-user resolver](../../../apps/backend/src/auth/currentUser.ts) accepts supported signed tokens and validates expiration, issuer and audience before producing an account identity. HS256 installations supply a server secret; asymmetric installations use Supabase key discovery or an explicit key endpoint. Internal service URLs can differ from the public token issuer, so deployment must preserve the issuer identity independently of network routing.
 
-Authentication and Access Control in Nous is primarily managed through **Supabase Auth**, leveraging JSON Web Tokens (JWT) for session management and PostgreSQL **Row Level Security (RLS)** for data isolation. The system supports multiple authentication modes, including a local bypass for development and testing environments.
+The frontend refreshes sessions when needed and returns to sign-in when refresh fails. Accounts requiring password setup have a restricted completion path before protected features become available. Administrative routes check the verified role in addition to authentication. Hiding a browser control cannot substitute for those server checks.
 
-The architecture ensures that user data—such as projects, profiles, and library placements—is strictly isolated so that users can only access their own resources. Administrative access is granted through specific claims within the JWT `app_metadata`, allowing for elevated operations like user management and global configuration overrides.
-Sources: [README.md:43-52](../../../README.md#L43-L52), [supabase/migrations/202607070001_initial_user_backend.sql:79-110](../../../supabase/migrations/202607070001_initial_user_backend.sql#L79-L110)
+## Privileged persistence requires explicit ownership checks
 
-## Authentication Modes
+The backend uses privileged database and storage credentials. Its account and ownership checks are therefore authoritative for requests passing through it. Authenticated clients that connect directly to Supabase are subject to row-level security, which is a different enforcement path. A passing direct-client RLS test does not by itself cover a backend route using privileged access.
 
-The system determines its authentication behavior based on environment variables. It primarily operates in two modes: `supabase` and `local-bypass`.
+Project incarnation and source-version checks further constrain retained references, including archive retrieval. Trace the handler and owning service together when adding an access path; accepting a project identifier from the client is insufficient authorization.
 
-| Mode | Description | Configuration |
-| :--- | :--- | :--- |
-| **Supabase** | Production-standard mode using Supabase JWTs (HS256 or ES256). | `AUTH_MODE=supabase` |
-| **Local Bypass** | Development/Test mode that skips external auth and uses a static local user. | `LOCAL_AUTH_BYPASS=true` and `LOCAL_DEV_PROFILE=true` |
+## Development identity is deliberately bounded
 
-Sources: [apps/backend/src/auth/currentUser.ts:47-61](../../../apps/backend/src/auth/currentUser.ts#L47-L61), [README.md:35-38](../../../README.md#L35-L38)
-
-### JWT Validation Logic
-The backend validates incoming Bearer tokens from the `Authorization` header. It supports both symmetric (HS256) using a `SUPABASE_JWT_SECRET` and asymmetric (ES256) verification via JWKS (JSON Web Key Sets) fetched from the Supabase management endpoint.
-
-```mermaid
-flowchart TD
-    Req[Incoming Request] --> Ext[Extract Bearer Token]
-    Ext --> Mode{Auth Mode?}
-    Mode -- local-bypass --> Bypass[Set Default Local User]
-    Mode -- supabase --> Decode[Decode JWT Header]
-    Decode -- HS256 --> HS[Verify with Shared Secret]
-    Decode -- ES256 --> ES[Verify with JWKS]
-    HS & ES --> Claims[Assert Claims: iss, aud, exp]
-    Claims --> Context[Set currentUser in Request]
-```
-
-Sources: [apps/backend/src/auth/currentUser.ts:55-75](../../../apps/backend/src/auth/currentUser.ts#L55-L75), [apps/backend/src/auth/currentUser.ts:167-200](../../../apps/backend/src/auth/currentUser.ts#L167-L200)
-
-## Access Control & Data Isolation
-
-Access control is enforced at the database layer using PostgreSQL Row Level Security (RLS). This ensures that even if application logic fails, the database prevents unauthorized cross-tenant data access.
-
-### Row Level Security (RLS) Policies
-The following table summarizes the RLS policies defined in the initial migration:
-
-| Table | Policy Name | Logic |
-| :--- | :--- | :--- |
-| `profiles` | profiles readable by owner or admin | `auth.uid() = id OR is_admin()` |
-| `projects` | projects isolated by owner | `auth.uid() = user_id` |
-| `project_snapshots` | snapshots isolated by owner | `auth.uid() = user_id` |
-| `library_folders` | folders isolated by owner | `auth.uid() = user_id` |
-| `model_config` | readable by authenticated | `auth.role() = 'authenticated'` |
-
-Sources: [supabase/migrations/202607070001_initial_user_backend.sql:85-110](../../../supabase/migrations/202607070001_initial_user_backend.sql#L85-L110)
-
-### Administrative Privileges
-Administrative status is determined by the `is_admin()` SQL function, which checks for the `role` field inside the JWT's `app_metadata`.
-Sources: [supabase/migrations/202607070001_initial_user_backend.sql:71-77](../../../supabase/migrations/202607070001_initial_user_backend.sql#L71-L77)
-
-## Session Management (Frontend)
-
-The frontend manages authentication state by storing the Supabase session in `localStorage`. It handles proactive token refreshing to prevent session expiration during active use.
-
-### Token Refresh Flow
-The frontend schedules a refresh before the `access_token` expires. If a request returns a `401 Unauthorized`, the system attempts a single refresh using the `refresh_token` before failing the request.
-
-```mermaid
-sequenceDiagram
-    participant App as Web Application
-    participant Service as supabaseAuth Service
-    participant Supa as Supabase Auth API
-    
-    App->>Service: getValidSupabaseSession()
-    alt Token Expired
-        Service->>Supa: POST /token?grant_type=refresh_token
-        Supa-->>Service: New access_token & refresh_token
-        Service->>Service: Save to localStorage
-    end
-    Service-->>App: Valid Session
-```
-
-Sources: [apps/web/tests/services/auth/supabaseAuth.test.ts:182-205](../../../apps/web/tests/services/auth/supabaseAuth.test.ts#L182-L205), [apps/web/tests/services/auth/supabaseAuth.test.ts:246-270](../../../apps/web/tests/services/auth/supabaseAuth.test.ts#L246-L270)
-
-### Password Setup Flow
-A specific state `password_setup_required` can be flagged in `app_metadata`. This is used for invited users who must set a password before accessing project resources. The backend middleware `resolveCurrentUser` rejects requests with a `403 password_setup_required` if this flag is present and the endpoint is not explicitly allowed for setup.
-Sources: [apps/backend/src/auth/currentUser.ts:243-252](../../../apps/backend/src/auth/currentUser.ts#L243-L252), [apps/backend/tests/integration/supabaseLocal.integration.test.ts:400-415](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L400-L415)
-
-## Email Branding & Synchronization
-
-Nous uses branded email templates for `confirmation`, `invite`, `magic_link`, and `recovery`. These templates are stored locally in `supabase/templates/` and can be synchronized with the hosted Supabase instance using a management API script.
-
-### Template Sync Components
-1.  **Local Templates**: HTML files located in `supabase/templates/`.
-2.  **Sync Script**: `scripts/sync-supabase-auth-emails.ts` compares local templates with the hosted config and applies patches.
-3.  **Template Builder**: `scripts/supabaseAuthTemplates.ts` maps internal template kinds to Supabase mailer configuration keys.
-
-| Template Kind | Supabase Configuration Key |
-| :--- | :--- |
-| `invite` | `mailer_subjects_invite`, `mailer_templates_invite_content` |
-| `magic_link` | `mailer_subjects_magic_link`, `mailer_templates_magic_link_content` |
-| `recovery` | `mailer_subjects_recovery`, `mailer_templates_recovery_content` |
-
-Sources: [scripts/supabaseAuthTemplates.ts:20-45](../../../scripts/supabaseAuthTemplates.ts#L20-L45), [scripts/sync-supabase-auth-emails.ts:51-70](../../../scripts/sync-supabase-auth-emails.ts#L51-L70)
-
-Authentication in Nous is a multi-layered system combining JWT-based identity verification, RLS-driven data isolation, and automated session maintenance. This ensures a secure, tenant-isolated environment for user projects while providing administrative oversight through metadata-driven roles.
-
-## Account preferences
-
-`/api/account/preferences` supports GET, PUT and DELETE after `resolveCurrentUser`. The server derives the owner from the authenticated session, rejects extra fields in the request body and sends private, non-cacheable responses. `PostgresAccountStore` reads and upserts `account_preferences`, keyed by `auth.users.id`; removing the account cascades to its preferences. Authenticated database clients may only read their own row under RLS. Direct INSERT, UPDATE and DELETE privileges are revoked so writes pass through the backend's shared schema validation. Service writes remain available, and anonymous access is revoked.
-
-Preferences contain nullable IT/EN interface locale, nullable free-text AI language and optional teaching instructions represented by an empty string when cleared. No account row means browser/interface defaults and no teaching instructions. Local development identities have no Supabase account, so generation and general chat use empty defaults without querying account storage. Account preferences do not rewrite existing course snapshots or auth metadata.
-
-Saved AI language is limited to 100 UTF-16 code units and teaching preferences to 4,000 after trimming outer whitespace. The shared schema enforces both limits in the client and server. Oversized input remains editable, with a translated field error and saving disabled; direct invalid requests return 400 before persistence. Text is never truncated. Clearing saved preferences remains available even when the edited text is invalid. These account limits do not change historical course schemas or course-specific overrides.
-
-Only a successful preference mutation for the current account invalidates older locale reads. A failed save or clear leaves an overlapping successful read free to apply the saved locale; a completed mutation prevents an older read from replacing its locale.
-
-Sources: [account.ts](../../../apps/backend/src/routes/account.ts), [accountStore.ts](../../../apps/backend/src/account/accountStore.ts), [accountPreferences.ts](../../../packages/shared-types/accountPreferences.ts), [account_preferences migration](../../../supabase/migrations/20260908101401_account_preferences.sql), [backend write boundary](../../../supabase/migrations/20260908133407_account_preferences_backend_writes.sql)
+Tests can supply controlled identity. Local bypass additionally requires the explicit local-development flags described in [setup](../09-section-tools/01-p-local-setup.md#local-authentication). It still uses server project persistence, so bypass changes authentication rather than creating a browser-only storage mode. Deployment and trusted network exposure must be considered together because CORS controls browser origins and does not authenticate an account.
