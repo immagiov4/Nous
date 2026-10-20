@@ -668,6 +668,20 @@ test('explicit text fallback needs exact evidence and stays available to the mod
   ).toMatchObject({ kind: 'invalid' });
 });
 
+test.each([
+  'Una formula\nillustrata.',
+  'Una formula  illustrata.',
+])('accepts text evidence when source whitespace varies: %s', async source => {
+  generateStructuredOutputMock.mockResolvedValue({
+    ...quoteDraft(''),
+    type: 'text',
+    evidence: 'Una formula illustrata.',
+  });
+  expect(await generateLessonScene({ ...unplannedInput(source), allowTextFallback: true })).toEqual(
+    { kind: 'text' }
+  );
+});
+
 test('admits a spotlight only when the caller supplies canonical narration', async () => {
   const draft = {
     ...quoteDraft(''),

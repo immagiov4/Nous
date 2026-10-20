@@ -353,13 +353,21 @@ export default function LessonPlaybackStage({
       slot.style.height = `${height * scale}px`;
       slot.style.setProperty('--scene-left', `${(slot.clientWidth - width * scale) / 2}px`);
     };
-    const observer = new ResizeObserver(fitScene);
+    let fitFrame: number | undefined;
+    // ResizeObserver notifications must not resize their own observed ancestors.
+    const scheduleFit = () => {
+      fitFrame ??= requestAnimationFrame(() => {
+        fitFrame = undefined;
+        fitScene();
+      });
+    };
+    const observer = new ResizeObserver(scheduleFit);
     observer.observe(slot);
     observer.observe(card);
     observer.observe(stage);
     observer.observe(captionSection);
     // A replacement or asynchronous diagram can change overflow without resizing the card.
-    const mutations = new MutationObserver(fitScene);
+    const mutations = new MutationObserver(scheduleFit);
     mutations.observe(card, {
       childList: true,
       characterData: true,
@@ -371,6 +379,7 @@ export default function LessonPlaybackStage({
     return () => {
       observer.disconnect();
       mutations.disconnect();
+      if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);
     };
   }, []);
   useLayoutEffect(() => {

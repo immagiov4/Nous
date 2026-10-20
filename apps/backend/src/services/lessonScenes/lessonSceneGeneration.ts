@@ -458,7 +458,10 @@ export async function generateLessonScene(
     };
   }
   if (parsed.data.type === 'text') {
-    return parsed.data.evidence.trim() && input.lessonMarkdown.includes(parsed.data.evidence)
+    return parsed.data.evidence.trim() &&
+      supportQuotationText(input.lessonMarkdown).includes(
+        supportQuotationText(parsed.data.evidence)
+      )
       ? { kind: 'text' }
       : { kind: 'invalid', problems: ['Text fallback needs exact source evidence.'] };
   }

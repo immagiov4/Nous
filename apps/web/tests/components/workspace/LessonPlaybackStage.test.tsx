@@ -43,6 +43,22 @@ beforeEach(() => {
 });
 
 test('fits the complete scene into both available dimensions and releases the observer', () => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  const flushFrame = () => {
+    const queued = [...frames.values()];
+    frames.clear();
+    act(() => {
+      for (const callback of queued) callback(0);
+    });
+  };
   const sources = [{ type: 'markdown' as const, markdown: 'Una frase.' }];
   const { container, unmount } = render(
     <LessonPlaybackStage
@@ -63,32 +79,43 @@ test('fits the complete scene into both available dimensions and releases the ob
   Object.defineProperty(card, 'offsetWidth', { configurable: true, value: 700 });
   Object.defineProperty(slot, 'clientWidth', { configurable: true, value: 700 });
   Object.defineProperty(stage, 'clientHeight', { configurable: true, value: 364 });
-  act(() => resizeScene());
+  act(() => {
+    resizeScene();
+    resizeScene();
+  });
+  expect(slot.style.height).toBe('');
+  flushFrame();
   expect(slot.style.getPropertyValue('--scene-scale')).toBe('0.5');
   expect(slot.style.height).toBe('300px');
   Object.defineProperty(stage, 'clientHeight', { configurable: true, value: 864 });
   act(() => resizeScene());
+  flushFrame();
   expect(slot.style.getPropertyValue('--scene-scale')).toBe('1');
   expect(slot.style.height).toBe('600px');
   // A wide table or code block must fit too, even when the card itself does not resize.
   Object.defineProperty(card, 'scrollWidth', { configurable: true, value: 1400 });
   act(() => resizeScene());
+  flushFrame();
   expect(slot.style.getPropertyValue('--scene-scale')).toBe('0.5');
   expect(slot.style.height).toBe('300px');
   expect(card.style.width).toBe('1400px');
   Object.defineProperty(card, 'scrollHeight', { configurable: true, value: 2000 });
   act(() => resizeScene());
+  flushFrame();
   expect(slot.style.getPropertyValue('--scene-scale')).toBe('0.4');
   expect(slot.style.getPropertyValue('--scene-left')).toBe('70px');
   stage.style.flexDirection = 'column';
   stage.style.rowGap = '20px';
   Object.defineProperty(captions, 'offsetHeight', { configurable: true, value: 140 });
   act(() => resizeScene());
+  flushFrame();
   expect(slot.style.getPropertyValue('--scene-scale')).toBe('0.4');
   expect(slot.style.height).toBe('800px');
   expect(card.style.width).toBe('1400px');
   expect(slot.style.getPropertyValue('--scene-left')).toBe('70px');
+  act(() => resizeScene());
   unmount();
+  expect(frames.size).toBe(0);
   expect(disconnectScene).toHaveBeenCalledTimes(1);
 });
 
