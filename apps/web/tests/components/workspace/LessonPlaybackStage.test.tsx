@@ -162,7 +162,7 @@ test('mounts a fresh scene for each block so the page transition restarts', () =
 test.each([
   true,
   false,
-])('reveals whole words with a fade and moves the active line past halfway (animate=%s)', animate => {
+])('reveals continuously and moves the active line past halfway (animate=%s)', animate => {
   vi.mocked(useShouldAnimate).mockReturnValue(animate);
   const source = [{ type: 'markdown' as const, markdown: 'Uno due tre quattro cinque sei.' }];
   const block = segmentLessonPlayback(source)[0];
@@ -202,13 +202,9 @@ test.each([
   };
   advance(0.1);
   const first = paragraph.querySelector<HTMLElement>('.caption-word');
-  if (animate) {
-    expect(Number(first?.style.opacity)).toBeGreaterThan(0);
-    expect(Number(first?.style.opacity)).toBeLessThan(1);
-  } else {
-    expect(first?.style.opacity).toBe('1');
-  }
-  expect(first?.style.getPropertyValue('--reveal-edge')).toBe('');
+  expect(first?.style.opacity).toBe('1');
+  expect(parseFloat(first?.style.getPropertyValue('--reveal-edge') ?? '')).toBeGreaterThan(0);
+  expect(parseFloat(first?.style.getPropertyValue('--reveal-edge') ?? '')).toBeLessThan(100);
   advance(1);
   expect(scrollTo).toHaveBeenLastCalledWith({ top: 100, behavior: animate ? 'smooth' : 'instant' });
   advance(2);

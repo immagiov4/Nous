@@ -475,10 +475,8 @@ export default function LessonPlaybackStage({
       let active = edge >= current.width ? current.runs.at(-1)?.span : undefined;
       for (const run of current.runs) {
         const local = edge - run.start;
-        // Fade the complete word: a spatial mask can freeze half a glyph when paused.
-        run.span.style.opacity = String(
-          motion ? Math.max(0, Math.min(1, local / current.feather)) : Number(local > 0)
-        );
+        run.span.style.opacity = local > 0 ? '1' : '0';
+        run.span.style.setProperty('--reveal-edge', `${local}px`);
         const readAge = bodyTime - ((run.start + run.width) / current.width) * current.bodyDuration;
         const fade = Math.max(0, Math.min(1, readAge / CAPTION_TIMING.readFadeSeconds));
         const text = run.span.firstElementChild as HTMLElement;
