@@ -1,20 +1,20 @@
 ---
-title: "Marketing Page and Waitlist"
+title: "Public preview and access"
 wiki_page_id: "p-marketing-waitlist"
 ---
 
-# Marketing Page and Waitlist
+[Up one level](../02-section-architecture/01-p-architecture.md)
 
-The public page introduces Nous Reader and shows how a learner moves from a topic or source material to a course and lesson. A short product demonstration previews the library and learning flow.
+# Public preview and access
 
-Visitors can request access through the waitlist. Existing users can open the sign-in panel from the same page.
+The public page presents a prepared journey through course planning, reading and questions. Visitors can preview the product before requesting access or opening sign-in.
 
-## Product demonstration
+## Follow the demonstration
 
-On a wide screen, the demonstration follows the section as the visitor scrolls. On a phone, visitors choose each stage using on-screen controls.
+On wide screens, the demonstration follows the section as the visitor scrolls. On phones, controls select each stage. These examples play without generating a course or contacting an AI provider.
 
-The demonstration uses prepared examples. It does not create a course or contact an AI provider.
+The [marketing components](../../../apps/web/components/marketing/) own the presentation and its prepared content.
 
-## Waitlist
+## Request access
 
-Visitors enter an email address and receive an on-screen result after submitting. The form reports whether the request succeeded or needs attention.
+The waitlist accepts an email address and reports whether submission succeeded or needs attention. Existing users open the sign-in panel from the same page. Once signed in, [Create your first course](../01-section-overview/01-p-overview.md) is the next learning step.

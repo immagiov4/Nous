@@ -1,20 +1,20 @@
 ---
-title: "YouTube Research"
+title: "How video research works"
 wiki_page_id: "p-youtube-research"
 ---
 
-# YouTube Research
+[Up one level](01-p-course-gen.md)
 
-YouTube research helps course and lesson generation find videos that support a learning goal. It searches for candidates, checks the available metadata and transcripts, and records why a video was selected or rejected.
+# How video research works
 
-## Finding useful videos
+Research searches for videos that support the course or lesson objective, then compares their metadata and available transcripts. Selected resources retain the reason they were chosen.
 
-Searches begin with the topic or lesson objective. Generation can issue several related searches to find complementary explanations. It considers transcript availability and language when comparing candidates; transcript quality and availability vary by video.
+## Find a useful explanation
 
-Video metadata and transcripts provide evidence for selecting a resource. Lessons should remain understandable without relying on the selected video alone.
+Generation can run related searches for complementary explanations. Transcript language and availability affect what the workflow can assess, and transcript quality varies by video. Lessons provide their own explanation so that studying can continue without the selected video.
 
-## Research Lab
+## Inspect a selection
 
-The Research Lab runs the same discovery and selection stages used by course and lesson generation. It lets maintainers inspect search results, transcript availability, timing and selection reasoning while investigating a result.
+The Research Lab runs the same discovery and selection stages used in generation. Maintainers can inspect candidates, transcript availability, timing and selection reasoning there. Open the video itself when deciding whether its content is suitable.
 
-The lab’s diagnostics help explain what the workflow found. Inspect the video itself when assessing its content.
+For access to the lab, see [the admin area](../05-section-frontend/03-p-admin-ui.md). [Course generation](01-p-course-gen.md) explains how selected research enters a plan.

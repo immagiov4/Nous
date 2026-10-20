@@ -1,32 +1,24 @@
 ---
-title: "Workspace Reader"
+title: "Study a lesson"
 wiki_page_id: "p-reader-shell"
 ---
 
-# Workspace Reader
+[Up one level](../01-section-overview/01-p-overview.md)
 
-The reader brings a course, lesson content and study tools into one place. The sidebar helps learners move through a course; the main area shows the active lesson and its related materials.
+# Study a lesson
 
-## Moving through a course
+Open a ready lesson in the course sidebar. Its explanation appears in the main reading area, with study controls and related material beside it.
 
-The sidebar shows lessons, exercises and their current states. A lesson becomes available when it has content to read. An exercise brief can continue generating while the learner opens a ready lesson and returns to the exercise later.
+## Read, listen or ask
 
-Status notices appear above the lesson. On a phone, the page leaves room for a notice instead of placing it over the reading controls.
+Read the explanation in order, or [start narration](../03-section-features/04-p-multimedia.md) from the lesson or its ready sidebar entry. Select a passage to [ask for an explanation or save a note](../03-section-features/07-p-chat-ui.md). Answer the [questions and exercises](../03-section-features/08-p-interactive-exercises.md) when you reach them.
 
-## Listening and asking questions
+Return through the library to continue another course. [Project management](../03-section-features/05-p-project-workspace.md) covers folders and backups.
 
-Learners can start audio from the active lesson or from a ready lesson in the sidebar. Starting full-screen playback stops audio already playing in the reader. Exercises do not open in the lesson player.
+## If a lesson needs attention
 
-The reader supports speech input, spoken answers and notes tied to lesson content. Learners can select text to ask about it or add it to their notes. The available actions depend on the selected text and the current lesson.
+A load failure offers a retry action. When a source needs reconnecting, its notice takes priority and explains the action needed.
 
-## Regenerating a lesson
+The settings menu can regenerate the active lesson directly. The saved lesson remains available during replacement; [exercise progress](../03-section-features/08-p-interactive-exercises.md) explains what successful replacement resets. A failure on the current lesson appears there; a failure elsewhere can appear as a notification.
 
-The reader’s settings menu offers a direct regenerate action. Choosing it starts regeneration without a separate confirmation step.
-
-If generation fails, the reader keeps the last saved lesson and learner progress. When the failure belongs to the lesson currently on screen, the reader shows the error there. A failure for a different lesson can appear as a notification instead.
-
-## Source and load notices
-
-When a lesson cannot load, the reader shows a retry action. If its source file needs to be reconnected, that message takes priority and explains what the learner can do.
-
-The reader preserves the existing lesson and study state while a replacement is being generated or saved.
+Exercise briefs can continue generating while you read another ready lesson. Exercises open as activities rather than in the narrated lesson player.

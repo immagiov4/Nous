@@ -1,33 +1,24 @@
 ---
-title: "Document Processing and PDF Extraction"
+title: "How source material is prepared"
 wiki_page_id: "p-doc-processing"
 ---
 
-# Document processing and source material
+[Up one level](../01-section-overview/01-p-overview.md)
 
-Nous Reader accepts PDFs, Markdown documents, and code archives as course sources. It extracts text and useful figures, then keeps enough context to find relevant passages during course and lesson generation.
+# How source material is prepared
 
-## PDF text
+PDFs, Markdown documents and code archives become searchable material for course and lesson generation. Page and heading references let the system retrieve a relevant passage without sending the entire document to a model.
 
-The PDF reader first tries to preserve the document's layout, which helps keep columns, tables, and reading order together. If that parser is unavailable or fails, a second parser attempts the extraction. A fallback result may include a quality warning; if extraction reaches a resource limit, the system reports an error rather than treating the document as complete.
+## PDF text and figures
 
-## Figures
+Extraction first tries to preserve layout and reading order. A second parser can attempt text extraction if the first is unavailable or fails. A fallback result can carry a quality warning; reaching a resource limit produces an error rather than a partial document presented as complete.
 
-PDF figures are saved with their page and nearby text so a lesson can use them in context. The extractor filters small decorative marks such as icons and watermarks, while keeping images that are likely to carry information.
+Figures retain their page and nearby text. The extractor filters decorative marks while retaining likely informational images. Optional captions help identify a figure; the original image and surrounding passage remain its context.
 
-Optional captions can help identify a figure, but they do not replace the surrounding text or the original source.
+If a scan yields unusable text, choose a readable source before building a course from it.
 
-## Finding passages
+## Markdown and archives
 
-Extracted text is divided into sections that retain page and heading context. Course and lesson workflows can retrieve relevant sections without sending an entire source document to a model. Those references also help readers return to the part of the original document that supports a lesson.
+Markdown retains heading structure. A code archive keeps an index of its files so generation can retrieve selected text with file context. Unsupported or invalid files produce an error so the learner can choose another source.
 
-## Markdown and code archives
-
-Markdown documents keep their heading structure when indexed. Code archives are treated as source collections, so the course can refer to relevant files without flattening the whole archive into one document.
-
-Invalid or unsupported files stop with an error so the learner can choose another source.
-
-## Related reading
-
-- [Project workspace](./05-p-project-workspace.md)
-- [Course generation](./01-p-course-gen.md)
+[Course generation](01-p-course-gen.md) explains how prepared material informs planning. For keeping or restoring the original files, see [project management](05-p-project-workspace.md).

@@ -1,24 +1,20 @@
 ---
-title: "AI Providers"
+title: "Configure AI providers"
 wiki_page_id: "p-ai-providers"
 ---
 
-# AI Providers
+[Up one level](../02-section-architecture/01-p-architecture.md)
 
-Nous can send AI requests through OpenRouter or through an authenticated Codex account. Administrators choose the default provider and can set a different provider for supported tasks such as course planning, lesson writing or research.
+# Configure AI providers
 
-## Choosing models
+Choose OpenRouter or an authenticated server-side Codex account in the administrator settings. Task-specific choices let planning, writing and research use different supported models.
 
-Model settings are grouped by task so one choice can serve course planning while another serves lesson writing or research. Where supported, administrators can also choose a reasoning level for a task.
+## Configure credentials
 
-Available models, reasoning options, image support and web search depend on the provider and selected model. A request can fail when the model does not support a feature its task requires.
+OpenRouter credentials stay on the server. For a self-hosted Codex setup, follow [the account connection guide](../06-section-backend/03-p-codex-server.md); administrators assign which users can use it. Learners receive answers through Nous rather than provider credentials.
 
-## Credentials and account access
+## Choose a model
 
-OpenRouter credentials stay on the server. A self-hosted instance can instead connect an authenticated Codex account on its host. In that mode, access is granted to administrators and assigned users; learners do not receive the account credential.
+Select the task's model and, where supported, its reasoning level. Image support, structured output and search capabilities depend on the model and provider. A request fails if its selected model lacks a required capability. Web search belongs to supported research tasks.
 
-The [Codex account integration](../06-section-backend/03-p-codex-server.md) page describes its access boundary and restricted execution environment.
-
-## Requests and tools
-
-Some backend operations connect directly to the provider. Web search is available only in supported research tasks.
+For the learning rules sent with these requests, see [shared generation instructions](02-p-prompt-engineering.md). For operational measurements, see [AI usage](../06-section-backend/05-p-telemetry-usage.md).

@@ -1,34 +1,28 @@
 ---
-title: "Lesson Generation"
+title: "How a lesson is built"
 wiki_page_id: "p-lesson-gen"
 ---
 
-# Lesson Generation
+[Up one level](01-p-course-gen.md)
 
-Lesson generation turns a course objective into a lesson the learner can read, hear and explore. It uses the approved course plan, relevant source material, and the learner’s course preferences.
+# How a lesson is built
 
-## From objective to lesson
+Generation uses the approved plan, course preferences and relevant sources to explain one objective. It prepares context, researches where needed, drafts, checks claims and teaching quality, then prepares visuals and saves the lesson.
 
-The workflow prepares the lesson context, gathers additional research when needed, drafts the content and checks its claims. It reviews the lesson against its objective and prerequisite order, then prepares visuals and saves the result.
+## Keep the explanation grounded
 
-A learner can also request a focused follow-up lesson based on an existing lesson. The new lesson keeps the course context while focusing on the requested question.
+Factual review checks claims against the supplied material and research, including conclusions supported by stated premises. Teaching review checks the objective and prerequisite order. The [shared instructions](../07-section-ai/02-p-prompt-engineering.md) own those expectations; [source processing](03-p-doc-processing.md) owns document preparation.
 
-## Sources and factual support
+A learner can request a focused follow-up lesson. It keeps the course context while addressing the requested question.
 
-The factual review checks whether a lesson’s claims are supported by its supplied material and research, including valid conclusions drawn from stated premises.
+## Save and recover
 
-When matching a source across course and lesson generation, the system prefers an explicit source ID, then a normalized URL, then a normalized title. URL matching ignores case in the scheme and host and trims trailing slashes, while preserving path, query and fragment case.
+Stages save progress through the [workflow engine](../02-section-architecture/02-p-workflow-engine.md). A failed attempt leaves the last saved lesson available. A successful regeneration replaces the content and resets its answers and annotations, as described under [exercise progress](08-p-interactive-exercises.md).
 
-## Visuals and exercises
+Structural validation checks the format; factual and teaching reviews assess the content. For changes to generation, use the [provider-backed evaluation path](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content).
 
-A lesson can include illustrations, lesson scenes, HTML demonstrations, videos and quizzes. HTML examples can be static or interactive, but must not fetch external scripts or resources. Exercises follow the explanation they test and reveal their explanation after the learner answers.
+<details><summary>Details</summary>
 
-The available visual formats and learning goals are described in the [product manifesto](../01-section-overview/02-p-manifesto.md). The shared quiz rules are in [Interactive exercises](08-p-interactive-exercises.md).
+Source matching prefers an explicit source ID, then a normalized URL, then a normalized title. URL normalization ignores scheme and host case and trims trailing slashes while preserving path, query and fragment case.
 
-## Recovery and evaluation
-
-Generation saves progress between stages so interrupted work can resume, while a failed attempt leaves the last saved lesson available.
-
-Structural validation checks the lesson’s format. Factual and teaching reviews assess its supported claims and explanation.
-
-Provider-backed evaluations use an authenticated, configured provider and store run evidence outside the repository. See [Testing and quality checks](../09-section-tools/02-p-testing-quality.md) for the safe evaluation setup and its limits.
+</details>

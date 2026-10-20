@@ -1,26 +1,22 @@
 ---
-title: "Workflow Events and AI Usage"
+title: "Read workflow events and AI usage"
 wiki_page_id: "p-telemetry-usage"
 ---
 
-# Workflow Events and AI Usage
+[Up one level](../02-section-architecture/01-p-architecture.md)
 
-Nous records selected workflow events and AI usage to help explain how a course or lesson was produced. These records support diagnosis; the saved workflow state remains the source of truth for whether work completed.
+# Read workflow events and AI usage
 
-## Workflow events
+Events explain selected transitions in a run; usage records describe measurements returned by its provider. Use the saved workflow state to establish whether work completed.
 
-Events record key changes such as work starting, retrying, waiting, completing or failing. They may include a request ID, operation, status and a short sanitized failure description.
+## Diagnose a run
 
-Prompts, source material, provider responses and credentials are excluded from workflow diagnostics.
+Events record starting, claiming, retrying, waiting, completing, failing, cancellation and recovery. Request identifiers and sanitized failure descriptions connect support observations to a run. Workflow diagnostics exclude prompts, source material, provider payloads and credentials.
 
-## AI usage
+Local evaluation captures have a different scope and can contain full model exchanges. Their handling belongs to [testing generated content](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content).
 
-When a provider reports usage, Nous can record input, output, reasoning and cached tokens, along with the provider, model and reported cost. Some provider paths do not return usage, so totals can be incomplete.
+## Interpret totals
 
-The account usage view covers course and lesson generation. It does not include every chat or audio request. Cached input is part of input usage, and reasoning tokens are part of output usage; they should not be added a second time.
+The account usage view covers course and lesson generation rather than every chat or audio request. Provider measurements can include input, output, reasoning and cached tokens plus cost. Cached tokens are included in input, and reasoning tokens in output; adding them again double-counts usage.
 
-## Cost estimates and retention
-
-When a provider reports a cost, Nous uses that amount. For OpenRouter requests with text-only output, Nous can estimate a missing cost from current model rates when the required token counts and prices are available. Estimates are not historical invoices; other missing costs remain unknown.
-
-Deleting a workflow attempt also deletes its usage records.
+Provider-reported cost takes precedence. Text-only OpenRouter calls can estimate a missing cost when required token counts and current rates are available. Other missing costs remain unknown. Estimates are not historical invoices, and deleting a workflow attempt deletes its usage records.

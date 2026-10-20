@@ -1,26 +1,22 @@
 ---
-title: "Course Generation"
+title: "How a course plan is built"
 wiki_page_id: "p-course-gen"
 ---
 
-# Course Generation
+[Up one level](../01-section-overview/01-p-overview.md)
 
-Course generation creates a learning plan from a topic or from a learner’s source material. It researches the subject, drafts and reviews a sequence of lessons, then saves the course so the learner can continue studying.
+# How a course plan is built
 
-A topic-based course starts from the learner’s goals. A document-based course starts from uploaded material, including supported documents and archives.
+After the learner approves a profile, generation researches the subject and drafts an ordered sequence of lessons. Review checks coverage, boundaries and prerequisites before the plan is saved.
 
-## Before generation
+## Establish the starting point
 
-The learner can choose course depth, lesson size and language proficiency. The automatic setting follows the reference material when there is one; without source material, it asks for a balanced treatment.
+A topic course uses the learner's goals; a document course also uses [prepared source material](03-p-doc-processing.md). Course depth, lesson size and language proficiency guide the scope. Automatic settings follow reference material when supplied and otherwise request a balanced treatment.
 
-Account teaching preferences are copied into the new course. Course-specific changes stay with that course. Changing account preferences later does not change an existing course or an interview already in progress.
+Prior-knowledge questions gather evidence about the learner's starting point. Their answers guide planning rather than assigning a grade or diagnosis.
 
-After approving the course profile, learners may answer questions about what they already know. The questions gather evidence about the learner’s starting point. The result guides the plan; it is not a grade or a diagnosis.
+## Research, draft and review
 
-## From research to course plan
+Web and [video research](06-p-youtube-research.md) supply supporting material. Review can request targeted revisions to the plan before it is accepted. Document sources remain distinct from research results; topic-based lessons can use only sources returned by research. The reader presents saved sources as linked titles with notes.
 
-The workflow gathers relevant web and video research, drafts a lesson sequence, and checks coverage, lesson boundaries and prerequisites. If the review finds specific problems, generation revises the plan before saving it.
-
-Document-based courses keep the learner’s source material distinct from research results. In topic-based courses, lessons can use only sources returned by the research stage. The reader shows saved sources as linked titles with notes.
-
-The [lesson-generation page](02-p-lesson-gen.md) explains how the approved course context and sources carry into a lesson. Shared writing and review rules are described in [Prompt and generation contracts](../07-section-ai/02-p-prompt-engineering.md).
+The approved plan becomes context for [lesson generation](02-p-lesson-gen.md). Developers changing planning rules should follow the [shared instruction contracts](../07-section-ai/02-p-prompt-engineering.md).

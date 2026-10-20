@@ -151,24 +151,16 @@ changing timeout policy.
 
 Coverage requires Node 26 (any 26.x release), the major version pinned in `.node-version`. The command fails before Vitest if PATH resolves to another major. The preflight removes the previous LCOV first, so Sonar cannot consume stale coverage after that failure. Coverage uses the ordered Vitest projects in `apps/web/vitest.config.ts` and writes one combined LCOV report consumed by Sonar. Do not add another complete coverage pass to CI or raise test timeouts to hide local resource contention.
 
-After GitHub CI passes, run `bun run gate:full` once on the same final merge candidate, after
-implementation and review feedback are complete. A mid-cycle full gate is reserved for a large or
-high-risk batch, or for diagnosing a gate-specific finding. If later analyzable code changes
-invalidate the final result, use focused checks while iterating and run the full gate again only
-when the next merge candidate is ready. SonarQube remains a local-only merge gate and is
-intentionally not part of GitHub Actions. It
-is mandatory for pull requests that change analyzable application source (`apps/`, `packages/`, or
-analyzed tooling under `scripts/`), tests that change or establish behavioral contracts,
-source/build/dependency/security configuration that changes analyzed runtime behavior, or an
-explicit review or CI request. For a trivially scoped pull request limited to documentation,
-metadata, or workflow files, with no analyzable application-code or runtime-behavior change, clean
-CI and review, and no explicit Sonar request, the merge owner may skip the local scan only after
-recording that rationale. Diff size or file count alone never qualifies. A required Sonar scan that
-is skipped, failed, or unreachable blocks the merge. `gate:full` starts the local Sonar service
-through `bun run sonar:up`. If startup fails, diagnose that command before rerunning the gate.
-Triage every new Sonar bug, vulnerability, and security hotspot, and fix or explicitly resolve each
-new finding before merging.
-Use `bun run fix` to auto-fix lint and format issues.
+After GitHub CI passes, run `bun run gate:full` once on the same final merge candidate, after implementation and review feedback are complete. A mid-cycle full gate is reserved for a large or high-risk batch, or for diagnosing a gate-specific finding. If later analyzable code changes invalidate the final result, use focused checks while iterating and run the full gate again only when the next merge candidate is ready.
+
+GitHub Actions runs SonarQube Cloud on same-repository pull requests and main pushes. The local SonarQube merge gate is mandatory for pull requests that change analyzable application source (`apps/`, `packages/`, or analyzed tooling under `scripts/`), tests that change or establish behavioral contracts, source/build/dependency/security configuration that changes analyzed runtime behavior, or an explicit review or CI request.
+
+For a trivially scoped pull request limited to documentation, metadata, or workflow files, with no analyzable application-code or runtime-behavior change, clean CI and review, and no explicit Sonar request, the merge owner may skip the local scan only after recording that rationale. Diff size or file count alone never qualifies.
+
+A required Sonar scan that is skipped, failed, or unreachable blocks the merge. `gate:full` starts the local Sonar service through `bun run sonar:up`. If startup fails, diagnose that command before rerunning the gate.
+
+Triage every new Sonar bug, vulnerability, and security hotspot, and fix or explicitly resolve each new finding before merging. Use `bun run fix` to auto-fix lint and format issues.
+
 Do not claim validation passed unless it was actually run.
 
 ## Core Philosophy

@@ -1,32 +1,24 @@
 ---
-title: "Projects and Workspace"
+title: "Manage projects and backups"
 wiki_page_id: "p-project-workspace"
 ---
 
-# Projects and Workspace
+[Up one level](../05-section-frontend/01-p-reader-shell.md)
 
-A project brings a learner’s source material, course, lessons and study progress together. The library helps organize projects into folders and return to them later.
+# Manage projects and backups
 
-## Saving changes
+The library keeps courses and their study progress in projects. Use folders to group them and export a backup when you need a portable copy.
 
-Nous saves course changes and learner progress as the project changes. If two sessions edit the same project, the server checks the project revision before accepting a save. A conflict asks the client to reload or reconcile the latest version instead of silently replacing it.
+## Organize the library
 
-Some small changes, such as navigation or notes, can be saved without sending the entire project. If a save is still in progress, the app keeps subsequent changes pending and sends them after it finishes.
+Create, rename or move folders, then move projects into them. Deleting a folder moves its contents to the parent folder and keeps its projects.
 
-## Organizing projects
+Project changes save as you work. If another session has changed the same project, a revision conflict asks the client to reload or reconcile it rather than overwrite that version.
 
-Learners can create, rename and move folders, and move projects between folders. Deleting a folder moves its contents to the parent folder; it does not delete the projects.
+## Export and restore
 
-## Sources and files
+Export one project or the whole library. A library export prepares projects in sequence and records progress across a server restart. If a project changes during preparation, the attempt fails; retrying begins a fresh library snapshot.
 
-A project can use one or more uploaded files. ZIP sources can be browsed through an index of their files. Source files are stored separately from project details, and each uploaded source belongs to its project; matching files in different projects are stored separately.
+The browser can start the verified download. Check the downloaded file on your device when keeping a backup. Imports convert supported older archives and reconnect image and PDF references when their files are present; unmatched references remain available for review.
 
-Generated lesson images are also stored apart from lesson text. A workflow prepares a file before the project saves a reference to it. If the project save fails, the unused file can be cleaned up.
-
-## Import and export
-
-Learners can export one project or the full library. A library export prepares projects one at a time and records progress so it can continue after a server restart. If a project changes during preparation, the attempt fails; when the learner retries, Nous starts a new export with a fresh library snapshot.
-
-Imports convert older project archives to the current format. References to images and PDF pages are updated when the imported archive contains the corresponding files; unmatched references remain available for review.
-
-The browser can start a download after the server verifies an export, but it cannot confirm that the file was saved on the learner’s device. For file storage and restore details, see [Project files and storage](../04-section-data/02-p-asset-management.md).
+For the contents of a backup and file lifecycle, see [project files and storage](../04-section-data/02-p-asset-management.md). For answer and annotation changes during regeneration, see [exercise progress](08-p-interactive-exercises.md).

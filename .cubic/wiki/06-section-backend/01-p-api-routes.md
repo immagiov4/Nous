@@ -1,32 +1,26 @@
 ---
-title: "Backend API"
+title: "API route reference"
 wiki_page_id: "p-api-routes"
 ---
 
-# Backend API
+[Up one level](../02-section-architecture/01-p-architecture.md)
 
-The backend API connects the web app to saved project data, generation workflows and AI providers. Private requests require a signed-in account; administrator routes also check the administrator role. Health and status information is available for deployment checks.
+# API route reference
 
-## Request identity
+Find the matching handler in [backend routes](../../../apps/backend/src/routes/). Private requests require a verified account; administrator requests also require its role. [Authentication](02-p-auth.md) owns those checks.
 
-Each request has a request ID. The backend returns it in the response so support logs can be matched to the request. Error responses give the user a stable message while technical details stay in server diagnostics.
-
-## Main route groups
-
-| Route | Purpose |
+| Route | Responsibility |
 | --- | --- |
-| `/api/projects` | List, save, update and delete projects; manage source files and library exports. |
-| `/api/course-workflows` | Start and follow course generation. |
-| `/api/lesson-workflows` | Start and follow lesson generation. |
-| `/api/chat/context` | Ask questions using selected lesson, text or note context. |
-| `/api/feedback` | Submit a learner report for administrator review. |
-| `/api/admin` | Manage accounts, model settings and administrative reports. |
-| `/api/status` | Check service status for deployment and support. |
+| `/api/projects` | Projects, source files and library exports. |
+| `/api/course-workflows` | Course generation and its progress. |
+| `/api/lesson-workflows` | Lesson generation and its progress. |
+| `/api/chat/context` | Questions about selected lesson, text or note context. |
+| `/api/feedback` | Learner reports. |
+| `/api/admin` | Accounts, model settings and administrative reports. |
+| `/api/status` | Deployment and support status. |
 
-Project updates include a revision so the backend can reject a save based on stale data. Longer generation tasks return progress separately from the final course or lesson. See [Workflow engine](../02-section-architecture/02-p-workflow-engine.md).
+## Trace a response
 
-## Files and AI requests
+The backend returns a request ID to correlate the response with diagnostics. User-facing errors carry stable messages while technical details stay in server logs.
 
-The API accepts supported source files and keeps their bytes in storage. Project records contain references to those files; see [Project files and storage](../04-section-data/02-p-asset-management.md).
-
-Requests that need a provider use the configured server-side integration. Provider credentials are not sent to the browser. See [AI providers](../07-section-ai/01-p-ai-providers.md) for model selection and supported tools.
+Project updates supply a revision for stale-save detection. Long generation requests expose progress separately from the finished content through the [workflow engine](../02-section-architecture/02-p-workflow-engine.md). [File storage](../04-section-data/02-p-asset-management.md) and [provider configuration](../07-section-ai/01-p-ai-providers.md) own those request paths' supporting contracts.

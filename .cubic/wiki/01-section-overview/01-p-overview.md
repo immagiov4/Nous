@@ -1,22 +1,25 @@
 ---
-title: "Project Overview"
+title: "Create your first course"
 wiki_page_id: "p-overview"
 ---
 
-# Project Overview
+[Up one level](../index.md)
 
-Nous Reader turns a topic or uploaded source material into a structured course. Learners move through lessons in order, ask questions about what they read, listen to lesson content and complete exercises.
+# Create your first course
 
-## How the parts fit together
+Start with a subject you want to understand or a document you want to study. The result is a course plan whose lessons you can open in order.
 
-The web app presents the library and reader. A backend manages accounts, project data, source processing and longer generation tasks. PostgreSQL stores project information and learning progress; file storage holds uploaded documents and generated images.
+1. Sign in to your Nous installation and start a new course from the library.
+2. Enter a topic or attach your source material. Give Nous readable text; [source processing](../03-section-features/03-p-doc-processing.md) explains supported documents and extraction limits.
+3. Choose the course language, depth and lesson size, then approve the course profile. If offered, answer the questions about your starting knowledge.
+4. Review the resulting plan and open a ready lesson. Follow [Study a lesson](../05-section-frontend/01-p-reader-shell.md) to read, listen and ask questions.
 
-Shared contracts keep the web app and backend aligned on saved project data and lesson requirements. The [system architecture](../02-section-architecture/01-p-architecture.md) explains how those parts work together.
+## Getting access
 
-## A course from source to lesson
+The public page offers a waitlist and sign-in for existing users. For an installation you operate yourself, follow [local setup](../09-section-tools/01-p-local-setup.md) or the [deployment guide](../../../docs/DEPLOYMENT.md).
 
-Learners can start with a topic or upload documents. The app extracts useful text and builds a course plan. It then generates lessons, exercises and supporting visuals as needed.
+## What shapes the plan?
 
-A project keeps its course, lessons, settings and progress together. Learners can organize projects in their library and return to them later.
+Your goals, source material and answers guide lesson order. Account teaching preferences are copied into a new course; later account changes leave that course's settings in place. [Course generation](../03-section-features/01-p-course-gen.md) explains how research and review produce the plan.
 
-The [product manifesto](02-p-manifesto.md) describes the learning goals behind these features.
+Generated explanations need judgment when accuracy matters. Lessons provide sources you can follow, while [the teaching principles](02-p-manifesto.md) explain what their reviews assess.

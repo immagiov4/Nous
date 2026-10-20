@@ -1,34 +1,26 @@
 ---
-title: "Workflow Engine"
+title: "How saved workflows run"
 wiki_page_id: "p-workflow-engine"
 ---
 
-# Workflow Engine
+[Up one level](01-p-architecture.md)
 
-Nous uses PostgreSQL to keep track of long-running work such as course and lesson generation. A saved run records what work remains, what has finished, and what needs attention after a restart.
+# How saved workflows run
 
-## Starting work safely
+A run stores its remaining steps and completed results in PostgreSQL. Workers resume from that saved state after interruption, which lets the app report progress independently of the request that started the work.
 
-A request key identifies a caller’s request. If the same request arrives again, the system can return the existing run rather than start a duplicate. A separate deduplication key can connect callers to work that is already active.
+## Start and claim work
 
-Run creation saves the run and its initial work in one database transaction. A notification wakes workers after the transaction commits; the saved run remains the source of truth if a notification is missed.
+A request key lets a repeated request return its existing run. A separate deduplication key can connect callers to active work. Creation saves the run and its initial work in one transaction; a notification wakes workers after commit, while the saved record survives a missed notification.
 
-## Workers and retries
+Workers claim steps for a limited time. Each claim receives a newer token so an expired worker cannot overwrite a newer worker's result.
 
-Workers claim individual steps for a limited time. Each claim receives a newer token, so a worker whose lease has expired cannot overwrite the result from a newer worker.
+## Reuse completed results
 
-Completed provider results can be reused when the workflow saves them before continuing. If a process stops before saving a result, the provider call may happen again. Any repeated file writes must therefore be safe to repeat.
+A provider result can be reused after the workflow saves it. Interruption before that save can repeat the call, so file writes must be safe to repeat. Saved results are checked against their expected shape; changing that contract requires changing its result identity too.
 
-The workflow checks saved results against the expected data shape. When that shape changes, the workflow owner must also update the result’s identity so an older result cannot be mistaken for the new contract.
+## Change a running definition
 
-## Changes while work is saved
+A run retains its starting definition. It resumes only while that definition and its required providers remain registered. Removing either fails the active run. Definition checks compare saved structure; step behavior still requires review and tests.
 
-A run keeps the workflow definition it started with. It can continue after an update only while that definition remains registered as supported. Removing it, or removing a required provider, marks the active run as failed.
-
-Definition checks compare the saved workflow structure. They do not prove that the behavior inside every step stayed the same, so changes to step behavior still need review and relevant coverage.
-
-## Events and privacy
-
-The event history records run creation, claims, retries, waits, completion, failure, cancellation and recovery. Support views may show a correlation code and a brief, sanitized failure description.
-
-Workflow diagnostics exclude prompts, source material, provider payloads and credentials.
+To investigate a run, use [workflow events and usage](../06-section-backend/05-p-telemetry-usage.md). To change its learning steps, start with [course generation](../03-section-features/01-p-course-gen.md) or [lesson generation](../03-section-features/02-p-lesson-gen.md).

@@ -1,32 +1,22 @@
 ---
-title: "Database and Saved Data"
+title: "Where saved data lives"
 wiki_page_id: "p-database-schema"
 ---
 
-# Database and Saved Data
+[Up one level](../02-section-architecture/01-p-architecture.md)
 
-PostgreSQL stores account data, project details, learning plans, learner progress, workflow state and feedback. Supabase Storage holds uploaded source files and other binary content; database records point to those files.
+# Where saved data lives
 
-## Projects and the library
+PostgreSQL keeps accounts, projects, progress and workflow records. Supabase Storage keeps uploaded files and generated images; database records refer to their bytes.
 
-A project has an owner, a current revision and a saved snapshot. The snapshot contains the course, lessons and progress. A separate project record keeps the information needed to display and organize the library without loading the full course.
+## Projects and library
 
-The library stores folder structure and the position of each project. Projects and source files remain scoped to their owner.
+A project record has an owner, revision and snapshot containing its course, lessons and progress. Library records hold folder structure and project placement so the app can display the library without loading each full course.
 
-## Workflows and account settings
+Project revisions detect stale saves. Export records identify the project versions being prepared, allowing an export to reject a changed snapshot. [File storage](02-p-asset-management.md) owns adoption and cleanup of files; [curriculum validation](03-p-curriculum-contract.md) owns learning-plan identities.
 
-Long-running course and lesson tasks have saved workflow records, so the app can show progress and recover work after a restart. Workflow event records help explain what happened without storing prompts, source content or provider payloads.
+## Other records
 
-Account preferences hold language and teaching instructions for new work. Changing those preferences does not rewrite courses that have already been saved.
+Account preferences guide new work. Workflows persist runs, steps and diagnostic events; [the workflow engine](../02-section-architecture/02-p-workflow-engine.md) explains recovery. Feedback links administrator reports to GitHub issues, while [usage records](../06-section-backend/05-p-telemetry-usage.md) retain available provider measurements.
 
-## Feedback and usage
-
-Feedback reports are saved for administrators and can be linked to GitHub issues. Model usage records track reported tokens and costs when the provider supplies them; those records may not include every operation or form a complete invoice.
-
-## Consistency and access
-
-Project revisions help detect when two sessions try to save conflicting changes. Library exports record which project versions they contain so a changed project is not mistaken for the earlier export snapshot.
-
-Authenticated database clients are subject to database access policies. Backend requests also rely on server-side authentication and ownership checks. See [Authentication and access](../06-section-backend/02-p-auth.md) for how those boundaries work.
-
-For source files, generated images and backups, see [Project files and storage](02-p-asset-management.md).
+Use the [database migrations](../../../supabase/migrations/) for table definitions. [Authentication and access](../06-section-backend/02-p-auth.md) explains which layer enforces ownership.

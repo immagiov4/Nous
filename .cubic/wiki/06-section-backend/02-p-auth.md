@@ -1,28 +1,22 @@
 ---
-title: "Authentication and Access"
+title: "Authentication and project access"
 wiki_page_id: "p-auth"
 ---
 
-# Authentication and Access
+[Up one level](../02-section-architecture/01-p-architecture.md)
 
-Supabase Auth identifies learners and administrators. The backend checks the session before serving private requests and uses the signed-in account to decide which projects a learner may access.
+# Authentication and project access
 
-## Sign-in modes
+Supabase Auth identifies the account. The backend validates its session and checks ownership before reading or changing private project data.
 
-Production uses Supabase sessions. Local development can use a restricted authentication bypass, and automated tests provide their own test identity. The bypass is intended for local and test environments.
+## Session and role checks
 
-The backend validates session tokens before trusting their account and role information. Invited users who still need to set a password must complete that step before using protected features.
+Production uses Supabase sessions. The frontend refreshes sessions when needed and requests sign-in if refresh fails. Invited users complete password setup before using protected features. Administrator routes also check the verified role.
 
-## Project access
+Local development can use the restricted bypass described in [local setup](../09-section-tools/01-p-local-setup.md). Automated tests supply their own identity.
 
-The backend checks project ownership when it reads or changes a project. Database row-level security also applies to authenticated clients that connect directly to Supabase.
+## Database access
 
-Backend database requests use a privileged connection, so they rely on the backend’s own authentication and ownership checks. Row-level security does not replace those checks.
+Authenticated clients connecting directly to Supabase are subject to row-level security. The backend uses a privileged database connection, so its own account and ownership checks are authoritative for backend requests.
 
-Administrators receive additional account and configuration access through their verified role. See [Admin area](../05-section-frontend/03-p-admin-ui.md) for the available controls.
-
-## Sessions and account preferences
-
-The web app refreshes a Supabase session when needed and prompts the learner to sign in again if refresh fails.
-
-Account preferences can store the learner’s interface language, preferred AI language and teaching instructions. New course work reads those preferences, while existing courses keep the settings they were created with.
+Trace those checks in [backend routes](../../../apps/backend/src/routes/) before changing an access path. [Admin controls](../05-section-frontend/03-p-admin-ui.md) describe the additional operations available to administrators.

@@ -47,87 +47,41 @@ sh deploy/nous.sh config
 
 ### In-app feedback delivery
 
-This integration is optional: leave both GitHub settings empty to keep reports only in the private
-admin inbox. To enable it, set `GITHUB_FEEDBACK_REPOSITORY` to the destination in
-`owner/repository` form and keep `GITHUB_FEEDBACK_TOKEN` only in `.env.production`. Use a
-fine-grained token restricted to that repository with Issues read/write permission. Compose passes both values only to the backend;
-screenshots remain in the private database and are never published as public assets.
-The destination repository must contain the `source:user-feedback` and `triage:unreviewed`
-labels; Nous also applies the standard `bug` or `enhancement` label selected by the user.
-The backend mirrors every repository issue (excluding pull requests) on startup and then every
-five minutes. Admins can also trigger the same paginated synchronization from Reports; GitHub
-remains authoritative for issue title, body, labels, and open/closed state. Reports whose issue is
-absent from a complete mirror are marked as missing without discarding their private diagnostics;
-GitHub-only rows are removed only after two consecutive complete mirrors.
+This integration is optional: leave both GitHub settings empty to keep reports only in the private admin inbox. To enable it, set `GITHUB_FEEDBACK_REPOSITORY` to the destination in `owner/repository` form and keep `GITHUB_FEEDBACK_TOKEN` only in `.env.production`. Use a fine-grained token restricted to that repository with Issues read/write permission. Compose passes both values only to the backend; screenshots remain in the private database and are never published as public assets. The destination repository must contain the `source:user-feedback` and `triage:unreviewed` labels; Nous also applies the standard `bug` or `enhancement` label selected by the user. The backend mirrors every repository issue (excluding pull requests) on startup and then every five minutes. Admins can also trigger the same paginated synchronization from Reports; GitHub remains authoritative for issue title, body, labels, and open/closed state. Reports whose issue is absent from a complete mirror are marked as missing without discarding their private diagnostics; GitHub-only rows are removed only after two consecutive complete mirrors.
 
 ### Timestamped YouTube demonstrations
 
-Timestamped practical segments are enabled automatically whenever Decodo is configured. Nous uses
-the official privacy-enhanced YouTube player with bounded `start`/`end` parameters; it does not
-download, trim, or rehost videos. The player is mounted only after the learner presses Play.
+Timestamped practical segments are enabled automatically whenever Decodo is configured. Nous uses the official privacy-enhanced YouTube player with bounded `start`/`end` parameters; it does not download, trim, or rehost videos. The player is mounted only after the learner presses Play.
 
-YouTube often blocks direct transcript requests from datacenter IPs. For a VPS, configure Decodo's
-YouTube Search and YouTube Subtitles targets. Candidate discovery and transcript retrieval use
-Decodo exclusively. The backend sends one search request followed by at most six subtitle requests,
-one per selected video. Each subtitle response contains all available languages and subtitle
-origins, which are selected and compacted locally. At most two playlist results and four preview
-videos per playlist are considered:
+YouTube often blocks direct transcript requests from datacenter IPs. For a VPS, configure Decodo's YouTube Search and YouTube Subtitles targets. Candidate discovery and transcript retrieval use Decodo exclusively. The backend sends one search request followed by at most six subtitle requests, one per selected video. Each subtitle response contains all available languages and subtitle origins, which are selected and compacted locally. At most two playlist results and four preview videos per playlist are considered:
 
 ```dotenv
 DECODO_SCRAPING_API_KEY=replace_with_decodo_api_key
 ```
 
-Keep the key only in `.env.production`; Compose passes it to the backend and never includes it in
-the frontend or image. Successful transcripts are cached for six hours, including concurrent
-requests for the same video. Failed lookups are cached for 15 minutes.
+Keep the key only in `.env.production`; Compose passes it to the backend and never includes it in the frontend or image. Successful transcripts are cached for six hours, including concurrent requests for the same video. Failed lookups are cached for 15 minutes.
 
 ### Per-machine backup import capacity
 
-Backup import limits are startup configuration, not account or installation limits. The defaults
-allow two simultaneous uploads on a small VPS, while one finalization at a time performs the
-memory-heavy JSON parse and database import. A redeploy applies changed values.
+Backup import limits are startup configuration, not account or installation limits. The defaults allow two simultaneous uploads on a small VPS, while one finalization at a time performs the memory-heavy JSON parse and database import. A redeploy applies changed values.
 
-The browser reads the public transfer limits from `/api/projects/config`, splits serialized project
-data into UTF-8 `text/plain` chunks, unzips full-library backups locally, and sends projects one at a
-time. The server still validates byte counts, session ownership, chunk order, archive contents, and
-database writes. The 16 MB default chunk stays well below common reverse-proxy request limits while
-avoiding the request count produced by the former 4-million-character chunks.
+The browser reads the public transfer limits from `/api/projects/config`, splits serialized project data into UTF-8 `text/plain` chunks, unzips full-library backups locally, and sends projects one at a time. The server still validates byte counts, session ownership, chunk order, archive contents, and database writes. The 16 MB default chunk stays below common reverse-proxy request limits and limits the number of upload requests.
 
 Tune these groups together in `.env.production`:
 
-- Container budget: `NOUS_BACKEND_MEMORY_LIMIT`, `NOUS_BACKEND_CPU_LIMIT`, and
-  `NOUS_BACKEND_TMPFS_SIZE`. Temporary storage must cover active chunk sets and one assembled copy;
-  the supplied two-upload configuration uses a 1 GB tmpfs.
-- Active work: `PROJECT_IMPORT_ACTIVE_UPLOADS_GLOBAL`,
-  `PROJECT_IMPORT_ACTIVE_UPLOADS_PER_USER`, and `PROJECT_IMPORT_FINALIZATIONS_GLOBAL`.
-- In-flight HTTP bodies: `PROJECT_IMPORT_REQUESTS_GLOBAL` and
-  `PROJECT_IMPORT_REQUESTS_PER_USER`. These limit concurrent chunk requests, not active sessions.
-- Transfer shape: `PROJECT_IMPORT_DIRECT_MAX_BYTES`, `PROJECT_IMPORT_MAX_CHUNK_BYTES`,
-  `PROJECT_IMPORT_MAX_CHUNK_COUNT`, and `PROJECT_IMPORT_MAX_SERIALIZED_BYTES`.
-- Lifecycle: `PROJECT_IMPORT_REQUEST_TIMEOUT_MS`, `PROJECT_IMPORT_RECEIVING_TTL_MS`,
-  `PROJECT_IMPORT_COMPLETED_TTL_MS`, and `PROJECT_IMPORT_CLEANUP_INTERVAL_MS`.
+- Container budget: `NOUS_BACKEND_MEMORY_LIMIT`, `NOUS_BACKEND_CPU_LIMIT`, and `NOUS_BACKEND_TMPFS_SIZE`. Temporary storage must cover active chunk sets and one assembled copy; the supplied two-upload configuration uses a 1 GB tmpfs.
+- Active work: `PROJECT_IMPORT_ACTIVE_UPLOADS_GLOBAL`, `PROJECT_IMPORT_ACTIVE_UPLOADS_PER_USER`, and `PROJECT_IMPORT_FINALIZATIONS_GLOBAL`.
+- In-flight HTTP bodies: `PROJECT_IMPORT_REQUESTS_GLOBAL` and `PROJECT_IMPORT_REQUESTS_PER_USER`. These limit concurrent chunk requests, not active sessions.
+- Transfer shape: `PROJECT_IMPORT_DIRECT_MAX_BYTES`, `PROJECT_IMPORT_MAX_CHUNK_BYTES`, `PROJECT_IMPORT_MAX_CHUNK_COUNT`, and `PROJECT_IMPORT_MAX_SERIALIZED_BYTES`.
+- Lifecycle: `PROJECT_IMPORT_REQUEST_TIMEOUT_MS`, `PROJECT_IMPORT_RECEIVING_TTL_MS`, `PROJECT_IMPORT_COMPLETED_TTL_MS`, and `PROJECT_IMPORT_CLEANUP_INTERVAL_MS`.
 
-The backend fails at startup when per-user limits exceed global limits, chunk capacity cannot cover
-the maximum serialized backup, finalization concurrency exceeds active uploads, or cleanup runs less
-often than the receiving-session TTL. The current in-memory admission/session registry assumes the
-validated single backend replica in `compose.yml`; multiple backend replicas require shared session
-coordination before scaling horizontally.
+The backend fails at startup when per-user limits exceed global limits, chunk capacity cannot cover the maximum serialized backup, finalization concurrency exceeds active uploads, or cleanup runs less often than the receiving-session TTL. The current in-memory admission/session registry assumes the validated single backend replica in `compose.yml`; multiple backend replicas require shared session coordination before scaling horizontally.
 
 ### Durable full-library export workspace
 
-Full-library exports use the backend-owned `library-exports` named volume mounted at
-`/var/lib/nous/library-exports`. Project archives, completed checkpoints, and the final archive
-therefore survive a backend restart or container recreation and do not compete with the 1 GB `/tmp`
-filesystem used by backup imports. Compose `down` and normal redeployment preserve this volume;
-successful downloads and cancelled runs remove their own workspace after recording durable cleanup
-state. Do not use `down -v` during normal operations because that would remove resumable export
-files while their PostgreSQL run records remain.
+Full-library exports use the backend-owned `library-exports` named volume mounted at `/var/lib/nous/library-exports`. Project archives, completed checkpoints, and the final archive therefore survive a backend restart or container recreation and do not compete with the 1 GB `/tmp` filesystem used by backup imports. Compose `down` and normal redeployment preserve this volume; successful downloads and cancelled runs remove their own workspace after recording durable cleanup state. Do not use `down -v` during normal operations because that would remove resumable export files while their PostgreSQL run records remain.
 
-The single backend process admits export preparations in FIFO order. The default capacity is one,
-including explicit retries and runs recovered at startup. Waiting runs remain `running` in the
-`preparing` phase, without retaining hydrated project sources in the admission queue. This capacity
-is configurable and provisional for the default 2 GiB backend; it is not a guarantee under every
-application load or a limit on request frequency or the number of waiting users.
+The single backend process admits export preparations in FIFO order. The default capacity is one, including explicit retries and runs recovered at startup. Waiting runs remain `running` in the `preparing` phase, without retaining hydrated project sources in the admission queue. This capacity is configurable and provisional for the default 2 GiB backend; it is not a guarantee under every application load or a limit on request frequency or the number of waiting users.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -135,47 +89,17 @@ application load or a limit on request frequency or the number of waiting users.
 | `LIBRARY_EXPORT_RETENTION_MS` | `86400000` | Retention after completion or failure, 24 hours |
 | `LIBRARY_EXPORT_CLEANUP_INTERVAL_MS` | `900000` | Periodic cleanup interval, 15 minutes |
 
-Set overrides in the deployment environment and recreate the backend to apply them. Empty settings
-use these defaults; invalid positive-integer settings fail startup. The cleanup interval must not
-exceed `2147483647` ms, the runtime timer limit; retention must produce a valid expiration date.
-Completed runs age from
-`completed_at`, failed runs from their failure transition's `updated_at`. Reading progress or issuing
-a download token does not extend retention. Cleanup runs at startup and periodically without overlapping
-passes. Expired terminal runs become `cancelled` with reason `LIBRARY_EXPORT_RETENTION_EXPIRED`, revoke
-their token, and release their workspace. Cleanup errors remain pending in PostgreSQL for another pass.
-A new export request replaces an expired run with a fresh library snapshot; a nonexpired failed run
-retains the existing identity-checked retry behavior.
+Set overrides in the deployment environment and recreate the backend to apply them. Empty settings use these defaults; invalid positive-integer settings fail startup. The cleanup interval must not exceed `2147483647` ms, the runtime timer limit; retention must produce a valid expiration date. Completed runs age from `completed_at`, failed runs from their failure transition's `updated_at`. Reading progress or issuing a download token does not extend retention. Cleanup runs at startup and periodically without overlapping passes. Expired terminal runs become `cancelled` with reason `LIBRARY_EXPORT_RETENTION_EXPIRED`, revoke their token, and release their workspace. Cleanup errors remain pending in PostgreSQL for another pass. A new export request replaces an expired run with a fresh library snapshot; a nonexpired failed run retains the existing identity-checked retry behavior.
 
-Running and queued preparations are excluded from expiry. A download admitted before expiry can
-finish, including overlapping responses for the same archive. Files remain until the last reader
-releases them, on success, error, or disconnection. New tokens and downloads are refused after expiry.
-Admission and active-reader coordination are process-local; do not add replicas sharing this export
-volume without shared coordination. Source objects are never removed by export cleanup.
+Running and queued preparations are excluded from expiry. A download admitted before expiry can finish, including overlapping responses for the same archive. Files remain until the last reader releases them, on success, error, or disconnection. New tokens and downloads are refused after expiry. Admission and active-reader coordination are process-local; do not add replicas sharing this export volume without shared coordination. Source objects are never removed by export cleanup.
 
-The authoritative defaults are in [libraryExportConfig.ts](../apps/backend/src/projects/libraryExportConfig.ts).
-Every issued one-use ticket is persisted separately. After a successful download, previously issued
-tickets remain valid until the archive's original retention deadline, but no new tickets are issued.
-Files remain while valid unclaimed tickets or active readers exist; abandoned tickets expire at the
-same deadline without extending retention. The additive ticket migration transfers any prior
-outstanding hash and retains its historical column unused by the new backend. Apply migrations before
-starting the new backend; do not run mixed backend versions against the shared export volume.
+The authoritative defaults are in [libraryExportConfig.ts](../apps/backend/src/projects/libraryExportConfig.ts). Every issued one-use ticket is persisted separately. After a successful download, issued tickets remain valid until the archive's original retention deadline, but no new tickets are issued. Files remain while valid unclaimed tickets or active readers exist; abandoned tickets expire at the same deadline without extending retention. Apply migrations before starting the backend; do not run mixed backend versions against the shared export volume.
 
-Shutdown stops accepting new HTTP connections first, aborts export work at asynchronous boundaries,
-and interrupts local archive streams without waiting for an entire remote read or cleanup pass.
-Already persisted project checkpoints and pending cleanup records remain recoverable after restart.
-The browser confirms only that it submitted the native download request: it cannot observe the
-cross-origin file response or confirm that a file reached the user's download directory.
+Shutdown stops accepting new HTTP connections first, aborts export work at asynchronous boundaries, and interrupts local archive streams without waiting for an entire remote read or cleanup pass. Already persisted project checkpoints and pending cleanup records remain recoverable after restart. The browser confirms only that it submitted the native download request: it cannot observe the cross-origin file response or confirm that a file reached the user's download directory.
 
-Migration `20260904033000_add_library_export_project_revisions.sql` adds a non-null UUID with a
-volatile default to `projects`, requiring a table rewrite and an exclusive lock. The deployment
-command applies migrations before recreating the backend, so assess the table size and arrange an
-appropriate maintenance window before applying this migration to a populated installation. No lock
-duration has been measured for production; the isolated verification does not establish one.
+Migration `20260904033000_add_library_export_project_revisions.sql` adds a non-null UUID with a volatile default to `projects`, requiring a table rewrite and an exclusive lock. The deployment command applies migrations before recreating the backend, so assess the table size and arrange an appropriate maintenance window before applying this migration to a populated installation. No lock duration has been measured for production; the isolated verification does not establish one.
 
-Project-source creation uses the authenticated `/api/projects` write path, whose JSON body limit is
-300 MB so a 128 MB ZIP plus transport encoding and project metadata fits. The public reverse proxy
-in front of `NOUS_BACKEND_PUBLIC_URL` must allow at least the same request size and a timeout suitable
-  for the Storage upload and archive indexing pass. The archive's expanded-content limits are separate from the request limit. See [Project Files and Storage](../.cubic/wiki/04-section-data/02-p-asset-management.md#uploaded-sources) for details about uploaded files and archive indexing.
+Project-source creation uses the authenticated `/api/projects` write path, whose JSON body limit is 300 MB so a 128 MB ZIP plus transport encoding and project metadata fits. The public reverse proxy in front of `NOUS_BACKEND_PUBLIC_URL` must allow at least the same request size and a timeout suitable for the Storage upload and archive indexing pass. The archive's expanded-content limits are separate from the request limit. See [Project Files and Storage](../.cubic/wiki/04-section-data/02-p-asset-management.md#sources-and-generated-images) for details about uploaded files and archive indexing.
 
 ### Managed profile
 
@@ -308,33 +232,13 @@ The command creates or promotes that Supabase user through the Admin API and pre
 
 ## Auth email with Resend
 
-The admin email action checks Supabase Auth before sending: a new address receives an invitation,
-an existing account that still requires setup receives a recovery link, and a completed account
-receives a passwordless sign-in link that does not reset its password.
-The login screen also uses Supabase Auth's native recovery endpoint. Nous does not call Resend
-directly and needs no Resend secret in `.env.production`: SMTP credentials belong to the managed
-Supabase project or the ignored self-hosted Supabase env.
+The admin email action checks Supabase Auth before sending: a new address receives an invitation, an existing account that still requires setup receives a recovery link, and a completed account receives a passwordless sign-in link that does not reset its password. The login screen also uses Supabase Auth's native recovery endpoint. Nous does not call Resend directly and needs no Resend secret in `.env.production`: SMTP credentials belong to the managed Supabase project or the ignored self-hosted Supabase env.
 
-New invited users are created through the Admin API with the server-owned app metadata marker
-`password_setup_required=true` before Nous requests their setup email. If email delivery fails,
-Nous deletes that new account. The marker is present in the callback JWT and the backend rejects
-every normal protected route while it remains set. Only `PUT /api/auth/password-setup` accepts that
-pending session; it sets the password and removes the marker in one Supabase Admin update, after
-which the browser immediately performs a password grant with the chosen credentials before opening
-the application. This explicit grant is required because the Admin password update invalidates the
-original callback refresh token. A later recovery or Magic Link cannot bypass this gate. Recovery
-for an already completed account stays on Supabase's user-scoped password endpoint.
+New invited users are created through the Admin API with the server-owned app metadata marker `password_setup_required=true` before Nous requests their setup email. If email delivery fails, Nous deletes that new account. The marker is present in the callback JWT and the backend rejects every normal protected route while it remains set. Only `PUT /api/auth/password-setup` accepts that pending session; it sets the password and removes the marker in one Supabase Admin update, after which the browser immediately performs a password grant with the chosen credentials before opening the application. This explicit grant is required because the Admin password update invalidates the original callback refresh token. A later recovery or Magic Link cannot bypass this gate. Recovery for an already completed account stays on Supabase's user-scoped password endpoint.
 
-Setup and recovery callbacks return with `type=magiclink` or `type=recovery`, and all email links
-return to the application root. The server-owned marker, not the callback type, decides whether
-password setup is required. Public signup stays disabled. Public Magic Link requests use
-`create_user: false`. Expected account-absence responses keep the same account-neutral
-confirmation; rate limits, provider failures, and network failures show a stable retryable error.
-Provider status and safe error codes may be logged, but raw provider messages are never rendered.
+Setup and recovery callbacks return with `type=magiclink` or `type=recovery`, and all email links return to the application root. The server-owned marker, not the callback type, decides whether password setup is required. Public signup stays disabled. Public Magic Link requests use `create_user: false`. Expected account-absence responses keep the same account-neutral confirmation; rate limits, provider failures, and network failures show a stable retryable error. Provider status and safe error codes may be logged, but raw provider messages are never rendered.
 
-During password completion, a final `401` clears the local session and returns to login with the
-expired-link message. Only provider code `weak_password` produces weak-password guidance; other
-`422` responses, provider `5xx`, and network failures keep the gate open and allow retry.
+During password completion, a final `401` clears the local session and returns to login with the expired-link message. Only provider code `weak_password` produces weak-password guidance; other `422` responses, provider `5xx`, and network failures keep the gate open and allow retry.
 
 Use a dedicated sending subdomain and sender:
 
@@ -343,11 +247,7 @@ domain: auth.<domain>
 sender: Nous <no-reply@auth.<domain>>
 ```
 
-The sender does not need to be a mailbox. In Resend, add `auth.<domain>`, then copy its SPF and DKIM
-records exactly into the authoritative DNS zone. Add a DMARC record for the sending subdomain,
-starting with a monitoring policy before tightening it. Keep every mail record DNS-only in
-Cloudflare. Disable Resend click tracking for this domain because rewriting a one-time sign-in URL
-can invalidate or pre-consume it; open tracking is unnecessary for authentication mail too.
+The sender does not need to be a mailbox. In Resend, add `auth.<domain>`, then copy its SPF and DKIM records exactly into the authoritative DNS zone. Add a DMARC record for the sending subdomain, starting with a monitoring policy before tightening it. Keep every mail record DNS-only in Cloudflare. Disable Resend click tracking for this domain because rewriting a one-time sign-in URL can invalidate or pre-consume it; open tracking is unnecessary for authentication mail too.
 
 Create a Resend API key dedicated to this deployment. Resend's SMTP settings are:
 
@@ -358,39 +258,30 @@ username: resend
 password: <dedicated Resend API key>
 ```
 
-See the official [Supabase custom SMTP guide](https://supabase.com/docs/guides/auth/auth-smtp),
-[Resend SMTP settings](https://resend.com/docs/send-with-smtp), and
-[Resend domain verification](https://resend.com/docs/dashboard/domains/introduction).
+See the official [Supabase custom SMTP guide](https://supabase.com/docs/guides/auth/auth-smtp), [Resend SMTP settings](https://resend.com/docs/send-with-smtp), and [Resend domain verification](https://resend.com/docs/dashboard/domains/introduction).
 
 ### Supabase CLI local stack
 
-The checked-in `supabase/config.toml` sends local Auth email through Resend on port 587 with sender
-`Nous <no-reply@auth.giovbox.com>`. Put the dedicated Resend API key in ignored `.env.local`:
+The checked-in `supabase/config.toml` sends local Auth email through Resend on port 587 with sender `Nous <no-reply@auth.giovbox.com>`. Put the dedicated Resend API key in ignored `.env.local`:
 
 ```dotenv
 SUPABASE_AUTH_SMTP_PASS=<dedicated Resend API key>
 ```
 
-`bunx` loads `.env.local` through Bun and passes the value to the CLI; `config.toml` only contains
-`env(SUPABASE_AUTH_SMTP_PASS)`. Restart the local stack after changing SMTP configuration or the
-key:
+`bunx` loads `.env.local` through Bun and passes the value to the CLI; `config.toml` only contains `env(SUPABASE_AUTH_SMTP_PASS)`. Restart the local stack after changing SMTP configuration or the key:
 
 ```bash
 bunx supabase stop
 bunx supabase start
 ```
 
-This replaces Mailpit delivery for Auth messages in the local stack. To include the real SMTP case
-in the local integration suite, opt in with an inbox you control:
+This replaces Mailpit delivery for Auth messages in the local stack. To include the real SMTP case in the local integration suite, opt in with an inbox you control:
 
 ```dotenv
 SUPABASE_MAGIC_LINK_TEST_EMAIL=<real test inbox>
 ```
 
-Then run `bun run test:supabase-local` and verify the message in that inbox and in Resend logs. When
-the recipient variable is absent, the external-email case is skipped so routine tests never send
-mail. The Supabase CLI requires a stop/start, not only an application restart, to apply changes to
-`[auth.email.smtp]`.
+Then run `bun run test:supabase-local` and verify the message in that inbox and in Resend logs. When the recipient variable is absent, the external-email case is skipped so routine tests never send mail. The Supabase CLI requires a stop/start, not only an application restart, to apply changes to `[auth.email.smtp]`.
 
 ### Managed Supabase
 
@@ -398,17 +289,12 @@ In the project's Auth settings:
 
 1. enable custom SMTP and enter the Resend values above;
 2. set the sender name to `Nous` and sender email to `no-reply@auth.<domain>`;
-3. set Site URL to the exact production `NOUS_PUBLIC_URL` and allow only the controlled preview or
-   staging redirects that are actually used;
-4. keep the initial Auth email rate limit at 30 messages per hour unless measured use requires a
-   deliberate change.
+3. set Site URL to the exact production `NOUS_PUBLIC_URL` and allow only the controlled preview or staging redirects that are actually used;
+4. keep the initial Auth email rate limit at 30 messages per hour unless measured use requires a deliberate change.
 
-Admin invitation and access emails use the Auth Site URL, while browser-requested Magic Link and
-password recovery explicitly return to its root. Do not use a localhost Site URL in production,
-and keep that root in the redirect allow list.
+Admin invitation and access emails use the Auth Site URL, while browser-requested Magic Link and password recovery explicitly return to its root. Do not use a localhost Site URL in production, and keep that root in the redirect allow list.
 
-The repository owns the email templates under `supabase/templates/`. Check and apply them to a
-managed project without storing the management token:
+The repository owns the email templates under `supabase/templates/`. Check and apply them to a managed project without storing the management token:
 
 ```bash
 SUPABASE_ACCESS_TOKEN=<personal management token> \
@@ -420,14 +306,11 @@ SUPABASE_PROJECT_REF=<project ref> \
   bun run supabase:templates:sync
 ```
 
-The invitation, sign-in, and recovery templates use the public Nous PNG icon at
-`https://nous.giovbox.com/icons/nous-app-icon-192.png`. Keep that URL publicly readable or replace
-it in all three templates before syncing.
+The invitation, sign-in, and recovery templates use the public Nous PNG icon at `https://nous.giovbox.com/icons/nous-app-icon-192.png`. Keep that URL publicly readable or replace it in all three templates before syncing.
 
 ### Self-hosted Supabase on the VPS
 
-Run `setup` once so the pinned official bundle creates the ignored
-`deploy/supabase-project/.env`. Put the Resend credentials only in that file:
+Run `setup` once so the pinned official bundle creates the ignored `deploy/supabase-project/.env`. Put the Resend credentials only in that file:
 
 ```dotenv
 SMTP_ADMIN_EMAIL=no-reply@auth.<domain>
@@ -438,15 +321,9 @@ SMTP_PASS=<dedicated Resend API key>
 SMTP_SENDER_NAME=Nous
 ```
 
-The self-hosted Compose override starts an internal, read-only `email-templates` service from the
-repository's `supabase/templates/` directory. Supabase Auth waits for that service to become healthy
-and uses it for the confirmation, invitation, Magic Link, and recovery HTML and subjects. Template
-reloading is enabled, so a deployed template-file update is used by the next email without exposing
-the files publicly.
+The self-hosted Compose override starts an internal, read-only `email-templates` service from the repository's `supabase/templates/` directory. Supabase Auth waits for that service to become healthy and uses it for the confirmation, invitation, Magic Link, and recovery HTML and subjects. Template reloading is enabled, so a deployed template-file update is used by the next email without exposing the files publicly.
 
-`setup` derives `SITE_URL` and `ADDITIONAL_REDIRECT_URLS` from `NOUS_PUBLIC_URL` and writes
-`DISABLE_SIGNUP=true` into the official Supabase env. Re-run `setup` after upgrading an older
-deployment, then recreate Auth after changing Auth or SMTP values:
+`setup` derives `SITE_URL` and `ADDITIONAL_REDIRECT_URLS` from `NOUS_PUBLIC_URL` and writes `DISABLE_SIGNUP=true` into the official Supabase env. Re-run `setup` after upgrading an older deployment, then recreate Auth after changing Auth or SMTP values:
 
 ```bash
 docker compose --project-name nous-reader-supabase \
@@ -466,31 +343,23 @@ docker compose --project-name nous-reader-supabase \
   up -d --force-recreate email-templates auth
 ```
 
-Supabase Auth retains its own per-recipient email cooldown. The admin UI disables duplicate sends
-while an invitation or access email is pending. Do not add a second SMTP client or copy
-`SMTP_PASS` into the Nous application env.
+Supabase Auth retains its own per-recipient email cooldown. The admin UI disables duplicate sends while an invitation or access email is pending. Do not add a second SMTP client or copy `SMTP_PASS` into the Nous application env.
 
 ### Delivery and sign-in proof
 
 Use a real test address on a disposable user, not a Resend synthetic bounce address:
 
 1. sign in as an admin and enter a new disposable address in `Invita o invia accesso`;
-2. confirm that the UI names the destination and Resend records `Delivered` rather than only
-   `Sent`;
+2. confirm that the UI names the destination and Resend records `Delivered` rather than only `Sent`;
 3. inspect the received headers for SPF, DKIM, and DMARC pass results;
-4. open the invitation in a private browser session and confirm Nous requires matching password
-   fields before it renders the application;
+4. open the invitation in a private browser session and confirm Nous requires matching password fields before it renders the application;
 5. open the same link again and confirm the one-time token is rejected;
-6. send the same address again and confirm it now receives an access-only email and opens Nous
-   without changing that password;
+6. send the same address again and confirm it now receives an access-only email and opens Nous without changing that password;
 7. sign out, use `Password dimenticata?`, and confirm the recovery link requires a new password;
 8. submit an unknown address and confirm the UI remains generic and Auth creates no user;
 9. check Supabase Auth logs and Nous backend logs if any request fails.
 
-With `SUPABASE_MAGIC_LINK_TEST_EMAIL` configured, `bun run test:supabase-local` exercises the same
-admin endpoint against local Supabase and verifies that its configured SMTP server accepts the
-message. The external inbox, DNS authentication, redirect, and one-time-link checks above remain
-the delivery proof.
+With `SUPABASE_MAGIC_LINK_TEST_EMAIL` configured, `bun run test:supabase-local` exercises the same admin endpoint against local Supabase and verifies that its configured SMTP server accepts the message. The external inbox, DNS authentication, redirect, and one-time-link checks above remain the delivery proof.
 
 ## Backup, restore, and proof
 
@@ -505,17 +374,7 @@ The command writes two adjacent files under ignored `deploy/backups/`:
 - `nous-<UTC timestamp>.dump`
 - `nous-<UTC timestamp>.project-sources.tar`
 
-The dump intentionally excludes the Supabase-owned `storage` schema; Storage metadata is not the
-object payload and must not be restored as application data. The separate archive contains one
-manifest entry for every distinct `object_path` referenced by `project_sources`,
-`project_source_files`, and file rows in `project_source_entries`, and no unreferenced payloads. Each
-entry records its expected SHA-256 and byte size. Downloads are streamed to temporary files,
-verified, packed, extracted once, and verified again before the two final files are published. The
-manifest also records the dump SHA-256, so an archive from another backup cannot be paired
-accidentally. A corrupt, incomplete, changed, or mismatched object fails the command. These integrity
-checks are not a restore proof.
-Run the command while application writes are quiesced so the database dump and the immediately
-derived Storage manifest describe the same application state.
+The dump intentionally excludes the Supabase-owned `storage` schema; Storage metadata is not the object payload and must not be restored as application data. The separate archive contains one manifest entry for every distinct `object_path` referenced by `project_sources`, `project_source_files`, and file rows in `project_source_entries`, and no unreferenced payloads. Each entry records its expected SHA-256 and byte size. Downloads are streamed to temporary files, verified, packed, extracted once, and verified again before the two final files are published. The manifest also records the dump SHA-256, so an archive from another backup cannot be paired accidentally. A corrupt, incomplete, changed, or mismatched object fails the command. These integrity checks are not a restore proof. Run the command while application writes are quiesced so the database dump and the immediately derived Storage manifest describe the same application state.
 
 For the required restore proof, use a disposable database or protected staging project:
 
@@ -541,37 +400,21 @@ deploy/nous.ps1 restore `
   deploy/backups/<backup>.project-sources.tar
 ```
 
-Restore parses the dump and fully verifies the Storage archive before changing the database. It then
-restores the database in one transaction and compares its complete project-source reference set with
-the manifest before uploading any object. Existing objects are accepted only when their streamed
-SHA-256 and byte size match; missing objects are uploaded with overwrite disabled and read back for
-verification. A mismatch, missing payload, extra payload, changed DB reference, failed upload, or
-failed read-back stops the restore. The command never overwrites a different existing object and
-never reconstructs an object from legacy concatenated source text.
+Restore parses the dump and fully verifies the Storage archive before changing the database. It then restores the database in one transaction and compares its complete project-source reference set with the manifest before uploading any object. Existing objects are accepted only when their streamed SHA-256 and byte size match; missing objects are uploaded with overwrite disabled and read back for verification. A mismatch, missing payload, extra payload, changed DB reference, failed upload, or failed read-back stops the restore. The command never overwrites a different existing object and never reconstructs an object from legacy concatenated source text.
 
-If the object phase fails after the database transaction succeeds, treat the target as an incomplete
-restore: keep it unavailable, correct the Storage/configuration fault, and rerun the same restore
-pair. The idempotent object rules safely accept bytes already restored by the first attempt.
+If the object phase fails after the database transaction succeeds, treat the target as an incomplete restore: keep it unavailable, correct the Storage/configuration fault, and rerun the same restore pair. The idempotent object rules safely accept bytes already restored by the first attempt.
 
-Record the UTC date, source deployment, both file checksums, target database and Supabase
-identifiers, restore exit status, `smoke`, and `contract` results in the operator's incident/backup
-log. Store both backup files together off-host. Never prove restoration against the only production
-database or its `project-sources` bucket.
+Record the UTC date, source deployment, both file checksums, target database and Supabase identifiers, restore exit status, `smoke`, and `contract` results in the operator's incident/backup log. Store both backup files together off-host. Never prove restoration against the only production database or its `project-sources` bucket.
 
 Repository mechanism proof on 2026-07-11: a Postgres 17 custom-format dump was parsed, restored into a separate disposable Postgres 17 instance, and its sentinel row was selected. This verifies the documented archive/restore mechanism, not any operator's current production data.
 
 Application rollback checks out the previous release and runs `redeploy`. Database migrations are forward-only; restoring a verified backup is a separate incident operation, never an automatic application rollback.
 
-## Legacy project-source migrator retirement
+## Project-source schema preflight
 
-The one-time project-source migrator is retired. Deployments apply the versioned Supabase migrations
-directly; local startup and Compose no longer stage legacy rows. The historical storage-cutover
-migration remains in the migration history as an audit record, but it is not a runtime compatibility
-path.
+Deployments apply the versioned Supabase migrations directly. Startup expects source references and file storage to match the current schema.
 
-Before deploying this change against an existing database, run the following read-only preflight with
-the service role and stop if the `project_sources` schema is not the post-cutover form, either legacy
-staging table still exists, or embedded source bytes remain:
+Before deployment against an existing database, run the following read-only preflight with the service role. Stop if `project_sources` differs from the expected schema, a staging table exists, or embedded source bytes remain:
 
 ```sql
 select column_name
@@ -603,15 +446,7 @@ where coalesce(snapshot #>> '{source,file,data}', '') <> ''
    );
 ```
 
-The expected result is exactly the `source_kind` column, no legacy tables, and
-`embedded_source_snapshots = 0`. A returned `data` column or a missing `source_kind` column means
-the database still has an unsupported pre-cutover schema. Validate a fresh import and reload with
-`bun run test:supabase-local` against an isolated local database before deployment. If preflight or
-fresh-import validation fails before deployment, keep the current release running, correct the data
-or validation problem, and rerun the checks. Reserve application rollback and the paired verified
-database/Storage backup recovery procedure above for incidents where a deployment or another live
-operation already changed production data. Do not recreate the retired migrator or delete current
-object-storage data as a rollback.
+The expected result is exactly the `source_kind` column, no legacy tables, and `embedded_source_snapshots = 0`. A returned `data` column or a missing `source_kind` column means the database still has an unsupported pre-cutover schema. Validate a fresh import and reload with `bun run test:supabase-local` against an isolated local database before deployment. If preflight or fresh-import validation fails before deployment, keep the current release running, correct the data or validation problem, and rerun the checks. Reserve application rollback and the paired verified database/Storage backup recovery procedure above for incidents where a deployment or another live operation already changed production data. Correct unsupported schemas through reviewed versioned migrations and preserve current object-storage data during recovery.
 
 ## Pinned Supabase upgrade and secret rotation
 

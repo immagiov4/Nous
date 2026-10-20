@@ -1,28 +1,24 @@
 ---
-title: "Audio, Speech Input, and Visuals"
+title: "Listen and speak"
 wiki_page_id: "p-multimedia"
 ---
 
-# Audio, Speech Input, and Visuals
+[Up one level](../05-section-frontend/01-p-reader-shell.md)
 
-Nous lets learners listen to lessons, speak questions into chat and use visuals when they make an idea easier to understand.
+# Listen and speak
 
-## Listen and speak
+Start audio from a ready lesson to hear its explanation. The player can follow the spoken passage with a visual, including written formulas alongside their narration.
 
-Text-to-speech reads lesson content aloud. Learners can start playback from a lesson and choose a voice in reader settings. Playback can follow visuals linked to the spoken passage, and math notation can be narrated alongside the written formula.
+## Listen at your pace
 
-Speech input turns a spoken question into editable text. Learners can review the transcription before sending it.
+Use the playback controls to pause, seek and change speed. Choose a voice in reader settings. Starting full-screen playback stops audio already playing in the reader.
 
-## Generated visuals
+Some lesson scenes animate in steps or proportions; others stay still. Reduced-motion preferences keep the visual visible while suppressing motion.
 
-Lessons can use illustrations, lesson scenes or HTML demonstrations. An illustration shows an object or result; a scene explains relationships; an HTML demonstration can show a static example or let the learner explore changing states.
+## Speak a question
 
-HTML demonstrations may use interaction when it helps explain the idea, but must not load scripts or other resources from the network. Lessons may also use relevant images from the learner’s source material.
+Use speech input to turn a question into editable text. Check the transcription before sending it. [Lesson chat](07-p-chat-ui.md) explains which passage or lesson the answer uses.
 
-Older saved lessons may contain visual formats that new generations no longer produce.
+## Which visuals can appear?
 
-## Visuals during playback
-
-Some scenes support step-by-step or proportional animation; others stay still. The reader respects the learner’s reduced-motion preference. If motion is unavailable or disabled, the scene remains visible.
-
-See the [product manifesto](../01-section-overview/02-p-manifesto.md) for how lessons choose a format.
+Lessons can use source images, illustrations, scenes and demonstrations. A demonstration can show a fixed example or let you explore changing states. [Teaching principles](../01-section-overview/02-p-manifesto.md) explain when each form helps; format implementation belongs in the renderer code.

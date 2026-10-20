@@ -1,16 +1,20 @@
 ---
-title: "Admin Area"
+title: "Admin controls"
 wiki_page_id: "p-admin-ui"
 ---
 
-# Admin Area
+[Up one level](../02-section-architecture/01-p-architecture.md)
 
-The admin area gives authorized administrators access to account management, learner feedback and model settings. It also links to the YouTube research tools.
+# Admin controls
 
-## Accounts and feedback
+Authorized administrators manage accounts, feedback and model settings in the admin area. The same area links to research tools for investigating video selection.
 
-Administrators can create accounts for a self-hosted instance and review feedback submitted by learners. Feedback stays available in the admin area if GitHub cannot receive it; administrators can retry publication and sync issue status later.
+## Accounts and reports
 
-## Model settings
+Create accounts for a self-hosted instance and review learner feedback. If GitHub delivery fails, the saved report remains available for retry. [Feedback delivery](../06-section-backend/04-p-feedback-system.md) explains publication and status synchronization.
 
-Administrators can choose models for document context, course planning and lesson writing. The page also includes a setting for how many review rounds generated visuals may use.
+## Models and research
+
+Choose models for document context, planning and lesson writing. Visual settings include the number of review rounds. [AI provider configuration](../07-section-ai/01-p-ai-providers.md) explains account access and task-specific model selection.
+
+Use the [Research Lab](../03-section-features/06-p-youtube-research.md#inspect-a-selection) to inspect video candidates and selection reasoning. Server-side [access checks](../06-section-backend/02-p-auth.md) enforce the administrator role.

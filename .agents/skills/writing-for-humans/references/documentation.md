@@ -56,14 +56,14 @@ of a report, legal notice, or supplied template when that genre governs the work
 
 ## Reading path
 
-Identify whether the reader needs concepts first, a guided flow with lookup
-anchors, or an interface reference. Order the material accordingly. Resolve
+Map the document set as a zoom tree: the README answers what and why, deeper
+pages answer how it works and how to use it, reference sits at the leaves. Each
+page follows the core reading path (click, use, pressing questions) at its own
+zoom and builds on what its parents established instead of repeating it. Resolve
 inconsistent or overlapping structures before polishing individual passages.
 
 A first-time reader should be able to locate the context, the first useful action,
-and the next relevant detail. Consolidate repeated explanations, keep advanced
-detail where readers can find it, and retain necessary qualifications beside the
-behavior they qualify.
+and the next relevant detail.
 
 Use a table of contents when it helps navigate a long file. Collapsible
 `<details>` blocks can hold advanced examples or detail that interrupts the main

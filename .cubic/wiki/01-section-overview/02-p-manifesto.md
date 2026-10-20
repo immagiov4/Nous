@@ -1,30 +1,24 @@
 ---
-title: "Product Manifesto and Design Strategy"
+title: "How Nous approaches learning"
 wiki_page_id: "p-manifesto"
 ---
 
-# Product Manifesto and Design Strategy
+[Up one level](../index.md)
 
-Nous Reader helps learners understand whole subjects one step at a time. A course introduces ideas in an order that makes their prerequisites clear, and each lesson keeps attention on its current goal.
+# How Nous approaches learning
 
-## How lessons teach
+A lesson keeps attention on one learning goal and introduces the ideas needed to reach it. Connected explanations establish the reasoning; examples and exercises let the learner use it.
 
-Lessons explain ideas in connected prose. Lists, formulas, examples and visuals belong where they make an idea easier to understand.
+## Explain before naming
 
-Technical terms and symbols receive a plain-language explanation when they first matter. A lesson stays within its learning goal and explains the background it needs instead of assuming the learner already knows it.
+Technical terms and symbols receive a plain-language explanation when they first matter. Required background belongs beside the idea that needs it. Learners can choose language, detail and teaching style while the learning goals and factual requirements remain in place.
 
-The learner can choose a different language, level of detail or teaching style. Those preferences guide the lesson while its required facts and learning goals remain in place.
+## Show what is easier to see
 
-## Choosing a visual
+An illustration can show an object, a scene can explain relationships, and an interactive demonstration can expose changing states. A visual earns its place when it makes the explanation clearer. Source images need to be available to the lesson before it refers to them.
 
-Text is enough when it explains the idea clearly. Use a visual when a picture, relationship, real process or changing state is easier to understand by seeing it.
+## Check understanding
 
-Generated visuals may be illustrations, lesson scenes or HTML demonstrations. HTML can be interactive when learners need to explore states; it can also show a static or programmed example without interactive controls. Generated HTML must not load scripts or other resources from the network.
+[Quizzes and practical exercises](../03-section-features/08-p-interactive-exercises.md) ask learners to apply an explanation. Generation reviews assess teaching quality and factual support; a valid document structure alone cannot establish either.
 
-Source images may be used when they help explain the lesson. A lesson should not refer to an image that was not supplied or created.
-
-## Shared guidance
-
-Course and lesson generation use shared writing and content rules so that different models follow the same learning goals. Source material and learner preferences add context, while required structure and factual support remain part of review.
-
-See [Prompt and generation contracts](../07-section-ai/02-p-prompt-engineering.md) for how those instructions are shared.
+For a developer changing those expectations, [shared generation instructions](../07-section-ai/02-p-prompt-engineering.md) describe their implementation home.

@@ -1,32 +1,24 @@
 ---
-title: "Prompt and Generation Contracts"
+title: "Shared generation instructions"
 wiki_page_id: "p-prompt-engineering"
 ---
 
-# Prompt and Generation Contracts
+[Up one level](../01-section-overview/02-p-manifesto.md)
 
-Course and lesson generation share rules for clarity, learning order, source use and required output. Shared guidance helps keep the same expectations across providers and between drafting and review.
+# Shared generation instructions
 
-## Instructions and learner preferences
+Drafting and review share expectations for learning order, source use, factual support and output structure. Keep a change to those expectations consistent across the stages and providers that use them.
 
-The model receives the task, the relevant learner preferences, the approved course plan and the source material needed for that task. Source documents, transcripts and quoted material are evidence to analyze, not instructions that can override the task.
+## Build task context
 
-Learner preferences can shape language, pace, tone and level of detail. They do not remove required course goals, factual support, safety rules or the expected output structure.
+Requests combine the task, learner preferences, approved plan and relevant source material. Sources and transcripts are evidence to analyze rather than instructions that can override the task. Preferences shape language, pace, tone and detail while required goals and output contracts remain in force.
 
-## Drafting and review
+## Review the result
 
-Lesson drafting and lesson review use the same learning context, while the reviewer applies a focused set of checks rather than repeating every drafting instruction. The review checks whether the lesson covers its goal, introduces ideas in a useful order, explains terms clearly and uses sources and examples appropriately.
+The reviewer uses the same learning context with focused checks for coverage, prerequisites, explanation and source use. Structural validation separately checks the output format; teaching and factual reviews assess whether the content works.
 
-The app validates output structure separately from teaching quality. A structurally valid response can still contain an unclear explanation or unsupported claim. Factual and pedagogical checks involve model judgment and need evidence from the lesson.
+Quiz drafting and review use shared rules. [Exercises](../03-section-features/08-p-interactive-exercises.md) owns the answer choices, placement and learner-visible behavior.
 
-## Quizzes and exercises
+## Verify an instruction change
 
-Quiz instructions are shared by lesson writing and exercise generation. A quiz should test the explanation that comes before it, have one defensible answer and use plausible distractors. The explanation is shown after the learner answers, rather than revealing the solution in the lesson text.
-
-See [Interactive exercises](../03-section-features/08-p-interactive-exercises.md) for the learner-facing behavior.
-
-## Evaluating changes
-
-Changes to shared instructions should be checked against representative lessons and failures. Deterministic checks can verify required structure and review evidence; they cannot replace a review of the generated lesson.
-
-Provider-backed evaluations require an authenticated, configured provider and store evidence outside the repository. See [Testing and quality checks](../09-section-tools/02-p-testing-quality.md) for the evaluation setup.
+Use representative lessons and known failures with the [evaluation procedure](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content). Deterministic checks cover structure and evidence contracts; reading generated lessons establishes whether the changed instruction improves their explanation.

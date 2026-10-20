@@ -1,28 +1,22 @@
 ---
-title: "Chat and Learning Context"
+title: "Ask about a lesson"
 wiki_page_id: "p-chat-ui"
 ---
 
-# Chat and Learning Context
+[Up one level](../05-section-frontend/01-p-reader-shell.md)
 
-Nous chat answers questions about a learner’s course, lesson or selected text. The learner can also ask about saved material, search the web, create a visual or propose a note, depending on the chat mode.
+# Ask about a lesson
 
-## Choosing a context
+Select a passage in the reader and ask a question to focus the answer on that text. A conversation can also use the current lesson or an existing note; the chosen context determines what the assistant receives.
 
-Library chat can include selected projects or folders. A reader conversation can focus on selected text, the current lesson or an existing note. The learner’s chosen context determines what information the assistant receives.
+## Keep an explanation
 
-During course setup, chat also collects the learner’s course preferences and prior-knowledge responses. Those responses remain visible while the learner answers and submits a question set. The [course-generation page](01-p-course-gen.md) explains how that evidence informs the plan.
+Follow up in the lesson conversation, or ask the assistant to suggest a note. A suggested note must match text that the reader can anchor before you can save it. Retrieved material appears after the answer and stays collapsed until opened.
 
-## Following up in a lesson
+A conversation remains attached to the lesson where it began when you navigate elsewhere. Library chat instead uses the projects or folders you select.
 
-A lesson conversation stays tied to the lesson where it began, even when the learner opens another lesson. Retrieved material is added after the answer is complete and stays collapsed until the learner opens it.
+## Ask about an archive
 
-The assistant can retrieve saved lesson details, search for source material, create a temporary visual, or suggest a note. A suggested note must match text that the reader can anchor in the lesson before the learner can save it.
+For archive-backed lessons, the assistant can search the retained index or open an indexed text file. Results identify the source and path so you can inspect the evidence. Access stays within your project and the source version attached to the lesson.
 
-## Questions about source archives
-
-For archive-backed lessons, the assistant can search the retained source index or open a specific indexed text file. Results include the source name and path so the learner can check where an answer came from. Access is limited to the signed-in user’s project and the source version attached to that lesson.
-
-## Model requests
-
-Requests that use the OpenRouter-compatible proxy follow the configured model selection for their task. Other chat paths can connect directly to the configured provider service. The [AI provider page](../07-section-ai/01-p-ai-providers.md) describes the supported account and model options.
+For spoken questions, see [Listen and speak](04-p-multimedia.md). Developers tracing model requests can follow [AI providers](../07-section-ai/01-p-ai-providers.md).

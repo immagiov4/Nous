@@ -30,7 +30,7 @@ To use a ChatGPT/Codex account on a self-hosted Nous instance without copying it
 
 ## Server-Only Storage
 
-Nous now uses authenticated server storage as the product path.
+Nous uses authenticated server storage as the product path.
 
 - Project storage is Postgres and requires `DATABASE_URL`.
 - Frontend auth should use `VITE_AUTH_MODE=supabase`.
@@ -75,9 +75,7 @@ Authenticated sessions use server storage. Import/export remains available for m
 
 ## Useful Commands
 
-Use `bun run doctor` for an actionable local health report. GitHub CI runs the complete Bun suite;
-`bun run gate:full` adds coverage and Sonar on the final commit. See
-[Testing and quality gates](docs/TESTING.md) for the canonical command list and CI contract.
+Use `bun run doctor` for an actionable local health report. GitHub CI runs the Node suite with coverage and SonarQube Cloud for same-repository pull requests and main pushes. The local `bun run gate:full` includes local Sonar on the final candidate. See [Testing and quality gates](docs/TESTING.md) for the command list and applicability rules.
 
 Validate a pull-request or issue body from a Markdown file before publishing it:
 

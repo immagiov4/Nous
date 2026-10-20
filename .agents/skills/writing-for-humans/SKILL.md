@@ -5,53 +5,79 @@ description: "Write or revise text for people, including conversation, documents
 
 # Writing for humans
 
-Start with what this reader needs to understand, decide or do, using the author's voice and the requested language, medium and structure. Preserve good passages and the scope of a narrow edit.
+Plan the information before the prose. Decide which question the text answers, at what zoom, for which reader, and what path keeps that reader going; only then write sentences. Polished prose on the wrong information is still unreadable. Use the author's voice and the requested language and medium, and preserve good passages and the scope of a narrow edit.
 
-## Reader card and zoom
+## 1. One question, one zoom
 
-Before drafting, write a three-line **reader card** for yourself: who reads this, what they already know, and the one question they open it to answer (for a PR reviewer: what problem, what approach, what measurable result). Every paragraph must serve that question; a true, well-written paragraph the card does not need is cut.
+Each text answers one question. Name it in a sentence before drafting: "what is X and why should I care", "how does X work", "how do I use X for Y", "what does option Z do". These are different texts:
 
-Then set the **zoom**, like level of detail in a game: the top of the text is far zoom, a reader who stops after it has the answer. Zoom is separate from style and from density: plain, dense prose at the wrong zoom still fails.
+- **What and why** (orientation): what it is and why it exists, fused into one opening line; shown rather than described where possible. How it works gets a hint and a link, because a reader who does not yet know what X is cannot use its mechanism.
+- **How it works** (explanation): assumes the reader already knows what it is; develops the mechanism at the level of the question.
+- **How to use it** (task): the most common first use, step by step, to a visible result; specifics live in their own pages.
+- **Lookup** (reference): facts in the subject's order, for someone who already knows what they are looking for.
 
-- **Far zoom, always visible:** the answer in two or three sentences or a short list. Results as numbers or observable change: before/after, percent, time, count, a screenshot.
-- **Near zoom, only what the card asks for:** the approach in a few lines; a before/after diagram or table when the shape of a system, flow or metric changed, instead of paragraphs describing it.
-- **Deep zoom, collapsed or omitted:** procedure, file lists, test commands, edge cases, tool names. Put it in a `<details>` block titled "Details" when some reader may want it; delete it when the code, the config or the history already records it.
+When "what it is" is small, what and how can share one short text. When "what it is" already needs a page, keep how-it-works out and link to it. A long manual is a set of such texts joined by chapters and an index; each chapter still answers one question.
 
-**Jargon budget:** name a tool, flag, file or acronym only when the reader acts on that name. "Static analysis now runs in the cloud on every PR" beats a list of the job, action, variables and project key that implement it.
+Zoom is recursive. A reader at a deeper document has read the levels above it: use what those levels established without repeating it. The same rules then apply inside each section and each entry.
 
-Length follows the card, not the amount of work done: a large change can have a short description. If the far zoom is not readable in ten seconds, the text is not ready.
+## 2. Reader card
 
-Write each plain-text or Markdown prose paragraph on one physical line and let the reader's interface wrap it visually. This includes Git commit messages, PR/MR descriptions, documentation and chat messages; fixed-width conventions such as 72-column commit bodies do not override this rule. Use blank lines between distinct paragraphs and preserve structural line breaks in code, lists, tables and other syntax. Before saving, committing or publishing, inspect the actual text for inserted line breaks inside prose paragraphs.
+Write a short card for yourself before drafting:
 
-## Write the thought
+- **Who** reads this and what they open it for.
+- **What they already know:** their background, plus everything the levels above this text already told them.
+- **What surrounds them:** the tools, concepts and news they live with. For an outside audience, research it (forums, Reddit, issue trackers, recent news) rather than guessing; an agent's own doubts are a poor proxy for a human's.
+- **Pressing questions:** the few questions that, left unanswered, block the conclusion or action you want this reader to reach. Typical questions for the audience are researchable too.
 
-Keep related ideas connected so each sentence develops the explanation rather than making the reader assemble isolated assertions. Put sentence boundaries where the thought changes or the syntax needs relief, retaining the useful connections between facts, reasons and consequences. Short steps work in a procedure; an argument needs its reasoning. Apply the same judgment to notes, captions and conclusions.
+Everything in the text serves this card. A true, well-written paragraph the card does not need is cut.
 
-Choose familiar, precise words and established terms, keeping one name for each concept and making actors and references clear. Preserve product, skill and interface names in their established form; a preference for a language governs the surrounding prose unless the user requests renaming or localization. Give a qualification its specific substance beside the claim when it changes meaning or a decision. Respect the reader's existing knowledge, using the space for evidence and choices rather than reminders of obvious distinctions or imagined extreme interpretations.
+## 3. Reading path
 
-Preserve attribution, quantities, dates, negation, substantive exceptions and the difference between observed behavior and plans. Match factual claims to the supplied evidence or sources actually checked, retaining unresolved facts where needed. Choose headings, lists and tables for the reading task and requested format, with emphasis carrying information rather than filling the page.
+People read like foragers: they keep going while each step promises more value for little effort, and leave as soon as that promise fades. Lay the text out as a path that keeps the promise fresh:
 
-## Choose the relevant guidance
+1. **Hook**, when the reader has not chosen to be here: a problem they recognise, a striking fact, a question that opens a gap they want closed. Skip it when they arrived looking (technical docs, a PR they must review); start at the click.
+2. **Click**: the moment the idea lands. What it is and why it matters in one or two lines, then the strongest evidence it delivers: a measured result (before/after, "compiles 10x faster"), a screenshot, a short video, a diagram. Show something only when seeing it makes the value clearer; a tour for its own sake loses the reader. Without measurable benefits, describe plainly and let a demo carry the weight. A long text can have more than one click, each opening the next part.
+3. **Use**: what the reader can now do with it: the most common first use in a few steps, and where the specifics live. When the useful action is to share, decide or approve, say that instead.
+4. **Questions**: only the pressing ones from the card, answered where they naturally arise or in a short section after use. Prefer explaining the system so that its limits are evident to adding a caveat to every line; gather many limits in one place.
 
-Read only the references the task calls for, alongside [prose patterns](references/prose-patterns.md) when drafting or polishing more than a brief reply:
+The path repeats at every scale: a whole site, a technical page about one component ("why is there a proxy here" → the click of the problem it solves → how it works at this page's zoom → its limits), a single section.
 
-- [Change reports](references/change-reports.md) for pull requests, issues, commit messages and status reports about work done.
-- [Conversation and messages](references/conversation.md) for explanations, correspondence, progress updates and short replies.
-- [Documentation](references/documentation.md) for document sets, manuals, readmes and guides; add [software reference](references/software-reference.md) when describing interfaces or observable behavior.
-- [Reports](references/reports.md) for analytical, academic and project writing.
-- [Legal and policy documents](references/legal-documents.md) for editorial work on obligations, notices and policies.
-- [Public and persuasive writing](references/public-writing.md) for educational posts, product copy and campaigns. A marketing workflow can supply offer and audience research while this skill owns the prose and its review.
+## 4. Choose what goes in
 
-For mixed work, choose guidance by deliverable. Instructions an agent executes belong to `writing-for-agents`; apply this skill to the accompanying human-facing explanation. Tool-specific document skills own rendering and editing mechanics.
+Treat the text as a system to refactor:
+
+- **One home per fact.** Say it once at the right level; elsewhere, link.
+- **Pressing vs blurrable.** Keep what bridges a step of reasoning the reader must make. Small details that bridge nothing are left blurred: to the code, the history, a deeper page, or a collapsed `<details>` block titled "Details".
+- **Neighbouring things.** Name an external tool, library or group when this subject uses it or directly affects it and the reader cares about it ("existing type-aware linters cannot attach to the new compiler yet"). Leave out minor things that merely relate to the subject.
+- **Jargon budget.** Name a tool, flag, file or acronym only when the reader acts on that name. "Static analysis now runs in the cloud on every PR" beats a list of the job, action, variables and project key behind it.
+- **Positive form.** Define things by what they are and do; reserve warnings for real hazards.
+- **Visuals when faster.** A diagram, table or screenshot replaces paragraphs when the shape of a system, flow or metric is the point.
+
+Length follows the card, not the amount of work done or the number of facts available. If the opening is not understandable in ten seconds, the text is not ready. Interest is the bar rather than brevity: a longer passage that legitimately holds this reader is fine.
+
+## 5. Write the prose
+
+Write each plain-text or Markdown prose paragraph on one physical line and let the reader's interface wrap it, including commit messages, PR descriptions, documentation and chat messages; fixed-width conventions such as 72-column commit bodies do not override this. Use blank lines between paragraphs and preserve structural line breaks in code, lists, tables and other syntax.
+
+Keep related ideas connected so each sentence develops the thought; break sentences where the thought changes. Choose familiar, precise words, one name per concept, and clear actors. Preserve product, skill and interface names in their established form. Preserve attribution, quantities, dates, negation, substantive exceptions and the difference between observed behaviour and plans, and match factual claims to evidence actually checked. Use [prose patterns](references/prose-patterns.md) when drafting or polishing more than a brief reply.
+
+## Genre guidance
+
+Read only the references the deliverable calls for:
+
+- [Change reports](references/change-reports.md): pull requests, issues, commit messages, status reports.
+- [Conversation and messages](references/conversation.md): explanations, correspondence, progress updates, short replies.
+- [Documentation](references/documentation.md): document sets, manuals, readmes, guides; add [software reference](references/software-reference.md) for interfaces and observable behaviour.
+- [Reports](references/reports.md): analytical, academic and project writing.
+- [Legal and policy documents](references/legal-documents.md): obligations, notices, policies.
+- [Public and persuasive writing](references/public-writing.md): posts, product pages, campaigns. A marketing workflow can supply offer and audience research; this skill owns the prose.
+
+Instructions an agent executes belong to `writing-for-agents`; apply this skill to the accompanying human-facing explanation. Tool-specific document skills own rendering and editing mechanics.
 
 ## Check and review
 
-Before sending any prose, read it in context for the intended meaning, useful connections and the reader's level. When the user identifies a recurring defect, check every affected part, including notes, rather than repairing only the quote.
+Reread the draft as the reader on the card. Check: the question is answerable from the opening; every section moves along the path; each sentence either changes what this reader understands or decides, or it goes (into details, a link, or nowhere). How the work was done in the session (commands, restarts, attempts) almost never passes. When the user identifies a recurring defect, check every affected part, not only the quoted one.
 
-Then test each sentence against the reader card: do they already know it, or would removing it change what they understand or decide? If neither, delete it; if only some readers need it, move it into the collapsed details. How the work was done in the session, such as commands run, restarts, attempts and the writer's own process, usually fails this test.
+Private responses and documents only for the requester use this reread. For material published or read beyond the requester, a substantive draft or rewrite, or a requested correction across a document, also requires an independent reviewer following [independent review](references/independent-review.md); a typo or a routine short reply needs only the local check.
 
-Private responses and documents intended only for the requester use the guidance and local reread above, including substantive drafts and document-wide revisions.
-
-For material intended for publication or for people beyond the requester, a substantive draft or rewrite, or a user-requested correction across a document, requires an independent reviewer following [independent review](references/independent-review.md). A substantive change creates or reshapes a complete explanation, message or section; a typo or a routine short conversational reply needs the local check. Within that audience scope, a request to fix the writing throughout triggers review even when individual edits are small. Apply independent review and its recheck procedure to the requested deliverable; reviewer findings and brief coordination messages use the local check, with findings assessed through the resolution procedure.
-
-Deliver once the required content and evidence are intact, consequential findings are resolved and the affected prose has been checked again. Save or edit in the requested destination, describing the useful changes briefly when needed.
+Deliver once the content and evidence are intact, consequential findings are resolved and the affected prose has been checked again.

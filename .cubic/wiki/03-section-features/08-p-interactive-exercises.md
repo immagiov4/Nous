@@ -1,22 +1,22 @@
 ---
-title: "Interactive Exercises and Quizzes"
+title: "Practise and keep your answers"
 wiki_page_id: "p-interactive-exercises"
 ---
 
-# Interactive Exercises and Quizzes
+[Up one level](../05-section-frontend/01-p-reader-shell.md)
 
-Nous uses short questions and practical exercises to help learners apply what a lesson teaches. The task should give learners the information they need, rather than requiring them to search elsewhere.
+# Practise and keep your answers
 
-## Questions inside lessons
+Questions after an explanation ask you to apply what you have learned. Choose an answer to reveal the solution and its explanation; your response stays with the lesson when you return to it.
 
-A lesson can include up to three short quizzes. Each one follows the explanation it tests and offers four possible answers. The learner sees the solution and its explanation after choosing an answer.
+## Lesson quizzes
 
-Questions should test application, prediction, diagnosis or sequencing instead of asking for a simple restatement. Distractors should describe plausible mistakes. Model review checks these qualities.
+A lesson can contain up to three quizzes, each with four choices. Questions should test application, prediction, diagnosis or sequencing. Plausible mistaken answers make the distinction useful; model review checks those qualities.
 
-Answers are saved with the lesson and remain available when the learner navigates away, reopens the course or exports it. A successful regeneration replaces the lesson content and clears its old answers and annotations. If generation fails, the previous lesson and its progress remain available.
+Answers survive navigation, reopening and export. A successful regeneration replaces the lesson and clears its old answers and annotations. Failed generation preserves the saved lesson and its progress.
 
 ## Practical exercises
 
-A practical exercise is a separate activity in the course. Its brief provides a realistic task and the information needed to complete it. Learners can write a response, attach supported files and request feedback.
+A practical exercise is a separate course activity with a task and the information needed to attempt it. Write a response, attach supported files and request feedback. Exercise briefs can finish generating while you study a ready lesson.
 
-Shared rules for question writing and review are in [Prompt and generation contracts](../07-section-ai/02-p-prompt-engineering.md).
+Developers changing question generation should start with [shared instructions](../07-section-ai/02-p-prompt-engineering.md). For portable copies of your work, see [project backups](05-p-project-workspace.md).

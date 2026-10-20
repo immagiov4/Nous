@@ -1,22 +1,22 @@
 ---
-title: "Feedback and GitHub"
+title: "Feedback delivery and follow-up"
 wiki_page_id: "p-feedback-system"
 ---
 
-# Feedback and GitHub
+[Up one level](../05-section-frontend/03-p-admin-ui.md)
 
-Learners can send a bug report or suggestion from Nous. The report is saved for administrators to review; when GitHub publication is configured, the server also attempts to create a linked issue.
+# Feedback delivery and follow-up
 
-## What a report contains
+A submitted report is saved for administrators first. When GitHub publication is configured, the server then attempts to create a linked issue, keeping the local report available if delivery fails.
 
-Before the learner submits, the form shows which optional product diagnostics will be attached. Diagnostics use a limited set of context and recent actions. Free-form prompts, source text and credentials are excluded.
+## Attached information
 
-Before saving or publishing report text and diagnostics, the server redacts recognized credential patterns, email addresses and URL query information. Screenshots remain private to the installation; the GitHub issue only notes that an attachment exists.
+The form shows optional product diagnostics before submission. These contain a limited context and recent actions, excluding prompts, source text and credentials. The server redacts recognized credential patterns, email addresses and URL query information from report text and diagnostics.
 
-## Delivery and follow-up
+Screenshots remain private to the installation; the GitHub issue records that an attachment exists.
 
-The report is saved before GitHub publication. If GitHub is unavailable or rejects the request, administrators can review the report and retry publication later.
+## Retry and synchronize
 
-Administrators can sync issue status so the report reflects whether its linked issue is open or closed. A report created directly in GitHub is removed from the local list only after two consecutive sync results omit it.
+Administrators can retry failed publication and synchronize the linked issue's open or closed state. Reports created directly in GitHub leave the local list only after two consecutive sync results omit them.
 
-See [Admin area](../05-section-frontend/03-p-admin-ui.md) for feedback review.
+The [feedback route](../../../apps/backend/src/routes/feedback.ts) is the entry point for changes. [Admin controls](../05-section-frontend/03-p-admin-ui.md) owns the review interface.

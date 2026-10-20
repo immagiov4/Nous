@@ -1,38 +1,34 @@
 ---
-title: "System Architecture"
+title: "Find your way through the code"
 wiki_page_id: "p-architecture"
 ---
 
-# System Architecture
+[Up one level](../index.md)
 
-Nous Reader has a web app, a backend and shared contracts. The web app presents the library and learning tools; the backend handles saved data, source processing and long-running course or lesson generation.
+# Find your way through the code
 
-## Code and package boundaries
+The browser presents the library and reader. Requests go to the backend, which saves projects, prepares sources and runs generation. Shared contracts define what both sides exchange.
 
-| Area | Responsibility |
+## Choose the owner
+
+| Area | Start here when changing… |
 | --- | --- |
-| [apps/web](../../../apps/web/) | The browser app and its learning tools. |
-| [apps/backend](../../../apps/backend/) | The server, API and long-running work. |
-| [packages/shared-types](../../../packages/shared-types/) | Data contracts shared across the app and backend. |
-| [packages/playtest](../../../packages/playtest/) | Reusable tools for product-flow tests. |
-| [e2e/nous](../../../e2e/nous/) | Nous-specific end-to-end test setup and scenarios. |
+| [apps/web](../../../apps/web/) | Reading, playback, chat and other browser interactions. |
+| [apps/backend](../../../apps/backend/) | Requests, authentication, persistence and generation. |
+| [packages/shared-types](../../../packages/shared-types/) | Data shapes shared by browser and server. |
+| [packages/playtest](../../../packages/playtest/) | Reusable browser-test tools. |
+| [e2e/nous](../../../e2e/nous/) | Nous-specific product scenarios. |
 
-The root `package.json` manages the browser app and shared packages; `apps/backend` is the only declared Bun workspace. Root scripts coordinate development, checks and test runs.
+The root package coordinates development and checks; `apps/backend` is the declared Bun workspace. Use [local setup](../09-section-tools/01-p-local-setup.md) for a running instance and [testing](../09-section-tools/02-p-testing-quality.md) for a change's verification path.
 
-## Where information lives
+## Follow a request
 
-PostgreSQL stores project details, learning plans, lessons and learner progress. Uploaded documents and generated images live in file storage, with project records keeping references to those files.
+The [API reference](../06-section-backend/01-p-api-routes.md) locates request handlers; [authentication](../06-section-backend/02-p-auth.md) explains access checks. Long tasks enter the [workflow engine](02-p-workflow-engine.md). [Course](../03-section-features/01-p-course-gen.md) and [lesson generation](../03-section-features/02-p-lesson-gen.md) explain its learning-specific work.
 
-A saved project keeps its course and progress together. Its sources remain separate files so large documents do not need to be copied into every saved project update.
+[Saved data](../04-section-data/01-p-database-schema.md) owns persistence structure, with [file storage](../04-section-data/02-p-asset-management.md) and [curriculum validation](../04-section-data/03-p-curriculum-contract.md) below it.
 
-## From project to course
+## Follow an integration
 
-When a learner adds source material, the backend stores the files and prepares searchable text or an archive index. Course generation uses that material to plan lessons and identify useful sources.
+[AI providers](../07-section-ai/01-p-ai-providers.md) covers model configuration and links to the Codex connection. [Workflow events and usage](../06-section-backend/05-p-telemetry-usage.md) explains operational records. [Feedback delivery](../06-section-backend/04-p-feedback-system.md), the [admin area](../05-section-frontend/03-p-admin-ui.md) and the [public page](../05-section-frontend/02-p-marketing-waitlist.md) describe their own flows.
 
-The workflow engine saves the progress of longer tasks. It lets the app report the current state and recover work after a restart. See [Workflow engine](02-p-workflow-engine.md) for details.
-
-## Shared contracts
-
-The web app and backend use shared definitions for project data, lessons and generation rules. These contracts help both sides interpret a saved course in the same way.
-
-The [database page](../04-section-data/01-p-database-schema.md) explains stored data. [Project files and storage](../04-section-data/02-p-asset-management.md) describes source files and backups.
+For operation, choose [self-hosted](../08-section-deployment/01-p-self-hosted.md) or [managed data services](../08-section-deployment/02-p-managed-deploy.md).

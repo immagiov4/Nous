@@ -1,26 +1,22 @@
 ---
-title: "Project Files and Storage"
+title: "Project file lifecycle"
 wiki_page_id: "p-asset-management"
 ---
 
-# Project Files and Storage
+[Up one level](01-p-database-schema.md)
 
-Project records and file contents are stored separately. PostgreSQL keeps project information and file references; Supabase Storage holds uploaded documents, archives and generated images.
+# Project file lifecycle
 
-## Uploaded sources
+A workflow prepares a file before a saved project adopts its reference. Cleanup can remove an abandoned file only after confirming that no project uses it.
 
-A learner can attach PDFs, text files and supported archives to a project. ZIP archives are indexed so the app can list their files and retrieve selected text without loading the whole archive into a lesson.
+## Sources and generated images
 
-Uploaded source files belong to their project. Matching files in two projects are stored separately, which keeps ownership and deletion clear.
+Uploaded sources belong to their project; identical uploads in different projects stay separate. Archives retain an index for selected-file retrieval. Generated images and extracted PDF images use stored bytes plus descriptive references in the lesson.
 
-## Generated images
+When a PDF source changes, its image context is refreshed so captions and placement do not silently describe the earlier file.
 
-Workflows prepare generated images before a saved project refers to them. A successful save adopts the files it uses. Files left behind by a failed or abandoned workflow can be removed after the system confirms that no project refers to them.
+## Backups
 
-PDF lesson images follow the same rule. The lesson stores references and descriptive information while the image bytes remain in storage. When a source PDF changes, the app refreshes its image context so a lesson does not silently rely on captions or placements from the earlier file.
+A project backup carries its saved data and the files needed for restoration. Restore checks integrity and reconnects references to imported copies. Prepared playback audio is regenerated when needed and is excluded from project backups.
 
-## Project backups and library exports
-
-A project backup contains its saved project data and the files needed to restore it. The restore process checks file integrity and reconnects references to the imported copies.
-
-Full-library exports combine project archives. If a project changes during preparation, the current attempt fails; retrying starts a new export with a fresh library snapshot. Prepared playback audio is not part of a backup; the app can prepare it again when the learner listens.
+Library exports combine project archives; [Manage projects and backups](../03-section-features/05-p-project-workspace.md) owns the learner's export and retry path. Operator backups have a different scope: see [deployment backups](../08-section-deployment/01-p-self-hosted.md#back-up-and-restore).

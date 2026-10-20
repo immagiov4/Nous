@@ -1,22 +1,22 @@
 ---
-title: "Codex Account Integration"
+title: "Server-side Codex connection"
 wiki_page_id: "p-codex-server"
 ---
 
-# Codex Account Integration
+[Up one level](../07-section-ai/01-p-ai-providers.md)
 
-A self-hosted Nous instance can connect an administrator’s ChatGPT account through a private Codex process on the server. Learners use Nous’s authenticated web app; they do not connect to that process directly.
+# Server-side Codex connection
 
-Administrators can grant access to assigned users. The server streams the response to the web app and records available usage information.
+An operator can authenticate Codex on the host and let Nous use that account through a private server process. Administrators and explicitly assigned users share the connection through Nous's authenticated API.
 
-## Access and tools
+## Configure access
 
-The Codex process runs on the server with a restricted, read-only environment. Its built-in shell, browser, computer-control and plugin tools are disabled. Instructions sent to the model ask it not to inspect host files, but those instructions do not enforce the operating-system boundary.
+Follow the [local startup guide](../../../README.md#run-locally) for the enable setting and host authentication, then assign permitted users in the admin area. Requests depending on this connection require the host account to be available.
 
-Some learning actions run on the server; others ask the web app to complete an action such as adding a note. This keeps access to the learner’s workspace within the normal authenticated application.
+## Execution boundary
 
-## Research and model choices
+The process uses a restricted, read-only environment. Its built-in shell, browser, computer-control and plugin tools are disabled. Instructions also ask the model to avoid host files; those instructions alone cannot enforce host access restrictions.
 
-Nous maps supported AI tasks to the models selected by the administrator. Web search is available for research requests that use this integration.
+Learning tools run through the normal application. Some actions execute on the server; others ask the web app to complete a workspace action such as adding a note. Supported research requests can use web search.
 
-The service requires an authenticated Codex account on the host. If the account is unavailable, requests that depend on it cannot run.
+The server streams answers and records available usage. [Workflow events and usage](05-p-telemetry-usage.md) explains how to interpret those records.
