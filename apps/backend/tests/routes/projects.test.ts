@@ -9,15 +9,20 @@ import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
 import JSZip from 'jszip';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-
 import { createApp } from '../../src/index.js';
 import { LibrarySiblingSetChangedError } from '../../src/projects/librarySiblingOrder.js';
+import { SourcePreparationCancelledError } from '../../src/projects/projectImportChunks.js';
 import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
 import {
   SourceArchivePreparationCapacityError,
   SourceArchivePreparationError,
   SourceArchiveUnusableError,
 } from '../../src/projects/sourceArchive.js';
+import {
+  SourceIngestionRequiredError,
+  SourcePreparationUnusableError,
+} from '../../src/projects/sourceIngestion.js';
+import { SourceStagingUnavailableError } from '../../src/projects/sourceStaging.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
 import { createSupabaseTestToken } from '../helpers/auth.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
@@ -117,6 +122,20 @@ describe('/api/projects', () => {
     } else {
       process.env.LOCAL_USER_ID = previousLocalUserId;
     }
+  });
+
+  test.each([
+    ['SOURCE_PREPARATION_CANCELLED', 409, new SourcePreparationCancelledError()],
+    ['SOURCE_PREPARATION_UNUSABLE', 422, new SourcePreparationUnusableError([])],
+    ['SOURCE_INGESTION_REQUIRED', 400, new SourceIngestionRequiredError()],
+    ['SOURCE_STAGING_UNAVAILABLE', 503, new SourceStagingUnavailableError()],
+  ] as const)('serializes source error %s with its stable HTTP contract', async (code, status, error) => {
+    vi.spyOn(store, 'saveProject').mockRejectedValue(error);
+    const response = await request(createApp())
+      .put('/api/projects/projects/error-contract')
+      .send({ snapshot: createSnapshot('error-contract', 'Error contract') });
+    expect(response.status).toBe(status);
+    expect(response.body).toMatchObject({ success: false, code, error: error.message });
   });
 
   test('exposes the configured project import transfer contract', async () => {

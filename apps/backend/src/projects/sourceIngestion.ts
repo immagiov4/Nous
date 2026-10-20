@@ -6,10 +6,8 @@ import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
 import type { PdfTextIndex } from '@shared/pdfTextIndex';
 import { buildPdfTextIndex } from '@shared/pdfTextIndex';
 import {
-  SOURCE_INGESTION_REQUIRED_CODE,
   SOURCE_INGESTION_REQUIRED_MESSAGE,
   SOURCE_PREPARATION_FAILURE_MESSAGES,
-  SOURCE_PREPARATION_UNUSABLE_CODE,
   SOURCE_PREPARATION_UNUSABLE_MESSAGE,
   type SourcePreparationFailure,
 } from '@shared/sourcePreparation';
@@ -29,14 +27,12 @@ import { collectReleasedSourceMemory } from './sourcePreparationMemory.js';
 import type { ProjectSaveOptions, ProjectSnapshot } from './types.js';
 
 export class SourceIngestionRequiredError extends Error {
-  readonly code = SOURCE_INGESTION_REQUIRED_CODE;
   constructor() {
     super(SOURCE_INGESTION_REQUIRED_MESSAGE);
   }
 }
 
 export class SourcePreparationUnusableError extends Error {
-  readonly code = SOURCE_PREPARATION_UNUSABLE_CODE;
   constructor(readonly failures: SourcePreparationFailure[]) {
     super(SOURCE_PREPARATION_UNUSABLE_MESSAGE);
   }

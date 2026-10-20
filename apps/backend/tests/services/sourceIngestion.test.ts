@@ -2,7 +2,10 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, test } from 'vitest';
-import { prepareSourceCollection } from '../../src/projects/sourceIngestion.js';
+import {
+  prepareSourceCollection,
+  SourcePreparationUnusableError,
+} from '../../src/projects/sourceIngestion.js';
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -122,20 +125,19 @@ test.each([
       ],
     },
   };
-  await expect(
-    prepareSourceCollection({
-      snapshot,
-      upload: { path, files: [file] },
-      context: {
-        userId: 'learner',
-        uploadId: 'upload',
-        projectId: snapshot.id,
-        signal: new AbortController().signal,
-        reportProgress: () => undefined,
-      },
-    })
-  ).rejects.toMatchObject({
-    code: 'SOURCE_PREPARATION_UNUSABLE',
+  const preparing = prepareSourceCollection({
+    snapshot,
+    upload: { path, files: [file] },
+    context: {
+      userId: 'learner',
+      uploadId: 'upload',
+      projectId: snapshot.id,
+      signal: new AbortController().signal,
+      reportProgress: () => undefined,
+    },
+  });
+  await expect(preparing).rejects.toBeInstanceOf(SourcePreparationUnusableError);
+  await expect(preparing).rejects.toMatchObject({
     failures: [{ name: 'blank.txt', reason }],
   });
 });

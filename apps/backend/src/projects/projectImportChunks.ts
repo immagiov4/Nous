@@ -14,7 +14,6 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
 import {
-  SOURCE_PREPARATION_CANCELLED_CODE,
   SOURCE_PREPARATION_CANCELLED_MESSAGE,
   type SourcePreparationProgress,
 } from '@shared/sourcePreparation';
@@ -73,7 +72,6 @@ interface UploadSession {
 export class ProjectImportInputError extends Error {}
 export class ProjectImportCapacityError extends Error {}
 export class SourcePreparationCancelledError extends Error {
-  readonly code = SOURCE_PREPARATION_CANCELLED_CODE;
   constructor() {
     super(SOURCE_PREPARATION_CANCELLED_MESSAGE);
   }

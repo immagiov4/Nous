@@ -2,6 +2,12 @@ import {
   COURSE_SOURCE_UPLOAD_LIMITS,
   type CourseSourceUploadFile,
 } from '@shared/courseSourceUpload';
+import {
+  SOURCE_INGESTION_REQUIRED_CODE,
+  SOURCE_PREPARATION_CANCELLED_CODE,
+  SOURCE_PREPARATION_UNUSABLE_CODE,
+  SOURCE_STAGING_UNAVAILABLE_CODE,
+} from '@shared/sourcePreparation';
 // Exposes project CRUD routes for the backend API.
 
 import { normalizeLessonInstructionPacks } from '@shared/lessonInstructionPacks';
@@ -206,24 +212,30 @@ const sendProjectWriteError = (
     return;
   }
   if (error instanceof SourcePreparationCancelledError) {
-    res.status(409).json({ success: false, code: error.code, error: error.message });
+    res
+      .status(409)
+      .json({ success: false, code: SOURCE_PREPARATION_CANCELLED_CODE, error: error.message });
     return;
   }
   if (error instanceof SourcePreparationUnusableError) {
     res.status(422).json({
       success: false,
-      code: error.code,
+      code: SOURCE_PREPARATION_UNUSABLE_CODE,
       error: error.message,
       sourceWarnings: error.failures,
     });
     return;
   }
   if (error instanceof SourceIngestionRequiredError) {
-    res.status(400).json({ success: false, code: error.code, error: error.message });
+    res
+      .status(400)
+      .json({ success: false, code: SOURCE_INGESTION_REQUIRED_CODE, error: error.message });
     return;
   }
   if (error instanceof SourceStagingUnavailableError) {
-    res.status(503).json({ success: false, code: error.code, error: error.message });
+    res
+      .status(503)
+      .json({ success: false, code: SOURCE_STAGING_UNAVAILABLE_CODE, error: error.message });
     return;
   }
   if (error instanceof SourceArchivePreparationCapacityError) {
