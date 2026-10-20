@@ -1,2 +1,5 @@
 * text=auto eol=lf
 *.pdf binary
+
+# Preserve the exact bytes of the synchronized writing skill.
+.agents/skills/writing-for-humans/** -text whitespace=cr-at-eol

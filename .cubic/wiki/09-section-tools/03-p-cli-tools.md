@@ -1,141 +1,32 @@
 ---
-title: "CLI Tools & Diagnostics"
+title: "Development diagnostics and publishing checks"
 wiki_page_id: "p-cli-tools"
 ---
 
-<details>
-<summary>Relevant source files</summary>
+[Up one level](01-p-local-setup.md)
 
-The following files were used as context for generating this wiki page:
+# Development diagnostics and publishing checks
 
-- [scripts/doctor.ts](../../../scripts/doctor.ts)
-- [scripts/doctor.test.ts](../../../scripts/doctor.test.ts)
-- [scripts/select-workflow-postgres-contract.ts](../../../scripts/select-workflow-postgres-contract.ts)
-- [apps/web/tests/scripts/workflowPostgresCi.test.ts](../../../apps/web/tests/scripts/workflowPostgresCi.test.ts)
-- [README.md](../../../README.md)
-- [AGENTS.md](../../../AGENTS.md)
-- [biome.json](../../../biome.json)
+The diagnostic commands inspect environment prerequisites separately from starting the application or running tests. This makes them useful when setup stops before the frontend and backend are ready. The report identifies missing runtime, tool or service requirements so the next action can target that boundary.
 
-</details>
+| Command | Inspection scope |
+| --- | --- |
+| `bun run doctor` | Runtime, installed tools and the Fallow baseline. |
+| `bun run doctor -- --profile gate` | Local SonarQube readiness for Windows diagnosis. |
+| `bun run doctor -- --profile local` | Local Supabase services and migration parity. |
+| `bun run doctor -- --profile all` | Default checks and both service profiles. |
 
-# CLI Tools & Diagnostics
+[scripts/doctor.ts](../../../scripts/doctor.ts) owns these checks. The diagnostic itself does not start services, change configuration or execute tests. Return to [local setup](01-p-local-setup.md) for service startup or [testing](02-p-testing-quality.md) for behavior evidence after resolving the reported prerequisite.
 
-Nous provides a robust suite of Command Line Interface (CLI) tools and diagnostic scripts designed to maintain system health, ensure code quality, and validate environmental configurations. These tools serve as the first line of defense for developers, offering automated checks for dependencies, service availability, and CI/CD workflow integrity.
+## Review bodies are rendered artifacts
 
-The primary entry point for health monitoring is the `doctor` script, which performs observational diagnostics across multiple profiles, ranging from local dependency checks to full service probes. These tools are integrated into the project's [Testing and quality gates](02-p-testing-quality.md) to ensure that every change adheres to the project's technical standards before merging.
-Sources: [AGENTS.md:124-142](../../../AGENTS.md#L124-L142)
+The repository's GitHub-body helper validates a Markdown file before publication, then compares the published raw body with the reviewed file and checks GitHub-rendered HTML. This catches flattened Markdown or a remote body that differs from the reviewed file. Keep the body in a file so shell quoting does not become part of its formatting.
 
-## The Doctor Diagnostic Tool
-
-The `doctor` script (`scripts/doctor.ts`) is a comprehensive diagnostic utility that validates the development environment and infrastructure services. It is strictly observational, meaning it reports statuses (`PASS`, `FAIL`, `WARN`, `SKIP`) without modifying configurations or starting services.
-
-### Diagnostic Profiles
-The tool supports four execution profiles to target specific layers of the application stack:
-
-| Profile | Description |
-| :--- | :--- |
-| `checks` | Default profile. Runs service-free checks like Bun runtime, dependencies, and Fallow debt. |
-| `gate` | Probes the loopback-only local SonarQube service. |
-| `local` | Probes Supabase services (Auth, Data API, Storage, Realtime) and migration parity. |
-| `all` | Executes every available check and service probe. |
-
-Sources: [scripts/doctor.ts:46-52](../../../scripts/doctor.ts#L46-L52), [scripts/doctor.ts:79-100](../../../scripts/doctor.ts#L79-L100)
-
-### Environmental Logic Flow
-The diagnostic process begins by verifying the core runtime environment before proceeding to higher-level service checks.
-
-```mermaid
-flowchart TD
-    Start[Run bun run doctor] --> ParseArgs[Parse --profile Argument]
-    ParseArgs --> BunCheck[Inspect Bun Runtime Version]
-    BunCheck --> DepCheck[Check Workspace Binaries]
-    DepCheck --> ChecksProfile{checks or all?}
-    ChecksProfile -- Yes --> Fallow[Inspect Fallow Baseline]
-    ChecksProfile -- No --> CheckExec{Preflight Fail?}
-    Fallow --> CheckExec
-    CheckExec -- Yes --> Exit[Exit Code 1]
-    CheckExec -- No --> ProfileBranch{Selected Profile}
-    
-    ProfileBranch -- checks --> Summary[Generate Summary]
-    ProfileBranch -- gate/all --> Sonar[Probe SonarQube]
-    ProfileBranch -- local/all --> Supabase[Probe Supabase & Migrations]
-    
-    Sonar --> Summary
-    Supabase --> Summary
+```bash
+bun scripts/github-body.mjs validate --body-file body.md
+bun scripts/github-body.mjs preview --repo immagiov4/Nous --body-file body.md
+bun scripts/github-body.mjs update --kind pr --repo immagiov4/Nous --number 123 --body-file body.md
+bun scripts/github-body.mjs verify --kind pr --repo immagiov4/Nous --number 123 --body-file body.md
 ```
 
-The tool treats `package.json#packageManager` as the Bun version source. It verifies that the local runtime and `@types/bun` match the pin, and that GitHub Actions lets `oven-sh/setup-bun` read the same field instead of declaring another version.
-Sources: [scripts/doctor.ts:106-137](../../../scripts/doctor.ts#L106-L137), [scripts/doctor.ts:268-293](../../../scripts/doctor.ts#L268-L293)
-
-## Workflow & CI Selectors
-
-To optimize Continuous Integration, Nous utilizes specialized scripts to determine which tests are relevant based on changed files. The `select-workflow-postgres-contract.ts` script is used in GitHub Actions to detect changes affecting the PostgreSQL persistence layer.
-
-### Contract Selection Logic
-The selector identifies changes within specific ownership boundaries:
-*  **Infrastructure**: `supabase/migrations/`, `supabase/config.toml`.
-*  **Backend Logic**: `apps/backend/src/projects/postgresProjectStore.ts`, `apps/backend/src/workflows/persistence/postgresWorkflowStore.ts`.
-*  **Shared Types**: `packages/shared-types/projectContract.ts`.
-*  **CI Configuration**: `.github/workflows/ci.yml`.
-
-Sources: [scripts/select-workflow-postgres-contract.test.ts:11-30](../../../scripts/select-workflow-postgres-contract.test.ts#L11-L30), [apps/web/tests/scripts/workflowPostgresCi.test.ts:38-55](../../../apps/web/tests/scripts/workflowPostgresCi.test.ts#L38-L55)
-
-```mermaid
-sequenceDiagram
-    participant CI as GitHub Action
-    participant Sel as selector-script
-    participant Git as Git Diff
-    
-    CI->>Git: git diff --name-only BASE HEAD
-    Git-->>Sel: NUL-delimited file list
-    Note over Sel: Matches paths against<br/>Postgres contract boundaries
-    Sel->>CI: set-output changed=true/false
-```
-
-Sources: [apps/web/tests/scripts/workflowPostgresCi.test.ts:38-55](../../../apps/web/tests/scripts/workflowPostgresCi.test.ts#L38-L55)
-
-## Service Health Probes
-
-### Supabase Integration
-The diagnostic tool verifies the availability of the local Supabase stack by probing specific health endpoints using loopback hostnames (`127.0.0.1`, `localhost`).
-
-| Service | Health Endpoint |
-| :--- | :--- |
-| Supabase Auth | `/auth/v1/health` |
-| Supabase Data API | `/rest/v1/` |
-| Supabase Storage | `/storage/v1/status` |
-| Supabase Realtime | `/realtime/v1/api/tenants/realtime-dev/health` |
-
-Sources: [scripts/doctor.ts:31-40](../../../scripts/doctor.ts#L31-L40), [scripts/doctor.ts:303-333](../../../scripts/doctor.ts#L303-L333)
-
-### Migration Drift Analysis
-The CLI tools include logic to detect "drift" between local migration files and the state of the database. This is achieved by executing `supabase migration list --local --output-format json` and comparing the status of local vs. remote migrations.
-Sources: [scripts/doctor.ts:139-156](../../../scripts/doctor.ts#L139-L156), [scripts/doctor.ts:358-386](../../../scripts/doctor.ts#L358-L386)
-
-## Code Quality & Linting
-Nous uses **Biome** for formatting and linting, governed by `biome.json`. The CLI tools integrate these checks via the `bun run quality` command.
-
-### Biome Configuration Summary
-*  **Formatter**: Uses spaces (width 2), line length 100, and single quotes for JavaScript.
-*  **Linter**: Enables recommended rules with specific overrides for `noUnusedImports`, `noExplicitAny`, and `useConst` set to `warn`.
-*  **VCS Integration**: Enabled with Git support to respect ignore files.
-
-Sources: [biome.json:10-85](../../../biome.json#L10-L85)
-
-## Validation Commands Reference
-Developers use the following commands to interact with the diagnostic and quality systems:
-
-| Command | Purpose |
-| :--- | :--- |
-| `bun run doctor` | Run observational health checks (default: `checks` profile). |
-| `bun run quality` | Run TypeScript type checks and Biome linting. |
-| `bun run quality:ci` | Add dependency boundary validation to the common quality checks for CI and the local full gate. |
-| `bun run gate:full` | After green CI, run shared `gate:ci` checks, Node coverage, and Sonar on the same final commit. |
-| `bun run sonar:up` | Start and provision the loopback-only Sonar service for diagnosis. |
-| `bun run sonar:stop` | Stop the Sonar containers without deleting their volumes. |
-| `bun run fix` | Automatically fix Biome linting, formatting, and import ordering. |
-| `bun run test` | Execute the Vitest suite under the Bun runtime. |
-
-Sources: [AGENTS.md:124-142](../../../AGENTS.md#L124-L142)
-
-The diagnostic ecosystem ensures that the development environment is stable, services are reachable, and the codebase remains compliant with established architectural and quality standards.
+`verify` reads the published artifact; `update` publishes the file and performs the same verification. Use `--kind issue` for an issue. The helper's check proves body identity and rendering, while [CI and review](02-p-testing-quality.md) establish the change's merge evidence.
