@@ -883,12 +883,14 @@ test('accepts mathematical OCR whose Greek symbols become delimited math in tran
   expect(provider.generateText).toHaveBeenCalledOnce();
 });
 
-test('bounds a stalled PDF inspection and releases the parser without starting provider calls', async () => {
+test.each([
+  'inspection',
+  'cleanup',
+] as const)('bounds stalled PDF %s without starting provider calls', async stage => {
   const deadline = new AbortController();
   const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal);
-  const info = vi
-    .spyOn(PDFParse.prototype, 'getInfo')
-    .mockImplementation(() => new Promise(() => {}));
+  const info = vi.spyOn(PDFParse.prototype, 'getInfo');
+  if (stage === 'inspection') info.mockImplementation(() => new Promise(() => {}));
   const destroy = vi
     .spyOn(PDFParse.prototype, 'destroy')
     .mockImplementation(() => new Promise(() => {}));
@@ -898,13 +900,16 @@ test('bounds a stalled PDF inspection and releases the parser without starting p
       name: 'PdfTextExtractionTimeoutError',
     });
     expect(timeout).toHaveBeenCalledWith(15_000);
+    if (stage === 'cleanup') await vi.waitFor(() => expect(destroy).toHaveBeenCalledOnce());
     deadline.abort(new DOMException('Inspection deadline', 'TimeoutError'));
     await rejected;
     expect(destroy).toHaveBeenCalledOnce();
     expect(provider.generateText).not.toHaveBeenCalled();
   } finally {
+    const parser = destroy.mock.contexts[0];
     info.mockRestore();
     destroy.mockRestore();
     timeout.mockRestore();
+    await parser?.destroy();
   }
 });

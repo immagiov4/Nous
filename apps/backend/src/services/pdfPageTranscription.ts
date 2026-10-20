@@ -423,9 +423,11 @@ const inspectPdfTextPages = async (
   try {
     return await Promise.race([inspect(), aborted]);
   } finally {
-    signal.removeEventListener('abort', abort);
-    const destroyed = parser.destroy().catch(() => undefined);
-    if (!signal.aborted) await destroyed;
+    try {
+      await Promise.race([parser.destroy().catch(() => undefined), aborted]);
+    } finally {
+      signal.removeEventListener('abort', abort);
+    }
   }
 };
 

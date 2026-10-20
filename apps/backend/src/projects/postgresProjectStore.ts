@@ -1058,11 +1058,6 @@ export class PostgresProjectStore implements ProjectStore {
     if (existingSnapshot) {
       snapshot = preserveStoredProjectSource(snapshot, existingSnapshot);
     }
-    snapshot = restoreStoredPreparedPdfText(
-      snapshot,
-      existingSnapshot,
-      new Set(sourcePreparation ? sourceFiles?.files.map(file => file.id) : [])
-    );
     if (existingSnapshot?.source) {
       snapshot = await this.detachUnchangedEmbeddedSource(userId, snapshot, existingSnapshot);
     }
@@ -1149,10 +1144,15 @@ export class PostgresProjectStore implements ProjectStore {
             previousSnapshot = await lockPreviousSnapshot();
           }
         }
-        const snapshotToPersist =
+        const canonicalSnapshot =
           !sourceWrite && snapshot.source != null
             ? await this.canonicalizeDetachedProjectSource(sql, userId, snapshot)
             : snapshot;
+        const snapshotToPersist = restoreStoredPreparedPdfText(
+          canonicalSnapshot,
+          previousSnapshot ?? existingSnapshot,
+          new Set(sourcePreparation ? sourceFiles?.files.map(file => file.id) : [])
+        );
         let sourceObjectPaths: string[] = [];
         const meta = await commitProjectRevision(sql, {
           expectedRevision,
