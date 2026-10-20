@@ -41,6 +41,7 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
     sectionId: string;
     autoPlay: boolean;
     audioElementRef: RefObject<HTMLAudioElement>;
+    nextAudioElementRef: RefObject<HTMLAudioElement>;
   } | null>(null);
   const hasBanners = Boolean(
     banners.lessonError ||
@@ -55,11 +56,16 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
     overlays.onCloseContextAnswer();
     overlays.onCloseContextMenu();
     const audioElement = new Audio();
-    if (autoPlay) unlockLessonPlaybackAudio(audioElement);
+    const nextAudioElement = new Audio();
+    if (autoPlay) {
+      unlockLessonPlaybackAudio(audioElement);
+      unlockLessonPlaybackAudio(nextAudioElement);
+    }
     setPlayer({
       sectionId: sidebar.activeSectionId,
       autoPlay,
       audioElementRef: { current: audioElement },
+      nextAudioElementRef: { current: nextAudioElement },
     });
   };
   const { viewportHeight } = useMobileKeyboardOffset();
@@ -202,6 +208,7 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
             tts={header.tts}
             autoPlay={player.autoPlay}
             audioElementRef={player.audioElementRef}
+            nextAudioElementRef={player.nextAudioElementRef}
             onClose={() => setPlayer(null)}
           />
         </Suspense>

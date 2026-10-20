@@ -53,7 +53,11 @@ vi.mock('../../../components/workspace/shell/WorkspaceReaderSidebar.tsx', () => 
 }));
 
 vi.mock('../../../components/workspace/playback/LessonPlayer.tsx', () => ({
-  default: (props: { autoPlay: boolean; audioElementRef: RefObject<HTMLAudioElement> }) => {
+  default: (props: {
+    autoPlay: boolean;
+    audioElementRef: RefObject<HTMLAudioElement>;
+    nextAudioElementRef: RefObject<HTMLAudioElement>;
+  }) => {
     playerProps(props);
     return <div role="dialog" data-autoplay={String(props.autoPlay)} />;
   },
@@ -236,13 +240,20 @@ describe('WorkspaceReaderShell', () => {
     'workspace-sidebar',
   ])('%s opens the player with autoplay', async entry => {
     const audio = document.createElement('audio');
-    vi.spyOn(globalThis, 'Audio').mockImplementation(function Audio() {
-      return audio;
-    });
-    vi.spyOn(audio, 'play').mockImplementation(async () => {
-      expect(audio.muted).toBe(true);
-    });
-    vi.spyOn(audio, 'pause').mockImplementation(() => {});
+    const nextAudio = document.createElement('audio');
+    vi.spyOn(globalThis, 'Audio')
+      .mockImplementationOnce(function Audio() {
+        return audio;
+      })
+      .mockImplementationOnce(function Audio() {
+        return nextAudio;
+      });
+    for (const element of [audio, nextAudio]) {
+      element.play = vi.fn(async () => {
+        expect(element.muted).toBe(true);
+      });
+      element.pause = vi.fn();
+    }
     const props = buildProps();
     props.sidebar.activeSectionId = 'lesson';
     props.content.projectId = 'project';
@@ -251,9 +262,12 @@ describe('WorkspaceReaderShell', () => {
     fireEvent.click(screen.getByTestId(entry));
     expect(audio.play).toHaveBeenCalledOnce();
     expect(audio.pause).toHaveBeenCalledOnce();
+    expect(nextAudio.play).toHaveBeenCalledOnce();
+    expect(nextAudio.pause).toHaveBeenCalledOnce();
     expect(audio.muted).toBe(false);
     expect(await screen.findByRole('dialog')).toHaveAttribute('data-autoplay', 'true');
     expect(playerProps.mock.lastCall?.[0].audioElementRef.current).toBe(audio);
+    expect(playerProps.mock.lastCall?.[0].nextAudioElementRef.current).toBe(nextAudio);
   });
 
   test('resets both window and content scroll positions on mount', () => {

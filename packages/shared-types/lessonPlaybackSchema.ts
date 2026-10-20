@@ -169,5 +169,10 @@ export const PrepareLessonPlaybackResponseSchema = z.union([
     voice: z.string().min(1),
     model: z.string().min(1),
   }),
-  z.object({ runId: z.string().min(1), blockId: z.string().min(1), voice: z.string().min(1) }),
+  z.object({
+    runId: z.string().min(1),
+    blockId: z.string().min(1),
+    voice: z.string().min(1),
+    created: z.boolean().optional(),
+  }),
 ]);

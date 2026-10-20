@@ -98,6 +98,7 @@ export default function LessonPlayer({
   onClose,
   autoPlay = true,
   audioElementRef,
+  nextAudioElementRef,
 }: Readonly<{
   sectionId: string;
   projectId: string;
@@ -120,6 +121,7 @@ export default function LessonPlayer({
   onClose: () => void;
   autoPlay?: boolean;
   audioElementRef?: RefObject<HTMLAudioElement>;
+  nextAudioElementRef?: RefObject<HTMLAudioElement>;
 }>) {
   const sourceBlocks = useMemo(
     () =>
@@ -136,6 +138,7 @@ export default function LessonPlayer({
     speed: tts.playbackRate,
     initialBlocks,
     audioElementRef,
+    nextAudioElementRef,
   });
   const [noteMode, setNoteMode] = useState(false);
   const [draft, setDraft] = useState('');
