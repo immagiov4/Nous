@@ -7,7 +7,13 @@ import { dirname, isAbsolute, join, relative, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { Resvg } from '@resvg/resvg-js';
-import { type BrowserServer, chromium, type Page } from 'playwright';
+import {
+  type Browser,
+  type BrowserContext,
+  type BrowserServer,
+  chromium,
+  type Page,
+} from 'playwright';
 import { build, type CSSOptions, normalizePath, preview } from 'vite';
 import { drainConsoleSignals, installProbes } from '../../packages/playtest/src/probes/collect';
 import type { LessonPlaybackBlock } from '../../packages/shared-types/lessonPlayback';
@@ -142,7 +148,6 @@ async function settleStage(page: Page, timeSeconds: number) {
   // The parent supervisor bounds this readiness loop, including scripts that never yield.
   do {
     await advanceAtlasLayout(page);
-    await page.waitForLoadState('networkidle', { timeout: 0 });
   } while (!(await page.evaluate(() => window.playbackAtlas.ready())));
 
   // Replay each embedded document from the same epoch after its production host has settled.
@@ -394,16 +399,22 @@ async function captureCourse(input: {
     records.lessons.push(summary);
     for (const viewport of scenario.viewports) {
       let ownedServer: BrowserServer | undefined;
+      let renderer: Browser | undefined;
+      let context: BrowserContext | undefined;
       let page: Page;
       const closeRenderer = async () => {
         const current = ownedServer;
         ownedServer = undefined;
+        renderer = undefined;
+        context = undefined;
         await current?.kill();
       };
       const openRenderer = async () => {
-        ownedServer = await chromium.launchServer({ headless: true });
-        const renderer = await chromium.connect(ownedServer.wsEndpoint());
-        const context = await renderer.newContext(viewportOptions(viewport));
+        if (!renderer) {
+          ownedServer = await chromium.launchServer({ headless: true });
+          renderer = await chromium.connect(ownedServer.wsEndpoint());
+        }
+        context = await renderer.newContext(viewportOptions(viewport));
         await context.route('**/*', async route => {
           const url = new URL(route.request().url());
           const assetId = /\/api\/projects\/[^/]+\/assets\/([^/]+)$/u.exec(url.pathname)?.[1];
@@ -449,11 +460,27 @@ async function captureCourse(input: {
             ordinal: records.lessons.length,
             checks: scenario.checks,
             renderSample: async sample => {
-              if (!ownedServer) await openRenderer();
-              return boundedRender(() => captureSample(page, sample), {
-                milliseconds: options.renderTimeoutMs,
-                terminate: closeRenderer,
-              });
+              const started = performance.now();
+              const captured = await boundedRender(
+                async () => {
+                  try {
+                    if (!context) await openRenderer();
+                    return await captureSample(page, sample);
+                  } finally {
+                    const current = context;
+                    context = undefined;
+                    await current?.close();
+                  }
+                },
+                {
+                  milliseconds: options.renderTimeoutMs,
+                  terminate: closeRenderer,
+                }
+              );
+              return {
+                ...captured,
+                metrics: { ...captured.metrics, executionMs: performance.now() - started },
+              };
             },
           }))
         );
