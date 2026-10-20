@@ -1,20 +1,24 @@
 ---
-title: "Admin controls"
+title: "Administrative service boundary"
 wiki_page_id: "p-admin-ui"
 ---
 
 [Up one level](../02-section-architecture/01-p-architecture.md)
 
-# Admin controls
+# Administrative service boundary
 
-Authorized administrators manage accounts, feedback and model settings in the admin area. The same area links to research tools for investigating video selection.
+Administrative surfaces expose account management, feedback handling, model configuration and research inspection. Their authority comes from backend role checks on the authenticated account. Frontend navigation presents those capabilities, while the server decides whether a request may execute them.
 
-## Accounts and reports
+## Configuration affects subsequent provider work
 
-Create accounts for a self-hosted instance and review learner feedback. If GitHub delivery fails, the saved report remains available for retry. [Feedback delivery](../06-section-backend/04-p-feedback-system.md) explains publication and status synchronization.
+Model configuration supplies task-specific choices for context, planning, lesson writing and visuals. Provider capability checks still apply when a request executes; a stored model choice cannot make an unsupported image or structured-output request valid. The [provider boundary](../07-section-ai/01-p-ai-providers.md) owns translation and capability handling.
 
-## Models and research
+Account provider assignments can authorize use of the installation's [private Codex connection](../06-section-backend/03-p-codex-server.md). That is access to a shared host account through Nous, so authorization belongs to server-side policy rather than disclosure of provider credentials to the browser. The page intentionally leaves product-setting procedures to the interface.
 
-Choose models for document context, planning and lesson writing. Visual settings include the number of review rounds. [AI provider configuration](../07-section-ai/01-p-ai-providers.md) explains account access and task-specific model selection.
+## Diagnostic tools expose stage evidence
 
-Use the [Research Lab](../03-section-features/06-p-youtube-research.md#inspect-a-selection) to inspect video candidates and selection reasoning. Server-side [access checks](../06-section-backend/02-p-auth.md) enforce the administrator role.
+The Research Lab presents video candidates, transcript availability, timings and selection reasoning from the [research pipeline](../03-section-features/06-p-youtube-research.md). It helps distinguish failed discovery from a poor model selection without rerouting that responsibility into the reader. Its data is diagnostic evidence, rather than a separate source of project truth.
+
+Feedback management operates on saved local reports and their optional GitHub issue relationship. Failed delivery leaves the local record available; synchronization updates the recorded issue state. [Feedback delivery](../06-section-backend/04-p-feedback-system.md) owns redaction and publication semantics.
+
+When extending an administrative operation, trace its route through [authentication](../06-section-backend/02-p-auth.md) to the owning service and persisted record. A role-aware component is only the presentation layer of that path. Tests should reach the protected HTTP boundary with permitted and unpermitted identities so a UI change cannot accidentally become the only enforcement.

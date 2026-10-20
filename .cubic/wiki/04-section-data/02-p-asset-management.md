@@ -1,22 +1,26 @@
 ---
-title: "Project file lifecycle"
+title: "Asset adoption and cleanup"
 wiki_page_id: "p-asset-management"
 ---
 
 [Up one level](01-p-database-schema.md)
 
-# Project file lifecycle
+# Asset adoption and cleanup
 
-A workflow prepares a file before a saved project adopts its reference. Cleanup can remove an abandoned file only after confirming that no project uses it.
+A workflow can prepare a file before a saved project references it. Asset ownership represents that provisional state; adoption connects the file to a committed project reference. Cleanup can remove abandoned output only after establishing that no project still uses it. This separates interrupted preparation from intentional deletion.
 
-## Sources and generated images
+## Identity includes the source context
 
-Uploaded sources belong to their project; identical uploads in different projects stay separate. Archives retain an index for selected-file retrieval. Generated images and extracted PDF images use stored bytes plus descriptive references in the lesson.
+Uploaded sources belong to their project, and identical uploads in separate projects remain separate resources. Code archives retain an index for selected-file retrieval. Extracted PDF images carry page and text context; generated visuals carry their stored bytes and lesson references. A content match alone cannot establish which project or source version authorizes retrieval.
 
-When a PDF source changes, its image context is refreshed so captions and placement do not silently describe the earlier file.
+Replacing a PDF source refreshes the image context used by generation so a caption or placement cannot silently describe the earlier document. The source artifact and source visual identities matter together when resolving a reference. The owning code lives under [project services](../../../apps/backend/src/projects/), with ingestion described in [source preparation](../03-section-features/03-p-doc-processing.md).
 
-## Backups
+## Workflow output becomes durable content at adoption
 
-A project backup carries its saved data and the files needed for restoration. Restore checks integrity and reconnects references to imported copies. Prepared playback audio is regenerated when needed and is excluded from project backups.
+Generation may fail after writing a file but before saving a lesson. Keeping a provisional owner makes that output distinguishable from a file already adopted by a project. Conversely, cleanup must consider live references so one failed attempt cannot remove content committed by another supported path. Workflow replay therefore needs both safe file operations and transactional reference changes.
 
-Library exports combine project archives; [Manage projects and backups](../03-section-features/05-p-project-workspace.md) owns the learner's export and retry path. Operator backups have a different scope: see [deployment backups](../08-section-deployment/01-p-self-hosted.md#back-up-and-restore).
+Playback audio is derived from the saved lesson and its selected voice/model context. It follows preparation and persistence but is excluded from portable project archives; restored projects can prepare it again. Original sources and lesson visuals have different recovery requirements because their bytes are part of the retained course material.
+
+## Portability and installation recovery differ
+
+[Project export](../03-section-features/05-p-project-workspace.md) carries saved data and the files needed to restore that project. Import checks integrity and reconnects references to the imported copies. [Deployment backups](../08-section-deployment/01-p-self-hosted.md#back-up-and-restore) cover installation services and have their own documented storage scope. Choose the corresponding recovery contract when changing archive contents or storage cleanup; a valid project archive does not establish that every installation asset is recoverable.

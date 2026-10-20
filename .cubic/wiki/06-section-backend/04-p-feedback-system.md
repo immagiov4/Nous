@@ -1,22 +1,24 @@
 ---
-title: "Feedback delivery and follow-up"
+title: "Feedback persistence and publication"
 wiki_page_id: "p-feedback-system"
 ---
 
 [Up one level](../05-section-frontend/03-p-admin-ui.md)
 
-# Feedback delivery and follow-up
+# Feedback persistence and publication
 
-A submitted report is saved for administrators first. When GitHub publication is configured, the server then attempts to create a linked issue, keeping the local report available if delivery fails.
+Feedback is saved locally before optional GitHub publication. The local record therefore survives a delivery failure and remains available to the administrative surface. The GitHub issue is a linked publication target with its own state, rather than the sole copy of the report.
 
-## Attached information
+## Publication crosses a privacy boundary
 
-The form shows optional product diagnostics before submission. These contain a limited context and recent actions, excluding prompts, source text and credentials. The server redacts recognized credential patterns, email addresses and URL query information from report text and diagnostics.
+The form presents optional product diagnostics before submission. These contain bounded context and recent actions while excluding prompts, source text and credentials. Before publication, the server redacts recognized credential patterns, email addresses and URL query information from report text and diagnostics. Screenshots remain private to the installation; the issue records attachment presence instead of publishing the image.
 
-Screenshots remain private to the installation; the GitHub issue records that an attachment exists.
+This boundary matters because a report about a course can contain context that should remain local. A successful redaction pass establishes the implemented transformations, not an authorization to attach arbitrary source files. Trace publication fields from the submitted form through the [feedback route](../../../apps/backend/src/routes/feedback.ts) and owning service when changing the report schema.
 
-## Retry and synchronize
+## Delivery and synchronization are separate state changes
 
-Administrators can retry failed publication and synchronize the linked issue's open or closed state. Reports created directly in GitHub leave the local list only after two consecutive sync results omit them.
+When publication is configured, the server attempts issue creation after local persistence. Failed publication can be retried from the retained record. Synchronization then updates the linked issue's open or closed state independently of whether the original delivery was successful.
 
-The [feedback route](../../../apps/backend/src/routes/feedback.ts) is the entry point for changes. [Admin controls](../05-section-frontend/03-p-admin-ui.md) owns the review interface.
+Reports originating directly in GitHub leave the local list only after two consecutive synchronization results omit them. That rule belongs to synchronization, while local submission and issue creation have their own outcomes. Tests should distinguish these states rather than treating any GitHub response as proof that a report has completed its full lifecycle.
+
+[Administrative services](../05-section-frontend/03-p-admin-ui.md) owns access to management operations; [authentication](02-p-auth.md) explains the role checks. [Observability](05-p-telemetry-usage.md) describes the similarly bounded diagnostics used for workflow failures.

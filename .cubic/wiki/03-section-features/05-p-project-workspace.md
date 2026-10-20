@@ -1,24 +1,24 @@
 ---
-title: "Manage projects and backups"
+title: "Project revisions and portable exports"
 wiki_page_id: "p-project-workspace"
 ---
 
-[Up one level](../05-section-frontend/01-p-reader-shell.md)
+[Up one level](../04-section-data/01-p-database-schema.md)
 
-# Manage projects and backups
+# Project revisions and portable exports
 
-The library keeps courses and their study progress in projects. Use folders to group them and export a backup when you need a portable copy.
+A project groups a course, its generated content and study state under an owner and revision. Library records describe folders and project placement separately, allowing the library to load without fetching every lesson. Project saves and exports both rely on revision identity, but they use it for different purposes.
 
-## Organize the library
+## Concurrent changes remain explicit
 
-Create, rename or move folders, then move projects into them. Deleting a folder moves its contents to the parent folder and keeps its projects.
+A client saving a project supplies the revision it edited. A stale revision produces a conflict instead of silently overwriting another session's save. The client must reload or reconcile against the authoritative version. Generation also commits project changes, so revision handling matters even when only one browser is open.
 
-Project changes save as you work. If another session has changed the same project, a revision conflict asks the client to reload or reconcile it rather than overwrite that version.
+Folder operations update library organization without changing the course's lesson meaning. Deleting a folder moves its contents to the parent while retaining its projects. The separation between project snapshots and library placement lets these operations remain independent of lesson generation.
 
-## Export and restore
+## An export is a snapshot attempt
 
-Export one project or the whole library. A library export prepares projects in sequence and records progress across a server restart. If a project changes during preparation, the attempt fails; retrying begins a fresh library snapshot.
+A project archive combines saved data with the files needed for restoration. A library export prepares project archives in sequence and records its progress durably across server restarts. It identifies the project versions it is preparing; a project changing during preparation invalidates the attempt rather than quietly producing an archive assembled from different versions. A retry starts a fresh library snapshot.
 
-The browser can start the verified download. Check the downloaded file on your device when keeping a backup. Imports convert supported older archives and reconnect image and PDF references when their files are present; unmatched references remain available for review.
+The server verifies prepared output before the browser downloads it. This establishes the generated artifact, while delivery to a particular device remains a separate boundary. Import checks integrity, converts supported older archive shapes and reconnects image and PDF references to imported files. Unmatched references remain represented for review rather than acquiring an unrelated file by guesswork.
 
-For the contents of a backup and file lifecycle, see [project files and storage](../04-section-data/02-p-asset-management.md). For answer and annotation changes during regeneration, see [exercise progress](08-p-interactive-exercises.md).
+Follow [project services](../../../apps/backend/src/projects/) for revision writes, transactions and export state. [Asset lifecycle](../04-section-data/02-p-asset-management.md) owns file adoption and cleanup, and [deployment backups](../08-section-deployment/01-p-self-hosted.md#back-up-and-restore) covers installation recovery. Portable exports and operator backups have different scopes: one represents selected project data, while the other must recover the installation's durable services.

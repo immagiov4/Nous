@@ -1,20 +1,24 @@
 ---
-title: "Public preview and access"
+title: "Public presentation boundary"
 wiki_page_id: "p-marketing-waitlist"
 ---
 
 [Up one level](../02-section-architecture/01-p-architecture.md)
 
-# Public preview and access
+# Public presentation boundary
 
-The public page presents a prepared journey through course planning, reading and questions. Visitors can preview the product before requesting access or opening sign-in.
+The public page is a prepared demonstration of planning, reading and questions, combined with waitlist and sign-in entry points. Its examples can run without generating a course or contacting an AI provider. This gives the presentation a bounded, reproducible content path separate from authenticated project workflows.
 
-## Follow the demonstration
+## Prepared examples drive the demonstration
 
-On wide screens, the demonstration follows the section as the visitor scrolls. On phones, controls select each stage. These examples play without generating a course or contacting an AI provider.
+The [marketing components](../../../apps/web/components/marketing/) own the presentation and its prepared content. Wide layouts coordinate the demonstration with scrolling; narrow layouts use stage controls. Both presentations illustrate the same product journey, so their differences belong to responsive composition rather than separate generation mechanisms.
 
-The [marketing components](../../../apps/web/components/marketing/) own the presentation and its prepared content.
+Prepared content is useful here because visitors can see a complete interaction without a provider account, private source material or the latency of a live generation run. It also means that a successful demonstration establishes the presentation path, while authenticated workflow behavior needs its own integration evidence. Keep public fixtures and private course data separate when changing these examples.
 
-## Request access
+## Submission and authentication cross into the backend
 
-The waitlist accepts an email address and reports whether submission succeeded or needs attention. Existing users open the sign-in panel from the same page. Once signed in, [Create your first course](../01-section-overview/01-p-overview.md) is the next learning step.
+Waitlist submission sends an email address and receives a success or failure outcome. Sign-in enters the application's normal [authentication flow](../06-section-backend/02-p-auth.md). These are real service boundaries even though the demonstration beside them uses prepared content; their loading, failure and validation states need to reflect the actual request result.
+
+After authentication, private library and project requests use the same account and ownership checks as other backend routes. The public presentation does not establish access to a project or an AI provider. [Administrative surfaces](03-p-admin-ui.md) describes the separate privileged boundary.
+
+Changes to the public page should therefore be verified in two parts: responsive prepared demonstrations, and the actual request contracts for submission and sign-in. The [testing guide](../09-section-tools/02-p-testing-quality.md) supplies the browser verification approach. This page explains those implementation boundaries; product-operation instructions belong in the interface itself.

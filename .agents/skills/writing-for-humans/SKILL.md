@@ -24,7 +24,7 @@ Zoom is recursive. A reader at a deeper document has read the levels above it: u
 
 Write a short card for yourself before drafting:
 
-- **Who** reads this and what they open it for.
+- **Who** reads this and what they open it for. The venue decides first: a code repository's README and wiki are read by developers, so they present the product briefly and then describe the system (architecture, components, data flow, design reasons, development, deployment), not how to operate the interface or configure product settings.
 - **What they already know:** their background, plus everything the levels above this text already told them.
 - **What surrounds them:** the tools, concepts and news they live with. For an outside audience, research it (forums, Reddit, issue trackers, recent news) rather than guessing; an agent's own doubts are a poor proxy for a human's.
 - **Pressing questions:** the few questions that, left unanswered, block the conclusion or action you want this reader to reach. Typical questions for the audience are researchable too.
@@ -53,7 +53,7 @@ Treat the text as a system to refactor:
 - **Positive form.** Define things by what they are and do; reserve warnings for real hazards.
 - **Visuals when faster.** A diagram, table or screenshot replaces paragraphs when the shape of a system, flow or metric is the point.
 
-Length follows the card, not the amount of work done or the number of facts available. If the opening is not understandable in ten seconds, the text is not ready. Interest is the bar rather than brevity: a longer passage that legitimately holds this reader is fine.
+Length follows the card, not the amount of work done or the number of facts available. If the opening is not understandable in ten seconds, the text is not ready. Interest is the bar rather than brevity: a longer passage that legitimately holds this reader is fine. A page must fully answer its question at its zoom; a three-line page that leaves the reader without the mechanism or the reasons fails as surely as a wall of jargon. Depth comes from mechanism and reasons, not from procedure lists. Two pages that answer the same question (a README and an index that repeats it) are one page written twice: give each its own question.
 
 ## 5. Write the prose
 

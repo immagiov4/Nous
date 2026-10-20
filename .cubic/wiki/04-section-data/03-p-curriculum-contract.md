@@ -1,26 +1,24 @@
 ---
-title: "Curriculum validation reference"
+title: "Curriculum validation contract"
 wiki_page_id: "p-curriculum-contract"
 ---
 
 [Up one level](01-p-database-schema.md)
 
-# Curriculum validation reference
+# Curriculum validation contract
 
-A curriculum describes objectives, concepts, prerequisites and planned activities. These validators run on caller-supplied data and are separate from the durable course workflow. The caller retrieves records and authorizes access; validation checks their identities and references.
+Curriculum validators check caller-supplied objectives, concepts, prerequisites and mappings for identity and structural consistency. They are separate from the durable production course workflow. The caller retrieves the relevant records and authorizes access; the validators judge the provided data rather than performing that lookup or authorization.
 
-## Identity
+## Identity prevents accidental cross-project matches
 
-A curriculum belongs to an account and project incarnation, which prevents a deleted and recreated project inheriting stale references. Account concepts can span courses; objectives remain local to their course even when wording or identifiers match.
+A curriculum belongs to an account and project incarnation. Incarnation identity prevents a deleted and recreated project from inheriting references to the earlier project. Account concepts may span courses, while objectives remain local to their course even when their wording or identifiers match. Validation must preserve that distinction rather than equating textual similarity with shared identity.
 
-## Structure and prerequisites
+References identify the expected account, project, curriculum, lesson plan and approved planning input. Unique identifiers make those references resolvable. When a preparation claims to support a later lesson, it must name the concept and objectives doing that work; unresolved prerequisites and same-lesson preparations remain explicit validation problems.
 
-References must identify the expected account, project, curriculum, lesson plan and approved planning input. Identifiers must be unique. A preparation names the concept and objectives that prepare a later lesson; same-lesson preparations and unresolved prerequisites are flagged for review.
+## Mapping preserves the evidence state
 
-These checks establish internal consistency. Content review determines whether the preparation is educationally sufficient.
+Mappings distinguish unreviewed, unmatched, confirmed and ambiguous results. A confirmed match retains its relation and reason; an ambiguous result retains alternatives so subsequent code can inspect the unresolved choice. Cross-course alignment distinguishes a shared account concept from partial overlap without inferring proficiency from similar wording.
 
-## Mapping evidence
+These states let a caller retain uncertainty rather than coerce every mapping into a successful match. They establish internal consistency, while content review must assess whether a preparation is educationally sufficient. A structurally valid prerequisite edge cannot demonstrate that a learner has mastered its concept.
 
-Mappings distinguish unreviewed, unmatched, confirmed and ambiguous results. A confirmed match retains its relation and reason; ambiguity retains alternatives. Cross-course alignment distinguishes a shared account concept from partial overlap without inferring proficiency from similar wording.
-
-For exact types and validation results, read the [curriculum validators](../../../apps/backend/src/curriculum/). For the production planning workflow, see [course generation](../03-section-features/01-p-course-gen.md).
+Inspect the types and results under [curriculum](../../../apps/backend/src/curriculum/) before adding a caller. Tests and generation harnesses exercise these supplied-data checks; [course planning](../03-section-features/01-p-course-gen.md) describes the production plan pipeline and its own validation. Keeping those boundaries explicit avoids treating a standalone validation contract as an integrated production feature.

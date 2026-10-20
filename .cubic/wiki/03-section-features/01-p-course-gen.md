@@ -1,28 +1,26 @@
 ---
-title: "How a course plan is built"
+title: "Course planning"
 wiki_page_id: "p-course-gen"
 ---
 
 [Up one level](../01-section-overview/01-p-overview.md)
 
-# How a course plan is built
+# Course planning
 
-After the learner approves a profile, generation researches the subject and drafts an ordered sequence of lessons. Review checks coverage, boundaries and prerequisites before the plan is saved.
+Course generation decides what lessons should exist and in what order. It consumes an approved learning profile, requested scope, source material and available prior-knowledge evidence, then researches, drafts, verifies and refines the plan before saving it. Individual lesson explanations are generated against that saved plan.
 
-## Establish the starting point
+## Inputs determine the planning problem
 
-A topic course uses the learner's goals; a document course also uses [prepared source material](03-p-doc-processing.md). Course depth, lesson size and language proficiency guide the scope. Automatic settings follow reference material when supplied and otherwise request a balanced treatment.
+A topic request starts from goals and research. Document and archive requests also have prepared source content, so planning must account for the material's boundaries and structure. Course depth, lesson granularity and language proficiency affect scope and explanation requirements. Automatic settings follow supplied reference material where available and otherwise request balanced treatment.
 
-Prior-knowledge questions gather evidence about the learner's starting point. Their answers guide planning rather than assigning a grade or diagnosis.
+Prior-knowledge diagnostics contribute evidence about the starting point. Their model interprets submitted attempts cumulatively and preserves uncertainty and omissions; an empty interpretation list before submission carries no assessment. The [diagnostic model](../../../apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts) owns this contract. Planning consumes that evidence rather than converting similar answers into an implicit proficiency rule.
 
-## Research, draft and review
+## Draft, verify, refine, validate
 
-Web and [video research](06-p-youtube-research.md) supply supporting material. Review can request targeted revisions to the plan before it is accepted. Document sources remain distinct from research results; topic-based lessons can use only sources returned by research. The reader presents saved sources as linked titles with notes.
+The [course workflow](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts) makes preparation, research, draft, verification, refinement and validation explicit stages. Verification assesses coverage, lesson boundaries and prerequisite order; refinement can address its findings before deterministic validation accepts the resulting structure. Keeping these outputs separate makes the reason for a revision inspectable and lets interrupted work resume through the workflow engine.
 
-The approved plan becomes context for [lesson generation](02-p-lesson-gen.md). Developers changing planning rules should follow the [shared instruction contracts](../07-section-ai/02-p-prompt-engineering.md).
+Source finalization establishes references for the accepted plan, and application-exercise planning places activities against it. The final persistence stage saves the course and emits its project revision. A valid plan structure and a successful commit are distinct from the model's educational judgment; [shared instructions](../07-section-ai/02-p-prompt-engineering.md) and content evaluations address the latter.
 
-<details><summary>Details</summary>
+## Evidence stays attributable
 
-When changing prior-knowledge adaptation, use the [diagnostic model](../../../apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts). Evaluations interpret submitted attempts cumulatively; before a submission, their interpretation list is empty. Uncertainty and omissions remain explicit in the evaluation.
-
-</details>
+Uploaded documents and research results retain distinct identities. Topic-based lessons use sources returned by research; a generated source title alone cannot establish retrieved evidence. [Video research](06-p-youtube-research.md) adds selected resources with selection reasoning, while [ingestion](03-p-doc-processing.md) provides document and file context. [Lesson generation](02-p-lesson-gen.md) explains how the saved plan constrains the next stage.

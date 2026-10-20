@@ -1,22 +1,24 @@
 ---
-title: "Ask about a lesson"
+title: "Contextual chat and tools"
 wiki_page_id: "p-chat-ui"
 ---
 
 [Up one level](../05-section-frontend/01-p-reader-shell.md)
 
-# Ask about a lesson
+# Contextual chat and tools
 
-Select a passage in the reader and ask a question to focus the answer on that text. A conversation can also use the current lesson or an existing note; the chosen context determines what the assistant receives.
+Contextual chat binds a conversation to a lesson, selected passage or note before requesting a model response. That binding supplies the meaning of the question and the scope of tool access. Library chat instead uses the selected projects or folders, so its context boundary is broader than a single reader passage.
 
-## Keep an explanation
+## Preserve context across navigation
 
-Follow up in the lesson conversation, or ask the assistant to suggest a note. A suggested note must match text that the reader can anchor before you can save it. Retrieved material appears after the answer and stays collapsed until opened.
+A conversation stays attached to the lesson where it began even if the browser navigates elsewhere. The request must therefore use its saved context rather than whichever lesson happens to be active when a response arrives. This separation also matters for streamed tool results: a note or explanation belongs to the original target.
 
-A conversation remains attached to the lesson where it began when you navigate elsewhere. Library chat instead uses the projects or folders you select.
+Suggested notes must match text that the reader can anchor. Validation connects the proposed note to a concrete passage before it is saved; a model's proposed location is insufficient on its own. Retrieved material is presented with the answer as supporting evidence rather than replacing the conversation's target context.
 
-## Ask about an archive
+## Tools cross explicit boundaries
 
-For archive-backed lessons, the assistant can search the retained index or open an indexed text file. Results identify the source and path so you can inspect the evidence. Access stays within your project and the source version attached to the lesson.
+For archive-backed lessons, the assistant can search the retained index or open an indexed text file. Results identify the source and path, and access remains within the authorized project and source version attached to the lesson. The backend's [archive access boundary](../../../apps/backend/src/projects/sourceArchiveAccess.ts) is the place to inspect when changing retrieval permissions.
 
-For spoken questions, see [Listen and speak](04-p-multimedia.md). Developers tracing model requests can follow [AI providers](../07-section-ai/01-p-ai-providers.md).
+Some learning actions execute on the server; others require the browser workspace to complete a change such as creating a note. Both [OpenRouter and Codex](../07-section-ai/01-p-ai-providers.md) must preserve the application tool contract despite their different streaming protocols. Provider output requests an action; application authorization and validation decide whether that action can be applied.
+
+The [chat context route](../06-section-backend/01-p-api-routes.md) locates the HTTP entry point. Changes to selection projection, annotation anchors or navigation need [reader](../05-section-frontend/01-p-reader-shell.md) verification as well as request tests, because a structurally valid response can still be attached to the wrong passage.

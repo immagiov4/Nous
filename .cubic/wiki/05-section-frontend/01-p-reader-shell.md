@@ -1,24 +1,26 @@
 ---
-title: "Study a lesson"
+title: "Reader composition and state"
 wiki_page_id: "p-reader-shell"
 ---
 
-[Up one level](../01-section-overview/01-p-overview.md)
+[Up one level](../02-section-architecture/01-p-architecture.md)
 
-# Study a lesson
+# Reader composition and state
 
-Open a ready lesson in the course sidebar. Its explanation appears in the main reading area, with study controls and related material beside it.
+The reader composes the active project and lesson with navigation, content rendering and study interactions. Saved content comes from server project state; selection, open panels and playback controls are browser interaction state. Keeping those lifetimes distinct lets a project update without turning every transient interaction into a persistence operation.
 
-## Read, listen or ask
+## Compose around the active target
 
-Read the explanation in order, or [start narration](../03-section-features/04-p-multimedia.md) from the lesson or its ready sidebar entry. Select a passage to [ask for an explanation or save a note](../03-section-features/07-p-chat-ui.md). Answer the [questions and exercises](../03-section-features/08-p-interactive-exercises.md) when you reach them.
+The [application composition](../../../apps/web/app/) connects the reader's props and dialogs to application state. The main content renderer presents lesson text, source references, visuals and quizzes, while the sidebar reflects course structure and activity readiness. Exercise briefs can generate independently of the lesson currently displayed, and practical exercises have an activity view rather than narrated lesson playback.
 
-Return through the library to continue another course. [Project management](../03-section-features/05-p-project-workspace.md) covers folders and backups.
+Selections need a stable mapping between rendered text and saved lesson content. Annotation anchors and chat context use that mapping; they must remain attached to their original lesson when navigation changes the active target. [Contextual chat](../03-section-features/07-p-chat-ui.md) explains why a streaming response cannot simply use the current page when it arrives.
 
-## If a lesson needs attention
+## Generation status and saved content coexist
 
-A load failure offers a retry action. When a source needs reconnecting, its notice takes priority and explains the action needed.
+The saved lesson remains readable during regeneration. A successful replacement updates committed content and resets content-dependent study state; failure preserves the earlier saved version. The frontend therefore represents pending work alongside saved data rather than clearing the lesson at request start. [Lesson generation](../03-section-features/02-p-lesson-gen.md) owns the commit semantics.
 
-The settings menu can regenerate the active lesson directly. The saved lesson remains available during replacement; [exercise progress](../03-section-features/08-p-interactive-exercises.md) explains what successful replacement resets. A failure on the current lesson appears there; a failure elsewhere can appear as a notification.
+Load failures, source reconnection requirements and generation failures have different recovery paths. A source problem takes precedence when the content needs its file references repaired. Failures on the active lesson can be shown in context, while work failing elsewhere can be reported without changing the current target.
 
-Exercise briefs can continue generating while you read another ready lesson. Exercises open as activities rather than in the narrated lesson player.
+## Playback consumes a prepared contract
+
+The [player](../03-section-features/04-p-multimedia.md) coordinates audio, visual scenes and highlighted spans against prepared lesson blocks. Browser controls own seeking and speed; backend preparation owns narration and cue generation. For rendering changes, verify realistic lesson fixtures, navigation and intermediate states as well as the final screenshot. [Testing](../09-section-tools/02-p-testing-quality.md) describes the isolated browser and artifact evidence paths.

@@ -1,25 +1,36 @@
 ---
-title: "Create your first course"
+title: "From sources to playback"
 wiki_page_id: "p-overview"
 ---
 
 [Up one level](../index.md)
 
-# Create your first course
+# From sources to playback
 
-Start with a subject you want to understand or a document you want to study. The result is a course plan whose lessons you can open in order.
+A course request becomes a plan before it becomes lesson content. The backend prepares its sources and learning context, saves the plan, then generates individual lessons against that context. Playback is another preparation stage over a saved lesson: its audio and visual cues have their own lifecycle.
 
-1. Sign in to your Nous installation and start a new course from the library.
-2. Enter a topic or attach your source material. Give Nous readable text; [source processing](../03-section-features/03-p-doc-processing.md) explains supported documents and extraction limits.
-3. Choose the course language, depth and lesson size, then approve the course profile. If offered, answer the questions about your starting knowledge.
-4. Review the resulting plan and open a ready lesson. Follow [Study a lesson](../05-section-frontend/01-p-reader-shell.md) to read, listen and ask questions.
+```mermaid
+flowchart LR
+    S[Documents or topic] --> I[Source preparation]
+    I --> C[Course research and plan]
+    C --> L[Lesson research and review]
+    L --> P[Saved lesson]
+    P --> B[Playback preparation]
+    B --> R[Browser reader and player]
+    A[AI providers] <--> C
+    A <--> L
+    A <--> B
+    T[Speech provider] --> B
+```
 
-## Getting access
+## Preparation establishes reusable context
 
-The public page offers a waitlist and sign-in for existing users. For an installation you operate yourself, follow [local setup](../09-section-tools/01-p-local-setup.md) or the [deployment guide](../../../docs/DEPLOYMENT.md).
+[Ingestion](../03-section-features/03-p-doc-processing.md) turns PDFs, Markdown and code archives into retrievable text and associated files. A topic-based request instead needs research to establish its material. [Course planning](../03-section-features/01-p-course-gen.md) combines that evidence with the approved profile, goals and prior-knowledge information to decide lesson order and scope. Account preferences are copied into a course so subsequent account changes leave that course's context stable.
 
-## What shapes the plan?
+The plan and the explanation are different outputs. [Lesson generation](../03-section-features/02-p-lesson-gen.md) takes one planned objective, gathers relevant evidence, drafts and reviews the explanation, then saves its content and visual references. This separation lets a ready lesson remain readable while other work continues and gives regeneration a bounded target.
 
-Your goals, source material and answers guide lesson order. Account teaching preferences are copied into a new course; later account changes leave that course's settings in place. [Course generation](../03-section-features/01-p-course-gen.md) explains how research and review produce the plan.
+## Delivery consumes committed state
 
-Generated explanations need judgment when accuracy matters. Lessons provide sources you can follow, while [the teaching principles](02-p-manifesto.md) explain what their reviews assess.
+Long operations run through [saved workflows](../02-section-architecture/02-p-workflow-engine.md); the browser observes their progress and reloads committed project revisions. PostgreSQL holds project and workflow state, while file bytes live in storage. A request ending or a browser disconnect therefore does not define the lifetime of a generation run.
+
+[Playback](../03-section-features/04-p-multimedia.md) derives blocks from the lesson, prepares narration and scene cues, and persists results for the matching lesson version. The reader combines those results with lesson text, chat and exercise state. The [architecture](../02-section-architecture/01-p-architecture.md) explains the trust and ownership boundaries behind this flow; [learning design](02-p-manifesto.md) explains why generation has separate planning and review stages.
