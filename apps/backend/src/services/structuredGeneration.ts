@@ -1,3 +1,4 @@
+import { TRANSCRIBED_SOURCE_RULE } from '@shared/pdfTranscription';
 import { generateText, jsonSchema, Output } from 'ai';
 
 import {
@@ -45,6 +46,8 @@ export type StructuredGenerationRequest = StructuredModelTarget & {
   readonly reasoningEffort?: ReasoningEffort;
   readonly signal: AbortSignal;
   readonly system: string;
+  /** Enables interpretation of source transcription errors; exact-copy tasks leave it disabled. */
+  readonly sourceAware?: boolean;
   /** Lets the model search the web; local tools and files stay forbidden. */
   readonly webSearch?: boolean;
 };
@@ -82,12 +85,16 @@ export const generateStructuredOutput = async <T>(
 ): Promise<T> => {
   const { image, maxRetries = 0, output, prompt, signal, system, webSearch = false } = request;
   const target = resolveTarget(request);
+  const sourceAwareSystem =
+    request.sourceAware && !system.includes(TRANSCRIBED_SOURCE_RULE)
+      ? `${system}\n${TRANSCRIBED_SOURCE_RULE}`
+      : system;
   request.onOutputPath?.('direct');
   const strictOutput = prepareStrictStructuredOutput(output.schema);
   if (target.provider === 'codex') {
     const response = await runCodexAppServerTurn({
       allowWebSearch: webSearch,
-      developerInstructions: `${system} ${webSearch ? CODEX_WEB_ONLY_INSTRUCTION : CODEX_TOOL_FREE_INSTRUCTION}`,
+      developerInstructions: `${sourceAwareSystem} ${webSearch ? CODEX_WEB_ONLY_INSTRUCTION : CODEX_TOOL_FREE_INSTRUCTION}`,
       input: [
         ...(image ? [{ type: 'image' as const, url: image }] : []),
         { text: prompt, type: 'text' },
@@ -137,7 +144,7 @@ export const generateStructuredOutput = async <T>(
           }
         : { prompt: generationPrompt }),
       providerOptions: configured.providerOptions,
-      system,
+      system: sourceAwareSystem,
       ...(configured.tools ? { tools: configured.tools } : {}),
     });
 

@@ -5,6 +5,7 @@ import {
   buildProjectSourceEntryObjectPath,
   detachProjectSources,
   readEmbeddedProjectSources,
+  restoreStoredPreparedPdfText,
 } from '../../src/projects/projectSource.js';
 import type { ProjectSnapshot, ProjectSourceRef } from '../../src/projects/types.js';
 
@@ -116,4 +117,43 @@ test('archive entry object paths include canonical content identity', () => {
 
   expect(originalPath).not.toBe(extractedPath);
   expect(extractedPath.endsWith(`/${extractedHash}`)).toBe(true);
+});
+
+test('restores retained PDF text by stored identity and hash while removing submitted replacements', () => {
+  const preparedPdfText = {
+    sourceHash: 'hash-a',
+    pages: [{ pageNumber: 1, text: 'Server transcript' }],
+  };
+  const stored = {
+    id: 'course',
+    source: { sources: [{ id: 'retained', hash: 'hash-a', preparedPdfText }] },
+  } as ProjectSnapshot;
+  const snapshot = {
+    id: 'course',
+    source: {
+      preparedPdfText: { text: 'Forged top-level' },
+      sources: [
+        { id: 'retained', hash: 'hash-a', preparedPdfText: { text: 'Forged retained' } },
+        { id: 'unknown', hash: 'hash-a', preparedPdfText },
+        { id: 'retained', hash: 'different', preparedPdfText },
+        { id: 'uploaded', hash: 'hash-b', preparedPdfText: { text: 'Server prepared upload' } },
+      ],
+    },
+  } as ProjectSnapshot;
+  expect(restoreStoredPreparedPdfText(snapshot, stored).source).toEqual({
+    sources: [
+      { id: 'retained', hash: 'hash-a', preparedPdfText },
+      { id: 'unknown', hash: 'hash-a' },
+      { id: 'retained', hash: 'different' },
+      { id: 'uploaded', hash: 'hash-b' },
+    ],
+  });
+  expect(
+    restoreStoredPreparedPdfText(snapshot, stored, new Set(['uploaded'])).source
+  ).toMatchObject({
+    sources: [{ preparedPdfText }, {}, {}, { preparedPdfText: { text: 'Server prepared upload' } }],
+  });
+  expect(restoreStoredPreparedPdfText(snapshot).source).toMatchObject({
+    sources: [{ id: 'retained', hash: 'hash-a' }, {}, {}, {}],
+  });
 });

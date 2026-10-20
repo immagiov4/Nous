@@ -12,7 +12,7 @@ RUN bun install --frozen-lockfile
 FROM dependencies AS web-build
 COPY apps/web apps/web
 COPY packages packages
-COPY tailwind.config.cjs tailwind.config.cjs
+COPY config/tailwind.config.cjs config/tailwind.config.cjs
 RUN bun run build
 
 FROM oven/bun:${BUN_VERSION}-slim AS frontend
@@ -58,7 +58,7 @@ COPY --chown=bun:bun apps/backend/package.json apps/backend/package.json
 COPY --chown=bun:bun apps/backend/src apps/backend/src
 COPY --chown=bun:bun apps/backend/tsconfig.json apps/backend/tsconfig.json
 COPY --chown=bun:bun packages packages
-COPY --chown=bun:bun server.config.json server.config.json
+COPY --chown=bun:bun config/server.config.json config/server.config.json
 USER bun
 EXPOSE 3301
 CMD ["bun", "run", "apps/backend/src/server.ts"]

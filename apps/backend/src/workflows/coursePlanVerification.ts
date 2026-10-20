@@ -13,7 +13,6 @@ import {
 } from './courseGenerationArchivePlanning.js';
 import { type CourseObjectToolSet, generateCourseObject } from './courseGenerationModel.js';
 import { formatCoursePlanningSourceMaterials } from './courseGenerationPlanning.js';
-import type { CourseSourceMaterial } from './courseGenerationSources.js';
 import type { CourseGenerationWorkflowServices } from './courseGenerationWorkflow.js';
 import {
   type CoursePlanCandidateVerifier,
@@ -42,7 +41,8 @@ interface CoursePlanVerificationMaterial {
 
 type LoadVerificationMaterial = (
   state: CourseResearchState,
-  signal: AbortSignal
+  signal: AbortSignal,
+  models?: import('./types.js').DeepReadonly<import('../config/modelConfig.js').GlobalModelConfig>
 ) => Promise<CoursePlanVerificationMaterial>;
 
 type OpenCourseArchive = (
@@ -50,10 +50,7 @@ type OpenCourseArchive = (
   signal: AbortSignal
 ) => Promise<OpenedCourseArchive>;
 
-type ReadSourceMaterials = (
-  state: Pick<CourseResearchState, 'context' | 'projectRevision' | 'request'>,
-  signal: AbortSignal
-) => Promise<CourseSourceMaterial[]>;
+type ReadSourceMaterials = import('./courseGenerationSources.js').ReadCourseSourceMaterials;
 
 const FRAGMENTATION_ASSESSMENT_RULE =
   'fragmentation.canGroupCoherently means that the plan has fragmented modules whose concepts should be regrouped. It does not mean that an existing module is already coherent. When no regrouping is needed, return false and an empty moduleIds array. When regrouping is needed, return true, identify the affected modules using their supplied IDs, and mark granularity as needs-refinement.';
@@ -98,10 +95,10 @@ export const createCoursePlanVerificationMaterialLoader = ({
   readonly openArchive: OpenCourseArchive;
   readonly readSourceMaterials: ReadSourceMaterials;
 }): LoadVerificationMaterial => {
-  return async (state, signal) => {
+  return async (state, signal, models) => {
     if (state.strategy === 'learn') return { sourceContext: '' };
     if (state.strategy !== 'archive') {
-      const materials = await readSourceMaterials(state, signal);
+      const materials = await readSourceMaterials(state, signal, models);
       return { sourceContext: formatCoursePlanningSourceMaterials(materials) };
     }
     const archive = await openArchive(state, signal);
@@ -149,7 +146,7 @@ export const createCoursePlanVerifier = ({
   readonly loadVerificationMaterial: LoadVerificationMaterial;
 }): CoursePlanCandidateVerifier => {
   return async input => {
-    const material = await loadVerificationMaterial(input.state, input.signal);
+    const material = await loadVerificationMaterial(input.state, input.signal, input.models);
     return validateCoursePlanVerification(
       await generateObject({
         config: input.models,

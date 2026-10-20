@@ -1,0 +1,47 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "src/index.{ts,tsx,js,jsx}",
+    "src/main.{ts,tsx,js,jsx}",
+    "apps/backend/src/services/pdfTextFallbackProcess.mjs"
+  ],
+  "ignoreDependencies": [
+    "@tabler/icons",
+    "@tabler-icon-nodes",
+    "@atlas-katex.css"
+  ],
+  "rules": {
+    "unused-dependencies": "warn"
+  },
+  "framework": [
+    {
+      "name": "nous-tool-configs",
+      "configPatterns": [
+        "config/eslint.config.mjs",
+        "config/eslint.sonar.config.mjs",
+        "config/dependency-cruiser.cjs",
+        "config/remotion.config.ts"
+      ],
+      "entryPoints": [
+        "config/eslint.config.mjs",
+        "config/eslint.sonar.config.mjs",
+        "config/dependency-cruiser.cjs",
+        "config/remotion.config.ts"
+      ],
+      "enablers": [
+        "eslint"
+      ]
+    },
+    {
+      "name": "playback-atlas",
+      "entryPoints": [
+        "e2e/nous/atlas/browser.tsx"
+      ],
+      "entryPointRole": "test",
+      "detection": {
+        "type": "fileExists",
+        "pattern": "e2e/nous/atlas/index.html"
+      }
+    }
+  ]
+}

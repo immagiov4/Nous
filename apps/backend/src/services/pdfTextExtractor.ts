@@ -7,9 +7,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
+import type { PdfPageProvenance, PdfTranscriptionSummary } from '@shared/pdfTranscription';
 import { buildSha256HexDigest } from '../utils/hash.js';
 import { decodePdfDataUrl } from '../utils/pdfDataUrl.js';
 import { normalizeLineEndings } from '../utils/text.js';
+import { normalizeExtractedTextSegment } from './pdfTextNormalization.js';
 
 const execFileAsync = promisify(execFile);
 const TMP_DIR_PREFIX = 'nous-pdf-text-';
@@ -78,6 +80,7 @@ export class PdfTextExtractionOutputLimitError extends Error {
 }
 
 export interface ExtractedPdfTextPage {
+  provenance?: PdfPageProvenance;
   pageNumber: number;
   text: string;
 }
@@ -91,6 +94,7 @@ export interface ExtractedPdfOutlineNode {
 }
 
 export interface ExtractedPdfText {
+  transcription?: PdfTranscriptionSummary;
   text: string;
   pages: ExtractedPdfTextPage[];
   sourceHash: string;
@@ -119,31 +123,6 @@ interface PdfTextProcessResult {
 }
 
 const buildSourceHash = (buffer: Buffer): string => buildSha256HexDigest(buffer);
-
-const isPageMarkerLine = (line: string): boolean => {
-  const trimmedLine = line.trim();
-  if (!trimmedLine.startsWith('--') || !trimmedLine.endsWith('--')) {
-    return false;
-  }
-
-  const content = trimmedLine.slice(2, -2).trim();
-  const parts = content.split(/\s+/);
-  return (
-    parts.length === 3 &&
-    /^\d+$/u.test(parts[0] || '') &&
-    (parts[1] || '').toLowerCase() === 'of' &&
-    /^\d+$/u.test(parts[2] || '')
-  );
-};
-
-const normalizeExtractedTextSegment = (text: string): string =>
-  normalizeLineEndings(text)
-    .split('\n')
-    .filter(line => !isPageMarkerLine(line))
-    .join('\n')
-    .replaceAll('\f', '\n')
-    .replaceAll(/\n{3,}/g, '\n\n')
-    .trim();
 
 const buildExtractedPages = (
   pages: Array<{ pageNumber: number; text: string }>
@@ -543,7 +522,7 @@ const extractWithPdftotext = async (
   }
 };
 
-export const extractPdfText = async (
+export const extractPdfTextLayer = async (
   pdfDataUrl: string,
   options: PdfTextExtractionOptions = {}
 ): Promise<ExtractedPdfText> => {
@@ -565,3 +544,5 @@ export const extractPdfText = async (
     sourceHash,
   };
 };
+
+export const extractPdfText = extractPdfTextLayer;

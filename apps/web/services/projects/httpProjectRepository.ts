@@ -8,6 +8,10 @@ import {
   type LibraryExportProgress,
   type LibraryExportStatus,
 } from '@shared/libraryExportContract';
+import {
+  PDF_SCANNED_PAGE_LIMIT_CODE,
+  PDF_SCANNED_PAGE_LIMIT_MESSAGE,
+} from '@shared/pdfTranscription';
 import { PROJECT_API_ERROR_CODE } from '@shared/projectContract';
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
 import {
@@ -175,6 +179,7 @@ const createProjectSyncError = (error: unknown): ProjectStorageError => {
 
 const responseErrorCode = (status: number, apiCode?: string): ProjectStorageError['code'] => {
   if (status === 404) return 'project-deleted';
+  if (apiCode === PDF_SCANNED_PAGE_LIMIT_CODE) return 'scanned-page-limit';
   if (apiCode === SOURCE_PREPARATION_CANCELLED_CODE) return 'source-preparation-cancelled';
   if (apiCode === SOURCE_PREPARATION_UNUSABLE_CODE) return 'source-preparation-failed';
   if (apiCode === SOURCE_STAGING_UNAVAILABLE_CODE) return 'source-staging-unavailable';
@@ -190,6 +195,7 @@ const responseErrorCode = (status: number, apiCode?: string): ProjectStorageErro
 };
 
 function responseErrorMessage(code: ProjectStorageError['code']): string {
+  if (code === 'scanned-page-limit') return translateUiMessage(PDF_SCANNED_PAGE_LIMIT_MESSAGE);
   if (code === 'source-preparation-cancelled')
     return translateUiMessage(SOURCE_PREPARATION_CANCELLED_MESSAGE);
   if (code === 'source-preparation-interrupted')
@@ -226,7 +232,14 @@ const readSourceWarnings = (value: unknown): ProjectSourceWarning[] | undefined 
     isSourceArchivePdfWarningReason(warning.reason)
       ? [
           {
-            message: translateUiMessage(SOURCE_PREPARATION_FAILURE_MESSAGES[warning.reason]),
+            message:
+              Array.isArray(warning.failedPages) &&
+              warning.failedPages.length &&
+              warning.failedPages.every(page => Number.isSafeInteger(page) && Number(page) > 0)
+                ? translateUiMessage('Trascrizione non riuscita per le pagine: {pages}.', {
+                    pages: warning.failedPages.join(', '),
+                  })
+                : translateUiMessage(SOURCE_PREPARATION_FAILURE_MESSAGES[warning.reason]),
             name: (warning.name ?? warning.path) as string,
             reason: warning.reason,
           },

@@ -1,3 +1,4 @@
+import { TRANSCRIBED_SOURCE_RULE } from '@shared/pdfTranscription';
 import { beforeEach, expect, test, vi } from 'vitest';
 import * as z from 'zod';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
@@ -239,7 +240,7 @@ test('a resolved model bypasses slot configuration and keeps its service tier', 
     output: OUTPUT,
     prompt: 'Domanda',
     signal,
-    system: 'Rispondi.',
+    system: `Rispondi.\n${TRANSCRIBED_SOURCE_RULE}`,
   });
 
   expect(runCodexAppServerTurn).toHaveBeenCalledWith(
@@ -449,4 +450,11 @@ test.each([
   expect(contract.parse(result)).toEqual(
     Array.isArray(payload) ? [{ nullable: null }] : { kind: 'first', nullable: null }
   );
+});
+
+test('enables source interpretation only when explicitly requested', async () => {
+  createConfiguredTextModelFromResolution.mockReturnValue({ model: 'model', providerOptions: {} });
+  generateText.mockResolvedValue({ output: { answer: '42' } });
+  await generateStructuredOutput({ ...request('openrouter'), sourceAware: true });
+  expect(generateText.mock.lastCall?.[0].system).toBe(`Rispondi.\n${TRANSCRIBED_SOURCE_RULE}`);
 });

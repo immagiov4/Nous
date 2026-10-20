@@ -1,8 +1,6 @@
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 
-const serialize = (value: unknown) => Buffer.from(JSON.stringify(value));
-
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { buildPdfTextDataUrl } from '../fixtures/pdfText.js';
 
@@ -33,7 +31,10 @@ vi.mock('node:child_process', async importOriginal => ({
             child.stdin.emit('error', stdinError);
             return;
           }
-          child.stdout.emit('data', serialize(pdfRuntimeMocks.processResults.shift()));
+          child.stdout.emit(
+            'data',
+            Buffer.from(JSON.stringify(pdfRuntimeMocks.processResults.shift()))
+          );
           child.emit('close', 0);
         })
       ),
@@ -50,7 +51,7 @@ vi.mock('node:util', async importOriginal => ({
 
 import {
   buildDeterministicPdfOutline,
-  extractPdfText,
+  extractPdfTextLayer as extractPdfText,
   PdfTextExtractionOutputLimitError,
   PdfTextExtractionTimeoutError,
   resolvePdfTextFallbackNodeExecutable,
