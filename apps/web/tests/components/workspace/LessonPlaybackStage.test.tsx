@@ -740,3 +740,42 @@ test.each(
   expect(container.querySelector('.caption-page .katex')).toBeNull();
   expect(container.querySelector('.katex-error')).toBeNull();
 });
+
+test.each([
+  '',
+  '    ',
+  '\t',
+])('renders classified fenced prose with indentation %j as a wrapping paragraph', indentation => {
+  const body = `${indentation}An ordered pair has two components; each component is a number.`;
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: `Introduction.\n\n\x60\x60\x60text\n${body}\n\x60\x60\x60`,
+    },
+  ];
+  const raw = segmentLessonPlayback(sources)[0];
+  const block = {
+    ...raw,
+    prepared: {
+      motion: [],
+      spokenMath: [],
+      fencedCode: [{ visualIndex: 0, kind: 'prose' as const, spoken: body }],
+    },
+  };
+  const resolved = resolvePlaybackNarration(block);
+  expect(resolvePlaybackNarration(resolved)).toEqual(resolved);
+  const source = captionSource(resolved, sources);
+  const formatted = captionFormat(source.markdown, source.ranges);
+  expect(formatted.words.map(word => word.text).join(' ')).toBe(`Introduction. ${body.trim()}`);
+  expect(formatted.words.every(word => !word.code)).toBe(true);
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={8}
+      time={4}
+    />
+  );
+  expect(container.querySelector('.scene-host pre')).toBeNull();
+  expect(container.querySelector('.scene-host p')?.textContent?.trim()).toBe(body.trim());
+});

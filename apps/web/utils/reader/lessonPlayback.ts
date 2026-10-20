@@ -69,8 +69,13 @@ export function playbackSentenceSelector(
       (source.markdown.length - source.markdown.trimStart().length);
     return [
       {
-        start: base + span.source.start + (span.math ? 0 : start - span.speech.start),
-        end: base + (span.math ? span.source.end : span.source.start + end - span.speech.start),
+        start:
+          base + span.source.start + (span.math || span.fencedCode ? 0 : start - span.speech.start),
+        end:
+          base +
+          (span.math || span.fencedCode
+            ? span.source.end
+            : span.source.start + end - span.speech.start),
       },
     ];
   });

@@ -26,10 +26,15 @@ import {
   validatePlaybackText,
 } from './playbackAudio.js';
 import { MAX_PLAYBACK_PREPARATION_ATTEMPTS, planPlaybackMotion } from './playbackMotion.js';
-import { generatePlaybackSpokenMath } from './playbackSpokenMath.js';
+import {
+  generatePlaybackNarration,
+  generatePlaybackSpokenMath,
+  PlaybackNarrationResponseSchema,
+} from './playbackSpokenMath.js';
 
 interface PrepareLessonPlaybackBlockInput {
   readonly supportsSpokenMath?: boolean;
+  readonly supportsFencedCode?: boolean;
   readonly allowedSceneTypes?: readonly LessonSceneType[];
   readonly providerEffect?: WorkflowProviderEffectExecutor;
   readonly ttsModel?: string;
@@ -127,9 +132,12 @@ export const prepareLessonPlaybackBlock = async (
   signal.throwIfAborted();
   validatePlaybackText(input.block.speech);
   validatePlaybackSceneTypes(input);
-  const spokenMath = await prepareSpokenMath(input);
+  const narration = await prepareNarration(input);
   signal.throwIfAborted();
-  const request = { ...input, block: resolvePlaybackNarration(input.block, spokenMath) };
+  const request = {
+    ...input,
+    block: resolvePlaybackNarration(input.block, narration.spokenMath, narration.fencedCode),
+  };
   validatePlaybackText(request.block.speech);
   // Audio does not depend on the scene, so both are prepared at the same time. Both settle
   // before a failure propagates, so a retry never overlaps paid work still in flight.
@@ -141,10 +149,26 @@ export const prepareLessonPlaybackBlock = async (
   if (audio.status === 'rejected') throw audio.reason;
   signal.throwIfAborted();
   return {
-    prepared:
-      spokenMath && !input.block.prepared ? { ...visuals.value, spokenMath } : visuals.value,
+    prepared: !input.block.prepared ? { ...visuals.value, ...narration } : visuals.value,
     audio: audio.value,
   };
+};
+
+const prepareNarration = async (input: PrepareLessonPlaybackBlockInput) => {
+  const { block } = input;
+  if (block.prepared)
+    return { spokenMath: block.prepared.spokenMath, fencedCode: block.prepared.fencedCode };
+  if (input.supportsFencedCode !== false && block.spans.some(span => span.fencedCode)) {
+    return input.providerEffect
+      ? input.providerEffect.run({
+          key: 'narration',
+          outputSchema: PlaybackNarrationResponseSchema,
+          operation: () => generatePlaybackNarration(input),
+        })
+      : generatePlaybackNarration(input);
+  }
+  const spokenMath = await prepareSpokenMath(input);
+  return spokenMath ? { spokenMath } : {};
 };
 
 const prepareSpokenMath = async (input: PrepareLessonPlaybackBlockInput) => {

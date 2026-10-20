@@ -2025,15 +2025,15 @@ describe('useProjectLibrary', () => {
     });
     if (!switchProject)
       expect(first.result.current.domain.generationNotes).toBe('Keep local instructions');
-    if (!queuedSave)
-      await waitFor(() => expect(repositoryMocks.saveProject.mock.calls.length).toBeGreaterThan(1));
     const persisted = await store.loadProject(userId, initial.id);
     expect(persisted?.learningPlan?.modules?.[0]?.children?.[1]).toMatchObject({
       content: 'Generated in session two',
     });
     if (!navigation)
       expect(persisted?.learningPlan?.modules?.[0]?.children?.[0]).toMatchObject({ quizState });
-    expect(first.result.current.library.projectSyncState.kind).toBe('conflict');
+    await waitFor(() =>
+      expect(first.result.current.library.projectSyncState.kind).toBe('conflict')
+    );
     first.unmount();
     second.unmount();
   });

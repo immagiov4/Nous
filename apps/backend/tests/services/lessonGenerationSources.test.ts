@@ -344,3 +344,34 @@ test('single detached course source keeps its stable id in regenerated dossiers'
     },
   ]);
 });
+
+test('retrieves only the referenced source from a thirty-document course', async () => {
+  const sources = Array.from({ length: 30 }, (_, index) => ({
+    file: { name: `notes-${index}.txt`, mimeType: 'text/plain', data: '' },
+    ref: { id: `source-${index}`, hash: 'hash' },
+  }));
+  const loadProjectSourceById = vi.fn().mockResolvedValue({
+    name: 'notes-29.txt',
+    mimeType: 'text/plain',
+    data: Buffer.from('Final source content.').toString('base64'),
+  });
+  const store = {
+    loadProjectSources: vi.fn().mockResolvedValue(sources),
+    loadProjectSourceById,
+  } as unknown as ProjectStore;
+  const result = await buildStoredDocumentSourceContext({
+    store,
+    userId: 'user',
+    projectId: 'project',
+    section: { sourceReferences: [{ sourceId: 'source-29' }] },
+    signal: new AbortController().signal,
+    primarySourceId: 'source-0',
+  });
+  expect(loadProjectSourceById).toHaveBeenCalledExactlyOnceWith('user', 'project', 'source-29');
+  expect(readLessonPrimarySources(result)).toEqual([
+    expect.objectContaining({
+      source: { sourceId: 'source-29', title: 'notes-29.txt' },
+      text: expect.stringContaining('Final source content.'),
+    }),
+  ]);
+});

@@ -55,28 +55,26 @@ test('prepareUploadedCourseSource builds one stable logical source set from mult
     ['Alpha.md', 'zeta.txt']
   );
   assert.equal(result.source.sources?.length, 2);
-  assert.deepEqual(progress, [
-    [0, 2],
-    [1, 2],
-    [2, 2],
-  ]);
+  assert.deepEqual(progress, [[0, 2]]);
+  assert(result.descriptors.every(descriptor => descriptor.file.data === ''));
 });
 
-test('prepareUploadedCourseSource keeps usable sources when one PDF cannot be indexed', async () => {
+test('prepareUploadedCourseSource leaves PDF preparation to the ingestion job', async () => {
   const context = {
     openRouter: {
       validatePdfTextSource: async () => {
-        throw new Error('no selectable text');
+        throw new Error('Client must not extract PDFs');
       },
     },
   } as unknown as Parameters<typeof prepareUploadedCourseSource>[0];
-
   const result = await prepareUploadedCourseSource(context, [
-    new File(['%PDF-1.7\n'], 'broken.pdf', { type: 'application/pdf' }),
+    new File(['%PDF-1.7\n'], 'lesson.pdf', { type: 'application/pdf' }),
     new File(['Useful notes'], 'notes.txt', { type: 'text/plain' }),
   ]);
-
-  assert.equal(result.descriptors.find(source => source.name === 'broken.pdf')?.status, 'error');
-  assert.equal(result.descriptors.find(source => source.name === 'notes.txt')?.status, 'ready');
-  assert.equal(result.source.sources?.length, 2);
+  assert.equal(result.descriptors.length, 2);
+  assert(
+    result.descriptors.every(
+      descriptor => descriptor.file.data === '' && descriptor.status === 'ready'
+    )
+  );
 });

@@ -139,6 +139,7 @@ export type DecodedProjectSnapshotWire = ProjectSnapshotWire | LegacyProjectSnap
 
 export interface ProjectSnapshotWireDecodeOptions {
   externalArchiveBytesAvailable?: boolean;
+  externalSourceFilesAvailable?: boolean;
   recoverHistoricalArtifactDraftVisualSlots?: boolean;
   recoverHistoricalLessonContentBlocks?: boolean;
 }
@@ -497,7 +498,7 @@ const readValidSourceFile = (
   return value;
 };
 
-const validateSourceDescriptors = (value: unknown): void => {
+const validateSourceDescriptors = (value: unknown, externalFilesAvailable = false): void => {
   if (value === undefined) return;
   const sources = readRecordArray(value, 'Sorgente progetto non valida: sources.');
   if (sources.length === 0) {
@@ -521,7 +522,12 @@ const validateSourceDescriptors = (value: unknown): void => {
     ) {
       throw new ProjectSnapshotWireError('Descrittore sorgente non valido.');
     }
-    readValidSourceFile(source.file, source.ref, 'Descrittore sorgente non valido: file.');
+    readValidSourceFile(
+      source.file,
+      source.ref,
+      'Descrittore sorgente non valido: file.',
+      !externalFilesAvailable
+    );
   }
 };
 
@@ -566,7 +572,7 @@ const validateCanonicalSource = (
   source: Record<string, unknown>,
   options: ProjectSnapshotWireDecodeOptions
 ): void => {
-  validateSourceDescriptors(source.sources);
+  validateSourceDescriptors(source.sources, options.externalSourceFilesAvailable);
   const sourceFile = isRecord(source.file) ? source.file : {};
   const file = readValidSourceFile(
     source.file,
