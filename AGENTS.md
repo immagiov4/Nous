@@ -130,7 +130,7 @@ bun run quality:ci    # CI quality checks, including dependency graph validation
 bun run check:fallow  # Static dead-code & duplication analysis (info only)
 bun run gate:full     # Final local merge gate after green CI: checks + coverage + Sonar
 bun run sonar:stop    # Stop the local Sonar service when finished
-bun run gate:ci       # Shared CI gate: quality:ci + Fallow regression + Bun tests
+bun run gate:ci       # Shared CI gate: quality:ci + Fallow regression + Node tests with LCOV
 bun run fix           # Auto-fix Biome lint, format, and import ordering
 bun run format        # Format all files (Biome)
 bun run test          # Vitest test suite (runs under Bun runtime)
@@ -139,7 +139,7 @@ bun run playtest      # Headless agentic stories; requires NOUS_E2E_DATA, --prov
 
 `check:eslint-sonar` uses `eslint.sonar.config.mjs` and the tracked `eslint-suppressions.json` baseline. After fixing baseline violations, run `bun run check:eslint-sonar --prune-suppressions` and include the reduced baseline with the fix. Regeneration with `bun run check:eslint-sonar --suppress-all` accepts every current violation and requires explicit maintainer approval. After either maintenance command, run `bunx biome format --write eslint-suppressions.json` to restore the required trailing newline. Scope, rule mappings, and suppression semantics are documented in [.cubic/wiki/09-section-tools/02-p-testing-quality.md](.cubic/wiki/09-section-tools/02-p-testing-quality.md).
 
-`doctor` is observational in every profile: it reports `PASS`/`FAIL`/`WARN`/`SKIP` results without starting, restarting, configuring, migrating services, or running the test suite. The default `checks` profile inspects the service-free environment; `gate` probes Sonar, `local` probes Supabase and migration parity, and `all` combines them. `gate:full` runs the shared `gate:ci` command (CI quality including dependency validation, Fallow, and the complete Bun suite), then Node coverage, one stage at a time after GitHub CI passes on the exact commit. The CI test job uses that same command; a behavior test compares its workflow checks with the scripts actually invoked by the local gate. It starts or reuses Sonar for the final analysis and keeps the local service running afterward, including after a failed scan. Each gate repeats readiness and doctor checks before the same quality gate. Stop the service explicitly with `bun run sonar:stop` when finished. It completes every stage that can run and exits with failure if any stage fails. The Sonar container has no automatic restart policy.
+`doctor` is observational in every profile: it reports `PASS`/`FAIL`/`WARN`/`SKIP` results without starting, restarting, configuring, migrating services, or running the test suite. The default `checks` profile inspects the service-free environment; `gate` probes Sonar, `local` probes Supabase and migration parity, and `all` combines them. `gate:ci` runs shared `gate:checks` (CI quality including dependency validation and Fallow), then one complete Node suite with V8 coverage. After GitHub CI passes on the exact commit, `gate:full` runs those same commands as separate sequential stages, followed by Sonar. Keeping coverage independent lets it run even when static checks fail. That suite supplies both the test result and `coverage/lcov.info`; the full gate reuses it for Sonar. CI runners must install the Node major from `.node-version` before invoking `gate:ci`. A behavior test compares the workflow commands with those invoked by the local gate and requires exactly one coverage-producing suite. `bun run test` is the Bun development command, and the separate PostgreSQL contracts run under Bun. The full gate starts or reuses Sonar for the final analysis and keeps the local service running afterward, including after a failed scan. Each gate repeats readiness and doctor checks before the same quality gate. Stop the service explicitly with `bun run sonar:stop` when finished. It completes every stage that can run and exits with failure if any stage fails. The Sonar container has no automatic restart policy.
 
 Keep the development loop narrow. Run focused tests and the relevant type or lint checks for the
 changed area. After a pull-request update or a push to `main`, use GitHub CI as the full-suite signal
@@ -425,6 +425,8 @@ For debugging tasks: show exact evidence (files, functions, lines), explain the 
 Do not run state-changing version control commands without explicit approval. Never commit, push, rebase, reset, amend, stash, stage, or otherwise mutate repository state unless explicitly requested. Read-only commands are acceptable for context.
 
 Write every GitHub issue and pull-request title and description in English.
+
+Before writing any human-facing text, read and follow `.agents/skills/writing-for-humans/SKILL.md`. This covers PR and issue bodies, commit messages, documentation, wiki pages, and comments intended for people.
 
 When creating or rewriting any GitHub issue, or preparing one for autonomous work, read
 `.agents/skills/problem-to-github-issue/SKILL.md` and follow its evidence and lifecycle contract.
