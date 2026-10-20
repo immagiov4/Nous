@@ -3,33 +3,24 @@ title: "Testing and Quality Checks"
 wiki_page_id: "p-testing-quality"
 ---
 
-# Testing and Quality Checks
+[Up one level](01-p-local-setup.md)
 
-Use focused checks while a change is in progress. GitHub Actions runs the full CI suite for pull-request updates and pushes to the main branch. The local final gate checks the merge candidate after CI passes.
+# Verify a change
 
-## Everyday checks
+Start with checks that exercise the behavior you changed, then use the repository's quality checks. [The quality workflow](../../../.agents/skills/quality-workflow/SKILL.md) sets the required depth for a local fix, medium feature or larger visual change.
 
-| Command | What it checks |
-| --- | --- |
-| `bun run quality` | TypeScript, formatting, lint and React Hooks checks. |
-| `bun run test` | Automated tests under Bun. |
-| `bun run quality:ci` | CI quality checks, including dependency boundaries. |
-| `bun run gate:ci` | CI checks, dead-code baseline and the full Bun suite. |
+## During development
 
-Run the checks that cover the changed behavior while developing. On a resource-constrained machine, run one heavy analysis at a time. For the environment diagnostic, see [Command-line tools](03-p-cli-tools.md).
+Run focused behavior tests and `bun run quality` for TypeScript, Biome, React Hooks and Sonar-style rules. Keep heavy analysis serialized on a resource-constrained host. [Command reference](03-p-cli-tools.md) lists the diagnostics; [the testing guide](../../../docs/TESTING.md) owns detailed setup and specialized checks.
 
-## Final local gate
+## Final candidate
 
-After GitHub CI passes on the final commit, run `bun run gate:full` once. It runs `gate:ci` locally, including dependency checks, the Fallow baseline comparison and the full Bun suite, then Node 26 coverage and SonarQube analysis. SonarQube is a local merge gate; it is not part of GitHub Actions.
+GitHub CI runs `gate:ci`: CI quality and Fallow checks, then one Node test execution producing coverage. After CI passes on the candidate, `gate:full` runs the same checks and coverage as separate stages, then starts or reuses SonarQube for analysis. It retains later stages after a failure and reports the failed stages together.
 
-The command starts or reuses SonarQube before analysis and leaves it running afterward. Run `bun run sonar:stop` when you are finished with the service.
+Use Node 26 for coverage. SonarQube stays running after the command; release it with `bun run sonar:stop` when finished. [AGENTS.md](../../../AGENTS.md#validation-commands) owns scan applicability and the documentation-only exception.
 
-## Provider-backed evaluations
+## Evaluate generated content
 
-Some evaluations call a real AI provider and may incur usage costs. Configure and authenticate the provider first, then set `NOUS_E2E_DATA` to a directory outside the repository. Run evidence can contain generated lesson material and provider outputs, so keep it private and do not add it to source control.
+Provider-backed evaluations need a configured, authenticated provider and `NOUS_E2E_DATA` outside the repository. They can incur usage costs. Their local evidence includes manifests and full captured model exchanges; keep it private, especially when it contains source or lesson material.
 
-## Browser playtests
-
-Browser playtests check a learner’s path through the interface. Run them against an isolated test stack with test data, and review the captured screens and findings. Product data or private course material should not be copied into the repository as fixtures.
-
-Automated checks cover structural contracts and repeatable behavior. Human review remains necessary when the question is whether a generated explanation or learner flow is clear.
+Run browser playtests against an isolated stack and inspect the recorded learner path. Tests establish repeatable behavior; generated teaching explanations require content review too. Follow [the testing guide](../../../docs/TESTING.md) for provider harnesses, run capture and browser setup.

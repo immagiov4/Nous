@@ -1,0 +1,4 @@
+interface:
+  display_name: "Writing for Humans"
+  short_description: "Natural prose with review for shared material"
+  default_prompt: "Use $writing-for-humans to revise this text for its audience, reread it locally, and apply independent review when the skill's audience rule requires it."
