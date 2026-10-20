@@ -352,6 +352,17 @@ test('projects rendered entities for text selection while retaining literal code
   expect(result.current.chunkTexts).toEqual(['Consideriamo A & B e $x &amp; y$.']);
 });
 
+test('keeps an unmatched code delimiter literal while decoding prose entities', () => {
+  const { result } = renderHook(() =>
+    useTtsPlayer({
+      projectId: 'project-1',
+      activeSectionId: 'literal-code-delimiter',
+      sectionContent: 'Usa ` come simbolo, A &amp; B.',
+    })
+  );
+  expect(result.current.chunkTexts).toEqual(['Usa ` come simbolo, A & B.']);
+});
+
 test.each([
   'La variabile foo_bar vale uno.',
   'Il costo è $5.',

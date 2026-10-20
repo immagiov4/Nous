@@ -244,7 +244,7 @@ const projectActiveCode = (state: VisibleProjectionState): boolean => {
 };
 
 const openInlineCode = (state: VisibleProjectionState): boolean => {
-  if (state.content[state.index] !== '`') return false;
+  if (state.content[state.index] !== '`' || isLiteralSource(state)) return false;
   const delimiterLength =
     CODE_DELIMITER_AT_START_REGEX.exec(state.content.slice(state.index))?.[0].length ?? 1;
   state.activeCodeDelimiter = '`'.repeat(delimiterLength);
