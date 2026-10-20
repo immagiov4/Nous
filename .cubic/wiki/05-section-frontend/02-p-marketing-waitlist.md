@@ -21,4 +21,4 @@ Waitlist submission sends an email address and receives a success or failure out
 
 After authentication, private library and project requests use the same account and ownership checks as other backend routes. The public presentation does not establish access to a project or an AI provider. [Administrative surfaces](03-p-admin-ui.md) describes the separate privileged boundary.
 
-Changes to the public page should therefore be verified in two parts: responsive prepared demonstrations, and the actual request contracts for submission and sign-in. The [testing guide](../09-section-tools/02-p-testing-quality.md) supplies the browser verification approach. This page explains those implementation boundaries; product-operation instructions belong in the interface itself.
+Changes to the public page should therefore be verified in two parts: responsive prepared demonstrations, and the actual request contracts for submission and sign-in. The [testing guide](../09-section-tools/02-p-testing-quality.md) supplies the browser verification approach.

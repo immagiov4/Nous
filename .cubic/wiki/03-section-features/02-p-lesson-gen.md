@@ -11,7 +11,7 @@ Lesson generation converts one objective in the saved plan into an explanation, 
 
 ## Context precedes drafting
 
-Preparation resolves the project and target lesson against their current identity. The approved plan and course preferences constrain the explanation; source coverage and available research determine what evidence can support it. Document staging retrieves material relevant to that objective, while research routing decides which additional sources are needed. The resulting context reaches both drafting and review, so review can assess claims against the same material.
+Preparation resolves the project and target lesson against their current identity. The approved plan and course preferences constrain the explanation; source coverage and available research determine what evidence can support it. Document staging retrieves material relevant to that objective, while [research routing](01-p-course-gen.md#research-routing) decides which additional sources are needed under the shared sufficiency contract. The resulting context reaches both drafting and review, so review can assess claims against the same material.
 
 Factual review includes claims and deductions supported by stated premises. Teaching review checks that the explanation reaches its objective without depending on unexplained prerequisites. Deterministic schemas validate structure separately. These checks answer different questions: a parseable lesson can still have weak evidence or missing reasoning. [Generation instructions](../07-section-ai/02-p-prompt-engineering.md) owns those expectations.
 

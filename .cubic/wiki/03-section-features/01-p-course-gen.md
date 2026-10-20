@@ -15,6 +15,12 @@ A topic request starts from goals and research. Document and archive requests al
 
 Prior-knowledge diagnostics contribute evidence about the starting point. Their model interprets submitted attempts cumulatively and preserves uncertainty and omissions; an empty interpretation list before submission carries no assessment. The [diagnostic model](../../../apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts) owns this contract. Planning consumes that evidence rather than converting similar answers into an implicit proficiency rule.
 
+## Research routing
+
+Before retrieval, a structured decision records whether supplied material provides sufficient factual evidence and selects or skips each available research channel with a reason. Insufficient sources require a selected channel; assessed coverage gaps require external research. Sufficient sources can still benefit from a selected video demonstration, so factual coverage and pedagogical value are separate decisions.
+
+The workflow saves this decision and executes only selected branches. A provider-unavailable failure can be tolerated when supplied sources are sufficient; other branch failures propagate. When supplied material is insufficient, the combined result must contain usable research evidence before planning continues. [Source routing](../../../apps/backend/src/services/researchSourceRouting.ts) and [research orchestration](../../../apps/backend/src/workflows/courseGenerationResearch.ts) own these boundaries.
+
 ## Draft, verify, refine, validate
 
 The [course workflow](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts) makes preparation, research, draft, verification, refinement and validation explicit stages. Verification assesses coverage, lesson boundaries and prerequisite order; refinement can address its findings before deterministic validation accepts the resulting structure. Keeping these outputs separate makes the reason for a revision inspectable and lets interrupted work resume through the workflow engine.

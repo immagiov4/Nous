@@ -9,9 +9,11 @@ wiki_page_id: "p-youtube-research"
 
 Video research discovers candidates for a course or lesson objective, compares their metadata and available transcripts, then retains selected resources with reasons. Discovery, transcript retrieval and selection are separate stages because a search result establishes availability, while selection needs evidence about its educational relevance.
 
+[Research routing](01-p-course-gen.md#research-routing) decides whether video retrieval adds evidence or pedagogical value before this pipeline runs. Its saved sufficiency decision also governs whether unavailable optional research can be tolerated.
+
 ## Discovery supplies candidates, selection supplies context
 
-Research can use related searches to find complementary explanations. Transcript language and availability determine which candidate content the workflow can assess; titles and metadata remain a different evidence source from an actual transcript. A selected resource retains its identity and the reasoning behind its selection so subsequent planning and lesson generation can use it in context.
+Research can use related searches to find complementary explanations. Transcript language, availability and remaining model context determine which candidates reach selection. The available context accounts for the rest of the prompt and reserved output; each transcript must fit both its individual allowance and the remaining total. A transcript that does not fit is excluded with a transcript-budget diagnostic before model selection. Titles and metadata remain a different evidence source from an actual transcript. A selected resource retains its identity and the reasoning behind its selection so subsequent planning and lesson generation can use it in context.
 
 The lesson workflow has an explicit route for additional video research. Where its search plan supplies a distinct fallback query and the specific search discovers no videos, the workflow can run that alternate search before finalization. This is a defined branch in the [lesson workflow](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts), rather than a generic instruction to keep retrying until a resource appears.
 

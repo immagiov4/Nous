@@ -11,7 +11,7 @@ The backend routes text tasks through OpenRouter or the installation's private C
 
 ## Capabilities are checked at the request boundary
 
-Credentials remain on the server. Model configuration and account assignments select the permitted provider, while the request still needs the capabilities required by its task. Images, structured output and research search depend on the model and provider. An unsupported capability produces a failure rather than silently changing the domain task.
+Credentials remain on the server. Model configuration and account assignments select the permitted provider, while the request still needs the capabilities required by its task. Images, structured output and research search depend on the model and provider. Requests requiring a capability fail when it is unavailable. Some paths explicitly permit text-only work without an optional image: artifact correction can omit an unsupported preview, and the proxy can remove image input when the caller authorizes that fallback. Those exceptions belong to [visual generation](../../../apps/backend/src/services/lessonGenerationVisuals.ts) and the [provider proxy](../../../apps/backend/src/routes/openRouterProxy.ts), preserving each task's required inputs.
 
 The [Codex adapter](../06-section-backend/03-p-codex-server.md) translates its private process protocol and application tools. OpenRouter uses its server API path. Both feed domain services that expect the same task meaning, supported by [shared generation instructions](02-p-prompt-engineering.md). Provider differences belong at these adapters rather than in duplicated course rules.
 

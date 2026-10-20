@@ -13,7 +13,7 @@ Administrative surfaces expose account management, feedback handling, model conf
 
 Model configuration supplies task-specific choices for context, planning, lesson writing and visuals. Provider capability checks still apply when a request executes; a stored model choice cannot make an unsupported image or structured-output request valid. The [provider boundary](../07-section-ai/01-p-ai-providers.md) owns translation and capability handling.
 
-Account provider assignments can authorize use of the installation's [private Codex connection](../06-section-backend/03-p-codex-server.md). That is access to a shared host account through Nous, so authorization belongs to server-side policy rather than disclosure of provider credentials to the browser. The page intentionally leaves product-setting procedures to the interface.
+Account provider assignments can authorize use of the installation's [private Codex connection](../06-section-backend/03-p-codex-server.md). That is access to a shared host account through Nous, so authorization belongs to server-side policy rather than disclosure of provider credentials to the browser.
 
 ## Diagnostic tools expose stage evidence
 
