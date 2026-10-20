@@ -35,7 +35,11 @@ const compareCodeUnits = (left: string, right: string): number => {
   return 0;
 };
 
-const normalizeCanonicalValue = (value: unknown, path: string): unknown => {
+const normalizeCanonicalValue = (
+  value: unknown,
+  path: string,
+  normalizedObjects: WeakMap<object, unknown>
+): unknown => {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') {
     return value;
   }
@@ -43,22 +47,30 @@ const normalizeCanonicalValue = (value: unknown, path: string): unknown => {
     if (!Number.isFinite(value)) throw new Error(`Non-finite number at ${path}.`);
     return value;
   }
-  if (Array.isArray(value)) {
-    return value.map((entry, index) => normalizeCanonicalValue(entry, `${path}[${index}]`));
-  }
   if (typeof value !== 'object' || value === undefined) {
     throw new Error(`Non-serializable value at ${path}.`);
   }
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([, child]) => child !== undefined)
-      .sort(([left], [right]) => compareCodeUnits(left, right))
-      .map(([key, child]) => [key, normalizeCanonicalValue(child, `${path}.${key}`)])
-  );
+  const cached = normalizedObjects.get(value);
+  if (cached !== undefined) return cached;
+  const normalized = Array.isArray(value)
+    ? value.map((entry, index) =>
+        normalizeCanonicalValue(entry, `${path}[${index}]`, normalizedObjects)
+      )
+    : Object.fromEntries(
+        Object.entries(value)
+          .filter(([, child]) => child !== undefined)
+          .sort(([left], [right]) => compareCodeUnits(left, right))
+          .map(([key, child]) => [
+            key,
+            normalizeCanonicalValue(child, `${path}.${key}`, normalizedObjects),
+          ])
+      );
+  normalizedObjects.set(value, normalized);
+  return normalized;
 };
 
 export const canonicalJson = (value: unknown): string =>
-  JSON.stringify(normalizeCanonicalValue(value, 'value'));
+  JSON.stringify(normalizeCanonicalValue(value, 'value', new WeakMap()));
 
 interface SchemaNormalization {
   stack: Set<object>;
@@ -181,3 +193,27 @@ export const durableSchemaShape = (schema: ZodType, path = 'schema'): unknown =>
 
 export const schemasMatch = (left: ZodType, right: ZodType): boolean =>
   canonicalJson(durableSchemaShape(left)) === canonicalJson(durableSchemaShape(right));
+
+/** Reuses schema work within one synchronous validation; discard before schemas can change. */
+export const createSchemaFingerprinter = () => {
+  const context: SchemaNormalization = { stack: new Set(), shapes: new WeakMap() };
+  const fingerprints = new WeakMap<ZodType, string>();
+  const shape = (schema: ZodType, path = 'schema'): unknown => {
+    if (!isZodSchema(schema))
+      throw new Error(`Unsupported durable schema at ${path}: invalid schema`);
+    return normalizeSchema(schema, path, context);
+  };
+  const fingerprint = (schema: ZodType): string => {
+    const cached = fingerprints.get(schema);
+    if (cached !== undefined) return cached;
+    const result = canonicalJson(shape(schema));
+    fingerprints.set(schema, result);
+    return result;
+  };
+  return {
+    shape,
+    matches: (left: ZodType, right: ZodType): boolean => fingerprint(left) === fingerprint(right),
+  };
+};
+
+export type SchemaFingerprinter = ReturnType<typeof createSchemaFingerprinter>;
