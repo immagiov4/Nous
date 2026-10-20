@@ -247,6 +247,9 @@ async function startSharedSupabase(
   signal?: AbortSignal
 ): Promise<SharedSupabaseStatus> {
   const root = stateRoot();
+  // Admission confirmed no database remains; the next start establishes new ownership.
+  await rm(join(root, 'managed'), { force: true });
+  await rm(join(root, 'incomplete'), { force: true });
   await writeFile(join(root, 'starting'), PROJECT);
   try {
     await run(['start'], signal);

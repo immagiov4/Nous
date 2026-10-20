@@ -73,6 +73,25 @@ it('preserves an unhealthy existing stack, including a stopped database containe
   expect(options.run).toHaveBeenCalledOnce();
   expect(options.watch).not.toHaveBeenCalled();
 });
+it('owns a newly started stack after the previous managed container was removed', async () => {
+  await writeFile(join(root, 'managed'), 'removed-container');
+  await writeFile(join(root, 'incomplete'), 'removed-container');
+  const options = runtime();
+  options.run.mockRejectedValueOnce(new Error('absent'));
+  options.container.mockResolvedValueOnce('');
+  await ensureSharedSupabase(options);
+  expect(await readFile(join(root, 'managed'), 'utf8')).toBe('container-owned');
+  await releaseSharedSupabase();
+  const stop = vi.fn(async () => {});
+  expect(
+    await stopIdleSupabase({
+      now: Date.now() + SUPABASE_IDLE_MS,
+      stop,
+      container: options.container,
+    })
+  ).toBe(true);
+  expect(stop).toHaveBeenCalledOnce();
+});
 it('serializes simultaneous admissions so an absent stack starts only once', async () => {
   let started = false;
   const options = runtime();
