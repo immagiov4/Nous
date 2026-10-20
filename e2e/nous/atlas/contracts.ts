@@ -21,7 +21,7 @@ declare global {
     playbackAtlas: {
       prepare: (lesson: AtlasLesson) => LessonPlaybackBlock[];
       render: (sample: AtlasSample) => Promise<AtlasRendered>;
-      ready: () => Promise<void>;
+      ready: () => boolean;
     };
   }
 }

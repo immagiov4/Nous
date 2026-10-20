@@ -38,9 +38,10 @@ import {
 } from './atlas/scenario';
 import { speechPunctuationTokens } from './atlas/speech';
 import {
+  ATLAS_FRAME_MS,
   advanceAtlasLayout,
   installAtlasClock,
-  installAtlasPerformanceClock,
+  installAtlasFrameClock,
   resetAtlasRandom,
   resetAtlasSample,
 } from './atlas/timing';
@@ -137,14 +138,33 @@ async function settleAtlasDocument(timeSeconds: number) {
 }
 
 async function settleStage(page: Page, timeSeconds: number) {
-  // Lazy diagram modules must load before their controlled animation callbacks can run.
-  await page.waitForLoadState('networkidle', { timeout: 0 });
-  await advanceAtlasLayout(page, timeSeconds);
-  await page.evaluate(() => window.playbackAtlas.ready());
+  // Layout selects the active visual; lazy diagram resources can then schedule further frames.
+  // The parent supervisor bounds this readiness loop, including scripts that never yield.
+  do {
+    await advanceAtlasLayout(page);
+    await page.waitForLoadState('networkidle', { timeout: 0 });
+  } while (!(await page.evaluate(() => window.playbackAtlas.ready())));
+
+  // Replay each embedded document from the same epoch after its production host has settled.
+  await resetAtlasSample(page);
+  await page.locator('iframe').evaluateAll(frames =>
+    Promise.all(
+      frames.map(
+        frame =>
+          new Promise<void>(resolve => {
+            frame.addEventListener('load', () => resolve(), { once: true });
+            const source = frame.getAttribute('srcdoc');
+            if (source === null) throw new Error('Atlas embedded documents must use srcdoc.');
+            frame.setAttribute('srcdoc', source);
+          })
+      )
+    )
+  );
   for (const frame of page.frames()) {
     await frame.waitForLoadState('load');
     await frame.evaluate(settleAtlasDocument, timeSeconds);
   }
+  await advanceAtlasLayout(page, timeSeconds);
   await advanceAtlasLayout(page);
 }
 
@@ -399,7 +419,7 @@ async function captureCourse(input: {
           else await route.abort('blockedbyclient');
         });
         await context.addInitScript(resetAtlasRandom);
-        await context.addInitScript(installAtlasPerformanceClock);
+        await context.addInitScript(installAtlasFrameClock, ATLAS_FRAME_MS);
         page = await context.newPage();
         await installAtlasClock(page);
         await installProbes(page);

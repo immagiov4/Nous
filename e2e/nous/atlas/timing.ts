@@ -4,7 +4,8 @@ import type { Page } from 'playwright';
 const CLOCK_START = '1969-12-31T00:00:00.000Z';
 const CLOCK_EPOCH = '1970-01-01T00:00:00.000Z';
 // Playwright's installed clock schedules RAF on a 16 ms grid; preserve the two layout frames.
-const LAYOUT_FRAMES_MS = 2 * 16;
+export const ATLAS_FRAME_MS = 16;
+const LAYOUT_FRAMES_MS = 2 * ATLAS_FRAME_MS;
 
 /** Serialized by Playwright into the page and every newly attached visual frame. */
 export function resetAtlasRandom() {
@@ -17,10 +18,34 @@ export function resetAtlasRandom() {
 }
 
 /** Frame creation must not expose the native performance clock before its first controlled tick. */
-export function installAtlasPerformanceClock() {
-  Object.defineProperties(performance, {
-    now: { configurable: true, value: () => Date.now() },
-    timeOrigin: { configurable: true, value: 0 },
+export function installAtlasFrameClock(frameMilliseconds: number) {
+  const alignClock = (target: Performance) => {
+    Object.defineProperties(target, {
+      now: { configurable: true, value: () => Date.now() },
+      timeOrigin: { configurable: true, value: 0 },
+    });
+  };
+  let current = performance;
+  // Playwright replaces this object; init-script order is unspecified. Keep its native timer source intact.
+  Object.defineProperty(globalThis, 'performance', {
+    configurable: true,
+    get: () => current,
+    set: (replacement: Performance) => {
+      current = replacement;
+      alignClock(current);
+    },
+  });
+  if (!(current instanceof Performance)) alignClock(current);
+  const requestFrame = (callback: FrameRequestCallback) =>
+    setTimeout(
+      () => callback(performance.now()),
+      frameMilliseconds - (Date.now() % frameMilliseconds)
+    );
+  const cancelFrame = (id: number) => clearTimeout(id);
+  // Keep the fixture's RAF grid aligned to wall time when Playwright installs its clock in either order.
+  Object.defineProperties(globalThis, {
+    requestAnimationFrame: { configurable: true, get: () => requestFrame, set: () => undefined },
+    cancelAnimationFrame: { configurable: true, get: () => cancelFrame, set: () => undefined },
   });
 }
 

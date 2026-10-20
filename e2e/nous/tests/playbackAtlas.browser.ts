@@ -113,7 +113,7 @@ if (import.meta.main) {
         createdAt: new Date(0).toISOString(),
         code: `<p id="initial"></p><p id="tick"></p><script>
           document.getElementById('initial').textContent = [Date.now(), performance.now(), Math.random()].join(' / ');
-          const tick = () => { document.getElementById('tick').textContent = performance.now(); requestAnimationFrame(tick); };
+          let frames = 0; const tick = stamp => { document.getElementById('tick').textContent = [performance.now(), stamp, ++frames].join(' / '); requestAnimationFrame(tick); };
           requestAnimationFrame(tick);
         </script>`,
       },
@@ -307,6 +307,17 @@ if (import.meta.main) {
       const drawn = await page.evaluate(inspectAtlasDom, '.scene-host');
       assert.equal(drawn.mediaCount, 1);
       assert.deepEqual(visualFindings(drawn, 'Active speech.', true), []);
+      await page.locator('svg').evaluate(element => {
+        element.style.overflow = 'hidden';
+        element.innerHTML = '<circle cx="100" cy="50" r="40" />';
+      });
+      const clippedGraphic = await page.evaluate(inspectAtlasDom, '.scene-host');
+      assert(
+        clippedGraphic.clips.some(
+          clip => clip.text === 'circle' && clip.box.right > clip.boundary.right
+        ),
+        'A graphic clipped inside its SVG must be reported.'
+      );
     } finally {
       await browser.close();
     }

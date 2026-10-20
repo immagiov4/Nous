@@ -79,21 +79,27 @@ export function inspectAtlasDom(rootSelector: string): AtlasDom {
     if (!parent.closest('.katex, math')) prose.push(node.textContent);
     for (const rect of rects) inspectBox(boxOf(rect), parent, node.textContent);
   }
+  const svgGraphics =
+    'path, rect, circle, ellipse, line, polyline, polygon, text, image, use, foreignObject';
   const media = Array.from(
     root.querySelectorAll('img, svg:not([aria-hidden="true"]), canvas, video')
   ).filter(element => {
     if (!painted(element) || element.closest('.katex, .meaning-icon')) return false;
-    return (
-      !(element instanceof SVGSVGElement) ||
-      Boolean(
-        element.querySelector(
-          'path, rect, circle, ellipse, line, polyline, polygon, text, image, use, foreignObject'
-        )
-      )
-    );
+    return !(element instanceof SVGSVGElement) || Boolean(element.querySelector(svgGraphics));
   });
-  for (const element of media)
+  for (const element of media) {
     inspectBox(boxOf(element.getBoundingClientRect()), element, element.tagName);
+    if (!(element instanceof SVGSVGElement)) continue;
+    for (const graphic of element.querySelectorAll(svgGraphics)) {
+      if (
+        graphic.closest('svg') !== element ||
+        graphic.closest('defs, clipPath, mask, marker, pattern, symbol') ||
+        !painted(graphic)
+      )
+        continue;
+      inspectBox(boxOf(graphic.getBoundingClientRect()), graphic, graphic.tagName);
+    }
+  }
   for (const frame of root.querySelectorAll('iframe')) {
     inspectBox(boxOf(frame.getBoundingClientRect()), frame, 'iframe');
   }
@@ -172,23 +178,4 @@ export function atlasStageReady() {
     if (!figure.querySelector('img[data-pdf-asset-id], [role="img"]')) return false;
   }
   return Array.from(root.querySelectorAll('img')).every(image => image.complete);
-}
-
-/** Resource and DOM events remain live while the sampled animation clock is paused. */
-export function waitForAtlasStageReady(): Promise<void> {
-  if (atlasStageReady()) return Promise.resolve();
-  return new Promise(resolve => {
-    const finish = () => {
-      if (!atlasStageReady()) return;
-      observer.disconnect();
-      document.removeEventListener('load', finish, true);
-      document.removeEventListener('error', finish, true);
-      resolve();
-    };
-    const observer = new MutationObserver(finish);
-    observer.observe(document, { childList: true, subtree: true, attributes: true });
-    document.addEventListener('load', finish, true);
-    document.addEventListener('error', finish, true);
-    finish();
-  });
 }

@@ -1,46 +1,32 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
-import { atlasStageReady, waitForAtlasStageReady } from '../atlas/dom';
+import { atlasStageReady } from '../atlas/dom';
 
 afterEach(() => {
   vi.unstubAllGlobals();
   document.body.replaceChildren();
 });
 
-test('waits for asynchronous diagrams without advancing the paused animation clock', async () => {
+test('keeps unfinished diagrams unready with a paused animation clock', () => {
   vi.stubGlobal('requestAnimationFrame', () => {
     throw Error('Animation clock is paused');
   });
   document.body.innerHTML = '<div class="scene-host"><div class="mermaid-diagram"></div></div>';
-  let settled = false;
-  const ready = waitForAtlasStageReady().then(() => {
-    settled = true;
-  });
-  await Promise.resolve();
-  expect(settled).toBe(false);
+  expect(atlasStageReady()).toBe(false);
   const host = document.querySelector('.mermaid-diagram');
-  if (!host) throw Error('Diagram must be mounted');
+  if (!host) throw Error('Synthetic diagram missing.');
   host.innerHTML = '<svg><text>Asynchronous diagram</text></svg>';
-  await ready;
-  expect(settled).toBe(true);
-  await expect(waitForAtlasStageReady()).resolves.toBeUndefined();
+  expect(atlasStageReady()).toBe(true);
 });
 
-test('waits for image completion events independently of DOM mutations', async () => {
+test('accepts an image only after its bytes complete', () => {
   document.body.innerHTML = '<div class="scene-host"><img alt="Synthetic image"></div>';
   const image = document.querySelector('img');
-  if (!image) throw Error('Image must be mounted');
+  if (!image) throw Error('Synthetic image missing.');
   Object.defineProperty(image, 'complete', { configurable: true, value: false });
-  let settled = false;
-  const ready = waitForAtlasStageReady().then(() => {
-    settled = true;
-  });
-  await Promise.resolve();
-  expect(settled).toBe(false);
+  expect(atlasStageReady()).toBe(false);
   Object.defineProperty(image, 'complete', { value: true });
-  image.dispatchEvent(new Event('load'));
-  await ready;
-  expect(settled).toBe(true);
+  expect(atlasStageReady()).toBe(true);
 });
 
 test('waits for archive-backed PDF figures to mount before accepting the stage', () => {
