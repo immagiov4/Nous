@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
@@ -141,6 +142,26 @@ describe('deterministic pairwise synthetic lessons', () => {
             expect(first.rows.some(row => row[a] === av && row[b] === bv)).toBe(true);
     });
     expect(first.rows.length).toBeLessThan(2 * 3 * 2);
+  });
+  test('grounds synthetic spotlight anchors in the Bun command runtime', () => {
+    const output = execFileSync(
+      'bun',
+      [
+        '-e',
+        `
+      import { syntheticPairwiseCourse } from './e2e/nous/atlas/synthetic.ts';
+      import { findLessonSceneProblems } from './packages/shared-types/lessonScene.ts';
+      const project = syntheticPairwiseCourse('data:image/png;base64,synthetic');
+      const problems = project.learningPlan.modules[0].children.flatMap(lesson =>
+        lesson.generatedVisuals.flatMap(visual => visual.render?.kind === 'scene' &&
+          visual.render.scene.type === 'formula-spotlight'
+          ? findLessonSceneProblems(visual.render.scene, lesson.content) : []));
+      console.log(JSON.stringify(problems));
+    `,
+      ],
+      { encoding: 'utf8', windowsHide: true }
+    );
+    expect(JSON.parse(output)).toEqual([]);
   });
   test('produces valid scenes for the entire current catalog', () => {
     for (const type of LESSON_SCENE_TYPES)

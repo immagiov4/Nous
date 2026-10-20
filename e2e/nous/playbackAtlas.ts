@@ -55,8 +55,8 @@ import {
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
-// Maximum healthy startup/capture/sheet phase: 34,093.1062 ms across 258 samples; margin 1.5x.
-const DEFAULT_RENDER_TIMEOUT_MS = 51_140;
+// Maximum healthy startup/capture/sheet phase: 34,581.5879 ms across 330 samples; margin 1.5x.
+const DEFAULT_RENDER_TIMEOUT_MS = 51_873;
 
 export function parseAtlasArgs(args: string[]) {
   const { values } = parseArgs({

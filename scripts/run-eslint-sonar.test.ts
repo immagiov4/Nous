@@ -145,6 +145,7 @@ describe('Sonar ESLint test classification', () => {
     const rules = Object.keys(application.rules).filter(rule => application.rules[rule][0] === 2);
     expect(rules.length).toBeGreaterThan(0);
     for (const file of [
+      'apps/backend/tests/helpers/formulaSpotlight.ts',
       'e2e/nous/atlas/browser.tsx',
       'e2e/nous/atlas/input.ts',
       'e2e/nous/playbackAtlas.ts',
