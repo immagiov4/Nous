@@ -284,6 +284,10 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
         undefined,
         createSceneLessonGenerationDurableSchemaSet(contract)
       ),
+      spokenMathPlayback: createLessonPlaybackWorkflow(
+        playbackExecutionDefaults,
+        createLessonPlaybackBlockSchema(schema, true)
+      ),
       playback: createLessonPlaybackWorkflow(
         playbackExecutionDefaults,
         createLessonPlaybackBlockSchema(schema)
@@ -541,8 +545,11 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     ],
   });
   registry.register({
-    current: currentScenes.playback,
-    previous: historicalScenes.map(definition => definition.playback),
+    current: currentScenes.spokenMathPlayback,
+    previous: [
+      ...[currentScenes, ...historicalScenes].map(definition => definition.playback),
+      ...historicalScenes.map(definition => definition.spokenMathPlayback),
+    ],
   });
   return registry;
 };

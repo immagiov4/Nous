@@ -3,14 +3,20 @@ import type {
   PlaybackMotionEvent,
   PlaybackVisual,
 } from '@shared/lessonPlayback';
+import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
 import { type LessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import { beforeEach, expect, test, vi } from 'vitest';
+import { discreteMathCases } from '../../helpers/discreteMath';
 
-const { audio, sceneGeneration, motion } = vi.hoisted(() => ({
+const { audio, sceneGeneration, motion, structured } = vi.hoisted(() => ({
+  structured: vi.fn(),
   audio: vi.fn(),
   sceneGeneration: vi.fn(),
   motion: vi.fn(),
+}));
+vi.mock('../../../src/services/structuredGeneration.js', () => ({
+  generateStructuredOutput: structured,
 }));
 vi.mock('../../../src/services/lessonPlayback/playbackAudio.js', async importOriginal => ({
   ...(await importOriginal<
@@ -174,7 +180,7 @@ test('keeps a paid scene when motion fails before it can be recorded', async () 
   expect(motion).toHaveBeenCalledTimes(2);
 });
 
-test('generates from the complete block speech only when visuals are absent', async () => {
+test('grounds generated visuals in block speech without lesson-wide metadata', async () => {
   const request = input();
   const snapshot = structuredClone(request.block);
   expect(await prepareLessonPlaybackBlock(request)).toEqual({
@@ -185,7 +191,8 @@ test('generates from the complete block speech only when visuals are absent', as
   const sceneRequest = sceneGeneration.mock.calls[0][0];
   expect(sceneRequest).toMatchObject({
     lessonMarkdown: request.block.speech,
-    sectionTitle: 'Componenti',
+    sectionTitle: '',
+    sectionDescription: '',
     signal: request.signal,
   });
   expect(sceneRequest.plan).toBeUndefined();
@@ -354,17 +361,13 @@ test.each([
   'multiple',
 ])('rejects %s animated scenes in a resumed static contract before provider work', async location => {
   const stored = { ...storedScene, render: { kind: 'scene' as const, scene: guidedPathScene } };
-  const request = input(
-    location === 'stored'
-      ? [{ kind: 'generated-visual', visualId: stored.id }]
-      : location === 'prepared'
-        ? []
-        : [
-            { kind: 'scene', scene: guidedPathScene },
-            ...(location === 'multiple' ? [{ kind: 'scene' as const, scene }] : []),
-          ],
-    [stored]
-  );
+  const inlineVisuals: PlaybackVisual[] = [
+    { kind: 'scene', scene: guidedPathScene },
+    ...(location === 'multiple' ? [{ kind: 'scene' as const, scene }] : []),
+  ];
+  const visuals: PlaybackVisual[] =
+    location === 'stored' ? [{ kind: 'generated-visual', visualId: stored.id }] : inlineVisuals;
+  const request = input(location === 'prepared' ? [] : visuals, [stored]);
   const run = vi.fn();
   await expect(
     prepareLessonPlaybackBlock({
@@ -404,13 +407,20 @@ test('retains final bounded scene diagnostics in the workflow failure', async ()
   });
 });
 
-import { getPlaybackMathMarkdown, segmentLessonPlayback } from '@shared/lessonPlayback';
+import { getPlaybackMathMarkdown } from '@shared/lessonPlayback';
 import { FORMULA_SPOTLIGHT_MARKDOWN, formulaSpotlight } from '../../helpers/formulaSpotlight';
 
 test('preparation asks the model to choose a form for the complete math passage', async () => {
   const mathBlock = segmentLessonPlayback([
     { type: 'markdown', markdown: FORMULA_SPOTLIGHT_MARKDOWN },
   ])[0];
+  const spokenMath = [
+    {
+      formula: String.raw`$p_\theta(y\mid x)$`,
+      spoken: 'pi con parametro theta di ipsilon dato ics',
+    },
+  ];
+  structured.mockResolvedValue({ spokenMath });
   sceneGeneration.mockResolvedValue({ kind: 'scene', scene: formulaSpotlight });
   expect(await prepareLessonPlaybackBlock({ ...input(), block: mathBlock })).toMatchObject({
     prepared: { scene: formulaSpotlight, motion: [] },
@@ -418,7 +428,7 @@ test('preparation asks the model to choose a form for the complete math passage'
   expect(sceneGeneration).toHaveBeenCalledWith(
     expect.objectContaining({
       lessonMarkdown: FORMULA_SPOTLIGHT_MARKDOWN,
-      narration: mathBlock.speech,
+      narration: resolvePlaybackNarration(mathBlock, spokenMath).speech,
       allowTextFallback: true,
     })
   );
@@ -436,4 +446,72 @@ test('code containing math syntax retains its authored visual', async () => {
   expect(getPlaybackMathMarkdown(codeBlock)).toBeUndefined();
   await prepareLessonPlaybackBlock({ ...input(), block: codeBlock });
   expect(sceneGeneration).not.toHaveBeenCalled();
+});
+test('prepares one shared spoken formula before TTS and preserves that paid result after an audio retry', async () => {
+  const markdown = String.raw`Consideriamo $p_\theta(y\mid x)$. La probabilità descrive il risultato.`;
+  const raw = segmentLessonPlayback([{ type: 'markdown', markdown }])[0];
+  const spokenMath = [
+    { formula: String.raw`$p_\theta(y\mid x)$`, spoken: 'p con parametro theta di y dato x' },
+  ];
+  structured.mockResolvedValue({ spokenMath });
+  const recorded = new Map<string, unknown>();
+  const providerEffect: WorkflowProviderEffectExecutor = {
+    run: async ({ key, operation, outputSchema }) => {
+      if (!recorded.has(key)) recorded.set(key, await operation());
+      return outputSchema.parse(recorded.get(key));
+    },
+  };
+  const request = { ...input(), block: raw, providerEffect };
+  audio.mockRejectedValueOnce(new Error('Audio unavailable'));
+  await expect(prepareLessonPlaybackBlock(request)).rejects.toThrow('Audio unavailable');
+  const result = await prepareLessonPlaybackBlock(request);
+  expect(audio).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      text: 'Consideriamo p con parametro theta di y dato x. La probabilità descrive il risultato.',
+    })
+  );
+  expect(result.prepared).toMatchObject({ spokenMath });
+  expect(structured).toHaveBeenCalledOnce();
+  await prepareLessonPlaybackBlock({ ...request, block: { ...raw, prepared: result.prepared } });
+  expect(structured).toHaveBeenCalledOnce();
+});
+
+test.each(
+  discreteMathCases
+)('sends complete $name pronunciation to TTS and reuses it for another voice', async fixture => {
+  const block = segmentLessonPlayback([{ type: 'markdown', markdown: fixture.markdown }])[0];
+  structured.mockResolvedValue({ spokenMath: fixture.spokenMath });
+  const request = { ...input(), block };
+  const result = await prepareLessonPlaybackBlock(request);
+  const preparedBlock = { ...block, prepared: result.prepared };
+  const narration = resolvePlaybackNarration(preparedBlock);
+  expect(result.prepared.spokenMath).toEqual(fixture.spokenMath);
+  expect(audio).toHaveBeenLastCalledWith(expect.objectContaining({ text: narration.speech }));
+  expect(
+    narration.spans
+      .filter(span => span.math)
+      .map(span => narration.speech.slice(span.speech.start, span.speech.end))
+  ).toEqual(fixture.spokenMath.map(entry => entry.spoken));
+  await prepareLessonPlaybackBlock({ ...request, block: preparedBlock, voice: 'Puck' });
+  expect(structured).toHaveBeenCalledOnce();
+  expect(audio).toHaveBeenLastCalledWith(
+    expect.objectContaining({ text: narration.speech, voice: 'Puck' })
+  );
+});
+
+test('retains legacy preparation without buying pronunciations when adding another voice', async () => {
+  const block = segmentLessonPlayback([
+    { type: 'markdown', markdown: 'Consideriamo $x$. Poi proseguiamo.' },
+  ])[0];
+  const prepared = { motion: [] };
+  const result = await prepareLessonPlaybackBlock({
+    ...input(),
+    block: { ...block, prepared },
+    voice: 'Puck',
+  });
+  expect(result.prepared).toBe(prepared);
+  expect(structured).not.toHaveBeenCalled();
+  expect(audio).toHaveBeenCalledWith(
+    expect.objectContaining({ text: block.speech, voice: 'Puck' })
+  );
 });

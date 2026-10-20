@@ -1,3 +1,4 @@
+import { hasOmittedPlaybackMath } from '@shared/lessonPlayback';
 import {
   collectProjectAssetReferences,
   remapProjectAssetReferences,
@@ -472,4 +473,23 @@ test('quiz learner state preserves prepared playback for annotated lessons', () 
   const answered = { ...section, playback, quizState: { answers: [1], isSubmitted: true } };
   expect(buildLessonPlaybackKey(answered)).toBe(buildLessonPlaybackKey(section));
   expect(readLessonPlayback(answered).blocks[0].audio).toEqual(playback.blocks[0].audio);
+});
+
+test('reading source math identifies legacy silent audio while preserving its saved preparation', () => {
+  const section = playbackSection();
+  section.contentBlocks = [{ type: 'markdown', markdown: 'Consideriamo $x^2$. Poi proseguiamo.' }];
+  const saved = preparedPlayback(section);
+  // The old writer had no inline-math markers; source projection must recover them on read.
+  section.playback = {
+    ...saved,
+    blocks: saved.blocks.map(block => ({
+      ...block,
+      spans: block.spans.filter(span => !span.math),
+    })),
+  };
+  const actual = readLessonPlayback(section).blocks[0];
+  expect(hasOmittedPlaybackMath(actual)).toBe(true);
+  expect(actual.audio).toEqual(saved.blocks[0].audio);
+  expect(actual.prepared).toBe(saved.blocks[0].prepared);
+  expect(readLessonPlayback(section).lessonKey).toBe(saved.lessonKey);
 });

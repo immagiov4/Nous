@@ -1877,11 +1877,6 @@
   display: inline-block;
   opacity: 0;
   color: var(--ink);
-  mask-image: linear-gradient(
-    to right,
-    #000 calc(var(--reveal-edge, 0px) - var(--caption-feather)),
-    transparent var(--reveal-edge, 0px)
-  );
 }
 .lesson-player-stage .caption-page {
   animation: lesson-player-caption-in var(--caption-change) ease-out;
@@ -1946,7 +1941,6 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .lesson-player-stage .caption-word {
-    mask-image: none;
     transition: none;
   }
   .lesson-player-stage .caption-page,

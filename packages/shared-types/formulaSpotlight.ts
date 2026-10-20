@@ -1,6 +1,11 @@
 import katex from 'katex';
+import rehypeRaw from 'rehype-raw';
+import { unified } from 'unified';
 import * as z from 'zod';
 import { cueTimes } from './lessonSceneAnimation';
+
+// Two em preserves every term in the five-symbol card at the 390 px mobile viewport.
+const SPOTLIGHT_MATH_OPTIONS = { maxSize: 2, throwOnError: true } as const;
 
 const symbolId = z.string().regex(/^[A-Za-z][A-Za-z0-9]*$/u);
 const text = z.string().min(1).regex(/\S/u);
@@ -33,11 +38,96 @@ function compileFormula(scene: FormulaSpotlightData, highlighted: boolean): stri
   return latex;
 }
 
+// Reuse the app's HTML parser and KaTeX's TeX atom classes, including macro-expanded output.
+const mathMarkup = unified().use(rehypeRaw);
+type MathNode = ReturnType<typeof mathMarkup.runSync>['children'][number];
+type MathElement = Extract<MathNode, { type: 'element' }>;
+const MATH_ATOM_CLASSES = new Set([
+  'mord',
+  'mop',
+  'mbin',
+  'mrel',
+  'mopen',
+  'mclose',
+  'mpunct',
+  'minner',
+]);
+
+function findRenderedMath(nodes: readonly MathNode[]): MathElement | undefined {
+  for (const node of nodes) {
+    if (node.type !== 'element') continue;
+    if (
+      Array.isArray(node.properties.className) &&
+      node.properties.className.includes('katex-html')
+    )
+      return node;
+    const found = findRenderedMath(node.children);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function renderedMath(html: string): MathElement {
+  // rehype-raw accepts raw input nodes; its Root signature omits that input extension.
+  const tree = mathMarkup.runSync({
+    type: 'root',
+    children: [{ type: 'raw', value: html }],
+  } as unknown as Parameters<typeof mathMarkup.runSync>[0]);
+  const math = findRenderedMath(tree.children);
+  if (!math) throw new Error('KaTeX must produce a rendered math tree.');
+  return math;
+}
+
+function mathText(node: MathNode): string {
+  if (node.type === 'text') return node.value;
+  if (node.type === 'element') return node.children.map(mathText).join('');
+  return '';
+}
+
+function validateRenderedSymbols(
+  scene: FormulaSpotlightData,
+  html: string,
+  targets: ReadonlySet<string>
+): void {
+  const symbols = new Set(
+    scene.symbols.map(symbol => mathText(renderedMath(renderSpotlightSymbol(symbol.latex))))
+  );
+  const visit = (node: MathNode, wrapped = false, textMode = false, term = false): void => {
+    if (node.type === 'text') {
+      const value = node.value.trim();
+      // Numeric literals and structural punctuation remain ordinary formula syntax.
+      if (
+        !wrapped &&
+        !textMode &&
+        value &&
+        (symbols.has(value) || (term && !/^[\p{N}\p{P}\s]+$/u.test(value)))
+      ) {
+        throw new Error('Every mathematical symbol occurrence must use its explicit reference.');
+      }
+      return;
+    }
+    if (node.type !== 'element') return;
+    const classes = Array.isArray(node.properties.className) ? node.properties.className : [];
+    // KaTeX's vertical-list spacer contains a zero-width layout character, not a math atom.
+    if (classes.includes('vlist-s')) return;
+    const atom = classes.find(name => MATH_ATOM_CLASSES.has(String(name)));
+    for (const child of node.children)
+      visit(
+        child,
+        wrapped || classes.some(name => targets.has(String(name))),
+        textMode || classes.includes('text'),
+        atom ? atom === 'mord' || atom === 'mop' : term
+      );
+  };
+  visit(renderedMath(html));
+}
+
 /** Validate plain math before adding renderer-owned classes; model HTML/URLs stay untrusted. */
 export function renderSpotlightFormula(scene: FormulaSpotlightData): string {
   let requestedTrust = false;
   katex.renderToString(compileFormula(scene, false), {
-    throwOnError: true,
+    ...SPOTLIGHT_MATH_OPTIONS,
+    displayMode: true,
     trust: () => {
       requestedTrust = true;
       return false;
@@ -46,8 +136,8 @@ export function renderSpotlightFormula(scene: FormulaSpotlightData): string {
   if (requestedTrust) throw new Error('Formula content must contain math only.');
   const classes = new Set(scene.symbols.map(symbol => `nous-formula-symbol-${symbol.id}`));
   const html = katex.renderToString(compileFormula(scene, true), {
+    ...SPOTLIGHT_MATH_OPTIONS,
     displayMode: true,
-    throwOnError: true,
     strict: false,
     // KaTeX's htmlClass is the only trust context carrying a class property.
     trust: context => 'class' in context && classes.has(context.class),
@@ -59,12 +149,13 @@ export function renderSpotlightFormula(scene: FormulaSpotlightData): string {
   ) {
     throw new Error('Every symbol must render a highlight target.');
   }
+  validateRenderedSymbols(scene, html, classes);
   return html;
 }
 
 /** A legend symbol must render independently from definitions in the complete formula. */
 export const renderSpotlightSymbol = (latex: string): string =>
-  katex.renderToString(latex, { throwOnError: true, trust: false });
+  katex.renderToString(latex, { ...SPOTLIGHT_MATH_OPTIONS, trust: false });
 
 export function findFormulaSpotlightProblems(value: unknown, source?: string): string[] {
   const parsed = FormulaSpotlightDataSchema.safeParse(value);
@@ -73,9 +164,10 @@ export function findFormulaSpotlightProblems(value: unknown, source?: string): s
   const problems: string[] = [];
   try {
     renderSpotlightFormula(parsed.data);
-    for (const symbol of parsed.data.symbols) renderSpotlightSymbol(symbol.latex);
   } catch {
-    problems.push('The formula must be valid math with unique, complete symbol references.');
+    problems.push(
+      'The formula must be valid display math with unique, complete symbol references and no unwrapped symbol occurrences.'
+    );
   }
   if (
     new Set(parsed.data.symbols.map(symbol => symbol.anchor)).size !== parsed.data.symbols.length

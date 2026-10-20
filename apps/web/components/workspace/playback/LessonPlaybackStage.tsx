@@ -3,6 +3,7 @@ import {
   type LessonPlaybackBlock,
   type PlaybackRange,
   type PlaybackVisual,
+  resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
 import {
@@ -292,7 +293,7 @@ function PlaybackVisualContent({
 }
 
 export default function LessonPlaybackStage({
-  block,
+  block: sourceBlock,
   time,
   duration,
   content,
@@ -306,6 +307,7 @@ export default function LessonPlaybackStage({
   speed?: number;
   readTime?: () => number;
 }>) {
+  const block = useMemo(() => resolvePlaybackNarration(sourceBlock), [sourceBlock]);
   const sources = useMemo(
     () =>
       content.sectionContentBlocks?.length
@@ -449,8 +451,10 @@ export default function LessonPlaybackStage({
       let active = edge >= current.width ? current.runs.at(-1)?.span : undefined;
       for (const run of current.runs) {
         const local = edge - run.start;
-        run.span.style.opacity = local > 0 ? '1' : '0';
-        run.span.style.setProperty('--reveal-edge', `${local}px`);
+        // Fade the complete word: a spatial mask can freeze half a glyph when paused.
+        run.span.style.opacity = String(
+          motion ? Math.max(0, Math.min(1, local / current.feather)) : Number(local > 0)
+        );
         const readAge = bodyTime - ((run.start + run.width) / current.width) * current.bodyDuration;
         const fade = Math.max(0, Math.min(1, readAge / CAPTION_TIMING.readFadeSeconds));
         const text = run.span.firstElementChild as HTMLElement;

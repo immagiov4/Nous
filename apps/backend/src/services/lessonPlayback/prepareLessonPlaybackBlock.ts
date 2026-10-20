@@ -1,9 +1,15 @@
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
-import { getPlaybackMathMarkdown, type LessonPlaybackBlock } from '@shared/lessonPlayback';
+import {
+  getPlaybackMathMarkdown,
+  type LessonPlaybackBlock,
+  resolvePlaybackNarration,
+  validatePlaybackSpokenMath,
+} from '@shared/lessonPlayback';
 import {
   LessonSceneSchema,
   PlaybackAudioSchema,
   PlaybackPreparedSchema,
+  PlaybackSpokenMathSchema,
 } from '@shared/lessonPlaybackSchema';
 import { isAnimatedLessonScene, type LessonScene, type LessonSceneType } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
@@ -20,8 +26,10 @@ import {
   validatePlaybackText,
 } from './playbackAudio.js';
 import { MAX_PLAYBACK_PREPARATION_ATTEMPTS, planPlaybackMotion } from './playbackMotion.js';
+import { generatePlaybackSpokenMath } from './playbackSpokenMath.js';
 
 interface PrepareLessonPlaybackBlockInput {
+  readonly supportsSpokenMath?: boolean;
   readonly allowedSceneTypes?: readonly LessonSceneType[];
   readonly providerEffect?: WorkflowProviderEffectExecutor;
   readonly ttsModel?: string;
@@ -71,7 +79,7 @@ export const validatePlaybackSceneTypes = (
 const prepareScene = async (
   input: PrepareLessonPlaybackBlockInput
 ): Promise<LessonScene | undefined> => {
-  const { block, lesson, config, signal } = input;
+  const { block, config, signal } = input;
   const mathMarkdown = getPlaybackMathMarkdown(block);
   if (block.visuals.length && !mathMarkdown) {
     const scenes = existingScenes(input);
@@ -93,8 +101,9 @@ const prepareScene = async (
       narration: block.speech,
       allowTextFallback: true,
       retryFeedback,
-      sectionDescription: lesson.description ?? '',
-      sectionTitle: block.heading || lesson.title,
+      // Only this block is admissible evidence; lesson metadata can describe other passages.
+      sectionDescription: '',
+      sectionTitle: '',
       signal,
     });
     signal.throwIfAborted();
@@ -118,13 +127,40 @@ export const prepareLessonPlaybackBlock = async (
   signal.throwIfAborted();
   validatePlaybackText(input.block.speech);
   validatePlaybackSceneTypes(input);
+  const spokenMath = await prepareSpokenMath(input);
+  signal.throwIfAborted();
+  const request = { ...input, block: resolvePlaybackNarration(input.block, spokenMath) };
+  validatePlaybackText(request.block.speech);
   // Audio does not depend on the scene, so both are prepared at the same time. Both settle
   // before a failure propagates, so a retry never overlaps paid work still in flight.
-  const [visuals, audio] = await Promise.allSettled([prepareVisuals(input), prepareAudio(input)]);
+  const [visuals, audio] = await Promise.allSettled([
+    prepareVisuals(request),
+    prepareAudio(request),
+  ]);
   if (visuals.status === 'rejected') throw visuals.reason;
   if (audio.status === 'rejected') throw audio.reason;
   signal.throwIfAborted();
-  return { prepared: visuals.value, audio: audio.value };
+  return {
+    prepared:
+      spokenMath && !input.block.prepared ? { ...visuals.value, spokenMath } : visuals.value,
+    audio: audio.value,
+  };
+};
+
+const prepareSpokenMath = async (input: PrepareLessonPlaybackBlockInput) => {
+  const { block } = input;
+  if (block.prepared) return block.prepared.spokenMath;
+  if (input.supportsSpokenMath === false || !block.spans.some(span => span.math)) return undefined;
+  const operation = () => generatePlaybackSpokenMath(input);
+  const spokenMath = input.providerEffect
+    ? await input.providerEffect.run({
+        key: 'spoken-math',
+        outputSchema: PlaybackSpokenMathSchema,
+        operation,
+      })
+    : await operation();
+  validatePlaybackSpokenMath(block, spokenMath);
+  return spokenMath;
 };
 
 const prepareVisuals = async (

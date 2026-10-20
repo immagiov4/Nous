@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
 import { act, render, screen } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
+import { discreteMathCases } from '../../../../backend/tests/helpers/discreteMath';
 import {
   CAPTION_TIMING,
   captionFormat,
@@ -134,7 +135,7 @@ test('mounts a fresh scene for each block so the page transition restarts', () =
 test.each([
   true,
   false,
-])('reveals continuously and moves the active line past halfway (animate=%s)', animate => {
+])('reveals whole words with a fade and moves the active line past halfway (animate=%s)', animate => {
   vi.mocked(useShouldAnimate).mockReturnValue(animate);
   const source = [{ type: 'markdown' as const, markdown: 'Uno due tre quattro cinque sei.' }];
   const block = segmentLessonPlayback(source)[0];
@@ -174,9 +175,13 @@ test.each([
   };
   advance(0.1);
   const first = paragraph.querySelector<HTMLElement>('.caption-word');
-  expect(first?.style.opacity).toBe('1');
-  expect(parseFloat(first?.style.getPropertyValue('--reveal-edge') ?? '')).toBeGreaterThan(0);
-  expect(parseFloat(first?.style.getPropertyValue('--reveal-edge') ?? '')).toBeLessThan(100);
+  if (animate) {
+    expect(Number(first?.style.opacity)).toBeGreaterThan(0);
+    expect(Number(first?.style.opacity)).toBeLessThan(1);
+  } else {
+    expect(first?.style.opacity).toBe('1');
+  }
+  expect(first?.style.getPropertyValue('--reveal-edge')).toBe('');
   advance(1);
   expect(scrollTo).toHaveBeenLastCalledWith({ top: 100, behavior: animate ? 'smooth' : 'instant' });
   advance(2);
@@ -659,4 +664,52 @@ test('a model-chosen spotlight replaces the contextual math card while text fall
     'La probabilità, indicata con p, è la stima del modello.'
   );
   expect(container.querySelector('.scene-host .katex')).not.toBeNull();
+});
+test('uses the prepared spoken formula in captions while retaining authored math on the visual', () => {
+  const markdown = String.raw`Consideriamo $p_\theta(y\mid x)$. La probabilità descrive il risultato.`;
+  const sources = [{ type: 'markdown' as const, markdown }];
+  const raw = segmentLessonPlayback(sources)[0];
+  const block = {
+    ...raw,
+    prepared: {
+      motion: [],
+      spokenMath: [
+        { formula: String.raw`$p_\theta(y\mid x)$`, spoken: 'p con parametro theta di y dato x' },
+      ],
+    },
+  };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={8}
+      time={8}
+    />
+  );
+  expect(container.querySelector('.caption-page')?.textContent?.trim()).toBe(
+    'Consideriamo p con parametro theta di y dato x. La probabilità descrive il risultato.'
+  );
+  expect(container.querySelector('.scene-host')?.textContent).toContain('La probabilità');
+});
+
+test.each(
+  discreteMathCases
+)('renders $name as spoken caption words with authored KaTeX on the card', fixture => {
+  const sources = [{ type: 'markdown' as const, markdown: fixture.markdown }];
+  const raw = segmentLessonPlayback(sources)[0];
+  const block = { ...raw, prepared: { motion: [], spokenMath: fixture.spokenMath } };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={30}
+      time={30}
+    />
+  );
+  expect(
+    Array.from(container.querySelectorAll('.caption-word'), word => word.textContent?.trim())
+  ).toEqual(resolvePlaybackNarration(block).speech.trim().split(/\s+/u));
+  expect(container.querySelectorAll('.scene-host .katex')).toHaveLength(fixture.spokenMath.length);
+  expect(container.querySelector('.caption-page .katex')).toBeNull();
+  expect(container.querySelector('.katex-error')).toBeNull();
 });

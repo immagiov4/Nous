@@ -61,7 +61,7 @@ describe('workflow PostgreSQL CI contract', () => {
     });
   });
 
-  test('provisions Chromium before the shared CI quality, Fallow, and complete Bun suite gate', () => {
+  test('provisions Chromium before the shared checks and single Node coverage suite', () => {
     const commands = testSteps.flatMap(step => (step.run ? [step.run] : []));
 
     expect(commands).toEqual([
@@ -69,9 +69,8 @@ describe('workflow PostgreSQL CI contract', () => {
       'bunx playwright install --with-deps chromium',
       'bun run gate:ci',
     ]);
-    expect(packageScripts['gate:ci']).toBe(
-      'bun run quality:ci && bun run check:fallow:ci && bun run test'
-    );
+    expect(packageScripts['gate:checks']).toBe('bun run quality:ci && bun run check:fallow:ci');
+    expect(packageScripts['gate:ci']).toBe('bun run gate:checks && bun run test:coverage');
   });
 
   test('keeps staging credentials on trusted main pushes', () => {

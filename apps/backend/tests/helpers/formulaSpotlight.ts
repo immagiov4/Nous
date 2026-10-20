@@ -1,8 +1,7 @@
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
 
-export const FORMULA_SPOTLIGHT_MARKDOWN =
-  'Consideriamo $p_\\theta(y\\mid x)$. La probabilità, indicata con p, è la stima del modello. I parametri, indicati con theta, sono i valori appresi. Il risultato, indicato con y, è ciò che prevediamo. La barra verticale significa dato: introduce la condizione. L’informazione osservata, indicata con x, è ciò che conosciamo.';
+export const FORMULA_SPOTLIGHT_MARKDOWN = String.raw`Consideriamo $p_\theta(y\mid x)$. La probabilità, indicata con p, è la stima del modello. I parametri, indicati con theta, sono i valori appresi. Il risultato, indicato con y, è ciò che prevediamo. La barra verticale significa dato: introduce la condizione. L’informazione osservata, indicata con x, è ciò che conosciamo.`;
 export const FORMULA_SPOTLIGHT_SPEECH = segmentLessonPlayback([
   { type: 'markdown', markdown: FORMULA_SPOTLIGHT_MARKDOWN },
 ])[0].speech;
@@ -14,8 +13,7 @@ export const formulaSpotlight = {
   groups: [],
   quote: '',
   note: '',
-  formula:
-    '\\nousSymbol{probability}_{\\nousSymbol{theta}}(\\nousSymbol{outcome}\\nousSymbol{given}\\nousSymbol{input})',
+  formula: String.raw`\nousSymbol{probability}_{\nousSymbol{theta}}(\nousSymbol{outcome}\nousSymbol{given}\nousSymbol{input})`,
   symbols: [
     {
       id: 'probability',
@@ -26,7 +24,7 @@ export const formulaSpotlight = {
     },
     {
       id: 'theta',
-      latex: '\\theta',
+      latex: String.raw`\theta`,
       name: 'Parametri',
       meaning: 'I valori appresi dal modello.',
       anchor: 'I parametri',
@@ -40,7 +38,7 @@ export const formulaSpotlight = {
     },
     {
       id: 'given',
-      latex: '\\mid',
+      latex: String.raw`\mid`,
       name: 'Dato',
       meaning: 'La condizione della probabilità.',
       anchor: 'La barra verticale',

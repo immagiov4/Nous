@@ -1,20 +1,15 @@
-## Sonar merge decision
+<!-- Read .agents/skills/writing-for-humans/SKILL.md and .agents/skills/writing-for-humans/references/change-reports.md before writing. Keep the visible description under about 200 words; put supporting detail in a collapsed Details block. -->
 
-Check exactly one:
+**Problem:** <!-- Describe the issue in user-visible terms; preserve issue references. -->
 
-- [ ] Sonar required: GitHub CI and `bun run gate:full` passed on the exact commit proposed for merge, with coverage completed before the local Sonar scan.
-- [ ] Narrow skip: this is a trivially scoped docs/metadata/workflow-only change with no analyzable application-code or runtime-behavior change, CI/review are clean, and no reviewer or CI signal requests Sonar.
+**Approach:** <!-- Explain the change and why it fits, in a few lines. -->
 
-`gate:full` starts or reuses Sonar for the scan and keeps it running afterward. Run `bun run sonar:stop` when finished. If startup failed, I diagnosed it with `bun run sonar:up` and reran the full gate. Every new Sonar finding was fixed or explicitly resolved with an owner-visible disposition.
-
-Sonar result or skip rationale:
-
-<!-- Required changes need both green CI and local Sonar evidence. A skip must explain why every narrow-skip condition is satisfied. -->
-
-## Summary
-
-<!-- What changed and why? -->
+**Result:** <!-- Give verified before/after numbers, a before/after diagram for a refactor, or screenshot links for UI. For a bug fix, state the failing reproduction and passing result. If unmeasured, say "Not measured" in one line. -->
 
 ## Testing
 
-<!-- List the relevant checks and their results. -->
+<!-- One or two lines naming the relevant suites and their results. -->
+
+## Sonar merge decision
+
+<!-- One or two lines: required scan result on the final candidate, pending/blocked status, or the narrow documentation/metadata/workflow skip rationale under AGENTS.md. -->

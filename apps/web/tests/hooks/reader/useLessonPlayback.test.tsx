@@ -3,6 +3,7 @@
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { LessonPlaybackResponseSchema } from '@shared/lessonPlaybackSchema';
 import { act, render, renderHook, waitFor } from '@testing-library/react';
+import { useEffect } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import {
   unlockLessonPlaybackAudio,
@@ -585,8 +586,6 @@ test.each([
   expect(result.current.index).toBe(Math.floor(destination / 10));
   expect(audio.currentTime).toBe(destination % 10);
 });
-
-import { useEffect } from 'react';
 
 test('makes the audio clock available to a child stage on its first effect', () => {
   const observed = vi.fn();
