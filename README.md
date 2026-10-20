@@ -75,7 +75,7 @@ Authenticated sessions use server storage. Import/export remains available for m
 
 ## Useful Commands
 
-Use `bun run doctor` for an actionable local health report. GitHub CI runs the Node suite with coverage and SonarQube Cloud for same-repository pull requests and main pushes. The local `bun run gate:full` includes local Sonar on the final candidate. See [Testing and quality gates](docs/TESTING.md) for the command list and applicability rules.
+Use `bun run doctor` for an actionable local health report. Merge readiness requires green CI on the exact pull-request head, including SonarCloud and the applicable contracts. Use `bun run gate:full` to diagnose Windows-specific failures. See [Testing and quality gates](docs/TESTING.md) for checks and diagnostics.
 
 Validate a pull-request or issue body from a Markdown file before publishing it:
 

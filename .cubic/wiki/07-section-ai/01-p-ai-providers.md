@@ -18,3 +18,9 @@ OpenRouter credentials stay on the server. For a self-hosted Codex setup, follow
 Select the task's model and, where supported, its reasoning level. Image support, structured output and search capabilities depend on the model and provider. A request fails if its selected model lacks a required capability. Web search belongs to supported research tasks.
 
 For the learning rules sent with these requests, see [shared generation instructions](02-p-prompt-engineering.md). For operational measurements, see [AI usage](../06-section-backend/05-p-telemetry-usage.md).
+
+<details><summary>Details</summary>
+
+When changing structured responses, use the shared [strict-output adapter](../../../apps/backend/src/services/strictStructuredOutput.ts). It adapts provider schemas, including optional properties and string constants, while callers validate the restored response against their domain contract. Domain schemas retain their own definitions.
+
+</details>

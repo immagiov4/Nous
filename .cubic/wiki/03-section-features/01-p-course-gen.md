@@ -20,3 +20,9 @@ Prior-knowledge questions gather evidence about the learner's starting point. Th
 Web and [video research](06-p-youtube-research.md) supply supporting material. Review can request targeted revisions to the plan before it is accepted. Document sources remain distinct from research results; topic-based lessons can use only sources returned by research. The reader presents saved sources as linked titles with notes.
 
 The approved plan becomes context for [lesson generation](02-p-lesson-gen.md). Developers changing planning rules should follow the [shared instruction contracts](../07-section-ai/02-p-prompt-engineering.md).
+
+<details><summary>Details</summary>
+
+When changing prior-knowledge adaptation, use the [diagnostic model](../../../apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts). Evaluations interpret submitted attempts cumulatively; before a submission, their interpretation list is empty. Uncertainty and omissions remain explicit in the evaluation.
+
+</details>
