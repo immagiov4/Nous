@@ -2,6 +2,8 @@
 
 Run fast checks on changed files and targeted tests while editing, then push for full CI verification. Merge only when CI is green on the exact pull-request head, including `test`, `SonarCloud Code Analysis`, and the applicable contract and pull-request-body checks. Each new commit needs its own passing checks.
 
+Browser tests are always muted; audio is verified inside the page or from files.
+
 ## Local checks
 
 After installing dependencies with `bun run deps:install`, install Chromium for browser tests:
