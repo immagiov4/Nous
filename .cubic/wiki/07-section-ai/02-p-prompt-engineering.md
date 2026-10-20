@@ -23,4 +23,4 @@ A changed instruction can affect drafting, review and provider-specific request 
 
 ## Evaluate the explanation that results
 
-Use representative lessons and known failures through [content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content). Deterministic tests can exercise composition precedence, schemas, parsing and evidence contracts. Reading the saved explanation and captured exchanges establishes whether the changed instruction improved its reasoning. A test that only finds a sentence inside a prompt freezes wording without proving that the generated result satisfies the intended teaching contract.
+Use representative lessons and known failures through [content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content). Deterministic tests can exercise composition precedence, schemas, parsing and evidence contracts. Reading the saved explanation and captured exchanges lets reviewers assess its reasoning against the objective and evidence. A test that only finds a sentence inside a prompt freezes wording without proving that the generated result satisfies the intended teaching contract.

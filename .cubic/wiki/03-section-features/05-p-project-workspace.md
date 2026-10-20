@@ -1,24 +1,24 @@
 ---
-title: "Project revisions and portable exports"
+title: "Saving and exporting a changing project"
 wiki_page_id: "p-project-workspace"
 ---
 
 [Up one level](../04-section-data/01-p-database-schema.md)
 
-# Project revisions and portable exports
+# Saving and exporting a changing project
 
-A project groups a course, its generated content and study state under an owner and revision. Library records describe folders and project placement separately, allowing the library to load without fetching every lesson. Project saves and exports both rely on revision identity, but they use it for different purposes.
+A lesson can finish generating while the browser still holds an earlier copy of its project. If the browser then saves that copy over the generated result, the new lesson would be lost. Nous prevents this by checking which revision the browser edited before accepting its replacement.
 
-## Concurrent changes remain explicit
+## Keep newer work when a browser saves
 
-A client saving a project supplies the revision it edited. A stale revision produces a conflict instead of silently overwriting another session's save. The client must reload or reconcile against the authoritative version. Generation also commits project changes, so revision handling matters even when only one browser is open.
+Suppose the browser loaded revision 7 and lesson generation then committed revision 8. The browser's next save still names revision 7, so the backend rejects it and keeps revision 8. The client must obtain the newer project and reload or reconcile its changes before saving again. This is why even a single browser can encounter a revision conflict: background generation is another writer.
 
-Folder operations update library organization without changing the course's lesson meaning. Deleting a folder moves its contents to the parent while retaining its projects. The separation between project snapshots and library placement lets these operations remain independent of lesson generation.
+The check and the project replacement belong to the same database transaction. That lets the backend reject a stale replacement before it commits new content or changes the associated file references. The common commit implementation lives in [project revision writes](../../../apps/backend/src/projects/projectRevisionWrite.ts).
 
-## An export is a snapshot attempt
+## Build an export from one set of versions
 
-A project archive combines saved data with the files needed for restoration. A library export prepares project archives in sequence and records its progress durably across server restarts. It identifies the project versions it is preparing; a project changing during preparation invalidates the attempt rather than quietly producing an archive assembled from different versions. A retry starts a fresh library snapshot.
+An export has the same consistency problem over a longer period. It reads project data and prepares the files needed to restore it; a project changing halfway through could otherwise leave the archive combining different versions. A library export therefore records the project revisions it starts from and fails the attempt if one of them changes. Retrying begins a fresh snapshot.
 
-The server verifies prepared output before the browser downloads it. This establishes the generated artifact, while delivery to a particular device remains a separate boundary. Import checks integrity, converts supported older archive shapes and reconnects image and PDF references to imported files. Unmatched references remain represented for review rather than acquiring an unrelated file by guesswork.
+Preparing a whole library can also outlive a server process. The export records completed project archives as it goes, so a restart can resume that attempt instead of discarding its preparation. Those checkpoints preserve progress, while the revision checks preserve the consistency of the result.
 
-Follow [project services](../../../apps/backend/src/projects/) for revision writes, transactions and export state. [Asset lifecycle](../04-section-data/02-p-asset-management.md) owns file adoption and cleanup, and [deployment backups](../08-section-deployment/01-p-self-hosted.md#back-up-and-restore) covers installation recovery. Portable exports and operator backups have different scopes: one represents selected project data, while the other must recover the installation's durable services.
+For the files an archive must carry and how restoration reconnects them, continue with [asset adoption and cleanup](../04-section-data/02-p-asset-management.md). [Deployment backups](../08-section-deployment/01-p-self-hosted.md#back-up-and-restore) cover recovery of the installation rather than a portable set of projects.

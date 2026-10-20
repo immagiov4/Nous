@@ -7,20 +7,20 @@ wiki_page_id: "p-reader-shell"
 
 # Reader composition and state
 
-The reader composes the active project and lesson with navigation, content rendering and study interactions. Saved content comes from server project state; selection, open panels and playback controls are browser interaction state. Keeping those lifetimes distinct lets a project update without turning every transient interaction into a persistence operation.
+The reader must keep a saved lesson usable while its replacement is still generating. It therefore represents committed project content and pending work alongside one another instead of clearing the lesson when generation starts. A successful commit replaces the content and resets dependent study state; failure leaves the saved lesson and progress intact.
 
-## Compose around the active target
+## Separate content lifetime from interaction lifetime
 
-The [application composition](../../../apps/web/app/) connects the reader's props and dialogs to application state. The main content renderer presents lesson text, source references, visuals and quizzes, while the sidebar reflects course structure and activity readiness. Exercise briefs can generate independently of the lesson currently displayed, and practical exercises have an activity view rather than narrated lesson playback.
+Server project state supplies accepted lesson content and progress. The browser owns the current selection, open panels and playback controls, which can change without a project save. The [application composition](../../../apps/web/app/) joins these lifetimes: it passes the active target and its state into the content renderer, navigation and dialogs.
 
-Selections need a stable mapping between rendered text and saved lesson content. Annotation anchors and chat context use that mapping; they must remain attached to their original lesson when navigation changes the active target. [Contextual chat](../03-section-features/07-p-chat-ui.md) explains why a streaming response cannot simply use the current page when it arrives.
+Navigation can change that target while other interactions are unfinished. A selected passage needs a stable mapping to saved lesson text so an annotation can retain its anchor. A streaming [chat response](../03-section-features/07-p-chat-ui.md) must retain the lesson where it began rather than adopt the page active when it arrives. These are identity requirements across interactions, not just rendering concerns.
 
-## Generation status and saved content coexist
+## Present independent work without changing the target
 
-The saved lesson remains readable during regeneration. A successful replacement updates committed content and resets content-dependent study state; failure preserves the earlier saved version. The frontend therefore represents pending work alongside saved data rather than clearing the lesson at request start. [Lesson generation](../03-section-features/02-p-lesson-gen.md) owns the commit semantics.
+The sidebar reflects the course structure and activity readiness. A practical exercise brief can finish while a different lesson is open; its activity view is separate from narrated lesson playback. Likewise, failure elsewhere in the course can be reported without redirecting the active reader.
 
-Load failures, source reconnection requirements and generation failures have different recovery paths. A source problem takes precedence when the content needs its file references repaired. Failures on the active lesson can be shown in context, while work failing elsewhere can be reported without changing the current target.
+Recovery depends on what failed. A source reference needing repair takes precedence when the content cannot resolve its files, while generation failures can remain attached to the work that produced them. [Lesson generation](../03-section-features/02-p-lesson-gen.md) defines when a replacement becomes accepted content.
 
-## Playback consumes a prepared contract
+## Render the prepared playback contract
 
-The [player](../03-section-features/04-p-multimedia.md) coordinates audio, visual scenes and highlighted spans against prepared lesson blocks. Browser controls own seeking and speed; backend preparation owns narration and cue generation. For rendering changes, verify realistic lesson fixtures, navigation and intermediate states as well as the final screenshot. [Testing](../09-section-tools/02-p-testing-quality.md) describes the isolated browser and artifact evidence paths.
+The [player](../03-section-features/04-p-multimedia.md) consumes prepared audio, scene cues and highlighted spans for that lesson version. Seeking and speed are browser state; narration and cue generation belong to backend preparation. Verify rendering changes with navigation, pending work and reload as well as the final frame, using the isolated scenarios described in [testing](../09-section-tools/02-p-testing-quality.md).

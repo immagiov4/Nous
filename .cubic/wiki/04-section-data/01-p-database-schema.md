@@ -7,20 +7,27 @@ wiki_page_id: "p-database-schema"
 
 # Durable data and ownership
 
-PostgreSQL holds accounts, project snapshots, library structure and workflow state. Supabase Storage holds uploaded sources and generated file bytes, with database references connecting them to owners. The runtime uses server persistence; in-memory project stores are test doubles for exercising route behavior.
+Opening the library needs names, folders and project placement; opening a course needs its lessons and saved progress. Nous stores these separately so a library listing does not fetch every complete course. PostgreSQL holds both forms of records, while Supabase Storage holds the source and generated file bytes their references identify.
 
-## A project is a versioned aggregate
+## Commit a project as one versioned unit
 
-A project record has an owner, revision and snapshot containing its course, lessons and study progress. Library records hold folder structure and placement separately, so listing the library does not require reading every full project. Revision checks detect stale saves, while project incarnation identity distinguishes a recreated project from an earlier object with a reused identifier.
+A project snapshot groups its course, lesson content and study progress under an owner and revision. Generation prepares intermediate results outside that snapshot, then makes them visible by committing a project mutation. This gives the reader one accepted version to load while other work continues in [durable workflows](../02-section-architecture/02-p-workflow-engine.md).
 
-This aggregate gives generation a concrete commit target. A workflow can prepare intermediate output, but it becomes visible project content when the corresponding project mutation commits. [Workflow execution](../02-section-architecture/02-p-workflow-engine.md) coordinates saved step state, and [project revisions](../03-section-features/05-p-project-workspace.md) explains concurrent saves and exports.
+Several writers can work against the same snapshot, including a browser and lesson generation. Revision checks reject a stale replacement before it overwrites newer work. A separate incarnation identity distinguishes a recreated project from a deleted object with the same identifier. [Saving and exporting](../03-section-features/05-p-project-workspace.md) follows the consistency checks through concurrent changes.
 
-## File references have a lifecycle
+## Keep file ownership alongside references
 
-A database reference and the bytes it names are separate resources. Provisional workflow output needs ownership before a project adopts it, and cleanup must check references before deleting an abandoned object. [Asset lifecycle](02-p-asset-management.md) owns that mechanism. A database-only recovery cannot restore source bytes that exist solely in storage.
+A committed snapshot can refer to a file whose bytes live outside PostgreSQL. Those resources need coordinated lifetimes: generation can write a file before the project adopts it, and cleanup must establish that no live project still references it before deletion. [Asset lifecycle](02-p-asset-management.md) explains this provisional ownership and adoption.
 
-## Other records support independent concerns
+The same separation matters for recovery. Restoring database records alone cannot recreate uploaded source bytes that exist only in storage. The [deployment recovery contract](../08-section-deployment/01-p-self-hosted.md#back-up-and-restore) defines the installation backup scope.
 
-Account preferences provide defaults for new work; a course retains its own copied settings. Workflow runs, steps, waits and provider effects support execution recovery. Events and [usage measurements](../06-section-backend/05-p-telemetry-usage.md) support investigation without replacing those authoritative records. Feedback records retain local reports and their GitHub delivery relationship.
+## Find the authoritative record
 
-The [migrations](../../../supabase/migrations/) are the table and constraint reference. Backend access uses privileged connections, so [account and ownership checks](../06-section-backend/02-p-auth.md) must precede service access. Row-level security applies to authenticated clients that reach Supabase directly. [Curriculum validators](03-p-curriculum-contract.md) describe a separate supplied-data contract; their existence does not imply that production planning writes a curriculum graph through them.
+| Question | Record owner |
+| --- | --- |
+| What course content and progress is accepted? | Project snapshot and revision. |
+| Where does a project appear in the library? | Library folders and placement. |
+| Which generation steps remain? | Workflow runs, steps, waits and saved provider effects. |
+| Which defaults apply to new work? | Account preferences; a course keeps its copied settings. |
+
+The [migrations](../../../supabase/migrations/) are the table and constraint reference. Backend connections are privileged, so [authorization](../06-section-backend/02-p-auth.md) must establish account and ownership before accessing these records. The separate [curriculum validators](03-p-curriculum-contract.md) check caller-supplied data rather than defining the production persistence path.

@@ -70,6 +70,24 @@ Use a table of contents when it helps navigate a long file. Collapsible
 path, provided the information remains accessible. Remove empty scaffolding; keep
 unresolved substantive facts visible in drafts.
 
+## Build an explanation
+
+For a developer explanation, begin with the behavior or design problem the page must make understandable. Follow the mechanism through to its consequence. Use a concrete supported case when it makes the problem easier to see; technical readers do not need an invented dramatic hook or a general lesson about good engineering.
+
+Choose information before repairing sentences. A true fact about the same subsystem can still interrupt the explanation. Keep facts that establish a premise, explain a mechanism, show a consequence or answer a question the preceding text raises. Give independent lookup facts a table or list when the reader needs that reference; leave unrelated implementation detail with its owner. A paragraph made longer with “also”, “therefore” or semicolons can remain the same inventory.
+
+For example, this opening names related storage facts but gives the reader no reason to follow them:
+
+> A workspace stores documents under an owner. Sidebar entries keep folders and document placement separately. Saves and exports use version identifiers for different purposes.
+
+An explanation of concurrent saves can instead start with the conflict the version check resolves:
+
+> A background task can update a document while its editor still holds an earlier copy. Saving that copy would discard the task's changes, so the client sends the version it edited and the server accepts the replacement only while that version is current. A conflict sends the editor back to the newer document before it attempts another save.
+
+The second paragraph gives version identity a job in a sequence the reader can follow. Folder organization belongs in its own explanation or storage reference. It does not become relevant to concurrent saves merely because both concern the workspace.
+
+Before accepting explanatory prose, reconstruct its answer in ordinary language using only what it actually says. Identify a missing premise or an unexplained subject change as a defect even when the individual assertions are accurate. Keep this check separate from verifying facts against code: source familiarity can let a reviewer supply the connections the reader is missing.
+
 ## Examples and provenance
 
 Preserve examples that teach grammar or show a plausible application. Keep short

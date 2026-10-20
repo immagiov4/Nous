@@ -27,4 +27,4 @@ Tests can use controlled identity. An interactive local bypass requires `AUTH_MO
 
 Install and authenticate Codex CLI on the host and set `CODEX_APP_SERVER_ENABLED=true`. Nous uses one internal app-server account through its authenticated API for administrators and assigned users. Keep that process private to the backend. [The Codex adapter](../06-section-backend/03-p-codex-server.md) describes its execution restrictions; speech still needs OpenRouter.
 
-Supabase email templates live under [supabase/templates](../../../supabase/templates/). `bun run supabase:templates:diff` inspects differences and `bun run supabase:templates:sync` applies them. With the stack ready, follow [verification](02-p-testing-quality.md) for fast checks on changed files, targeted tests and the CI integration contracts. [Deployment](../08-section-deployment/01-p-self-hosted.md) owns production service setup.
+With the stack ready, follow [verification](02-p-testing-quality.md) for fast checks on changed files, targeted tests and the CI integration contracts. [Deployment](../08-section-deployment/01-p-self-hosted.md) owns production service setup.

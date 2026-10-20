@@ -11,9 +11,9 @@ Lesson generation converts one objective in the saved plan into an explanation, 
 
 ## Context precedes drafting
 
-Preparation resolves the project and target lesson against their current identity. The approved plan and course preferences constrain the explanation; source coverage and available research determine what evidence can support it. Document staging retrieves material relevant to that objective, while [research routing](01-p-course-gen.md#research-routing) decides which additional sources are needed under the shared sufficiency contract. The resulting context reaches both drafting and review, so review can assess claims against the same material.
+Preparation resolves the project and target lesson against their current identity. The approved plan and course preferences constrain the explanation; source coverage and available research determine what evidence can support it. Document staging retrieves material relevant to that objective, while [research routing](01-p-course-gen.md#research-routing) decides which additional sources are needed under the shared sufficiency contract. The resulting context reaches both drafting and review, so review can assess claims against the same material. Follow-up lessons use the existing course context while targeting a narrower question.
 
-Factual review includes claims and deductions supported by stated premises. Teaching review checks that the explanation reaches its objective without depending on unexplained prerequisites. Deterministic schemas validate structure separately. These checks answer different questions: a parseable lesson can still have weak evidence or missing reasoning. [Generation instructions](../07-section-ai/02-p-prompt-engineering.md) owns those expectations.
+Factual review includes claims and deductions supported by stated premises. Teaching review checks that the explanation reaches its objective without depending on unexplained prerequisites. Deterministic schemas validate structure separately. These checks answer different questions: a parseable lesson can still have weak evidence or missing reasoning. [Generation instructions](../07-section-ai/02-p-prompt-engineering.md) own those expectations.
 
 ## Visual work has its own results
 
@@ -21,6 +21,6 @@ The [lesson definition](../../../apps/backend/src/workflows/lessonGenerationWork
 
 ## Replacement is a commit boundary
 
-The last saved lesson stays available while replacement work runs. Successful regeneration replaces its content and clears content-dependent answers and annotations; failed generation preserves saved content and progress. [Exercise state](08-p-interactive-exercises.md) explains this identity relationship. Follow-up lessons use the existing course context while targeting a narrower question.
+The last saved lesson stays available while replacement work runs. Successful regeneration replaces its content and clears content-dependent answers and annotations; failed generation preserves saved content and progress. [Exercise state](08-p-interactive-exercises.md) explains this identity relationship.
 
-For a change to a stage, inspect its service and contract beside the workflow definition, then use [content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content). A workflow completing proves that its execution and validation succeeded; evaluating the generated explanation requires the actual saved lesson and evidence.
+For a change to drafting or review, use [content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content) to read the saved replacement against its objective and evidence. This reaches the explanation the learner receives, including gaps a successful schema check cannot identify.

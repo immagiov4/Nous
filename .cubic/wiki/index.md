@@ -17,7 +17,7 @@ Read the first four pages in order for the system model, then follow the compone
 - [Lesson generation](03-section-features/02-p-lesson-gen.md) — How is one planned objective converted into reviewed, persisted lesson content?
 - [Source ingestion](03-section-features/03-p-doc-processing.md) — How do documents become retrievable evidence while retaining their context?
 - [Narration and synchronized playback](03-section-features/04-p-multimedia.md) — How are lesson text, speech and visual cues kept on the same lesson version?
-- [Project revisions and portable exports](03-section-features/05-p-project-workspace.md) — How do project changes and exports preserve a coherent saved version?
+- [Saving and exporting a changing project](03-section-features/05-p-project-workspace.md) — How do project changes and exports preserve a coherent saved version?
 - [Video research pipeline](03-section-features/06-p-youtube-research.md) — How does generation select a video as supporting evidence?
 - [Contextual chat and tools](03-section-features/07-p-chat-ui.md) — How does a conversation receive the right lesson and source context?
 - [Exercise and answer state](03-section-features/08-p-interactive-exercises.md) — How do generated activities stay consistent with lesson content and saved progress?

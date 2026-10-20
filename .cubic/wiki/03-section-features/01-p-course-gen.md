@@ -25,7 +25,7 @@ The workflow saves this decision and executes only selected branches. A provider
 
 The [course workflow](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts) makes preparation, research, draft, verification, refinement and validation explicit stages. Verification assesses coverage, lesson boundaries and prerequisite order; refinement can address its findings before deterministic validation accepts the resulting structure. Keeping these outputs separate makes the reason for a revision inspectable and lets interrupted work resume through the workflow engine.
 
-Source finalization establishes references for the accepted plan, and application-exercise planning places activities against it. The final persistence stage saves the course and emits its project revision. A valid plan structure and a successful commit are distinct from the model's educational judgment; [shared instructions](../07-section-ai/02-p-prompt-engineering.md) and content evaluations address the latter.
+Once the plan is accepted, source finalization establishes the references its lessons will use, and application-exercise planning places activities against that sequence. The final persistence stage saves the course and emits its project revision. [Shared instructions](../07-section-ai/02-p-prompt-engineering.md) carry the plan's learning requirements into individual lesson drafting and review.
 
 ## Evidence stays attributable
 

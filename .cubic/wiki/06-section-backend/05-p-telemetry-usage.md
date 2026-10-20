@@ -7,18 +7,25 @@ wiki_page_id: "p-telemetry-usage"
 
 # Workflow observability and usage
 
-Workflow events explain selected state transitions, and usage records describe measurements returned by provider calls. Persisted workflow state establishes whether work completed. These records serve different diagnostic questions, so a token count or a completion event should be interpreted alongside the saved run and committed project state.
+A run can have provider usage even when generation fails, and a completion event alone does not show which lesson version was committed. Investigation therefore starts by choosing the record that answers the question, then correlates it with the others.
 
-## Correlate a failure through its lifecycle
+| Question | Evidence |
+| --- | --- |
+| Did the run complete, fail or remain waiting? | Persisted workflow state. |
+| What transitions led there? | Workflow events and request-correlated diagnostics. |
+| What provider usage was recorded? | Usage measurements attached to the attempt. |
+| What content did the reader receive? | Committed project state. |
 
-Events cover creation, deduplication, claiming, waiting, retries, completion, failure, cancellation and recovery. Request identifiers connect the originating HTTP request to saved work and sanitized failure information. Transactional events are recorded after their associated commits, preserving the distinction between an attempted mutation and an accepted state transition.
+## Follow the request through committed transitions
 
-Workflow diagnostics exclude prompts, source material, provider payloads and credentials. Full model exchanges captured by local evaluation have a different privacy scope and belong in private evidence outside Git. [Content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content) owns that capture path; the product's support diagnostics cannot substitute for it when investigating generated reasoning.
+A request identifier connects HTTP handling to saved work and sanitized failure information. Events expose transitions such as claiming, waiting, retrying and recovery; transactional events are recorded after their associated commits. This lets investigation distinguish an attempted mutation from one the database accepted.
 
-## Interpret available usage without double counting
+Support diagnostics exclude prompts, source material, provider payloads and credentials. Investigating generated reasoning needs the actual model context, so [content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content) captures those exchanges separately in private evidence outside Git. The ordinary event stream deliberately cannot reconstruct them.
 
-The account usage view covers course and lesson generation, rather than every chat and audio request. Provider measurements may include input, output, reasoning and cached tokens, plus cost. Cached tokens are already included in input and reasoning tokens in output, so summing those categories again inflates usage.
+## Read usage totals within their scope
 
-Provider-reported cost takes precedence. Text-only OpenRouter calls can estimate a missing cost when the required token counts and current rates are available; other missing costs stay unknown. Those estimates use the available pricing information rather than reconstructing a historical invoice. Deleting a workflow attempt deletes its usage records, which also limits historical totals.
+The account usage view covers course and lesson generation, rather than every chat and audio call. Within that scope, provider measurements can include input, output, cached and reasoning tokens. Cached tokens already belong to input and reasoning tokens to output; adding the subsets again would inflate the total.
 
-Follow [workflow observability](../../../apps/backend/src/workflows/workflowObservability.ts) and [account usage](../../../apps/backend/src/account/accountUsage.ts) when changing diagnostics or aggregation. Keep execution status, measured usage and estimated cost distinct in both contracts and reports so downstream consumers can preserve the same evidence boundaries.
+Cost has a similar distinction between a reported measurement and an estimate. Provider-reported cost takes precedence. Text-only OpenRouter calls can estimate a missing cost when token counts and current rates are available; other missing costs remain unknown. Available pricing does not reconstruct a historical invoice, and deleting an attempt also removes its usage records, limiting historical totals.
+
+Use [workflow observability](../../../apps/backend/src/workflows/workflowObservability.ts) for transition recording and [account usage](../../../apps/backend/src/account/accountUsage.ts) for aggregation. Keep these distinctions in their output contracts so a consumer can tell what a reported total actually covers.

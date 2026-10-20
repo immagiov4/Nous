@@ -7,26 +7,22 @@ wiki_page_id: "p-youtube-research"
 
 # Video research pipeline
 
-Video research discovers candidates for a course or lesson objective, compares their metadata and available transcripts, then retains selected resources with reasons. Discovery, transcript retrieval and selection are separate stages because a search result establishes availability, while selection needs evidence about its educational relevance.
+Finding a video does not establish that it helps explain a lesson objective. The research pipeline must retrieve enough evidence to compare candidates, then record which ones support the objective and why. These stages also explain why a discovered video may never appear in a lesson: it can be excluded before the model sees it or rejected during selection.
 
-[Research routing](01-p-course-gen.md#research-routing) decides whether video retrieval adds evidence or pedagogical value before this pipeline runs. Its saved sufficiency decision also governs whether unavailable optional research can be tolerated.
+[Research routing](01-p-course-gen.md#research-routing) first decides whether video research adds factual evidence or pedagogical value. Its saved sufficiency decision determines whether unavailable optional research can be tolerated; the pipeline runs only when selected.
 
-## Discovery supplies candidates, selection supplies context
+## Decide which candidates can reach selection
 
-Research can use related searches to find complementary explanations. Transcript language, availability and an estimated input budget determine which candidates reach selection. The [research service](../../../apps/backend/src/services/youtubeResearch.ts) derives that budget from configurable context-window, output and other-prompt allowances; production calls use the service defaults. It estimates transcript tokens from character count, then requires each transcript to fit both its individual allowance and the remaining total. A transcript that does not fit is excluded with a transcript-budget diagnostic before model selection. Titles and metadata remain a different evidence source from an actual transcript. A selected resource retains its identity and the reasoning behind its selection so subsequent planning and lesson generation can use it in context.
+Searches discover candidates and transcript retrieval supplies evidence about their content. Related queries can find complementary explanations. In the lesson workflow, a search discovering no videos can use an alternate query when its plan supplies a distinct fallback; this is a defined branch, not an open-ended search loop.
 
-The lesson workflow has an explicit route for additional video research. Where its search plan supplies a distinct fallback query and the specific search discovers no videos, the workflow can run that alternate search before finalization. This is a defined branch in the [lesson workflow](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts), rather than a generic instruction to keep retrying until a resource appears.
+Transcripts must fit the selection request. The [research service](../../../apps/backend/src/services/youtubeResearch.ts) estimates an input budget from configurable context-window, output and other-prompt allowances; production calls use its defaults. Character counts estimate transcript tokens, and each transcript must fit both its individual allowance and the remaining total. One that does not fit is excluded with a transcript-budget diagnostic before model selection. A title or description can remain available, but it is different evidence from the excluded transcript.
 
-## Selection classifies every admitted candidate
+## Account for every candidate the model receives
 
-When fresh lesson research receives video candidates, its model classifies each URL as selected-source or rejected, with a reason based on how the transcript supports the objective. Popularity is a secondary signal. [Research validation](../../../apps/backend/src/services/lessonGenerationResearch.ts) requires exactly one decision per supplied candidate; missing or duplicate classifications trigger correction before the result is accepted.
+For fresh lesson research, the model classifies each supplied URL as selected-source or rejected and gives a reason based on its support for the objective. Popularity is secondary to that support. [Research validation](../../../apps/backend/src/services/lessonGenerationResearch.ts) requires exactly one classification per candidate; missing or duplicate decisions trigger correction before acceptance.
 
-Source assembly retains selected newly discovered videos alongside original and existing sources. The research decision selects supporting material; drafting subsequently chooses the clip intervals used in the explanation. These stages distinguish deterministic context exclusion, model rejection and incomplete classification in diagnostic evidence.
+Source assembly retains selected discoveries alongside original and existing sources. Drafting then chooses clip intervals for the explanation. Selection establishes a supporting resource, while the lesson still needs to explain the objective in its own reasoning rather than depend on the video remaining available.
 
-## The lesson remains the primary explanation
+## Locate the decision that removed a video
 
-Selected videos support an objective; the generated lesson still provides its own explanation. Transcript quality varies and a video can become unavailable, so its presence cannot stand in for the lesson's reasoning. [Lesson review](02-p-lesson-gen.md) evaluates the actual explanation and its evidence context.
-
-The Research Lab exposes diagnostics for discovery, transcript retrieval and inclusion in model context through the [research route](../../../apps/backend/src/routes/youtube.ts). Its candidates, transcript status, timings and budget decisions explain which material reaches model selection. The lesson research dossier retains candidate classifications and reasons for investigating that later decision. The [administrative service boundary](../05-section-frontend/03-p-admin-ui.md) governs access to the lab.
-
-For a change to research routing, inspect the [workflow services](../../../apps/backend/src/workflows/) and evaluate recorded inputs and outputs through [testing generated content](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content). Keep discovery outcomes, retrieved text and model judgment distinct in that evidence so a successful search is not reported as proof that the selected video teaches the objective.
+The Research Lab's [retrieval diagnostics](../../../apps/backend/src/routes/youtube.ts) show discovery, transcript status, timings and admission to model context. They can explain a budget exclusion, but the later model decision belongs in the lesson research dossier, which retains candidate classifications and reasons. Follow [administrative access](../05-section-frontend/03-p-admin-ui.md) for the lab boundary and [content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content) to inspect the resulting lesson and its captured evidence.

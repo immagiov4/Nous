@@ -20,7 +20,7 @@ The diagnostic commands inspect environment prerequisites separately from starti
 
 ## Review bodies are rendered artifacts
 
-The repository's GitHub-body helper validates a Markdown file before publication and compares the remote raw body with GitHub-rendered HTML afterward. This catches flattened Markdown or a remote body that differs from the reviewed file. Keep the body in a file so shell quoting does not become part of its formatting.
+The repository's GitHub-body helper validates a Markdown file before publication, then compares the published raw body with the reviewed file and checks GitHub-rendered HTML. This catches flattened Markdown or a remote body that differs from the reviewed file. Keep the body in a file so shell quoting does not become part of its formatting.
 
 ```bash
 bun scripts/github-body.mjs validate --body-file body.md
@@ -29,4 +29,4 @@ bun scripts/github-body.mjs update --kind pr --repo immagiov4/Nous --number 123 
 bun scripts/github-body.mjs verify --kind pr --repo immagiov4/Nous --number 123 --body-file body.md
 ```
 
-`verify` reads the published artifact; `update` publishes the file and performs the same verification. Use `--kind issue` for an issue. The helper's check proves body identity and rendering, while [CI and review](02-p-testing-quality.md) establish the change's merge evidence. Detailed specialized test commands remain in [the testing guide](../../../docs/TESTING.md).
+`verify` reads the published artifact; `update` publishes the file and performs the same verification. Use `--kind issue` for an issue. The helper's check proves body identity and rendering, while [CI and review](02-p-testing-quality.md) establish the change's merge evidence.

@@ -22,5 +22,3 @@ The backend needs database connectivity to create and resume durable runs, and s
 ## Recovery spans records and files
 
 [Data ownership](../04-section-data/01-p-database-schema.md) explains which records reference stored bytes. The deployment guide owns backup scope, manifest integrity and restore proof; managed infrastructure does not remove the need to verify that those resources can be restored together. [Self-hosted topology](01-p-self-hosted.md) describes the alternative where the same services run under local operational control.
-
-When changing deployment configuration, verify the public application path, authenticated backend requests and the data-service contract separately. [Testing and quality](../09-section-tools/02-p-testing-quality.md) identifies the repository's contract checks and exact-head merge requirement.

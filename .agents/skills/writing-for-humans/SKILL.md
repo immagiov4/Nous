@@ -33,6 +33,8 @@ Everything in the text serves this card. A true, well-written paragraph the card
 
 ## 3. Reading path
 
+For explanatory text, first sketch the reasoning in working notes: what this reader is trying to understand, what they know at the starting point, and how the explanation takes them to an answer. Select facts for their role in that reasoning. A sequence of topics or component names is still an inventory; build the relationships before drafting. Use the worked example in [documentation](references/documentation.md#build-an-explanation) when a technical explanation starts to read like an inventory.
+
 People read like foragers: they keep going while each step promises more value for little effort, and leave as soon as that promise fades. Lay the text out as a path that keeps the promise fresh:
 
 1. **Hook**, when the reader has not chosen to be here: a problem they recognise, a striking fact, a question that opens a gap they want closed. Skip it when they arrived looking (technical docs, a PR they must review); start at the click.
@@ -59,7 +61,7 @@ Length follows the card, not the amount of work done or the number of facts avai
 
 Write each plain-text or Markdown prose paragraph on one physical line and let the reader's interface wrap it, including commit messages, PR descriptions, documentation and chat messages; fixed-width conventions such as 72-column commit bodies do not override this. Use blank lines between paragraphs and preserve structural line breaks in code, lists, tables and other syntax.
 
-Keep related ideas connected so each sentence develops the thought; break sentences where the thought changes. Choose familiar, precise words, one name per concept, and clear actors. Preserve product, skill and interface names in their established form. Preserve attribution, quantities, dates, negation, substantive exceptions and the difference between observed behaviour and plans, and match factual claims to evidence actually checked. Use [prose patterns](references/prose-patterns.md) when drafting or polishing more than a brief reply.
+An explanatory paragraph must carry a thought forward: start from something the reader can place, develop the mechanism or reason, and reach a useful consequence. At a topic change, establish why the next subject is needed to continue the answer. If a fact has no such role, remove it or put it in a genuine lookup section. Adding connective words to unrelated facts does not establish that role. Preserve discrete steps in procedures and facts in reference lists. Read the explanation back as a reader: can you explain its answer from the text, including why its parts follow? Choose familiar, precise words, one name per concept, and clear actors. Preserve product, skill and interface names in their established form. Preserve attribution, quantities, dates, negation, substantive exceptions and the difference between observed behaviour and plans, and match factual claims to evidence actually checked. Use [prose patterns](references/prose-patterns.md) when drafting or polishing more than a brief reply.
 
 ## Genre guidance
 

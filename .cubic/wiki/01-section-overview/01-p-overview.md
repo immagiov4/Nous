@@ -7,15 +7,15 @@ wiki_page_id: "p-overview"
 
 # From sources to playback
 
-A course request becomes a plan before it becomes lesson content. The backend prepares its sources and learning context, saves the plan, then generates individual lessons against that context. Playback is another preparation stage over a saved lesson: its audio and visual cues have their own lifecycle.
+A source document gives Nous material to teach, but it does not yet define a course. The system first decides what the learner needs to understand and in which order, then generates individual lessons against that plan. Narration and synchronized visuals are prepared from the saved lessons, so the reader can open completed content while generation continues elsewhere.
 
 ```mermaid
 flowchart LR
     S[Documents or topic] --> I[Source preparation]
-    I --> C[Course research and plan]
-    C --> L[Lesson research and review]
+    I --> C[Research and course plan]
+    C --> L[Lesson draft and review]
     L --> P[Saved lesson]
-    P --> B[Playback preparation]
+    P --> B[Narration and scene preparation]
     B --> R[Browser reader and player]
     A[AI providers] <--> C
     A <--> L
@@ -23,14 +23,14 @@ flowchart LR
     T[Speech provider] --> B
 ```
 
-## Preparation establishes reusable context
+## Establish what the course can build on
 
-[Ingestion](../03-section-features/03-p-doc-processing.md) turns PDFs, Markdown and code archives into retrievable text and associated files. A topic-based request instead needs research to establish its material. [Course planning](../03-section-features/01-p-course-gen.md) combines that evidence with the approved profile, goals and prior-knowledge information to decide lesson order and scope. Account preferences are copied into a course so subsequent account changes leave that course's context stable.
+For a document-based course, [ingestion](../03-section-features/03-p-doc-processing.md) makes passages and figures retrievable with their source context. A topic request needs research to establish its material instead. In both cases, [planning](../03-section-features/01-p-course-gen.md) combines the evidence with the learning goals and starting knowledge to define lesson boundaries and prerequisite order. This gives later generation a specific objective to explain rather than a document to summarize indiscriminately.
 
-The plan and the explanation are different outputs. [Lesson generation](../03-section-features/02-p-lesson-gen.md) takes one planned objective, gathers relevant evidence, drafts and reviews the explanation, then saves its content and visual references. This separation lets a ready lesson remain readable while other work continues and gives regeneration a bounded target.
+The plan also makes individual lessons separable units of work. [Lesson generation](../03-section-features/02-p-lesson-gen.md) retrieves evidence for one objective, drafts its explanation and reviews it before committing the result. A replacement can therefore target that lesson while the previous saved version remains readable.
 
-## Delivery consumes committed state
+## Turn saved explanations into playback
 
-Long operations run through [saved workflows](../02-section-architecture/02-p-workflow-engine.md); the browser observes their progress and reloads committed project revisions. PostgreSQL holds project and workflow state, while file bytes live in storage. A request ending or a browser disconnect therefore does not define the lifetime of a generation run.
+The [player](../03-section-features/04-p-multimedia.md) needs more than text: it needs audio and cues connecting the spoken explanation to its visuals. Backend preparation derives those results from a particular saved lesson version. The browser then combines prepared playback with the lesson and its study state, instead of making provider calls from the player.
 
-[Playback](../03-section-features/04-p-multimedia.md) derives blocks from the lesson, prepares narration and scene cues, and persists results for the matching lesson version. The reader combines those results with lesson text, chat and exercise state. The [architecture](../02-section-architecture/01-p-architecture.md) explains the trust and ownership boundaries behind this flow; [learning design](02-p-manifesto.md) explains why generation has separate planning and review stages.
+Planning, writing and audio preparation can all outlive an HTTP request. They run as [saved workflows](../02-section-architecture/02-p-workflow-engine.md), with project and execution state in PostgreSQL and file bytes in storage. Closing the browser leaves that work with the backend. Continue with [architecture](../02-section-architecture/01-p-architecture.md) for these ownership boundaries, or [learning design](02-p-manifesto.md) for the reasons behind the planning and review stages.

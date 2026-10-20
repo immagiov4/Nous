@@ -23,4 +23,4 @@ An illustration can establish an object, a scene can expose relationships, and a
 
 ## Application makes the distinction observable
 
-[Quizzes and practical exercises](../03-section-features/08-p-interactive-exercises.md) ask for application, prediction, diagnosis or sequencing. Plausible mistaken answers expose the conceptual distinction being assessed. Content evaluation must inspect those explanations and feedback alongside the question, while state tests establish persistence and regeneration behavior. This division keeps educational judgment and deterministic execution evidence explicit.
+[Quizzes and practical exercises](../03-section-features/08-p-interactive-exercises.md) ask for application, prediction, diagnosis or sequencing. Plausible mistaken answers expose the conceptual distinction being assessed. The feedback must explain why the chosen answer is correct or mistaken, so the activity can reveal the learner's reasoning rather than record a choice alone. [Content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content) examines the question, alternatives and explanation together.

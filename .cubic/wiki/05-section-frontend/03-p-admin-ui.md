@@ -7,18 +7,23 @@ wiki_page_id: "p-admin-ui"
 
 # Administrative service boundary
 
-Administrative surfaces expose account management, feedback handling, model configuration and research inspection. Their authority comes from backend role checks on the authenticated account. Frontend navigation presents those capabilities, while the server decides whether a request may execute them.
+An administrator can change provider access for another account or inspect reports and research diagnostics. These operations reach beyond an ordinary user's projects, so the backend checks the authenticated account's role before executing them. Administrative navigation exposes the permitted operations, while the server retains their authority.
 
-## Configuration affects subsequent provider work
+## Follow each operation to its service
 
-Model configuration supplies task-specific choices for context, planning, lesson writing and visuals. Provider capability checks still apply when a request executes; a stored model choice cannot make an unsupported image or structured-output request valid. The [provider boundary](../07-section-ai/01-p-ai-providers.md) owns translation and capability handling.
+| Capability | Owning behavior |
+| --- | --- |
+| Account and provider assignments | Authorize use of installation resources, including the shared private Codex account. |
+| Task-specific model configuration | Select models for context, planning, writing and visuals; execution still checks capabilities. |
+| Research Lab | Inspect discovery, transcript retrieval and admission to model context. |
+| Feedback management | Read retained reports and manage their linked GitHub issue state. |
 
-Account provider assignments can authorize use of the installation's [private Codex connection](../06-section-backend/03-p-codex-server.md). That is access to a shared host account through Nous, so authorization belongs to server-side policy rather than disclosure of provider credentials to the browser.
+Provider assignments deserve particular care because the [Codex adapter](../06-section-backend/03-p-codex-server.md) uses a shared host account. The browser receives permission through Nous rather than the host's credentials. Similarly, saving a model choice does not make an unsupported image or structured-output request executable; the [provider boundary](../07-section-ai/01-p-ai-providers.md) checks the requested capability when work runs.
 
-## Diagnostic tools expose stage evidence
+## Interpret diagnostic results at their stage
 
-The Research Lab exposes retrieval diagnostics from the [research pipeline](../03-section-features/06-p-youtube-research.md), helping developers inspect why a transcript was retrieved or admitted to model context. That diagnostic route is separate from the candidate classification recorded by lesson generation. The video-research page explains where each decision is retained.
+The Research Lab can explain why a transcript was unavailable or excluded from context. The later model classification of a candidate belongs to the lesson research dossier, so retrieval success alone cannot explain why a video was selected. [Video research](../03-section-features/06-p-youtube-research.md) follows those decisions in order.
 
-Feedback management operates on saved local reports and their optional GitHub issue relationship. Failed delivery leaves the local record available; synchronization updates the recorded issue state. [Feedback delivery](../06-section-backend/04-p-feedback-system.md) owns redaction and publication semantics.
+Feedback management likewise operates on a saved local report and a separate publication relationship. Failed delivery leaves the report available; synchronization updates its issue state. [Feedback publication](../06-section-backend/04-p-feedback-system.md) owns that lifecycle and its privacy boundary.
 
-When extending an administrative operation, trace its route through [authentication](../06-section-backend/02-p-auth.md) to the owning service and persisted record. A role-aware component is only the presentation layer of that path. Tests should reach the protected HTTP boundary with permitted and unpermitted identities so a UI change cannot accidentally become the only enforcement.
+When adding an operation, follow its [authenticated route](../06-section-backend/02-p-auth.md) to the owning service and test the protected request with permitted and unpermitted identities. That reaches the authority boundary the administrative component presents.

@@ -7,18 +7,18 @@ wiki_page_id: "p-feedback-system"
 
 # Feedback persistence and publication
 
-Feedback is saved locally before optional GitHub publication. The local record therefore survives a delivery failure and remains available to the administrative surface. The GitHub issue is a linked publication target with its own state, rather than the sole copy of the report.
+A failed GitHub request must not lose the report a user just submitted. Nous saves feedback in the installation before attempting optional issue creation, keeping the report available for administrative review or another delivery attempt. The GitHub issue is a linked public copy with its own delivery and synchronization state.
 
-## Publication crosses a privacy boundary
+## Prepare a public copy of a private report
 
-The form presents optional product diagnostics before submission. These contain bounded context and recent actions while excluding prompts, source text and credentials. Before publication, the server redacts recognized credential patterns, email addresses and URL query information from report text and diagnostics. Screenshots remain private to the installation; the issue records attachment presence instead of publishing the image.
+A report about a course can contain context intended only for the installation. The form therefore shows optional, bounded product diagnostics before submission; these exclude prompts, source text and credentials. Before publication, the server additionally redacts recognized credential patterns, email addresses and URL query information from report text and diagnostics.
 
-This boundary matters because a report about a course can contain context that should remain local. A successful redaction pass establishes the implemented transformations, not an authorization to attach arbitrary source files. Trace publication fields from the submitted form through the [feedback route](../../../apps/backend/src/routes/feedback.ts) and owning service when changing the report schema.
+Screenshots remain private. The public issue records that an attachment exists rather than publishing its image. This lets a maintainer know the local report has supporting material without publishing the screenshot. Follow fields through the [feedback route](../../../apps/backend/src/routes/feedback.ts) when changing what the public copy contains.
 
-## Delivery and synchronization are separate state changes
+## Track delivery independently of the report
 
-When publication is configured, the server attempts issue creation after local persistence. Failed publication can be retried from the retained record. Synchronization then updates the linked issue's open or closed state independently of whether the original delivery was successful.
+Once local persistence succeeds, configured publication attempts issue creation. A failed attempt can be retried against the retained report rather than requiring the user to submit it again. After an issue is linked, synchronization updates its open or closed state independently of the original delivery outcome.
 
-Reports originating directly in GitHub leave the local list only after two consecutive synchronization results omit them. That rule belongs to synchronization, while local submission and issue creation have their own outcomes. Tests should distinguish these states rather than treating any GitHub response as proof that a report has completed its full lifecycle.
+Synchronization also tracks reports originating directly in GitHub in the local list. Those reports leave the list after two consecutive synchronization results omit them. This prevents one omitted synchronization result from immediately removing the imported report. Tests of this lifecycle need to distinguish saved reports, delivery outcomes and synchronized issue state.
 
-[Administrative services](../05-section-frontend/03-p-admin-ui.md) owns access to management operations; [authentication](02-p-auth.md) explains the role checks. [Observability](05-p-telemetry-usage.md) describes the similarly bounded diagnostics used for workflow failures.
+[Administrative services](../05-section-frontend/03-p-admin-ui.md) provide the management surface, with role enforcement described in [authentication](02-p-auth.md).

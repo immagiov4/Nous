@@ -7,7 +7,7 @@ wiki_page_id: "p-auth"
 
 # Authentication and authorization
 
-Supabase Auth issues the account session, and the backend verifies it before accessing private project services. The verified subject identifies the account; role and provider assignments come from the accepted session metadata. Project ownership remains a separate check at the operation boundary.
+The backend connects to PostgreSQL and storage with privileged credentials, so those services cannot infer which browser account may access a requested project. Nous must first verify the Supabase session, then enforce the account's role and ownership at the operation boundary. A valid session identifies who is asking; it does not authorize every project identifier in a request.
 
 ## Verify the session before trusting its claims
 

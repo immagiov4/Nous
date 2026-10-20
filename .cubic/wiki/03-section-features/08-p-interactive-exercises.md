@@ -7,18 +7,18 @@ wiki_page_id: "p-interactive-exercises"
 
 # Exercise and answer state
 
-Inline quizzes and practical exercises are different course outputs. A quiz is part of a lesson's content and stores an answer against that content; a practical exercise is a separate planned activity with a brief, response and feedback. Their identity and persistence boundaries determine what can survive navigation or regeneration.
+A saved answer refers to a particular quiz in a particular lesson. Regenerating the lesson can change the question or its choices, making the old answer meaningless. Nous therefore ties inline answers to committed lesson content: they survive navigation and reopening, but a successful content replacement clears them along with the old annotations.
 
-## Inline quizzes test a distinction
+## Reset at replacement, not when work starts
 
-A lesson can contain up to three quizzes with four choices each. Drafting and review share rules for application, prediction, diagnosis and sequencing, including plausible mistaken answers and an explanation of the correct distinction. Structural validation can enforce the output shape, while teaching review assesses whether the choices exercise the intended reasoning.
+The saved lesson stays available while regeneration runs. Its answers remain valid against that saved content, so a pending replacement must not clear them. A failed attempt preserves both the previous lesson and its progress; only the successful commit establishes the new content identities. [Lesson generation](02-p-lesson-gen.md) owns this boundary, and [project revisions](05-p-project-workspace.md) protect saved progress against concurrent writers.
 
-Saved responses survive navigation, reopening and export with the lesson. Successful regeneration replaces lesson content and clears its old answers and annotations: those records refer to the explanation and question identities they were created against. Failure preserves the previously saved lesson and progress. Treating a pending replacement as committed content would cross that boundary too early.
+## Inline quiz content and validation
 
-## Practical work has its own lifecycle
+Inline quizzes are generated and reviewed with the explanation they assess. They ask for application, prediction, diagnosis or sequencing, with plausible mistaken answers and feedback explaining the intended distinction. The accepted shape allows up to three quizzes with four choices each. That shape can be checked deterministically; whether the alternatives test the objective needs [content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content).
 
-The course planner places application exercises against the learning sequence. Their briefs can finish generating while another lesson is already readable, so activity readiness is independent of the active reader page. A submitted response can include supported attachments and receives AI feedback against its task context.
+## Keep practical activity progress with its own task
 
-Exercise work is persisted with project state rather than being transient component state. [Project revisions](05-p-project-workspace.md) therefore apply to saved progress as well as generated text. Follow the [shared contracts](../../../packages/shared-types/) for activity and answer shapes, and the [generation instructions](../07-section-ai/02-p-prompt-engineering.md) for shared drafting and review expectations.
+Practical exercises are separately planned activities with briefs, responses and AI feedback. Their briefs can finish generating while another lesson is already readable, so readiness does not follow the active reader page. Responses can include supported attachments and are assessed against that activity's task context.
 
-Verification should distinguish content quality from state behavior. A deterministic test can establish that an answer survives reopen or is cleared only after successful replacement. Representative generated quizzes and feedback require [content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content) to establish whether the exercise actually tests the objective.
+This work persists with the project rather than living only in a browser component. Follow the [shared activity and answer contracts](../../../packages/shared-types/) when changing persistence, and [instruction composition](../07-section-ai/02-p-prompt-engineering.md) when changing what drafting and feedback ask of the learner.

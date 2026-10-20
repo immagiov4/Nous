@@ -12,6 +12,6 @@ Start with the [developer manual](.cubic/wiki/index.md) for the reading order, o
 
 ## Run and contribute
 
-Follow [local development setup](.cubic/wiki/09-section-tools/01-p-local-setup.md) to install dependencies, configure the data services and start the app. The project uses TypeScript, React, a Bun backend and PostgreSQL with Supabase Auth and Storage.
+Follow [local development setup](.cubic/wiki/09-section-tools/01-p-local-setup.md) to install dependencies, configure the data services and start the app.
 
 Use [testing and quality](.cubic/wiki/09-section-tools/02-p-testing-quality.md) to verify a change and the [deployment guide](docs/DEPLOYMENT.md) to run an installation. Merge readiness requires green CI on the exact PR head, including SonarCloud and applicable contract checks. Repository automation follows [AGENTS.md](AGENTS.md).

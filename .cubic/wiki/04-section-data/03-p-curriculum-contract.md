@@ -13,12 +13,15 @@ Curriculum validators check caller-supplied objectives, concepts, prerequisites 
 
 A curriculum belongs to an account and project incarnation. Incarnation identity prevents a deleted and recreated project from inheriting references to the earlier project. Account concepts may span courses, while objectives remain local to their course even when their wording or identifiers match. Validation must preserve that distinction rather than equating textual similarity with shared identity.
 
-References identify the expected account, project, curriculum, lesson plan and approved planning input. Unique identifiers make those references resolvable. When a preparation claims to support a later lesson, it must name the concept and objectives doing that work; unresolved prerequisites and same-lesson preparations remain explicit validation problems.
+## Validation requirements
+
+- **References:** identify the expected account, project, curriculum, lesson plan and approved planning input. Unique identifiers make those references resolvable.
+- **Prerequisite preparation:** records whether required knowledge is assumed at entry, supplied by a planned lesson or unresolved. A planned preparation must identify the concept uses and objectives in its provider lesson; unresolved prerequisites and same-lesson preparations are surfaced as review requirements.
 
 ## Mapping preserves the evidence state
 
 Mappings distinguish unreviewed, unmatched, confirmed and ambiguous results. A confirmed match retains its relation and reason; an ambiguous result retains alternatives so subsequent code can inspect the unresolved choice. Cross-course alignment distinguishes a shared account concept from partial overlap without inferring proficiency from similar wording.
 
-These states let a caller retain uncertainty rather than coerce every mapping into a successful match. They establish internal consistency, while content review must assess whether a preparation is educationally sufficient. A structurally valid prerequisite edge cannot demonstrate that a learner has mastered its concept.
+Keeping the alternatives lets the caller defer a decision it cannot justify yet. It can resolve the mapping when more evidence is available rather than treating a merely similar concept as a confirmed prerequisite.
 
-Inspect the types and results under [curriculum](../../../apps/backend/src/curriculum/) before adding a caller. Tests and generation harnesses exercise these supplied-data checks; [course planning](../03-section-features/01-p-course-gen.md) describes the production plan pipeline and its own validation. Keeping those boundaries explicit avoids treating a standalone validation contract as an integrated production feature.
+Inspect the types and results under [curriculum](../../../apps/backend/src/curriculum/) before adding a caller. Tests and generation harnesses exercise these supplied-data checks; [course planning](../03-section-features/01-p-course-gen.md) describes the production plan pipeline and its own validation.

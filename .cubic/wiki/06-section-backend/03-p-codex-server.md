@@ -19,6 +19,6 @@ Its execution environment is restricted and read-only, with built-in shell, brow
 
 Learning tools run through Nous's normal tool contracts. Some operations execute on the backend; others request a browser workspace action, such as anchoring a note. Model tool output therefore enters application validation and authorization rather than acquiring direct authority over project state. Supported research tasks can expose web search under the provider's research capability.
 
-The adapter translates streaming responses and records available usage. This protocol differs from OpenRouter, but the resulting domain contracts must remain the same for callers. [Shared instructions](../07-section-ai/02-p-prompt-engineering.md) supplies common task meaning, and [usage records](05-p-telemetry-usage.md) explains which measurements are available.
+The adapter translates streaming responses into the same domain contracts used by OpenRouter callers. [Shared instructions](../07-section-ai/02-p-prompt-engineering.md) preserve task meaning across that translation, allowing course services to use the provider without adopting its process protocol.
 
-Codex supplies text and supported research work; [speech preparation](../03-section-features/04-p-multimedia.md) still uses OpenRouter. Integration verification needs actual requests through the adapter for the changed flow, with provider-independent domain assertions and separate evidence for stream/tool handling.
+Codex supplies text and supported research work; [speech preparation](../03-section-features/04-p-multimedia.md) still uses OpenRouter.
