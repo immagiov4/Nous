@@ -137,6 +137,26 @@ export default [{
 });
 
 describe('Sonar ESLint test classification', () => {
+  test('classifies atlas capture fixtures as tests and retains application checks', async () => {
+    const eslint = new ESLint({ overrideConfigFile: 'config/eslint.sonar.config.mjs' });
+    const application = await eslint.calculateConfigForFile(
+      'apps/web/services/projects/projectArchive.ts'
+    );
+    const rules = Object.keys(application.rules).filter(rule => application.rules[rule][0] === 2);
+    expect(rules.length).toBeGreaterThan(0);
+    for (const file of [
+      'e2e/nous/atlas/browser.tsx',
+      'e2e/nous/atlas/input.ts',
+      'e2e/nous/playbackAtlas.ts',
+      'e2e/nous/tests/playbackAtlas.browser.ts',
+    ]) {
+      const config = await eslint.calculateConfigForFile(file);
+      for (const rule of rules) expect(config.rules[rule][0], `${file}: ${rule}`).toBe(0);
+    }
+    const preparation = await eslint.calculateConfigForFile('e2e/nous/prepare.ts');
+    for (const rule of rules) expect(preparation.rules[rule][0], rule).toBe(2);
+  });
+
   test('reads test directories and inclusion patterns from the Sonar properties', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'nous-sonar-classification-'));
     try {

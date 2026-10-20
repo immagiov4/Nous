@@ -1,4 +1,8 @@
 import {
+  FORMULA_SPOTLIGHT_MARKDOWN,
+  formulaSpotlight,
+} from '../../../apps/backend/tests/helpers/formulaSpotlight';
+import {
   LAB_COMPOSITION_SCENE,
   LAB_QUICK_SCENES,
 } from '../../../apps/backend/tests/helpers/lessonSceneLabExamples';
@@ -46,6 +50,7 @@ export function syntheticScene(type: LessonSceneType): LessonScene {
   const authored = LAB_QUICK_SCENES.find(scene => scene.type === type);
   if (authored) return structuredClone(authored);
   if (type === 'composition') return structuredClone(LAB_COMPOSITION_SCENE);
+  if (type === 'formula-spotlight') return structuredClone(formulaSpotlight);
   const items = ['First', 'Second', 'Third'].map((label, index) => ({
     icon: 'point',
     label,
@@ -151,7 +156,7 @@ export function syntheticPairwiseCourse(imageDataUrl: string) {
   const coverage = pairwiseRows(SYNTHETIC_FACTORS);
   const lessons: LessonNode[] = coverage.rows.map((row, index) => {
     const scene = syntheticScene(row.sceneType as LessonSceneType);
-    const evidence = `${QUOTATION} ${narration(scene)}`;
+    const evidence = `${QUOTATION} ${row.sceneType === 'formula-spotlight' ? FORMULA_SPOTLIGHT_MARKDOWN : narration(scene)}`;
     const markdown = `${syntaxText(row.syntax)}\n\n${evidence}`;
     const sources: LessonContentBlock[] = [{ type: 'markdown', markdown }];
     const visuals: StoredLessonVisual[] = [

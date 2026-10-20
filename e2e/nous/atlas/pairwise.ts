@@ -41,8 +41,9 @@ export function pairwiseRows(factors: Readonly<Record<string, readonly string[]>
         value,
         coverage: pairKeys({ ...row, [name]: value }).filter(pair => uncovered.has(pair)).length,
       }));
-      row[name] = candidates.reduce((best, candidate) =>
-        candidate.coverage > best.coverage ? candidate : best
+      row[name] = candidates.reduce(
+        (best, candidate) => (candidate.coverage > best.coverage ? candidate : best),
+        candidates[0]
       ).value;
     }
     for (const pair of pairKeys(row)) uncovered.delete(pair);
