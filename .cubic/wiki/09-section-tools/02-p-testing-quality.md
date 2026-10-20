@@ -1,5 +1,5 @@
 ---
-title: "Testing and Quality Checks"
+title: "Verify a change"
 wiki_page_id: "p-testing-quality"
 ---
 
@@ -15,7 +15,9 @@ Run focused behavior tests and `bun run quality` for TypeScript, Biome, React Ho
 
 ## Final candidate
 
-GitHub CI runs `gate:ci`: CI quality and Fallow checks, then one Node test execution producing coverage. After CI passes on the candidate, `gate:full` runs the same checks and coverage as separate stages, then starts or reuses SonarQube for analysis. It retains later stages after a failure and reports the failed stages together.
+GitHub CI checks out the exact pull-request head and runs `gate:ci`: CI quality and Fallow checks, then one Node test execution producing coverage. Same-repository pull requests and main pushes also run SonarQube Cloud analysis; a failed scan or quality gate fails the job. Fork pull requests run checks and coverage without the authenticated scan.
+
+The local merge gate also applies under [AGENTS.md](../../../AGENTS.md#validation-commands). After CI passes on the candidate, `gate:full` runs the checks and coverage as separate stages, then starts or reuses local SonarQube for analysis. It retains later stages after a failure and reports them together. Cloud and local comparison uses the same commit, coverage, issue scope and gate conditions; the maintainer owns any change to that requirement.
 
 Use Node 26 for coverage. SonarQube stays running after the command; release it with `bun run sonar:stop` when finished. [AGENTS.md](../../../AGENTS.md#validation-commands) owns scan applicability and the documentation-only exception.
 
