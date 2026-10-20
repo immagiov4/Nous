@@ -1,6 +1,6 @@
 # Testing and quality gates
 
-Run focused tests while editing and `bun run quality` before pushing. Merge only when CI is green on the exact pull-request head, including `test`, `SonarCloud Code Analysis`, and the applicable contract and pull-request-body checks. Each new commit needs its own passing checks.
+Run fast checks on changed files and targeted tests while editing, then push for full CI verification. Merge only when CI is green on the exact pull-request head, including `test`, `SonarCloud Code Analysis`, and the applicable contract and pull-request-body checks. Each new commit needs its own passing checks.
 
 ## Local checks
 
@@ -13,18 +13,18 @@ bunx playwright install chromium
 Use the narrowest check that covers your change:
 
 ```bash
-bun run quality       # TypeScript, Biome, React Hooks, and Sonar-style rules
-bun run test -- path/to/test.ts
-bun run check:fallow  # Informational dead-code and dependency analysis
+bunx biome check --write path/to/changed-file.ts
+bun run test -- path/to/affected.test.ts
+bun run lint:types  # When types or interfaces changed
 ```
 
 `bun run doctor` checks the local environment. Add `-- --profile local` for Supabase and migration parity, `-- --profile gate` for the existing local Sonar service, or `-- --profile all` for both. All profiles are read-only.
 
-Use `bun run fix` for lint and format fixes, or `bun run format` for formatting alone.
+Changed-file checks run without the shared heavy-run lock. CI owns full quality, tests, coverage and SonarCloud. Coordinate browser/Playwright runs, Docker/Linux proofs, provider batches and repeated-run matrices through the shared heavy-run window when working on the same host.
 
 ## CI and merge readiness
 
-The CI `test` job runs `bun run gate:ci`: quality checks, dependency boundaries, the Fallow regression check, and one complete Node test suite with coverage. It then runs SonarQube Cloud analysis and waits for its quality-gate result. CI checks out the pull-request head and reports Sonar analysis against that same commit.
+The CI `test` job runs `bun run gate:ci`: full `quality:ci` checks, dependency boundaries, the Fallow regression check, and one complete Node test suite with coverage. It then runs SonarQube Cloud analysis and waits for its quality-gate result. CI checks out the pull-request head and reports Sonar analysis against that same commit.
 
 Wait for all applicable CI checks and review before merging. Fix or explicitly resolve every new Sonar finding with an owner-visible disposition. A missing or failed SonarCloud result blocks merging; diagnose it in the CI logs and SonarCloud report.
 

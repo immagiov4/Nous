@@ -11,13 +11,13 @@ Verification starts at the changed behavior and expands to the service boundarie
 
 ## During development
 
-Run focused behavior tests and `bun run quality` for TypeScript, Biome, React Hooks and Sonar-style rules. The [quality workflow](../../../.agents/skills/quality-workflow/SKILL.md) describes verification depth for local fixes and larger changes; the exact-head CI requirement here governs merge readiness. Serialize heavy analysis on a resource-constrained host so competing processes do not invalidate timing and test evidence.
+Local checks stay on changed files: run `bunx biome check --write <changed files>` and the targeted behavior tests for the code changed. Run `bun run lint:types` when types or interfaces change. These fast checks run directly, without the shared heavy-run lock; CI owns full-repository quality, tests, coverage and SonarCloud. The [quality workflow](../../../.agents/skills/quality-workflow/SKILL.md) describes verification depth for integrations and visual changes, while this page defines the local/CI split and merge requirement.
 
 Route tests can use controlled stores and identities. Real Supabase checks exercise authentication, row-level security and PostgreSQL persistence with the local stack; `bun run test:supabase-local` runs the corresponding integration set. Workflow PostgreSQL contracts exercise durable execution and recovery. The [testing guide](../../../docs/TESTING.md) owns detailed prerequisites and specialized commands.
 
 ## Final candidate
 
-CI runs `gate:ci`: quality and Fallow checks, then one complete Node suite producing coverage. SonarQube Cloud analyzes that commit with its coverage report. Merge only when `test`, `SonarCloud Code Analysis` and applicable contract and PR-body checks are green on the proposed head. A new commit needs its own evidence. Resolve new Sonar findings with an owner-visible disposition before merging.
+CI runs `gate:ci`: full `quality:ci` checks, dependency boundaries and the Fallow regression check, then one complete Node suite producing coverage. SonarQube Cloud analyzes that commit with its coverage report. Merge only when `test`, `SonarCloud Code Analysis` and applicable contract and PR-body checks are green on the proposed head. A new commit needs its own evidence. Resolve new Sonar findings with an owner-visible disposition before merging.
 
 Fork PRs need trusted analysis on the proposed head because untrusted CI withholds the scanner secret. A passing test job without the required analysis does not satisfy that requirement.
 
