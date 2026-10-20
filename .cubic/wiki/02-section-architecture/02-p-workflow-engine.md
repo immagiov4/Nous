@@ -163,6 +163,8 @@ Removing direct OpenAI changes the durable global model configuration and resolv
 
 Sources: [apps/backend/src/workflows/validation.ts:26-32, 545-562](../../../apps/backend/src/workflows/validation.ts#L26-L32)
 
+Registry construction reuses normalized schema subtrees and canonical comparison bytes within each synchronous definition validation. The validation owns this temporary state and discards it before the next validation, so later schema changes remain detectable by registration and integrity checks. Canonical JSON normalization also reuses shared objects only within its own traversal. Normalization preserves manifest bytes and all current and historical definition hashes; the production registry compatibility fixture identifies its source revision and captures every registered boundary. Sources: [schemaFingerprint.ts](../../../apps/backend/src/workflows/schemaFingerprint.ts), [validation.ts](../../../apps/backend/src/workflows/validation.ts), [productionRegistryCompatibility.test.ts](../../../apps/backend/tests/workflows/productionRegistryCompatibility.test.ts)
+
 ### Authoring and compatibility contract
 
 The PDF mapping repair workflow shares the course state schemas and source-finalization nodes.
