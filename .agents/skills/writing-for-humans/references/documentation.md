@@ -56,19 +56,37 @@ of a report, legal notice, or supplied template when that genre governs the work
 
 ## Reading path
 
-Identify whether the reader needs concepts first, a guided flow with lookup
-anchors, or an interface reference. Order the material accordingly. Resolve
+Map the document set as a zoom tree: the README answers what and why, deeper
+pages answer how it works and how to use it, reference sits at the leaves. Each
+page follows the core reading path (click, use, pressing questions) at its own
+zoom and builds on what its parents established instead of repeating it. Resolve
 inconsistent or overlapping structures before polishing individual passages.
 
 A first-time reader should be able to locate the context, the first useful action,
-and the next relevant detail. Consolidate repeated explanations, keep advanced
-detail where readers can find it, and retain necessary qualifications beside the
-behavior they qualify.
+and the next relevant detail.
 
 Use a table of contents when it helps navigate a long file. Collapsible
 `<details>` blocks can hold advanced examples or detail that interrupts the main
 path, provided the information remains accessible. Remove empty scaffolding; keep
 unresolved substantive facts visible in drafts.
+
+## Build an explanation
+
+For a developer explanation, begin with the behavior or design problem the page must make understandable. Follow the mechanism through to its consequence. Use a concrete supported case when it makes the problem easier to see; technical readers do not need an invented dramatic hook or a general lesson about good engineering.
+
+Choose information before repairing sentences. A true fact about the same subsystem can still interrupt the explanation. Keep facts that establish a premise, explain a mechanism, show a consequence or answer a question the preceding text raises. Give independent lookup facts a table or list when the reader needs that reference; leave unrelated implementation detail with its owner. A paragraph made longer with “also”, “therefore” or semicolons can remain the same inventory.
+
+For example, this opening names related storage facts but gives the reader no reason to follow them:
+
+> A workspace stores documents under an owner. Sidebar entries keep folders and document placement separately. Saves and exports use version identifiers for different purposes.
+
+An explanation of concurrent saves can instead start with the conflict the version check resolves:
+
+> A background task can update a document while its editor still holds an earlier copy. Saving that copy would discard the task's changes, so the client sends the version it edited and the server accepts the replacement only while that version is current. A conflict sends the editor back to the newer document before it attempts another save.
+
+The second paragraph gives version identity a job in a sequence the reader can follow. Folder organization belongs in its own explanation or storage reference. It does not become relevant to concurrent saves merely because both concern the workspace.
+
+Before accepting explanatory prose, reconstruct its answer in ordinary language using only what it actually says. Identify a missing premise or an unexplained subject change as a defect even when the individual assertions are accurate. Keep this check separate from verifying facts against code: source familiarity can let a reviewer supply the connections the reader is missing.
 
 ## Examples and provenance
 
