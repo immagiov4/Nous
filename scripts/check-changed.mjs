@@ -59,13 +59,18 @@ export function main(directory = process.cwd()) {
   }
   const checks = [
     ['node_modules/@biomejs/biome/bin/biome', 'check', '--no-errors-on-unmatched'],
-    ['node_modules/eslint/bin/eslint.js', '--config', 'eslint.config.mjs', '--no-warn-ignored'],
     [
       'node_modules/eslint/bin/eslint.js',
       '--config',
-      'eslint.sonar.config.mjs',
+      'config/eslint.config.mjs',
+      '--no-warn-ignored',
+    ],
+    [
+      'node_modules/eslint/bin/eslint.js',
+      '--config',
+      'config/eslint.sonar.config.mjs',
       '--suppressions-location',
-      'eslint-suppressions.json',
+      'config/eslint-suppressions.json',
       '--no-warn-ignored',
     ],
   ];

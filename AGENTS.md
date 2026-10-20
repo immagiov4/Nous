@@ -140,7 +140,7 @@ bun run test          # Vitest test suite (runs under Bun runtime)
 bun run playtest      # Headless agentic stories; requires NOUS_E2E_DATA, --provider and --model
 ```
 
-`check:eslint-sonar` uses `eslint.sonar.config.mjs` and the tracked `eslint-suppressions.json` baseline. After fixing baseline violations, run `bun run check:eslint-sonar --prune-suppressions` and include the reduced baseline with the fix. Regeneration with `bun run check:eslint-sonar --suppress-all` accepts every current violation and requires explicit maintainer approval. After either maintenance command, run `bunx biome format --write eslint-suppressions.json` to restore the required trailing newline. Scope, rule mappings, and suppression semantics are documented in [.cubic/wiki/09-section-tools/02-p-testing-quality.md](.cubic/wiki/09-section-tools/02-p-testing-quality.md).
+`check:eslint-sonar` uses `config/eslint.sonar.config.mjs` and the tracked `config/eslint-suppressions.json` baseline. After fixing baseline violations, run `bun run check:eslint-sonar --prune-suppressions` and include the reduced baseline with the fix. Regeneration with `bun run check:eslint-sonar --suppress-all` accepts every current violation and requires explicit maintainer approval. After either maintenance command, run `bunx biome format --write config/eslint-suppressions.json` to restore the required trailing newline. Scope, rule mappings, and suppression semantics are documented in [.cubic/wiki/09-section-tools/02-p-testing-quality.md](.cubic/wiki/09-section-tools/02-p-testing-quality.md).
 
 Run focused tests and `bun run check:changed` before pushing. Run `bun run lint:types` when types or interfaces change. GitHub CI runs the complete quality checks and test suite on each pull-request update.
 
