@@ -263,6 +263,7 @@ interface CaptureLessonInput {
   ordinal: number;
   checks: AtlasScenario['checks'];
   renderSample?: (sample: AtlasSample) => ReturnType<typeof captureSample>;
+  sheetExecution: Parameters<typeof boundedRender>[1];
 }
 type CaptureTileInput = AtlasSample &
   Pick<CaptureLessonInput, 'page' | 'directory' | 'viewport' | 'checks' | 'renderSample'> & {
@@ -358,7 +359,14 @@ async function captureLesson(input: CaptureLessonInput): Promise<AtlasTile[]> {
       batch.push(captured.tile);
       pngs.push(captured.png);
     }
-    await writeAtlasSheet(sheets, directory, batch, pngs);
+    const sheetStarted = performance.now();
+    await boundedRender(
+      () => writeAtlasSheet(sheets, directory, batch, pngs),
+      input.sheetExecution
+    );
+    const sheetExecutionMs = performance.now() - sheetStarted;
+    for (const tile of batch)
+      tile.metrics = { ...(tile.metrics as Record<string, unknown>), sheetExecutionMs };
     for (const tile of batch) tile.html += `#${tile.id}`;
     tiles.push(...batch);
   }
@@ -381,6 +389,7 @@ interface CaptureRecords {
 
 async function captureCourse(input: {
   sheets: Page;
+  terminateSheets: () => Promise<void>;
   course: AtlasCourse;
   options: Options;
   scenario: AtlasScenario;
@@ -470,6 +479,10 @@ async function captureCourse(input: {
             viewport,
             ordinal: records.lessons.length,
             checks: scenario.checks,
+            sheetExecution: {
+              milliseconds: options.renderTimeoutMs,
+              terminate: input.terminateSheets,
+            },
             renderSample: async sample => {
               const started = performance.now();
               const captured = await boundedRender(
@@ -591,21 +604,26 @@ export async function runPlaybackAtlas(options: Options) {
   const { directory, runId } = await privateAtlasDirectory(options.outputRoot, options.sourceRoot);
   const sourceSha = git(options.sourceRoot, 'rev-parse', 'HEAD');
   const sourceStatus = git(options.sourceRoot, 'status', '--porcelain');
+  const toolSha = git(REPO_ROOT, 'rev-parse', 'HEAD');
+  const toolDirty = Boolean(git(REPO_ROOT, 'status', '--porcelain'));
   const started = performance.now();
   const tiles: AtlasTile[] = [];
   const lessons: AtlasLessonSummary[] = [];
   const errors: AtlasFinding[] = [];
-  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  let sheetsServer: BrowserServer | undefined;
   let server: Awaited<ReturnType<typeof startRenderer>> | undefined;
   try {
     server = await startRenderer(options, directory);
     const { origin } = server;
-    browser = await chromium.launch({ headless: true });
+    const sheetsOwner = await chromium.launchServer({ headless: true });
+    sheetsServer = sheetsOwner;
+    const browser = await chromium.connect(sheetsOwner.wsEndpoint());
     const sheets = await browser.newPage();
     for await (const course of atlasCourses(scenario.fixture, options.course)) {
       if (options.course && course.snapshot.id !== options.course) continue;
       await captureCourse({
         sheets,
+        terminateSheets: () => sheetsOwner.kill(),
         course,
         options,
         scenario,
@@ -622,7 +640,7 @@ export async function runPlaybackAtlas(options: Options) {
       detail: error instanceof Error ? error.message : String(error),
     });
   } finally {
-    await browser?.close();
+    await sheetsServer?.kill();
     await server?.close();
   }
   const findings = tiles.flatMap(tile =>
@@ -648,8 +666,8 @@ export async function runPlaybackAtlas(options: Options) {
     agentReview: { status: 'pending', findings: [] },
     sourceSha,
     sourceDirty: Boolean(sourceStatus),
-    toolSha: git(REPO_ROOT, 'rev-parse', 'HEAD'),
-    toolDirty: Boolean(git(REPO_ROOT, 'status', '--porcelain')),
+    toolSha,
+    toolDirty,
     status: atlasStatus(
       errors,
       findings,
