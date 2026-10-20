@@ -1,4 +1,6 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -69,6 +71,52 @@ it('preserves an unhealthy existing stack, including a stopped database containe
   await expect(ensureSharedSupabase(options)).rejects.toThrow('preserve the existing stack');
   expect(options.run).toHaveBeenCalledOnce();
   expect(options.watch).not.toHaveBeenCalled();
+});
+it('serializes simultaneous admissions so an absent stack starts only once', async () => {
+  let started = false;
+  const options = runtime();
+  options.run.mockImplementation(async args => {
+    if (args[0] === 'status' && !started) throw new Error('absent');
+    if (args[0] === 'start') started = true;
+    return JSON.stringify(status);
+  });
+  options.container.mockImplementation(async () => (started ? 'container-owned' : ''));
+  const admitted = await Promise.all([
+    ensureSharedSupabase(options),
+    ensureSharedSupabase(options),
+  ]);
+  expect(admitted).toEqual([status, status]);
+  expect(options.run.mock.calls.filter(([args]) => args[0] === 'start')).toHaveLength(1);
+  await releaseSharedSupabase();
+  expect(await readdir(join(root, 'runs'))).toEqual([]);
+});
+it.each([
+  'exited-owner',
+  'empty-reservation',
+])('recovers a lifecycle reservation left by %s', async kind => {
+  const reservation = join(root, 'lifecycle.lock');
+  await mkdir(reservation);
+  if (kind === 'exited-owner') {
+    const child = spawn(process.execPath, ['-e', ''], { windowsHide: true, stdio: 'ignore' });
+    await once(child, 'exit');
+    await writeFile(join(reservation, 'exited-owner'), String(child.pid));
+  }
+  const options = runtime();
+  expect(await ensureSharedSupabase(options)).toEqual(status);
+  await releaseSharedSupabase();
+  await expect(readdir(reservation)).rejects.toMatchObject({ code: 'ENOENT' });
+});
+it('cancels a waiting admission without removing the live reservation', async () => {
+  const reservation = join(root, 'lifecycle.lock');
+  await mkdir(reservation);
+  await writeFile(join(reservation, 'live-owner'), String(process.pid));
+  const options = runtime();
+  await expect(
+    ensureSharedSupabase({ ...options, signal: AbortSignal.abort(new Error('cancelled')) })
+  ).rejects.toThrow('cancelled');
+  expect(options.run).not.toHaveBeenCalled();
+  expect(await readFile(join(reservation, 'live-owner'), 'utf8')).toBe(String(process.pid));
+  expect((await readdir(root)).filter(name => name.startsWith('lifecycle-'))).toEqual([]);
 });
 it.each(['migration', 'health'])('schedules idle cleanup after a failed %s', async failure => {
   const options = runtime();

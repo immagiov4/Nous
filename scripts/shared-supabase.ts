@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, readdir, readFile, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -9,6 +10,7 @@ import * as z from 'zod';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const SUPABASE_IDLE_MS = 20 * 60_000;
+export const STACK_READINESS_POLL_INTERVAL_MS = 500;
 const PROJECT = 'nous-reader';
 const LEGACY_PROJECT = 'nous-playtest';
 const STACK_PORTS = [
@@ -33,6 +35,59 @@ async function readOptional(path: string): Promise<string | undefined> {
     if (error.code === 'ENOENT') return undefined;
     throw error;
   });
+}
+
+async function removeReservation(directory: string, owner?: string): Promise<void> {
+  if (owner) await rm(join(directory, owner), { force: true });
+  await rmdir(directory).catch((error: NodeJS.ErrnoException) => {
+    if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error.code ?? '')) throw error;
+  });
+}
+
+async function retireStaleReservation(reservation: string): Promise<void> {
+  const owners = await readdir(reservation).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  });
+  const previous = owners[0];
+  if (!previous) {
+    await removeReservation(reservation);
+    return;
+  }
+  const pid = await readOptional(join(reservation, previous));
+  if (pid && !alive(Number(pid))) await removeReservation(reservation, previous);
+}
+
+/** Publish a complete owner record atomically; stale cleanup removes only that owner's file. */
+async function withSharedLifecycle<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  const root = stateRoot();
+  const owner = crypto.randomUUID();
+  const prepared = join(root, `lifecycle-${owner}`);
+  const reservation = join(root, 'lifecycle.lock');
+  await mkdir(prepared, { recursive: true });
+  let acquired = false;
+  try {
+    await writeFile(join(prepared, owner), String(process.pid));
+    while (!acquired) {
+      signal?.throwIfAborted();
+      try {
+        await rename(prepared, reservation);
+        acquired = true;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (
+          !['EEXIST', 'ENOTEMPTY'].includes(code ?? '') &&
+          !(code === 'EPERM' && existsSync(reservation))
+        )
+          throw error;
+        await retireStaleReservation(reservation);
+        await delay(STACK_READINESS_POLL_INTERVAL_MS, undefined, { signal });
+      }
+    }
+    return await work();
+  } finally {
+    await removeReservation(acquired ? reservation : prepared, owner);
+  }
 }
 
 async function command(args: string[], signal?: AbortSignal): Promise<string> {
@@ -172,54 +227,58 @@ export async function ensureSharedSupabase(
     signal?: AbortSignal;
   } = {}
 ): Promise<SharedSupabaseStatus> {
-  const run = options.run ?? command;
-  const root = stateRoot();
-  await mkdir(join(root, 'runs'), { recursive: true });
-  await writeFile(join(root, 'last-run'), String(Date.now()));
-  try {
-    let current: SharedSupabaseStatus;
-    try {
-      current = await sharedSupabaseStatus(run, options.signal);
-    } catch (error) {
-      // A partial or unhealthy existing stack belongs to its current users.
-      options.signal?.throwIfAborted();
-      if (await (options.container ?? databaseContainer)())
-        throw new Error(
-          'Shared Supabase is unavailable; preserve the existing stack and inspect its health.',
-          { cause: error }
-        );
-      current = await startSharedSupabase(
-        run,
-        options.container ?? databaseContainer,
-        options.signal
-      );
-    }
-    const incomplete = await readOptional(join(root, 'incomplete'));
-    if (incomplete) {
-      const project =
-        Number(new URL(current.API_URL).port) === STACK_PORTS[0].api ? PROJECT : LEGACY_PROJECT;
-      const initializingContainer = await (options.container ?? databaseContainer)(PROJECT);
-      if (project === PROJECT && incomplete === initializingContainer)
-        throw new Error(
-          'Shared Supabase initialization is incomplete. Inspect the failed initialization before running a proof.'
-        );
-      if (incomplete !== initializingContainer) await rm(join(root, 'incomplete'));
-    }
-    await (options.health ?? healthy)(current, options.signal);
-    await writeFile(join(root, 'runs', lease), String(process.pid));
-    return current;
-  } finally {
+  return withSharedLifecycle(async () => {
+    const run = options.run ?? command;
+    const root = stateRoot();
+    await mkdir(join(root, 'runs'), { recursive: true });
     await writeFile(join(root, 'last-run'), String(Date.now()));
-    if (await readOptional(join(root, 'managed'))) await (options.watch ?? startIdleWatcher)();
-  }
+    try {
+      let current: SharedSupabaseStatus;
+      try {
+        current = await sharedSupabaseStatus(run, options.signal);
+      } catch (error) {
+        // A partial or unhealthy existing stack belongs to its current users.
+        options.signal?.throwIfAborted();
+        if (await (options.container ?? databaseContainer)())
+          throw new Error(
+            'Shared Supabase is unavailable; preserve the existing stack and inspect its health.',
+            { cause: error }
+          );
+        current = await startSharedSupabase(
+          run,
+          options.container ?? databaseContainer,
+          options.signal
+        );
+      }
+      const incomplete = await readOptional(join(root, 'incomplete'));
+      if (incomplete) {
+        const project =
+          Number(new URL(current.API_URL).port) === STACK_PORTS[0].api ? PROJECT : LEGACY_PROJECT;
+        const initializingContainer = await (options.container ?? databaseContainer)(PROJECT);
+        if (project === PROJECT && incomplete === initializingContainer)
+          throw new Error(
+            'Shared Supabase initialization is incomplete. Inspect the failed initialization before running a proof.'
+          );
+        if (incomplete !== initializingContainer) await rm(join(root, 'incomplete'));
+      }
+      await (options.health ?? healthy)(current, options.signal);
+      await writeFile(join(root, 'runs', lease), String(process.pid));
+      return current;
+    } finally {
+      await writeFile(join(root, 'last-run'), String(Date.now()));
+      if (await readOptional(join(root, 'managed'))) await (options.watch ?? startIdleWatcher)();
+    }
+  }, options.signal);
 }
 
 /** Releasing a proof only updates activity; the shared database stays available. */
 export async function releaseSharedSupabase(): Promise<void> {
-  const root = stateRoot();
-  if (!(await readOptional(join(root, 'last-run')))) return;
-  await rm(join(root, 'runs', lease), { force: true });
-  await writeFile(join(root, 'last-run'), String(Date.now()));
+  await withSharedLifecycle(async () => {
+    const root = stateRoot();
+    if (!(await readOptional(join(root, 'last-run')))) return;
+    await rm(join(root, 'runs', lease), { force: true });
+    await writeFile(join(root, 'last-run'), String(Date.now()));
+  });
 }
 
 function alive(pid: number): boolean {
@@ -241,26 +300,28 @@ export async function stopIdleSupabase(
     container?: typeof databaseContainer;
   } = {}
 ): Promise<boolean> {
-  const root = stateRoot();
-  const managed = await readOptional(join(root, 'managed'));
-  if (!managed) return false;
-  const last = await readOptional(join(root, 'last-run'));
-  if (!last || (options.now ?? Date.now()) - Number(last) < SUPABASE_IDLE_MS) return false;
-  for (const name of await readdir(join(root, 'runs'))) {
-    const pid = Number(await readOptional(join(root, 'runs', name)));
-    if (alive(pid)) return false;
-    await rm(join(root, 'runs', name), { force: true });
-  }
-  if (managed !== (await (options.container ?? databaseContainer)(PROJECT))) {
+  return withSharedLifecycle(async () => {
+    const root = stateRoot();
+    const managed = await readOptional(join(root, 'managed'));
+    if (!managed) return false;
+    const last = await readOptional(join(root, 'last-run'));
+    if (!last || (options.now ?? Date.now()) - Number(last) < SUPABASE_IDLE_MS) return false;
+    for (const name of await readdir(join(root, 'runs'))) {
+      const pid = Number(await readOptional(join(root, 'runs', name)));
+      if (alive(pid)) return false;
+      await rm(join(root, 'runs', name), { force: true });
+    }
+    if (managed !== (await (options.container ?? databaseContainer)(PROJECT))) {
+      await rm(join(root, 'managed'));
+      await rm(join(root, 'incomplete'), { force: true });
+      return false;
+    }
+    if (options.stop) await options.stop();
+    else await command(['stop', '--project-id', PROJECT]);
     await rm(join(root, 'managed'));
     await rm(join(root, 'incomplete'), { force: true });
-    return false;
-  }
-  if (options.stop) await options.stop();
-  else await command(['stop', '--project-id', PROJECT]);
-  await rm(join(root, 'managed'));
-  await rm(join(root, 'incomplete'), { force: true });
-  return true;
+    return true;
+  });
 }
 
 async function startIdleWatcher(): Promise<void> {

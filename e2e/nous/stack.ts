@@ -9,6 +9,7 @@ import { recordDiagnostic } from '../../packages/playtest/src/diagnostics';
 import {
   ensureSharedSupabase,
   releaseSharedSupabase,
+  STACK_READINESS_POLL_INTERVAL_MS,
   sharedSupabaseEnvironment,
   sharedSupabaseStatus,
 } from '../../scripts/shared-supabase';
@@ -18,8 +19,8 @@ export const APP_URL = 'http://127.0.0.1:5173';
 export const BACKEND_URL = 'http://127.0.0.1:3301';
 export const STACK_STAGE_READINESS_LIMIT_MS = 180_000;
 export const STACK_SHUTDOWN_GRACE_MS = 10_000;
-export const STACK_READINESS_POLL_INTERVAL_MS = 500;
 export type { SharedSupabaseStatus as StackStatus } from '../../scripts/shared-supabase';
+export { STACK_READINESS_POLL_INTERVAL_MS } from '../../scripts/shared-supabase';
 
 import type { SharedSupabaseStatus as StackStatus } from '../../scripts/shared-supabase';
 
