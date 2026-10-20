@@ -17,6 +17,7 @@ const LOAD_SENSITIVE_TESTS = [
   'packages/playtest/tests/**/*.{test,spec}.ts',
   'e2e/**/tests/**/*.{test,spec}.ts',
   'apps/backend/tests/services/pdfTextFallbackProcess.test.ts',
+  'apps/backend/tests/services/pdfFallbackProtocol.test.ts',
   'apps/backend/tests/workflows/*Compatibility.test.ts',
   'apps/backend/tests/workflows/workflowRuntimeComposition.test.ts',
   'apps/backend/tests/workflows/workflowProcessCrash.integration.test.ts',
@@ -24,6 +25,7 @@ const LOAD_SENSITIVE_TESTS = [
   'apps/backend/tests/workflows/lessonPlaybackStart.integration.test.ts',
   'apps/backend/tests/routes/lessonPlayback.test.ts',
   'scripts/run-eslint-sonar.test.ts',
+  'scripts/heavy-run.test.ts',
   'scripts/select-workflow-postgres-contract.test.ts',
   'scripts/summarize-gate-load.test.ts',
 ];

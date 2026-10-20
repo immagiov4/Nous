@@ -13,14 +13,14 @@ bunx playwright install chromium
 Use the narrowest check that covers your change:
 
 ```bash
-bunx biome check --write path/to/changed-file.ts
+bun run check:changed
 bun run test -- path/to/affected.test.ts
 bun run lint:types  # When types or interfaces changed
 ```
 
 `bun run doctor` checks the local environment. Add `-- --profile local` for Supabase and migration parity, `-- --profile gate` for the existing local Sonar service, or `-- --profile all` for both. All profiles are read-only.
 
-Changed-file checks run without the shared heavy-run lock. CI owns full quality, tests, coverage and SonarCloud. Coordinate browser/Playwright runs, Docker/Linux proofs, provider batches and repeated-run matrices through the shared heavy-run window when working on the same host.
+Changed-file checks run without the shared heavy-run lock. CI owns full quality, tests, coverage and SonarCloud. Browser suites and other heavy package scripts queue automatically across worktrees. Use `bun scripts/heavy-run.mjs status` to inspect the queue and wrap additional browser or Docker proofs with `bun scripts/heavy-run.mjs --label "who/what" -- <command...>`.
 
 ## CI and merge readiness
 

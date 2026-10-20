@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import * as pdfDataUrl from '../../src/utils/pdfDataUrl.js';
 
 const pdfServiceMocks = vi.hoisted(() => ({
   extractPdfImages: vi.fn(),
@@ -54,11 +55,21 @@ describe('POST /api/pdf', () => {
     });
   });
 
+  test('rejects an oversized PDF before starting either parser', async () => {
+    const fileData = `data:application/pdf;base64,${Buffer.alloc(32_000_001).toString('base64')}`;
+    const response = await request(createApp()).post('/api/pdf/extract-text').send({ fileData });
+    expect(response.status).toBe(413);
+    expect(pdfServiceMocks.extractPdfText).not.toHaveBeenCalled();
+  });
+
   test('returns extracted text metadata', async () => {
+    const decode = vi.spyOn(pdfDataUrl, 'decodePdfDataUrl');
     const response = await request(createApp())
       .post('/api/pdf/extract-text')
       .send({ fileData: 'data:application/pdf;base64,ZmFrZQ==' });
 
+    expect(decode).not.toHaveBeenCalled();
+    decode.mockRestore();
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
       success: true,

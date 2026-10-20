@@ -52,6 +52,8 @@ interface HomeChatComposerProps {
   readonly onUploadSourceClick: () => void;
   readonly pendingFileName: string | null;
   readonly pendingFileNames?: string[];
+  readonly pendingFileWarnings?: string[];
+  readonly isSourceSelectionPending?: boolean;
   readonly viewportHeight: number | null;
 }
 
@@ -149,6 +151,8 @@ const ToolOption = ({
 interface PendingFilesNoticeProps {
   readonly assessmentMessages: Message[];
   readonly displayedPendingFileNames: string[];
+  readonly warnings?: string[];
+  readonly pending?: boolean;
   readonly displayedPendingFiles: Array<{ key: string; name: string }>;
   readonly onClearPendingFile: () => void;
 }
@@ -156,10 +160,12 @@ interface PendingFilesNoticeProps {
 const PendingFilesNotice = ({
   assessmentMessages,
   displayedPendingFileNames,
+  warnings = [],
+  pending = false,
   displayedPendingFiles,
   onClearPendingFile,
 }: PendingFilesNoticeProps) => {
-  if (displayedPendingFileNames.length === 0) return null;
+  if (displayedPendingFileNames.length === 0 && warnings.length === 0) return null;
   const summary =
     displayedPendingFileNames.length === 1
       ? displayedPendingFileNames[0]
@@ -170,6 +176,16 @@ const PendingFilesNotice = ({
         <Paperclip className="h-4 w-4 shrink-0" />
         <div className="min-w-0">
           <span className="font-medium">{summary}</span>
+          {pending ? (
+            <output className="mt-1 block text-xs">{t('Verifica dei file…')}</output>
+          ) : null}
+          {warnings.length ? (
+            <ul aria-live="polite" className="mt-1 space-y-0.5 text-xs">
+              {warnings.map(warning => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          ) : null}
           {displayedPendingFileNames.length > 1 ? (
             <ul className="mt-1 space-y-0.5 text-xs text-gray-500 dark:text-zinc-400">
               {displayedPendingFiles.map(file => (
@@ -407,6 +423,7 @@ const ComposerSubmitIcon = ({
 };
 
 const ComposerSubmitButton = ({
+  isSourceSelectionPending,
   currentDraft,
   homeChatMode,
   isGenerationActive,
@@ -414,6 +431,7 @@ const ComposerSubmitButton = ({
   onStopGeneration,
 }: {
   readonly currentDraft: string;
+  readonly isSourceSelectionPending: boolean;
   readonly homeChatMode: HomeChatMode;
   readonly isGenerationActive: boolean;
   readonly isStoppingGeneration: boolean;
@@ -429,7 +447,8 @@ const ComposerSubmitButton = ({
       data-home-chat-target="submit"
       onClick={stopsGeneration ? onStopGeneration : undefined}
       disabled={
-        isGenerationActive ? !supportsStopping || isStoppingGeneration : !currentDraft.trim()
+        isSourceSelectionPending ||
+        (isGenerationActive ? !supportsStopping || isStoppingGeneration : !currentDraft.trim())
       }
       aria-busy={isStoppingGeneration || undefined}
       aria-label={label}
@@ -477,6 +496,8 @@ export default function HomeChatComposer({
   onUploadSourceClick,
   pendingFileName,
   pendingFileNames,
+  pendingFileWarnings,
+  isSourceSelectionPending = false,
   viewportHeight,
 }: HomeChatComposerProps) {
   const displayedPendingFileNames = useMemo(
@@ -615,7 +636,7 @@ export default function HomeChatComposer({
   const submit = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
     const message = currentDraft.trim();
-    if (!message) return;
+    if (!message || isSourceSelectionPending) return;
     setHasRequestedStop(false);
     updateDraft('');
     closeMenus();
@@ -663,6 +684,8 @@ export default function HomeChatComposer({
         <PendingFilesNotice
           assessmentMessages={assessmentMessages}
           displayedPendingFileNames={displayedPendingFileNames}
+          warnings={pendingFileWarnings}
+          pending={isSourceSelectionPending}
           displayedPendingFiles={displayedPendingFiles}
           onClearPendingFile={onClearPendingFile}
         />
@@ -723,6 +746,7 @@ export default function HomeChatComposer({
           />
           <ComposerSubmitButton
             currentDraft={currentDraft}
+            isSourceSelectionPending={isSourceSelectionPending}
             homeChatMode={homeChatMode}
             isGenerationActive={isGenerationActive}
             isStoppingGeneration={isStoppingGeneration}

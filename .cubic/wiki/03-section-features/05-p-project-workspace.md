@@ -15,6 +15,8 @@ Suppose the browser loaded revision 7 and lesson generation then committed revis
 
 The check and the project replacement belong to the same database transaction. That lets the backend reject a stale replacement before it commits new content or changes the associated file references. The common commit implementation lives in [project revision writes](../../../apps/backend/src/projects/projectRevisionWrite.ts).
 
+[Source ingestion](03-p-doc-processing.md#prepare-files-before-publishing-their-source-set) uses the same ownership and revision boundary when publishing prepared sources. The repository receives a destination snapshot and revision, while the ingestion module owns file expansion, transfer and preparation; a metadata-only save retains its ordinary snapshot contract.
+
 ## Build an export from one set of versions
 
 An export has the same consistency problem over a longer period. It reads project data and prepares the files needed to restore it; a project changing halfway through could otherwise leave the archive combining different versions. A library export therefore records the project revisions it starts from and fails the attempt if one of them changes. Retrying begins a fresh snapshot.

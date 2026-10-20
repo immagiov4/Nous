@@ -11,9 +11,13 @@ Verification starts at the changed behavior and expands to the service boundarie
 
 ## During development
 
-Local checks stay on changed files: run `bunx biome check --write <changed files>` and the targeted behavior tests for the code changed. Run `bun run lint:types` when types or interfaces change. These fast checks run directly, without the shared heavy-run lock; CI owns full-repository quality, tests, coverage and SonarCloud. The [quality workflow](../../../.agents/skills/quality-workflow/SKILL.md) describes verification depth for integrations and visual changes, while this page defines the local/CI split and merge requirement.
+Local checks stay on changed files: run `bun run check:changed` and the targeted behavior tests for the code changed. The command applies Biome and both ESLint configurations to existing changed files against the merge base with `origin/main`, including staged, unstaged and untracked work. Run `bun run lint:types` when types or interfaces change. These fast checks run directly; CI owns full-repository quality, tests, coverage and SonarCloud. The [quality workflow](../../../.agents/skills/quality-workflow/SKILL.md) describes verification depth for integrations and visual changes, while this page defines the local/CI split and merge requirement.
 
 Route tests can use controlled stores and identities. Real Supabase checks exercise authentication, row-level security and PostgreSQL persistence with the local stack; `bun run test:supabase-local` runs the corresponding integration set. Workflow PostgreSQL contracts exercise durable execution and recovery. The [testing guide](../../../docs/TESTING.md) owns detailed prerequisites and specialized commands.
+
+## Shared local execution
+
+Browser suites, provider batches, full gates and coverage enter one FIFO queue shared by worktrees. Package scripts acquire and release their turn automatically; nested commands share the held turn. Use `bun scripts/heavy-run.mjs status` to inspect the owner and waiting work. Additional browser or Docker proofs run through `bun scripts/heavy-run.mjs --label "who/what" -- <command...>`. Fast checks run independently so a browser test cannot block a documentation check. The [queue wrapper](../../../scripts/heavy-run.mjs) owns admission, process-liveness checks and cleanup; CI bypasses local coordination.
 
 ## Final candidate
 

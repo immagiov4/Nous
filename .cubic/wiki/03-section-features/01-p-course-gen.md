@@ -15,6 +15,8 @@ A topic request starts from goals and research. Document and archive requests al
 
 Prior-knowledge diagnostics contribute evidence about the starting point. Their model interprets submitted attempts cumulatively and preserves uncertainty and omissions; an empty interpretation list before submission carries no assessment. The [diagnostic model](../../../apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts) owns this contract. Planning consumes that evidence rather than converting similar answers into an implicit proficiency rule.
 
+For a course with several files, preparation freezes source identities from metadata before planning reads the originals one at a time, checking the project revision around each download. Planning receives every source name and outline with beginning, middle and end samples; archive planning uses directory, read and search tools. This keeps a whole-course source set available without loading every original into one planning request. [Ingestion](03-p-doc-processing.md) owns file admission and preparation.
+
 ## Research routing
 
 Before retrieval, a structured decision records whether supplied material provides sufficient factual evidence and selects or skips each available research channel with a reason. Insufficient sources require a selected channel; assessed coverage gaps require external research. Sufficient sources can still benefit from a selected video demonstration, so factual coverage and pedagogical value are separate decisions.
