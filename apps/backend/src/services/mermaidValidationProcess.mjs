@@ -5,7 +5,8 @@ import { JSDOM } from 'jsdom';
 const dom = new JSDOM('');
 globalThis.window = dom.window;
 try {
-  const { default: mermaid } = await import('mermaid');
+  // The bundled ESM build avoids loading the core entry's dependency graph in every child.
+  const { default: mermaid } = await import('mermaid/dist/mermaid.esm.min.mjs');
   mermaid.initialize({ securityLevel: 'strict', startOnLoad: false });
   const code = await text(process.stdin);
   if (process.argv.includes('--classify-batch')) {
