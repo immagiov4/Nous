@@ -1,214 +1,32 @@
 ---
-title: "PostgreSQL Database Schema"
+title: "Database and Saved Data"
 wiki_page_id: "p-database-schema"
 ---
 
-<details>
-<summary>Relevant source files</summary>
+# Database and Saved Data
 
-The following files were used as context for generating this wiki page:
+PostgreSQL stores account data, project details, learning plans, learner progress, workflow state and feedback. Supabase Storage holds uploaded source files and other binary content; database records point to those files.
 
-- [apps/backend/src/projects/postgresProjectStore.ts](../../../apps/backend/src/projects/postgresProjectStore.ts)
-- [supabase/migrations/202607190002_project_sources_storage.sql](../../../supabase/migrations/202607190002_project_sources_storage.sql)
-- [docs/DEPLOYMENT.md](../../../docs/DEPLOYMENT.md)
-- [apps/backend/tests/integration/supabaseLocal.integration.test.ts](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts)
-- [scripts/project-source-storage-artifact.ts](../../../scripts/project-source-storage-artifact.ts)
-- [apps/backend/tests/projects/postgresProjectStore.test.ts](../../../apps/backend/tests/projects/postgresProjectStore.test.ts)
-- [apps/backend/src/workflows/courseGenerationWorkflowContract.ts](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts)
-- [apps/backend/src/projects/libraryExportRunStore.ts](../../../apps/backend/src/projects/libraryExportRunStore.ts)
-- [supabase/migrations/20260904001830_create_library_export_runs.sql](../../../supabase/migrations/20260904001830_create_library_export_runs.sql)
-- [supabase/migrations/20260904005249_allow_cancelled_library_export_runs.sql](../../../supabase/migrations/20260904005249_allow_cancelled_library_export_runs.sql)
-- [supabase/migrations/20260904033000_add_library_export_project_revisions.sql](../../../supabase/migrations/20260904033000_add_library_export_project_revisions.sql)
-- [supabase/migrations/20260907183055_add_library_export_download_tickets.sql](../../../supabase/migrations/20260907183055_add_library_export_download_tickets.sql)
-</details>
+## Projects and the library
 
-# PostgreSQL Database Schema
+A project has an owner, a current revision and a saved snapshot. The snapshot contains the course, lessons and progress. A separate project record keeps the information needed to display and organize the library without loading the full course.
 
-The Nous project utilizes a PostgreSQL database schema designed to manage complex educational content, user-generated courses, and multi-modal project sources. The schema is built to work seamlessly with Supabase, leveraging Row Level Security (RLS) for multi-tenant isolation and integrating with external object storage for large binary assets like PDFs and ZIP archives.
+The library stores folder structure and the position of each project. Projects and source files remain scoped to their owner.
 
-The primary purpose of the schema is to provide a robust persistence layer for the `PostgresProjectStore`, handling transactional updates to project metadata, snapshots (including learning plans and syllabi), and maintaining integrity references to assets stored in Supabase Storage.
+## Workflows and account settings
 
-## Core Entity Relationship Diagram
+Long-running course and lesson tasks have saved workflow records, so the app can show progress and recover work after a restart. Workflow event records help explain what happened without storing prompts, source content or provider payloads.
 
-The following diagram illustrates the relationships between projects, their snapshots, sources, and the library organization structure.
+Account preferences hold language and teaching instructions for new work. Changing those preferences does not rewrite courses that have already been saved.
 
-```mermaid
-erDiagram
-    PROJECTS ||--|| PROJECT_SNAPSHOTS : "has one"
-    PROJECTS ||--o| PROJECT_COVERS : "has"
-    PROJECTS ||--o| LIBRARY_PLACEMENTS : "organizes"
-    PROJECTS ||--o{ PROJECT_SOURCES : "has primary"
-    PROJECTS ||--o{ PROJECT_SOURCE_FILES : "contains"
-    PROJECTS ||--o{ PROJECT_SOURCE_ENTRIES : "indexes (archive)"
-    LIBRARY_FOLDERS ||--o{ LIBRARY_FOLDERS : "parent of"
-    LIBRARY_FOLDERS ||--o{ LIBRARY_PLACEMENTS : "contains"
-    PROJECT_SOURCES ||--o{ PROJECT_SOURCE_DELETIONS : "queues cleanup"
-    LIBRARY_EXPORT_RUNS ||--o{ LIBRARY_EXPORT_PROJECT_CHECKPOINTS : "checkpoints"
-```
+## Feedback and usage
 
-*Description: The ER diagram shows the central role of the `projects` table and its connection to content snapshots, asset metadata, and the library's hierarchical folder structure.*
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:503-605](../../../apps/backend/src/projects/postgresProjectStore.ts#L503-L605), [supabase/migrations/202607190002_project_sources_storage.sql:104-163](../../../supabase/migrations/202607190002_project_sources_storage.sql#L104-L163)
+Feedback reports are saved for administrators and can be linked to GitHub issues. Model usage records track reported tokens and costs when the provider supplies them; those records may not include every operation or form a complete invoice.
 
-## Project and Content Persistence
+## Consistency and access
 
-The schema separates project metadata from the heavy content snapshots to optimize library listing operations. 
+Project revisions help detect when two sessions try to save conflicting changes. Library exports record which project versions they contain so a changed project is not mistaken for the earlier export snapshot.
 
-### Projects Table
+Authenticated database clients are subject to database access policies. Backend requests also rely on server-side authentication and ownership checks. See [Authentication and access](../06-section-backend/02-p-auth.md) for how those boundaries work.
 
-Stores high-level metadata such as titles and favorite status, revision counters used for optimistic concurrency control, and an incarnation UUID that changes when a deleted project identifier is reused.
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:251-260](../../../apps/backend/src/projects/postgresProjectStore.ts#L251-L260)
-
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `user_id` | `uuid` | Owner of the project (Primary Key / Partition Key). |
-| `id` | `text` | Unique project identifier (Primary Key). |
-| `meta` | `jsonb` | Metadata including `isFavorite`, `lessonCount`, and `exerciseCount`. |
-| `revision` | `bigint` | Incremental version for conflict detection within one project incarnation, including separate cover writes used by project archives. |
-| `incarnation_id` | `uuid` | Persistent identity that distinguishes delete-and-recreate cycles using the same project ID. |
-| `updated_at` | `timestamptz` | Last modification time. |
-
-### Project Snapshots Table
-
-Stores the full state of a project, including the learning plan, user profile, and document index.
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:587-605](../../../apps/backend/src/projects/postgresProjectStore.ts#L587-L605)
-
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `snapshot` | `jsonb` | Complete project state (excluding heavy indices). |
-| `document_index` | `jsonb` | Extracted text and chunk mapping for search and AI grounding. |
-
-### Lesson learner state
-
-Lesson `quizState` stores selected answer indices and submission state inside `project_snapshots.snapshot`, alongside annotations and completion. The existing authenticated project PATCH validates the state and advances the project revision, so the same persistence and revision events serve local edits and other sessions. Project and library archives retain this state. No additional table or migration is required. Successful generation clears quiz state and annotations at the lesson content commit; compensation restores the previous values.
-
-Quiz writes use the narrow `quiz` rebase mode, the observed `lastGenerationRunId`, and `expectedQuizState`. The project transaction compares both the generation identity and the prior quiz state while holding the project lock: another lesson can advance the revision, while regeneration or a competing answer to the same quiz rejects the stale write through the existing revision conflict response. The shared snapshot boundary validates answer indices against the lesson's inline quiz blocks, or its legacy quiz array when it has no blocks, for PATCH, snapshot saves, and archive imports. A submitted state must contain exactly one valid selected option for every question; incomplete answers remain valid only before submission. The reader uses the same content-block precedence when restoring answers and validating selections, including lessons with an absent or stale legacy quiz array.
-
-Reopening and archive exports wait for pending local writes. A quiz write advances the saved UI signature only when its preceding domain state was already saved. A rebased write updates library metadata but preserves the expected revision of the loaded snapshot and its queued writes. The queue retains that revision if the learner switches courses, so pending full saves still conflict instead of replacing remote content. Once the queue finishes, inactive-course metadata edits and reimports use the existing library revision path. Navigation writes advance only the navigation field in the saved signature within the write queue, retaining preceding saved quiz answers and keeping other local edits dirty. Quiz and navigation completions share a pending reload; the loaded snapshot adopts the new revision only after hydration.
-
-Sources: [quiz state contract](../../../packages/shared-types/lessonQuizState.ts), [section PATCH](../../../apps/backend/src/routes/projects.ts), [lesson persistence](../../../apps/backend/src/workflows/lessonGenerationPersistence.ts).
-
-## Project Source Management
-
-Nous employs an "immutable object" strategy for project sources. Large files are stored in Supabase Storage, while the database maintains integrity metadata (hashes and object paths).
-
-### Storage Metadata Tables
-
-*  **`public.project_sources`**: Tracks the primary source for a project (e.g., the original PDF or ZIP).
-*  **`public.project_source_files`**: Tracks individual files within a multi-source project, ordered by `position`.
-*  **`public.project_source_entries`**: Indexes the contents of an archive source, storing previews and warning reasons (e.g., if a PDF has no usable text).
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:795-883](../../../apps/backend/src/projects/postgresProjectStore.ts#L795-L883)
-
-```mermaid
-flowchart TD
-    subgraph Database
-        PS[project_sources]
-        PSF[project_source_files]
-        PSE[project_source_entries]
-    end
-    subgraph Supabase Storage
-        B[project-sources bucket]
-    end
-    PS -- "object_path" --> B
-    PSF -- "object_path" --> B
-    PSE -- "object_path" --> B
-```
-
-*Description: The link between database metadata and the Supabase Storage bucket based on content-addressed object paths.*
-Sources: [supabase/migrations/202607190002_project_sources_storage.sql:104-194](../../../supabase/migrations/202607190002_project_sources_storage.sql#L104-L194), [apps/backend/src/projects/postgresProjectStore.ts:1094-1110](../../../apps/backend/src/projects/postgresProjectStore.ts#L1094-L1110)
-
-### Historical Cutover and Current Contract
-
-The versioned storage-cutover migration used `public.project_source_storage_stage` to verify a one-time transition from embedded source bytes, then removed both staging and legacy tables. Current deployments require the post-cutover schema and apply versioned Supabase migrations directly; the runtime migrator has been retired. The deployment preflight rejects legacy columns, transitional tables, and embedded source snapshots before release.
-Sources: [supabase/migrations/202607190002_project_sources_storage.sql:1-100](../../../supabase/migrations/202607190002_project_sources_storage.sql#L1-L100), [supabase/migrations/202607190002_project_sources_storage.sql:228-285](../../../supabase/migrations/202607190002_project_sources_storage.sql#L228-L285), [docs/DEPLOYMENT.md](../../../docs/DEPLOYMENT.md)
-
-## Library and Organization
-
-The library structure supports nested folders and custom ordering for projects and folders using a step-based ordering system (`SIBLING_ORDER_STEP = 1024`).
-
-### Folders and Placements
-
-*  **`public.library_folders`**: Defines the hierarchy. Folders can have a `parent_folder_id` (null for root).
-*  **`public.library_placements`**: Links projects to folders and defines their position within that folder.
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:1145-1165](../../../apps/backend/src/projects/postgresProjectStore.ts#L1145-L1165), [apps/backend/src/projects/postgresProjectStore.ts:1248-1262](../../../apps/backend/src/projects/postgresProjectStore.ts#L1248-L1262)
-
-### Durable Library Export Runs
-
-`public.library_export_runs` stores the authenticated owner, correlation ID, expected project manifest with project incarnation UUIDs and revisions, folder organization, current phase, cumulative bytes, final archive integrity metadata, a cleanup checkpoint, and a redacted failure outcome. Before publishing a completed run, PostgreSQL takes shared row locks on the expected projects and compares both identity fields; snapshot saves, cover saves, and deletions therefore serialize on the same rows. A cover save increments the project revision in the same transaction as the `public.project_covers` upsert, so an archive checkpoint cannot remain current after its cover changes. A partial unique index permits only one active, completed, or failed run per user. Cancelled and downloaded runs no longer block a replacement export, and runs created before project identities were recorded are cancelled as non-resumable.
-
-`public.library_export_project_checkpoints` records one completed nested archive per project, including its expected project incarnation UUID and revision, stable order, workspace path, byte count, and SHA-256 checksum. The run store exposes a separate progress query that counts these rows without selecting the checkpoint payload. The export tables are backend-only: RLS is enabled, direct access is revoked from `anon` and `authenticated`, and the service role receives only the operations required by the run store. Retention is enforced by the backend using the existing timestamps: completed runs age from `completed_at`, failed runs from the `updated_at` written by their failure transition. Conditional expiry updates recheck status and cutoff before cancellation, revoke outstanding download tickets, and retain retryable cleanup state. Late failure or resume callbacks cannot rewrite cancelled or downloaded rows. `public.library_export_download_tickets` stores each unclaimed hash separately with an indexed run foreign key. Atomic deletion consumes only that ticket. Its deadline is derived from the run's original `completed_at`, including when the run is already `downloaded`; no additional public status or timestamp is required. The additive ticket migration transfers the previous outstanding hash, clears it, and keeps the historical column unused by the new backend. Completed cleanup deletes remaining ticket rows. Sources: [supabase/migrations/20260904001830_create_library_export_runs.sql](../../../supabase/migrations/20260904001830_create_library_export_runs.sql), [supabase/migrations/20260904005249_allow_cancelled_library_export_runs.sql](../../../supabase/migrations/20260904005249_allow_cancelled_library_export_runs.sql), [supabase/migrations/20260904033000_add_library_export_project_revisions.sql](../../../supabase/migrations/20260904033000_add_library_export_project_revisions.sql), [apps/backend/src/projects/libraryExportRunStore.ts](../../../apps/backend/src/projects/libraryExportRunStore.ts)
-
-The ticket migration is [20260907183055_add_library_export_download_tickets.sql](../../../supabase/migrations/20260907183055_add_library_export_download_tickets.sql).
-
-## Workflow and Feedback Systems
-
-The schema includes support for background workflow runtime and user feedback reporting.
-
-### Workflow Runtime
-
-The `public.model_config` table (id='global') stores system-wide settings for AI models used in course generation, such as `context_model`, `course_model`, and `lesson_model`. Durable rows in `public.workflow_runs` also store a non-null UUID `correlation_id`, indexed for operational lookup and preserved when a request deduplicates onto an existing run. This joins request lifecycle records to worker, retry, cancellation, undo, and recovery events without storing prompt or source payloads in logs.
-Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:445-475](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L445-L475), [supabase/migrations/20260816120000_add_workflow_correlation_id.sql](../../../supabase/migrations/20260816120000_add_workflow_correlation_id.sql), [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts](../../../apps/backend/src/workflows/persistence/postgresWorkflowStore.ts)
-
-### Feedback Reports
-
-The `public.feedback_reports` table stores user-submitted bugs and feature requests, which can be synchronized with GitHub issues.
-Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:480-520](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L480-L520)
-
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `id` | `uuid` | Primary Key. |
-| `reporter_email` | `text` | Submitter's email. |
-| `github_issue_number` | `integer` | Linked GitHub issue (nullable). |
-| `status` | `text` | Current state (e.g., 'pending', 'submitted'). |
-
-## Transactional Integrity and Concurrency
-
-The system uses `pg_advisory_xact_lock` and `pg_advisory_lock` to prevent race conditions during complex operations like library sibling reordering and project source uploads.
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:1072-1090](../../../apps/backend/src/projects/postgresProjectStore.ts#L1072-L1090), [apps/backend/src/projects/postgresProjectStore.ts:1336-1348](../../../apps/backend/src/projects/postgresProjectStore.ts#L1336-L1348)
-
-```mermaid
-sequenceDiagram
-    participant App as PostgresProjectStore
-    participant DB as PostgreSQL
-    participant Storage as Supabase Storage
-    App->>DB: pg_advisory_lock(object_path)
-    App->>Storage: upload(bytes)
-    App->>DB: begin transaction
-    App->>DB: insert project_sources (metadata)
-    App->>DB: commit transaction
-    App->>DB: pg_advisory_unlock(object_path)
-```
-
-*Description: The locking sequence ensures that concurrent uploads to the same content-addressed path do not result in corrupted metadata or orphaned files.*
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:983-1070](../../../apps/backend/src/projects/postgresProjectStore.ts#L983-L1070)
-
-## Conclusion
-
-The PostgreSQL database schema for Nous Reader is a sophisticated multi-tenant design that balances the need for fast library browsing with the storage of complex, high-volume AI-generated educational content. By offloading binary data to immutable object storage and utilizing JSONB for flexible snapshots, the schema provides a scalable foundation for the project's pedagogical features.
-
-### Account setup enrollment
-
-Migration `20260909120000_account_setup.sql` adds `public.account_setup`, keyed by `auth.users.id`, with pending/completed/skipped status. An insert trigger enrolls newly created users as pending. There is no backfill: a missing row means not-required for existing accounts. Apply the migration before deploying code that reads this table.
-
-The authenticated `/api/account/setup` endpoint reads and finishes setup for the session account. Completion writes preferences and completion status in one SQL statement; skipping writes only status. RLS and revoked client grants prevent direct anonymous/authenticated access. Clearing preferences does not reset setup enrollment.
-
-The disposable-database integration test is opt-in through `ACCOUNT_SETUP_TEST_DATABASE_URL`; its database must be empty because the fixture creates the required schema and roles.
-
-#### Run the isolated setup persistence test
-
-From the repository root in PowerShell, with Docker running:
-
-```powershell
-$setupContainer = docker run -d --name nous-setup-contract -e POSTGRES_PASSWORD=local-contract -e POSTGRES_DB=setup_test -p 127.0.0.1::5432 postgres:17-alpine
-if ($LASTEXITCODE -ne 0) { throw 'Could not create the isolated test container.' }
-try {
-  do { docker exec $setupContainer pg_isready -U postgres | Out-Null } while ($LASTEXITCODE -ne 0)
-  $setupPort = (docker port $setupContainer 5432/tcp).Split(':')[-1]
-  $env:ACCOUNT_SETUP_TEST_DATABASE_URL = "postgres://postgres:local-contract@127.0.0.1:$setupPort/setup_test"
-  bun run test -- apps/backend/tests/account/accountSetup.integration.test.ts
-} finally {
-  Remove-Item Env:ACCOUNT_SETUP_TEST_DATABASE_URL -ErrorAction SilentlyContinue
-  docker rm -f -v $setupContainer
-}
-```
-
-The container name must be unused. The password is a disposable local test value. The suite is intentionally skipped by ordinary unit-test commands; this command applies the real migration in a separate empty database and cleans up only its test container and volume.
+For source files, generated images and backups, see [Project files and storage](02-p-asset-management.md).

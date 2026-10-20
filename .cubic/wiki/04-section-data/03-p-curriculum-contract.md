@@ -1,47 +1,34 @@
-# Curriculum contracts and structural validation
+---
+title: "Curriculum and Mapping Rules"
+wiki_page_id: "p-curriculum-contract"
+---
 
-The first implementation block of [#119](https://github.com/immagiov4/Nous/issues/119) defines a course curriculum and explicit diagnostic and cross-course mappings. These modules operate on supplied data. Generation, persistence, retrieval and lesson consumption remain subsequent work in the issue.
+# Curriculum and Mapping Rules
+
+A curriculum groups a course’s learning objectives, concepts, prerequisite relationships and planned activities. These rules describe how that information is identified and checked; they do not generate or save a curriculum by themselves.
 
 ## Ownership and identity
 
-[curriculum.ts](../../../packages/shared-types/curriculum.ts) defines account-owned concepts, course or lesson objectives, concept uses, prerequisite requirements and preparations, and planned activity targets. A curriculum reference contains `userId`, `projectId`, `incarnationId` and `curriculumId`. Lesson and objective IDs inside the aggregate inherit that reference. External entity references include it explicitly, so identical positional IDs in two courses remain distinct.
+A curriculum belongs to one account and one project. Its identity also records the project’s current incarnation, so a deleted and recreated project cannot inherit old curriculum references by accident.
 
-Concept definitions come from the resolved account catalog. A shared concept ID identifies the same definition across that account's courses. Objectives remain local. Definitions with equal text keep their supplied identities.
+Account concepts may be shared across courses. Learning objectives belong to their own course, even when two objectives have the same wording or identifier. References to evidence or saved content must retain the identity of the system that owns it.
 
-`planningInputRef` identifies the immutable approved input owned by #85. Its preferences, including the explicit default `auto`, remain in that artifact. The graph assigns no numeric interpretation to depth or granularity.
+## Structural checks
 
-`CurriculumArtifactRef` is a coordinate for retained content owned by another subsystem. The loader must resolve it and preserve its lifetime. A syntactically valid reference alone does not prove that the artifact exists or that an origin's semantic claims are correct.
+The validator checks that references point to the expected account, project, curriculum, lesson plan and approved planning input. It checks that identifiers are unique and that prerequisite preparations fit the stated lesson order.
 
-## Pure validators
+A planned preparation must name the concept and objectives that prepare the learner for a later lesson. A preparation in the same lesson is flagged for review. A prerequisite left unresolved is also flagged.
 
-[validateCurriculum](../../../apps/backend/src/curriculum/validation.ts) parses a strict format and validates it against the expected curriculum identity, approved planning input, canonical account definitions, ordered lesson IDs and resolved support references. It returns either Zod issues with paths or the parsed curriculum and `reviewRequired` entries.
+These checks establish that the curriculum is internally consistent. They do not determine whether a learner has mastered a concept or whether one lesson is sufficient preparation. Those decisions need content review.
 
-The caller supplies authoritative context from the same candidate plan and authorized account. Catalog definitions and resolved support references are loader responsibilities. These functions perform no I/O and are not an authorization boundary.
+## Mapping evidence
 
-The validator checks unique entity IDs, reference existence, lesson ownership and preparation relations. A nonempty lesson plan requires concepts, objectives and concept/lesson relations. Every prerequisite requires an explicit preparation state; several dependent lessons may have their own preparations for one requirement. Preparation states for the same requirement and dependent lesson must agree. A planned preparation must cite uses of the required concept and objectives in its provider lesson. That lesson must precede or equal the dependent lesson in the supplied plan. Same-lesson preparation returns `same-lesson-order` for content review. An explicit unresolved preparation returns `unresolved-prerequisite`. A successful structural result does not establish prerequisite sufficiency or learner competence.
+Diagnostic mappings record whether a source has not been reviewed, has no match, has a confirmed match or remains ambiguous. A confirmed match keeps its relation and reason. An ambiguous result preserves its alternatives rather than selecting one.
 
-Entry assumptions refer to retained diagnostic mappings or cross-course alignments resolved for the destination curriculum. Their reasons and limitations remain explicit. The validator does not choose a source, rank evidence or infer proficiency from a concept role.
+Cross-course alignment distinguishes shared account concepts from partial overlap. Similar wording or matching objective identifiers do not make two concepts identical. The mapping records the evidence and limitations supplied by its owner; it does not rank sources or infer proficiency.
 
-## Diagnostic and cross-course mappings
+## Verification boundary
 
-[curriculumMapping.ts](../../../packages/shared-types/curriculumMapping.ts) distinguishes `not-reviewed`, `unmatched`, `matched` and `ambiguous`. A confirmed match contains one or more targets. Each diagnostic target retains its own relation scope and reason, distinct from the source claim's scope. Ambiguity preserves alternative target groups with their relation context. Strict schemas reject contradictory fields, empty confirmed groups and incomplete source coordinates.
+The validators use supplied account definitions, lesson plans and resolved evidence references. They do not retrieve those records or authorize access to them. The calling service must provide the right context and enforce access.
 
-The collection schemas require unique mapping IDs within each mapping kind and destination curriculum. Ambiguous groups must differ structurally: member order alone does not create an alternative. The comparison preserves differences in declared scope and reason; it performs no semantic text classification.
-
-[validateDiagnosticMapping](../../../apps/backend/src/curriculum/mappingValidation.ts) accepts an authoritative projection of complete source tuples from #112. A criterion observation includes the diagnostic revision, node, task, attempt, interpretation, claim, criterion and evidence artifact reference. The whole tuple must resolve together. Independent lists of existing IDs are insufficient because they could combine different episodes.
-
-The #112 adapter will produce these tuples from its retained artifact. It owns `claim.scope`, responses, assistance, interpretation and collection context. The mapping preserves their reference instead of copying or widening their contents. Node and self-report sources remain separate from criterion observations.
-
-`validateCrossCourseAlignment` checks the source and destination against two resolved curricula in the same account. `same-concept` requires concept references with the same account concept ID. `partial-overlap` retains distinct identities and a stated common scope, differences, reason and limitations. Equal objective IDs never make objectives the same concept. #120 owns observation retrieval and chronology; #121 owns permitted pedagogical decisions.
-
-## Verification and integration boundary
-
-[curriculum tests](../../../apps/backend/tests/curriculum) cover ownership, recreated projects, reference chains, local objective scope, prerequisite order, uncertainty and identity-preserving cross-course reuse. The fixtures contain synthetic educational examples.
-
-[generation.integration.test.ts](../../../apps/backend/tests/curriculum/generation.integration.test.ts) passes synthetic responses through the production `createCourseObjectGenerator` adapter, including schema conversion, provider JSON parsing and the new validators. It demonstrates why provider-valid JSON can still contain invalid references. Provider calls are substituted in the deterministic suite.
-
-The shared [generation harness](../../../apps/backend/tests/curriculum/generationHarness.ts) also supports an occasional real provider call. This boundary verifies generation and validation without installing the graph in the durable course workflow. Historical course, interview, lesson and PDF-repair schemas and registry composition remain outside these modules' dependency path.
-
-A local probe on 10 September 2026 used the configured Codex course slot, `gpt-5.6-luna` with medium reasoning, and a short user-authorized source excerpt about play and learning. The generated two-lesson curriculum and both mappings passed structural validation. The model retained the assisted criterion observation as a limited match and the broader self-report as ambiguous. This probe preceded the review correction that added per-target diagnostic scope and reason; deterministic adapter tests cover that final shape. This single observation verifies provider compatibility and the exercised references, not general pedagogical quality. The source text is absent from repository fixtures and reports.
-
-Publication, authorized storage and retrieval, integration with #85/#112 artifacts, durable workflow routing, activity execution and additive extensions remain subsequent #119 blocks. The issue remains open until those agreed scopes and their verification are complete.
+Automated checks use synthetic examples to verify structure and reference handling.

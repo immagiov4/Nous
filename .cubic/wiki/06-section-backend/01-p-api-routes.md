@@ -1,143 +1,32 @@
 ---
-title: "Backend REST Endpoints"
+title: "Backend API"
 wiki_page_id: "p-api-routes"
 ---
 
-<details>
-<summary>Relevant source files</summary>
+# Backend API
 
-The following files were used as context for generating this wiki page:
+The backend API connects the web app to saved project data, generation workflows and AI providers. Private requests require a signed-in account; administrator routes also check the administrator role. Health and status information is available for deployment checks.
 
-- [apps/backend/src/index.ts](../../../apps/backend/src/index.ts)
-- [apps/backend/tests/routes/projects.test.ts](../../../apps/backend/tests/routes/projects.test.ts)
-- [apps/backend/tests/integration/supabaseLocal.integration.test.ts](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts)
-- [apps/backend/tests/routes/authProtection.test.ts](../../../apps/backend/tests/routes/authProtection.test.ts)
-- [scripts/feature-map.ts](../../../scripts/feature-map.ts)
-- [README.md](../../../README.md)
-- [apps/backend/src/routes/libraryExports.ts](../../../apps/backend/src/routes/libraryExports.ts)
-- [apps/backend/src/projects/libraryExport.ts](../../../apps/backend/src/projects/libraryExport.ts)
-</details>
+## Request identity
 
-# Backend REST Endpoints
+Each request has a request ID. The backend returns it in the response so support logs can be matched to the request. Error responses give the user a stable message while technical details stay in server diagnostics.
 
-The Nous backend is an Express-based API server that facilitates document processing, AI-driven course generation, and project management. It serves as the bridge between the React frontend and various services including Supabase for authentication/persistence, PostgreSQL for metadata storage, and the supported AI providers, OpenRouter and Codex.
+## Main route groups
 
-The API is structured around functional domains such as `projects`, `workflows`, `auth`, and `feedback`. Most endpoints require authentication via Supabase JWTs, managed through a central middleware that resolves the current user context before passing requests to specific routers. Sources: [apps/backend/src/index.ts:1-70](../../../apps/backend/src/index.ts#L1-L70), [README.md:15-25](../../../README.md#L15-L25)
+| Route | Purpose |
+| --- | --- |
+| `/api/projects` | List, save, update and delete projects; manage source files and library exports. |
+| `/api/course-workflows` | Start and follow course generation. |
+| `/api/lesson-workflows` | Start and follow lesson generation. |
+| `/api/chat/context` | Ask questions using selected lesson, text or note context. |
+| `/api/feedback` | Submit a learner report for administrator review. |
+| `/api/admin` | Manage accounts, model settings and administrative reports. |
+| `/api/status` | Check service status for deployment and support. |
 
-## API Architecture and Middleware
+Project updates include a revision so the backend can reject a save based on stale data. Longer generation tasks return progress separately from the final course or lesson. See [Workflow engine](../02-section-architecture/02-p-workflow-engine.md).
 
-The backend application is initialized via the `createApp` function, which configures global middleware for CORS, JSON body parsing with specific limits per route, and request logging. Sources: [apps/backend/src/index.ts:109-150](../../../apps/backend/src/index.ts#L109-L150)
+## Files and AI requests
 
-### Request Flow and Security
+The API accepts supported source files and keeps their bytes in storage. Project records contain references to those files; see [Project files and storage](../04-section-data/02-p-asset-management.md).
 
-Authentication is enforced at the router level using `resolveCurrentUser`. However, certain utility endpoints remain public to support deployment health checks and environment status monitoring. Sources: [apps/backend/tests/routes/authProtection.test.ts:38-50](../../../apps/backend/tests/routes/authProtection.test.ts#L38-L50)
-
-Every request receives a canonical lowercase UUID correlation ID before CORS and route handling. A valid incoming `x-request-id` is reused, otherwise the backend creates one; the same value is exposed in the response header and attached to content-free lifecycle records for completion, failure, cancellation, and disconnect diagnosis. Backend exception details remain internal, while client-facing error messages stay stable. Sources: [apps/backend/src/index.ts](../../../apps/backend/src/index.ts), [apps/backend/src/workflows/requestObservability.ts](../../../apps/backend/src/workflows/requestObservability.ts), [apps/backend/tests/index.test.ts](../../../apps/backend/tests/index.test.ts)
-
-```mermaid
-flowchart TD
-    Req[Incoming Request] --> CORS[CORS Middleware]
-    CORS --> Limits[Body Limit Middleware]
-    Limits --> Auth{Requires Auth?}
-    Auth -- Yes --> Resolver[resolveCurrentUser]
-    Auth -- No --> Router[Public Router]
-    Resolver --> PRouter[Protected Router]
-    PRouter --> Logic[Business Logic / Store]
-    Router --> Status[Health/Status Info]
-```
-
-*The request flow ensures that sensitive data operations are protected by identity resolution while maintaining accessibility for infrastructure monitoring.* Sources: [apps/backend/src/index.ts:152-200](../../../apps/backend/src/index.ts#L152-L200)
-
-### Payload Limits
-
-To accommodate large document uploads (e.g., PDFs and ZIP archives) while protecting the server, Nous implements tiered JSON body limits:
-
-| Route Prefix | Limit | Purpose |
-| :--- | :--- | :--- |
-| `/api/projects` | 300mb | Project snapshots and metadata |
-| `/api/pdf` | 160mb | PDF extraction data |
-| `/api/openrouter` | 80mb | AI model interaction |
-| `/api/stt` | 20mb | Speech-to-text audio data |
-| `/api/feedback` | 2mb | User feedback reports |
-| Default | 50mb | General API interactions |
-
-Sources: [apps/backend/src/index.ts:72-80](../../../apps/backend/src/index.ts#L72-L80)
-
-## Project Management Endpoints
-
-The `/api/projects` router manages the lifecycle of courses, including creation, updates, favorites, and source file handling. Sources: [apps/backend/tests/routes/projects.test.ts:98-130](../../../apps/backend/tests/routes/projects.test.ts#L98-L130)
-
-### Core Operations
-
-*  **GET `/api/projects/projects`**: Lists metadata for all projects owned by the authenticated user.
-*  **PUT `/api/projects/projects/:id`**: Saves or updates a full project snapshot. It handles both JSON and multipart/form-data for binary source attachments.
-*  **PATCH `/api/projects/projects/:id`**: Performs partial updates, such as renaming a title or updating the active section, while maintaining revision consistency to prevent stale overwrites.
-*  **POST `/api/projects/projects/:id/cover`**: Stores a raster course cover separately and increments the project revision atomically, then publishes the new revision to connected clients. The browser supplies `expectedRevision`; an outdated cover write returns HTTP 409 without changing the cover or revision.
-*  **PATCH `/api/projects/projects/:id/favorite`**: Updates the favorite flag with the same expected-revision check. An outdated write returns HTTP 409, while a deleted project remains HTTP 404.
-*  **DELETE `/api/projects/projects/:id`**: Removes a project and its associated storage artifacts.
-
-Sources: [apps/backend/tests/routes/projects.test.ts:104-140](../../../apps/backend/tests/routes/projects.test.ts#L104-L140), [apps/backend/src/index.ts:203-210](../../../apps/backend/src/index.ts#L203-L210)
-
-### Library Export Run
-
-The authenticated library export endpoints separate long-running preparation from the final binary transfer:
-
-* **POST `/api/projects/library-exports`**: Starts a run or resumes the user's existing undelivered run and returns its durable progress.
-* **GET `/api/projects/library-exports/:runId`**: Returns the persisted phase, completed and expected project counts, and bytes written through a progress-only database query that does not load checkpoint paths or checksums.
-* **POST `/api/projects/library-exports/:runId/download-access`**: Authenticates the owner and returns a one-use download token whose hash is stored in a separate pending-ticket row for the completed run.
-* **POST `/api/projects/library-exports/:runId/download`**: Accepts the token through a native form submission and atomically consumes that ticket and downloads the archive only if its size and SHA-256 still match the persisted result. Range requests are ignored so a successful one-use transfer always contains the complete archive. Previously issued tickets remain consumable in `downloaded` state until the original retention deadline; that state cannot issue new tickets.
-
-Resumption requires every expected project's persistent incarnation UUID and revision to match; changed, removed, recreated, and pre-identity runs are cancelled rather than restarted with stale checkpoints. The final download is not bound to the frontend's ordinary JSON request timeout and does not pass through a JavaScript response buffer. The route marks the run as delivered after Express reports a successful transfer. A per-run reader reservation spans token claim, integrity verification, and the HTTP response. Files are removed only after every admitted response finishes or disconnects and no valid unclaimed ticket remains; durable cleanup state allows recovery after interruption. New download access is refused after terminal retention expires. The browser reports request submission only, since it cannot observe the native cross-origin file response. Start, retry, polling recovery, and startup recovery share configurable FIFO preparation admission; queued runs remain `running` and are not treated as interrupted executions. Operational logs use the correlation ID, run ID, project ID, phase, outcome, bytes, and elapsed time without recording snapshots, source contents, or credentials. Sources: [apps/backend/src/routes/libraryExports.ts](../../../apps/backend/src/routes/libraryExports.ts), [apps/backend/src/projects/libraryExport.ts](../../../apps/backend/src/projects/libraryExport.ts), [apps/web/services/projects/httpProjectRepository.ts](../../../apps/web/services/projects/httpProjectRepository.ts)
-
-### Source and Archive Handling
-
-Nous uses a specialized flow for importing codebase archives and PDFs. Binary data is often stored in immutable object storage (Supabase Storage) rather than the main database, with the REST API providing access to these "detached" sources. Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:275-300](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L275-L300)
-
-```mermaid
-sequenceDiagram
-    participant User as "Web Frontend"
-    participant API as "Express Backend"
-    participant Store as "Project Store (Postgres)"
-    participant Storage as "Object Storage"
-
-    User->>API: PUT /api/projects/projects/:id (Multipart)
-    API->>Storage: Upload Archive Binary
-    Storage-->>API: Object Path & Hash
-    API->>Store: Save Snapshot (minus binary) + Source Metadata
-    Store-->>API: Success (Revision X)
-    API-->>User: 200 OK (Project Metadata)
-```
-
-*Sequence for handling binary project sources, separating metadata from heavy binary payloads.* Sources: [apps/backend/tests/routes/projects.test.ts:316-340](../../../apps/backend/tests/routes/projects.test.ts#L316-L340)
-
-## Workflow and AI Endpoints
-
-Workflows represent long-running asynchronous processes, such as generating a course plan or writing individual lessons. Sources: [apps/backend/src/index.ts:213-230](../../../apps/backend/src/index.ts#L213-L230)
-
-### Specialized Routers
-
-*  **`/api/course-workflows`**: Manages the generation of course structures from sources.
-*  **`/api/lesson-workflows`**: Handles the iterative writing and refining of lesson content.
-*  **`/api/course-interviews`**: Manages interactive AI "interviews" to refine course topics.
-*  **`/api/artifact-drafts`**: Handles drafts for visual or interactive components within lessons.
-
-Sources: [apps/backend/src/index.ts:214-228](../../../apps/backend/src/index.ts#L214-L228)
-
-### AI Proxying
-
-The `/api/openrouter` and `/api/codex` endpoints act as authenticated proxies to external AI providers. This allows the frontend to interact with models without exposing sensitive API keys directly in the browser. Sources: [apps/backend/src/index.ts:231-235](../../../apps/backend/src/index.ts#L231-L235), [README.md:27-35](../../../README.md#L27-L35)
-
-## Administrative and System Endpoints
-
-Administrative features are restricted to users with the `admin` role in their Supabase JWT. Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:150-165](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L150-L165)
-
-*  **`/api/admin/users`**: (POST) Allows creating new users with specific roles, used for initial setup and invitation flows.
-*  **`/api/admin/model-config`**: (GET) Retrieves global model settings, such as which AI models are used for drafting vs. structure generation.
-*  **`/api/admin/workflow-outbox`**: Provides visibility into the background task queue and outbox state.
-*  **`/api/status`**: A public endpoint returning the current server status and configuration flags.
-
-Sources: [apps/backend/src/index.ts:238-245](../../../apps/backend/src/index.ts#L238-L245), [apps/backend/tests/integration/supabaseLocal.integration.test.ts:470-485](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L470-L485)
-
-## Conclusion
-
-The Backend REST API provides a multi-layered interface for the Nous application. Express routes apply authentication and body-limit middleware before delegating to the project, workflow, and provider routers. Sources: [apps/backend/src/index.ts:176-265](../../../apps/backend/src/index.ts#L176-L265)
+Requests that need a provider use the configured server-side integration. Provider credentials are not sent to the browser. See [AI providers](../07-section-ai/01-p-ai-providers.md) for model selection and supported tools.

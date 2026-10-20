@@ -175,9 +175,7 @@ duration has been measured for production; the isolated verification does not es
 Project-source creation uses the authenticated `/api/projects` write path, whose JSON body limit is
 300 MB so a 128 MB ZIP plus transport encoding and project metadata fits. The public reverse proxy
 in front of `NOUS_BACKEND_PUBLIC_URL` must allow at least the same request size and a timeout suitable
-for the Storage upload and archive indexing pass. The archive's expanded-content limits are separate
-from the request limit. The source-backed storage and archive-indexing flow is maintained in Cubic's
-[Project Assets & Storage Archives](../.cubic/wiki/04-section-data/02-p-asset-management.md#archive-storage-and-ingestion).
+  for the Storage upload and archive indexing pass. The archive's expanded-content limits are separate from the request limit. See [Project Files and Storage](../.cubic/wiki/04-section-data/02-p-asset-management.md#uploaded-sources) for details about uploaded files and archive indexing.
 
 ### Managed profile
 

@@ -46,7 +46,7 @@ Le cifre su corpus, quote e prezzi sono fotografie della data di verifica e vann
 
 ## Implicazioni per l'integrazione in Nous
 
-La descrizione stabile del percorso di ricerca e delle fonti è mantenuta nella pagina Cubic [Course Generation Workflow](../../.cubic/wiki/03-section-features/01-p-course-gen.md#research-and-source-flow). Questo rapporto conserva soltanto le lacune e le conseguenze specifiche per un fornitore accademico.
+La descrizione stabile del percorso di ricerca e delle fonti è mantenuta nella wiki [Course Generation](../../.cubic/wiki/03-section-features/01-p-course-gen.md#from-research-to-course-plan). Questo rapporto conserva soltanto le lacune e le conseguenze specifiche per un fornitore accademico.
 
 - **FATTO:** il contratto corrente conserva titolo, URL, nota e campi video facoltativi, ma non DOI, autori, data, sede editoriale, fornitore, licenza o stato di ritrattazione ([schema](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L145-L167)).
 - **FATTO:** la raccolta del corso usa l'URL esatto come identità; la fusione delle fonti della lezione preferisce `sourceId`, poi l'URL minuscolo senza barre finali e infine il titolo normalizzato. Non esiste un'identità per opera che riconcili DOI, pagina editoriale, parametri o copie in repository ([raccolta](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/workflows/courseGenerationPlanning.ts#L64-L94), [fusione](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/services/lessonGenerationSources.ts#L412-L442)).

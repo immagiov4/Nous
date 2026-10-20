@@ -1,135 +1,26 @@
 ---
-title: "Workflow Observability & AI Metering"
+title: "Workflow Events and AI Usage"
 wiki_page_id: "p-telemetry-usage"
 ---
 
-<details>
-<summary>Relevant source files</summary>
+# Workflow Events and AI Usage
 
-The following files were used as context for generating this wiki page:
+Nous records selected workflow events and AI usage to help explain how a course or lesson was produced. These records support diagnosis; the saved workflow state remains the source of truth for whether work completed.
 
-- [apps/backend/src/workflows/workflowObservability.ts](../../../apps/backend/src/workflows/workflowObservability.ts)
-- [apps/backend/src/workflows/workflowErrorDiagnostics.ts](../../../apps/backend/src/workflows/workflowErrorDiagnostics.ts)
-- [apps/backend/src/workflows/validation.ts](../../../apps/backend/src/workflows/validation.ts)
-- [scripts/run-real-workflow-provider-tests.ts](../../../scripts/run-real-workflow-provider-tests.ts)
-- [apps/backend/tests/workflows/workflowObservability.test.ts](../../../apps/backend/tests/workflows/workflowObservability.test.ts)
-</details>
+## Workflow events
 
-# Workflow Observability & AI Metering
+Events record key changes such as work starting, retrying, waiting, completing or failing. They may include a request ID, operation, status and a short sanitized failure description.
 
-Workflow Observability and AI Metering form a critical subsystem within the project designed to track, log, and analyze the execution of complex asynchronous workflows and their associated AI provider consumption. This system ensures that every state transition, external effect, and AI token usage is captured with high fidelity while remaining isolated from the authoritative workflow state to prevent observability failures from impacting runtime stability.
+Prompts, source material, provider responses and credentials are excluded from workflow diagnostics.
 
-The system is divided into two primary concerns: **Observability**, which handles structured logging and transient event publication for real-time monitoring, and **Metering/Diagnostics**, which focuses on capturing granular AI usage metrics (tokens, models, providers) and detailed error contexts for failure analysis.
-Sources: [apps/backend/src/workflows/workflowObservability.ts](../../../apps/backend/src/workflows/workflowObservability.ts), [scripts/run-real-workflow-provider-tests.ts](../../../scripts/run-real-workflow-provider-tests.ts)
+## AI usage
 
-## Observability Architecture
+When a provider reports usage, Nous can record input, output, reasoning and cached tokens, along with the provider, model and reported cost. Some provider paths do not return usage, so totals can be incomplete.
 
-The observability layer employs a "best-effort" philosophy. It projects internal runtime outcomes into content-free structured events, ensuring that sensitive user data (like prompts or secrets) is never leaked into logs.
+The account usage view covers course and lesson generation. It does not include every chat or audio request. Cached input is part of input usage, and reasoning tokens are part of output usage; they should not be added a second time.
 
-### Event Projection and Logging
-The `projectWorkflowLogEvent` function acts as a gateway that transforms raw workflow state into safe, log-ready objects. It categorizes events into several distinct entities: `run`, `attempt`, `definition`, `wait`, `notification`, and `runtime`.
+## Cost estimates and retention
 
-```mermaid
-flowchart TD
-    RawState[Raw Workflow State] --> Projector[projectWorkflowLogEvent]
-    Projector --> SafeEvent[Structured Log Event]
-    SafeEvent --> Logger[WorkflowLogger]
-    Logger --> Console[ConsoleWorkflowLogger]
-    
-    subgraph Entities
-    E1[Run]
-    E2[Attempt]
-    E3[Wait]
-    E4[Notification]
-    end
-    
-    SafeEvent -.-> Entities
-```
+When a provider reports a cost, Nous uses that amount. For OpenRouter requests with text-only output, Nous can estimate a missing cost from current model rates when the required token counts and prices are available. Estimates are not historical invoices; other missing costs remain unknown.
 
-The system utilizes a `WorkflowLogger` interface, primarily implemented by `ConsoleWorkflowLogger`, which outputs JSON-serialized events at various levels (`info`, `warn`, `error`).
-Sources: [apps/backend/src/workflows/workflowObservability.ts:413-440](../../../apps/backend/src/workflows/workflowObservability.ts#L413-L440), [apps/backend/src/workflows/workflowObservability.ts:457-463](../../../apps/backend/src/workflows/workflowObservability.ts#L457-L463)
-
-### Transient Event System
-Transient events are process-local, lossy notifications delivered after authoritative transactions commit. They allow real-time observers to track progress without being able to modify the durable workflow state.
-
-| Feature | Description |
-| :--- | :--- |
-| **Synchronous Delivery** | Events are delivered to all subscribers in the current process loop. |
-| **Isolation** |Paylod nesting is frozen/cloned to prevent observers from mutating data seen by others. |
-| **Process-Local** | Unlike durable events, these do not survive process restarts. |
-
-Sources: [apps/backend/src/workflows/workflowObservability.ts:32-72](../../../apps/backend/src/workflows/workflowObservability.ts#L32-L72), [apps/backend/tests/workflows/workflowObservability.test.ts:70-96](../../../apps/backend/tests/workflows/workflowObservability.test.ts#L70-L96)
-
-## AI Metering and Usage Tracking
-
-AI Metering tracks the consumption of tokens across different providers (e.g., Codex) and models. This data is persisted in the `public.workflow_ai_usage` table for auditing and cost management.
-
-### Metering Data Model
-The system tracks several token-level metrics for every workflow run:
-
-| Field | Description |
-| :--- | :--- |
-| `input_tokens` | Total tokens sent in the prompt. |
-| `output_tokens` | Total tokens generated by the model. |
-| `reasoning_tokens` | Tokens used for internal model "thought" processes (if supported). |
-| `cache_read_tokens` | Tokens retrieved from provider-side caches. |
-| `cache_write_tokens` | Tokens written to provider-side caches. |
-| `model` | The specific model string (e.g., `gpt-5.6-luna`). |
-| `provider` | The AI service provider name (e.g., `codex`). |
-
-Sources: [scripts/run-real-workflow-provider-tests.ts:46-56](../../../scripts/run-real-workflow-provider-tests.ts#L46-L56), [scripts/run-real-workflow-provider-tests.ts:285-320](../../../scripts/run-real-workflow-provider-tests.ts#L285-L320)
-
-### Diagnostic Context
-When a workflow step involving an AI model fails, the system captures a `WorkflowModelDiagnostic`. This includes the `slot` (e.g., `course`, `lesson`), the `provider`, and the `serviceTier` (e.g., `fast`), providing immediate context for debugging provider-specific issues.
-Sources: [apps/backend/src/workflows/workflowObservability.ts:365-385](../../../apps/backend/src/workflows/workflowObservability.ts#L365-L385), [apps/backend/src/workflows/workflowErrorDiagnostics.ts](../../../apps/backend/src/workflows/workflowErrorDiagnostics.ts)
-
-## Workflow Integrity and Validation
-
-To ensure observability remains consistent across software updates, the system utilizes manifest hashing and validation.
-
-```mermaid
-sequenceDiagram
-    participant Registry as Workflow Registry
-    participant Validator as validateWorkflowDefinition
-    participant Hasher as hashWorkflowManifest
-    
-    Registry->>Validator: Pass ErasedWorkflowDefinition
-    Validator-->>Registry: Return WorkflowManifest
-    Registry->>Hasher: Generate SHA-256
-    Hasher-->>Registry: Return definitionHash
-    Note over Registry: Hash is used to verify integrity<br/>during materialization
-```
-
-The `validateWorkflowDefinition` function ensures that every node, schema, and event within a workflow follows a strictly defined structure before it can be registered or materialized.
-Sources: [apps/backend/src/workflows/validation.ts:251-285](../../../apps/backend/src/workflows/validation.ts#L251-L285), [apps/backend/src/workflows/validation.ts:287-288](../../../apps/backend/src/workflows/validation.ts#L287-L288)
-
-## Diagnostic Tooling: `doctor`
-
-The `doctor` script provides a local diagnostic suite for developers to verify the health of the observability and metering infrastructure, including Supabase migration parity and local Sonar service status.
-
-| Profile | Checks Performed |
-| :--- | :--- |
-| `checks` | Bun contract, project executables, and the Fallow baseline. |
-| `gate` | Probes the loopback-only local SonarQube service. |
-| `local` | Verifies Supabase Auth, Data API, Storage, and Migration drift. |
-| `all` | Combines environment checks with the Sonar and Supabase probes. |
-
-Sources: [scripts/doctor.ts:60-70](../../../scripts/doctor.ts#L60-L70), [scripts/doctor.ts:108-130](../../../scripts/doctor.ts#L108-L130)
-
-## Conclusion
-The Workflow Observability & AI Metering system provides a robust framework for monitoring the project's distributed logic. By strictly separating authoritative execution from best-effort logging, and by capturing granular AI usage data, it allows the platform to scale while maintaining high visibility into both operational performance and provider costs.
-Sources: [apps/backend/src/workflows/workflowObservability.ts](../../../apps/backend/src/workflows/workflowObservability.ts), [scripts/run-real-workflow-provider-tests.ts](../../../scripts/run-real-workflow-provider-tests.ts)
-
-## Recorded consumption in the account menu
-
-`GET /api/account/usage` joins recorded usage to `workflow_runs.user_id`, then aggregates only the authenticated user's records. Input and output counters are summed once. Cache counters describe portions of input, and reasoning already belongs to output. Missing counters remain nullable and mark the displayed token sum as partial. The menu does not imply that unmetered calls were free.
-
-The initial response uses recorded counters and provider costs without consulting an external service. Its `hasCostEstimateCandidates` field identifies OpenRouter records without a reported cost and with both input and output counters. The menu requests `?estimate=true` separately only when that field is true; missing costs from other providers do not cause another aggregation. The same server predicate controls price lookup. A candidate may still lack supported rates or complete cache counters. A pending or failed estimate leaves the recorded summary visible. Both requests retain the authenticated account identity; closing the menu or changing account cancels them, including an outstanding provider price lookup.
-
-Provider-reported USD cost takes precedence, including an explicit zero. Where it is absent, the server can estimate recorded OpenRouter text-token cost from the current model catalogue and complete billing counters. It applies provider long-context brackets per call, separates cached input from regular input and leaves unsupported image output, providers or incomplete cache counters unpriced. Token and USD formatting follows the active interface locale. The display labels current-rate estimates and missing costs explicitly; the result is not a historical invoice. Catalogue failure leaves reported costs available and estimates unknown.
-
-This view covers the existing generation metering only. Chat streams and audio are excluded. Course deletion does not necessarily remove consumption: the current foreign key preserves workflow runs and sets their project reference to null. Deleting a run or account can still remove its usage, so this is not a permanent accounting ledger.
-
-Supported price overrides apply strictly above their token threshold, in provider order with later entries winning per key. Models with other override conditions, including time windows, remain unpriced rather than using an inapplicable base rate. These rules follow the [OpenRouter pricing contract](https://openrouter.ai/docs/guides/overview/models#pricing-overrides).
-
-Sources: [accountUsage.ts](../../../apps/backend/src/account/accountUsage.ts), [accountStore.ts](../../../apps/backend/src/account/accountStore.ts), [AccountUsage.tsx](../../../apps/web/components/account/AccountUsage.tsx), [workflow retention migration](../../../supabase/migrations/20260810134500_preserve_workflow_runs_after_project_deletion.sql), [OpenRouter model catalogue](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties)
+Deleting a workflow attempt also deletes its usage records.
