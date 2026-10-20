@@ -186,10 +186,12 @@ describe('useTtsPlayer', () => {
 
     expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(2);
     expect(openRouterMocks.generateSpeech).toHaveBeenCalledWith(
-      expect.any(String),
-      'Zephyr',
-      'google/gemini-3.8-flash-lite-tts',
-      expect.objectContaining({ speech: expect.any(String) })
+      expect.objectContaining({
+        text: expect.any(String),
+        voice: 'Zephyr',
+        model: 'google/gemini-3.8-flash-lite-tts',
+        block: expect.objectContaining({ speech: expect.any(String) }),
+      })
     );
     expect(result.current.audioState.currentChunkIndex).toBe(0);
 
@@ -224,7 +226,7 @@ describe('useTtsPlayer', () => {
     expect(result.current.audioState.chunks).toHaveLength(result.current.chunkOptions.length);
 
     await waitFor(() => expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(1));
-    expect(openRouterMocks.generateSpeech.mock.calls[0]?.[0]).toBe(
+    expect(openRouterMocks.generateSpeech.mock.calls[0]?.[0].text).toBe(
       result.current.audioState.chunks[1]?.text
     );
   });
@@ -336,8 +338,8 @@ test('keeps selection text aligned with the rendered prose while sending origina
   act(() => result.current.togglePlayPause());
   await waitFor(() => expect(openRouterMocks.generateSpeech).toHaveBeenCalled());
   expect(
-    openRouterMocks.generateSpeech.mock.calls[0][3].spans.flatMap((span: { math?: string }) =>
-      span.math ? [span.math] : []
+    openRouterMocks.generateSpeech.mock.calls[0][0].block.spans.flatMap(
+      (span: { math?: string }) => (span.math ? [span.math] : [])
     )
   ).toEqual([String.raw`$\mathcal{P}(A)$`, String.raw`$f: A\to B$`]);
 });

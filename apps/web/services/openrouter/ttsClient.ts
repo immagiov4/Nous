@@ -7,6 +7,7 @@ const TTS_DISCOVERY_REQUEST_TIMEOUT_MS = 5_000;
 
 interface GenerateSpeechPayload {
   block?: LessonPlaybackBlock;
+  target?: { projectId: string; sectionId: string };
   model: string;
   text: string;
   voice: string;

@@ -19,6 +19,8 @@ import {
   generatePlaybackSpokenMath,
   PlaybackNarrationResponseSchema,
 } from './lessonPlayback/playbackSpokenMath.js';
+import type { LessonSourceProvenance } from './lessonPrimarySourceContext.js';
+import { resolveLessonSpeechSource } from './lessonSpeechSource.js';
 import { speechPreparationCache } from './speechPreparationCache.js';
 import { ttsClient } from './ttsClient.js';
 
@@ -27,6 +29,8 @@ const SPEECH_PREPARATION_CONTRACT = 'lesson-narration-v1';
 interface PrepareSpeechInput {
   readonly userId: string;
   readonly block: LessonPlaybackBlock;
+  readonly sourceProvenance?: LessonSourceProvenance;
+  readonly target?: { projectId: string; sectionId: string };
   readonly config: GlobalModelConfig;
   readonly signal: AbortSignal;
   readonly providerEffect?: WorkflowProviderEffectExecutor;
@@ -35,7 +39,11 @@ interface PrepareSpeechInput {
 }
 
 /** Resolve source, pronunciation and saved provider results before any synthesis or captions. */
-export const prepareSpeech = async (input: PrepareSpeechInput) => {
+export const prepareSpeech = async (request: PrepareSpeechInput) => {
+  request.signal.throwIfAborted();
+  const input = request.target
+    ? { ...request, ...(await resolveLessonSpeechSource({ ...request, target: request.target })) }
+    : request;
   input.signal.throwIfAborted();
   const { block, config } = input;
   const hasPreparation =
@@ -50,6 +58,7 @@ export const prepareSpeech = async (input: PrepareSpeechInput) => {
             canonicalJson({
               contract: SPEECH_PREPARATION_CONTRACT,
               speech: block.speech,
+              sourceProvenance: input.sourceProvenance ?? null,
               formulas: block.spans.flatMap(span => (span.math ? [span.math] : [])),
               fencedCode: block.spans.flatMap(span => (span.fencedCode ? [span.fencedCode] : [])),
               source: block.visuals.flatMap(visual =>

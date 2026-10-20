@@ -1,6 +1,10 @@
 import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
 import request from 'supertest';
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { readLessonPlayback } from '../../src/projects/lessonPlayback.js';
+import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
+import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
+import { playbackProject, playbackSection } from '../helpers/lessonPlayback.js';
 
 const mocks = vi.hoisted(() => ({
   generate: vi.fn(),
@@ -171,4 +175,58 @@ test('does not synthesize after an invalid pronunciation or a cancelled preparat
       signal: AbortSignal.abort(),
     })
   ).rejects.toThrow();
+});
+
+afterEach(() => setProjectStoreForTesting(null));
+
+test('standard listening reuses authoritative saved pronunciation, and rejects another owner or changed notation', async () => {
+  const section: ReturnType<typeof playbackSection> = {
+    ...playbackSection(),
+    content: markdown,
+    contentBlocks: [{ type: 'markdown' as const, markdown }],
+  };
+  const raw = readLessonPlayback(section);
+  const source = raw.blocks[0];
+  const saved = await prepareSpeech({
+    userId: 'local-user',
+    block: source,
+    config: getGlobalModelConfig(),
+    signal: new AbortController().signal,
+  });
+  section.playback = {
+    ...raw,
+    blocks: [{ ...source, prepared: { ...saved.narration, motion: [] } }],
+  };
+  const store = new InMemoryProjectStore();
+  await store.saveProject('local-user', playbackProject(section));
+  setProjectStoreForTesting(store);
+  mocks.generate.mockClear();
+  mocks.cached.clear();
+  const target = { projectId: 'project-1', sectionId: 'section-1' };
+  const response = await request(createApp())
+    .post('/api/tts')
+    .send({ text: markdown, block: source, target });
+  expect(response.status).toBe(200);
+  expect(mocks.speech.mock.calls.at(-1)[0].text).toBe(expected);
+  expect(mocks.generate).not.toHaveBeenCalled();
+  const changed = {
+    ...source,
+    spans: source.spans.map(span => (span.math ? { ...span, math: '$z$' } : span)),
+  };
+  expect(
+    (await request(createApp()).post('/api/tts').send({ text: markdown, block: changed, target }))
+      .status
+  ).toBe(409);
+  expect(
+    (
+      await request(createApp())
+        .post('/api/tts')
+        .send({
+          text: markdown,
+          block: source,
+          target: { ...target, projectId: 'another-owner-project' },
+        })
+    ).status
+  ).toBe(404);
+  expect(mocks.speech).toHaveBeenCalledOnce();
 });

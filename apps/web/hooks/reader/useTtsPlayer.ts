@@ -1,4 +1,9 @@
-import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import {
+  type LessonPlaybackBlock,
+  type PlaybackContentBlock,
+  resolvePlaybackNarration,
+  segmentLessonPlayback,
+} from '@shared/lessonPlayback';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE } from '../../services/audio/voiceProfile';
@@ -24,6 +29,8 @@ const isRetryableTtsError = (error: unknown): boolean => {
 };
 
 interface UseTtsPlayerParams {
+  projectId?: string | null;
+  contentBlocks?: readonly PlaybackContentBlock[];
   activeSectionId: string | null;
   sectionContent: string;
 }
@@ -60,14 +67,15 @@ interface PlaybackRun {
   cancelled: boolean;
 }
 
-/** Retain authored notation until the backend prepares the same blocks as lesson playback. */
-export const splitContentIntoChunks = (text: string): string[] => {
-  return segmentLessonPlayback([{ type: 'markdown', markdown: text }]).map(block => {
-    const starts = block.spans.map(span => span.source.start);
-    const ends = block.spans.map(span => span.source.end);
-    return text.slice(Math.min(...starts), Math.max(...ends)).trim();
-  });
-};
+const sourceChunkText = (block: LessonPlaybackBlock): string =>
+  resolvePlaybackNarration(
+    block,
+    block.spans.flatMap(span => (span.math ? [{ formula: span.math, spoken: span.math }] : []))
+  ).speech.trim();
+
+/** Source labels preserve notation; only backend preparation supplies its pronunciation. */
+export const splitContentIntoChunks = (text: string): string[] =>
+  segmentLessonPlayback([{ type: 'markdown', markdown: text }]).map(sourceChunkText);
 
 const createAudioChunks = (chunks: string[]): AudioChunk[] =>
   chunks.map((text, index) => ({
@@ -98,16 +106,22 @@ const createIdlePlaybackRun = (): PlaybackRun => ({
 });
 
 export const useTtsPlayer = ({
+  projectId,
+  contentBlocks,
   activeSectionId,
   sectionContent,
 }: UseTtsPlayerParams): UseTtsPlayerResult => {
   const sourceBlocks = useMemo(
-    () => segmentLessonPlayback([{ type: 'markdown', markdown: sectionContent }]),
-    [sectionContent]
+    () =>
+      segmentLessonPlayback(
+        contentBlocks?.length ? contentBlocks : [{ type: 'markdown', markdown: sectionContent }]
+      ),
+    [contentBlocks, sectionContent]
   );
-  const preparedChunkTexts = useMemo(
-    () => splitContentIntoChunks(sectionContent),
-    [sectionContent]
+  const preparedChunkTexts = useMemo(() => sourceBlocks.map(sourceChunkText), [sourceBlocks]);
+  const selectionChunkTexts = useMemo(
+    () => sourceBlocks.map(block => block.speech),
+    [sourceBlocks]
   );
   const chunkOptions = useMemo(
     () =>
@@ -456,12 +470,15 @@ export const useTtsPlayer = ({
           const requestedVoice = audioStateRef.current.currentVoice;
           const requestedText = chunk.text;
           const requestedModel = audioStateRef.current.currentModel;
-          const speechAudio = await OpenRouterService.generateSpeech(
-            requestedText,
-            requestedVoice,
-            requestedModel,
-            sourceBlocks[retryIndex]
-          );
+          const speechAudio = await OpenRouterService.generateSpeech({
+            text: requestedText,
+            voice: requestedVoice,
+            model: requestedModel,
+            block: sourceBlocks[retryIndex],
+            ...(projectId && activeSectionId
+              ? { target: { projectId, sectionId: activeSectionId } }
+              : {}),
+          });
           const audioBlob = new Blob([speechAudio.audioBuffer], { type: speechAudio.contentType });
           const url = URL.createObjectURL(audioBlob);
           generatedObjectUrlsRef.current.add(url);
@@ -544,7 +561,7 @@ export const useTtsPlayer = ({
       chunkPromisesRef.current[index] = promise;
       return promise;
     },
-    [revokeTrackedUrl, sourceBlocks, setTrackedAudioState]
+    [revokeTrackedUrl, sourceBlocks, setTrackedAudioState, projectId, activeSectionId]
   );
 
   const playAudioRef = useRef<(startIndex?: number, startTime?: number) => Promise<void>>(
@@ -1169,7 +1186,7 @@ export const useTtsPlayer = ({
     availableVoices,
     audioState,
     chunkOptions,
-    chunkTexts: sourceBlocks.map(block => block.speech),
+    chunkTexts: selectionChunkTexts,
     errorMessage,
     handleModelChange,
     handleSeek,

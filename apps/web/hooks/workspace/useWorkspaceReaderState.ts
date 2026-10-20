@@ -26,6 +26,7 @@ import { useTtsPlayer } from '../reader/useTtsPlayer.ts';
 import { useTtsTextPicker } from '../reader/useTtsTextPicker.ts';
 
 interface UseWorkspaceReaderStateArgs {
+  projectId?: string | null;
   activeSection: LearningSection | null;
   activeSectionId: string | null;
   documentAssets: PdfDocumentAssets | null;
@@ -44,6 +45,7 @@ const areSettingsSectionsEqual = (
   currentSections.every((sectionId, index) => sectionId === nextSections[index]);
 
 export const useWorkspaceReaderState = ({
+  projectId,
   activeSection,
   activeSectionId,
   documentAssets,
@@ -88,6 +90,8 @@ export const useWorkspaceReaderState = ({
     sectionContent,
   });
   const ttsPlayer = useTtsPlayer({
+    projectId,
+    contentBlocks: activeSection?.contentBlocks,
     activeSectionId,
     sectionContent,
   });

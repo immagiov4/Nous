@@ -1,17 +1,15 @@
 import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
-
 import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import { lessonPlaybackVisuals, readLessonPlayback } from '../projects/lessonPlayback.js';
 import type { ProjectAssetWriter } from '../projects/projectAsset.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
 import { getProjectStore } from '../projects/projectStore.js';
 import type { ProjectStore } from '../projects/types.js';
-import { readStoredTranscribedSources } from '../services/lessonEvidence.js';
-import { readExistingDossier } from '../services/lessonGenerationSources.js';
 import {
   prepareLessonPlaybackBlock,
   validatePlaybackSceneTypes,
 } from '../services/lessonPlayback/prepareLessonPlaybackBlock.js';
+import { readLessonSpeechProvenance } from '../services/lessonSpeechSource.js';
 import { ttsClient } from '../services/ttsClient.js';
 import { isPlaybackBlockReady } from './lessonPlaybackApi.js';
 import { createLessonPlaybackPersistence } from './lessonPlaybackPersistence.js';
@@ -57,18 +55,6 @@ export const createProductionLessonPlaybackServices = (
       return { target: input, block: LessonPlaybackBlockSchema.parse(block) };
     }
     if (!providerEffect) throw new Error('Playback preparation requires durable provider results.');
-    const dossier = readExistingDossier(project.snapshot, input.sectionId);
-    let transcribedSources: ReturnType<typeof readStoredTranscribedSources> = [];
-    try {
-      transcribedSources = readStoredTranscribedSources(
-        typeof dossier?.evidencePacketJson === 'string' ? dossier.evidencePacketJson : undefined
-      );
-    } catch {
-      console.warn(
-        '[lesson-playback] Stored evidence is unreadable; omitting optional provenance.'
-      );
-    }
-
     const prepared = await prepareLessonPlaybackBlock({
       userId: input.userId,
       allowedSceneTypes,
@@ -77,14 +63,7 @@ export const createProductionLessonPlaybackServices = (
       block,
       lesson: {
         ...lesson,
-        ...(transcribedSources.length
-          ? {
-              sourceProvenance: {
-                kind: 'vision-transcription' as const,
-                sources: transcribedSources,
-              },
-            }
-          : {}),
+        sourceProvenance: readLessonSpeechProvenance(project.snapshot, input.sectionId),
       },
       config: await getResolvedGlobalModelConfig(),
       voice: input.voice,

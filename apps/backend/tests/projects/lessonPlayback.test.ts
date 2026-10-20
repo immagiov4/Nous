@@ -567,7 +567,11 @@ test('keeps recorded inline pronunciations and audio when display math gains a s
   ];
   const saved = preparedPlayback(section);
   const first = saved.blocks[0];
-  const prepared = { ...first.prepared, motion: [], spokenMath: [{ formula: '$x$', spoken: 'ics' }] };
+  const prepared = {
+    ...first.prepared,
+    motion: [],
+    spokenMath: [{ formula: '$x$', spoken: 'ics' }],
+  };
   section.playback = {
     ...saved,
     blocks: [

@@ -145,7 +145,6 @@ export const prepareLessonPlaybackBlock = async (
   };
 };
 
-
 const prepareVisuals = async (
   input: PrepareLessonPlaybackBlockInput
 ): Promise<PreparedLessonPlaybackBlock['prepared']> => {
