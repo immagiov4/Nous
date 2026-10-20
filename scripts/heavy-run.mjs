@@ -16,7 +16,7 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
+import { setInterval as ticks } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
 const HEARTBEAT_MS = 30_000;
@@ -156,10 +156,14 @@ async function stopChild(child) {
   if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
   if (process.platform === 'win32') {
     await new Promise((resolve, reject) => {
-      const killer = spawn('taskkill.exe', ['/pid', String(child.pid), '/T', '/F'], {
-        windowsHide: true,
-        stdio: 'ignore',
-      });
+      const killer = spawn(
+        join(process.env.SystemRoot, 'System32', 'taskkill.exe'),
+        ['/pid', String(child.pid), '/T', '/F'],
+        {
+          windowsHide: true,
+          stdio: 'ignore',
+        }
+      );
       killer.once('error', reject);
       killer.once('exit', resolve);
     });
@@ -176,7 +180,7 @@ async function stopChild(child) {
   }
 }
 
-async function runCommand(command, environment, abort, onSpawn) {
+export async function runCommand(command, environment, abort, onSpawn) {
   const detached = process.platform !== 'win32' && !process.env.HEAVY_RUN_GROUP_PID;
   // The POSIX launcher records its own group before exec, preserving one group across nested wrappers.
   const invocation =
@@ -189,7 +193,7 @@ async function runCommand(command, environment, abort, onSpawn) {
     windowsHide: true,
     detached,
   });
-  let stopping;
+  let stopping = Promise.resolve();
   const stopped = () => {
     stopping = stopChild(child).catch(error => {
       process.stderr.write(`heavy-run: failed to stop command: ${error.message}\n`);
@@ -218,22 +222,22 @@ async function runCommand(command, environment, abort, onSpawn) {
   }
 }
 
-async function workerCommand(args) {
-  if (!process.send || args[1] !== '--' || !args[2])
+export async function workerCommand(args, channel = process) {
+  if (!channel.send || args[1] !== '--' || !args[2])
     throw new Error('Worker requires supervisor IPC.');
   const admitted = await new Promise(resolve => {
     const received = message => {
-      process.removeListener('disconnect', disconnected);
+      channel.removeListener('disconnect', disconnected);
       resolve(message === 'run');
     };
     const disconnected = () => {
-      process.removeListener('message', received);
+      channel.removeListener('message', received);
       resolve(false);
     };
-    process.once('message', received);
-    process.once('disconnect', disconnected);
+    channel.once('message', received);
+    channel.once('disconnect', disconnected);
   });
-  if (process.connected) process.disconnect();
+  if (channel.connected) channel.disconnect();
   if (!admitted) return null;
   if (process.platform !== 'win32' && !process.env.HEAVY_RUN_GROUP_PID) {
     process.env.HEAVY_RUN_GROUP_PID = String(process.pid);
@@ -257,11 +261,41 @@ function parseCommand(args) {
   if (args[0] !== '--label' || !args[1]) throw new Error('A --label is required.');
   if (args[2] === '--shell' && args[3] && args[4] === '--') {
     // Bun's cross-platform shell handles package expressions; quote each forwarded argument.
-    const tail = args.slice(5).map(argument => `'${argument.replaceAll("'", "'\\''")}'`);
+    const escapedQuote = String.raw`'\''`;
+    const tail = args.slice(5).map(argument => `'${argument.replaceAll("'", escapedQuote)}'`);
     return ['bun', 'exec', [args[3], ...tail].join(' ')];
   }
   if (args[2] === '--' && args[3]) return args.slice(3);
   throw new Error('Usage: heavy-run.mjs --label "who/what" -- command [args...] | status');
+}
+
+function tryClaim(context) {
+  const { queue, lock, prepared, ticket, staleMs, label } = context;
+  const waiting = readQueue(queue, staleMs, true);
+  const owner = readLock(lock, staleMs);
+  const position = waiting.findIndex(entry => entry.path === ticket.path);
+  if (position < 0) throw new Error(EXPIRED_TICKET);
+  if (position === 0 && owner?.stale) removeLock(lock, owner.path && basename(owner.path));
+  if (position === 0 && claimLock(prepared, lock)) {
+    if (!existsSync(ticket.path)) throw new Error(EXPIRED_TICKET);
+    return true;
+  }
+  if (Date.now() - context.lastReport >= HEARTBEAT_MS) {
+    process.stdout.write(
+      `heavy-run: ${label}, position ${position + 1}; owner: ${owner ? describeOwner(owner.owner) : 'free'}\n`
+    );
+    context.lastReport = Date.now();
+  }
+  return false;
+}
+
+async function waitForLock(context, abort) {
+  if (abort.signal.aborted) return false;
+  if (tryClaim(context)) return true;
+  for await (const _tick of ticks(POLL_MS, undefined, { signal: abort.signal })) {
+    if (tryClaim(context)) return true;
+  }
+  return false;
 }
 
 async function queuedRun({ directory, staleMs, label, command, abort }) {
@@ -279,33 +313,17 @@ async function queuedRun({ directory, staleMs, label, command, abort }) {
     mkdirSync(prepared, { recursive: true });
     // Both names share one record and heartbeat; publication never exposes a partial owner record.
     linkSync(ticket.path, join(prepared, ticket.owner.id));
-    let lastReport = 0;
-    while (!abort.signal.aborted) {
-      const waiting = readQueue(queue, staleMs, true);
-      const owner = readLock(lock, staleMs);
-      const position = waiting.findIndex(entry => entry.path === ticket.path);
-      if (position < 0) throw new Error(EXPIRED_TICKET);
-      if (position === 0) {
-        if (owner?.stale) removeLock(lock, owner.path && basename(owner.path));
-        if (claimLock(prepared, lock)) {
-          if (!existsSync(ticket.path)) throw new Error(EXPIRED_TICKET);
-          process.stdout.write(`heavy-run: running ${label}\n`);
-          const worker = [process.execPath, SCRIPT_PATH, '--worker', '--', ...command];
-          return await runCommand(worker, { ...process.env, HEAVY_RUN_HELD: '1' }, abort, pid => {
-            // The worker waits for IPC permission until activation has won against stale recovery.
-            ownerFile = activateLock(lock, ticket, pid);
-          });
-        }
-      }
-      if (Date.now() - lastReport >= HEARTBEAT_MS) {
-        process.stdout.write(
-          `heavy-run: ${label}, position ${position + 1}; owner: ${owner ? describeOwner(owner.owner) : 'free'}\n`
-        );
-        lastReport = Date.now();
-      }
-      await delay(POLL_MS, undefined, { signal: abort.signal });
-    }
-    return 130;
+    const claimed = await waitForLock(
+      { queue, lock, prepared, ticket, staleMs, label, lastReport: 0 },
+      abort
+    );
+    if (!claimed) return 130;
+    process.stdout.write(`heavy-run: running ${label}\n`);
+    const worker = [process.execPath, SCRIPT_PATH, '--worker', '--', ...command];
+    return await runCommand(worker, { ...process.env, HEAVY_RUN_HELD: '1' }, abort, pid => {
+      // The worker waits for IPC permission until activation has won against stale recovery.
+      ownerFile = activateLock(lock, ticket, pid);
+    });
   } finally {
     clearInterval(heartbeat);
     removeLock(lock, ownerFile);
@@ -316,8 +334,17 @@ async function queuedRun({ directory, staleMs, label, command, abort }) {
   }
 }
 
-async function main() {
-  const args = process.argv.slice(2);
+function showStatus(directory, staleMs) {
+  const owner = readLock(join(directory, 'lock'), staleMs);
+  console.log(`Owner: ${owner ? describeOwner(owner.owner) : 'free'}`);
+  const queue = join(directory, 'queue');
+  if (!existsSync(queue)) return;
+  for (const [index, entry] of readQueue(queue, staleMs, false).entries()) {
+    console.log(`${index + 1}. ${describeOwner(entry.owner)}${entry.stale ? ' [stale]' : ''}`);
+  }
+}
+
+export async function main(args = process.argv.slice(2)) {
   const directory = process.env.HEAVY_RUN_DIR || join(homedir(), '.agent-questions', 'heavy-run');
   const worker = args[0] === '--worker';
   const bypass = worker || process.env.CI === 'true' || process.env.HEAVY_RUN_HELD === '1';
@@ -327,14 +354,7 @@ async function main() {
   if (!Number.isFinite(staleMs) || staleMs <= HEARTBEAT_MS)
     throw new Error(`HEAVY_RUN_STALE_MS must exceed the ${HEARTBEAT_MS} ms heartbeat interval.`);
   if (args[0] === 'status') {
-    const owner = readLock(join(directory, 'lock'), staleMs);
-    console.log(`Owner: ${owner ? describeOwner(owner.owner) : 'free'}`);
-    const queue = join(directory, 'queue');
-    if (existsSync(queue)) {
-      for (const [index, entry] of readQueue(queue, staleMs, false).entries()) {
-        console.log(`${index + 1}. ${describeOwner(entry.owner)}${entry.stale ? ' [stale]' : ''}`);
-      }
-    }
+    showStatus(directory, staleMs);
     return 0;
   }
   const command = worker ? await workerCommand(args) : parseCommand(args);
@@ -358,12 +378,11 @@ async function main() {
   }
 }
 
-main().then(
-  code => {
-    process.exitCode = code;
-  },
-  error => {
+if (import.meta.main) {
+  try {
+    process.exitCode = await main();
+  } catch (error) {
     console.error(`heavy-run: ${error.message}`);
     process.exitCode = 1;
   }
-);
+}

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { parse } from 'yaml';
-import { probePackageScripts } from '../helpers/packageScriptProbe';
+import { probePackageScripts } from '../../../../scripts/package-script-probe';
 
 type WorkflowStep = {
   env?: Record<string, string>;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { probePackageScripts } from '../apps/web/tests/helpers/packageScriptProbe';
+import { probePackageScripts } from './package-script-probe';
 
 import {
   executeFullQualityGate,

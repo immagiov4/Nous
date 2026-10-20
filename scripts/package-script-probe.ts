@@ -4,12 +4,17 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 async function runFixtureCommand(directory: string, script: string): Promise<string[]> {
-  const child = spawn('bun', ['run', script], {
-    cwd: directory,
-    env: { ...process.env, CI: 'true', HEAVY_RUN_HELD: '', HEAVY_RUN_GROUP_PID: '' },
-    windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  // The fixture executes the developer's Bun installation and repository-owned script names.
+  const child = spawn(
+    'bun', // NOSONAR: Developer-controlled Bun installation; repository-owned commands only.
+    ['run', script],
+    {
+      cwd: directory,
+      env: { ...process.env, CI: 'true', HEAVY_RUN_HELD: '', HEAVY_RUN_GROUP_PID: '' },
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }
+  );
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', chunk => {
@@ -47,9 +52,7 @@ export async function probePackageScripts(commands: string[]): Promise<string[]>
     const probe = `console.log(JSON.stringify(process.argv.slice(2)));`;
     await writeFile(join(directory, 'scripts/probe.mjs'), probe);
     await writeFile(join(directory, 'scripts/run-workflow-postgres-contract.ts'), probe);
-    const observed: string[] = [];
-    for (const script of commands) observed.push(...(await runFixtureCommand(directory, script)));
-    return observed;
+    return (await Promise.all(commands.map(script => runFixtureCommand(directory, script)))).flat();
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

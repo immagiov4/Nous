@@ -2,7 +2,8 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
+import { main } from './check-changed.mjs';
 
 const directories: string[] = [];
 
@@ -49,8 +50,25 @@ function fixture() {
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const directory of directories.splice(0))
     rmSync(directory, { recursive: true, force: true });
+});
+
+test('the measured entry checks real branch files and preserves failure codes', () => {
+  const { directory, git } = fixture();
+  expect(main(directory)).toBe(0);
+  writeFileSync(join(directory, 'working.ts'), 'branch change');
+  git('add', 'working.ts');
+  expect(main(directory)).toBe(0);
+  const calls = readFileSync(join(directory, 'observed.jsonl'), 'utf8').trim().split('\n');
+  expect(calls).toHaveLength(3);
+  vi.stubEnv('FIXTURE_EXIT', '7');
+  expect(main(directory)).toBe(7);
+  rmSync(join(directory, '.git'), { recursive: true });
+  expect(() => main(directory)).toThrow('not a git repository');
+  vi.stubEnv('PATH', '');
+  expect(() => main(directory)).toThrow();
 });
 
 test('checks committed, staged, working and untracked files against the branch base', () => {
@@ -110,6 +128,7 @@ test('checks every file when the path list exceeds the Windows command-line capa
     .trim()
     .split('\n')
     .map(line => JSON.parse(line));
+  expect(main(directory)).toBe(0);
   if (process.platform === 'win32') expect(calls.length).toBeGreaterThan(3);
   for (const marker of ['check', 'eslint.config.mjs', 'eslint.sonar.config.mjs']) {
     expect(

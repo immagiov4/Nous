@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import {
   existsSync,
   mkdirSync,
@@ -13,7 +14,8 @@ import {
 import { tmpdir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import { main, runCommand, workerCommand } from './heavy-run.mjs';
 
 const wrapper = resolve('scripts/heavy-run.mjs');
 const runtime = process.execPath;
@@ -94,6 +96,9 @@ function output(child: ChildProcess) {
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
   for (const path of barriers.splice(0)) writeFileSync(path, '');
   for (const child of children.splice(0)) {
     if (child.exitCode !== null || child.signalCode !== null) continue;
@@ -113,6 +118,274 @@ afterEach(async () => {
   await Promise.all(completions.values());
   completions.clear();
   for (const path of directories.splice(0)) rmSync(path, { recursive: true, force: true });
+});
+
+function localEnvironment(path: string) {
+  vi.stubEnv('CI', 'false');
+  vi.stubEnv('HEAVY_RUN_HELD', '');
+  vi.stubEnv('HEAVY_RUN_GROUP_PID', '');
+  vi.stubEnv('HEAVY_RUN_DIR', path);
+  vi.stubEnv('HEAVY_RUN_STALE_MS', '600000');
+}
+
+describe('measured CLI integration', () => {
+  test('recovers stale records, reports ownership and serializes real child commands', async () => {
+    const path = directory();
+    localEnvironment(path);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    expect(await main(['status'])).toBe(0);
+    expect(log).toHaveBeenCalledWith('Owner: free');
+    mkdirSync(join(path, 'queue'));
+    mkdirSync(join(path, 'lock'));
+    const record = JSON.stringify({ pid: process.pid, label: 'expired', id: 'expired.json' });
+    for (const file of [join(path, 'queue/expired.json'), join(path, 'lock/expired.json')]) {
+      writeFileSync(file, record);
+      utimesSync(file, new Date(0), new Date(0));
+    }
+    await main(['status']);
+    expect(log).toHaveBeenCalledWith(`1. expired (PID ${process.pid}) [stale]`);
+    const ready = join(path, 'ready');
+    const release = join(path, 'release');
+    const next = join(path, 'next');
+    barriers.push(release);
+    const first = main([
+      '--label',
+      'inline-first',
+      '--',
+      runtime,
+      '-e',
+      `const fs = require('node:fs'); fs.writeFileSync(process.argv[1], ''); const timer = setInterval(() => { if (fs.existsSync(process.argv[2])) clearInterval(timer); }, 20);`,
+      ready,
+      release,
+    ]);
+    try {
+      await until(() => existsSync(ready));
+      await main(['status']);
+      expect(log.mock.calls.flat().some(line => String(line).includes('inline-first'))).toBe(true);
+      const second = main([
+        '--label',
+        'inline-second',
+        '--',
+        runtime,
+        '-e',
+        `require('node:fs').writeFileSync(process.argv[1], '')`,
+        next,
+      ]);
+      await until(() => readdirSync(join(path, 'queue')).length === 2);
+      expect(existsSync(next)).toBe(false);
+      writeFileSync(release, '');
+      expect(await first).toBe(0);
+      expect(await second).toBe(0);
+      expect(existsSync(next)).toBe(true);
+      expect(existsSync(join(path, 'lock'))).toBe(false);
+    } finally {
+      writeFileSync(release, '');
+      await first;
+    }
+  });
+
+  test.each([
+    'CI',
+    'HEAVY_RUN_HELD',
+  ])('the %s entry runs directly even with invalid stale settings', async flag => {
+    const path = directory();
+    localEnvironment(path);
+    vi.stubEnv(flag, flag === 'CI' ? 'true' : '1');
+    vi.stubEnv('HEAVY_RUN_STALE_MS', 'unused');
+    expect(await main(['--label', 'direct', '--', runtime, '-e', 'process.exit(7)'])).toBe(7);
+    expect(readdirSync(path)).toEqual([]);
+  });
+
+  test('reports configuration and command errors at the entry boundary', async () => {
+    localEnvironment(directory());
+    await expect(main([])).rejects.toThrow('label');
+    await expect(main(['--label', 'missing'])).rejects.toThrow('Usage');
+    vi.stubEnv('HEAVY_RUN_STALE_MS', '30000');
+    await expect(main(['status'])).rejects.toThrow('heartbeat');
+  });
+
+  test('IPC permission admits the registered worker and disconnect cancels an unadmitted worker', async () => {
+    localEnvironment(directory());
+    const channel = Object.assign(new EventEmitter(), {
+      send() {},
+      connected: true,
+      disconnect() {
+        this.connected = false;
+      },
+    });
+    const command = ['--worker', '--', runtime, '-e', 'process.exit(0)'];
+    const admitted = workerCommand(command, channel);
+    channel.emit('message', 'run');
+    expect(await admitted).toEqual(command.slice(2));
+    expect(channel.connected).toBe(false);
+    const cancelled = workerCommand(command, channel);
+    channel.emit('disconnect');
+    expect(await cancelled).toBeNull();
+    await expect(workerCommand([], channel)).rejects.toThrow('IPC');
+  });
+
+  test('an aborted direct child is stopped before the runner settles', async () => {
+    const path = directory();
+    localEnvironment(path);
+    const ready = join(path, 'child');
+    const abort = new AbortController();
+    const running = runCommand(
+      [
+        runtime,
+        '-e',
+        `require('node:fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1000);`,
+        ready,
+      ],
+      process.env,
+      abort
+    );
+    try {
+      await until(() => existsSync(ready));
+      abort.abort('SIGTERM');
+      expect(await running).not.toBe(0);
+      expect(() => process.kill(Number(readFileSync(ready, 'utf8')), 0)).toThrow();
+    } finally {
+      abort.abort('SIGTERM');
+      await running;
+    }
+    await expect(
+      runCommand([join(path, 'missing-executable')], process.env, new AbortController())
+    ).rejects.toThrow();
+  });
+
+  test('ticket collisions and incomplete records preserve deterministic admission', async () => {
+    const path = directory();
+    localEnvironment(path);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    mkdirSync(join(path, 'queue'));
+    mkdirSync(join(path, 'lock'));
+    writeFileSync(join(path, 'queue/incomplete.json'), '{');
+    await main(['status']);
+    expect(log.mock.calls.flat().some(line => String(line).includes('initializing'))).toBe(true);
+    writeFileSync(join(path, 'queue/incomplete.json'), '');
+    await main(['status']);
+    rmSync(join(path, 'queue/incomplete.json'));
+    rmSync(join(path, 'lock'), { recursive: true });
+    const timestamp = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(timestamp);
+    const collision = join(path, 'queue', `${timestamp}-0000000000.json`);
+    writeFileSync(collision, JSON.stringify({ pid: process.pid, label: 'expired' }));
+    utimesSync(collision, new Date(0), new Date(0));
+    expect(await main(['--label', 'collision', '--', runtime, '-e', 'process.exit(0)'])).toBe(0);
+    expect(readdirSync(join(path, 'queue'))).toEqual([]);
+  });
+
+  test('a dead PID is recovered immediately and unreadable queue entries fail closed', async () => {
+    const path = directory();
+    localEnvironment(path);
+    const dead = spawn(runtime, ['-e', 'process.exit(0)'], { windowsHide: true, stdio: 'ignore' });
+    const pid = dead.pid;
+    await new Promise(resolveExit => dead.once('exit', resolveExit));
+    mkdirSync(join(path, 'queue'));
+    mkdirSync(join(path, 'lock'));
+    const record = JSON.stringify({ pid, label: 'dead' });
+    writeFileSync(join(path, 'queue/dead.json'), record);
+    writeFileSync(join(path, 'lock/dead.json'), record);
+    expect(await main(['--label', 'recovery', '--', runtime, '-e', 'process.exit(0)'])).toBe(0);
+    mkdirSync(join(path, 'queue/unreadable'));
+    await expect(
+      main(['--label', 'blocked', '--', runtime, '-e', 'process.exit(99)'])
+    ).rejects.toThrow();
+    expect(readdirSync(join(path, 'queue'))).toEqual(['unreadable']);
+  });
+
+  test('a silent running command receives timer heartbeats and interruption cleanup', async () => {
+    const path = directory();
+    localEnvironment(path);
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const signals = vi.spyOn(process, 'once');
+    const ready = join(path, 'ready');
+    const running = main([
+      '--label',
+      'timer',
+      '--',
+      runtime,
+      '-e',
+      `require('node:fs').writeFileSync(process.argv[1], ''); setInterval(() => {}, 1000);`,
+      ready,
+    ]);
+    const terminate = signals.mock.calls.find(([signal]) => signal === 'SIGTERM')?.[1];
+    try {
+      await until(() => existsSync(ready));
+      const owner = join(path, 'lock', readdirSync(join(path, 'lock'))[0]);
+      const initial = statSync(owner).mtimeMs;
+      vi.advanceTimersByTime(30_000);
+      expect(statSync(owner).mtimeMs).toBeGreaterThan(initial);
+      terminate?.();
+      expect(await running).not.toBe(0);
+      expect(existsSync(join(path, 'lock'))).toBe(false);
+    } finally {
+      terminate?.();
+      await running;
+    }
+  });
+
+  test('interrupting an inline waiter preserves the living lock owner', async () => {
+    const path = directory();
+    localEnvironment(path);
+    mkdirSync(join(path, 'lock'));
+    const owner = join(path, 'lock/other.json');
+    writeFileSync(owner, `${JSON.stringify({ pid: process.pid, label: 'other' })}\n${process.pid}`);
+    utimesSync(owner, new Date(0), new Date(0));
+    const signals = vi.spyOn(process, 'once');
+    const waiting = main(['--label', 'waiter', '--', runtime, '-e', 'process.exit(99)']);
+    signals.mock.calls.find(([signal]) => signal === 'SIGINT')?.[1]();
+    expect(await waiting).toBe(130);
+    expect(existsSync(owner)).toBe(true);
+    expect(readdirSync(join(path, 'queue'))).toEqual([]);
+  });
+
+  test('shell forwarding and rejected worker registration retain their command boundary', async () => {
+    const path = directory();
+    localEnvironment(path);
+    const args = join(path, 'args.json');
+    const script = join(path, 'args.mjs');
+    writeFileSync(
+      script,
+      'import fs from "node:fs"; fs.writeFileSync(process.argv[2], JSON.stringify(process.argv.slice(3)));'
+    );
+    vi.stubEnv('CI', 'true');
+    expect(
+      await main([
+        '--label',
+        'shell',
+        '--shell',
+        `bun ${JSON.stringify(script)} ${JSON.stringify(args)}`,
+        '--',
+        "a'b;$()",
+        'two words',
+      ])
+    ).toBe(0);
+    expect(JSON.parse(readFileSync(args, 'utf8'))).toEqual(["a'b;$()", 'two words']);
+    const marker = join(path, 'must-not-start');
+    await expect(
+      runCommand(
+        [
+          runtime,
+          wrapper,
+          '--worker',
+          '--',
+          runtime,
+          '-e',
+          `require('node:fs').writeFileSync(process.argv[1], '')`,
+          marker,
+        ],
+        process.env,
+        new AbortController(),
+        () => {
+          throw new Error('registration rejected');
+        }
+      )
+    ).rejects.toThrow('registration rejected');
+    expect(existsSync(marker)).toBe(false);
+    await expect(main(['--worker'])).rejects.toThrow('IPC');
+    await expect(main(['--label', 'missing', '--shell', '', '--'])).rejects.toThrow('Usage');
+  });
 });
 
 describe('heavy command admission', () => {
@@ -233,7 +506,7 @@ describe('heavy command admission', () => {
     const entry = join(path, 'shell.mjs');
     writeFileSync(
       entry,
-      `process.argv.splice(4, 1, '--shell', 'PROOF=yes bun ${JSON.stringify(script)}', '--'); await import(${JSON.stringify(new URL('./heavy-run.mjs', import.meta.url).href)});`
+      `process.argv.splice(4, 1, '--shell', 'PROOF=yes bun ${JSON.stringify(script)}', '--'); process.exitCode = await (await import(${JSON.stringify(new URL('./heavy-run.mjs', import.meta.url).href)})).main();`
     );
     const result = output(start(path, 'shell', ['two words', "a'b;$()"], { entry }));
     expect(await result()).toMatchObject({ code: 0, stderr: '' });
@@ -264,7 +537,7 @@ describe('heavy command admission', () => {
           if (existsSync(${JSON.stringify(marker)})) { clearInterval(timer); process.emit(${JSON.stringify(signal)}); }
         }, 20);
       }
-      await import(${JSON.stringify(new URL('./heavy-run.mjs', import.meta.url).href)});
+      process.exitCode = await (await import(${JSON.stringify(new URL('./heavy-run.mjs', import.meta.url).href)})).main();
     `
     );
     const lock = join(path, 'lock');
@@ -337,7 +610,7 @@ describe('heavy command admission', () => {
     const entry = join(path, 'status.mjs');
     writeFileSync(
       entry,
-      `process.argv = [process.execPath, ${JSON.stringify(wrapper)}, 'status']; await import(${JSON.stringify(new URL('./heavy-run.mjs', import.meta.url).href)});`
+      `process.argv = [process.execPath, ${JSON.stringify(wrapper)}, 'status']; process.exitCode = await (await import(${JSON.stringify(new URL('./heavy-run.mjs', import.meta.url).href)})).main();`
     );
     const result = output(start(path, 'status', [runtime, '-e', ''], { entry }));
     expect(await result()).toMatchObject({ code: 0, stderr: '' });
@@ -440,7 +713,7 @@ describe('heavy command admission', () => {
         return originalWrite(target, content, ...options);
       };
       syncBuiltinESMExports();
-      await import(${JSON.stringify(new URL('./heavy-run.mjs', import.meta.url).href)});
+      process.exitCode = await (await import(${JSON.stringify(new URL('./heavy-run.mjs', import.meta.url).href)})).main();
     `
     );
     const firstChild = start(path, 'expired', [runtime, worker, firstStarted, release], {

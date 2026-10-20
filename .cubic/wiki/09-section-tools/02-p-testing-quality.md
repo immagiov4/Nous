@@ -35,6 +35,8 @@ The queue lives in `HEAVY_RUN_DIR`, defaulting to the user's `.agent-questions/h
 
 Before pushing, `bun run check:changed` runs Biome and both ESLint configurations on existing files changed since the merge base with `origin/main`, including staged, unstaged and untracked files. It skips deleted files and preserves filenames with spaces. These checks run directly; CI runs the complete quality checks. Run `bun run lint:types` when types or interfaces change.
 
+CLI tests exercise the exported entry points under Node coverage and retain separate-process proofs for FIFO admission, mutual exclusion, interruption and silent-child heartbeats.
+
 ## Validation Hierarchy
 
 The quality process is organized into discrete profiles and stages, allowing developers to run the narrowest meaningful validation first before proceeding to the full merge gate.
