@@ -145,7 +145,12 @@ test('buffers thirty seconds and preloads the next recording before starting', a
   expect(audioElements[1].src).toMatch(/^blob:/);
   expect(audioElements[1].load).toHaveBeenCalled();
   const signals = vi.mocked(prepareLessonPlayback).mock.calls.map(([, signal]) => signal);
-  act(() => activeAudio().dispatchEvent(new Event('ended')));
+  vi.mocked(audioElements[1].play).mockClear();
+  act(() => {
+    activeAudio().dispatchEvent(new Event('ended'));
+    expect(audioElements[1].play).toHaveBeenCalledTimes(1);
+    expect(audioElements[1].paused).toBe(false);
+  });
   await waitFor(() => expect(result.current.index).toBe(1));
   expect(activeAudio()).toBe(audioElements[1]);
   expect(signals.every(signal => !signal?.aborted)).toBe(true);
@@ -368,7 +373,7 @@ test('seek within a recording cancels and refills prefetch without redownloading
   const { result } = renderHook(() => useLessonPlayback(target));
   await act(async () => result.current.play());
   const signal = vi.mocked(downloadProjectAssetBytes).mock.calls[0][2];
-  act(() => result.current.seek(4));
+  await act(async () => result.current.seek(4));
   expect(signal?.aborted).toBe(true);
   expect(activeAudio().currentTime).toBe(4);
   expect(result.current.readPosition()).toEqual({ time: 4, duration: 10 });
@@ -577,9 +582,16 @@ test('a lesson replaced during the opening buffer plays only the new lesson reco
 test.each([
   'resume',
   'voice',
+  'regenerated lesson',
 ])('%s waits for cancellation of the block shared by all its voices', async action => {
   const preparation = deferred<void>(),
     cancellation = deferred<void>();
+  if (action === 'regenerated lesson') {
+    vi.mocked(getLessonPlayback)
+      .mockResolvedValueOnce({ lessonKey: 'old', blocks })
+      .mockResolvedValue({ lessonKey: 'new', blocks });
+    vi.mocked(prepareLessonPlayback).mockRejectedValueOnce(new LessonPlaybackRequestError(409));
+  }
   vi.mocked(prepareLessonPlayback).mockResolvedValueOnce({
     runId: 'owned',
     blockId: '0',
@@ -597,7 +609,7 @@ test.each([
     void result.current.play();
   });
   await waitFor(() => expect(waitForLessonPlayback).toHaveBeenCalled());
-  if (action === 'resume') {
+  if (action !== 'voice') {
     act(() => result.current.pause());
     act(() => {
       void result.current.play();
@@ -606,7 +618,7 @@ test.each([
   await act(async () => {});
   expect(
     vi.mocked(prepareLessonPlayback).mock.calls.filter(([request]) => request.blockId === '0')
-  ).toHaveLength(1);
+  ).toHaveLength(action === 'regenerated lesson' ? 2 : 1);
   await act(async () => cancellation.resolve(undefined));
   await waitFor(() => expect(result.current.playing).toBe(true));
   expect(result.current.failed).toBe(false);
@@ -701,4 +713,37 @@ test('changing voice while the first listen is paused prepares only the selected
       .map(([request]) => request.blockId)
   ).toEqual(['0']);
   expect(result.current.playing).toBe(false);
+});
+
+test.each([
+  'seek',
+  'resume',
+])('%s near the end waits for ready upcoming audio before restarting', async action => {
+  const long = blocks.map((block, index) => ({
+    ...block,
+    audio: [{ ...block.audio[0], durationSeconds: index === 0 ? 40 : 10 }],
+  }));
+  const pending = deferred<Awaited<ReturnType<typeof prepareLessonPlayback>>>();
+  vi.mocked(getLessonPlayback).mockResolvedValue({ lessonKey: 'a'.repeat(64), blocks: long });
+  vi.mocked(prepareLessonPlayback).mockImplementation(async request =>
+    request.blockId === '1'
+      ? pending.promise
+      : { block: long[Number(request.blockId)], voice: 'Kore', model: 'tts' }
+  );
+  const { result } = renderHook(() => useLessonPlayback({ ...target, initialBlocks: long }));
+  await act(async () => result.current.play());
+  if (action === 'resume') {
+    audio.currentTime = 39;
+    act(() => result.current.pause());
+    act(() => {
+      void result.current.play();
+    });
+  } else act(() => result.current.seek(39));
+  await act(async () => {});
+  expect(audio.paused).toBe(true);
+  expect(result.current.loading).toBe(true);
+  await act(async () => pending.resolve({ block: long[1], voice: 'Kore', model: 'tts' }));
+  await waitFor(() => expect(audio.paused).toBe(false));
+  expect(audio.currentTime).toBe(39);
+  expect(result.current.failed).toBe(false);
 });

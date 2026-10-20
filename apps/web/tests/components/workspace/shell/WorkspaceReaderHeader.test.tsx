@@ -91,11 +91,16 @@ describe('WorkspaceReaderHeader', () => {
     expect(screen.getByRole('button', { name: /^Rigenera$/i })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Istruzioni personalizzate' })).toBeInTheDocument();
   });
-  test.each([false, true])('starts regeneration directly, mobile=%s', async isMobileViewport => {
+  test.each([
+    false,
+    true,
+  ])('starts regeneration after confirmation, mobile=%s', async isMobileViewport => {
     const user = userEvent.setup();
     const props = buildProps();
     render(<Header {...props} isMobileViewport={isMobileViewport} isSettingsOpen />);
     await user.click(screen.getByRole('button', { name: 'Rigenera' }));
+    expect(props.onRegenerateActiveSection).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Sì, rigenera' }));
     expect(props.onRegenerateActiveSection).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
@@ -107,6 +112,7 @@ describe('WorkspaceReaderHeader', () => {
     try {
       act(() => setAccountLocale('en'));
       await user.click(screen.getByRole('button', { name: 'Regenerate' }));
+      await user.click(screen.getByRole('button', { name: 'Yes, regenerate' }));
       expect(props.onRegenerateActiveSection).toHaveBeenCalledTimes(1);
     } finally {
       view.unmount();

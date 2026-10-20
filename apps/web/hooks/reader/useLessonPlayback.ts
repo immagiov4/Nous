@@ -168,7 +168,6 @@ export function useLessonPlayback({
     () => new Map<string, { voice: string; model: string }>()
   );
   const started = useRef(false);
-  const hasPlayed = useRef(false);
   const previousVoice = useRef(voice);
   const loadedVoice = useRef<string | null>(null);
   const targetPosition = useRef({ offset: 0, relative: false });
@@ -264,8 +263,8 @@ export function useLessonPlayback({
         let playback = playbackRef.current ?? (await getLessonPlayback(target, signal));
         playbackRef.current ??= playback;
         const cacheKey = () => `${playback.lessonKey}:${blockIndex}:${requestedVoice}`;
-        const preparationKey = `${playback.lessonKey}:${blockIndex}`;
-        await waitForPlaybackCancellation(cancellations.current.get(preparationKey), signal);
+        const preparationKey = () => `${playback.lessonKey}:${blockIndex}`;
+        await waitForPlaybackCancellation(cancellations.current.get(preparationKey()), signal);
         signal.throwIfAborted();
         const cached = ready.current.get(cacheKey());
         if (cached) return cached;
@@ -281,7 +280,7 @@ export function useLessonPlayback({
             },
             signal,
             cancellations: cancellations.current,
-            key: preparationKey,
+            key: preparationKey(),
             projectId,
           });
         };
@@ -328,7 +327,7 @@ export function useLessonPlayback({
             projectId,
             signal,
             cancellations: cancellations.current,
-            key: preparationKey,
+            key: preparationKey(),
           });
           signal.throwIfAborted();
           result = await requestCurrent();
@@ -398,6 +397,8 @@ export function useLessonPlayback({
             const spare = spareAudio.current;
             if (spare.src !== prepared.url) {
               spare.preload = 'auto';
+              spare.playbackRate = latest.current.speed;
+              spare.preservesPitch = true;
               spare.src = prepared.url;
               spare.load();
             }
@@ -447,22 +448,30 @@ export function useLessonPlayback({
       epoch,
       signal,
       profile,
+      offset,
+      relative,
     }: {
       blockIndex: number;
       requestedVoice: string;
       epoch: number;
       signal: AbortSignal;
       profile: { voice: string; model: string };
+      offset: number;
+      relative: boolean;
     }) => {
+      const lessonKey = playbackRef.current?.lessonKey;
       let buffered = false;
       while (!buffered) {
         const playback = playbackRef.current;
         if (!playback) throw new Error('Playback metadata missing');
-        const indexes = playbackBufferIndexes(
-          playbackTimeline(playback.blocks, profile.voice, profile.model),
-          blockIndex - 1,
-          latest.current.speed
-        );
+        if (playback.lessonKey !== lessonKey) return;
+        const durations = playbackTimeline(playback.blocks, profile.voice, profile.model);
+        const current = durations[blockIndex];
+        durations[blockIndex] = {
+          ...current,
+          duration: Math.max(0, current.duration - (relative ? offset * current.duration : offset)),
+        };
+        const indexes = playbackBufferIndexes(durations, blockIndex - 1, latest.current.speed);
         buffered = indexes.every(index =>
           ready.current.has(`${playback.lessonKey}:${index}:${requestedVoice}`)
         );
@@ -510,6 +519,7 @@ export function useLessonPlayback({
       setTime(audio.currentTime);
       targetPosition.current = { offset: audio.currentTime, relative: false };
       audio.playbackRate = latest.current.speed;
+      audio.preservesPitch = true;
       setDuration(recording.durationSeconds);
       loadedVoice.current = requestedVoice;
       return audio;
@@ -525,7 +535,6 @@ export function useLessonPlayback({
       continuing = false
     ): Promise<void> {
       let audio = getAudio();
-      const cold = !hasPlayed.current;
       started.current = true;
       const { epoch, signal } = beginPlaybackAttempt(continuing);
       const requestedVoice = latest.current.voice;
@@ -543,31 +552,36 @@ export function useLessonPlayback({
           playbackRef.current = await getLessonPlayback({ projectId, sectionId }, signal);
         signal.throwIfAborted();
         const startingKey = playbackRef.current.lessonKey;
-        const current = prepare({
-          blockIndex,
-          requestedVoice,
-          epoch,
-          signal,
-        });
+        const cached = ready.current.get(`${startingKey}:${blockIndex}:${requestedVoice}`);
+        const current =
+          cached ??
+          prepare({
+            blockIndex,
+            requestedVoice,
+            epoch,
+            signal,
+          });
         if (!continuing) void refill.current();
-        const prepared = await current;
+        // Keep a preloaded hand-off synchronous through play(), before React can render the scene.
+        const prepared = cached ?? (await current);
         if (epoch !== intent.current.epoch || signal.aborted) return;
         if (playbackRef.current?.lessonKey !== startingKey) return start(0);
         if (!prepared) return;
-        if (cold && intent.current.playing)
+        if (!continuing && intent.current.playing)
           await prepareOpeningBuffer({
             blockIndex,
             requestedVoice,
             epoch,
             signal,
             profile: prepared,
+            offset,
+            relative,
           });
         if (playbackRef.current?.lessonKey !== startingKey) return start(0);
         audio = activateRecording({ prepared, requestedVoice, offset, relative });
         if (!intent.current.playing) return;
         await audio.play();
         if (epoch !== intent.current.epoch || signal.aborted) return;
-        hasPlayed.current = true;
         setPlaying(true);
         void refill.current();
       } catch (error) {
@@ -593,32 +607,17 @@ export function useLessonPlayback({
 
   const play = useCallback(async () => {
     const audio = getAudio();
+    const sameVoice = loadedVoice.current === latest.current.voice;
+    const position = sameVoice
+      ? { offset: audio.currentTime, relative: false }
+      : targetPosition.current;
     intent.current.playing = true;
-    if (!loadedVoice.current || loadedVoice.current !== latest.current.voice) {
+    if (!sameVoice) {
       unlockLessonPlaybackAudio(audio);
       if (spareAudio.current) unlockLessonPlaybackAudio(spareAudio.current);
-      const { offset, relative } = targetPosition.current;
-      await start(intent.current.index, offset, relative);
-      return;
     }
-    const { epoch, signal } = beginPlaybackAttempt();
-    try {
-      await audio.play();
-      if (epoch !== intent.current.epoch || signal.aborted) return;
-      if (!intent.current.playing) {
-        audio.pause();
-        return;
-      }
-      setPlaying(true);
-      setFailed(false);
-      void refill.current();
-    } catch (error) {
-      if (epoch !== intent.current.epoch || signal.aborted) return;
-      console.error('Lesson playback start failed', error);
-      pause();
-      setFailed(true);
-    }
-  }, [beginPlaybackAttempt, getAudio, pause, start]);
+    await start(intent.current.index, position.offset, position.relative);
+  }, [getAudio, start]);
 
   useEffect(() => {
     advance.current = () => {
@@ -644,6 +643,7 @@ export function useLessonPlayback({
   useEffect(() => {
     const audio = getAudio();
     audio.playbackRate = speed;
+    if (spareAudio.current) spareAudio.current.playbackRate = speed;
     void refill.current();
   }, [getAudio, speed]);
   useEffect(() => {
@@ -674,7 +674,6 @@ export function useLessonPlayback({
   const elapsed = timeline.slice(0, index).reduce((sum, block) => sum + block.duration, 0) + time;
   const total = timeline.reduce((sum, block) => sum + block.duration, 0);
   const seek = (target: number) => {
-    const audio = getAudio();
     if (!started.current) return;
     let offset = Math.max(0, Math.min(total, target));
     let next = 0;
@@ -682,14 +681,7 @@ export function useLessonPlayback({
       offset -= timeline[next].duration;
       next++;
     }
-    if (next !== index || !loadedVoice.current) {
-      void start(next, offset);
-      return;
-    }
-    beginPlaybackAttempt();
-    audio.currentTime = Math.min(duration, offset);
-    setTime(audio.currentTime);
-    void refill.current();
+    void start(next, offset);
   };
   return {
     blocks,
