@@ -1,135 +1,63 @@
 # Testing and quality gates
 
-The root scripts in `package.json` are the canonical development and CI entrypoints.
+Run focused tests while editing and `bun run quality` before pushing. Merge only when CI is green on the exact pull-request head, including `test`, `SonarCloud Code Analysis`, and the applicable contract and pull-request-body checks. Each new commit needs its own passing checks.
 
-## Routine checks
+## Local checks
 
-After installing project dependencies, run `bunx playwright install chromium` to provide Chromium for browser tests, including `bun run test` and the coverage stage of `bun run gate:full`.
-
-```bash
-bun run doctor
-bun run doctor -- --profile gate
-bun run doctor -- --profile local
-bun run doctor -- --profile all
-bun run quality
-bun run check:fallow
-bun run test
-```
-
-- `doctor` verifies the Bun/CI runtime contract, installed project executables, and versioned
-  Fallow baseline. It does not run quality or tests. The `gate` profile checks the existing local Sonar service
-  and confirms that anonymous-analysis permissions were provisioned, while analysis remains
-  restricted to its loopback-only Docker binding. The `local`
-  profile checks the existing local Supabase services and migration parity,
-  and `all` combines every profile. Every profile is read-only: it never starts, restarts,
-  configures, or migrates a service.
-- `quality` runs the TypeScript checks, Biome, and React Hooks lint. CI extends it with the
-  dependency boundary check through `quality:ci`.
-- `test` runs the Vitest suite under Bun.
-- `gate:ci` uses the same blocking checks and fails when Fallow reports a finding identity that is
-  absent from its versioned regression baseline. The output classifies findings as new, removed,
-  or unchanged, so replacing one accepted finding with one new finding still fails even when the
-  total is unchanged. The local `check:fallow` command remains informational. Refreshing the
-  baseline first verifies that the current result introduces no new recorded debt.
-
-## Final local validation
-
-After GitHub CI passes on the final commit, run:
+After installing dependencies with `bun run deps:install`, install Chromium for browser tests:
 
 ```bash
-bun run gate:full
+bunx playwright install chromium
 ```
 
-- `gate:full` runs the shared `gate:ci` command (CI quality including dependency validation, Fallow, and the complete Bun suite), then Node coverage, one stage at a time after GitHub CI passes on the same commit. The CI test job uses the same command, and a behavior test compares the workflow checks with the scripts actually invoked by the local gate. It then starts or reuses the local Sonar service, verifies the pinned Bun runtime and Sonar readiness with `doctor:gate`, and runs the analysis. The service stays running after success or failure; each invocation repeats readiness and doctor checks before the same quality gate. Run `bun run sonar:stop` when finished to release the server resources. The React Hooks ESLint check creates the external-issues report consumed by Sonar, so the scan does not repeat that lint pass. The scanner waits for the Sonar quality-gate result and propagates a failing gate.
-- `test:coverage` requires Node 26 (any 26.x), the major pinned in `.node-version`. It stops before Vitest if PATH resolves to another Node major. Its preflight deletes the previous `coverage/lcov.info` before that check, so a later Sonar stage cannot consume stale coverage. It shares the ordered Vitest projects defined in `apps/web/vitest.config.ts` with the Bun suite and writes one combined LCOV report for Sonar. CI does not generate and discard a second coverage report.
+Use the narrowest check that covers your change:
 
-`bun run prepare:coverage` removes stale coverage, verifies the Node major, and then runs the idempotent `bunx playwright install chromium` command before coverage tests start.
+```bash
+bun run quality       # TypeScript, Biome, React Hooks, and Sonar-style rules
+bun run test -- path/to/test.ts
+bun run check:fallow  # Informational dead-code and dependency analysis
+```
 
-The CI test job and local full gate share `gate:ci`, defined in `package.json`. Its checks stop at the first failure; the full gate still records that failed stage and continues through Node coverage and Sonar. Separate CI jobs retain the Supabase Auth/RLS contract, the change-selected critical PostgreSQL contract, the full PostgreSQL contract on main, and the credential-dependent staging contract. Remote pull-request-body verification also remains a separate workflow. The pull-request contracts and remote body verification remain CI merge prerequisites with their own service and event requirements. The full PostgreSQL and credential-dependent managed-staging checks run on pushes to main after merge.
+`bun run doctor` checks the local environment. Add `-- --profile local` for Supabase and migration parity, `-- --profile gate` for the existing local Sonar service, or `-- --profile all` for both. All profiles are read-only.
 
-## Pull request Sonar merge policy
+Use `bun run fix` for lint and format fixes, or `bun run format` for formatting alone.
 
-SonarQube remains a local merge gate and is intentionally excluded from GitHub Actions. CI checks
-TypeScript, dependency boundaries, the complete Bun suite, Fallow, and relevant contracts. The
-local gate adds Node coverage and Sonar on the same commit. Classify the pull request before merging.
+## CI and merge readiness
 
-Sonar is required when the diff includes any of the following:
+The CI `test` job runs `bun run gate:ci`: quality checks, dependency boundaries, the Fallow regression check, and one complete Node test suite with coverage. It then runs SonarQube Cloud analysis and waits for its quality-gate result. CI checks out the pull-request head and reports Sonar analysis against that same commit.
 
-- analyzable application source in `apps/`, `packages/`, or analyzed tooling under `scripts/`;
-- tests that change or establish behavioral contracts;
-- source, build, dependency, or security configuration that changes analyzed runtime behavior; or
-- an explicit review or CI request for Sonar.
+Wait for all applicable CI checks and review before merging. Fix or explicitly resolve every new Sonar finding with an owner-visible disposition. A missing or failed SonarCloud result blocks merging; diagnose it in the CI logs and SonarCloud report.
 
-For those pull requests, wait for CI to pass, then run the full gate on the same commit:
+Pull requests also run the Supabase contract and remote body verification. The critical PostgreSQL contract is selected by the changed paths; the complete PostgreSQL and managed-staging contracts run on pushes to `main`.
+
+<details><summary>Details</summary>
+
+Coverage uses the Node major pinned in `.node-version` and the ordered Vitest projects in `apps/web/vitest.config.ts`. Its preflight removes stale LCOV, checks Node, and installs Chromium. One coverage-producing suite supplies both the test result and the Sonar report.
+
+Fallow compares finding identities with `.fallow-baselines/regression.json`; every new identity blocks CI. Refresh the baseline explicitly after reviewing the change. The scripts own fingerprinting and report details.
+
+SonarQube Cloud analysis runs for same-repository pull requests and pushes to `main`. Fork pull requests need a trusted analysis result on the exact proposed head before merging because CI withholds the scanner secret.
+
+</details>
+
+## Diagnose Windows-specific failures
+
+Use the local full gate when diagnosing a Windows-specific failure:
 
 ```bash
 bun run gate:full
+bun run sonar:stop
 ```
 
-Both CI and the command must exit successfully. The local result includes Node coverage followed by
-the Sonar quality gate. Every new Sonar bug, vulnerability, security hotspot, or code smell must be
-fixed or explicitly resolved with an owner-visible disposition before merging.
+Run one heavy analysis process at a time and stop the local Sonar service after success or failure. For unrelated test timeouts under load, run the affected files in isolation before changing timeout policy.
 
-Sonar may be skipped only when all of these conditions hold:
+<details><summary>Details</summary>
 
-- the diff is trivially scoped and limited to documentation, metadata, or workflow files;
-- it contains no analyzable application-code change and no source/build/dependency/security
-  configuration change that affects analyzed runtime behavior;
-- all required CI checks and review are clean; and
-- no reviewer or CI signal requests Sonar.
+`gate:full` runs `gate:checks`, Node coverage, local Sonar startup, `doctor:gate`, and analysis sequentially. It records failed stages and continues through the stages it can run. The service stays running until `sonar:stop`.
 
-The merge owner must record the skip rationale in the pull request. A small diff, a one-line
-change, or the cost of running Sonar is not sufficient by itself; when scope is uncertain, run the
-full gate. Do not treat a failed or unreachable required Sonar scan as a skip.
+If local Sonar startup fails, diagnose it with `bun run sonar:up`. Docker binds the service to `127.0.0.1:9000`; its internal provisioner enables anonymous analysis on that local service. Lifecycle and scanner scripts own readiness checks and configuration.
 
-### When required Sonar is unavailable
-
-`gate:full` starts or reuses Sonar immediately before analysis and keeps it running afterward, including after a failed scan. Stop it explicitly with `bun run sonar:stop` when finished. If startup fails, use the standalone lifecycle command to diagnose the service before rerunning the full gate:
-
-```bash
-bun run sonar:up
-bun run gate:full
-```
-
-`sonar:up` creates or reconciles the local service with its loopback-only binding and returns only
-after the Docker-internal permission provisioner succeeds. On a fresh volume, that one-shot
-provisioner grants the `Anyone` pseudo-group `Create Projects` and `Execute Analysis`, so no scanner
-token or developer credential bootstrap is required. It polls readiness every second, fails immediately
-when SonarQube reports `DB_MIGRATION_NEEDED`, and times out after 133 seconds. That bound is twice the
-slowest observed local successful startup (66.4 seconds), preserving one additional full startup window
-before classifying the service as unavailable. Do not
-replace a required full gate with an isolated or skipped Sonar scan, and do not merge while a
-required Sonar result is failed, unreachable, or unverified. Record the successful full-gate command
-and Sonar result in the pull request before merging.
-
-For an existing local volume whose administrator password was changed under the retired workflow,
-`sonar:up` reuses the ignored legacy `sonar.local.properties` administrator settings only for the
-Docker-internal provisioner. The scanner never reads those credentials or the retired token.
-If that legacy pair is stale, the provisioner retries the fresh-volume default automatically. The
-scanner also removes any inherited `SONAR_TOKEN` so the loopback scan remains anonymous.
-
-Fallow fingerprints are SHA-256 hashes of the finding category and canonical JSON identity.
-Source coordinates and suggested remediation actions are excluded, so moving a finding within the
-same file does not change its identity. File moves and file or symbol renames appear as one removed
-finding plus one new finding; the new identity remains blocking until the refactor is reviewed and
-the baseline is refreshed explicitly.
-
-The service is local-only. Docker publishes it exclusively on `127.0.0.1:9000`; its internal
-provisioner has no published port and permits anonymous analysis only through that loopback-bound
-service.
-
-## Sonar quality ratchet
-
-After GitHub CI passes, run `bun run gate:full` once on the exact final merge candidate. Triage every new bug,
-vulnerability, and security hotspot before considering the batch complete. Existing code-smell debt
-may be addressed in an explicitly scoped cleanup batch; there is no fixed per-batch quota.
-
-Biome fixes and formatting remain separate, explicit commands:
-
-```bash
-bun run fix
-bun run format
-```
+</details>
 
 ## Supabase contract
 
