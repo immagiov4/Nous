@@ -1,31 +1,28 @@
-import { createHash } from 'node:crypto';
 import { closeSync, openSync } from 'node:fs';
-import { appendFile, cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { parse as parseToml } from 'smol-toml';
 import * as z from 'zod';
 import { recordDiagnostic } from '../../packages/playtest/src/diagnostics';
+import {
+  ensureSharedSupabase,
+  releaseSharedSupabase,
+  sharedSupabaseEnvironment,
+  sharedSupabaseStatus,
+} from '../../scripts/shared-supabase';
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export const APP_URL = 'http://127.0.0.1:5173';
 export const BACKEND_URL = 'http://127.0.0.1:3301';
-const PROJECT_ID = 'nous-playtest';
 export const STACK_STAGE_READINESS_LIMIT_MS = 180_000;
 export const STACK_SHUTDOWN_GRACE_MS = 10_000;
 export const STACK_READINESS_POLL_INTERVAL_MS = 500;
-// These addresses reuse the working hands spike's isolated port allocation.
-const PORTS = { api: 55321, db: 55322, shadow: 55320, studio: 55323, mail: 55324 };
-const statusSchema = z.object({
-  API_URL: z.string(),
-  DB_URL: z.string(),
-  ANON_KEY: z.string().min(1),
-  SERVICE_ROLE_KEY: z.string().min(1),
-  JWT_SECRET: z.string().min(1),
-});
-export type StackStatus = z.infer<typeof statusSchema>;
+export type { SharedSupabaseStatus as StackStatus } from '../../scripts/shared-supabase';
+
+import type { SharedSupabaseStatus as StackStatus } from '../../scripts/shared-supabase';
+
 type StackClock = {
   now: () => number;
   wait: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
@@ -111,15 +108,6 @@ const ownedProcessSchema = z.object({
   repoRoot: z.string().min(1),
   identity: z.string().min(1),
 });
-const stackConfigSchema = z.object({
-  project_id: z.literal(PROJECT_ID),
-  api: z.object({ port: z.literal(PORTS.api) }),
-  db: z.object({ port: z.literal(PORTS.db), shadow_port: z.literal(PORTS.shadow) }),
-  studio: z.object({ port: z.literal(PORTS.studio) }),
-  inbucket: z.object({ port: z.literal(PORTS.mail) }),
-  auth: z.object({ email: z.object({ smtp: z.object({ enabled: z.literal(false) }) }) }),
-});
-
 /** Birth time and command distinguish an owned server from a recycled PID. */
 async function processIdentity(pid: number): Promise<string | undefined> {
   if (process.platform === 'win32') {
@@ -172,79 +160,7 @@ export function dataRoot(): string {
   return root;
 }
 
-export function assertIsolatedStatus(status: StackStatus): void {
-  for (const [address, port] of [
-    [status.API_URL, PORTS.api],
-    [status.DB_URL, PORTS.db],
-  ] as const) {
-    const url = new URL(address);
-    if (!['localhost', '127.0.0.1'].includes(url.hostname) || Number(url.port) !== port)
-      throw new Error('Supabase status does not match the isolated playtest project.');
-  }
-}
-
-async function configureStack(): Promise<string> {
-  const workdir = join(dataRoot(), 'stack');
-  const supabase = join(workdir, 'supabase');
-  await mkdir(supabase, { recursive: true });
-  const source = await readFile(join(REPO_ROOT, 'supabase/config.toml'), 'utf8');
-  const config =
-    source
-      .replace('project_id = "nous-reader"', `project_id = "${PROJECT_ID}"`)
-      .replace('port = 54321', `port = ${PORTS.api}`)
-      .replace('port = 54322', `port = ${PORTS.db}`)
-      .replace('shadow_port = 54320', `shadow_port = ${PORTS.shadow}`)
-      .replace('port = 54323', `port = ${PORTS.studio}`)
-      .replace('[auth.email.smtp]\nenabled = true', '[auth.email.smtp]\nenabled = false')
-      .replace('[auth.email.smtp]\r\nenabled = true', '[auth.email.smtp]\r\nenabled = false') +
-    `\n[analytics]\nenabled = false\n\n[inbucket]\nenabled = true\nport = ${PORTS.mail}\n`;
-  stackConfigSchema.parse(parseToml(config));
-  const existing = await readFile(join(supabase, 'config.toml'), 'utf8').catch(
-    (error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') return undefined;
-      throw error;
-    }
-  );
-  if (existing !== undefined) stackConfigSchema.parse(parseToml(existing));
-  await writeFile(join(supabase, 'config.toml'), config);
-  await cp(join(REPO_ROOT, 'supabase', 'templates'), join(supabase, 'templates'), {
-    recursive: true,
-  });
-  return workdir;
-}
-
-// The repository-local CLI binary avoids resolving executables through a mutable PATH.
-const SUPABASE_CLI_PATH = join(
-  REPO_ROOT,
-  'node_modules',
-  '.bin',
-  process.platform === 'win32' ? 'supabase.exe' : 'supabase'
-);
-
-async function supabaseCommand(args: string[], signal?: AbortSignal): Promise<string> {
-  signal?.throwIfAborted();
-  const child = Bun.spawn([SUPABASE_CLI_PATH, ...args, '--workdir', join(dataRoot(), 'stack')], {
-    cwd: REPO_ROOT,
-    stdin: 'ignore',
-    stdout: 'pipe',
-    stderr: 'pipe',
-    windowsHide: true,
-  });
-  const abort = () => terminateChild(child);
-  signal?.addEventListener('abort', abort, { once: true });
-  // stdout carries machine-readable status with service keys and JWT secrets: parse it, never log it.
-  const [stdout, stderr, code] = await Promise.all([
-    captureCommandOutput(child.stdout),
-    captureCommandOutput(child.stderr, { logPath: join(dataRoot(), 'stack', 'supabase.log') }),
-    child.exited,
-  ]).finally(() => signal?.removeEventListener('abort', abort));
-  if (code !== 0) {
-    recordDiagnostic('stack-supabase-command', new Error(stderr));
-    await writeFile(join(dataRoot(), 'stack', 'supabase-error.log'), stderr);
-    throw stageError('Supabase', `${args[0]} exited (${code})`);
-  }
-  return stdout;
-}
+export { assertLocalProofStatus as assertIsolatedStatus } from '../../scripts/shared-supabase';
 
 function terminateChild(child: { pid?: number; kill(): unknown }, detached = false): void {
   if (process.platform === 'win32' && child.pid) {
@@ -292,11 +208,8 @@ export async function runStackStage<T>(options: {
 }
 
 export async function stackStatus(signal?: AbortSignal): Promise<StackStatus> {
-  const status = statusSchema.parse(
-    JSON.parse(await supabaseCommand(['status', '--output', 'json'], signal))
-  );
-  assertIsolatedStatus(status);
-  return status;
+  signal?.throwIfAborted();
+  return sharedSupabaseStatus(undefined, signal);
 }
 
 async function requireFreePort(port: number): Promise<void> {
@@ -399,58 +312,16 @@ export async function startServer(
   }
 }
 
-/** Sorted names and byte lengths make names and contents unambiguous hash inputs. */
-export async function migrationFingerprint(directory: string): Promise<string> {
-  const hash = createHash('sha256');
-  const files = (await readdir(directory, { recursive: true, withFileTypes: true }))
-    .filter(entry => entry.isFile())
-    .map(entry => relative(directory, join(entry.parentPath, entry.name)).split(sep).join('/'))
-    // Code-point order keeps migration fingerprints stable across host locales.
-    .sort((a, b) => (a < b ? -1 : Number(a > b)));
-  for (const name of files) {
-    const contents = await readFile(join(directory, name));
-    hash.update(JSON.stringify([name, contents.length]));
-    hash.update(contents);
-  }
-  return hash.digest('hex');
-}
-
-/** The destination is fixed inside the validated external isolated workdir. */
-export async function mirrorMigrations(source = join(REPO_ROOT, 'supabase', 'migrations')) {
-  const workdir = join(dataRoot(), 'stack');
-  const destination = join(workdir, 'supabase', 'migrations');
-  const fingerprint = await migrationFingerprint(source);
-  const marker = join(workdir, 'migrations.sha256');
-  const previous = await readFile(marker, 'utf8').catch((error: NodeJS.ErrnoException) => {
-    if (error.code === 'ENOENT') return undefined;
-    throw error;
-  });
-  await rm(destination, { recursive: true, force: true });
-  await cp(source, destination, { recursive: true });
-  return { fingerprint, marker, changed: previous !== fingerprint };
-}
-
-/** Status is identity-checked before reset; the fingerprint commits only after successful apply. */
+/** Every proof reuses the shared stack; prepare() creates its own disposable account. */
 export async function initializeIsolatedDatabase(
-  options: { signal?: AbortSignal; command?: typeof supabaseCommand; migrations?: string } = {}
+  options: { signal?: AbortSignal } = {}
 ): Promise<StackStatus> {
-  await configureStack();
-  const migrations = await mirrorMigrations(options.migrations);
-  await writeFile(join(dataRoot(), 'stack', 'supabase.log'), '');
-  const command = options.command ?? supabaseCommand;
-  process.stderr.write('[playtest] Supabase: starting nous-playtest\n');
-  await command(['start'], options.signal);
-  const current = statusSchema.parse(
-    JSON.parse(await command(['status', '--output', 'json'], options.signal))
-  );
-  assertIsolatedStatus(current);
-  if (migrations.changed) await command(['db', 'reset', '--local'], options.signal);
-  await command(['migration', 'up', '--local'], options.signal);
-  await writeFile(migrations.marker, migrations.fingerprint);
-  return current;
+  options.signal?.throwIfAborted();
+  await mkdir(join(dataRoot(), 'stack'), { recursive: true });
+  return ensureSharedSupabase({ signal: options.signal });
 }
 
-/** Explicit workdir and URLs keep every database operation off the developer's project. */
+/** Each proof owns its app processes and disposable users on the shared database. */
 export async function ensureStack(
   options: {
     shutdown?: AppShutdownOptions;
@@ -461,26 +332,15 @@ export async function ensureStack(
 ): Promise<void> {
   process.stderr.write('[playtest] App servers: stopping owned processes\n');
   await stopAppServers(options.shutdown);
-  process.stderr.write('[playtest] Supabase: configuring isolated project\n');
+  process.stderr.write('[playtest] Supabase: checking shared local project\n');
   const status = await runStackStage({
     name: 'Supabase',
     work: options.initializeSupabase ?? (signal => initializeIsolatedDatabase({ signal })),
   });
-  process.stderr.write('[playtest] Supabase: ready; migrations applied\n');
+  process.stderr.write('[playtest] Supabase: shared project ready\n');
   const env = {
     ...process.env,
-    DATABASE_URL: status.DB_URL,
-    SUPABASE_URL: status.API_URL,
-    SUPABASE_SERVICE_ROLE_KEY: status.SERVICE_ROLE_KEY,
-    SUPABASE_JWT_SECRET: status.JWT_SECRET,
-    SUPABASE_JWT_ISSUER: `${status.API_URL}/auth/v1`,
-    SUPABASE_JWKS_URL: `${status.API_URL}/auth/v1/.well-known/jwks.json`,
-    VITE_SUPABASE_URL: status.API_URL,
-    VITE_SUPABASE_ANON_KEY: status.ANON_KEY,
-    AUTH_MODE: 'supabase',
-    VITE_AUTH_MODE: 'supabase',
-    LOCAL_AUTH_BYPASS: 'false',
-    VITE_LOCAL_AUTH_BYPASS: 'false',
+    ...sharedSupabaseEnvironment(status),
     BACKEND_HOST: '127.0.0.1',
     BACKEND_PORT: new URL(BACKEND_URL).port,
     VITE_BACKEND_HOST: '127.0.0.1',
@@ -583,21 +443,19 @@ async function stopAppServers(options: AppShutdownOptions = {}): Promise<void> {
   }
 }
 
-/** Stop only the recorded app processes and the explicitly named isolated Supabase project. */
+/** Stop recorded app processes and release activity without stopping shared Supabase. */
 export async function stopStack(
   options: AppShutdownOptions & {
     stopSupabase?: () => Promise<unknown>;
   } = {}
 ): Promise<void> {
-  const savedConfig = await readFile(join(dataRoot(), 'stack', 'supabase', 'config.toml'), 'utf8');
-  stackConfigSchema.parse(parseToml(savedConfig));
   await stopAppServers(options);
   if (options.stopSupabase) await options.stopSupabase();
-  else await supabaseCommand(['stop', '--project-id', PROJECT_ID]);
+  else await releaseSharedSupabase();
 }
 
 if (import.meta.main) {
   if (process.argv[2] !== '--stop')
-    throw new Error('Use --stop to stop the isolated playtest stack.');
+    throw new Error('Use --stop to stop the owned playtest app processes.');
   await stopStack();
 }

@@ -17,6 +17,12 @@ Route tests can use controlled stores and identities. Real Supabase checks exerc
 
 ## Shared local execution
 
+Local real-app proofs reuse one Supabase stack across worktrees and evidence directories. `bun run playtest` checks the shared stack automatically; custom authenticated proofs use `bun run proof bun <proof-script>`. The shared manager selects the existing `nous-reader` database, or adopts `nous-playtest` when that is the existing stack. Auth, REST and Storage health checks precede admission. An absent stack starts as `nous-reader`; an existing unhealthy stack requires explicit diagnosis. Existing-stack migrations remain an explicit operator action.
+
+Each scenario uses the confirmed disposable account and project created by `e2e/nous/prepare.ts`, then runs its cleanup. Custom proofs follow the same preparation contract. Cleanup stops only the run's identity-verified app processes and releases its activity record. The shared database stays available. Activity records and the last-run stamp live in `~/.cache/nous-supabase`, with `NOUS_SHARED_SUPABASE_DATA` available for isolated manager tests. A hidden watcher queues a shutdown after 20 idle minutes, checks live run processes and verifies the database container identity. Only a stack started by this manager is eligible; adopted services retain their existing owner's shutdown policy.
+
+`bun run deps:install` uses Bun's cache with hardlinks and a separate dependency tree per worktree. A matching installed tree takes Bun's incremental path; changed lockfiles install their own resolved dependencies. Run this command after creating a worktree or changing its lockfile.
+
 Browser suites, provider batches, full gates and coverage enter one FIFO queue shared by worktrees. Package scripts acquire and release their turn automatically; nested commands share the held turn. Use `bun scripts/heavy-run.mjs status` to inspect the owner and waiting work. Additional browser or Docker proofs run through `bun scripts/heavy-run.mjs --label "who/what" -- <command...>`. Fast checks run independently so a browser test cannot block a documentation check. The [queue wrapper](../../../scripts/heavy-run.mjs) owns admission, process-liveness checks and cleanup; CI bypasses local coordination.
 
 ## Final candidate
@@ -33,4 +39,4 @@ Use `bun run gate:full` for Windows diagnosis. It sequences checks, Node coverag
 
 Provider-backed evaluations need a configured, authenticated provider and `NOUS_E2E_DATA` outside the repository. They incur provider usage and can capture full model exchanges, so keep manifests, source material and generated lessons in private evidence. Compare representative outputs and known failures across the providers supported by the changed flow.
 
-Browser playtests use an isolated stack and recorded scenarios. Inspect intermediate states and artifacts as well as the final result: navigation, reload and persisted state can reveal failures a static rendering test misses. Generated explanations also require content review against their objectives and evidence. Deterministic schema success establishes structure; the actual explanation establishes its reasoning.
+Browser playtests use disposable accounts on the shared local stack and recorded scenarios. Inspect intermediate states and artifacts as well as the final result: navigation, reload and persisted state can reveal failures a static rendering test misses. Generated explanations also require content review against their objectives and evidence. Deterministic schema success establishes structure; the actual explanation establishes its reasoning.
