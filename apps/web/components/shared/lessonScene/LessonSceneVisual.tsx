@@ -62,7 +62,12 @@ export const LessonSceneVisual = ({
           />
         ) : (
           <div className="visual-content">
-            <SceneContent playback={variant === 'bare'} isDarkMode={isDarkMode} scene={scene} />
+            <SceneContent
+              playback={variant === 'bare'}
+              isDarkMode={isDarkMode}
+              scene={scene}
+              readFrame={readAnimationFrame}
+            />
           </div>
         )}
         {/* The reader omits conflicting closing text; the player follows the laboratory scene. */}
