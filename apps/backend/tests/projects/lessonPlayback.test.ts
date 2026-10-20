@@ -493,3 +493,32 @@ test('reading source math identifies legacy silent audio while preserving its sa
   expect(actual.prepared).toBe(saved.blocks[0].prepared);
   expect(readLessonPlayback(section).lessonKey).toBe(saved.lessonKey);
 });
+
+test('reprepares ambiguous historical fences once and then reuses the classified recording', () => {
+  const section = annotatedSection(
+    'Introduction.\n\n```text\nAn ordered pair has two components.\n```'
+  );
+  const saved = preparedPlayback(section);
+  const historical = readLessonPlayback({ ...section, playback: saved });
+  expect(historical.blocks[0].audio).toEqual([]);
+  expect(historical.blocks[0].prepared).toBeUndefined();
+  const classified = {
+    ...saved,
+    blocks: saved.blocks.map(block => ({
+      ...block,
+      prepared: {
+        motion: [],
+        spokenMath: [],
+        fencedCode: [
+          { visualIndex: 0, kind: 'prose' as const, spoken: 'An ordered pair has two components.' },
+        ],
+      },
+    })),
+  };
+  const restored = readLessonPlayback({ ...section, playback: classified });
+  expect(restored.blocks[0].audio).toEqual(classified.blocks[0].audio);
+  expect(restored.blocks[0].prepared).toEqual(classified.blocks[0].prepared);
+  expect(section.content).toBe(
+    'Introduction.\n\n```text\nAn ordered pair has two components.\n```'
+  );
+});
