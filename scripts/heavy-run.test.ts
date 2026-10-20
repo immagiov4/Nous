@@ -50,11 +50,23 @@ function start(
   path: string,
   label: string,
   command: string[],
-  options: { environment?: NodeJS.ProcessEnv; entry?: string; executable?: string } = {}
+  options: {
+    environment?: NodeJS.ProcessEnv;
+    entry?: string;
+    executable?: string;
+    weight?: number;
+  } = {}
 ) {
   const child = spawn(
     options.executable ?? runtime,
-    [options.entry ?? wrapper, '--label', label, '--', ...command],
+    [
+      options.entry ?? wrapper,
+      '--label',
+      label,
+      ...(options.weight ? ['--weight', String(options.weight)] : []),
+      '--',
+      ...command,
+    ],
     {
       env: {
         ...process.env,
@@ -62,6 +74,7 @@ function start(
         HEAVY_RUN_HELD: '',
         HEAVY_RUN_GROUP_PID: '',
         HEAVY_RUN_DIR: path,
+        HEAVY_RUN_SLOTS: '1',
         ...options.environment,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -125,6 +138,7 @@ function localEnvironment(path: string) {
   vi.stubEnv('HEAVY_RUN_HELD', '');
   vi.stubEnv('HEAVY_RUN_GROUP_PID', '');
   vi.stubEnv('HEAVY_RUN_DIR', path);
+  vi.stubEnv('HEAVY_RUN_SLOTS', '1');
   vi.stubEnv('HEAVY_RUN_STALE_MS', '600000');
 }
 
@@ -143,7 +157,7 @@ describe('measured CLI integration', () => {
       utimesSync(file, new Date(0), new Date(0));
     }
     await main(['status']);
-    expect(log).toHaveBeenCalledWith(`1. expired (PID ${process.pid}) [stale]`);
+    expect(log).toHaveBeenCalledWith(`Owner: expired (PID ${process.pid}); weight 1 [stale]`);
     const ready = join(path, 'ready');
     const release = join(path, 'release');
     const next = join(path, 'next');
@@ -393,6 +407,178 @@ describe('measured CLI integration', () => {
 });
 
 describe('heavy command admission', () => {
+  test.each([
+    [undefined, 1],
+    [undefined, 2],
+    ['2', 2],
+  ] as const)('fills capacity %s with FIFO weight %s admission', async (slots, weight) => {
+    const path = directory();
+    const capacity = slots ? Number(slots) : 4;
+    const environment = { HEAVY_RUN_SLOTS: slots };
+    const fixture = join(path, 'weighted.mjs');
+    writeFileSync(
+      fixture,
+      `
+      import fs from 'node:fs';
+      import { setTimeout as delay } from 'node:timers/promises';
+      const [path, label] = process.argv.slice(2);
+      fs.writeFileSync(path + '/started-' + label, '');
+      while (!fs.existsSync(path + '/release-' + label)) await delay(20);
+    `
+    );
+    const runs: ReturnType<typeof output>[] = [];
+    const launch = (label: string, weight = 1) => {
+      barriers.push(join(path, `release-${label}`));
+      const result = output(
+        start(path, label, [runtime, fixture, path, label], { environment, weight })
+      );
+      runs.push(result);
+      return result;
+    };
+    for (let index = 0; index < capacity; index++) {
+      launch(String(index));
+      await until(() => existsSync(join(path, `started-${index}`)));
+    }
+    localEnvironment(path);
+    vi.stubEnv('HEAVY_RUN_SLOTS', String(capacity));
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await main(['status']);
+    for (let index = 0; index < capacity; index++) {
+      expect(log.mock.calls.flat().some(line => String(line).includes(`Owner: ${index} `))).toBe(
+        true
+      );
+    }
+    launch('weighted', weight);
+    await until(() => readdirSync(join(path, 'queue')).length === capacity + 1);
+    expect(existsSync(join(path, 'started-weighted'))).toBe(false);
+    launch('last');
+    await until(() => readdirSync(join(path, 'queue')).length === capacity + 2);
+    writeFileSync(join(path, 'release-0'), '');
+    await runs[0]();
+    await until(
+      () =>
+        !readdirSync(join(path, 'lock')).some(name => {
+          return readFileSync(join(path, 'lock', name), 'utf8').includes('"label":"0"');
+        })
+    );
+    if (weight === 2) {
+      expect(existsSync(join(path, 'started-weighted'))).toBe(false);
+      expect(existsSync(join(path, 'started-last'))).toBe(false);
+    }
+    writeFileSync(join(path, 'release-1'), '');
+    await until(() => existsSync(join(path, 'started-weighted')));
+    if (capacity === 2) expect(existsSync(join(path, 'started-last'))).toBe(false);
+    for (const release of barriers) writeFileSync(release, '');
+    expect((await Promise.all(runs.map(run => run()))).every(result => result.code === 0)).toBe(
+      true
+    );
+    expect(readdirSync(join(path, 'queue'))).toEqual([]);
+    expect(existsSync(join(path, 'lock'))).toBe(false);
+  });
+
+  test('activation during a capacity scan cannot hide an occupied weighted reservation', async () => {
+    const path = directory();
+    const lock = join(path, 'lock');
+    const queue = join(path, 'queue');
+    mkdirSync(lock);
+    mkdirSync(queue);
+    const victim = JSON.stringify({
+      pid: process.pid,
+      label: 'activating',
+      id: 'a.json',
+      weight: 3,
+    });
+    writeFileSync(join(lock, 'a.json'), victim);
+    writeFileSync(join(queue, 'a.json'), victim);
+    const living = JSON.stringify({ pid: process.pid, label: 'living', weight: 1 });
+    writeFileSync(join(lock, 'living.json'), living);
+    const entry = join(path, 'activation-race.mjs');
+    const counted = join(path, 'counted');
+    const started = join(path, 'started');
+    writeFileSync(
+      entry,
+      `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      const original = fs.readdirSync;
+      let scans = 0;
+      fs.readdirSync = (target, ...args) => {
+        const names = original(target, ...args);
+        if (target === ${JSON.stringify(lock)} && ++scans === 2) {
+          fs.renameSync(${JSON.stringify(join(lock, 'a.json'))}, ${JSON.stringify(join(lock, 'running-a.json'))});
+          fs.writeFileSync(${JSON.stringify(counted)}, '');
+        }
+        return names;
+      };
+      syncBuiltinESMExports();
+      process.exitCode = await (await import(${JSON.stringify(new URL('./heavy-run.mjs', import.meta.url).href)})).main();
+    `
+    );
+    const child = start(
+      path,
+      'waiter',
+      [runtime, '-e', "require('node:fs').writeFileSync(process.argv[1], '')", started],
+      { entry, executable: nativeNode(), environment: { HEAVY_RUN_SLOTS: '4' } }
+    );
+    const result = output(child);
+    let waiting = false;
+    child.stdout?.on('data', chunk => {
+      waiting ||= String(chunk).includes('position');
+    });
+    await until(() => waiting || existsSync(started));
+    expect(existsSync(counted)).toBe(true);
+    expect(existsSync(started)).toBe(false);
+    rmSync(join(lock, 'running-a.json'));
+    rmSync(join(queue, 'a.json'));
+    expect(await result()).toMatchObject({ code: 0, stderr: '' });
+    expect(readFileSync(join(lock, 'living.json'), 'utf8')).toBe(living);
+  });
+
+  test('recovers a stale weighted reservation while preserving another live owner', async () => {
+    const path = directory();
+    localEnvironment(path);
+    vi.stubEnv('HEAVY_RUN_SLOTS', '4');
+    mkdirSync(join(path, 'lock'));
+    const living = join(path, 'lock/living.json');
+    const record = JSON.stringify({ pid: process.pid, label: 'living', weight: 2 });
+    writeFileSync(living, `${record}\n${process.pid}`);
+    const stale = join(path, 'lock/stale.json');
+    writeFileSync(stale, JSON.stringify({ pid: process.pid, label: 'expired', weight: 2 }));
+    utimesSync(stale, new Date(0), new Date(0));
+    expect(
+      await main(['--label', 'recovery', '--weight', '2', '--', runtime, '-e', 'process.exit(0)'])
+    ).toBe(0);
+    expect(existsSync(stale)).toBe(false);
+    expect(readFileSync(living, 'utf8')).toBe(`${record}\n${process.pid}`);
+  });
+
+  test.each([
+    '0',
+    '-1',
+    '1.5',
+    'nope',
+  ])('rejects invalid capacity %s before queuing', async slots => {
+    localEnvironment(directory());
+    vi.stubEnv('HEAVY_RUN_SLOTS', slots);
+    await expect(main(['--label', 'invalid', '--', runtime, '-e', ''])).rejects.toThrow(
+      'HEAVY_RUN_SLOTS'
+    );
+  });
+
+  test.each([
+    '0',
+    '-1',
+    '1.5',
+    'nope',
+    '5',
+  ])('rejects invalid or excessive weight %s before queuing', async weight => {
+    localEnvironment(directory());
+    vi.stubEnv('HEAVY_RUN_SLOTS', '4');
+    await expect(
+      main(['--label', 'invalid', '--weight', weight, '--', runtime, '-e', ''])
+    ).rejects.toThrow('weight');
+  });
+
   test('admits several real processes in ticket order and excludes overlap', async () => {
     const path = directory();
     const fixture = join(path, 'worker.mjs');
