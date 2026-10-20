@@ -129,17 +129,11 @@ async function healthy(status: SharedSupabaseStatus, signal?: AbortSignal): Prom
   }
 }
 
-async function databaseContainer(): Promise<string> {
+async function databaseContainer(project?: string): Promise<string> {
+  const projectPattern = project ?? `(${PROJECT}|${LEGACY_PROJECT})`;
   const { stdout } = await execute(
     'docker',
-    [
-      'ps',
-      '-a',
-      '--filter',
-      `name=^/supabase_db_(${PROJECT}|${LEGACY_PROJECT})$`,
-      '--format',
-      '{{.ID}}',
-    ],
+    ['ps', '-a', '--filter', `name=^/supabase_db_${projectPattern}$`, '--format', '{{.ID}}'],
     { windowsHide: true }
   );
   return stdout.trim();
@@ -155,7 +149,7 @@ async function startSharedSupabase(
   try {
     await run(['start'], signal);
   } finally {
-    startedContainer = await container();
+    startedContainer = await container(PROJECT);
     if (startedContainer) {
       await writeFile(join(root, 'managed'), startedContainer);
       await writeFile(join(root, 'incomplete'), startedContainer);
@@ -200,10 +194,16 @@ export async function ensureSharedSupabase(
         options.signal
       );
     }
-    if (await readOptional(join(root, 'incomplete')))
-      throw new Error(
-        'Shared Supabase initialization is incomplete. Inspect the failed initialization before running a proof.'
-      );
+    const incomplete = await readOptional(join(root, 'incomplete'));
+    if (incomplete) {
+      const project =
+        Number(new URL(current.API_URL).port) === STACK_PORTS[0].api ? PROJECT : LEGACY_PROJECT;
+      if (incomplete === (await (options.container ?? databaseContainer)(project)))
+        throw new Error(
+          'Shared Supabase initialization is incomplete. Inspect the failed initialization before running a proof.'
+        );
+      await rm(join(root, 'incomplete'));
+    }
     await (options.health ?? healthy)(current, options.signal);
     await writeFile(join(root, 'runs', lease), String(process.pid));
     return current;
@@ -250,7 +250,7 @@ export async function stopIdleSupabase(
     if (alive(pid)) return false;
     await rm(join(root, 'runs', name), { force: true });
   }
-  if (managed !== (await (options.container ?? databaseContainer)())) {
+  if (managed !== (await (options.container ?? databaseContainer)(PROJECT))) {
     await rm(join(root, 'managed'));
     await rm(join(root, 'incomplete'), { force: true });
     return false;
@@ -318,7 +318,12 @@ export async function watchIdleSupabase(
   while (await readOptional(join(root, 'managed'))) {
     const last = Number(await readOptional(join(root, 'last-run')));
     await wait(Math.max(0, last + SUPABASE_IDLE_MS - now()));
-    await (options.check ?? queuedIdleCheck)();
+    try {
+      await (options.check ?? queuedIdleCheck)();
+    } catch (error) {
+      // Docker availability can change while the watcher observes the same owned stack.
+      await writeFile(join(root, 'idle-error.log'), String(error));
+    }
     if (await readOptional(join(root, 'managed'))) {
       const updated = Number(await readOptional(join(root, 'last-run')));
       // A live proof can outlast the idle interval; its eventual release starts a fresh deadline.

@@ -108,6 +108,30 @@ it('rechecks at the release deadline instead of waiting a second full idle inter
   ]);
   expect(now).toBe(releasedAt + SUPABASE_IDLE_MS);
 });
+it('adopts a healthy replacement after an incomplete initialization of another container', async () => {
+  await writeFile(join(root, 'managed'), 'old-container');
+  await writeFile(join(root, 'incomplete'), 'old-container');
+  const options = runtime();
+  expect(await ensureSharedSupabase(options)).toEqual(status);
+  await expect(readFile(join(root, 'incomplete'))).rejects.toMatchObject({ code: 'ENOENT' });
+  expect(options.run.mock.calls.map(([args]) => args)).toEqual([['status', '--output', 'json']]);
+  await releaseSharedSupabase();
+});
+it('continues watching after Docker becomes temporarily unavailable', async () => {
+  let now = 0;
+  await writeFile(join(root, 'managed'), 'container-owned');
+  await writeFile(join(root, 'last-run'), '0');
+  const wait = async (milliseconds: number) => {
+    now += milliseconds;
+  };
+  const check = vi.fn(async () => {
+    if (check.mock.calls.length === 1) throw new Error('Docker unavailable');
+    await rm(join(root, 'managed'));
+  });
+  await watchIdleSupabase({ wait, now: () => now, check });
+  expect(check).toHaveBeenCalledTimes(2);
+  expect(await readFile(join(root, 'idle-error.log'), 'utf8')).toContain('Docker unavailable');
+});
 it('rejects failed health checks before admitting a run', async () => {
   const options = runtime();
   options.health.mockRejectedValueOnce(new Error('auth unavailable'));
