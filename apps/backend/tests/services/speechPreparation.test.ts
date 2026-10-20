@@ -56,6 +56,7 @@ const expected = 'Consideriamo pi di a e effe da a in bi, con somma degli i.';
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.cached.clear();
+  mocks.scene.mockResolvedValue({ kind: 'text' });
   resetModelConfigForTesting();
   mocks.generate.mockImplementation(async ({ prompt }) => ({
     spokenMath: JSON.parse(prompt).formulas.map((formula: string) => ({
