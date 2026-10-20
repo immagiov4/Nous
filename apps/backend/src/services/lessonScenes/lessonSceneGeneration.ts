@@ -195,7 +195,7 @@ FIELDS
 - proportional: items and groups []; supply autoplay, inputLabel, unitLabel, min, max, initial (integers, 1 <= min <= initial <= max), positive amountPerUnit, outputUnit, outputLabel, assumption. The fixed renderer multiplies quantity by amountPerUnit. Use only quantities and a proportional relation stated in the lesson. Optional cues are {anchor, value}: increasing cumulative quantities ending at max.
 - formula-spotlight: items and groups []; formula is complete LaTeX with explicit \nousSymbol{id} references, not HTML or CSS. symbols is an ordered array of {id,latex,name,meaning,anchor}. Each id is a letter followed by letters or digits. Replace the original symbol with its reference, never append the reference after the glyph. Substituting every reference with its latex must reproduce the authored formula without adding or removing operators. Every symbol occurs through its reference in formula (including repeated occurrences); explain every symbol in natural language. Bare mathematical identifiers are invalid, including subscripts and macro-expanded identifiers; an operator with its own symbol entry must use its reference at every occurrence. Keep symbols with distinct meanings separate, including an operator and its operands. Bind each anchor to the narration explaining that exact symbol, not adjacent text. Each anchor is an exact, unique narration quotation, distinct from every other symbol anchor; list symbols by their first spoken mention. The fixed renderer shows the symbol and name and expands only the currently narrated meaning. Choose this form when a large formula and its definitions teach the passage; do not select by formula count or keyword. Prefer a useful visual over repeating prose; retain the source meaning and conditions.
 - guided-path: items and groups []; supply autoplay and steps: ${GUIDED_PATH_MIN_STEPS} to ${GUIDED_PATH_MAX_STEPS} {label, detail, optional anchor} entries following the explicit path in the lesson. Every label and detail is non-empty.
-- Animated forms reuse title and body as the prototype's title and description. Set autoplay true for gradual reader playback. Narration, when supplied, quotes the lesson; anchors are exact quotations of the lesson text. Supply data only, never executable formulas, scripts, CSS, coordinates, or animation code. The formula-spotlight LaTeX field is mathematical notation, not executable code.
+- Animated forms reuse title and body as the prototype's title and description. Set autoplay true for gradual reader playback. Narration and cue anchors quote the canonical narration when supplied, otherwise the lesson text. Ground quantities and other facts in the lesson text. Supply data only, never executable formulas, scripts, CSS, coordinates, or animation code. The formula-spotlight LaTeX field is mathematical notation, not executable code.
 - Additional static forms use their own fields and replace the preceding items/groups constraints. Their field instructions appear below. Items may also carry id, parent, start, end, x, or y for those forms. A group's optional details has one short description per entity. Optional groupIconQueries chooses a group's heading icon; optional top-level iconQueries chooses the center icon. Both use the same three search phrases as item iconQueries.
 
 ANIMATED SCENE SELECTION
@@ -279,7 +279,7 @@ ${
     : ''
 }
 ${correction}
-${input.narration ? `CANONICAL NARRATION (copy symbol anchors exactly from this text):\n${input.narration}\n` : ''}
+${input.narration ? `CANONICAL NARRATION (copy symbol and animation cue anchors exactly from this text):\n${input.narration}\n` : ''}
 ${input.lessonMarkdown.length > MAX_VISUAL_LESSON_CHARS ? 'LESSON EXCERPT (truncated; only this excerpt is available for analysis):' : 'LESSON TEXT:'}
 ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`;
 };
@@ -400,10 +400,7 @@ const findDraftProblems = (
   ...(hasConflictingLessonSceneClosingText(scene)
     ? ['Use either an essential closing question or a necessary note, or leave both empty.']
     : []),
-  ...findLessonSceneProblems(
-    scene,
-    scene.type === 'formula-spotlight' ? (narration ?? source) : source
-  ),
+  ...findLessonSceneProblems(scene, source, narration),
 ];
 
 /** Generates and validates one lesson scene, then chooses its icons. */

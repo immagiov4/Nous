@@ -682,6 +682,46 @@ test.each([
   );
 });
 
+test.each([
+  'guided-path',
+  'proportional',
+] as const)('validates %s cues against spoken math while grounding quantities in source text', async type => {
+  const source =
+    'Consideriamo $x$. Poi osserviamo $y$. Da 1 a 6 repliche, inizialmente 2, 128 MB ciascuna.';
+  const narration =
+    'Consideriamo ics. Poi osserviamo ipsilon. Da uno a sei repliche, inizialmente due, centoventotto megabyte ciascuna.';
+  const sceneFor = (anchors: readonly string[]) =>
+    type === 'guided-path'
+      ? {
+          ...guidedPathScene,
+          narration: undefined,
+          steps: [
+            { label: 'Prima quantità', detail: 'Osserva la prima.', anchor: anchors[0] },
+            { label: 'Seconda quantità', detail: 'Osserva la seconda.', anchor: anchors[1] },
+          ],
+        }
+      : {
+          ...proportionalScene,
+          narration: undefined,
+          cues: [
+            { anchor: anchors[0], value: 2 },
+            { anchor: anchors[1], value: 6 },
+          ],
+        };
+  const scene = sceneFor(['Consideriamo ics', 'Poi osserviamo ipsilon']);
+  const draft = { ...quoteDraft(''), ...scene, evidence: source, intent: 'Follow the quantities.' };
+  const input = { ...unplannedInput(source), narration };
+  generateStructuredOutputMock.mockResolvedValue(draft);
+  expect(await generateLessonScene(input)).toMatchObject({ kind: 'scene', scene: { type } });
+  const rawAnchors = { ...draft, ...sceneFor(['Consideriamo $x$', 'Poi osserviamo $y$']) };
+  generateStructuredOutputMock.mockResolvedValue(rawAnchors);
+  expect(await generateLessonScene(input)).toMatchObject({ kind: 'invalid' });
+  if (type === 'proportional') {
+    generateStructuredOutputMock.mockResolvedValue({ ...draft, amountPerUnit: 256 });
+    expect(await generateLessonScene(input)).toMatchObject({ kind: 'invalid' });
+  }
+});
+
 test('admits a spotlight only when the caller supplies canonical narration', async () => {
   const draft = {
     ...quoteDraft(''),

@@ -613,7 +613,8 @@ const findAnimationNarrationProblems = (
 const findAnimatedSceneProblems = (
   scene: Record<string, unknown>,
   source: string | undefined,
-  validate: SceneValidator
+  validate: SceneValidator,
+  narration = source
 ): string[] => {
   const problems: string[] = [];
   if (typeof scene.autoplay !== 'boolean') problems.push('Autoplay must be explicit.');
@@ -625,7 +626,7 @@ const findAnimatedSceneProblems = (
     problems.push('Narration must be text.');
   }
   if (problems.length) return problems;
-  return findAnimationNarrationProblems(scene as unknown as AnimatedLessonScene, source);
+  return findAnimationNarrationProblems(scene as unknown as AnimatedLessonScene, narration);
 };
 
 /** Limits and invariants of the settled static prototype, independent of legacy forms. */
@@ -829,7 +830,11 @@ const findMatrixProblems = (scene: Record<string, unknown>): string[] => {
     : [];
 };
 
-type SceneValidator = (scene: Record<string, unknown>, source?: string) => string[];
+type SceneValidator = (
+  scene: Record<string, unknown>,
+  source?: string,
+  narration?: string
+) => string[];
 
 const findQuickNumberProblems: SceneValidator = (scene, source) => {
   if (source === undefined) return [];
@@ -934,8 +939,8 @@ export const LESSON_SCENE_REGISTRY = {
     schema: SceneDataSchema.extend(FormulaSpotlightDataSchema.shape),
     description:
       'Una formula grande con simboli nominati e spiegati, sincronizzati alla narrazione.',
-    validate: (scene, source) => [
-      ...findFormulaSpotlightProblems(scene, source),
+    validate: (scene, source, narration) => [
+      ...findFormulaSpotlightProblems(scene, narration ?? source),
       ...((scene.items as unknown[]).length || (scene.groups as unknown[]).length
         ? ['Formula spotlight uses symbols, not items or groups.']
         : []),
@@ -1036,14 +1041,15 @@ export const LESSON_SCENE_REGISTRY = {
     animated: true,
     description: 'Una quantità cresce per unità uguali, con dati e limiti dichiarati nel testo.',
     schema: SceneDataSchema.extend(ProportionalDataSchema.shape),
-    validate: (scene, source) =>
-      findAnimatedSceneProblems(scene, source, findProportionalSceneProblems),
+    validate: (scene, source, narration) =>
+      findAnimatedSceneProblems(scene, source, findProportionalSceneProblems, narration),
   },
   'guided-path': {
     animated: true,
     description: `Un percorso esplicito di ${GUIDED_PATH_MIN_STEPS}–${GUIDED_PATH_MAX_STEPS} tappe da seguire gradualmente.`,
     schema: SceneDataSchema.extend(GuidedPathDataSchema.shape),
-    validate: (scene, source) => findAnimatedSceneProblems(scene, source, findGuidedPathProblems),
+    validate: (scene, source, narration) =>
+      findAnimatedSceneProblems(scene, source, findGuidedPathProblems, narration),
   },
   composition: {
     description: 'Due alternative con proprietà o passaggi interni diversi; massimo due livelli.',
@@ -1299,8 +1305,11 @@ export const HistoricalLessonSceneSchemas = LESSON_SCENE_CATALOG_SNAPSHOTS.map(
 const findFormContentProblems = (
   form: SceneForm,
   value: Record<string, unknown>,
-  source: string | undefined,
-  quoteProblems: string[]
+  {
+    source,
+    narration,
+    quoteProblems,
+  }: { source?: string; narration?: string; quoteProblems: string[] }
 ): string[] => {
   if (form.content) {
     const contentProblems =
@@ -1309,7 +1318,7 @@ const findFormContentProblems = (
         : [];
     return [
       ...contentProblems,
-      ...(contentProblems.length ? [] : form.validate(value, source)),
+      ...(contentProblems.length ? [] : form.validate(value, source, narration)),
       ...quoteProblems,
       ...findRelationProblems(value.relation, source),
     ];
@@ -1319,7 +1328,7 @@ const findFormContentProblems = (
       ? 'Animated forms keep their content in quantity parameters or steps'
       : 'A diagram form keeps its content in diagram';
     return [
-      ...form.validate(value, source),
+      ...form.validate(value, source, narration),
       ...((value.items as unknown[]).length || (value.groups as unknown[]).length
         ? [`${content}: items and groups must be empty.`]
         : []),
@@ -1329,14 +1338,18 @@ const findFormContentProblems = (
   const numericProblems = form.numeric ? findNumericProblems(value, source) : [];
   return [
     ...(form.needsItems ? findItemShapeProblems(value) : []),
-    ...(numericProblems.length ? numericProblems : form.validate(value, source)),
+    ...(numericProblems.length ? numericProblems : form.validate(value, source, narration)),
     ...quoteProblems,
     ...findRelationProblems(value.relation, source),
   ];
 };
 
-/** Returns every contract violation of a scene. With `source`, quotations, quantities, relations, and diagram connections must also be grounded in that lesson text. */
-export const findLessonSceneProblems = (value: unknown, source?: string): string[] => {
+/** Ground content in source text; an optional canonical narration owns synchronized cue quotations. */
+export const findLessonSceneProblems = (
+  value: unknown,
+  source?: string,
+  narration?: string
+): string[] => {
   if (!isRecord(value)) return ['A scene must be an object.'];
   if (!isSceneType(value.type)) return ['The scene type is not in the catalog.'];
   const textProblems = ['title', 'body', 'quote', 'note'].some(key => !isText(value[key]))
@@ -1362,7 +1375,7 @@ export const findLessonSceneProblems = (value: unknown, source?: string): string
       issue => `${issue.path.join('.') || type}: ${issue.message}`
     );
   }
-  return findFormContentProblems(form, value, source, quoteProblems);
+  return findFormContentProblems(form, value, { source, narration, quoteProblems });
 };
 
 export const isLessonScene = (value: unknown): value is LessonScene =>
