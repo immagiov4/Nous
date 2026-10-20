@@ -10,15 +10,9 @@ import {
 } from '../../src/services/lessonEvidence.js';
 import { verifyLessonEvidence } from '../../src/services/lessonEvidenceVerification.js';
 import { buildLessonGenerationPrompt } from '../../src/services/lessonGenerationPrompt.js';
-import {
-  buildArchiveSourceContext,
-  buildMappedSourceContext,
-} from '../../src/services/lessonGenerationSources.js';
+import { buildMappedSourceContext } from '../../src/services/lessonGenerationSources.js';
 import type { LessonGenerationInput } from '../../src/services/lessonGenerationTypes.js';
-import {
-  encodeLessonPrimarySources,
-  readLessonPrimarySources,
-} from '../../src/services/lessonPrimarySourceContext.js';
+import { encodeLessonPrimarySources } from '../../src/services/lessonPrimarySourceContext.js';
 import { buildSha256HexDigest } from '../../src/utils/hash.js';
 import { CourseDocumentIndexSchema } from '../../src/workflows/courseGenerationWorkflowContract.js';
 import { canonicalJson } from '../../src/workflows/schemaFingerprint.js';
