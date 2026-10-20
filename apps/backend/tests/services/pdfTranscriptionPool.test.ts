@@ -173,7 +173,7 @@ test('rejects page 301 across source files before scheduling it and preserves th
   try {
     expect(pool.allocateScannedPages(1)[0]).toMatchObject({ ordinal: 300, tier: 'reduced' });
     expect(() => pool.allocateScannedPages(1)).toThrow(
-      expect.objectContaining({ code: 'PDF_SCANNED_PAGE_LIMIT', limit: 300 })
+      expect.objectContaining({ name: 'PdfScannedPageLimitError', limit: 300 })
     );
     expect(pool.measurements.scannedPages).toBe(300);
     expect(pool.measurements.maxRenderedImages).toBe(0);
