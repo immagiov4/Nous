@@ -267,6 +267,21 @@ function PlaybackVisualContent({
       {visual.kind === 'scene' ? (
         <PlaybackScene {...props} scene={visual.scene} isDarkMode={content.isDarkMode} />
       ) : null}
+      {visual.kind === 'mermaid' ? (
+        <GeneratedVisualFrame
+          className="lesson-player-generated"
+          title={props.block.heading}
+          visual={{
+            id: `playback:${props.block.id}`,
+            title: props.block.heading,
+            kind: 'mermaid',
+            code: visual.code,
+            createdAt: '',
+          }}
+          projectId={content.projectId}
+          isDarkMode={content.isDarkMode}
+        />
+      ) : null}
       {visual.kind === 'markdown' ? (
         <MarkdownRenderer
           content={visual.markdown}
