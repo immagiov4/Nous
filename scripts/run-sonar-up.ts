@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-const SONAR_COMPOSE_PATH = 'docker-compose.sonarqube.yml';
+const SONAR_COMPOSE_PATH = 'config/docker-compose.sonarqube.yml';
 const LEGACY_SONAR_SETTINGS_PATH = path.resolve('sonar.local.properties');
 const SONAR_PERMISSION_PROVISIONER_SERVICE = 'sonar-permissions';
 

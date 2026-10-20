@@ -1,218 +1,26 @@
 ---
-title: "Lesson Generation Pipeline"
+title: "Lesson generation"
 wiki_page_id: "p-lesson-gen"
 ---
 
-<details>
-<summary>Relevant source files</summary>
+[Up one level](01-p-course-gen.md)
 
-The following files were used as context for generating this wiki page:
+# Lesson generation
 
-- [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts)
-- [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
-- [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts)
-- [packages/shared-types/lessonInstructionPacks.ts](../../../packages/shared-types/lessonInstructionPacks.ts)
-- [packages/shared-types/lessonGenerationPolicy.ts](../../../packages/shared-types/lessonGenerationPolicy.ts)
-- [apps/backend/src/services/lessonGenerationCorrection.ts](../../../apps/backend/src/services/lessonGenerationCorrection.ts)
-- [apps/backend/src/workflows/lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts)
-- [apps/backend/src/services/lessonGenerationModel.ts](../../../apps/backend/src/services/lessonGenerationModel.ts)
-- [apps/backend/src/services/lessonResearchContract.ts](../../../apps/backend/src/services/lessonResearchContract.ts)
-- [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts)
-- [apps/backend/src/workflows/workflowStepRunner.ts](../../../apps/backend/src/workflows/workflowStepRunner.ts)
-- [apps/backend/src/services/lessonGenerationNormalization.ts](../../../apps/backend/src/services/lessonGenerationNormalization.ts)
-- [apps/web/components/shared/GenerationProgress.tsx](../../../apps/web/components/shared/GenerationProgress.tsx)
-- [apps/backend/src/workflows/lessonGenerationDocumentStage.ts](../../../apps/backend/src/workflows/lessonGenerationDocumentStage.ts)
-- [apps/backend/src/services/lessonGenerationSources.ts](../../../apps/backend/src/services/lessonGenerationSources.ts)
-</details>
+Lesson generation converts one objective in the saved plan into an explanation, study aids and visual references. The workflow gathers the relevant context, researches and selects evidence, drafts and reviews the lesson, prepares its visuals, then commits a replacement for the targeted lesson. A separate playback workflow prepares narration from that committed content.
 
-# Lesson Generation Pipeline
+## Context precedes drafting
 
-The **Lesson Generation Pipeline** is a complex, multi-stage workflow designed to transform raw source materials, research data, and pedagogical requirements into structured, high-quality educational content. Orchestrated by the `lesson-generation` workflow, it integrates Large Language Models (LLMs), research tools, and visual rendering engines to produce autonomous lessons enriched with markdown, active pauses (quizzes), YouTube clips, and generated visuals.
+Preparation resolves the project and target lesson against their current identity. The approved plan and course preferences constrain the explanation; source coverage and available research determine what evidence can support it. Document staging retrieves material relevant to that objective, while [research routing](01-p-course-gen.md#research-routing) decides which additional sources are needed under the shared sufficiency contract. The resulting context reaches both drafting and review, so review can assess claims against the same material. Follow-up lessons use the existing course context while targeting a narrower question.
 
-The pipeline ensures pedagogical rigor by adhering to strict propedeutic rules, continuity constraints, and informational density requirements. It supports both the generation of new core lessons and "deep-dive" sublessons based on specific user focus areas.
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts), [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts)
+Factual review includes claims and deductions supported by stated premises. Teaching review checks that the explanation reaches its objective without depending on unexplained prerequisites. Deterministic schemas validate structure separately. These checks answer different questions: a parseable lesson can still have weak evidence or missing reasoning. [Generation instructions](../07-section-ai/02-p-prompt-engineering.md) own those expectations.
 
-## Pipeline Architecture
+## Visual work has its own results
 
-The pipeline is implemented as a durable sequence of steps, utilizing a state machine pattern to handle long-running operations, retries, and idempotency.
+The [lesson definition](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts) fans out visual preparation after the reviewed draft and learning aids. It collects per-slot outcomes, then normalizes content and references before persistence. A visual result must identify the slot it belongs to; storage adoption connects generated bytes to committed project references. [Asset lifecycle](../04-section-data/02-p-asset-management.md) explains why provisional output needs a separate owner.
 
-```mermaid
-flowchart TD
-    Start[Workflow Input] --> RouteTarget{Route Target}
-    RouteTarget -->|Existing| Prepare[Prepare Lesson]
-    RouteTarget -->|Sublesson| PlanSub[Plan Sublesson]
-    
-    PlanSub --> FinalizeSub[Finalize Sublesson]
-    FinalizeSub --> Prepare
-    
-    Prepare --> RoutePrepared{Already Completed?}
-    RoutePrepared -->|Yes| End[Return Result]
-    RoutePrepared -->|No| Coverage[Assess Coverage]
-    
-    Coverage --> Sources[Stage Sources]
-    Sources --> YTResearch[YouTube Research]
-    YTResearch --> Research[Research Lesson]
-    Research --> Draft[Draft Lesson]
-    Draft --> Review[Review Lesson]
-    Review --> Aids[Generate Aids]
-    Aids --> Visuals[Render Visuals]
-    Visuals --> Normalize[Normalize Structure]
-    Normalize --> Persist[Persist Lesson]
-    Persist --> Finalize[Finalize Lesson Result]
-    Finalize --> Publish[Publish Project Revision]
-    Publish --> End
-```
+## Replacement is a commit boundary
 
-This diagram illustrates the high-level progression from initial request to the final publication of a lesson revision.
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts)
+The last saved lesson stays available while replacement work runs. Successful regeneration replaces its content and clears content-dependent answers and annotations; failed generation preserves saved content and progress. [Exercise state](08-p-interactive-exercises.md) explains this identity relationship.
 
-### 1. Preparation and Sublesson Planning
-The pipeline begins by determining if the request is for an existing lesson or a new sublesson. Sublessons are planned using a dedicated stage that creates metadata and source associations before feeding back into the main generation path.
-* **Key Function:** `planSublesson` defines the deep-dive context.
-* **Key Function:** `prepareLesson` loads the project snapshot and determines if a previous generation exists.
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts), [apps/backend/src/workflows/lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts)
-
-### 2. Research and Source Staging
-Mapped document context reserves the six-chunk limit for explicitly selected chunks before adding same-source neighbors, then presents the result in document order. Unresolved explicit chunk references, including partially resolved selections or a missing index, produce the existing `lesson_source_unavailable` failure. Sections without chunk selections use the first two indexed chunks, or stored document text when the index is absent.
-
-Source deduplication prefers an explicit `sourceId`. URL identity normalizes scheme and hostname case while preserving path, query, and fragment case. The existing trailing-slash equivalence also applies. Sources: [apps/backend/src/services/lessonGenerationSources.ts](../../../apps/backend/src/services/lessonGenerationSources.ts), [apps/backend/src/services/lessonGenerationPreparation.ts](../../../apps/backend/src/services/lessonGenerationPreparation.ts)
-
-For every fresh lesson generation, the system compares the primary source material with the complete binding lesson context and identifies missing topics before research routing. Existing research dossiers keep their reuse fast path.
-* **YouTube Research:** A branching path that plans specific and fallback queries to find timestamped transcripts.
-* **Research Dossier:** The `generateResearchSummary` service creates a dense factual dossier, including controversies and recent developments, which serves as factual support for drafting.
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts), [apps/backend/src/services/lessonGenerationModel.ts](../../../apps/backend/src/services/lessonGenerationModel.ts)
-
-For stored PDFs, `stage-document-sources` keeps extracted data URLs local to one provider effect operation. It stages every selected image in project asset storage before starting optional captions, then returns only `ProjectAssetRef` values and textual metadata. A storage failure therefore cannot leave paid caption calls inside an unrecorded effect. The provider effect records the durable result under a payload-versioned key. Retries after that point reuse extraction, assets, and captions; failures before persistence rerun the idempotent operation and cannot replay the old data-URL payload as durable metadata. Image metadata identity includes the source ID, source content hash, and image hash. The single-source storage fallback uses the same authoritative ID reader as extraction. It prefers `source.ref.id` and supports legacy snapshots that only retain `source.file.sourceId`; it never derives identity from the filename. A fresh extraction replaces stored placement, nearby text, and captions even when the source version and image bytes are unchanged. This covers repeated figures selected from different pages in different lessons. Metadata from older source versions is excluded when the new PDF changes or removes an image. Named associations outside the snapshot's current source IDs are excluded too, which removes records produced by the old filename fallback. Anonymous records remain eligible only while the snapshot declares no source IDs. Once source authority exists, fresh extraction reconstructs current metadata and removed anonymous images stay removed. When a current source hash is available, the stage refreshes durable records created before image metadata carried that hash. Fresh versioned extraction also replaces anonymous legacy metadata for the same bytes, which prevents duplicate captions and stale records. Binary reuse stays separate and uses the byte hash plus MIME type. Caption batches run one document source at a time. Sources: [apps/backend/src/workflows/lessonGenerationDocumentStage.ts](../../../apps/backend/src/workflows/lessonGenerationDocumentStage.ts), [apps/backend/src/services/lessonGenerationSources.ts](../../../apps/backend/src/services/lessonGenerationSources.ts)
-
-### 3. Content Drafting and Review
-
-Factual verification accepts claims supported by the course source or by the research dossier with source attribution. Dossier source identities and notes accompany the selected research passages in authoring and factual-review prompts, while persisted evidence hashes and unit ranges retain their original representation. Factual-review evidence units carry their retained indices explicitly for citations. The provider response schema binds each citation to one retained material and its actual unit-index bounds, including image-context evidence. Video timestamps remain separate from citation indices. The runtime range and coverage checks still validate the response independently. The provider schema also enumerates the supplied block IDs, preserving null for unanchored findings. The factual verifier copies content-derived block IDs, keeping references stable when other distinct blocks are inserted or reordered; repeated identical blocks receive distinct IDs. Resolvable references map back to draft positions for correction feedback, while unresolved factual findings remain unanchored. A successful review must assess every supplied block ID exactly once; omitted, duplicated or unresolved assessments cannot approve the draft. Unsupported or contradicted findings still produce correction feedback before the application checks completeness.
-
-The pedagogical verification boundary rejects Markdown fences tagged `mermaid` and untagged fenced code that the bundled Mermaid parser accepts as a diagram. The Markdown parser determines fenced code, including quote and list boundaries, so indented code and nested fence examples remain ordinary code. Mermaid parsing classifies all untagged fenced bodies of a draft in one isolated DOM process, started only when a non-empty body exists, and owns diagram types, comments and directives; untagged programming examples are not classified by identifier prefixes. Artifact validation retains its existing handling of unknown diagram types. This check applies to newly reviewed drafts. Sources: [lessonGenerationVerification.ts](../../../apps/backend/src/services/lessonGenerationVerification.ts), [mermaidValidation.ts](../../../apps/backend/src/services/mermaidValidation.ts), [mermaidValidationProcess.mjs](../../../apps/backend/src/services/mermaidValidationProcess.mjs)
-
-After retrieval and final source classification, `research-lesson` checkpoints the result. The separate `select-lesson-evidence` step packages every bounded source unit without another model call. Text units retain line boundaries and offsets. Transcript units retain canonical segment text and timestamps. Drafting receives the original excerpts. The initial pedagogical review receives source identities. A corrective review also receives the complete retained excerpts and dossier attribution, so it can repair a rejected claim against its original evidence rather than source titles alone. Factual review checks the reviewed draft against those excerpts without rewriting it. Clip intervals must fit within retained transcript passages. Unsupported claims produce corrective feedback for the next attempt. Primary-source coverage sends every non-empty source to the coverage model.
-
-Primary-source preparation records document identity separately from excerpt text, including source ID, chunk/page references or archive path. Every selected primary unit retains that identity even when its header is omitted. The dossier archives the complete materials and reference selection as `evidencePacketJson`; canonical sources and full transcripts remain intact. Draft and review restore references against the original materials and reject a changed material hash. Project export/import preserves the archive. Previous durable workflow definitions retain their original schemas and hashes.
-
-Evidence packaging remains downstream of research because research assigns the final source indices. Sufficient primary material can still skip research.
-
-Drafting and factual-review prompts share primary-source identity once per consecutive unit range in each passage's `primarySources`. The ordered `units` retain every selected text, offset, and transcript timestamp; their citation indices start at the passage's `firstUnit`. Source changes create separate provenance ranges. The durable evidence archive retains its original representation, so restored selections use the same compact prompt format.
-
-Fresh normalized web sources join the final catalog before selection, including web-only lessons. Their `attributed-note` content remains distinct from canonical transcript excerpts: the current research contract supplies model-authored notes tied to URLs, not separately retrieved verbatim page text. Review checks what those notes support without treating them as independent corroboration or original quotation. Adjacent retained units of the same material form a continuous passage for clip and citation validation; omitted units still break that coverage. Historical definitions explicitly bypass selection rather than paying for a result their schema would discard.
-
-Sources: [lessonEvidence.ts](../../../apps/backend/src/services/lessonEvidence.ts), [lessonEvidenceModel.ts](../../../apps/backend/src/services/lessonEvidenceModel.ts), [lessonEvidenceVerification.ts](../../../apps/backend/src/services/lessonEvidenceVerification.ts), [lessonPrimarySourceContext.ts](../../../apps/backend/src/services/lessonPrimarySourceContext.ts), [lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts)
-
-#### Repeatable evidence measurement
-
-The review step persists the validated pedagogical draft through `providerEffect` before factual verification. Malformed factual reports and transport retries reuse that result. A structured corrective-feedback envelope advances the pedagogical revision only when factual claims or clip evidence require content changes. Each correction starts from the preceding saved pedagogical revision. Model-produced factual findings are delimited as untrusted JSON. Referenced PDF images contribute their stored caption, page, and nearby text to factual evidence. This validates textual support, not image pixels.
-
-The integration fixture contains Italian course notes and four simulated lectures, including a timestamped demonstration and unrelated material. The controlled provider boundary compares the same lesson through prompt construction, model routing, stage schemas, and persistence preparation. It proves reference preservation and corrective failures.
-
-With `gpt-5.6-luna`, `tiktoken` 0.14.0, and `o200k_base`, visible input includes request text, developer instructions, and the serialized output schema. Counts exclude provider framing and hidden instructions. The measurement export labels the three provider calls as drafting, pedagogical review, and factual review. It also records the retained source units.
-
-To reproduce, install `tiktoken==0.14.0` in a separate Python environment, set `LESSON_EVIDENCE_MEASUREMENTS_DIR` to an output directory outside the repository, run `bun --bun vitest run --config apps/web/vitest.config.ts apps/backend/tests/services/lessonEvidence.integration.test.ts`, then run `python scripts/measure-lesson-evidence.py <output-directory>`. The evidence-loss case removes the scalar-clock qualification from retained evidence and verifies that the final factual check rejects the resulting unsupported claim. The full-context comparison retains that qualification. Actual pedagogical effectiveness requires model evaluation beyond this deterministic contract test.
-
-#### Real-model evaluation
-
-Factual support includes valid deductions from the supplied definitions and premises, even when the conclusion is not stated verbatim. An unsupported finding must identify a missing external premise or an invalid inference. Run `bun --tsconfig-override apps/backend/tsconfig.json scripts/run-lesson-evidence-quality.ts` with `REAL_LESSON_QUALITY_TESTS=I_ACCEPT_REAL_PROVIDER_COSTS` to evaluate this boundary with Luna. The two real-provider cases require acceptance of a valid deduction and rejection of an exact value requiring an absent premise. Inputs, outcomes and usage are written to a temporary directory. These semantic checks use the real provider rather than asserting prompt wording.
-
-A Luna evaluation on the same authored materials selected primary units 1–3 and transcript `source-1` units 2 and 5 (90.25–135.5 and 225.25–270.5 seconds). The initial range validation rejected valid contained references; validation now accepts ordered subranges inside retained passages. Factual instructions distinguish endorsed assertions from quiz distractors, hypothetical examples, visual plans and absent optional captions.
-
-The automatic pedagogical/factual review cycle accepted the original generated draft on its second completed attempt, using corrective feedback and the existing maximum of three attempts. The accepted lesson has eight blocks, two quizzes, one planned visual and two clips. The first attempt identified assertions exceeding the selected evidence. The successful second attempt used 20,901 input / 8,418 output tokens for pedagogical review and 15,640 / 8,454 for factual review. The two completed automatic attempts total 72,799 input / 34,350 output tokens. An interrupted second attempt had completed its pedagogical call (20,889 / 6,852) before the evaluation was paused; it has no completed factual result.
-
-An earlier diagnostic copy passed factual review after manually deleting one unsupported clock-synchronization sentence. That diagnostic is separate from the subsequent automatic success on the original draft. One authored example and model-based acceptance establish this execution path, not general pedagogical effectiveness or rendered media quality. The durable integration tests separately cover persistence, exports, original source identity, rejected evidence and historical workflow hashes.
-
-The `draftLesson` stage uses the `Professor Nous` system prompt to generate the lesson body. The writer and focused verifier share canonical pedagogical contracts without sending the complete generation prompt through verification a second time.
-
-| Rule Category | Description |
-| :--- | :--- |
-| **Continuity** | Prevents repetition of concepts from `previousLessonTitles`. |
-| **Propedeutic order** | Requires prerequisites and first concept exposures to be understandable before later abstractions, contrasts or negations depend on them. |
-| **Formatting** | Enforces standard Markdown and KaTeX for mathematical formulas. |
-| **Active Pauses** | Injects 0-3 inline quizzes that require higher-order thinking (classification, sequence, etc.). |
-| **Visual Planning** | Identifies specific points where a `generated-visual` or `youtube-clips` block improves understanding. An active `visual-learning` pack is itself an explicit requirement for a necessary visual representation: source media are preferred when adequate, otherwise the verifier may restore the minimum generated visual needed. |
-
-Sources: [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts), [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts), [packages/shared-types/lessonInstructionPacks.ts](../../../packages/shared-types/lessonInstructionPacks.ts), [packages/shared-types/lessonGenerationPolicy.ts](../../../packages/shared-types/lessonGenerationPolicy.ts)
-
-### Corrective Retry Lifecycle
-
-Model-backed lesson stages distinguish **corrective** failures from **operational** failures. Coverage assessment, research, drafting and final lesson review all consume durable `retryFeedback` when a known output-contract or deterministic validation problem caused the previous attempt to be rejected. The feedback is injected into the next request so the model repairs the identified defect instead of receiving the same prompt again.
-
-Examples of corrective failures include malformed structured output, incomplete YouTube candidate classification, an incomplete verifier report, an unauthorized structural feature introduced during verification, invalid inline-quiz placement and unbalanced LaTeX environments. Each uses a stable developer-authored failure code and safe corrective instruction. The workflow persists that structured failure on the attempt and supplies its feedback to the next claim.
-
-Lesson research uses one shared Zod base contract for the provider response and the durable workflow summary. `LessonResearchModelResponseSchema` refines that base by requiring `youtubeCandidateDecisions` for new provider responses, while `LessonResearchSummarySchema` keeps the field optional so historical durable snapshots remain readable. The provider receives JSON Schema derived from the model response contract, and the model boundary parses the response again before `research-lesson` returns state. If any workflow step still returns invalid state, the runner persists only the first validation issue code and field path, without the Zod message or rejected value, and uses the same field path as corrective feedback.
-
-Provider/network failures remain operational. Their diagnostics stay bounded and sanitized rather than persisting arbitrary provider exception text. This gives support tooling a concrete reason for deterministic model-contract retries without weakening the error-redaction boundary.
-
-Recoverable retries are also neutral in the learner-facing generation UI: while the workflow is automatically retrying, the progress surface reports another attempt in progress rather than presenting a temporary internal rejection as a user-visible failure. Terminal workflow failure remains handled by the normal error surface.
-
-The workspace keeps the frontend generation gate alive when navigation detaches the current lesson workflow view. If the learner returns to the section that owns an active ordinary lesson or selection-created sublesson, the gate reattaches the view to the existing request. Ownership takes precedence over cached content, including force regeneration.
-
-After a reload, the client resolves a stored ordinary-lesson request key before it sends another lesson payload. The recovered run retains its original request fingerprint, including the force-regeneration mode. Project opening checks the active section even when it already has content, so a retained regeneration does not remain hidden behind the cached lesson. For a sublesson, the retained-request lookup returns the recovered workflow snapshot. Section opening passes that snapshot to the generation client instead of resolving the same request twice. Only the section ID reported by the recovered run bypasses cached reuse, so sibling deep dives remain available. A newer navigation request or project switch invalidates a pending lookup before it can change the visible section.
-
-Starting a new deep dive retires a terminal parent request first. An active retained request keeps ownership and reports the existing generation as busy. When a detached job settles, the controller closes its pending workflow without showing the terminal result over another lesson or project. The persisted result still belongs to the project ID, generated section ID, and generation token that started the job. The current project and active section decide whether progress or an error belongs to the visible view. Missing-source state follows the same project scope. Each affected project retains its own flag, while the reader derives `needsSourceFile` only for the project currently open.
-
-Sources: [apps/backend/src/routes/lessonWorkflows.ts](../../../apps/backend/src/routes/lessonWorkflows.ts), [apps/backend/src/services/lessonResearchContract.ts](../../../apps/backend/src/services/lessonResearchContract.ts), [apps/backend/src/workflows/lessonGenerationApi.ts](../../../apps/backend/src/workflows/lessonGenerationApi.ts), [apps/backend/src/workflows/lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts), [apps/backend/src/workflows/retryPolicy.ts](../../../apps/backend/src/workflows/retryPolicy.ts), [apps/backend/src/workflows/postgresWorkflowStepStore.ts](../../../apps/backend/src/workflows/postgresWorkflowStepStore.ts), [apps/backend/src/workflows/workflowStepRunner.ts](../../../apps/backend/src/workflows/workflowStepRunner.ts), [apps/web/components/shared/GenerationProgress.tsx](../../../apps/web/components/shared/GenerationProgress.tsx), [apps/web/hooks/workspace/controller/projectLifecycle.ts](../../../apps/web/hooks/workspace/controller/projectLifecycle.ts), [apps/web/hooks/workspace/controller/sectionProgression.ts](../../../apps/web/hooks/workspace/controller/sectionProgression.ts), [apps/web/services/openrouter/lessonGenerationClient.ts](../../../apps/web/services/openrouter/lessonGenerationClient.ts)
-
-## Technical Implementation Details
-
-### Writing Contract and Pedagogy
-The pipeline enforces a "Propedeutic Order," meaning every technical term or symbol must be explained in common words immediately upon introduction. When a new concept, question, technique, or abstraction follows the prior reasoning, drafting and review require a concise conceptual bridge that explains why it belongs there; a missing bridge must be corrected even when the content is factually correct, while already explicit links must not receive ritual boilerplate.
-
-The first-exposure contract is stricter than a later positive definition: a concept cannot first appear as an unexplained metaphor, negative heading or contrastive label and only be defined afterward. Its first meaningful heading/lead/label exposure must establish enough positive meaning for the reader to understand what is being discussed. The system also forbids ASCII pseudo-visuals and unnecessary metadiscourse.
-Sources: [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts), [packages/shared-types/lessonInstructionPacks.ts](../../../packages/shared-types/lessonInstructionPacks.ts), [packages/shared-types/lessonGenerationPolicy.ts](../../../packages/shared-types/lessonGenerationPolicy.ts), [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
-
-### Visual Rendering Fan-Out
-The rendering of visuals is handled as a `fanOut` operation, allowing multiple visual plans to be processed in parallel.
-
-```mermaid
-sequenceDiagram
-    participant W as Generation Workflow
-    participant FO as FanOut Manager
-    participant V as Visual Renderer
-    W->>FO: visualInputs(state)
-    loop For each visual plan
-        FO->>V: Render (SVG/HTML/Mermaid)
-        V-->>FO: Asset ID & Code
-    end
-    FO-->>W: visualResults[]
-```
-
-This sequence ensures that a failure in one visual does not terminate the entire lesson generation; failed visuals are flagged for retry in the normalized structure. Visual planning/render review already uses the same corrective-retry pattern for deterministic model-output defects.
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts), [apps/backend/src/workflows/lessonVisualWorkflow.ts](../../../apps/backend/src/workflows/lessonVisualWorkflow.ts), [apps/backend/src/services/lessonGenerationNormalization.ts](../../../apps/backend/src/services/lessonGenerationNormalization.ts)
-
-### Normalization and Sanitization
-The `normalizeLessonStructure` function performs critical cleanup:
-1. **Markdown Sanitization:** Replaces internal `assetId` strings with user-friendly labels (e.g., "Figure 1") and removes unauthorized embedded image tags.
-2. **Quiz Validation:** Ensures quizzes are placed after explanatory markdown and do not exceed the `MAX_LESSON_QUIZ_QUESTIONS` limit.
-3. **Visual Mapping:** Associates successfully rendered visuals with their respective `slotId` in the content blocks.
-4. **PDF Image Presence:** The generative model inserts each selected image's `{{PDF_IMAGE:assetId}}` placeholder in Markdown. The shared Markdown integrity instruction permits these placeholders in both writing and verification. Normalization preserves their positions and rejects selected references whose placeholder is absent. It does not resolve heading anchors, enforce occurrence counts, or select and insert images automatically. Placeholder-only Markdown remains renderable but does not satisfy the existing preceding-text requirement for an inline quiz.
-
-The normalizer protects recognized `PDF_IMAGE` placeholders while sanitizing the surrounding prose. It checks presence in the resulting canonical `contentBlocks`, whose Markdown produces the legacy `content`. The workflow filters `documentAssets.usedImages` from the retained references before persisting the lesson. Older optional PDF anchor metadata is accepted but does not determine placement. The workflow draft boundary writes an empty `anchorHeading` solely to retain the existing persisted schema and definition hashes. The model response does not require that field, and normalization does not use it.
-
-Sources: [apps/backend/src/services/lessonGenerationNormalization.ts](../../../apps/backend/src/services/lessonGenerationNormalization.ts), [packages/shared-types/lessonPdfImageSelection.ts](../../../packages/shared-types/lessonPdfImageSelection.ts), [packages/shared-types/pdfImagePlaceholder.ts](../../../packages/shared-types/pdfImagePlaceholder.ts), [apps/backend/src/workflows/lessonGenerationNormalizationStage.ts](../../../apps/backend/src/workflows/lessonGenerationNormalizationStage.ts)
-
-### Workflow Schemas
-The pipeline relies on Zod schemas to ensure contract safety between stages.
-* **`LessonContentDraftSchema`**: Validates the structure of the LLM output, including `contentBlocks` and `generatedVisuals`.
-* **`LessonResearchDossierSchema`**: Ensures the research dossier contains factual summaries and YouTube candidate decisions.
-* **`LessonResultBlockSchema`**: A union type that defines valid output blocks (Markdown, Quiz, Clips, or Visuals).
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts)
-
-### How to add a scene form
-
-Visual planning and scene generation share the independent-content rule in `lessonVisualContracts.ts`. Independent computations or actions use an existing non-graph form: `parts` shows separate entries side by side, `checklist` shows checks, and `comparison` shows comparable alternatives. `steps` requires an explicit order in the lesson. Every computation or step required by the teaching goal must survive form selection and corrective retries; a planned diagram may change form to preserve that content. Flowchart, sequence, and journey validation still requires a connected graph with lesson-supported edges. The model must change an unsuitable form rather than delete independent content or invent connections. The shared generation prompt covers both lesson visuals and playback scene preparation.
-
-Add one data entry to `LESSON_SCENE_REGISTRY` in `packages/shared-types/lessonSceneRegistry.ts`: its key is the stored type; the entry owns the model-facing description, Zod data schema, deterministic validation and optional flags. Types, catalog text, generation fields and validation dispatch follow these entries. The shared package contains plain TypeScript and retains the public `lessonScene.ts` imports. Reuse the existing shared rules where appropriate.
-
-Add a matching renderer entry to `SCENE_RENDERERS` in `apps/web/components/shared/lessonScene/sceneRenderers.tsx`. Its `satisfies Record<LessonSceneType, SceneRenderer>` declaration rejects missing or unknown scene types, while the shared registry checks every entry's data contract. `LessonSceneVisual` dispatches through this map. Keep the existing JSX and CSS conventions; common rendering helpers live alongside the map in `lessonSceneRendering.tsx`, and styles remain in `lessonScene.css`. Adding a form therefore requires one data entry and one renderer entry, both checked by TypeScript.
-
-Deployed catalogs are immutable data snapshots in `lessonSceneCatalogSnapshots.ts`. Each frozen type list selects its entries and data fields to reconstruct the corresponding scene, visual, lesson-generation and playback schemas; production registration derives the historical definitions automatically. Preserve existing field schemas and snapshots when adding a form. Before deploying a new catalog, append a snapshot containing its type list. Run the lesson scene compatibility and runtime composition tests: they pin deployed hashes and verify that a new form and field retain every existing definition without another per-form workflow wrapper.
-
-The settled laboratory catalog adds `quadrant`, `radar`, `polar`, `flywheel`, `tree`, `stack`, `venn`, `funnel`, `treemap`, `heatmap`, `gantt`, `scatter`, `process`, `integration`, `security`, `deployment`, and `proportional-static`. Their registry entries retain the laboratory fields, bounds and deterministic relationships; their fixed renderers preserve its markup, geometry and scoped styles. `composition` has exactly two panels with different inner forms: independent `facts` and an ordered `steps` sequence, each with at most four items. Steps require at least two items and evidence for their order; generation checks that evidence against an exact substring of the supplied lesson. Shared item fields evolve with the catalog while deployed definition hashes remain resolvable. The current catalog receives new workflow hashes.
-
-The selection prompt asks for first-mention order for independent elements while preserving chronological, hierarchical and directional relations. It distinguishes one coherent description from separate entities, and calls for composition when a comparison needs different internal relationships. Item, group-entity, group-heading, center and panel icons all use the existing `iconQueries` resolution path. Playback binds the new elements to its existing emphasis targets. The laboratory's `hold` command belongs to its live text stream; Nous generates a complete scene for each prepared block and has no equivalent scene type. Sources: [lessonSceneRegistry.ts](../../../packages/shared-types/lessonSceneRegistry.ts), [sceneRenderers.tsx](../../../apps/web/components/shared/lessonScene/sceneRenderers.tsx), [lessonSceneGeneration.ts](../../../apps/backend/src/services/lessonScenes/lessonSceneGeneration.ts), [lessonSceneCatalogSnapshots.ts](../../../packages/shared-types/lessonSceneCatalogSnapshots.ts).
-
-## Conclusion
-The Lesson Generation Pipeline separates research, drafting, verification, optional aids, rendering, normalization and persistence into durable schema-validated stages. Known model-contract failures carry explicit corrective feedback into the next attempt, while transient operational failures retain the workflow engine's safe retry and diagnostic behavior. This keeps the pipeline resilient without turning deterministic validation failures into blind repeated model calls.
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts), [apps/backend/src/workflows/lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts)
+For a change to drafting or review, use [content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content) to read the saved replacement against its objective and evidence. This reaches the explanation the learner receives, including gaps a successful schema check cannot identify.

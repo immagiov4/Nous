@@ -19,7 +19,7 @@ export const generateReactHooksLintReport = async (
   reportPath = resolveEslintReportPath()
 ): Promise<ESLint.LintResult[]> => {
   const eslint = new ESLint({
-    overrideConfigFile: path.resolve('eslint.config.mjs'),
+    overrideConfigFile: path.resolve('config/eslint.config.mjs'),
     cache: true,
     // Content hashing keeps the gate correct when edits preserve size and timestamps.
     cacheStrategy: 'content',

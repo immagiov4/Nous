@@ -13,7 +13,7 @@ const __dirname = dirname(__filename);
 
 let cachedConfig: ServerConfig | null = null;
 
-// Backend config normalizes Node env values and server.config.json defaults.
+// Backend config normalizes Node env values and config/server.config.json defaults.
 // The web config keeps its own copy because Vite resolves import.meta.env at build time.
 const normalizeHost = (value: unknown, fallback: string): string => {
   if (typeof value !== 'string') {
@@ -42,17 +42,17 @@ export function loadServerConfig(): ServerConfig {
     return cachedConfig;
   }
 
-  const configPath = join(__dirname, '..', '..', '..', '..', 'server.config.json');
+  const configPath = join(__dirname, '..', '..', '..', '..', 'config', 'server.config.json');
   const hasConfigFile = existsSync(configPath);
   const userConfig = hasConfigFile
-    ? loadOptionalJsonFile<Partial<ServerConfig>>(configPath, 'server.config.json')
+    ? loadOptionalJsonFile<Partial<ServerConfig>>(configPath, 'config/server.config.json')
     : null;
 
   if (userConfig) {
     cachedConfig = { ...defaultServerConfig, ...userConfig };
-    console.log('[Config] Loaded server.config.json');
+    console.log('[Config] Loaded config/server.config.json');
   } else if (!hasConfigFile) {
-    console.log('[Config] No server.config.json found, using defaults');
+    console.log('[Config] No config/server.config.json found, using defaults');
     cachedConfig = defaultServerConfig;
   } else {
     cachedConfig = defaultServerConfig;

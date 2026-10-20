@@ -30,7 +30,7 @@ nul
 .fallow-current.json
 
 # Allow fallow baselines (checked into VCS)
-.fallow-baselines/
+config/fallow-baselines/
 .fallow/
 .fallow-current.json
 .fallow-health.json

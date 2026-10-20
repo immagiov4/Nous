@@ -86,7 +86,7 @@ export async function startBackend(
   server.on('error', (error: NodeJS.ErrnoException) => {
     const backendUrl = buildBackendServerUrl(backendConfig, { displayHost: true });
     const reconfigureHint =
-      'Update "backendPort" in server.config.json or set BACKEND_PORT/VITE_BACKEND_PORT to an open port.';
+      'Update "backendPort" in config/server.config.json or set BACKEND_PORT/VITE_BACKEND_PORT to an open port.';
 
     if (error.code === 'EACCES') {
       console.error(`[Backend] Permission denied while binding ${backendUrl}. ${reconfigureHint}`);

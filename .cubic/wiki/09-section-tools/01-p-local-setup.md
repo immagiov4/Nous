@@ -1,133 +1,32 @@
 ---
-title: "Local Environment Setup"
+title: "Local development setup"
 wiki_page_id: "p-local-setup"
 ---
 
-<details>
-<summary>Relevant source files</summary>
+[Up one level](../index.md)
 
-The following files were used as context for generating this wiki page:
+# Local development setup
 
-- [scripts/ensure-local-dev-services.ts](../../../scripts/ensure-local-dev-services.ts)
-- [scripts/doctor.ts](../../../scripts/doctor.ts)
-- [docker-compose.sonarqube.yml](../../../docker-compose.sonarqube.yml)
-- [README.md](../../../README.md)
-- [AGENTS.md](../../../AGENTS.md)
-- [.node-version](../../../.node-version)
-- [biome.json](../../../biome.json)
-</details>
+Local development runs the React frontend and backend against PostgreSQL, Supabase Auth and Storage. The startup command coordinates local infrastructure when the configured URLs identify local services; a remote-only configuration connects to its existing services. Project persistence remains on the backend in both cases.
 
-# Local Environment Setup
+## Start the development processes
 
-The local environment setup for Nous Reader is designed to provide a consistent development experience by automating the verification and orchestration of necessary infrastructure. Application startup checks Docker and local Supabase when loopback services are configured. The final quality gate starts or reuses SonarQube after coverage and checks its readiness before analysis.
+1. Use the Bun version declared in [package metadata](../../../package.json), then run `bun run deps:install` from the repository root.
+2. Copy [`.env.example`](../../../.env.example) to `.env.local`. Set the database connection, backend Supabase URL and service-role key, frontend public URL and publishable/anonymous key, and server-side `OPENROUTER_API_KEY` for provider work.
+3. Run `bun run dev`. The frontend serves at `http://localhost:5173` and the backend at `http://localhost:3301`.
 
-This setup is primarily managed through Bun scripts and specialized diagnostic tools that check for runtime compatibility (e.g., Bun versions), service health, and database migration parity. By centralizing these checks, the project prevents common issues where a frontend starts without its required backend services or when developers use mismatched runtime versions.
+For local service URLs, startup verifies Docker, starts Docker Desktop where supported, starts Supabase, checks Auth readiness and applies pending migrations before launching the app. A failed prerequisite exits startup instead of leaving a frontend disconnected from its backend. Use [environment diagnostics](03-p-cli-tools.md) to identify missing prerequisites. Node 26, pinned in `.node-version`, is required for the coverage path.
 
-## Initialization and Dependencies
+Tool and backend file settings live in `config/`; commands and loaders select their paths explicitly. The backend reads `config/server.config.json`, with `BACKEND_HOST` and `BACKEND_PORT` environment variables taking precedence.
 
-The project utilizes [Bun](https://bun.sh/) as its primary runtime and package manager. Initializing the environment requires installing workspace dependencies and configuring environment variables to point toward local service instances.
+## Local authentication
 
-### Core Commands
-| Command | Description |
-| :--- | :--- |
-| `bun run deps:install` | Installs all Bun workspace dependencies. |
-| `bun run dev` | Starts the Vite frontend and Express backend, orchestrating local services if configured. |
-| `bun run doctor` | Runs an actionable health report on the local environment. |
-| `bun run quality` | Executes TypeScript type checks and Biome linting. |
+The normal frontend mode is `VITE_AUTH_MODE=supabase`. HS256 installations set `SUPABASE_JWT_SECRET`; asymmetric installations use key discovery or `SUPABASE_JWKS_URL`. Set `SUPABASE_JWT_ISSUER` when the token issuer differs from the backend's internal service URL. [Authentication](../06-section-backend/02-p-auth.md) explains claim verification.
 
-Sources: [README.md:15-22](../../../README.md#L15-L22), [AGENTS.md:144-155](../../../AGENTS.md#L144-L155)
+Tests can use controlled identity. An interactive local bypass requires `AUTH_MODE=local-bypass`, `LOCAL_DEV_PROFILE=true` and `LOCAL_AUTH_BYPASS=true`; it still persists projects through the server. Keep that backend within a trusted development environment. The backend accepts HTTP private-network origins on Vite port 5173 in every environment; an explicit `CORS_ALLOWED_ORIGINS` list does not disable that convenience. List public and other trusted origins explicitly when exposing the backend beyond loopback, and retain authentication for untrusted networks.
 
-### Runtime Verification
-The environment health check treats `package.json#packageManager` as the Bun version source. GitHub Actions reads that field through `oven-sh/setup-bun`. Coverage checks the separate Node version in `.node-version` before Vitest starts.
-*  **Bun Version:** The system expects the exact Bun version in `packageManager` and the same `@types/bun` version. Local mismatches, stale Bun types, or an explicit CI override trigger a `FAIL` status.
-*  **Node Version:** Node-based development tools and coverage use Node 26 (any 26.x release); `.node-version` pins only the major.
-*  **Workspace Binaries:** Local profiles require tools such as `biome`, `eslint`, `vitest`, and `supabase`. Dependency-cruiser runs only in CI.
+## Optional Codex text provider
 
-Sources: [scripts/doctor.ts:106-137](../../../scripts/doctor.ts#L106-L137), [scripts/doctor.ts:268-293](../../../scripts/doctor.ts#L268-L293), [scripts/doctor.ts:15-23](../../../scripts/doctor.ts#L15-L23), [.node-version](../../../.node-version), [scripts/prepare-node-coverage.mjs](../../../scripts/prepare-node-coverage.mjs)
+Install and authenticate Codex CLI on the host and set `CODEX_APP_SERVER_ENABLED=true`. Nous uses one internal app-server account through its authenticated API for administrators and assigned users. Keep that process private to the backend. [The Codex adapter](../06-section-backend/03-p-codex-server.md) describes its execution restrictions; speech still needs OpenRouter.
 
-## Service Orchestration
-
-When the `DATABASE_URL` or `SUPABASE_URL` points to a loopback address (e.g., `localhost` or `127.0.0.1`), the development startup sequence automatically ensures the underlying infrastructure is running.
-
-### Docker and Supabase Flow
-The `ensureLocalDevServices` function manages the lifecycle of local containers. On Windows and macOS, it can automatically attempt to start Docker Desktop if the engine is not reachable.
-
-```mermaid
-flowchart TD
-    Start[bun run dev] --> CheckLocal{Is URL Local?}
-    CheckLocal -- No --> RunApp[Start App]
-    CheckLocal -- Yes --> CheckDocker[Check Docker Info]
-    CheckDocker -- Failed --> StartDocker[Start Docker Desktop]
-    CheckDocker -- Success --> CheckSupa[Check Supabase Status]
-    StartDocker --> CheckSupa
-    CheckSupa -- Not Running --> StartSupa[bunx supabase start]
-    StartSupa --> RunMigrate[Apply Migrations]
-    CheckSupa -- Running --> RunMigrate
-    RunMigrate --> HealthCheck[Auth Health Probe]
-    HealthCheck --> RunApp
-```
-
-*Flow of the local service orchestration logic.*
-Sources: [scripts/ensure-local-dev-services.ts:75-126](../../../scripts/ensure-local-dev-services.ts#L75-L126), [README.md:27-32](../../../README.md#L27-L32)
-
-### Database Migrations
-The setup ensures the local database is in sync with the project source code.
-1.  **Supabase Migrations:** Executes `supabase migration up --local` to apply pending schema changes, including the project-source Storage schema and private bucket. Local startup does not run a separate project-source staging script.
-2.  **Migration Drift:** The `doctor` script checks for drift by comparing local migration files against the migration history recorded in the database.
-
-Sources: [scripts/ensure-local-dev-services.ts:125-135](../../../scripts/ensure-local-dev-services.ts#L125-L135), [scripts/doctor.ts:501-541](../../../scripts/doctor.ts#L501-L541), [supabase/migrations/202607190002_project_sources_storage.sql](../../../supabase/migrations/202607190002_project_sources_storage.sql), [supabase/migrations/20260816152200_provision_private_project_source_bucket.sql](../../../supabase/migrations/20260816152200_provision_private_project_source_bucket.sql)
-
-## Quality and Diagnostics
-
-Nous Reader employs a multi-layered diagnostic system to ensure code quality and service availability before merging or deploying changes.
-
-### The "Doctor" Utility
-The `doctor` script supports multiple profiles to probe different aspects of the environment:
-*  **`checks`:** Validates the Bun contract, workspace binaries, and the Fallow baseline without running quality or tests.
-*  **`gate`:** Probes the local SonarQube service.
-*  **`local`:** Probes Supabase health (Auth, REST, Storage, Realtime) and migration parity.
-*  **`all`:** Combines all of the above.
-
-Sources: [scripts/doctor.ts:152-165](../../../scripts/doctor.ts#L152-L165), [scripts/doctor.ts:245-276](../../../scripts/doctor.ts#L245-L276)
-
-### Local SonarQube Setup
-For deep code analysis, a local SonarQube instance is used as a merge gate. Docker binds it only to `127.0.0.1:9000`. On a fresh volume, a Docker-internal one-shot provisioner grants the `Anyone` pseudo-group the global `Create Projects` and `Execute Analysis` permissions, so no scanner token or developer credential bootstrap is required. `gate:full` starts or reuses SonarQube after coverage and keeps it running after success or failure. Each invocation repeats readiness and doctor checks before the same quality gate. Run `bun run sonar:stop` when finished to release the server resources. `sonar:up` remains available for startup diagnosis. The provisioner polls SonarQube every second, fails immediately on `DB_MIGRATION_NEEDED`, and uses the approved 133-second ceiling derived from twice the slowest observed local successful startup. For a legacy volume with a changed administrator password, `sonar:up` automatically passes the ignored legacy local administrator settings only to that internal provisioner; if they are stale, it retries the fresh-volume default. The scanner never reads those settings or an inherited `SONAR_TOKEN`.
-
-```mermaid
-sequenceDiagram
-    participant Dev as Developer
-    participant Sonar as SonarQube Service
-    Dev->>Sonar: bun run gate:full
-    Note over Sonar: Start or reuse after coverage; provision anonymous analysis and check readiness
-    Sonar-->>Dev: Return quality-gate result
-    Note over Sonar: Keep running after success or failure
-    opt Developer has finished using Sonar
-        Dev->>Sonar: bun run sonar:stop
-        Note over Sonar: Stop the local service explicitly
-    end
-```
-
-*Tokenless local SonarQube analysis workflow.*
-Sources: [docker-compose.sonarqube.yml](../../../docker-compose.sonarqube.yml), [scripts/sonar-local.ts](../../../scripts/sonar-local.ts), [scripts/run-sonar-scan.ts](../../../scripts/run-sonar-scan.ts), [AGENTS.md:157-163](../../../AGENTS.md#L157-L163)
-
-## Configuration Management
-
-Environment variables are managed via `.env.local`. Key configurations include:
-
-| Variable | Description | Default/Example |
-| :--- | :--- | :--- |
-| `SUPABASE_URL` | The local API endpoint for Supabase. | `http://127.0.0.1:54321` |
-| `VITE_AUTH_MODE` | Determines frontend auth strategy. | `supabase` |
-| `LOCAL_AUTH_BYPASS` | Bypasses auth for testing (requires `LOCAL_DEV_PROFILE=true`). | `false` |
-| `OPENROUTER_API_KEY` | Required for AI lesson generation. | `(User-defined)` |
-
-Sources: [README.md:21-23](../../../README.md#L21-L23), [README.md:40-45](../../../README.md#L40-L45), [scripts/ensure-local-dev-services.ts:8](../../../scripts/ensure-local-dev-services.ts#L8)
-
-### Code Style Enforcement
-The project uses Biome for linting and formatting. `biome.json` pins LF line endings so Windows and CI check the same files. It also sets single quotes and a line width of 100.
-Sources: [biome.json:20-40](../../../biome.json#L20-L40)
-
-## Conclusion
-The local environment setup in Nous Reader emphasizes automation and preventative diagnostics. By using the `ensureLocalDevServices` and `doctor` utilities, developers can maintain a high-quality development cycle where infrastructure issues are caught and often resolved automatically before the application code even executes.
-
-Sources: [scripts/ensure-local-dev-services.ts:133-145](../../../scripts/ensure-local-dev-services.ts#L133-L145), [AGENTS.md:154-156](../../../AGENTS.md#L154-L156)
+With the stack ready, follow [verification](02-p-testing-quality.md) for fast checks on changed files, targeted tests and the CI integration contracts. [Deployment](../08-section-deployment/01-p-self-hosted.md) owns production service setup.

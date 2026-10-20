@@ -60,6 +60,7 @@ for (const composition of DEMO_COMPOSITIONS) {
     'bunx',
     'remotion',
     'render',
+    '--config=config/remotion.config.ts',
     'apps/web/remotion/landingDemos.entry.tsx',
     composition,
     outputPath,

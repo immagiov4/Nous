@@ -1,6 +1,6 @@
 # Testing and quality gates
 
-Run focused tests while editing and `bun run quality` before pushing. Merge only when CI is green on the exact pull-request head, including `test`, `SonarCloud Code Analysis`, and the applicable contract and pull-request-body checks. Each new commit needs its own passing checks.
+Run fast checks on changed files and targeted tests while editing, then push for full CI verification. Merge only when CI is green on the exact pull-request head, including `test`, `SonarCloud Code Analysis`, and the applicable contract and pull-request-body checks. Each new commit needs its own passing checks.
 
 ## Local checks
 
@@ -13,18 +13,18 @@ bunx playwright install chromium
 Use the narrowest check that covers your change:
 
 ```bash
-bun run quality       # TypeScript, Biome, React Hooks, and Sonar-style rules
-bun run test -- path/to/test.ts
-bun run check:fallow  # Informational dead-code and dependency analysis
+bun run check:changed
+bun run test -- path/to/affected.test.ts
+bun run lint:types  # When types or interfaces changed
 ```
 
 `bun run doctor` checks the local environment. Add `-- --profile local` for Supabase and migration parity, `-- --profile gate` for the existing local Sonar service, or `-- --profile all` for both. All profiles are read-only.
 
-Use `bun run fix` for lint and format fixes, or `bun run format` for formatting alone.
+Changed-file checks run without the shared heavy-run lock. CI owns full quality, tests, coverage and SonarCloud. Browser suites and other heavy package scripts queue automatically across worktrees. Use `bun scripts/heavy-run.mjs status` to inspect the queue and wrap additional browser or Docker proofs with `bun scripts/heavy-run.mjs --label "who/what" -- <command...>`.
 
 ## CI and merge readiness
 
-The CI `test` job runs `bun run gate:ci`: quality checks, dependency boundaries, the Fallow regression check, and one complete Node test suite with coverage. It then runs SonarQube Cloud analysis and waits for its quality-gate result. CI checks out the pull-request head and reports Sonar analysis against that same commit.
+The CI `test` job runs `bun run gate:ci`: full `quality:ci` checks, dependency boundaries, the Fallow regression check, and one complete Node test suite with coverage. It then runs SonarQube Cloud analysis and waits for its quality-gate result. CI checks out the pull-request head and reports Sonar analysis against that same commit.
 
 Wait for all applicable CI checks and review before merging. Fix or explicitly resolve every new Sonar finding with an owner-visible disposition. A missing or failed SonarCloud result blocks merging; diagnose it in the CI logs and SonarCloud report.
 
@@ -34,7 +34,7 @@ Pull requests also run the Supabase contract and remote body verification. The c
 
 Coverage uses the Node major pinned in `.node-version` and the ordered Vitest projects in `apps/web/vitest.config.ts`. Its preflight removes stale LCOV, checks Node, and installs Chromium. One coverage-producing suite supplies both the test result and the Sonar report.
 
-Fallow compares finding identities with `.fallow-baselines/regression.json`; every new identity blocks CI. Refresh the baseline explicitly after reviewing the change. The scripts own fingerprinting and report details.
+Fallow compares finding identities with `config/fallow-baselines/regression.json`; every new identity blocks CI. Refresh the baseline explicitly after reviewing the change. The scripts own fingerprinting and report details.
 
 SonarQube Cloud analysis runs for same-repository pull requests and pushes to `main`. Fork pull requests need a trusted analysis result on the exact proposed head before merging because CI withholds the scanner secret.
 
@@ -66,47 +66,27 @@ bun run test:supabase-contract
 bun run test:supabase-local
 ```
 
-Both names run the canonical local Auth/RLS contract. See [Deployment](DEPLOYMENT.md) for local and
-managed staging prerequisites.
+Both names run the canonical local Auth/RLS contract. See [Deployment](DEPLOYMENT.md) for local and managed staging prerequisites.
 
-Pull requests run this contract against the disposable local Supabase stack. CI exposes managed
-staging credentials only to the trusted `main` revision after merge.
+Pull requests run this contract against the disposable local Supabase stack. CI exposes managed staging credentials only to the trusted `main` revision after merge.
 
 ## Durable workflow PostgreSQL contract
 
-Run the real persistence, claim, fencing, recovery, signal, fan-out, outbox, undo, and abrupt
-worker-process recovery contract against an isolated migrated PostgreSQL database:
+Run the real persistence, claim, fencing, recovery, signal, fan-out, outbox, undo, and abrupt worker-process recovery contract against an isolated migrated PostgreSQL database:
 
 ```bash
 WORKFLOW_INTEGRATION_DATABASE_URL=postgresql://... bun run test:workflow-postgres
 ```
 
-The command is intentionally opt-in because it writes temporary users, projects, workflow runs,
-and attempts. Never point it at production. Every fixture uses unique identifiers and removes its
-own data; `WORKFLOW_INTEGRATION_DATABASE_URL` is mandatory so the suite cannot silently reuse the
-application database. The main persistence batch runs without file parallelism; abrupt-process
-recovery runs separately. The suite also covers rolling-definition authority, stale replicas,
-workflow-set version ordering, late checkpoint/undo fencing, worker crashes, and cross-replica
-project-revision inbox delivery.
+The command is intentionally opt-in because it writes temporary users, projects, workflow runs, and attempts. Never point it at production. Every fixture uses unique identifiers and removes its own data; `WORKFLOW_INTEGRATION_DATABASE_URL` is mandatory so the suite cannot silently reuse the application database. The main persistence batch runs without file parallelism; abrupt-process recovery runs separately. The suite also covers rolling-definition authority, stale replicas, workflow-set version ordering, late checkpoint/undo fencing, worker crashes, and cross-replica project-revision inbox delivery.
 
-CI runs `test:workflow-postgres:critical` on pull requests that change backend runtime code,
-workflow integration tests, shared persistence contracts, migrations, dependency resolution, or the
-CI/test configuration and shared Vitest setup. The backend boundary intentionally includes
-transitive workflow dependencies in configuration, services, and utilities. The selector reads the
-complete base-to-head Git diff, with rename detection disabled so moving a load-bearing file out of
-an owned directory still selects the contract. The subset covers run persistence, fencing, signal
-replay, and abrupt-process recovery. The complete `test:workflow-postgres` matrix, including undo
-and project transactions, runs on every push to `main`. Real provider tests remain manual and paid.
+CI runs `test:workflow-postgres:critical` on pull requests that change backend runtime code, workflow integration tests, shared persistence contracts, migrations, dependency resolution, or the CI/test configuration and shared Vitest setup. The backend boundary intentionally includes transitive workflow dependencies in configuration, services, and utilities. The selector reads the complete base-to-head Git diff, with rename detection disabled so moving a load-bearing file out of an owned directory still selects the contract. The subset covers run persistence, fencing, signal replay, and abrupt-process recovery. The complete `test:workflow-postgres` matrix, including undo and project transactions, runs on every push to `main`. Real provider tests remain manual and paid.
 
-Evidence from three successful `main` runs on 2026-08-15 (Actions runs 31906123273, 31908105475,
-and 31908540049) measured the complete PostgreSQL test step at 13–15 seconds. The surrounding
-Supabase contract job took 4 minutes 12 seconds to 4 minutes 28 seconds, of which local Supabase
-startup took 3 minutes 8 seconds to 3 minutes 17 seconds. The pull-request subset therefore reuses
-the already-running Supabase job instead of provisioning a second database stack.
+Evidence from three successful `main` runs on 2026-08-15 (Actions runs 31906123273, 31908105475, and 31908540049) measured the complete PostgreSQL test step at 13–15 seconds. The surrounding Supabase contract job took 4 minutes 12 seconds to 4 minutes 28 seconds, of which local Supabase startup took 3 minutes 8 seconds to 3 minutes 17 seconds. The pull-request subset therefore reuses the already-running Supabase job instead of provisioning a second database stack.
 
 ## Real-provider workflow matrix (manual)
 
-The [workflow matrix](../.cubic/wiki/09-section-tools/02-p-testing-quality.md#real-provider-workflow-matrix) exercises course, lesson and visual-artifact generation through real HTTP routes, durable workers and PostgreSQL checkpoints. Select `--provider codex|openrouter`, `--case simple|realistic`, and exactly one of `--dry-run` or `--run`. Run the simple learn-mode case first, then the realistic two-lesson PDF case. The retained SVG request resolves to a native lesson scene under the current application contract; the harness checks its scene schema. OpenRouter cells additionally exercise the TTS route and retain its audio response.
+The workflow matrix exercises course, lesson and visual-artifact generation through real HTTP routes, durable workers and PostgreSQL checkpoints. Select `--provider codex|openrouter`, `--case simple|realistic`, and exactly one of `--dry-run` or `--run`. Run the simple learn-mode case first, then the realistic two-lesson PDF case. The retained SVG request resolves to a native lesson scene under the current application contract; the harness checks its scene schema. OpenRouter cells additionally exercise the TTS route and retain its audio response.
 
 ```bash
 bun run test:workflow-providers -- --provider codex --case simple --dry-run
@@ -125,6 +105,6 @@ bun run test:workflow-providers -- --provider codex --case simple --run
 bun run test:workflow-providers -- --provider codex --case realistic --run
 ```
 
-Codex uses the local ChatGPT login; the harness enables `CODEX_APP_SERVER_ENABLED=true` before runtime startup. The `test:lesson-quality` and `test:lesson-evidence-quality` scripts also enable this flag after their cost acknowledgement and require the authenticated local ChatGPT account and external evidence directory. OpenRouter real runs require `OPENROUTER_API_KEY` and maintainer approval for paid calls. These manual real-provider runs remain outside the deterministic test suite, gates and CI. See the testing wiki for model selection, retained evidence and speech-usage limits.
+Codex uses the local ChatGPT login; the harness enables `CODEX_APP_SERVER_ENABLED=true` before runtime startup. The `test:lesson-quality` and `test:lesson-evidence-quality` scripts also enable this flag after their cost acknowledgement and require the authenticated local ChatGPT account and external evidence directory. OpenRouter real runs require `OPENROUTER_API_KEY` and maintainer approval for paid calls. These manual real-provider runs remain outside the deterministic test suite, gates and CI. For provider prerequisites and evidence privacy, see [the evaluation guide](../.cubic/wiki/09-section-tools/02-p-testing-quality.md#evaluate-generated-content).
 
 Set `CODEX_APP_SERVER_ENABLED=true` and review each retained run with `bun run xray -- <run-directory>`. X-ray sends complete exchanges grouped by recorded workflow run, node and attempt, with manifest context in every turn. Unassigned exchanges share a chronological group. It merges supported findings into `xray.json` and `xray.md`, preserving original exchange references. If a complete node exceeds the provider limit, the report retains the measured bytes and characters as an evidence limit, continues reviewing other nodes and returns `needs-maintainer`. Preserve existing review files before requesting a new review; exclusive creation prevents overwriting evidence.
