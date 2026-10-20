@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { parse } from 'yaml';
+import { probePackageScripts } from '../helpers/packageScriptProbe';
 
 type WorkflowStep = {
   env?: Record<string, string>;
@@ -33,10 +34,6 @@ type WorkflowConfig = {
 };
 
 const workflow = parse(readFileSync(resolve('.github/workflows/ci.yml'), 'utf8')) as WorkflowConfig;
-const packageScripts = JSON.parse(readFileSync(resolve('package.json'), 'utf8')).scripts as Record<
-  string,
-  string
->;
 const testSteps = workflow.jobs.test.steps;
 const supabaseSteps = workflow.jobs['supabase-contract'].steps;
 
@@ -61,7 +58,7 @@ describe('workflow PostgreSQL CI contract', () => {
     });
   });
 
-  test('provisions Chromium before the shared checks and single Node coverage suite', () => {
+  test('provisions Chromium before the shared checks and single Node coverage suite', async () => {
     const commands = testSteps.flatMap(step => (step.run ? [step.run] : []));
 
     expect(commands).toEqual([
@@ -69,8 +66,11 @@ describe('workflow PostgreSQL CI contract', () => {
       'bunx playwright install --with-deps chromium',
       'bun run gate:ci',
     ]);
-    expect(packageScripts['gate:checks']).toBe('bun run quality:ci && bun run check:fallow:ci');
-    expect(packageScripts['gate:ci']).toBe('bun run gate:checks && bun run test:coverage');
+    expect(await probePackageScripts(['gate:ci'])).toEqual([
+      'quality:ci',
+      'check:fallow:ci',
+      'test:coverage',
+    ]);
   });
 
   test('keeps staging credentials on trusted main pushes', () => {
@@ -127,7 +127,7 @@ describe('workflow PostgreSQL CI contract', () => {
     );
   });
 
-  test('runs the load-bearing workflow stores and crash recovery for selected pull requests', () => {
+  test('runs the load-bearing workflow stores and crash recovery for selected pull requests', async () => {
     const step = requireStep('Run Critical Workflow PostgreSQL Contract');
 
     expect(step.if).toBe(
@@ -136,21 +136,17 @@ describe('workflow PostgreSQL CI contract', () => {
     expect(step.run).toContain('bunx supabase status -o env');
     expect(step.run).toContain('WORKFLOW_INTEGRATION_DATABASE_URL="$DB_URL"');
     expect(step.run).toContain('bun run test:workflow-postgres:critical');
-    expect(packageScripts['test:workflow-postgres:critical']).toBe(
-      'bun run scripts/run-workflow-postgres-contract.ts critical'
-    );
+    expect(await probePackageScripts(['test:workflow-postgres:critical'])).toEqual(['critical']);
   });
 
-  test('runs the complete deterministic PostgreSQL contract on main', () => {
+  test('runs the complete deterministic PostgreSQL contract on main', async () => {
     const step = requireStep('Run Full Workflow PostgreSQL Contract');
 
     expect(step.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/main'");
     expect(step.run).toContain('bunx supabase status -o env');
     expect(step.run).toContain('WORKFLOW_INTEGRATION_DATABASE_URL="$DB_URL"');
     expect(step.run).toContain('bun run test:workflow-postgres');
-    expect(packageScripts['test:workflow-postgres']).toBe(
-      'bun run scripts/run-workflow-postgres-contract.ts full'
-    );
+    expect(await probePackageScripts(['test:workflow-postgres'])).toEqual(['full']);
   });
 
   test('keeps real-provider workflow tests outside CI', () => {

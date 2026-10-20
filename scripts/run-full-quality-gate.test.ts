@@ -1,6 +1,5 @@
-import { readFile } from 'node:fs/promises';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { parse } from 'yaml';
+import { probePackageScripts } from '../apps/web/tests/helpers/packageScriptProbe';
 
 import {
   executeFullQualityGate,
@@ -110,23 +109,6 @@ test('rechecks readiness and scans on the next gate after a scan crashes', async
 });
 
 test('runs the CI checks and complete suite once, producing coverage for Sonar', async () => {
-  const { scripts } = JSON.parse(
-    await readFile(new URL('../package.json', import.meta.url), 'utf8')
-  ) as { scripts: Record<string, string> };
-  const expandGateCommand = (command: string): string[] => {
-    const gateScript = /^bun run (gate:[\w:-]+)$/.exec(command)?.[1];
-    return gateScript ? scripts[gateScript].split(' && ').flatMap(expandGateCommand) : [command];
-  };
-  const workflow = parse(
-    await readFile(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
-  );
-  const ciScripts = workflow.jobs.test.steps
-    .filter((step: { run?: string }) => step.run)
-    .map((step: { run: string }) => step.run.trim())
-    .filter(
-      (command: string) =>
-        !command.startsWith('bun install ') && !command.startsWith('bunx playwright install ')
-    );
   const localAnalysisScripts: readonly string[] = [
     GATE_SCRIPTS.sonarStart,
     GATE_SCRIPTS.sonarPreflight,
@@ -139,14 +121,9 @@ test('runs the CI checks and complete suite once, producing coverage for Sonar',
     return passedResult(stage);
   });
 
-  const invokedCommands = invokedScripts
-    .filter(script => !localAnalysisScripts.includes(script))
-    .flatMap(script => expandGateCommand(`bun run ${script}`));
-
-  expect(
-    invokedCommands.filter(
-      command => command === 'bun run test' || command === 'bun run test:coverage'
-    )
-  ).toEqual(['bun run test:coverage']);
-  expect(invokedCommands).toEqual(ciScripts.flatMap(expandGateCommand));
+  const invokedCommands = await probePackageScripts(
+    invokedScripts.filter(script => !localAnalysisScripts.includes(script))
+  );
+  expect(invokedCommands).toEqual(['quality:ci', 'check:fallow:ci', 'test:coverage']);
+  expect(await probePackageScripts(['gate:ci'])).toEqual(invokedCommands);
 });
