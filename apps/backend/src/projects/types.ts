@@ -169,10 +169,17 @@ export interface LibraryExportSnapshot {
 }
 
 export interface ProjectSaveOptions extends ProjectWriteOptions {
+  sourcePreparation?: import('./sourcePreparationContext.js').SourcePreparationJobContext;
+  sourceFiles?: {
+    path: string;
+    offset?: number;
+    files: import('@shared/courseSourceUpload').CourseSourceUploadFile[];
+  };
   importedAssets?: readonly ImportedProjectAssetDescriptor[];
   importedCover?: ProjectCoverFile;
   sourceFile?: {
-    bytes: Uint8Array;
+    bytes?: Uint8Array;
+    path?: string;
     mimeType: string;
     name: string;
   };
@@ -237,7 +244,11 @@ export interface ProjectStore {
     id: ProjectId,
     sourceId: string
   ) => Promise<ProjectSourceFile | null>;
-  loadProjectSources: (userId: string, id: ProjectId) => Promise<StoredProjectSourceFile[]>;
+  loadProjectSources: (
+    userId: string,
+    id: ProjectId,
+    options?: { includeData?: boolean }
+  ) => Promise<StoredProjectSourceFile[]>;
   loadProjectSourceArchiveEntry: (
     userId: string,
     id: ProjectId,

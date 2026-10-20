@@ -57,9 +57,11 @@ export const createProductionCourseGenerationServices = (
   workflowStore: CourseWorkflowStore,
   projectStore: ProjectStore = getProjectStore()
 ): CourseGenerationWorkflowServices => {
-  const loadProjectSources = projectStore.loadProjectSources.bind(projectStore);
+  const loadProjectSources: ProjectStore['loadProjectSources'] = (userId, projectId) =>
+    projectStore.loadProjectSources(userId, projectId, { includeData: false });
   const loadProjectWithRevision = projectStore.loadProjectWithRevision.bind(projectStore);
   const readSourceMaterials = createCourseSourceMaterialReader({
+    loadProjectSourceById: projectStore.loadProjectSourceById.bind(projectStore),
     loadProjectSources,
     loadProjectWithRevision,
   });

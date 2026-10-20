@@ -80,3 +80,26 @@ test('maps a spoken mathematical phrase back to the complete source formula', ()
   expect(selector?.exact).toBe('Consideriamo x2.');
   expect(source[0].markdown.slice(selector?.start, selector?.end)).toContain('$x^2$');
 });
+
+test('anchors narrated fenced prose to its complete original source instead of pronunciation offsets', () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: 'Introduction.\n\n```text\nA vector has two entries.\n```',
+    },
+  ];
+  const raw = segmentLessonPlayback(sources)[0];
+  const block = {
+    ...raw,
+    prepared: {
+      motion: [],
+      spokenMath: [],
+      fencedCode: [{ visualIndex: 0, kind: 'prose' as const, spoken: 'A vector has two entries.' }],
+    },
+  };
+  const selector = playbackSentenceSelector(block, 9, 10, sources);
+  expect(selector?.exact).toBe('A vector has two entries.');
+  expect(sources[0].markdown.slice(selector?.start, selector?.end)).toContain(
+    'A vector has two entries.'
+  );
+});

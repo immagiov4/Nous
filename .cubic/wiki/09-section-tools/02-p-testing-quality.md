@@ -300,7 +300,7 @@ const [exitCode, stdout, stderr] = await Promise.all([
 Sources: [scripts/run-full-quality-gate.ts:39-53](../../../scripts/run-full-quality-gate.ts#L39-L53)
 
 ### SonarQube Integration
-SonarQube Cloud runs in the CI test job and publishes its pull-request quality-gate result. The official scan action selects `config/sonar-project.properties` with `-Dproject.settings`, overriding only the Cloud organization and project key from repository variables, the host, the exact source revision, and the React Hooks report path. Existing analysis scopes, exclusions, LCOV path, quality-gate wait and timeout continue to apply. The local scanner retains its local project key and loopback server.
+SonarQube Cloud runs in the CI test job and publishes its pull-request quality-gate result. The official scan action selects `config/sonar-project.properties` with `-Dproject.settings` and an empty `projectBaseDir` input to omit the incompatible default base-directory argument, overriding only the Cloud organization and project key from repository variables, the host, the exact source revision, and the React Hooks report path. Existing analysis scopes, exclusions, LCOV path, quality-gate wait and timeout continue to apply. The local scanner retains its local project key and loopback server.
 
 For merge admission, follow [AGENTS.md](../../../AGENTS.md). CI-based Cloud analysis requires Automatic Analysis to be disabled in the Cloud project under Project > Administration > Analysis Method.
 - **Lifecycle:** `gate:full` starts or reuses the local service immediately before analysis and keeps it running afterward. Stop it explicitly with `bun run sonar:stop` when finished.

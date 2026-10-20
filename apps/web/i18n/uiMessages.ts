@@ -1,3 +1,10 @@
+import {
+  SOURCE_INGESTION_REQUIRED_MESSAGE,
+  SOURCE_PREPARATION_CANCELLED_MESSAGE,
+  SOURCE_PREPARATION_INTERRUPTED_MESSAGE,
+  SOURCE_PREPARATION_UNUSABLE_MESSAGE,
+  SOURCE_STAGING_UNAVAILABLE_MESSAGE,
+} from '@shared/sourcePreparation';
 import { COURSE_PLANNING_MESSAGES } from './coursePlanningMessages';
 
 export const SUPPORTED_APP_LOCALES = ['en', 'it'] as const;
@@ -37,6 +44,29 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 };
 
 const ENGLISH_UI_MESSAGES = {
+  [SOURCE_PREPARATION_CANCELLED_MESSAGE]: 'Source preparation was cancelled.',
+  'Caricamento fonti... {percent}%': 'Uploading sources... {percent}%',
+  'Estrazione archivio': 'Expanding archive',
+  'Lettura fonti': 'Reading sources',
+  'Trascrizione pagine': 'Transcribing pages',
+  'Salvataggio fonti': 'Saving sources',
+  '{step}: {completed}/{total}': '{step}: {completed}/{total}',
+  'Il percorso del file non è valido.': 'The file path is invalid.',
+  [SOURCE_PREPARATION_UNUSABLE_MESSAGE]: 'None of the sources contains usable text.',
+  [SOURCE_STAGING_UNAVAILABLE_MESSAGE]:
+    'The server needs disk-backed temporary storage before sources can be uploaded.',
+  [SOURCE_INGESTION_REQUIRED_MESSAGE]: 'Reload the page and add the sources again.',
+  'Questa fonte non contiene testo utilizzabile.': 'This source contains no usable text.',
+  'Non è stato possibile leggere questa fonte.': 'Could not read this source.',
+  'Questa fonte supera il limite di elaborazione.': 'This source exceeds the processing limit.',
+  'La lettura di questa fonte ha superato il tempo disponibile.':
+    'Reading this source exceeded the available time.',
+  'Non è stato possibile preparare le fonti.': 'Could not prepare the sources.',
+  'Nessuna delle fonti selezionate può essere caricata.':
+    'None of the selected sources can be uploaded.',
+  'Gli archivi annidati devono essere estratti prima di aggiungere i file.':
+    'Extract nested archives before adding their files.',
+  [SOURCE_PREPARATION_INTERRUPTED_MESSAGE]: 'Source preparation was interrupted. Retry the upload.',
   '1 lezione · {lastOpenedDate}': '1 lesson · {lastOpenedDate}',
   '{completed}/{total} lezione completata': '{completed}/{total} lesson completed',
   '1 corso incluso': '1 course included',
@@ -1068,8 +1098,16 @@ const ENGLISH_UI_MESSAGES = {
   'L’archivio non contiene alcun testo utilizzabile.':
     'The archive does not contain any usable text.',
   'Non è stato possibile preparare l’archivio ZIP.': 'The ZIP archive could not be prepared.',
-  '{count} PDF non usati: {reasons}. Esempi: {paths}.':
-    '{count} PDFs were not used: {reasons}. Examples: {paths}.',
+  'Questo browser non può espandere lo ZIP. Estrai l’archivio e aggiungi i file separatamente.':
+    'This browser cannot expand the ZIP. Extract the archive and add the files separately.',
+  'I metadati delle fonti superano il limite di caricamento.':
+    'Source metadata exceeds the upload limit.',
+  'Materiale selezionato': 'Selected material',
+  'Il percorso del file è duplicato: {name}.': 'Duplicate file path: {name}.',
+  '1 fonte non usata: {reasons}. Esempi: {paths}.':
+    '1 source not used: {reasons}. Examples: {paths}.',
+  '{count} fonti non usate: {reasons}. Esempi: {paths}.':
+    '{count} sources were not used: {reasons}. Examples: {paths}.',
   '{count} senza testo utile': '{count} without usable text',
   '{count} non leggibili': '{count} unreadable',
   '{count} oltre i limiti': '{count} over the limits',
@@ -1093,6 +1131,16 @@ const ENGLISH_UI_MESSAGES = {
   'Prima genera le lezioni precedenti': 'Generate the previous lessons first',
   'Punti di forza': 'Strengths',
   'Richiedi riscontro': 'Request feedback',
+  'Supera il limite di 256 MB per file nell’archivio.':
+    'Exceeds the 256 MB limit per archive file.',
+  'L’archivio espanso supera il limite di 1 GB.': 'The expanded archive exceeds the 1 GB limit.',
+  'L’archivio contiene più di 20.000 voci.': 'The archive contains more than 20,000 entries.',
+  'Verifica dei file…': 'Checking files…',
+  'Non verrà usato: {name}. {reason}': 'Will not be used: {name}. {reason}',
+  'Supera il limite di 32 MB per file.': 'Exceeds the 32 MB limit per file.',
+  'L’archivio supera il limite di 1 GB.': 'The archive exceeds the 1 GB limit.',
+  'La struttura dell’archivio ZIP non è leggibile.': 'The ZIP archive structure cannot be read.',
+  'Supera il limite di 1 GB per caricamento.': 'Exceeds the 1 GB upload limit.',
   'Rimuovi allegato': 'Remove attachment',
   'Riscontro datato.': 'Feedback is outdated.',
   'Risposta per {exerciseTitle}': 'Response for {exerciseTitle}',
