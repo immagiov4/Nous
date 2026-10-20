@@ -50,6 +50,7 @@ import {
   installAtlasFrameClock,
   resetAtlasRandom,
   resetAtlasSample,
+  waitForAtlasEntry,
 } from './atlas/timing';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -369,6 +370,7 @@ interface AtlasLessonSummary {
   lessonId: string;
   blocks: number;
   preparationSha256: string;
+  rendererStartupMs: { viewport: string; milliseconds: number }[];
   preparedBlocks: readonly LessonPlaybackBlock[];
   skipReason?: string;
 }
@@ -395,6 +397,7 @@ async function captureCourse(input: {
       blocks: 0,
       preparationSha256: '',
       preparedBlocks: [],
+      rendererStartupMs: [],
     };
     records.lessons.push(summary);
     for (const viewport of scenario.viewports) {
@@ -435,7 +438,7 @@ async function captureCourse(input: {
         await installAtlasClock(page);
         await installProbes(page);
         await page.goto(origin);
-        await page.waitForFunction(() => Boolean(window.playbackAtlas));
+        await waitForAtlasEntry(page);
         const blocks = await page.evaluate(value => window.playbackAtlas.prepare(value), lesson);
         const fingerprint = createHash('sha256').update(JSON.stringify(blocks)).digest('hex');
         if (summary.preparationSha256 && summary.preparationSha256 !== fingerprint)
@@ -445,10 +448,18 @@ async function captureCourse(input: {
           summary.skipReason = 'The production playback projection has no spoken blocks.';
         summary.preparationSha256 = fingerprint;
         summary.preparedBlocks = blocks;
-        return { blocks, page };
+        return { blocks, page, context };
       };
       try {
-        const { blocks, page: initialPage } = await openRenderer();
+        const startup = performance.now();
+        const { blocks, page: initialPage } = await boundedRender(openRenderer, {
+          milliseconds: options.renderTimeoutMs,
+          terminate: closeRenderer,
+        });
+        summary.rendererStartupMs.push({
+          viewport: viewport.id,
+          milliseconds: performance.now() - startup,
+        });
         records.tiles.push(
           ...(await captureLesson({
             page: initialPage,
@@ -463,13 +474,12 @@ async function captureCourse(input: {
               const started = performance.now();
               const captured = await boundedRender(
                 async () => {
+                  const current = context ?? (await openRenderer()).context;
                   try {
-                    if (!context) await openRenderer();
                     return await captureSample(page, sample);
                   } finally {
-                    const current = context;
-                    context = undefined;
-                    await current?.close();
+                    if (context === current) context = undefined;
+                    await current.close();
                   }
                 },
                 {

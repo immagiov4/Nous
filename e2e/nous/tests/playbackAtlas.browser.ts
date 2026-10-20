@@ -11,6 +11,7 @@ import { visualFindings } from '../atlas/checks';
 import { inspectAtlasDom } from '../atlas/dom';
 import { DEFAULT_PLAYBACK_SCENARIO } from '../atlas/scenario';
 import { syntheticScene } from '../atlas/synthetic';
+import { installAtlasClock, waitForAtlasEntry } from '../atlas/timing';
 import type { runPlaybackAtlas } from '../playbackAtlas';
 import { syntheticCourse } from '../syntheticCourse';
 
@@ -45,6 +46,26 @@ async function runAtlas(args: string[]): Promise<Awaited<ReturnType<typeof runPl
 
 /** Explicit browser contract run; standalone so it uses the harness's waits, not a new test timeout. */
 if (import.meta.main) {
+  const startupBrowser = await chromium.launch({ headless: true });
+  try {
+    const page = await startupBrowser.newPage();
+    await installAtlasClock(page);
+    await page.evaluate(() => {
+      requestAnimationFrame(() => {
+        window.playbackAtlas = {
+          prepare: () => [],
+          render: async () => {
+            throw new Error('Startup fixture does not render');
+          },
+          ready: () => true,
+        };
+      });
+    });
+    await waitForAtlasEntry(page);
+    assert(await page.evaluate(() => window.playbackAtlas.ready()));
+  } finally {
+    await startupBrowser.close();
+  }
   const root = await realpath(await mkdtemp(join(tmpdir(), 'nous-atlas-browser-')));
   assert.equal(dirname(root), await realpath(tmpdir()));
   const input = join(root, 'project.json');

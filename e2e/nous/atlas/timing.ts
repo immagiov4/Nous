@@ -62,3 +62,9 @@ export async function resetAtlasSample(page: Page) {
 export async function advanceAtlasLayout(page: Page, timeSeconds = 0) {
   await page.clock.runFor(timeSeconds * 1000 + LAYOUT_FRAMES_MS);
 }
+
+/** Entry imports can finish after the first probe while the fixture's RAF clock is paused. */
+export async function waitForAtlasEntry(page: Page) {
+  while (!(await page.evaluate(() => Boolean(window.playbackAtlas))))
+    await advanceAtlasLayout(page);
+}
