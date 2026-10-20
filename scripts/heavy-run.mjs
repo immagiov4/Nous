@@ -292,8 +292,8 @@ function tryClaim(context) {
 async function waitForLock(context, abort) {
   if (abort.signal.aborted) return false;
   if (tryClaim(context)) return true;
-  for await (const _tick of ticks(POLL_MS, undefined, { signal: abort.signal })) {
-    if (tryClaim(context)) return true;
+  for await (const pollContext of ticks(POLL_MS, context, { signal: abort.signal })) {
+    if (tryClaim(pollContext)) return true;
   }
   return false;
 }
