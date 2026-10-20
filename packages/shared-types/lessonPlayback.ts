@@ -918,6 +918,18 @@ export const segmentLessonPlayback = (
   contentBlocks: readonly PlaybackContentBlock[]
 ): LessonPlaybackBlock[] => projectLessonPlayback(contentBlocks).blocks;
 
+/** Authored math context is syntax-derived input; the model still chooses its visual form. */
+export const getPlaybackMathMarkdown = (block: LessonPlaybackBlock): string | undefined => {
+  if (!block.visuals.length) return undefined;
+  const passages: string[] = [];
+  for (const visual of block.visuals) {
+    if (visual.kind !== 'markdown' || !analyzeMarkdown(visual.markdown).math.length)
+      return undefined;
+    passages.push(visual.markdown);
+  }
+  return passages.join('\n\n');
+};
+
 /** Model-authored pronunciations, one per formula occurrence in source order. */
 export interface PlaybackSpokenMath {
   readonly formula: string;

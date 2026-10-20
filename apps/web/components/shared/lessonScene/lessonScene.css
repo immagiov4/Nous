@@ -2600,3 +2600,65 @@
     --symbol-size: 48px;
   }
 }
+
+/* Spotlight shares the stage palette and reserves geometry for the authored formula. */
+.type-formula-spotlight .formula-spotlight {
+  display: grid;
+  gap: var(--diagram-gap);
+}
+.type-formula-spotlight .spotlight-formula {
+  font-size: var(--symbol-size);
+  color: var(--ink);
+  overflow-x: auto;
+  padding: var(--diagram-gap) 0;
+}
+.type-formula-spotlight .spotlight-formula .katex-display {
+  margin: 0;
+  text-align: left;
+}
+.type-formula-spotlight .spotlight-formula .katex {
+  font-size: 1em;
+}
+.type-formula-spotlight [class*="nous-formula-symbol-"][data-active="true"] {
+  background: var(--tint);
+  color: var(--blue);
+  border-radius: var(--diagram-radius);
+}
+.type-formula-spotlight .spotlight-symbols {
+  display: grid;
+  gap: calc(var(--diagram-gap) / 2);
+  margin: 0;
+}
+.type-formula-spotlight .spotlight-symbols > div {
+  border-left: var(--connector-width) solid transparent;
+  padding: calc(var(--diagram-gap) / 2) var(--diagram-gap);
+}
+.type-formula-spotlight .spotlight-symbols > div[data-active="true"] {
+  border-color: var(--blue);
+  background: var(--tint);
+  border-radius: var(--diagram-radius);
+}
+.type-formula-spotlight dt {
+  display: flex;
+  align-items: baseline;
+  gap: var(--diagram-gap);
+  color: var(--muted);
+  font-size: var(--diagram-label);
+}
+.type-formula-spotlight [data-active="true"] dt {
+  color: var(--blue);
+}
+.type-formula-spotlight .spotlight-symbol {
+  min-width: var(--diagram-title);
+  color: var(--ink);
+  text-align: center;
+}
+.type-formula-spotlight dd {
+  margin: calc(var(--diagram-gap) / 2) 0 0;
+  font-size: var(--diagram-copy);
+  line-height: 1.5;
+  color: var(--ink);
+}
+.type-formula-spotlight dd[hidden] {
+  display: none;
+}

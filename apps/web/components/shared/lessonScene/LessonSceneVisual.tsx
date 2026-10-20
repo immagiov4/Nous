@@ -16,7 +16,9 @@ import './lessonScene.css';
 
 /** Prototype lesson layouts: the web renderer map follows the shared scene catalog. */
 
-const SceneContent = (props: Pick<SceneRenderContext, 'scene' | 'isDarkMode' | 'readFrame'>) =>
+const SceneContent = (
+  props: Pick<SceneRenderContext, 'scene' | 'isDarkMode' | 'readFrame' | 'playback'>
+) =>
   SCENE_RENDERERS[props.scene.type]({
     ...props,
     prototype: useContext(ScenePrototypeContext),
@@ -52,10 +54,20 @@ export const LessonSceneVisual = ({
           ) : null}
         </header>
         {isAnimatedLessonScene(scene) ? (
-          <SceneContent isDarkMode={isDarkMode} scene={scene} readFrame={readAnimationFrame} />
+          <SceneContent
+            playback={variant === 'bare'}
+            isDarkMode={isDarkMode}
+            scene={scene}
+            readFrame={readAnimationFrame}
+          />
         ) : (
           <div className="visual-content">
-            <SceneContent isDarkMode={isDarkMode} scene={scene} />
+            <SceneContent
+              playback={variant === 'bare'}
+              isDarkMode={isDarkMode}
+              scene={scene}
+              readFrame={readAnimationFrame}
+            />
           </div>
         )}
         {/* The reader omits conflicting closing text; the player follows the laboratory scene. */}
