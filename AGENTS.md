@@ -426,6 +426,8 @@ Do not run state-changing version control commands without explicit approval. Ne
 
 Write every GitHub issue and pull-request title and description in English.
 
+Before writing any human-facing text, read and follow `.agents/skills/writing-for-humans/SKILL.md`. This covers PR and issue bodies, commit messages, documentation, wiki pages, and comments intended for people.
+
 When creating or rewriting any GitHub issue, or preparing one for autonomous work, read
 `.agents/skills/problem-to-github-issue/SKILL.md` and follow its evidence and lifecycle contract.
 
