@@ -86,7 +86,7 @@ Evidence from three successful `main` runs on 2026-08-15 (Actions runs 319061232
 
 ## Real-provider workflow matrix (manual)
 
-The [workflow matrix](../.cubic/wiki/09-section-tools/02-p-testing-quality.md#real-provider-workflow-matrix) exercises course, lesson and visual-artifact generation through real HTTP routes, durable workers and PostgreSQL checkpoints. Select `--provider codex|openrouter`, `--case simple|realistic`, and exactly one of `--dry-run` or `--run`. Run the simple learn-mode case first, then the realistic two-lesson PDF case. The retained SVG request resolves to a native lesson scene under the current application contract; the harness checks its scene schema. OpenRouter cells additionally exercise the TTS route and retain its audio response.
+The [workflow matrix](../.cubic/wiki/09-section-tools/02-p-testing-quality.md#evaluate-generated-content) exercises course, lesson and visual-artifact generation through real HTTP routes, durable workers and PostgreSQL checkpoints. Select `--provider codex|openrouter`, `--case simple|realistic`, and exactly one of `--dry-run` or `--run`. Run the simple learn-mode case first, then the realistic two-lesson PDF case. The retained SVG request resolves to a native lesson scene under the current application contract; the harness checks its scene schema. OpenRouter cells additionally exercise the TTS route and retain its audio response.
 
 ```bash
 bun run test:workflow-providers -- --provider codex --case simple --dry-run
