@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import * as z from 'zod';
 
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
+import { prepareStrictStructuredOutput } from '../../src/services/strictStructuredOutput.js';
 import { generateStructuredOutput } from '../../src/services/structuredGeneration.js';
 import { isRecord } from '../../src/utils/validation.js';
 import { generateCourseObject } from '../../src/workflows/courseGenerationModel.js';
@@ -36,6 +37,42 @@ const modelOutput = {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+test('preserves string literal constraints and property names through strict schema adaptation', () => {
+  const domain = z.strictObject({
+    const: z.literal('a property named const'),
+    enum: z.string(),
+    kind: z.literal('round'),
+    tasks: z.array(z.strictObject({ format: z.literal('text'), note: z.string().optional() })),
+  });
+  const original = z.toJSONSchema(domain);
+  const preserved = structuredClone(original);
+  const adapted = prepareStrictStructuredOutput(original);
+  const supportedSchema = JSON.parse(
+    JSON.stringify(adapted.schema, (key, value) =>
+      key === 'const' && typeof value === 'string' ? undefined : value
+    )
+  );
+  const validate = z.fromJSONSchema(supportedSchema);
+  const response = {
+    const: 'a property named const',
+    enum: 'a property named enum',
+    kind: 'round',
+    tasks: [{ format: 'text', note: null }],
+  };
+
+  expect(validate.safeParse(response).success).toBe(true);
+  expect(validate.safeParse({ ...response, kind: 'diagnostic' }).success).toBe(false);
+  expect(validate.safeParse({ ...response, const: 'wrong literal' }).success).toBe(false);
+  expect(
+    validate.safeParse({ ...response, tasks: [{ format: 'choice', note: null }] }).success
+  ).toBe(false);
+  expect(domain.parse(adapted.normalize(response))).toEqual({
+    ...response,
+    tasks: [{ format: 'text' }],
+  });
+  expect(original).toEqual(preserved);
 });
 
 test.each([

@@ -13,7 +13,7 @@ export type GateStageResult = GateStage & {
 type RunGateStage = (stage: GateStage) => Promise<GateStageResult>;
 
 const CHECK_GATE_STAGES: GateStage[] = [
-  { label: 'CI quality, dependency, Fallow, and Bun tests', script: 'gate:ci' },
+  { label: 'CI quality, dependency, and Fallow checks', script: 'gate:checks' },
 ];
 
 const COVERAGE_STAGE: GateStage = {

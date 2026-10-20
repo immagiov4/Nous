@@ -19,6 +19,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -31,6 +40,27 @@ jobs:
 
       - name: Run CI Gate
         run: bun run gate:ci
+
+      - name: SonarQube Cloud scan and quality gate
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+        with:
+          args: >-
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
+            -Dsonar.scm.revision=${{ github.event.pull_request.head.sha || github.sha }}
+            -Dsonar.eslint.reportPaths=.temp/sonar/eslint-report.json
+
+      - name: Upload coverage for parity comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ github.event.pull_request.head.sha || github.sha }}
+          path: coverage/lcov.info
+          if-no-files-found: error
 
   supabase-contract:
     runs-on: ubuntu-latest

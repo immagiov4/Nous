@@ -9,7 +9,7 @@ import {
 } from './run-full-quality-gate.ts';
 
 const GATE_SCRIPTS = {
-  ciChecks: 'gate:ci',
+  ciChecks: 'gate:checks',
   coverage: 'test:coverage',
   sonarStart: 'sonar:up',
   sonarPreflight: 'doctor:gate',
@@ -109,7 +109,14 @@ test('rechecks readiness and scans on the next gate after a scan crashes', async
   expect(invokedScripts).toEqual([...EXPECTED_GATE_SCRIPTS, ...EXPECTED_GATE_SCRIPTS]);
 });
 
-test('executes the same repository checks as the CI test job', async () => {
+test('runs the CI checks and complete suite once, producing coverage for Sonar', async () => {
+  const { scripts } = JSON.parse(
+    await readFile(new URL('../package.json', import.meta.url), 'utf8')
+  ) as { scripts: Record<string, string> };
+  const expandGateCommand = (command: string): string[] => {
+    const gateScript = /^bun run (gate:[\w:-]+)$/.exec(command)?.[1];
+    return gateScript ? scripts[gateScript].split(' && ').flatMap(expandGateCommand) : [command];
+  };
   const workflow = parse(
     await readFile(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
   );
@@ -121,7 +128,6 @@ test('executes the same repository checks as the CI test job', async () => {
         !command.startsWith('bun install ') && !command.startsWith('bunx playwright install ')
     );
   const localAnalysisScripts: readonly string[] = [
-    GATE_SCRIPTS.coverage,
     GATE_SCRIPTS.sonarStart,
     GATE_SCRIPTS.sonarPreflight,
     GATE_SCRIPTS.sonarScan,
@@ -133,9 +139,14 @@ test('executes the same repository checks as the CI test job', async () => {
     return passedResult(stage);
   });
 
+  const invokedCommands = invokedScripts
+    .filter(script => !localAnalysisScripts.includes(script))
+    .flatMap(script => expandGateCommand(`bun run ${script}`));
+
   expect(
-    invokedScripts
-      .filter(script => !localAnalysisScripts.includes(script))
-      .map(script => `bun run ${script}`)
-  ).toEqual(ciScripts);
+    invokedCommands.filter(
+      command => command === 'bun run test' || command === 'bun run test:coverage'
+    )
+  ).toEqual(['bun run test:coverage']);
+  expect(invokedCommands).toEqual(ciScripts.flatMap(expandGateCommand));
 });
