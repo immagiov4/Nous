@@ -765,3 +765,20 @@ test('keeps prepared PDF text and page provenance across export and reload', () 
   );
   expect(reopened.documentIndex?.chunks[0].transcribedPages).toEqual([2]);
 });
+
+test('preserves validated source warning reasons across snapshot normalization', () => {
+  const snapshot = createProjectSnapshot({
+    id: 'warnings',
+    source: createProjectSourceFromFile({
+      name: 'notes.txt',
+      mimeType: 'text/plain',
+      data: encodeTextBase64('notes'),
+    }),
+  });
+  if (!snapshot.source) throw new Error('Missing source');
+  snapshot.source.preparationWarnings = [
+    { name: 'scan.pdf', message: 'No text', reason: 'no-usable-text' },
+  ];
+  const restored = normalizeStoredProject(exportProjectData(snapshot));
+  expect(restored.source?.preparationWarnings).toEqual(snapshot.source.preparationWarnings);
+});

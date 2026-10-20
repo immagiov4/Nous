@@ -30,7 +30,8 @@ export const createProductionLessonPlaybackServices = (
   preparePlayback: async (
     { input, signal, execution, idempotencyKey, providerEffect },
     allowedSceneTypes,
-    supportsSpokenMath = true
+    supportsSpokenMath = true,
+    supportsFencedCode = true
   ) => {
     const project = await projectStore.loadProjectWithRevision(input.userId, input.projectId);
     const section = project && findProjectLessonSection(project.snapshot, input.sectionId);
@@ -82,6 +83,7 @@ export const createProductionLessonPlaybackServices = (
     const prepared = await prepareLessonPlaybackBlock({
       allowedSceneTypes,
       supportsSpokenMath,
+      supportsFencedCode,
       block,
       lesson,
       config: await getResolvedGlobalModelConfig(),

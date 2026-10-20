@@ -11,7 +11,6 @@ import type { PdfPageProvenance, PdfTranscriptionSummary } from '@shared/pdfTran
 import { buildSha256HexDigest } from '../utils/hash.js';
 import { decodePdfDataUrl } from '../utils/pdfDataUrl.js';
 import { normalizeLineEndings } from '../utils/text.js';
-import type { PdfTranscriptionOptions } from './pdfPageTranscription.js';
 import { normalizeExtractedTextSegment } from './pdfTextNormalization.js';
 
 const execFileAsync = promisify(execFile);
@@ -60,7 +59,6 @@ const PDF_TEXT_FALLBACK_WARNING =
   'Estrazione testo eseguita con parser di fallback; qualita e impaginazione potrebbero essere meno fedeli.';
 
 export interface PdfTextExtractionOptions {
-  transcription?: PdfTranscriptionOptions | false;
   fallbackTimeoutMs?: number;
   maxOutputBytes?: number;
   pdftotextTimeoutMs?: number;
@@ -547,12 +545,4 @@ export const extractPdfTextLayer = async (
   };
 };
 
-export const extractPdfText = async (
-  pdfDataUrl: string,
-  options: PdfTextExtractionOptions = {}
-): Promise<ExtractedPdfText> => {
-  const extracted = await extractPdfTextLayer(pdfDataUrl, options);
-  if (options.transcription === false) return extracted;
-  const { completePdfTextExtraction } = await import('./pdfPageTranscription.js');
-  return completePdfTextExtraction(decodePdfDataUrl(pdfDataUrl), extracted, options.transcription);
-};
+export const extractPdfText = extractPdfTextLayer;

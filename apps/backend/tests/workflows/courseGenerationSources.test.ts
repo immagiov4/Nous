@@ -45,6 +45,9 @@ describe('course generation source material reader', () => {
   test('loads only the frozen source identities in their prepared order', async () => {
     const readSourceMaterial = vi.fn().mockResolvedValue({ text: 'contenuto valido' });
     const reader = createCourseSourceMaterialReader({
+      loadProjectSourceById: vi
+        .fn()
+        .mockResolvedValue(storedSource('source-ready', 'a'.repeat(64), 'encoded').file),
       loadProjectSources: vi
         .fn()
         .mockResolvedValue([
@@ -82,6 +85,9 @@ describe('course generation source material reader', () => {
     },
   ])('fails permanently when frozen source identity changes', async input => {
     const reader = createCourseSourceMaterialReader({
+      loadProjectSourceById: vi
+        .fn()
+        .mockResolvedValue(storedSource('source-ready', 'a'.repeat(64), 'encoded').file),
       loadProjectSources: vi.fn().mockResolvedValue(input.loadProjectSources),
       loadProjectWithRevision: vi.fn().mockResolvedValue({
         revision: input.revision,
@@ -97,6 +103,9 @@ describe('course generation source material reader', () => {
 
   test('rejects a source without readable text before planning', async () => {
     const reader = createCourseSourceMaterialReader({
+      loadProjectSourceById: vi
+        .fn()
+        .mockResolvedValue(storedSource('source-ready', 'a'.repeat(64), 'encoded').file),
       loadProjectSources: vi
         .fn()
         .mockResolvedValue([storedSource('source-ready', 'a'.repeat(64), 'encoded')]),
@@ -124,7 +133,11 @@ test('reuses the durable prepared PDF text with matching source hash instead of 
     outlineOrigin: 'none',
   };
   const readSourceMaterial = vi.fn();
+  const loadProjectSourceById = vi
+    .fn()
+    .mockResolvedValue(storedSource('source-ready', 'a'.repeat(64), 'encoded').file);
   const reader = createCourseSourceMaterialReader({
+    loadProjectSourceById,
     loadProjectSources: vi
       .fn()
       .mockResolvedValue([storedSource('source-ready', 'a'.repeat(64), 'encoded')]),
@@ -138,11 +151,16 @@ test('reuses the durable prepared PDF text with matching source hash instead of 
   expect(result[0].text).toBe(pdf.text);
   expect(result[0].pdf?.pages).toEqual(pdf.pages);
   expect(readSourceMaterial).not.toHaveBeenCalled();
+  expect(loadProjectSourceById).not.toHaveBeenCalled();
 });
 
-test('passes the durable account models and cancellation signal when prepared text is absent', async () => {
+test('loads the original file for pure extraction when prepared text is absent', async () => {
   const readSourceMaterial = vi.fn().mockResolvedValue({ text: 'source' });
+  const loadProjectSourceById = vi
+    .fn()
+    .mockResolvedValue(storedSource('source-ready', 'a'.repeat(64), 'encoded').file);
   const reader = createCourseSourceMaterialReader({
+    loadProjectSourceById,
     loadProjectSources: vi
       .fn()
       .mockResolvedValue([storedSource('source-ready', 'a'.repeat(64), 'encoded')]),
@@ -156,7 +174,7 @@ test('passes the durable account models and cancellation signal when prepared te
   };
   const signal = new AbortController().signal;
   await reader(preparedState, signal, config);
-  expect(readSourceMaterial).toHaveBeenCalledWith(expect.anything(), { config, signal });
+  expect(readSourceMaterial).toHaveBeenCalledWith(expect.anything());
 });
 
 test('course planning retains transcription provenance even when sampling omits the page marker', () => {
@@ -197,4 +215,42 @@ test('course planning retains transcription provenance even when sampling omits 
     transcribedPages: [7],
   });
   expect(provenance?.[2]).toBe('M');
+});
+
+test('loads thirty frozen PDFs one at a time without hydrating the complete course', async () => {
+  const sources = Array.from({ length: 30 }, (_, index) =>
+    storedSource(`source-${index}`, 'a'.repeat(64), '')
+  );
+  const state = {
+    ...preparedState,
+    context: {
+      ...preparedState.context,
+      sources: sources.map(source => ({
+        hash: source.ref.hash,
+        id: source.ref.id,
+        kind: 'pdf' as const,
+        mimeType: 'application/pdf',
+        name: source.file.name,
+      })),
+    },
+  };
+  let pending = 0;
+  let maximum = 0;
+  const loadProjectSourceById = vi.fn(async (_user: string, _project: string, id: string) => {
+    pending += 1;
+    maximum = Math.max(maximum, pending);
+    return { data: 'encoded', mimeType: 'application/pdf', name: `${id}.pdf` };
+  });
+  const reader = createCourseSourceMaterialReader({
+    loadProjectSources: vi.fn().mockResolvedValue(sources),
+    loadProjectSourceById,
+    loadProjectWithRevision: vi.fn().mockResolvedValue({ revision: 4, snapshot: {} }),
+    readSourceMaterial: vi.fn(async () => {
+      pending -= 1;
+      return { text: 'source content' };
+    }),
+  });
+  expect(await reader(state)).toHaveLength(30);
+  expect(loadProjectSourceById).toHaveBeenCalledTimes(30);
+  expect(maximum).toBe(1);
 });

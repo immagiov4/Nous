@@ -27,8 +27,8 @@ export interface PendingWorkspaceOpen {
 }
 
 export interface AssessmentWorkspaceOwnership {
-  readonly sourcePreparationAbortController: AbortController;
   readonly adoptedProjectIds: Set<string>;
+  sourcePreparationController?: AbortController;
   draftCleanupPromise: Promise<void> | null;
   draftProjectId: string | null;
   readonly pendingOpenProjects: Map<number, PendingWorkspaceOpen>;
@@ -48,6 +48,7 @@ export interface PendingCancelledDraftCleanup {
  */
 export interface AssessmentSessionState {
   activeAssessmentCancellationPromise: Promise<void> | null;
+  activeSourceAttachmentOwnership: AssessmentWorkspaceOwnership | null;
   activeHomeChatStartPromise: Promise<HomeChatStartResult> | null;
   activeHomeChatWorkspaceOwnership: AssessmentWorkspaceOwnership | null;
   readonly assessmentRunCancellationPromises: Map<string, Promise<void>>;
@@ -61,6 +62,7 @@ export interface AssessmentSessionState {
 
 export const createAssessmentSessionState = (): AssessmentSessionState => ({
   activeAssessmentCancellationPromise: null,
+  activeSourceAttachmentOwnership: null,
   activeHomeChatStartPromise: null,
   activeHomeChatWorkspaceOwnership: null,
   assessmentRunCancellationPromises: new Map(),
@@ -71,3 +73,27 @@ export const createAssessmentSessionState = (): AssessmentSessionState => ({
   pendingCancelledDraftCleanup: null,
   workspaceOwnershipByOpenProjectRequestId: new Map(),
 });
+
+export const createAssessmentWorkspaceOwnership = (
+  session: AssessmentSessionState,
+  requestToken: symbol,
+  openProjectRequestId: number
+): AssessmentWorkspaceOwnership => {
+  const ownership: AssessmentWorkspaceOwnership = {
+    adoptedProjectIds: new Set(),
+    draftCleanupPromise: null,
+    draftProjectId: null,
+    pendingOpenProjects: new Map(),
+    requestToken,
+    requiresCancellationRetry: false,
+  };
+  const pendingOpenProject = session.openProjectAttempts.get(openProjectRequestId);
+  if (pendingOpenProject) {
+    ownership.pendingOpenProjects.set(openProjectRequestId, pendingOpenProject);
+    const owners =
+      session.workspaceOwnershipByOpenProjectRequestId.get(openProjectRequestId) ?? new Set();
+    owners.add(ownership);
+    session.workspaceOwnershipByOpenProjectRequestId.set(openProjectRequestId, owners);
+  }
+  return ownership;
+};

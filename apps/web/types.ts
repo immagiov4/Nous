@@ -1,3 +1,7 @@
+import type { SourceOutlineNode } from '@shared/courseSourceText';
+
+export type { SourceOutlineNode } from '@shared/courseSourceText';
+
 import type { CoursePlanningPreferences } from '@shared/coursePlanningControls';
 import type { LearningArtifactKind } from '@shared/learningArtifact';
 import type { ActivePauseExerciseType } from '@shared/lessonGenerationPolicy';
@@ -144,20 +148,11 @@ export interface FileData {
   sourceId?: string;
 }
 
-export interface SourceOutlineNode {
-  children: SourceOutlineNode[];
-  endOffset?: number;
-  id: string;
-  level: number;
-  page?: number;
-  startOffset?: number;
-  title: string;
-}
-
 export interface CourseSourceDescriptor {
   preparedPdfText?: import('@shared/pdfTranscription').PreparedPdfText;
   documentIndex?: PdfTextIndex | null;
   errorMessage?: string;
+  errorReason?: SourceArchivePdfWarningReason;
   file: FileData;
   hash: string;
   id: string;
@@ -190,7 +185,6 @@ export interface SourceArchiveDirectoryEntry {
 }
 
 export interface SourceArchiveFileEntry {
-  pdfPages?: import('@shared/pdfTranscription').ArchivePdfPage[];
   byteSize: number;
   contentKind: 'binary' | 'text';
   hash?: string;
@@ -248,7 +242,13 @@ export interface SourceArchiveProjectSource {
   sources?: CourseSourceDescriptor[];
 }
 
-export type ProjectSource = DocumentProjectSource | PdfProjectSource | SourceArchiveProjectSource;
+export type ProjectSource = (
+  | DocumentProjectSource
+  | PdfProjectSource
+  | SourceArchiveProjectSource
+) & {
+  preparationWarnings?: ProjectSourceWarning[];
+};
 
 export const AppState = {
   LIBRARY: 'LIBRARY',

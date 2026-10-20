@@ -116,22 +116,3 @@ export const readPdfTranscribedPages = (text: string): number[] =>
       ].map(match => Number(match[1]))
     ),
   ].sort((left, right) => left - right);
-
-export interface ArchivePdfPage {
-  transcriptionBlank?: boolean;
-  transcriptionFailed?: boolean;
-  pageNumber: number;
-  startByte: number;
-  endByte: number;
-  provenance?: PdfPageProvenance;
-}
-export const ArchivePdfPagesSchema = z.array(
-  z.object({
-    pageNumber: z.number().int().positive(),
-    transcriptionFailed: z.boolean().optional(),
-    transcriptionBlank: z.boolean().optional(),
-    startByte: z.number().int().nonnegative(),
-    endByte: z.number().int().nonnegative(),
-    provenance: PreparedPdfTextSchema.shape.pages.element.shape.provenance,
-  })
-);

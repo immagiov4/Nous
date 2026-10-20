@@ -1,12 +1,14 @@
+import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
 // Exposes PDF upload and extraction routes.
-import { PDF_TRANSCRIPTION_ERROR_CODE } from '@shared/pdfTranscription';
-import { type Response, Router } from 'express';
-import { getCurrentUser } from '../auth/currentUser.js';
-import { getResolvedModelConfigForProvider } from '../config/modelConfig.js';
+import { Router } from 'express';
 import { extractPdfImages } from '../services/pdfImageExtractor.js';
-import { PdfPageTranscriptionError } from '../services/pdfPageTranscription.js';
+import { PDF_SOURCE_EXTRACTION_OPTIONS } from '../services/pdfSourceLimits.js';
 import { extractPdfText } from '../services/pdfTextExtractor.js';
-import { isPdfDataUrl, PDF_DATA_URL_REQUIRED_MESSAGE } from '../utils/pdfDataUrl.js';
+import {
+  getPdfDataUrlByteLength,
+  isPdfDataUrl,
+  PDF_DATA_URL_REQUIRED_MESSAGE,
+} from '../utils/pdfDataUrl.js';
 
 const router = Router();
 const DEFAULT_PDF_IMAGE_LIMIT = 20;
@@ -20,28 +22,7 @@ const readPdfImageLimit = (value: unknown): number => {
   return Math.max(1, Math.min(MAX_PDF_IMAGE_LIMIT, Math.trunc(value)));
 };
 
-const sendPdfTextFailure = (res: Response, error: unknown, streamed: boolean) => {
-  const failure = {
-    success: false,
-    error:
-      error instanceof PdfPageTranscriptionError
-        ? error.message
-        : 'Estrazione del testo dal PDF non riuscita.',
-    ...(error instanceof PdfPageTranscriptionError
-      ? { code: PDF_TRANSCRIPTION_ERROR_CODE, failedPages: error.failedPages }
-      : {}),
-  };
-  if (streamed && res.headersSent)
-    return res.end(`${JSON.stringify({ type: 'error', ...failure })}\n`);
-  return res.status(error instanceof PdfPageTranscriptionError ? 422 : 500).json(failure);
-};
-
 router.post('/extract-text', async (req, res) => {
-  const streamed = req.get('Accept') === 'application/x-ndjson';
-  const controller = new AbortController();
-  res.on('close', () => {
-    if (!res.writableEnded) controller.abort();
-  });
   try {
     const fileData = typeof req.body?.fileData === 'string' ? req.body.fileData : '';
 
@@ -52,30 +33,13 @@ router.post('/extract-text', async (req, res) => {
       });
     }
 
-    const currentUser = getCurrentUser(req);
-    const config = await getResolvedModelConfigForProvider(
-      currentUser.aiProvider,
-      currentUser.aiProviderOverrides
-    );
-    if (streamed) {
-      res.type('application/x-ndjson');
-      res.set('Cache-Control', 'no-store');
-      res.flushHeaders();
-    }
-    const result = await extractPdfText(fileData, {
-      transcription: {
-        config,
-        signal: controller.signal,
-        onProgress: streamed
-          ? progress => {
-              res.write(`${JSON.stringify({ type: 'progress', progress })}\n`);
-            }
-          : undefined,
-      },
-    });
-    const payload = {
+    if (getPdfDataUrlByteLength(fileData) > COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes)
+      return res
+        .status(413)
+        .json({ success: false, error: 'Il PDF supera il limite di 32 MB per file.' });
+    const result = await extractPdfText(fileData, PDF_SOURCE_EXTRACTION_OPTIONS);
+    return res.json({
       success: true,
-      transcription: result.transcription,
       text: result.text,
       textLength: result.text.length,
       parser: result.parser,
@@ -87,13 +51,13 @@ router.post('/extract-text', async (req, res) => {
       parserFallbackReason: result.parserFallbackReason,
       qualityWarning: result.qualityWarning,
       usedFallbackParser: result.usedFallbackParser,
-    };
-    if (streamed) return res.end(`${JSON.stringify({ type: 'result', result: payload })}\n`);
-    return res.json(payload);
+    });
   } catch (error) {
     console.error('[Backend] PDF text extraction failed:', error);
-    if (controller.signal.aborted) return;
-    return sendPdfTextFailure(res, error, streamed);
+    return res.status(500).json({
+      success: false,
+      error: 'Estrazione del testo dal PDF non riuscita.',
+    });
   }
 });
 

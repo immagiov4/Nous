@@ -116,6 +116,8 @@ The model requests another pass only to clarify a doubt that could change the co
 
 Planning keeps self-reports distinct from demonstrated performance and limits each observation to what its question tested. Requested depth and granularity remain separate course preferences. Historical runs without a diagnostic use `not-collected`.
 
+When the collection contains no submitted attempts, adaptation returns an empty `evaluation.interpretations` array. Adaptations after submitted rounds interpret those attempts cumulatively. Pertinent uncertainty and omissions belong in `missingInformation`; invented attempt or criterion references remain validation failures. Every evaluation list is required, including when empty. The next-pass response selects `round` or `complete`, with its provider-facing string discriminator represented as an `enum` by the shared structured-output adapter. The boundary tests exercise three uncertain top-level topics with all other topics explicitly omitted through both provider transports.
+
 The collection retains questions, criteria, responses, model outputs, and successive evaluations. Models can compare this history to identify where a diagnostic decision went wrong and which evidence led to it.
 
 The server loads a revision by user, project, project incarnation, diagnostic, and revision ID. The table denies direct client access. Operational failure preserves drafts with accepted responses, while explicit project deletion removes their diagnostic records. Cleanup checks for responses under the project deletion lock. Snapshot acceptance uses a non-waiting key-share lock to avoid a deadlock with cascading deletion.
@@ -175,6 +177,16 @@ Planning indexes collected web and video sources by exact URL. In `learn` mode, 
 Lesson generation decides whether to enable web research from the available source context, declared coverage gaps, and refresh request. Researched HTTP or HTTPS sources are normalized and merged into the lesson dossier. Source identity prefers `sourceId`, then a lowercased URL without trailing slashes, then a normalized title. The reader receives the persisted section sources and presents an external source as a linked title and note.
 
 Sources: [apps/backend/src/workflows/courseGenerationResearch.ts:88-101](../../../apps/backend/src/workflows/courseGenerationResearch.ts#L88-L101), [apps/backend/src/workflows/courseGenerationResearch.ts:181-197](../../../apps/backend/src/workflows/courseGenerationResearch.ts#L181-L197), [apps/backend/src/workflows/courseGenerationResearch.ts:371-390](../../../apps/backend/src/workflows/courseGenerationResearch.ts#L371-L390), [apps/backend/src/workflows/courseGenerationPlanning.ts:64-94](../../../apps/backend/src/workflows/courseGenerationPlanning.ts#L64-L94), [apps/backend/src/workflows/courseGenerationPlanning.ts:135-172](../../../apps/backend/src/workflows/courseGenerationPlanning.ts#L135-L172), [apps/backend/src/services/lessonGenerationModel.ts:201-245](../../../apps/backend/src/services/lessonGenerationModel.ts#L201-L245), [apps/backend/src/services/lessonGenerationResearch.ts:112-131](../../../apps/backend/src/services/lessonGenerationResearch.ts#L112-L131), [apps/backend/src/services/lessonGenerationResearch.ts:171-210](../../../apps/backend/src/services/lessonGenerationResearch.ts#L171-L210), [apps/backend/src/services/lessonGenerationSources.ts:412-442](../../../apps/backend/src/services/lessonGenerationSources.ts#L412-L442)
+
+## Whole-course source sets
+
+Course preparation reads source metadata without downloading all original files. Planning and chunk mapping then read the frozen source identities one at a time, checking the project revision around each download. The number of sources does not impose a six-file admission cap.
+
+Starting from several files persists the source set before the interview begins, then marks the project as hydrated. Interview preparation saves that draft by its explicit identity, including before the library selection has rendered. This enables autosave and remote revision processing during the interview, as it does for ZIP starts.
+
+For separate files, planning receives every source name and outline together with beginning, middle and end text samples. Text samples share the existing 180,000-character budget, with up to 8,000 characters per source. The complete PDFs are not sent in that planning prompt. Archive planning instead uses the existing directory, read and search tools. Lesson generation uses mapped source chunks and authoritative source references; fallback text and original-image reads first select metadata and then download relevant source files. The existing per-lesson context and mapping budgets remain in force.
+
+Adding a sublesson also loads source metadata first, then downloads and reads each original file before loading the next one. Exclusion notices belong to a pending selection and clear when the selection is consumed or the new-course flow is abandoned.
 
 ## Planning and Quality Verification
 

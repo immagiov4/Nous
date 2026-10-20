@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
+
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { buildPdfTextDataUrl } from '../fixtures/pdfText.js';
 

@@ -67,7 +67,6 @@ export interface ProjectRevisionEvent {
 export const PROJECT_REVISION_RESYNC_EVENT = 'project-revision-resync';
 
 export const PROJECT_API_ERROR_CODE = {
-  projectNotFound: 'project_not_found',
   coverRevisionConflict: 'project_cover_revision_conflict',
   revisionConflict: 'project_revision_conflict',
   sourceArchiveChanged: 'project_source_archive_changed',

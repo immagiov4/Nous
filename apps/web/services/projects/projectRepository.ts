@@ -1,5 +1,6 @@
 import type { LibraryExportProgress } from '@shared/libraryExportContract';
 import type { DecodedProjectSnapshotWire } from '@shared/projectSnapshotWire';
+import type { SourcePreparationProgress } from '@shared/sourcePreparation';
 
 import type {
   FileData,
@@ -34,14 +35,17 @@ export class ProjectStorageError extends Error {
     | 'cover-revision-conflict'
     | 'quota-exceeded'
     | 'revision-conflict'
+    | 'source-preparation-cancelled'
+    | 'scanned-page-limit'
+    | 'source-preparation-failed'
+    | 'source-staging-unavailable'
+    | 'source-ingestion-required'
+    | 'source-preparation-interrupted'
     | 'source-archive-busy'
     | 'source-archive-changed'
     | 'source-archive-invalid'
     | 'source-archive-unusable'
-    | 'pdf-transcription-failed'
     | 'unknown';
-  readonly failedPages?: number[];
-  readonly documentName?: string;
   readonly httpStatus?: number;
   readonly responseContentType?: string;
   readonly sourceWarnings?: ProjectSourceWarning[];
@@ -51,8 +55,6 @@ export class ProjectStorageError extends Error {
     code: ProjectStorageError['code'] = 'unknown',
     response?: {
       contentType?: string;
-      failedPages?: number[];
-      documentName?: string;
       sourceWarnings?: ProjectSourceWarning[];
       status?: number;
     }
@@ -60,8 +62,6 @@ export class ProjectStorageError extends Error {
     super(message);
     this.name = 'ProjectStorageError';
     this.code = code;
-    this.failedPages = response?.failedPages;
-    this.documentName = response?.documentName;
     this.httpStatus = response?.status;
     this.responseContentType = response?.contentType;
     this.sourceWarnings = response?.sourceWarnings;
@@ -86,10 +86,15 @@ export type LibraryExportProgressListener = (progress: LibraryExportProgress) =>
 
 export interface ProjectSaveOptions extends ProjectWriteOptions {
   archiveFile?: File;
-  onPdfTranscriptionProgress?: (
-    progress: import('@shared/pdfTranscription').PdfTranscriptionProgress
-  ) => void;
+  sourceFiles?: readonly File[];
+  signal?: AbortSignal;
+  onSourceProgress?: (progress: SourcePreparationProgress) => void;
 }
+
+export type ProjectPersistenceOptions = Pick<
+  ProjectSaveOptions,
+  'archiveFile' | 'sourceFiles' | 'signal' | 'onSourceProgress'
+> & { throwOnError?: boolean };
 
 export interface ProjectRepository {
   createFolder: (args: { name: string; parentFolderId?: string | null }) => Promise<LibraryFolder>;

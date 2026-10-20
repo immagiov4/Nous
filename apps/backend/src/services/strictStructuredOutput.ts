@@ -17,6 +17,11 @@ const toStrictOutputSchema = (value: unknown): unknown => {
   let converted = Object.fromEntries(
     Object.entries(value).map(([key, child]) => [key, toStrictOutputSchema(child)])
   );
+  // Gemini's structured-output subset represents string literals with enum.
+  if (converted.type === 'string' && typeof converted.const === 'string') {
+    const { const: literal, ...supportedSchema } = converted;
+    converted = { ...supportedSchema, enum: [literal] };
+  }
   if (Array.isArray(converted.oneOf)) {
     const { oneOf, ...supportedSchema } = converted;
     converted = { ...supportedSchema, anyOf: oneOf };

@@ -1,7 +1,9 @@
-import type { PdfTranscriptionProgress } from '@shared/pdfTranscription';
-import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+export { getProjectSourceWarnings } from '../../../services/projects/courseSources.ts';
+
+import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
+import type { SourcePreparationProgress } from '@shared/sourcePreparation';
+import { translateUiMessage as t } from '../../../i18n/uiMessages';
 import * as OpenRouterService from '../../../services/openrouter/index.ts';
-import { PdfTranscriptionError } from '../../../services/processingResponse.ts';
 import {
   buildCourseSourceDescriptors,
   createProjectSourceFromDescriptors,
@@ -13,13 +15,30 @@ import {
   normalizeSourceFileMimeType,
 } from '../../../services/projects/projectSource.ts';
 import { resolveScreenStateForSnapshot } from '../../../services/workspace/controller/snapshotHydration.ts';
-import type {
-  CourseSourceDescriptor,
-  FileData,
-  ProjectSource,
-  ProjectSourceWarning,
-} from '../../../types.ts';
+import type { CourseSourceDescriptor, FileData, ProjectSource } from '../../../types.ts';
 import type { CreateWorkspaceControllerArgs, WorkspaceControllerContext } from './types.ts';
+
+export const formatSourcePreparationProgress = (progress: SourcePreparationProgress): string => {
+  if (progress.step === 'upload')
+    return t('Caricamento fonti... {percent}%', {
+      percent: Math.round(progress.total ? (progress.completed / progress.total) * 100 : 0),
+    });
+  const labels = {
+    expansion: 'Estrazione archivio',
+    extraction: 'Lettura fonti',
+    'pdf-transcription': 'Trascrizione pagine',
+    persistence: 'Salvataggio fonti',
+  } as const;
+  const message = t('{step}: {completed}/{total}', {
+    step: t(labels[progress.step]),
+    completed: progress.completed,
+    total: progress.total,
+  });
+  const namedMessage = progress.documentName ? `${message} · ${progress.documentName}` : message;
+  return progress.reducedQuality
+    ? `${namedMessage} · ${t('Pagine {from}–{to} trascritte in qualità ridotta.', progress.reducedQuality)}`
+    : namedMessage;
+};
 
 const createSleep = (ms: number) =>
   new Promise<void>(resolve => {
@@ -31,6 +50,8 @@ const scheduleHydrationWithMicrotask = (callback: () => void) => {
 };
 
 export const readSourceFileData = async (file: File): Promise<FileData> => {
+  if (file.size > COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes)
+    throw new Error(`Il file ${file.name} supera il limite di 32 MB.`);
   const bytes = new Uint8Array(await file.arrayBuffer());
   const kind = detectSourceFileKind({
     name: file.name,
@@ -49,138 +70,27 @@ export const readSourceFileData = async (file: File): Promise<FileData> => {
   };
 };
 
-const UNUSABLE_PDF_SOURCE_MESSAGE = 'Questa fonte non contiene testo PDF utilizzabile.';
-
-const getCourseSourceWarnings = (
-  sources: readonly CourseSourceDescriptor[]
-): ProjectSourceWarning[] =>
-  sources
-    .filter(descriptor => descriptor.status === 'error')
-    .map(descriptor => ({
-      message: descriptor.errorMessage || t('Questa fonte non è utilizzabile.'),
-      name: descriptor.name,
-    }));
-
-export const getProjectSourceWarnings = (source: ProjectSource): ProjectSourceWarning[] => {
-  const descriptorWarnings = getCourseSourceWarnings(source.sources || []);
-  const missingPageWarnings = (source.sources || []).flatMap(descriptor =>
-    (descriptor.preparedPdfText?.failedPages || []).map(pageNumber => ({
-      name: descriptor.name,
-      message: t('Pagina {page}: non trascritta.', { page: pageNumber }),
+/** Creates pending descriptors only; ingestion prepares bytes and indexes on the server. */
+export const prepareUploadedCourseSource = async (
+  _context: Pick<WorkspaceControllerContext, 'openRouter'>,
+  selectedFiles: readonly File[],
+  onProgress?: (completed: number, total: number) => void
+): Promise<{ descriptors: CourseSourceDescriptor[]; source: ProjectSource }> => {
+  onProgress?.(0, selectedFiles.length);
+  const descriptors = buildCourseSourceDescriptors(
+    sortSourceFiles(selectedFiles).map(file => ({
+      name: file.name,
+      mimeType:
+        file.type ||
+        normalizeSourceFileMimeType(
+          file.name,
+          file.type,
+          detectSourceFileKind({ name: file.name, mimeType: file.type })
+        ),
+      data: '',
     }))
   );
-  if (source.kind === 'pdf' && !source.sources?.length)
-    missingPageWarnings.push(
-      ...(source.preparedPdfText?.failedPages || []).map(pageNumber => ({
-        name: source.file.name,
-        message: t('Pagina {page}: non trascritta.', { page: pageNumber }),
-      }))
-    );
-  descriptorWarnings.push(...missingPageWarnings);
-  if (source.kind !== 'archive') {
-    return descriptorWarnings;
-  }
-
-  const archivePdfWarnings = source.index.entries.flatMap(entry =>
-    entry.kind === 'file' &&
-    entry.contentKind === 'binary' &&
-    entry.path.toLowerCase().endsWith('.pdf')
-      ? [
-          {
-            message: t(UNUSABLE_PDF_SOURCE_MESSAGE),
-            name: entry.path,
-            reason: entry.warningReason || 'no-usable-text',
-          },
-        ]
-      : []
-  );
-  const missingArchivePages = source.index.entries.flatMap(entry =>
-    entry.kind === 'file'
-      ? (entry.pdfPages || [])
-          .filter(page => page.transcriptionFailed)
-          .map(page => ({
-            name: entry.path,
-            message: t('Pagina {page}: non trascritta.', { page: page.pageNumber }),
-          }))
-      : []
-  );
-  return [...descriptorWarnings, ...archivePdfWarnings, ...missingArchivePages];
-};
-
-export const prepareUploadedCourseSource = async (
-  context: Pick<WorkspaceControllerContext, 'openRouter'>,
-  selectedFiles: readonly File[],
-  onProgress?: (completed: number, total: number, pdfProgress?: PdfTranscriptionProgress) => void,
-  signal?: AbortSignal
-): Promise<{ descriptors: CourseSourceDescriptor[]; source: ProjectSource }> => {
-  signal?.throwIfAborted();
-  const sortedFiles = sortSourceFiles(selectedFiles);
-  const fileData = await Promise.all(sortedFiles.map(readSourceFileData));
-  const descriptors = buildCourseSourceDescriptors(fileData);
-
-  for (let index = 0; index < descriptors.length; index += 1) {
-    signal?.throwIfAborted();
-    const descriptor = descriptors[index];
-    onProgress?.(index, descriptors.length);
-    if (descriptor.kind !== 'pdf') {
-      continue;
-    }
-    try {
-      await context.openRouter.validatePdfTextSource(
-        descriptor.file,
-        progress => onProgress?.(index, descriptors.length, progress),
-        signal
-      );
-      const session = await context.openRouter.getPdfTextSession(
-        descriptor.file,
-        undefined,
-        signal
-      );
-      if (!session?.extractedText.trim()) {
-        throw new Error('No extracted PDF text');
-      }
-      descriptor.hash = session.sourceHash || descriptor.hash;
-      descriptor.preparedPdfText = toPreparedPdfText(session, descriptor.hash);
-      descriptor.outline = session.outline;
-      descriptor.outlineOrigin = session.outlineOrigin;
-      descriptor.documentIndex = context.openRouter.buildPdfTextIndex(
-        session.extractedText,
-        descriptor.hash,
-        descriptor.name,
-        session.pages,
-        descriptor.id
-      );
-    } catch (error) {
-      signal?.throwIfAborted();
-      if (descriptors.length === 1) {
-        throw error;
-      }
-      console.warn('[Nous][Sources] A PDF source could not be prepared.', {
-        error,
-        name: descriptor.name,
-      });
-      descriptor.status = 'error';
-      descriptor.errorMessage =
-        error instanceof PdfTranscriptionError ? error.message : t(UNUSABLE_PDF_SOURCE_MESSAGE);
-    }
-  }
-  onProgress?.(descriptors.length, descriptors.length);
-
-  if (descriptors.every(descriptor => descriptor.status === 'error')) {
-    throw new Error(
-      [
-        t('Nessuna delle fonti selezionate contiene materiale utilizzabile.'),
-        ...getCourseSourceWarnings(descriptors).map(
-          warning => `${warning.name}: ${warning.message}`
-        ),
-      ].join('\n')
-    );
-  }
-
-  return {
-    descriptors,
-    source: createProjectSourceFromDescriptors(descriptors),
-  };
+  return { descriptors, source: createProjectSourceFromDescriptors(descriptors) };
 };
 
 export const createWorkspaceControllerContext = ({
@@ -215,21 +125,4 @@ export const createWorkspaceControllerContext = ({
   sleep,
   state,
   stopAudio,
-});
-
-export const toPreparedPdfText = (
-  session: import('../../../services/openrouter/pdfAssets.ts').PdfAssetSession,
-  sourceHash: string
-): import('@shared/pdfTranscription').PreparedPdfText => ({
-  text: session.extractedText,
-  ...(session.transcription?.failedPages?.length
-    ? { failedPages: session.transcription.failedPages }
-    : {}),
-  pages: session.pages,
-  sourceHash,
-  parser: session.parser || 'pdf-parse',
-  pageCount: session.pageCount,
-  outline: session.outline,
-  outlineOrigin: session.outlineOrigin,
-  usedFallbackParser: session.parser !== 'pdftotext',
 });

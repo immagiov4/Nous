@@ -228,3 +228,12 @@ test('retains a reattached PDF transcript when converting and merging source des
   assert.equal(replacement.sources?.[0].id, 'retained-source');
   assert.equal(replacement.sources?.[0].preparedPdfText?.sourceHash, replacement.sources?.[0].hash);
 });
+
+test('preserves CRLF Markdown headings and their original source offsets', () => {
+  const text = 'Preamble\r\n# First\r\nContent\r\n## Second\r\nMore';
+  const outlines = parseMarkdownOutline(text, 'source');
+  assert.equal(outlines[0]?.title, 'First');
+  assert.equal(outlines[0]?.startOffset, text.indexOf('# First'));
+  assert.equal(outlines[0]?.children[0]?.title, 'Second');
+  assert.equal(outlines[0]?.children[0]?.startOffset, text.indexOf('## Second'));
+});

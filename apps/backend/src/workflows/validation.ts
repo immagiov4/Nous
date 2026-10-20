@@ -8,7 +8,11 @@ import {
   resolveWorkflowStepConfig,
 } from './config.js';
 import { repeatDecisionSchema } from './repeatDecision.js';
-import { canonicalJson, durableSchemaShape, schemasMatch } from './schemaFingerprint.js';
+import {
+  canonicalJson,
+  createSchemaFingerprinter,
+  type SchemaFingerprinter,
+} from './schemaFingerprint.js';
 import type {
   ErasedWorkflowDefinition,
   RegisteredWorkflow,
@@ -63,6 +67,7 @@ const WORKFLOW_NODE_KINDS = new Set<WorkflowNodeKind>([
 export const WORKFLOW_DEFINITION_HASH_VERSION = 1;
 
 interface NodeValidationContext {
+  fingerprints: SchemaFingerprinter;
   configBases: readonly Record<string, unknown>[];
   configSchema: ZodType;
   definition: WorkflowCatalog;
@@ -95,8 +100,12 @@ const assertCallback = (value: unknown, message: string): void => {
   if (typeof value !== 'function') throw new TypeError(message);
 };
 
-const schemaManifest = (schema: ZodType, path: string): unknown => {
-  const manifest = durableSchemaShape(schema, path);
+const schemaManifest = (
+  schema: ZodType,
+  path: string,
+  fingerprints: SchemaFingerprinter
+): unknown => {
+  const manifest = fingerprints.shape(schema, path);
   if (schema.safeParse(undefined).success) {
     throw new Error(`Durable schema at ${path} cannot accept undefined.`);
   }
@@ -115,27 +124,36 @@ const validateWorkflowIdentity = (
 const validateWorkflowConfiguration = (
   definition: WorkflowBoundary,
   defaultsPath: string,
-  schemaPath: string
+  schemaPath: string,
+  fingerprints: SchemaFingerprinter
 ): void => {
   assertWorkflowExecutionDefaults(definition.executionDefaults, defaultsPath);
-  schemaManifest(definition.configSchema, schemaPath);
+  schemaManifest(definition.configSchema, schemaPath, fingerprints);
   if (!definition.configSchema.safeParse(definition.executionDefaults).success) {
     throw new Error(`Workflow ${definition.id} has invalid execution defaults.`);
   }
 };
 
-const validateWorkflowRoot = (definition: WorkflowBoundary, rootPath: string): WorkflowNode => {
-  const root = assertNodeShape(definition.root, rootPath);
-  if (!schemasMatch(definition.inputSchema, root.inputSchema)) {
+const validateWorkflowRoot = (
+  definition: WorkflowBoundary,
+  rootPath: string,
+  fingerprints: SchemaFingerprinter
+): WorkflowNode => {
+  const root = assertNodeShape(definition.root, rootPath, fingerprints);
+  if (!fingerprints.matches(definition.inputSchema, root.inputSchema)) {
     throw new Error(`Workflow ${definition.id} has an incompatible root input schema.`);
   }
-  if (!schemasMatch(definition.outputSchema, root.outputSchema)) {
+  if (!fingerprints.matches(definition.outputSchema, root.outputSchema)) {
     throw new Error(`Workflow ${definition.id} has an incompatible root output schema.`);
   }
   return root;
 };
 
-const assertNodeShape = (rawNode: unknown, path: string): WorkflowNode => {
+const assertNodeShape = (
+  rawNode: unknown,
+  path: string,
+  fingerprints: SchemaFingerprinter
+): WorkflowNode => {
   if (!isRecord(rawNode)) throw new TypeError(`Invalid workflow node at ${path}.`);
   if (typeof rawNode.id !== 'string' || !rawNode.id.trim()) {
     throw new Error(`Workflow node id is required at ${path}.`);
@@ -146,8 +164,8 @@ const assertNodeShape = (rawNode: unknown, path: string): WorkflowNode => {
   ) {
     throw new Error(`Unknown workflow node kind "${String(rawNode.kind)}" at ${path}.`);
   }
-  schemaManifest(rawNode.inputSchema as ZodType, `${path}.input`);
-  schemaManifest(rawNode.outputSchema as ZodType, `${path}.output`);
+  schemaManifest(rawNode.inputSchema as ZodType, `${path}.input`, fingerprints);
+  schemaManifest(rawNode.outputSchema as ZodType, `${path}.output`, fingerprints);
   return rawNode as unknown as WorkflowNode;
 };
 
@@ -193,25 +211,26 @@ const validateSequence = (
   context: NodeValidationContext,
   path: string
 ): void => {
+  const { fingerprints } = context;
   if (!Array.isArray(node.nodes) || node.nodes.length === 0) {
     throw new Error(`Sequence ${node.id} must contain at least one node.`);
   }
-  const firstNode = assertNodeShape(node.nodes[0], `${path}.first`);
-  const lastNode = assertNodeShape(node.nodes.at(-1), `${path}.last`);
-  if (!schemasMatch(node.inputSchema, firstNode.inputSchema)) {
+  const firstNode = assertNodeShape(node.nodes[0], `${path}.first`, fingerprints);
+  const lastNode = assertNodeShape(node.nodes.at(-1), `${path}.last`, fingerprints);
+  if (!fingerprints.matches(node.inputSchema, firstNode.inputSchema)) {
     throw new Error(`Sequence ${node.id} has an incompatible input schema.`);
   }
-  if (!schemasMatch(node.outputSchema, lastNode.outputSchema)) {
+  if (!fingerprints.matches(node.outputSchema, lastNode.outputSchema)) {
     throw new Error(`Sequence ${node.id} has an incompatible output schema.`);
   }
 
   node.nodes.forEach((child, index) => {
-    const childNode = assertNodeShape(child, `${path}.node.${index}`);
+    const childNode = assertNodeShape(child, `${path}.node.${index}`, fingerprints);
     const previousValue = node.nodes[index - 1];
     const previous = previousValue
-      ? assertNodeShape(previousValue, `${path}.node.${index - 1}`)
+      ? assertNodeShape(previousValue, `${path}.node.${index - 1}`, fingerprints)
       : undefined;
-    if (previous && !schemasMatch(previous.outputSchema, childNode.inputSchema)) {
+    if (previous && !fingerprints.matches(previous.outputSchema, childNode.inputSchema)) {
       throw new Error(
         `Sequence ${node.id} connects incompatible schemas between ${previous.id} and ${childNode.id}`
       );
@@ -220,22 +239,30 @@ const validateSequence = (
   });
 };
 
-const validateEmit = (node: RuntimeEmit, definition: WorkflowCatalog): void => {
+const validateEmit = (
+  node: RuntimeEmit,
+  definition: WorkflowCatalog,
+  fingerprints: SchemaFingerprinter
+): void => {
   if (typeof node.event !== 'string' || !hasOwn(definition.events, node.event)) {
     throw new Error(`Unknown event "${String(node.event)}" in node ${node.id}`);
   }
   assertCallback(node.payload, `Emit ${node.id} must define a payload callback.`);
-  if (!schemasMatch(node.inputSchema, node.outputSchema)) {
+  if (!fingerprints.matches(node.inputSchema, node.outputSchema)) {
     throw new Error(`Emit ${node.id} must preserve its input schema.`);
   }
 };
 
-const validateWait = (node: RuntimeWait, definition: WorkflowCatalog): void => {
+const validateWait = (
+  node: RuntimeWait,
+  definition: WorkflowCatalog,
+  fingerprints: SchemaFingerprinter
+): void => {
   if (typeof node.signal !== 'string' || !hasOwn(definition.signals, node.signal)) {
     throw new Error(`Unknown signal "${String(node.signal)}" in node ${node.id}`);
   }
   const signal = definition.signals[node.signal];
-  if (!signal || !schemasMatch(node.payloadSchema, signal.schema)) {
+  if (!signal || !fingerprints.matches(node.payloadSchema, signal.schema)) {
     throw new Error(`Signal wait ${node.id} has an incompatible payload schema.`);
   }
   assertCallback(node.resume, `Signal wait ${node.id} must define a resume callback.`);
@@ -248,30 +275,32 @@ const validateFanOut = (
   context: NodeValidationContext,
   path: string
 ): void => {
+  const { fingerprints } = context;
   if (node.failureMode !== 'collect' && node.failureMode !== 'fail-fast') {
     throw new Error(`Fan-out ${node.id} has an unknown failure mode.`);
   }
   assertCallback(node.inputs, `Fan-out ${node.id} must define an inputs callback.`);
   assertCallback(node.keyBy, `Fan-out ${node.id} must define a keyBy callback.`);
   assertCallback(node.fanIn, `Fan-out ${node.id} must define a fanIn callback.`);
-  schemaManifest(node.itemSchema, `${path}.item`);
-  const worker = assertNodeShape(node.worker, `${path}.worker`);
-  if (!schemasMatch(node.itemSchema, worker.inputSchema)) {
+  schemaManifest(node.itemSchema, `${path}.item`, fingerprints);
+  const worker = assertNodeShape(node.worker, `${path}.worker`, fingerprints);
+  if (!fingerprints.matches(node.itemSchema, worker.inputSchema)) {
     throw new Error(`Fan-out ${node.id} connects an incompatible worker input schema.`);
   }
   visitNode(worker, context, `${path}.${worker.id}`);
 };
 
 const validateRoute = (node: RuntimeRoute, context: NodeValidationContext, path: string): void => {
+  const { fingerprints } = context;
   assertCallback(node.select, `Route ${node.id} must define a select callback.`);
   if (!isRecord(node.cases) || Object.keys(node.cases).length === 0) {
     throw new Error(`Route ${node.id} must declare at least one case.`);
   }
   Object.entries(node.cases).forEach(([caseName, rawChild]) => {
-    const child = assertNodeShape(rawChild, `${path}.${caseName}`);
+    const child = assertNodeShape(rawChild, `${path}.${caseName}`, fingerprints);
     if (
-      !schemasMatch(node.inputSchema, child.inputSchema) ||
-      !schemasMatch(node.outputSchema, child.outputSchema)
+      !fingerprints.matches(node.inputSchema, child.inputSchema) ||
+      !fingerprints.matches(node.outputSchema, child.outputSchema)
     ) {
       throw new Error(`Route ${node.id} case ${caseName} has incompatible schemas.`);
     }
@@ -284,16 +313,17 @@ const validateRepeat = (
   context: NodeValidationContext,
   path: string
 ): void => {
+  const { fingerprints } = context;
   assertPositiveInteger(node.maxIterations, `${path}.maxIterations`);
   assertCallback(node.onExhausted, `Repeat ${node.id} must define an onExhausted callback.`);
-  const body = assertNodeShape(node.body, `${path}.body`);
-  if (!schemasMatch(node.inputSchema, node.outputSchema)) {
+  const body = assertNodeShape(node.body, `${path}.body`, fingerprints);
+  if (!fingerprints.matches(node.inputSchema, node.outputSchema)) {
     throw new Error(`Repeat ${node.id} must preserve its state schema.`);
   }
-  if (!schemasMatch(node.inputSchema, body.inputSchema)) {
+  if (!fingerprints.matches(node.inputSchema, body.inputSchema)) {
     throw new Error(`Repeat ${node.id} has an incompatible body input schema.`);
   }
-  if (!schemasMatch(body.outputSchema, repeatDecisionSchema(node.inputSchema))) {
+  if (!fingerprints.matches(body.outputSchema, repeatDecisionSchema(node.inputSchema))) {
     throw new Error(`Repeat ${node.id} has an incompatible body output schema.`);
   }
   visitNode(body, context, `${path}.${body.id}`);
@@ -304,19 +334,21 @@ function validateNestedWorkflow(
   context: NodeValidationContext,
   path: string
 ): void {
+  const { fingerprints } = context;
   validateWorkflowIdentity(node, `compatibilityId is required at ${path}.`);
-  if (!schemasMatch(context.configSchema, node.configSchema)) {
+  if (!fingerprints.matches(context.configSchema, node.configSchema)) {
     throw new Error(`Nested workflow ${node.id} has an incompatible configuration schema.`);
   }
-  validateWorkflowConfiguration(node, `${path}.executionDefaults`, `${path}.config`);
-  validateEventDefinitions(node);
-  validateSignalDefinitions(node);
+  validateWorkflowConfiguration(node, `${path}.executionDefaults`, `${path}.config`, fingerprints);
+  validateEventDefinitions(node, fingerprints);
+  validateSignalDefinitions(node, fingerprints);
 
   const rootPath = `${path}.root.${String((node.root as { id?: unknown }).id)}`;
-  const root = validateWorkflowRoot(node, rootPath);
+  const root = validateWorkflowRoot(node, rootPath, fingerprints);
   visitNode(
     root,
     {
+      fingerprints,
       configBases: [
         ...context.configBases,
         node.executionDefaults as unknown as Record<string, unknown>,
@@ -330,7 +362,8 @@ function validateNestedWorkflow(
 }
 
 const visitNode = (rawNode: unknown, context: NodeValidationContext, path: string): void => {
-  const node = assertNodeShape(rawNode, path);
+  const { fingerprints } = context;
+  const node = assertNodeShape(rawNode, path, fingerprints);
   if (context.seenIds.has(node.id)) throw new Error(`Duplicate workflow node id: ${node.id}`);
   context.seenIds.add(node.id);
 
@@ -342,10 +375,10 @@ const visitNode = (rawNode: unknown, context: NodeValidationContext, path: strin
       validateSequence(node, context, path);
       return;
     case 'emit':
-      validateEmit(node, context.definition);
+      validateEmit(node, context.definition, fingerprints);
       return;
     case 'waitForSignal':
-      validateWait(node, context.definition);
+      validateWait(node, context.definition, fingerprints);
       return;
     case 'fanOut':
       validateFanOut(node, context, path);
@@ -361,12 +394,16 @@ const visitNode = (rawNode: unknown, context: NodeValidationContext, path: strin
   }
 };
 
-const nodeManifest = (node: WorkflowNode, path: string): unknown => {
+const nodeManifest = (
+  node: WorkflowNode,
+  path: string,
+  fingerprints: SchemaFingerprinter
+): unknown => {
   const common = {
     id: node.id,
-    inputSchema: schemaManifest(node.inputSchema, `${path}.input`),
+    inputSchema: schemaManifest(node.inputSchema, `${path}.input`, fingerprints),
     kind: node.kind,
-    outputSchema: schemaManifest(node.outputSchema, `${path}.output`),
+    outputSchema: schemaManifest(node.outputSchema, `${path}.output`, fingerprints),
   };
   switch (node.kind) {
     case 'step':
@@ -380,8 +417,8 @@ const nodeManifest = (node: WorkflowNode, path: string): unknown => {
       return {
         ...common,
         nodes: node.nodes.map(child => {
-          const childNode = assertNodeShape(child, `${path}.child`);
-          return nodeManifest(childNode, `${path}.${childNode.id}`);
+          const childNode = assertNodeShape(child, `${path}.child`, fingerprints);
+          return nodeManifest(childNode, `${path}.${childNode.id}`, fingerprints);
         }),
       };
     case 'emit':
@@ -393,12 +430,12 @@ const nodeManifest = (node: WorkflowNode, path: string): unknown => {
         ...(node.commit === undefined ? {} : { hasCommit: true }),
       };
     case 'fanOut': {
-      const worker = assertNodeShape(node.worker, `${path}.worker`);
+      const worker = assertNodeShape(node.worker, `${path}.worker`, fingerprints);
       return {
         ...common,
         failureMode: node.failureMode,
-        itemSchema: schemaManifest(node.itemSchema, `${path}.item`),
-        worker: nodeManifest(worker, `${path}.${worker.id}`),
+        itemSchema: schemaManifest(node.itemSchema, `${path}.item`, fingerprints),
+        worker: nodeManifest(worker, `${path}.${worker.id}`, fingerprints),
       };
     }
     case 'routeBy':
@@ -408,52 +445,62 @@ const nodeManifest = (node: WorkflowNode, path: string): unknown => {
           Object.entries(node.cases)
             .sort(([left], [right]) => compareCodeUnits(left, right))
             .map(([key, child]) => {
-              const childNode = assertNodeShape(child, `${path}.${key}`);
-              return [key, nodeManifest(childNode, `${path}.${key}.${childNode.id}`)];
+              const childNode = assertNodeShape(child, `${path}.${key}`, fingerprints);
+              return [key, nodeManifest(childNode, `${path}.${key}.${childNode.id}`, fingerprints)];
             })
         ),
       };
     case 'repeat': {
-      const body = assertNodeShape(node.body, `${path}.body`);
+      const body = assertNodeShape(node.body, `${path}.body`, fingerprints);
       return {
         ...common,
-        body: nodeManifest(body, `${path}.${body.id}`),
+        body: nodeManifest(body, `${path}.${body.id}`, fingerprints),
         maxIterations: node.maxIterations,
       };
     }
     case 'workflow': {
-      const root = assertNodeShape(node.root, `${path}.root`);
+      const root = assertNodeShape(node.root, `${path}.root`, fingerprints);
       return {
         ...common,
         compatibilityId: node.compatibilityId,
-        configSchema: schemaManifest(node.configSchema, `${path}.config`),
+        configSchema: schemaManifest(node.configSchema, `${path}.config`, fingerprints),
         definitionHashVersion: WORKFLOW_DEFINITION_HASH_VERSION,
-        events: eventManifest(node, `${path}.events`),
-        root: nodeManifest(root, `${path}.root.${root.id}`),
-        signals: signalManifest(node, `${path}.signals`),
+        events: eventManifest(node, `${path}.events`, fingerprints),
+        root: nodeManifest(root, `${path}.root.${root.id}`, fingerprints),
+        signals: signalManifest(node, `${path}.signals`, fingerprints),
       };
     }
   }
 };
 
-const validateEventDefinitions = (definition: WorkflowCatalog): void => {
+const validateEventDefinitions = (
+  definition: WorkflowCatalog,
+  fingerprints: SchemaFingerprinter
+): void => {
   Object.entries(definition.events).forEach(([name, event]) => {
     if (event.durability !== 'durable' && event.durability !== 'transient') {
       throw new Error(`Event ${name} has an unknown durability.`);
     }
     assertPositivePostgresInteger(event.schemaVersion, `events.${name}.schemaVersion`);
-    schemaManifest(event.schema, `events.${name}`);
+    schemaManifest(event.schema, `events.${name}`, fingerprints);
   });
 };
 
-const validateSignalDefinitions = (definition: WorkflowCatalog): void => {
+const validateSignalDefinitions = (
+  definition: WorkflowCatalog,
+  fingerprints: SchemaFingerprinter
+): void => {
   Object.entries(definition.signals).forEach(([name, signal]) => {
     assertPositivePostgresInteger(signal.schemaVersion, `signals.${name}.schemaVersion`);
-    schemaManifest(signal.schema, `signals.${name}`);
+    schemaManifest(signal.schema, `signals.${name}`, fingerprints);
   });
 };
 
-const eventManifest = (definition: WorkflowCatalog, path: string): WorkflowManifest['events'] =>
+const eventManifest = (
+  definition: WorkflowCatalog,
+  path: string,
+  fingerprints: SchemaFingerprinter
+): WorkflowManifest['events'] =>
   Object.fromEntries(
     Object.entries(definition.events)
       .sort(([left], [right]) => compareCodeUnits(left, right))
@@ -461,20 +508,24 @@ const eventManifest = (definition: WorkflowCatalog, path: string): WorkflowManif
         name,
         {
           durability: event.durability,
-          schema: schemaManifest(event.schema, `${path}.${name}`),
+          schema: schemaManifest(event.schema, `${path}.${name}`, fingerprints),
           schemaVersion: event.schemaVersion,
         },
       ])
   );
 
-const signalManifest = (definition: WorkflowCatalog, path: string): WorkflowManifest['signals'] =>
+const signalManifest = (
+  definition: WorkflowCatalog,
+  path: string,
+  fingerprints: SchemaFingerprinter
+): WorkflowManifest['signals'] =>
   Object.fromEntries(
     Object.entries(definition.signals)
       .sort(([left], [right]) => compareCodeUnits(left, right))
       .map(([name, signal]) => [
         name,
         {
-          schema: schemaManifest(signal.schema, `${path}.${name}`),
+          schema: schemaManifest(signal.schema, `${path}.${name}`, fingerprints),
           schemaVersion: signal.schemaVersion,
         },
       ])
@@ -483,20 +534,22 @@ const signalManifest = (definition: WorkflowCatalog, path: string): WorkflowMani
 export const validateWorkflowDefinition = (
   definition: ErasedWorkflowDefinition
 ): WorkflowManifest => {
+  const fingerprints = createSchemaFingerprinter();
   if (!definition.id.trim()) throw new Error('Workflow id is required.');
   validateWorkflowIdentity(definition, 'compatibilityId is required.');
-  validateWorkflowConfiguration(definition, 'executionDefaults', 'workflow.config');
-  schemaManifest(definition.inputSchema, 'workflow.input');
-  schemaManifest(definition.outputSchema, 'workflow.output');
+  validateWorkflowConfiguration(definition, 'executionDefaults', 'workflow.config', fingerprints);
+  schemaManifest(definition.inputSchema, 'workflow.input', fingerprints);
+  schemaManifest(definition.outputSchema, 'workflow.output', fingerprints);
 
   const rootPath = `root.${String((definition.root as { id?: unknown }).id)}`;
-  const root = validateWorkflowRoot(definition, rootPath);
+  const root = validateWorkflowRoot(definition, rootPath, fingerprints);
 
-  validateEventDefinitions(definition);
-  validateSignalDefinitions(definition);
+  validateEventDefinitions(definition, fingerprints);
+  validateSignalDefinitions(definition, fingerprints);
   visitNode(
     root,
     {
+      fingerprints,
       configBases: [definition.executionDefaults as unknown as Record<string, unknown>],
       configSchema: definition.configSchema,
       definition,
@@ -507,14 +560,14 @@ export const validateWorkflowDefinition = (
 
   return {
     compatibilityId: definition.compatibilityId,
-    configSchema: schemaManifest(definition.configSchema, 'workflow.config'),
+    configSchema: schemaManifest(definition.configSchema, 'workflow.config', fingerprints),
     definitionHashVersion: WORKFLOW_DEFINITION_HASH_VERSION,
-    events: eventManifest(definition, 'events'),
+    events: eventManifest(definition, 'events', fingerprints),
     id: definition.id,
-    inputSchema: schemaManifest(definition.inputSchema, 'workflow.input'),
-    outputSchema: schemaManifest(definition.outputSchema, 'workflow.output'),
-    root: nodeManifest(root, rootPath),
-    signals: signalManifest(definition, 'signals'),
+    inputSchema: schemaManifest(definition.inputSchema, 'workflow.input', fingerprints),
+    outputSchema: schemaManifest(definition.outputSchema, 'workflow.output', fingerprints),
+    root: nodeManifest(root, rootPath, fingerprints),
+    signals: signalManifest(definition, 'signals', fingerprints),
   };
 };
 

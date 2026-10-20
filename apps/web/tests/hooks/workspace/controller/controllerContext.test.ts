@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
-  getProjectSourceWarnings,
   prepareUploadedCourseSource,
   readSourceFileData,
 } from '../../../../hooks/workspace/controller/controllerContext.ts';
-import { setRenderingLocaleOverride } from '../../../../i18n/uiMessages.ts';
-import { readProcessingResponse } from '../../../../services/processingResponse.ts';
 import { decodeTextBase64 } from '../../../../services/projects/projectSource.ts';
 
 test('readSourceFileData accepts markdown uploads with missing mime type', async () => {
@@ -58,92 +55,26 @@ test('prepareUploadedCourseSource builds one stable logical source set from mult
     ['Alpha.md', 'zeta.txt']
   );
   assert.equal(result.source.sources?.length, 2);
-  assert.deepEqual(progress, [
-    [0, 2],
-    [1, 2],
-    [2, 2],
-  ]);
+  assert.deepEqual(progress, [[0, 2]]);
+  assert(result.descriptors.every(descriptor => descriptor.file.data === ''));
 });
 
-test('prepareUploadedCourseSource keeps usable sources when one PDF cannot be indexed', async () => {
+test('prepareUploadedCourseSource leaves PDF preparation to the ingestion job', async () => {
   const context = {
     openRouter: {
       validatePdfTextSource: async () => {
-        throw new Error('no selectable text');
+        throw new Error('Client must not extract PDFs');
       },
     },
   } as unknown as Parameters<typeof prepareUploadedCourseSource>[0];
-
   const result = await prepareUploadedCourseSource(context, [
-    new File(['%PDF-1.7\n'], 'broken.pdf', { type: 'application/pdf' }),
+    new File(['%PDF-1.7\n'], 'lesson.pdf', { type: 'application/pdf' }),
     new File(['Useful notes'], 'notes.txt', { type: 'text/plain' }),
   ]);
-
-  assert.equal(result.descriptors.find(source => source.name === 'broken.pdf')?.status, 'error');
-  assert.equal(result.descriptors.find(source => source.name === 'notes.txt')?.status, 'ready');
-  assert.equal(result.source.sources?.length, 2);
-});
-
-test('multiple-source warnings retain failed transcription pages in the interface language', async () => {
-  setRenderingLocaleOverride('en');
-  const context = {
-    openRouter: {
-      validatePdfTextSource: () =>
-        readProcessingResponse(
-          new Response(
-            JSON.stringify({
-              type: 'error',
-              failedPages: [2, 7],
-              error: 'private provider details',
-            }),
-            { headers: { 'Content-Type': 'application/x-ndjson' } }
-          )
-        ),
-    },
-  } as unknown as Parameters<typeof prepareUploadedCourseSource>[0];
-  try {
-    const result = await prepareUploadedCourseSource(context, [
-      new File(['%PDF-1.7\n'], 'scan.pdf', { type: 'application/pdf' }),
-      new File(['Useful notes'], 'notes.txt', { type: 'text/plain' }),
-    ]);
-    assert.deepEqual(getProjectSourceWarnings(result.source), [
-      { name: 'scan.pdf', message: 'Transcription failed for pages: 2, 7.' },
-    ]);
-    assert.equal(result.descriptors.find(source => source.name === 'notes.txt')?.status, 'ready');
-  } finally {
-    setRenderingLocaleOverride(null);
-  }
-});
-
-test('reports every failed document and its pages when all selected PDFs fail transcription', async () => {
-  setRenderingLocaleOverride('en');
-  const context = {
-    openRouter: {
-      validatePdfTextSource: (file: { name: string }) =>
-        readProcessingResponse(
-          new Response(
-            JSON.stringify({
-              type: 'error',
-              failedPages: file.name === 'a.pdf' ? [2] : [7],
-              error: 'private provider details',
-            }),
-            { headers: { 'Content-Type': 'application/x-ndjson' } }
-          )
-        ),
-    },
-  } as unknown as Parameters<typeof prepareUploadedCourseSource>[0];
-  try {
-    await assert.rejects(
-      prepareUploadedCourseSource(context, [
-        new File(['%PDF-1.7\n'], 'b.pdf', { type: 'application/pdf' }),
-        new File(['%PDF-1.7\n'], 'a.pdf', { type: 'application/pdf' }),
-      ]),
-      {
-        message:
-          'None of the selected sources contains usable material.\na.pdf: Transcription failed for pages: 2.\nb.pdf: Transcription failed for pages: 7.',
-      }
-    );
-  } finally {
-    setRenderingLocaleOverride(null);
-  }
+  assert.equal(result.descriptors.length, 2);
+  assert(
+    result.descriptors.every(
+      descriptor => descriptor.file.data === '' && descriptor.status === 'ready'
+    )
+  );
 });

@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { PdfPageTranscriptionError } from '../../src/services/pdfPageTranscription.js';
+import * as pdfDataUrl from '../../src/utils/pdfDataUrl.js';
 
 const pdfServiceMocks = vi.hoisted(() => ({
   extractPdfImages: vi.fn(),
@@ -55,11 +55,21 @@ describe('POST /api/pdf', () => {
     });
   });
 
+  test('rejects an oversized PDF before starting either parser', async () => {
+    const fileData = `data:application/pdf;base64,${Buffer.alloc(32_000_001).toString('base64')}`;
+    const response = await request(createApp()).post('/api/pdf/extract-text').send({ fileData });
+    expect(response.status).toBe(413);
+    expect(pdfServiceMocks.extractPdfText).not.toHaveBeenCalled();
+  });
+
   test('returns extracted text metadata', async () => {
+    const decode = vi.spyOn(pdfDataUrl, 'decodePdfDataUrl');
     const response = await request(createApp())
       .post('/api/pdf/extract-text')
       .send({ fileData: 'data:application/pdf;base64,ZmFrZQ==' });
 
+    expect(decode).not.toHaveBeenCalled();
+    decode.mockRestore();
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
       success: true,
@@ -103,50 +113,5 @@ describe('POST /api/pdf', () => {
       12,
       [3, 4, 5]
     );
-  });
-  test('streams page progress before the completed PDF response', async () => {
-    pdfServiceMocks.extractPdfText.mockImplementation(async (_file, options) => {
-      options.transcription.onProgress({ completed: 0, total: 1, failedPages: [] });
-      options.transcription.onProgress({ completed: 1, total: 1, failedPages: [] });
-      return { text: 'A $x in A$ formula', pages: [{ pageNumber: 1, text: 'A formula' }] };
-    });
-    const response = await request(createApp())
-      .post('/api/pdf/extract-text')
-      .set('Accept', 'application/x-ndjson')
-      .send({ fileData: 'data:application/pdf;base64,ZmFrZQ==' });
-    const events = response.text
-      .trim()
-      .split('\n')
-      .map((line: string) => JSON.parse(line));
-    expect(events.map((event: { type: string }) => event.type)).toEqual([
-      'progress',
-      'progress',
-      'result',
-    ]);
-    expect(events[0].progress).toEqual({ completed: 0, total: 1, failedPages: [] });
-    expect(events[2].result.pages).toEqual([{ pageNumber: 1, text: 'A formula' }]);
-  });
-});
-
-test.each([
-  false,
-  true,
-])('preserves failed page identities and the public error code (streamed: %s)', async streamed => {
-  pdfServiceMocks.extractPdfText.mockImplementation(async (_file, options) => {
-    if (streamed) options.transcription.onProgress({ completed: 0, total: 1, failedPages: [] });
-    throw new PdfPageTranscriptionError([2]);
-  });
-  const response = await request(createApp())
-    .post('/api/pdf/extract-text')
-    .set('Accept', streamed ? 'application/x-ndjson' : 'application/json')
-    .send({ fileData: 'data:application/pdf;base64,ZmFrZQ==' });
-  expect(response.status).toBe(streamed ? 200 : 422);
-  const failure = streamed
-    ? JSON.parse(response.text.trim().split('\n').at(-1) || '{}')
-    : response.body;
-  expect(failure).toMatchObject({
-    code: 'PDF_PAGE_TRANSCRIPTION_FAILED',
-    failedPages: [2],
-    success: false,
   });
 });

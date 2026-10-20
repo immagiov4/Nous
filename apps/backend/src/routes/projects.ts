@@ -1,10 +1,24 @@
+import {
+  COURSE_SOURCE_UPLOAD_LIMITS,
+  type CourseSourceUploadFile,
+} from '@shared/courseSourceUpload';
+import {
+  SOURCE_INGESTION_REQUIRED_CODE,
+  SOURCE_PREPARATION_CANCELLED_CODE,
+  SOURCE_PREPARATION_UNUSABLE_CODE,
+  SOURCE_STAGING_UNAVAILABLE_CODE,
+} from '@shared/sourcePreparation';
+import { withPdfTranscriptionProvider } from '../services/pdfPageTranscription.js';
+import {
+  countRetainedScannedPages,
+  withPdfTranscriptionCollection,
+} from '../services/pdfTranscriptionCollection.js';
+import { PdfScannedPageLimitError } from '../services/pdfTranscriptionPolicy.js';
 // Exposes project CRUD routes for the backend API.
 
-import { Readable } from 'node:stream';
 import { normalizeLessonInstructionPacks } from '@shared/lessonInstructionPacks';
 import { LessonQuizStateSchema } from '@shared/lessonQuizState';
 import { SOURCE_ARCHIVE_VERSION_HASH_PATTERN } from '@shared/lessonSourceContext';
-import { PDF_TRANSCRIPTION_ERROR_CODE } from '@shared/pdfTranscription';
 import { isProjectCoverMediaType, PROJECT_COVER_MAX_BYTES } from '@shared/projectBackupArchive';
 import { InvalidProjectBackupAssetError } from '@shared/projectBackupAssets';
 import {
@@ -37,6 +51,8 @@ import {
   getProjectImportUploadStatus,
   ProjectImportCapacityError,
   ProjectImportInputError,
+  SourcePreparationCancelledError,
+  startSourcePreparation,
   storeProjectImportChunk,
 } from '../projects/projectImportChunks.js';
 import { getPublicProjectImportConfig } from '../projects/projectImportConfig.js';
@@ -44,7 +60,6 @@ import { isNavigationProjectPatch } from '../projects/projectPatch.js';
 import { ProjectNotFoundError, ProjectRevisionConflictError } from '../projects/projectRevision.js';
 import { getProjectStore } from '../projects/projectStore.js';
 import {
-  PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES,
   SourceArchivePreparationCapacityError,
   SourceArchivePreparationError,
   SourceArchiveUnusableError,
@@ -53,6 +68,13 @@ import {
   SourceArchiveAccess,
   type SourceArchiveSelector,
 } from '../projects/sourceArchiveAccess.js';
+import {
+  prepareSourceCollection,
+  SourceIngestionRequiredError,
+  SourcePreparationUnusableError,
+} from '../projects/sourceIngestion.js';
+import { SourceStagingUnavailableError } from '../projects/sourceStaging.js';
+import { readSourceUploadMetadata } from '../projects/sourceUploadPayload.js';
 import type {
   ProjectCoverFile,
   ProjectPatch,
@@ -65,11 +87,6 @@ import {
   getCourseCoverRegenerationStatus,
   startOrResumeCourseCoverRegeneration,
 } from '../services/courseCoverRegeneration.js';
-import {
-  PdfPageTranscriptionError,
-  withPdfTranscriptionProvider,
-} from '../services/pdfPageTranscription.js';
-import { getErrorMessage } from '../utils/errors.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
 import { timestampIso } from '../utils/time.js';
 import {
@@ -83,7 +100,6 @@ const router = Router();
 router.use((req, _res, next) => withPdfTranscriptionProvider(getCurrentUser(req), next));
 
 const PROJECT_EVENT_HEARTBEAT_MS = 25_000;
-const PROJECT_SNAPSHOT_MULTIPART_MAX_BYTES = 300_000_000;
 const BASE64_DATA_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/u;
 const LIBRARY_IMPORT_DIAGNOSTIC_CODES = new Set([
   'LIBRARY_ARCHIVE_ENTRY_MISSING',
@@ -183,86 +199,12 @@ const readProjectImportExpectedRevision = (value: unknown): number | undefined =
   }
 };
 
-const parseArchiveProjectSave = async (
-  req: Request,
-  projectId: string
-): Promise<{
-  snapshot: ProjectSnapshot;
-  expectedRevision?: number;
-  sourceFile: { bytes: Uint8Array; mimeType: string; name: string };
-}> => {
-  const multipartRequest = new globalThis.Request(`http://localhost${req.originalUrl}`, {
-    body: Readable.toWeb(req) as unknown as ReadableStream,
-    duplex: 'half',
-    headers: req.headers as HeadersInit,
-    method: req.method,
-  } as RequestInit & { duplex: 'half' });
-  const fields = await multipartRequest.formData();
-  const archive = fields.get('archive');
-  if (!(archive instanceof File)) {
-    throw new Error('Archivio ZIP mancante.');
-  }
-  if (archive.size > PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES) {
-    throw new Error('L’archivio supera il limite massimo consentito.');
-  }
-  const serializedSnapshot = fields.get('snapshot');
-  if (
-    typeof serializedSnapshot !== 'string' ||
-    Buffer.byteLength(serializedSnapshot, 'utf8') > PROJECT_SNAPSHOT_MULTIPART_MAX_BYTES
-  ) {
-    throw new Error('Snapshot progetto mancante o troppo grande.');
-  }
-  const snapshot = requireProjectSnapshot({ snapshot: JSON.parse(serializedSnapshot) }, projectId, {
-    externalArchiveBytesAvailable: archive.size > 0,
-  });
-  const sourceFile = isRecord(snapshot.source) ? snapshot.source.file : null;
-  if (
-    !isRecord(snapshot.source) ||
-    snapshot.source.kind !== 'archive' ||
-    !isRecord(sourceFile) ||
-    typeof sourceFile.name !== 'string' ||
-    typeof sourceFile.mimeType !== 'string' ||
-    sourceFile.name !== archive.name
-  ) {
-    throw new Error('La sorgente del progetto non è un archivio.');
-  }
-  const expectedRevisionField = fields.get('expectedRevision');
-  const expectedRevision =
-    expectedRevisionField === null
-      ? undefined
-      : readExpectedRevision({ expectedRevision: Number(expectedRevisionField) });
-  return {
-    snapshot,
-    expectedRevision,
-    sourceFile: {
-      bytes: new Uint8Array(await archive.arrayBuffer()),
-      mimeType: sourceFile.mimeType,
-      name: sourceFile.name,
-    },
-  };
-};
-
 const readOptionalSafeInteger = (value: unknown): number | undefined =>
   Number.isSafeInteger(value) && (value as number) >= 0 ? (value as number) : undefined;
 
 const publishMetaRevision = (userId: string, meta: { id: string; revision?: number }): void => {
   if (typeof meta.revision === 'number') {
     publishProjectRevision(userId, { projectId: meta.id, revision: meta.revision });
-  }
-};
-
-const sendProjectWriteErrorResult = (
-  res: Response,
-  status: number,
-  result: Record<string, unknown>
-): void => {
-  if (
-    res.headersSent &&
-    res.getHeader('content-type')?.toString().includes('application/x-ndjson')
-  ) {
-    res.end(`${JSON.stringify({ type: 'result', result })}\n`);
-  } else {
-    res.status(status).json(result);
   }
 };
 
@@ -273,25 +215,42 @@ const sendProjectWriteError = (
   fallbackStatus = 400
 ): void => {
   if (error instanceof ProjectRevisionConflictError) {
-    sendProjectWriteErrorResult(res, 409, {
-      code: error.code,
-      error: error.message,
+    res.status(409).json({ code: error.code, error: error.message, success: false });
+    return;
+  }
+  if (error instanceof PdfScannedPageLimitError) {
+    res.status(422).json({ success: false, code: error.code, error: error.message });
+    return;
+  }
+  if (error instanceof SourcePreparationCancelledError) {
+    res
+      .status(409)
+      .json({ success: false, code: SOURCE_PREPARATION_CANCELLED_CODE, error: error.message });
+    return;
+  }
+  if (error instanceof SourcePreparationUnusableError) {
+    res.status(422).json({
       success: false,
+      code: SOURCE_PREPARATION_UNUSABLE_CODE,
+      error: error.message,
+      sourceWarnings: error.failures,
     });
     return;
   }
-  if (error instanceof PdfPageTranscriptionError) {
-    sendProjectWriteErrorResult(res, 422, {
-      success: false,
-      code: PDF_TRANSCRIPTION_ERROR_CODE,
-      error: error.message,
-      failedPages: error.failedPages,
-      documentName: error.documentName,
-    });
+  if (error instanceof SourceIngestionRequiredError) {
+    res
+      .status(400)
+      .json({ success: false, code: SOURCE_INGESTION_REQUIRED_CODE, error: error.message });
+    return;
+  }
+  if (error instanceof SourceStagingUnavailableError) {
+    res
+      .status(503)
+      .json({ success: false, code: SOURCE_STAGING_UNAVAILABLE_CODE, error: error.message });
     return;
   }
   if (error instanceof SourceArchivePreparationCapacityError) {
-    sendProjectWriteErrorResult(res, 429, {
+    res.status(429).json({
       code: PROJECT_API_ERROR_CODE.sourceArchiveBusy,
       error: error.message,
       success: false,
@@ -299,7 +258,7 @@ const sendProjectWriteError = (
     return;
   }
   if (error instanceof SourceArchiveUnusableError) {
-    sendProjectWriteErrorResult(res, 422, {
+    res.status(422).json({
       code: PROJECT_API_ERROR_CODE.sourceArchiveUnusable,
       error: error.message,
       sourceWarnings: error.warnings,
@@ -308,27 +267,19 @@ const sendProjectWriteError = (
     return;
   }
   if (error instanceof SourceArchivePreparationError) {
-    sendProjectWriteErrorResult(res, 422, {
+    res.status(422).json({
       code: PROJECT_API_ERROR_CODE.sourceArchiveInvalid,
       error: error.message,
       success: false,
     });
     return;
   }
-  if (error instanceof ProjectNotFoundError) {
-    sendProjectWriteErrorResult(res, 404, {
-      code: PROJECT_API_ERROR_CODE.projectNotFound,
-      error: error.message,
-      success: false,
-    });
-    return;
-  }
-  sendProjectWriteErrorResult(res, fallbackStatus, {
-    success: false,
-    error: res.headersSent
-      ? 'Preparazione archivio non riuscita.'
-      : getErrorMessage(error, fallbackMessage),
-  });
+  sendErrorResponse(
+    res,
+    error instanceof ProjectNotFoundError ? 404 : fallbackStatus,
+    error,
+    fallbackMessage
+  );
 };
 
 const requireProjectSnapshot = (
@@ -801,28 +752,17 @@ router.put('/projects/:id', async (req: Request, res: Response) => {
   try {
     const userId = getCurrentUser(req).id;
     const projectId = getRouteParam(req.params.id);
-    let snapshot: ProjectSnapshot;
-    let expectedRevision: number | undefined;
-    let sourceFile: { bytes: Uint8Array; mimeType: string; name: string } | undefined;
-    if (req.is('multipart/form-data')) {
-      ({ expectedRevision, snapshot, sourceFile } = await parseArchiveProjectSave(req, projectId));
-    } else {
-      snapshot = requireProjectSnapshot(req.body, projectId);
-      if (
-        isRecord(snapshot.source) &&
-        snapshot.source.kind === 'archive' &&
-        isRecord(snapshot.source.file) &&
-        typeof snapshot.source.file.data === 'string' &&
-        snapshot.source.file.data
-      ) {
-        throw new Error('Gli archivi devono essere inviati come file binari.');
-      }
-      expectedRevision = readExpectedRevision(getBodyRecord(req.body));
-    }
-    const saved = await getProjectStore().saveProject(userId, snapshot, {
-      expectedRevision,
-      sourceFile,
-    });
+    if (req.is('multipart/form-data')) throw new SourceIngestionRequiredError();
+    const snapshot = requireProjectSnapshot(req.body, projectId);
+    if (
+      isRecord(snapshot.source) &&
+      snapshot.source.kind === 'archive' &&
+      isRecord(snapshot.source.file) &&
+      snapshot.source.file.data
+    )
+      throw new SourceIngestionRequiredError();
+    const expectedRevision = readExpectedRevision(getBodyRecord(req.body));
+    const saved = await getProjectStore().saveProject(userId, snapshot, { expectedRevision });
     publishMetaRevision(userId, saved.meta);
     res.json({ success: true, ...saved });
   } catch (error) {
@@ -1004,10 +944,15 @@ router.put('/import/chunks/:uploadId/:chunkIndex', async (req: Request, res: Res
       chunkIndex: readOptionalSafeInteger(Number(getRouteParam(req.params.chunkIndex))) ?? -1,
       chunkCount: readOptionalSafeInteger(Number(req.query.chunkCount)) ?? -1,
       chunk,
+      sourceUpload: req.query.sourceUpload === 'true',
       expectedRevision: readProjectImportExpectedRevision(req.query.expectedRevision),
     });
     res.status(202).json({ success: true, complete: false, ...result });
   } catch (error) {
+    if (error instanceof SourceStagingUnavailableError) {
+      sendProjectWriteError(res, error, 'Source staging is unavailable');
+      return;
+    }
     if (error instanceof ProjectImportCapacityError) res.set('Retry-After', '1');
     sendErrorResponse(
       res,
@@ -1020,7 +965,14 @@ router.put('/import/chunks/:uploadId/:chunkIndex', async (req: Request, res: Res
 
 router.delete('/import/chunks/:uploadId', async (req: Request, res: Response) => {
   try {
-    await cancelProjectImportUpload(getCurrentUser(req).id, getRouteParam(req.params.uploadId));
+    const userId = getCurrentUser(req).id;
+    const uploadId = getRouteParam(req.params.uploadId);
+    await cancelProjectImportUpload(userId, uploadId);
+    const status = getProjectImportUploadStatus(userId, uploadId);
+    if (status?.status === 'finalizing') {
+      res.status(202).json({ success: true, uploadStatus: status.status });
+      return;
+    }
     res.status(204).end();
   } catch (error) {
     sendErrorResponse(
@@ -1042,11 +994,24 @@ router.get('/import/chunks/:uploadId', async (req: Request, res: Response) => {
         .json({ success: false, error: 'Caricamento del backup non trovato o scaduto.' });
       return;
     }
-    if (!upload.completed) {
-      res.status(202).json({ success: true, uploadStatus: upload.status });
+    if (upload.status === 'failed') {
+      sendProjectWriteError(
+        res,
+        upload.failure,
+        'Source preparation failed',
+        upload.failure instanceof ProjectImportInputError ? 400 : 500
+      );
       return;
     }
-    const snapshot = await getProjectStore().loadProject(userId, upload.completed.projectId);
+    if (!upload.completed) {
+      res
+        .status(202)
+        .json({ success: true, uploadStatus: upload.status, progress: upload.progress });
+      return;
+    }
+    const snapshot =
+      upload.completed.snapshot ??
+      (await getProjectStore().loadProject(userId, upload.completed.projectId));
     if (!snapshot) throw new Error('Imported project could not be loaded.');
     res.json({
       success: true,
@@ -1066,52 +1031,130 @@ router.get('/import/chunks/:uploadId', async (req: Request, res: Response) => {
 });
 
 router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Response) => {
-  const streamed = req.get('Accept') === 'application/x-ndjson';
-  const onProgress = streamed
-    ? (progress: import('@shared/pdfTranscription').PdfTranscriptionProgress) => {
-        if (!res.headersSent) {
-          res.type('application/x-ndjson');
-          res.set('Cache-Control', 'no-store');
-          res.flushHeaders();
-        }
-        res.write(`${JSON.stringify({ type: 'progress', progress })}\n`);
-      }
-    : undefined;
   try {
     const userId = getCurrentUser(req).id;
     const store = getProjectStore();
     const completionBody = isRecord(req.body) ? req.body : {};
-    const completed = await withPdfTranscriptionProvider(
-      { ...getCurrentUser(req), onProgress },
-      () =>
-        completeProjectImportUpload({
+    if (completionBody.payloadKind === PROJECT_IMPORT_BINARY_KIND.sourceArchive) {
+      await cancelProjectImportUpload(userId, getRouteParam(req.params.uploadId));
+      throw new SourceIngestionRequiredError();
+    }
+    const completionInput: Parameters<typeof completeProjectImportUpload>[0] = {
+      userId,
+      uploadId: getRouteParam(req.params.uploadId),
+      importData: async data => {
+        const imported = await store.importProject(userId, data);
+        publishMetaRevision(userId, imported.meta);
+        return { projectId: imported.meta.id, meta: imported.meta };
+      },
+      importFile:
+        completionBody.payloadKind === PROJECT_IMPORT_BINARY_KIND.sourceSet
+          ? async (path, expectedRevision, jobContext) => {
+              const metadata =
+                completionBody.metadataBytes === undefined
+                  ? completionBody
+                  : await readSourceUploadMetadata(path, completionBody.metadataBytes);
+              if (!isRecord(metadata))
+                throw new ProjectImportInputError('Metadati delle fonti non validi.');
+              const snapshotRecord = metadata.snapshot;
+              if (!isRecord(snapshotRecord) || typeof snapshotRecord.id !== 'string')
+                throw new ProjectImportInputError('Metadati delle fonti non validi.');
+              const snapshot = requireProjectSnapshot(
+                { snapshot: snapshotRecord },
+                snapshotRecord.id,
+                {
+                  externalArchiveBytesAvailable: false,
+                  externalSourceFilesAvailable: true,
+                }
+              );
+              if (!Array.isArray(metadata.sourceFiles))
+                throw new ProjectImportInputError('Elenco delle fonti mancante.');
+              const files: CourseSourceUploadFile[] = metadata.sourceFiles.map(file => {
+                if (
+                  !isRecord(file) ||
+                  typeof file.id !== 'string' ||
+                  typeof file.name !== 'string' ||
+                  typeof file.mimeType !== 'string' ||
+                  !Number.isSafeInteger(file.byteSize) ||
+                  (file.byteSize as number) < 0 ||
+                  (file.byteSize as number) > COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes
+                )
+                  throw new ProjectImportInputError('File sorgente non valido.');
+                return {
+                  id: file.id,
+                  name: file.name,
+                  mimeType: file.mimeType,
+                  byteSize: file.byteSize as number,
+                };
+              });
+              if (!jobContext) throw new Error('Source preparation context is missing.');
+              const context = {
+                ...jobContext,
+                userId,
+                uploadId: completionInput.uploadId,
+                projectId: snapshot.id,
+                previousScannedPages: countRetainedScannedPages(
+                  (await store.loadProject(userId, snapshot.id))?.source,
+                  snapshot.source,
+                  files.map(file => file.id)
+                ),
+              };
+              const upload = {
+                path,
+                files,
+                offset: completionBody.metadataBytes as number | undefined,
+              };
+              const prepared = await withPdfTranscriptionCollection(context, () =>
+                prepareSourceCollection({ snapshot, upload, context })
+              );
+              context.signal.throwIfAborted();
+              context.reportProgress({ step: 'persistence', completed: 0, total: files.length });
+              const imported = await store.saveProject(userId, prepared.snapshot, {
+                expectedRevision,
+                sourceFiles: upload,
+                sourcePreparation: context,
+              });
+              context.reportProgress({
+                step: 'persistence',
+                completed: files.length,
+                total: files.length,
+              });
+              publishMetaRevision(userId, imported.meta);
+              return {
+                projectId: imported.meta.id,
+                meta: imported.meta,
+                snapshot: structuredClone(imported.snapshot),
+              };
+            }
+          : undefined,
+      importBinary: async (bytes, expectedRevision) => {
+        const imported = await importBinaryProjectUpload({
+          body: completionBody,
+          bytes,
+          expectedRevision,
+          store,
           userId,
-          uploadId: getRouteParam(req.params.uploadId),
-          importData: async data => {
-            const imported = await store.importProject(userId, data);
-            publishMetaRevision(userId, imported.meta);
-            return { projectId: imported.meta.id, meta: imported.meta };
-          },
-          importBinary: async (bytes, expectedRevision) => {
-            const imported = await importBinaryProjectUpload({
-              body: completionBody,
-              bytes,
-              expectedRevision,
-              store,
-              userId,
-            });
-            publishMetaRevision(userId, imported.meta);
-            return { projectId: imported.meta.id, meta: imported.meta };
-          },
-        })
-    );
+        });
+        publishMetaRevision(userId, imported.meta);
+        return { projectId: imported.meta.id, meta: imported.meta };
+      },
+    };
+    if (completionInput.importFile) {
+      const importFile = completionInput.importFile;
+      startSourcePreparation({
+        userId,
+        uploadId: completionInput.uploadId,
+        importFile: (path, revision, context) => importFile(path, revision, context),
+      });
+      res.status(202).json({ success: true, uploadStatus: 'finalizing' });
+      return;
+    }
+    const completed = await completeProjectImportUpload(completionInput);
     const snapshot = await store.loadProject(userId, completed.projectId);
     if (!snapshot) {
       throw new Error('Imported project could not be loaded.');
     }
-    const result = { success: true, complete: true, meta: completed.meta, snapshot };
-    if (res.headersSent) res.end(`${JSON.stringify({ type: 'result', result })}\n`);
-    else res.json(result);
+    res.json({ success: true, complete: true, meta: completed.meta, snapshot });
   } catch (error) {
     sendProjectWriteError(
       res,

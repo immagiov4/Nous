@@ -1,6 +1,7 @@
 import type { ChangeEvent } from 'react';
 import { useCallback, useId, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { inspectSourceSelection } from '../../services/projects/sourceFileSelection.ts';
 import { formatSourceWarningSummary } from '../../services/projects/sourceWarningSummary.ts';
 import type { ProjectSourceWarning, SavedProjectMeta } from '../../types.ts';
 
@@ -53,9 +54,17 @@ export const useWorkspaceFileActions = ({
         return;
       }
 
+      const uploadMode = fileUploadModeRef.current;
+      fileUploadModeRef.current = 'new-project';
       try {
-        const result = await handleSourceUpload(selectedFiles, {
-          mode: fileUploadModeRef.current,
+        const inspected = await inspectSourceSelection(selectedFiles);
+        if (inspected.warnings.length)
+          notify(
+            inspected.warnings.map(warning => `${warning.name}: ${warning.message}`).join('\n')
+          );
+        if (inspected.files.length === 0) return;
+        const result = await handleSourceUpload(inspected.files, {
+          mode: uploadMode,
         });
         if (result.errorMessage) {
           notify(`Errore nel caricamento del file: ${result.errorMessage}`);
@@ -71,7 +80,6 @@ export const useWorkspaceFileActions = ({
         if (event.target) {
           event.target.value = '';
         }
-        fileUploadModeRef.current = 'new-project';
       }
     },
     [handleSourceUpload, notify]

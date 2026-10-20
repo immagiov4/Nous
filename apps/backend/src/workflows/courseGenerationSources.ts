@@ -89,17 +89,19 @@ ${excerpt}
 export const createCourseSourceMaterialReader =
   ({
     loadProjectSources,
+    loadProjectSourceById,
     loadProjectWithRevision,
     readSourceMaterial = readProjectSourceMaterial,
   }: {
     readonly loadProjectSources: ProjectStore['loadProjectSources'];
+    readonly loadProjectSourceById: ProjectStore['loadProjectSourceById'];
     readonly loadProjectWithRevision: ProjectStore['loadProjectWithRevision'];
     readonly readSourceMaterial?: ReadSourceMaterial;
   }) =>
   async (
     state: CourseSourceState,
     signal?: AbortSignal,
-    models?: DeepReadonly<GlobalModelConfig>
+    _models?: DeepReadonly<GlobalModelConfig>
   ): Promise<CourseSourceMaterial[]> => {
     signal?.throwIfAborted();
     const project = await loadProjectWithRevision(state.request.userId, state.request.projectId);
@@ -110,7 +112,9 @@ export const createCourseSourceMaterialReader =
       });
     }
 
-    const storedSources = await loadProjectSources(state.request.userId, state.request.projectId);
+    const storedSources = await loadProjectSources(state.request.userId, state.request.projectId, {
+      includeData: false,
+    });
     const storedById = new Map(storedSources.map(source => [source.ref.id, source]));
     const materials: CourseSourceMaterial[] = [];
     for (const descriptor of state.context.sources) {
@@ -123,18 +127,29 @@ export const createCourseSourceMaterialReader =
         });
       }
       const pdf = readPreparedProjectPdfText(
-        project?.snapshot.source,
+        project.snapshot.source,
         descriptor.id,
         descriptor.hash
       );
       let material: ProjectSourceMaterial;
       if (pdf) material = { pdf, text: pdf.text };
-      else if (models)
-        material = await readSourceMaterial(stored.file, {
-          config: models as GlobalModelConfig,
-          signal,
-        });
-      else material = await readSourceMaterial(stored.file);
+      else {
+        const file = await loadProjectSourceById(
+          state.request.userId,
+          state.request.projectId,
+          descriptor.id
+        );
+        const currentProject = await loadProjectWithRevision(
+          state.request.userId,
+          state.request.projectId
+        );
+        if (!file || currentProject?.revision !== state.projectRevision)
+          throw failPermanently({
+            code: 'course_source_changed',
+            message: 'The course source changed after generation started.',
+          });
+        material = await readSourceMaterial(file);
+      }
       signal?.throwIfAborted();
       if (!material.text.trim()) {
         throw failPermanently({

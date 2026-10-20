@@ -63,6 +63,22 @@ test('regeneration reports the missing persisted source rejection instead of fai
   });
 });
 
+test.each([
+  'failed',
+  'blocked-missing-source',
+] as const)('regeneration keeps an inline %s outcome out of notifications', async outcome => {
+  const notify = vi.fn();
+  const regenerateActiveSection = vi.fn(async () => outcome);
+  const { result } = renderHook(() =>
+    useWorkspaceReaderActions(buildHookArgs({ notify, regenerateActiveSection }))
+  );
+  await act(async () => {
+    result.current.handleRegenerateActiveSection();
+  });
+  expect(regenerateActiveSection).toHaveBeenCalledOnce();
+  expect(notify).not.toHaveBeenCalled();
+});
+
 test('saves retained-answer notes to their originating lesson after same-course navigation', async () => {
   const updateSection = vi.fn();
   const patchSectionAnnotations = vi.fn(async () => true);

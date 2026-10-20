@@ -31,7 +31,7 @@ The core of the document processing system is the `extractPdfText` function, whi
 ### Multi-Stage Parsing
 1.  **pdftotext**: The primary parser. It is invoked via a sub-process with `-layout` flags to preserve the original visual structure, which is critical for table and column detection.
 2.  **pdf-parse**: A secondary fallback parser utilized if `pdftotext` is missing from the environment or fails to produce output.
-3.  **Fallback Process**: For memory safety and isolation, `pdf-parse` is often run in a dedicated Node.js sub-process (`pdfTextFallbackProcess.mjs`) with strict memory limits (`--max-old-space-size`).
+3.  **Fallback Process**: For memory safety and isolation, `pdf-parse` is often run in a dedicated Node.js sub-process (`pdfTextFallbackProcess.mjs`) with strict memory limits (`--max-old-space-size`). The worker sends UTF-8 JSON so Bun and Node share the same protocol, including mathematical Unicode.
 
 Sources: [apps/backend/src/services/pdfTextExtractor.ts:326-373](../../../apps/backend/src/services/pdfTextExtractor.ts#L326-L373), [apps/backend/src/services/pdfTextExtractor.ts:149-198](../../../apps/backend/src/services/pdfTextExtractor.ts#L149-L198)
 
@@ -58,7 +58,7 @@ Sources: [apps/backend/src/services/pdfTextExtractor.ts:375-395](../../../apps/b
 | `maxOutputBytes` | Variable | Caps the total text volume to prevent heap exhaustion. |
 | `pdftotextTimeoutMs` | 15,000ms (Archive) | Max time allowed for the primary OS-level parser. |
 | `fallbackTimeoutMs` | 15,000ms (Archive) | Max time for the isolated Node.js fallback process. |
-| `max-old-space-size` | ~272MB (Typical) | Memory limit for the fallback sub-process. |
+| `max-old-space-size` | Derived from input and output budgets | Memory limit for the fallback sub-process. |
 
 Sources: [apps/backend/tests/projects/sourceArchive.test.ts:114-120](../../../apps/backend/tests/projects/sourceArchive.test.ts#L114-L120), [apps/backend/tests/services/pdfTextExtractor.test.ts:86-90](../../../apps/backend/tests/services/pdfTextExtractor.test.ts#L86-L90)
 
@@ -68,9 +68,9 @@ Sources: [apps/backend/tests/projects/sourceArchive.test.ts:114-120](../../../ap
 
 The transcription contract returns complete Markdown with KaTeX math, or an explicit blank/unreadable status. Multiline formulas are canonicalized at their delimiters without changing symbols or matrix rows, then checked with the reader's normalization and KaTeX. An unreadable answer, a dominant prose-script mismatch against the original OCR layer (formulas excluded), or invalid math permits one further model request: a fresh image request for unreadable/wrong-script output, or a syntax correction otherwise. The page has a shared budget of two upstream requests, including transient transport failures, and a separate 150-second deadline for each attempt. The 75-second render deadline is separate from network attempts. A first-attempt timeout receives one fresh request within the same two-call budget. A remaining page failure clears that page's content and records its physical number without rejecting the other pages; genuinely blank pages carry no transcription marker and do not make an otherwise empty source usable.
 
-A collection owns one bounded transcription pool, defaulting to 32 page requests across documents (PDF_TRANSCRIPTION_CONCURRENCY). The next PDF can prepare pages while earlier requests are in flight. Images reserve capacity before rendering and retain it until completion; the local path expands one source file at a time. Originals are staged on temporary disk while the network completes, then reopened one at a time to finalize entries in source order and preserve binary fallbacks. Temporary files and pool leases are released on completion or interruption. HTTP 429/5xx responses reduce concurrency multiplicatively and use the existing operational backoff and Retry-After handling within the same page request/deadline budget. The calibrated render width remains 1800 pixels and course-wide tier selection uses Luna xhigh for scanned pages 1–150 and Luna medium for 151–300, both pinned to OpenAI. Models, efforts and both thresholds have environment overrides. Admission beyond 300 stops transcription with a localized request to narrow the course material. Source-file boundaries do not reset the counter; usable text-layer pages are excluded. Collection logs expose peak requests, peak rendered images and backoff counts. Per-document logs contain source hashes, physical page numbers, reported usage/cost and safe upstream request/provider identifiers. Failed documents mark usage as incomplete because interrupted upstream requests may not report their consumption.
+A source-preparation job owns one pool of 32 concurrent transcription requests across documents. Image slots are reserved before rendering at 1800 pixels and released when the request finishes. Local reading and rendering advance sequentially through one reusable original-file buffer; network completions overlap and finish before publication. Scanned course pages 1–150 use Luna xhigh and pages 151–300 use Luna medium, routed to OpenAI through OpenRouter with fallbacks disabled. Admission beyond 300 returns a localized request to narrow the material. Retained, source-bound page provenance seeds the course count; replacing a file excludes its old pages. Environment settings configure models, efforts, page tiers and concurrency. HTTP 429/5xx responses use the existing operational backoff within the shared two-call budget.
 
-`POST /api/pdf/extract-text` supports NDJSON progress and retains its JSON response contract. Upload controllers show collection-wide scanned-page completion in their existing processing message. Stopping source preparation aborts the PDF request before an interview or draft exists. Valid page progress renews the existing request wait, allowing long documents to finish while a stalled stream still expires; no new total-page or price policy is introduced. JSON and streamed errors retain the same domain codes and source warnings. Archive extraction uses the same page completion module while keeping its existing archive size/admission policies. Prepared archive entries persist physical page byte ranges and provenance in `project_source_entries.pdf_pages`. Metadata is normalized through its shared schema before hashing, so JSONB key ordering preserves archive identity after reload; paginated reads and searches return the overlapping page metadata, and lesson evidence separates clean and transcribed pages before selection. The existing Node parser process returns UTF-8 JSON so mathematical Unicode survives transport into Bun.
+Only the PDF step behind `ingestSources` starts transcription. The asynchronous source job reports collection-wide progress, reduced-quality ranges and named failed pages through authenticated status polling. Cancellation aborts pending requests and releases the pool. Prepared text, page provenance and blank/failed page identities are stored in the source descriptor; original bytes remain in immutable per-file objects. `/api/pdf/extract-text` and saved archive readers perform native extraction. The Node parser process returns UTF-8 JSON to preserve mathematical Unicode.
 
 Every transcribed page carries a machine-transcription marker in its text and a `vision-transcription` provenance record. Page-aware chunks retain `transcribedPages`, including chunks split after the marker. Prepared PDF text is stored with the source descriptor and reused only for its matching source hash, so course workflow stages and direct lesson-source recovery reuse the upload result. Evidence units retain the source page identities through lesson drafting and factual review. Only retained evidence units contribute playback provenance. Backup export/import and source reattachment preserve the source-bound prepared text. Playback carries typed `sourceProvenance` separately from lesson-wide descriptions into scene, mathematical pronunciation and motion requests. Multiple-source upload warnings preserve each failed document and page list, including when every selected PDF fails. Course and structured model adapters share `TRANSCRIBED_SOURCE_RULE`: outline, lesson, quiz and playback preparation must correct evident transcription slips from the supplied reasoning without inventing content. The existing factual-support policy accepts a justified correction with references to the transcribed evidence. Ambiguous handwriting remains uncertain; KaTeX validation proves syntax, not mathematical meaning.
 
@@ -119,33 +119,41 @@ Sources: [packages/shared-types/pdfTextIndex.ts:118-136](../../../packages/share
 
 ## Source Archive Preparation
 
-For `codebase` projects, the system processes ZIP archives. This involves a high-intensity "Admission" phase to prevent server overload.
+New courses use one source-ingestion module for separate files and ZIPs. Its browser interface, `ingestSources({ inputs, destination, signal, onProgress })`, hides expansion, transport and preparation. ZIP members are streamed one at a time into browser-private filesystem files, validated against their declared size and CRC, and sent as individual files through the same transport used by separate uploads. The ZIP container stays in the browser. Existing saved archive projects retain their server-side reader.
 
 ```mermaid
-sequenceDiagram
-    participant User as User Service
-    participant Archive as SourceArchive Service
-    participant Extract as TextExtractor
-    
-    User->>Archive: indexSourceArchive(buffer)
-    Archive->>Archive: Validate path safety (no traversal)
-    Archive->>Archive: Check entry limits (max 16 PDFs)
-    loop For each PDF
-        Archive->>Extract: extractPdfText()
-    end
-    Archive->>Archive: Build directory tree
-    Archive-->>User: SourceArchiveIndex
+flowchart LR
+    Inputs[Files or ZIPs] --> Gateway[ingestSources]
+    Gateway --> Expand[Browser: expand ZIP members]
+    Expand --> Transfer[One chunked file-only transport]
+    Transfer --> Job[202 acceptance and status polling]
+    Job --> Prepare[Sequential per-file extraction and indexing]
+    Prepare --> Objects[Immutable per-file Storage objects]
+    Objects --> Publish[Atomic source-set publication]
+    Job --> Progress[Per-file and per-step progress]
 ```
 
-The sequence illustrates the validation and selective extraction of PDF content hidden within source code archives.
-Sources: [apps/backend/tests/projects/sourceArchive.test.ts:96-150](../../../apps/backend/tests/projects/sourceArchive.test.ts#L96-L150), [apps/backend/tests/projects/sourceArchive.test.ts:373-388](../../../apps/backend/tests/projects/sourceArchive.test.ts#L373-L388)
+The PDF step owns native extraction, scanned-page detection and transcription through the shared collection context. Text files use the shared deterministic Markdown outline and text-index implementation. Preparation retains text/index metadata while original bytes use one reusable per-file buffer. Originals stream to Storage as bounded ranges of the assembled upload, with one immutable object per file. Bun collects released buffers after each extraction and source-object transfer. The `/api/pdf` utility remains available to its other callers.
 
-### Safety Constraints
-*  **Path Validation**: Rejects traversal attacks (`../`), absolute paths, or duplicate entries.
-*  **Safety Limits**: Caps PDF processing to the first 16 eligible files or a cumulative 64MB budget per archive to prevent DoS.
-*  **Lexicographic Stability**: Archives are processed and indexed in a stable alphabetical order to ensure deterministic IDs.
+ZIP staging uses OPFS writable streams when available. Browsers without OPFS writable support stage each admitted member as a Blob under the same per-file and collection envelopes. Browsers without the required decompression/stream APIs show an action to extract the archive and attach its files separately. Duplicate member paths reject the selection with a named warning so distinct originals are not silently discarded.
 
-Sources: [apps/backend/tests/projects/sourceArchive.test.ts:241-260](../../../apps/backend/tests/projects/sourceArchive.test.ts#L241-L260), [apps/backend/tests/projects/sourceArchive.test.ts:291-305](../../../apps/backend/tests/projects/sourceArchive.test.ts#L291-L305)
+The metadata prefix is limited to the shared transfer-part byte budget, checked before backend file access and before the client starts transferring source bytes.
+
+### Transfer, jobs and resource limits
+
+| Resource | Contract |
+| --- | --- |
+| Source originals | 32,000,000 bytes per individual file, including ZIP members. The picker names known exclusions before transfer. Failed preparation retains each file name and reason. |
+| Collection | 1,000,000,000 bytes for transfer, including the metadata prefix, and for expanded ZIP content; at most 20,000 ZIP entries. The ZIP directory is read in bounded blocks, including ZIP64 ranges. |
+| Transport | Authenticated binary parts contain at most 16,000,000 bytes. The final request carries the metadata-prefix length and write options. Both the production HTTP adapter and the configurable loopback proxy use `sourceTransfer.ts` for the 100 MB body, approximately 100 s first-byte and 30 s origin-write model. Source requests use a 90 s deadline; long processing runs asynchronously. |
+| Job | The existing import-session owner, finalization queue and status route provide 202 acceptance, progress polling, replay and cancellation. A lost process-local job produces an explicit interrupted/retry state. Durable restart recovery remains part of #170. |
+| Temporary files | Compose mounts the disk-backed `source-staging` volume and sets `TMPDIR=/var/lib/nous/source-staging`. Parser subprocesses inherit it. Source admission rejects tmpfs/ramfs before accepting original bytes when that deployment configuration is missing. |
+| Object persistence | Originals are stored separately, within the per-file envelope and the production 200 MiB object ceiling. The ZIP container is not stored. Existing concurrency four and the 64,000,000-byte in-flight budget apply to active object transfers. |
+| PDF extraction | Native and isolated fallback stages retain their 15 s limits and the 64 MB text-output bound. The fallback heap derives from one file and its output budget. The 480 s archive deadline applies to the legacy archive preparer. |
+
+Publication preserves revision and ownership checks, retains existing source references during partial replacement, and exposes usable sources together with named failures. Temporary files and uncommitted objects belong to the existing cleanup owners. Backup recognition still reads bounded directory/manifest ranges; backup import/export decoding and publication remain separate and can adopt the same transport seam later.
+
+Sources: [browser module](../../../apps/web/services/projects/sourceIngestion.ts), [server module](../../../apps/backend/src/projects/sourceIngestion.ts), [job owner](../../../apps/backend/src/projects/projectImportChunks.ts), [transfer model](../../../packages/shared-types/sourceTransfer.ts), [fake proxy](../../../e2e/nous/fakeCloudflareProxy.ts), [project store](../../../apps/backend/src/projects/postgresProjectStore.ts), [staging admission](../../../apps/backend/src/projects/sourceStaging.ts).
 
 ## Data Structures
 

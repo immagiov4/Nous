@@ -18,7 +18,7 @@ import {
   type YouTubeTranscript,
 } from '@shared/youtubeTranscript';
 import { SourceArchiveAccess } from '../projects/sourceArchiveAccess.js';
-import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
+import type { ProjectSnapshot, ProjectSourceFile, ProjectStore } from '../projects/types.js';
 import { buildSha256HexDigest } from '../utils/hash.js';
 import { isRecord } from '../utils/validation.js';
 import {
@@ -292,7 +292,7 @@ const loadStoredSourceCandidates = async (
   projectId: string,
   fallbackSourceId = ''
 ): Promise<StoredSourceCandidate[]> => {
-  const storedSources = await store.loadProjectSources(userId, projectId);
+  const storedSources = await store.loadProjectSources(userId, projectId, { includeData: false });
   if (storedSources.length) {
     return storedSources.map(source => ({
       file: source.file,
@@ -310,6 +310,19 @@ const loadStoredSourceCandidates = async (
         },
       ]
     : [];
+};
+
+const readStoredSourceFile = async (
+  store: ProjectStore,
+  userId: string,
+  projectId: string,
+  candidate: StoredSourceCandidate
+): Promise<ProjectSourceFile> => {
+  const file = candidate.file.data
+    ? candidate.file
+    : await store.loadProjectSourceById(userId, projectId, candidate.id);
+  if (!file) throw new LessonSourceUnavailableError();
+  return file;
 };
 
 const filterReferencedStoredSources = (
@@ -363,7 +376,6 @@ export const buildStoredDocumentSourceContext = async ({
   section,
   signal,
   primarySourceId,
-  config,
   source,
 }: {
   source?: ProjectSnapshot['source'];
@@ -385,7 +397,9 @@ export const buildStoredDocumentSourceContext = async ({
     const pdf = readPreparedProjectPdfText(source, candidate.id, candidate.hash);
     const material = pdf
       ? { pdf, text: pdf.text }
-      : await readProjectSourceMaterial(candidate.file, { config, signal });
+      : await readProjectSourceMaterial(
+          await readStoredSourceFile(store, userId, projectId, candidate)
+        );
     parts.push(...buildStoredMaterialSourceParts(candidate, material));
   }
   const separator = '\n\n---\n\n';
@@ -451,26 +465,10 @@ export const buildArchiveSourceContext = async (
   });
   const files = await access.resolveSelectors(selectors);
   return encodeLessonPrimarySources(
-    files.flatMap(file =>
-      file.pdfPages?.length
-        ? file.pdfPages.map(page => ({
-            source: {
-              title: file.path,
-              path: file.path,
-              sourceId: index.version.sourceId,
-              pageStart: page.pageNumber,
-              pageEnd: page.pageNumber,
-              ...(page.provenance ? { transcribedPages: [page.pageNumber] } : {}),
-            },
-            text: `FILE ${file.path}\n${Buffer.from(file.text).subarray(page.startByte, page.endByte).toString('utf8')}`,
-          }))
-        : [
-            {
-              source: { title: file.path, path: file.path, sourceId: index.version.sourceId },
-              text: `FILE ${file.path}\n${file.text}`,
-            },
-          ]
-    )
+    files.map(file => ({
+      source: { title: file.path, path: file.path, sourceId: index.version.sourceId },
+      text: `FILE ${file.path}\n${file.text}`,
+    }))
   );
 };
 
@@ -809,10 +807,11 @@ export const extractStoredPdfImageAssets = async ({
   for (const source of storedSources) {
     signal.throwIfAborted();
     try {
+      const file = await readStoredSourceFile(store, userId, project.id, source);
       const partialPages =
         readMappedPdfPages(project, section, source.id) ?? singleSourcePartialPages;
       const extraction = await extractImages(
-        `data:${source.file.mimeType};base64,${source.file.data}`,
+        `data:${file.mimeType};base64,${file.data}`,
         LESSON_PDF_IMAGE_EXTRACTION_LIMIT,
         partialPages,
         signal

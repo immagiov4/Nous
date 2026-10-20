@@ -11,7 +11,7 @@ import {
 } from '@shared/projectBackupArchive';
 import { collectProjectAssetReferences } from '@shared/projectBackupAssets';
 import JSZip from 'jszip';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import {
   buildCourseSourceDescriptors,
   createProjectSourceFromDescriptors,
@@ -525,7 +525,10 @@ test('createProjectArchiveBlob keeps pdf bytes outside the manifest and restores
     manifestText?.includes(snapshot.source?.kind === 'pdf' ? snapshot.source.file.data : ''),
     false
   );
+  const readWholeBackup = vi.spyOn(archive, 'arrayBuffer');
   assert.equal(await isProjectArchiveFile(archive), true);
+  expect(readWholeBackup).not.toHaveBeenCalled();
+  readWholeBackup.mockRestore();
 
   const imported = normalizeImportedProject((await decodeArchive(archive)).project);
 
@@ -664,8 +667,10 @@ test('isProjectArchiveFile rejects generic source zips and manifest inspection r
   const genericZip = new Blob([(await zip.generateAsync({ type: 'uint8array' })) as BlobPart], {
     type: 'application/zip',
   });
-
+  const readWholeArchive = vi.spyOn(genericZip, 'arrayBuffer');
   assert.equal(await isProjectArchiveFile(genericZip), false);
+  expect(readWholeArchive).not.toHaveBeenCalled();
+  readWholeArchive.mockRestore();
   await assert.rejects(
     () => inspectProjectArchiveData(genericZip),
     /Questo ZIP non contiene un backup Nous valido\./

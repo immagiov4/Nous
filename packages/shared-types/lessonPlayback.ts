@@ -17,6 +17,8 @@ export interface PlaybackTextSpan {
   readonly speech: PlaybackRange;
   /** Inline formula omitted from the source projection until the model supplies its pronunciation. */
   readonly math?: string;
+  /** Ambiguous fenced source awaiting the model's prose/code decision. */
+  readonly fencedCode?: { readonly visualIndex: number; readonly markdown: string };
   readonly sourceBlockIndex: number;
   /** Empty at the source boundary for an inserted separator between content blocks. */
   readonly source: PlaybackRange;
@@ -94,6 +96,7 @@ export interface LessonPlaybackBlock {
   readonly visuals: readonly PlaybackVisual[];
   readonly prepared?: {
     readonly spokenMath?: readonly PlaybackSpokenMath[];
+    readonly fencedCode?: readonly PlaybackFencedCodeDecision[];
     readonly scene?: LessonScene;
     readonly motion: readonly PlaybackMotionEvent[];
   };
@@ -113,6 +116,7 @@ export type PlaybackContentBlock =
 
 interface MarkdownChunk extends PlaybackRange {
   readonly kind: 'heading' | 'speech' | 'visual' | 'omitted';
+  readonly fencedProseCandidate?: { readonly markdown: string; readonly source: PlaybackRange };
 }
 
 const IMAGE_CHUNK = /^!\[[^\]\r\n]*\]\((?:[^()\r\n]|\([^()\r\n]*\))*\)$/u;
@@ -132,12 +136,57 @@ interface MarkdownAnalysis {
 
 interface MarkdownNode {
   readonly type: string;
+  readonly lang?: string | null;
+  readonly value?: string;
   readonly position: {
     readonly start: { readonly offset: number };
     readonly end: { readonly offset: number };
   };
   readonly children?: readonly MarkdownNode[];
 }
+
+/** Parser-recognized fence bodies retain source offsets, including unclosed fences. */
+const ambiguousFence = (node: MarkdownNode, markdown: string) => {
+  if (
+    node.type !== 'code' ||
+    (node.lang && !['text', 'plaintext'].includes(node.lang.toLowerCase()))
+  )
+    return undefined;
+  const start = node.position.start.offset;
+  const end = node.position.end.offset;
+  const source = markdown.slice(start, end);
+  const opening = /^(`{3,}|~{3,})[^\r\n]*(?:\r\n|[\r\n])/u.exec(source);
+  if (!opening || !node.value?.trim()) return undefined;
+  const lastLine = /(?:\r\n|[\r\n])[^\r\n]*$/u.exec(source);
+  const closing = lastLine?.[0].match(/^[\r\n \t>]*(`+|~+)[ \t]*$/u);
+  const closed =
+    lastLine && closing?.[1][0] === opening[1][0] && closing[1].length >= opening[1].length;
+  return {
+    markdown: node.value,
+    source: { start: start + opening[0].length, end: closed ? start + lastLine.index : end },
+  };
+};
+
+/** Return only ambiguous fences, never indented or language-declared code. */
+export const getAmbiguousFencedBlocks = (
+  markdown: string
+): { source: string; markdown: string }[] => {
+  const result: { source: string; markdown: string }[] = [];
+  const visit = (node: MarkdownNode): void => {
+    if (node.type === 'code') {
+      const fence = ambiguousFence(node, markdown);
+      if (fence)
+        result.push({
+          source: markdown.slice(node.position.start.offset, node.position.end.offset),
+          markdown: fence.markdown,
+        });
+      return;
+    }
+    if (node.children) for (const child of node.children) visit(child);
+  };
+  visit(markdownParser.parse(markdown) as MarkdownNode);
+  return result;
+};
 
 const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
   const analysis: MarkdownAnalysis = {
@@ -158,6 +207,7 @@ const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
         start,
         end,
         kind: node.type === 'code' || node.type === 'table' ? 'visual' : 'omitted',
+        fencedProseCandidate: ambiguousFence(node, markdown),
       });
       return;
     }
@@ -383,7 +433,7 @@ const markdownChunks = (markdown: string, analysis: MarkdownAnalysis): MarkdownC
     const block = analysis.blocks[blockIndex];
     if (block && block.start >= lineStart && block.start <= lineEnd) {
       flush();
-      chunks.push({ start: lineStart, end: block.end, kind: block.kind });
+      chunks.push({ ...block, start: lineStart });
       consumedEnd = block.end;
       blockIndex += 1;
       start = consumedEnd;
@@ -572,7 +622,7 @@ const spokenText = (
 
 /** Join independently mapped passages, shifting only their speech offsets. */
 const joinSpokenText = (
-  parts: readonly SpokenText[]
+  parts: readonly Pick<LessonPlaybackBlock, 'speech' | 'spans' | 'visuals'>[]
 ): Pick<SpokenText, 'speech' | 'spans' | 'visuals'> => {
   const result: Pick<SpokenText, 'speech' | 'spans' | 'visuals'> = {
     speech: '',
@@ -612,14 +662,47 @@ const appendHeadingSeparator = (text: SpokenText, markdown: string, end: number)
 export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlock[]) => {
   const projectedContent = [...contentBlocks];
   let hasAnnotations = false;
-  const blocks: (Omit<LessonPlaybackBlock, 'visuals'> & { visuals: PlaybackVisual[] })[] = [];
+  const blocks: (Omit<LessonPlaybackBlock, 'visuals' | 'spans'> & {
+    visuals: PlaybackVisual[];
+    spans: readonly PlaybackTextSpan[];
+  })[] = [];
   let heading = '';
-  let pendingHeadings: SpokenText[] = [];
+  let pendingIntroductions: SpokenText[] = [];
   let pendingVisuals: PlaybackVisual[] = [];
   const attachVisual = (visual: PlaybackVisual) => {
-    const previous = blocks.at(-1);
+    const hasPendingFence = pendingIntroductions.some(text =>
+      text.spans.some(span => span.fencedCode)
+    );
+    const previous = hasPendingFence ? undefined : blocks.at(-1);
     if (previous) previous.visuals.push(visual);
     else pendingVisuals.push(visual);
+  };
+
+  const attachMarkdownVisual = (
+    chunk: MarkdownChunk,
+    markdown: string,
+    sourceBlockIndex: number
+  ) => {
+    const visual: PlaybackVisual = {
+      kind: 'markdown',
+      markdown: markdown.slice(chunk.start, chunk.end),
+    };
+    const candidate = chunk.fencedProseCandidate;
+    if (!candidate) {
+      attachVisual(visual);
+      return;
+    }
+    const previous = pendingIntroductions.length ? undefined : blocks.at(-1);
+    const visuals = previous?.visuals ?? pendingVisuals;
+    const span: PlaybackTextSpan = {
+      speech: { start: previous?.speech.length ?? 0, end: previous?.speech.length ?? 0 },
+      source: candidate.source,
+      sourceBlockIndex,
+      fencedCode: { visualIndex: visuals.length, markdown: candidate.markdown },
+    };
+    if (previous) previous.spans = [...previous.spans, span];
+    else pendingIntroductions.push({ speech: '', spans: [span], visuals: [], sourceBlockIndex });
+    visuals.push(visual);
   };
 
   const appendMarkdown = (markdown: string, sourceBlockIndex: number): void => {
@@ -636,21 +719,22 @@ export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlo
     for (const chunk of markdownChunks(markdown, analysis)) {
       if (chunk.kind === 'omitted') continue;
       if (chunk.kind === 'visual') {
-        attachVisual({ kind: 'markdown', markdown: markdown.slice(chunk.start, chunk.end) });
+        // A fence below a heading belongs to its next introduction, not the previous topic.
+        attachMarkdownVisual(chunk, markdown, sourceBlockIndex);
         continue;
       }
       const text = spokenText(markdown, chunk, sourceBlockIndex, analysis);
       if (chunk.kind === 'heading') {
         heading = text.speech;
         appendHeadingSeparator(text, markdown, chunk.end);
-        pendingHeadings.push(text);
+        pendingIntroductions.push(text);
         continue;
       }
       if (!text.speech.trim()) {
         for (const visual of text.visuals) attachVisual(visual);
         continue;
       }
-      const spoken = joinSpokenText([...pendingHeadings, text]);
+      const spoken = joinSpokenText([...pendingIntroductions, text]);
       blocks.push({
         id: `${blocks.length}`,
         heading,
@@ -659,7 +743,7 @@ export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlo
         visuals: [...pendingVisuals, ...spoken.visuals],
         audio: [],
       });
-      pendingHeadings = [];
+      pendingIntroductions = [];
       pendingVisuals = [];
     }
   };
@@ -670,6 +754,45 @@ export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlo
       continue;
     }
     if (content.type === 'markdown') appendMarkdown(content.markdown, sourceBlockIndex);
+  }
+  // A final fenced explanation still has the previous narrated passage as its playback anchor.
+  const previous = blocks.at(-1);
+  if (previous && pendingIntroductions.some(text => text.spans.some(span => span.fencedCode))) {
+    const first = pendingIntroductions[0].spans[0];
+    const separator = {
+      speech: '\n',
+      spans: [
+        {
+          speech: { start: 0, end: 1 },
+          source: { start: first.source.start, end: first.source.start },
+          sourceBlockIndex: first.sourceBlockIndex,
+        },
+      ],
+      visuals: [],
+    };
+    const pending = pendingIntroductions.map(text => ({
+      ...text,
+      spans: text.spans.map(span =>
+        span.fencedCode
+          ? {
+              ...span,
+              fencedCode: {
+                ...span.fencedCode,
+                visualIndex: previous.visuals.length + span.fencedCode.visualIndex,
+              },
+            }
+          : span
+      ),
+    }));
+    blocks[blocks.length - 1] = {
+      ...previous,
+      ...joinSpokenText([previous, separator, ...pending]),
+      visuals: [
+        ...previous.visuals,
+        ...pendingVisuals,
+        ...pendingIntroductions.flatMap(text => text.visuals),
+      ],
+    };
   }
   return { blocks, contentBlocks: projectedContent, hasAnnotations };
 };
@@ -698,24 +821,68 @@ export const validatePlaybackSpokenMath = (
     throw new Error('Spoken math must cover every inline formula in source order.');
 };
 
-/** Resolve one shared narration for captions, motion, sentence anchors and TTS. Idempotent. */
+export interface PlaybackFencedCodeDecision {
+  readonly visualIndex: number;
+  readonly kind: 'prose' | 'code';
+  readonly spoken: string;
+}
+
+/** Every eligible source occurrence needs exactly one decision; declared code is never eligible. */
+export const validatePlaybackFencedCode = (
+  block: LessonPlaybackBlock,
+  decisions: readonly PlaybackFencedCodeDecision[]
+): void => {
+  const candidates = block.spans.flatMap(span => (span.fencedCode ? [span.fencedCode] : []));
+  if (
+    candidates.length !== decisions.length ||
+    decisions.some(
+      (decision, index) =>
+        decision.visualIndex !== candidates[index].visualIndex ||
+        (decision.kind === 'prose' ? !decision.spoken.trim() : decision.spoken !== '')
+    )
+  )
+    throw new Error('Fenced code decisions must cover every ambiguous occurrence in source order.');
+};
+
+/** Resolve narration and visuals once for TTS, captions, motion and source anchors. Idempotent. */
 export const resolvePlaybackNarration = (
   block: LessonPlaybackBlock,
-  spokenMath = block.prepared?.spokenMath
+  spokenMath = block.prepared?.spokenMath,
+  fencedCode = block.prepared?.fencedCode
 ): LessonPlaybackBlock => {
-  if (!spokenMath) return block;
-  validatePlaybackSpokenMath(block, spokenMath);
-  if (!spokenMath.length) return block;
+  if (!spokenMath && !fencedCode) return block;
+  if (spokenMath) validatePlaybackSpokenMath(block, spokenMath);
+  if (fencedCode) validatePlaybackFencedCode(block, fencedCode);
   let speech = '';
   let formulaIndex = 0;
+  let fenceIndex = 0;
+  const visuals = [...block.visuals];
   const spans = block.spans.map(span => {
     const start = speech.length;
-    speech += span.math
-      ? spokenMath[formulaIndex++].spoken
-      : block.speech.slice(span.speech.start, span.speech.end);
+    if (span.fencedCode) {
+      const decision = fencedCode?.[fenceIndex++];
+      if (decision?.kind === 'prose') {
+        if (speech && !speech.endsWith('\n')) speech += '\n';
+        speech += decision.spoken;
+        if (block.speech.slice(span.speech.end) && block.speech[span.speech.end] !== '\n')
+          speech += '\n';
+        // Escape leading whitespace so classified prose cannot become indented Markdown code.
+        visuals[decision.visualIndex] = {
+          kind: 'markdown',
+          markdown: span.fencedCode.markdown.replaceAll(/^[ \t]/gmu, character =>
+            character === '\t' ? '&#9;' : '&#32;'
+          ),
+        };
+      }
+    } else {
+      speech +=
+        span.math && spokenMath
+          ? spokenMath[formulaIndex++].spoken
+          : block.speech.slice(span.speech.start, span.speech.end);
+    }
     return { ...span, speech: { start, end: speech.length } };
   });
-  return { ...block, speech, spans };
+  return { ...block, speech, spans, visuals };
 };
 
 /** Detect saved audio that still uses the projection with silent inline formulas. No regeneration. */

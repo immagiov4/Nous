@@ -82,6 +82,7 @@ const store = (project: ProjectSnapshot, overrides: Record<string, unknown> = {}
     loadProjectSourceArchiveEntryRange: vi.fn(),
     loadProjectSourceArchiveIndex: vi.fn(),
     loadProjectSources: vi.fn().mockResolvedValue([]),
+    loadProjectSourceById: vi.fn(),
     loadProjectWithRevision: vi.fn().mockResolvedValue({ revision: 4, snapshot: project }),
     ...overrides,
   }) as unknown as ProjectStore;
@@ -279,7 +280,7 @@ describe('durable sublesson stages', () => {
     });
   });
 
-  test('retains prepared transcription for deep dives and passes account models when extraction is needed', async () => {
+  test('retains prepared transcription for deep dives before loading original bytes', async () => {
     const hash = 'a'.repeat(64);
     const source = {
       file: { data: 'dGVzdG8=', mimeType: 'application/pdf', name: 'synthetic.pdf' },
@@ -319,6 +320,7 @@ describe('durable sublesson stages', () => {
     const project = snapshot({ source: { kind: 'pdf', preparedPdfText } });
     const projectStore = store(project, {
       loadProjectSources: vi.fn().mockResolvedValue([source]),
+      loadProjectSourceById: vi.fn().mockResolvedValue(source.file),
     });
     const stages = createLessonSublessonStages({
       projectStore,
@@ -338,10 +340,7 @@ describe('durable sublesson stages', () => {
     project.source = null;
     const stageContext = context(input);
     await stages.planSublesson(stageContext);
-    expect(readSourceMaterial).toHaveBeenCalledWith(source.file, {
-      config: getGlobalModelConfig(),
-      signal: stageContext.signal,
-    });
+    expect(readSourceMaterial).toHaveBeenCalledWith(source.file);
   });
 
   test('creates a missing source index, while a source-free project skips mapping', async () => {
@@ -363,6 +362,7 @@ describe('durable sublesson stages', () => {
     const generateObject = vi.fn(async () => metadata);
     const projectStore = store(snapshot(), {
       loadProjectSources: vi.fn().mockResolvedValue([source]),
+      loadProjectSourceById: vi.fn().mockResolvedValue(source.file),
     });
     const stages = createLessonSublessonStages({
       buildDocumentIndex: vi.fn(() => documentIndex),
@@ -374,6 +374,14 @@ describe('durable sublesson stages', () => {
     const plan = await stages.planSublesson(context(input));
     const mapped = await stages.finalizeSublesson(context(plan));
 
+    expect(projectStore.loadProjectSources).toHaveBeenCalledWith('user-1', 'project-1', {
+      includeData: false,
+    });
+    expect(projectStore.loadProjectSourceById).toHaveBeenCalledWith(
+      'user-1',
+      'project-1',
+      'source-1'
+    );
     expect(mapped.createdDocumentIndex).toEqual(documentIndex);
     expect(mapped.section.primaryChunkIds).toEqual(['source-1:chunk-001']);
 
@@ -384,6 +392,45 @@ describe('durable sublesson stages', () => {
       section: plan.section,
       stage: 'sublesson-ready',
     });
+  });
+
+  test('finishes reading each of 30 sources before downloading the next one', async () => {
+    const sources = Array.from({ length: 30 }, (_, index) => ({
+      file: {
+        data: '',
+        mimeType: 'text/plain',
+        name: `lesson-${index}.txt`,
+        sourceId: `source-${index}`,
+      },
+      ref: {
+        id: `source-${index}`,
+        hash: String(index).padStart(64, '0'),
+        name: `lesson-${index}.txt`,
+        mimeType: 'text/plain',
+        byteSize: 10,
+        objectPath: `stored/${index}`,
+      },
+    }));
+    const events: string[] = [];
+    const projectStore = store(snapshot(), {
+      loadProjectSources: vi.fn().mockResolvedValue(sources),
+      loadProjectSourceById: vi.fn(async (_userId, _projectId, sourceId) => {
+        events.push(`download:${sourceId}`);
+        return sources.find(source => source.ref.id === sourceId)?.file;
+      }),
+    });
+    const stages = createLessonSublessonStages({
+      projectStore,
+      generateObject: vi.fn(async () => metadata) as never,
+      readSourceMaterial: async file => {
+        events.push(`read:${file.name}`);
+        return { text: `Material for ${file.name}` };
+      },
+    });
+    await stages.planSublesson(context(input));
+    expect(events).toEqual(
+      sources.flatMap(source => [`download:${source.ref.id}`, `read:${source.file.name}`])
+    );
   });
 
   test('retries a failed mapping before using the established deterministic fallback', async () => {

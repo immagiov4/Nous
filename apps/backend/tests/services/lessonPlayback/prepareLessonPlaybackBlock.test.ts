@@ -500,3 +500,131 @@ test('carries identified transcription provenance to scene, spoken math and moti
   expect(JSON.parse(structured.mock.calls[0][0].prompt).sourceProvenance).toEqual(sourceProvenance);
   expect(motion.mock.calls[0][0].sourceProvenance).toEqual(sourceProvenance);
 });
+
+test.each([
+  {
+    language: 'text',
+    body: 'A vector is an ordered list. It has two entries.',
+    kind: 'prose',
+    spoken: 'A vector is an ordered list. It has two entries.',
+  },
+  { language: 'plaintext', body: '+---+\n| x |\n+---+', kind: 'code', spoken: '' },
+  { language: '', body: 'INFO started\nERROR stopped', kind: 'code', spoken: '' },
+])('classifies an ambiguous $language fence once before preparing narration: $kind', async fixture => {
+  const markdown = `Introduction.\n\n\x60\x60\x60${fixture.language}\n${fixture.body}\n\x60\x60\x60\n\nContinue.`;
+  const raw = segmentLessonPlayback([{ type: 'markdown', markdown }])[0];
+  const fencedCode = [{ visualIndex: 0, kind: fixture.kind, spoken: fixture.spoken }];
+  structured.mockResolvedValue({ spokenMath: [], fencedCode });
+  const recorded = new Map<string, unknown>();
+  const providerEffect: WorkflowProviderEffectExecutor = {
+    run: async ({ key, operation, outputSchema }) => {
+      if (!recorded.has(key)) recorded.set(key, await operation());
+      return outputSchema.parse(recorded.get(key));
+    },
+  };
+  const request = { ...input(), block: raw, providerEffect };
+  const result = await prepareLessonPlaybackBlock(request);
+  const resolved = resolvePlaybackNarration({ ...raw, prepared: result.prepared });
+  expect(audio).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      text: fixture.kind === 'prose' ? `Introduction.\n${fixture.spoken}` : 'Introduction.',
+    })
+  );
+  expect(resolved.visuals).toEqual([
+    {
+      kind: 'markdown',
+      markdown:
+        fixture.kind === 'prose'
+          ? fixture.body
+          : `\x60\x60\x60${fixture.language}\n${fixture.body}\n\x60\x60\x60`,
+    },
+  ]);
+  expect(structured).toHaveBeenCalledOnce();
+  await prepareLessonPlaybackBlock({
+    ...request,
+    block: { ...raw, prepared: result.prepared },
+    voice: 'Puck',
+  });
+  expect(structured).toHaveBeenCalledOnce();
+});
+
+test('never classifies a fence with a programming language', async () => {
+  const raw = segmentLessonPlayback([
+    { type: 'markdown', markdown: 'Introduction.\n\n```python\nprint("hello")\n```' },
+  ])[0];
+  await prepareLessonPlaybackBlock({ ...input(), block: raw });
+  expect(structured).not.toHaveBeenCalled();
+  expect(audio).toHaveBeenCalledWith(expect.objectContaining({ text: 'Introduction.' }));
+});
+
+test('classifies a fenced introduction and pronounces inline math in one recorded response', async () => {
+  const markdown =
+    'Before.\n\n## Topic\n\n```text\nA vector has components.\n```\n\n$$x = 2$$\n\nThen $x$ is the input.';
+  const raw = segmentLessonPlayback([{ type: 'markdown', markdown }])[1];
+  structured.mockResolvedValue({
+    spokenMath: [{ formula: '$x$', spoken: 'ics' }],
+    fencedCode: [{ visualIndex: 0, kind: 'prose', spoken: 'A vector has components.' }],
+  });
+  const result = await prepareLessonPlaybackBlock({ ...input(), block: raw });
+  const resolved = resolvePlaybackNarration({ ...raw, prepared: result.prepared });
+  expect(resolved.speech).toBe('Topic\nA vector has components.\nThen ics is the input.');
+  expect(audio).toHaveBeenCalledWith(expect.objectContaining({ text: resolved.speech }));
+  expect(structured).toHaveBeenCalledOnce();
+  expect(resolved.visuals).toEqual([
+    { kind: 'markdown', markdown: 'A vector has components.' },
+    { kind: 'markdown', markdown: '$$x = 2$$' },
+    { kind: 'markdown', markdown: 'Then $x$ is the input.' },
+  ]);
+});
+
+test.each([
+  [],
+  [{ visualIndex: 1, kind: 'prose', spoken: 'A vector has components.' }],
+  [{ visualIndex: 0, kind: 'prose', spoken: '' }],
+  [{ visualIndex: 0, kind: 'code', spoken: 'Invented narration' }],
+])('rejects incomplete or inconsistent recorded fence decisions: %j', async fencedCode => {
+  const raw = segmentLessonPlayback([
+    { type: 'markdown', markdown: 'Before.\n\n```text\nA vector has components.\n```' },
+  ])[0];
+  structured.mockResolvedValue({ spokenMath: [], fencedCode });
+  await expect(prepareLessonPlaybackBlock({ ...input(), block: raw })).rejects.toMatchObject({
+    failure: { code: 'lesson_playback_spoken_math_invalid' },
+  });
+  expect(audio).not.toHaveBeenCalled();
+});
+
+test.each([
+  '```text\nA vector has components.',
+  '~~~plaintext\r\nA vector has components.\r\n~~~',
+  '> ```text\n> A vector has components.\n> ```',
+])('keeps complete source bodies for eligible fenced syntax: %j', async source => {
+  const markdown = `Before.\n\n${source}\n\nAfter.`;
+  const blocks = segmentLessonPlayback([{ type: 'markdown', markdown }]);
+  const raw = blocks.find(block => block.spans.some(span => span.fencedCode));
+  if (!raw) throw new Error('Expected a fenced occurrence.');
+  structured.mockResolvedValue({
+    spokenMath: [],
+    fencedCode: [{ visualIndex: 0, kind: 'prose', spoken: 'A vector has components.' }],
+  });
+  const result = await prepareLessonPlaybackBlock({ ...input(), block: raw });
+  expect(resolvePlaybackNarration({ ...raw, prepared: result.prepared }).speech).toContain(
+    'A vector has components.'
+  );
+  const span = raw.spans.find(span => span.fencedCode);
+  expect(markdown.slice(span?.source.start, span?.source.end)).toContain(
+    'A vector has components.'
+  );
+});
+
+test('classifies a final fenced introduction using the previous narrated passage as its anchor', async () => {
+  const markdown = 'Before.\n\n## Topic\n\n```text\nA vector has components.\n```';
+  const raw = segmentLessonPlayback([{ type: 'markdown', markdown }])[0];
+  structured.mockResolvedValue({
+    spokenMath: [],
+    fencedCode: [{ visualIndex: 0, kind: 'prose', spoken: 'A vector has components.' }],
+  });
+  const result = await prepareLessonPlaybackBlock({ ...input(), block: raw });
+  expect(resolvePlaybackNarration({ ...raw, prepared: result.prepared }).speech).toBe(
+    'Before.\nTopic\nA vector has components.'
+  );
+});

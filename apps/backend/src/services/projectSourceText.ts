@@ -1,6 +1,6 @@
 import { PreparedPdfTextSchema } from '@shared/pdfTranscription';
 import { isRecord } from '../utils/validation.js';
-import type { PdfTranscriptionOptions } from './pdfPageTranscription.js';
+import { PDF_SOURCE_EXTRACTION_OPTIONS } from './pdfSourceLimits.js';
 import { type ExtractedPdfText, extractPdfText } from './pdfTextExtractor.js';
 
 export const isPdfProjectSourceFile = (file: { mimeType: string; name: string }): boolean =>
@@ -11,18 +11,15 @@ export interface ProjectSourceMaterial {
   text: string;
 }
 
-export const readProjectSourceMaterial = async (
-  file: {
-    data: string;
-    mimeType: string;
-    name: string;
-  },
-  transcription?: PdfTranscriptionOptions
-): Promise<ProjectSourceMaterial> => {
+export const readProjectSourceMaterial = async (file: {
+  data: string;
+  mimeType: string;
+  name: string;
+}): Promise<ProjectSourceMaterial> => {
   if (isPdfProjectSourceFile(file)) {
     const pdf = await extractPdfText(
       `data:${file.mimeType};base64,${file.data}`,
-      transcription ? { transcription } : {}
+      PDF_SOURCE_EXTRACTION_OPTIONS
     );
     return { pdf, text: pdf.text };
   }

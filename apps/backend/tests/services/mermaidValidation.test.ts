@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { beforeAll, beforeEach, expect, test, vi } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
 import { classifyMermaidInputs, isParseableMermaid } from '../../src/services/mermaidValidation.js';
 import { mermaidClassificationCases } from '../fixtures/mermaidClassification.js';
 import { mermaidParseCases } from '../fixtures/mermaidParseCases.js';
@@ -7,11 +7,6 @@ import { mermaidParseCases } from '../fixtures/mermaidParseCases.js';
 vi.mock('node:child_process', { spy: true });
 
 const classDiagram = 'classDiagram\nclass Animal';
-
-// Warm the real parser before timed assertions; Vitest's existing hook timeout bounds startup.
-beforeAll(async () => {
-  await expect(isParseableMermaid(classDiagram, new AbortController().signal)).resolves.toBe(true);
-});
 
 beforeEach(() => {
   vi.mocked(execFile).mockClear();

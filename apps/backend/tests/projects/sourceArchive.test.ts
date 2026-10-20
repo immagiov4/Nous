@@ -1,29 +1,11 @@
-const pdfPageTranscriptionMocks = vi.hoisted(() => ({ complete: vi.fn() }));
-vi.mock('../../src/services/pdfPageTranscription.js', async original => ({
-  ...(await original<typeof import('../../src/services/pdfPageTranscription.js')>()),
-  completePdfTextExtraction: pdfPageTranscriptionMocks.complete,
-  preparePdfTextExtraction: async (
-    bytes: Buffer,
-    extracted: unknown,
-    options: { onTranscriptionStart?: () => void }
-  ) => {
-    let started = false;
-    const completion = pdfPageTranscriptionMocks.complete(bytes, extracted, {
-      ...options,
-      onTranscriptionStart: () => {
-        options.onTranscriptionStart?.();
-        started = true;
-      },
-    });
-    if (!started) return { completion: Promise.resolve(await completion) };
-    return { completion };
-  },
-}));
-
 import { createHash } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SOURCE_ARCHIVE_PREVIEW_MAX_CHARS } from '@shared/sourceArchivePreview';
 import JSZip from 'jszip';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { ZipFile } from 'yauzl';
 
 const pdfTextExtractorMocks = vi.hoisted(() => ({
   extractPdfText: vi.fn(),
@@ -41,6 +23,7 @@ import {
   PROJECT_SOURCE_ARCHIVE_PDF_POLICY,
   type SourceArchiveLimits,
   SourceArchivePreparationError,
+  streamSourceArchive,
   withSourceArchivePreparationAdmission,
 } from '../../src/projects/sourceArchive.js';
 import {
@@ -68,7 +51,8 @@ const createArchive = async (
   entries: Array<
     | { content: string | Uint8Array; path: string; type: 'file' }
     | { path: string; type: 'directory' }
-  >
+  >,
+  compression: 'DEFLATE' | 'STORE' = 'DEFLATE'
 ) => {
   const zip = new JSZip();
 
@@ -82,7 +66,7 @@ const createArchive = async (
   }
 
   return zip.generateAsync({
-    compression: 'DEFLATE',
+    compression,
     type: 'uint8array',
   });
 };
@@ -109,9 +93,6 @@ const replaceAscii = (bytes: Uint8Array, from: string, to: string) => {
 
 beforeEach(() => {
   pdfTextExtractorMocks.extractPdfText.mockReset();
-  pdfPageTranscriptionMocks.complete
-    .mockReset()
-    .mockImplementation(async (_bytes: Buffer, extracted: unknown) => extracted);
 });
 
 afterEach(() => {
@@ -142,27 +123,15 @@ describe('indexSourceArchive', () => {
     expect(pdfTextExtractorMocks.extractPdfText.mock.calls).toEqual([
       [
         `data:application/pdf;base64,${Buffer.from(validPdfBytes).toString('base64')}`,
-        expect.objectContaining({
-          transcription: false,
-          fallbackTimeoutMs: 15_000,
-          pdftotextTimeoutMs: 15_000,
-        }),
+        expect.objectContaining({ fallbackTimeoutMs: 15_000, pdftotextTimeoutMs: 15_000 }),
       ],
       [
         `data:application/pdf;base64,${Buffer.from(scannedPdfBytes).toString('base64')}`,
-        expect.objectContaining({
-          transcription: false,
-          fallbackTimeoutMs: 15_000,
-          pdftotextTimeoutMs: 15_000,
-        }),
+        expect.objectContaining({ fallbackTimeoutMs: 15_000, pdftotextTimeoutMs: 15_000 }),
       ],
       [
         `data:application/pdf;base64,${Buffer.from(unreadablePdfBytes).toString('base64')}`,
-        expect.objectContaining({
-          transcription: false,
-          fallbackTimeoutMs: 15_000,
-          pdftotextTimeoutMs: 15_000,
-        }),
+        expect.objectContaining({ fallbackTimeoutMs: 15_000, pdftotextTimeoutMs: 15_000 }),
       ],
     ]);
     expect(result.entries.find(entry => entry.path === 'docs/a-valid.PDF')).toMatchObject({
@@ -260,16 +229,13 @@ describe('indexSourceArchive', () => {
     expect(entry).toMatchObject({ warningReason: 'no-usable-text' });
   });
 
-  test('admits at most 16 PDFs and continues indexing later valid text entries', async () => {
+  test('prepares all 30 lesson PDFs and continues indexing later text entries', async () => {
     const archive = await createArchive([
-      ...Array.from(
-        { length: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEligibleEntries + 1 },
-        (_, index) => ({
-          content: `%PDF-${index}`,
-          path: `docs/${index.toString().padStart(2, '0')}.pdf`,
-          type: 'file' as const,
-        })
-      ),
+      ...Array.from({ length: 30 }, (_, index) => ({
+        content: `%PDF-${index}`,
+        path: `docs/${index.toString().padStart(2, '0')}.pdf`,
+        type: 'file' as const,
+      })),
       { content: 'Appunti ancora validi', path: 'docs/notes.txt', type: 'file' as const },
     ]);
     const usableText = 'Contenuto didattico estratto correttamente. '.repeat(8);
@@ -280,10 +246,10 @@ describe('indexSourceArchive', () => {
 
     const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
 
-    expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(16);
-    expect(result.entries.find(entry => entry.path === 'docs/16.pdf')).toMatchObject({
+    expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(30);
+    expect(result.entries.find(entry => entry.path === 'docs/29.pdf')).toMatchObject({
       kind: 'file',
-      warningReason: 'safety-limit',
+      text: usableText.trim(),
     });
     expect(result.entries.find(entry => entry.path === 'docs/notes.txt')).toMatchObject({
       kind: 'file',
@@ -320,36 +286,29 @@ describe('indexSourceArchive', () => {
     });
   });
 
-  test('enforces the cumulative 64 MB PDF admission budget', async () => {
-    const testPdfBytes = 16;
-    const testCumulativeBytes = testPdfBytes * 4;
-    expect(PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxCumulativeBytes).toBe(64_000_000);
-    vi.spyOn(PROJECT_SOURCE_ARCHIVE_PDF_POLICY, 'maxCumulativeBytes', 'get').mockReturnValue(
-      testCumulativeBytes
-    );
-    const pdfBytes = new Uint8Array(testPdfBytes);
+  test('prepares every PDF when the course exceeds the former 64 MB total', async () => {
+    const pdfBytes = new Uint8Array(16_000_000);
     const archive = await createArchive(
       Array.from({ length: 5 }, (_, index) => ({
         content: pdfBytes,
         path: `docs/${index}.pdf`,
         type: 'file' as const,
-      }))
+      })),
+      'STORE'
     );
     const usableText = 'Materiale PDF valido e sufficientemente lungo. '.repeat(8);
     pdfTextExtractorMocks.extractPdfText.mockResolvedValue({
       pages: [{ text: usableText }],
       text: usableText,
     });
-
     const result = await indexSourceArchive(archive, {
       maxEntries: 10,
-      maxEntryBytes: testPdfBytes,
-      maxExpandedBytes: testPdfBytes * 5,
+      maxEntryBytes: pdfBytes.byteLength,
+      maxExpandedBytes: pdfBytes.byteLength * 5,
     });
-
-    expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(4);
+    expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(5);
     expect(result.entries.find(entry => entry.path === 'docs/4.pdf')).toMatchObject({
-      warningReason: 'safety-limit',
+      text: usableText.trim(),
     });
   });
 
@@ -366,7 +325,6 @@ describe('indexSourceArchive', () => {
     const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
 
     expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledWith(expect.any(String), {
-      transcription: false,
       fallbackTimeoutMs: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.fallbackTimeoutMs,
       maxOutputBytes: GENEROUS_LIMITS.maxEntryBytes,
       pdftotextTimeoutMs: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.pdftotextTimeoutMs,
@@ -683,156 +641,56 @@ describe('withSourceArchivePreparationAdmission', () => {
   });
 });
 
-test.each([
-  'inspection',
-  'model',
-] as const)('counts local inspection but excludes model time from the archive deadline: %s', async phase => {
-  const archive = await createArchive([
-    { content: '%PDF-first', path: 'a.pdf', type: 'file' },
-    { content: '%PDF-second', path: 'b.pdf', type: 'file' },
-  ]);
-  let now = 1_000;
-  vi.spyOn(Date, 'now').mockImplementation(() => now);
-  const text = 'A useful mathematical explanation with complete definitions. '.repeat(8).trim();
-  pdfTextExtractorMocks.extractPdfText.mockResolvedValue({ text, pages: [{ text }] });
-  let modelStarts = 0;
-  pdfPageTranscriptionMocks.complete.mockImplementation(async (_bytes, extracted, options) => {
-    if (phase === 'model') options?.onTranscriptionStart?.();
-    now += PROJECT_SOURCE_ARCHIVE_PDF_POLICY.archivePreparationTimeoutMs + 1;
-    if (phase === 'inspection') options?.onTranscriptionStart?.();
-    modelStarts += 1;
-    return extracted;
-  });
-  if (phase === 'inspection') {
-    await expect(indexSourceArchive(archive, GENEROUS_LIMITS)).rejects.toThrow(
-      'preparation deadline exceeded'
-    );
-    expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(1);
-    expect(modelStarts).toBe(0);
-  } else {
-    expect(
-      (await indexSourceArchive(archive, GENEROUS_LIMITS)).entries.every(
-        entry => entry.kind === 'file' && entry.text === text
-      )
-    ).toBe(true);
-    expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(2);
-  }
-});
-
-test('interrupts a stalled PDF inspection at the existing archive preparation deadline', async () => {
-  const archive = await createArchive([
-    { content: '%PDF-stalled', path: 'scan.pdf', type: 'file' },
-  ]);
-  const text = 'A useful mathematical explanation with complete definitions. '.repeat(8).trim();
-  const extracted = { text, pages: [{ text }] };
-  pdfTextExtractorMocks.extractPdfText.mockResolvedValue(extracted);
-  const started = Promise.withResolvers<void>();
-  const completion = Promise.withResolvers<typeof extracted>();
-  let inspectionSignal: AbortSignal | undefined;
-  pdfPageTranscriptionMocks.complete.mockImplementation((_bytes, _extracted, options) => {
-    inspectionSignal = options?.signal;
-    started.resolve();
-    return completion.promise;
-  });
-  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-  const pending = indexSourceArchive(archive, GENEROUS_LIMITS);
+const readArchiveFromDisk = async (bytes: Uint8Array, limits: SourceArchiveLimits) => {
+  const directory = await mkdtemp(join(tmpdir(), 'nous-file-archive-test-'));
   try {
-    await started.promise;
-    await vi.advanceTimersByTimeAsync(
-      PROJECT_SOURCE_ARCHIVE_PDF_POLICY.archivePreparationTimeoutMs
-    );
-    expect(inspectionSignal?.aborted).toBe(true);
-    expect((await pending).entries[0]).toMatchObject({ warningReason: 'timeout' });
-    expect((await pending).entries[0]).not.toHaveProperty('text');
+    const path = join(directory, 'source.zip');
+    await writeFile(path, bytes);
+    const entries = [];
+    for await (const entry of streamSourceArchive(path, limits)) entries.push(entry);
+    return entries;
   } finally {
-    completion.resolve(extracted);
-    await pending;
-    vi.useRealTimers();
+    await rm(directory, { recursive: true, force: true });
   }
-});
+};
 
-test('prepares the next PDF while the first transcription is still in flight and preserves source order', async () => {
-  const archive = await createArchive([
-    { content: '%PDF-first', path: 'a.pdf', type: 'file' },
-    { content: '%PDF-second', path: 'b.pdf', type: 'file' },
+test('preserves text and binary entries when the archive stays on disk', async () => {
+  const bytes = await createArchive([
+    { path: 'notes.md', content: '# Complete notes', type: 'file' },
+    { path: 'image.bin', content: new Uint8Array([0xff, 0xfe]), type: 'file' },
   ]);
-  const text = 'A useful mathematical explanation with complete definitions. '.repeat(8).trim();
-  const extracted = { text, pages: [{ pageNumber: 1, text }] };
-  const first = Promise.withResolvers<typeof extracted>();
-  pdfTextExtractorMocks.extractPdfText.mockResolvedValue(extracted);
-  pdfPageTranscriptionMocks.complete.mockImplementation((_bytes, value, options) => {
-    options?.onTranscriptionStart?.();
-    return pdfPageTranscriptionMocks.complete.mock.calls.length === 1
-      ? first.promise
-      : Promise.resolve(value);
+  const entries = await readArchiveFromDisk(bytes, GENEROUS_LIMITS);
+  expect(entries.find(entry => entry.path === 'notes.md')).toMatchObject({
+    text: '# Complete notes',
   });
-  const pending = indexSourceArchive(archive, GENEROUS_LIMITS);
-  try {
-    await vi.waitFor(() => expect(pdfPageTranscriptionMocks.complete).toHaveBeenCalledTimes(2));
-  } finally {
-    first.resolve(extracted);
-    const result = await pending;
-    expect(result.entries.filter(entry => entry.kind === 'file').map(entry => entry.path)).toEqual([
-      'a.pdf',
-      'b.pdf',
-    ]);
-  }
-});
-
-test('propagates the course scanned-page limit instead of downgrading it to a parser warning', async () => {
-  const { PdfScannedPageLimitError } = await import('../../src/services/pdfTranscriptionPolicy.js');
-  const archive = await createArchive([
-    { content: '%PDF-synthetic', path: 'notes.pdf', type: 'file' },
-  ]);
-  pdfTextExtractorMocks.extractPdfText.mockResolvedValue({
-    text: '',
-    pages: [{ pageNumber: 1, text: '' }],
-  });
-  pdfPageTranscriptionMocks.complete.mockRejectedValue(new PdfScannedPageLimitError(300));
-  await expect(indexSourceArchive(archive, GENEROUS_LIMITS)).rejects.toMatchObject({
-    code: 'PDF_SCANNED_PAGE_LIMIT',
-    limit: 300,
+  expect(entries.find(entry => entry.path === 'image.bin')).toMatchObject({
+    content: new Uint8Array([0xff, 0xfe]),
   });
 });
 
-test('persists scanned blank and failed page identities alongside successful transcription for course budgeting', async () => {
-  const archive = await createArchive([
-    { content: '%PDF-synthetic', path: 'notes.pdf', type: 'file' },
+test('rejects traversal and duplicate names through the file-backed archive path', async () => {
+  const unsafe = await createArchive([{ path: '../notes.md', content: 'private', type: 'file' }]);
+  await expect(readArchiveFromDisk(unsafe, GENEROUS_LIMITS)).rejects.toThrow(
+    SourceArchivePreparationError
+  );
+  const normal = await createArchive([
+    { path: 'aa.md', content: 'first', type: 'file' },
+    { path: 'bb.md', content: 'second', type: 'file' },
   ]);
-  const text = 'A transcribed definition and its derivation. '.repeat(8);
-  pdfTextExtractorMocks.extractPdfText.mockResolvedValue({ text: '', pages: [] });
-  pdfPageTranscriptionMocks.complete.mockResolvedValue({
-    text,
-    pages: [
-      { pageNumber: 1, text: '' },
-      { pageNumber: 2, text: '' },
-      {
-        pageNumber: 3,
-        text,
-        provenance: {
-          kind: 'vision-transcription',
-          model: 'synthetic',
-          provider: 'openrouter',
-          pageNumber: 3,
-        },
-      },
-    ],
-    transcription: {
-      pages: [3],
-      blankPages: [1],
-      failedPages: [2],
-      measurements: [],
-      inputTokens: 0,
-      outputTokens: 0,
-    },
-  });
-  const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
-  const file = result.entries.find(entry => entry.kind === 'file');
-  expect(file).toMatchObject({
-    pdfPages: [
-      { pageNumber: 1, transcriptionBlank: true, startByte: 0, endByte: 0 },
-      { pageNumber: 2, transcriptionFailed: true, startByte: 0, endByte: 0 },
-      { pageNumber: 3, provenance: { kind: 'vision-transcription' } },
-    ],
-  });
+  const duplicate = replaceAscii(normal, 'bb.md', 'aa.md');
+  await expect(readArchiveFromDisk(duplicate, GENEROUS_LIMITS)).rejects.toThrow(
+    SourceArchivePreparationError
+  );
+});
+
+test('rejects an excessive directory before reading its entries', async () => {
+  const bytes = await createArchive([
+    { path: 'first.txt', content: 'first', type: 'file' },
+    { path: 'second.txt', content: 'second', type: 'file' },
+  ]);
+  const reads = vi.spyOn(ZipFile.prototype, 'readEntry');
+  await expect(readArchiveFromDisk(bytes, { ...GENEROUS_LIMITS, maxEntries: 1 })).rejects.toThrow(
+    SourceArchivePreparationError
+  );
+  expect(reads).not.toHaveBeenCalled();
 });

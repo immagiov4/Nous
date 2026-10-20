@@ -136,62 +136,6 @@ test('retains page provenance through indexing, source selection, lesson/quiz in
   );
 });
 
-test('archive evidence keeps clean and transcribed page identities separate after storage', async () => {
-  const first = 'Digital exam page.\n\n';
-  const text = `${first}Machine transcription with a slip.`;
-  const content = Buffer.from(text);
-  const pdfPages = [
-    { pageNumber: 1, startByte: 0, endByte: Buffer.byteLength(first) },
-    {
-      pageNumber: 2,
-      startByte: Buffer.byteLength(first),
-      endByte: content.length,
-      provenance: {
-        kind: 'vision-transcription' as const,
-        pageNumber: 2,
-        model: 'recorded',
-        provider: 'recorded',
-      },
-    },
-  ];
-  const store = {
-    loadProjectSourceArchiveIndex: async () => ({
-      entries: [
-        {
-          kind: 'file',
-          path: 'mixed.pdf',
-          contentKind: 'text',
-          byteSize: content.length,
-          hash: 'a'.repeat(64),
-          pdfPages,
-        },
-      ],
-      version: {
-        sourceId: 'archive',
-        sourceHash: 'b'.repeat(64),
-        representationHash: 'c'.repeat(64),
-      },
-    }),
-    loadProjectSourceArchiveEntry: async () => content,
-  };
-  const context = await buildArchiveSourceContext(store as never, 'user', 'project', {
-    sourceArchiveSelectors: [{ kind: 'file', path: 'mixed.pdf' }],
-  });
-  const parts = readLessonPrimarySources(context);
-  expect(parts?.map(part => part.source)).toEqual([
-    { title: 'mixed.pdf', path: 'mixed.pdf', sourceId: 'archive', pageStart: 1, pageEnd: 1 },
-    {
-      title: 'mixed.pdf',
-      path: 'mixed.pdf',
-      sourceId: 'archive',
-      pageStart: 2,
-      pageEnd: 2,
-      transcribedPages: [2],
-    },
-  ]);
-  expect(parts?.[1].text).toContain('Machine transcription with a slip.');
-});
-
 test('playback provenance includes only the selected evidence units', () => {
   const clean = { title: 'Digital page', pageStart: 1, pageEnd: 1 };
   const scanned = { title: 'Handwritten page', pageStart: 2, pageEnd: 2, transcribedPages: [2] };

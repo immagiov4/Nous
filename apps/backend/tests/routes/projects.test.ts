@@ -9,33 +9,23 @@ import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
 import JSZip from 'jszip';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-
 import { createApp } from '../../src/index.js';
 import { LibrarySiblingSetChangedError } from '../../src/projects/librarySiblingOrder.js';
-import { ProjectNotFoundError } from '../../src/projects/projectRevision.js';
+import { SourcePreparationCancelledError } from '../../src/projects/projectImportChunks.js';
 import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
 import {
   SourceArchivePreparationCapacityError,
   SourceArchivePreparationError,
   SourceArchiveUnusableError,
 } from '../../src/projects/sourceArchive.js';
+import {
+  SourceIngestionRequiredError,
+  SourcePreparationUnusableError,
+} from '../../src/projects/sourceIngestion.js';
+import { SourceStagingUnavailableError } from '../../src/projects/sourceStaging.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
 import { createSupabaseTestToken } from '../helpers/auth.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
-
-vi.mock('../../src/services/pdfPageTranscription.js', async original => {
-  const actual = await original<typeof import('../../src/services/pdfPageTranscription.js')>();
-  return {
-    ...actual,
-    withPdfTranscriptionProvider: (
-      preferences: Parameters<typeof actual.withPdfTranscriptionProvider>[0],
-      operation: () => unknown
-    ) => {
-      preferences.onProgress?.({ completed: 1, total: 1, failedPages: [] });
-      return actual.withPdfTranscriptionProvider(preferences, operation);
-    },
-  };
-});
 
 let store: InMemoryProjectStore;
 let previousLocalUserId: string | undefined;
@@ -134,6 +124,20 @@ describe('/api/projects', () => {
     }
   });
 
+  test.each([
+    ['SOURCE_PREPARATION_CANCELLED', 409, new SourcePreparationCancelledError()],
+    ['SOURCE_PREPARATION_UNUSABLE', 422, new SourcePreparationUnusableError([])],
+    ['SOURCE_INGESTION_REQUIRED', 400, new SourceIngestionRequiredError()],
+    ['SOURCE_STAGING_UNAVAILABLE', 503, new SourceStagingUnavailableError()],
+  ] as const)('serializes source error %s with its stable HTTP contract', async (code, status, error) => {
+    vi.spyOn(store, 'saveProject').mockRejectedValue(error);
+    const response = await request(createApp())
+      .put('/api/projects/projects/error-contract')
+      .send({ snapshot: createSnapshot('error-contract', 'Error contract') });
+    expect(response.status).toBe(status);
+    expect(response.body).toMatchObject({ success: false, code, error: error.message });
+  });
+
   test('exposes the configured project import transfer contract', async () => {
     const response = await request(createApp()).get('/api/projects/config');
 
@@ -145,6 +149,92 @@ describe('/api/projects', () => {
       maxSerializedBytes: 280_000_000,
       requestTimeoutMs: 120_000,
     });
+  });
+
+  test('prepares actual source text asynchronously from the chunked snapshot prefix', async () => {
+    const app = createApp();
+    const original = Buffer.from('Course source text');
+    const file = { data: '', mimeType: 'text/plain', name: 'lesson.txt', sourceId: 'source-first' };
+    const snapshot = {
+      ...createSnapshot('prefix-course', 'Chunked metadata'),
+      source: {
+        file,
+        kind: 'document',
+        sources: [
+          {
+            file,
+            hash: 'a'.repeat(64),
+            id: 'source-first',
+            name: file.name,
+            kind: 'text',
+            position: 0,
+            status: 'ready',
+            outline: [],
+            outlineOrigin: 'none',
+          },
+        ],
+      },
+    };
+    const prefix = Buffer.from(
+      JSON.stringify({
+        snapshot,
+        sourceFiles: [
+          {
+            id: 'source-first',
+            name: file.name,
+            mimeType: file.mimeType,
+            byteSize: original.length,
+          },
+        ],
+      })
+    );
+    const uploadId = crypto.randomUUID();
+    await request(app)
+      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1&sourceUpload=true`)
+      .set('Content-Type', 'application/octet-stream')
+      .send(Buffer.concat([prefix, original]))
+      .expect(202);
+    await request(app)
+      .post(`/api/projects/import/chunks/${uploadId}/complete`)
+      .send({ payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceSet, metadataBytes: prefix.length })
+      .expect(202);
+    await expect
+      .poll(async () => (await request(app).get(`/api/projects/import/chunks/${uploadId}`)).status)
+      .toBe(200);
+    const status = await request(app).get(`/api/projects/import/chunks/${uploadId}`);
+    expect(status.body.snapshot.documentIndex.chunks).toMatchObject([
+      { sourceId: 'source-first', text: 'Course source text' },
+    ]);
+    const stored = await request(app).get(`/api/projects/projects/${snapshot.id}/source`);
+    expect(stored.body.source.data).toBe(original.toString('base64'));
+    await store.saveProject(
+      'local-user',
+      { ...status.body.snapshot, title: 'Later revision' },
+      { expectedRevision: status.body.meta.revision }
+    );
+    const replayed = await request(app).get(`/api/projects/import/chunks/${uploadId}`);
+    expect(replayed.body.meta).toEqual(status.body.meta);
+    expect(replayed.body.snapshot).toEqual(status.body.snapshot);
+    expect((await store.loadProject('local-user', snapshot.id))?.title).toBe('Later revision');
+  });
+
+  test('retains a failed source job outcome for malformed uploaded metadata without publishing', async () => {
+    const app = createApp();
+    const prefix = Buffer.from('{invalid JSON');
+    const uploadId = crypto.randomUUID();
+    await request(app)
+      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1&sourceUpload=true`)
+      .set('Content-Type', 'application/octet-stream')
+      .send(prefix)
+      .expect(202);
+    await request(app)
+      .post(`/api/projects/import/chunks/${uploadId}/complete`)
+      .send({ payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceSet, metadataBytes: prefix.length })
+      .expect(202);
+    await expect
+      .poll(async () => (await request(app).get(`/api/projects/import/chunks/${uploadId}`)).status)
+      .toBe(400);
+    expect((await request(app).get('/api/projects/projects')).body.projects).toEqual([]);
   });
 
   test('saves, lists, loads, exports, touches, and deletes projects', async () => {
@@ -226,96 +316,6 @@ describe('/api/projects', () => {
     });
   });
 
-  test('retains unusable-source warnings after transcription progress opened the response', async () => {
-    const app = createApp();
-    const uploadId = crypto.randomUUID();
-    const warnings = [{ path: 'blank.pdf', reason: 'no-usable-text' as const }];
-    vi.spyOn(store, 'saveProject').mockRejectedValue(new SourceArchiveUnusableError(warnings));
-    const archive = { name: 'materials.zip', mimeType: 'application/zip' };
-    await request(app)
-      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1`)
-      .set('Content-Type', 'application/octet-stream')
-      .send(Buffer.from('synthetic archive bytes'));
-    const response = await request(app)
-      .post(`/api/projects/import/chunks/${uploadId}/complete`)
-      .set('Accept', 'application/x-ndjson')
-      .send({
-        payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceArchive,
-        snapshot: {
-          ...createSnapshot('blank-archive', 'Blank archive'),
-          sourceKind: 'codebase',
-          source: {
-            kind: 'archive',
-            file: { ...archive, data: '' },
-            index: { entries: [] },
-            name: archive.name,
-          },
-        },
-        sourceFile: archive,
-      });
-    const events = response.text
-      .trim()
-      .split('\n')
-      .map(line => JSON.parse(line));
-    expect(events[0]).toEqual({
-      type: 'progress',
-      progress: { completed: 1, total: 1, failedPages: [] },
-    });
-    expect(events.at(-1)).toEqual({
-      type: 'result',
-      result: {
-        success: false,
-        code: PROJECT_API_ERROR_CODE.sourceArchiveUnusable,
-        error: 'L’archivio non contiene alcun testo utilizzabile.',
-        sourceWarnings: warnings,
-      },
-    });
-  });
-
-  test('retains project deletion after transcription progress opened the response', async () => {
-    const app = createApp();
-    const uploadId = crypto.randomUUID();
-    vi.spyOn(store, 'saveProject').mockRejectedValue(new ProjectNotFoundError());
-    const archive = { name: 'materials.zip', mimeType: 'application/zip' };
-    await request(app)
-      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1`)
-      .set('Content-Type', 'application/octet-stream')
-      .send(Buffer.from('synthetic archive bytes'));
-    const response = await request(app)
-      .post(`/api/projects/import/chunks/${uploadId}/complete`)
-      .set('Accept', 'application/x-ndjson')
-      .send({
-        payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceArchive,
-        snapshot: {
-          ...createSnapshot('blank-archive', 'Blank archive'),
-          sourceKind: 'codebase',
-          source: {
-            kind: 'archive',
-            file: { ...archive, data: '' },
-            index: { entries: [] },
-            name: archive.name,
-          },
-        },
-        sourceFile: archive,
-      });
-    const events = response.text
-      .trim()
-      .split('\n')
-      .map(line => JSON.parse(line));
-    expect(events[0]).toEqual({
-      type: 'progress',
-      progress: { completed: 1, total: 1, failedPages: [] },
-    });
-    expect(events.at(-1)).toEqual({
-      type: 'result',
-      result: {
-        success: false,
-        code: 'project_not_found',
-        error: 'Il corso non esiste più.',
-      },
-    });
-  });
-
   test('returns a stable code when archive preparation fails before persistence', async () => {
     vi.spyOn(store, 'saveProject').mockRejectedValue(
       new SourceArchivePreparationError('preparation deadline exceeded')
@@ -386,7 +386,7 @@ describe('/api/projects', () => {
     expect(listResponse.body.projects).toEqual([]);
   });
 
-  test('round-trips explicit project titles through JSON and multipart saves', async () => {
+  test('round-trips explicit project titles and rejects obsolete multipart source uploads', async () => {
     const app = createApp();
     const jsonSnapshot = {
       ...createSnapshot('json-title-project', 'Titolo del piano JSON'),
@@ -423,8 +423,8 @@ describe('/api/projects', () => {
         filename: 'source.zip',
       });
 
-    expect(multipartResponse.status).toBe(200);
-    expect(multipartResponse.body.snapshot.title).toBe('Titolo esplicito multipart');
+    expect(multipartResponse.status).toBe(400);
+    expect(multipartResponse.body.code).toBe('SOURCE_INGESTION_REQUIRED');
   });
 
   test('stores favorites on the server with last-arrival-wins updates', async () => {
@@ -611,7 +611,7 @@ describe('/api/projects', () => {
     );
   });
 
-  test('imports a binary source archive in bounded chunks', async () => {
+  test('rejects legacy ZIP source completion instead of starting a second ingestion pipeline', async () => {
     const app = createApp();
     const arrayBufferSpy = vi.spyOn(globalThis.Request.prototype, 'arrayBuffer');
     const uploadId = '223e4567-e89b-42d3-a456-426614174000';
@@ -632,7 +632,7 @@ describe('/api/projects', () => {
 
     for (let chunkIndex = 0; chunkIndex < 2; chunkIndex += 1) {
       const response = await request(app)
-        .put(`/api/projects/import/chunks/${uploadId}/${chunkIndex}?chunkCount=2`)
+        .put(`/api/projects/import/chunks/${uploadId}/${chunkIndex}?chunkCount=2&sourceUpload=true`)
         .set('Content-Type', 'application/octet-stream')
         .send(
           sourceBytes.subarray(
@@ -650,12 +650,12 @@ describe('/api/projects', () => {
         snapshot,
         sourceFile: { mimeType: 'application/zip', name: 'engine.zip' },
       });
-    expect(response.status).toBe(200);
-    expect(response.body.snapshot).toMatchObject({ id: 'binary-import-project' });
+    expect(response.status).toBe(400);
+    expect((await request(app).get('/api/projects/projects')).body.projects).toEqual([]);
     expect(arrayBufferSpy).not.toHaveBeenCalled();
   });
 
-  test('rejects chunked archive completion when the project revision changed during upload', async () => {
+  test('rejects asynchronous source completion when the project revision changed during upload', async () => {
     const app = createApp();
     const projectId = 'concurrent-archive-project';
     const concurrentSourceData = 'JVBERi0xLjQKc291cmNlLWZyb20tcmV2aXNpb24tdHdv';
@@ -675,15 +675,50 @@ describe('/api/projects', () => {
       .send({ snapshot: initialSnapshot });
     expect(initialSave.body.meta.revision).toBe(1);
 
-    const sourceZip = new JSZip();
-    sourceZip.file('main.ts', 'export const ready = true;');
-    const sourceBytes = Buffer.from(await sourceZip.generateAsync({ type: 'uint8array' }));
-    const uploadId = '623e4567-e89b-42d3-a456-426614174000';
-    const chunkResponse = await request(app)
-      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1&expectedRevision=1`)
+    const sourceBytes = Buffer.from('New source text');
+    const uploadId = crypto.randomUUID();
+    const file = { data: '', mimeType: 'text/plain', name: 'lesson.txt', sourceId: 'source-first' };
+    const submitted = {
+      ...initialSnapshot,
+      sourceKind: 'document',
+      source: {
+        kind: 'document',
+        file,
+        sources: [
+          {
+            file,
+            id: 'source-first',
+            hash: 'a'.repeat(64),
+            name: file.name,
+            kind: 'text',
+            position: 0,
+            status: 'ready',
+            outline: [],
+            outlineOrigin: 'none',
+          },
+        ],
+      },
+    };
+    const prefix = Buffer.from(
+      JSON.stringify({
+        snapshot: submitted,
+        sourceFiles: [
+          {
+            id: 'source-first',
+            name: file.name,
+            mimeType: file.mimeType,
+            byteSize: sourceBytes.length,
+          },
+        ],
+      })
+    );
+    await request(app)
+      .put(
+        `/api/projects/import/chunks/${uploadId}/0?chunkCount=1&sourceUpload=true&expectedRevision=1`
+      )
       .set('Content-Type', 'application/octet-stream')
-      .send(sourceBytes);
-    expect(chunkResponse.status).toBe(202);
+      .send(Buffer.concat([prefix, sourceBytes]))
+      .expect(202);
 
     const concurrentPatch = await request(app)
       .patch(`/api/projects/projects/${projectId}`)
@@ -693,25 +728,14 @@ describe('/api/projects', () => {
       });
     expect(concurrentPatch.body.meta.revision).toBe(2);
 
-    const archiveSnapshot = {
-      ...initialSnapshot,
-      sourceKind: 'codebase' as const,
-      source: {
-        file: { data: '', mimeType: 'application/zip', name: 'engine.zip' },
-        index: { entries: [] },
-        kind: 'archive',
-        name: 'engine.zip',
-      },
-    };
-    const completionResponse = await request(app)
+    await request(app)
       .post(`/api/projects/import/chunks/${uploadId}/complete`)
-      .send({
-        payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceArchive,
-        snapshot: archiveSnapshot,
-        sourceFile: { mimeType: 'application/zip', name: 'engine.zip' },
-      });
-
-    expect(completionResponse.status).toBe(409);
+      .send({ payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceSet, metadataBytes: prefix.length })
+      .expect(202);
+    await expect
+      .poll(async () => (await request(app).get(`/api/projects/import/chunks/${uploadId}`)).status)
+      .toBe(409);
+    const completionResponse = await request(app).get(`/api/projects/import/chunks/${uploadId}`);
     expect(completionResponse.body.code).toBe(PROJECT_API_ERROR_CODE.revisionConflict);
     const loadResponse = await request(app).get(`/api/projects/projects/${projectId}`);
     expect(loadResponse.body).toMatchObject({
@@ -1044,14 +1068,10 @@ describe('/api/projects', () => {
         name: 'engine.zip',
       },
     };
-    const saveSnapshotResponse = await request(app)
-      .put(`/api/projects/projects/${projectId}`)
-      .field('snapshot', JSON.stringify(archiveSnapshot))
-      .attach('archive', Buffer.from(archiveBytes), {
-        contentType: 'application/zip',
-        filename: 'engine.zip',
-      });
-    expect(saveSnapshotResponse.status).toBe(200);
+    const legacySaved = await store.saveProject('local-user', archiveSnapshot, {
+      sourceFile: { bytes: archiveBytes, mimeType: 'application/zip', name: 'engine.zip' },
+    });
+    const saveSnapshotResponse = { body: legacySaved };
     expect(saveSnapshotResponse.body.snapshot.source.file.data).toBe('');
     expect(saveSnapshotResponse.body.snapshot.source.ref).toMatchObject({
       id: expect.any(String),
@@ -1192,14 +1212,9 @@ describe('/api/projects', () => {
         name: 'replacement.zip',
       },
     };
-    const replacementResponse = await request(app)
-      .put(`/api/projects/projects/${projectId}`)
-      .field('snapshot', JSON.stringify(replacementSnapshot))
-      .attach('archive', Buffer.from(replacementBytes), {
-        contentType: 'application/zip',
-        filename: 'replacement.zip',
-      });
-    expect(replacementResponse.status).toBe(200);
+    await store.saveProject('local-user', replacementSnapshot, {
+      sourceFile: { bytes: replacementBytes, mimeType: 'application/zip', name: 'replacement.zip' },
+    });
 
     const staleReadResponse = await request(app)
       .post(`/api/projects/projects/${projectId}/source/archive/query`)
@@ -2330,4 +2345,18 @@ describe('/api/projects', () => {
     expect(response.body.error).not.toContain('password');
     errorLog.mockRestore();
   });
+});
+
+test('rejects a text upload claiming the larger binary source envelope', async () => {
+  const app = createApp();
+  const id = 'a23e4567-e89b-42d3-a456-426614174000';
+  const response = await request(app)
+    .put(`/api/projects/import/chunks/${id}/0?chunkCount=1&sourceUpload=true`)
+    .set('Content-Type', 'text/plain')
+    .send('{}');
+  try {
+    expect(response.status).toBe(400);
+  } finally {
+    await request(app).delete(`/api/projects/import/chunks/${id}`);
+  }
 });

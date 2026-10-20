@@ -122,6 +122,7 @@ interface LessonSublessonDependencies {
     | 'loadProjectSourceArchiveEntryRange'
     | 'loadProjectSourceArchiveIndex'
     | 'loadProjectSources'
+    | 'loadProjectSourceById'
     | 'loadProjectWithRevision'
   >;
   readonly readSourceMaterial?: ReadSourceMaterial;
@@ -172,7 +173,6 @@ const loadSourceMaterials = async ({
   request,
   signal,
   snapshot,
-  models,
 }: {
   store: LessonSublessonDependencies['projectStore'];
   readSourceMaterial: ReadSourceMaterial;
@@ -181,14 +181,21 @@ const loadSourceMaterials = async ({
   snapshot: ProjectSnapshot;
   models: DeepReadonly<GlobalModelConfig>;
 }): Promise<CourseSourceMaterial[]> => {
-  const storedSources = await store.loadProjectSources(request.userId, request.projectId);
+  const storedSources = await store.loadProjectSources(request.userId, request.projectId, {
+    includeData: false,
+  });
+  const loadSourceFile = async (id: string) => {
+    const file = await store.loadProjectSourceById(request.userId, request.projectId, id);
+    if (!file) throw sourceChanged();
+    return file;
+  };
   const materials: CourseSourceMaterial[] = [];
   for (const source of storedSources) {
     signal.throwIfAborted();
     const pdf = readPreparedProjectPdfText(snapshot.source, source.ref.id, source.ref.hash);
     const material = pdf
       ? { pdf, text: pdf.text }
-      : await readSourceMaterial(source.file, { config: models as GlobalModelConfig, signal });
+      : await readSourceMaterial(await loadSourceFile(source.ref.id));
     signal.throwIfAborted();
     if (!material.text.trim()) {
       throw failPermanently({

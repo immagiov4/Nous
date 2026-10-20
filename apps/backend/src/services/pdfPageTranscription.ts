@@ -106,23 +106,6 @@ export interface PdfTranscriptionOptions {
   onProgress?: (progress: PdfTranscriptionProgress) => void;
   signal?: AbortSignal;
 }
-export class PdfPageTranscriptionError extends Error {
-  constructor(
-    readonly failedPages: number[],
-    readonly documentName?: string
-  ) {
-    super(
-      [
-        `Trascrizione non riuscita per le pagine: ${failedPages.join(', ')}.`,
-        documentName ? `Documento: ${documentName}.` : '',
-      ]
-        .filter(Boolean)
-        .join(' ')
-    );
-    this.name = 'PdfPageTranscriptionError';
-  }
-}
-
 interface PdfPage {
   readonly view?: number[];
   cleanup(): void;
