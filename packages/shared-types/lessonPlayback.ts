@@ -866,7 +866,13 @@ export const resolvePlaybackNarration = (
         speech += decision.spoken;
         if (block.speech.slice(span.speech.end) && block.speech[span.speech.end] !== '\n')
           speech += '\n';
-        visuals[decision.visualIndex] = { kind: 'markdown', markdown: span.fencedCode.markdown };
+        // Escape leading whitespace so classified prose cannot become indented Markdown code.
+        visuals[decision.visualIndex] = {
+          kind: 'markdown',
+          markdown: span.fencedCode.markdown.replaceAll(/^[ \t]/gmu, character =>
+            character === '\t' ? '&#9;' : '&#32;'
+          ),
+        };
       }
     } else {
       speech +=

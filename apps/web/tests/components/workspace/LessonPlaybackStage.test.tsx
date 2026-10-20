@@ -671,8 +671,12 @@ test.each(
   expect(container.querySelector('.katex-error')).toBeNull();
 });
 
-test('renders classified fenced prose as ordinary narration and a wrapping paragraph', () => {
-  const body = 'An ordered pair has two components.';
+test.each([
+  '',
+  '    ',
+  '\t',
+])('renders classified fenced prose with indentation %j as a wrapping paragraph', indentation => {
+  const body = `${indentation}An ordered pair has two components; each component is a number.`;
   const sources = [
     {
       type: 'markdown' as const,
@@ -692,7 +696,7 @@ test('renders classified fenced prose as ordinary narration and a wrapping parag
   expect(resolvePlaybackNarration(resolved)).toEqual(resolved);
   const source = captionSource(resolved, sources);
   const formatted = captionFormat(source.markdown, source.ranges);
-  expect(formatted.words.map(word => word.text).join(' ')).toBe(`Introduction. ${body}`);
+  expect(formatted.words.map(word => word.text).join(' ')).toBe(`Introduction. ${body.trim()}`);
   expect(formatted.words.every(word => !word.code)).toBe(true);
   const { container } = render(
     <LessonPlaybackStage
@@ -703,5 +707,5 @@ test('renders classified fenced prose as ordinary narration and a wrapping parag
     />
   );
   expect(container.querySelector('.scene-host pre')).toBeNull();
-  expect(container.querySelector('.scene-host p')?.textContent).toBe(body);
+  expect(container.querySelector('.scene-host p')?.textContent?.trim()).toBe(body.trim());
 });

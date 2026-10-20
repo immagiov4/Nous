@@ -617,3 +617,29 @@ test('accepts recorded review that unwraps mathematical prose into ordinary Mark
   );
   expect(generateStructuredOutput).toHaveBeenCalledOnce();
 });
+
+test('accepts genuine text output introduced by an authorized code-structure correction', async () => {
+  const source = original.contentBlocks
+    .flatMap(block => (block.type === 'markdown' ? [block.markdown] : []))
+    .join('\n\n');
+  const markdown = `${source}\n\nInspect the \`status\` output.`;
+  const draft = { ...original, contentBlocks: [{ type: 'markdown' as const, markdown }] };
+  const corrected = {
+    ...original,
+    contentBlocks: [
+      { type: 'markdown' as const, markdown: `${markdown}\n\n\`\`\`text\nINFO started\n\`\`\`` },
+    ],
+  };
+  mockReview(corrected, preserved);
+  const recorded = generateStructuredOutput.getMockImplementation();
+  if (!recorded) throw new Error('Expected a recorded review.');
+  generateStructuredOutput.mockImplementation(async request => {
+    const response = await recorded(request);
+    if (Object.hasOwn(request.output.schema.properties, 'fencedCode')) return response;
+    const { fencedCode: _notAllowedBySchema, ...strictResponse } = response;
+    return strictResponse;
+  });
+  await expect(reviewLessonContentDraftStrict({ generationInput, draft })).resolves.toEqual(
+    corrected
+  );
+});
