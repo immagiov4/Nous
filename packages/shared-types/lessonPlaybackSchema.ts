@@ -1,5 +1,9 @@
 import * as z from 'zod';
-import { type LessonPlayback, validatePlaybackSpokenMath } from './lessonPlayback';
+import {
+  type LessonPlayback,
+  validatePlaybackFencedCode,
+  validatePlaybackSpokenMath,
+} from './lessonPlayback';
 import { isLessonScene, LessonSceneSchema } from './lessonScene';
 import { isValidProjectAssetRef, type ProjectAssetRef } from './projectAsset';
 
@@ -25,8 +29,21 @@ export const PlaybackSpokenMathSchema = z.array(
   z.object({ formula: z.string().min(1), spoken: z.string().regex(/\S/u) })
 );
 
-const createPlaybackPreparedSchema = (sceneSchema = LessonSceneSchema, spokenMath = false) => {
+export const PlaybackFencedCodeSchema = z.array(
+  z.object({
+    visualIndex: z.number().int().nonnegative(),
+    kind: z.enum(['prose', 'code']),
+    spoken: z.string(),
+  })
+);
+
+const createPlaybackPreparedSchema = (
+  sceneSchema = LessonSceneSchema,
+  spokenMath = false,
+  fencedCode = false
+) => {
   const schema = z.object({
+    fencedCode: PlaybackFencedCodeSchema.optional(),
     spokenMath: PlaybackSpokenMathSchema.optional(),
     scene: sceneSchema.optional(),
     motion: z.array(
@@ -37,13 +54,19 @@ const createPlaybackPreparedSchema = (sceneSchema = LessonSceneSchema, spokenMat
       })
     ),
   });
-  // Rebuild historical definitions without the new field, retaining the common internal type.
-  return spokenMath
+  // Frozen definitions omit unsupported fields while retaining the shared internal type.
+  if (!spokenMath)
+    return z.object({ scene: schema.shape.scene, motion: schema.shape.motion }) as typeof schema;
+  return fencedCode
     ? schema
-    : (z.object({ scene: schema.shape.scene, motion: schema.shape.motion }) as typeof schema);
+    : (z.object({
+        spokenMath: schema.shape.spokenMath,
+        scene: schema.shape.scene,
+        motion: schema.shape.motion,
+      }) as typeof schema);
 };
 
-export const PlaybackPreparedSchema = createPlaybackPreparedSchema(LessonSceneSchema, true);
+export const PlaybackPreparedSchema = createPlaybackPreparedSchema(LessonSceneSchema, true, true);
 
 export const PlaybackAudioSchema = z.object({
   model: z.string().min(1),
@@ -54,21 +77,33 @@ export const PlaybackAudioSchema = z.object({
 
 export const createLessonPlaybackBlockSchema = (
   sceneSchema = LessonSceneSchema,
-  spokenMath = false
+  spokenMath = false,
+  fencedCode = false
 ) => {
   const spanSchema = z.object({
+    fencedCode: z
+      .object({ visualIndex: z.number().int().nonnegative(), markdown: z.string() })
+      .optional(),
     math: z.string().min(1).optional(),
     speech: PlaybackRangeSchema,
     sourceBlockIndex: z.number().int().nonnegative(),
     source: PlaybackRangeSchema,
   });
+  const mathSpanSchema = fencedCode
+    ? spanSchema
+    : (z.object({
+        math: spanSchema.shape.math,
+        speech: spanSchema.shape.speech,
+        sourceBlockIndex: spanSchema.shape.sourceBlockIndex,
+        source: spanSchema.shape.source,
+      }) as typeof spanSchema);
   return z.object({
     id: z.string().min(1),
     heading: z.string(),
     speech: z.string(),
     spans: z.array(
       spokenMath
-        ? spanSchema
+        ? mathSpanSchema
         : (z.object({
             speech: spanSchema.shape.speech,
             sourceBlockIndex: spanSchema.shape.sourceBlockIndex,
@@ -82,12 +117,16 @@ export const createLessonPlaybackBlockSchema = (
         z.object({ kind: z.literal('scene'), scene: sceneSchema }),
       ])
     ),
-    prepared: createPlaybackPreparedSchema(sceneSchema, spokenMath).optional(),
+    prepared: createPlaybackPreparedSchema(sceneSchema, spokenMath, fencedCode).optional(),
     audio: z.array(PlaybackAudioSchema),
   });
 };
 
-export const LessonPlaybackBlockSchema = createLessonPlaybackBlockSchema(LessonSceneSchema, true);
+export const LessonPlaybackBlockSchema = createLessonPlaybackBlockSchema(
+  LessonSceneSchema,
+  true,
+  true
+);
 
 const LessonPlaybackSchema = z.object({
   version: z.literal(1),
@@ -101,6 +140,7 @@ export const isValidLessonPlayback = (value: unknown): value is LessonPlayback =
   if (!parsed.success) return false;
   try {
     for (const block of parsed.data.blocks) {
+      if (block.prepared?.fencedCode) validatePlaybackFencedCode(block, block.prepared.fencedCode);
       if (block.prepared?.spokenMath) validatePlaybackSpokenMath(block, block.prepared.spokenMath);
     }
   } catch {

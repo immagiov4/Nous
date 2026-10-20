@@ -1,8 +1,10 @@
+import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
 import type { ProjectAssetRef } from '@shared/projectAsset';
 import {
   createProjectBackupArchive,
   decodeProjectBackupArchive,
   inspectProjectBackupArchive,
+  PROJECT_BACKUP_MANIFEST_PATH,
   PROJECT_BACKUP_MAX_ENTRIES,
   PROJECT_BACKUP_MAX_MANIFEST_BYTES,
   PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
@@ -13,9 +15,11 @@ import {
   type DecodedProjectSnapshotWire,
   decodeProjectSnapshotWire,
 } from '@shared/projectSnapshotWire';
+import { DEFAULT_MAX_ZIP_ENTRY_NAME_CHARS, isSafeZipEntryPath } from '@shared/zipSafety';
 
 import type { FileData, ProjectSnapshot } from '../../types.ts';
 import { exportProjectData } from './projectSnapshot.ts';
+import { readZipDirectory, readZipEntryArchive } from './zipDirectory.ts';
 
 const PROJECT_ARCHIVE_MIME_TYPE = 'application/zip';
 const INVALID_BACKUP_ARCHIVE_MESSAGE =
@@ -80,10 +84,30 @@ export const inspectProjectArchiveData = async (
 };
 
 export const isProjectArchiveFile = async (file: Blob): Promise<boolean> => {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (!isZipArchive(bytes)) return false;
   try {
-    await inspectArchiveManifest(bytes);
+    if (!(await hasZipFileSignature(file))) return false;
+    const entries = await readZipDirectory(file, {
+      includeRecords: true,
+      maxEntries: PROJECT_BACKUP_MAX_ENTRIES,
+    });
+    if (
+      entries.some(
+        entry =>
+          !isSafeZipEntryPath(entry.name) || entry.name.length > DEFAULT_MAX_ZIP_ENTRY_NAME_CHARS
+      ) ||
+      entries.reduce((total, entry) => total + entry.byteSize, 0) >
+        PROJECT_BACKUP_MAX_MANIFEST_BYTES + PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES
+    )
+      return false;
+    const manifest = entries.find(entry => entry.name === PROJECT_BACKUP_MANIFEST_PATH);
+    if (
+      !manifest?.record ||
+      manifest.byteSize > PROJECT_BACKUP_MAX_MANIFEST_BYTES ||
+      manifest.compressedSize > COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes
+    )
+      return false;
+    const manifestArchive = await readZipEntryArchive(file, manifest);
+    await inspectArchiveManifest(new Uint8Array(await manifestArchive.arrayBuffer()));
     return true;
   } catch {
     return false;

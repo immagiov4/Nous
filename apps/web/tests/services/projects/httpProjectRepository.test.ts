@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { PROJECT_API_ERROR_CODE, PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
 import { decodeProjectSnapshotWire } from '@shared/projectSnapshotWire';
+import { SOURCE_TRANSFER_LIMITS } from '@shared/sourceTransfer';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { setRenderingLocaleOverride } from '../../../i18n/uiMessages.ts';
 import { clearSupabaseSession, saveSupabaseSession } from '../../../services/auth/supabaseAuth.ts';
-
 import {
   buildCourseSourceDescriptors,
   createProjectSourceFromDescriptors,
@@ -25,6 +25,7 @@ import {
   normalizeStoredProject,
 } from '../../../services/projects/projectSnapshot.ts';
 import { AppState, type ProjectSnapshot } from '../../../types.ts';
+import { createDeferred } from '../../helpers/deferred.ts';
 
 const fetchMock = vi.fn();
 
@@ -63,22 +64,23 @@ const buildPdfSnapshot = (): ProjectSnapshot => ({
   documentIndex: null,
 });
 
-const withStoredArchiveReference = (snapshot: ProjectSnapshot): ProjectSnapshot => {
-  if (snapshot.source?.kind !== 'archive') throw new Error('Expected an archive source.');
-  return {
-    ...snapshot,
-    source: {
-      ...snapshot.source,
+const withStoredSourceReferences = (snapshot: ProjectSnapshot): ProjectSnapshot => {
+  const descriptors = snapshot.source?.sources;
+  assert(descriptors?.length);
+  const source = createProjectSourceFromDescriptors(
+    descriptors.map(descriptor => ({
+      ...descriptor,
       ref: {
-        byteSize: 1,
-        hash: 'archive-hash',
-        id: 'source-archive',
-        mimeType: snapshot.source.file.mimeType,
-        name: snapshot.source.file.name,
-        objectPath: 'users/user/projects/archive/source-archive/archive-hash/original',
+        id: descriptor.id,
+        name: descriptor.name,
+        mimeType: descriptor.file.mimeType,
+        hash: descriptor.hash,
+        byteSize: 16_000_001,
+        objectPath: `stored/${descriptor.id}`,
       },
-    },
-  };
+    }))
+  );
+  return { ...snapshot, source: { ...source, ref: source.sources?.[0]?.ref } };
 };
 
 test('HttpProjectRepository sends the Supabase bearer token to the backend', async () => {
@@ -228,42 +230,49 @@ test('HttpProjectRepository preserves a non-JSON proxy 413 response', async () =
   });
 });
 
-test('HttpProjectRepository preserves structured warnings for an unusable archive', async () => {
+test('HttpProjectRepository preserves named preparation failures from the asynchronous job', async () => {
   setRenderingLocaleOverride('it');
-  fetchMock.mockResolvedValueOnce(
-    new Response(
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/config'))
+      return new Response(
+        JSON.stringify({
+          success: true,
+          config: {
+            import: {
+              directMaxBytes: 20_000_000,
+              maxChunkBytes: 16_000_000,
+              maxChunkCount: 32,
+              maxSerializedBytes: 280_000_000,
+              requestTimeoutMs: 120_000,
+            },
+          },
+        })
+      );
+    if (init?.method === 'PUT')
+      return new Response(JSON.stringify({ success: true }), { status: 202 });
+    if (url.endsWith('/complete'))
+      return new Response(JSON.stringify({ success: true, uploadStatus: 'finalizing' }), {
+        status: 202,
+      });
+    return new Response(
       JSON.stringify({
-        code: PROJECT_API_ERROR_CODE.sourceArchiveUnusable,
-        error: 'L’archivio non contiene alcun testo utilizzabile.',
-        sourceWarnings: [
-          { path: 'scans/a.pdf', reason: 'no-usable-text' },
-          { path: 'broken/b.pdf', reason: 'parser-failed' },
-        ],
         success: false,
+        code: 'SOURCE_PREPARATION_UNUSABLE',
+        sourceWarnings: [
+          { name: 'scans/a.pdf', reason: 'no-usable-text' },
+          { name: 'broken/b.pdf', reason: 'parser-failed' },
+        ],
       }),
-      { headers: { 'Content-Type': 'application/json' }, status: 422 }
-    )
-  );
-  const snapshot: ProjectSnapshot = {
-    ...buildPdfSnapshot(),
-    id: 'unusable-archive',
-    sourceKind: 'codebase',
-    source: {
-      file: { data: '', mimeType: 'application/zip', name: 'scans.zip' },
-      index: { entries: [] },
-      kind: 'archive',
-      name: 'scans.zip',
-    },
-  };
-  const repository = new HttpProjectRepository('http://localhost:3301');
-
+      { status: 422 }
+    );
+  });
   await expect(
-    repository.saveProject(snapshot, {
-      archiveFile: new File(['PK archive'], 'scans.zip', { type: 'application/zip' }),
+    new HttpProjectRepository('http://localhost:3301').saveProject(buildPdfSnapshot(), {
+      sourceFiles: [new File(['synthetic source'], 'dispensa.pdf', { type: 'application/pdf' })],
     })
   ).rejects.toMatchObject({
-    code: 'source-archive-unusable',
-    message: 'L’archivio non contiene alcun testo utilizzabile.',
+    code: 'source-preparation-failed',
+    message: 'Nessuna delle fonti contiene testo utilizzabile.',
     sourceWarnings: [
       expect.objectContaining({ name: 'scans/a.pdf', reason: 'no-usable-text' }),
       expect.objectContaining({ name: 'broken/b.pdf', reason: 'parser-failed' }),
@@ -359,7 +368,7 @@ test('HttpProjectRepository does not retry a non-JSON proxy 413 during chunk upl
   });
 
   const uploadCalls = fetchMock.mock.calls.filter(call =>
-    /\/api\/projects\/import\/chunks\/[^/]+\/0\?chunkCount=1$/u.test(String(call[0]))
+    /\/api\/projects\/import\/chunks\/[^/]+\/0\?chunkCount=1$/u.test(call[0] as string)
   );
   expect(uploadCalls).toHaveLength(1);
 });
@@ -376,87 +385,6 @@ test('HttpProjectRepository reports request timeouts without claiming the backen
       error.message ===
         'La sincronizzazione sta impiegando troppo tempo. Il backend è raggiungibile, ma non ha completato la richiesta.'
   );
-});
-
-test('HttpProjectRepository gives archive saves enough time to upload and index large sources', async () => {
-  vi.useFakeTimers();
-  let resolveFetch: ((response: unknown) => void) | undefined;
-  fetchMock
-    .mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        success: true,
-        config: {
-          import: {
-            directMaxBytes: 20_000_000,
-            maxChunkBytes: 16_000_000,
-            maxChunkCount: 32,
-            maxSerializedBytes: 280_000_000,
-            requestTimeoutMs: 120_000,
-          },
-        },
-      }),
-    })
-    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ success: true }) })
-    .mockImplementationOnce(
-      (_url: string, init: RequestInit) =>
-        new Promise(resolve => {
-          resolveFetch = resolve;
-          expect(init.signal?.aborted).toBe(false);
-        })
-    );
-  const repository = new HttpProjectRepository('http://localhost:3301');
-  const snapshot: ProjectSnapshot = {
-    ...buildPdfSnapshot(),
-    id: 'large-archive-project',
-    sourceKind: 'codebase',
-    source: {
-      file: {
-        data: '',
-        mimeType: 'application/zip',
-        name: 'engine.zip',
-      },
-      index: { entries: [] },
-      kind: 'archive',
-      name: 'engine.zip',
-    },
-  };
-  const archiveFile = new File(['PK large archive'], 'engine.zip', {
-    type: 'application/zip',
-  });
-
-  const savePromise = repository.saveProject(snapshot, { archiveFile });
-  await vi.advanceTimersByTimeAsync(0);
-  await vi.advanceTimersByTimeAsync(15_001);
-
-  const requestInit = fetchMock.mock.calls[2]?.[1] as RequestInit | undefined;
-  expect(requestInit?.signal?.aborted).toBe(false);
-
-  resolveFetch?.({
-    ok: true,
-    status: 200,
-    json: async () => ({
-      success: true,
-      meta: {
-        id: snapshot.id,
-        title: 'Engine',
-        sourceKind: 'codebase',
-        createdAt: snapshot.createdAt,
-        updatedAt: snapshot.updatedAt,
-        lastOpenedAt: snapshot.lastOpenedAt,
-        lessonCount: 0,
-        completedCount: 0,
-        exerciseCount: 0,
-        completedExercises: 0,
-        hasSourceFile: true,
-        coverLabel: 'engine.zip',
-      },
-      snapshot: withStoredArchiveReference(snapshot),
-    }),
-  });
-  await savePromise;
-  vi.useRealTimers();
 });
 
 test('HttpProjectRepository refreshes once and retries a backend 401', async () => {
@@ -691,116 +619,16 @@ test('HttpProjectRepository sends every document source in the atomic project PU
   expect(() => decodeProjectSnapshotWire(savedSnapshot)).not.toThrow();
 });
 
-test('HttpProjectRepository uses the status-backed upload flow for a single-chunk archive', async () => {
-  const detachedArchiveSource = {
-    file: {
-      data: '',
-      mimeType: 'application/zip',
-      name: 'engine.zip',
-    },
-    index: { entries: [] },
-    kind: 'archive' as const,
-    name: 'engine.zip',
-    ref: {
-      byteSize: 5,
-      hash: 'archive-hash',
-      id: 'source-archive',
-      mimeType: 'application/zip',
-      name: 'engine.zip',
-      objectPath: 'users/user/projects/archive/source-archive/archive-hash/original',
-    },
-  };
-  fetchMock
-    .mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        success: true,
-        config: {
-          import: {
-            directMaxBytes: 20_000_000,
-            maxChunkBytes: 16_000_000,
-            maxChunkCount: 32,
-            maxSerializedBytes: 280_000_000,
-            requestTimeoutMs: 120_000,
-          },
-        },
-      }),
-    })
-    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ success: true }) })
-    .mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        success: true,
-        meta: { id: 'archive-project' },
-        snapshot: {
-          ...buildPdfSnapshot(),
-          id: 'archive-project',
-          source: detachedArchiveSource,
-          sourceKind: 'codebase',
-        },
-      }),
-    });
-  const repository = new HttpProjectRepository('http://localhost:3301');
+test('HttpProjectRepository preserves the expected revision when saving chunked sources', async () => {
+  const file = new File(['x'.repeat(16_000_001)], 'lesson.txt', { type: 'text/plain' });
   const snapshot: ProjectSnapshot = {
     ...buildPdfSnapshot(),
-    id: 'archive-project',
-    sourceKind: 'codebase',
-    source: {
-      file: {
-        data: '',
-        mimeType: 'application/zip',
-        name: 'engine.zip',
-      },
-      index: { entries: [] },
-      kind: 'archive',
-      name: 'engine.zip',
-    },
+    id: 'chunked-source',
+    source: createProjectSourceFromDescriptors(
+      buildCourseSourceDescriptors([{ name: file.name, mimeType: file.type, data: '' }])
+    ),
   };
-  const archiveFile = new File(['PK binary archive'], 'engine.zip', {
-    type: 'application/zip',
-  });
 
-  const saved = await repository.saveProject(snapshot, { archiveFile });
-
-  expect(fetchMock).toHaveBeenCalledTimes(3);
-  const chunkRequest = fetchMock.mock.calls[1];
-  expect(String(chunkRequest?.[0])).toMatch(
-    /\/api\/projects\/import\/chunks\/.+\/0\?chunkCount=1$/u
-  );
-  expect(chunkRequest?.[1]?.body).toBeInstanceOf(Blob);
-  expect(await (chunkRequest?.[1]?.body as Blob).text()).toBe(await archiveFile.text());
-  expect(new Headers(chunkRequest?.[1]?.headers).get('Content-Type')).toBe(
-    'application/octet-stream'
-  );
-  const completionBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
-  expect(completionBody.snapshot.source).toEqual({
-    file: {
-      data: '',
-      mimeType: 'application/zip',
-      name: 'engine.zip',
-    },
-    index: { entries: [] },
-    kind: 'archive',
-    name: 'engine.zip',
-  });
-  expect(completionBody.payloadKind).toBe(PROJECT_IMPORT_BINARY_KIND.sourceArchive);
-  expect(saved.snapshot.source).toEqual(detachedArchiveSource);
-});
-
-test('HttpProjectRepository preserves the expected revision when saving chunked archives', async () => {
-  const snapshot: ProjectSnapshot = {
-    ...buildPdfSnapshot(),
-    id: 'chunked-archive',
-    sourceKind: 'codebase',
-    source: {
-      file: { data: '', mimeType: 'application/zip', name: 'engine.zip' },
-      index: { entries: [] },
-      kind: 'archive',
-      name: 'engine.zip',
-    },
-  };
   fetchMock
     .mockResolvedValueOnce({
       ok: true,
@@ -826,38 +654,36 @@ test('HttpProjectRepository preserves the expected revision when saving chunked 
       json: async () => ({
         success: true,
         meta: { id: snapshot.id },
-        snapshot: withStoredArchiveReference(snapshot),
+        snapshot: withStoredSourceReferences(snapshot),
       }),
     });
 
   await new HttpProjectRepository('http://localhost:3301').saveProject(snapshot, {
-    archiveFile: new File([new Uint8Array(16_000_001)], 'engine.zip', {
-      type: 'application/zip',
-    }),
+    sourceFiles: [file],
     expectedRevision: 7,
   });
 
   expect(fetchMock).toHaveBeenCalledTimes(4);
   expect(fetchMock.mock.calls.slice(1, 3).every(call => call[1]?.body instanceof Blob)).toBe(true);
   expect(
-    fetchMock.mock.calls.slice(1, 3).every(call => String(call[0]).includes('expectedRevision=7'))
+    fetchMock.mock.calls
+      .slice(1, 3)
+      .every(call => (call[0] as string).includes('expectedRevision=7'))
   ).toBe(true);
   expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/complete');
 });
 
-test('HttpProjectRepository recovers a completed chunked archive save after losing its response', async () => {
+test('HttpProjectRepository recovers a completed chunked source save after losing its response', async () => {
+  const file = new File(['x'.repeat(16_000_001)], 'lesson.txt', { type: 'text/plain' });
   const snapshot: ProjectSnapshot = {
     ...buildPdfSnapshot(),
-    id: 'chunked-archive',
-    sourceKind: 'codebase',
-    source: {
-      file: { data: '', mimeType: 'application/zip', name: 'engine.zip' },
-      index: { entries: [] },
-      kind: 'archive',
-      name: 'engine.zip',
-    },
+    id: 'chunked-source',
+    source: createProjectSourceFromDescriptors(
+      buildCourseSourceDescriptors([{ name: file.name, mimeType: file.type, data: '' }])
+    ),
   };
-  const storedSnapshot = withStoredArchiveReference(snapshot);
+
+  const storedSnapshot = withStoredSourceReferences(snapshot);
   fetchMock
     .mockResolvedValueOnce({
       ok: true,
@@ -880,7 +706,6 @@ test('HttpProjectRepository recovers a completed chunked archive save after losi
     .mockResolvedValueOnce(
       new Response('{', { headers: { 'Content-Type': 'application/json' }, status: 200 })
     )
-    .mockRejectedValueOnce(new TypeError('temporary network failure'))
     .mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -893,18 +718,58 @@ test('HttpProjectRepository recovers a completed chunked archive save after losi
     });
 
   const saved = await new HttpProjectRepository('http://localhost:3301').saveProject(snapshot, {
-    archiveFile: new File([new Uint8Array(16_000_001)], 'engine.zip', {
-      type: 'application/zip',
-    }),
+    sourceFiles: [file],
   });
 
   expect(saved.snapshot.source).toEqual(storedSnapshot.source);
   expect(saved.meta).toEqual({ id: snapshot.id });
-  expect(fetchMock).toHaveBeenCalledTimes(6);
+  expect(fetchMock).toHaveBeenCalledTimes(5);
   expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/complete');
   expect(String(fetchMock.mock.calls[4]?.[0])).not.toContain('/complete');
-  expect(String(fetchMock.mock.calls[5]?.[0])).not.toContain('/complete');
   expect(fetchMock.mock.calls.some(call => call[1]?.method === 'DELETE')).toBe(false);
+});
+
+test('HttpProjectRepository cancels a rejected source completion without polling it', async () => {
+  const files = [new File(['notes'], 'notes.txt', { type: 'text/plain' })];
+  const source = createProjectSourceFromDescriptors(
+    buildCourseSourceDescriptors([{ data: 'bm90ZXM=', mimeType: 'text/plain', name: 'notes.txt' }])
+  );
+  fetchMock
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        config: {
+          import: {
+            directMaxBytes: 16_000_000,
+            maxChunkBytes: 16_000_000,
+            maxChunkCount: 32,
+            maxSerializedBytes: 280_000_000,
+            requestTimeoutMs: 120_000,
+          },
+        },
+      }),
+    })
+    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ success: true }) })
+    .mockResolvedValueOnce(new Response('Too large', { status: 413 }))
+    .mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        complete: false,
+        uploadStatus: 'receiving',
+      }),
+    });
+  await expect(
+    new HttpProjectRepository('http://localhost:3301').saveProject(
+      { ...buildPdfSnapshot(), source },
+      { sourceFiles: files }
+    )
+  ).rejects.toMatchObject({ code: 'quota-exceeded' });
+  const calls = fetchMock.mock.calls.slice(3);
+  expect(calls).toHaveLength(1);
+  expect(calls[0][1].method).toBe('DELETE');
 });
 
 test('HttpProjectRepository does not fall back to Base64 JSON for archives', async () => {
@@ -1201,14 +1066,14 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
 
   expect(fetchMock.mock.calls.length).toBeGreaterThan(2);
   const chunkCalls = fetchMock.mock.calls.filter(call =>
-    /\/chunks\/[^/]+\/\d+\?chunkCount=\d+$/u.test(String(call[0]))
+    /\/chunks\/[^/]+\/\d+\?chunkCount=\d+$/u.test(call[0] as string)
   );
   const completionCalls = fetchMock.mock.calls.filter(call =>
-    String(call[0]).includes('/complete')
+    (call[0] as string).includes('/complete')
   );
   const requests = chunkCalls.map((call: unknown[]) => ({
-    url: String(call[0]),
-    chunk: String((call[1] as RequestInit).body),
+    url: call[0] as string,
+    chunk: (call[1] as RequestInit).body as string,
   }));
   expect(requests.map(request => Number(/\/chunks\/[^/]+\/(\d+)/u.exec(request.url)?.[1]))).toEqual(
     requests.map((_, index) => index)
@@ -1228,7 +1093,7 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
   }
   expect(requests.map(request => request.chunk).join('')).toBe(JSON.stringify(largeImport));
   expect(completionCalls).toHaveLength(2);
-  expect(new Set(completionCalls.map(call => String(call[0]))).size).toBe(1);
+  expect(new Set(completionCalls.map(call => call[0] as string)).size).toBe(1);
   expect(String(completionCalls[0]?.[0])).toMatch(/\/api\/projects\/import\/chunks\/.+\/complete$/);
 });
 
@@ -1284,4 +1149,392 @@ test('subscribeToProjectRevisionStream requests catch-up on the first successful
 
   await vi.waitFor(() => expect(requestCatchUp).toHaveBeenCalledOnce());
   unsubscribe();
+});
+
+test('uploads all 30 sources in bounded binary requests and publishes metadata once', async () => {
+  const files = Array.from(
+    { length: 30 },
+    (_, index) =>
+      new File([`lesson-${index}`], `lesson-${index.toString().padStart(2, '0')}.txt`, {
+        type: 'text/plain',
+      })
+  );
+  const descriptors = buildCourseSourceDescriptors(
+    files.map((file, index) => ({
+      name: file.name,
+      mimeType: file.type,
+      data: Buffer.from(`lesson-${index}`).toString('base64'),
+    }))
+  );
+  const source = createProjectSourceFromDescriptors(descriptors);
+  for (const descriptor of descriptors) descriptor.file.data = '';
+  const snapshot = { ...buildPdfSnapshot(), source };
+  const bodies: Blob[] = [];
+  const completions: Record<string, unknown>[] = [];
+  const storedSource = createProjectSourceFromDescriptors(
+    descriptors.map(descriptor => ({
+      ...descriptor,
+      ref: {
+        id: descriptor.id,
+        name: descriptor.name,
+        mimeType: descriptor.file.mimeType,
+        hash: descriptor.hash,
+        byteSize: 8,
+        objectPath: `stored/${descriptor.id}`,
+      },
+    }))
+  );
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/api/projects/config'))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          config: {
+            import: {
+              directMaxBytes: 20,
+              maxChunkBytes: 27,
+              maxChunkCount: 32,
+              maxSerializedBytes: 280,
+              requestTimeoutMs: 120000,
+            },
+          },
+        }),
+      };
+    if (init?.method === 'PUT') {
+      bodies.push(init.body as Blob);
+      return { ok: true, status: 202, json: async () => ({ success: true }) };
+    }
+    if (init?.method === 'POST' && url.endsWith('/complete')) {
+      completions.push(JSON.parse(init.body as string));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          meta: { id: snapshot.id, revision: 1 },
+          snapshot: {
+            ...snapshot,
+            source: { ...storedSource, ref: storedSource.sources?.[0]?.ref },
+          },
+        }),
+      };
+    }
+    throw new Error(`Unexpected request ${url}`);
+  });
+  const saved = await new HttpProjectRepository('http://localhost:3301').saveProject(snapshot, {
+    sourceFiles: files,
+  });
+  expect(completions[0]?.snapshot).toBeUndefined();
+  const metadataBytes = completions[0]?.metadataBytes as number;
+  expect(JSON.parse(await new Blob(bodies).slice(0, metadataBytes).text())).toMatchObject({
+    snapshot: {
+      id: snapshot.id,
+      source: {
+        sources: descriptors.map(descriptor => ({
+          id: descriptor.id,
+        })),
+      },
+    },
+    sourceFiles: descriptors.map(descriptor => ({ id: descriptor.id, name: descriptor.name })),
+  });
+  const metadata = JSON.parse(await new Blob(bodies).slice(0, metadataBytes).text());
+  for (const descriptor of metadata.snapshot.source.sources)
+    expect(descriptor).not.toHaveProperty('documentIndex');
+  expect(await new Blob(bodies).slice(metadataBytes).text()).toBe(
+    (await Promise.all(files.map(file => file.text()))).join('')
+  );
+  expect(bodies.every(body => body.size <= 27)).toBe(true);
+  expect(completions).toHaveLength(1);
+  expect(completions[0]).toMatchObject({
+    payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceSet,
+  });
+  expect(saved.snapshot.source?.sources).toHaveLength(30);
+});
+
+test('source preparation reports interruption after an accepted job disappears on backend restart', async () => {
+  setRenderingLocaleOverride('it');
+  const file = new File(['synthetic text'], 'lesson.txt', { type: 'text/plain' });
+  const descriptors = buildCourseSourceDescriptors([
+    { data: '', name: file.name, mimeType: file.type },
+  ]);
+  const snapshot = {
+    ...buildPdfSnapshot(),
+    source: createProjectSourceFromDescriptors(descriptors),
+  };
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url.endsWith('/config'))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          config: {
+            import: {
+              directMaxBytes: 20_000_000,
+              maxChunkBytes: 16_000_000,
+              maxChunkCount: 32,
+              maxSerializedBytes: 280_000_000,
+              requestTimeoutMs: 120_000,
+            },
+          },
+        }),
+      };
+    if (url.includes('?chunkCount='))
+      return { ok: true, status: 202, json: async () => ({ success: true }) };
+    if (url.endsWith('/complete'))
+      return {
+        ok: true,
+        status: 202,
+        json: async () => ({ success: true, uploadStatus: 'finalizing' }),
+      };
+    return { ok: false, status: 404, json: async () => ({ success: false }) };
+  });
+  await expect(
+    new HttpProjectRepository('http://localhost:3301').saveProject(snapshot, {
+      sourceFiles: [file],
+    })
+  ).rejects.toMatchObject({
+    code: 'source-preparation-interrupted',
+    message: 'La preparazione delle fonti è stata interrotta. Riprova il caricamento.',
+  });
+});
+
+test('cancellation stops further source upload parts and deletes the receiving session', async () => {
+  const controller = new AbortController();
+  let parts = 0;
+  let deletes = 0;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/config'))
+      return new Response(
+        JSON.stringify({
+          success: true,
+          config: {
+            import: {
+              maxChunkBytes: 32,
+              maxChunkCount: 32,
+              maxSerializedBytes: 280,
+              requestTimeoutMs: 120000,
+              directMaxBytes: 20,
+            },
+          },
+        })
+      );
+    if (init?.method === 'DELETE') {
+      deletes++;
+      return new Response(JSON.stringify({ success: true }));
+    }
+    if (init?.method === 'PUT') {
+      parts++;
+      controller.abort();
+      return new Response(JSON.stringify({ success: true }), { status: 202 });
+    }
+    throw new Error('Unexpected request after cancellation');
+  });
+  await expect(
+    new HttpProjectRepository('http://localhost:3301').saveProject(buildPdfSnapshot(), {
+      sourceFiles: [new File(['synthetic notes'], 'notes.txt', { type: 'text/plain' })],
+      signal: controller.signal,
+    })
+  ).rejects.toBeDefined();
+  expect(parts).toBe(1);
+  expect(deletes).toBe(1);
+});
+
+test('cancellation waits for accepted source work to settle before returning to draft cleanup', async () => {
+  const controller = new AbortController();
+  const deleted = createDeferred();
+  const stop = createDeferred();
+  let settled = false;
+  let cancellationPolls = 0;
+  let deleting = false;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/config'))
+      return new Response(
+        JSON.stringify({
+          success: true,
+          config: {
+            import: {
+              maxChunkBytes: 16_000_000,
+              maxChunkCount: 32,
+              maxSerializedBytes: 280_000_000,
+              requestTimeoutMs: 120000,
+              directMaxBytes: 20_000_000,
+            },
+          },
+        })
+      );
+    if (init?.method === 'PUT')
+      return new Response(JSON.stringify({ success: true }), { status: 202 });
+    if (url.endsWith('/complete')) {
+      controller.abort();
+      throw new DOMException('Aborted', 'AbortError');
+    }
+    if (init?.method === 'DELETE') {
+      deleting = true;
+      deleted.resolve();
+      return new Response(JSON.stringify({ success: true, uploadStatus: 'finalizing' }), {
+        status: 202,
+      });
+    }
+    if (deleting) {
+      cancellationPolls++;
+      await stop.promise;
+      return new Response(
+        JSON.stringify({ success: false, code: 'SOURCE_PREPARATION_CANCELLED' }),
+        { status: 409 }
+      );
+    }
+    throw new Error('Unexpected request');
+  });
+  const saving = new HttpProjectRepository('http://localhost:3301')
+    .saveProject(buildPdfSnapshot(), {
+      sourceFiles: [new File(['notes'], 'notes.txt', { type: 'text/plain' })],
+      signal: controller.signal,
+    })
+    .catch(error => {
+      settled = true;
+      return error;
+    });
+  try {
+    await deleted.promise;
+    await expect.poll(() => cancellationPolls).toBe(1);
+    expect(settled).toBe(false);
+  } finally {
+    stop.resolve();
+    await saving;
+  }
+  expect(settled).toBe(true);
+});
+
+test('source parts keep the approved request deadline beyond the ordinary 15-second save window', async () => {
+  vi.useFakeTimers();
+  const started = createDeferred();
+  const finish = createDeferred();
+  let observed: AbortSignal | undefined;
+  const snapshot = buildPdfSnapshot();
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/config'))
+      return new Response(
+        JSON.stringify({
+          success: true,
+          config: {
+            import: {
+              maxChunkBytes: 16_000_000,
+              maxChunkCount: 32,
+              maxSerializedBytes: 280_000_000,
+              requestTimeoutMs: 120000,
+              directMaxBytes: 20_000_000,
+            },
+          },
+        })
+      );
+    if (init?.method === 'PUT') {
+      observed = init.signal ?? undefined;
+      started.resolve();
+      await finish.promise;
+      return new Response(JSON.stringify({ success: true }), { status: 202 });
+    }
+    return new Response(
+      JSON.stringify({ success: true, complete: true, meta: { id: snapshot.id }, snapshot })
+    );
+  });
+  const saving = new HttpProjectRepository('http://localhost:3301').saveProject(snapshot, {
+    sourceFiles: [new File(['notes'], 'notes.txt', { type: 'text/plain' })],
+  });
+  try {
+    await started.promise;
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(observed?.aborted).toBe(false);
+  } finally {
+    finish.resolve();
+    await saving;
+    vi.useRealTimers();
+  }
+});
+
+test('cancellation releases the client when finalizing outlives the existing request deadline', async () => {
+  vi.useFakeTimers();
+  const controller = new AbortController();
+  const deleted = createDeferred();
+  let settled = false;
+  let cancellationPolls = 0;
+  let deleting = false;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/config'))
+      return new Response(
+        JSON.stringify({
+          success: true,
+          config: {
+            import: {
+              maxChunkBytes: 16_000_000,
+              maxChunkCount: 32,
+              maxSerializedBytes: 280_000_000,
+              requestTimeoutMs: 120000,
+              directMaxBytes: 20_000_000,
+            },
+          },
+        })
+      );
+    if (init?.method === 'PUT')
+      return new Response(JSON.stringify({ success: true }), { status: 202 });
+    if (url.endsWith('/complete')) {
+      controller.abort();
+      throw new DOMException('Aborted', 'AbortError');
+    }
+    if (init?.method === 'DELETE') {
+      deleting = true;
+      deleted.resolve();
+      return new Response(JSON.stringify({ success: true, uploadStatus: 'finalizing' }), {
+        status: 202,
+      });
+    }
+    if (deleting) {
+      cancellationPolls++;
+      if (!settled)
+        return new Response(JSON.stringify({ success: true, uploadStatus: 'finalizing' }));
+      return new Response(
+        JSON.stringify({ success: false, code: 'SOURCE_PREPARATION_CANCELLED' }),
+        { status: 409 }
+      );
+    }
+    throw new Error('Unexpected request');
+  });
+  const saving = new HttpProjectRepository('http://localhost:3301')
+    .saveProject(buildPdfSnapshot(), {
+      sourceFiles: [new File(['notes'], 'notes.txt', { type: 'text/plain' })],
+      signal: controller.signal,
+    })
+    .catch(error => {
+      settled = true;
+      return error;
+    });
+  try {
+    await deleted.promise;
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(cancellationPolls).toBeGreaterThan(0);
+    expect(settled).toBe(true);
+  } finally {
+    settled = true;
+    await vi.runOnlyPendingTimersAsync();
+    await saving;
+    vi.useRealTimers();
+  }
+  expect(settled).toBe(true);
+});
+
+test('rejects oversized source metadata before starting any transfer', async () => {
+  setRenderingLocaleOverride('it');
+  const snapshot = buildPdfSnapshot();
+  snapshot.title = 'x'.repeat(SOURCE_TRANSFER_LIMITS.maxPartBytes);
+  await expect(
+    new HttpProjectRepository('http://localhost:3301').saveProject(snapshot, {
+      sourceFiles: [new File(['notes'], 'notes.txt', { type: 'text/plain' })],
+    })
+  ).rejects.toMatchObject({
+    code: 'source-preparation-failed',
+    message: 'I metadati delle fonti superano il limite di caricamento.',
+  });
+  expect(fetchMock).not.toHaveBeenCalled();
 });

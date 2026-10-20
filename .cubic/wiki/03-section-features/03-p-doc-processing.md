@@ -31,7 +31,7 @@ The core of the document processing system is the `extractPdfText` function, whi
 ### Multi-Stage Parsing
 1.  **pdftotext**: The primary parser. It is invoked via a sub-process with `-layout` flags to preserve the original visual structure, which is critical for table and column detection.
 2.  **pdf-parse**: A secondary fallback parser utilized if `pdftotext` is missing from the environment or fails to produce output.
-3.  **Fallback Process**: For memory safety and isolation, `pdf-parse` is often run in a dedicated Node.js sub-process (`pdfTextFallbackProcess.mjs`) with strict memory limits (`--max-old-space-size`).
+3.  **Fallback Process**: For memory safety and isolation, `pdf-parse` is often run in a dedicated Node.js sub-process (`pdfTextFallbackProcess.mjs`) with strict memory limits (`--max-old-space-size`). The worker sends UTF-8 JSON so Bun and Node share the same protocol, including mathematical Unicode.
 
 Sources: [apps/backend/src/services/pdfTextExtractor.ts:326-373](../../../apps/backend/src/services/pdfTextExtractor.ts#L326-L373), [apps/backend/src/services/pdfTextExtractor.ts:149-198](../../../apps/backend/src/services/pdfTextExtractor.ts#L149-L198)
 
@@ -58,7 +58,7 @@ Sources: [apps/backend/src/services/pdfTextExtractor.ts:375-395](../../../apps/b
 | `maxOutputBytes` | Variable | Caps the total text volume to prevent heap exhaustion. |
 | `pdftotextTimeoutMs` | 15,000ms (Archive) | Max time allowed for the primary OS-level parser. |
 | `fallbackTimeoutMs` | 15,000ms (Archive) | Max time for the isolated Node.js fallback process. |
-| `max-old-space-size` | ~272MB (Typical) | Memory limit for the fallback sub-process. |
+| `max-old-space-size` | Derived from input and output budgets | Memory limit for the fallback sub-process. |
 
 Sources: [apps/backend/tests/projects/sourceArchive.test.ts:114-120](../../../apps/backend/tests/projects/sourceArchive.test.ts#L114-L120), [apps/backend/tests/services/pdfTextExtractor.test.ts:86-90](../../../apps/backend/tests/services/pdfTextExtractor.test.ts#L86-L90)
 
@@ -75,7 +75,9 @@ Sources: [apps/backend/src/services/pdfImageExtractor.ts:7-22](../../../apps/bac
 
 ### Optional Figure Captions
 
-The lesson document stage stores extracted figure bytes before requesting optional Italian captions. For OpenRouter, `pdfImageCaption.ts` defaults to the image-capable `google/gemini-3.1-flash-lite` route; `MODEL_PDF_IMAGE_CAPTION` can override it. The former `nvidia/nemotron-nano-12b-v2-vl` route returned HTTP 404 with no available endpoints. Caption failures remain optional and do not remove stored figures. Codex captions use the configured lesson model through the research provider slot.
+Browser PDF admission, source indexing and initial assessment use `getPdfTextSession` and `/api/pdf/extract-text`. Figure extraction and captioning happen in the backend lesson document stage.
+
+The lesson document stage stores extracted figure bytes before requesting optional Italian captions. For OpenRouter, `pdfImageCaption.ts` defaults to the image-capable `google/gemini-3.1-flash-lite` route; `MODEL_PDF_IMAGE_CAPTION` can override it. Caption failures remain optional and do not remove stored figures. Codex captions use the configured lesson model through the research provider slot.
 
 ### Spatial Context Reconstruction
 The `buildLocalImageTextContext` function analyzes the `centerY` coordinates of text lines relative to the bounding box of the extracted image.
@@ -105,33 +107,41 @@ Sources: [packages/shared-types/pdfTextIndex.ts:118-136](../../../packages/share
 
 ## Source Archive Preparation
 
-For `codebase` projects, the system processes ZIP archives. This involves a high-intensity "Admission" phase to prevent server overload.
+New courses use one source-ingestion module for separate files and ZIPs. Its browser interface, `ingestSources({ inputs, destination, signal, onProgress })`, hides expansion, transport and preparation. ZIP members are streamed one at a time into browser-private filesystem files, validated against their declared size and CRC, and sent as individual files through the same transport used by separate uploads. The ZIP container stays in the browser. Existing saved archive projects retain their server-side reader.
 
 ```mermaid
-sequenceDiagram
-    participant User as User Service
-    participant Archive as SourceArchive Service
-    participant Extract as TextExtractor
-    
-    User->>Archive: indexSourceArchive(buffer)
-    Archive->>Archive: Validate path safety (no traversal)
-    Archive->>Archive: Check entry limits (max 16 PDFs)
-    loop For each PDF
-        Archive->>Extract: extractPdfText()
-    end
-    Archive->>Archive: Build directory tree
-    Archive-->>User: SourceArchiveIndex
+flowchart LR
+    Inputs[Files or ZIPs] --> Gateway[ingestSources]
+    Gateway --> Expand[Browser: expand ZIP members]
+    Expand --> Transfer[One chunked file-only transport]
+    Transfer --> Job[202 acceptance and status polling]
+    Job --> Prepare[Sequential per-file extraction and indexing]
+    Prepare --> Objects[Immutable per-file Storage objects]
+    Objects --> Publish[Atomic source-set publication]
+    Job --> Progress[Per-file and per-step progress]
 ```
 
-The sequence illustrates the validation and selective extraction of PDF content hidden within source code archives.
-Sources: [apps/backend/tests/projects/sourceArchive.test.ts:96-150](../../../apps/backend/tests/projects/sourceArchive.test.ts#L96-L150), [apps/backend/tests/projects/sourceArchive.test.ts:373-388](../../../apps/backend/tests/projects/sourceArchive.test.ts#L373-L388)
+The PDF step owns native extraction; the collection context is the internal seam for scanned-page detection and transcription. Text files use the shared deterministic Markdown outline and text-index implementation. Preparation retains text/index metadata while original bytes use one reusable per-file buffer. Originals stream to Storage as bounded ranges of the assembled upload, with one immutable object per file. Bun collects released buffers after each extraction and source-object transfer. The `/api/pdf` utility remains available to its other callers.
 
-### Safety Constraints
-*  **Path Validation**: Rejects traversal attacks (`../`), absolute paths, or duplicate entries.
-*  **Safety Limits**: Caps PDF processing to the first 16 eligible files or a cumulative 64MB budget per archive to prevent DoS.
-*  **Lexicographic Stability**: Archives are processed and indexed in a stable alphabetical order to ensure deterministic IDs.
+ZIP staging uses OPFS writable streams when available. Browsers without OPFS writable support stage each admitted member as a Blob under the same per-file and collection envelopes. Browsers without the required decompression/stream APIs show an action to extract the archive and attach its files separately. Duplicate member paths reject the selection with a named warning so distinct originals are not silently discarded.
 
-Sources: [apps/backend/tests/projects/sourceArchive.test.ts:241-260](../../../apps/backend/tests/projects/sourceArchive.test.ts#L241-L260), [apps/backend/tests/projects/sourceArchive.test.ts:291-305](../../../apps/backend/tests/projects/sourceArchive.test.ts#L291-L305)
+The metadata prefix is limited to the shared transfer-part byte budget, checked before backend file access and before the client starts transferring source bytes.
+
+### Transfer, jobs and resource limits
+
+| Resource | Contract |
+| --- | --- |
+| Source originals | 32,000,000 bytes per individual file, including ZIP members. The picker names known exclusions before transfer. Failed preparation retains each file name and reason. |
+| Collection | 1,000,000,000 bytes for transfer, including the metadata prefix, and for expanded ZIP content; at most 20,000 ZIP entries. The ZIP directory is read in bounded blocks, including ZIP64 ranges. |
+| Transport | Authenticated binary parts contain at most 16,000,000 bytes. The final request carries the metadata-prefix length and write options. Both the production HTTP adapter and the configurable loopback proxy use `sourceTransfer.ts` for the 100 MB body, approximately 100 s first-byte and 30 s origin-write model. Source requests use a 90 s deadline; long processing runs asynchronously. |
+| Job | The existing import-session owner, finalization queue and status route provide 202 acceptance, progress polling, replay and cancellation. A lost process-local job produces an explicit interrupted/retry state. Durable restart recovery remains part of #170. |
+| Temporary files | Compose mounts the disk-backed `source-staging` volume and sets `TMPDIR=/var/lib/nous/source-staging`. Parser subprocesses inherit it. Source admission rejects tmpfs/ramfs before accepting original bytes when that deployment configuration is missing. |
+| Object persistence | Originals are stored separately, within the per-file envelope and the production 200 MiB object ceiling. The ZIP container is not stored. Existing concurrency four and the 64,000,000-byte in-flight budget apply to active object transfers. |
+| PDF extraction | Native and isolated fallback stages retain their 15 s limits and the 64 MB text-output bound. The fallback heap derives from one file and its output budget. The 480 s archive deadline applies to the legacy archive preparer. |
+
+Publication preserves revision and ownership checks, retains existing source references during partial replacement, and exposes usable sources together with named failures. Temporary files and uncommitted objects belong to the existing cleanup owners. Backup recognition still reads bounded directory/manifest ranges; backup import/export decoding and publication remain separate and can adopt the same transport seam later.
+
+Sources: [browser module](../../../apps/web/services/projects/sourceIngestion.ts), [server module](../../../apps/backend/src/projects/sourceIngestion.ts), [job owner](../../../apps/backend/src/projects/projectImportChunks.ts), [transfer model](../../../packages/shared-types/sourceTransfer.ts), [fake proxy](../../../e2e/nous/fakeCloudflareProxy.ts), [project store](../../../apps/backend/src/projects/postgresProjectStore.ts), [staging admission](../../../apps/backend/src/projects/sourceStaging.ts).
 
 ## Data Structures
 

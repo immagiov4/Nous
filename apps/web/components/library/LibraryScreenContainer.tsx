@@ -14,6 +14,7 @@ import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
 import { setFeedbackProductContext } from '../../services/feedback/browserDiagnostics.ts';
 import { sortSourceFiles } from '../../services/projects/courseSources.ts';
+import { inspectSourceSelection } from '../../services/projects/sourceFileSelection.ts';
 import { formatSourceWarningSummary } from '../../services/projects/sourceWarningSummary.ts';
 import type { HomeChatMode, HomeChatToolPreferences } from '../../types.ts';
 import { type NewHomePage, NewHomeView } from '../newHome/NewHomeView.tsx';
@@ -114,6 +115,9 @@ export const LibraryScreenContainer = ({
   );
   const [pendingHomeSourceFiles, setPendingHomeSourceFiles] = useState<File[]>([]);
   const [isConfirmingCourse, setIsConfirmingCourse] = useState(false);
+  const [pendingFileWarnings, setPendingFileWarnings] = useState<string[]>([]);
+  const [isSourceSelectionPending, setIsSourceSelectionPending] = useState(false);
+  const sourceSelectionRequestRef = useRef(0);
   const isConfirmingCourseRef = useRef(false);
   const newCourseRequestTokenRef = useRef(0);
 
@@ -150,18 +154,31 @@ export const LibraryScreenContainer = ({
       event.target.value = '';
       return;
     }
-    const selectedFiles = sortSourceFiles(Array.from(event.target.files || []));
+    const input = event.target;
+    const selectedFiles = sortSourceFiles(Array.from(input.files || []));
+    const request = ++sourceSelectionRequestRef.current;
     setPendingHomeSourceFiles(selectedFiles);
-    if (selectedFiles.length > 0) {
-      setHomeChatMode('new-course');
-    }
-    if (event.target) {
-      event.target.value = '';
+    setPendingFileWarnings([]);
+    setIsSourceSelectionPending(true);
+    if (selectedFiles.length > 0) setHomeChatMode('new-course');
+    input.value = '';
+    try {
+      const inspected = await inspectSourceSelection(selectedFiles);
+      if (request !== sourceSelectionRequestRef.current) return;
+      setPendingHomeSourceFiles(inspected.files);
+      setPendingFileWarnings(
+        inspected.warnings.map(warning =>
+          t('Non verrà usato: {name}. {reason}', { name: warning.name, reason: warning.message })
+        )
+      );
+    } finally {
+      if (request === sourceSelectionRequestRef.current) setIsSourceSelectionPending(false);
     }
   };
 
   const handleNewCourseMessage = useCallback(
     async (message: string) => {
+      if (isSourceSelectionPending) return;
       const requestToken = ++newCourseRequestTokenRef.current;
       const toolPreferences: HomeChatToolPreferences = {
         addingAssessmentDetails: isAddingAssessmentDetails,
@@ -185,6 +202,7 @@ export const LibraryScreenContainer = ({
 
       if (result.outcome !== 'failed' && result.outcome !== 'noop') {
         setPendingHomeSourceFiles([]);
+        setPendingFileWarnings([]);
       }
 
       if (result.errorMessage) {
@@ -201,6 +219,7 @@ export const LibraryScreenContainer = ({
     [
       assessmentMessages.length,
       isAddingAssessmentDetails,
+      isSourceSelectionPending,
       notify,
       pendingHomeSourceFiles,
       startHomeChat,
@@ -214,8 +233,11 @@ export const LibraryScreenContainer = ({
     setIsConfirmingCourse(false);
     try {
       await cancelAssessment();
+      sourceSelectionRequestRef.current += 1;
+      setIsSourceSelectionPending(false);
       setIsAddingAssessmentDetails(false);
       setPendingHomeSourceFiles([]);
+      setPendingFileWarnings([]);
       setHomeChatMode('library-query');
       return true;
     } catch (error) {
@@ -372,7 +394,14 @@ export const LibraryScreenContainer = ({
             controller.workflowState.assessment.message || t('Caricamento...'),
           pendingFileName: pendingHomeSourceFiles[0]?.name || null,
           pendingFileNames: pendingHomeSourceFiles.map(file => file.name),
-          onClearPendingFile: () => setPendingHomeSourceFiles([]),
+          pendingFileWarnings,
+          isSourceSelectionPending,
+          onClearPendingFile: () => {
+            sourceSelectionRequestRef.current += 1;
+            setIsSourceSelectionPending(false);
+            setPendingHomeSourceFiles([]);
+            setPendingFileWarnings([]);
+          },
           onClearLibraryMessages: libraryAssistantChat.clearLibraryMessages,
           onCancelNewCourse: cancelNewCourse,
           onContinueAssessment: () => {

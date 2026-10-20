@@ -17,7 +17,7 @@ import {
   type YouTubeTranscript,
 } from '@shared/youtubeTranscript';
 import { SourceArchiveAccess } from '../projects/sourceArchiveAccess.js';
-import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
+import type { ProjectSnapshot, ProjectSourceFile, ProjectStore } from '../projects/types.js';
 import { buildSha256HexDigest } from '../utils/hash.js';
 import { isRecord } from '../utils/validation.js';
 import {
@@ -283,7 +283,7 @@ const loadStoredSourceCandidates = async (
   projectId: string,
   fallbackSourceId = ''
 ): Promise<StoredSourceCandidate[]> => {
-  const storedSources = await store.loadProjectSources(userId, projectId);
+  const storedSources = await store.loadProjectSources(userId, projectId, { includeData: false });
   if (storedSources.length) {
     return storedSources.map(source => ({
       file: source.file,
@@ -301,6 +301,19 @@ const loadStoredSourceCandidates = async (
         },
       ]
     : [];
+};
+
+const readStoredSourceFile = async (
+  store: ProjectStore,
+  userId: string,
+  projectId: string,
+  candidate: StoredSourceCandidate
+): Promise<ProjectSourceFile> => {
+  const file = candidate.file.data
+    ? candidate.file
+    : await store.loadProjectSourceById(userId, projectId, candidate.id);
+  if (!file) throw new LessonSourceUnavailableError();
+  return file;
 };
 
 const filterReferencedStoredSources = (
@@ -342,8 +355,9 @@ export const buildStoredDocumentSourceContext = async ({
   const parts: LessonPrimarySourcePart[] = [];
   for (const candidate of candidates) {
     signal.throwIfAborted();
+    const file = await readStoredSourceFile(store, userId, projectId, candidate);
     const content = clipSourceContext(
-      await readProjectSourceText(candidate.file),
+      await readProjectSourceText(file),
       MAX_LESSON_SOURCE_CONTEXT_CHARS
     );
     if (content)
@@ -757,10 +771,11 @@ export const extractStoredPdfImageAssets = async ({
   for (const source of storedSources) {
     signal.throwIfAborted();
     try {
+      const file = await readStoredSourceFile(store, userId, project.id, source);
       const partialPages =
         readMappedPdfPages(project, section, source.id) ?? singleSourcePartialPages;
       const extraction = await extractImages(
-        `data:${source.file.mimeType};base64,${source.file.data}`,
+        `data:${file.mimeType};base64,${file.data}`,
         LESSON_PDF_IMAGE_EXTRACTION_LIMIT,
         partialPages,
         signal
