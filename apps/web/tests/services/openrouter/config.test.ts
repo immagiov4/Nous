@@ -19,12 +19,12 @@ test('resolveOpenRouterModel ignores legacy UI model preferences', () => {
   });
 
   assert.equal(
-    resolveOpenRouterModel('nvidia/nemotron-nano-12b-v2-vl', 'lesson'),
-    'nvidia/nemotron-nano-12b-v2-vl'
+    resolveOpenRouterModel('google/gemini-3.1-flash-lite', 'lesson'),
+    'google/gemini-3.1-flash-lite'
   );
   assert.equal(
-    resolveOpenRouterModel('nvidia/nemotron-nano-12b-v2-vl', 'lesson', false),
-    'nvidia/nemotron-nano-12b-v2-vl'
+    resolveOpenRouterModel('google/gemini-3.1-flash-lite', 'lesson', false),
+    'google/gemini-3.1-flash-lite'
   );
   assert.equal(
     resolveOpenRouterModel('mistralai/mistral-small-2603', 'assessment'),
