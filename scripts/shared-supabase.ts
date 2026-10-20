@@ -340,11 +340,12 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     await watchIdleSupabase();
     await rm(join(stateRoot(), 'watcher'), { force: true });
   } else {
-    if (args[0] !== '--' || !args[1])
+    const command = args[0] === '--' ? args.slice(1) : args;
+    if (!command[0] || command[0].startsWith('-'))
       throw new Error('Usage: shared-supabase.ts -- command [args...]');
     const status = await ensureSharedSupabase();
     try {
-      const child = Bun.spawn(args.slice(1), {
+      const child = Bun.spawn(command, {
         windowsHide: true,
         stdin: 'inherit',
         stdout: 'inherit',

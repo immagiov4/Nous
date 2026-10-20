@@ -163,10 +163,13 @@ it('keeps service credentials out of command errors while retaining private diag
   expect(await readFile(join(root, 'supabase-error.log'), 'utf8')).toBe('Container unavailable');
 });
 
-it('forwards authenticated configuration and the proof exit code, then releases its lease', async () => {
+it.each([
+  ['--', 'proof-command', 'argument'],
+  ['proof-command', 'argument'],
+])('forwards authenticated configuration and the proof exit code for %j', async (...args) => {
   const spawn = vi.fn(() => ({ exited: Promise.resolve(17) }));
   mockBunSpawn(spawn);
-  await main(['--', 'proof-command', 'argument']);
+  await main(args);
   expect(process.exitCode).toBe(17);
   expect(spawn.mock.calls[0]).toEqual([
     ['proof-command', 'argument'],
