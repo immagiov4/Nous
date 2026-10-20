@@ -1525,6 +1525,7 @@ test('cancellation releases the client when finalizing outlives the existing req
 });
 
 test('rejects oversized source metadata before starting any transfer', async () => {
+  setRenderingLocaleOverride('it');
   const snapshot = buildPdfSnapshot();
   snapshot.title = 'x'.repeat(SOURCE_TRANSFER_LIMITS.maxPartBytes);
   await expect(

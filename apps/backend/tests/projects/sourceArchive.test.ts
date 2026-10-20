@@ -51,7 +51,8 @@ const createArchive = async (
   entries: Array<
     | { content: string | Uint8Array; path: string; type: 'file' }
     | { path: string; type: 'directory' }
-  >
+  >,
+  compression: 'DEFLATE' | 'STORE' = 'DEFLATE'
 ) => {
   const zip = new JSZip();
 
@@ -65,7 +66,7 @@ const createArchive = async (
   }
 
   return zip.generateAsync({
-    compression: 'DEFLATE',
+    compression,
     type: 'uint8array',
   });
 };
@@ -292,7 +293,8 @@ describe('indexSourceArchive', () => {
         content: pdfBytes,
         path: `docs/${index}.pdf`,
         type: 'file' as const,
-      }))
+      })),
+      'STORE'
     );
     const usableText = 'Materiale PDF valido e sufficientemente lungo. '.repeat(8);
     pdfTextExtractorMocks.extractPdfText.mockResolvedValue({
