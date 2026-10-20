@@ -46,7 +46,7 @@ multitasking-context-switch*.png
 multitasking-context-switch.svg
 
 # Allow fallow baselines (checked into VCS)
-!.fallow-baselines/
+!config/fallow-baselines/
 .fallow/
 .fallow-current.json
 .fallow-health.json
@@ -57,3 +57,8 @@ multitasking-context-switch.svg
 tmp/
 deploy/secrets/*
 !deploy/secrets/.gitkeep
+
+# Personal editor and agent state
+.claude/
+.mcp.json
+.impeccable/

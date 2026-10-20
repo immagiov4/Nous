@@ -2,10 +2,10 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import {
   attachFallowFindingsToBaseline,
+  FALLOW_BASELINE_PATH as BASELINE_PATH,
   FALLOW_DEAD_CODE_JSON_COMMAND,
 } from './check-fallow-regression';
 
-const BASELINE_PATH = '.fallow-baselines/regression.json';
 const CANDIDATE_PATH = `${BASELINE_PATH}.next`;
 
 await mkdir(dirname(BASELINE_PATH), { recursive: true });

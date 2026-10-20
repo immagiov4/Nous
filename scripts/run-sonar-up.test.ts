@@ -45,12 +45,19 @@ describe('reconcileSonarStack', () => {
 
     expect(runCommand).toHaveBeenNthCalledWith(
       1,
-      ['docker', 'compose', '-f', 'docker-compose.sonarqube.yml', 'up', '-d'],
+      ['docker', 'compose', '-f', 'config/docker-compose.sonarqube.yml', 'up', '-d'],
       { PATH: 'test-path' }
     );
     expect(runCommand).toHaveBeenNthCalledWith(
       2,
-      ['docker', 'compose', '-f', 'docker-compose.sonarqube.yml', 'wait', 'sonar-permissions'],
+      [
+        'docker',
+        'compose',
+        '-f',
+        'config/docker-compose.sonarqube.yml',
+        'wait',
+        'sonar-permissions',
+      ],
       { PATH: 'test-path' }
     );
   });

@@ -34,7 +34,7 @@ Pull requests also run the Supabase contract and remote body verification. The c
 
 Coverage uses the Node major pinned in `.node-version` and the ordered Vitest projects in `apps/web/vitest.config.ts`. Its preflight removes stale LCOV, checks Node, and installs Chromium. One coverage-producing suite supplies both the test result and the Sonar report.
 
-Fallow compares finding identities with `.fallow-baselines/regression.json`; every new identity blocks CI. Refresh the baseline explicitly after reviewing the change. The scripts own fingerprinting and report details.
+Fallow compares finding identities with `config/fallow-baselines/regression.json`; every new identity blocks CI. Refresh the baseline explicitly after reviewing the change. The scripts own fingerprinting and report details.
 
 SonarQube Cloud analysis runs for same-repository pull requests and pushes to `main`. Fork pull requests need a trusted analysis result on the exact proposed head before merging because CI withholds the scanner secret.
 

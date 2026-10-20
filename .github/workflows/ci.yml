@@ -48,7 +48,10 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
         with:
+          # project.settings cannot be combined with the action's default sonar.projectBaseDir.
+          projectBaseDir: ''
           args: >-
+            -Dproject.settings=config/sonar-project.properties
             -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
             -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
             -Dsonar.scm.revision=${{ github.event.pull_request.head.sha || github.sha }}
