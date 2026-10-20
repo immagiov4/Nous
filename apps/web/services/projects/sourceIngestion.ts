@@ -13,7 +13,7 @@ import {
 import { type ProjectSaveResult, ProjectStorageError } from './projectRepository';
 import { detectSourceFileKind, isZipFileData, normalizeSourceFileMimeType } from './projectSource';
 import { getSourceFileExclusion } from './sourceFileSelection';
-import { readZipDirectory, readZipEntryStream } from './zipDirectory';
+import { readZipDirectory, readZipEntryStream, ZIP_DEFLATE_METHOD } from './zipDirectory';
 
 interface SourceDestination {
   snapshot: ProjectSnapshot;
@@ -48,6 +48,17 @@ const normalizeSourceFile = (file: File) => {
     : new File([file], file.name, { type, lastModified: file.lastModified });
 };
 
+const canExpandZip = (needsDecompression: boolean): boolean => {
+  if (typeof TransformStream !== 'function') return false;
+  if (!needsDecompression) return true;
+  try {
+    new DecompressionStream('deflate-raw');
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /** Owns temporary browser files; collection members never accumulate in a JavaScript byte array. */
 class BrowserSourceCollection {
   readonly files: File[] = [];
@@ -60,11 +71,25 @@ class BrowserSourceCollection {
   constructor(private readonly options: ProgressOptions) {}
 
   private admit(name: string, bytes: number, archiveMember = false): boolean {
-    if (this.paths.has(name)) throw new Error('Invalid or duplicate source path');
+    if (this.paths.has(name)) {
+      const message = translateUiMessage('Il percorso del file è duplicato: {name}.', { name });
+      throw new ProjectStorageError(message, 'source-preparation-failed', {
+        sourceWarnings: [...this.failures, { name, message }],
+      });
+    }
     this.paths.add(name);
     this.expandedBytes += bytes;
     if (this.expandedBytes > COURSE_SOURCE_UPLOAD_LIMITS.maxTotalBytes)
-      throw new Error('Source collection exceeds the upload limit');
+      throw new ProjectStorageError(
+        translateUiMessage('Supera il limite di 1 GB per caricamento.'),
+        'source-preparation-failed',
+        {
+          sourceWarnings: [
+            ...this.failures,
+            { name, message: translateUiMessage('Supera il limite di 1 GB per caricamento.') },
+          ],
+        }
+      );
     const exclusion = getSourceFileExclusion({ name, byteSize: bytes }, archiveMember);
     if (!exclusion) return true;
     this.failures.push(exclusion);
@@ -72,19 +97,42 @@ class BrowserSourceCollection {
   }
 
   private async stage(stream: ReadableStream<Uint8Array>, name: string): Promise<File> {
+    if (typeof navigator.storage?.getDirectory !== 'function') return this.stageBlob(stream, name);
     if (!this.directory) {
       this.root = await navigator.storage.getDirectory();
       this.directory = await this.root.getDirectoryHandle(this.stagingName, { create: true });
     }
     const handle = await this.directory.getFileHandle(String(this.files.length), { create: true });
+    if (typeof handle.createWritable !== 'function') return this.stageBlob(stream, name);
     await stream.pipeTo(await handle.createWritable(), { signal: this.options.signal });
     return new File([await handle.getFile()], name, { type: fileMimeType({ name, type: '' }) });
   }
 
+  private async stageBlob(stream: ReadableStream<Uint8Array>, name: string): Promise<File> {
+    // Member size and CRC are enforced by readZipEntryStream; Blob storage avoids a JS chunk array.
+    const body = stream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>(), {
+      signal: this.options.signal,
+    });
+    return new File([await new Response(body).blob()], name, {
+      type: fileMimeType({ name, type: '' }),
+    });
+  }
+
   private async expandZip(input: File): Promise<void> {
     if (input.size > COURSE_SOURCE_UPLOAD_LIMITS.maxTotalBytes)
-      throw new Error('ZIP exceeds the upload limit');
+      throw new ProjectStorageError(
+        translateUiMessage('L’archivio supera il limite di 1 GB.'),
+        'source-preparation-failed'
+      );
     const entries = await readZipDirectory(input);
+    if (!canExpandZip(entries.some(entry => entry.compression === ZIP_DEFLATE_METHOD))) {
+      const message = translateUiMessage(
+        'Questo browser non può espandere lo ZIP. Estrai l’archivio e aggiungi i file separatamente.'
+      );
+      throw new ProjectStorageError(message, 'source-preparation-failed', {
+        sourceWarnings: [...this.failures, { name: input.name, message }],
+      });
+    }
     for (const [position, entry] of entries.entries()) {
       this.options.signal?.throwIfAborted();
       if (entry.name.endsWith('/')) continue;

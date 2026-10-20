@@ -382,7 +382,15 @@ const parseProjectSource = (value: unknown): ProjectSource | null => {
   const preparationWarnings = Array.isArray(value.preparationWarnings)
     ? value.preparationWarnings.flatMap(warning =>
         isRecord(warning) && isString(warning.name) && isString(warning.message)
-          ? [{ name: warning.name, message: warning.message }]
+          ? [
+              {
+                name: warning.name,
+                message: warning.message,
+                ...(isSourceArchivePdfWarningReason(warning.reason)
+                  ? { reason: warning.reason }
+                  : {}),
+              },
+            ]
           : []
       )
     : [];

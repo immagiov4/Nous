@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { PROJECT_API_ERROR_CODE, PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
 import { decodeProjectSnapshotWire } from '@shared/projectSnapshotWire';
+import { SOURCE_TRANSFER_LIMITS } from '@shared/sourceTransfer';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { setRenderingLocaleOverride } from '../../../i18n/uiMessages.ts';
 import { clearSupabaseSession, saveSupabaseSession } from '../../../services/auth/supabaseAuth.ts';
@@ -1451,4 +1452,88 @@ test('source parts keep the approved request deadline beyond the ordinary 15-sec
     await saving;
     vi.useRealTimers();
   }
+});
+
+test('cancellation releases the client when finalizing outlives the existing request deadline', async () => {
+  vi.useFakeTimers();
+  const controller = new AbortController();
+  const deleted = createDeferred();
+  let settled = false;
+  let cancellationPolls = 0;
+  let deleting = false;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/config'))
+      return new Response(
+        JSON.stringify({
+          success: true,
+          config: {
+            import: {
+              maxChunkBytes: 16_000_000,
+              maxChunkCount: 32,
+              maxSerializedBytes: 280_000_000,
+              requestTimeoutMs: 120000,
+              directMaxBytes: 20_000_000,
+            },
+          },
+        })
+      );
+    if (init?.method === 'PUT')
+      return new Response(JSON.stringify({ success: true }), { status: 202 });
+    if (url.endsWith('/complete')) {
+      controller.abort();
+      throw new DOMException('Aborted', 'AbortError');
+    }
+    if (init?.method === 'DELETE') {
+      deleting = true;
+      deleted.resolve();
+      return new Response(JSON.stringify({ success: true, uploadStatus: 'finalizing' }), {
+        status: 202,
+      });
+    }
+    if (deleting) {
+      cancellationPolls++;
+      if (!settled)
+        return new Response(JSON.stringify({ success: true, uploadStatus: 'finalizing' }));
+      return new Response(
+        JSON.stringify({ success: false, code: 'SOURCE_PREPARATION_CANCELLED' }),
+        { status: 409 }
+      );
+    }
+    throw new Error('Unexpected request');
+  });
+  const saving = new HttpProjectRepository('http://localhost:3301')
+    .saveProject(buildPdfSnapshot(), {
+      sourceFiles: [new File(['notes'], 'notes.txt', { type: 'text/plain' })],
+      signal: controller.signal,
+    })
+    .catch(error => {
+      settled = true;
+      return error;
+    });
+  try {
+    await deleted.promise;
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(cancellationPolls).toBeGreaterThan(0);
+    expect(settled).toBe(true);
+  } finally {
+    settled = true;
+    await vi.runOnlyPendingTimersAsync();
+    await saving;
+    vi.useRealTimers();
+  }
+  expect(settled).toBe(true);
+});
+
+test('rejects oversized source metadata before starting any transfer', async () => {
+  const snapshot = buildPdfSnapshot();
+  snapshot.title = 'x'.repeat(SOURCE_TRANSFER_LIMITS.maxPartBytes);
+  await expect(
+    new HttpProjectRepository('http://localhost:3301').saveProject(snapshot, {
+      sourceFiles: [new File(['notes'], 'notes.txt', { type: 'text/plain' })],
+    })
+  ).rejects.toMatchObject({
+    code: 'source-preparation-failed',
+    message: 'I metadati delle fonti superano il limite di caricamento.',
+  });
+  expect(fetchMock).not.toHaveBeenCalled();
 });

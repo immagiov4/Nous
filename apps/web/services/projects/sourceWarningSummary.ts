@@ -78,9 +78,14 @@ export const formatSourceWarningSummary = (
       : '';
 
   const continuation = continues ? ` ${t('Il corso continua con le fonti valide.')}` : '';
-  return `${t('{count} fonti non usate: {reasons}. Esempi: {paths}.', {
-    count: sortedWarnings.length,
-    paths,
-    reasons,
-  })}${hidden}${other}${continuation}`;
+  return `${t(
+    sortedWarnings.length === 1
+      ? '1 fonte non usata: {reasons}. Esempi: {paths}.'
+      : '{count} fonti non usate: {reasons}. Esempi: {paths}.',
+    {
+      count: sortedWarnings.length,
+      paths,
+      reasons,
+    }
+  )}${hidden}${other}${continuation}`;
 };

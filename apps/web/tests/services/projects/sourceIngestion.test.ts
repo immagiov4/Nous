@@ -1,6 +1,10 @@
+import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
 import JSZip from 'jszip';
 import { afterEach, expect, test, vi } from 'vitest';
-import { createSourceIngestion } from '../../../services/projects/sourceIngestion';
+import {
+  createSourceIngestion,
+  type SourceIngestionTransport,
+} from '../../../services/projects/sourceIngestion';
 import { AppState, type ProjectSnapshot } from '../../../types';
 
 const snapshot: ProjectSnapshot = {
@@ -138,4 +142,130 @@ test('returns named server outcomes together with the prepared source set', asyn
     { name: 'lesson.pdf', reason: 'parser-failed', message: 'Could not read this source.' },
   ]);
   expect(result.sourceSet?.sources?.[0].status).toBe('error');
+});
+
+test.each([
+  'missing-storage',
+  'missing-writable',
+])('ZIP ingestion works with %s using bounded Blob files', async capability => {
+  if (capability === 'missing-storage') vi.stubGlobal('navigator', {});
+  else
+    vi.stubGlobal('navigator', {
+      storage: {
+        getDirectory: async () => ({
+          getDirectoryHandle: async () => ({ getFileHandle: async () => ({}) }),
+          removeEntry: async () => {},
+        }),
+      },
+    });
+  const publish = vi.fn(
+    async (
+      destination: Parameters<SourceIngestionTransport['publish']>[0],
+      files: Parameters<SourceIngestionTransport['publish']>[1]
+    ) => {
+      expect(files).toHaveLength(1);
+      expect(await files[0].file.text()).toBe('fallback content');
+      return {
+        snapshot: destination.snapshot,
+        meta: { id: 'course' } as import('../../../types').SavedProjectMeta,
+      };
+    }
+  );
+  const zip = new JSZip();
+  zip.file('lesson.txt', 'fallback content');
+  await createSourceIngestion({ publish })({
+    inputs: [new File([await zip.generateAsync({ type: 'arraybuffer' })], 'course.zip')],
+    destination: { snapshot },
+  });
+  expect(publish).toHaveBeenCalledOnce();
+});
+
+test('names duplicate paths instead of publishing an ambiguous source set', async () => {
+  const publish = vi.fn();
+  await expect(
+    createSourceIngestion({ publish })({
+      inputs: [new File(['first'], 'lesson.txt'), new File(['second'], 'lesson.txt')],
+      destination: { snapshot },
+    })
+  ).rejects.toMatchObject({
+    code: 'source-preparation-failed',
+    sourceWarnings: [{ name: 'lesson.txt', message: expect.any(String) }],
+  });
+  expect(publish).not.toHaveBeenCalled();
+});
+
+test('reports the named member when combined expanded bytes exceed the upload envelope', async () => {
+  const zip = new JSZip();
+  for (let i = 0; i < 5; i++) zip.file(`source-${i}.txt`, 'content');
+  const bytes = await zip.generateAsync({ type: 'arraybuffer' });
+  const view = new DataView(bytes);
+  for (let offset = 0; offset + 46 <= view.byteLength; offset++)
+    if (view.getUint32(offset, true) === 0x02014b50) view.setUint32(offset + 24, 250_000_000, true);
+  const publish = vi.fn();
+  await expect(
+    createSourceIngestion({ publish })({
+      inputs: [new File([bytes], 'course.zip')],
+      destination: { snapshot },
+    })
+  ).rejects.toMatchObject({
+    code: 'source-preparation-failed',
+    sourceWarnings: expect.arrayContaining([{ name: 'source-4.txt', message: expect.any(String) }]),
+  });
+  expect(publish).not.toHaveBeenCalled();
+});
+
+test.each([
+  'missing',
+  'unsupported-format',
+])('browsers with %s decompression receive an extraction action and retain earlier warnings', async mode => {
+  vi.stubGlobal(
+    'DecompressionStream',
+    mode === 'missing'
+      ? undefined
+      : class {
+          constructor() {
+            throw new TypeError('Unsupported format');
+          }
+        }
+  );
+  const zip = new JSZip();
+  zip.file('notes.txt', 'compressed notes');
+  const oversized = new File([''], 'a.txt');
+  Object.defineProperty(oversized, 'size', { value: COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes + 1 });
+  const publish = vi.fn();
+  await expect(
+    createSourceIngestion({ publish })({
+      inputs: [
+        oversized,
+        new File(
+          [await zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' })],
+          'course.zip'
+        ),
+      ],
+      destination: { snapshot },
+    })
+  ).rejects.toMatchObject({
+    sourceWarnings: [
+      { name: 'a.txt', message: expect.any(String) },
+      { name: 'course.zip', message: expect.stringMatching(/ZIP/) },
+    ],
+  });
+  expect(publish).not.toHaveBeenCalled();
+});
+
+test('the Blob staging fallback preserves source cancellation', async () => {
+  vi.stubGlobal('navigator', {});
+  const controller = new AbortController();
+  const zip = new JSZip();
+  zip.file('notes.txt', 'cancelled');
+  const publish = vi.fn();
+  await expect(
+    createSourceIngestion({ publish })({
+      inputs: [new File([await zip.generateAsync({ type: 'arraybuffer' })], 'course.zip')],
+      destination: { snapshot },
+      signal: controller.signal,
+      onProgress: () => controller.abort(),
+    })
+  ).rejects.toMatchObject({ name: 'AbortError' });
+  expect(publish).not.toHaveBeenCalled();
 });

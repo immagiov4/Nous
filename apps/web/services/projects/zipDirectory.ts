@@ -1,6 +1,7 @@
 import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
 import { isSafeZipEntryPath, updateZipCrc32 } from '@shared/zipSafety';
 
+export const ZIP_DEFLATE_METHOD = 8;
 const ZIP_END_BYTES = 22;
 const ZIP_MAX_COMMENT_BYTES = 65_535;
 const ZIP_DIRECTORY_HEADER_BYTES = 46;
@@ -192,7 +193,6 @@ export const readZipEntryStream = async (
 ): Promise<ReadableStream<Uint8Array>> => {
   const zipSymlinkMode = 0xa000;
   const zipFileTypeMask = 0xf000;
-  const zipDeflateMethod = 8;
   if (
     !isSafeZipEntryPath(entry.name) ||
     entry.flags & 1 ||
@@ -221,7 +221,7 @@ export const readZipEntryStream = async (
   if (name !== entry.name || start + entry.compressedSize > file.size)
     throw new Error('Invalid ZIP member size');
   let stream = file.slice(start, start + entry.compressedSize).stream();
-  if (entry.compression === zipDeflateMethod)
+  if (entry.compression === ZIP_DEFLATE_METHOD)
     stream = stream.pipeThrough(new DecompressionStream('deflate-raw'));
   else if (entry.compression !== 0) throw new Error('Unsupported ZIP compression');
   let bytes = 0;

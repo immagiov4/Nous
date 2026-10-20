@@ -1,6 +1,7 @@
 import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
 import JSZip from 'jszip';
 import { expect, test, vi } from 'vitest';
+import { setRenderingLocaleOverride } from '../../../i18n/uiMessages';
 import {
   inspectSourceSelection,
   readSourceZipDirectory,
@@ -172,4 +173,28 @@ test('names nested archives and unsafe paths before any transfer', async () => {
     'notes/nested.zip',
     '../outside.txt',
   ]);
+});
+
+test('translates the aggregate name when a selection exceeds the collection envelope', async () => {
+  setRenderingLocaleOverride('en');
+  try {
+    const files = Array.from(
+      {
+        length:
+          Math.floor(
+            COURSE_SOURCE_UPLOAD_LIMITS.maxTotalBytes / COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes
+          ) + 1,
+      },
+      (_, i) => {
+        const file = new File([''], `source-${i}.txt`);
+        Object.defineProperty(file, 'size', { value: COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes });
+        return file;
+      }
+    );
+    const result = await inspectSourceSelection(files);
+    expect(result.files).toEqual([]);
+    expect(result.warnings).toEqual([{ name: 'Selected material', message: expect.any(String) }]);
+  } finally {
+    setRenderingLocaleOverride(null);
+  }
 });

@@ -169,3 +169,7 @@ test('the production HTTP adapter chunks files and polls an asynchronous job thr
     setProjectStoreForTesting(null);
   }
 });
+
+vi.mock('../../../apps/backend/src/projects/sourceStaging', () => ({
+  assertSourceStagingAvailable: vi.fn(async () => {}),
+}));

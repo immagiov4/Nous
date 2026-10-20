@@ -1,4 +1,7 @@
-import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
+import {
+  COURSE_SOURCE_UPLOAD_LIMITS,
+  SOURCE_UPLOAD_METADATA_TOO_LARGE_MESSAGE,
+} from '@shared/courseSourceUpload';
 import {
   LIBRARY_EXPORT_RETENTION_ERROR_CODE,
   type LibraryExportPhase,
@@ -618,6 +621,11 @@ export class HttpProjectRepository implements ProjectRepository {
       byteSize: file.size,
     }));
     const prefix = new Blob([JSON.stringify({ snapshot: payload, sourceFiles: files })]);
+    if (prefix.size > SOURCE_TRANSFER_LIMITS.maxPartBytes)
+      throw new ProjectStorageError(
+        translateUiMessage(SOURCE_UPLOAD_METADATA_TOO_LARGE_MESSAGE),
+        'source-preparation-failed'
+      );
     const uploadId = await this.uploadBinaryProjectImport(
       new Blob([prefix, ...inputs.map(input => input.file)]),
       await this.getProjectImportConfig(),
@@ -1058,16 +1066,20 @@ export class HttpProjectRepository implements ProjectRepository {
         }
       );
       if (cancellation.uploadStatus === 'finalizing')
-        await this.waitForSourceCancellation(uploadId);
+        await this.waitForSourceCancellation(uploadId, timeoutMs);
     } catch (error) {
       console.warn('[Nous] Failed to cancel an incomplete project import.', error);
     }
   }
 
-  private async waitForSourceCancellation(uploadId: string): Promise<void> {
-    for (;;) {
+  private async waitForSourceCancellation(uploadId: string, timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
       try {
-        const status = await this.readSourcePreparationStatus(uploadId);
+        const status = await this.readSourcePreparationStatus(
+          uploadId,
+          AbortSignal.timeout(Math.max(1, deadline - Date.now()))
+        );
         if (status.complete || status.uploadStatus !== 'finalizing') return;
       } catch (error) {
         if (

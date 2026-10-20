@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import {
   cancelProjectImportUpload,
   getProjectImportUploadStatus,
@@ -105,3 +105,7 @@ describe('asynchronous source preparation', () => {
       .toMatchObject({ status: 'failed' });
   });
 });
+
+vi.mock('../../src/projects/sourceStaging.js', () => ({
+  assertSourceStagingAvailable: vi.fn(async () => {}),
+}));

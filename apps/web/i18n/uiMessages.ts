@@ -1098,6 +1098,14 @@ const ENGLISH_UI_MESSAGES = {
   'L’archivio non contiene alcun testo utilizzabile.':
     'The archive does not contain any usable text.',
   'Non è stato possibile preparare l’archivio ZIP.': 'The ZIP archive could not be prepared.',
+  'Questo browser non può espandere lo ZIP. Estrai l’archivio e aggiungi i file separatamente.':
+    'This browser cannot expand the ZIP. Extract the archive and add the files separately.',
+  'I metadati delle fonti superano il limite di caricamento.':
+    'Source metadata exceeds the upload limit.',
+  'Materiale selezionato': 'Selected material',
+  'Il percorso del file è duplicato: {name}.': 'Duplicate file path: {name}.',
+  '1 fonte non usata: {reasons}. Esempi: {paths}.':
+    '1 source not used: {reasons}. Examples: {paths}.',
   '{count} fonti non usate: {reasons}. Esempi: {paths}.':
     '{count} sources were not used: {reasons}. Examples: {paths}.',
   '{count} senza testo utile': '{count} without usable text',

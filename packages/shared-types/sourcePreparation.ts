@@ -11,7 +11,6 @@ export interface SourcePreparationProgress {
   reducedQuality?: { from: number; to: number };
 }
 
-export const SOURCE_PREPARATION_INTERRUPTED_CODE = 'SOURCE_PREPARATION_INTERRUPTED';
 export const SOURCE_PREPARATION_INTERRUPTED_MESSAGE =
   'La preparazione delle fonti è stata interrotta. Riprova il caricamento.';
 

@@ -26,15 +26,13 @@ interface TextLine {
 
 const splitTextLines = (text: string): TextLine[] => {
   const lines: TextLine[] = [];
-  let start = 0;
-  for (const match of text.matchAll(/.*(?:\n|$)/gu)) {
+  for (const match of text.matchAll(/[^\n]*(?:\n|$)/gu)) {
     const raw = match[0];
     if (!raw) {
       continue;
     }
     const lineText = raw.endsWith('\n') ? raw.slice(0, -1) : raw;
-    lines.push({ start, text: lineText.replace(/\r$/u, '') });
-    start += raw.length;
+    lines.push({ start: match.index, text: lineText.replace(/\r$/u, '') });
   }
   return lines;
 };

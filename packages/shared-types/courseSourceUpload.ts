@@ -11,3 +11,6 @@ export interface CourseSourceUploadFile {
   mimeType: string;
   byteSize: number;
 }
+
+export const SOURCE_UPLOAD_METADATA_TOO_LARGE_MESSAGE =
+  'I metadati delle fonti superano il limite di caricamento.';

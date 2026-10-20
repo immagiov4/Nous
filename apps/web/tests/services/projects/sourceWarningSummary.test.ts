@@ -46,7 +46,7 @@ describe('formatSourceWarningSummary', () => {
       { continues: false }
     );
 
-    expect(summary).toContain('1 fonti non usate: 1 senza testo utile. Esempi: scansione.pdf.');
+    expect(summary).toContain('1 fonte non usata: 1 senza testo utile. Esempi: scansione.pdf.');
     expect(summary).not.toContain('continua');
   });
 

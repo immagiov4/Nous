@@ -121,6 +121,10 @@ flowchart LR
 
 The PDF step owns native extraction; the collection context is the internal seam for scanned-page detection and transcription. Text files use the shared deterministic Markdown outline and text-index implementation. Preparation retains text/index metadata while original bytes use one reusable per-file buffer. Originals stream to Storage as bounded ranges of the assembled upload, with one immutable object per file. Bun collects released buffers after each extraction and source-object transfer. The `/api/pdf` utility remains available to its other callers.
 
+ZIP staging uses OPFS writable streams when available. Browsers without OPFS writable support stage each admitted member as a Blob under the same per-file and collection envelopes. Browsers without the required decompression/stream APIs show an action to extract the archive and attach its files separately. Duplicate member paths reject the selection with a named warning so distinct originals are not silently discarded.
+
+The metadata prefix is limited to the shared transfer-part byte budget, checked before backend file access and before the client starts transferring source bytes.
+
 ### Transfer, jobs and resource limits
 
 | Resource | Contract |

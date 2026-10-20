@@ -111,7 +111,7 @@ export const inspectSourceSelection = async (
       warnings: [
         ...warnings,
         {
-          name: 'Materiale selezionato',
+          name: translateUiMessage('Materiale selezionato'),
           message: translateUiMessage('Supera il limite di 1 GB per caricamento.'),
         },
       ],
