@@ -248,9 +248,13 @@ describe('measured CLI integration', () => {
       abort.abort('SIGTERM');
       await running;
     }
-    await expect(
-      runCommand([join(path, 'missing-executable')], process.env, new AbortController())
-    ).rejects.toThrow();
+    const missing = runCommand(
+      [join(path, 'missing-executable')],
+      process.env,
+      new AbortController()
+    );
+    if (process.platform === 'win32') await expect(missing).rejects.toThrow();
+    else expect(await missing).toBe(127);
   });
 
   test('ticket collisions and incomplete records preserve deterministic admission', async () => {

@@ -2033,7 +2033,9 @@ describe('useProjectLibrary', () => {
     });
     if (!navigation)
       expect(persisted?.learningPlan?.modules?.[0]?.children?.[0]).toMatchObject({ quizState });
-    expect(first.result.current.library.projectSyncState.kind).toBe('conflict');
+    await waitFor(() =>
+      expect(first.result.current.library.projectSyncState.kind).toBe('conflict')
+    );
     first.unmount();
     second.unmount();
   });
