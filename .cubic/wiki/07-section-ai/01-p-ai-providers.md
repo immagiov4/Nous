@@ -23,6 +23,12 @@ Domain schemas describe the application's accepted data. A provider can require 
 
 Normalization restores representation; the caller still validates against its original domain contract. This keeps a provider's schema restrictions from becoming product semantics or weakening validation for every other caller.
 
+## Scanned-page transcription
+
+Scanned pages use OpenRouter with only OpenAI admitted and provider fallbacks disabled, independently of the account's text provider. Course scanned pages 1–150 use `openai/gpt-6-luna` with xhigh reasoning; pages 151–300 use Luna medium. Usable native-text pages consume no allowance, and file boundaries do not reset it. Admission above 300 returns a plain Italian instruction to narrow the material. Retained authoritative provenance seeds the count, excluding replaced files. The source job shares 32 request slots, with at most two calls per page; successful responses report usage and provider cost when available. [Source ingestion](../03-section-features/03-p-doc-processing.md#recover-scanned-pages-before-publication) describes preparation, deadlines and failure reporting.
+
+Course and factual-review prompts receive the shared transcription-provenance rule. Structured generation opts into that interpretation explicitly for semantic scene generation with transcribed provenance; exact-copy playback calls preserve supplied text. The factual reviewer uses its evidence-reference validator when accepting a justified correction.
+
 ## Audio is a separate external effect
 
 The [speech client](../../../apps/backend/src/services/ttsClient.ts) sends narration to OpenRouter, resolves voice compatibility and validates supported audio responses. [Playback preparation](../03-section-features/04-p-multimedia.md) consumes that audio alongside scene cues.

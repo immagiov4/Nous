@@ -25,7 +25,19 @@ function fixture() {
   git('update-ref', 'refs/remotes/origin/main', 'HEAD');
   mkdirSync(join(directory, 'scripts'));
   copyFileSync(resolve('scripts/check-changed.mjs'), join(directory, 'scripts/check-changed.mjs'));
-  const reporter = `import { appendFileSync } from 'node:fs';
+  mkdirSync(join(directory, 'config'));
+  for (const config of ['eslint.config.mjs', 'eslint.sonar.config.mjs']) {
+    writeFileSync(join(directory, 'config', config), 'export default [];');
+  }
+  writeFileSync(join(directory, 'config/eslint-suppressions.json'), '{}');
+  const reporter = `import { appendFileSync, readFileSync } from 'node:fs';
+    import { resolve } from 'node:path';
+    import { pathToFileURL } from 'node:url';
+    const args = process.argv.slice(2);
+    const configIndex = args.indexOf('--config');
+    if (configIndex >= 0) await import(pathToFileURL(resolve(args[configIndex + 1])).href);
+    const suppressionsIndex = args.indexOf('--suppressions-location');
+    if (suppressionsIndex >= 0) JSON.parse(readFileSync(args[suppressionsIndex + 1], 'utf8'));
     appendFileSync('observed.jsonl', JSON.stringify(process.argv.slice(2)) + '\\n');
     process.exitCode = Number(process.env.FIXTURE_EXIT || 0);`;
   for (const file of [
@@ -36,7 +48,7 @@ function fixture() {
     writeFileSync(join(directory, file), reporter);
   }
   writeFileSync(join(directory, '.gitignore'), 'node_modules/\nscripts/\nobserved.jsonl\n');
-  git('add', '.gitignore');
+  git('add', '.gitignore', 'config');
   git('commit', '--quiet', '-m', 'fixture ignores');
   git('update-ref', 'refs/remotes/origin/main', 'HEAD');
   const run = (environment = {}) =>
@@ -99,8 +111,8 @@ test('checks committed, staged, working and untracked files against the branch b
   ].map(file => join(directory, file));
   for (const call of calls) expect(call.slice(-expected.length)).toEqual(expected);
   expect(calls[0]).toContain('check');
-  expect(calls[1]).toContain('eslint.config.mjs');
-  expect(calls[2]).toContain('eslint.sonar.config.mjs');
+  expect(calls[1]).toContain('config/eslint.config.mjs');
+  expect(calls[2]).toContain('config/eslint.sonar.config.mjs');
 });
 
 test('a clean branch skips the linters', () => {
@@ -130,7 +142,7 @@ test('checks every file when the path list exceeds the Windows command-line capa
     .map(line => JSON.parse(line));
   expect(main(directory)).toBe(0);
   if (process.platform === 'win32') expect(calls.length).toBeGreaterThan(3);
-  for (const marker of ['check', 'eslint.config.mjs', 'eslint.sonar.config.mjs']) {
+  for (const marker of ['check', 'config/eslint.config.mjs', 'config/eslint.sonar.config.mjs']) {
     expect(
       calls
         .filter(call => call.includes(marker))

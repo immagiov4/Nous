@@ -4,9 +4,9 @@ import path from 'node:path';
 import { LOCAL_SONAR_HOST_URL, LOCAL_SONAR_SYSTEM_STATUS_URL } from './sonar-local.ts';
 
 const CI_WORKFLOW_PATH = path.resolve('.github/workflows/ci.yml');
-const FALLOW_BASELINE_PATH = path.resolve('.fallow-baselines/regression.json');
+const FALLOW_BASELINE_PATH = path.resolve('config/fallow-baselines/regression.json');
 const PACKAGE_MANIFEST_PATH = path.resolve('package.json');
-const SONAR_COMPOSE_PATH = 'docker-compose.sonarqube.yml';
+const SONAR_COMPOSE_PATH = 'config/docker-compose.sonarqube.yml';
 const SONAR_PERMISSION_PROVISIONER_SERVICE = 'sonar-permissions';
 const WORKSPACE_BIN_PATH = path.resolve('node_modules/.bin');
 const REALTIME_LOCAL_TENANT = 'realtime-dev';

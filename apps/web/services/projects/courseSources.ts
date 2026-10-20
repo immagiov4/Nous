@@ -3,6 +3,7 @@ import {
   flattenOutline,
   parseMarkdownOutline,
 } from '@shared/courseSourceText';
+import { translateUiMessage as t } from '../../i18n/uiMessages';
 
 export { parseMarkdownOutline } from '@shared/courseSourceText';
 
@@ -109,6 +110,8 @@ export const getCourseSourceDescriptors = (
     if (!descriptor) {
       return [];
     }
+    if (source.kind === 'pdf' && source.preparedPdfText)
+      descriptor.preparedPdfText = source.preparedPdfText;
     if (!source.ref) {
       return [descriptor];
     }
@@ -325,8 +328,14 @@ export const getProjectSourceWarnings = (source: ProjectSource): ProjectSourceWa
       name: descriptor.name,
       reason: descriptor.errorReason,
     }));
+  const missingPageWarnings = (source.sources || []).flatMap(descriptor =>
+    (descriptor.preparedPdfText?.failedPages || []).map(pageNumber => ({
+      name: descriptor.name,
+      message: t('Pagina {page}: non trascritta.', { page: pageNumber }),
+    }))
+  );
   if (source.kind !== 'archive') {
-    return [...(source.preparationWarnings ?? []), ...descriptorWarnings];
+    return [...(source.preparationWarnings ?? []), ...descriptorWarnings, ...missingPageWarnings];
   }
 
   const archivePdfWarnings = source.index.entries.flatMap(entry =>

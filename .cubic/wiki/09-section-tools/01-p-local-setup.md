@@ -17,6 +17,8 @@ Local development runs the React frontend and backend against PostgreSQL, Supaba
 
 For local service URLs, startup verifies Docker, starts Docker Desktop where supported, starts Supabase, checks Auth readiness and applies pending migrations before launching the app. A failed prerequisite exits startup instead of leaving a frontend disconnected from its backend. Use [environment diagnostics](03-p-cli-tools.md) to identify missing prerequisites. Node 26, pinned in `.node-version`, is required for the coverage path.
 
+Tool and backend file settings live in `config/`; commands and loaders select their paths explicitly. The backend reads `config/server.config.json`, with `BACKEND_HOST` and `BACKEND_PORT` environment variables taking precedence.
+
 ## Local authentication
 
 The normal frontend mode is `VITE_AUTH_MODE=supabase`. HS256 installations set `SUPABASE_JWT_SECRET`; asymmetric installations use key discovery or `SUPABASE_JWKS_URL`. Set `SUPABASE_JWT_ISSUER` when the token issuer differs from the backend's internal service URL. [Authentication](../06-section-backend/02-p-auth.md) explains claim verification.

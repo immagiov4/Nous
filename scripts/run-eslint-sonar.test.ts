@@ -6,7 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { ESLint } from 'eslint';
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { main } from './run-eslint-sonar.ts';
 
 describe('Sonar ESLint bulk suppressions', () => {
   let directory: string;
@@ -23,7 +24,7 @@ describe('Sonar ESLint bulk suppressions', () => {
     const result = spawnSync(
       'bun',
       ['run', runnerPath, '--format', 'json', '--cache-location', cachePath, ...args],
-      { cwd: directory, encoding: 'utf8' }
+      { cwd: directory, encoding: 'utf8', windowsHide: true }
     );
     expect(result.error).toBeUndefined();
     return {
@@ -44,7 +45,8 @@ describe('Sonar ESLint bulk suppressions', () => {
   beforeEach(async () => {
     directory = await mkdtemp(path.join(tmpdir(), 'nous-eslint-sonar-'));
     cachePath = path.join(directory, '.temp/sonar-test.cache');
-    suppressionsPath = path.join(directory, 'eslint-suppressions.json');
+    suppressionsPath = path.join(directory, 'config/eslint-suppressions.json');
+    await mkdir(path.join(directory, 'config'));
     // Only dependencies are shared; config, sources, lockfile, cache, and baseline are isolated.
     await symlink(
       path.resolve('node_modules'),
@@ -63,22 +65,22 @@ describe('Sonar ESLint bulk suppressions', () => {
       await writeFile(path.join(directory, folder, 'clean.ts'), 'export {};\n');
     }
     await writeFile(
-      path.join(directory, 'tsconfig.eslint.json'),
+      path.join(directory, 'config/tsconfig.eslint.json'),
       JSON.stringify({
         include: [
-          'apps/web/**/*.ts',
-          'apps/backend/src/**/*.ts',
-          'apps/backend/tests/**/*.ts',
-          'packages/**/*.ts',
-          'scripts/**/*.ts',
-          'e2e/**/*.ts',
+          '../apps/web/**/*.ts',
+          '../apps/backend/src/**/*.ts',
+          '../apps/backend/tests/**/*.ts',
+          '../packages/**/*.ts',
+          '../scripts/**/*.ts',
+          '../e2e/**/*.ts',
         ],
       })
     );
     await mkdir(path.join(directory, '.temp'));
     await writeFile(path.join(directory, 'bun.lock'), 'isolated ESLint test dependencies\n');
     await writeFile(
-      path.join(directory, 'eslint.sonar.config.mjs'),
+      path.join(directory, 'config/eslint.sonar.config.mjs'),
       `import parser from '@typescript-eslint/parser';
 import sonarjs from 'eslint-plugin-sonarjs';
 export default [{
@@ -138,28 +140,29 @@ describe('Sonar ESLint test classification', () => {
   test('reads test directories and inclusion patterns from the Sonar properties', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'nous-sonar-classification-'));
     try {
+      await mkdir(path.join(directory, 'config'));
       await symlink(
         path.resolve('node_modules'),
         path.join(directory, 'node_modules'),
         process.platform === 'win32' ? 'junction' : 'dir'
       );
       await writeFile(
-        path.join(directory, 'eslint.sonar.config.mjs'),
-        await readFile('eslint.sonar.config.mjs', 'utf8')
+        path.join(directory, 'config/eslint.sonar.config.mjs'),
+        await readFile('config/eslint.sonar.config.mjs', 'utf8')
       );
       await writeFile(
-        path.join(directory, 'tsconfig.eslint.json'),
-        JSON.stringify({ include: ['**/*.ts', '**/*.tsx'] })
+        path.join(directory, 'config/tsconfig.eslint.json'),
+        JSON.stringify({ include: ['../**/*.ts', '../**/*.tsx'] })
       );
       await writeFile(
-        path.join(directory, 'sonar-project.properties'),
+        path.join(directory, 'config/sonar-project.properties'),
         '# Synthetic classification, deliberately different from the repository\r\n' +
           'sonar.tests = custom/unit, custom/integration/\r\n' +
           'sonar.test.inclusions = **/*.verify.ts, **/*.spec.tsx, custom/unit/**/*.target.ts\r\n'
       );
       const eslint = new ESLint({
         cwd: directory,
-        overrideConfigFile: path.join(directory, 'eslint.sonar.config.mjs'),
+        overrideConfigFile: path.join(directory, 'config/eslint.sonar.config.mjs'),
       });
       const helper = await eslint.calculateConfigForFile('custom/unit/helper.ts');
       const mainRules = Object.keys(helper.rules);
@@ -186,5 +189,30 @@ describe('Sonar ESLint test classification', () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+});
+
+describe('Sonar ESLint command entry', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  test.each([0, 7])('loads relocated lint inputs and returns child status %s', async code => {
+    const spawn = vi.fn().mockReturnValue({ exited: Promise.resolve(code) });
+    vi.stubGlobal('Bun', { spawn });
+    expect(await main(['--format', 'json'])).toBe(code);
+    const command = spawn.mock.calls[0][0] as string[];
+    expect(command[command.indexOf('--config') + 1]).toBe('config/eslint.sonar.config.mjs');
+    expect(command[command.indexOf('--suppressions-location') + 1]).toBe(
+      'config/eslint-suppressions.json'
+    );
+    expect(command.slice(-8)).toEqual([
+      'apps/web',
+      'apps/backend/src',
+      'apps/backend/tests',
+      'packages',
+      'scripts',
+      'e2e',
+      '--format',
+      'json',
+    ]);
   });
 });

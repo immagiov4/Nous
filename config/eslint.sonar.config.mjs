@@ -47,7 +47,7 @@ const config = [
     ],
   },
   {
-    files: lintProject.include,
+    files: lintProject.include.map(pattern => pattern.replace(/^\.\.\//u, '')),
     languageOptions: {
       parser: tsParser,
       parserOptions: {
