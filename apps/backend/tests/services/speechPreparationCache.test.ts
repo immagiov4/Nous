@@ -130,3 +130,25 @@ test('independent workers return the stored winner of concurrent cold preparatio
   expect(await resolveFirst).toBe(winner);
   expect(winner).toBe('second');
 });
+
+test('a failed first consumer does not cancel a queued consumer with its own preparation', async () => {
+  const cache = createSpeechPreparationCache(sql);
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const first = cache.resolve('one', 'cancelled-first', parse, async () => {
+    await pending;
+    throw new Error('First consumer cancelled');
+  });
+  const rejected = expect(first).rejects.toThrow('First consumer cancelled');
+  const second = cache.resolve(
+    'one',
+    'cancelled-first',
+    parse,
+    async () => 'second remains active'
+  );
+  release();
+  await rejected;
+  expect(await second).toBe('second remains active');
+});

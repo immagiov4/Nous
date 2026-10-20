@@ -432,4 +432,28 @@ test('ignores an old source response after the next source starts with identical
   await act(async () => release({ audioBuffer: new ArrayBuffer(480), contentType: 'audio/wav' }));
   expect(URL.createObjectURL).toHaveBeenCalledOnce();
   expect(result.current.audioState.chunks[0]?.blobUrl).toBe('blob:nous-audio');
+  expect(result.current.audioState.isPlaying).toBe(true);
+});
+
+test('retains a valid pending recording when listening is paused and resumed', async () => {
+  let release!: (audio: { audioBuffer: ArrayBuffer; contentType: string }) => void;
+  openRouterMocks.generateSpeech.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        release = resolve;
+      })
+  );
+  const { result } = renderHook(() =>
+    useTtsPlayer({ projectId: 'project-1', activeSectionId: 'same', sectionContent: 'Una frase.' })
+  );
+  await waitFor(() => expect(result.current.ttsConnected).toBe(true));
+  act(() => result.current.togglePlayPause());
+  await waitFor(() => expect(openRouterMocks.generateSpeech).toHaveBeenCalledOnce());
+  act(() => result.current.togglePlayPause());
+  await act(async () => release({ audioBuffer: new ArrayBuffer(480), contentType: 'audio/wav' }));
+  expect(result.current.audioState.chunks[0]?.blobUrl).toBeTruthy();
+  expect(result.current.audioState.chunks[0]?.isLoading).toBe(false);
+  act(() => result.current.togglePlayPause());
+  await waitFor(() => expect(result.current.audioState.isPlaying).toBe(true));
+  expect(openRouterMocks.generateSpeech).toHaveBeenCalledOnce();
 });

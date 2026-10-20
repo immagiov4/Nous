@@ -22,11 +22,11 @@ export const createSpeechPreparationCache = (sql: Sql) => {
       prepare: () => Promise<T>
     ): Promise<T> {
       const identity = JSON.stringify([owner, key]);
-      let pending = inFlight.get(identity);
-      if (!pending) {
-        pending = resolveStored(owner, key, prepare);
-        inFlight.set(identity, pending);
-      }
+      const previous = inFlight.get(identity);
+      const prepareCurrent = () => resolveStored(owner, key, prepare);
+      // Each waiting consumer retains its own operation and cancellation signal.
+      const pending = previous ? previous.then(prepareCurrent, prepareCurrent) : prepareCurrent();
+      inFlight.set(identity, pending);
       try {
         return parse(await pending);
       } finally {
