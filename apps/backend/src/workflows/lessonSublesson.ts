@@ -13,7 +13,7 @@ import {
   SourceArchiveSelectorContractError,
 } from '@shared/sourceArchiveSelectors';
 import * as z from 'zod';
-
+import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
 import { resolveProjectSourceTextKind } from '../projects/projectSource.js';
 import { createProjectSourceArchiveAccess } from '../projects/sourceArchiveAccess.js';
@@ -22,11 +22,10 @@ import type {
   ProjectSnapshotWithRevision,
   ProjectSourceArchiveIndex,
   ProjectStore,
-  StoredProjectSourceFile,
 } from '../projects/types.js';
 import { readConfiguredProjectLanguage } from '../services/lessonGenerationSources.js';
 import {
-  type ProjectSourceMaterial,
+  readPreparedProjectPdfText,
   readProjectSourceMaterial,
 } from '../services/projectSourceText.js';
 import { isRecord } from '../utils/validation.js';
@@ -69,6 +68,7 @@ import {
   SublessonReadyStateSchema,
 } from './lessonGenerationWorkflowContract.js';
 import { failPermanently, retryCorrective, WorkflowStepError } from './retryPolicy.js';
+import type { DeepReadonly } from './types.js';
 
 const SUBLESSON_METADATA_SOURCE_MAX_CHARS = 32_000;
 
@@ -95,7 +95,7 @@ const ArchiveSublessonMetadataSchema = SublessonMetadataSchema.extend({
 type GenerateObject = <Schema extends z.ZodType>(
   input: GenerateCourseObjectInput<Schema>
 ) => Promise<z.output<Schema>>;
-type ReadSourceMaterial = (file: StoredProjectSourceFile['file']) => Promise<ProjectSourceMaterial>;
+type ReadSourceMaterial = typeof readProjectSourceMaterial;
 type BuildDocumentIndex = typeof buildCourseDocumentIndex;
 
 interface ArchiveDescriptor {
@@ -167,25 +167,35 @@ const createArchiveOpener =
     };
   };
 
-const loadSourceMaterials = async (
-  store: LessonSublessonDependencies['projectStore'],
-  readSourceMaterial: ReadSourceMaterial,
-  request: { projectId: string; userId: string },
-  signal: AbortSignal
-): Promise<CourseSourceMaterial[]> => {
+const loadSourceMaterials = async ({
+  store,
+  readSourceMaterial,
+  request,
+  signal,
+  snapshot,
+}: {
+  store: LessonSublessonDependencies['projectStore'];
+  readSourceMaterial: ReadSourceMaterial;
+  request: { projectId: string; userId: string };
+  signal: AbortSignal;
+  snapshot: ProjectSnapshot;
+  models: DeepReadonly<GlobalModelConfig>;
+}): Promise<CourseSourceMaterial[]> => {
   const storedSources = await store.loadProjectSources(request.userId, request.projectId, {
     includeData: false,
   });
+  const loadSourceFile = async (id: string) => {
+    const file = await store.loadProjectSourceById(request.userId, request.projectId, id);
+    if (!file) throw sourceChanged();
+    return file;
+  };
   const materials: CourseSourceMaterial[] = [];
   for (const source of storedSources) {
     signal.throwIfAborted();
-    const file = await store.loadProjectSourceById(
-      request.userId,
-      request.projectId,
-      source.ref.id
-    );
-    if (!file) throw sourceChanged();
-    const material = await readSourceMaterial(file);
+    const pdf = readPreparedProjectPdfText(snapshot.source, source.ref.id, source.ref.hash);
+    const material = pdf
+      ? { pdf, text: pdf.text }
+      : await readSourceMaterial(await loadSourceFile(source.ref.id));
     signal.throwIfAborted();
     if (!material.text.trim()) {
       throw failPermanently({
@@ -479,12 +489,14 @@ ${LESSON_INSTRUCTION_PACK_SELECTION_RULES}`,
         metadata = generated;
         sourceArchiveSelectors = resolveArchiveSelectors(generated, archive.index);
       } else {
-        const materials = await loadSourceMaterials(
-          projectStore,
+        const materials = await loadSourceMaterials({
+          store: projectStore,
           readSourceMaterial,
-          context.input,
-          context.signal
-        );
+          request: context.input,
+          signal: context.signal,
+          snapshot: project.snapshot,
+          models: context.config.models,
+        });
         const sourceContext = formatCourseSourceMaterials(
           materials,
           SUBLESSON_METADATA_SOURCE_MAX_CHARS
@@ -550,12 +562,14 @@ ${LESSON_INSTRUCTION_PACK_SELECTION_RULES}`,
       let index: CourseDocumentIndex | null = existingIndex;
       let createdDocumentIndex: CourseDocumentIndex | null = null;
       if (!index && !readArchiveDescriptor(project.snapshot.source)) {
-        const materials = await loadSourceMaterials(
-          projectStore,
+        const materials = await loadSourceMaterials({
+          store: projectStore,
           readSourceMaterial,
-          context.input.request,
-          context.signal
-        );
+          request: context.input.request,
+          signal: context.signal,
+          snapshot: project.snapshot,
+          models: context.config.models,
+        });
         if (materials.length > 0) {
           createdDocumentIndex = buildDocumentIndex(materials, now);
           index = createdDocumentIndex;

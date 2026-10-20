@@ -2646,6 +2646,11 @@ describe('PostgresProjectStore', () => {
       )
     ).toBe(false);
 
+    const authoritativeText = {
+      sourceHash: stored.snapshot.source.sources[0].hash,
+      pages: [{ pageNumber: 1, text: 'Authoritative saved transcript' }],
+    };
+    stored.snapshot.source.sources[0].preparedPdfText = authoritativeText;
     const canonicalized = await store.saveProject('user-1', {
       ...second.snapshot,
       source: {
@@ -2653,6 +2658,7 @@ describe('PostgresProjectStore', () => {
         sources: second.snapshot.source?.sources?.map(source => ({
           ...source,
           hash: 'fabricated',
+          preparedPdfText: { text: 'Untrusted client replacement' },
           ref: {
             ...source.ref,
             hash: 'fabricated',
@@ -2664,6 +2670,8 @@ describe('PostgresProjectStore', () => {
     expect(canonicalized.snapshot.source?.sources?.map(source => source.ref)).toEqual(
       stored.snapshot.source?.sources?.map(source => source.ref)
     );
+
+    expect(canonicalized.snapshot.source?.sources?.[0].preparedPdfText).toEqual(authoritativeText);
 
     const firstDescriptor = second.snapshot.source?.sources?.[0];
     await expect(

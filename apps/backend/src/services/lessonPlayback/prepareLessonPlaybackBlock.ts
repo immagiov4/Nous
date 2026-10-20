@@ -12,6 +12,7 @@ import type { GlobalModelConfig } from '../../config/modelConfig.js';
 import { failPermanently } from '../../workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../workflows/types.js';
 import type { WorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
+import type { LessonSourceProvenance } from '../lessonPrimarySourceContext.js';
 import { generateLessonScene } from '../lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../lessonVisualModelConfig.js';
 import { prepareSpeech } from '../speechPreparation.js';
@@ -33,6 +34,7 @@ interface PrepareLessonPlaybackBlockInput {
   readonly lesson: {
     readonly title: string;
     readonly description?: string;
+    readonly sourceProvenance?: LessonSourceProvenance;
     readonly generatedVisuals?: readonly ProjectLessonVisual[];
   };
   readonly voice: string;
@@ -96,6 +98,7 @@ const prepareScene = async (
       retryFeedback,
       // Only this block is admissible evidence; lesson metadata can describe other passages.
       sectionDescription: '',
+      sourceProvenance: input.lesson.sourceProvenance,
       sectionTitle: '',
       signal,
     });
@@ -119,7 +122,7 @@ export const prepareLessonPlaybackBlock = async (
   signal.throwIfAborted();
   validatePlaybackText(input.block.speech);
   validatePlaybackSceneTypes(input);
-  const speech = await prepareSpeech(input);
+  const speech = await prepareSpeech({ ...input, sourceProvenance: input.lesson.sourceProvenance });
   const { narration } = speech;
   signal.throwIfAborted();
   const request = {
@@ -142,6 +145,7 @@ export const prepareLessonPlaybackBlock = async (
   };
 };
 
+
 const prepareVisuals = async (
   input: PrepareLessonPlaybackBlockInput
 ): Promise<PreparedLessonPlaybackBlock['prepared']> => {
@@ -159,7 +163,13 @@ const prepareVisuals = async (
       : await prepareScene(input);
     const planMotion = async () =>
       scene && !isAnimatedLessonScene(scene)
-        ? await planPlaybackMotion({ scene, speech: block.speech, config, signal })
+        ? await planPlaybackMotion({
+            scene,
+            speech: block.speech,
+            config,
+            signal,
+            sourceProvenance: input.lesson.sourceProvenance,
+          })
         : [];
     const motion = input.providerEffect
       ? await input.providerEffect.run({

@@ -621,3 +621,22 @@ test('reports schema paths and transport without retaining unknown model fields'
   });
   expect(JSON.stringify(outcome.diagnostic)).not.toContain('private');
 });
+
+test('keeps transcription provenance separate from the admissible scene passage', async () => {
+  const speech = 'Quali fonti sostengono la tesi?';
+  const sourceProvenance = {
+    kind: 'vision-transcription' as const,
+    sources: [{ title: 'Synthetic notes', transcribedPages: [7] }],
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(quoteDraft(speech));
+  const request = { ...unplannedInput(speech), sourceProvenance };
+  expect(await generateLessonScene(request)).toMatchObject({
+    kind: 'scene',
+    scene: { quote: speech },
+  });
+  const prompt = generateStructuredOutputMock.mock.calls[0][0].prompt as string;
+  const metadata = prompt.split('\n').find(line => line.startsWith('Source provenance: '));
+  expect(JSON.parse(metadata?.slice('Source provenance: '.length) || 'null')).toEqual(
+    sourceProvenance
+  );
+});

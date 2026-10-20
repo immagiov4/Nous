@@ -37,13 +37,14 @@ const findDelimitedMathRange = (
 
 export const getMarkdownMathRangeAt = (
   content: string,
-  startIndex: number
+  startIndex: number,
+  { allowInlineNewlines = false }: { allowInlineNewlines?: boolean } = {}
 ): MarkdownMathRange | null => {
   if (content[startIndex] === '$' && !isEscapedCharacter(content, startIndex)) {
     if (content[startIndex + 1] === '$') {
       return findDelimitedMathRange(content, startIndex, '$$', '$$', true);
     }
-    return findDelimitedMathRange(content, startIndex, '$', '$', false);
+    return findDelimitedMathRange(content, startIndex, '$', '$', allowInlineNewlines);
   }
 
   if (content.startsWith(String.raw`\(`, startIndex) && !isEscapedCharacter(content, startIndex)) {

@@ -1,0 +1,20 @@
+{
+  "source": "synthetic-proof.pdf (generated text and raster only; no private material)",
+  "model": "openai/gpt-6-luna-pro",
+  "provider": "openrouter",
+  "response": {
+    "markdown": "# Synthetic source: one-way proof\n\nAssume $x > 1$.\n\nMultiply by positive $x$: $x^2 > x > 1$.\n\nOnly the forward direction has been proved.\n\nThe converse has not been established.\n\nConclusion: $x > 1 \\Rightarrow x^2 > 1$.",
+    "status": "ok"
+  },
+  "usage": {
+    "cacheReadTokens": 5377,
+    "cacheWriteTokens": 5377,
+    "inputTokens": 13442,
+    "model": "openai/gpt-6-luna-pro",
+    "outputTokens": 1507,
+    "provider": "openrouter",
+    "providerCost": 0.001748195,
+    "reasoningTokens": 1301
+  },
+  "recordedAt": "2026-10-19T15:59:12.698Z"
+}

@@ -1,5 +1,6 @@
 import { CoursePlanningPreferencesSchema } from '@shared/coursePlanningControls';
 import { SOURCE_ARCHIVE_VERSION_HASH_PATTERN } from '@shared/lessonSourceContext';
+import { PreparedPdfTextSchema } from '@shared/pdfTranscription';
 import {
   decodeProjectSnapshotWire,
   encodeProjectSnapshotWire,
@@ -275,8 +276,10 @@ const parseCourseSources = (value: unknown): CourseSourceDescriptor[] | undefine
       ) {
         return null;
       }
+      const preparedPdfText = PreparedPdfTextSchema.safeParse(source.preparedPdfText).data;
       return {
         documentIndex: parseDocumentIndex(source.documentIndex),
+        ...(preparedPdfText ? { preparedPdfText } : {}),
         errorMessage: ensureString(source.errorMessage) || undefined,
         errorReason: isSourceArchivePdfWarningReason(source.errorReason)
           ? source.errorReason
@@ -402,9 +405,11 @@ const parseProjectSource = (value: unknown): ProjectSource | null => {
 
   if (value.kind === 'pdf') {
     const file = parseFileData(value.file);
+    const preparedPdfText = PreparedPdfTextSchema.safeParse(value.preparedPdfText).data;
     return file && isPdfFileData(file) && (file.data || ref)
       ? {
           kind: 'pdf',
+          ...(preparedPdfText ? { preparedPdfText } : {}),
           file,
           ...(ref ? { ref } : {}),
           ...(sources ? { sources } : {}),
@@ -565,6 +570,14 @@ function parseDocumentIndex(value: unknown): PdfTextIndex | null {
         headingPath: Array.isArray(chunk.headingPath)
           ? chunk.headingPath.map(item => ensureString(item)).filter(Boolean)
           : [],
+        ...(Array.isArray(chunk.transcribedPages)
+          ? {
+              transcribedPages: chunk.transcribedPages.filter(
+                (page): page is number =>
+                  typeof page === 'number' && Number.isInteger(page) && page > 0
+              ),
+            }
+          : {}),
         sequence: typeof chunk.sequence === 'number' ? chunk.sequence : 0,
         startOffset: typeof chunk.startOffset === 'number' ? chunk.startOffset : 0,
         endOffset: typeof chunk.endOffset === 'number' ? chunk.endOffset : 0,
