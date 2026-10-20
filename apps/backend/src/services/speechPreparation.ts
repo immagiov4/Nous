@@ -21,8 +21,9 @@ import {
 } from './lessonPlayback/playbackSpokenMath.js';
 import type { LessonSourceProvenance } from './lessonPrimarySourceContext.js';
 import { resolveLessonSpeechSource } from './lessonSpeechSource.js';
+import { encodeSpeechAudio } from './speechAudio.js';
 import { speechPreparationCache } from './speechPreparationCache.js';
-import { ttsClient } from './ttsClient.js';
+import { MAX_TTS_TEXT_CHARS, ttsClient } from './ttsClient.js';
 
 const SPEECH_PREPARATION_CONTRACT = 'lesson-narration-v1';
 
@@ -45,43 +46,8 @@ export const prepareSpeech = async (request: PrepareSpeechInput) => {
     ? { ...request, ...(await resolveLessonSpeechSource({ ...request, target: request.target })) }
     : request;
   input.signal.throwIfAborted();
-  const { block, config } = input;
-  const hasPreparation =
-    !block.prepared &&
-    ((input.supportsSpokenMath !== false && block.spans.some(span => span.math)) ||
-      (input.supportsFencedCode !== false && block.spans.some(span => span.fencedCode)));
-  const narration = hasPreparation
-    ? await speechPreparationCache.resolve(
-        input.userId,
-        createHash('sha256')
-          .update(
-            canonicalJson({
-              contract: SPEECH_PREPARATION_CONTRACT,
-              speech: block.speech,
-              sourceProvenance: input.sourceProvenance ?? null,
-              formulas: block.spans.flatMap(span => (span.math ? [span.math] : [])),
-              fencedCode: block.spans.flatMap(span => (span.fencedCode ? [span.fencedCode] : [])),
-              source: block.visuals.flatMap(visual =>
-                visual.kind === 'markdown' ? [visual.markdown] : []
-              ),
-              model: resolveTextModelConfig(config, 'playbackPreparation'),
-              provider: resolveAiProviderForSlot(config, 'playbackPreparation'),
-              tier: resolveCodexServiceTierForSlot(config, 'playbackPreparation') ?? null,
-              spokenMath: input.supportsSpokenMath !== false,
-              classifyFencedCode: input.supportsFencedCode !== false,
-            })
-          )
-          .digest('hex'),
-        value => {
-          const parsed = PlaybackNarrationResponseSchema.partial({ fencedCode: true }).parse(value);
-          validatePlaybackSpokenMath(block, parsed.spokenMath);
-          if (input.supportsFencedCode !== false && block.spans.some(span => span.fencedCode))
-            validatePlaybackFencedCode(block, parsed.fencedCode ?? []);
-          return parsed;
-        },
-        () => prepareNarration(input)
-      )
-    : await prepareNarration(input);
+  const { block } = input;
+  const narration = await prepareNarration(input);
   input.signal.throwIfAborted();
   return {
     narration,
@@ -89,32 +55,101 @@ export const prepareSpeech = async (request: PrepareSpeechInput) => {
   };
 };
 
+const cachedNarration = (
+  input: PrepareSpeechInput,
+  operation: () => ReturnType<typeof generatePlaybackNarration>
+) => {
+  const { block, config } = input;
+  return speechPreparationCache.resolve(
+    input.userId,
+    createHash('sha256')
+      .update(
+        canonicalJson({
+          contract: SPEECH_PREPARATION_CONTRACT,
+          speech: block.speech,
+          sourceProvenance: input.sourceProvenance ?? null,
+          formulas: block.spans.flatMap(span => (span.math ? [span.math] : [])),
+          fencedCode: block.spans.flatMap(span => (span.fencedCode ? [span.fencedCode] : [])),
+          source: block.visuals.flatMap(visual =>
+            visual.kind === 'markdown' ? [visual.markdown] : []
+          ),
+          model: resolveTextModelConfig(config, 'playbackPreparation'),
+          provider: resolveAiProviderForSlot(config, 'playbackPreparation'),
+          tier: resolveCodexServiceTierForSlot(config, 'playbackPreparation') ?? null,
+          spokenMath: input.supportsSpokenMath !== false,
+          classifyFencedCode: input.supportsFencedCode !== false,
+        })
+      )
+      .digest('hex'),
+    value => {
+      const parsed = PlaybackNarrationResponseSchema.partial({ fencedCode: true }).parse(value);
+      validatePlaybackSpokenMath(block, parsed.spokenMath);
+      if (input.supportsFencedCode !== false && block.spans.some(span => span.fencedCode))
+        validatePlaybackFencedCode(block, parsed.fencedCode ?? []);
+      return parsed;
+    },
+    operation
+  );
+};
+
+const READER_SPEECH_CHUNK_CHARS = 580;
+
+const splitSpeechText = (text: string): string[] => {
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > READER_SPEECH_CHUNK_CHARS) {
+    const boundary = remaining.lastIndexOf(' ', READER_SPEECH_CHUNK_CHARS);
+    const end = boundary > 0 ? boundary : READER_SPEECH_CHUNK_CHARS;
+    chunks.push(remaining.slice(0, end));
+    remaining = remaining.slice(end).trimStart();
+  }
+  if (remaining) chunks.push(remaining);
+  return chunks;
+};
+
 /** One provider request shape for prepared narration, independently of its presentation. */
-export const synthesizeSpeech = (request: {
+export const synthesizeSpeech = async (request: {
   readonly text: string;
   readonly model: string;
   readonly voice: string;
   readonly signal?: AbortSignal;
   readonly speed?: number;
-}) =>
-  ttsClient.generateSpeech({
-    ...request,
-    text: request.text.replaceAll(/\s+/g, ' ').trim(),
-    speed: request.speed ?? 1,
-  });
+}) => {
+  const text = request.text.replaceAll(/\s+/g, ' ').trim();
+  const speed = request.speed ?? 1;
+  if (text.length <= MAX_TTS_TEXT_CHARS)
+    return ttsClient.generateSpeech({ ...request, text, speed });
+  const parts: Uint8Array[] = [];
+  let model = request.model;
+  let voice = request.voice;
+  for (const chunk of splitSpeechText(text)) {
+    request.signal?.throwIfAborted();
+    const audio = await ttsClient.generateSpeech({ ...request, text: chunk, speed });
+    model = audio.model;
+    voice = audio.voice;
+    parts.push((await encodeSpeechAudio(audio)).bytes);
+  }
+  return {
+    model,
+    voice,
+    contentType: 'audio/mpeg',
+    audioBuffer: Uint8Array.from(Buffer.concat(parts)).buffer,
+  };
+};
 
 const prepareNarration = async (input: PrepareSpeechInput) => {
   const { block } = input;
   if (block.prepared)
     return { spokenMath: block.prepared.spokenMath, fencedCode: block.prepared.fencedCode };
   if (input.supportsFencedCode !== false && block.spans.some(span => span.fencedCode)) {
+    const operation = () => cachedNarration(input, () => generatePlaybackNarration(input));
     return input.providerEffect
       ? input.providerEffect.run({
           key: 'narration',
           outputSchema: PlaybackNarrationResponseSchema,
-          operation: () => generatePlaybackNarration(input),
+          operation,
         })
-      : generatePlaybackNarration(input);
+      : operation();
   }
   const spokenMath = await prepareSpokenMath(input);
   return spokenMath ? { spokenMath } : {};
@@ -124,7 +159,12 @@ const prepareSpokenMath = async (input: PrepareSpeechInput) => {
   const { block } = input;
   if (block.prepared) return block.prepared.spokenMath;
   if (input.supportsSpokenMath === false || !block.spans.some(span => span.math)) return undefined;
-  const operation = () => generatePlaybackSpokenMath(input);
+  const operation = async () =>
+    (
+      await cachedNarration(input, async () => ({
+        spokenMath: [...(await generatePlaybackSpokenMath(input))],
+      }))
+    ).spokenMath;
   const spokenMath = input.providerEffect
     ? await input.providerEffect.run({
         key: 'spoken-math',

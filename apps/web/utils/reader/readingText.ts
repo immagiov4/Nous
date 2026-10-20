@@ -1,3 +1,6 @@
+import type { LessonPlaybackBlock, PlaybackContentBlock } from '@shared/lessonPlayback';
+import { buildVisibleProjection } from '../markdown/textProjection.ts';
+
 const isInlineWhitespace = (character: string): boolean => character === ' ' || character === '\t';
 const MARKDOWN_LINE_ENDING_PATTERN = /\r\n?/gu;
 const normalizeMarkdownLineEndings = (text: string): string =>
@@ -82,4 +85,35 @@ export const buildReadableTextElements = (container: HTMLElement): ReadableTextE
       return { element, text: extractReadableElementText(element) };
     })
     .filter(item => item.text.length > 0);
+};
+
+/** Map speech-source ranges to the rendered prose used by the text picker, including entities. */
+export const projectReadableSpeech = (
+  blocks: readonly LessonPlaybackBlock[],
+  content: readonly PlaybackContentBlock[]
+): string[] => {
+  const projections = content.map(block =>
+    block.type === 'markdown' ? buildVisibleProjection(block.markdown) : null
+  );
+  return blocks.map(block =>
+    collapseWhitespace(
+      block.spans
+        .map(span => {
+          if (span.math || span.fencedCode) return '';
+          if (span.source.start === span.source.end)
+            return block.speech.slice(span.speech.start, span.speech.end);
+          const projection = projections[span.sourceBlockIndex];
+          if (!projection) throw new Error('Speech text must have a Markdown source.');
+          const start = projection.sourceIndexes.findIndex(
+            index => index >= span.source.start && index < span.source.end
+          );
+          if (start < 0) return '';
+          const end = projection.sourceIndexes.findIndex(
+            (sourceIndex, visibleIndex) => visibleIndex >= start && sourceIndex >= span.source.end
+          );
+          return projection.text.slice(start, end < 0 ? undefined : end);
+        })
+        .join('')
+    )
+  );
 };

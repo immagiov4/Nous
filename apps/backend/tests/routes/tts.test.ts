@@ -86,12 +86,15 @@ describe('POST /api/tts', () => {
       ttsVoice: 'Ara',
     });
 
-    const response = await request(createApp()).post('/api/tts').send({
-      text: 'Ciao Nous',
-      model: 'client/ignored-tts-model',
-      voice: 'Eve',
-      speed: 1,
-    });
+    const response = await request(createApp())
+      .post('/api/tts')
+      .send({
+        text: 'Ciao Nous',
+        signal: expect.any(AbortSignal),
+        model: 'client/ignored-tts-model',
+        voice: 'Eve',
+        speed: 1,
+      });
 
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('audio/mpeg');
@@ -100,6 +103,7 @@ describe('POST /api/tts', () => {
     expect(response.body).toBeInstanceOf(Buffer);
     expect(ttsClientMocks.generateSpeech).toHaveBeenCalledWith({
       text: 'Ciao Nous',
+      signal: expect.any(AbortSignal),
       model: 'server/tts-model',
       voice: 'Eve',
       speed: 1,

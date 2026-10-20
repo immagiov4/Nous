@@ -571,7 +571,7 @@ const appendInline = (
   for (const omitted of analysis.omissions) {
     if (omitted.end <= cursor || omitted.start >= range.end) continue;
     appendSource(result, markdown, cursor, Math.max(cursor, omitted.start));
-    if (analysis.math.includes(omitted)) {
+    if (analysis.math.includes(omitted) && omitted.start >= range.start) {
       result.spans.push({
         speech: { start: result.speech.length, end: result.speech.length },
         source: { start: omitted.start, end: omitted.end },

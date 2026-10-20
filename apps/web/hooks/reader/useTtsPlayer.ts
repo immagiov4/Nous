@@ -9,6 +9,7 @@ import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE } from '../../services/audio/voiceProfile';
 import * as OpenRouterService from '../../services/openrouter';
 import type { AudioChunk, AudioState, TtsModelSummary, VoiceProfileId } from '../../types';
+import { projectReadableSpeech } from '../../utils/reader/readingText';
 
 const CHUNK_LABEL_MAX_CHARACTERS = 72;
 const CHUNK_CROSSFADE_SECONDS = 0.035;
@@ -73,10 +74,6 @@ const sourceChunkText = (block: LessonPlaybackBlock): string =>
     block.spans.flatMap(span => (span.math ? [{ formula: span.math, spoken: span.math }] : []))
   ).speech.trim();
 
-/** Source labels preserve notation; only backend preparation supplies its pronunciation. */
-export const splitContentIntoChunks = (text: string): string[] =>
-  segmentLessonPlayback([{ type: 'markdown', markdown: text }]).map(sourceChunkText);
-
 const createAudioChunks = (chunks: string[]): AudioChunk[] =>
   chunks.map((text, index) => ({
     text,
@@ -111,17 +108,18 @@ export const useTtsPlayer = ({
   activeSectionId,
   sectionContent,
 }: UseTtsPlayerParams): UseTtsPlayerResult => {
-  const sourceBlocks = useMemo(
+  const sourceContent = useMemo(
     () =>
-      segmentLessonPlayback(
-        contentBlocks?.length ? contentBlocks : [{ type: 'markdown', markdown: sectionContent }]
-      ),
+      contentBlocks?.length
+        ? contentBlocks
+        : [{ type: 'markdown' as const, markdown: sectionContent }],
     [contentBlocks, sectionContent]
   );
+  const sourceBlocks = useMemo(() => segmentLessonPlayback(sourceContent), [sourceContent]);
   const preparedChunkTexts = useMemo(() => sourceBlocks.map(sourceChunkText), [sourceBlocks]);
   const selectionChunkTexts = useMemo(
-    () => sourceBlocks.map(block => block.speech),
-    [sourceBlocks]
+    () => projectReadableSpeech(sourceBlocks, sourceContent),
+    [sourceBlocks, sourceContent]
   );
   const chunkOptions = useMemo(
     () =>

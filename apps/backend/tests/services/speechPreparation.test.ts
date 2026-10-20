@@ -3,6 +3,7 @@ import request from 'supertest';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { readLessonPlayback } from '../../src/projects/lessonPlayback.js';
 import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
+import type { WorkflowProviderEffectExecutor } from '../../src/workflows/types.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
 import { playbackProject, playbackSection } from '../helpers/lessonPlayback.js';
 
@@ -229,4 +230,111 @@ test('standard listening reuses authoritative saved pronunciation, and rejects a
     ).status
   ).toBe(404);
   expect(mocks.speech).toHaveBeenCalledOnce();
+});
+
+test('projects a multiline formula exactly once before either synthesis path', async () => {
+  const source = 'Prima.\n\n$$\nx+y\n$$'.replaceAll('\\n', '\n');
+  const block = segmentLessonPlayback([{ type: 'markdown', markdown: source }])[0];
+  expect(block.spans.filter(span => span.math)).toHaveLength(1);
+  await prepareSpeech({
+    userId: 'local-user',
+    block,
+    config: getGlobalModelConfig(),
+    signal: new AbortController().signal,
+  });
+  expect(JSON.parse(mocks.generate.mock.calls[0][0].prompt).formulas).toEqual([
+    '$$\nx+y\n$$'.replaceAll('\\n', '\n'),
+  ]);
+});
+
+test.each([
+  'spoken-math',
+  'narration',
+])('records a cache hit durably across a model change: %s', async key => {
+  const source =
+    key === 'narration' ? 'Before.\n\n```text\nA pair has components.\n```\n\nThen $x$.' : markdown;
+  const block = segmentLessonPlayback([{ type: 'markdown', markdown: source }])[0];
+  if (key === 'narration')
+    mocks.generate.mockImplementation(async ({ prompt }) => ({
+      spokenMath: JSON.parse(prompt).formulas.map((formula: string) => ({
+        formula,
+        spoken: 'ics',
+      })),
+      fencedCode: JSON.parse(prompt).fencedCode.map(({ visualIndex }: { visualIndex: number }) => ({
+        visualIndex,
+        kind: 'prose',
+        spoken: 'A pair has components.',
+      })),
+    }));
+  const input = {
+    userId: 'local-user',
+    block,
+    config: getGlobalModelConfig(),
+    signal: new AbortController().signal,
+  };
+  const first = await prepareSpeech(input);
+  const recorded = new Map<string, unknown>();
+  const providerEffect: WorkflowProviderEffectExecutor = {
+    run: async ({ key, operation, outputSchema }) => {
+      if (!recorded.has(key)) recorded.set(key, await operation());
+      return outputSchema.parse(recorded.get(key));
+    },
+  };
+  await prepareSpeech({ ...input, providerEffect });
+  expect(recorded.has(key)).toBe(true);
+  mocks.generate.mockResolvedValue({
+    spokenMath: block.spans.flatMap(span =>
+      span.math ? [{ formula: span.math, spoken: 'changed reading' }] : []
+    ),
+  });
+  const retried = await prepareSpeech({
+    ...input,
+    providerEffect,
+    config: {
+      ...input.config,
+      aiProvider: 'openrouter',
+      playbackPreparationModel: 'another-model',
+    },
+  });
+  expect(retried.block.speech).toBe(first.block.speech);
+  expect(mocks.generate).toHaveBeenCalledOnce();
+});
+
+test('rejects an oversized unscoped source block before paid preparation', async () => {
+  const block = segmentLessonPlayback([
+    { type: 'markdown', markdown: `${'word '.repeat(2500)}$x$` },
+  ])[0];
+  const response = await request(createApp()).post('/api/tts').send({ text: 'brief', block });
+  expect(response.status).toBe(400);
+  expect(mocks.generate).not.toHaveBeenCalled();
+  expect(mocks.speech).not.toHaveBeenCalled();
+});
+
+test('listens to an owner-scoped long lesson without oversized provider calls', async () => {
+  const longText = 'Una spiegazione matematica estesa. '.repeat(400);
+  const section = {
+    ...playbackSection(),
+    content: longText,
+    contentBlocks: [{ type: 'markdown' as const, markdown: longText }],
+  };
+  const block = readLessonPlayback(section).blocks[0];
+  const store = new InMemoryProjectStore();
+  await store.saveProject('local-user', playbackProject(section));
+  setProjectStoreForTesting(store);
+  mocks.speech.mockResolvedValue({
+    audioBuffer: Uint8Array.from(
+      Buffer.from('UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQIAAAAAAA==', 'base64')
+    ).buffer,
+    contentType: 'audio/wav',
+    model: 'tts-model',
+    voice: 'Zephyr',
+  });
+  const response = await request(createApp())
+    .post('/api/tts')
+    .send({ text: longText, block, target: { projectId: 'project-1', sectionId: 'section-1' } });
+  expect(response.status).toBe(200);
+  expect(response.headers['content-type']).toContain('audio/mpeg');
+  expect(mocks.speech.mock.calls.length).toBeGreaterThan(1);
+  expect(mocks.speech.mock.calls.every(([request]) => request.text.length <= 10_000)).toBe(true);
+  expect(mocks.generate).not.toHaveBeenCalled();
 });

@@ -16,9 +16,7 @@ vi.mock('../../../services/openrouter', () => ({
   getTTSVoices: openRouterMocks.getTTSVoices,
 }));
 
-const { splitContentIntoChunks, useTtsPlayer } = await import(
-  '../../../hooks/reader/useTtsPlayer.ts'
-);
+const { useTtsPlayer } = await import('../../../hooks/reader/useTtsPlayer.ts');
 
 class FakeAudio {
   currentTime = 0;
@@ -93,34 +91,27 @@ beforeEach(() => {
 
 describe('useTtsPlayer', () => {
   test('preserves authored paragraph order', () => {
-    const chunks = splitContentIntoChunks(
-      [
-        'Prima frase. Seconda frase con abbastanza testo da restare nello stesso blocco.',
-        'Terza frase finale.',
-      ].join('\n\n')
+    const markdown = 'Prima frase. Seconda frase.\n\nTerza frase finale.';
+    const { result } = renderHook(() =>
+      useTtsPlayer({ activeSectionId: 'paragraphs', sectionContent: markdown })
     );
-
-    expect(chunks.length).toBeGreaterThan(0);
-    expect(chunks.join(' ')).toContain('Prima frase.');
-    expect(chunks.join(' ')).toContain('Terza frase finale.');
+    expect(result.current.chunkTexts).toEqual([
+      'Prima frase. Seconda frase.',
+      'Terza frase finale.',
+    ]);
   });
 
-  test('keeps visual-only source out of speech chunks', () => {
-    const chunks = splitContentIntoChunks(
-      [
-        'Prima parte.',
-        '{{PDF_IMAGE:pdf-img-001|alt=Schema sensibile|caption=Figura da saltare}}',
-        '<figure><img src="x" alt="Alt da saltare" /><figcaption>Caption da saltare</figcaption></figure>',
-        'Seconda parte.',
-      ].join('\n\n')
+  test('keeps visual-only source out of selectable speech chunks', () => {
+    const markdown = [
+      'Prima parte.',
+      '{{PDF_IMAGE:pdf-img-001|alt=Schema sensibile|caption=Figura da saltare}}',
+      '<figure><img src="x" alt="Alt da saltare" /><figcaption>Caption da saltare</figcaption></figure>',
+      'Seconda parte.',
+    ].join('\n\n');
+    const { result } = renderHook(() =>
+      useTtsPlayer({ activeSectionId: 'figures', sectionContent: markdown })
     );
-
-    const spokenText = chunks.join(' ');
-    expect(spokenText).toContain('Prima parte.');
-    expect(spokenText).toContain('Seconda parte.');
-    expect(spokenText).not.toContain('PDF_IMAGE');
-    expect(spokenText).not.toContain('Schema sensibile');
-    expect(spokenText).not.toContain('Caption da saltare');
+    expect(result.current.chunkTexts).toEqual(['Prima parte.', 'Seconda parte.']);
   });
 
   test('loads TTS connectivity and available voices on mount', async () => {
@@ -323,17 +314,12 @@ describe('useTtsPlayer', () => {
   });
 });
 
-test('preserves mathematical source even when rendered speech blocks omit KaTeX', () => {
-  const markdown = String.raw`Consideriamo $\mathcal{P}(A)$ e $f: A\to B$.`;
-  expect(splitContentIntoChunks(markdown).join(' ')).toBe(markdown);
-});
-
 test('keeps selection text aligned with the rendered prose while sending original math for speech', async () => {
   const markdown = String.raw`Consideriamo $\mathcal{P}(A)$ e $f: A\to B$.`;
   const { result } = renderHook(() =>
     useTtsPlayer({ activeSectionId: 'math', sectionContent: markdown })
   );
-  expect(result.current.chunkTexts).toEqual(['Consideriamo  e .']);
+  expect(result.current.chunkTexts).toEqual(['Consideriamo e .']);
   await waitFor(() => expect(result.current.ttsConnected).toBe(true));
   act(() => result.current.togglePlayPause());
   await waitFor(() => expect(openRouterMocks.generateSpeech).toHaveBeenCalled());
@@ -342,4 +328,14 @@ test('keeps selection text aligned with the rendered prose while sending origina
       (span: { math?: string }) => (span.math ? [span.math] : [])
     )
   ).toEqual([String.raw`$\mathcal{P}(A)$`, String.raw`$f: A\to B$`]);
+});
+
+test('projects rendered entities for text selection while retaining literal code entities', () => {
+  const { result } = renderHook(() =>
+    useTtsPlayer({
+      activeSectionId: 'entities',
+      sectionContent: 'Consideriamo A &amp; B e `$x &amp; y$`.',
+    })
+  );
+  expect(result.current.chunkTexts).toEqual(['Consideriamo A & B e $x &amp; y$.']);
 });

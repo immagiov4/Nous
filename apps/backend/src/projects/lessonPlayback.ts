@@ -98,13 +98,15 @@ export const readLessonPlayback = (section: LearningPlanNodeSnapshot): LessonPla
       const prepared = saved.get(block.id);
       const needsFenceClassification =
         block.spans.some(span => span.fencedCode) && !prepared?.prepared?.fencedCode;
-      const sameFormulas =
-        JSON.stringify(prepared?.spans.flatMap(span => (span.math ? [span.math] : []))) ===
-        JSON.stringify(block.spans.flatMap(span => (span.math ? [span.math] : [])));
+      const recordedFormulas = prepared?.prepared?.spokenMath
+        ? new Set(prepared.prepared.spokenMath.map(entry => entry.formula))
+        : undefined;
       return prepared?.speech === block.speech && !needsFenceClassification
         ? {
             ...block,
-            spans: prepared.prepared?.spokenMath && !sameFormulas ? prepared.spans : block.spans,
+            spans: recordedFormulas
+              ? block.spans.filter(span => !span.math || recordedFormulas.has(span.math))
+              : block.spans,
             prepared: prepared.prepared,
             audio: prepared.audio,
           }

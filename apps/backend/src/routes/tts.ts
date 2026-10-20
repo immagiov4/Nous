@@ -58,16 +58,9 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    const normalizedText = text.trim();
-
-    if (normalizedText.length > MAX_TTS_TEXT_CHARS) {
-      return res.status(400).json({
-        success: false,
-        error: `Testo troppo lungo. Massimo ${MAX_TTS_TEXT_CHARS} caratteri per richiesta.`,
-      });
-    }
-
-    const signal = new AbortController().signal;
+    const controller = new AbortController();
+    res.once('close', () => controller.abort());
+    const signal = controller.signal;
     const parsedBlock =
       sourceBlock === undefined ? undefined : LessonPlaybackBlockSchema.safeParse(sourceBlock);
     if (parsedBlock && !parsedBlock.success) {
@@ -76,6 +69,18 @@ router.post('/', async (req: Request, res: Response) => {
     const parsedTarget = target === undefined ? undefined : speechTargetSchema.safeParse(target);
     if (parsedTarget && (!parsedTarget.success || !parsedBlock?.success))
       return res.status(400).json({ success: false, error: 'Richiesta di ascolto non valida.' });
+    const sourceLength = parsedBlock?.success
+      ? parsedBlock.data.speech.length +
+        parsedBlock.data.spans.reduce(
+          (length, span) => length + (span.math?.length ?? span.fencedCode?.markdown.length ?? 0),
+          0
+        )
+      : text.trim().length;
+    if (!parsedTarget && sourceLength > MAX_TTS_TEXT_CHARS)
+      return res.status(400).json({
+        success: false,
+        error: `Testo troppo lungo. Massimo ${MAX_TTS_TEXT_CHARS} caratteri per richiesta.`,
+      });
     const blocks = parsedBlock?.success
       ? [parsedBlock.data]
       : segmentLessonPlayback([{ type: 'markdown', markdown: text }]);
@@ -94,14 +99,9 @@ router.post('/', async (req: Request, res: Response) => {
       );
     }
     const speech = prepared.map(result => result.block.speech).join(' ');
-    if (speech.length > MAX_TTS_TEXT_CHARS) {
-      return res.status(400).json({
-        success: false,
-        error: `Testo troppo lungo. Massimo ${MAX_TTS_TEXT_CHARS} caratteri per richiesta.`,
-      });
-    }
     const generatedAudio = await synthesizeSpeech({
       text: speech,
+      signal,
       model: modelConfig.ttsModel,
       voice: typeof voice === 'string' && voice.trim() ? voice.trim() : modelConfig.ttsVoice,
       speed,

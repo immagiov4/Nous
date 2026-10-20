@@ -584,3 +584,37 @@ test('keeps recorded inline pronunciations and audio when display math gains a s
   expect(restored.prepared).toBe(prepared);
   expect(restored.spans.flatMap(span => (span.math ? [span.math] : []))).toEqual(['$x$']);
 });
+
+test('preserves current annotation offsets when reusing a recording with silent display mathematics', () => {
+  const section = annotatedSection(
+    '<mark>Consideriamo</mark> $x$.\n\n$$x = 2$$'.replaceAll('\\n', '\n')
+  );
+  const saved = preparedPlayback(section);
+  const first = saved.blocks[0];
+  const prepared = {
+    ...first.prepared,
+    motion: [],
+    spokenMath: [{ formula: '$x$', spoken: 'ics' }],
+  };
+  const oldPlayback = {
+    ...saved,
+    blocks: [
+      { ...first, spans: first.spans.filter(span => !span.math?.startsWith('$$')), prepared },
+    ],
+  };
+  const edited = {
+    ...section,
+    contentBlocks: [
+      {
+        type: 'markdown' as const,
+        markdown: section.contentBlocks[0].markdown.replace('<mark>', '<mark title="nota">'),
+      },
+    ],
+    playback: oldPlayback,
+  };
+  expect(buildLessonPlaybackKey(edited)).toBe(saved.lessonKey);
+  const current = readLessonPlayback(edited).blocks[0];
+  const math = current.spans.find(span => span.math === '$x$');
+  expect(edited.contentBlocks[0].markdown.slice(math?.source.start, math?.source.end)).toBe('$x$');
+  expect(current.audio).toEqual(first.audio);
+});
