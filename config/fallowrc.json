@@ -5,11 +5,7 @@
     "src/main.{ts,tsx,js,jsx}",
     "apps/backend/src/services/pdfTextFallbackProcess.mjs"
   ],
-  "ignoreDependencies": [
-    "@tabler/icons",
-    "@tabler-icon-nodes",
-    "@atlas-katex.css"
-  ],
+  "ignoreDependencies": ["@tabler/icons", "@tabler-icon-nodes", "@atlas-katex.css"],
   "rules": {
     "unused-dependencies": "warn"
   },
@@ -28,15 +24,11 @@
         "config/dependency-cruiser.cjs",
         "config/remotion.config.ts"
       ],
-      "enablers": [
-        "eslint"
-      ]
+      "enablers": ["eslint"]
     },
     {
       "name": "playback-atlas",
-      "entryPoints": [
-        "e2e/nous/atlas/browser.tsx"
-      ],
+      "entryPoints": ["e2e/nous/atlas/browser.tsx"],
       "entryPointRole": "test",
       "detection": {
         "type": "fileExists",

@@ -55,6 +55,9 @@ import {
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
+// Maximum healthy startup/capture/sheet phase: 34,093.1062 ms across 258 samples; margin 1.5x.
+const DEFAULT_RENDER_TIMEOUT_MS = 51_140;
+
 export function parseAtlasArgs(args: string[]) {
   const { values } = parseArgs({
     args: args.filter(argument => argument !== '--'),
@@ -75,7 +78,7 @@ export function parseAtlasArgs(args: string[]) {
     throw new Error('Choose one input: --library, --fixture or --synthetic.');
   if (values.synthetic && !['synthetic-short', 'synthetic-law-short'].includes(values.synthetic))
     throw new Error('Unknown synthetic course.');
-  const renderTimeoutMs = Number(values['render-timeout-ms']);
+  const renderTimeoutMs = Number(values['render-timeout-ms'] ?? DEFAULT_RENDER_TIMEOUT_MS);
   if (!Number.isFinite(renderTimeoutMs) || renderTimeoutMs <= 0)
     throw new Error('Choose a measured positive --render-timeout-ms execution bound.');
   return {
@@ -542,7 +545,8 @@ function atlasPostcss(sourceRoot: string): AtlasPostcss {
   const configPath = join(sourceRoot, 'apps/web/postcss.config.cjs');
   const load = createRequire(configPath);
   const configured = load(configPath) as { plugins: Record<string, Record<string, unknown>> };
-  const tailwind = load(join(sourceRoot, 'tailwind.config.cjs')) as { content: string[] };
+  const tailwindOptions = configured.plugins.tailwindcss as { config: string };
+  const tailwind = load(tailwindOptions.config) as { content: string[] };
   return {
     plugins: Object.entries(configured.plugins).map(([name, options]) => {
       const plugin = load(name) as (
@@ -699,5 +703,5 @@ if (import.meta.main) {
       counts: report.counts,
     })
   );
-  process.exitCode = report.status === 'passed' ? 0 : 1;
+  process.exit(report.status === 'passed' ? 0 : 1);
 }

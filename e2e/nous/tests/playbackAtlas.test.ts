@@ -29,6 +29,7 @@ import {
   atlasKatexCss,
   atlasStatus,
   captureTile,
+  parseAtlasArgs,
   privateAtlasDirectory,
 } from '../playbackAtlas';
 import { syntheticCourse } from '../syntheticCourse';
@@ -407,4 +408,15 @@ test('restarts the same random sequence before each visual executes', () => {
   } finally {
     Math.random = original;
   }
+});
+
+test('the standard atlas command supplies a finite measured execution bound', () => {
+  const standard = parseAtlasArgs([]);
+  expect(Number.isFinite(standard.renderTimeoutMs)).toBe(true);
+  expect(standard.renderTimeoutMs).toBeGreaterThan(0);
+  expect(parseAtlasArgs(['--render-timeout-ms', '17']).renderTimeoutMs).toBe(17);
+});
+
+test.each(['0', '-1', 'NaN', 'Infinity'])('rejects invalid execution bound %s', bound => {
+  expect(() => parseAtlasArgs([`--render-timeout-ms=${bound}`])).toThrow('positive');
 });

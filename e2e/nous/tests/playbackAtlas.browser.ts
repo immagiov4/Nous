@@ -16,22 +16,12 @@ import type { runPlaybackAtlas } from '../playbackAtlas';
 import { syntheticCourse } from '../syntheticCourse';
 
 async function runAtlas(args: string[]): Promise<Awaited<ReturnType<typeof runPlaybackAtlas>>> {
-  const child = Bun.spawn(
-    [
-      process.execPath,
-      'run',
-      'e2e/nous/playbackAtlas.ts',
-      '--render-timeout-ms',
-      '120000',
-      ...args,
-    ],
-    {
-      cwd: resolve(import.meta.dirname, '../../..'),
-      stdin: 'ignore',
-      stdout: 'pipe',
-      stderr: 'pipe',
-    }
-  );
+  const child = Bun.spawn([process.execPath, 'run', 'e2e/nous/playbackAtlas.ts', ...args], {
+    cwd: resolve(import.meta.dirname, '../../..'),
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
   const [stdout, stderr, code] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
