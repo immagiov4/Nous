@@ -16,6 +16,7 @@ Vendored skills are guidance written for other environments. Where one conflicts
 
 - **Git state:** creating worktrees, branches, rebases, merges, commits or pushes needs the repository's Git authorization; use temporary directories for candidate work otherwise.
 - **Scope of a request:** a design-only request ("design this", "architect this") stops after presenting the design; implementation needs explicit intent.
+- **Documentation scope:** apply AGENTS.md's Cubic Wiki Governance to every documentation step, including system-map maintenance.
 - **Documentation location:** do not create new documentation structures such as a root `GLOSSARY.md` or `docs/adr/`; architecture documentation belongs in `.cubic/wiki`, per AGENTS.md.
 - **Numbers:** file-size cutoffs, timeouts and other numeric thresholds in vendored skills are not project policy; the maintainer sets thresholds from measured data.
 - **Agents, models and tools:** use the delegation tools available in the current environment and the model policy in AGENTS.md and the maintainer's instructions, not Cursor-specific model slugs, rule files or tools. Design candidates such as `arena` seats may come from local subagents as read-only proposals returned in their response (no file edits); work that edits files runs as separate visible delegated tasks, as AGENTS.md requires.
