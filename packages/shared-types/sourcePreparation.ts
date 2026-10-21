@@ -40,3 +40,8 @@ export const SOURCE_PREPARATION_FAILURE_MESSAGES = {
 export const SOURCE_PREPARATION_CANCELLED_CODE = 'SOURCE_PREPARATION_CANCELLED';
 export const SOURCE_PREPARATION_CANCELLED_MESSAGE =
   'La preparazione delle fonti è stata annullata.';
+
+export const SOURCE_PREPARATION_CONFLICT_MESSAGE =
+  'È già in corso la preparazione di altre fonti per questo corso. Attendi che finisca e riprova.';
+
+export const SOURCE_PREPARATION_CONFLICT_CODE = 'SOURCE_PREPARATION_CONFLICT';

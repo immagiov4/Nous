@@ -54,6 +54,7 @@ export interface SavedProjectMeta {
   hasSourceFile: boolean;
   coverLabel: string;
   isFavorite?: boolean;
+  sourcePreparationStatus?: 'finalizing' | 'failed';
   /** Monotonic server-side version used for optimistic concurrency and cross-session sync. */
   revision?: number;
 }

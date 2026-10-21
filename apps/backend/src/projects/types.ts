@@ -220,12 +220,14 @@ export interface ProjectStore {
   exportProject: (userId: string, id: ProjectId) => Promise<ProjectSnapshot | null>;
   importProject: (
     userId: string,
-    data: unknown
+    data: unknown,
+    sourcePreparation?: import('./sourcePreparationContext.js').SourcePreparationJobContext
   ) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
   importProjectArchive: (
     userId: string,
     bytes: Uint8Array,
-    targetProjectId: ProjectId
+    targetProjectId: ProjectId,
+    sourcePreparation?: import('./sourcePreparationContext.js').SourcePreparationJobContext
   ) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
   listFolders: (userId: string) => Promise<LibraryFolder[]>;
   listLibraryExportProjects: (userId: string) => Promise<LibraryExportProjectMeta[]>;

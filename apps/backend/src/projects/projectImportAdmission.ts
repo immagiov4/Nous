@@ -1,6 +1,11 @@
+import {
+  SOURCE_PREPARATION_CONFLICT_CODE,
+  SOURCE_PREPARATION_CONFLICT_MESSAGE,
+} from '@shared/sourcePreparation';
 import type { NextFunction, Request, Response } from 'express';
 
 import { getCurrentUser } from '../auth/currentUser.js';
+import { getRunningProjectImport, ProjectImportConflictError } from './projectImportChunks.js';
 import { projectImportConfig } from './projectImportConfig.js';
 
 const inFlightByUser = new Map<string, number>();
@@ -12,6 +17,28 @@ export const admitProjectImportRequest = (
   next: NextFunction
 ): void => {
   const userId = getCurrentUser(req).id;
+  try {
+    const running = getRunningProjectImport({
+      userId,
+      uploadId: typeof req.params.uploadId === 'string' ? req.params.uploadId : undefined,
+      projectId: typeof req.query.projectId === 'string' ? req.query.projectId : undefined,
+      contentKey: typeof req.query.contentKey === 'string' ? req.query.contentKey : undefined,
+    });
+    if (running) {
+      req.resume();
+      res.status(202).json(running);
+      return;
+    }
+  } catch (error) {
+    if (!(error instanceof ProjectImportConflictError)) throw error;
+    req.resume();
+    res.status(409).json({
+      success: false,
+      code: SOURCE_PREPARATION_CONFLICT_CODE,
+      error: SOURCE_PREPARATION_CONFLICT_MESSAGE,
+    });
+    return;
+  }
   const inFlightForUser = inFlightByUser.get(userId) || 0;
   if (
     inFlightForUser >= projectImportConfig.requestsPerUser ||

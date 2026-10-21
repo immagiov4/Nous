@@ -553,6 +553,10 @@ const ENGLISH_UI_MESSAGES = {
   Calibrazione: 'Calibration',
   'Cambia tema': 'Change theme',
   'Caricamento...': 'Loading...',
+  'È già in corso la preparazione di altre fonti per questo corso. Attendi che finisca e riprova.':
+    'Other sources are already being prepared for this course. Wait for preparation to finish and try again.',
+  'Preparazione fonti non riuscita': 'Source preparation failed',
+  'Preparazione fonti...': 'Preparing sources...',
   'Preparazione fonti... {completed}/{total}': 'Preparing sources... {completed}/{total}',
   Chiudi: 'Close',
   'Chiudi accesso': 'Close access',

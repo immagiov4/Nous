@@ -1458,9 +1458,16 @@ export const useProjectLibrary = ({
     [rememberExplicitProjectTitle]
   );
   const loadStoredProject = useCallback(
-    async (projectId: string) => {
+    async (
+      projectId: string,
+      onSourceProgress?: (
+        progress: import('@shared/sourcePreparation').SourcePreparationProgress
+      ) => void
+    ) => {
       await getProjectWriteState(projectId).queue;
-      const project = await projectRepositoryRef.current.loadProject(projectId);
+      const project = await projectRepositoryRef.current.loadProject(projectId, {
+        onSourceProgress,
+      });
       if (project) {
         rememberExplicitProjectTitle(project);
       }

@@ -17,6 +17,7 @@ import {
 import { build, type CSSOptions, normalizePath, preview } from 'vite';
 import { drainConsoleSignals, installProbes } from '../../packages/playtest/src/probes/collect';
 import type { LessonPlaybackBlock } from '../../packages/shared-types/lessonPlayback';
+import { withMutedAudio } from '../../scripts/browser-audio';
 import {
   type AtlasFinding,
   outsideBox,
@@ -427,7 +428,9 @@ async function captureCourse(input: {
       const openRenderer = async () => {
         if (!renderer) {
           const launch = ownRendererLaunch(
-            chromium.launchServer({ headless: true, timeout: options.renderTimeoutMs })
+            chromium.launchServer(
+              withMutedAudio({ headless: true, timeout: options.renderTimeoutMs })
+            )
           );
           ownedServer = launch;
           const server = await launch.ready;
@@ -625,7 +628,7 @@ export async function runPlaybackAtlas(options: Options) {
   try {
     server = await startRenderer(options, directory);
     const { origin } = server;
-    const sheetsOwner = await chromium.launchServer({ headless: true });
+    const sheetsOwner = await chromium.launchServer(withMutedAudio({ headless: true }));
     sheetsServer = sheetsOwner;
     const browser = await chromium.connect(sheetsOwner.wsEndpoint());
     const sheets = await browser.newPage();

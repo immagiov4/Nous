@@ -130,6 +130,18 @@ interface NewHomeViewProps {
   readonly saveProjectCover: (projectId: string, cover: FileData) => Promise<void>;
 }
 
+const formatSourcePreparationLabel = (
+  status: NonNullable<SavedProjectMeta['sourcePreparationStatus']>
+) => (status === 'failed' ? t('Preparazione fonti non riuscita') : t('Preparazione fonti...'));
+
+const formatCourseLessonSummary = (project: SavedProjectMeta) =>
+  t(
+    project.lessonCount === 1
+      ? '1 lezione · {lastOpenedDate}'
+      : '{lessonCount} lezioni · {lastOpenedDate}',
+    { lessonCount: project.lessonCount, lastOpenedDate: formatCourseDate(project.lastOpenedAt) }
+  );
+
 const getCourseProgress = (project: SavedProjectMeta): number =>
   project.lessonCount > 0 ? Math.round((project.completedCount / project.lessonCount) * 100) : 0;
 
@@ -441,10 +453,15 @@ const ResumeSection = ({
                 </p>
                 <div className="mt-4 flex items-center justify-between gap-3 text-xs text-stone-500 dark:text-stone-400">
                   <span>
-                    {t('Lezione {lessonNumber} di {lessonCount}', {
-                      lessonNumber: Math.min(project.completedCount + 1, project.lessonCount || 1),
-                      lessonCount: project.lessonCount,
-                    })}
+                    {project.sourcePreparationStatus
+                      ? formatSourcePreparationLabel(project.sourcePreparationStatus)
+                      : t('Lezione {lessonNumber} di {lessonCount}', {
+                          lessonNumber: Math.min(
+                            project.completedCount + 1,
+                            project.lessonCount || 1
+                          ),
+                          lessonCount: project.lessonCount,
+                        })}
                   </span>
                   <span>{progress}%</span>
                 </div>
@@ -458,7 +475,9 @@ const ResumeSection = ({
               {isOpening ? (
                 <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#fffdf9]/90 text-xs font-medium text-stone-700 backdrop-blur-[2px] dark:bg-[#252526]/90 dark:text-stone-200">
                   <Loader2 className="h-6 w-6 animate-spin" />
-                  {t('Apro il corso...')}
+                  {project.sourcePreparationStatus
+                    ? formatSourcePreparationLabel(project.sourcePreparationStatus)
+                    : t('Apro il corso...')}
                 </span>
               ) : null}
             </Pressable>
@@ -1277,15 +1296,9 @@ const CourseList = ({
                                   aria-busy={isOpening}
                                   className="mt-1 text-[0.68rem] text-stone-600 disabled:cursor-wait sm:text-stone-400 dark:text-stone-300 dark:sm:text-stone-400"
                                 >
-                                  {t(
-                                    project.lessonCount === 1
-                                      ? '1 lezione · {lastOpenedDate}'
-                                      : '{lessonCount} lezioni · {lastOpenedDate}',
-                                    {
-                                      lessonCount: project.lessonCount,
-                                      lastOpenedDate: formatCourseDate(project.lastOpenedAt),
-                                    }
-                                  )}
+                                  {project.sourcePreparationStatus
+                                    ? formatSourcePreparationLabel(project.sourcePreparationStatus)
+                                    : formatCourseLessonSummary(project)}
                                 </button>
                               </>
                             )}

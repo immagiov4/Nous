@@ -6,12 +6,21 @@ import {
 } from '@shared/projectBackupArchive';
 import { PROJECT_API_ERROR_CODE, PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
+import { SOURCE_PREPARATION_CONFLICT_CODE } from '@shared/sourcePreparation';
 import JSZip from 'jszip';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createApp } from '../../src/index.js';
 import { LibrarySiblingSetChangedError } from '../../src/projects/librarySiblingOrder.js';
-import { SourcePreparationCancelledError } from '../../src/projects/projectImportChunks.js';
+import {
+  bindSourcePreparationProject,
+  cancelProjectSourcePreparation,
+  clearProjectImportUploadsForTesting,
+  getProjectImportUploadStatus,
+  SourcePreparationCancelledError,
+  startSourcePreparation,
+  storeProjectImportChunk,
+} from '../../src/projects/projectImportChunks.js';
 import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
 import {
   SourceArchivePreparationCapacityError,
@@ -108,6 +117,21 @@ const createPdfSnapshot = (id: string, title: string): ProjectSnapshot => ({
   },
 });
 
+const completedImport = async (
+  app: ReturnType<typeof createApp>,
+  accepted: import('supertest').Response
+) => {
+  expect(accepted.status, JSON.stringify(accepted.body)).toBe(202);
+  let result = accepted;
+  await expect
+    .poll(async () => {
+      result = await request(app).get(`/api/projects/import/chunks/${accepted.body.uploadId}`);
+      return result.status;
+    })
+    .not.toBe(202);
+  return result;
+};
+
 describe('/api/projects', () => {
   beforeEach(() => {
     previousLocalUserId = process.env.LOCAL_USER_ID;
@@ -115,7 +139,8 @@ describe('/api/projects', () => {
     setProjectStoreForTesting(store);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await clearProjectImportUploadsForTesting();
     setProjectStoreForTesting(null);
     if (previousLocalUserId === undefined) {
       delete process.env.LOCAL_USER_ID;
@@ -218,7 +243,7 @@ describe('/api/projects', () => {
     expect((await store.loadProject('local-user', snapshot.id))?.title).toBe('Later revision');
   });
 
-  test('retains a failed source job outcome for malformed uploaded metadata without publishing', async () => {
+  test('rejects malformed source metadata before accepting preparation', async () => {
     const app = createApp();
     const prefix = Buffer.from('{invalid JSON');
     const uploadId = crypto.randomUUID();
@@ -230,11 +255,331 @@ describe('/api/projects', () => {
     await request(app)
       .post(`/api/projects/import/chunks/${uploadId}/complete`)
       .send({ payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceSet, metadataBytes: prefix.length })
-      .expect(202);
+      .expect(400);
     await expect
       .poll(async () => (await request(app).get(`/api/projects/import/chunks/${uploadId}`)).status)
-      .toBe(400);
+      .toBe(404);
     expect((await request(app).get('/api/projects/projects')).body.projects).toEqual([]);
+  });
+
+  test('a stale source removal cannot cancel a running preparation', async () => {
+    const app = createApp();
+    const userId = 'local-user';
+    const projectId = `stale-removal-${crypto.randomUUID()}`;
+    const snapshot = createSnapshot(projectId, 'Stored course');
+    await store.saveProject(userId, snapshot);
+    await store.saveProject(userId, snapshot);
+    const uploadId = crypto.randomUUID();
+    await storeProjectImportChunk({
+      userId,
+      projectId,
+      uploadId,
+      sourceUpload: true,
+      chunkCount: 1,
+      chunkIndex: 0,
+      chunk: Buffer.from('new source'),
+    });
+    bindSourcePreparationProject({
+      userId,
+      projectId,
+      uploadId,
+      snapshot,
+      sourceIds: ['source-new'],
+    });
+    const entered = Promise.withResolvers<void>();
+    let signal!: AbortSignal;
+    startSourcePreparation({
+      userId,
+      uploadId,
+      importFile: async (_path, _revision, context) => {
+        signal = context.signal;
+        entered.resolve();
+        await new Promise<void>((_resolve, reject) =>
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        );
+        throw new Error('unreachable');
+      },
+    });
+    try {
+      await entered.promise;
+      await request(app)
+        .put(`/api/projects/projects/${projectId}`)
+        .send({ snapshot, expectedRevision: 1 })
+        .expect(409);
+      expect(signal.aborted).toBe(false);
+      expect(getProjectImportUploadStatus(userId, uploadId)?.status).toBe('finalizing');
+    } finally {
+      await cancelProjectSourcePreparation(userId, projectId);
+    }
+  });
+
+  test.each([
+    'delete',
+    'remove source',
+  ] as const)('%s stops active preparation and admits the next upload', async action => {
+    const app = createApp();
+    const userId = 'local-user';
+    const projectId = crypto.randomUUID();
+    const file = {
+      sourceId: 'source-new',
+      name: 'source.txt',
+      mimeType: 'text/plain',
+      data: Buffer.from('original').toString('base64'),
+    };
+    const snapshot = {
+      ...createSnapshot(projectId, 'Preparation cancellation'),
+      source: {
+        kind: 'document',
+        file,
+        sources: [
+          {
+            id: file.sourceId,
+            name: file.name,
+            hash: '0'.repeat(64),
+            status: 'ready',
+            kind: 'text',
+            position: 0,
+            outline: [],
+            outlineOrigin: 'none',
+            file,
+          },
+          {
+            id: 'source-retained',
+            name: 'retained.txt',
+            hash: '0'.repeat(64),
+            status: 'ready',
+            kind: 'text',
+            position: 1,
+            outline: [],
+            outlineOrigin: 'none',
+            file: { ...file, sourceId: 'source-retained', name: 'retained.txt' },
+          },
+        ] as const,
+      },
+    };
+    let saved = await store.saveProject(userId, snapshot);
+    const uploadId = crypto.randomUUID();
+    await storeProjectImportChunk({
+      userId,
+      projectId,
+      uploadId,
+      sourceUpload: true,
+      chunkCount: 1,
+      chunkIndex: 0,
+      chunk: Buffer.from('pending source'),
+    });
+    bindSourcePreparationProject({
+      userId,
+      projectId,
+      uploadId,
+      snapshot,
+      sourceIds: ['source-new'],
+    });
+    const entered = Promise.withResolvers<void>();
+    let signal!: AbortSignal;
+    startSourcePreparation({
+      userId,
+      uploadId,
+      importFile: async (_path, _revision, context) => {
+        signal = context.signal;
+        entered.resolve();
+        await new Promise<void>((_resolve, reject) =>
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        );
+        throw new Error('unreachable');
+      },
+    });
+    await entered.promise;
+    const conflictingImport = await request(app)
+      .post('/api/projects/import')
+      .set('X-Source-Content-Key', 'different-content')
+      .send({ data: snapshot })
+      .expect(409);
+    expect(conflictingImport.body.code).toBe(SOURCE_PREPARATION_CONFLICT_CODE);
+    const metadataOnly = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({ snapshot: { ...snapshot, source: null }, expectedRevision: saved.meta.revision })
+      .expect(200);
+    expect(signal.aborted).toBe(false);
+    saved = metadataOnly.body;
+    if (action === 'delete')
+      await request(app).delete(`/api/projects/projects/${projectId}`).expect(200);
+    else
+      await request(app)
+        .put(`/api/projects/projects/${projectId}`)
+        .send({
+          snapshot: {
+            ...snapshot,
+            source: {
+              ...snapshot.source,
+              file: snapshot.source.sources[1].file,
+              sources: [snapshot.source.sources[1]],
+            },
+          },
+          expectedRevision: saved.meta.revision,
+        })
+        .expect(200);
+    expect(signal.aborted).toBe(true);
+    expect(getProjectImportUploadStatus(userId, uploadId)?.status).toBe('failed');
+    const nextUploadId = crypto.randomUUID();
+    await request(app)
+      .put(`/api/projects/import/chunks/${nextUploadId}/0?chunkCount=1`)
+      .set('Content-Type', 'text/plain')
+      .send('next upload')
+      .expect(202);
+    await request(app).delete(`/api/projects/import/chunks/${nextUploadId}`).expect(204);
+    if (action === 'delete') expect(await store.loadProject(userId, projectId)).toBeNull();
+  });
+
+  test('a chunked JSON import remains visible while queued', async () => {
+    const app = createApp();
+    const blocker = {
+      userId: 'json-blocker',
+      projectId: crypto.randomUUID(),
+      uploadId: crypto.randomUUID(),
+    };
+    await storeProjectImportChunk({ ...blocker, chunkCount: 1, chunkIndex: 0, chunk: '{}' });
+    const entered = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<void>();
+    startSourcePreparation({
+      ...blocker,
+      importData: async () => {
+        entered.resolve();
+        await finish.promise;
+        return {
+          projectId: blocker.projectId,
+          meta: { id: blocker.projectId } as import('../../src/projects/types.js').SavedProjectMeta,
+        };
+      },
+    });
+    const projectId = crypto.randomUUID();
+    const uploadId = crypto.randomUUID();
+    try {
+      await entered.promise;
+      await request(app)
+        .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1&projectId=${projectId}`)
+        .set('Content-Type', 'text/plain')
+        .send(JSON.stringify(createSnapshot(projectId, 'Queued JSON')))
+        .expect(202);
+      await request(app)
+        .post(`/api/projects/import/chunks/${uploadId}/complete`)
+        .send({})
+        .expect(202);
+      const library = await request(app).get('/api/projects/projects').expect(200);
+      expect(library.body.projects).toContainEqual(
+        expect.objectContaining({ id: projectId, sourcePreparationStatus: 'finalizing' })
+      );
+      const reopening = await request(app).get(`/api/projects/projects/${projectId}`).expect(200);
+      expect(reopening.body.preparation.uploadId).toBe(uploadId);
+    } finally {
+      await cancelProjectSourcePreparation('local-user', projectId);
+      finish.resolve();
+      await expect
+        .poll(() => getProjectImportUploadStatus(blocker.userId, blocker.uploadId)?.status)
+        .toBe('completed');
+    }
+  });
+
+  test('a new source project is discoverable and resumable while its preparation is queued', async () => {
+    const app = createApp();
+    const blocker = {
+      userId: 'queued-blocker',
+      projectId: crypto.randomUUID(),
+      uploadId: crypto.randomUUID(),
+    };
+    await storeProjectImportChunk({
+      ...blocker,
+      sourceUpload: true,
+      chunkCount: 1,
+      chunkIndex: 0,
+      chunk: Buffer.from('blocker'),
+    });
+    const entered = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<void>();
+    startSourcePreparation({
+      ...blocker,
+      importFile: async () => {
+        entered.resolve();
+        await finish.promise;
+        return {
+          projectId: blocker.projectId,
+          meta: { id: blocker.projectId } as import('../../src/projects/types.js').SavedProjectMeta,
+        };
+      },
+    });
+    await entered.promise;
+    const projectId = `queued-course-${crypto.randomUUID()}`;
+    const uploadId = crypto.randomUUID();
+    const file = { name: 'notes.txt', mimeType: 'text/plain', data: '', sourceId: 'source-queued' };
+    const snapshot = {
+      ...createSnapshot(projectId, 'Corso ∀'),
+      source: {
+        kind: 'document',
+        file,
+        sources: [
+          {
+            id: file.sourceId,
+            name: file.name,
+            file,
+            hash: '0'.repeat(64),
+            kind: 'text',
+            position: 0,
+            status: 'ready',
+            outline: [],
+            outlineOrigin: 'none',
+          },
+        ],
+      },
+    };
+    const original = Buffer.from('synthetic queued source');
+    const prefix = Buffer.from(
+      JSON.stringify({
+        snapshot,
+        sourceFiles: [
+          {
+            id: file.sourceId,
+            name: file.name,
+            mimeType: file.mimeType,
+            byteSize: original.length,
+          },
+        ],
+      })
+    );
+    const bytes = Buffer.concat([prefix, original]);
+    const split = prefix.indexOf(Buffer.from('∀')) + 1;
+    try {
+      for (const [index, part] of [bytes.subarray(0, split), bytes.subarray(split)].entries())
+        await request(app)
+          .put(
+            `/api/projects/import/chunks/${uploadId}/${index}?chunkCount=2&sourceUpload=true&projectId=${projectId}`
+          )
+          .set('Content-Type', 'application/octet-stream')
+          .send(part)
+          .expect(202);
+      await request(app)
+        .post(`/api/projects/import/chunks/${uploadId}/complete`)
+        .send({ payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceSet, metadataBytes: prefix.length })
+        .expect(202);
+      const library = await request(app).get('/api/projects/projects').expect(200);
+      expect(library.body.projects).toContainEqual(
+        expect.objectContaining({
+          id: projectId,
+          title: 'Corso ∀',
+          sourcePreparationStatus: 'finalizing',
+        })
+      );
+      const reopening = await request(app).get(`/api/projects/projects/${projectId}`).expect(200);
+      expect(reopening.body.preparation.uploadId).toBe(uploadId);
+      expect(getProjectImportUploadStatus(blocker.userId, blocker.uploadId)?.status).toBe(
+        'finalizing'
+      );
+    } finally {
+      await cancelProjectSourcePreparation('local-user', projectId);
+      finish.resolve();
+      await expect
+        .poll(() => getProjectImportUploadStatus(blocker.userId, blocker.uploadId)?.status)
+        .toBe('completed');
+    }
   });
 
   test('saves, lists, loads, exports, touches, and deletes projects', async () => {
@@ -517,9 +862,10 @@ describe('/api/projects', () => {
     expect(exportResponse.status).toBe(200);
     expect(exportResponse.body.data.source.file.data).toBe(pdfData);
 
-    const importResponse = await request(app)
+    const importResponseAccepted = await request(app)
       .post('/api/projects/import')
       .send({ data: { ...exportResponse.body.data, id: 'imported-pdf-project' } });
+    const importResponse = await completedImport(app, importResponseAccepted);
     expect(importResponse.status).toBe(200);
     expect(importResponse.body.snapshot.source.file.data).toBe('');
     const importedSourceResponse = await request(app).get(
@@ -583,17 +929,19 @@ describe('/api/projects', () => {
       receivedCount: 2,
     });
 
-    const finalChunkResponse = await request(app).post(
+    const finalChunkResponseAccepted = await request(app).post(
       `/api/projects/import/chunks/${uploadId}/complete`
     );
+    const finalChunkResponse = await completedImport(app, finalChunkResponseAccepted);
     expect(finalChunkResponse.status).toBe(200);
     expect(finalChunkResponse.body.snapshot).toMatchObject({ id: 'chunked-import-project' });
     expect(finalChunkResponse.body.snapshot.documentIndex).toEqual({ marker: 'before after' });
     expect(finalChunkResponse.body.snapshot.source.file.data).toBe('');
 
-    const retriedCompletionResponse = await request(app).post(
+    const retriedCompletionResponseAccepted = await request(app).post(
       `/api/projects/import/chunks/${uploadId}/complete`
     );
+    const retriedCompletionResponse = await completedImport(app, retriedCompletionResponseAccepted);
     expect(retriedCompletionResponse.status).toBe(200);
     expect(retriedCompletionResponse.body.snapshot.id).toBe('chunked-import-project');
 
@@ -852,9 +1200,10 @@ describe('/api/projects', () => {
       .send(Buffer.from(backupBytes));
     expect(chunkResponse.status).toBe(202);
 
-    const completionResponse = await request(app)
+    const completionResponseAccepted = await request(app)
       .post(`/api/projects/import/chunks/${uploadId}/complete`)
       .send({ payloadKind: PROJECT_IMPORT_BINARY_KIND.backup, targetProjectId });
+    const completionResponse = await completedImport(app, completionResponseAccepted);
 
     expect(completionResponse.status).toBe(200);
     expect(completionResponse.body.snapshot).toMatchObject({
@@ -898,12 +1247,13 @@ describe('/api/projects', () => {
       .send(Buffer.from(backupBytes));
     expect(invalidTargetChunkResponse.status).toBe(202);
 
-    const invalidTargetResponse = await request(app)
+    const invalidTargetResponseAccepted = await request(app)
       .post(`/api/projects/import/chunks/${invalidTargetUploadId}/complete`)
       .send({
         payloadKind: PROJECT_IMPORT_BINARY_KIND.backup,
         targetProjectId: 'restored:project',
       });
+    const invalidTargetResponse = await completedImport(app, invalidTargetResponseAccepted);
     expect(invalidTargetResponse.status).toBe(400);
 
     const invalidSourceArchive = await createProjectBackupArchive(
@@ -921,12 +1271,13 @@ describe('/api/projects', () => {
       .set('Content-Type', 'application/octet-stream')
       .send(Buffer.from(invalidSourceArchive));
 
-    const invalidSourceResponse = await request(app)
+    const invalidSourceResponseAccepted = await request(app)
       .post(`/api/projects/import/chunks/${invalidSourceUploadId}/complete`)
       .send({
         payloadKind: PROJECT_IMPORT_BINARY_KIND.backup,
         targetProjectId: normalizedTargetProjectId,
       });
+    const invalidSourceResponse = await completedImport(app, invalidSourceResponseAccepted);
     expect(invalidSourceResponse.status).toBe(400);
   });
 
@@ -1011,9 +1362,10 @@ describe('/api/projects', () => {
       )
     ).toEqual(sourceFiles.map(source => source.file.data));
 
-    const imported = await request(app)
+    const importedAccepted = await request(app)
       .post('/api/projects/import')
       .send({ data: { ...exported.body.data, id: 'multi-source-imported' } });
+    const imported = await completedImport(app, importedAccepted);
     expect(imported.status).toBe(200);
     expect(
       imported.body.snapshot.source.sources.every(

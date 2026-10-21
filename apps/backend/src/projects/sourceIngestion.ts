@@ -17,10 +17,12 @@ import {
   PdfTextExtractionOutputLimitError,
   PdfTextExtractionTimeoutError,
 } from '../services/pdfTextExtractor.js';
+import { countRetainedScannedPages } from '../services/pdfTranscriptionCollection.js';
 import { PdfScannedPageLimitError } from '../services/pdfTranscriptionPolicy.js';
 import type { ProjectSourceMaterial } from '../services/projectSourceText.js';
 import {
   isPdfProjectSourceFile,
+  readPreparedProjectPdfText,
   readProjectSourceMaterial,
 } from '../services/projectSourceText.js';
 import { isRecord } from '../utils/validation.js';
@@ -115,8 +117,8 @@ const finishSourceFile = (
     if (material.pdf)
       descriptor.preparedPdfText = {
         ...material.pdf,
-        failedPages: material.pdf.transcription?.failedPages || [],
-        blankPages: material.pdf.transcription?.blankPages || [],
+        failedPages: material.pdf.transcription?.failedPages ?? material.pdf.failedPages ?? [],
+        blankPages: material.pdf.transcription?.blankPages ?? material.pdf.blankPages ?? [],
       };
     throw new SourceHasNoTextError();
   }
@@ -139,8 +141,8 @@ const finishSourceFile = (
       ? {
           preparedPdfText: {
             ...material.pdf,
-            failedPages: material.pdf.transcription?.failedPages || [],
-            blankPages: material.pdf.transcription?.blankPages || [],
+            failedPages: material.pdf.transcription?.failedPages ?? material.pdf.failedPages ?? [],
+            blankPages: material.pdf.transcription?.blankPages ?? material.pdf.blankPages ?? [],
           },
         }
       : {}),
@@ -151,14 +153,28 @@ const finishSourceFile = (
   };
 };
 
+const findPreparedUploadPdf = (
+  snapshots: readonly (ProjectSnapshot | null | undefined)[],
+  sourceId: string,
+  hash: string
+) => {
+  for (const snapshot of snapshots) {
+    const pdf = readPreparedProjectPdfText(snapshot?.source, sourceId, hash);
+    if (pdf) return { pdf, source: snapshot?.source };
+  }
+  return undefined;
+};
+
 /** Prepares uploaded files sequentially; only indexes and named outcomes survive each file. */
 export const prepareSourceCollection = async ({
   snapshot,
   upload,
   context,
   storedSnapshot,
+  preparedSnapshot,
 }: {
   storedSnapshot?: ProjectSnapshot | null;
+  preparedSnapshot?: ProjectSnapshot;
   snapshot: ProjectSnapshot;
   upload: SourceUpload;
   context: SourcePreparationContext;
@@ -198,6 +214,11 @@ export const prepareSourceCollection = async ({
   let buffer = Buffer.alloc(Math.min(totalBytes, COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes));
   const failures: SourcePreparationFailure[] = [];
   const completions: Promise<void>[] = [];
+  const checkpoint = () =>
+    context.checkpointPreparedSources?.({
+      ...snapshot,
+      source: { ...source, sources: descriptors },
+    });
   const markFailure = (descriptor: SourceDescriptor, error: unknown) => {
     context.signal.throwIfAborted();
     if (error instanceof PdfScannedPageLimitError) throw error;
@@ -216,6 +237,7 @@ export const prepareSourceCollection = async ({
       reason,
       ...(failedPages.length ? { failedPages } : {}),
     });
+    checkpoint();
     console.warn('[Sources] Per-file preparation failed.', { name: descriptor.name, reason });
   };
   let offset = upload.offset ?? 0;
@@ -246,15 +268,34 @@ export const prepareSourceCollection = async ({
       const bytes = buffer.subarray(0, file.byteSize);
       await readFileSegment(handle, bytes, offset);
       offset += file.byteSize;
+      const hash = createHash('sha256').update(bytes).digest('hex');
+      const cached = findPreparedUploadPdf([storedSnapshot, preparedSnapshot], file.id, hash);
+      const preparedPdf = cached?.pdf;
       delete descriptor.preparedPdfText;
       delete descriptor.documentIndex;
       delete descriptor.errorMessage;
       delete descriptor.errorReason;
       try {
-        const preparation = await prepareSourceFile(bytes, file, descriptor, context);
+        if (preparedPdf)
+          context.pdfTranscriptionPool?.allocateScannedPages(
+            countRetainedScannedPages(cached?.source, { sources: [{ id: file.id }] }, [])
+          );
+        const preparation = preparedPdf
+          ? {
+              completion: Promise.resolve(
+                finishSourceFile(
+                  { pdf: preparedPdf, text: preparedPdf.text },
+                  file,
+                  descriptor,
+                  hash
+                )
+              ),
+            }
+          : await prepareSourceFile(bytes, file, descriptor, context);
         const completion = preparation.completion
           .then(prepared => {
             Object.assign(descriptor, prepared);
+            checkpoint();
           })
           .catch(error => markFailure(descriptor, error));
         void completion.catch(() => undefined);
@@ -263,13 +304,15 @@ export const prepareSourceCollection = async ({
         markFailure(descriptor, error);
       }
       collectReleasedSourceMemory();
-      context.reportProgress({
-        step: 'extraction',
-        documentName: descriptor.name,
-        completed: position + 1,
-        total: upload.files.length,
-        failures: failures.map(failure => ({ documentName: failure.name })),
-      });
+      const transcription = context.pdfTranscriptionPool?.progress;
+      if (!transcription || transcription.completed === transcription.total)
+        context.reportProgress({
+          step: 'extraction',
+          documentName: descriptor.name,
+          completed: position + 1,
+          total: upload.files.length,
+          failures: failures.map(failure => ({ documentName: failure.name })),
+        });
     }
     buffer = Buffer.alloc(0);
     await Promise.all(completions);
