@@ -23,6 +23,9 @@ function finalProperty(object: ts.ObjectLiteralExpression, name: string) {
 
 function unmutedLaunches(source: string, filename: string): string[] {
   let isConfig = /playwright[^/]*config[^/]*\.[cm]?[jt]s$/.test(filename);
+  // Keep escaped identifiers and property names for the syntax-aware check.
+  if (!isConfig && !/launch|chromium|firefox|webkit|browserType|defineConfig|\\[ux]/.test(source))
+    return [];
   const tree = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true);
   let configExports = 0;
   const failures: string[] = [];
@@ -194,6 +197,8 @@ describe('browser audio policy', () => {
 
   it.each([
     'chromium.launch()',
+    String.raw`other.l\u0061unch({})`,
+    String.raw`other["l\x61unch"]({})`,
     'chromium["launch"]({})',
     'const method = "launch"; chromium[method]({});',
     'firefox.launch({ headless: true })',
