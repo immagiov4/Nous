@@ -135,3 +135,25 @@ test.each([
   await expect(pending).resolves.toBeUndefined();
   expect(fetchMock).toHaveBeenCalledTimes(3);
 });
+
+test('cancellation waits for terminal cleanup before releasing its block', async () => {
+  const cleaning = await completed().json();
+  cleaning.state.run.status = 'cancelled';
+  cleaning.state.run.cleanupStatus = 'running';
+  const cleaned = structuredClone(cleaning);
+  cleaned.state.run.cleanupStatus = 'completed';
+  fetchMock
+    .mockResolvedValueOnce(new Response('{}'))
+    .mockResolvedValueOnce(new Response(JSON.stringify(cleaning)))
+    .mockResolvedValueOnce(new Response(JSON.stringify(cleaned)));
+  let settled = false;
+  const pending = cancelLessonPlaybackPreparation('run', 'project').then(() => {
+    settled = true;
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(settled).toBe(false);
+  await vi.runAllTimersAsync();
+  await pending;
+  expect(settled).toBe(true);
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+});

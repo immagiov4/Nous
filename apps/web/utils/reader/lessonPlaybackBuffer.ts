@@ -63,7 +63,7 @@ export async function waitForPlaybackCancellation(
   pending: Promise<void> | undefined,
   signal: AbortSignal
 ): Promise<void> {
-  if (!pending) return;
+  if (pending === undefined) return;
   signal.throwIfAborted();
   await new Promise<void>((resolve, reject) => {
     const abort = () => reject(signal.reason);

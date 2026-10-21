@@ -164,6 +164,8 @@ export const cancelLessonPlaybackPreparation = async (
   await pollWorkflow({
     initialState: await retryTransientWorkflowRequest(readState),
     readState,
-    isTerminal: run => !['queued', 'running', 'waiting'].includes(run.status),
+    isTerminal: run =>
+      !['queued', 'running', 'waiting'].includes(run.status) &&
+      !['pending', 'running'].includes(run.cleanupStatus),
   });
 };

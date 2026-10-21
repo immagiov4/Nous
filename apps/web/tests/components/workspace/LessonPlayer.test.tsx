@@ -168,7 +168,11 @@ beforeEach(() => {
     pause: vi.fn(),
     seek: vi.fn(),
     readTime: vi.fn(() => playback.time),
-    readPosition: vi.fn(() => ({ time: playback.readTime(), duration: playback.duration })),
+    readPosition: vi.fn(() => ({
+      index: playback.index,
+      time: playback.readTime(),
+      duration: playback.duration,
+    })),
   };
   vi.mocked(useLessonPlayback).mockImplementation(() => playback);
   save.mockResolvedValue({ saved: true, merged: false, annotationId: 'annotation' });
@@ -659,7 +663,7 @@ test('a note during preparation uses the target position instead of the previous
     playing: false,
     time: 0,
     readTime: vi.fn(() => 10),
-    readPosition: vi.fn(() => ({ time: 0, duration: 12 })),
+    readPosition: vi.fn(() => ({ index: 0, time: 0, duration: 12 })),
   };
   render(<LessonPlayer {...props} autoPlay={false} />);
   fireEvent.click(screen.getByRole('button', { name: 'Nota' }));
@@ -697,7 +701,7 @@ test.each([
     loading: true,
     duration: 0,
     readTime: vi.fn(() => 0),
-    readPosition: vi.fn(() => ({ time: 0.8, duration: 1 })),
+    readPosition: vi.fn(() => ({ index: 0, time: 0.8, duration: 1 })),
   };
   render(<LessonPlayer {...props} autoPlay={false} />);
   if (action === 'spoken question') await recordQuestion();

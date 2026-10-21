@@ -188,14 +188,13 @@ export const retryTransientWorkflowRequest = async <Result>(
   request: () => Promise<Result>,
   signal?: AbortSignal
 ): Promise<Result> => {
-  while (true) {
-    signal?.throwIfAborted();
-    try {
-      return await request();
-    } catch (error) {
-      if (!isTransientWorkflowPollError(error)) throw error;
-      await waitForNextPoll(signal);
-    }
+  signal?.throwIfAborted();
+  try {
+    return await request();
+  } catch (error) {
+    if (!isTransientWorkflowPollError(error)) throw error;
+    await waitForNextPoll(signal);
+    return retryTransientWorkflowRequest(request, signal);
   }
 };
 

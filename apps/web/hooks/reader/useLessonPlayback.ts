@@ -18,33 +18,27 @@ import {
 import { downloadProjectAssetBytes } from '../../services/projects/projectAssetClient.ts';
 import { playbackTimeline } from '../../utils/reader/lessonPlayback.ts';
 import {
+  LessonPlaybackAudio,
+  type PlaybackRecording,
+} from '../../utils/reader/lessonPlaybackAudio.ts';
+import {
   PlaybackPreparationQueue,
   playbackBufferIndexes,
   waitForPlaybackCancellation,
 } from '../../utils/reader/lessonPlaybackBuffer.ts';
 
+// A player can close before its owned server cancellation settles.
+const playbackCancellations = new Map<string, Promise<void>>();
+
 type Playback = Awaited<ReturnType<typeof getLessonPlayback>>;
 type PreparedPlayback = Extract<
   Awaited<ReturnType<typeof prepareLessonPlayback>>,
   { block: unknown }
-> & { url: string };
+> & { buffer: AudioBuffer };
 
-// One silent PCM sample gives the gesture-time play a valid source before the MP3 is ready.
-const SILENT_AUDIO =
-  'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQIAAAAAAA==';
-
-/** Unlocks this element inside the opening or play gesture, before asynchronous preparation. */
-export function unlockLessonPlaybackAudio(audio: HTMLAudioElement) {
-  if (!audio.src) audio.src = SILENT_AUDIO;
-  const muted = audio.muted;
-  audio.muted = true;
-  void audio.play().catch(error => {
-    // Pausing immediately can reject the priming play; the prepared MP3 owns playback errors.
-    if (error instanceof DOMException && error.name === 'AbortError') return;
-    console.error('Lesson playback audio unlock failed', error);
-  });
-  audio.pause();
-  audio.muted = muted;
+/** Resumes the audio clock synchronously inside the opening or play gesture. */
+export function unlockLessonPlaybackAudio(audio: LessonPlaybackAudio) {
+  void audio.unlock().catch(error => console.error('Lesson audio unlock failed', error));
 }
 
 /** A creation response must remain observable so a late owned run can still be cancelled. */
@@ -122,23 +116,21 @@ async function waitForPreparation({
   }
 }
 
-/** Alternates preloaded audio elements and owns cancellable, duration-based preparation. */
+/** Owns cancellable preparation and schedules decoded passages on one audio clock. */
 export function useLessonPlayback({
   projectId,
   sectionId,
   voice,
   speed,
   initialBlocks,
-  audioElementRef,
-  nextAudioElementRef,
+  audioSessionRef,
 }: {
   projectId: string;
   sectionId: string;
   voice: string;
   speed: number;
   initialBlocks: LessonPlaybackBlock[];
-  audioElementRef?: RefObject<HTMLAudioElement>;
-  nextAudioElementRef?: RefObject<HTMLAudioElement>;
+  audioSessionRef?: RefObject<LessonPlaybackAudio>;
 }) {
   const [blocks, setBlocks] = useState<readonly LessonPlaybackBlock[]>(initialBlocks);
   const [index, setIndex] = useState(0);
@@ -147,7 +139,7 @@ export function useLessonPlayback({
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioRef = useRef<LessonPlaybackAudio | null>(null);
   const getAudio = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) throw new Error('Playback audio must be mounted');
@@ -156,18 +148,22 @@ export function useLessonPlayback({
   const playbackRef = useRef<Playback | null>(null);
   const queue = useRef(new PlaybackPreparationQueue());
   const pending = useRef(new Map<string, Promise<PreparedPlayback | null>>());
-  const spareAudio = useRef<HTMLAudioElement | null>(null);
   const advance = useRef<() => void>(() => {});
   const refill = useRef<() => Promise<unknown>>(() => Promise.resolve());
   const preparationController = useRef<AbortController | null>(null);
   const prefetchFailed = useRef(false);
-  const cancellations = useRef(new Map<string, Promise<void>>());
   const intent = useRef({ playing: false, index: 0, epoch: 0 });
   const ready = useRef(new Map<string, PreparedPlayback>());
+  const isCurrentAttempt = useCallback(
+    (epoch: number, signal: AbortSignal) => epoch === intent.current.epoch && !signal.aborted,
+    []
+  );
+
   const [resolvedVoices, setResolvedVoices] = useState(
     () => new Map<string, { voice: string; model: string }>()
   );
   const started = useRef(false);
+  const openingWaits = useRef(new Set<() => void>());
   const previousVoice = useRef(voice);
   const loadedVoice = useRef<string | null>(null);
   const targetPosition = useRef({ offset: 0, relative: false });
@@ -176,55 +172,44 @@ export function useLessonPlayback({
     latest.current = { voice, speed };
   }, [voice, speed]);
 
-  const bindAudio = useCallback((audio: HTMLAudioElement) => {
-    audio.ontimeupdate = () => {
-      if (audio !== audioRef.current) return;
-      setTime(audio.currentTime);
+  const audioLifecycle = useRef({ generation: 0 });
+  useLayoutEffect(() => {
+    const lifecycleState = audioLifecycle.current;
+    const lifecycle = ++lifecycleState.generation;
+    audioRef.current ??= audioSessionRef?.current ?? new LessonPlaybackAudio();
+    const audio = getAudio();
+    const sessionIntent = intent.current;
+    const recordingCache = ready.current;
+    audio.onPosition = position => {
+      sessionIntent.index = position.index;
+      setIndex(position.index);
+      setTime(position.time);
+      setDuration(position.duration);
       void refill.current();
     };
-    audio.ondurationchange = () => {
-      if (audio === audioRef.current && Number.isFinite(audio.duration))
-        setDuration(audio.duration);
-    };
-    audio.onended = () => {
-      if (audio === audioRef.current) advance.current();
-    };
-    audio.onerror = () => {
-      if (audio !== audioRef.current) return;
+    audio.onEnded = () => advance.current();
+    audio.onError = () => {
       preparationController.current?.abort();
-      if (loadedVoice.current)
-        targetPosition.current = { offset: audio.currentTime, relative: false };
-      loadedVoice.current = null;
-      intent.current.playing = false;
+      sessionIntent.playing = false;
       setPlaying(false);
       setLoading(false);
       setFailed(true);
     };
-  }, []);
-
-  useLayoutEffect(() => {
-    audioRef.current = audioElementRef?.current ?? new Audio();
-    const audio = getAudio();
-    const sessionIntent = intent.current;
-    const recordingCache = ready.current;
-    bindAudio(audio);
-    spareAudio.current = nextAudioElementRef?.current ?? new Audio();
-    bindAudio(spareAudio.current);
     return () => {
       preparationController.current?.abort();
       sessionIntent.epoch++;
       sessionIntent.playing = false;
-      const current = getAudio();
-      current.pause();
-      current.removeAttribute('src');
-      current.load();
-      spareAudio.current?.pause();
-      spareAudio.current?.removeAttribute('src');
-      spareAudio.current?.load();
-      for (const prepared of recordingCache.values()) URL.revokeObjectURL(prepared.url);
+      audio.pause();
+      audio.onPosition = null;
+      audio.onEnded = null;
+      audio.onError = null;
       recordingCache.clear();
+      // React can reconnect the same effect in development before this microtask runs.
+      queueMicrotask(() => {
+        if (!audioSessionRef && lifecycleState.generation === lifecycle) audio.close();
+      });
     };
-  }, [audioElementRef, nextAudioElementRef, bindAudio, getAudio]);
+  }, [audioSessionRef, getAudio]);
 
   const beginPlaybackAttempt = useCallback((continuing = false) => {
     if (continuing && preparationController.current)
@@ -255,7 +240,7 @@ export function useLessonPlayback({
       if (cached) return Promise.resolve(cached);
       const pendingKey = `${epoch}:${blockIndex}:${requestedVoice}`;
       const existing = pending.current.get(pendingKey);
-      if (existing) return existing;
+      if (existing !== undefined) return existing;
       const task = queue.current.run(async () => {
         signal.throwIfAborted();
         if (epoch !== intent.current.epoch) return null;
@@ -263,8 +248,9 @@ export function useLessonPlayback({
         let playback = playbackRef.current ?? (await getLessonPlayback(target, signal));
         playbackRef.current ??= playback;
         const cacheKey = () => `${playback.lessonKey}:${blockIndex}:${requestedVoice}`;
-        const preparationKey = () => `${playback.lessonKey}:${blockIndex}`;
-        await waitForPlaybackCancellation(cancellations.current.get(preparationKey()), signal);
+        const preparationKey = () =>
+          `${projectId}:${sectionId}:${playback.lessonKey}:${blockIndex}`;
+        await waitForPlaybackCancellation(playbackCancellations.get(preparationKey()), signal);
         signal.throwIfAborted();
         const cached = ready.current.get(cacheKey());
         if (cached) return cached;
@@ -279,7 +265,7 @@ export function useLessonPlayback({
               voice: requestedVoice,
             },
             signal,
-            cancellations: cancellations.current,
+            cancellations: playbackCancellations,
             key: preparationKey(),
             projectId,
           });
@@ -307,7 +293,6 @@ export function useLessonPlayback({
             playbackRef.current = playback;
             const audio = getAudio();
             audio.pause();
-            audio.currentTime = 0;
             setBlocks(playback.blocks);
             setIndex(0);
             setTime(0);
@@ -326,7 +311,7 @@ export function useLessonPlayback({
             created: result.created,
             projectId,
             signal,
-            cancellations: cancellations.current,
+            cancellations: playbackCancellations,
             key: preparationKey(),
           });
           signal.throwIfAborted();
@@ -345,10 +330,11 @@ export function useLessonPlayback({
         signal.throwIfAborted();
         if (playbackRef.current && playbackRef.current.lessonKey !== playback.lessonKey)
           return null;
-        const url = URL.createObjectURL(
-          new Blob([Uint8Array.from(bytes)], { type: recording.asset.mediaType })
-        );
-        const prepared = { ...result, url };
+        const buffer = await getAudio().decode(bytes);
+        signal.throwIfAborted();
+        if (playbackRef.current && playbackRef.current.lessonKey !== playback.lessonKey)
+          return null;
+        const prepared = { ...result, buffer };
         ready.current.set(cacheKey(), prepared);
         const profile = { voice: result.voice, model: result.model };
         setResolvedVoices(current => {
@@ -378,6 +364,18 @@ export function useLessonPlayback({
     [getAudio, projectId, sectionId]
   );
 
+  const bufferedRecordings = useCallback(() => {
+    const playback = playbackRef.current;
+    const recordings: PlaybackRecording[] = [];
+    if (!playback) return recordings;
+    for (let index = intent.current.index; index < playback.blocks.length; index++) {
+      const prepared = ready.current.get(`${playback.lessonKey}:${index}:${latest.current.voice}`);
+      if (!prepared) break;
+      recordings.push({ index, buffer: prepared.buffer });
+    }
+    return recordings;
+  }, []);
+
   const fillBuffer = useCallback(
     async (epoch: number, signal: AbortSignal) => {
       const playback = playbackRef.current;
@@ -391,22 +389,13 @@ export function useLessonPlayback({
       );
       await Promise.all(
         indexes.map(async blockIndex => {
-          const prepared = await prepare({ blockIndex, requestedVoice, epoch, signal });
-          if (!prepared || signal.aborted || epoch !== intent.current.epoch) return;
-          if (blockIndex === intent.current.index + 1 && spareAudio.current) {
-            const spare = spareAudio.current;
-            if (spare.src !== prepared.url) {
-              spare.preload = 'auto';
-              spare.playbackRate = latest.current.speed;
-              spare.preservesPitch = true;
-              spare.src = prepared.url;
-              spare.load();
-            }
-          }
+          await prepare({ blockIndex, requestedVoice, epoch, signal });
+          if (!signal.aborted && epoch === intent.current.epoch)
+            await getAudio().append(bufferedRecordings());
         })
       );
     },
-    [prepare, resolvedVoices]
+    [prepare, resolvedVoices, getAudio, bufferedRecordings]
   );
   const refillBuffer = useCallback(async () => {
     const controller = preparationController.current;
@@ -460,8 +449,7 @@ export function useLessonPlayback({
       relative: boolean;
     }) => {
       const lessonKey = playbackRef.current?.lessonKey;
-      let buffered = false;
-      while (!buffered) {
+      const ensureReady = async (): Promise<void> => {
         const playback = playbackRef.current;
         if (!playback) throw new Error('Playback metadata missing');
         if (playback.lessonKey !== lessonKey) return;
@@ -472,59 +460,33 @@ export function useLessonPlayback({
           duration: Math.max(0, current.duration - (relative ? offset * current.duration : offset)),
         };
         const indexes = playbackBufferIndexes(durations, blockIndex - 1, latest.current.speed);
-        buffered = indexes.every(index =>
-          ready.current.has(`${playback.lessonKey}:${index}:${requestedVoice}`)
+        const missing = indexes.filter(
+          index => !ready.current.has(`${playback.lessonKey}:${index}:${requestedVoice}`)
         );
-        if (!buffered)
-          await Promise.all(
-            indexes.map(index => prepare({ blockIndex: index, requestedVoice, epoch, signal }))
-          );
         signal.throwIfAborted();
-      }
+        if (!missing.length) return;
+        let wake!: () => void;
+        const changed = new Promise<void>(resolve => {
+          wake = resolve;
+        });
+        const abort = () => wake();
+        openingWaits.current.add(wake);
+        signal.addEventListener('abort', abort, { once: true });
+        try {
+          await Promise.race([
+            changed,
+            ...missing.map(index => prepare({ blockIndex: index, requestedVoice, epoch, signal })),
+          ]);
+        } finally {
+          openingWaits.current.delete(wake);
+          signal.removeEventListener('abort', abort);
+        }
+        signal.throwIfAborted();
+        return ensureReady();
+      };
+      await ensureReady();
     },
     [prepare]
-  );
-
-  const activateRecording = useCallback(
-    ({
-      prepared,
-      requestedVoice,
-      offset,
-      relative,
-    }: {
-      prepared: PreparedPlayback;
-      requestedVoice: string;
-      offset: number;
-      relative: boolean;
-    }) => {
-      let audio = getAudio();
-      const block = prepared.block;
-      const recording = block.audio.find(
-        candidate => candidate.voice === prepared.voice && candidate.model === prepared.model
-      );
-      if (!recording) throw new Error('Prepared playback audio missing');
-      if (spareAudio.current?.src === prepared.url) {
-        audioRef.current = spareAudio.current;
-        spareAudio.current = audio;
-        audio = getAudio();
-      } else if (audio.src !== prepared.url) {
-        audio.src = prepared.url;
-      }
-      if (audio.error) audio.load();
-      const position = Math.min(
-        relative ? offset * recording.durationSeconds : offset,
-        recording.durationSeconds
-      );
-      if (audio.currentTime !== position) audio.currentTime = position;
-      setTime(audio.currentTime);
-      targetPosition.current = { offset: audio.currentTime, relative: false };
-      audio.playbackRate = latest.current.speed;
-      audio.preservesPitch = true;
-      setDuration(recording.durationSeconds);
-      loadedVoice.current = requestedVoice;
-      return audio;
-    },
-    [getAudio]
   );
 
   const start = useCallback(
@@ -534,7 +496,7 @@ export function useLessonPlayback({
       relative = false,
       continuing = false
     ): Promise<void> {
-      let audio = getAudio();
+      const audio = getAudio();
       started.current = true;
       const { epoch, signal } = beginPlaybackAttempt(continuing);
       const requestedVoice = latest.current.voice;
@@ -552,19 +514,11 @@ export function useLessonPlayback({
           playbackRef.current = await getLessonPlayback({ projectId, sectionId }, signal);
         signal.throwIfAborted();
         const startingKey = playbackRef.current.lessonKey;
-        const cached = ready.current.get(`${startingKey}:${blockIndex}:${requestedVoice}`);
-        const current =
-          cached ??
-          prepare({
-            blockIndex,
-            requestedVoice,
-            epoch,
-            signal,
-          });
+        const current = prepare({ blockIndex, requestedVoice, epoch, signal });
         if (!continuing) void refill.current();
-        // Keep a preloaded hand-off synchronous through play(), before React can render the scene.
-        const prepared = cached ?? (await current);
-        if (epoch !== intent.current.epoch || signal.aborted) return;
+        // A ready recording bypasses preparation while preserving the active attempt.
+        const prepared = await current;
+        if (!isCurrentAttempt(epoch, signal)) return;
         if (playbackRef.current?.lessonKey !== startingKey) return start(0);
         if (!prepared) return;
         if (!continuing && intent.current.playing)
@@ -578,24 +532,35 @@ export function useLessonPlayback({
             relative,
           });
         if (playbackRef.current?.lessonKey !== startingKey) return start(0);
-        audio = activateRecording({ prepared, requestedVoice, offset, relative });
-        if (!intent.current.playing) return;
-        await audio.play();
-        if (epoch !== intent.current.epoch || signal.aborted) return;
+        const position = Math.min(
+          relative ? offset * prepared.buffer.duration : offset,
+          prepared.buffer.duration
+        );
+        setTime(position);
+        setDuration(prepared.buffer.duration);
+        targetPosition.current = { offset: position, relative: false };
+        loadedVoice.current = requestedVoice;
+        if (!intent.current.playing) {
+          audio.select({ index: blockIndex, buffer: prepared.buffer }, position);
+          return;
+        }
+        await audio.start(bufferedRecordings(), position, latest.current.speed, signal);
+        if (!isCurrentAttempt(epoch, signal)) return;
         setPlaying(true);
         void refill.current();
       } catch (error) {
-        if (epoch !== intent.current.epoch || signal.aborted) return;
+        if (!isCurrentAttempt(epoch, signal)) return;
         console.error('Lesson playback failed', error);
         pause();
         setFailed(true);
       } finally {
-        if (epoch === intent.current.epoch && !signal.aborted) setLoading(false);
+        if (isCurrentAttempt(epoch, signal)) setLoading(false);
       }
     },
     [
-      activateRecording,
+      bufferedRecordings,
       beginPlaybackAttempt,
+      isCurrentAttempt,
       getAudio,
       pause,
       prepare,
@@ -607,21 +572,15 @@ export function useLessonPlayback({
 
   const play = useCallback(async () => {
     const audio = getAudio();
-    const sameVoice = loadedVoice.current === latest.current.voice;
-    const position = sameVoice
-      ? { offset: audio.currentTime, relative: false }
-      : targetPosition.current;
+    unlockLessonPlaybackAudio(audio);
+    const position = loadedVoice.current ? audio.position : null;
+    const target = position ? { offset: position.time, relative: false } : targetPosition.current;
     intent.current.playing = true;
-    if (!sameVoice) {
-      unlockLessonPlaybackAudio(audio);
-      if (spareAudio.current) unlockLessonPlaybackAudio(spareAudio.current);
-    }
-    await start(intent.current.index, position.offset, position.relative);
+    await start(position?.index ?? intent.current.index, target.offset, target.relative);
   }, [getAudio, start]);
 
   useEffect(() => {
     advance.current = () => {
-      const audio = getAudio();
       const next = intent.current.index + 1;
       if (next < (playbackRef.current?.blocks.length ?? 0)) void start(next, 0, false, true);
       else {
@@ -629,7 +588,6 @@ export function useLessonPlayback({
         loadedVoice.current = null;
         intent.current.index = 0;
         targetPosition.current = { offset: 0, relative: false };
-        audio.currentTime = 0;
         setIndex(0);
         setTime(0);
         setDuration(0);
@@ -638,35 +596,40 @@ export function useLessonPlayback({
     return () => {
       advance.current = () => {};
     };
-  }, [getAudio, pause, start]);
+  }, [pause, start]);
 
   useEffect(() => {
-    const audio = getAudio();
-    audio.playbackRate = speed;
-    if (spareAudio.current) spareAudio.current.playbackRate = speed;
+    getAudio().changeSpeed(speed);
+    for (const wake of openingWaits.current) wake();
     void refill.current();
   }, [getAudio, speed]);
   useEffect(() => {
     if (previousVoice.current === voice) return;
     previousVoice.current = voice;
     if (started.current) {
-      const position = loadedVoice.current
-        ? { offset: duration > 0 ? getAudio().currentTime / duration : 0, relative: true }
+      const current = loadedVoice.current ? getAudio().position : null;
+      const position = current
+        ? { offset: current.duration > 0 ? current.time / current.duration : 0, relative: true }
         : targetPosition.current;
-      void start(intent.current.index, position.offset, position.relative);
+      void start(current?.index ?? intent.current.index, position.offset, position.relative);
     }
-  }, [duration, getAudio, start, voice]);
+  }, [getAudio, start, voice]);
 
   const timeline = useMemo(() => {
     const resolved = resolvedVoices.get(voice);
     return playbackTimeline(blocks, resolved?.voice ?? voice, resolved?.model);
   }, [blocks, resolvedVoices, voice]);
-  const readTime = useCallback(() => getAudio().currentTime, [getAudio]);
-  // The audio element still belongs to the previous recording while a target is preparing.
+  const readTime = useCallback(() => {
+    const position = getAudio().position;
+    if (!position) return 0;
+    return position.index === index ? position.time : duration;
+  }, [getAudio, index, duration]);
   const readPosition = () => {
-    if (loadedVoice.current) return { time: readTime(), duration };
+    const position = loadedVoice.current ? getAudio().position : null;
+    if (position) return position;
     const { offset, relative } = targetPosition.current;
     return {
+      index: intent.current.index,
       time: offset,
       duration: relative ? 1 : (timeline[intent.current.index]?.duration ?? 0),
     };
