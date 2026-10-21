@@ -1448,6 +1448,28 @@ test('openProject reloads a course completed while the active-run lookup returne
   assert.deepEqual(state.internalState.assessmentMessages, []);
 });
 
+test('openProject hydrates an ordinary course from one authoritative read with its revision', async () => {
+  const snapshot = createProjectSnapshot({
+    id: 'project-single-authoritative-open',
+    activeSectionId: 'lesson-1',
+    learningPlan: buildPlan({
+      sections: [buildTestLesson({ id: 'lesson-1', content: '# Pronta' })],
+    }),
+    state: AppState.READING,
+  });
+  const loadStoredProject = vi.fn(async () => snapshot);
+  const validateStoredProjectForOpen = vi.fn(async () => ({ revision: 7, snapshot }));
+  const { controller, domain, projectLibrary } = createControllerHarness({
+    projectLibrary: { loadStoredProject, validateStoredProjectForOpen },
+  });
+
+  assert.deepEqual(await controller.openProject(snapshot.id), { outcome: 'opened' });
+  expect(loadStoredProject).not.toHaveBeenCalled();
+  expect(validateStoredProjectForOpen).toHaveBeenCalledOnce();
+  assert.equal(projectLibrary.completedProjectHydrations[0]?.revision, 7);
+  assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Pronta');
+});
+
 test('openProject aborts before hydration when the course disappears during opening', async () => {
   const snapshot = createProjectSnapshot({
     id: 'project-deleted-during-open',
@@ -1588,13 +1610,11 @@ test('openProject reloads an authoritative PDF repair before hydrating the store
   const { controller, domain, projectLibrary } = createControllerHarness({
     openRouter: { repairDurablePdfMapping },
     projectLibrary: {
-      loadStoredProject: async () => {
+      validateStoredProjectForOpen: async () => {
         loadCount += 1;
-        return staleSnapshot;
-      },
-      loadStoredProjectWithRevision: async () => {
-        loadCount += 1;
-        return { revision: 3, snapshot: repairedSnapshot };
+        return loadCount === 1
+          ? { revision: 1, snapshot: staleSnapshot }
+          : { revision: 3, snapshot: repairedSnapshot };
       },
     },
   });
@@ -1656,13 +1676,11 @@ test('openProject requests a backend remap for legacy repeated PDF assignments',
   const { controller, domain } = createControllerHarness({
     openRouter: { repairDurablePdfMapping },
     projectLibrary: {
-      loadStoredProject: async () => {
+      validateStoredProjectForOpen: async () => {
         loadCount += 1;
-        return staleSnapshot;
-      },
-      loadStoredProjectWithRevision: async () => {
-        loadCount += 1;
-        return { revision: 4, snapshot: repairedSnapshot };
+        return loadCount === 1
+          ? { revision: 1, snapshot: staleSnapshot }
+          : { revision: 4, snapshot: repairedSnapshot };
       },
     },
   });
@@ -1708,13 +1726,11 @@ test('openProject reloads an already-repaired PDF when the server revision is ne
   const { controller, domain, projectLibrary } = createControllerHarness({
     openRouter: { repairDurablePdfMapping },
     projectLibrary: {
-      loadStoredProject: async () => {
+      validateStoredProjectForOpen: async () => {
         loadCount += 1;
-        return staleSnapshot;
-      },
-      loadStoredProjectWithRevision: async () => {
-        loadCount += 1;
-        return { revision: 5, snapshot: repairedSnapshot };
+        return loadCount === 1
+          ? { revision: 1, snapshot: staleSnapshot }
+          : { revision: 5, snapshot: repairedSnapshot };
       },
       savedProjects: [{ ...buildMeta(staleSnapshot.id), revision: 4 }],
     },
@@ -4523,10 +4539,10 @@ test('cancelAssessment preserves the successful reopen when draft opens overlap'
     ],
   });
   const cancelCourseInterview = vi.fn(async () => {});
-  const loadStoredProject = vi
-    .fn<WorkspaceProjectLibraryAdapter['loadStoredProject']>()
-    .mockImplementationOnce(async () => firstOpen)
-    .mockImplementationOnce(async () => secondOpen);
+  const validateStoredProjectForOpen = vi
+    .fn<WorkspaceProjectLibraryAdapter['validateStoredProjectForOpen']>()
+    .mockImplementationOnce(async () => ({ revision: 1, snapshot: await firstOpen }))
+    .mockImplementationOnce(async () => ({ revision: 1, snapshot: await secondOpen }));
   const { controller, projectLibrary } = createControllerHarness({
     openRouter: {
       cancelCourseInterview,
@@ -4538,15 +4554,7 @@ test('cancelAssessment preserves the successful reopen when draft opens overlap'
       },
     },
     projectLibrary: {
-      loadStoredProject,
-      validateStoredProjectForOpen: async projectId => ({
-        revision: 1,
-        snapshot: createProjectSnapshot({
-          id: projectId,
-          learningPlan: reopenedPlan,
-          state: AppState.READING,
-        }),
-      }),
+      validateStoredProjectForOpen,
     },
   });
 
@@ -4556,9 +4564,9 @@ test('cancelAssessment preserves the successful reopen when draft opens overlap'
   assert.ok(draftProjectId);
 
   const firstOpening = controller.openProject(draftProjectId);
-  await vi.waitFor(() => expect(loadStoredProject).toHaveBeenCalledTimes(1));
+  await vi.waitFor(() => expect(validateStoredProjectForOpen).toHaveBeenCalledTimes(1));
   const secondOpening = controller.openProject(draftProjectId);
-  await vi.waitFor(() => expect(loadStoredProject).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(validateStoredProjectForOpen).toHaveBeenCalledTimes(2));
   const cancellation = controller.cancelAssessment();
   await vi.waitFor(() => expect(cancelCourseInterview).toHaveBeenCalledOnce());
 
