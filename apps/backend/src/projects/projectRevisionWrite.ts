@@ -1,4 +1,5 @@
 import type postgres from 'postgres';
+import { measureRequestPhase } from '../workflows/requestObservability.js';
 import { reconcileLessonPlayback } from './lessonPlayback.js';
 
 import { reconcileProjectAssets } from './projectAssetReconciliation.js';
@@ -35,17 +36,22 @@ export const writeProjectMetaRevision = async (
   const serializedMeta = sql.json(toPostgresJson(stripProjectRevision(meta)));
   if (isNewProject) {
     if (expectedRevision !== undefined) throw new ProjectRevisionConflictError();
-    const rows = await sql<StoredProjectMetaRow[]>`
+    const rows = await measureRequestPhase(
+      'query',
+      () => sql<StoredProjectMetaRow[]>`
       insert into public.projects
         (user_id, id, meta, updated_at, last_opened_at, server_updated_at, revision)
       values
         (${userId}, ${projectId}, ${serializedMeta}, ${meta.updatedAt}, ${meta.lastOpenedAt}, now(), 1)
       returning meta, revision
-    `;
+    `
+    );
     return rows[0];
   }
 
-  const rows = await sql<StoredProjectMetaRow[]>`
+  const rows = await measureRequestPhase(
+    'query',
+    () => sql<StoredProjectMetaRow[]>`
     update public.projects
     set meta = jsonb_set(
           ${serializedMeta},
@@ -61,7 +67,8 @@ export const writeProjectMetaRevision = async (
       and id = ${projectId}
       and (${expectedRevision ?? null}::bigint is null or revision = ${expectedRevision ?? null})
     returning meta, revision
-  `;
+  `
+  );
   if (!rows[0]) throw new ProjectRevisionConflictError();
   return rows[0];
 };
@@ -71,7 +78,9 @@ const writeProjectSnapshotRow = async (
   { projectId, snapshot, userId }: { projectId: string; snapshot: ProjectSnapshot; userId: string }
 ): Promise<void> => {
   const { documentIndex, snapshotWithoutDocumentIndex } = splitProjectSnapshot(snapshot);
-  await sql`
+  await measureRequestPhase(
+    'query',
+    () => sql`
     insert into public.project_snapshots
       (user_id, id, snapshot, document_index, updated_at, server_updated_at)
     values
@@ -88,7 +97,8 @@ const writeProjectSnapshotRow = async (
       document_index = excluded.document_index,
       updated_at = excluded.updated_at,
       server_updated_at = excluded.server_updated_at
-  `;
+  `
+  );
 };
 
 export interface ProjectRevisionCommit {

@@ -226,6 +226,9 @@ interface LifecycleLogEvent {
   readonly provider?: string;
   readonly runId?: string;
   readonly statusCode?: number;
+  readonly durationMs?: number;
+  readonly responseBytes?: number;
+  readonly timings?: Readonly<Record<string, number>>;
   readonly workflowId?: string;
 }
 
@@ -498,6 +501,9 @@ export interface LifecycleLogSource {
   readonly provider?: string;
   readonly runId?: string;
   readonly statusCode?: number;
+  readonly durationMs?: number;
+  readonly responseBytes?: number;
+  readonly timings?: Readonly<Record<string, number>>;
   readonly workflowId?: string;
 }
 
@@ -526,6 +532,9 @@ const projectLifecycleLogEvent = (source: LifecycleLogSource): LifecycleLogEvent
     ...(source.provider ? { provider: source.provider } : {}),
     ...(source.runId ? { runId: source.runId } : {}),
     ...(source.statusCode === undefined ? {} : { statusCode: source.statusCode }),
+    ...(source.durationMs === undefined ? {} : { durationMs: source.durationMs }),
+    ...(source.responseBytes === undefined ? {} : { responseBytes: source.responseBytes }),
+    ...(source.timings ? { timings: source.timings } : {}),
     ...(source.workflowId ? { workflowId: source.workflowId } : {}),
   };
 };
