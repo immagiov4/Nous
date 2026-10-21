@@ -1334,6 +1334,139 @@ describe('useProjectLibrary', () => {
     expect(hydrateSnapshot).not.toHaveBeenCalled();
   });
 
+  test('opening validation delivers source preparation progress and its completed revision', async () => {
+    const snapshot = buildSnapshot('project-1');
+    const progress = { step: 'extraction' as const, completed: 1, total: 1 };
+    repositoryMocks.loadProjectWithRevision.mockImplementation(async (_id, options) => {
+      options?.onSourceProgress?.(progress);
+      return { revision: 6, snapshot };
+    });
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    const onProgress = vi.fn();
+    let opened: unknown;
+    await act(async () => {
+      opened = await result.current.validateStoredProjectForOpen('project-1', onProgress);
+    });
+    expect(opened).toEqual({ revision: 6, snapshot });
+    expect(onProgress).toHaveBeenCalledWith(progress);
+    expect(repositoryMocks.loadProjectWithRevision).toHaveBeenCalledOnce();
+  });
+
+  test.each([
+    'write',
+    'delete',
+    'reimport',
+    'remote-write',
+    'remote-delete',
+  ] as const)('opening validation discards a read invalidated by an intervening %s', async mutation => {
+    const stale = buildSnapshot('project-1', { title: 'Earlier incarnation' });
+    const fresh = buildSnapshot('project-1', { title: 'Committed course' });
+    const revision = mutation === 'reimport' ? 1 : 2;
+    let finishRead!: (project: { revision: number; snapshot: ProjectSnapshot }) => void;
+    repositoryMocks.listProjects.mockResolvedValue([buildMeta('project-1', stale.updatedAt, 1)]);
+    repositoryMocks.loadProjectWithRevision
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            finishRead = resolve;
+          })
+      )
+      .mockResolvedValue({ revision, snapshot: fresh });
+    repositoryMocks.patchProject.mockResolvedValue(
+      buildMeta('project-1', fresh.updatedAt, revision)
+    );
+    repositoryMocks.importProject.mockResolvedValue({
+      meta: buildMeta('project-1', fresh.updatedAt, revision),
+      snapshot: fresh,
+    });
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    let opening!: ReturnType<typeof result.current.validateStoredProjectForOpen>;
+    await act(async () => {
+      opening = result.current.validateStoredProjectForOpen('project-1');
+      await Promise.resolve();
+    });
+    expect(finishRead).toBeTypeOf('function');
+    act(() => result.current.setCurrentProjectId('project-1'));
+    await act(async () => {
+      if (mutation === 'write')
+        await result.current.patchCurrentProject({ activeSectionId: 'next-lesson' }, 'project-1');
+      else if (mutation === 'delete') await result.current.deleteStoredProject('project-1');
+      else if (mutation === 'reimport') await result.current.importProjectData(fresh);
+      else {
+        repositoryMocks.listProjects.mockResolvedValue(
+          mutation === 'remote-delete' ? [] : [buildMeta('project-1', fresh.updatedAt, revision)]
+        );
+        revisionListener?.({
+          projectId: 'project-1',
+          revision,
+          deleted: mutation === 'remote-delete',
+        });
+      }
+    });
+    if (mutation.startsWith('remote-'))
+      await waitFor(() =>
+        expect(result.current.savedProjects[0]?.revision).toBe(
+          mutation === 'remote-delete' ? undefined : revision
+        )
+      );
+    await act(async () => {
+      finishRead({ revision: 1, snapshot: stale });
+    });
+    const opened = await opening;
+    if (mutation === 'delete' || mutation === 'remote-delete') expect(opened).toBeNull();
+    else expect(opened).toEqual({ revision, snapshot: fresh });
+  });
+
+  test('opening validation keeps a read when another course changes but its own metadata is equal', async () => {
+    const meta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1);
+    const snapshot = buildSnapshot('project-1');
+    let finishRead!: (project: { revision: number; snapshot: ProjectSnapshot }) => void;
+    repositoryMocks.listProjects.mockResolvedValue([meta]);
+    repositoryMocks.loadProjectWithRevision
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            finishRead = resolve;
+          })
+      )
+      .mockResolvedValue({ revision: 1, snapshot });
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    let opening!: ReturnType<typeof result.current.validateStoredProjectForOpen>;
+    await act(async () => {
+      opening = result.current.validateStoredProjectForOpen('project-1');
+      await Promise.resolve();
+    });
+    repositoryMocks.listProjects.mockResolvedValue([
+      { ...meta },
+      buildMeta('project-2', '2026-04-02T11:00:00.000Z', 2),
+    ]);
+    await act(async () => {
+      await result.current.refreshLibraryState();
+      finishRead({ revision: 1, snapshot });
+      await opening;
+    });
+    expect(await opening).toEqual({ revision: 1, snapshot });
+    expect(repositoryMocks.loadProjectWithRevision).toHaveBeenCalledOnce();
+  });
+
   test('records a tombstone when opening validation finds the course deleted', async () => {
     const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
     repositoryMocks.listProjects.mockResolvedValue([initialMeta]);

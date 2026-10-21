@@ -1525,22 +1525,43 @@ export const useProjectLibrary = ({
     [getProjectWriteState, rememberExplicitProjectTitle]
   );
   const validateStoredProjectForOpen = useCallback(
-    async (projectId: string) => {
-      const queuedAt = performance.now();
-      await getProjectWriteState(projectId).queue;
-      const queueWaitMs = performance.now() - queuedAt;
-      if (deletedProjectIdsRef.current.has(projectId)) return null;
-      const project = await projectRepositoryRef.current.loadProjectWithRevision(projectId);
-      if (!project) {
-        invalidateRemoteDeletedProject(projectId);
-        return null;
+    async (
+      projectId: string,
+      onSourceProgress?: (
+        progress: import('@shared/sourcePreparation').SourcePreparationProgress
+      ) => void
+    ) => {
+      const writes = getProjectWriteState(projectId);
+      for (;;) {
+        const queue = writes.queue;
+        const queuedAt = performance.now();
+        await queue;
+        const queueWaitMs = performance.now() - queuedAt;
+        if (queue !== writes.queue) continue;
+        if (deletedProjectIdsRef.current.has(projectId)) return null;
+        const metadata = savedProjectsRef.current.find(project => project.id === projectId);
+        const project = await projectRepositoryRef.current.loadProjectWithRevision(projectId, {
+          onSourceProgress,
+        });
+        pushNousDebugTrace('project:queue', {
+          requestId: project && getProjectRequestId(project.snapshot),
+          queueWaitMs,
+        });
+        const currentMetadata = savedProjectsRef.current.find(project => project.id === projectId);
+        const metadataChanged =
+          metadata && currentMetadata
+            ? !haveSameProjectMetadata(metadata, currentMetadata)
+            : metadata !== currentMetadata;
+        // Writes, reimports and remote metadata changes invalidate the in-flight read.
+        if (queue !== writes.queue || metadataChanged) continue;
+        if (deletedProjectIdsRef.current.has(projectId)) return null;
+        if (!project) {
+          invalidateRemoteDeletedProject(projectId);
+          return null;
+        }
+        rememberExplicitProjectTitle(project.snapshot);
+        return project;
       }
-      pushNousDebugTrace('project:queue', {
-        requestId: getProjectRequestId(project.snapshot),
-        queueWaitMs,
-      });
-      rememberExplicitProjectTitle(project.snapshot);
-      return project;
     },
     [getProjectWriteState, invalidateRemoteDeletedProject, rememberExplicitProjectTitle]
   );
