@@ -1,0 +1,82 @@
+[
+  {
+    "version": 3,
+    "current": [
+      {
+        "definitionHash": "5241e9a8bc2be069dadfb311fe1bc2fad61f4615227a5c79b342dbee7af7bcab",
+        "definitionHashVersion": 1,
+        "workflowId": "course-generation"
+      },
+      {
+        "definitionHash": "99e02b827415f85a72d31e47d0c8af998bcb4b97fe6b036c24481b29ed43df9f",
+        "definitionHashVersion": 1,
+        "workflowId": "course-interview"
+      },
+      {
+        "definitionHash": "84dec5d7a748d7115b058a0cdbd76a3053d983a3d9eaff8dec1aa2a5d3a13090",
+        "definitionHashVersion": 1,
+        "workflowId": "lesson-artifact-draft"
+      },
+      {
+        "definitionHash": "9d4231e58deb15c446b5b13e5f1453296539136a20bfc36b90e156eff14d8c7b",
+        "definitionHashVersion": 1,
+        "workflowId": "lesson-generation"
+      },
+      {
+        "definitionHash": "30160c5aca5f1fcf6bf5593188b45cda680a10bd3f1df4fc87e300f278ae2aa4",
+        "definitionHashVersion": 1,
+        "workflowId": "pdf-mapping-repair"
+      },
+      {
+        "definitionHash": "5990c451f48dc268415f544cfa5febe06cf9dd3e12559f4a6584f220be35c12e",
+        "definitionHashVersion": 1,
+        "workflowId": "prepare-lesson-playback-block"
+      },
+      {
+        "definitionHash": "ed54f0524b8f5b95f6e6760dd831743d3add64fd92244c1621826e44fc902f8f",
+        "definitionHashVersion": 1,
+        "workflowId": "retry-lesson-visual"
+      }
+    ]
+  },
+  {
+    "version": 4,
+    "current": [
+      {
+        "definitionHash": "5241e9a8bc2be069dadfb311fe1bc2fad61f4615227a5c79b342dbee7af7bcab",
+        "definitionHashVersion": 1,
+        "workflowId": "course-generation"
+      },
+      {
+        "definitionHash": "99e02b827415f85a72d31e47d0c8af998bcb4b97fe6b036c24481b29ed43df9f",
+        "definitionHashVersion": 1,
+        "workflowId": "course-interview"
+      },
+      {
+        "definitionHash": "5ad844301e5d82dcc015480a2904f78bc1f121c101f77bf33aa5d6b14ff89760",
+        "definitionHashVersion": 1,
+        "workflowId": "lesson-artifact-draft"
+      },
+      {
+        "definitionHash": "919c7df0f64297395b44a5a25f31983b8ce9425af5ae0156368b2fb000fde0a9",
+        "definitionHashVersion": 1,
+        "workflowId": "lesson-generation"
+      },
+      {
+        "definitionHash": "30160c5aca5f1fcf6bf5593188b45cda680a10bd3f1df4fc87e300f278ae2aa4",
+        "definitionHashVersion": 1,
+        "workflowId": "pdf-mapping-repair"
+      },
+      {
+        "definitionHash": "cb30d599a98e4a3d5c0910514b0e1dad313bd04a7fa9577e781dedac8184be55",
+        "definitionHashVersion": 1,
+        "workflowId": "prepare-lesson-playback-block"
+      },
+      {
+        "definitionHash": "9989cf2ec2084ae7ad9ee4892cb01fa76dd5a6f20423505d734ffcd19529abc9",
+        "definitionHashVersion": 1,
+        "workflowId": "retry-lesson-visual"
+      }
+    ]
+  }
+]

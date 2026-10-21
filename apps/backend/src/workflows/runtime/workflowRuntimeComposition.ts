@@ -162,8 +162,8 @@ const DEFAULT_WORKFLOW_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
-// Increment only when the production registry adds or removes a workflow ID.
-const WORKFLOW_SET_VERSION = 3;
+// Increment whenever a current registered contract changes; freeze its manifest in tests.
+export const WORKFLOW_SET_VERSION = 4;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>

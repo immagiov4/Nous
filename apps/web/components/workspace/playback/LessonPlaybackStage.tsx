@@ -75,10 +75,27 @@ function scrollToCaptionLine(
   paragraph: HTMLElement,
   active: HTMLElement | undefined,
   scroll: { line: number; target: number },
-  motion: boolean
+  { motion, captionOnly }: { motion: boolean; captionOnly: boolean }
 ) {
   if (!active || active.offsetTop === scroll.line) return;
   const line = active.offsetTop;
+  if (captionOnly) {
+    if (paragraph.scrollHeight <= paragraph.clientHeight) {
+      scroll.target = 0;
+      scroll.line = line;
+      return;
+    }
+    const lineHeight = Number.parseFloat(getComputedStyle(paragraph).lineHeight);
+    const lineTop = Math.floor(line / lineHeight) * lineHeight;
+    scroll.target = Math.max(
+      0,
+      Math.min(lineTop - lineHeight, paragraph.scrollHeight - paragraph.clientHeight)
+    );
+    if (paragraph.scrollTop !== scroll.target)
+      paragraph.scrollTo({ top: scroll.target, behavior: 'instant' });
+    scroll.line = line;
+    return;
+  }
   if (
     line < scroll.target ||
     line + active.offsetHeight > scroll.target + paragraph.clientHeight * CAPTION_SCROLL.trigger
@@ -87,6 +104,30 @@ function scrollToCaptionLine(
     paragraph.scrollTo({ top: scroll.target, behavior: motion ? 'smooth' : 'instant' });
   }
   scroll.line = line;
+}
+
+function paintCaptionWords(
+  current: CaptionClock,
+  { bodyTime, revealTime }: { bodyTime: number; revealTime: number },
+  captionOnly: boolean
+) {
+  const progress = Math.max(
+    0,
+    Math.min(1, (captionOnly ? bodyTime : revealTime) / current.bodyDuration)
+  );
+  const edge = progress * (current.width + (captionOnly ? 0 : current.feather));
+  let active = edge >= current.width ? current.runs.at(-1)?.span : undefined;
+  for (const run of current.runs) {
+    const local = edge - run.start;
+    run.span.style.opacity = captionOnly || local > 0 ? '1' : '0';
+    run.span.style.setProperty('--reveal-edge', `${local}px`);
+    const readAge = bodyTime - ((run.start + run.width) / current.width) * current.bodyDuration;
+    const fade = Math.max(0, Math.min(1, readAge / CAPTION_TIMING.readFadeSeconds));
+    const text = run.span.firstElementChild as HTMLElement;
+    text.style.opacity = String(captionOnly ? 1 : 1 - fade * (1 - CAPTION_TIMING.readOpacity));
+    if (local >= 0 && local <= run.width) active = run.span;
+  }
+  return active;
 }
 
 function captionTag(word: CaptionWord) {
@@ -373,7 +414,7 @@ export default function LessonPlaybackStage({
   const scroll = useRef({ line: -1, target: 0 });
   const measuredParagraph = useRef<HTMLElement | null>(null);
   const animate = useShouldAnimate();
-  const latest = useRef({ time, speed, readTime, animate });
+  const latest = useRef({ time, speed, readTime, animate, captionOnly: false });
   useLayoutEffect(() => {
     const slot = sceneFit.current;
     const card = sceneCard.current;
@@ -429,9 +470,6 @@ export default function LessonPlaybackStage({
       if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);
     };
   }, []);
-  useLayoutEffect(() => {
-    latest.current = { time, speed, readTime, animate };
-  }, [time, speed, readTime, animate]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: block.id remounts the paragraph even when its words repeat.
   useLayoutEffect(() => {
@@ -494,6 +532,7 @@ export default function LessonPlaybackStage({
   useEffect(() => {
     let previousClock: CaptionClock | null = null;
     let previousBodyTime: number | undefined;
+    let previousCaptionOnly: boolean | undefined;
     const render = () => {
       const paragraph = captions.current;
       if (!paragraph) throw new Error('Captions must be mounted');
@@ -505,22 +544,13 @@ export default function LessonPlaybackStage({
       }
       const { bodyTime, revealTime } = current.read();
       const motion = latest.current.animate;
-      if (previousBodyTime === bodyTime) return;
-      const progress = Math.max(0, Math.min(1, revealTime / current.bodyDuration));
-      const edge = progress * (current.width + current.feather);
-      let active = edge >= current.width ? current.runs.at(-1)?.span : undefined;
-      for (const run of current.runs) {
-        const local = edge - run.start;
-        run.span.style.opacity = local > 0 ? '1' : '0';
-        run.span.style.setProperty('--reveal-edge', `${local}px`);
-        const readAge = bodyTime - ((run.start + run.width) / current.width) * current.bodyDuration;
-        const fade = Math.max(0, Math.min(1, readAge / CAPTION_TIMING.readFadeSeconds));
-        const text = run.span.firstElementChild as HTMLElement;
-        text.style.opacity = String(1 - fade * (1 - CAPTION_TIMING.readOpacity));
-        if (local >= 0 && local <= run.width) active = run.span;
-      }
-      scrollToCaptionLine(paragraph, active, scroll.current, motion);
+      const captionOnly = latest.current.captionOnly;
+      if (previousBodyTime === bodyTime && previousCaptionOnly === captionOnly) return;
+      const active = paintCaptionWords(current, { bodyTime, revealTime }, captionOnly);
+      if (previousCaptionOnly !== captionOnly) scroll.current.line = -1;
+      scrollToCaptionLine(paragraph, active, scroll.current, { motion, captionOnly });
       previousBodyTime = bodyTime;
+      previousCaptionOnly = captionOnly;
     };
     let frame = 0;
     const tick = () => {
@@ -564,6 +594,9 @@ export default function LessonPlaybackStage({
     () => JSON.parse(visualProjection) as readonly PlaybackVisual[],
     [visualProjection]
   );
+  useLayoutEffect(() => {
+    latest.current = { time, speed, readTime, animate, captionOnly: visuals.length === 0 };
+  }, [time, speed, readTime, animate, visuals.length]);
   const [selection, setSelection] = useState<{
     visuals: readonly PlaybackVisual[];
     index: number;

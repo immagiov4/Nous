@@ -164,16 +164,22 @@ test.each([
   false,
 ])('reveals continuously and moves the active line past halfway (animate=%s)', animate => {
   vi.mocked(useShouldAnimate).mockReturnValue(animate);
-  const source = [{ type: 'markdown' as const, markdown: 'Uno due tre quattro cinque sei.' }];
+  const source = [
+    {
+      type: 'markdown' as const,
+      markdown: 'Uno due tre quattro cinque sei. ![Figura](https://example.test/figure.png)',
+    },
+  ];
   const block = segmentLessonPlayback(source)[0];
   const content = {
     isDarkMode: false,
     sectionContentBlocks: source,
   } as WorkspaceReaderContentModel;
-  let tick: FrameRequestCallback = () => {};
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
   vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
-    tick = callback;
-    return 1;
+    frames.set(++frameId, callback);
+    return frameId;
   });
   vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {});
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
@@ -198,7 +204,13 @@ test.each([
   });
   const advance = (time: number) => {
     rerender(<LessonPlaybackStage {...props} time={time} />);
-    act(() => tick(0));
+    act(() => {
+      const callbacks = [...frames.values()];
+      frames.clear();
+      callbacks.forEach(callback => {
+        callback(0);
+      });
+    });
   };
   advance(0.1);
   const first = paragraph.querySelector<HTMLElement>('.caption-word');
@@ -1094,4 +1106,76 @@ test.each([
   expect(
     container.querySelector(`.nous-formula-symbol-${other}`)?.getAttribute('data-active')
   ).toBe('false');
+});
+
+test.each([
+  true,
+  false,
+])('keeps caption-only text readable around the spoken line, motion=%s', motion => {
+  vi.mocked(useShouldAnimate).mockReturnValue(motion);
+  const frames = new Map<number, FrameRequestCallback>();
+  let nextFrame = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++nextFrame, callback);
+    return nextFrame;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const style = document.createElement('p').style;
+  style.lineHeight = '20px';
+  style.setProperty('--caption-feather', '0px');
+  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
+  const sources = [
+    { type: 'markdown' as const, markdown: 'Uno due tre quattro cinque sei sette otto.' },
+  ];
+  const block = segmentLessonPlayback(sources)[0];
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+  } as WorkspaceReaderContentModel;
+  const { container, rerender } = render(
+    <LessonPlaybackStage block={block} content={content} duration={8} time={2.1} />
+  );
+  const paragraph = container.querySelector<HTMLElement>('.caption-page');
+  if (!paragraph) throw new Error('Captions must be mounted');
+  Object.defineProperty(paragraph, 'clientHeight', { configurable: true, value: 60 });
+  Object.defineProperty(paragraph, 'scrollHeight', { configurable: true, value: 80 });
+  const words = Array.from(paragraph.querySelectorAll<HTMLElement>('.caption-word'));
+  words.forEach((word, index) => {
+    Object.defineProperty(word, 'offsetTop', {
+      configurable: true,
+      value: Math.floor(index / 2) * 20,
+    });
+    Object.defineProperty(word, 'offsetHeight', { configurable: true, value: 20 });
+  });
+  const scroll = vi.fn((options?: ScrollToOptions | number) => {
+    if (typeof options === 'object') paragraph.scrollTop = options.top ?? 0;
+  });
+  Object.defineProperty(paragraph, 'scrollTo', { configurable: true, value: scroll });
+  const flush = () =>
+    act(() => {
+      const callbacks = [...frames.values()];
+      frames.clear();
+      callbacks.forEach(callback => {
+        callback(0);
+      });
+    });
+  act(() => window.dispatchEvent(new Event('resize')));
+  flush();
+  expect(words.map(word => word.style.opacity)).toEqual(words.map(() => '1'));
+  expect(words.map(word => (word.firstElementChild as HTMLElement).style.opacity)).toEqual(
+    words.map(() => '1')
+  );
+  expect(paragraph.scrollTop).toBe(0);
+  rerender(<LessonPlaybackStage block={block} content={content} duration={8} time={6.1} />);
+  flush();
+  expect(paragraph.scrollTop).toBe(20);
+  expect(scroll).toHaveBeenLastCalledWith({ top: 20, behavior: 'instant' });
+  rerender(<LessonPlaybackStage block={block} content={content} duration={8} time={1.1} />);
+  flush();
+  expect(paragraph.scrollTop).toBe(0);
 });
