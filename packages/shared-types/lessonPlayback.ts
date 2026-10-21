@@ -3,6 +3,7 @@ import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 
 import { isAnimatedLessonScene, type LessonScene } from './lessonScene';
+import { projectMarkdownRenderingControls } from './markdownControlCharacters';
 import { getMarkdownMathRangeAt } from './markdownMathSyntax';
 import type { ProjectAssetRef } from './projectAsset';
 
@@ -729,7 +730,7 @@ const appendHeadingSeparator = (text: SpokenText, markdown: string, end: number)
 };
 
 /** Build speech and annotation-free content identity from the same parsed Markdown analysis. */
-export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlock[]) => {
+const projectParsedLessonPlayback = (contentBlocks: readonly PlaybackContentBlock[]) => {
   const projectedContent = [...contentBlocks];
   let hasAnnotations = false;
   let hasLegacyVisuals = false;
@@ -914,6 +915,61 @@ export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlo
     hasAnnotations,
     hasLegacyVisuals,
     referencedVisualIds,
+  };
+};
+
+const remapPlaybackSourceSpan = (
+  span: PlaybackTextSpan,
+  offsets: number[] | null
+): PlaybackTextSpan[] => {
+  if (!offsets) return [span];
+  const { start, end } = span.source;
+  if (span.math || span.fencedCode || start === end) {
+    return [
+      {
+        ...span,
+        source: { start: offsets[start], end: end > start ? offsets[end - 1] + 1 : offsets[end] },
+      },
+    ];
+  }
+  const spans: PlaybackTextSpan[] = [];
+  let runStart = start;
+  for (let cursor = start + 1; cursor <= end; cursor += 1) {
+    if (cursor < end && offsets[cursor] === offsets[cursor - 1] + 1) continue;
+    spans.push({
+      ...span,
+      source: { start: offsets[runStart], end: offsets[cursor - 1] + 1 },
+      speech: {
+        start: span.speech.start + runStart - start,
+        end: span.speech.start + cursor - start,
+      },
+    });
+    runStart = cursor;
+  }
+  return spans;
+};
+
+/** Interpret display controls once, then map spoken spans back to the authored source. */
+export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlock[]) => {
+  const controls = contentBlocks.map(block =>
+    block.type === 'markdown' ? projectMarkdownRenderingControls(block.markdown) : null
+  );
+  const content = contentBlocks.map((block, index) => {
+    const control = controls[index];
+    return block.type === 'markdown' && control?.sourceOffsets
+      ? { ...block, markdown: control.content }
+      : block;
+  });
+  const projection = projectParsedLessonPlayback(content);
+  if (!controls.some(control => control?.sourceOffsets)) return projection;
+  return {
+    ...projection,
+    blocks: projection.blocks.map(block => ({
+      ...block,
+      spans: block.spans.flatMap(span =>
+        remapPlaybackSourceSpan(span, controls[span.sourceBlockIndex]?.sourceOffsets ?? null)
+      ),
+    })),
   };
 };
 
