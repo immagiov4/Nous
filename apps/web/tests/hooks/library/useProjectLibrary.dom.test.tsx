@@ -54,6 +54,7 @@ let revisionListener: ((event: ProjectRevisionEvent) => void) | null = null;
 let revisionReconnect: (() => void) | null = null;
 
 vi.mock('../../../services/projects/httpProjectRepository.ts', () => ({
+  getProjectRequestId: () => undefined,
   HttpProjectRepository: vi.fn(function HttpProjectRepositoryMock() {
     return repositoryMocks;
   }),

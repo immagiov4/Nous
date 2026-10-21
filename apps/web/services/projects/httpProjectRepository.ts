@@ -52,6 +52,7 @@ import type {
 } from '../../types';
 import { isRecord } from '../../utils/records.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
+import { pushNousDebugTrace } from '../core/debugTrace.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
 import { createProjectSourceFromDescriptors, getCourseSourceDescriptors } from './courseSources.ts';
 import type {
@@ -74,6 +75,19 @@ import { subscribeToProjectRevisionStream } from './projectRevisionStream.ts';
 import { exportProjectData, normalizeStoredProject } from './projectSnapshot.ts';
 import { decodeBase64Bytes } from './projectSource.ts';
 import { createSourceIngestion, type SourceTransferFile } from './sourceIngestion';
+
+// Correlation follows in-memory results only; persisted snapshots keep their wire contract.
+const requestIds = new WeakMap<object, string>();
+export const getProjectRequestId = (result: object): string | undefined => requestIds.get(result);
+
+const normalizeProjectResponse = (snapshot: ProjectSnapshot, response: object): ProjectSnapshot => {
+  const started = performance.now();
+  const normalized = normalizeStoredProject(snapshot);
+  const requestId = requestIds.get(response);
+  if (requestId) requestIds.set(normalized, requestId);
+  pushNousDebugTrace('project:normalize', { requestId, durationMs: performance.now() - started });
+  return normalized;
+};
 
 interface ApiResponse {
   code?: string;
@@ -351,9 +365,28 @@ const readLibraryExportProgress = (value: unknown): LibraryExportProgress => {
   return value as unknown as LibraryExportProgress;
 };
 
-const readApiResponse = async <T>(response: Response): Promise<ApiResponse & T> => {
+const readApiResponse = async <T>(
+  response: Response,
+  onProgress?: () => void,
+  onBody?: (bytes: number) => void
+): Promise<ApiResponse & T> => {
   try {
-    return (await response.json()) as ApiResponse & T;
+    // Keep native JSON handling for adapters without a readable body.
+    if (!response.body) return (await response.json()) as ApiResponse & T;
+    let bytes = 0;
+    const observedBody = response.body.pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          bytes += chunk.byteLength;
+          if (chunk.byteLength > 0) onProgress?.();
+          controller.enqueue(chunk);
+        },
+        flush() {
+          onBody?.(bytes);
+        },
+      })
+    );
+    return (await new Response(observedBody).json()) as ApiResponse & T;
   } catch (error) {
     if (response.ok) throw error;
     return {
@@ -527,10 +560,8 @@ export class HttpProjectRepository implements ProjectRepository {
         'persistence-failed'
       );
     }
-    return {
-      revision,
-      snapshot: normalizeStoredProject(response.project),
-    };
+    const snapshot = normalizeProjectResponse(response.project, response);
+    return { revision, snapshot };
   }
 
   async loadProjectCover(id: ProjectId): Promise<FileData | null> {
@@ -673,8 +704,9 @@ export class HttpProjectRepository implements ProjectRepository {
     });
     return {
       meta: assertValue(response.meta, 'Il progetto sincronizzato non è stato salvato.'),
-      snapshot: normalizeStoredProject(
-        assertValue(response.snapshot, 'La fonte sincronizzata non è stata restituita.')
+      snapshot: normalizeProjectResponse(
+        assertValue(response.snapshot, 'La fonte sincronizzata non è stata restituita.'),
+        response
       ),
     };
   }
@@ -808,8 +840,9 @@ export class HttpProjectRepository implements ProjectRepository {
       }
       return {
         meta: assertValue(response.meta, 'Il progetto sincronizzato non è stato salvato.'),
-        snapshot: normalizeStoredProject(
-          assertValue(response.snapshot, 'La fonte sincronizzata non è stata restituita.')
+        snapshot: normalizeProjectResponse(
+          assertValue(response.snapshot, 'La fonte sincronizzata non è stata restituita.'),
+          response
         ),
       };
     } catch (error) {
@@ -1233,9 +1266,14 @@ export class HttpProjectRepository implements ProjectRepository {
   ): Promise<T> {
     const requestUrl = `${this.baseUrl}${path}`;
     const timeoutController = new AbortController();
-    const timeoutId = globalThis.setTimeout(() => {
-      timeoutController.abort();
-    }, timeoutMs);
+    let timeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
+    const resetDeadline = () => {
+      globalThis.clearTimeout(timeoutId);
+      timeoutId = globalThis.setTimeout(() => timeoutController.abort(), timeoutMs);
+    };
+    resetDeadline();
+    const started = performance.now();
+    const timings: Record<string, unknown> = { method: init.method || 'GET' };
 
     try {
       const response = await fetchWithSupabaseAuth(requestUrl, {
@@ -1252,7 +1290,26 @@ export class HttpProjectRepository implements ProjectRepository {
           ? AbortSignal.any([init.signal, timeoutController.signal])
           : timeoutController.signal,
       });
-      const data = await readApiResponse<T>(response);
+      const headersAt = performance.now();
+      timings.headersMs = headersAt - started;
+      timings.requestId = response.headers?.get('x-request-id') || undefined;
+      timings.status = response.status;
+      resetDeadline();
+      let bodyAt = headersAt;
+      const data = await readApiResponse<T>(response, resetDeadline, bytes => {
+        bodyAt = performance.now();
+        timings.bodyMs = bodyAt - headersAt;
+        timings.responseBytes = bytes;
+        globalThis.clearTimeout(timeoutId);
+      });
+      timings.parseMs = performance.now() - bodyAt;
+      const requestId = response.headers?.get('x-request-id');
+      if (requestId && data && typeof data === 'object') {
+        requestIds.set(data, requestId);
+        for (const field of [data.project, data.snapshot, data.meta]) {
+          if (field && typeof field === 'object') requestIds.set(field, requestId);
+        }
+      }
 
       if (!response.ok || data.success === false) {
         const errorCode = responseErrorCode(response.status, data.code);
@@ -1272,6 +1329,11 @@ export class HttpProjectRepository implements ProjectRepository {
       throw createProjectSyncError(error);
     } finally {
       globalThis.clearTimeout(timeoutId);
+      pushNousDebugTrace('project:request', {
+        ...timings,
+        elapsedMs: performance.now() - started,
+        aborted: timeoutController.signal.aborted || Boolean(init.signal?.aborted),
+      });
     }
   }
 }

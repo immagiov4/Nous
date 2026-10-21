@@ -4,7 +4,6 @@ import { lstat, mkdtemp, open, readdir, readFile, rm, writeFile } from 'node:fs/
 import os from 'node:os';
 import path from 'node:path';
 import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
-
 import {
   buildOrderedSiblingItems,
   buildSiblingItemIdentity,
@@ -28,6 +27,7 @@ import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
 import { isRecord } from '../utils/validation.js';
 import { hasAcceptedDiagnosticSubmission } from '../workflows/persistence/postgresDiagnosticSnapshotStore.js';
+import { measureRequestPhase } from '../workflows/requestObservability.js';
 import { resolveAvailableFolderName } from './folderNames.js';
 import { LibrarySiblingSetChangedError } from './librarySiblingOrder.js';
 import {
@@ -411,6 +411,21 @@ export class PostgresProjectStore implements ProjectStore {
     this.sourceStorage = sourceStorage;
   }
 
+  private async withMeasuredConnection<T>(
+    operation: (sql: postgres.ReservedSql) => Promise<T>
+  ): Promise<T> {
+    const sql = await measureRequestPhase('poolWait', () => this.sql.reserve());
+    try {
+      return await operation(sql);
+    } finally {
+      sql.release();
+    }
+  }
+
+  private queryProject<T>(query: (sql: postgres.ReservedSql) => PromiseLike<T>): Promise<T> {
+    return this.withMeasuredConnection(sql => measureRequestPhase('query', () => query(sql)));
+  }
+
   async close(): Promise<void> {
     await this.sql.end({ timeout: 5 });
   }
@@ -537,12 +552,14 @@ export class PostgresProjectStore implements ProjectStore {
   }
 
   async loadProject(userId: string, id: ProjectId): Promise<ProjectSnapshot | null> {
-    const rows = await this.sql<ProjectSnapshotRow[]>`
+    const rows = await this.queryProject(
+      sql => sql<ProjectSnapshotRow[]>`
       select snapshot, document_index
       from public.project_snapshots
       where user_id = ${userId} and id = ${id}
       limit 1
-    `;
+    `
+    );
 
     if (!rows[0]) {
       return null;
@@ -566,12 +583,14 @@ export class PostgresProjectStore implements ProjectStore {
       await this.repairLegacySourceArchiveVersions(userId, repairs);
     }
 
-    const currentRows = await this.sql<ProjectSnapshotRow[]>`
+    const currentRows = await this.queryProject(
+      sql => sql<ProjectSnapshotRow[]>`
       select snapshot, document_index
       from public.project_snapshots
       where user_id = ${userId} and id = ${id}
       limit 1
-    `;
+    `
+    );
     return currentRows[0] ? mergeProjectSnapshotRow(currentRows[0]) : null;
   }
 
@@ -579,7 +598,8 @@ export class PostgresProjectStore implements ProjectStore {
     userId: string,
     id: ProjectId
   ): Promise<ProjectSnapshotWithRevision | null> {
-    const rows = await this.sql<ProjectSnapshotWithRevisionRow[]>`
+    const rows = await this.queryProject(
+      sql => sql<ProjectSnapshotWithRevisionRow[]>`
       select project_snapshots.snapshot, project_snapshots.document_index,
              projects.incarnation_id, projects.revision
       from public.project_snapshots
@@ -587,7 +607,8 @@ export class PostgresProjectStore implements ProjectStore {
         on projects.user_id = project_snapshots.user_id and projects.id = project_snapshots.id
       where project_snapshots.user_id = ${userId} and project_snapshots.id = ${id}
       limit 1
-    `;
+    `
+    );
     const row = rows[0];
     if (!row) return null;
     if (!readLegacySourceArchiveIdentity(row.snapshot)) {
@@ -599,7 +620,8 @@ export class PostgresProjectStore implements ProjectStore {
     }
 
     await this.hydrateLegacySourceArchiveVersion(userId, id, row);
-    const currentRows = await this.sql<ProjectSnapshotWithRevisionRow[]>`
+    const currentRows = await this.queryProject(
+      sql => sql<ProjectSnapshotWithRevisionRow[]>`
       select project_snapshots.snapshot, project_snapshots.document_index,
              projects.incarnation_id, projects.revision
       from public.project_snapshots
@@ -607,7 +629,8 @@ export class PostgresProjectStore implements ProjectStore {
         on projects.user_id = project_snapshots.user_id and projects.id = project_snapshots.id
       where project_snapshots.user_id = ${userId} and project_snapshots.id = ${id}
       limit 1
-    `;
+    `
+    );
     const currentRow = currentRows[0];
     if (!currentRow) return null;
     return {
@@ -1101,7 +1124,7 @@ export class PostgresProjectStore implements ProjectStore {
 
     try {
       if (sourceWrite) {
-        sourceUploadSql = await this.sql.reserve();
+        sourceUploadSql = await measureRequestPhase('poolWait', () => this.sql.reserve());
         await this.uploadPreparedProjectSource({
           sql: sourceUploadSql,
           storage: this.getSourceStorage(),
@@ -1121,24 +1144,30 @@ export class PostgresProjectStore implements ProjectStore {
 
         let previousSnapshot: ProjectSnapshot | null = null;
         const lockPreviousSnapshot = async (): Promise<ProjectSnapshot> => {
-          const previousRows = await sql<StoredProjectSnapshotRow[]>`
+          const previousRows = await measureRequestPhase(
+            'query',
+            () => sql<StoredProjectSnapshotRow[]>`
             select snapshot, document_index
             from public.project_snapshots
             where user_id = ${userId} and id = ${snapshot.id}
             for update
-          `;
+          `
+          );
           if (!previousRows[0]) {
             throw new Error('Stored project snapshot is missing.');
           }
           return mergeProjectSnapshotRow(previousRows[0]);
         };
         if (existingMeta) {
-          const lockedRows = await sql<{ id: string }[]>`
+          const lockedRows = await measureRequestPhase(
+            'query',
+            () => sql<{ id: string }[]>`
             select id
             from public.projects
             where user_id = ${userId} and id = ${snapshot.id}
             for update
-          `;
+          `
+          );
           if (!lockedRows[0]) throw new ProjectNotFoundError();
           if (!sourceWrite && snapshot.source != null) {
             previousSnapshot = await lockPreviousSnapshot();
@@ -1195,7 +1224,9 @@ export class PostgresProjectStore implements ProjectStore {
             persistProject,
             sourcePreparation?.signal
           )
-        : await this.sql.begin(persistProject);
+        : await this.withMeasuredConnection(sql =>
+            this.runReservedTransaction(sql, persistProject)
+          );
       replacedObjectPaths = transactionResult.replacedObjectPaths;
       savedMeta = transactionResult.meta;
       snapshot = transactionResult.snapshot;
@@ -1251,17 +1282,19 @@ export class PostgresProjectStore implements ProjectStore {
   ): Promise<SavedProjectMeta> {
     if (options.rebaseMode !== undefined) {
       try {
-        const saved = await this.sql.begin(transaction =>
-          patchProjectInTransaction(transaction, {
-            buildPatch: project => {
-              assertRebasedProjectPatch(project.snapshot, patch, options);
-              return patch;
-            },
-            projectId: id,
-            updatedAt: patch.updatedAt || timestampIso(),
-            userId,
-            waitForProjectLock: true,
-          })
+        const saved = await this.withMeasuredConnection(sql =>
+          this.runReservedTransaction(sql, transaction =>
+            patchProjectInTransaction(transaction, {
+              buildPatch: project => {
+                assertRebasedProjectPatch(project.snapshot, patch, options);
+                return patch;
+              },
+              projectId: id,
+              updatedAt: patch.updatedAt || timestampIso(),
+              userId,
+              waitForProjectLock: true,
+            })
+          )
         );
         return saved.meta;
       } catch (error) {
@@ -2038,7 +2071,9 @@ export class PostgresProjectStore implements ProjectStore {
     if (!source || typeof source.kind !== 'string') {
       throw new Error('Detached project source is invalid.');
     }
-    const primaryRows = await sql<ProjectSourceMetadataRow[]>`
+    const primaryRows = await measureRequestPhase(
+      'query',
+      () => sql<ProjectSourceMetadataRow[]>`
       select
         source_id,
         source_kind,
@@ -2050,7 +2085,8 @@ export class PostgresProjectStore implements ProjectStore {
       from public.project_sources
       where user_id = ${userId} and project_id = ${snapshot.id}
       for update
-    `;
+    `
+    );
     const primaryRow = primaryRows[0];
     if (!primaryRow) {
       throw new Error('Detached project source has no stored metadata.');
@@ -2060,7 +2096,9 @@ export class PostgresProjectStore implements ProjectStore {
       if (primaryRow.source_kind !== 'file') {
         throw new Error('Detached project source kind does not match stored metadata.');
       }
-      const fileRows = await sql<ProjectSourceFileRow[]>`
+      const fileRows = await measureRequestPhase(
+        'query',
+        () => sql<ProjectSourceFileRow[]>`
         select
           source_id,
           position,
@@ -2073,7 +2111,8 @@ export class PostgresProjectStore implements ProjectStore {
         where user_id = ${userId} and project_id = ${snapshot.id}
         order by position
         for update
-      `;
+      `
+      );
       const refs = fileRows.map(row => this.readProjectSourceRef(row));
       if (
         refs.length !== source.sources.length ||
@@ -2102,7 +2141,9 @@ export class PostgresProjectStore implements ProjectStore {
     if (expectedSourceKind !== 'archive') {
       return detachedSnapshot;
     }
-    const entryRows = await sql<ProjectSourceArchiveEntryRow[]>`
+    const entryRows = await measureRequestPhase(
+      'query',
+      () => sql<ProjectSourceArchiveEntryRow[]>`
       select
         path,
         kind,
@@ -2115,7 +2156,8 @@ export class PostgresProjectStore implements ProjectStore {
       where user_id = ${userId} and project_id = ${snapshot.id}
       order by path
       for update
-    `;
+    `
+    );
     if (!isRecord(detachedSnapshot.source)) {
       throw new Error('Detached archive source is missing.');
     }
@@ -2158,7 +2200,8 @@ export class PostgresProjectStore implements ProjectStore {
         };
       });
       const [primaryRows, fileRows] = await Promise.all([
-        this.sql<ProjectSourceMetadataRow[]>`
+        this.queryProject(
+          sql => sql<ProjectSourceMetadataRow[]>`
           select
             source_id,
             source_kind,
@@ -2170,8 +2213,10 @@ export class PostgresProjectStore implements ProjectStore {
           from public.project_sources
           where user_id = ${userId} and project_id = ${snapshot.id}
           limit 1
-        `,
-        this.sql<ProjectSourceFileRow[]>`
+        `
+        ),
+        this.queryProject(
+          sql => sql<ProjectSourceFileRow[]>`
           select
             source_id,
             position,
@@ -2183,7 +2228,8 @@ export class PostgresProjectStore implements ProjectStore {
           from public.project_source_files
           where user_id = ${userId} and project_id = ${snapshot.id}
           order by position
-        `,
+        `
+        ),
       ]);
       const primary = primaryRows[0];
       if (
@@ -2213,7 +2259,8 @@ export class PostgresProjectStore implements ProjectStore {
         preparedRef.hash
       ),
     };
-    const rows = await this.sql<ProjectSourceMetadataRow[]>`
+    const rows = await this.queryProject(
+      sql => sql<ProjectSourceMetadataRow[]>`
       select
         source_id,
         source_kind,
@@ -2225,7 +2272,8 @@ export class PostgresProjectStore implements ProjectStore {
       from public.project_sources
       where user_id = ${userId} and project_id = ${snapshot.id}
       limit 1
-    `;
+    `
+    );
     const expectedSourceKind =
       isRecord(snapshot.source) && snapshot.source.kind === 'archive' ? 'archive' : 'file';
     if (
@@ -2275,33 +2323,44 @@ export class PostgresProjectStore implements ProjectStore {
     projectId: string,
     prepared: PreparedProjectSource
   ): Promise<string[]> {
-    const existingPrimaryRows = await sql<ProjectSourceObjectPathRow[]>`
+    const existingPrimaryRows = await measureRequestPhase(
+      'query',
+      () => sql<ProjectSourceObjectPathRow[]>`
       select object_path
       from public.project_sources
       where user_id = ${userId} and project_id = ${projectId}
       for update
-    `;
-    const existingFileRows = await sql<ProjectSourceObjectPathRow[]>`
+    `
+    );
+    const existingFileRows = await measureRequestPhase(
+      'query',
+      () => sql<ProjectSourceObjectPathRow[]>`
       select object_path
       from public.project_source_files
       where user_id = ${userId} and project_id = ${projectId}
       for update
-    `;
-    const existingEntryRows = await sql<ProjectSourceObjectPathRow[]>`
+    `
+    );
+    const existingEntryRows = await measureRequestPhase(
+      'query',
+      () => sql<ProjectSourceObjectPathRow[]>`
       select object_path
       from public.project_source_entries
       where user_id = ${userId}
         and project_id = ${projectId}
         and object_path is not null
       for update
-    `;
+    `
+    );
     const primary = prepared.primaryRef;
     const representationHash =
       prepared.sourceKind === 'archive'
         ? this.buildProjectSourceArchiveIndex(prepared.archiveEntries, primary).version
             .representationHash
         : null;
-    await sql`
+    await measureRequestPhase(
+      'query',
+      () => sql`
       insert into public.project_sources
         (
           user_id,
@@ -2340,15 +2399,22 @@ export class PostgresProjectStore implements ProjectStore {
         source_kind = excluded.source_kind,
         representation_hash = excluded.representation_hash,
         updated_at = excluded.updated_at
-    `;
-    await sql`
+    `
+    );
+    await measureRequestPhase(
+      'query',
+      () => sql`
       delete from public.project_source_entries
       where user_id = ${userId} and project_id = ${projectId}
-    `;
-    await sql`
+    `
+    );
+    await measureRequestPhase(
+      'query',
+      () => sql`
       delete from public.project_source_files
       where user_id = ${userId} and project_id = ${projectId}
-    `;
+    `
+    );
     const newObjectPaths = [
       ...new Set([
         prepared.primaryRef.objectPath,
@@ -2357,7 +2423,9 @@ export class PostgresProjectStore implements ProjectStore {
       ]),
     ];
     const newObjectPathSet = new Set(newObjectPaths);
-    await sql`
+    await measureRequestPhase(
+      'query',
+      () => sql`
       delete from public.project_source_deletions
       where object_path in (
         select source.object_path
@@ -2365,9 +2433,12 @@ export class PostgresProjectStore implements ProjectStore {
           ${sql.json(toPostgresJson(newObjectPaths.map(object_path => ({ object_path }))))}
         ) as source(object_path text)
       )
-    `;
+    `
+    );
     if (prepared.files.length > 0) {
-      await sql`
+      await measureRequestPhase(
+        'query',
+        () => sql`
         insert into public.project_source_files
           (
             user_id,
@@ -2413,10 +2484,13 @@ export class PostgresProjectStore implements ProjectStore {
           object_path text,
           position integer
         )
-      `;
+      `
+      );
     }
     if (prepared.archiveEntries.length > 0) {
-      await sql`
+      await measureRequestPhase(
+        'query',
+        () => sql`
         insert into public.project_source_entries
           (
             user_id,
@@ -2453,7 +2527,8 @@ export class PostgresProjectStore implements ProjectStore {
           warning_reason text,
           object_path text
         )
-      `;
+      `
+      );
     }
 
     const replacedObjectPaths = [
@@ -2464,14 +2539,17 @@ export class PostgresProjectStore implements ProjectStore {
       ),
     ].filter(path => !newObjectPathSet.has(path));
     if (replacedObjectPaths.length > 0) {
-      await sql`
+      await measureRequestPhase(
+        'query',
+        () => sql`
         insert into public.project_source_deletions (object_path, created_at)
         select queued.object_path, now()
         from jsonb_to_recordset(
           ${sql.json(toPostgresJson(replacedObjectPaths.map(object_path => ({ object_path }))))}
         ) as queued(object_path text)
         on conflict (object_path) do nothing
-      `;
+      `
+      );
     }
     return replacedObjectPaths;
   }
@@ -2740,7 +2818,9 @@ export class PostgresProjectStore implements ProjectStore {
     if (lockKeys.length === 0) {
       return;
     }
-    await sql`
+    await measureRequestPhase(
+      'query',
+      () => sql`
       select pg_advisory_lock(hashtextextended(locked.lock_key, 0))
       from (
         select source.lock_key
@@ -2749,7 +2829,8 @@ export class PostgresProjectStore implements ProjectStore {
         ) as source(lock_key text)
         order by source.lock_key
       ) as locked
-    `;
+    `
+    );
   }
 
   private async runReservedTransaction<T>(
@@ -2757,14 +2838,14 @@ export class PostgresProjectStore implements ProjectStore {
     operation: (sql: ProjectTransactionSql) => Promise<T>,
     signal?: AbortSignal
   ): Promise<T> {
-    await sql.unsafe('begin');
+    await measureRequestPhase('query', () => sql.unsafe('begin'));
     try {
       const result = await operation(sql);
       signal?.throwIfAborted();
-      await sql.unsafe('commit');
+      await measureRequestPhase('query', () => sql.unsafe('commit'));
       return result;
     } catch (error) {
-      await sql.unsafe('rollback');
+      await measureRequestPhase('query', () => sql.unsafe('rollback'));
       throw error;
     }
   }
@@ -2776,7 +2857,9 @@ export class PostgresProjectStore implements ProjectStore {
     if (objectPaths.length === 0) {
       return;
     }
-    await sql`
+    await measureRequestPhase(
+      'query',
+      () => sql`
       select pg_advisory_unlock(hashtextextended(locked.lock_key, 0))
       from (
         select source.lock_key
@@ -2785,7 +2868,8 @@ export class PostgresProjectStore implements ProjectStore {
         ) as source(lock_key text)
         order by source.lock_key desc
       ) as locked
-    `;
+    `
+    );
   }
 
   private isArchiveSource(source: ProjectSourceFile): boolean {
@@ -2842,11 +2926,14 @@ export class PostgresProjectStore implements ProjectStore {
             }
             await storage.delete(objectPath);
           } catch (error) {
-            await sql`
+            await measureRequestPhase(
+              'query',
+              () => sql`
               insert into public.project_source_deletions (object_path, created_at)
               values (${objectPath}, now())
               on conflict (object_path) do nothing
-            `;
+            `
+            );
             console.warn('[Projects] Failed to clean up an uncommitted source object.', {
               code: error instanceof ProjectSourceStorageError ? error.code : 'unknown',
               objectPath,
@@ -2871,7 +2958,9 @@ export class PostgresProjectStore implements ProjectStore {
     if (orderedLockKeys.length === 0) {
       return;
     }
-    await sql`
+    await measureRequestPhase(
+      'query',
+      () => sql`
       select pg_advisory_xact_lock(hashtextextended(locked.lock_key, 0))
       from (
         select source.lock_key
@@ -2880,7 +2969,8 @@ export class PostgresProjectStore implements ProjectStore {
         ) as source(lock_key text)
         order by source.lock_key
       ) as locked
-    `;
+    `
+    );
   }
 
   private getProjectSourceLockKey(objectPath: string): string {
@@ -2896,12 +2986,14 @@ export class PostgresProjectStore implements ProjectStore {
   private async drainQueuedSourceDeletions(): Promise<void> {
     let rows: ProjectSourceObjectPathRow[];
     try {
-      rows = await this.sql<ProjectSourceObjectPathRow[]>`
+      rows = await this.queryProject(
+        sql => sql<ProjectSourceObjectPathRow[]>`
         select object_path
         from public.project_source_deletions
         order by created_at, object_path
         limit ${SOURCE_DELETION_DRAIN_LIMIT}
-      `;
+      `
+      );
     } catch (error) {
       console.warn('[Projects] Failed to read queued source deletions.', {
         code: error instanceof ProjectSourceStorageError ? error.code : 'unknown',
@@ -2927,7 +3019,9 @@ export class PostgresProjectStore implements ProjectStore {
     sql: PostgresMutationSql,
     objectPath: string
   ): Promise<boolean> {
-    const rows = await sql<Array<{ found: number }>>`
+    const rows = await measureRequestPhase(
+      'query',
+      () => sql<Array<{ found: number }>>`
       select 1 as found
       from (
         select object_path from public.project_sources
@@ -2940,7 +3034,8 @@ export class PostgresProjectStore implements ProjectStore {
       ) as referenced_source
       where referenced_source.object_path = ${objectPath}
       limit 1
-    `;
+    `
+    );
     return Boolean(rows[0]);
   }
 
@@ -2949,17 +3044,23 @@ export class PostgresProjectStore implements ProjectStore {
       await this.sql.begin(async sql => {
         await this.lockProjectSourceObjectPaths(sql, [objectPath]);
         if (await this.isProjectSourceObjectReferenced(sql, objectPath)) {
-          await sql`
+          await measureRequestPhase(
+            'query',
+            () => sql`
             delete from public.project_source_deletions
             where object_path = ${objectPath}
-          `;
+          `
+          );
           return;
         }
         await this.getSourceStorage().delete(objectPath);
-        await sql`
+        await measureRequestPhase(
+          'query',
+          () => sql`
           delete from public.project_source_deletions
           where object_path = ${objectPath}
-        `;
+        `
+        );
       });
     } catch (error) {
       console.warn('[Projects] Source object deletion remains queued.', {
@@ -2970,12 +3071,14 @@ export class PostgresProjectStore implements ProjectStore {
   }
 
   private async readProjectMeta(userId: string, id: ProjectId): Promise<SavedProjectMeta | null> {
-    const rows = await this.sql<ProjectMetaRow[]>`
+    const rows = await this.queryProject(
+      sql => sql<ProjectMetaRow[]>`
       select meta, revision
       from public.projects
       where user_id = ${userId} and id = ${id}
       limit 1
-    `;
+    `
+    );
 
     return rows[0] ? mergeProjectMetaRow(rows[0]) : null;
   }
@@ -3035,7 +3138,9 @@ export class PostgresProjectStore implements ProjectStore {
     userId: string,
     placement: LibraryPlacement
   ): Promise<void> {
-    await sql`
+    await measureRequestPhase(
+      'query',
+      () => sql`
       insert into public.library_placements
         (user_id, project_id, placement, folder_id, order_index, updated_at)
       values
@@ -3045,7 +3150,8 @@ export class PostgresProjectStore implements ProjectStore {
         folder_id = excluded.folder_id,
         order_index = excluded.order_index,
         updated_at = excluded.updated_at
-    `;
+    `
+    );
   }
 
   private async ensurePlacementWithClient(
@@ -3053,12 +3159,15 @@ export class PostgresProjectStore implements ProjectStore {
     userId: string,
     projectId: ProjectId
   ): Promise<void> {
-    const existingRows = await sql<Array<{ found: number }>>`
+    const existingRows = await measureRequestPhase(
+      'query',
+      () => sql<Array<{ found: number }>>`
       select 1 as found
       from public.library_placements
       where user_id = ${userId} and project_id = ${projectId}
       limit 1
-    `;
+    `
+    );
     if (existingRows[0]) {
       return;
     }
@@ -3150,23 +3259,29 @@ export class PostgresProjectStore implements ProjectStore {
         parentFolderIds.map(parentFolderId => buildSiblingOrderLockKey(userId, parentFolderId))
       ),
     ].sort();
-    await sql`
+    await measureRequestPhase(
+      'query',
+      () => sql`
       select pg_advisory_xact_lock(hashtextextended(lock_key, 0))
       from unnest(${lockKeys}::text[]) as sibling_lock(lock_key)
       order by lock_key
-    `;
+    `
+    );
   }
 
   private async listPlacementsWithoutRepairWithClient(
     sql: PostgresMutationSql,
     userId: string
   ): Promise<LibraryPlacement[]> {
-    const rows = await sql<PlacementRow[]>`
+    const rows = await measureRequestPhase(
+      'query',
+      () => sql<PlacementRow[]>`
       select placement
       from public.library_placements
       where user_id = ${userId}
       order by folder_id asc nulls first, order_index asc, project_id asc
-    `;
+    `
+    );
 
     return rows.map(row => row.placement);
   }
