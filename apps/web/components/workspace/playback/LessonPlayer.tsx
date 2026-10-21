@@ -18,6 +18,7 @@ import { useSpeechInput } from '../../../hooks/useSpeechInput.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { playbackSentenceSelector } from '../../../utils/reader/lessonPlayback.ts';
+import type { LessonPlaybackAudio } from '../../../utils/reader/lessonPlaybackAudio.ts';
 import { appendSpeechTranscription } from '../../shared/SpeechInputButton.tsx';
 import ContextMenu from '../ContextMenu.tsx';
 import ContextAnswerPanel from '../shell/ContextAnswerPanel.tsx';
@@ -97,7 +98,7 @@ export default function LessonPlayer({
   tts,
   onClose,
   autoPlay = true,
-  audioElementRef,
+  audioSessionRef,
 }: Readonly<{
   sectionId: string;
   projectId: string;
@@ -119,7 +120,7 @@ export default function LessonPlayer({
   >;
   onClose: () => void;
   autoPlay?: boolean;
-  audioElementRef?: RefObject<HTMLAudioElement>;
+  audioSessionRef?: RefObject<LessonPlaybackAudio>;
 }>) {
   const sourceBlocks = useMemo(
     () =>
@@ -135,7 +136,7 @@ export default function LessonPlayer({
     voice: tts.currentVoice,
     speed: tts.playbackRate,
     initialBlocks,
-    audioElementRef,
+    audioSessionRef,
   });
   const [noteMode, setNoteMode] = useState(false);
   const [draft, setDraft] = useState('');
@@ -194,7 +195,9 @@ export default function LessonPlayer({
   }, [noteStatus]);
 
   const currentAnchor = () => {
-    const original = initialBlocks[playback.index];
+    const position = playback.readPosition();
+    const block = playback.blocks[position.index];
+    const original = initialBlocks[position.index];
     if (
       !block?.speech ||
       block.speech !== original?.speech ||
@@ -211,7 +214,6 @@ export default function LessonPlayer({
       })
     )
       return null;
-    const position = playback.readPosition();
     return playbackSentenceSelector(block, position.time, position.duration, sourceBlocks);
   };
   const changeDraft = (value: string) => {
@@ -256,6 +258,7 @@ export default function LessonPlayer({
     question: string,
     selector = anchor.current ?? currentAnchor()
   ): ContextAnswerState => {
+    const currentBlock = playback.blocks[playback.readPosition().index];
     return {
       id: crypto.randomUUID(),
       initialQuestion: question,
@@ -263,10 +266,10 @@ export default function LessonPlayer({
       lessonId: sectionId,
       lessonTitle: content.activeSectionTitle ?? undefined,
       lessonContent: content.sectionContent,
-      contextScope: block ? 'selection' : 'lesson',
+      contextScope: currentBlock ? 'selection' : 'lesson',
       selectedText:
         selector?.exact ??
-        (block ? resolvePlaybackNarration(block).speech : content.sectionContent),
+        (currentBlock ? resolvePlaybackNarration(currentBlock).speech : content.sectionContent),
       selectedTextStart: selector?.selectionStart,
       contextBefore: selector?.prefix,
       contextAfter: selector?.suffix,

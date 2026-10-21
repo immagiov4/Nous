@@ -1,4 +1,13 @@
-import { lazy, memo, type RefObject, Suspense, useEffect, useLayoutEffect, useState } from 'react';
+import {
+  lazy,
+  memo,
+  type RefObject,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   READER_MOBILE_TOP_FADE_ALPHA_PROPERTY,
   READER_MOBILE_TOP_FADE_SCROLL_RANGE_PX,
@@ -6,6 +15,7 @@ import {
 } from '../../constants/layout.ts';
 import { unlockLessonPlaybackAudio } from '../../hooks/reader/useLessonPlayback.ts';
 import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
+import { LessonPlaybackAudio } from '../../utils/reader/lessonPlaybackAudio.ts';
 import type { WorkspaceReaderShellProps } from './shell/types.ts';
 import WorkspaceReaderBanners from './shell/WorkspaceReaderBanners.tsx';
 import WorkspaceReaderContent from './shell/WorkspaceReaderContent.tsx';
@@ -40,8 +50,21 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
   const [player, setPlayer] = useState<{
     sectionId: string;
     autoPlay: boolean;
-    audioElementRef: RefObject<HTMLAudioElement>;
+    audioSessionRef: RefObject<LessonPlaybackAudio>;
   } | null>(null);
+  const activeAudioSession = useRef<LessonPlaybackAudio | null>(null);
+  useEffect(() => {
+    const session = player?.audioSessionRef.current ?? null;
+    const activeSession = activeAudioSession;
+    activeSession.current = session;
+    return () => {
+      activeSession.current = null;
+      // A development effect reconnect can reclaim the same session before this runs.
+      queueMicrotask(() => {
+        if (activeSession.current !== session) session?.close();
+      });
+    };
+  }, [player]);
   const hasBanners = Boolean(
     banners.lessonError ||
       banners.needsSourceFile ||
@@ -54,12 +77,14 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
     header.tts.onStop();
     overlays.onCloseContextAnswer();
     overlays.onCloseContextMenu();
-    const audioElement = new Audio();
-    if (autoPlay) unlockLessonPlaybackAudio(audioElement);
+    const audioSession = new LessonPlaybackAudio();
+    if (autoPlay) {
+      unlockLessonPlaybackAudio(audioSession);
+    }
     setPlayer({
       sectionId: sidebar.activeSectionId,
       autoPlay,
-      audioElementRef: { current: audioElement },
+      audioSessionRef: { current: audioSession },
     });
   };
   const { viewportHeight } = useMobileKeyboardOffset();
@@ -201,7 +226,7 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
             overlays={overlays}
             tts={header.tts}
             autoPlay={player.autoPlay}
-            audioElementRef={player.audioElementRef}
+            audioSessionRef={player.audioSessionRef}
             onClose={() => setPlayer(null)}
           />
         </Suspense>

@@ -90,7 +90,12 @@ describe('lesson playback routes', () => {
       .send({ lessonKey: preparedPlayback(section).lessonKey, voice: 'Zephyr' });
     expect(response.status).toBe(202);
     expect(response.headers['cache-control']).toBe('private, no-store');
-    expect(response.body).toEqual({ blockId: '0', voice: 'Zephyr', runId: expect.any(String) });
+    expect(response.body).toEqual({
+      blockId: '0',
+      voice: 'Zephyr',
+      runId: expect.any(String),
+      created: true,
+    });
     expect(createRun).toHaveBeenCalledOnce();
   });
   test('rejects a stale lesson key before starting a run', async () => {
@@ -140,16 +145,38 @@ describe('lesson playback routes', () => {
     expect(createRun).not.toHaveBeenCalled();
   });
 
-  test('deduplicates blocks and voices within one key, but starts a run for a changed lesson', async () => {
+  test('deduplicates each block and separates blocks and lesson revisions', async () => {
     const { app, section, createRun } = setup();
     const originalKey = preparedPlayback(section).lessonKey;
     const prepare = (lessonKey: string, block = '0', voice = 'Kore') =>
       request(app).post(`${url}/blocks/${block}/prepare`).send({ lessonKey, voice });
     await prepare(originalKey);
     await prepare(originalKey, '1', 'Zephyr');
-    expect(createRun.mock.calls[0][0].dedupeKey).toBe(createRun.mock.calls[1][0].dedupeKey);
+    expect(createRun.mock.calls[0][0].dedupeKey).not.toBe(createRun.mock.calls[1][0].dedupeKey);
     section.lastGenerationRunId = 'generation-2';
     await prepare(preparedPlayback(section).lessonKey);
     expect(createRun.mock.calls[2][0].dedupeKey).not.toBe(createRun.mock.calls[0][0].dedupeKey);
   });
+});
+
+test('different playback blocks have independent durable preparation keys', async () => {
+  const { app, createRun } = setup();
+  const lessonKey = preparedPlayback().lessonKey;
+  const first = await request(app)
+    .post(`${url}/blocks/0/prepare`)
+    .send({ lessonKey, voice: 'Kore' });
+  const second = await request(app)
+    .post(`${url}/blocks/1/prepare`)
+    .send({ lessonKey, voice: 'Kore' });
+  expect(first.status).toBe(202);
+  expect(second.status).toBe(202);
+  expect(createRun.mock.calls[0][0].dedupeKey).not.toBe(createRun.mock.calls[1][0].dedupeKey);
+});
+
+test('voices of one block share canonical narration before another recording starts', async () => {
+  const { app, createRun } = setup();
+  const lessonKey = preparedPlayback().lessonKey;
+  await request(app).post(`${url}/blocks/0/prepare`).send({ lessonKey, voice: 'Kore' });
+  await request(app).post(`${url}/blocks/0/prepare`).send({ lessonKey, voice: 'Zephyr' });
+  expect(createRun.mock.calls[0][0].dedupeKey).toBe(createRun.mock.calls[1][0].dedupeKey);
 });
