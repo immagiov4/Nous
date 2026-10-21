@@ -114,13 +114,17 @@ describe('NewHomeView library interactions', () => {
   });
 
   test.each([
-    ['it', 1, '1 lezione'],
-    ['it', 2, '2 lezioni'],
-    ['en', 1, '1 lesson'],
-    ['en', 2, '2 lessons'],
-  ] as const)('renders %s lesson count %i in the course list', (locale, lessonCount, label) => {
+    ['it', 1, '1 lezione', undefined],
+    ['it', 2, '2 lezioni', undefined],
+    ['en', 1, '1 lesson', undefined],
+    ['en', 2, '2 lessons', undefined],
+    ['it', 0, 'Preparazione fonti...', 'finalizing'],
+    ['en', 0, 'Preparing sources...', 'finalizing'],
+    ['it', 0, 'Preparazione fonti non riuscita', 'failed'],
+    ['en', 0, 'Source preparation failed', 'failed'],
+  ] as const)('renders %s project status with %i lessons', (locale, lessonCount, label, sourcePreparationStatus) => {
     setAccountLocale(locale);
-    const countedProject = { ...project, lessonCount };
+    const countedProject = { ...project, lessonCount, sourcePreparationStatus };
     render(
       <NewHomeView
         chatProps={chatProps}
@@ -145,7 +149,11 @@ describe('NewHomeView library interactions', () => {
         saveProjectCover={vi.fn(async () => {})}
       />
     );
-    expect(screen.getByRole('button', { name: new RegExp(`^${label} ·`) })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', {
+        name: sourcePreparationStatus ? label : new RegExp(`^${label} ·`),
+      })
+    ).toBeInTheDocument();
   });
 
   test.each([

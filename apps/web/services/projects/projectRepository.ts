@@ -35,6 +35,7 @@ export class ProjectStorageError extends Error {
     | 'cover-revision-conflict'
     | 'quota-exceeded'
     | 'revision-conflict'
+    | 'source-preparation-conflict'
     | 'source-preparation-cancelled'
     | 'scanned-page-limit'
     | 'source-preparation-failed'
@@ -102,8 +103,14 @@ export interface ProjectRepository {
   listFolders: () => Promise<LibraryFolder[]>;
   listPlacements: () => Promise<LibraryPlacement[]>;
   listProjects: () => Promise<SavedProjectMeta[]>;
-  loadProject: (id: ProjectId) => Promise<ProjectSnapshot | null>;
-  loadProjectWithRevision: (id: ProjectId) => Promise<ProjectSnapshotWithRevision | null>;
+  loadProject: (
+    id: ProjectId,
+    options?: Pick<ProjectSaveOptions, 'onSourceProgress'>
+  ) => Promise<ProjectSnapshot | null>;
+  loadProjectWithRevision: (
+    id: ProjectId,
+    options?: Pick<ProjectSaveOptions, 'onSourceProgress'>
+  ) => Promise<ProjectSnapshotWithRevision | null>;
   loadProjectCover: (id: ProjectId) => Promise<FileData | null>;
   loadProjectSource: (id: ProjectId) => Promise<FileData | null>;
   loadProjectSourceById: (id: ProjectId, sourceId: string) => Promise<FileData | null>;

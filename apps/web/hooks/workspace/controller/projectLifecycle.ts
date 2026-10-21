@@ -515,7 +515,13 @@ export const createProjectLifecycleCommands = (
       state.setOpeningProjectId(projectId);
       pushNousDebugTrace('open-project:start', { projectId, requestId });
 
-      const snapshot = await projectLibrary.loadStoredProject(projectId);
+      const snapshot = await projectLibrary.loadStoredProject(projectId, progress =>
+        state.setWorkflowMessage(
+          'openProject',
+          requestId,
+          formatSourcePreparationProgress(progress)
+        )
+      );
       if (!state.isWorkflowCurrent('openProject', requestId)) {
         pushNousDebugTrace('open-project:stale-after-load', { projectId, requestId });
         return { outcome: 'stale' };

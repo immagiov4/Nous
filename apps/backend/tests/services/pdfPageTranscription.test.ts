@@ -2,9 +2,9 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { formatPdfTranscriptionMarker } from '@shared/pdfTranscription';
 import { APICallError } from 'ai';
-import { PDFParse } from 'pdf-parse';
 import { beforeEach, expect, test, vi } from 'vitest';
 import type { SourcePreparationContext } from '../../src/projects/sourcePreparationContext.js';
+import * as pdfTasks from '../../src/services/pdfPageTask.js';
 import { extractPdfTextLayer } from '../../src/services/pdfTextExtractor.js';
 import { normalizePdfTranscriptionMarkdown } from '../../src/services/pdfTranscriptionMath.js';
 import { PdfTranscriptionPool } from '../../src/services/pdfTranscriptionPool.js';
@@ -29,9 +29,8 @@ vi.mock('../../src/services/aiSdkTextModel.js', () => ({
 
 import { getResolvedGlobalModelConfig } from '../../src/config/modelConfig.js';
 
-const { preparePdfTextExtraction, inspectPdfPageText } = await import(
-  '../../src/services/pdfPageTranscription.js'
-);
+const { inspectPdfPageText } = await import('../../src/services/pdfPageProcessing.mjs');
+const { preparePdfTextExtraction } = await import('../../src/services/pdfPageTranscription.js');
 
 const completePdfTextExtraction = async (...args: Parameters<typeof preparePdfTextExtraction>) =>
   (await preparePdfTextExtraction(...args)).completion;
@@ -298,30 +297,31 @@ test('counts a billed response even when its syntax correction fails', async () 
 });
 
 test('interrupts a pending raster operation when its page deadline expires', async () => {
-  const { PDFParse } = await import('pdf-parse');
   const deadline = new AbortController();
-  const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal);
+  const original = pdfTasks.runPdfPageTask;
   const started = Promise.withResolvers<void>();
-  const render = vi.spyOn(PDFParse.prototype, 'getScreenshot').mockImplementation(() => {
-    started.resolve();
-    return new Promise(() => {});
-  });
-  const destroy = vi.spyOn(PDFParse.prototype, 'destroy');
+  const operation = vi
+    .spyOn(pdfTasks, 'runPdfPageTask')
+    .mockImplementation((bytes, task, signal) => {
+      if (task.kind === 'inspect') return original(bytes, task, signal);
+      started.resolve();
+      return new Promise((_resolve, reject) =>
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+      );
+    });
+  const timeout = vi
+    .spyOn(AbortSignal, 'timeout')
+    .mockImplementation(ms => (ms === 75000 ? deadline.signal : AbortSignal.any([])));
   try {
     const pending = completePdfTextExtraction(bytes, textLayer(''), {
       config: await getResolvedGlobalModelConfig(),
     });
-    const rejected = expect(pending).resolves.toMatchObject({
-      transcription: { failedPages: [1] },
-    });
     await started.promise;
     deadline.abort(new Error('recorded page deadline'));
-    await rejected;
-    expect(destroy).toHaveBeenCalled();
+    await expect(pending).resolves.toMatchObject({ transcription: { failedPages: [1] } });
     expect(provider.generateText).not.toHaveBeenCalled();
   } finally {
-    render.mockRestore();
-    destroy.mockRestore();
+    operation.mockRestore();
     timeout.mockRestore();
   }
 });
@@ -883,33 +883,19 @@ test('accepts mathematical OCR whose Greek symbols become delimited math in tran
   expect(provider.generateText).toHaveBeenCalledOnce();
 });
 
-test.each([
-  'inspection',
-  'cleanup',
-] as const)('bounds stalled PDF %s without starting provider calls', async stage => {
+test('terminates PDF inspection at its deadline before starting provider calls', async () => {
   const deadline = new AbortController();
   const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal);
-  const info = vi.spyOn(PDFParse.prototype, 'getInfo');
-  if (stage === 'inspection') info.mockImplementation(() => new Promise(() => {}));
-  const destroy = vi
-    .spyOn(PDFParse.prototype, 'destroy')
-    .mockImplementation(() => new Promise(() => {}));
   try {
-    const result = preparePdfTextExtraction(bytes, textLayer(''));
-    const rejected = expect(result).rejects.toMatchObject({
+    const pending = preparePdfTextExtraction(bytes, textLayer(''));
+    const rejected = expect(pending).rejects.toMatchObject({
       name: 'PdfTextExtractionTimeoutError',
     });
-    expect(timeout).toHaveBeenCalledWith(15_000);
-    if (stage === 'cleanup') await vi.waitFor(() => expect(destroy).toHaveBeenCalledOnce());
+    expect(timeout).toHaveBeenCalledWith(15000);
     deadline.abort(new DOMException('Inspection deadline', 'TimeoutError'));
     await rejected;
-    expect(destroy).toHaveBeenCalledOnce();
     expect(provider.generateText).not.toHaveBeenCalled();
   } finally {
-    const parser = destroy.mock.contexts[0];
-    info.mockRestore();
-    destroy.mockRestore();
     timeout.mockRestore();
-    await parser?.destroy();
   }
 });

@@ -15,6 +15,8 @@ import { basename, join } from 'node:path';
 import { COURSE_SOURCE_UPLOAD_LIMITS } from '@shared/courseSourceUpload';
 import {
   SOURCE_PREPARATION_CANCELLED_MESSAGE,
+  SOURCE_PREPARATION_CONFLICT_CODE,
+  SOURCE_PREPARATION_CONFLICT_MESSAGE,
   type SourcePreparationProgress,
 } from '@shared/sourcePreparation';
 import { projectImportConfig } from './projectImportConfig.js';
@@ -30,6 +32,8 @@ const IMPORT_UPLOAD_ID_PATTERN =
 interface ProjectImportChunk {
   chunk: string | Uint8Array;
   sourceUpload?: boolean;
+  projectId?: string;
+  contentKey?: string;
   chunkCount: number;
   chunkIndex: number;
   expectedRevision?: number;
@@ -48,6 +52,22 @@ interface CompletedImport {
   projectId: string;
 }
 
+interface ProjectImportCompletionInput {
+  userId: string;
+  uploadId: string;
+  importData?: (data: unknown, context: SourcePreparationJobContext) => Promise<CompletedImport>;
+  importBinary?: (
+    bytes: Uint8Array,
+    expectedRevision: number | undefined,
+    context: SourcePreparationJobContext
+  ) => Promise<CompletedImport>;
+  importFile?: (
+    path: string,
+    expectedRevision: number | undefined,
+    context: SourcePreparationJobContext
+  ) => Promise<CompletedImport>;
+}
+
 interface UploadSession {
   chunkCount: number;
   chunks: Map<number, StoredChunk>;
@@ -57,6 +77,11 @@ interface UploadSession {
   expectedRevision?: number;
   format: 'binary' | 'text';
   sourceUpload: boolean;
+  projectId?: string;
+  contentKey?: string;
+  sourceIds?: readonly string[];
+  snapshot?: ProjectSnapshot;
+  preparedSnapshot?: ProjectSnapshot;
   key: string;
   lock: Promise<void>;
   status: 'receiving' | 'finalizing' | 'completed' | 'failed';
@@ -71,6 +96,12 @@ interface UploadSession {
 
 export class ProjectImportInputError extends Error {}
 export class ProjectImportCapacityError extends Error {}
+export class ProjectImportConflictError extends Error {
+  readonly code = SOURCE_PREPARATION_CONFLICT_CODE;
+  constructor() {
+    super(SOURCE_PREPARATION_CONFLICT_MESSAGE);
+  }
+}
 export class SourcePreparationCancelledError extends Error {
   constructor() {
     super(SOURCE_PREPARATION_CANCELLED_MESSAGE);
@@ -87,6 +118,47 @@ const getUserHash = (userId: string): string =>
 
 const getSessionKey = (userId: string, uploadId: string): string =>
   `${getUserHash(userId)}-${uploadId}`;
+
+const findPreparingSession = (userId: string, projectId: string) =>
+  [...sessions.values()].find(
+    session =>
+      session.userId === userId &&
+      session.projectId === projectId &&
+      session.status === 'finalizing'
+  );
+
+const findMatchingPreparation = (userId: string, projectId: string, contentKey?: string) => {
+  const running = findPreparingSession(userId, projectId);
+  if (running && (!contentKey || running.contentKey !== contentKey))
+    throw new ProjectImportConflictError();
+  return running;
+};
+
+/** Running retries resolve before request/body capacity is reserved. */
+export const getRunningProjectImport = ({
+  userId,
+  uploadId,
+  projectId,
+  contentKey,
+}: {
+  userId: string;
+  uploadId?: string;
+  projectId?: string;
+  contentKey?: string;
+}) => {
+  const session =
+    (uploadId ? sessions.get(getSessionKey(userId, uploadId)) : undefined) ??
+    (projectId ? findMatchingPreparation(userId, projectId, contentKey) : undefined);
+  if (session?.status !== 'finalizing') return undefined;
+  return {
+    success: true,
+    complete: false,
+    ready: true,
+    receivedCount: session.chunks.size,
+    uploadId: session.uploadId,
+    uploadStatus: session.status,
+  };
+};
 
 const safelyRemove = async (path: string): Promise<void> => {
   try {
@@ -205,14 +277,24 @@ const withSessionLock = async <T>(
   }
 };
 
-const runFinalization = async <T>(operation: () => Promise<T>): Promise<T> => {
-  await new Promise<void>(resolve => {
+const runFinalization = async <T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> => {
+  signal.throwIfAborted();
+  await new Promise<void>((resolve, reject) => {
     if (activeFinalizations < projectImportConfig.finalizationsGlobal) {
       activeFinalizations += 1;
       resolve();
       return;
     }
-    pendingFinalizations.push(resolve);
+    const enter = () => {
+      signal.removeEventListener('abort', cancel);
+      resolve();
+    };
+    const cancel = () => {
+      pendingFinalizations.splice(pendingFinalizations.indexOf(enter), 1);
+      reject(signal.reason);
+    };
+    pendingFinalizations.push(enter);
+    signal.addEventListener('abort', cancel, { once: true });
   });
   try {
     return await operation();
@@ -241,6 +323,8 @@ const createSession = async (input: ProjectImportChunk): Promise<UploadSession> 
     expectedRevision: input.expectedRevision,
     format: typeof input.chunk === 'string' ? 'text' : 'binary',
     sourceUpload: input.sourceUpload === true,
+    projectId: input.projectId,
+    contentKey: input.contentKey,
     key,
     lock: Promise.resolve(),
     status: 'receiving',
@@ -256,7 +340,11 @@ const createSession = async (input: ProjectImportChunk): Promise<UploadSession> 
 
 const getOrCreateSession = async (input: ProjectImportChunk): Promise<UploadSession> => {
   const key = getSessionKey(input.userId, input.uploadId);
-  const existing = sessions.get(key);
+  const existing =
+    sessions.get(key) ??
+    (input.projectId
+      ? findMatchingPreparation(input.userId, input.projectId, input.contentKey)
+      : undefined);
   if (existing) {
     return existing;
   }
@@ -293,12 +381,24 @@ const getOrCreateSession = async (input: ProjectImportChunk): Promise<UploadSess
 
 export const storeProjectImportChunk = async (
   input: ProjectImportChunk
-): Promise<{ ready: boolean; receivedCount: number }> => {
+): Promise<{
+  ready: boolean;
+  receivedCount: number;
+  uploadId?: string;
+  uploadStatus?: UploadSession['status'];
+}> => {
   const chunkBytes = validateChunk(input);
   if (input.sourceUpload) await assertSourceStagingAvailable();
   await cleanupExpiredSessions();
   const session = await getOrCreateSession(input);
 
+  if (session.status === 'finalizing' && session.projectId && session.projectId === input.projectId)
+    return {
+      ready: true,
+      receivedCount: session.chunks.size,
+      uploadId: session.uploadId,
+      uploadStatus: session.status,
+    };
   return withSessionLock(session, async () => {
     if (session.status !== 'receiving') {
       throw new ProjectImportInputError('Questo backup è gia stato elaborato.');
@@ -361,8 +461,8 @@ export const cancelProjectImportUpload = async (
   }
   const session = sessions.get(getSessionKey(userId, uploadId));
   if (!session) return;
-  if (session.sourceUpload && session.status === 'completed') return;
-  if (session.sourceUpload && session.status === 'finalizing') {
+  if (session.status === 'completed') return;
+  if (session.status === 'finalizing') {
     session.controller.abort();
     return;
   }
@@ -382,6 +482,8 @@ export const getProjectImportUploadStatus = (
   | {
       completed?: CompletedImport;
       status: UploadSession['status'];
+      projectId?: string;
+      contentKey?: string;
       progress?: SourcePreparationProgress;
       failure?: unknown;
     }
@@ -392,6 +494,7 @@ export const getProjectImportUploadStatus = (
   const session = sessions.get(getSessionKey(userId, uploadId));
   if (!session) return undefined;
   return {
+    projectId: session.projectId,
     completed: session.completed,
     status: session.status,
     progress: session.progress,
@@ -399,19 +502,148 @@ export const getProjectImportUploadStatus = (
   };
 };
 
+/** Project identity belongs to the authenticated upload, independently of its HTTP connection. */
+const sessionPreparation = (session?: UploadSession) => {
+  if (
+    !session ||
+    session.controller.signal.aborted ||
+    (session.status !== 'finalizing' && session.status !== 'failed')
+  )
+    return undefined;
+  return { uploadId: session.uploadId, progress: session.progress, status: session.status };
+};
+
+export const getProjectSourcePreparation = (userId: string, projectId: string) =>
+  sessionPreparation(
+    [...sessions.values()]
+      .reverse()
+      .find(session => session.userId === userId && session.projectId === projectId)
+  );
+
+/** Keeps paid source preparation available when publication fails, within the upload lifetime. */
+export const checkpointPreparedProjectSources = (
+  userId: string,
+  uploadId: string,
+  snapshot: ProjectSnapshot
+) => {
+  const session = sessions.get(getSessionKey(userId, uploadId));
+  if (session?.projectId !== snapshot.id)
+    throw new ProjectImportInputError('Progetto del caricamento non valido.');
+  session.controller.signal.throwIfAborted();
+  session.preparedSnapshot = snapshot;
+};
+
+export const getPreparedProjectSources = (
+  userId: string,
+  uploadId: string
+): ProjectSnapshot | undefined => sessions.get(getSessionKey(userId, uploadId))?.preparedSnapshot;
+
+export const bindSourcePreparationProject = ({
+  userId,
+  uploadId,
+  projectId,
+  snapshot,
+  sourceIds,
+}: {
+  userId: string;
+  uploadId: string;
+  projectId: string;
+  snapshot?: ProjectSnapshot;
+  sourceIds?: readonly string[];
+}) => {
+  const session = sessions.get(getSessionKey(userId, uploadId));
+  if (!session || (session.projectId && session.projectId !== projectId))
+    throw new ProjectImportInputError('Progetto del caricamento non valido.');
+  for (const previous of sessions.values()) {
+    if (
+      previous !== session &&
+      previous.userId === userId &&
+      previous.projectId === projectId &&
+      previous.status === 'failed'
+    ) {
+      session.preparedSnapshot ??= previous.preparedSnapshot;
+      previous.preparedSnapshot = undefined;
+      previous.projectId = undefined;
+      previous.snapshot = undefined;
+    }
+  }
+  session.projectId = projectId;
+  session.sourceIds = sourceIds;
+  session.snapshot = snapshot;
+  session.controller.signal.throwIfAborted();
+};
+
+/** New projects stay discoverable while their originals are being prepared. */
+export const listPreparingProjectSnapshots = (userId: string) => {
+  const latest = new Map<string, UploadSession>();
+  for (const session of sessions.values())
+    if (session.userId === userId && session.projectId) latest.set(session.projectId, session);
+  return [...latest.values()].flatMap(session => {
+    const preparation = sessionPreparation(session);
+    return session.snapshot && preparation
+      ? [{ snapshot: session.snapshot, status: preparation.status }]
+      : [];
+  });
+};
+
+/** Explicit deletion/removal cancels paid work and waits for its capacity to be released. */
+export const cancelProjectSourcePreparation = async (
+  userId: string,
+  projectId: string,
+  retainedSourceIds?: readonly string[]
+) => {
+  const pending = [...sessions.values()].filter(
+    session =>
+      session.userId === userId &&
+      session.projectId === projectId &&
+      (session.status === 'receiving' || session.status === 'finalizing') &&
+      (!retainedSourceIds ||
+        !session.sourceIds ||
+        session.sourceIds.some(id => !retainedSourceIds.includes(id)))
+  );
+  for (const session of pending) {
+    await cancelProjectImportUpload(userId, session.uploadId);
+    await session.completion?.catch(() => undefined);
+  }
+  for (const session of sessions.values()) {
+    if (
+      session.userId === userId &&
+      session.projectId === projectId &&
+      (!retainedSourceIds || session.sourceIds?.some(id => !retainedSourceIds.includes(id)))
+    ) {
+      session.projectId = undefined;
+      session.snapshot = undefined;
+      session.preparedSnapshot = undefined;
+    }
+  }
+};
+
+/** Reads only completed staged parts; preparation admission may inspect the bounded prefix. */
+export const getProjectImportUploadPaths = (userId: string, uploadId: string): string[] => {
+  const session = sessions.get(getSessionKey(userId, uploadId));
+  if (!session || session.chunks.size !== session.chunkCount)
+    throw new ProjectImportInputError('Non tutte le parti delle fonti sono state ricevute.');
+  return Array.from({ length: session.chunkCount }, (_, index) =>
+    join(session.directory, `${index}.part`)
+  );
+};
+
 const assembleAndImport = async (
   session: UploadSession,
-  importData?: (data: unknown) => Promise<CompletedImport>,
-  importBinary?: (bytes: Uint8Array, expectedRevision?: number) => Promise<CompletedImport>,
-  importFile?: (
-    path: string,
-    expectedRevision?: number,
-    context?: SourcePreparationJobContext
-  ) => Promise<CompletedImport>
+  { importData, importBinary, importFile }: ProjectImportCompletionInput
 ): Promise<CompletedImport> => {
+  const context: SourcePreparationJobContext = {
+    signal: session.controller.signal,
+    reportProgress: progress => {
+      session.progress = structuredClone(progress);
+      session.updatedAt = Date.now();
+    },
+  };
+  context.signal.throwIfAborted();
   const assembledPath = join(session.directory, 'assembled');
   await writeFile(assembledPath, '', { flag: 'wx', mode: 0o600 });
   for (let index = 0; index < session.chunkCount; index += 1) {
+    context.signal.throwIfAborted();
     const chunkPath = join(session.directory, `${index}.part`);
     const chunk = await readFile(chunkPath);
     await appendFile(assembledPath, chunk);
@@ -421,11 +653,11 @@ const assembleAndImport = async (
   if ((session.sourceUpload && !importFile) || (importFile && session.format !== 'binary'))
     throw new ProjectImportInputError('Tipo di completamento del caricamento non valido.');
   if (session.format === 'binary') {
-    if (importFile) return importFile(assembledPath, session.expectedRevision);
+    if (importFile) return importFile(assembledPath, session.expectedRevision, context);
     if (!importBinary) throw new ProjectImportInputError('Formato del backup non valido.');
     const bytes = new Uint8Array(await readFile(assembledPath));
     await unlink(assembledPath);
-    return importBinary(bytes, session.expectedRevision);
+    return importBinary(bytes, session.expectedRevision, context);
   }
 
   if (!importData) throw new ProjectImportInputError('Formato del backup non valido.');
@@ -438,7 +670,7 @@ const assembleAndImport = async (
   } finally {
     serialized = '';
   }
-  return importData(data);
+  return importData(data, context);
 };
 
 export const completeProjectImportUpload = async ({
@@ -447,21 +679,10 @@ export const completeProjectImportUpload = async ({
   importData,
   uploadId,
   userId,
-}: {
-  importBinary?: (bytes: Uint8Array, expectedRevision?: number) => Promise<CompletedImport>;
-  importFile?: (
-    path: string,
-    expectedRevision?: number,
-    context?: SourcePreparationJobContext
-  ) => Promise<CompletedImport>;
-  importData?: (data: unknown) => Promise<CompletedImport>;
-  uploadId: string;
-  userId: string;
-}): Promise<CompletedImport> => {
+}: ProjectImportCompletionInput): Promise<CompletedImport> => {
   if (!IMPORT_UPLOAD_ID_PATTERN.test(uploadId)) {
     throw new ProjectImportInputError('Identificativo caricamento non valido.');
   }
-  await cleanupExpiredSessions();
   const session = sessions.get(getSessionKey(userId, uploadId));
   if (!session) {
     throw new ProjectImportInputError('Caricamento del backup non trovato o scaduto.');
@@ -482,24 +703,23 @@ export const completeProjectImportUpload = async ({
     session.status = 'finalizing';
     session.updatedAt = Date.now();
     try {
-      const completed = await runFinalization(() =>
-        assembleAndImport(session, importData, importBinary, importFile)
+      const completed = await runFinalization(
+        () =>
+          assembleAndImport(session, { userId, uploadId, importData, importBinary, importFile }),
+        session.controller.signal
       );
+      session.controller.signal.throwIfAborted();
       session.completed = completed;
       session.status = 'completed';
       session.updatedAt = Date.now();
       await safelyRemove(session.directory);
       return completed;
     } catch (error) {
-      if (session.sourceUpload) {
-        session.failure = session.controller.signal.aborted
-          ? new SourcePreparationCancelledError()
-          : error;
-        session.status = 'failed';
-        session.updatedAt = Date.now();
-      } else {
-        sessions.delete(session.key);
-      }
+      session.failure = session.controller.signal.aborted
+        ? new SourcePreparationCancelledError()
+        : error;
+      session.status = 'failed';
+      session.updatedAt = Date.now();
       await safelyRemove(session.directory);
       throw error;
     }
@@ -508,37 +728,28 @@ export const completeProjectImportUpload = async ({
 };
 
 /** Accept source work without keeping an HTTP request open for preparation. */
-export const startSourcePreparation = (input: {
-  uploadId: string;
-  userId: string;
-  importFile: (
-    path: string,
-    expectedRevision: number | undefined,
-    context: SourcePreparationJobContext
-  ) => Promise<CompletedImport>;
-}): void => {
+export const startSourcePreparation = (input: ProjectImportCompletionInput): void => {
   const session = sessions.get(getSessionKey(input.userId, input.uploadId));
-  if (!session?.sourceUpload)
-    throw new ProjectImportInputError('Caricamento delle fonti non trovato o scaduto.');
+  if (!session) throw new ProjectImportInputError('Caricamento delle fonti non trovato o scaduto.');
   if (session.status === 'failed') throw session.failure;
   if (session.completion || session.completed || session.status === 'finalizing') return;
   if (session.chunks.size !== session.chunkCount)
     throw new ProjectImportInputError('Non tutte le parti delle fonti sono state ricevute.');
   session.status = 'finalizing';
-  const context: SourcePreparationJobContext = {
-    signal: session.controller.signal,
-    reportProgress: progress => {
-      session.progress = structuredClone(progress);
-      session.updatedAt = Date.now();
-    },
-  };
-  void completeProjectImportUpload({
-    ...input,
-    importFile: (path, revision) => {
-      context.signal.throwIfAborted();
-      return input.importFile(path, revision, context);
-    },
-  }).catch(() => {
+  void completeProjectImportUpload(input).catch(() => {
     // The session retains the failure for authenticated status polling.
   });
+};
+
+/** Releases only this module's generated staging directories and operations in isolated tests. */
+export const clearProjectImportUploadsForTesting = async (): Promise<void> => {
+  const owned = [...sessions.values()];
+  for (const session of owned) session.controller.abort();
+  await Promise.allSettled(
+    owned.flatMap(session => (session.completion ? [session.completion] : []))
+  );
+  for (const session of owned) {
+    sessions.delete(session.key);
+    await safelyRemove(session.directory);
+  }
 };

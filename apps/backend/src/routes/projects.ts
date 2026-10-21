@@ -46,16 +46,28 @@ import {
   subscribeToProjectRevisions,
 } from '../projects/projectEvents.js';
 import {
+  bindSourcePreparationProject,
   cancelProjectImportUpload,
-  completeProjectImportUpload,
+  cancelProjectSourcePreparation,
+  checkpointPreparedProjectSources,
+  type completeProjectImportUpload,
+  getPreparedProjectSources,
+  getProjectImportUploadPaths,
   getProjectImportUploadStatus,
+  getProjectSourcePreparation,
+  listPreparingProjectSnapshots,
   ProjectImportCapacityError,
+  ProjectImportConflictError,
   ProjectImportInputError,
   SourcePreparationCancelledError,
   startSourcePreparation,
   storeProjectImportChunk,
 } from '../projects/projectImportChunks.js';
-import { getPublicProjectImportConfig } from '../projects/projectImportConfig.js';
+import {
+  getPublicProjectImportConfig,
+  projectImportConfig,
+} from '../projects/projectImportConfig.js';
+import { buildProjectMeta, normalizeProjectSnapshot } from '../projects/projectMeta.js';
 import { isNavigationProjectPatch } from '../projects/projectPatch.js';
 import { ProjectNotFoundError, ProjectRevisionConflictError } from '../projects/projectRevision.js';
 import { getProjectStore } from '../projects/projectStore.js';
@@ -73,6 +85,7 @@ import {
   SourceIngestionRequiredError,
   SourcePreparationUnusableError,
 } from '../projects/sourceIngestion.js';
+import type { SourcePreparationJobContext } from '../projects/sourcePreparationContext.js';
 import { SourceStagingUnavailableError } from '../projects/sourceStaging.js';
 import { readSourceUploadMetadata } from '../projects/sourceUploadPayload.js';
 import type {
@@ -181,6 +194,7 @@ const readProjectImportChunk = (req: Request): string | Uint8Array => {
 };
 
 const projectImportChunkErrorStatus = (error: unknown): number => {
+  if (error instanceof ProjectImportConflictError) return 409;
   if (error instanceof ProjectImportCapacityError) return 429;
   if (error instanceof ProjectImportInputError) return 400;
   return 500;
@@ -213,7 +227,10 @@ const sendProjectWriteError = (
   fallbackMessage: string,
   fallbackStatus = 400
 ): void => {
-  if (error instanceof ProjectRevisionConflictError) {
+  if (
+    error instanceof ProjectRevisionConflictError ||
+    error instanceof ProjectImportConflictError
+  ) {
     res.status(409).json({ code: error.code, error: error.message, success: false });
     return;
   }
@@ -308,7 +325,9 @@ const importBinaryProjectUpload = async (input: {
   expectedRevision?: number;
   store: ReturnType<typeof getProjectStore>;
   userId: string;
+  context: SourcePreparationJobContext;
 }) => {
+  input.context.signal.throwIfAborted();
   if (input.body.payloadKind === PROJECT_IMPORT_BINARY_KIND.backup) {
     if (typeof input.body.targetProjectId !== 'string') {
       throw new ProjectImportInputError('Identificativo del progetto importato non valido.');
@@ -318,7 +337,12 @@ const importBinaryProjectUpload = async (input: {
       throw new ProjectImportInputError('Identificativo del progetto importato non valido.');
     }
     try {
-      return await input.store.importProjectArchive(input.userId, input.bytes, targetProjectId);
+      return await input.store.importProjectArchive(
+        input.userId,
+        input.bytes,
+        targetProjectId,
+        input.context
+      );
     } catch (error) {
       if (error instanceof InvalidProjectBackupAssetError) {
         throw new ProjectImportInputError('Il backup contiene identificativi non validi.');
@@ -352,6 +376,7 @@ const importBinaryProjectUpload = async (input: {
   return input.store.saveProject(input.userId, snapshot, {
     expectedRevision: input.expectedRevision ?? readExpectedRevision(input.body),
     sourceFile: { bytes: input.bytes, name: sourceFile.name, mimeType: sourceFile.mimeType },
+    sourcePreparation: input.context,
   });
 };
 
@@ -515,7 +540,27 @@ router.get('/events', (req: Request, res: Response) => {
 router.get('/projects', async (req: Request, res: Response) => {
   try {
     const projects = await getProjectStore().listProjects(getCurrentUser(req).id);
-    res.json({ success: true, projects });
+    const preparations = listPreparingProjectSnapshots(getCurrentUser(req).id);
+    const byId = new Map(preparations.map(preparation => [preparation.snapshot.id, preparation]));
+    const storedIds = new Set(projects.map(project => project.id));
+    const pending = preparations
+      .filter(preparation => !storedIds.has(preparation.snapshot.id))
+      .map(({ snapshot, status }) => ({
+        ...buildProjectMeta(snapshot),
+        sourcePreparationStatus: status,
+      }));
+    res.json({
+      success: true,
+      projects: [
+        ...projects.map(project => {
+          const preparation = byId.get(project.id);
+          return preparation
+            ? { ...project, sourcePreparationStatus: preparation.status }
+            : project;
+        }),
+        ...pending,
+      ],
+    });
   } catch (error) {
     sendErrorResponse(res, 500, error, 'Failed to list projects');
   }
@@ -570,6 +615,10 @@ router.get('/projects/:id', async (req: Request, res: Response) => {
       success: true,
       project: projectRecord?.snapshot || null,
       revision: projectRecord?.revision,
+      preparation: getProjectSourcePreparation(
+        getCurrentUser(req).id,
+        getRouteParam(req.params.id)
+      ),
     });
   } catch (error) {
     sendErrorResponse(res, 500, error, 'Failed to load project');
@@ -749,6 +798,13 @@ router.post('/projects/:id/cover', async (req: Request, res: Response) => {
   }
 });
 
+const projectSourceIds = (source: unknown): string[] =>
+  isRecord(source) && Array.isArray(source.sources)
+    ? source.sources.flatMap(descriptor =>
+        isRecord(descriptor) && typeof descriptor.id === 'string' ? [descriptor.id] : []
+      )
+    : [];
+
 router.put('/projects/:id', async (req: Request, res: Response) => {
   try {
     const userId = getCurrentUser(req).id;
@@ -763,7 +819,14 @@ router.put('/projects/:id', async (req: Request, res: Response) => {
     )
       throw new SourceIngestionRequiredError();
     const expectedRevision = readExpectedRevision(getBodyRecord(req.body));
-    const saved = await getProjectStore().saveProject(userId, snapshot, { expectedRevision });
+    const store = getProjectStore();
+    const previous = isRecord(snapshot.source)
+      ? await store.loadProject(userId, projectId)
+      : undefined;
+    const saved = await store.saveProject(userId, snapshot, { expectedRevision });
+    const retainedIds = projectSourceIds(saved.snapshot.source);
+    if (projectSourceIds(previous?.source).some(id => !retainedIds.includes(id)))
+      await cancelProjectSourcePreparation(userId, projectId, retainedIds);
     publishMetaRevision(userId, saved.meta);
     res.json({ success: true, ...saved });
   } catch (error) {
@@ -888,6 +951,7 @@ router.delete('/projects/:id', async (req: Request, res: Response) => {
     const existingMeta = (await getProjectStore().listProjects(userId)).find(
       project => project.id === projectId
     );
+    await cancelProjectSourcePreparation(userId, projectId);
     await getProjectStore().deleteProject(userId, projectId);
     if (existingMeta?.revision) {
       const event: ProjectRevisionEvent = {
@@ -927,11 +991,48 @@ router.post('/projects/:id/touch', async (req: Request, res: Response) => {
 router.post('/import', async (req: Request, res: Response) => {
   try {
     const userId = getCurrentUser(req).id;
-    const imported = await getProjectStore().importProject(userId, getBodyRecord(req.body).data);
-    publishMetaRevision(userId, imported.meta);
-    res.json({ success: true, ...imported });
+    const data = normalizeProjectSnapshot(getBodyRecord(req.body).data, true);
+    const serialized = JSON.stringify(data);
+    if (serialized === undefined)
+      throw new ProjectImportInputError('Il progetto da importare non è valido.');
+    const bytes = Buffer.from(serialized);
+    const uploadId = crypto.randomUUID();
+    const chunkCount = Math.ceil(bytes.length / projectImportConfig.maxChunkBytes);
+    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+      const received = await storeProjectImportChunk({
+        userId,
+        projectId: data.id,
+        contentKey: req.get('X-Source-Content-Key'),
+        uploadId,
+        chunkIndex,
+        chunkCount,
+        chunk: bytes.subarray(
+          chunkIndex * projectImportConfig.maxChunkBytes,
+          (chunkIndex + 1) * projectImportConfig.maxChunkBytes
+        ),
+      });
+      if (received.uploadId) {
+        res.status(202).json({
+          success: true,
+          uploadId: received.uploadId,
+          uploadStatus: received.uploadStatus,
+        });
+        return;
+      }
+    }
+    bindSourcePreparationProject({ userId, uploadId, projectId: data.id, snapshot: data });
+    startSourcePreparation({
+      userId,
+      uploadId,
+      importBinary: async (_bytes, _revision, context) => {
+        const imported = await getProjectStore().importProject(userId, data, context);
+        publishMetaRevision(userId, imported.meta);
+        return { ...imported, projectId: imported.meta.id };
+      },
+    });
+    res.status(202).json({ success: true, uploadId, uploadStatus: 'finalizing' });
   } catch (error) {
-    sendErrorResponse(res, 400, error, 'Failed to import project');
+    sendProjectWriteError(res, error, 'Failed to import project', 400);
   }
 });
 
@@ -946,6 +1047,8 @@ router.put('/import/chunks/:uploadId/:chunkIndex', async (req: Request, res: Res
       chunkCount: readOptionalSafeInteger(Number(req.query.chunkCount)) ?? -1,
       chunk,
       sourceUpload: req.query.sourceUpload === 'true',
+      projectId: readOptionalString(req.query.projectId),
+      contentKey: readOptionalString(req.query.contentKey),
       expectedRevision: readProjectImportExpectedRevision(req.query.expectedRevision),
     });
     res.status(202).json({ success: true, complete: false, ...result });
@@ -955,11 +1058,11 @@ router.put('/import/chunks/:uploadId/:chunkIndex', async (req: Request, res: Res
       return;
     }
     if (error instanceof ProjectImportCapacityError) res.set('Retry-After', '1');
-    sendErrorResponse(
+    sendProjectWriteError(
       res,
-      projectImportChunkErrorStatus(error),
       error,
-      'Failed to store project import chunk'
+      'Failed to store project import chunk',
+      projectImportChunkErrorStatus(error)
     );
   }
 });
@@ -1031,70 +1134,130 @@ router.get('/import/chunks/:uploadId', async (req: Request, res: Response) => {
   }
 });
 
+const readSourcePreparationSubmission = async (
+  userId: string,
+  uploadId: string,
+  completionBody: Record<string, unknown>
+) => {
+  const metadata =
+    completionBody.metadataBytes === undefined
+      ? completionBody
+      : await readSourceUploadMetadata(
+          getProjectImportUploadPaths(userId, uploadId),
+          completionBody.metadataBytes
+        );
+  if (!isRecord(metadata)) throw new ProjectImportInputError('Metadati delle fonti non validi.');
+  const snapshotRecord = metadata.snapshot;
+  if (!isRecord(snapshotRecord) || typeof snapshotRecord.id !== 'string')
+    throw new ProjectImportInputError('Metadati delle fonti non validi.');
+  const snapshot = requireProjectSnapshot({ snapshot: snapshotRecord }, snapshotRecord.id, {
+    externalArchiveBytesAvailable: false,
+    externalSourceFilesAvailable: true,
+  });
+  if (!Array.isArray(metadata.sourceFiles))
+    throw new ProjectImportInputError('Elenco delle fonti mancante.');
+  const files: CourseSourceUploadFile[] = metadata.sourceFiles.map(file => {
+    if (
+      !isRecord(file) ||
+      typeof file.id !== 'string' ||
+      typeof file.name !== 'string' ||
+      typeof file.mimeType !== 'string' ||
+      !Number.isSafeInteger(file.byteSize) ||
+      (file.byteSize as number) < 0 ||
+      (file.byteSize as number) > COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes
+    )
+      throw new ProjectImportInputError('File sorgente non valido.');
+    return {
+      id: file.id,
+      name: file.name,
+      mimeType: file.mimeType,
+      byteSize: file.byteSize as number,
+    };
+  });
+  return { snapshot, files };
+};
+
+const bindQueuedProjectImport = ({
+  userId,
+  uploadId,
+  projectId,
+  title,
+}: {
+  userId: string;
+  uploadId: string;
+  projectId?: string;
+  title?: string;
+}) => {
+  if (!projectId) return;
+  bindSourcePreparationProject({
+    userId,
+    uploadId,
+    projectId: projectId.trim(),
+    snapshot: normalizeProjectSnapshot({ id: projectId.trim(), state: 'LIBRARY', title }, true),
+  });
+};
+
 router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Response) => {
   try {
     const userId = getCurrentUser(req).id;
     const store = getProjectStore();
     const completionBody = isRecord(req.body) ? req.body : {};
+    const uploadId = getRouteParam(req.params.uploadId);
+    const existing = getProjectImportUploadStatus(userId, uploadId);
+    if (existing?.status === 'failed') throw existing.failure;
+    if (existing?.status === 'finalizing' || existing?.status === 'completed') {
+      res.status(202).json({ success: true, uploadId, uploadStatus: 'finalizing' });
+      return;
+    }
     if (completionBody.payloadKind === PROJECT_IMPORT_BINARY_KIND.sourceArchive) {
       await cancelProjectImportUpload(userId, getRouteParam(req.params.uploadId));
       throw new SourceIngestionRequiredError();
     }
+    let submission: Awaited<ReturnType<typeof readSourcePreparationSubmission>> | undefined;
+    if (completionBody.payloadKind === PROJECT_IMPORT_BINARY_KIND.sourceSet) {
+      try {
+        submission = await readSourcePreparationSubmission(userId, uploadId, completionBody);
+        bindSourcePreparationProject({
+          userId,
+          uploadId,
+          projectId: submission.snapshot.id,
+          snapshot: submission.snapshot,
+          sourceIds: projectSourceIds(submission.snapshot.source),
+        });
+      } catch (error) {
+        await cancelProjectImportUpload(userId, uploadId);
+        throw error;
+      }
+    }
     const completionInput: Parameters<typeof completeProjectImportUpload>[0] = {
       userId,
       uploadId: getRouteParam(req.params.uploadId),
-      importData: async data => {
-        const imported = await store.importProject(userId, data);
+      importData: async (data, context) => {
+        const snapshot = normalizeProjectSnapshot(data, true);
+        bindSourcePreparationProject({
+          userId,
+          uploadId: completionInput.uploadId,
+          projectId: snapshot.id,
+          snapshot,
+        });
+        const imported = await store.importProject(userId, snapshot, context);
         publishMetaRevision(userId, imported.meta);
-        return { projectId: imported.meta.id, meta: imported.meta };
+        return { ...imported, projectId: imported.meta.id };
       },
       importFile:
         completionBody.payloadKind === PROJECT_IMPORT_BINARY_KIND.sourceSet
           ? async (path, expectedRevision, jobContext) => {
-              const metadata =
-                completionBody.metadataBytes === undefined
-                  ? completionBody
-                  : await readSourceUploadMetadata(path, completionBody.metadataBytes);
-              if (!isRecord(metadata))
-                throw new ProjectImportInputError('Metadati delle fonti non validi.');
-              const snapshotRecord = metadata.snapshot;
-              if (!isRecord(snapshotRecord) || typeof snapshotRecord.id !== 'string')
-                throw new ProjectImportInputError('Metadati delle fonti non validi.');
-              const snapshot = requireProjectSnapshot(
-                { snapshot: snapshotRecord },
-                snapshotRecord.id,
-                {
-                  externalArchiveBytesAvailable: false,
-                  externalSourceFilesAvailable: true,
-                }
-              );
-              if (!Array.isArray(metadata.sourceFiles))
-                throw new ProjectImportInputError('Elenco delle fonti mancante.');
-              const files: CourseSourceUploadFile[] = metadata.sourceFiles.map(file => {
-                if (
-                  !isRecord(file) ||
-                  typeof file.id !== 'string' ||
-                  typeof file.name !== 'string' ||
-                  typeof file.mimeType !== 'string' ||
-                  !Number.isSafeInteger(file.byteSize) ||
-                  (file.byteSize as number) < 0 ||
-                  (file.byteSize as number) > COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes
-                )
-                  throw new ProjectImportInputError('File sorgente non valido.');
-                return {
-                  id: file.id,
-                  name: file.name,
-                  mimeType: file.mimeType,
-                  byteSize: file.byteSize as number,
-                };
-              });
-              if (!jobContext) throw new Error('Source preparation context is missing.');
+              if (!submission) throw new Error('Source preparation submission is missing.');
+              const { snapshot, files } = submission;
+              jobContext.signal.throwIfAborted();
               const storedSnapshot = await store.loadProject(userId, snapshot.id);
               const context = {
                 ...jobContext,
                 userId,
                 uploadId: completionInput.uploadId,
                 projectId: snapshot.id,
+                checkpointPreparedSources: (checkpoint: ProjectSnapshot) =>
+                  checkpointPreparedProjectSources(userId, completionInput.uploadId, checkpoint),
                 previousScannedPages: countRetainedScannedPages(
                   storedSnapshot?.source,
                   snapshot.source,
@@ -1107,9 +1270,16 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
                 offset: completionBody.metadataBytes as number | undefined,
               };
               const prepared = await withPdfTranscriptionCollection(context, () =>
-                prepareSourceCollection({ snapshot, upload, context, storedSnapshot })
+                prepareSourceCollection({
+                  snapshot,
+                  upload,
+                  context,
+                  storedSnapshot,
+                  preparedSnapshot: getPreparedProjectSources(userId, completionInput.uploadId),
+                })
               );
               context.signal.throwIfAborted();
+              checkpointPreparedProjectSources(userId, completionInput.uploadId, prepared.snapshot);
               context.reportProgress({ step: 'persistence', completed: 0, total: files.length });
               const imported = await store.saveProject(userId, prepared.snapshot, {
                 expectedRevision,
@@ -1129,34 +1299,30 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
               };
             }
           : undefined,
-      importBinary: async (bytes, expectedRevision) => {
+      importBinary: async (bytes, expectedRevision, context) => {
         const imported = await importBinaryProjectUpload({
           body: completionBody,
           bytes,
+          context,
           expectedRevision,
           store,
           userId,
         });
         publishMetaRevision(userId, imported.meta);
-        return { projectId: imported.meta.id, meta: imported.meta };
+        return { ...imported, projectId: imported.meta.id };
       },
     };
-    if (completionInput.importFile) {
-      const importFile = completionInput.importFile;
-      startSourcePreparation({
+    if (!submission)
+      bindQueuedProjectImport({
         userId,
-        uploadId: completionInput.uploadId,
-        importFile: (path, revision, context) => importFile(path, revision, context),
+        uploadId,
+        projectId: readOptionalString(completionBody.targetProjectId) ?? existing?.projectId,
+        title: readOptionalString(completionBody.fileName),
       });
-      res.status(202).json({ success: true, uploadStatus: 'finalizing' });
-      return;
-    }
-    const completed = await completeProjectImportUpload(completionInput);
-    const snapshot = await store.loadProject(userId, completed.projectId);
-    if (!snapshot) {
-      throw new Error('Imported project could not be loaded.');
-    }
-    res.json({ success: true, complete: true, meta: completed.meta, snapshot });
+    startSourcePreparation(completionInput);
+    res
+      .status(202)
+      .json({ success: true, uploadId: completionInput.uploadId, uploadStatus: 'finalizing' });
   } catch (error) {
     sendProjectWriteError(
       res,

@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { PDF_SCANNED_PAGE_LIMIT_MESSAGE } from '@shared/pdfTranscription';
 import { PROJECT_API_ERROR_CODE, PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
-import { decodeProjectSnapshotWire } from '@shared/projectSnapshotWire';
+import {
+  SOURCE_PREPARATION_CONFLICT_CODE,
+  SOURCE_PREPARATION_CONFLICT_MESSAGE,
+} from '@shared/sourcePreparation';
 import { SOURCE_TRANSFER_LIMITS } from '@shared/sourceTransfer';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { setRenderingLocaleOverride } from '../../../i18n/uiMessages.ts';
@@ -21,10 +24,7 @@ import {
   consumeProjectRevisionStream,
   subscribeToProjectRevisionStream,
 } from '../../../services/projects/projectRevisionStream.ts';
-import {
-  exportProjectData,
-  normalizeStoredProject,
-} from '../../../services/projects/projectSnapshot.ts';
+import { exportProjectData } from '../../../services/projects/projectSnapshot.ts';
 import { AppState, type ProjectSnapshot } from '../../../types.ts';
 import { createDeferred } from '../../helpers/deferred.ts';
 
@@ -369,7 +369,7 @@ test('HttpProjectRepository does not retry a non-JSON proxy 413 during chunk upl
   });
 
   const uploadCalls = fetchMock.mock.calls.filter(call =>
-    /\/api\/projects\/import\/chunks\/[^/]+\/0\?chunkCount=1$/u.test(call[0] as string)
+    /\/api\/projects\/import\/chunks\/[^/]+\/0\?chunkCount=1(?:&|$)/u.test(call[0] as string)
   );
   expect(uploadCalls).toHaveLength(1);
 });
@@ -424,200 +424,172 @@ test('HttpProjectRepository refreshes once and retries a backend 401', async () 
   });
 });
 
-test('HttpProjectRepository creates a sourced project with one atomic PUT', async () => {
-  const detachedSnapshot = {
-    ...buildPdfSnapshot(),
-    source: {
-      kind: 'pdf',
-      file: {
-        data: '',
-        mimeType: 'application/pdf',
-        name: 'dispensa.pdf',
-      },
-      ref: {
-        byteSize: 8,
-        hash: 'pdf-hash',
-        id: 'source-pdf',
-        mimeType: 'application/pdf',
-        name: 'dispensa.pdf',
-        objectPath: 'users/user/projects/pdf/source-pdf/pdf-hash/original',
-      },
-    },
-  } satisfies ProjectSnapshot;
-  fetchMock.mockResolvedValueOnce({
-    ok: true,
-    status: 200,
-    json: async () => ({
-      success: true,
-      meta: {
-        id: 'pdf-project',
-        title: 'Dispensa',
-        sourceKind: 'document',
-        createdAt: '2026-07-09T10:00:00.000Z',
-        updatedAt: '2026-07-09T10:00:00.000Z',
-        lastOpenedAt: '2026-07-09T10:00:00.000Z',
-        lessonCount: 0,
-        completedCount: 0,
-        exerciseCount: 0,
-        completedExercises: 0,
-        hasSourceFile: true,
-        coverLabel: 'dispensa.pdf',
-      },
-      snapshot: detachedSnapshot,
-    }),
+const sourceUploadTransport = (snapshot: ProjectSnapshot) => {
+  const parts: Blob[] = [];
+  let completion: { metadataBytes: number } | undefined;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/config'))
+      return new Response(
+        JSON.stringify({
+          success: true,
+          config: {
+            import: {
+              directMaxBytes: 20_000_000,
+              maxChunkBytes: 16_000_000,
+              maxChunkCount: 32,
+              maxSerializedBytes: 280_000_000,
+              requestTimeoutMs: 120_000,
+            },
+          },
+        })
+      );
+    if (init?.method === 'PUT' && url.includes('/chunks/')) {
+      parts.push(init.body as Blob);
+      return new Response(JSON.stringify({ success: true }), { status: 202 });
+    }
+    if (url.endsWith('/complete')) {
+      completion = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ success: true, uploadStatus: 'finalizing' }), {
+        status: 202,
+      });
+    }
+    if (url.includes('/chunks/'))
+      return new Response(
+        JSON.stringify({
+          success: true,
+          complete: true,
+          meta: { id: snapshot.id, revision: 1 },
+          snapshot,
+        })
+      );
+    throw new Error(`Unexpected source request: ${url}`);
   });
+  return async () => {
+    const body = new Blob(parts);
+    assert.ok(completion);
+    return {
+      metadata: JSON.parse(await body.slice(0, completion.metadataBytes).text()),
+      bytes: await body.slice(completion.metadataBytes).text(),
+    };
+  };
+};
 
-  const repository = new HttpProjectRepository('http://localhost:3301');
-  const saved = await repository.saveProject(buildPdfSnapshot());
-
-  expect(fetchMock).toHaveBeenCalledTimes(1);
-  expect(fetchMock.mock.calls[0]?.[0]).toBe(
-    'http://localhost:3301/api/projects/projects/pdf-project'
-  );
-  const saveBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
-  expect(saveBody.snapshot).toMatchObject({
-    createdAt: '2026-07-09T10:00:00.000Z',
-    lastOpenedAt: '2026-07-09T10:00:00.000Z',
-    projectFormatVersion: 1,
-    updatedAt: '2026-07-09T10:00:00.000Z',
-  });
-  expect(saveBody.snapshot.source).toEqual({
-    kind: 'pdf',
-    file: {
-      name: 'dispensa.pdf',
-      mimeType: 'application/pdf',
-      data: 'JVBERi0xLjQ=',
-    },
-  });
-  expect(saved.snapshot).toEqual(normalizeStoredProject(detachedSnapshot));
+test('embedded PDF saves use the accepted source operation instead of a synchronous project PUT', async () => {
+  const snapshot = buildPdfSnapshot();
+  const uploaded = sourceUploadTransport(snapshot);
+  await new HttpProjectRepository('http://localhost:3301').saveProject(snapshot);
+  const { metadata, bytes } = await uploaded();
+  expect(bytes).toBe('%PDF-1.4');
+  expect(metadata.snapshot.source.sources).toMatchObject([{ file: { data: '' } }]);
+  expect(metadata.sourceFiles).toMatchObject([{ name: 'dispensa.pdf', byteSize: 8 }]);
 });
 
-test('HttpProjectRepository preserves detached siblings when replacing one source', async () => {
+test('source operation identity preserves retries and distinguishes changed content or course metadata', async () => {
+  const snapshot = buildPdfSnapshot();
+  sourceUploadTransport(snapshot);
+  const repository = new HttpProjectRepository('http://localhost:3301');
+  await repository.saveProject(snapshot);
+  await repository.saveProject({
+    ...snapshot,
+    updatedAt: '2026-10-21T12:00:00.000Z',
+    lastOpenedAt: '2026-10-21T12:00:00.000Z',
+  });
+  await repository.saveProject({ ...snapshot, title: 'Different intended title' });
+  assert(snapshot.source);
+  await repository.saveProject({
+    ...snapshot,
+    source: {
+      ...snapshot.source,
+      file: { ...snapshot.source.file, data: btoa('%PDF-different-content') },
+    },
+  });
+  const keys = fetchMock.mock.calls
+    .filter(call => (call[1] as RequestInit)?.method === 'PUT')
+    .map(call => new URL(String(call[0])).searchParams.get('contentKey'));
+  expect(keys).toHaveLength(4);
+  expect(keys[0]).toMatch(/^[a-f0-9]{64}$/u);
+  expect(keys[1]).toBe(keys[0]);
+  expect(keys[2]).not.toBe(keys[0]);
+  expect(keys[3]).not.toBe(keys[0]);
+});
+
+test.each([
+  ['it', SOURCE_PREPARATION_CONFLICT_MESSAGE],
+  [
+    'en',
+    'Other sources are already being prepared for this course. Wait for preparation to finish and try again.',
+  ],
+] as const)('a source conflict is localized in %s and terminates without upload retries', async (locale, message) => {
+  setRenderingLocaleOverride(locale);
+  const snapshot = buildPdfSnapshot();
+  sourceUploadTransport(snapshot);
+  const transport = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation((url: string, init?: RequestInit) =>
+    init?.method === 'PUT'
+      ? new Response(JSON.stringify({ success: false, code: SOURCE_PREPARATION_CONFLICT_CODE }), {
+          status: 409,
+        })
+      : transport?.(url, init)
+  );
+  try {
+    await expect(
+      new HttpProjectRepository('http://localhost:3301').saveProject(snapshot)
+    ).rejects.toMatchObject({ code: 'source-preparation-conflict', httpStatus: 409, message });
+    expect(
+      fetchMock.mock.calls.filter(call => (call[1] as RequestInit)?.method === 'PUT')
+    ).toHaveLength(1);
+  } finally {
+    setRenderingLocaleOverride(null);
+  }
+});
+
+test('replacing one embedded source retains its detached sibling without downloading or transcribing it', async () => {
   const descriptors = buildCourseSourceDescriptors([
-    { data: 'b2xkLWZpcnN0', mimeType: 'text/plain', name: 'first.txt' },
-    { data: 'bmV3LXNlY29uZA==', mimeType: 'text/plain', name: 'second.txt' },
+    { data: 'Zmlyc3Q=', mimeType: 'text/plain', name: 'first.txt' },
+    { data: 'c2Vjb25k', mimeType: 'text/plain', name: 'second.txt' },
   ]);
-  const firstRef = {
-    byteSize: 9,
-    hash: 'a'.repeat(64),
+  const ref = {
     id: descriptors[0].id,
+    hash: 'a'.repeat(64),
+    byteSize: 5,
     mimeType: 'text/plain',
     name: 'first.txt',
-    objectPath: `users/user/projects/project/${descriptors[0].id}/original`,
+    objectPath: 'synthetic/first',
   };
-  const source = createProjectSourceFromDescriptors([
-    {
-      ...descriptors[0],
-      file: { ...descriptors[0].file, data: '' },
-      ref: firstRef,
-    },
-    descriptors[1],
-  ]);
-  const replaceSnapshot = {
+  const snapshot = {
     ...buildPdfSnapshot(),
-    id: 'replace-project',
-    source,
+    source: createProjectSourceFromDescriptors([
+      { ...descriptors[0], ref, file: { ...descriptors[0].file, data: '' } },
+      descriptors[1],
+    ]),
   };
-  fetchMock
-    .mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        success: true,
-        sources: [
-          {
-            file: { ...descriptors[0].file, data: 'b2xkLWZpcnN0' },
-            ref: firstRef,
-          },
-        ],
-      }),
-    })
-    .mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        success: true,
-        meta: {
-          id: 'replace-project',
-          title: 'Replace',
-          sourceKind: 'document',
-          createdAt: '2026-07-09T10:00:00.000Z',
-          updatedAt: '2026-07-09T10:00:00.000Z',
-          lastOpenedAt: '2026-07-09T10:00:00.000Z',
-          lessonCount: 0,
-          completedCount: 0,
-          exerciseCount: 0,
-          completedExercises: 0,
-          hasSourceFile: true,
-          coverLabel: 'first.txt',
-        },
-        snapshot: replaceSnapshot,
-      }),
-    });
-  const repository = new HttpProjectRepository('http://localhost:3301');
-
-  await repository.saveProject(replaceSnapshot);
-
-  expect(fetchMock.mock.calls.map(call => call[0])).toEqual([
-    'http://localhost:3301/api/projects/projects/replace-project/sources',
-    'http://localhost:3301/api/projects/projects/replace-project',
-  ]);
-  const saved = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
-  expect(
-    saved.snapshot.source.sources.map((item: { file: { data: string } }) => item.file.data)
-  ).toEqual(['b2xkLWZpcnN0', 'bmV3LXNlY29uZA==']);
+  const uploaded = sourceUploadTransport(snapshot);
+  await new HttpProjectRepository('http://localhost:3301').saveProject(snapshot);
+  const { metadata, bytes } = await uploaded();
+  expect(bytes).toBe('second');
+  expect(metadata.sourceFiles).toHaveLength(1);
+  expect(metadata.snapshot.source.sources[0].ref).toEqual(ref);
 });
 
-test('HttpProjectRepository sends every document source in the atomic project PUT', async () => {
+test('embedded document sets use one accepted source operation with each original uploaded once', async () => {
   const descriptors = buildCourseSourceDescriptors([
-    { data: 'Zmlyc3Q=', mimeType: 'text/plain', name: 'notes.txt' },
-    { data: 'c2Vjb25k', mimeType: 'text/plain', name: 'notes.txt' },
+    { data: 'Zmlyc3Q=', mimeType: 'text/plain', name: 'first.txt' },
+    { data: 'c2Vjb25k', mimeType: 'text/plain', name: 'second.txt' },
   ]);
-  const snapshot: ProjectSnapshot = {
+  const snapshot = {
     ...buildPdfSnapshot(),
-    id: 'multi-project',
     source: createProjectSourceFromDescriptors(descriptors),
   };
-  fetchMock.mockResolvedValueOnce({
-    ok: true,
-    status: 200,
-    json: async () => ({
-      success: true,
-      meta: {
-        id: 'multi-project',
-        title: 'Multi',
-        sourceKind: 'document',
-        createdAt: '2026-07-09T10:00:00.000Z',
-        updatedAt: '2026-07-09T10:00:00.000Z',
-        lastOpenedAt: '2026-07-09T10:00:00.000Z',
-        lessonCount: 0,
-        completedCount: 0,
-        exerciseCount: 0,
-        completedExercises: 0,
-        hasSourceFile: true,
-        coverLabel: 'notes.txt',
-      },
-      snapshot,
-    }),
-  });
-  const repository = new HttpProjectRepository('http://localhost:3301');
-
-  await repository.saveProject(snapshot);
-
-  expect(fetchMock.mock.calls[0]?.[0]).toBe(
-    'http://localhost:3301/api/projects/projects/multi-project'
+  const uploaded = sourceUploadTransport(snapshot);
+  await new HttpProjectRepository('http://localhost:3301').saveProject(snapshot);
+  const { metadata, bytes } = await uploaded();
+  expect(bytes).toBe('firstsecond');
+  expect(metadata.sourceFiles.map((file: { id: string }) => file.id)).toEqual(
+    descriptors.map(source => source.id)
   );
-  const savedSnapshot = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
-    .snapshot as ProjectSnapshot;
-  expect(savedSnapshot.source?.file).toMatchObject({
-    data: '',
-    sourceId: descriptors[0]?.id,
-  });
-  expect(savedSnapshot.source?.sources?.map(descriptor => descriptor.file.data)).toEqual([
-    'Zmlyc3Q=',
-    'c2Vjb25k',
-  ]);
-  expect(() => decodeProjectSnapshotWire(savedSnapshot)).not.toThrow();
+  expect(
+    metadata.snapshot.source.sources.map((source: { file: { data: string } }) => source.file.data)
+  ).toEqual(['', '']);
 });
 
 test('HttpProjectRepository preserves the expected revision when saving chunked sources', async () => {
@@ -1014,6 +986,7 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
       };
     }
     const isCompletion = url.includes('/complete');
+    const isStatus = /\/chunks\/[^/?]+$/u.test(url);
     const completionAttempt = isCompletion ? completionAttempts++ : -1;
     if (completionAttempt === 0) {
       return {
@@ -1025,15 +998,15 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
         },
       };
     }
-    const chunkMatch = /\/chunks\/[^/]+\/(\d+)\?chunkCount=(\d+)$/u.exec(url);
+    const chunkMatch = /\/chunks\/[^/]+\/(\d+)\?chunkCount=(\d+)(?:&|$)/u.exec(url);
     const chunkIndex = Number(chunkMatch?.[1]);
     const chunkCount = Number(chunkMatch?.[2]);
     return {
       ok: true,
-      status: isCompletion ? 200 : 202,
+      status: isCompletion || isStatus ? 200 : 202,
       statusText: 'OK',
       json: async () =>
-        isCompletion
+        isCompletion || isStatus
           ? {
               success: true,
               complete: true,
@@ -1067,7 +1040,7 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
 
   expect(fetchMock.mock.calls.length).toBeGreaterThan(2);
   const chunkCalls = fetchMock.mock.calls.filter(call =>
-    /\/chunks\/[^/]+\/\d+\?chunkCount=\d+$/u.test(call[0] as string)
+    /\/chunks\/[^/]+\/\d+\?chunkCount=\d+(?:&|$)/u.test(call[0] as string)
   );
   const completionCalls = fetchMock.mock.calls.filter(call =>
     (call[0] as string).includes('/complete')
@@ -1093,7 +1066,8 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
     ).toBe(false);
   }
   expect(requests.map(request => request.chunk).join('')).toBe(JSON.stringify(largeImport));
-  expect(completionCalls).toHaveLength(2);
+  expect(completionCalls).toHaveLength(1);
+  expect(fetchMock.mock.calls.some(call => /\/chunks\/[^/?]+$/u.test(String(call[0])))).toBe(true);
   expect(new Set(completionCalls.map(call => call[0] as string)).size).toBe(1);
   expect(String(completionCalls[0]?.[0])).toMatch(/\/api\/projects\/import\/chunks\/.+\/complete$/);
 });
@@ -1593,4 +1567,62 @@ test('retains failed physical pages in the terminal all-unusable source response
       },
     ],
   });
+});
+
+test('reopening a preparing project follows its operation and reports progress without uploading again', async () => {
+  const uploadId = crypto.randomUUID();
+  const snapshot = buildPdfSnapshot();
+  const progress = { step: 'pdf-transcription', documentName: 'scan.pdf', completed: 0, total: 1 };
+  const onSourceProgress = vi.fn();
+  let statuses = 0;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    expect(init?.method ?? 'GET').toBe('GET');
+    if (url.endsWith(`/projects/${snapshot.id}`))
+      return new Response(
+        JSON.stringify({ success: true, project: null, preparation: { uploadId, progress } })
+      );
+    expect(url).toContain(`/chunks/${uploadId}`);
+    statuses++;
+    return new Response(
+      JSON.stringify(
+        statuses === 1
+          ? { success: true, uploadStatus: 'finalizing', progress }
+          : { success: true, complete: true, meta: { id: snapshot.id, revision: 2 }, snapshot }
+      )
+    );
+  });
+  const loaded = await new HttpProjectRepository('http://localhost:3301').loadProjectWithRevision(
+    snapshot.id,
+    { onSourceProgress }
+  );
+  expect(loaded?.revision).toBe(2);
+  expect(loaded?.snapshot.id).toBe(snapshot.id);
+  expect(onSourceProgress).toHaveBeenCalledWith(progress);
+  expect(statuses).toBe(2);
+});
+
+test('a network blip during preparation keeps following the accepted operation without cancelling it', async () => {
+  const uploadId = crypto.randomUUID();
+  const snapshot = buildPdfSnapshot();
+  let statuses = 0;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    expect(init?.method ?? 'GET').toBe('GET');
+    if (url.endsWith(`/projects/${snapshot.id}`))
+      return new Response(JSON.stringify({ success: true, preparation: { uploadId } }));
+    statuses++;
+    if (statuses === 1) throw new TypeError('synthetic network disconnection');
+    return new Response(
+      JSON.stringify({
+        success: true,
+        complete: true,
+        meta: { id: snapshot.id, revision: 2 },
+        snapshot,
+      })
+    );
+  });
+  const loaded = await new HttpProjectRepository('http://localhost:3301').loadProjectWithRevision(
+    snapshot.id
+  );
+  expect(loaded?.snapshot.id).toBe(snapshot.id);
+  expect(statuses).toBe(2);
 });

@@ -1388,23 +1388,28 @@ export class PostgresProjectStore implements ProjectStore {
 
   async importProject(
     userId: string,
-    data: unknown
+    data: unknown,
+    sourcePreparation?: SourcePreparationJobContext
   ): Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }> {
+    sourcePreparation?.signal.throwIfAborted();
     const snapshot = normalizeProjectSnapshot(data, true);
-    return this.saveProject(userId, snapshot);
+    return this.saveProject(userId, snapshot, { sourcePreparation });
   }
 
   async importProjectArchive(
     userId: string,
     bytes: Uint8Array,
-    targetProjectId: ProjectId
+    targetProjectId: ProjectId,
+    sourcePreparation?: SourcePreparationJobContext
   ): Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }> {
+    sourcePreparation?.signal.throwIfAborted();
     const decoded = await decodeProjectBackupArchive(bytes, {
       invalidArchiveMessage: INVALID_PROJECT_BACKUP_MESSAGE,
       maxEntries: PROJECT_BACKUP_MAX_ENTRIES,
       maxManifestBytes: PROJECT_BACKUP_MAX_MANIFEST_BYTES,
       maxTotalAttachmentBytes: PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
     });
+    sourcePreparation?.signal.throwIfAborted();
     assertValidProjectArtifactScope(decoded.project);
     const prepared = await this.projectAssetImporter.prepare({
       assets: decoded.assets,
@@ -1416,6 +1421,7 @@ export class PostgresProjectStore implements ProjectStore {
       return await this.saveProject(userId, prepared.snapshot, {
         importedAssets: prepared.assets,
         importedCover: decoded.cover,
+        sourcePreparation,
       });
     } finally {
       try {

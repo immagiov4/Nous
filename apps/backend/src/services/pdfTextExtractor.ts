@@ -94,6 +94,8 @@ export interface ExtractedPdfOutlineNode {
 }
 
 export interface ExtractedPdfText {
+  failedPages?: number[];
+  blankPages?: number[];
   transcription?: PdfTranscriptionSummary;
   text: string;
   pages: ExtractedPdfTextPage[];

@@ -173,3 +173,117 @@ test('restores authoritative retained transcripts before publishing the prepared
     sources: [{ preparedPdfText: { text: 'New upload' } }, { id: 'retained', preparedPdfText }],
   });
 });
+
+test('reattachment reuses the stored hash-bound transcript instead of paying for the same PDF again', async () => {
+  const input = await fixture();
+  const pdf = {
+    ...input.extracted,
+    text: 'Already transcribed page.',
+    pages: [
+      {
+        pageNumber: 1,
+        text: 'Already transcribed page.',
+        provenance: {
+          kind: 'vision-transcription' as const,
+          pageNumber: 1,
+          model: 'synthetic',
+          provider: 'openrouter',
+        },
+      },
+    ],
+  };
+  const stored = {
+    ...input.snapshot.source.sources[0],
+    hash: pdf.sourceHash,
+    preparedPdfText: pdf,
+  };
+  const result = await prepareSourceCollection({
+    ...input,
+    storedSnapshot: { ...input.snapshot, source: { ...input.snapshot.source, sources: [stored] } },
+  });
+  expect(result.snapshot.source).toMatchObject({
+    sources: [{ preparedPdfText: { text: pdf.text } }],
+  });
+  expect(mocks.extract).not.toHaveBeenCalled();
+  expect(mocks.prepare).not.toHaveBeenCalled();
+});
+
+test('a later file failure retains an earlier paid transcript for a retry', async () => {
+  const input = await fixture();
+  const second = { ...input.upload.files[0], id: 'second', name: 'second.pdf' };
+  const snapshot = structuredClone(input.snapshot);
+  snapshot.source.sources.push({
+    ...snapshot.source.sources[0],
+    ...second,
+    file: { ...second, data: '' },
+  });
+  await writeFile(input.upload.path, Buffer.concat([input.bytes, input.bytes]));
+  const checkpoint = vi.fn();
+  const pdf = {
+    ...input.extracted,
+    text: 'Paid page text',
+    pages: [{ pageNumber: 1, text: 'Paid page text' }],
+  };
+  mocks.prepare
+    .mockResolvedValueOnce({ completion: Promise.resolve(pdf) })
+    .mockRejectedValueOnce(new PdfScannedPageLimitError());
+  await expect(
+    prepareSourceCollection({
+      ...input,
+      snapshot,
+      upload: { ...input.upload, files: [...input.upload.files, second] },
+      context: { ...input.context, checkpointPreparedSources: checkpoint },
+    })
+  ).rejects.toBeInstanceOf(PdfScannedPageLimitError);
+  expect(checkpoint).toHaveBeenCalled();
+  const preparedSnapshot = checkpoint.mock.calls.at(-1)?.[0];
+  expect(preparedSnapshot.source.sources[0].preparedPdfText.text).toBe(pdf.text);
+  await writeFile(input.upload.path, input.bytes);
+  mocks.extract.mockClear();
+  mocks.prepare.mockClear();
+  const result = await prepareSourceCollection({ ...input, preparedSnapshot });
+  expect(result.snapshot.source).toMatchObject({
+    sources: [{ preparedPdfText: { text: pdf.text } }],
+  });
+  expect(mocks.extract).not.toHaveBeenCalled();
+  expect(mocks.prepare).not.toHaveBeenCalled();
+});
+
+test.each([
+  'blank',
+  'unreadable',
+] as const)('retry reuses the completed %s page outcome without another provider call', async outcome => {
+  const input = await fixture();
+  const checkpoint = vi.fn();
+  const identities = {
+    blankPages: outcome === 'blank' ? [1] : [],
+    failedPages: outcome === 'unreadable' ? [1] : [],
+  };
+  mocks.prepare.mockResolvedValue({
+    completion: Promise.resolve({
+      ...input.extracted,
+      transcription: {
+        ...identities,
+        pages: [],
+        measurements: [],
+        inputTokens: 1,
+        outputTokens: 1,
+      },
+    }),
+  });
+  await expect(
+    prepareSourceCollection({
+      ...input,
+      context: { ...input.context, checkpointPreparedSources: checkpoint },
+    })
+  ).rejects.toThrow('Nessuna delle fonti contiene testo utilizzabile');
+  const preparedSnapshot = checkpoint.mock.calls.at(-1)?.[0];
+  expect(preparedSnapshot.source.sources[0].preparedPdfText).toMatchObject(identities);
+  mocks.extract.mockClear();
+  mocks.prepare.mockClear();
+  await expect(prepareSourceCollection({ ...input, preparedSnapshot })).rejects.toThrow(
+    'Nessuna delle fonti contiene testo utilizzabile'
+  );
+  expect(mocks.extract).not.toHaveBeenCalled();
+  expect(mocks.prepare).not.toHaveBeenCalled();
+});

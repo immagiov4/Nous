@@ -117,7 +117,12 @@ export interface WorkspaceProjectLibraryAdapter {
   libraryPlacements: LibraryPlacement[];
   libraryTree: LibraryTree;
   loadProjectsById: (ids: string[]) => Promise<ProjectSnapshot[]>;
-  loadStoredProject: (projectId: string) => Promise<ProjectSnapshot | null>;
+  loadStoredProject: (
+    projectId: string,
+    onSourceProgress?: (
+      progress: import('@shared/sourcePreparation').SourcePreparationProgress
+    ) => void
+  ) => Promise<ProjectSnapshot | null>;
   loadStoredProjectWithRevision: (projectId: string) => Promise<ProjectSnapshotWithRevision | null>;
   validateStoredProjectForOpen: (projectId: string) => Promise<ProjectSnapshotWithRevision | null>;
   loadStoredProjectSource: (projectId: string) => Promise<FileData | null>;

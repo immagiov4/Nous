@@ -3,7 +3,8 @@
   "entry": [
     "src/index.{ts,tsx,js,jsx}",
     "src/main.{ts,tsx,js,jsx}",
-    "apps/backend/src/services/pdfTextFallbackProcess.mjs"
+    "apps/backend/src/services/pdfTextFallbackProcess.mjs",
+    "apps/backend/src/services/pdfPageProcess.mjs"
   ],
   "ignoreDependencies": ["@tabler/icons", "@tabler-icon-nodes", "@atlas-katex.css"],
   "rules": {
