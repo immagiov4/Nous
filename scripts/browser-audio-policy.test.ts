@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
@@ -22,7 +22,7 @@ function finalProperty(object: ts.ObjectLiteralExpression, name: string) {
 }
 
 function unmutedLaunches(source: string, filename: string): string[] {
-  const isConfig = /playwright[^/]*config[^/]*\.[cm]?[jt]s$/.test(filename);
+  let isConfig = /playwright[^/]*config[^/]*\.[cm]?[jt]s$/.test(filename);
   const tree = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true);
   let configExports = 0;
   const failures: string[] = [];
@@ -33,7 +33,24 @@ function unmutedLaunches(source: string, filename: string): string[] {
       continue;
     const modulePath = statement.moduleSpecifier.text;
     const imports = statement.importClause?.namedBindings;
-    if (modulePath === 'playwright' && imports && ts.isNamedImports(imports)) {
+    if (modulePath === '@playwright/test' && imports && ts.isNamedImports(imports)) {
+      isConfig ||= imports.elements.some(
+        binding => (binding.propertyName ?? binding.name).text === 'defineConfig'
+      );
+    }
+    if (
+      ['playwright', '@playwright/test'].includes(modulePath) &&
+      imports &&
+      ts.isNamespaceImport(imports)
+    ) {
+      for (const browser of ['chromium', 'firefox', 'webkit'])
+        browserImports.add(`${imports.name.text}.${browser}`);
+    }
+    if (
+      ['playwright', '@playwright/test'].includes(modulePath) &&
+      imports &&
+      ts.isNamedImports(imports)
+    ) {
       for (const binding of imports.elements) {
         if (['chromium', 'firefox', 'webkit'].includes((binding.propertyName ?? binding.name).text))
           browserImports.add(binding.name.text);
@@ -128,7 +145,38 @@ function unmutedLaunches(source: string, filename: string): string[] {
   return failures;
 }
 
+function scanSources(files: string[]) {
+  return files
+    .filter(filename => existsSync(resolve(root, filename)))
+    .flatMap(filename => unmutedLaunches(readFileSync(resolve(root, filename), 'utf8'), filename));
+}
+
 describe('browser audio policy', () => {
+  it('scans existing sources while skipping locally deleted files', () => {
+    expect(scanSources(['scripts/browser-audio.ts', 'scripts/deleted-source.ts'])).toEqual([]);
+  });
+
+  it.each([
+    'playwright',
+    '@playwright/test',
+  ])('rejects namespace browser access from %s without the shared policy', modulePath => {
+    expect(
+      unmutedLaunches(
+        `import * as pw from '${modulePath}'; const method = 'launch'; pw.chromium[method]({});`,
+        'scripts/example.ts'
+      )
+    ).toHaveLength(1);
+  });
+
+  it('recognizes custom configuration names through Playwright imports', () => {
+    expect(
+      unmutedLaunches(
+        `import { defineConfig } from '@playwright/test'; export default defineConfig({});`,
+        'browser.config.ts'
+      )
+    ).toHaveLength(1);
+  });
+
   it('requires enforced muting at every repository launch and Playwright config', () => {
     const files = execFileSync(
       'git',
@@ -141,11 +189,7 @@ describe('browser audio policy', () => {
     )
       .split('\0')
       .filter(filename => /\.[cm]?[jt]sx?$/.test(filename));
-    expect(
-      files.flatMap(filename =>
-        unmutedLaunches(readFileSync(resolve(root, filename), 'utf8'), filename)
-      )
-    ).toEqual([]);
+    expect(scanSources(files)).toEqual([]);
   });
 
   it.each([
