@@ -649,7 +649,7 @@ describe('Nous adapter', () => {
     expect(description.trim().split('\n')).toHaveLength(1);
   });
 
-  it('rejects default and remote database addresses before creating an account', async () => {
+  it('rejects mismatched local ports and remote addresses before creating an account', async () => {
     const fetcher = vi.fn();
     vi.stubGlobal('fetch', fetcher);
     expect(() =>
@@ -657,10 +657,10 @@ describe('Nous adapter', () => {
         ...status,
         DB_URL: 'postgresql://postgres:test@127.0.0.1:54322/postgres',
       })
-    ).toThrow('isolated');
+    ).toThrow('local proof project');
     await expect(
       prepare(story, 'desktop', { ...status, API_URL: 'https://example.test:55321' })
-    ).rejects.toThrow('isolated');
+    ).rejects.toThrow('local proof project');
     expect(fetcher).not.toHaveBeenCalled();
     vi.stubEnv('NOUS_E2E_DATA', REPO_ROOT);
     expect(dataRoot).toThrow('outside');

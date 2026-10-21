@@ -3,6 +3,30 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+
+const identityFixture = vi.hoisted(() => ({ command: undefined as string[] | undefined }));
+vi.mock('node:child_process', async importOriginal => {
+  const original = await importOriginal<typeof import('node:child_process')>();
+  const { promisify } = await import('node:util');
+  const execute = promisify(original.execFile);
+  return {
+    ...original,
+    execFile: Object.assign(vi.fn(), {
+      [promisify.custom]: (
+        executable: string,
+        args: string[],
+        options: Parameters<typeof execute>[2]
+      ) => {
+        const command =
+          identityFixture.command && ['powershell.exe', 'ps'].includes(executable)
+            ? identityFixture.command
+            : [executable, ...args];
+        return execute(command[0], command.slice(1), options);
+      },
+    }),
+  };
+});
+
 import { startServer } from '../stack';
 import { installBunProcessFixture } from './helpers/bunProcessFixture';
 
@@ -13,6 +37,7 @@ const children: Bun.Subprocess[] = [];
 const descriptors: number[] = [];
 
 afterEach(async () => {
+  identityFixture.command = undefined;
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
@@ -54,20 +79,17 @@ it('closes the process log when native process creation fails', async () => {
 it('retains the execFile output budget when reading process identity', async () => {
   await fixture();
   const originalSpawn = Bun.spawn.bind(Bun);
-  const previousExecFileBudgetBytes = 1024 * 1024;
   vi.spyOn(Bun, 'spawn').mockImplementation((command, options) => {
-    const identityCommand = Array.isArray(command) && ['powershell.exe', 'ps'].includes(command[0]);
-    const actualCommand = identityCommand
-      ? [
-          process.execPath,
-          '-e',
-          `console.log(JSON.stringify({startedAt:'synthetic', command:'x'.repeat(${previousExecFileBudgetBytes + 1})}))`,
-        ]
-      : command;
-    const child = originalSpawn(actualCommand, options);
+    const child = originalSpawn(command, options);
     children.push(child);
     return child;
   });
+  const previousExecFileBudgetBytes = 1024 * 1024;
+  identityFixture.command = [
+    process.execPath,
+    '-e',
+    `console.log(JSON.stringify({startedAt:'synthetic', command:'x'.repeat(${previousExecFileBudgetBytes + 1})}))`,
+  ];
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => new Response('healthy'))
