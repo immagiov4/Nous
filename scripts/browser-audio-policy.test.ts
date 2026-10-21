@@ -24,7 +24,7 @@ function finalProperty(object: ts.ObjectLiteralExpression, name: string) {
 function unmutedLaunches(source: string, filename: string): string[] {
   let isConfig = /playwright[^/]*config[^/]*\.[cm]?[jt]s$/.test(filename);
   // Strip identity escapes and line continuations; retain encoded names as candidates.
-  const candidateSource = source.replace(/\\(?:\r?\n)?/g, '');
+  const candidateSource = source.replace(/\\(?:\r\n|[\n\r\u2028\u2029])?/g, '');
   if (
     !isConfig &&
     !/launch|chromium|firefox|webkit|browserType|defineConfig/.test(candidateSource) &&
@@ -206,7 +206,6 @@ describe('browser audio policy', () => {
     String.raw`other["l\x61unch"]({})`,
     String.raw`other["l\141unch"]({})`,
     String.raw`other["l\aunc\h"]({})`,
-    'other["l\\\naunch"]({})',
     'chromium["launch"]({})',
     'const method = "launch"; chromium[method]({});',
     'firefox.launch({ headless: true })',
@@ -219,6 +218,18 @@ describe('browser audio policy', () => {
     'chromium.launch(withMutedAudio())',
   ])('rejects launches that bypass the shared policy: %s', source => {
     expect(unmutedLaunches(source, 'scripts/example.ts')).toHaveLength(1);
+  });
+
+  it.each([
+    '\n',
+    '\r',
+    '\r\n',
+    '\u2028',
+    '\u2029',
+  ])('rejects escaped line continuations in launch properties: %j', lineBreak => {
+    expect(unmutedLaunches(`other["l\\${lineBreak}aunch"]({})`, 'scripts/example.ts')).toHaveLength(
+      1
+    );
   });
 
   it('accepts imported policy calls including persistent contexts and aliases', () => {
