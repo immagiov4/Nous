@@ -51,7 +51,13 @@ jobs:
         run: bunx playwright install --with-deps chromium firefox
 
       - name: Verify production audio in Chromium and Firefox
-        run: bun run test:audio-production
+        run: |
+          sudo apt-get install --yes pulseaudio
+          pulseaudio --start
+          trap 'pulseaudio --kill || true' EXIT
+          pactl load-module module-null-sink sink_name=nous_playback
+          pactl set-default-sink nous_playback
+          bun run test:audio-production
 
       - name: Run CI Gate
         run: bun run gate:ci
