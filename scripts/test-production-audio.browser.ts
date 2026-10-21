@@ -86,7 +86,7 @@ const server = await preview({
       name: 'audio-contract-failures',
       configurePreviewServer(server) {
         server.middlewares.use((request, response, next) => {
-          if (!workletFailure || !request.url?.startsWith('/assets/SignalsmithStretch-'))
+          if (!workletFailure || !request.url?.startsWith('/assets/signalsmithWorklet-'))
             return next();
           response.setHeader('Cache-Control', 'no-store');
           if (workletFailure === 'module-load') {

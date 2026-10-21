@@ -1,5 +1,5 @@
-import workletUrl from 'signalsmith-stretch?worker&url';
 import SignalsmithStretch from 'signalsmith-stretch';
+import workletUrl from './signalsmithWorklet?worker&url';
 
 // Ship the complete module: serialized functions can refer to bundle-local helpers.
 SignalsmithStretch.moduleUrl = workletUrl;
