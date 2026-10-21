@@ -5,8 +5,15 @@ import { createRef, type RefObject } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderShellProps } from '../../../components/workspace/shell/types.ts';
 import WorkspaceReaderShell from '../../../components/workspace/WorkspaceReaderShell.tsx';
+import type { LessonPlaybackAudio } from '../../../utils/reader/lessonPlaybackAudio.ts';
 
 const playerProps = vi.hoisted(() => vi.fn());
+const clock = vi.hoisted(() => ({ unlock: vi.fn(async () => {}), close: vi.fn() }));
+vi.mock('../../../utils/reader/lessonPlaybackAudio.ts', () => ({
+  LessonPlaybackAudio: vi.fn(function MockLessonPlaybackAudio() {
+    return clock;
+  }),
+}));
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -53,7 +60,7 @@ vi.mock('../../../components/workspace/shell/WorkspaceReaderSidebar.tsx', () => 
 }));
 
 vi.mock('../../../components/workspace/playback/LessonPlayer.tsx', () => ({
-  default: (props: { autoPlay: boolean; audioElementRef: RefObject<HTMLAudioElement> }) => {
+  default: (props: { autoPlay: boolean; audioSessionRef: RefObject<LessonPlaybackAudio> }) => {
     playerProps(props);
     return <div role="dialog" data-autoplay={String(props.autoPlay)} />;
   },
@@ -235,25 +242,15 @@ describe('WorkspaceReaderShell', () => {
     'workspace-header',
     'workspace-sidebar',
   ])('%s opens the player with autoplay', async entry => {
-    const audio = document.createElement('audio');
-    vi.spyOn(globalThis, 'Audio').mockImplementation(function Audio() {
-      return audio;
-    });
-    vi.spyOn(audio, 'play').mockImplementation(async () => {
-      expect(audio.muted).toBe(true);
-    });
-    vi.spyOn(audio, 'pause').mockImplementation(() => {});
     const props = buildProps();
     props.sidebar.activeSectionId = 'lesson';
     props.content.projectId = 'project';
     props.content.sectionContent = 'Una frase.';
     render(<WorkspaceReaderShell {...props} />);
     fireEvent.click(screen.getByTestId(entry));
-    expect(audio.play).toHaveBeenCalledOnce();
-    expect(audio.pause).toHaveBeenCalledOnce();
-    expect(audio.muted).toBe(false);
+    expect(clock.unlock).toHaveBeenCalledOnce();
     expect(await screen.findByRole('dialog')).toHaveAttribute('data-autoplay', 'true');
-    expect(playerProps.mock.lastCall?.[0].audioElementRef.current).toBe(audio);
+    expect(playerProps.mock.lastCall?.[0].audioSessionRef.current).toBe(clock);
   });
 
   test('resets both window and content scroll positions on mount', () => {

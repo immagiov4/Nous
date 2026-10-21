@@ -41,7 +41,15 @@ The [stage](../../../apps/web/components/workspace/playback/LessonPlaybackStage.
 
 Preparation identifies the project incarnation, section, lesson content key, block, voice and speech model. These identities let persistence attach the audio and cues to the content that requested them. Otherwise, a changed lesson could receive a valid audio file that narrates its earlier version. [Asset adoption](../04-section-data/02-p-asset-management.md) owns the stored file references.
 
+Preparation requests for different blocks run independently. Voices of the same block share an active run, preserving one canonical narration and classification. The accepted response identifies whether this request created that run; the browser cancels only work it owns and waits for cancellation to settle before requesting the same block again. Creation responses remain observable after a seek or pause so late ownership can still be released.
+
 Speech synthesis uses the backend's [OpenRouter speech client](../../../apps/backend/src/services/ttsClient.ts), which resolves model-specific voices and normalizes supported responses. A Codex text connection therefore still needs OpenRouter for narration.
+
+## Keep narration ready for the next passage
+
+The [playback hook](../../../apps/web/hooks/reader/useLessonPlayback.ts) requests at least thirty seconds of upcoming audio with two concurrent block preparations. Playback speed scales that horizon. Starting, resuming, seeking and changing voice wait only for the recording at the selected position. The upcoming horizon fills in the background; each completion appends the contiguous ready prefix. If narration reaches an unprepared passage, the player shows its loading state and resumes that passage when its existing preparation completes. A project revision notification wakes the availability check; periodic checks recover missed notifications.
+
+The browser downloads and decodes recordings during preparation. The [audio transport](../../../apps/web/utils/reader/lessonPlaybackAudio.ts) appends their samples to one Signalsmith Stretch worklet, so a prepared passage follows its predecessor on the same audio clock. Playback rate and pitch are controlled separately. The pinned library carries the upstream [multi-buffer read correction](https://github.com/Signalsmith-Audio/signalsmith-stretch/pull/30), with a regression that compares its real WASM output against a single-buffer stream. The context is created and resumed in the opening gesture, and playback is scheduled at its current time once the ready buffer is available. Passage positions derive from that clock for captions, visuals and notes. Seeking and changing voice rebuild the selected stream; pausing and closing cancel obsolete preparation. Closing releases the context and decoded recording cache.
 
 With those results ready, the [reader](../05-section-frontend/01-p-reader-shell.md) owns seeking, speed and presentation. Reduced-motion preferences retain the visual while suppressing motion, leaving the explanation available under a different presentation preference.
 

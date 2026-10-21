@@ -25,7 +25,7 @@ interface PlaybackTarget {
 }
 export type PlaybackPreparationResult =
   | { block: LessonPlaybackBlock; voice: string; model: string }
-  | { runId: string; blockId: string; voice: string };
+  | { runId: string; blockId: string; voice: string; created: boolean };
 export interface LessonPlaybackApi {
   get(
     target: PlaybackTarget
@@ -76,15 +76,16 @@ export const createLessonPlaybackApi = (dependencies: {
       const model = await dependencies.resolveTtsModel();
       const voice = ttsClient.resolveVoice(model, input.voice);
       if (isPlaybackBlockReady(block, voice, model)) return { block, voice, model };
-      const { run } = await startWorkflowRun({
+      const { run, created } = await startWorkflowRun({
         input: { ...input, incarnationId: project.incarnationId, model },
-        // One active preparation for the whole lesson also serializes different voices/blocks.
+        // Voices share one block preparation so narration stays canonical; other blocks can fill the buffer.
         dedupeKey: JSON.stringify([
           LESSON_PLAYBACK_WORKFLOW_ID,
           input.projectId,
           project.incarnationId,
           input.sectionId,
           input.lessonKey,
+          input.blockId,
         ]),
         projectId: input.projectId,
         requestKey: randomUUID(),
@@ -95,7 +96,7 @@ export const createLessonPlaybackApi = (dependencies: {
         publishTransientEvent: dependencies.publishTransientEvent,
       });
       const active = LessonPlaybackInputSchema.parse(run.input);
-      return { runId: run.id, blockId: active.blockId, voice: active.voice };
+      return { runId: run.id, blockId: active.blockId, voice: active.voice, created };
     },
   };
 };

@@ -147,6 +147,7 @@ interface PollWorkflowOptions<State extends object> {
   readonly onState?: (state: State) => void;
   readonly readState: (currentState: State, signal?: AbortSignal) => Promise<State>;
   readonly signal?: AbortSignal;
+  readonly subscribeToChanges?: (wake: () => void) => () => void;
 }
 
 const abortReason = (signal: AbortSignal): unknown => {
@@ -156,22 +157,30 @@ const abortReason = (signal: AbortSignal): unknown => {
   return error;
 };
 
-const waitForNextPoll = (signal?: AbortSignal): Promise<void> => {
-  if (!signal) {
-    return new Promise(resolve => globalThis.setTimeout(resolve, WORKFLOW_STATUS_POLL_MS));
-  }
-  if (signal.aborted) return Promise.reject(abortReason(signal));
+const waitForNextPoll = (
+  signal?: AbortSignal,
+  subscribeToChanges?: (wake: () => void) => () => void
+): Promise<void> => {
+  if (signal?.aborted) return Promise.reject(abortReason(signal));
   return new Promise((resolve, reject) => {
+    let unsubscribe: (() => void) | undefined;
+    const clean = () => {
+      globalThis.clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      unsubscribe?.();
+    };
     const finish = () => {
-      signal.removeEventListener('abort', abort);
+      clean();
       resolve();
     };
-    const timer = globalThis.setTimeout(finish, WORKFLOW_STATUS_POLL_MS);
     const abort = () => {
-      globalThis.clearTimeout(timer);
-      reject(abortReason(signal));
+      clean();
+      reject(abortReason(signal as AbortSignal));
     };
-    signal.addEventListener('abort', abort, { once: true });
+    // The existing poll is recovery for lost revision notifications and terminal failures.
+    const timer = globalThis.setTimeout(finish, WORKFLOW_STATUS_POLL_MS);
+    signal?.addEventListener('abort', abort, { once: true });
+    unsubscribe = subscribeToChanges?.(finish);
   });
 };
 
@@ -179,14 +188,13 @@ export const retryTransientWorkflowRequest = async <Result>(
   request: () => Promise<Result>,
   signal?: AbortSignal
 ): Promise<Result> => {
-  while (true) {
-    signal?.throwIfAborted();
-    try {
-      return await request();
-    } catch (error) {
-      if (!isTransientWorkflowPollError(error)) throw error;
-      await waitForNextPoll(signal);
-    }
+  signal?.throwIfAborted();
+  try {
+    return await request();
+  } catch (error) {
+    if (!isTransientWorkflowPollError(error)) throw error;
+    await waitForNextPoll(signal);
+    return retryTransientWorkflowRequest(request, signal);
   }
 };
 
@@ -196,12 +204,13 @@ export const pollWorkflow = async <State extends object>({
   onState,
   readState,
   signal,
+  subscribeToChanges,
 }: PollWorkflowOptions<State>): Promise<State> => {
   let currentState = initialState;
   onState?.(currentState);
 
   while (!isTerminal(currentState)) {
-    await waitForNextPoll(signal);
+    await waitForNextPoll(signal, subscribeToChanges);
     let nextState: State;
     try {
       nextState = await readState(currentState, signal);

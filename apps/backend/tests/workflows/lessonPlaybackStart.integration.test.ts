@@ -15,7 +15,7 @@ describe.skipIf(!context.enabled)('durable playback request deduplication', () =
   beforeAll(() => setupPostgresWorkflowIntegrationContext(context));
   afterAll(() => teardownPostgresWorkflowIntegrationContext(context));
 
-  test('two simultaneous requests start one run; other voices and blocks wait on that run', async () => {
+  test('identical requests share one run while different blocks prepare independently', async () => {
     if (!context.sql) throw new Error('Workflow integration database is required.');
     const store = createStore(context.sql);
     const snapshot = { ...playbackProject(), id: context.projectId };
@@ -40,10 +40,21 @@ describe.skipIf(!context.enabled)('durable playback request deduplication', () =
       lessonKey: preparedPlayback().lessonKey,
     };
     const [first, second] = await Promise.all([api.prepare(target), api.prepare(target)]);
-    expect(first).toEqual(second);
-    expect(await api.prepare({ ...target, voice: 'Zephyr', blockId: '1' })).toEqual(first);
+    expect(first).toMatchObject({ runId: expect.any(String), blockId: '0', voice: 'Kore' });
+    expect(second).toMatchObject({
+      runId: 'runId' in first ? first.runId : '',
+      blockId: '0',
+      voice: 'Kore',
+    });
+    expect([first, second].filter(result => 'created' in result && result.created)).toHaveLength(1);
+    expect(await api.prepare({ ...target, voice: 'Zephyr' })).toMatchObject({
+      runId: 'runId' in first ? first.runId : '',
+      created: false,
+      voice: 'Kore',
+    });
+    expect(await api.prepare({ ...target, voice: 'Zephyr', blockId: '1' })).not.toEqual(first);
     const rows =
       await context.sql`select id from public.workflow_runs where user_id = ${context.userId} and project_id = ${context.projectId} and workflow_id = 'prepare-lesson-playback-block'`;
-    expect(rows).toHaveLength(1);
+    expect(rows).toHaveLength(2);
   });
 });
