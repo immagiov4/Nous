@@ -20,15 +20,15 @@ const COURSE_COVER_STORAGE_VERSION = 3;
 
 type CoverLoader = (projectId: string) => Promise<FileData | null>;
 interface CoverStorageCircuit {
-  probe: Promise<void> | null;
+  probe: Promise<FileData | null> | null;
   status: 'available' | 'unavailable' | 'unknown';
 }
 const coverStorageCircuitByLoader = new WeakMap<CoverLoader, CoverStorageCircuit>();
 
-const assertCoverStorageAvailable = async (
+const loadStoredProjectCover = async (
   loadCover: CoverLoader,
   projectId: string
-): Promise<void> => {
+): Promise<FileData | null> => {
   const circuit = coverStorageCircuitByLoader.get(loadCover) || {
     probe: null,
     status: 'unknown' as const,
@@ -37,11 +37,16 @@ const assertCoverStorageAvailable = async (
   if (circuit.status === 'unavailable') {
     throw new Error('Course cover storage is unavailable for this session.');
   }
-  if (circuit.status === 'available') return;
+  if (circuit.status === 'available') return loadCover(projectId);
+  if (circuit.probe !== null) {
+    await circuit.probe;
+    return loadCover(projectId);
+  }
 
-  circuit.probe ||= loadCover(projectId)
-    .then(() => {
+  circuit.probe = loadCover(projectId)
+    .then(cover => {
       circuit.status = 'available';
+      return cover;
     })
     .catch(error => {
       circuit.status = 'unavailable';
@@ -50,7 +55,7 @@ const assertCoverStorageAvailable = async (
     .finally(() => {
       circuit.probe = null;
     });
-  await circuit.probe;
+  return circuit.probe;
 };
 
 const planCourseCoverVisualDirection = async (title: string, context?: string): Promise<string> => {
@@ -124,8 +129,7 @@ export const ensureProjectCover = ({
   if (existingGeneration !== undefined) return existingGeneration;
 
   const generation = (async () => {
-    await assertCoverStorageAvailable(loadCover, projectId);
-    const storedCover = await loadCover(projectId);
+    const storedCover = await loadStoredProjectCover(loadCover, projectId);
     const storedCoverUrl = storedCover ? getProjectCoverDataUrl(storedCover) : undefined;
     if (
       storedCover &&
