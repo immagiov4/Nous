@@ -105,12 +105,12 @@ a feature is core or better left to external tools.
 - Avoid duplicating model names, thresholds, prompt fragments, and style tokens.
 - Keep AI prompt construction close to the feature that owns it.
 - Centralize shared AI prompt constants and environment-specific rules.
-- If a feature changes AI behavior, update the shared instructions and entrypoint docs together.
+- If a feature changes AI behavior, update the shared instructions; apply Cubic Wiki Governance to entrypoint docs.
 
 ## Cubic Wiki Governance
 
 - Do not create a new documentation directory, category, proposal area, or standalone design document unless that structure already exists in the repository or the maintainer explicitly requested it. Keep repository documentation in English. Working notes and planning artifacts belong outside the repository unless an existing documentation location explicitly owns them.
-- Once the Cubic/wiki documentation is stabilized, every pull request that changes contracts, APIs, persistence, workflows, user-visible behavior, or UI must update the pertinent `.cubic/wiki` page in the same cycle, or explicitly state in the pull request why no update is needed.
+- Update a wiki or documentation page only when the change would leave it false or incomplete at the level it describes: a public contract, API, data model, architecture boundary, or workflow a developer runs. Keep implementation details inside a module (caching, retries, read ordering, reuse) in code, never in the wiki. When no documentation change is needed, say nothing about documentation in the PR. This rule also governs documentation steps in skills, including `$maintain-system-map`.
 - Cubic remains the regenerable foundation for architectural documentation. Do not duplicate architectural documentation outside `.cubic/wiki`.
 - The historical `Lumina-Reader` repository is out of scope and must not be consulted or used.
 - Cubic reviews a pull request when it opens but does not automatically review every later push. Address its initial findings, then rely on the incremental Codex review while the branch changes.
@@ -260,7 +260,7 @@ Do not comment obvious assignments or trivial getters. The test: if removing the
 
 Use short comments above substantial control-flow blocks when the purpose is non-obvious. Do not write comments referencing change history or the conversation — comments should be factual and impersonal.
 
-For public functions, modules, components, or complex helpers, document the responsibility and any non-obvious assumptions, side effects, or tradeoffs concisely. Avoid exhaustive field lists, caller narration, and mechanical walkthroughs.
+For public functions, modules, components, or complex helpers, use code comments to explain the responsibility and any non-obvious assumptions, side effects, or tradeoffs concisely. Avoid exhaustive field lists, caller narration, and mechanical walkthroughs.
 
 ## Code Style and Modern APIs
 
@@ -432,7 +432,7 @@ Keep state transitions explicit. Separate: calculating what should happen, valid
 
 Remove unused code quickly. Dead variables, unused helpers, duplicate blocks, stale comments, and abandoned branches increase maintenance cost. Trust the linter, but verify before deletion if the project uses dynamic imports, reflection, registration side effects, or framework conventions.
 
-## Documentation of Non-Obvious Tradeoffs
+## Code Comments for Non-Obvious Tradeoffs
 
 When code intentionally does something surprising, document the tradeoff in a short, factual comment close to the relevant code. Examples: avoiding a standard API for performance or compatibility, using a custom implementation due to framework limitations, keeping a workaround for a known runtime bug, not validating a value because an earlier invariant guarantees it.
 
