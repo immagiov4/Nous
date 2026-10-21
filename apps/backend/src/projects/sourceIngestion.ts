@@ -12,16 +12,20 @@ import {
   type SourcePreparationFailure,
 } from '@shared/sourcePreparation';
 import { isSafeZipEntryPath } from '@shared/zipSafety';
+import { preparePdfTextExtraction } from '../services/pdfPageTranscription.js';
 import {
   PdfTextExtractionOutputLimitError,
   PdfTextExtractionTimeoutError,
 } from '../services/pdfTextExtractor.js';
+import { PdfScannedPageLimitError } from '../services/pdfTranscriptionPolicy.js';
+import type { ProjectSourceMaterial } from '../services/projectSourceText.js';
 import {
   isPdfProjectSourceFile,
   readProjectSourceMaterial,
 } from '../services/projectSourceText.js';
 import { isRecord } from '../utils/validation.js';
 import { ProjectImportInputError } from './projectImportChunks.js';
+import { restoreStoredPreparedPdfText } from './projectSource.js';
 import type { SourcePreparationContext } from './sourcePreparationContext.js';
 import { collectReleasedSourceMemory } from './sourcePreparationMemory.js';
 import type { ProjectSaveOptions, ProjectSnapshot } from './types.js';
@@ -86,8 +90,36 @@ const prepareSourceFile = async (
     ? await readProjectSourceMaterial({ ...file, data: bytes.toString('base64') })
     : { text: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
   context.signal.throwIfAborted();
-  if (!material.text.trim()) throw new SourceHasNoTextError();
   const hash = createHash('sha256').update(bytes).digest('hex');
+  if (!material.pdf)
+    return { completion: Promise.resolve(finishSourceFile(material, file, descriptor, hash)) };
+  const prepared = await preparePdfTextExtraction(bytes, material.pdf, {
+    context,
+    documentName: file.name,
+  });
+  const completion = prepared.completion.then(pdf =>
+    finishSourceFile({ pdf, text: pdf.text }, file, descriptor, hash)
+  );
+  void completion.catch(() => undefined);
+  return { completion };
+};
+
+const finishSourceFile = (
+  material: ProjectSourceMaterial,
+  file: SourceUpload['files'][number],
+  descriptor: SourceDescriptor,
+  hash: string
+) => {
+  descriptor.hash = hash;
+  if (!material.text.trim()) {
+    if (material.pdf)
+      descriptor.preparedPdfText = {
+        ...material.pdf,
+        failedPages: material.pdf.transcription?.failedPages || [],
+        blankPages: material.pdf.transcription?.blankPages || [],
+      };
+    throw new SourceHasNoTextError();
+  }
   const outline =
     material.pdf?.outline ??
     (descriptor.kind === 'markdown' ? parseMarkdownOutline(material.text, descriptor.id) : []);
@@ -103,6 +135,15 @@ const prepareSourceFile = async (
   return {
     ...descriptor,
     hash,
+    ...(material.pdf
+      ? {
+          preparedPdfText: {
+            ...material.pdf,
+            failedPages: material.pdf.transcription?.failedPages || [],
+            blankPages: material.pdf.transcription?.blankPages || [],
+          },
+        }
+      : {}),
     documentIndex: index,
     status: 'ready',
     outline,
@@ -115,11 +156,14 @@ export const prepareSourceCollection = async ({
   snapshot,
   upload,
   context,
+  storedSnapshot,
 }: {
+  storedSnapshot?: ProjectSnapshot | null;
   snapshot: ProjectSnapshot;
   upload: SourceUpload;
   context: SourcePreparationContext;
 }): Promise<{ snapshot: ProjectSnapshot; failures: SourcePreparationFailure[] }> => {
+  snapshot = restoreStoredPreparedPdfText(snapshot, storedSnapshot);
   if (!isRecord(snapshot.source) || !Array.isArray(snapshot.source.sources))
     throw new ProjectImportInputError('Metadati delle fonti non validi.');
   const submittedSources = snapshot.source.sources;
@@ -151,8 +195,29 @@ export const prepareSourceCollection = async ({
   )
     throw new ProjectImportInputError('Dimensione delle fonti non valida.');
   const handle = await open(upload.path, 'r');
-  const buffer = Buffer.alloc(Math.min(totalBytes, COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes));
+  let buffer = Buffer.alloc(Math.min(totalBytes, COURSE_SOURCE_UPLOAD_LIMITS.maxFileBytes));
   const failures: SourcePreparationFailure[] = [];
+  const completions: Promise<void>[] = [];
+  const markFailure = (descriptor: SourceDescriptor, error: unknown) => {
+    context.signal.throwIfAborted();
+    if (error instanceof PdfScannedPageLimitError) throw error;
+    descriptor.status = 'error';
+    const reason = failureReason(error);
+    descriptor.errorReason = reason;
+    descriptor.errorMessage = SOURCE_PREPARATION_FAILURE_MESSAGES[reason];
+    delete descriptor.documentIndex;
+    const prepared = descriptor.preparedPdfText;
+    const failedPages =
+      isRecord(prepared) && Array.isArray(prepared.failedPages)
+        ? (prepared.failedPages as number[])
+        : [];
+    failures.push({
+      name: descriptor.name,
+      reason,
+      ...(failedPages.length ? { failedPages } : {}),
+    });
+    console.warn('[Sources] Per-file preparation failed.', { name: descriptor.name, reason });
+  };
   let offset = upload.offset ?? 0;
   const uploadedIds = new Set<string>();
   try {
@@ -181,17 +246,21 @@ export const prepareSourceCollection = async ({
       const bytes = buffer.subarray(0, file.byteSize);
       await readFileSegment(handle, bytes, offset);
       offset += file.byteSize;
+      delete descriptor.preparedPdfText;
+      delete descriptor.documentIndex;
+      delete descriptor.errorMessage;
+      delete descriptor.errorReason;
       try {
-        Object.assign(descriptor, await prepareSourceFile(bytes, file, descriptor, context));
+        const preparation = await prepareSourceFile(bytes, file, descriptor, context);
+        const completion = preparation.completion
+          .then(prepared => {
+            Object.assign(descriptor, prepared);
+          })
+          .catch(error => markFailure(descriptor, error));
+        void completion.catch(() => undefined);
+        completions.push(completion);
       } catch (error) {
-        context.signal.throwIfAborted();
-        console.warn('[Sources] Per-file preparation failed.', { name: descriptor.name, error });
-        descriptor.status = 'error';
-        const reason = failureReason(error);
-        descriptor.errorReason = reason;
-        descriptor.errorMessage = SOURCE_PREPARATION_FAILURE_MESSAGES[reason];
-        delete descriptor.documentIndex;
-        failures.push({ name: descriptor.name, reason });
+        markFailure(descriptor, error);
       }
       collectReleasedSourceMemory();
       context.reportProgress({
@@ -202,6 +271,13 @@ export const prepareSourceCollection = async ({
         failures: failures.map(failure => ({ documentName: failure.name })),
       });
     }
+    buffer = Buffer.alloc(0);
+    await Promise.all(completions);
+    failures.sort(
+      (left, right) =>
+        upload.files.findIndex(file => file.name === left.name) -
+        upload.files.findIndex(file => file.name === right.name)
+    );
   } finally {
     await handle.close();
   }

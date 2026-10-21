@@ -59,6 +59,46 @@ export const preserveStoredProjectSource = (
       }
     : snapshot;
 
+/** Keeps prepared text authoritative across ingestion and ordinary snapshot saves. */
+export const restoreStoredPreparedPdfText = (
+  snapshot: ProjectSnapshot,
+  storedSnapshot?: ProjectSnapshot | null,
+  preparedUploadIds: ReadonlySet<string> = new Set()
+): ProjectSnapshot => {
+  if (!isRecord(snapshot.source)) return snapshot;
+  const source = snapshot.source;
+  const storedSource = isRecord(storedSnapshot?.source) ? storedSnapshot.source : undefined;
+  const storedDescriptors = new Map(
+    (Array.isArray(storedSource?.sources) ? storedSource.sources : []).flatMap(descriptor =>
+      isRecord(descriptor) && typeof descriptor.id === 'string'
+        ? [[descriptor.id, descriptor] as const]
+        : []
+    )
+  );
+  const restore = (descriptor: Record<string, unknown>, stored?: Record<string, unknown>) => {
+    const clean = { ...descriptor };
+    delete clean.preparedPdfText;
+    if (stored && stored.hash === descriptor.hash && stored.preparedPdfText !== undefined)
+      clean.preparedPdfText = stored.preparedPdfText;
+    return clean;
+  };
+  const sources = Array.isArray(source.sources)
+    ? source.sources.map(descriptor => {
+        if (!isRecord(descriptor)) return descriptor;
+        if (typeof descriptor.id !== 'string') return restore(descriptor);
+        if (preparedUploadIds.has(descriptor.id)) return descriptor;
+        return restore(descriptor, storedDescriptors.get(descriptor.id));
+      })
+    : source.sources;
+  const ref = isRecord(source.ref) ? source.ref : undefined;
+  const storedRef = isRecord(storedSource?.ref) ? storedSource.ref : undefined;
+  const cleanSource = { ...source };
+  delete cleanSource.preparedPdfText;
+  if (ref && storedRef && ref.id === storedRef.id && ref.hash === storedRef.hash)
+    cleanSource.preparedPdfText = storedSource?.preparedPdfText;
+  return { ...snapshot, source: { ...cleanSource, sources } };
+};
+
 export const prepareProjectSource = (
   file: ProjectSourceFile,
   sourceId?: string

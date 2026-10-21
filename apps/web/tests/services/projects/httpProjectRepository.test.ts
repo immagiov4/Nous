@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PDF_SCANNED_PAGE_LIMIT_MESSAGE } from '@shared/pdfTranscription';
 import { PROJECT_API_ERROR_CODE, PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
 import { decodeProjectSnapshotWire } from '@shared/projectSnapshotWire';
@@ -1537,4 +1538,59 @@ test('rejects oversized source metadata before starting any transfer', async () 
     message: 'I metadati delle fonti superano il limite di caricamento.',
   });
   expect(fetchMock).not.toHaveBeenCalled();
+});
+
+test.each([
+  {
+    locale: 'it' as const,
+    message: PDF_SCANNED_PAGE_LIMIT_MESSAGE,
+  },
+  {
+    locale: 'en' as const,
+    message: 'There is too much scanned material for one course. Select only the parts you need.',
+  },
+])('shows the safe scanned-course limit in $locale', async ({ locale, message }) => {
+  setRenderingLocaleOverride(locale);
+  fetchMock.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        success: false,
+        code: 'PDF_SCANNED_PAGE_LIMIT',
+        error: 'private provider details',
+      }),
+      { status: 422 }
+    )
+  );
+  await expect(
+    new HttpProjectRepository('http://localhost:3301').listFolders()
+  ).rejects.toMatchObject({
+    code: 'scanned-page-limit',
+    message,
+  });
+});
+
+test('retains failed physical pages in the terminal all-unusable source response', async () => {
+  setRenderingLocaleOverride('it');
+  fetchMock.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        success: false,
+        code: 'SOURCE_PREPARATION_UNUSABLE',
+        sourceWarnings: [{ name: 'scan.pdf', reason: 'no-usable-text', failedPages: [2, 7] }],
+      }),
+      { status: 422 }
+    )
+  );
+  await expect(
+    new HttpProjectRepository('http://localhost:3301').listFolders()
+  ).rejects.toMatchObject({
+    code: 'source-preparation-failed',
+    sourceWarnings: [
+      {
+        name: 'scan.pdf',
+        reason: 'no-usable-text',
+        message: 'Trascrizione non riuscita per le pagine: 2, 7.',
+      },
+    ],
+  });
 });

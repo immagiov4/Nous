@@ -49,10 +49,7 @@ import {
 import type { FanOutResult, StepExecutionContext } from './types.js';
 import { createWorkflowModelDiagnostic } from './workflowErrorDiagnostics.js';
 
-type ReadSourceMaterials = (
-  state: z.infer<typeof CoursePlanStateSchema>,
-  signal: AbortSignal
-) => Promise<CourseSourceMaterial[]>;
+type ReadSourceMaterials = import('./courseGenerationSources.js').ReadCourseSourceMaterials;
 
 export type BuildCourseDocumentIndex = (
   materials: readonly CourseSourceMaterial[],
@@ -374,7 +371,11 @@ export const createCourseSourceFinalizationServices = ({
         }),
       };
     }
-    const materials = await readSourceMaterials(context.input, context.signal);
+    const materials = await readSourceMaterials(
+      context.input,
+      context.signal,
+      context.config.models
+    );
     const index = buildDocumentIndex(materials, now);
     if (!index?.chunks.length) {
       throw failPermanently({

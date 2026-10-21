@@ -9,6 +9,7 @@ import * as z from 'zod';
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
 import { failPermanently } from '../../workflows/retryPolicy.js';
 import { isInvalidLessonVisualStructuredOutput } from '../lessonGenerationVisuals.js';
+import type { LessonSourceProvenance } from '../lessonPrimarySourceContext.js';
 import { generateStructuredOutput } from '../structuredGeneration.js';
 import { MAX_PLAYBACK_PREPARATION_ATTEMPTS } from './playbackMotion.js';
 
@@ -41,11 +42,13 @@ export const generatePlaybackNarration = async ({
   block,
   config,
   signal,
+  sourceProvenance,
   classifyFencedCode = true,
 }: {
   block: LessonPlaybackBlock;
   config: GlobalModelConfig;
   signal: AbortSignal;
+  sourceProvenance?: LessonSourceProvenance;
   classifyFencedCode?: boolean;
 }) => {
   const candidates = classifyFencedCode
@@ -58,6 +61,7 @@ export const generatePlaybackNarration = async ({
   const formulas = block.spans.flatMap(span => (span.math ? [span.math] : []));
   const request = JSON.stringify({
     narration: block.speech,
+    sourceProvenance,
     formulas,
     ...(candidates.length ? { fencedCode: candidates } : {}),
     source: block.visuals.flatMap(visual => (visual.kind === 'markdown' ? [visual.markdown] : [])),
@@ -95,6 +99,7 @@ export const generatePlaybackNarration = async ({
 
 /** Pronunciation-only callers use their frozen provider contract. */
 export const generatePlaybackSpokenMath = async (input: {
+  sourceProvenance?: LessonSourceProvenance;
   block: LessonPlaybackBlock;
   config: GlobalModelConfig;
   signal: AbortSignal;

@@ -9,6 +9,7 @@ export interface SceneRenderContext {
   scene: LessonScene;
   isDarkMode: boolean;
   prototype: boolean;
+  playback: boolean;
   readFrame?: ReadSceneAnimationFrame;
   labels: { comparison: string; criterion: string; becomes: string };
   relationSymbols: Readonly<Record<string, string>>;

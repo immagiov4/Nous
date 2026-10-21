@@ -33,7 +33,7 @@ describe('direct OpenAI removal deployment compatibility', () => {
     );
     if (!local) throw new Error(`Missing deployment: ${deployed.current.workflowId}`);
 
-    // Playback output schema additions are compatible promotions, not unchanged deployments.
+    // Catalog additions change playback's output schema while retaining deployed boundaries.
     expect(classifyWorkflowDefinitionDeployment({ current: deployed, previous: null }, local)).toBe(
       'promote'
     );

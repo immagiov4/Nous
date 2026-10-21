@@ -19,6 +19,7 @@ import { basename, dirname, join } from 'node:path';
 import { setInterval as ticks } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
+const DEFAULT_SLOTS = 4;
 const HEARTBEAT_MS = 30_000;
 const DEFAULT_STALE_MS = 10 * 60_000;
 const POLL_MS = 1_000;
@@ -94,11 +95,14 @@ function removeLock(lock, ownerFile) {
 
 function readLock(lock, staleMs) {
   try {
-    const [ownerFile] = readdirSync(lock);
-    if (ownerFile) return readEntry(join(lock, ownerFile), staleMs);
-    return { owner: null, stale: Date.now() - statSync(lock).mtimeMs > staleMs };
+    const owners = readdirSync(lock)
+      .sort()
+      // A record may be renamed for activation after enumeration. Reserve capacity until the next poll.
+      .map(name => readEntry(join(lock, name), staleMs) ?? { owner: null, stale: false });
+    if (owners.length) return owners;
+    return [{ owner: null, stale: Date.now() - statSync(lock).mtimeMs > staleMs }];
   } catch (error) {
-    if (error.code === 'ENOENT') return null;
+    if (error.code === 'ENOENT') return [];
     throw error;
   }
 }
@@ -120,14 +124,14 @@ function readQueue(queue, staleMs, prune) {
     .sort((a, b) => a.created - b.created || basename(a.path).localeCompare(basename(b.path)));
 }
 
-function createTicket(queue, label) {
+function createTicket(queue, label, weight) {
   const timestamp = Date.now();
   for (let sequence = 0; ; sequence++) {
     const id = `${timestamp}-${String(sequence).padStart(10, '0')}.json`;
     const path = join(queue, id);
     try {
       const fd = openSync(path, 'wx');
-      const owner = { pid: process.pid, label, id };
+      const owner = { pid: process.pid, label, id, weight };
       writeFileSync(fd, JSON.stringify(owner));
       return { path, fd, owner };
     } catch (error) {
@@ -140,14 +144,14 @@ function describeOwner(owner) {
   return owner ? `${owner.label} (PID ${owner.pid})` : 'initializing';
 }
 
-function claimLock(prepared, lock) {
+function claimLock(prepared, lock, id) {
   try {
-    // Publish a populated directory atomically, so another owner's cleanup cannot see it empty.
-    renameSync(prepared, lock);
+    mkdirSync(lock, { recursive: true });
+    // Only the first unadmitted FIFO ticket publishes a reservation. One link reserves its full weight.
+    linkSync(join(prepared, id), join(lock, id));
     return true;
   } catch (error) {
-    if (['EEXIST', 'ENOTEMPTY'].includes(error.code)) return false;
-    if (error.code === 'EPERM' && existsSync(lock)) return false;
+    if (error.code === 'ENOENT') return false;
     throw error;
   }
 }
@@ -258,6 +262,16 @@ function activateLock(lock, ticket, childPid) {
 }
 
 function parseCommand(args) {
+  const options = [...args];
+  let weight = 1;
+  if (options[2] === '--weight') {
+    weight = Number(options[3]);
+    options.splice(2, 2);
+  }
+  return { command: parseInvocation(options), weight };
+}
+
+function parseInvocation(args) {
   if (args[0] !== '--label' || !args[1]) throw new Error('A --label is required.');
   if (args[2] === '--shell' && args[3] && args[4] === '--') {
     // Bun's cross-platform shell handles package expressions; quote each forwarded argument.
@@ -270,19 +284,29 @@ function parseCommand(args) {
 }
 
 function tryClaim(context) {
-  const { queue, lock, prepared, ticket, staleMs, label } = context;
-  const waiting = readQueue(queue, staleMs, true);
-  const owner = readLock(lock, staleMs);
+  const { queue, lock, prepared, ticket, staleMs, label, slots, weight } = context;
+  const owners = readLock(lock, staleMs);
+  const admitted = new Set(owners.map(entry => entry.owner?.id).filter(Boolean));
+  const waiting = readQueue(queue, staleMs, true).filter(entry => !admitted.has(entry.owner?.id));
   const position = waiting.findIndex(entry => entry.path === ticket.path);
   if (position < 0) throw new Error(EXPIRED_TICKET);
-  if (position === 0 && owner?.stale) removeLock(lock, owner.path && basename(owner.path));
-  if (position === 0 && claimLock(prepared, lock)) {
-    if (!existsSync(ticket.path)) throw new Error(EXPIRED_TICKET);
-    return true;
+  if (position === 0) {
+    for (const owner of owners) {
+      if (owner.stale) removeLock(lock, owner.path && basename(owner.path));
+    }
+    // Activation can win retirement by renaming its record; count that surviving reservation too.
+    const used = readLock(lock, staleMs).reduce(
+      (sum, entry) => sum + (entry.owner ? (entry.owner.weight ?? 1) : slots),
+      0
+    );
+    if (used + weight <= slots && claimLock(prepared, lock, ticket.owner.id)) {
+      if (!existsSync(ticket.path)) throw new Error(EXPIRED_TICKET);
+      return true;
+    }
   }
   if (Date.now() - context.lastReport >= HEARTBEAT_MS) {
     process.stdout.write(
-      `heavy-run: ${label}, position ${position + 1}; owner: ${owner ? describeOwner(owner.owner) : 'free'}\n`
+      `heavy-run: ${label}, position ${position + 1}; owners: ${owners.length ? owners.map(entry => describeOwner(entry.owner)).join(', ') : 'free'}\n`
     );
     context.lastReport = Date.now();
   }
@@ -298,11 +322,11 @@ async function waitForLock(context, abort) {
   return false;
 }
 
-async function queuedRun({ directory, staleMs, label, command, abort }) {
+async function queuedRun({ directory, staleMs, label, command, abort, slots, weight }) {
   const queue = join(directory, 'queue');
   const lock = join(directory, 'lock');
   mkdirSync(queue, { recursive: true });
-  const ticket = createTicket(queue, label);
+  const ticket = createTicket(queue, label, weight);
   const prepared = join(directory, 'claims', ticket.owner.id);
   let ownerFile = ticket.owner.id;
   const heartbeat = setInterval(() => {
@@ -314,7 +338,7 @@ async function queuedRun({ directory, staleMs, label, command, abort }) {
     // Both names share one record and heartbeat; publication never exposes a partial owner record.
     linkSync(ticket.path, join(prepared, ticket.owner.id));
     const claimed = await waitForLock(
-      { queue, lock, prepared, ticket, staleMs, label, lastReport: 0 },
+      { queue, lock, prepared, ticket, staleMs, label, slots, weight, lastReport: 0 },
       abort
     );
     if (!claimed) return 130;
@@ -334,13 +358,24 @@ async function queuedRun({ directory, staleMs, label, command, abort }) {
   }
 }
 
-function showStatus(directory, staleMs) {
-  const owner = readLock(join(directory, 'lock'), staleMs);
-  console.log(`Owner: ${owner ? describeOwner(owner.owner) : 'free'}`);
+function showStatus(directory, staleMs, slots) {
+  const owners = readLock(join(directory, 'lock'), staleMs);
+  console.log(`Slots: ${slots}`);
+  if (!owners.length) console.log('Owner: free');
+  for (const entry of owners) {
+    console.log(
+      `Owner: ${describeOwner(entry.owner)}; weight ${entry.owner?.weight ?? 1}${entry.stale ? ' [stale]' : ''}`
+    );
+  }
+  const admitted = new Set(owners.map(entry => entry.owner?.id).filter(Boolean));
   const queue = join(directory, 'queue');
   if (!existsSync(queue)) return;
-  for (const [index, entry] of readQueue(queue, staleMs, false).entries()) {
-    console.log(`${index + 1}. ${describeOwner(entry.owner)}${entry.stale ? ' [stale]' : ''}`);
+  for (const [index, entry] of readQueue(queue, staleMs, false)
+    .filter(entry => !admitted.has(entry.owner?.id))
+    .entries()) {
+    console.log(
+      `${index + 1}. ${describeOwner(entry.owner)}${entry.stale ? ' [stale]' : ''}; weight ${entry.owner?.weight ?? 1}`
+    );
   }
 }
 
@@ -353,11 +388,18 @@ export async function main(args = process.argv.slice(2)) {
     : Number(process.env.HEAVY_RUN_STALE_MS ?? DEFAULT_STALE_MS);
   if (!Number.isFinite(staleMs) || staleMs <= HEARTBEAT_MS)
     throw new Error(`HEAVY_RUN_STALE_MS must exceed the ${HEARTBEAT_MS} ms heartbeat interval.`);
+  const slots = bypass ? DEFAULT_SLOTS : Number(process.env.HEAVY_RUN_SLOTS ?? DEFAULT_SLOTS);
+  if (!Number.isSafeInteger(slots) || slots < 1)
+    throw new Error('HEAVY_RUN_SLOTS must be a positive integer.');
   if (args[0] === 'status') {
-    showStatus(directory, staleMs);
+    showStatus(directory, staleMs, slots);
     return 0;
   }
-  const command = worker ? await workerCommand(args) : parseCommand(args);
+  const { command, weight } = worker
+    ? { command: await workerCommand(args), weight: 1 }
+    : parseCommand(args);
+  if (!Number.isSafeInteger(weight) || weight < 1 || (!bypass && weight > slots))
+    throw new Error('--weight must be a positive integer no greater than HEAVY_RUN_SLOTS.');
   if (!command) return 1;
   const abort = new AbortController();
   const interrupt = () => abort.abort('SIGINT');
@@ -368,7 +410,7 @@ export async function main(args = process.argv.slice(2)) {
     if (bypass) {
       return await runCommand(command, process.env, abort);
     }
-    return await queuedRun({ directory, staleMs, label: args[1], command, abort });
+    return await queuedRun({ directory, staleMs, label: args[1], command, abort, slots, weight });
   } catch (error) {
     if (abort.signal.aborted && error.name === 'AbortError') return 130;
     throw error;

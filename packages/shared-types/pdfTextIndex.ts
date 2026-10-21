@@ -13,10 +13,12 @@ import {
   type PdfTextPage,
   resolveChunkPageSpanFromLayout,
 } from './pdfTextLayout';
+import { formatPdfTranscriptionMarker } from './pdfTranscription';
 
 export type { PdfTextPage } from './pdfTextLayout';
 
 export interface PdfTextChunk {
+  transcribedPages?: number[];
   endOffset: number;
   headingPath: string[];
   id: string;
@@ -316,12 +318,27 @@ export const buildPdfTextIndex = (
         });
   const chunks = baseChunks.map((chunk, index): PdfTextChunk => {
     const pageSpan = resolveChunkPageSpanFromLayout(chunk.startOffset, chunk.endOffset, pageLayout);
+    const transcribedPages =
+      pageLayout?.pages
+        .filter(
+          page =>
+            page.provenance &&
+            pageSpan &&
+            page.pageNumber >= pageSpan.startPage &&
+            page.pageNumber <= pageSpan.endPage
+        )
+        .map(page => page.pageNumber) || [];
+    // Repeated markers survive chunk selection and older workflow schemas that strip new metadata.
+    const markers = transcribedPages
+      .map(formatPdfTranscriptionMarker)
+      .filter(marker => !chunk.text.includes(marker));
     const sourcePrefix = sourceId ? `${sourceId}:` : '';
     return {
       id: `${sourcePrefix}chunk-${String(index + 1).padStart(3, '0')}`,
       sourceId,
       sequence: index,
-      text: chunk.text,
+      text: [...markers, chunk.text].join('\n\n'),
+      ...(transcribedPages.length ? { transcribedPages } : {}),
       headingPath: chunk.headingPath.length > 0 ? chunk.headingPath : fallbackHeadingPath,
       startOffset: chunk.startOffset,
       endOffset: chunk.endOffset,
