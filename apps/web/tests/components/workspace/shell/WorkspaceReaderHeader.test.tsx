@@ -91,13 +91,25 @@ describe('WorkspaceReaderHeader', () => {
     expect(screen.getByRole('button', { name: /^Rigenera$/i })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Istruzioni personalizzate' })).toBeInTheDocument();
   });
-  test.each([false, true])('starts regeneration directly, mobile=%s', async isMobileViewport => {
+  test.each([
+    false,
+    true,
+  ])('regenerates only after confirmation, mobile=%s', async isMobileViewport => {
     const user = userEvent.setup();
     const props = buildProps();
     render(<Header {...props} isMobileViewport={isMobileViewport} isSettingsOpen />);
     await user.click(screen.getByRole('button', { name: 'Rigenera' }));
+    expect(props.onRegenerateActiveSection).not.toHaveBeenCalled();
+    expect(screen.getByRole('group', { name: 'Rigenerare questa lezione?' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'No' }));
+    expect(props.onRegenerateActiveSection).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Rigenera' })).toHaveFocus();
+    await user.click(screen.getByRole('button', { name: 'Rigenera' }));
+    await user.click(screen.getByRole('button', { name: 'Sì, rigenera' }));
     expect(props.onRegenerateActiveSection).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('group', { name: 'Rigenerare questa lezione?' })
+    ).not.toBeInTheDocument();
   });
 
   test('uses the account locale for the regeneration action', async () => {
@@ -107,6 +119,9 @@ describe('WorkspaceReaderHeader', () => {
     try {
       act(() => setAccountLocale('en'));
       await user.click(screen.getByRole('button', { name: 'Regenerate' }));
+      expect(props.onRegenerateActiveSection).not.toHaveBeenCalled();
+      expect(screen.getByRole('group', { name: 'Regenerate this lesson?' })).toBeVisible();
+      await user.click(screen.getByRole('button', { name: 'Yes, regenerate' }));
       expect(props.onRegenerateActiveSection).toHaveBeenCalledTimes(1);
     } finally {
       view.unmount();

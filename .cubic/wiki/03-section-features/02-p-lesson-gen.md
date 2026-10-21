@@ -21,6 +21,8 @@ The [lesson definition](../../../apps/backend/src/workflows/lessonGenerationWork
 
 ## Replacement is a commit boundary
 
+The reader settings ask for inline confirmation before requesting regeneration. Cancel or Escape returns focus to the regeneration action; confirming invokes the existing lesson replacement workflow.
+
 The last saved lesson stays available while replacement work runs. Successful regeneration replaces its content and clears content-dependent answers and annotations; failed generation preserves saved content and progress. [Exercise state](08-p-interactive-exercises.md) explains this identity relationship.
 
 For a change to drafting or review, use [content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content) to read the saved replacement against its objective and evidence. This reaches the explanation the learner receives, including gaps a successful schema check cannot identify.
