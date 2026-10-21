@@ -7,6 +7,7 @@ FROM oven/bun:${BUN_VERSION}-slim AS dependencies
 WORKDIR /app
 COPY package.json bun.lock ./
 COPY apps/backend/package.json apps/backend/package.json
+COPY patches patches
 RUN bun install --frozen-lockfile
 
 FROM dependencies AS web-build
