@@ -1,40 +1,22 @@
-import { createRequire } from 'node:module';
-import path from 'node:path';
 import {
   formatPdfTranscriptionMarker,
   type PdfTranscriptionProgress,
   type PdfTranscriptionSummary,
 } from '@shared/pdfTranscription';
 import { APICallError, generateText, jsonSchema, NoObjectGeneratedError, Output } from 'ai';
-import { PDFParse } from 'pdf-parse';
-import { OPS, Util } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import * as z from 'zod';
 import { type GlobalModelConfig, getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import type { SourcePreparationContext } from '../projects/sourcePreparationContext.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
-import {
-  type ExtractedPdfText,
-  type ExtractedPdfTextPage,
-  PdfTextExtractionTimeoutError,
-} from './pdfTextExtractor.js';
-import { normalizeExtractedTextSegment } from './pdfTextNormalization.js';
+import { runPdfPageTask } from './pdfPageTask.js';
+import { type ExtractedPdfText, PdfTextExtractionTimeoutError } from './pdfTextExtractor.js';
+
 import {
   getPdfTranscriptionMathErrors,
   normalizePdfTranscriptionMarkdown,
 } from './pdfTranscriptionMath.js';
 import type { PdfTranscriptionSelection } from './pdfTranscriptionPolicy.js';
 import { PdfTranscriptionPool } from './pdfTranscriptionPool.js';
-
-const pdfJsRoot = path
-  .dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'))
-  .replaceAll('\\', '/');
-const PDF_PAGE_LOAD_OPTIONS = {
-  cMapPacked: true,
-  cMapUrl: `${pdfJsRoot}/cmaps/`,
-  standardFontDataUrl: `${pdfJsRoot}/standard_fonts/`,
-  stopAtErrors: true,
-  wasmUrl: `${pdfJsRoot}/wasm/`,
-};
 
 // Technical settings are calibrated on real handwritten notes and printed math pages.
 const PDF_TRANSCRIPTION = {
@@ -76,92 +58,6 @@ export interface PdfTranscriptionOptions {
   onProgress?: (progress: PdfTranscriptionProgress) => void;
   signal?: AbortSignal;
 }
-interface PdfPage {
-  readonly view?: number[];
-  cleanup(): void;
-  getTextContent(): Promise<{ items: Array<{ str?: string }> }>;
-  getOperatorList(): Promise<{ fnArray: number[]; argsArray: unknown[][] }>;
-}
-interface PdfDocument {
-  numPages: number;
-  getPage(pageNumber: number): Promise<PdfPage>;
-}
-
-const countTextGlyphs = (text: string): Map<string, number> => {
-  const counts = new Map<string, number>();
-  for (const symbol of text.normalize('NFKC').match(/[\p{L}\p{N}\p{Sm}]/gu) || [])
-    counts.set(symbol, (counts.get(symbol) || 0) + 1);
-  return counts;
-};
-
-const rasterPaintOperators = new Set([OPS.paintImageXObject, OPS.paintInlineImageXObject]);
-
-/** A full-page raster remains source content even when its footer is selectable text. */
-const hasFullPageImage = (
-  view: number[] | undefined,
-  operators: Awaited<ReturnType<PdfPage['getOperatorList']>>
-): boolean => {
-  if (!view) return false;
-  let transform = [1, 0, 0, 1, 0, 0];
-  const saved: number[][] = [];
-  for (let index = 0; index < operators.fnArray.length; index += 1) {
-    const op = operators.fnArray[index];
-    if (op === OPS.save) saved.push(transform);
-    else if (op === OPS.restore) transform = saved.pop() || [1, 0, 0, 1, 0, 0];
-    else if (op === OPS.transform)
-      transform = Util.transform(transform, operators.argsArray[index]);
-    else if (rasterPaintOperators.has(op)) {
-      const inverse = Util.inverseTransform(transform);
-      const corners = [
-        [view[0], view[1]],
-        [view[2], view[1]],
-        [view[2], view[3]],
-        [view[0], view[3]],
-      ];
-      const coversPage = corners.every(corner => {
-        Util.applyTransform(corner, inverse);
-        return corner.every(coordinate => coordinate >= 0 && coordinate <= 1);
-      });
-      if (coversPage) return true;
-    }
-  }
-  return false;
-};
-
-/** Reasons are structural evidence, never a language or word-count classifier. */
-export const inspectPdfPageText = async (
-  page: PdfPage,
-  extractedText: string
-): Promise<string[]> => {
-  const [content, operators] = await Promise.all([page.getTextContent(), page.getOperatorList()]);
-  const reasons: string[] = [];
-  if (!extractedText.trim()) reasons.push('empty-text');
-  if (hasFullPageImage(page.view, operators)) reasons.push('full-page-image');
-  const sourceText = content.items.map(item => item.str || '').join('');
-  if (/[\p{Cc}\ufffd]/u.test((sourceText + extractedText).replaceAll(/[\t\n\r]/g, '')))
-    reasons.push('unmapped-glyph');
-  const extractedSymbols = countTextGlyphs(extractedText);
-  if (
-    [...countTextGlyphs(sourceText)].some(
-      ([symbol, count]) => (extractedSymbols.get(symbol) || 0) < count
-    )
-  )
-    reasons.push('lost-text-glyph');
-  let mode = 0;
-  const modes: number[] = [];
-  for (let index = 0; index < operators.fnArray.length; index += 1) {
-    const op = operators.fnArray[index];
-    if (op === OPS.save) modes.push(mode);
-    else if (op === OPS.restore) mode = modes.pop() ?? 0;
-    else if (op === OPS.setTextRenderingMode) mode = Number(operators.argsArray[index][0]);
-    else if ((op === OPS.showText || op === OPS.showSpacedText) && (mode === 3 || mode === 7)) {
-      reasons.push('invisible-text-layer');
-      break;
-    }
-  }
-  return reasons;
-};
-
 interface PageUsage {
   inputTokens?: number;
   outputTokens?: number;
@@ -336,35 +232,12 @@ const transcribePage = async (
   };
 };
 
-const renderPdfPage = async (bytes: Buffer, pageNumber: number, signal: AbortSignal) => {
-  signal.throwIfAborted();
-  const renderer = new PDFParse({ data: bytes, ...PDF_PAGE_LOAD_OPTIONS });
-  let rejectAbort: (reason: unknown) => void;
-  const aborted = new Promise<never>((_resolve, reject) => {
-    rejectAbort = reject;
-  });
-  const onAbort = () => {
-    void renderer.destroy().catch(() => undefined);
-    rejectAbort(signal.reason);
-  };
-  signal.addEventListener('abort', onAbort, { once: true });
-  try {
-    const rendered = await Promise.race([
-      renderer.getScreenshot({
-        partial: [pageNumber],
-        desiredWidth: PDF_TRANSCRIPTION.renderWidth,
-        imageBuffer: false,
-      }),
-      aborted,
-    ]);
-    const image = rendered.pages[0];
-    if (!image) throw new Error('PDF page renderer returned no page.');
-    return image;
-  } finally {
-    signal.removeEventListener('abort', onAbort);
-    await renderer.destroy().catch(() => undefined);
-  }
-};
+const renderPdfPage = (bytes: Buffer, pageNumber: number, signal: AbortSignal) =>
+  runPdfPageTask(
+    bytes,
+    { kind: 'render', pageNumber, width: PDF_TRANSCRIPTION.renderWidth },
+    signal
+  );
 
 const inspectPdfTextPages = async (
   bytes: Buffer,
@@ -375,59 +248,12 @@ const inspectPdfTextPages = async (
     AbortSignal.timeout(PDF_TRANSCRIPTION.inspectionTimeoutMs),
     ...(parentSignal ? [parentSignal] : []),
   ]);
-  signal.throwIfAborted();
-  const parser = new PDFParse({ data: bytes, ...PDF_PAGE_LOAD_OPTIONS });
-  let abort!: () => void;
-  const aborted = new Promise<never>((_, reject) => {
-    abort = () =>
-      reject(
-        parentSignal?.aborted ? parentSignal.reason : new PdfTextExtractionTimeoutError('pdf-parse')
-      );
-    signal.addEventListener('abort', abort, { once: true });
-  });
-  const inspect = async () => {
-    await parser.getInfo();
-    // pdf-parse owns the already loaded PDF.js document and page renderer.
-    const document = (parser as unknown as { doc: PdfDocument }).doc;
-    const previousPages = new Map(extracted.pages.map(page => [page.pageNumber, page.text]));
-    const pages: ExtractedPdfTextPage[] = Array.from({ length: document.numPages }, (_, index) => ({
-      pageNumber: index + 1,
-      text: previousPages.get(index + 1) || '',
-    }));
-    const planned: Array<{ pageNumber: number; reasons: string[] }> = [];
-    for (const page of pages) {
-      signal?.throwIfAborted();
-      const pdfPage = await document.getPage(page.pageNumber);
-      try {
-        let reasons = await inspectPdfPageText(pdfPage, page.text);
-        if (
-          reasons.length > 0 &&
-          extracted.parser === 'pdftotext' &&
-          !reasons.includes('invisible-text-layer')
-        ) {
-          const fallback = await parser.getText({ partial: [page.pageNumber], pageJoiner: '' });
-          const fallbackText = normalizeExtractedTextSegment(fallback.pages[0]?.text || '');
-          const fallbackReasons = await inspectPdfPageText(pdfPage, fallbackText);
-          if (fallbackReasons.length === 0) {
-            page.text = fallbackText;
-            reasons = [];
-          }
-        }
-        if (reasons.length > 0) planned.push({ pageNumber: page.pageNumber, reasons });
-      } finally {
-        pdfPage.cleanup();
-      }
-    }
-    return { pages, planned, pageCount: document.numPages };
-  };
   try {
-    return await Promise.race([inspect(), aborted]);
-  } finally {
-    try {
-      await Promise.race([parser.destroy().catch(() => undefined), aborted]);
-    } finally {
-      signal.removeEventListener('abort', abort);
-    }
+    return await runPdfPageTask(bytes, { kind: 'inspect', extracted }, signal);
+  } catch (error) {
+    if (parentSignal?.aborted) throw parentSignal.reason;
+    if (signal.aborted) throw new PdfTextExtractionTimeoutError('pdf-parse');
+    throw error;
   }
 };
 

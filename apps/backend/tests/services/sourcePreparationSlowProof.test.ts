@@ -216,7 +216,9 @@ test.runIf(process.env.NOUS_398_BROWSER_PROOF === '1')(
     if (!evidence) throw new Error('Set SOURCE_PREPARATION_PROOF_DIR.');
     const { createServer } = await import('vite');
     const { createServer: createHttpServer } = await import('node:http');
-    const { chromium } = await import('playwright');
+    const { chromium } = await import(
+      createRequire(new URL('../../../../package.json', import.meta.url)).resolve('playwright')
+    );
     const hold = Promise.withResolvers<void>();
     provider.generateText.mockImplementation(async () => {
       await hold.promise;
