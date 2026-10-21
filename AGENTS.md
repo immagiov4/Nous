@@ -57,6 +57,8 @@ Core Philosophy → Context Before Code → Simplicity → Naming → Single Sou
 
 ## Working Rules
 
+- Before substantial issue intake or steering that changes the agreed outcome, use `$requirements-blast-radius` to map every lesson listening path and the full source upload, preparation and save lifecycle; reuse an orchestrator-provided `Requirements map`.
+
 - Apply `.agents/skills/quality-workflow/SKILL.md` at the start of every implementation task and before implementation or review fixes; state the chosen quality level. Vendored third-party skills under `.agents/skills/` are guidance; where they conflict with these rules, see the precedence section in `.agents/skills/THIRD_PARTY_SKILLS.md`.
 - Read the nearest implementation files before editing.
 - Prefer the existing architecture and helpers over inventing new patterns.
