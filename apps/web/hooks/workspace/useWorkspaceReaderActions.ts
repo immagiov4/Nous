@@ -9,6 +9,7 @@ import {
   LESSON_SOURCE_UNAVAILABLE_MESSAGE,
   LessonSourceUnavailableError,
 } from '../../services/openrouter/lessonGenerationClient.ts';
+import { documentTextSourceIdentity, loadDocumentText } from '../../services/projects/documentText';
 import type {
   ApplicationExerciseNode,
   ContextMenuState,
@@ -143,6 +144,10 @@ export const useWorkspaceReaderActions = ({
   source,
   updateSection,
 }: UseWorkspaceReaderActionsArgs) => {
+  const sourceOwnerRef = useRef({ projectId, source });
+  useEffect(() => {
+    sourceOwnerRef.current = { projectId, source };
+  }, [projectId, source]);
   const activeSectionIdRef = useRef(activeSectionId);
   useEffect(() => {
     activeSectionIdRef.current = activeSectionId;
@@ -236,7 +241,7 @@ export const useWorkspaceReaderActions = ({
   );
 
   const handleContextQuestion = useCallback(
-    (question: string) => {
+    async (question: string) => {
       if (contextMenu.type !== 'lesson' && !contextMenu.selectedText) {
         return;
       }
@@ -247,11 +252,21 @@ export const useWorkspaceReaderActions = ({
         contextScope === 'lesson'
           ? buildWholeLessonContextLabel(activeSection?.title)
           : contextMenu.selectedText;
-      const sourceContext = buildContextSourceMaterial({
-        activeSection,
-        documentIndex,
-        source,
-      });
+      let sourceText: Awaited<ReturnType<typeof loadDocumentText>>;
+      try {
+        sourceText = await loadDocumentText(projectId, { documentIndex, source });
+      } catch {
+        notify(t('Documento originale non disponibile.'));
+        return;
+      }
+      if (
+        sourceOwnerRef.current.projectId !== projectId ||
+        documentTextSourceIdentity(sourceOwnerRef.current.source) !==
+          documentTextSourceIdentity(source) ||
+        activeSectionIdRef.current !== (activeSection?.id ?? null)
+      )
+        return;
+      const sourceContext = buildContextSourceMaterial({ activeSection, ...sourceText });
       const attachedAnnotationMatch =
         activeSection && contextMenu.type === 'selection'
           ? findSectionAnnotationForSelection({
@@ -313,6 +328,7 @@ export const useWorkspaceReaderActions = ({
       getCurrentSection,
       isMobileViewport,
       openContextAnswer,
+      notify,
       projectId,
       learningPlan?.title,
       sectionContent,

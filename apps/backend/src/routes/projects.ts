@@ -4,11 +4,16 @@ import {
 } from '@shared/courseSourceUpload';
 import { PDF_SCANNED_PAGE_LIMIT_CODE } from '@shared/pdfTranscription';
 import {
+  PROJECT_DEFERRED_WRITE_SUFFIX,
+  PROJECT_DOCUMENT_TEXT_HEADER,
+} from '@shared/projectDocumentText';
+import {
   SOURCE_INGESTION_REQUIRED_CODE,
   SOURCE_PREPARATION_CANCELLED_CODE,
   SOURCE_PREPARATION_UNUSABLE_CODE,
   SOURCE_STAGING_UNAVAILABLE_CODE,
 } from '@shared/sourcePreparation';
+import { deferProjectDocumentText } from '../projects/projectDocumentText.js';
 import {
   countRetainedScannedPages,
   withPdfTranscriptionCollection,
@@ -605,6 +610,13 @@ router.post('/projects/by-id', async (req: Request, res: Response) => {
   }
 });
 
+const projectResponseSnapshot = (req: Request, snapshot: ProjectSnapshot | null) =>
+  snapshot &&
+  req.get(PROJECT_DOCUMENT_TEXT_HEADER) === 'deferred' &&
+  req.query.documentText !== 'full'
+    ? deferProjectDocumentText(snapshot)
+    : snapshot;
+
 router.get('/projects/:id', async (req: Request, res: Response) => {
   try {
     const projectRecord = await getProjectStore().loadProjectWithRevision(
@@ -613,7 +625,7 @@ router.get('/projects/:id', async (req: Request, res: Response) => {
     );
     res.json({
       success: true,
-      project: projectRecord?.snapshot || null,
+      project: projectResponseSnapshot(req, projectRecord?.snapshot ?? null),
       revision: projectRecord?.revision,
       preparation: getProjectSourcePreparation(
         getCurrentUser(req).id,
@@ -805,34 +817,41 @@ const projectSourceIds = (source: unknown): string[] =>
       )
     : [];
 
-router.put('/projects/:id', async (req: Request, res: Response) => {
-  try {
-    const userId = getCurrentUser(req).id;
-    const projectId = getRouteParam(req.params.id);
-    if (req.is('multipart/form-data')) throw new SourceIngestionRequiredError();
-    const snapshot = requireProjectSnapshot(req.body, projectId);
-    if (
-      isRecord(snapshot.source) &&
-      snapshot.source.kind === 'archive' &&
-      isRecord(snapshot.source.file) &&
-      snapshot.source.file.data
-    )
-      throw new SourceIngestionRequiredError();
-    const expectedRevision = readExpectedRevision(getBodyRecord(req.body));
-    const store = getProjectStore();
-    const previous = isRecord(snapshot.source)
-      ? await store.loadProject(userId, projectId)
-      : undefined;
-    const saved = await store.saveProject(userId, snapshot, { expectedRevision });
-    const retainedIds = projectSourceIds(saved.snapshot.source);
-    if (projectSourceIds(previous?.source).some(id => !retainedIds.includes(id)))
-      await cancelProjectSourcePreparation(userId, projectId, retainedIds);
-    publishMetaRevision(userId, saved.meta);
-    res.json({ success: true, ...saved });
-  } catch (error) {
-    sendProjectWriteError(res, error, 'Failed to save project');
+router.put(
+  ['/projects/:id', `/projects/:id${PROJECT_DEFERRED_WRITE_SUFFIX}`],
+  async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUser(req).id;
+      const projectId = getRouteParam(req.params.id);
+      if (req.is('multipart/form-data')) throw new SourceIngestionRequiredError();
+      const snapshot = requireProjectSnapshot(req.body, projectId);
+      if (
+        isRecord(snapshot.source) &&
+        snapshot.source.kind === 'archive' &&
+        isRecord(snapshot.source.file) &&
+        snapshot.source.file.data
+      )
+        throw new SourceIngestionRequiredError();
+      const expectedRevision = readExpectedRevision(getBodyRecord(req.body));
+      const store = getProjectStore();
+      const previous = isRecord(snapshot.source)
+        ? await store.loadProject(userId, projectId)
+        : undefined;
+      const saved = await store.saveProject(userId, snapshot, { expectedRevision });
+      const retainedIds = projectSourceIds(saved.snapshot.source);
+      if (projectSourceIds(previous?.source).some(id => !retainedIds.includes(id)))
+        await cancelProjectSourcePreparation(userId, projectId, retainedIds);
+      publishMetaRevision(userId, saved.meta);
+      res.json({
+        success: true,
+        ...saved,
+        snapshot: projectResponseSnapshot(req, saved.snapshot),
+      });
+    } catch (error) {
+      sendProjectWriteError(res, error, 'Failed to save project');
+    }
   }
-});
+);
 
 const readNullableArray = (value: unknown): unknown[] | null | undefined => {
   if (value === null) return null;
@@ -918,31 +937,34 @@ const requireProjectPatch = (body: unknown, _routeProjectId: string): ProjectPat
   };
 };
 
-router.patch('/projects/:id', async (req: Request, res: Response) => {
-  try {
-    const body = getBodyRecord(req.body);
-    const projectId = getRouteParam(req.params.id);
-    const userId = getCurrentUser(req).id;
-    const patch = requireProjectPatch(body, projectId);
-    const rebaseMode = readProjectPatchRebaseMode(body);
-    if (rebaseMode === PROJECT_PATCH_REBASE_MODE.navigation && !isNavigationProjectPatch(patch)) {
-      throw new Error('Il rebase di navigazione accetta solo campi di navigazione.');
+router.patch(
+  ['/projects/:id', `/projects/:id${PROJECT_DEFERRED_WRITE_SUFFIX}`],
+  async (req: Request, res: Response) => {
+    try {
+      const body = getBodyRecord(req.body);
+      const projectId = getRouteParam(req.params.id);
+      const userId = getCurrentUser(req).id;
+      const patch = requireProjectPatch(body, projectId);
+      const rebaseMode = readProjectPatchRebaseMode(body);
+      if (rebaseMode === PROJECT_PATCH_REBASE_MODE.navigation && !isNavigationProjectPatch(patch)) {
+        throw new Error('Il rebase di navigazione accetta solo campi di navigazione.');
+      }
+      const meta = await getProjectStore().patchProject(userId, projectId, patch, {
+        expectedRevision: readExpectedRevision(body),
+        rebaseMode,
+        expectedQuizState: LessonQuizStateSchema.nullish().parse(body.expectedQuizState),
+        expectedLessonGenerationRunId:
+          body.expectedLessonGenerationRunId === null
+            ? null
+            : readOptionalString(body.expectedLessonGenerationRunId),
+      });
+      publishMetaRevision(userId, meta);
+      res.json({ success: true, meta });
+    } catch (error) {
+      sendProjectWriteError(res, error, 'Failed to patch project');
     }
-    const meta = await getProjectStore().patchProject(userId, projectId, patch, {
-      expectedRevision: readExpectedRevision(body),
-      rebaseMode,
-      expectedQuizState: LessonQuizStateSchema.nullish().parse(body.expectedQuizState),
-      expectedLessonGenerationRunId:
-        body.expectedLessonGenerationRunId === null
-          ? null
-          : readOptionalString(body.expectedLessonGenerationRunId),
-    });
-    publishMetaRevision(userId, meta);
-    res.json({ success: true, meta });
-  } catch (error) {
-    sendProjectWriteError(res, error, 'Failed to patch project');
   }
-});
+);
 
 router.delete('/projects/:id', async (req: Request, res: Response) => {
   try {
@@ -1121,7 +1143,7 @@ router.get('/import/chunks/:uploadId', async (req: Request, res: Response) => {
       success: true,
       complete: true,
       meta: upload.completed.meta,
-      snapshot,
+      snapshot: projectResponseSnapshot(req, snapshot),
       uploadStatus: upload.status,
     });
   } catch (error) {

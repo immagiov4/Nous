@@ -1725,3 +1725,76 @@ test('incremental response decoding preserves UTF-8 split between network chunks
     { id: 'folder', name: 'caffè ☕' },
   ]);
 });
+
+test('deferred writes fail safely on an older server without retrying an unprotected PUT', async () => {
+  const snapshot = {
+    ...buildPdfSnapshot(),
+    source: null,
+    documentIndex: {
+      kind: 'pdf-text-index' as const,
+      parsedAt: '2026-10-21',
+      textDeferred: true as const,
+      chunks: [],
+    },
+  };
+  fetchMock.mockResolvedValue(
+    new Response(JSON.stringify({ success: false, error: 'Not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  );
+  const repository = new HttpProjectRepository('http://backend.test');
+  await expect(repository.saveProject(snapshot, { expectedRevision: 1 })).rejects.toBeInstanceOf(
+    ProjectStorageError
+  );
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock.mock.calls[0][0]).toBe(
+    'http://backend.test/api/projects/projects/pdf-project/deferred'
+  );
+});
+
+test('first-use text follows a running source preparation with the full-text contract', async () => {
+  const snapshot: ProjectSnapshot = {
+    ...buildPdfSnapshot(),
+    documentIndex: {
+      kind: 'pdf-text-index',
+      parsedAt: '2026-10-21',
+      chunks: [
+        {
+          id: 'segment',
+          text: 'Prepared source text',
+          headingPath: [],
+          sequence: 0,
+          startOffset: 0,
+          endOffset: 20,
+        },
+      ],
+    },
+  };
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url.includes('/projects/pdf-project'))
+      return new Response(
+        JSON.stringify({ success: true, preparation: { uploadId: 'running-preparation' } })
+      );
+    const full = new URL(url).searchParams.get('documentText') === 'full';
+    return new Response(
+      JSON.stringify({
+        success: true,
+        complete: true,
+        meta: { id: snapshot.id, revision: 2 },
+        snapshot: full
+          ? snapshot
+          : {
+              ...snapshot,
+              documentIndex: { ...snapshot.documentIndex, textDeferred: true, chunks: [] },
+            },
+      })
+    );
+  });
+  const loaded = await new HttpProjectRepository('http://backend.test').loadProjectWithRevision(
+    snapshot.id,
+    { includeDocumentText: true }
+  );
+  expect(loaded?.snapshot.documentIndex?.chunks[0].text).toBe('Prepared source text');
+  expect(loaded?.snapshot.documentIndex?.textDeferred).toBeUndefined();
+});
