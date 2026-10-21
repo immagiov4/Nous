@@ -1,3 +1,4 @@
+import { MARKDOWN_RENDERING_CONTROL_PATTERN } from '@shared/markdownControlCharacters';
 import {
   type MarkdownRange,
   MIN_MARKDOWN_FENCE_LENGTH,
@@ -8,8 +9,6 @@ import {
 } from './codeRanges.ts';
 import { processMarkdownSegment, processMarkdownSegmentPreservingIndentation } from './segment.ts';
 
-const DELETE_CONTROL_CHARACTER = '\u007f';
-const ANSI_ESCAPE_SEQUENCE = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
 const MARKDOWN_LINE_ENDING_PATTERN = /\r\n?/gu;
 const POTENTIAL_MARKDOWN_FENCE_PATTERN = new RegExp(
   `\`{${MIN_MARKDOWN_FENCE_LENGTH},}|~{${MIN_MARKDOWN_FENCE_LENGTH},}`,
@@ -67,8 +66,7 @@ const getProjectedOffset = (
 export const normalizeMarkdownForRendering = (content: string): string => {
   const normalizedContent = stripHighlightTagsInsideMarkdownCode(
     content
-      .replaceAll(ANSI_ESCAPE_SEQUENCE, '')
-      .replaceAll(DELETE_CONTROL_CHARACTER, '')
+      .replaceAll(MARKDOWN_RENDERING_CONTROL_PATTERN, '')
       .replaceAll(MARKDOWN_LINE_ENDING_PATTERN, '\n')
   );
   const fencedCodePlan = planMarkdownFencedCode(normalizedContent);
