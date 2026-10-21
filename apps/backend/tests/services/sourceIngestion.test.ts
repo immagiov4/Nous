@@ -141,3 +141,87 @@ test.each([
     failures: [{ name: 'blank.txt', reason }],
   });
 });
+
+test.each([
+  'source-new',
+  'source-replaced',
+])('retains unopened source text while preparing %s', async uploadedId => {
+  const directory = await mkdtemp(join(tmpdir(), 'nous-retained-source-'));
+  directories.push(directory);
+  const path = join(directory, 'source');
+  const bytes = Buffer.from('New uploaded text');
+  await writeFile(path, bytes);
+  const descriptor = (id: string, text: string) => ({
+    id,
+    name: `${id}.txt`,
+    hash: id,
+    kind: 'text',
+    status: 'ready',
+    position: 0,
+    outline: [],
+    outlineOrigin: 'none',
+    file: { name: `${id}.txt`, mimeType: 'text/plain', data: '' },
+    documentIndex: {
+      kind: 'pdf-text-index',
+      parsedAt: '2026-10-21',
+      chunks: [
+        {
+          id: `${id}-chunk`,
+          text,
+          headingPath: [],
+          sequence: 0,
+          startOffset: 0,
+          endOffset: text.length,
+          sourceId: id,
+        },
+      ],
+    },
+  });
+  const retained = descriptor('source-retained', 'Retained complete text');
+  const replaced = descriptor('source-replaced', 'Replaced old text');
+  const stored = {
+    id: 'course',
+    version: '4.1',
+    createdAt: '',
+    updatedAt: '',
+    lastOpenedAt: '',
+    source: { kind: 'document', sources: [retained, replaced] },
+  };
+  const deferred = {
+    ...retained,
+    documentIndex: {
+      ...retained.documentIndex,
+      textDeferred: true,
+      chunks: retained.documentIndex.chunks.map(chunk => ({ ...chunk, text: '' })),
+    },
+  };
+  const uploaded = descriptor(uploadedId, 'Untrusted client text');
+  const result = await prepareSourceCollection({
+    snapshot: { ...stored, source: { kind: 'document', sources: [deferred, uploaded] } },
+    storedSnapshot: stored,
+    upload: {
+      path,
+      files: [
+        { id: uploadedId, name: uploaded.name, mimeType: 'text/plain', byteSize: bytes.length },
+      ],
+    },
+    context: {
+      userId: 'learner',
+      projectId: 'course',
+      uploadId: 'upload',
+      signal: new AbortController().signal,
+      reportProgress: () => undefined,
+    },
+  });
+  const combined = result.snapshot.documentIndex as { chunks: { text: string }[] };
+  expect(combined.chunks.map(chunk => chunk.text)).toEqual([
+    'Retained complete text',
+    'New uploaded text',
+  ]);
+  expect(result.snapshot.source).toMatchObject({
+    sources: [
+      { documentIndex: retained.documentIndex },
+      { documentIndex: { chunks: [{ text: 'New uploaded text' }] } },
+    ],
+  });
+});

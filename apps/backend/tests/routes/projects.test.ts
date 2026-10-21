@@ -163,6 +163,43 @@ describe('/api/projects', () => {
     expect(response.body).toMatchObject({ success: false, code, error: error.message });
   });
 
+  test('negotiates deferred segment text while preserving complete responses for older clients', async () => {
+    const documentIndex = {
+      kind: 'pdf-text-index',
+      parsedAt: '2026-10-21',
+      chunks: [
+        {
+          id: 'segment',
+          text: 'Synthetic source text',
+          headingPath: [],
+          sequence: 0,
+          startOffset: 0,
+          endOffset: 21,
+        },
+      ],
+    };
+    await store.saveProject('local-user', {
+      ...createSnapshot('deferred-course', 'Course'),
+      documentIndex,
+    });
+    const app = createApp();
+    const light = await request(app)
+      .get('/api/projects/projects/deferred-course')
+      .set('X-Nous-Document-Text', 'deferred')
+      .expect(200);
+    expect(light.body.project.documentIndex).toMatchObject({
+      textDeferred: true,
+      chunks: [{ id: 'segment', text: '' }],
+    });
+    const legacy = await request(app).get('/api/projects/projects/deferred-course').expect(200);
+    expect(legacy.body.project.documentIndex).toEqual(documentIndex);
+    const firstUse = await request(app)
+      .get('/api/projects/projects/deferred-course?documentText=full')
+      .set('X-Nous-Document-Text', 'deferred')
+      .expect(200);
+    expect(firstUse.body.project.documentIndex).toEqual(documentIndex);
+  });
+
   test('exposes the configured project import transfer contract', async () => {
     const response = await request(createApp()).get('/api/projects/config');
 
@@ -230,6 +267,18 @@ describe('/api/projects', () => {
     expect(status.body.snapshot.documentIndex.chunks).toMatchObject([
       { sourceId: 'source-first', text: 'Course source text' },
     ]);
+    const deferredStatus = await request(app)
+      .get(`/api/projects/import/chunks/${uploadId}`)
+      .set('X-Nous-Document-Text', 'deferred')
+      .expect(200);
+    expect(deferredStatus.body.snapshot.documentIndex).toMatchObject({
+      textDeferred: true,
+      chunks: [{ sourceId: 'source-first', text: '' }],
+    });
+    expect(deferredStatus.body.snapshot.source.sources[0].documentIndex).toMatchObject({
+      textDeferred: true,
+      chunks: [{ text: '' }],
+    });
     const stored = await request(app).get(`/api/projects/projects/${snapshot.id}/source`);
     expect(stored.body.source.data).toBe(original.toString('base64'));
     await store.saveProject(

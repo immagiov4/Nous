@@ -9,6 +9,8 @@ wiki_page_id: "p-database-schema"
 
 Opening the library needs names, folders and project placement; opening a course needs its lessons and saved progress. Nous stores these separately so a library listing does not fetch every complete course. PostgreSQL holds both forms of records, while Supabase Storage holds the source and generated file bytes their references identify.
 
+Course responses requested by the browser retain source segment identifiers, headings and page spans with deferred text. Context questions, assessment and exercise generation share the first text request for that loaded source; lesson workflows read the complete stored snapshot. An omitted or deferred index in a save retains the authoritative index in the same transaction. Complete exports and clients requesting the full response receive source text.
+
 ## Commit a project as one versioned unit
 
 A project snapshot groups its course, lesson content and study progress under an owner and revision. Generation prepares intermediate results outside that snapshot, then makes them visible by committing a project mutation. This gives the reader one accepted version to load while other work continues in [durable workflows](../02-section-architecture/02-p-workflow-engine.md).

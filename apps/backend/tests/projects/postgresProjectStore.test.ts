@@ -3209,6 +3209,8 @@ describe('PostgresProjectStore', () => {
         if (statement.includes('from public.projects') && statement.includes('for update')) {
           return Promise.resolve([{ id: PROJECT_META.id }]);
         }
+        if (statement.includes('select snapshot, document_index'))
+          return Promise.resolve([{ document_index: null, snapshot }]);
         return Promise.resolve([]);
       }),
       { json: vi.fn((value: unknown) => value) }
@@ -3238,9 +3240,11 @@ describe('PostgresProjectStore', () => {
     ).rejects.toBeInstanceOf(ProjectRevisionConflictError);
 
     expect(transactionStatements.some(statement => statement.includes('or revision ='))).toBe(true);
-    expect(transactionStatements.some(statement => statement.includes('project_snapshots'))).toBe(
-      false
-    );
+    expect(
+      transactionStatements.some(statement =>
+        statement.includes('insert into public.project_snapshots')
+      )
+    ).toBe(false);
   });
 });
 

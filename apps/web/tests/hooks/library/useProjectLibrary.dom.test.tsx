@@ -8,6 +8,7 @@ import { ProjectRevisionConflictError } from '../../../../backend/src/projects/p
 import type { ProjectSnapshot as StoredProjectSnapshot } from '../../../../backend/src/projects/types.ts';
 import { InMemoryProjectStore } from '../../../../backend/tests/helpers/inMemoryProjectStore.ts';
 import { useWorkspaceDomain } from '../../../hooks/workspace/useWorkspaceDomain';
+import { loadDocumentText } from '../../../services/projects/documentText';
 import { createLibraryArchiveBlob } from '../../../services/projects/libraryArchive.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import { normalizeStoredProject } from '../../../services/projects/projectSnapshot.ts';
@@ -267,6 +268,38 @@ describe('useProjectLibrary', () => {
         return vi.fn();
       }
     );
+  });
+
+  test('releases fetched document text on project change, close and unmount', async () => {
+    const index = { kind: 'pdf-text-index' as const, parsedAt: '2026-10-21', chunks: [] };
+    const current = { documentIndex: { ...index, textDeferred: true as const }, source: null };
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue({
+      revision: 1,
+      snapshot: buildSnapshot('text-lifecycle', { documentIndex: index }),
+    });
+    const { result, unmount } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => result.current.setCurrentProjectId('text-lifecycle'));
+    await loadDocumentText('text-lifecycle', current);
+    act(() => result.current.setCurrentProjectId('text-lifecycle'));
+    await loadDocumentText('text-lifecycle', current);
+    expect(repositoryMocks.loadProjectWithRevision).toHaveBeenCalledTimes(1);
+    act(() => result.current.setCurrentProjectId('other-course'));
+    act(() => result.current.setCurrentProjectId('text-lifecycle'));
+    await loadDocumentText('text-lifecycle', current);
+    expect(repositoryMocks.loadProjectWithRevision).toHaveBeenCalledTimes(2);
+    act(() => result.current.setCurrentProjectId(null));
+    act(() => result.current.setCurrentProjectId('text-lifecycle'));
+    await loadDocumentText('text-lifecycle', current);
+    expect(repositoryMocks.loadProjectWithRevision).toHaveBeenCalledTimes(3);
+    unmount();
+    await loadDocumentText('text-lifecycle', current);
+    expect(repositoryMocks.loadProjectWithRevision).toHaveBeenCalledTimes(4);
   });
 
   test('loads and sorts saved projects by last opened time', async () => {
