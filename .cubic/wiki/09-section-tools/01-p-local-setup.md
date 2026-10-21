@@ -30,3 +30,9 @@ Tests can use controlled identity. An interactive local bypass requires `AUTH_MO
 Install and authenticate Codex CLI on the host and set `CODEX_APP_SERVER_ENABLED=true`. Nous uses one internal app-server account through its authenticated API for administrators and assigned users. Keep that process private to the backend. [The Codex adapter](../06-section-backend/03-p-codex-server.md) describes its execution restrictions; speech still needs OpenRouter.
 
 With the stack ready, follow [verification](02-p-testing-quality.md) for fast checks on changed files, targeted tests and the CI integration contracts. [Deployment](../08-section-deployment/01-p-self-hosted.md) owns production service setup.
+
+## Repository agent skill
+
+The repository carries `requirements-blast-radius` in `.agents/skills/`, which Codex discovers directly. Claude's `.claude/skills/requirements-blast-radius/SKILL.md` points to the same canonical copy. Both clients declare a `UserPromptSubmit` hook in their committed repository settings; an installed global hook yields to that client's repository declaration. Bun runs the hook locally.
+
+Follow the skill's [installation instructions](../../../.agents/skills/requirements-blast-radius/references/screen.md#install-and-check) to update the vendored files. Keep backups outside the repository and commit the generated skill and client settings together. For the optional semantic screen, export `OPENROUTER_API_KEY` into the invoking process through your shell or secret manager; provider modes report a skipped screen when the variable is absent. The screen reads credentials only from the environment.
