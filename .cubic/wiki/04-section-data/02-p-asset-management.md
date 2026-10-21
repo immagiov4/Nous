@@ -24,7 +24,3 @@ An extracted PDF figure carries page and text context from the document that sup
 A portable [project archive](../03-section-features/05-p-project-workspace.md) carries saved data and the files needed to restore it. Import checks integrity, converts supported older archive shapes and reconnects image and PDF references to the imported copies. Unmatched references remain available for review instead of being attached to an unrelated file by guesswork.
 
 Playback audio has a different recovery contract because it can be derived again from the saved lesson and selected voice/model. Portable archives exclude that audio, while original sources and lesson visuals retain their bytes. Installation backups have a separately defined scope in [deployment recovery](../08-section-deployment/01-p-self-hosted.md#back-up-and-restore); choose that contract when changing operator backups rather than inferring it from project portability.
-
-## Load course covers
-
-Home and course cover generation share the cover loader. Its first stored-cover read also checks storage availability and supplies that project's cover. Other projects await the availability result before reading their own covers; concurrent requests for one project share the same in-flight operation. Settled covers are read again on later calls.
