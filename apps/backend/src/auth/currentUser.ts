@@ -1,13 +1,13 @@
 // Resolves the current backend user from either local dev bypass or Supabase JWT auth.
 import { createHmac, timingSafeEqual, webcrypto } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
-
 import {
   type AiProvider,
   isAiProvider,
   type ModelProviderOverrides,
   readModelProviderOverrides,
 } from '../config/modelConfig.js';
+import { recordRequestTiming } from '../workflows/requestObservability.js';
 
 const DEFAULT_LOCAL_USER_ID = 'local-user';
 export const LOCAL_AUTH_MODE = 'local-bypass' as const;
@@ -313,17 +313,21 @@ const resolveAuthenticatedUser = async (
   next: NextFunction,
   allowPasswordSetup: boolean
 ): Promise<void> => {
+  const started = performance.now();
+  const finishAuth = () => recordRequestTiming('auth', performance.now() - started);
   if (isLocalAuthBypassEnabled()) {
     (req as RequestWithCurrentUser).currentUser = {
       id: process.env.LOCAL_USER_ID?.trim() || DEFAULT_LOCAL_USER_ID,
       passwordSetupRequired: false,
     };
+    finishAuth();
     next();
     return;
   }
 
   const token = extractBearerToken(req);
   if (!token) {
+    finishAuth();
     res.status(401).json({
       success: false,
       error: AUTH_REQUIRED_MESSAGE,
@@ -334,6 +338,7 @@ const resolveAuthenticatedUser = async (
   try {
     const currentUser = await resolveSupabaseJwtUser(token);
     if (currentUser.passwordSetupRequired && !allowPasswordSetup) {
+      finishAuth();
       res.status(403).json({
         success: false,
         code: 'password_setup_required',
@@ -342,9 +347,11 @@ const resolveAuthenticatedUser = async (
       return;
     }
     (req as RequestWithCurrentUser).currentUser = currentUser;
+    finishAuth();
     next();
   } catch (error) {
     console.warn('[Auth] Supabase JWT rejected:', error);
+    finishAuth();
     res.status(401).json({
       success: false,
       error: INVALID_AUTH_MESSAGE,

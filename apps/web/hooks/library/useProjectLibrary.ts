@@ -3,9 +3,13 @@ import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { readSupabaseSession } from '../../services/auth/supabaseAuth.ts';
+import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
 import { ensureProjectCover } from '../../services/projects/courseCover.ts';
-import { HttpProjectRepository } from '../../services/projects/httpProjectRepository.ts';
+import {
+  getProjectRequestId,
+  HttpProjectRepository,
+} from '../../services/projects/httpProjectRepository.ts';
 import { recoverLegacyAnnotations } from '../../services/projects/legacyAnnotationRecovery.ts';
 import { importLibraryArchive } from '../../services/projects/libraryArchiveImport.ts';
 import { buildAutosaveSignature } from '../../services/projects/persistenceSignature';
@@ -407,7 +411,9 @@ export const useProjectLibrary = ({
   const applyPersistedProjectRevision = useCallback(
     async ({ projectId, revision }: { projectId: string; revision: number }): Promise<boolean> => {
       const adopt = async (attempt: number): Promise<boolean> => {
+        const queuedAt = performance.now();
         await getProjectWriteState(projectId).queue;
+        const queueWaitMs = performance.now() - queuedAt;
         if (currentProjectIdRef.current !== projectId) return false;
 
         const localSignature = buildAutosaveSignature(domainStateRef.current);
@@ -423,6 +429,10 @@ export const useProjectLibrary = ({
           invalidateRemoteDeletedProject(projectId);
           return false;
         }
+        pushNousDebugTrace('project:queue', {
+          requestId: getProjectRequestId(persisted.snapshot),
+          queueWaitMs,
+        });
         if (persisted.revision < revision) {
           throw new ProjectStorageError(
             'La lezione è stata salvata, ma non è stato possibile ricaricare la revisione aggiornata.',
@@ -452,6 +462,7 @@ export const useProjectLibrary = ({
         );
         if (persisted.revision < latestKnownRevision) return false;
 
+        const hydrateStarted = performance.now();
         const hydratedSnapshot = prepareSnapshotForHydration(persisted.snapshot);
         rememberExplicitProjectTitle(hydratedSnapshot);
         if (
@@ -469,6 +480,10 @@ export const useProjectLibrary = ({
         }
         lastPersistedSignatureRef.current = buildAutosaveSignature(hydratedSnapshot);
         hydrateSnapshotRef.current(hydratedSnapshot);
+        pushNousDebugTrace('project:hydrate', {
+          requestId: getProjectRequestId(persisted.snapshot),
+          durationMs: performance.now() - hydrateStarted,
+        });
         setStorageError(null);
         return persisted.revision === revision;
       };
@@ -535,10 +550,16 @@ export const useProjectLibrary = ({
       }
       writeState.pendingCount += 1;
       setProjectSyncState({ kind: 'write', phase: 'pending' });
+      const queuedAt = performance.now();
       const queuedWrite = writeState.queue.then(async () => {
+        const queueWaitMs = performance.now() - queuedAt;
         try {
           assertProjectNotDeleted();
           const meta = await operation();
+          pushNousDebugTrace('project:queue', {
+            requestId: getProjectRequestId(meta),
+            queueWaitMs,
+          });
           assertProjectNotDeleted();
           syncProjectMeta(meta);
           return meta;
@@ -1292,6 +1313,7 @@ export const useProjectLibrary = ({
         return;
       }
       rememberExplicitProjectTitle(persisted.snapshot);
+      const hydrateStarted = performance.now();
       const hydratedSnapshot = prepareSnapshotForHydration(persisted.snapshot);
       pendingRemoteRevisionRef.current = null;
       loadedProjectRevisionRef.current = {
@@ -1300,6 +1322,10 @@ export const useProjectLibrary = ({
       };
       lastPersistedSignatureRef.current = buildAutosaveSignature(hydratedSnapshot);
       hydrateSnapshotRef.current(hydratedSnapshot);
+      pushNousDebugTrace('project:hydrate', {
+        requestId: getProjectRequestId(persisted.snapshot),
+        durationMs: performance.now() - hydrateStarted,
+      });
       setStorageError(null);
       setProjectSyncState({ kind: 'idle' });
     } catch (error) {
@@ -1464,11 +1490,17 @@ export const useProjectLibrary = ({
         progress: import('@shared/sourcePreparation').SourcePreparationProgress
       ) => void
     ) => {
+      const queuedAt = performance.now();
       await getProjectWriteState(projectId).queue;
+      const queueWaitMs = performance.now() - queuedAt;
       const project = await projectRepositoryRef.current.loadProject(projectId, {
         onSourceProgress,
       });
       if (project) {
+        pushNousDebugTrace('project:queue', {
+          requestId: getProjectRequestId(project),
+          queueWaitMs,
+        });
         rememberExplicitProjectTitle(project);
       }
       return project;
@@ -1477,9 +1509,15 @@ export const useProjectLibrary = ({
   );
   const loadStoredProjectWithRevision = useCallback(
     async (projectId: string) => {
+      const queuedAt = performance.now();
       await getProjectWriteState(projectId).queue;
+      const queueWaitMs = performance.now() - queuedAt;
       const project = await projectRepositoryRef.current.loadProjectWithRevision(projectId);
       if (project) {
+        pushNousDebugTrace('project:queue', {
+          requestId: getProjectRequestId(project.snapshot),
+          queueWaitMs,
+        });
         rememberExplicitProjectTitle(project.snapshot);
       }
       return project;
@@ -1488,13 +1526,19 @@ export const useProjectLibrary = ({
   );
   const validateStoredProjectForOpen = useCallback(
     async (projectId: string) => {
+      const queuedAt = performance.now();
       await getProjectWriteState(projectId).queue;
+      const queueWaitMs = performance.now() - queuedAt;
       if (deletedProjectIdsRef.current.has(projectId)) return null;
       const project = await projectRepositoryRef.current.loadProjectWithRevision(projectId);
       if (!project) {
         invalidateRemoteDeletedProject(projectId);
         return null;
       }
+      pushNousDebugTrace('project:queue', {
+        requestId: getProjectRequestId(project.snapshot),
+        queueWaitMs,
+      });
       rememberExplicitProjectTitle(project.snapshot);
       return project;
     },

@@ -33,6 +33,10 @@ import {
   type SourceArchiveUnusableError,
 } from '../../src/projects/sourceArchive.js';
 import type { ProjectSnapshot, SavedProjectMeta } from '../../src/projects/types.js';
+import {
+  getRequestTimings,
+  runWithCorrelationId,
+} from '../../src/workflows/requestObservability.js';
 
 const PROJECT_META: SavedProjectMeta = {
   id: 'large-pdf-project',
@@ -112,6 +116,8 @@ const createMultiSourceSnapshot = (): ProjectSnapshot => ({
   lastOpenedAt: PROJECT_META.lastOpenedAt,
 });
 
+const activeSqlReservations = new WeakMap<object, number>();
+
 const createPostgresProjectStore = (
   sqlClient: ReturnType<typeof vi.fn> & {
     begin: ReturnType<typeof vi.fn>;
@@ -137,13 +143,15 @@ const createPostgresProjectStore = (
     }) as unknown as TemplateStringsArray;
     return sqlClient(strings, ...values);
   });
+  let activeReservations = 0;
+  activeSqlReservations.set(sqlClient, activeReservations);
   let transactionSql: ReturnType<typeof vi.fn> | undefined;
   const reservedSql = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) =>
     (transactionSql ?? sqlClient)(strings, ...values)
   );
   Object.assign(reservedSql, {
     json: sqlClient.json,
-    release: vi.fn(),
+    release: vi.fn(() => activeSqlReservations.set(sqlClient, --activeReservations)),
     unsafe: vi.fn(async (statement: string) => {
       if (statement === 'begin') {
         await sqlClient.begin(async (sql: ReturnType<typeof vi.fn>) => {
@@ -155,7 +163,10 @@ const createPostgresProjectStore = (
       return [];
     }),
   });
-  sqlClient.reserve = vi.fn(async () => reservedSql);
+  sqlClient.reserve = vi.fn(async () => {
+    activeSqlReservations.set(sqlClient, ++activeReservations);
+    return reservedSql;
+  });
   return new PostgresProjectStore(
     undefined,
     sqlClient as never,
@@ -2002,7 +2013,7 @@ describe('PostgresProjectStore', () => {
     );
   });
 
-  test('finishes ZIP PDF preparation before reserving a database session', async () => {
+  test('prepares ZIP PDFs without holding a database session', async () => {
     const zip = new JSZip();
     zip.file('docs/manual.pdf', '%PDF-manual');
     zip.file('docs/notes.txt', 'Appunti validi');
@@ -2058,12 +2069,12 @@ describe('PostgresProjectStore', () => {
 
     const save = store.saveProject('user-1', snapshot);
     await vi.waitFor(() => expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledOnce());
-    expect(sqlClient.reserve).not.toHaveBeenCalled();
+    expect(activeSqlReservations.get(sqlClient)).toBe(0);
 
     completeExtraction({ pages: [], text: '' });
     const saved = await save;
 
-    expect(sqlClient.reserve).toHaveBeenCalledOnce();
+    expect(activeSqlReservations.get(sqlClient)).toBe(0);
     expect(storage.upload).toHaveBeenCalledTimes(3);
     expect(saved.snapshot.source?.kind).toBe('archive');
     expect(
@@ -2081,7 +2092,7 @@ describe('PostgresProjectStore', () => {
     );
   });
 
-  test('rejects an all-unusable ZIP before reserving a database session', async () => {
+  test('rejects an all-unusable ZIP without retaining a database session', async () => {
     const zip = new JSZip();
     zip.file('scans/manual.pdf', '%PDF-manual');
     zip.file('notes/blank.txt', '   \n');
@@ -2119,7 +2130,7 @@ describe('PostgresProjectStore', () => {
       name: 'SourceArchiveUnusableError',
       warnings: [{ path: 'scans/manual.pdf', reason: 'no-usable-text' }],
     } satisfies Partial<SourceArchiveUnusableError>);
-    expect(sqlClient.reserve).not.toHaveBeenCalled();
+    expect(activeSqlReservations.get(sqlClient)).toBe(0);
     expect(sqlClient.begin).not.toHaveBeenCalled();
     expect(storage.upload).not.toHaveBeenCalled();
   });
@@ -3231,4 +3242,44 @@ describe('PostgresProjectStore', () => {
       false
     );
   });
+});
+
+test('source publication SQL contributes its elapsed time to the request query phase', async () => {
+  let clock = 0;
+  const now = vi.spyOn(performance, 'now').mockImplementation(() => clock);
+  const transaction = Object.assign(
+    vi.fn(async (strings: TemplateStringsArray) => {
+      const statement = strings.join('?');
+      if (statement.includes('insert into public.project_sources')) clock += 100;
+      return statement.includes('returning meta, revision')
+        ? [{ meta: PROJECT_META, revision: 1 }]
+        : [];
+    }),
+    { json: vi.fn((value: unknown) => value) }
+  );
+  const client = Object.assign(
+    vi.fn(async () => []),
+    {
+      begin: vi.fn(async (operation: (sql: typeof transaction) => Promise<unknown>) =>
+        operation(transaction)
+      ),
+      json: vi.fn((value: unknown) => value),
+    }
+  );
+  const store = createPostgresProjectStore(client, {
+    delete: vi.fn(async () => undefined),
+    download: vi.fn(),
+    upload: vi.fn(async () => undefined),
+  });
+  try {
+    const timings = await runWithCorrelationId('source-publication', async () => {
+      const saved = await store.saveProject('user-1', createMultiSourceSnapshot());
+      expect(saved.snapshot.source?.kind).toBe('document');
+      return { ...getRequestTimings() };
+    });
+    expect(timings.query).toBe(100);
+    expect(activeSqlReservations.get(client)).toBe(0);
+  } finally {
+    now.mockRestore();
+  }
 });
