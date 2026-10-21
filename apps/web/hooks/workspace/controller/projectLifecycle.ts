@@ -515,13 +515,16 @@ export const createProjectLifecycleCommands = (
       state.setOpeningProjectId(projectId);
       pushNousDebugTrace('open-project:start', { projectId, requestId });
 
-      const snapshot = await projectLibrary.loadStoredProject(projectId, progress =>
-        state.setWorkflowMessage(
-          'openProject',
-          requestId,
-          formatSourcePreparationProgress(progress)
-        )
+      const projectForOpen = await projectLibrary.validateStoredProjectForOpen(
+        projectId,
+        progress =>
+          state.setWorkflowMessage(
+            'openProject',
+            requestId,
+            formatSourcePreparationProgress(progress)
+          )
       );
+      const snapshot = projectForOpen?.snapshot;
       if (!state.isWorkflowCurrent('openProject', requestId)) {
         pushNousDebugTrace('open-project:stale-after-load', { projectId, requestId });
         return { outcome: 'stale' };
@@ -550,10 +553,12 @@ export const createProjectLifecycleCommands = (
       }
 
       let snapshotToHydrate = snapshot;
-      let repairedProjectRevision: number | undefined;
-      let hasAuthoritativeSnapshot = false;
+      let repairedProjectRevision = projectForOpen?.revision;
+      let hasAuthoritativeSnapshot = true;
       const pdfFile = snapshot.source?.kind === 'pdf' ? snapshot.source.file : null;
       if (needsPdfProjectHydration(pdfFile, snapshot.learningPlan, snapshot.documentIndex)) {
+        // Repair crosses an asynchronous mutation boundary; validate again before hydration.
+        hasAuthoritativeSnapshot = false;
         const repairState = getPdfProjectHydrationState(
           pdfFile,
           snapshot.learningPlan,
@@ -580,7 +585,7 @@ export const createProjectLifecycleCommands = (
               knownProjectRevision === undefined ||
               repair.projectRevision > knownProjectRevision)
           ) {
-            const repairedProject = await projectLibrary.loadStoredProjectWithRevision(projectId);
+            const repairedProject = await projectLibrary.validateStoredProjectForOpen(projectId);
             if (repairedProject) {
               snapshotToHydrate = repairedProject.snapshot;
               repairedProjectRevision = repairedProject.revision;

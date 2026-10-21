@@ -1487,16 +1487,37 @@ export const useProjectLibrary = ({
     [getProjectWriteState, rememberExplicitProjectTitle]
   );
   const validateStoredProjectForOpen = useCallback(
-    async (projectId: string) => {
-      await getProjectWriteState(projectId).queue;
-      if (deletedProjectIdsRef.current.has(projectId)) return null;
-      const project = await projectRepositoryRef.current.loadProjectWithRevision(projectId);
-      if (!project) {
-        invalidateRemoteDeletedProject(projectId);
-        return null;
+    async (
+      projectId: string,
+      onSourceProgress?: (
+        progress: import('@shared/sourcePreparation').SourcePreparationProgress
+      ) => void
+    ) => {
+      const writes = getProjectWriteState(projectId);
+      for (;;) {
+        const queue = writes.queue;
+        await queue;
+        if (queue !== writes.queue) continue;
+        if (deletedProjectIdsRef.current.has(projectId)) return null;
+        const metadata = savedProjectsRef.current.find(project => project.id === projectId);
+        const project = await projectRepositoryRef.current.loadProjectWithRevision(projectId, {
+          onSourceProgress,
+        });
+        const currentMetadata = savedProjectsRef.current.find(project => project.id === projectId);
+        const metadataChanged =
+          metadata && currentMetadata
+            ? !haveSameProjectMetadata(metadata, currentMetadata)
+            : metadata !== currentMetadata;
+        // Writes, reimports and remote metadata changes invalidate the in-flight read.
+        if (queue !== writes.queue || metadataChanged) continue;
+        if (deletedProjectIdsRef.current.has(projectId)) return null;
+        if (!project) {
+          invalidateRemoteDeletedProject(projectId);
+          return null;
+        }
+        rememberExplicitProjectTitle(project.snapshot);
+        return project;
       }
-      rememberExplicitProjectTitle(project.snapshot);
-      return project;
     },
     [getProjectWriteState, invalidateRemoteDeletedProject, rememberExplicitProjectTitle]
   );
