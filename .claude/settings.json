@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun -e \"const fs=require('node:fs'),path=require('node:path');let root=process.cwd();while(!fs.existsSync(path.join(root,'.git'))){const parent=path.dirname(root);if(parent===root)throw Error('Repository root not found');root=parent}require(path.join(root,'.agents/skills/requirements-blast-radius/scripts/prompt-hook.cjs'))\" -- --client claude --requirements-project-hook"
+          }
+        ]
+      }
+    ]
+  }
+}

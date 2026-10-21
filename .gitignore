@@ -59,6 +59,12 @@ deploy/secrets/*
 !deploy/secrets/.gitkeep
 
 # Personal editor and agent state
-.claude/
+.claude/*
+!.claude/settings.json
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/requirements-blast-radius/
+.claude/skills/requirements-blast-radius/*
+!.claude/skills/requirements-blast-radius/SKILL.md
 .mcp.json
 .impeccable/
