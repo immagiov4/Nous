@@ -407,6 +407,46 @@ test('retains final bounded scene diagnostics in the workflow failure', async ()
   });
 });
 
+import { getPlaybackMathMarkdown } from '@shared/lessonPlayback';
+import { FORMULA_SPOTLIGHT_MARKDOWN, formulaSpotlight } from '../../helpers/formulaSpotlight';
+
+test('preparation asks the model to choose a form for the complete math passage', async () => {
+  const mathBlock = segmentLessonPlayback([
+    { type: 'markdown', markdown: FORMULA_SPOTLIGHT_MARKDOWN },
+  ])[0];
+  const spokenMath = [
+    {
+      formula: String.raw`$p_\theta(y\mid x)$`,
+      spoken: 'pi con parametro theta di ipsilon dato ics',
+    },
+  ];
+  structured.mockResolvedValue({ spokenMath });
+  sceneGeneration.mockResolvedValue({ kind: 'scene', scene: formulaSpotlight });
+  expect(await prepareLessonPlaybackBlock({ ...input(), block: mathBlock })).toMatchObject({
+    prepared: { scene: formulaSpotlight, motion: [] },
+  });
+  expect(sceneGeneration).toHaveBeenCalledWith(
+    expect.objectContaining({
+      lessonMarkdown: FORMULA_SPOTLIGHT_MARKDOWN,
+      narration: resolvePlaybackNarration(mathBlock, spokenMath).speech,
+      allowTextFallback: true,
+    })
+  );
+  expect(motion).not.toHaveBeenCalled();
+  sceneGeneration.mockResolvedValue({ kind: 'text' });
+  expect(await prepareLessonPlaybackBlock({ ...input(), block: mathBlock })).toMatchObject({
+    prepared: { motion: [] },
+  });
+});
+
+test('code containing math syntax retains its authored visual', async () => {
+  const codeBlock = segmentLessonPlayback([
+    { type: 'markdown', markdown: 'Leggi questo codice.\n\n```js\nconst price = "$x$";\n```' },
+  ])[0];
+  expect(getPlaybackMathMarkdown(codeBlock)).toBeUndefined();
+  await prepareLessonPlaybackBlock({ ...input(), block: codeBlock });
+  expect(sceneGeneration).not.toHaveBeenCalled();
+});
 test('prepares one shared spoken formula before TTS and preserves that paid result after an audio retry', async () => {
   const markdown = String.raw`Consideriamo $p_\theta(y\mid x)$. La probabilità descrive il risultato.`;
   const raw = segmentLessonPlayback([{ type: 'markdown', markdown }])[0];
