@@ -51,10 +51,36 @@ describe('course covers', () => {
     });
 
     expect(dataUrl).toBe('data:image/webp;base64,c3RvcmVk');
+    expect(loadCover).toHaveBeenCalledTimes(1);
     expect(callOpenRouterMock).not.toHaveBeenCalled();
     expect(requestGeneratedImageMock).not.toHaveBeenCalled();
     expect(saveCover).not.toHaveBeenCalled();
     expect(optimizeCover).not.toHaveBeenCalled();
+  });
+
+  test('shares the initial storage check without sharing covers between projects or later calls', async () => {
+    const loadCover = vi.fn(async (projectId: string) => ({
+      data: btoa(projectId),
+      mimeType: 'image/webp',
+      name: `${projectId}-cover-v3.webp`,
+    }));
+    const saveCover = vi.fn();
+    const request = (projectId: string) => ({ loadCover, projectId, saveCover, title: projectId });
+
+    const [first, second, duplicate] = await Promise.all([
+      ensureProjectCover(request('first')),
+      ensureProjectCover(request('second')),
+      ensureProjectCover(request('first')),
+    ]);
+
+    expect(first).toBe(`data:image/webp;base64,${btoa('first')}`);
+    expect(second).toBe(`data:image/webp;base64,${btoa('second')}`);
+    expect(duplicate).toBe(first);
+    expect(loadCover.mock.calls).toEqual([['first'], ['second']]);
+    await expect(ensureProjectCover(request('first'))).resolves.toBe(first);
+    expect(loadCover.mock.calls).toEqual([['first'], ['second'], ['first']]);
+    expect(saveCover).not.toHaveBeenCalled();
+    expect(requestGeneratedImageMock).not.toHaveBeenCalled();
   });
 
   test('shares one generation while the same missing cover is requested twice', async () => {
@@ -79,6 +105,7 @@ describe('course covers', () => {
 
     expect(firstUrl).toBe('data:image/webp;base64,b3B0aW1pemVk');
     expect(secondUrl).toBe(firstUrl);
+    expect(loadCover).toHaveBeenCalledTimes(1);
     expect(requestGeneratedImageMock).toHaveBeenCalledTimes(1);
     expect(callOpenRouterMock).toHaveBeenCalledWith(
       expect.objectContaining({
