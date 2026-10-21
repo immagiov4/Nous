@@ -47,8 +47,11 @@ jobs:
       - name: Install Dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install Chromium
-        run: bunx playwright install --with-deps chromium
+      - name: Install Chromium and Firefox
+        run: bunx playwright install --with-deps chromium firefox
+
+      - name: Verify production audio in Chromium and Firefox
+        run: bun run test:audio-production
 
       - name: Run CI Gate
         run: bun run gate:ci

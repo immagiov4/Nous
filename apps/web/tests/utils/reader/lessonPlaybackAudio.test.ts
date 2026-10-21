@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+
+import SignalsmithStretch from 'signalsmith-stretch';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { LessonPlaybackAudio } from '../../../utils/reader/lessonPlaybackAudio.ts';
 
@@ -159,4 +161,76 @@ test('a late append reports exhaustion instead of skipping the next clip opening
   expect(ended).toHaveBeenCalledTimes(1);
   expect(audio.position).toEqual({ index: 0, time: 1, duration: 1 });
   expect(stretch.addBuffers).toHaveBeenCalledTimes(1);
+});
+
+test('initialization failure rejects start and an explicit unlock creates a working session', async () => {
+  audio.close();
+  vi.mocked(SignalsmithStretch).mockRejectedValueOnce(new Error('Module load failed'));
+  audio = new LessonPlaybackAudio();
+  const failed = vi.fn();
+  audio.onError = failed;
+  await vi.waitFor(() => expect(failed).toHaveBeenCalled());
+  await expect(audio.start([recording(0)], 0, 1, new AbortController().signal)).rejects.toThrow(
+    'Module load failed'
+  );
+  await audio.unlock();
+  await audio.start([recording(0)], 0, 1, new AbortController().signal);
+  clock.currentTime = 1;
+  expect(audio.position?.time).toBe(1);
+});
+
+test('a context constructor failure is observable and retry creates a context', async () => {
+  audio.close();
+  let fail = true;
+  vi.stubGlobal('AudioContext', function MockAudioContext() {
+    if (fail) {
+      fail = false;
+      throw new Error('Context failed');
+    }
+    return clock;
+  });
+  audio = new LessonPlaybackAudio();
+  const failed = vi.fn();
+  audio.onError = failed;
+  await vi.waitFor(() => expect(failed).toHaveBeenCalled());
+  await audio.unlock();
+  await audio.start([recording(0)], 0, 1, new AbortController().signal);
+  expect(audio.position).toEqual({ index: 0, time: 0, duration: 1 });
+});
+
+test('resume rejection reports an error and an explicit unlock recovers', async () => {
+  const failed = vi.fn();
+  audio.onError = failed;
+  clock.resume.mockRejectedValueOnce(new Error('Context resume failed'));
+  await expect(audio.unlock()).rejects.toThrow('Context resume failed');
+  expect(failed).toHaveBeenCalled();
+  await audio.unlock();
+  await audio.start([recording(0)], 0, 1, new AbortController().signal);
+  expect(audio.position).toEqual({ index: 0, time: 0, duration: 1 });
+});
+
+test('a failed stop from the retired session cannot interrupt playback after retry', async () => {
+  let rejectStop = (_error: Error) => {};
+  stretch.stop.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectStop = reject;
+      })
+  );
+  clock.resume.mockRejectedValueOnce(new Error('Resume failed'));
+  const failed = vi.fn();
+  audio.onError = failed;
+  await expect(audio.start([recording(0)], 0, 1, new AbortController().signal)).rejects.toThrow(
+    'Resume failed'
+  );
+  await vi.waitFor(() => expect(stretch.stop).toHaveBeenCalled());
+  await audio.unlock();
+  await audio.start([recording(0)], 0, 1, new AbortController().signal);
+  const errorsBeforeRetiredStop = failed.mock.calls.length;
+  rejectStop(new Error('Retired context closed'));
+  await vi.waitFor(() => expect(failed).toHaveBeenCalledTimes(errorsBeforeRetiredStop));
+  await new Promise<void>(resolve => queueMicrotask(resolve));
+  clock.currentTime = 1;
+  expect(failed).toHaveBeenCalledTimes(errorsBeforeRetiredStop);
+  expect(audio.position?.time).toBe(1);
 });
