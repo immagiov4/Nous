@@ -11,6 +11,8 @@ A self-hosted installation runs the Nous application and its Supabase data servi
 
 ## Separate public entry from private services
 
+The production Docker images share a dependency stage that copies the package manifests, lockfile and dependency patches before the frozen install. Application sources enter later stages so source edits preserve the dependency cache. CI builds the shared dependency stage to verify that the Docker context contains every declared patch.
+
 The public origin reaches the application through the configured HTTPS and reverse-proxy boundary. Database, service-role and provider credentials stay with the backend. Supabase supplies authentication, PostgreSQL and file storage, and the browser receives only its public connection information. [Authentication](../06-section-backend/02-p-auth.md) explains why privileged backend connections still require per-request ownership checks.
 
 Use the self-hosted profile in the [production environment example](../../../deploy/.env.production.example). The deployment scripts coordinate the pinned Supabase bundle, application services, migrations and health checks. Their preflight and contract checks test actual service connections rather than treating a built container as proof of a working installation.
