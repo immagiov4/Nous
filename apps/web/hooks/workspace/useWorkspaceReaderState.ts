@@ -22,11 +22,11 @@ import {
 } from '../../utils/reader/workspaceReader.ts';
 import { useReaderChrome } from '../reader/useReaderChrome.ts';
 import { useReaderContext } from '../reader/useReaderContext.ts';
-import { useReaderSpeechBlocks } from '../reader/useReaderSpeech.ts';
 import { useTtsPlayer } from '../reader/useTtsPlayer.ts';
 import { useTtsTextPicker } from '../reader/useTtsTextPicker.ts';
 
 interface UseWorkspaceReaderStateArgs {
+  projectId?: string | null;
   activeSection: LearningSection | null;
   activeSectionId: string | null;
   documentAssets: PdfDocumentAssets | null;
@@ -45,6 +45,7 @@ const areSettingsSectionsEqual = (
   currentSections.every((sectionId, index) => sectionId === nextSections[index]);
 
 export const useWorkspaceReaderState = ({
+  projectId,
   activeSection,
   activeSectionId,
   documentAssets,
@@ -88,14 +89,11 @@ export const useWorkspaceReaderState = ({
     sectionAnnotations: activeSection?.annotations,
     sectionContent,
   });
-  const { speechBlocks } = useReaderSpeechBlocks({
-    contentRef,
-    sectionContent,
-  });
   const ttsPlayer = useTtsPlayer({
+    projectId,
+    contentBlocks: activeSection?.contentBlocks,
     activeSectionId,
     sectionContent,
-    speechBlocks,
   });
   const ttsTextPicker = useTtsTextPicker({
     chunkTexts: ttsPlayer.chunkTexts,
