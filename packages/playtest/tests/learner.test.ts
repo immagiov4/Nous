@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Browser, chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { withMutedAudio } from '../../../scripts/browser-audio';
 import {
   type DecisionSource,
   type LearnerDecision,
@@ -364,7 +365,7 @@ describe('learner with the headless operator', () => {
   let browser: Browser;
   let runDir: string;
   beforeAll(async () => {
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch(withMutedAudio({ headless: true }));
     runDir = await mkdtemp(join(tmpdir(), 'playtest-learner-'));
   });
   afterAll(async () => {

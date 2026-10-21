@@ -773,17 +773,19 @@ describe('heavy command admission', () => {
       expect(existsSync(join(lock, 'other.json'))).toBe(true);
     } else {
       expect(existsSync(lock)).toBe(false);
-      const pid = Number(readFileSync(childPid, 'utf8'));
-      expect(() => process.kill(pid, 0)).toThrow();
-      const descendantProcessId = Number(readFileSync(descendantPid, 'utf8'));
-      await until(() => {
-        try {
-          process.kill(descendantProcessId, 0);
-          return false;
-        } catch {
-          return true;
-        }
-      });
+      // The supervisor can exit before the OS has reaped every killed group member.
+      for (const pidFile of [childPid, descendantPid]) {
+        const pid = Number(readFileSync(pidFile, 'utf8'));
+        await until(() => {
+          try {
+            process.kill(pid, 0);
+            return false;
+          } catch {
+            return true;
+          }
+        });
+        expect(() => process.kill(pid, 0)).toThrow();
+      }
     }
   });
 

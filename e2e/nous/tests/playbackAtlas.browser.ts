@@ -7,6 +7,7 @@ import { chromium } from 'playwright';
 import { createProjectArchiveBlob } from '../../../apps/web/services/projects/projectArchive';
 import { normalizeStoredProject } from '../../../apps/web/services/projects/projectSnapshot';
 import { VIEWPORTS } from '../../../packages/playtest/src/operator/viewports';
+import { withMutedAudio } from '../../../scripts/browser-audio';
 import { visualFindings } from '../atlas/checks';
 import { inspectAtlasDom } from '../atlas/dom';
 import { DEFAULT_PLAYBACK_SCENARIO } from '../atlas/scenario';
@@ -36,7 +37,7 @@ async function runAtlas(args: string[]): Promise<Awaited<ReturnType<typeof runPl
 
 /** Explicit browser contract run; standalone so it uses the harness's waits, not a new test timeout. */
 if (import.meta.main) {
-  const startupBrowser = await chromium.launch({ headless: true });
+  const startupBrowser = await chromium.launch(withMutedAudio({ headless: true }));
   try {
     const page = await startupBrowser.newPage();
     await installAtlasClock(page);
@@ -306,7 +307,7 @@ if (import.meta.main) {
       'The archive-backed PDF image must be decoded before capture.'
     );
 
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch(withMutedAudio({ headless: true }));
     try {
       const page = await browser.newPage({ viewport: VIEWPORTS.desktop });
       await page.setContent(

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Browser, chromium, type Page } from 'playwright';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { withMutedAudio } from '../../../scripts/browser-audio';
 import { groundingFailure } from '../src/inspector/grounding';
 import { SCREENSHOT_PRIVACY_MASK } from '../src/operator/observe';
 import {
@@ -21,7 +22,7 @@ let sessionClosed = true;
 let runDir: string;
 
 beforeAll(async () => {
-  browser = await chromium.launch({ headless: true, channel: 'chromium' });
+  browser = await chromium.launch(withMutedAudio({ headless: true, channel: 'chromium' }));
 });
 afterAll(async () => {
   await browser?.close();

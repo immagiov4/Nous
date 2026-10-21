@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { type Browser, chromium } from 'playwright';
+import { withMutedAudio } from '../../../scripts/browser-audio';
 import type { ObservedEvent, PlaytestAdapter, StopVerdict } from './adapter';
 import { type DiagnosticRecord, recordDiagnostic, withDiagnostics } from './diagnostics';
 import {
@@ -547,7 +548,7 @@ async function executePlaytest(options: RunOptions, run: DiagnosticRecord): Prom
   const worker = async () => {
     let browser: Browser | undefined;
     const getBrowser = async () => {
-      browser ??= await chromium.launch({ headless: !options.headed });
+      browser ??= await chromium.launch(withMutedAudio({ headless: !options.headed }));
       return browser;
     };
     try {
