@@ -1,3 +1,4 @@
+import type { LessonPlaybackBlock } from '@shared/lessonPlayback';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from './config.ts';
 import type { TtsModelsResponse, TtsStatusResponse, TtsVoiceDescriptor } from './types.ts';
@@ -5,6 +6,8 @@ import type { TtsModelsResponse, TtsStatusResponse, TtsVoiceDescriptor } from '.
 const TTS_DISCOVERY_REQUEST_TIMEOUT_MS = 5_000;
 
 interface GenerateSpeechPayload {
+  block?: LessonPlaybackBlock;
+  target?: { projectId: string; sectionId: string };
   model: string;
   text: string;
   voice: string;

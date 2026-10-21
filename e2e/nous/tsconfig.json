@@ -14,5 +14,5 @@
       "@shared/*": ["../../packages/shared-types/*"]
     }
   },
-  "include": ["*.ts", "tests/**/*", "../../packages/playtest/src/**/*"]
+  "include": ["*.ts", "atlas/*.ts", "tests/**/*", "../../packages/playtest/src/**/*"]
 }

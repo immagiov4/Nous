@@ -89,6 +89,7 @@ const AppContent = () => {
   );
 
   const readerState = useWorkspaceReaderState({
+    projectId: projectLibrary.currentProjectId,
     activeSection: domain.activeSection,
     activeSectionId: domain.activeSectionId,
     documentAssets: domain.documentAssets,

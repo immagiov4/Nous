@@ -1,6 +1,22 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
+vi.mock('../../src/services/speechPreparationCache.js', () => ({
+  speechPreparationCache: {
+    resolve: async (
+      _owner: string,
+      _key: string,
+      _parse: unknown,
+      prepare: () => Promise<unknown>
+    ) => prepare(),
+  },
+}));
+
+const narration = vi.hoisted(() => vi.fn());
+vi.mock('../../src/services/structuredGeneration.js', () => ({
+  generateStructuredOutput: narration,
+}));
+
 const ttsClientMocks = vi.hoisted(() => ({
   generateSpeech: vi.fn(),
   listModels: vi.fn(),
@@ -70,12 +86,15 @@ describe('POST /api/tts', () => {
       ttsVoice: 'Ara',
     });
 
-    const response = await request(createApp()).post('/api/tts').send({
-      text: 'Ciao Nous',
-      model: 'client/ignored-tts-model',
-      voice: 'Eve',
-      speed: 1,
-    });
+    const response = await request(createApp())
+      .post('/api/tts')
+      .send({
+        text: 'Ciao Nous',
+        signal: expect.any(AbortSignal),
+        model: 'client/ignored-tts-model',
+        voice: 'Eve',
+        speed: 1,
+      });
 
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('audio/mpeg');
@@ -84,6 +103,7 @@ describe('POST /api/tts', () => {
     expect(response.body).toBeInstanceOf(Buffer);
     expect(ttsClientMocks.generateSpeech).toHaveBeenCalledWith({
       text: 'Ciao Nous',
+      signal: expect.any(AbortSignal),
       model: 'server/tts-model',
       voice: 'Eve',
       speed: 1,
@@ -120,5 +140,30 @@ describe('POST /api/tts', () => {
         },
       ],
     });
+  });
+
+  test('prepares inline and display mathematics before standard reader synthesis', async () => {
+    narration.mockImplementation(async ({ prompt }: { prompt: string }) => ({
+      spokenMath: JSON.parse(prompt).formulas.map((formula: string) => ({
+        formula,
+        spoken: formula.includes('mathcal')
+          ? 'pi di a'
+          : formula.includes('sum')
+            ? 'somma degli i'
+            : 'effe da a in bi',
+      })),
+    }));
+    const response = await request(createApp())
+      .post('/api/tts')
+      .send({
+        text: String.raw`Consideriamo $\mathcal{P}(A)$ e $f: A\to B$.\n\n$$\sum_{i=1}^{n} i$$`.replaceAll(
+          '\\n',
+          '\n'
+        ),
+      });
+    expect(response.status).toBe(200);
+    expect(ttsClientMocks.generateSpeech.mock.calls.at(-1)?.[0].text).toBe(
+      'Consideriamo pi di a e effe da a in bi. somma degli i'
+    );
   });
 });
