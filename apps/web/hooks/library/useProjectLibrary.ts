@@ -406,67 +406,73 @@ export const useProjectLibrary = ({
 
   const applyPersistedProjectRevision = useCallback(
     async ({ projectId, revision }: { projectId: string; revision: number }): Promise<boolean> => {
-      await getProjectWriteState(projectId).queue;
-      if (currentProjectIdRef.current !== projectId) return false;
+      const adopt = async (attempt: number): Promise<boolean> => {
+        await getProjectWriteState(projectId).queue;
+        if (currentProjectIdRef.current !== projectId) return false;
 
-      const localSignature = buildAutosaveSignature(domainStateRef.current);
-      if (localSignature !== lastPersistedSignatureRef.current) {
-        throw new ProjectStorageError(
-          'Il corso contiene modifiche locali non ancora sincronizzate. Attendi il salvataggio e riprova.',
-          'revision-conflict'
+        const localSignature = buildAutosaveSignature(domainStateRef.current);
+        if (localSignature !== lastPersistedSignatureRef.current) {
+          throw new ProjectStorageError(
+            'Il corso contiene modifiche locali non ancora sincronizzate. Attendi il salvataggio e riprova.',
+            'revision-conflict'
+          );
+        }
+
+        const persisted = await projectRepositoryRef.current.loadProjectWithRevision(projectId);
+        if (!persisted) {
+          invalidateRemoteDeletedProject(projectId);
+          return false;
+        }
+        if (persisted.revision < revision) {
+          throw new ProjectStorageError(
+            'La lezione è stata salvata, ma non è stato possibile ricaricare la revisione aggiornata.',
+            'persistence-failed'
+          );
+        }
+        if (currentProjectIdRef.current !== projectId) return false;
+        if (buildAutosaveSignature(domainStateRef.current) !== localSignature) {
+          // The learner edited while the snapshot loaded, so the write that moved the signature
+          // belongs to this session. Drain it and adopt again instead of reporting a conflict.
+          if (attempt === 0) return adopt(1);
+          throw new ProjectStorageError(
+            'Il corso è cambiato durante la sincronizzazione. Attendi il salvataggio e riprova.',
+            'revision-conflict'
+          );
+        }
+
+        const currentMeta = savedProjectsRef.current.find(project => project.id === projectId);
+        const latestKnownRevision = Math.max(
+          loadedProjectRevisionRef.current.projectId === projectId
+            ? loadedProjectRevisionRef.current.revision || 0
+            : 0,
+          currentMeta?.revision || 0,
+          pendingRemoteRevisionRef.current?.projectId === projectId
+            ? pendingRemoteRevisionRef.current.revision
+            : 0
         );
-      }
+        if (persisted.revision < latestKnownRevision) return false;
 
-      const persisted = await projectRepositoryRef.current.loadProjectWithRevision(projectId);
-      if (!persisted) {
-        invalidateRemoteDeletedProject(projectId);
-        return false;
-      }
-      if (persisted.revision < revision) {
-        throw new ProjectStorageError(
-          'La lezione è stata salvata, ma non è stato possibile ricaricare la revisione aggiornata.',
-          'persistence-failed'
-        );
-      }
-      if (currentProjectIdRef.current !== projectId) return false;
-      if (buildAutosaveSignature(domainStateRef.current) !== localSignature) {
-        throw new ProjectStorageError(
-          'Il corso è cambiato durante la sincronizzazione. Attendi il salvataggio e riprova.',
-          'revision-conflict'
-        );
-      }
-
-      const currentMeta = savedProjectsRef.current.find(project => project.id === projectId);
-      const latestKnownRevision = Math.max(
-        loadedProjectRevisionRef.current.projectId === projectId
-          ? loadedProjectRevisionRef.current.revision || 0
-          : 0,
-        currentMeta?.revision || 0,
-        pendingRemoteRevisionRef.current?.projectId === projectId
-          ? pendingRemoteRevisionRef.current.revision
-          : 0
-      );
-      if (persisted.revision < latestKnownRevision) return false;
-
-      const hydratedSnapshot = prepareSnapshotForHydration(persisted.snapshot);
-      rememberExplicitProjectTitle(hydratedSnapshot);
-      if (
-        currentMeta &&
-        (currentMeta.revision === undefined || persisted.revision > currentMeta.revision)
-      ) {
-        syncProjectMeta({ ...currentMeta, revision: persisted.revision });
-      }
-      loadedProjectRevisionRef.current = { projectId, revision: persisted.revision };
-      if (
-        pendingRemoteRevisionRef.current?.projectId === projectId &&
-        pendingRemoteRevisionRef.current.revision <= persisted.revision
-      ) {
-        pendingRemoteRevisionRef.current = null;
-      }
-      lastPersistedSignatureRef.current = buildAutosaveSignature(hydratedSnapshot);
-      hydrateSnapshotRef.current(hydratedSnapshot);
-      setStorageError(null);
-      return persisted.revision === revision;
+        const hydratedSnapshot = prepareSnapshotForHydration(persisted.snapshot);
+        rememberExplicitProjectTitle(hydratedSnapshot);
+        if (
+          currentMeta &&
+          (currentMeta.revision === undefined || persisted.revision > currentMeta.revision)
+        ) {
+          syncProjectMeta({ ...currentMeta, revision: persisted.revision });
+        }
+        loadedProjectRevisionRef.current = { projectId, revision: persisted.revision };
+        if (
+          pendingRemoteRevisionRef.current?.projectId === projectId &&
+          pendingRemoteRevisionRef.current.revision <= persisted.revision
+        ) {
+          pendingRemoteRevisionRef.current = null;
+        }
+        lastPersistedSignatureRef.current = buildAutosaveSignature(hydratedSnapshot);
+        hydrateSnapshotRef.current(hydratedSnapshot);
+        setStorageError(null);
+        return persisted.revision === revision;
+      };
+      return adopt(0);
     },
     [
       getProjectWriteState,
