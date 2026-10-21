@@ -1,7 +1,6 @@
 // Express server bootstrap for the backend API.
 import './config/env.js';
 import { closeAccountStore } from './account/accountStore.js';
-
 import { closeBackendResources } from './backendShutdown.js';
 import { getResolvedGlobalModelConfig } from './config/modelConfig.js';
 import {
@@ -17,6 +16,7 @@ import { getProjectStore } from './projects/projectStore.js';
 import { closeManagedCodexAccountClient } from './services/codexAppServer.js';
 import { startFeedbackOutboxWorker, stopFeedbackOutboxWorker } from './services/feedbackService.js';
 import { loadIconIndex } from './services/lessonScenes/lessonSceneIcons.js';
+import { closeSpeechPreparationCache } from './services/speechPreparationCache.js';
 import { DEFAULT_TTS_MODEL } from './services/ttsClient.js';
 import {
   type CreateWorkflowRuntimeCompositionOptions,
@@ -121,6 +121,7 @@ export async function startBackend(
     try {
       await closeBackendResources({
         closeAccountStore,
+        closeSpeechPreparation: closeSpeechPreparationCache,
         closeLibraryExports: libraryExportApi.close,
         closeCodex: closeManagedCodexAccountClient,
         closeHttpServer,

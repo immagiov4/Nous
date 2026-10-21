@@ -1,3 +1,4 @@
+import type { LessonPlaybackBlock } from '@shared/lessonPlayback';
 import {
   DEFAULT_TTS_MODEL,
   DEFAULT_VOICE_OPTIONS,
@@ -14,17 +15,27 @@ import {
 } from './ttsClient.ts';
 import type { TtsModelSummary } from './types.ts';
 
-export const generateSpeech = async (
-  text: string,
-  voice: VoiceProfileId,
-  model = DEFAULT_TTS_MODEL
-): Promise<SpeechAudioResponse> => {
+export const generateSpeech = async ({
+  text,
+  voice,
+  model = DEFAULT_TTS_MODEL,
+  block,
+  target,
+}: {
+  text: string;
+  voice: VoiceProfileId;
+  model?: string;
+  block: LessonPlaybackBlock;
+  target: { projectId: string; sectionId: string };
+}): Promise<SpeechAudioResponse> => {
   try {
     return await requestSpeechAudio({
       model,
       text,
       voice,
       speed: 1,
+      block,
+      target,
     });
   } catch (error) {
     throw normalizeTtsConnectionError(error);

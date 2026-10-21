@@ -7,6 +7,7 @@ vi.mock('../../src/config/chatConfig.js', () => ({
 }));
 
 const { DEFAULT_TTS_MODEL, ttsClient } = await import('../../src/services/ttsClient.js');
+const { resolveCurrentUser } = await import('../../src/auth/currentUser.js');
 const { default: ttsRouter } = await import('../../src/routes/tts.js');
 const { patchGlobalModelConfig, resetModelConfigForTesting } = await import(
   '../../src/config/modelConfig.js'
@@ -182,7 +183,7 @@ describe('ttsClient', () => {
           })
         : createAudioResponse()
     );
-    const app = express().use(express.json()).use('/api/tts', ttsRouter);
+    const app = express().use(express.json()).use('/api/tts', resolveCurrentUser, ttsRouter);
     const response = await request(app).post('/api/tts').send({ text: 'Ciao.', voice });
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toBe(contentType);

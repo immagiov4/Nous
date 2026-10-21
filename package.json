@@ -70,7 +70,9 @@
     "test:lesson-evidence-quality": "bun scripts/heavy-run.mjs --label test:lesson-evidence-quality -- bun run scripts/run-lesson-evidence-quality.ts",
     "test:watch": "bun scripts/heavy-run.mjs --label test:watch -- bun --bun vitest --config apps/web/vitest.config.ts",
     "test:coverage": "bun scripts/heavy-run.mjs --label test:coverage --shell \"bun run prepare:coverage && vitest run --coverage --config apps/web/vitest.config.ts\" --",
-    "check:changed": "bun scripts/check-changed.mjs"
+    "check:changed": "bun scripts/check-changed.mjs",
+    "atlas:playback": "bun run e2e/nous/playbackAtlas.ts",
+    "test:atlas:browser": "bun run e2e/nous/tests/playbackAtlas.browser.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.139",

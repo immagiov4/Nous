@@ -16,9 +16,7 @@ vi.mock('../../../services/openrouter', () => ({
   getTTSVoices: openRouterMocks.getTTSVoices,
 }));
 
-const { splitContentIntoChunks, splitOversizedText, useTtsPlayer } = await import(
-  '../../../hooks/reader/useTtsPlayer.ts'
-);
+const { useTtsPlayer } = await import('../../../hooks/reader/useTtsPlayer.ts');
 
 class FakeAudio {
   currentTime = 0;
@@ -46,90 +44,86 @@ class FakeAudio {
   }
 }
 
-describe('useTtsPlayer', () => {
-  beforeEach(() => {
-    openRouterMocks.checkTTSStatus.mockReset();
-    openRouterMocks.generateSpeech.mockReset();
-    openRouterMocks.getTTSModels.mockReset();
-    openRouterMocks.getTTSVoices.mockReset();
+beforeEach(() => {
+  openRouterMocks.checkTTSStatus.mockReset();
+  openRouterMocks.generateSpeech.mockReset();
+  openRouterMocks.getTTSModels.mockReset();
+  openRouterMocks.getTTSVoices.mockReset();
 
-    openRouterMocks.checkTTSStatus.mockResolvedValue({
-      isReady: true,
-      isRunning: true,
-    });
-    openRouterMocks.generateSpeech.mockResolvedValue({
-      audioBuffer: new ArrayBuffer(480),
-      contentType: 'audio/wav',
-    });
-    openRouterMocks.getTTSModels.mockResolvedValue({
-      defaultModel: 'google/gemini-3.8-flash-lite-tts',
-      models: [
-        {
-          contextLength: 4096,
-          id: 'google/gemini-3.8-flash-lite-tts',
-          name: 'Google: Gemini 3.8 Flash Lite TTS',
-          pricing: { completion: '0.000006', prompt: '0.0000005' },
-          supportedParameters: ['response_format'],
-          supportsVoiceCloning: false,
-        },
-      ],
-    });
-    openRouterMocks.getTTSVoices.mockResolvedValue([
-      { id: 'Zephyr', label: 'Zephyr', language: 'it-IT' },
-    ]);
-
-    vi.stubGlobal('Audio', FakeAudio as unknown as typeof Audio);
-    globalThis.Audio = FakeAudio as unknown as typeof Audio;
-    Object.defineProperty(URL, 'createObjectURL', {
-      configurable: true,
-      writable: true,
-      value: vi.fn(() => 'blob:nous-audio'),
-    });
-    Object.defineProperty(URL, 'revokeObjectURL', {
-      configurable: true,
-      writable: true,
-      value: vi.fn(),
-    });
+  openRouterMocks.checkTTSStatus.mockResolvedValue({
+    isReady: true,
+    isRunning: true,
   });
+  openRouterMocks.generateSpeech.mockResolvedValue({
+    audioBuffer: new ArrayBuffer(480),
+    contentType: 'audio/wav',
+  });
+  openRouterMocks.getTTSModels.mockResolvedValue({
+    defaultModel: 'google/gemini-3.8-flash-lite-tts',
+    models: [
+      {
+        contextLength: 4096,
+        id: 'google/gemini-3.8-flash-lite-tts',
+        name: 'Google: Gemini 3.8 Flash Lite TTS',
+        pricing: { completion: '0.000006', prompt: '0.0000005' },
+        supportedParameters: ['response_format'],
+        supportsVoiceCloning: false,
+      },
+    ],
+  });
+  openRouterMocks.getTTSVoices.mockResolvedValue([
+    { id: 'Zephyr', label: 'Zephyr', language: 'it-IT' },
+  ]);
 
-  test('splits oversized text and groups speech blocks predictably', () => {
-    expect(splitOversizedText('alfa beta gamma delta', 9)).toEqual(['alfa beta', 'gamma', 'delta']);
+  vi.stubGlobal('Audio', FakeAudio as unknown as typeof Audio);
+  globalThis.Audio = FakeAudio as unknown as typeof Audio;
+  Object.defineProperty(URL, 'createObjectURL', {
+    configurable: true,
+    writable: true,
+    value: vi.fn(() => 'blob:nous-audio'),
+  });
+  Object.defineProperty(URL, 'revokeObjectURL', {
+    configurable: true,
+    writable: true,
+    value: vi.fn(),
+  });
+});
 
-    const chunks = splitContentIntoChunks('', [
-      'Prima frase. Seconda frase con abbastanza testo da restare nello stesso blocco.',
+describe('useTtsPlayer', () => {
+  test('preserves authored paragraph order', () => {
+    const markdown = 'Prima frase. Seconda frase.\n\nTerza frase finale.';
+    const { result } = renderHook(() =>
+      useTtsPlayer({
+        projectId: 'project-1',
+        activeSectionId: 'paragraphs',
+        sectionContent: markdown,
+      })
+    );
+    expect(result.current.chunkTexts).toEqual([
+      'Prima frase. Seconda frase.',
       'Terza frase finale.',
     ]);
-
-    expect(chunks.length).toBeGreaterThan(0);
-    expect(chunks.join(' ')).toContain('Prima frase.');
-    expect(chunks.join(' ')).toContain('Terza frase finale.');
   });
 
-  test('removes image placeholders and figure markup from fallback speech chunks', () => {
-    const chunks = splitContentIntoChunks(
-      [
-        'Prima parte.',
-        '{{PDF_IMAGE:pdf-img-001|alt=Schema sensibile|caption=Figura da saltare}}',
-        '<figure><img src="x" alt="Alt da saltare" /><figcaption>Caption da saltare</figcaption></figure>',
-        'Seconda parte.',
-      ].join('\n\n'),
-      []
+  test('keeps visual-only source out of selectable speech chunks', () => {
+    const markdown = [
+      'Prima parte.',
+      '{{PDF_IMAGE:pdf-img-001|alt=Schema sensibile|caption=Figura da saltare}}',
+      '<figure><img src="x" alt="Alt da saltare" /><figcaption>Caption da saltare</figcaption></figure>',
+      'Seconda parte.',
+    ].join('\n\n');
+    const { result } = renderHook(() =>
+      useTtsPlayer({ projectId: 'project-1', activeSectionId: 'figures', sectionContent: markdown })
     );
-
-    const spokenText = chunks.join(' ');
-    expect(spokenText).toContain('Prima parte.');
-    expect(spokenText).toContain('Seconda parte.');
-    expect(spokenText).not.toContain('PDF_IMAGE');
-    expect(spokenText).not.toContain('Schema sensibile');
-    expect(spokenText).not.toContain('Caption da saltare');
+    expect(result.current.chunkTexts).toEqual(['Prima parte.', 'Seconda parte.']);
   });
 
   test('loads TTS connectivity and available voices on mount', async () => {
     const { result } = renderHook(() =>
       useTtsPlayer({
+        projectId: 'project-1',
         activeSectionId: 'lesson-1',
         sectionContent: 'Contenuto della lezione',
-        speechBlocks: [],
       })
     );
 
@@ -147,9 +141,9 @@ describe('useTtsPlayer', () => {
     try {
       renderHook(() =>
         useTtsPlayer({
+          projectId: 'project-1',
           activeSectionId: 'lesson-1',
           sectionContent: 'Contenuto della lezione',
-          speechBlocks: [],
         })
       );
 
@@ -173,9 +167,9 @@ describe('useTtsPlayer', () => {
   test('creates audio chunks, starts playback and updates playback rate', async () => {
     const { result } = renderHook(() =>
       useTtsPlayer({
+        projectId: 'project-1',
         activeSectionId: 'lesson-1',
         sectionContent: 'Prima parte.\n\nSeconda parte.',
-        speechBlocks: [],
       })
     );
 
@@ -188,11 +182,14 @@ describe('useTtsPlayer', () => {
     await waitFor(() => expect(result.current.audioState.chunks.length).toBeGreaterThan(0));
     await waitFor(() => expect(result.current.audioState.isPlaying).toBe(true));
 
-    expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(1);
+    expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(2);
     expect(openRouterMocks.generateSpeech).toHaveBeenCalledWith(
-      expect.any(String),
-      'Zephyr',
-      'google/gemini-3.8-flash-lite-tts'
+      expect.objectContaining({
+        text: expect.any(String),
+        voice: 'Zephyr',
+        model: 'google/gemini-3.8-flash-lite-tts',
+        block: expect.objectContaining({ speech: expect.any(String) }),
+      })
     );
     expect(result.current.audioState.currentChunkIndex).toBe(0);
 
@@ -211,9 +208,9 @@ describe('useTtsPlayer', () => {
     const sectionContent = `${'Prima parte della lezione con concetti introduttivi. '.repeat(16)}\n\n${'Seconda parte dedicata agli esempi applicativi. '.repeat(16)}`;
     const { result } = renderHook(() =>
       useTtsPlayer({
+        projectId: 'project-1',
         activeSectionId: 'lesson-1',
         sectionContent,
-        speechBlocks: [],
       })
     );
 
@@ -228,7 +225,7 @@ describe('useTtsPlayer', () => {
     expect(result.current.audioState.chunks).toHaveLength(result.current.chunkOptions.length);
 
     await waitFor(() => expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(1));
-    expect(openRouterMocks.generateSpeech.mock.calls[0]?.[0]).toBe(
+    expect(openRouterMocks.generateSpeech.mock.calls[0]?.[0].text).toBe(
       result.current.audioState.chunks[1]?.text
     );
   });
@@ -240,9 +237,9 @@ describe('useTtsPlayer', () => {
 
     const { result } = renderHook(() =>
       useTtsPlayer({
+        projectId: 'project-1',
         activeSectionId: 'lesson-1',
         sectionContent: 'Contenuto',
-        speechBlocks: [],
       })
     );
 
@@ -256,9 +253,9 @@ describe('useTtsPlayer', () => {
     const { result, rerender } = renderHook(
       ({ activeSectionId, sectionContent }) =>
         useTtsPlayer({
+          projectId: 'project-1',
           activeSectionId,
           sectionContent,
-          speechBlocks: [],
         }),
       {
         initialProps: {
@@ -296,9 +293,9 @@ describe('useTtsPlayer', () => {
       const sectionContent = `${'Prima parte abbastanza lunga. '.repeat(30)}\n\n${'Seconda parte abbastanza lunga. '.repeat(30)}`;
       const { result } = renderHook(() =>
         useTtsPlayer({
+          projectId: 'project-1',
           activeSectionId: 'lesson-1',
           sectionContent,
-          speechBlocks: [],
         })
       );
 
@@ -326,4 +323,205 @@ describe('useTtsPlayer', () => {
       vi.useRealTimers();
     }
   });
+});
+
+test('keeps selection text aligned with the rendered prose while sending original math for speech', async () => {
+  const markdown = String.raw`Consideriamo $\mathcal{P}(A)$ e $f: A\to B$.`;
+  const { result } = renderHook(() =>
+    useTtsPlayer({ projectId: 'project-1', activeSectionId: 'math', sectionContent: markdown })
+  );
+  expect(result.current.chunkTexts).toEqual(['Consideriamo e .']);
+  await waitFor(() => expect(result.current.ttsConnected).toBe(true));
+  act(() => result.current.togglePlayPause());
+  await waitFor(() => expect(openRouterMocks.generateSpeech).toHaveBeenCalled());
+  expect(
+    openRouterMocks.generateSpeech.mock.calls[0][0].block.spans.flatMap(
+      (span: { math?: string }) => (span.math ? [span.math] : [])
+    )
+  ).toEqual([String.raw`$\mathcal{P}(A)$`, String.raw`$f: A\to B$`]);
+});
+
+test('projects rendered entities for text selection while retaining literal code entities', () => {
+  const { result } = renderHook(() =>
+    useTtsPlayer({
+      projectId: 'project-1',
+      activeSectionId: 'entities',
+      sectionContent: 'Consideriamo A &amp; B e `$x &amp; y$`.',
+    })
+  );
+  expect(result.current.chunkTexts).toEqual(['Consideriamo A & B e $x &amp; y$.']);
+});
+
+test('keeps an unmatched code delimiter literal while decoding prose entities', () => {
+  const { result } = renderHook(() =>
+    useTtsPlayer({
+      projectId: 'project-1',
+      activeSectionId: 'literal-code-delimiter',
+      sectionContent: 'Usa ` come simbolo, A &amp; B.',
+    })
+  );
+  expect(result.current.chunkTexts).toEqual(['Usa ` come simbolo, A & B.']);
+});
+
+test.each([
+  'La variabile foo_bar vale uno.',
+  'Il costo è $5.',
+  'Usa [x] come etichetta.',
+  'A * B = C.',
+])('keeps parser-recognized literal text selectable: %s', markdown => {
+  const { result } = renderHook(() =>
+    useTtsPlayer({ projectId: 'project-1', activeSectionId: 'literal', sectionContent: markdown })
+  );
+  expect(result.current.chunkTexts).toEqual([markdown]);
+});
+
+test('drops old recordings when the same section source changes, but preserves identical content', async () => {
+  const initial = 'Prima parte.\n\nSeconda parte.';
+  const { result, rerender } = renderHook(
+    ({ markdown }) =>
+      useTtsPlayer({
+        projectId: 'project-1',
+        activeSectionId: 'same-section',
+        sectionContent: markdown,
+        contentBlocks: [{ type: 'markdown', markdown }],
+      }),
+    { initialProps: { markdown: initial } }
+  );
+  await waitFor(() => expect(result.current.ttsConnected).toBe(true));
+  act(() => result.current.togglePlayPause());
+  await waitFor(() => expect(result.current.audioState.chunks[0]?.blobUrl).toBeTruthy());
+  rerender({ markdown: initial });
+  expect(result.current.audioState.chunks).toHaveLength(2);
+  rerender({ markdown: 'Nuova formula $x=2$.' });
+  await waitFor(() => expect(result.current.audioState.chunks).toHaveLength(0));
+  expect(URL.revokeObjectURL).toHaveBeenCalled();
+  act(() => result.current.togglePlayPause());
+  await waitFor(() =>
+    expect(openRouterMocks.generateSpeech.mock.calls.at(-1)?.[0].text).toBe('Nuova formula $x=2$.')
+  );
+  const request = openRouterMocks.generateSpeech.mock.calls.at(-1)?.[0];
+  expect(
+    request.block.spans.flatMap((span: { math?: string }) => (span.math ? [span.math] : []))
+  ).toEqual(['$x=2$']);
+});
+
+test('ignores an old source response after the next source starts with identical text', async () => {
+  let release!: (audio: { audioBuffer: ArrayBuffer; contentType: string }) => void;
+  openRouterMocks.generateSpeech.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        release = resolve;
+      })
+  );
+  const { result, rerender } = renderHook(
+    ({ projectId }) =>
+      useTtsPlayer({
+        projectId,
+        activeSectionId: 'same-section',
+        sectionContent: 'Stesso testo.',
+      }),
+    { initialProps: { projectId: 'first-project' } }
+  );
+  await waitFor(() => expect(result.current.ttsConnected).toBe(true));
+  act(() => result.current.togglePlayPause());
+  await waitFor(() => expect(openRouterMocks.generateSpeech).toHaveBeenCalledOnce());
+  rerender({ projectId: 'next-project' });
+  act(() => result.current.togglePlayPause());
+  await waitFor(() => expect(result.current.audioState.chunks[0]?.blobUrl).toBeTruthy());
+  expect(URL.createObjectURL).toHaveBeenCalledOnce();
+  await act(async () => release({ audioBuffer: new ArrayBuffer(480), contentType: 'audio/wav' }));
+  expect(URL.createObjectURL).toHaveBeenCalledOnce();
+  expect(result.current.audioState.chunks[0]?.blobUrl).toBe('blob:nous-audio');
+  expect(result.current.audioState.isPlaying).toBe(true);
+});
+
+test('retains a valid pending recording when listening is paused and resumed', async () => {
+  let release!: (audio: { audioBuffer: ArrayBuffer; contentType: string }) => void;
+  openRouterMocks.generateSpeech.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        release = resolve;
+      })
+  );
+  const { result } = renderHook(() =>
+    useTtsPlayer({ projectId: 'project-1', activeSectionId: 'same', sectionContent: 'Una frase.' })
+  );
+  await waitFor(() => expect(result.current.ttsConnected).toBe(true));
+  act(() => result.current.togglePlayPause());
+  await waitFor(() => expect(openRouterMocks.generateSpeech).toHaveBeenCalledOnce());
+  act(() => result.current.togglePlayPause());
+  await act(async () => release({ audioBuffer: new ArrayBuffer(480), contentType: 'audio/wav' }));
+  expect(result.current.audioState.chunks[0]?.blobUrl).toBeTruthy();
+  expect(result.current.audioState.chunks[0]?.isLoading).toBe(false);
+  act(() => result.current.togglePlayPause());
+  await waitFor(() => expect(result.current.audioState.isPlaying).toBe(true));
+  expect(openRouterMocks.generateSpeech).toHaveBeenCalledOnce();
+});
+
+test.each([
+  'voice',
+  'model',
+] as const)('ignores an old prefetch failure after changing the %s', async setting => {
+  let rejectOld!: (error: Error) => void;
+  let releaseNew!: (audio: { audioBuffer: ArrayBuffer; contentType: string }) => void;
+  openRouterMocks.generateSpeech
+    .mockImplementationOnce(async () => ({
+      audioBuffer: new ArrayBuffer(480),
+      contentType: 'audio/wav',
+    }))
+    .mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectOld = reject;
+        })
+    )
+    .mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          releaseNew = resolve;
+        })
+    );
+  const { result } = renderHook(() =>
+    useTtsPlayer({
+      projectId: 'project-1',
+      activeSectionId: 'same',
+      sectionContent: 'Prima parte.\n\nSeconda parte.',
+    })
+  );
+  await waitFor(() => expect(result.current.ttsConnected).toBe(true));
+  act(() => result.current.togglePlayPause());
+  await waitFor(() => expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(2));
+  act(() => {
+    if (setting === 'voice') result.current.handleVoiceChange('Kore');
+    else result.current.handleModelChange('other/tts');
+  });
+  act(() => result.current.togglePlayPause());
+  await waitFor(() => expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(3));
+  await act(async () => rejectOld(new Error('Old request failed')));
+  expect(result.current.errorMessage).toBeNull();
+  await act(async () =>
+    releaseNew({ audioBuffer: new ArrayBuffer(480), contentType: 'audio/wav' })
+  );
+  await waitFor(() => expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(4));
+  expect(result.current.audioState.chunks[1]?.blobUrl).toBeTruthy();
+  expect(result.current.audioState.isPlaying).toBe(true);
+});
+
+test('discards a pending recording after unmount', async () => {
+  let release!: (audio: { audioBuffer: ArrayBuffer; contentType: string }) => void;
+  openRouterMocks.generateSpeech.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        release = resolve;
+      })
+  );
+  const { result, unmount } = renderHook(() =>
+    useTtsPlayer({ projectId: 'project-1', activeSectionId: 'same', sectionContent: 'Una frase.' })
+  );
+  await waitFor(() => expect(result.current.ttsConnected).toBe(true));
+  act(() => result.current.togglePlayPause());
+  await waitFor(() => expect(openRouterMocks.generateSpeech).toHaveBeenCalledOnce());
+  unmount();
+  await act(async () => release({ audioBuffer: new ArrayBuffer(480), contentType: 'audio/wav' }));
+  expect(URL.createObjectURL).not.toHaveBeenCalled();
 });

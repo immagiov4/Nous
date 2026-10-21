@@ -7,9 +7,7 @@ import { buildTestLesson } from '../../helpers/learningPlan.ts';
 
 vi.mock('../../../hooks/reader/useReaderChrome.ts', () => ({ useReaderChrome: () => ({}) }));
 vi.mock('../../../hooks/reader/useReaderContext.ts', () => ({ useReaderContext: () => ({}) }));
-vi.mock('../../../hooks/reader/useReaderSpeech.ts', () => ({
-  useReaderSpeechBlocks: () => ({ speechBlocks: [] }),
-}));
+
 vi.mock('../../../hooks/reader/useTtsPlayer.ts', () => ({
   useTtsPlayer: () => ({ audioState: {}, chunkTexts: [] }),
 }));

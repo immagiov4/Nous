@@ -30,3 +30,20 @@ bun scripts/github-body.mjs verify --kind pr --repo immagiov4/Nous --number 123 
 ```
 
 `verify` reads the published artifact; `update` publishes the file and performs the same verification. Use `--kind issue` for an issue. The helper's check proves body identity and rendering, while [CI and review](02-p-testing-quality.md) establish the change's merge evidence.
+
+## Capture the production playback stage
+
+The playback atlas renders normalized lessons through the isolated production stage in headless Chromium, sampling each spoken block at its start, middle and end. The requested viewport is the stage’s available box; application playtests cover the player header, controls and audio interactions. Separate visual sheets cover authored figures that those positions could miss. The default input is a deterministic pairwise matrix over content, visual and scene types and Markdown syntax; a short synthetic course gives a smaller first run.
+
+```bash
+bun run atlas:playback -- --synthetic synthetic-short
+bun run atlas:playback -- --fixture path/to/project.nous.zip
+bun run atlas:playback -- --library "$NOUS_E2E_LIBRARY"
+bun run atlas:playback -- --scenario path/to/playback-scenario.json
+```
+
+Each sample starts in an isolated browser context with a fixed clock and seeded randomness, including embedded visual documents. Font and image readiness precede capture; archived PDF figures use the application's asset readers. A parent process terminates a renderer that exceeds the measured execution bound, records incomplete evidence and opens a fresh renderer for the next sample. `--render-timeout-ms` overrides that bound. `--course` and `--lesson` select exact IDs; `--source-root` selects another installed source checkout for a version comparison.
+
+The local `index.html` links labelled sheets to original PNGs and a structured report with source revisions, preparation fingerprints, geometry, execution durations and findings. Empty content, clipping, missing spoken math, caption boundaries and render errors are structural checks; mathematical meaning and visual quality require artifact review. Sparse content, fitted font size and canvas occupancy remain measurements rather than quality cutoffs. Findings make the command exit unsuccessfully, while failed or missing captures remain explicitly incomplete.
+
+Evidence contains lesson content and stays outside Git. POSIX output uses owner-only directories and files; Windows output must resolve inside the user's profile and inherit its permissions. Private library input is refused in CI, and the browser blocks outbound requests. The [atlas command](../../../e2e/nous/playbackAtlas.ts) owns capture and evidence; `bun run test:atlas:browser` checks repeatability, scripted visuals, termination, archived images and clipping with synthetic fixtures.
