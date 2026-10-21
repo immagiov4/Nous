@@ -113,3 +113,125 @@ test('keeps a formula after a pending heading with its spoken block', () => {
   expect(blocks[1].spans.filter(span => span.math).map(span => span.math)).toEqual(['$$x = 2$$']);
   expect(blocks[1].visuals).toEqual([{ kind: 'markdown', markdown: '$$x = 2$$' }]);
 });
+
+import { getPlaybackFormulaSources, playbackNonProseVisuals } from '@shared/lessonPlayback';
+
+test('projects all equations together and retains their source group for the following explanation', () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        '# Formula\n\nLe due espressioni sono queste.\n\n$$x_i+y$$\n\n$$z=x^i$$\n\nIl pedice distingue le componenti.\n\n# Altra sezione\n\nUn altro tema.',
+    },
+  ];
+  const blocks = segmentLessonPlayback(sources);
+  const formula = blocks.find(block => block.spans.some(span => span.math));
+  const explanation = blocks.find(block => block.speech.includes('Il pedice'));
+  const other = blocks.find(block => block.speech.includes('Un altro tema'));
+  if (!formula || !explanation || !other) throw new Error('All passages must be projected');
+  const expected = ['$$x_i+y$$', '$$z=x^i$$'];
+  expect(getPlaybackFormulaSources(formula, sources)).toEqual(expected);
+  expect(getPlaybackFormulaSources(explanation, sources)).toEqual(expected);
+  expect(getPlaybackFormulaSources(other, sources)).toEqual([]);
+});
+
+test('retains code tables and images while excluding narrated contextual prose', () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        'Spiegazione $x_i$.\n\n| Nome | Valore |\n| --- | --- |\n| x | 1 |\n\n```lua\nreturn 1\n```\n\n![Esempio](https://example.test/image.png)',
+    },
+  ];
+  const blocks = segmentLessonPlayback(sources);
+  const visuals = blocks.flatMap(playbackNonProseVisuals);
+  expect(
+    visuals.map(visual => (visual.kind === 'markdown' ? visual.markdown : visual.kind)).join('\n')
+  ).toContain('| Nome | Valore |');
+  expect(
+    visuals.map(visual => (visual.kind === 'markdown' ? visual.markdown : '')).join('\n')
+  ).toContain('return 1');
+  expect(
+    visuals.map(visual => (visual.kind === 'markdown' ? visual.markdown : '')).join('\n')
+  ).toContain('![Esempio]');
+  expect(
+    visuals.map(visual => (visual.kind === 'markdown' ? visual.markdown : '')).join('\n')
+  ).not.toContain('Spiegazione');
+});
+
+test('keeps the complete equation when the following explanation contains an inline subscript', () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        '# Formula\n\nLa formula è\n\n$$h_i=b_i+w_i x$$\n\nIl pedice $i$ distingue le componenti.',
+    },
+  ];
+  const block = segmentLessonPlayback(sources).find(block => block.speech.includes('Il pedice'));
+  if (!block) throw new Error('Explanation must be projected');
+  expect(getPlaybackFormulaSources(block, sources)).toEqual(['$$h_i=b_i+w_i x$$', '$i$']);
+});
+
+test('retains mathematical context across source blocks and stops at a heading', () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: '# Formula\n\nLa formula è\n\n$$x_i+y$$' },
+    { type: 'markdown' as const, markdown: 'Il pedice distingue le componenti.' },
+    { type: 'markdown' as const, markdown: '# Altro tema\n\nUn altro argomento.' },
+  ];
+  const blocks = segmentLessonPlayback(sources);
+  const explanation = blocks.find(block => block.speech.includes('Il pedice'));
+  const other = blocks.find(block => block.speech.includes('Un altro argomento'));
+  if (!explanation || !other) throw new Error('Passages must be projected');
+  expect(getPlaybackFormulaSources(explanation, sources)).toEqual(['$$x_i+y$$']);
+  expect(getPlaybackFormulaSources(other, sources)).toEqual([]);
+});
+
+test('retains an image embedded in narrated mathematical prose', () => {
+  const blocks = segmentLessonPlayback([
+    {
+      type: 'markdown',
+      markdown: 'Consideriamo $x$ nella figura ![Figura](https://example.test/figure.png).',
+    },
+  ]);
+  const visuals = blocks.flatMap(playbackNonProseVisuals);
+  expect(
+    visuals.map(visual => (visual.kind === 'markdown' ? visual.markdown : '')).join('')
+  ).toContain('![Figura](https://example.test/figure.png)');
+  expect(
+    visuals.map(visual => (visual.kind === 'markdown' ? visual.markdown : '')).join('')
+  ).not.toContain('Consideriamo');
+});
+
+test.each([
+  '',
+  '\n\n| Nome | Valore |\n| --- | --- |\n| i | 1 |',
+])('retains the full equation through a later explanation with media %s', media => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        '# Formula\n\nLa formula è\n\n$$h_i=b_i+w_i x$$\n\nIl pedice $i$ identifica la componente.\n\nLa formula combina bias e ingresso.' +
+        media,
+    },
+  ];
+  const block = segmentLessonPlayback(sources).find(block =>
+    block.speech.includes('La formula combina')
+  );
+  if (!block) throw new Error('Continuation must be projected');
+  expect(getPlaybackFormulaSources(block, sources)).toContain('$$h_i=b_i+w_i x$$');
+});
+
+test('keeps display context across source blocks containing inline references', () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: '# Formula\n\nLa formula è\n\n$$h_i=b_i+w_i x$$' },
+    {
+      type: 'markdown' as const,
+      markdown: 'Il pedice $i$ identifica la componente.\n\nLa formula combina bias e ingresso.',
+    },
+  ];
+  const block = segmentLessonPlayback(sources).find(block =>
+    block.speech.includes('La formula combina')
+  );
+  if (!block) throw new Error('Continuation must be projected');
+  expect(getPlaybackFormulaSources(block, sources)).toContain('$$h_i=b_i+w_i x$$');
+});

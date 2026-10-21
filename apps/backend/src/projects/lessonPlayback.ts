@@ -11,7 +11,7 @@ import { canonicalJson } from '../workflows/schemaFingerprint.js';
 import { findProjectLessonSection } from './projectLesson.js';
 import type { LearningPlanNodeSnapshot, ProjectSnapshot } from './types.js';
 
-const lessonPlaybackContent = (
+export const lessonPlaybackContent = (
   section: LearningPlanNodeSnapshot
 ): readonly PlaybackContentBlock[] => {
   if (Array.isArray(section.contentBlocks)) return section.contentBlocks;

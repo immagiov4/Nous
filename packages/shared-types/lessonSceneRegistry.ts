@@ -1298,7 +1298,21 @@ export const LessonSceneAnimationShape = Object.fromEntries(
 export const HistoricalLessonSceneSchemas = LESSON_SCENE_CATALOG_SNAPSHOTS.map(
   types =>
     createLessonSceneSchema(
-      Object.fromEntries(types.map(type => [type, LESSON_SCENE_REGISTRY[type]]))
+      Object.fromEntries(
+        types.map(type => [
+          type,
+          type === 'formula-spotlight'
+            ? {
+                schema: LESSON_SCENE_REGISTRY[type].schema.extend({
+                  symbols: FormulaSpotlightDataSchema.shape.symbols.element
+                    .extend({ anchor: z.string().min(1).regex(/\S/u) })
+                    .array()
+                    .min(1),
+                }),
+              }
+            : LESSON_SCENE_REGISTRY[type],
+        ])
+      )
     ) as typeof LessonSceneSchema
 );
 

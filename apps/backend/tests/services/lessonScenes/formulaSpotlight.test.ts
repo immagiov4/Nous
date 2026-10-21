@@ -140,3 +140,40 @@ test('clamps extreme explicit dimensions consistently in the formula and its leg
   expect(legend(1_000_000)).toBe(legend(1_000_000_000));
   expect(legend(1)).not.toBe(legend(1_000_000));
 });
+
+test('keeps an unmentioned formula subscript visible without inventing a spoken reference', () => {
+  const scene = {
+    ...formulaSpotlight,
+    symbols: formulaSpotlight.symbols.map(symbol =>
+      symbol.id === 'theta' ? { ...symbol, anchor: '' } : symbol
+    ),
+  };
+  expect(findLessonSceneProblems(scene, FORMULA_SPOTLIGHT_SPEECH)).toEqual([]);
+  expect(renderSpotlightFormula(scene)).toContain('nous-formula-symbol-theta');
+});
+
+import { formulaSpotlightCovers } from '@shared/formulaSpotlight';
+
+test('checks complete formula structure including base, subscript, exponent and operators', () => {
+  const scene = {
+    ...boundVariable,
+    formula: String.raw`\nousSymbol{x}_{\nousSymbol{i}}`,
+    symbols: [
+      boundVariable.symbols[0],
+      { id: 'i', latex: 'i', name: 'Indice', meaning: 'Indice', anchor: '' },
+    ],
+  };
+  expect(formulaSpotlightCovers(scene, ['$x_i$'])).toBe(true);
+  expect(formulaSpotlightCovers(scene, ['$x^i$'])).toBe(false);
+  expect(formulaSpotlightCovers(scene, ['$x_i+y$'])).toBe(false);
+  expect(formulaSpotlightCovers(scene, ['$x_i$', '$y$'])).toBe(false);
+});
+
+test('rejects changes to vector notation and fraction-bar attributes', () => {
+  expect(formulaSpotlightCovers(boundVariable, [String.raw`$\mathbf{x}$`])).toBe(false);
+  const fraction = {
+    ...boundVariable,
+    formula: String.raw`\genfrac{}{}{0pt}{}{\nousSymbol{x}}{2}`,
+  };
+  expect(formulaSpotlightCovers(fraction, [String.raw`$\frac{x}{2}$`])).toBe(false);
+});

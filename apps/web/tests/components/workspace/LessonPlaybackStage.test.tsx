@@ -611,7 +611,10 @@ test.each([
   { source: '<mark>1. literal $x$</mark>', literal: '1. literal' },
   { source: '<mark>> literal $x$</mark>', literal: '> literal' },
   { source: '-<mark> </mark>literal $x$', literal: '- literal' },
-])('preserves literal block markers on contextual cards: $source', ({ source, literal }) => {
+])('preserves literal block markers in captions without duplicating their prose: $source', ({
+  source,
+  literal,
+}) => {
   const sources = [{ type: 'markdown' as const, markdown: `Introduction.\n\n${source}` }];
   const block = segmentLessonPlayback(sources)[1];
   const content = {
@@ -624,7 +627,8 @@ test.each([
   for (const time of [1, 3, 5]) {
     rerender(<LessonPlaybackStage block={block} content={content} duration={6} time={time} />);
     const card = container.querySelector('.scene-host');
-    expect(card?.textContent).toContain(literal);
+    expect(container.querySelector('.caption-page')?.textContent).toContain(literal);
+    expect(card?.textContent).not.toContain('literal');
     expect(card?.querySelector('ul, ol, blockquote, h1, h2, h3, h4, h5, h6')).toBeNull();
     expect(card?.querySelector('.katex')).not.toBeNull();
     expect(card?.querySelector('mark')).toBeNull();
@@ -634,7 +638,10 @@ test.each([
   { source: '- <mark>literal $x$</mark>', selector: 'li' },
   { source: '# <mark>literal $x$</mark>', selector: 'h1' },
   { source: '> <mark>literal $x$</mark>', selector: 'blockquote' },
-])('retains authored block structure around annotated math: $source', ({ source, selector }) => {
+])('retains annotated prose in captions and only mathematics on the visual: $source', ({
+  source,
+  selector,
+}) => {
   const sources = [{ type: 'markdown' as const, markdown: `${source}\n\nContinue.` }];
   const { container } = render(
     <LessonPlaybackStage
@@ -645,7 +652,8 @@ test.each([
     />
   );
   const card = container.querySelector('.scene-host');
-  expect(card?.querySelector(selector)?.textContent).toContain('literal');
+  expect(container.querySelector('.captions')?.textContent).toContain('literal');
+  expect(card?.querySelector(selector)).toBeNull();
   expect(card?.querySelector('.katex')).not.toBeNull();
 });
 
@@ -655,7 +663,7 @@ import {
 } from '../../../../backend/tests/helpers/formulaSpotlight';
 import { sceneCaptionAnchors } from '../../../components/workspace/playback/stageMotion.ts';
 
-test('a model-chosen spotlight replaces the contextual math card while text fallback retains it', () => {
+test('a complete spotlight replaces sourced math while text fallback shows the formula without prose', () => {
   const source = [{ type: 'markdown' as const, markdown: FORMULA_SPOTLIGHT_MARKDOWN }];
   const block = segmentLessonPlayback(source)[0];
   const content = {
@@ -683,9 +691,7 @@ test('a model-chosen spotlight replaces the contextual math card while text fall
     />
   );
   expect(container.querySelector('.formula-spotlight')).toBeNull();
-  expect(container.querySelector('.scene-host')?.textContent).toContain(
-    'La probabilità, indicata con p, è la stima del modello.'
-  );
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain('La probabilità');
   expect(container.querySelector('.scene-host .katex')).not.toBeNull();
 });
 test('uses the prepared spoken formula in captions while retaining authored math on the visual', () => {
@@ -712,7 +718,8 @@ test('uses the prepared spoken formula in captions while retaining authored math
   expect(container.querySelector('.caption-page')?.textContent?.trim()).toBe(
     'Consideriamo p con parametro theta di y dato x. La probabilità descrive il risultato.'
   );
-  expect(container.querySelector('.scene-host')?.textContent).toContain('La probabilità');
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain('La probabilità');
+  expect(container.querySelector('.scene-host .katex')).not.toBeNull();
 });
 
 test.each(
@@ -741,7 +748,7 @@ test.each([
   '',
   '    ',
   '\t',
-])('renders classified fenced prose with indentation %j as a wrapping paragraph', indentation => {
+])('renders classified fenced prose with indentation %j only in captions', indentation => {
   const body = `${indentation}An ordered pair has two components; each component is a number.`;
   const sources = [
     {
@@ -773,5 +780,318 @@ test.each([
     />
   );
   expect(container.querySelector('.scene-host pre')).toBeNull();
-  expect(container.querySelector('.scene-host p')?.textContent?.trim()).toBe(body.trim());
+  expect(container.querySelector('.scene-host')?.textContent?.trim()).toBe('');
+  expect(container.querySelector('.caption-page')?.textContent).toContain(body.trim());
+});
+
+test('keeps captions at their position when an equivalent saved snapshot is received', () => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const sources = [{ type: 'markdown' as const, markdown: 'Una spiegazione conservata.' }];
+  const block = { ...segmentLessonPlayback(sources)[0], prepared: { spokenMath: [], motion: [] } };
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+  } as WorkspaceReaderContentModel;
+  const { container, rerender } = render(
+    <LessonPlaybackStage block={block} content={content} duration={6} time={4} />
+  );
+  const paragraph = container.querySelector<HTMLElement>('.caption-page');
+  if (!paragraph) throw new Error('Captions must be mounted');
+  paragraph.scrollTop = 180;
+  rerender(
+    <LessonPlaybackStage
+      block={{ ...block }}
+      content={{ ...content, sectionContentBlocks: [...sources] }}
+      duration={6}
+      time={4}
+    />
+  );
+  expect(container.querySelector('.caption-page')).toBe(paragraph);
+  expect(paragraph.scrollTop).toBe(180);
+});
+
+test('keeps a text-only prepared passage in captions without copying it into the visual panel', () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: 'Una spiegazione senza una visualizzazione utile.' },
+  ];
+  const block = { ...segmentLessonPlayback(sources)[0], prepared: { motion: [] } };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={6}
+      time={2}
+    />
+  );
+  expect(container.querySelector('.captions')?.textContent).toContain('Una spiegazione');
+  expect(container.querySelector('.scene-host')?.textContent).toBe('');
+});
+
+test('retains the complete authored formula while the next passage explains its subscript', () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        '# Una funzione\n\nLa formula è questa.\n\n$$h_i=b_i+w_i x$$\n\nIl pedice i distingue le unità.\n\n# Altro tema\n\nUna nuova spiegazione.',
+    },
+  ];
+  const blocks = segmentLessonPlayback(sources);
+  const explaining = blocks.find(block => block.speech.includes('Il pedice'));
+  if (!explaining) throw new Error('Explanation must be projected');
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+  } as WorkspaceReaderContentModel;
+  const { container, rerender } = render(
+    <LessonPlaybackStage
+      block={{ ...explaining, prepared: { motion: [] } }}
+      content={content}
+      duration={6}
+      time={2}
+    />
+  );
+  expect(container.querySelector('.scene-host .katex')).not.toBeNull();
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain('Il pedice');
+  const next = blocks.find(block => block.speech.includes('Una nuova spiegazione'));
+  if (!next) throw new Error('Next heading must be projected');
+  rerender(
+    <LessonPlaybackStage
+      block={{ ...next, prepared: { motion: [] } }}
+      content={content}
+      duration={6}
+      time={2}
+    />
+  );
+  expect(container.querySelector('.scene-host .katex')).toBeNull();
+});
+
+test('projects a multiline display formula pronunciation exactly once into captions', () => {
+  const formula = '$$\nx_i+y\n$$';
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: `La formula è\n\n${formula}\n\nIl pedice indica la componente.`,
+    },
+  ];
+  const raw = segmentLessonPlayback(sources)[0];
+  const canonical = resolvePlaybackNarration({
+    ...raw,
+    prepared: { motion: [], spokenMath: [{ formula, spoken: 'ics con pedice i più ipsilon' }] },
+  });
+  const source = captionSource(canonical, sources);
+  const formatted = captionFormat(source.markdown, source.ranges);
+  expect(formatted.words.map(word => word.text).join(' ')).toBe(
+    canonical.speech.replaceAll(/\s+/gu, ' ').trim()
+  );
+  expect(
+    captionSpeechRanges(formatted.words, source.ranges).map(range =>
+      canonical.speech.slice(range.start, range.end)
+    )
+  ).toEqual(formatted.words.map(word => word.text));
+});
+
+test('keeps the current visual mounted across an equivalent saved snapshot', () => {
+  const sources = [{ type: 'markdown' as const, markdown: FORMULA_SPOTLIGHT_MARKDOWN }];
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: { scene: formulaSpotlight, motion: [] },
+  };
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+  } as WorkspaceReaderContentModel;
+  const { container, rerender } = render(
+    <LessonPlaybackStage block={block} content={content} duration={10} time={4} />
+  );
+  const formula = container.querySelector('.formula-spotlight');
+  expect(formula).not.toBeNull();
+  rerender(
+    <LessonPlaybackStage
+      block={{
+        ...block,
+        prepared: {
+          ...block.prepared,
+          scene: Object.fromEntries(
+            Object.entries(formulaSpotlight).reverse()
+          ) as typeof formulaSpotlight,
+        },
+      }}
+      content={{ ...content, sectionContentBlocks: [...sources] }}
+      duration={10}
+      time={4}
+    />
+  );
+  expect(container.querySelector('.formula-spotlight')).toBe(formula);
+});
+
+test('keeps mathematics visible alongside an authored table', () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: 'Consideriamo $x_i$.\n\n| Nome | Valore |\n| --- | --- |\n| x | 1 |',
+    },
+  ];
+  const block = { ...segmentLessonPlayback(sources)[0], prepared: { motion: [] } };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={6}
+      time={2}
+    />
+  );
+  expect(container.querySelector('.scene-host table')).not.toBeNull();
+  expect(container.querySelector('.scene-host .katex')).not.toBeNull();
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain('Consideriamo');
+});
+
+test('measures the new caption nodes when two passages contain identical words', () => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  let tick: FrameRequestCallback = () => {};
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    tick = callback;
+    return 1;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {});
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const style = document.createElement('p').style;
+  style.setProperty('--caption-feather', '22px');
+  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
+  const sources = [{ type: 'markdown' as const, markdown: 'Uno due tre.\n\nUno due tre.' }];
+  const blocks = segmentLessonPlayback(sources),
+    content = { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel;
+  const { container, rerender } = render(
+    <LessonPlaybackStage block={blocks[0]} content={content} duration={6} time={3} />
+  );
+  act(() => tick(0));
+  const first = container.querySelector('.caption-page');
+  rerender(<LessonPlaybackStage block={blocks[1]} content={content} duration={6} time={3} />);
+  act(() => tick(0));
+  expect(container.querySelector('.caption-page')).not.toBe(first);
+  expect(container.querySelector<HTMLElement>('.caption-word')?.style.opacity).toBe('1');
+});
+
+test('preserves authored media when a cached incomplete spotlight falls back to source equations', () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: 'Consideriamo $x_i$.\n\n| Nome | Valore |\n| --- | --- |\n| x | 1 |',
+    },
+  ];
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: { scene: formulaSpotlight, motion: [] },
+  };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={6}
+      time={2}
+    />
+  );
+  expect(container.querySelector('.scene-host table')).not.toBeNull();
+  expect(container.querySelector('.scene-host .katex')).not.toBeNull();
+  expect(container.querySelector('.formula-spotlight')).toBeNull();
+});
+
+test('leaves a wholly unmentioned spotlight eligible for ordinary scene visibility', () => {
+  const unmentioned = {
+    ...formulaSpotlight,
+    symbols: formulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
+  };
+  expect(sceneCaptionAnchors(unmentioned, 'Una spiegazione generale.')).toBeUndefined();
+});
+
+test('preserves an authored image beside a complete prepared spotlight', () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: `${FORMULA_SPOTLIGHT_MARKDOWN} ![Figura](https://example.test/figure.png)`,
+    },
+  ];
+  const scene = {
+    ...formulaSpotlight,
+    symbols: formulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
+  };
+  const block = { ...segmentLessonPlayback(sources)[0], prepared: { scene, motion: [] } };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={10}
+      time={2}
+    />
+  );
+  expect(container.querySelector('.scene-host img')).not.toBeNull();
+  expect(container.querySelector('.scene-host .katex')).not.toBeNull();
+});
+
+test.each([
+  { time: 0.2, selected: 'x', other: 'i' },
+  { time: 8.5, selected: 'i', other: 'x' },
+])('keeps a mixed-media spotlight visible on its spoken clock at $time', ({
+  time,
+  selected,
+  other,
+}) => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let id = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++id, callback);
+    return id;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(frame => {
+    frames.delete(frame);
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        '$x_i$. La variabile x è il valore. Il pedice i identifica la componente finale. ![Figura](https://example.test/figure.png)',
+    },
+  ];
+  const scene = {
+    ...formulaSpotlight,
+    formula: String.raw`\nousSymbol{x}_{\nousSymbol{i}}`,
+    symbols: [
+      { id: 'x', latex: 'x', name: 'Variabile', meaning: 'Il valore', anchor: 'ics' },
+      { id: 'i', latex: 'i', name: 'Pedice', meaning: 'La componente', anchor: 'Il pedice i' },
+    ],
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: { scene, motion: [], spokenMath: [{ formula: '$x_i$', spoken: 'ics con pedice i' }] },
+  };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={12}
+      time={time}
+    />
+  );
+  container
+    .querySelector<HTMLElement>('.caption-page')
+    ?.style.setProperty('--caption-feather', '0');
+  act(() => window.dispatchEvent(new Event('resize')));
+  for (let step = 0; step < 3; step++)
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    });
+  expect(container.querySelector('.formula-spotlight')).not.toBeNull();
+  expect(
+    container.querySelector(`.nous-formula-symbol-${selected}`)?.getAttribute('data-active')
+  ).toBe('true');
+  expect(
+    container.querySelector(`.nous-formula-symbol-${other}`)?.getAttribute('data-active')
+  ).toBe('false');
 });

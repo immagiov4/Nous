@@ -12,7 +12,7 @@ const text = z.string().min(1).regex(/\S/u);
 export const FormulaSpotlightDataSchema = z.object({
   formula: text,
   symbols: z
-    .array(z.object({ id: symbolId, latex: text, name: text, meaning: text, anchor: text }))
+    .array(z.object({ id: symbolId, latex: text, name: text, meaning: text, anchor: z.string() }))
     .min(1),
 });
 export type FormulaSpotlightData = Readonly<z.infer<typeof FormulaSpotlightDataSchema>>;
@@ -169,17 +169,84 @@ export function findFormulaSpotlightProblems(value: unknown, source?: string): s
       'The formula must be valid display math with unique, complete symbol references and no unwrapped symbol occurrences.'
     );
   }
-  if (
-    new Set(parsed.data.symbols.map(symbol => symbol.anchor)).size !== parsed.data.symbols.length
-  ) {
+  const anchored = parsed.data.symbols.filter(symbol => symbol.anchor);
+  if (new Set(anchored.map(symbol => symbol.anchor)).size !== anchored.length) {
     problems.push('Every formula symbol needs its own distinct narration anchor.');
   }
   if (source !== undefined) {
     try {
-      cueTimes(source, parsed.data.symbols);
+      resolveFormulaReferences(parsed.data, source);
     } catch {
       problems.push('Formula symbol anchors must be exact, unique and ordered in the narration.');
     }
   }
   return problems;
+}
+
+/** Exact canonical-speech links; an unmentioned element stays visible without emphasis. */
+export function resolveFormulaReferences(scene: FormulaSpotlightData, speech: string) {
+  const linked = scene.symbols.flatMap((symbol, index) =>
+    symbol.anchor ? [{ ...symbol, index }] : []
+  );
+  if (!linked.length) return [];
+  cueTimes(speech, linked);
+  return linked.map(symbol => {
+    const start = speech.indexOf(symbol.anchor);
+    return { index: symbol.index, anchor: symbol.anchor, start, end: start + symbol.anchor.length };
+  });
+}
+
+/** Compare mathematical structure, including scripts, rather than visible glyph strings. */
+export function formulaSpotlightCovers(scene: FormulaSpotlightData, formulas: readonly string[]) {
+  const structure = (node: MathNode): unknown => {
+    if (node.type === 'text') return node.value.trim() || undefined;
+    if (node.type !== 'element' || node.tagName === 'annotation') return undefined;
+    const children = node.children.map(structure).filter(child => child !== undefined);
+    const attributes = Object.fromEntries(
+      Object.entries(node.properties)
+        .filter(
+          ([name]) => !['className', 'style', 'xmlns', 'display', 'lspace', 'rspace'].includes(name)
+        )
+        .sort(([left], [right]) => left.localeCompare(right))
+    );
+    if (
+      ['span', 'math', 'semantics', 'mrow'].includes(node.tagName) &&
+      children.length === 1 &&
+      !Object.keys(attributes).length
+    )
+      return children[0];
+    return { tag: node.tagName, attributes, children };
+  };
+  const parse = (latex: string) => {
+    const html = katex.renderToString(latex, {
+      ...SPOTLIGHT_MATH_OPTIONS,
+      displayMode: true,
+      output: 'mathml',
+      trust: false,
+    });
+    const tree = mathMarkup.runSync({
+      type: 'root',
+      children: [{ type: 'raw', value: html }],
+    } as unknown as Parameters<typeof mathMarkup.runSync>[0]);
+    return structure(tree.children[0]);
+  };
+  const contains = (tree: unknown, expected: unknown): boolean => {
+    if (JSON.stringify(tree) === JSON.stringify(expected)) return true;
+    return (
+      typeof tree === 'object' &&
+      tree !== null &&
+      'children' in tree &&
+      Array.isArray(tree.children) &&
+      tree.children.some(child => contains(child, expected))
+    );
+  };
+  try {
+    const rendered = parse(compileFormula(scene, false));
+    return formulas.every(formula => {
+      const delimiter = formula.startsWith('$$') || formula.startsWith('\\') ? 2 : 1;
+      return contains(rendered, parse(formula.slice(delimiter, -delimiter)));
+    });
+  } catch {
+    return false;
+  }
 }

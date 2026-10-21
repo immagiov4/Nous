@@ -12,7 +12,12 @@ test('expands only the narrated symbol and restores it on backward seeks', () =>
     return callbacks.length;
   });
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
-  const read = () => ({ elapsedMs, durationMs: 10000, cueTimes: [0, 2000, 4000, 6000, 8000] });
+  const read = () => ({
+    elapsedMs,
+    durationMs: 10000,
+    cueTimes: [0, 2000, 4000, 6000, 8000],
+    cueEndTimes: [500, 2500, 4500, 6500, 8500],
+  });
   const { container, rerender } = render(
     <LessonSceneVisual scene={formulaSpotlight} readAnimationFrame={read} variant="bare" />
   );
@@ -27,6 +32,9 @@ test('expands only the narrated symbol and restores it on backward seeks', () =>
       for (const callback of pending) callback(time);
     });
   }
+  seek(1000);
+  expect(container.querySelector('[data-formula-symbol][data-active="true"]')).toBeNull();
+  expect(screen.getByText('La stima assegnata dal modello.')).not.toBeVisible();
   seek(2000);
   expect(screen.getByText('La stima assegnata dal modello.')).not.toBeVisible();
   expect(screen.getByText('I valori appresi dal modello.')).toBeVisible();
@@ -40,4 +48,33 @@ test('expands only the narrated symbol and restores it on backward seeks', () =>
   seek(0);
   expect(screen.getByText('La stima assegnata dal modello.')).toBeVisible();
   expect(screen.getByText('I valori appresi dal modello.')).not.toBeVisible();
+});
+
+test('highlights only the spoken subscript and leaves its base unselected', () => {
+  const scene = {
+    ...formulaSpotlight,
+    formula: String.raw`\nousSymbol{x}_{\nousSymbol{i}}`,
+    symbols: [
+      { id: 'x', latex: 'x', name: 'Variabile', meaning: 'La variabile', anchor: 'ics' },
+      { id: 'i', latex: 'i', name: 'Pedice', meaning: 'Il pedice', anchor: 'il pedice i' },
+    ],
+  };
+  const { container } = render(
+    <LessonSceneVisual
+      scene={scene}
+      variant="bare"
+      readAnimationFrame={() => ({
+        elapsedMs: 2100,
+        durationMs: 4000,
+        cueTimes: [0, 2000],
+        cueEndTimes: [500, 2500],
+      })}
+    />
+  );
+  const selected = container.querySelectorAll('.spotlight-formula [data-active="true"]');
+  expect(selected).toHaveLength(1);
+  expect(selected[0].textContent).toBe('i');
+  expect(container.querySelector('.nous-formula-symbol-x')?.getAttribute('data-active')).toBe(
+    'false'
+  );
 });

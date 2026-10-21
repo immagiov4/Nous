@@ -1,6 +1,10 @@
 import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
 import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
-import { lessonPlaybackVisuals, readLessonPlayback } from '../projects/lessonPlayback.js';
+import {
+  lessonPlaybackContent,
+  lessonPlaybackVisuals,
+  readLessonPlayback,
+} from '../projects/lessonPlayback.js';
 import type { ProjectAssetWriter } from '../projects/projectAsset.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
 import { getProjectStore } from '../projects/projectStore.js';
@@ -25,7 +29,8 @@ export const createProductionLessonPlaybackServices = (
     { input, signal, execution, idempotencyKey, providerEffect },
     allowedSceneTypes,
     supportsSpokenMath = true,
-    supportsFencedCode = true
+    supportsFencedCode = true,
+    supportsUnlinkedFormulaSymbols = true
   ) => {
     const project = await projectStore.loadProjectWithRevision(input.userId, input.projectId);
     const section = project && findProjectLessonSection(project.snapshot, input.sectionId);
@@ -47,8 +52,14 @@ export const createProductionLessonPlaybackServices = (
       title: typeof section.title === 'string' ? section.title : '',
       description: typeof section.description === 'string' ? section.description : '',
       generatedVisuals: lessonPlaybackVisuals(section),
+      sources: lessonPlaybackContent(section),
     };
-    validatePlaybackSceneTypes({ block, lesson, allowedSceneTypes });
+    validatePlaybackSceneTypes({
+      block,
+      lesson,
+      allowedSceneTypes,
+      supportsUnlinkedFormulaSymbols,
+    });
     if (
       isPlaybackBlockReady(block, ttsClient.resolveVoice(input.model, input.voice), input.model)
     ) {
@@ -60,6 +71,7 @@ export const createProductionLessonPlaybackServices = (
       allowedSceneTypes,
       supportsSpokenMath,
       supportsFencedCode,
+      supportsUnlinkedFormulaSymbols,
       block,
       lesson: {
         ...lesson,

@@ -56,6 +56,9 @@
   display: none !important;
 }
 .lesson-player-stage .scene-host {
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space);
   background: var(--surface);
   border-radius: var(--radius);
   min-height: 460px;
@@ -2277,6 +2280,11 @@
     inset: 0;
     visibility: hidden;
     pointer-events: none;
+  }
+  .lesson-player-stage[data-has-visual="false"] .captions {
+    position: static;
+    visibility: visible;
+    pointer-events: auto;
   }
   .lesson-player-stage .scene-fit {
     flex-shrink: 0;
