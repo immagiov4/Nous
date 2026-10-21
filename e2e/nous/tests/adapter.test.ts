@@ -14,6 +14,7 @@ import { openOperatorSession } from '../../../packages/playtest/src/operator/ses
 import { runPlaytest } from '../../../packages/playtest/src/runner';
 import { loadPersonas, loadStories } from '../../../packages/playtest/src/stories';
 import type { Story } from '../../../packages/playtest/src/types';
+import { withMutedAudio } from '../../../scripts/browser-audio';
 import adapter from '../adapter';
 import { prepare, syntheticCourse } from '../prepare';
 import {
@@ -923,7 +924,7 @@ describe('Nous adapter', () => {
     'between',
   ])('keeps image, nodes and probes together when navigation happens %s capture', async phase => {
     temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-navigation-'));
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch(withMutedAudio({ headless: true }));
     const session = await openOperatorSession({
       browser,
       locale: 'it-IT',

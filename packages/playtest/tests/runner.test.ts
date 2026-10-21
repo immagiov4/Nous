@@ -15,6 +15,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ReactMarkdown from 'react-markdown';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { withMutedAudio } from '../../../scripts/browser-audio';
 import type { PlaytestAdapter } from '../src/adapter';
 import { main } from '../src/cli';
 import type { InspectorFinding } from '../src/inspector/inspect';
@@ -46,7 +47,7 @@ let browser: Browser;
 const runDirs: string[] = [];
 
 beforeAll(async () => {
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch(withMutedAudio({ headless: true }));
   server = createServer((request, response) => {
     if (request.url === '/scoped-trace') {
       response.setHeader('Content-Type', 'text/html');
@@ -255,7 +256,9 @@ describe('parallel runner', () => {
       ).toEqual([]);
       expect(markdown).not.toContain('[Browser video]');
     }
-    expect(chromium.launch).toHaveBeenCalledWith({ headless: true });
+    expect(chromium.launch).toHaveBeenCalledWith(
+      expect.objectContaining({ headless: true, args: expect.arrayContaining(['--mute-audio']) })
+    );
     expect(browser.contexts()).toHaveLength(0);
   });
 
