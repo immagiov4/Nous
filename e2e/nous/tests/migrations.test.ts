@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { type ProofMigration, reconcileProofMigrations } from '../../../scripts/proof-migrations';
 import {
   ensureSharedSupabase,
   releaseSharedSupabase,
@@ -36,8 +37,100 @@ function runtime() {
     health: vi.fn(async () => {}),
     watch: vi.fn(async () => {}),
     container: vi.fn(async () => 'container-owned'),
+    reconcile: vi.fn(async () => true),
+    snapshot: vi.fn(async () => ({
+      revision: 'main',
+      main: [] as ProofMigration[],
+      local: [] as ProofMigration[],
+    })),
+    isolate: vi.fn(async () => ({
+      ...status,
+      API_URL: 'http://127.0.0.1:60001',
+      DB_URL: 'postgresql://postgres:test@127.0.0.1:60002/postgres',
+    })),
   };
 }
+it('checks migration parity under the admission lock and isolates a divergent checkout', async () => {
+  const options = runtime();
+  options.reconcile.mockResolvedValue(false);
+  expect((await ensureSharedSupabase(options)).API_URL).toBe('http://127.0.0.1:60001');
+  expect(options.isolate).toHaveBeenCalledOnce();
+  expect(options.reconcile).toHaveBeenCalledOnce();
+  expect(await readdir(join(root, 'runs'))).toEqual([]);
+});
+it('isolates branch-only SQL before inspecting or starting the shared stack', async () => {
+  const options = runtime();
+  options.snapshot.mockResolvedValue({
+    revision: 'main',
+    main: [],
+    local: [
+      {
+        version: '2',
+        name: 'branch',
+        sql: 'create table branch_only (id int);',
+        hash: 'branch-hash',
+      },
+    ],
+  });
+  expect((await ensureSharedSupabase(options)).API_URL).toBe('http://127.0.0.1:60001');
+  expect(options.run).not.toHaveBeenCalled();
+  expect(options.reconcile).not.toHaveBeenCalled();
+  expect(options.isolate).toHaveBeenCalledOnce();
+});
+it('keeps the lifecycle reservation through dedicated startup without borrowing shared watcher ownership', async () => {
+  const options = runtime();
+  await writeFile(join(root, 'managed'), 'container-owned');
+  options.reconcile.mockResolvedValue(false);
+  let started!: () => void;
+  const entered = new Promise<void>(resolve => {
+    started = resolve;
+  });
+  let finish!: (value: typeof status) => void;
+  options.isolate.mockImplementation(async () => {
+    started();
+    return new Promise(resolve => {
+      finish = resolve;
+    });
+  });
+  options.watch.mockRejectedValue(new Error('watcher unavailable'));
+  const admission = ensureSharedSupabase(options);
+  await entered;
+  const watchedBeforeCompletion = options.watch.mock.calls.length;
+  finish(status);
+  expect(await admission).toEqual(status);
+  expect(watchedBeforeCompletion).toBe(0);
+  expect(options.watch).not.toHaveBeenCalled();
+});
+it('serializes two proofs through migration reconciliation and applies each version once', async () => {
+  const options = runtime();
+  const main = [
+    { version: '2', name: 'main', sql: 'create table main_only (id int);', hash: 'main-hash' },
+  ];
+  const snapshot = { revision: 'main', main, local: main };
+  options.snapshot.mockResolvedValue(snapshot);
+  const applied: string[] = [];
+  let active = 0;
+  const apply = vi.fn(async (migration: ProofMigration) => {
+    active++;
+    expect(active).toBe(1);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    applied.push(migration.version);
+    active--;
+  });
+  options.reconcile.mockImplementation(() =>
+    reconcileProofMigrations(snapshot, {
+      applied: async () => [...applied],
+      apply,
+      close: async () => {},
+    })
+  );
+  expect(await Promise.all([ensureSharedSupabase(options), ensureSharedSupabase(options)])).toEqual(
+    [status, status]
+  );
+  expect(apply).toHaveBeenCalledOnce();
+  expect(applied).toEqual(['2']);
+  await releaseSharedSupabase();
+});
 it('reuses healthy Supabase across proof data directories, preserving users and migrations', async () => {
   const options = runtime();
   vi.stubEnv('NOUS_E2E_DATA', join(root, 'proof-a'));
@@ -62,9 +155,21 @@ it('starts an absent stack once and applies migrations without resetting it', as
     ['status', '--output', 'json'],
     ['start'],
     ['status', '--output', 'json'],
-    ['migration', 'up', '--local'],
   ]);
+  expect(options.reconcile).toHaveBeenCalledOnce();
   expect(await readFile(join(root, 'managed'), 'utf8')).toBe('container-owned');
+});
+it('inspects retained migration history before applying SQL after a container restart', async () => {
+  const options = runtime();
+  options.run.mockImplementation(async args => {
+    if (args[0] === 'migration') throw new Error('SQL ran before the history comparison');
+    return JSON.stringify(status);
+  });
+  options.run.mockRejectedValueOnce(new Error('container absent, volume retained'));
+  options.container.mockResolvedValueOnce('');
+  options.reconcile.mockResolvedValue(false);
+  expect((await ensureSharedSupabase(options)).API_URL).toBe('http://127.0.0.1:60001');
+  expect(options.isolate).toHaveBeenCalledOnce();
 });
 it('preserves an unhealthy existing stack, including a stopped database container', async () => {
   const options = runtime();
@@ -180,18 +285,14 @@ it.each(['migration', 'health'])('schedules idle cleanup after a failed %s', asy
   options.container.mockResolvedValueOnce('');
   options.run.mockRejectedValueOnce(new Error('absent'));
   if (failure === 'migration')
-    options.run.mockImplementation(async args => {
-      if (args[0] === 'migration') throw new Error('initialization failed');
-      return JSON.stringify(status);
-    });
+    options.reconcile.mockRejectedValueOnce(new Error('initialization failed'));
   else options.health.mockRejectedValueOnce(new Error('initialization failed'));
   await expect(ensureSharedSupabase(options)).rejects.toThrow('initialization failed');
   expect(options.watch).toHaveBeenCalledOnce();
   expect(await readFile(join(root, 'managed'), 'utf8')).toBe('container-owned');
   expect(await readdir(join(root, 'runs'))).toEqual([]);
   expect(Number(await readFile(join(root, 'last-run'), 'utf8'))).toBeGreaterThan(0);
-  if (failure === 'migration')
-    await expect(ensureSharedSupabase(options)).rejects.toThrow('initialization is incomplete');
+  if (failure === 'migration') expect(await ensureSharedSupabase(options)).toEqual(status);
 });
 it('retains startup ownership when Docker inspection fails after start', async () => {
   const options = runtime();

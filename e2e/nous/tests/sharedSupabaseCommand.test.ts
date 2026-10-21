@@ -1,11 +1,28 @@
+import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { parse } from 'smol-toml';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 const host = vi.hoisted(() => ({ execute: vi.fn(), spawn: vi.fn() }));
+const migrations = vi.hoisted(() => ({ divergent: false, unknown: false }));
+vi.mock('../../../scripts/proof-migrations', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../../scripts/proof-migrations')>()),
+  proofMigrationSnapshot: async () => ({
+    revision: 'main',
+    main: [],
+    local: migrations.divergent
+      ? [{ version: 'branch', name: 'branch', sql: '', hash: 'branch' }]
+      : [],
+  }),
+  migrationStore: () => ({
+    applied: async () => (migrations.unknown ? ['unpublished'] : []),
+    apply: async () => {},
+    close: async () => {},
+  }),
+}));
 vi.mock('node:child_process', async importOriginal => {
   const original = await importOriginal<typeof import('node:child_process')>();
   const { promisify } = await import('node:util');
@@ -36,6 +53,8 @@ const status = {
 };
 
 beforeEach(async () => {
+  migrations.divergent = false;
+  migrations.unknown = false;
   root = await mkdtemp(join(tmpdir(), 'nous-shared-command-'));
   vi.stubEnv('NOUS_SHARED_SUPABASE_DATA', root);
   containers = [{ name: reader, id: 'reader-id', running: true }];
@@ -62,6 +81,17 @@ beforeEach(async () => {
       };
     }
     if (args[0] === 'status') {
+      const workdir = args.at(-1) ?? '';
+      if (workdir.startsWith(join(root, 'isolated'))) {
+        const config = parse(await readFile(join(workdir, 'supabase/config.toml'), 'utf8'));
+        return {
+          stdout: JSON.stringify({
+            ...status,
+            API_URL: `http://127.0.0.1:${(config.api as { port: number }).port}`,
+            DB_URL: `postgresql://postgres:test@127.0.0.1:${(config.db as { port: number }).port}/postgres`,
+          }),
+        };
+      }
       const legacy = args.at(-1)?.endsWith('nous-playtest');
       if (
         !containers.some(
@@ -81,7 +111,16 @@ beforeEach(async () => {
         ),
       };
     }
-    if (args[0] === 'start') containers.push({ name: reader, id: 'reader-id', running: true });
+    if (args[0] === 'start') {
+      const workdir = args.at(-1) ?? '';
+      containers.push(
+        workdir.startsWith(join(root, 'isolated'))
+          ? { name: `supabase_db_${basename(workdir)}`, id: 'isolated-id', running: true }
+          : { name: reader, id: 'reader-id', running: true }
+      );
+    }
+    if (args[0] === 'stop' && args.at(-1)?.startsWith(join(root, 'isolated')))
+      containers = containers.filter(container => container.id !== 'isolated-id');
     return { stdout: '' };
   });
   host.spawn.mockImplementation(() => {
@@ -94,12 +133,112 @@ beforeEach(async () => {
     vi.fn(async () => new Response(null, { status: 200 }))
   );
 });
+
+it.each([
+  'checkout',
+  'database',
+])('runs a divergent %s on a dedicated project and stops only that project', async kind => {
+  migrations.divergent = kind === 'checkout';
+  migrations.unknown = kind === 'database';
+  const selected = await ensureSharedSupabase();
+  assert(selected.PROOF_WORKDIR);
+  expect(selected.API_URL).not.toBe(status.API_URL);
+  expect(await ensureSharedSupabase()).toEqual(selected);
+  expect(containers.map(container => container.id)).toEqual(['reader-id', 'isolated-id']);
+  await releaseSharedSupabase();
+  expect(containers).toEqual([{ name: reader, id: 'reader-id', running: true }]);
+  expect(await readFile(join(selected.PROOF_WORKDIR, 'supabase/config.toml'), 'utf8')).toContain(
+    basename(selected.PROOF_WORKDIR)
+  );
+  expect(host.execute.mock.calls.filter(([, args]) => args[0] === 'stop')).toEqual([
+    [
+      expect.any(String),
+      ['stop', '--workdir', selected.PROOF_WORKDIR],
+      expect.objectContaining({ windowsHide: true }),
+    ],
+  ]);
+});
+
+it('recovers dedicated ownership in a fresh manager instance and keeps an inherited child from stopping its parent', async () => {
+  vi.stubEnv('NOUS_E2E_DATA', join(root, 'proof-data'));
+  migrations.divergent = true;
+  const selected = await ensureSharedSupabase();
+  assert(selected.PROOF_WORKDIR);
+  expect(await readdir(join(root, 'proofs'))).toHaveLength(1);
+  vi.resetModules();
+  const fresh = await import('../../../scripts/shared-supabase');
+  vi.stubEnv('NOUS_PROOF_SUPABASE_WORKDIR', selected.PROOF_WORKDIR);
+  await fresh.releaseSharedSupabase();
+  expect(containers.some(container => container.id === 'isolated-id')).toBe(true);
+  vi.stubEnv('NOUS_PROOF_SUPABASE_WORKDIR', '');
+  await fresh.releaseSharedSupabase();
+  expect(containers).toEqual([{ name: reader, id: 'reader-id', running: true }]);
+  expect(await readdir(join(root, 'proofs'))).toEqual([]);
+  await releaseSharedSupabase();
+});
 afterEach(async () => {
   process.exitCode = originalExitCode;
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   await rm(root, { recursive: true, force: true });
+});
+
+it('preserves a replacement container when isolated startup health fails', async () => {
+  migrations.divergent = true;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      containers = containers.map(container =>
+        container.id === 'isolated-id' ? { ...container, id: 'replacement-id' } : container
+      );
+      return new Response(null, { status: 503 });
+    })
+  );
+  await expect(ensureSharedSupabase()).rejects.toThrow();
+  expect(host.execute.mock.calls.filter(([, args]) => args[0] === 'stop')).toEqual([]);
+  expect(containers.some(container => container.id === 'replacement-id')).toBe(true);
+});
+it('recovers ownership and stops its partial database when dedicated start fails', async () => {
+  vi.stubEnv('NOUS_E2E_DATA', join(root, 'failed-start-proof'));
+  migrations.divergent = true;
+  const original = host.execute.getMockImplementation();
+  assert(original);
+  host.execute.mockImplementation(async (binary: string, args: string[]) => {
+    const result = await original(binary, args);
+    if (args[0] === 'start') throw new Error('start interrupted after database creation');
+    return result;
+  });
+  await expect(ensureSharedSupabase()).rejects.toThrow('Shared Supabase start failed');
+  expect(containers).toEqual([{ name: reader, id: 'reader-id', running: true }]);
+});
+it('keeps startup intent recoverable when Docker inspection fails before identity capture', async () => {
+  vi.stubEnv('NOUS_E2E_DATA', join(root, 'failed-inspection-proof'));
+  migrations.divergent = true;
+  const original = host.execute.getMockImplementation();
+  assert(original);
+  let unavailable = true;
+  host.execute.mockImplementation(async (binary: string, args: string[]) => {
+    if (binary === 'docker' && args.includes('--filter') && unavailable)
+      throw new Error('Docker inspection unavailable');
+    return original(binary, args);
+  });
+  await expect(ensureSharedSupabase()).rejects.toThrow('ownership record was preserved');
+  expect(containers.some(container => container.id === 'isolated-id')).toBe(true);
+  const [record] = await readdir(join(root, 'proofs'));
+  expect(
+    JSON.parse(await readFile(join(root, 'proofs', record), 'utf8')).container
+  ).toBeUndefined();
+  unavailable = false;
+  vi.resetModules();
+  const fresh = await import('../../../scripts/shared-supabase');
+  await expect(fresh.ensureSharedSupabase()).rejects.toThrow(
+    'dedicated Supabase project is recorded'
+  );
+  expect(await readdir(join(root, 'proofs'))).toEqual([record]);
+  await fresh.releaseSharedSupabase();
+  expect(containers).toEqual([{ name: reader, id: 'reader-id', running: true }]);
+  expect(await readdir(join(root, 'proofs'))).toEqual([]);
 });
 
 function mockBunSpawn(spawn: unknown): void {
