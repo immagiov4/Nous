@@ -38,7 +38,7 @@ const loadStoredProjectCover = async (
     throw new Error('Course cover storage is unavailable for this session.');
   }
   if (circuit.status === 'available') return loadCover(projectId);
-  if (circuit.probe) {
+  if (circuit.probe !== null) {
     await circuit.probe;
     return loadCover(projectId);
   }
