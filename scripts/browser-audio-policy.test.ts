@@ -61,6 +61,15 @@ function unmutedLaunches(source: string, filename: string): string[] {
     failures.push(`${filename}:${tree.getLineAndCharacterOfPosition(node.getStart()).line + 1}`);
   }
   function visit(node: ts.Node) {
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      ['launch', 'launchPersistentContext', 'launchServer'].includes(node.name.text) &&
+      !(
+        ts.isCallExpression(node.parent) &&
+        (node.parent.expression === node || node.parent.expression.getText(tree) === 'expect')
+      )
+    )
+      report(node);
     if (ts.isCallExpression(node)) {
       const expression = node.expression;
       let method: string | undefined;
@@ -77,16 +86,31 @@ function unmutedLaunches(source: string, filename: string): string[] {
         browserImports.has(expression.expression.getText(tree))
       )
         report(node);
-      if (method === 'launch' || method === 'launchPersistentContext') {
-        if (!isMuted(node.arguments[method === 'launch' ? 0 : 1])) report(node);
+      if (method && ['launch', 'launchPersistentContext', 'launchServer'].includes(method)) {
+        if (!isMuted(node.arguments[method === 'launchPersistentContext' ? 1 : 0])) report(node);
       }
     }
     if (isConfig) {
-      if (ts.isPropertyAssignment(node) && node.name.getText(tree) === 'use') {
+      if (ts.isPropertyAssignment(node) && node.name.getText(tree).replace(/['"]/g, '') === 'use') {
         const options = node.initializer;
         const launch =
           ts.isObjectLiteralExpression(options) && finalProperty(options, 'launchOptions');
         if (!launch || !ts.isPropertyAssignment(launch) || !isMuted(launch.initializer))
+          report(node);
+      }
+      if (
+        ts.isPropertyAssignment(node) &&
+        node.name.getText(tree).replace(/['"]/g, '') === 'projects'
+      ) {
+        const projects = node.initializer;
+        if (
+          !ts.isArrayLiteralExpression(projects) ||
+          projects.elements.some(
+            project =>
+              !ts.isObjectLiteralExpression(project) ||
+              project.properties.some(ts.isSpreadAssignment)
+          )
+        )
           report(node);
       }
       if (ts.isExportAssignment(node)) {
@@ -135,6 +159,8 @@ describe('browser audio policy', () => {
     'chromium["launch"]({})',
     'const method = "launch"; chromium[method]({});',
     'firefox.launch({ headless: true })',
+    'chromium.launchServer({ headless: false })',
+    'const start = chromium.launch.bind(chromium); start({ headless: false });',
     'browserType.launchPersistentContext(profile, {})',
     'chromium.launch({ args: ["--mute-audio"] })',
     'chromium.launch({ ...withMutedAudio(), args: [] })',
@@ -168,6 +194,20 @@ describe('browser audio policy', () => {
     'export default defineConfig({ use: { launchOptions: withMutedAudio() }, ...overrides });',
     'export default defineConfig({ use: { launchOptions: withMutedAudio() } }, overrides);',
   ])('rejects configuration spreads that can override the audio policy', source => {
+    expect(
+      unmutedLaunches(
+        `import { withMutedAudio } from './scripts/browser-audio'; ${source}`,
+        'playwright.config.ts'
+      ).length
+    ).toBeGreaterThan(0);
+  });
+
+  it.each([
+    "export default defineConfig({ 'use': { launchOptions: {} } });",
+    'export default defineConfig({ use: { launchOptions: withMutedAudio() }, projects: externalProjects });',
+    'export default defineConfig({ use: { launchOptions: withMutedAudio() }, projects: [...externalProjects] });',
+    'export default defineConfig({ use: { launchOptions: withMutedAudio() }, projects: [{ ...externalProject }] });',
+  ])('rejects unverified configuration options: %s', source => {
     expect(
       unmutedLaunches(
         `import { withMutedAudio } from './scripts/browser-audio'; ${source}`,
