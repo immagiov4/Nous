@@ -1,5 +1,6 @@
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import {
+  getPlaybackMathMarkdown,
   type LessonPlaybackBlock,
   resolvePlaybackNarration,
   validatePlaybackSpokenMath,
@@ -17,6 +18,7 @@ import type { GlobalModelConfig } from '../../config/modelConfig.js';
 import { failPermanently } from '../../workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../workflows/types.js';
 import type { WorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
+import type { LessonSourceProvenance } from '../lessonPrimarySourceContext.js';
 import { generateLessonScene } from '../lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../lessonVisualModelConfig.js';
 import {
@@ -41,6 +43,7 @@ interface PrepareLessonPlaybackBlockInput {
   readonly lesson: {
     readonly title: string;
     readonly description?: string;
+    readonly sourceProvenance?: LessonSourceProvenance;
     readonly generatedVisuals?: readonly ProjectLessonVisual[];
   };
   readonly voice: string;
@@ -84,13 +87,14 @@ const prepareScene = async (
   input: PrepareLessonPlaybackBlockInput
 ): Promise<LessonScene | undefined> => {
   const { block, config, signal } = input;
-  if (block.visuals.length) {
+  const mathMarkdown = getPlaybackMathMarkdown(block);
+  if (block.visuals.length && !mathMarkdown) {
     const scenes = existingScenes(input);
     // Motion events carry no scene id, so a block with several scenes shows them without motion.
     return scenes.length === 1 ? scenes[0] : undefined;
   }
   // A prepared block must cover its complete speech, not silently inherit the lesson excerpt cut.
-  if (block.speech.length > MAX_VISUAL_LESSON_CHARS) {
+  if (Math.max(block.speech.length, mathMarkdown?.length ?? 0) > MAX_VISUAL_LESSON_CHARS) {
     throw new Error('Playback block speech exceeds the scene generation text limit.');
   }
   let retryFeedback: string | undefined;
@@ -100,15 +104,19 @@ const prepareScene = async (
     const outcome = await generateLessonScene({
       allowedSceneTypes: input.allowedSceneTypes,
       config: resolveLessonVisualModelConfig(config),
-      lessonMarkdown: block.speech,
+      lessonMarkdown: mathMarkdown ?? block.speech,
+      narration: block.speech,
+      allowTextFallback: true,
       retryFeedback,
       // Only this block is admissible evidence; lesson metadata can describe other passages.
       sectionDescription: '',
+      sourceProvenance: input.lesson.sourceProvenance,
       sectionTitle: '',
       signal,
     });
     signal.throwIfAborted();
     if (outcome.kind === 'scene') return outcome.scene;
+    if (outcome.kind === 'text') return undefined;
     retryFeedback = outcome.problems.join('\n');
     diagnostic = outcome.diagnostic;
   }
@@ -158,9 +166,13 @@ const prepareNarration = async (input: PrepareLessonPlaybackBlockInput) => {
       ? input.providerEffect.run({
           key: 'narration',
           outputSchema: PlaybackNarrationResponseSchema,
-          operation: () => generatePlaybackNarration(input),
+          operation: () =>
+            generatePlaybackNarration({
+              ...input,
+              sourceProvenance: input.lesson.sourceProvenance,
+            }),
         })
-      : generatePlaybackNarration(input);
+      : generatePlaybackNarration({ ...input, sourceProvenance: input.lesson.sourceProvenance });
   }
   const spokenMath = await prepareSpokenMath(input);
   return spokenMath ? { spokenMath } : {};
@@ -170,7 +182,8 @@ const prepareSpokenMath = async (input: PrepareLessonPlaybackBlockInput) => {
   const { block } = input;
   if (block.prepared) return block.prepared.spokenMath;
   if (input.supportsSpokenMath === false || !block.spans.some(span => span.math)) return undefined;
-  const operation = () => generatePlaybackSpokenMath(input);
+  const operation = () =>
+    generatePlaybackSpokenMath({ ...input, sourceProvenance: input.lesson.sourceProvenance });
   const spokenMath = input.providerEffect
     ? await input.providerEffect.run({
         key: 'spoken-math',
@@ -198,8 +211,14 @@ const prepareVisuals = async (
         ).scene
       : await prepareScene(input);
     const planMotion = async () =>
-      scene && !isAnimatedLessonScene(scene)
-        ? await planPlaybackMotion({ scene, speech: block.speech, config, signal })
+      scene && scene.type !== 'formula-spotlight' && !isAnimatedLessonScene(scene)
+        ? await planPlaybackMotion({
+            scene,
+            speech: block.speech,
+            config,
+            signal,
+            sourceProvenance: input.lesson.sourceProvenance,
+          })
         : [];
     const motion = input.providerEffect
       ? await input.providerEffect.run({

@@ -8,6 +8,7 @@ import type { ResearchSource } from './lessonGenerationSources.js';
 import type { LessonGenerationInput } from './lessonGenerationTypes.js';
 import {
   type LessonPrimarySourceIdentity,
+  PrimarySourceIdentitySchema,
   readLessonPrimarySources,
 } from './lessonPrimarySourceContext.js';
 
@@ -333,3 +334,33 @@ export const serializeLessonEvidence = (
     selection: packet.selection,
     materials: buildLessonEvidenceMaterials(input),
   });
+
+/** Recovers source identities for later playback without re-reading or re-transcribing source files. */
+export const readStoredTranscribedSources = (
+  serialized: string | undefined
+): LessonPrimarySourceIdentity[] => {
+  if (!serialized) return [];
+  const archive = StoredSelectionSchema.extend({
+    materials: z.array(
+      z.object({
+        materialId: z.string(),
+        kind: z.enum(['primary', 'research', 'source']),
+        units: z.array(
+          z.object({ text: z.string(), source: PrimarySourceIdentitySchema.optional() })
+        ),
+      })
+    ),
+  }).parse(JSON.parse(serialized));
+  const retained = resolveLessonEvidence(archive.materials, archive.selection);
+  return [
+    ...new Map(
+      retained.passages.flatMap(passage =>
+        passage.units.flatMap(unit =>
+          unit.source?.transcribedPages?.length
+            ? [[JSON.stringify(unit.source), unit.source] as const]
+            : []
+        )
+      )
+    ).values(),
+  ];
+};

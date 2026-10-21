@@ -98,7 +98,7 @@ test.each([
   const request = generateStructuredOutputMock.mock.calls[0][0];
   const schema = z.fromJSONSchema(request.output.schema);
   expect(schema.safeParse(draft).success).toBe(true);
-  expect(schema.safeParse({ ...draft, formula: 'quantity * amountPerUnit' }).success).toBe(false);
+  expect(schema.safeParse({ ...draft, script: 'quantity * amountPerUnit' }).success).toBe(false);
   expect(chooseIconsMock.mock.calls[0][0].entries).toEqual([]);
 });
 
@@ -620,4 +620,137 @@ test('reports schema paths and transport without retaining unknown model fields'
     problems: [{ code: 'unrecognized_keys', path: [] }],
   });
   expect(JSON.stringify(outcome.diagnostic)).not.toContain('private');
+});
+
+import {
+  FORMULA_SPOTLIGHT_MARKDOWN,
+  FORMULA_SPOTLIGHT_SPEECH,
+  formulaSpotlight,
+} from '../../helpers/formulaSpotlight';
+
+test('the model can choose a spotlight from authored math with canonical spoken anchors', async () => {
+  generateStructuredOutputMock.mockResolvedValue({
+    ...quoteDraft(''),
+    ...formulaSpotlight,
+    evidence: FORMULA_SPOTLIGHT_MARKDOWN,
+    intent: 'Explain the symbols.',
+  });
+  const result = await generateLessonScene({
+    ...unplannedInput(FORMULA_SPOTLIGHT_MARKDOWN),
+    narration: FORMULA_SPOTLIGHT_SPEECH,
+    allowTextFallback: true,
+  });
+  expect(result).toEqual({ kind: 'scene', scene: formulaSpotlight });
+  expect(
+    z.fromJSONSchema(generateStructuredOutputMock.mock.calls[0][0].output.schema).safeParse({
+      ...quoteDraft(''),
+      ...formulaSpotlight,
+      evidence: FORMULA_SPOTLIGHT_MARKDOWN,
+      intent: 'Explain.',
+    }).success
+  ).toBe(true);
+});
+
+test('explicit text fallback needs exact evidence and stays available to the model', async () => {
+  generateStructuredOutputMock.mockResolvedValue({
+    ...quoteDraft(''),
+    type: 'text',
+    evidence: 'Una frase.',
+  });
+  expect(
+    await generateLessonScene({ ...unplannedInput('Una frase.'), allowTextFallback: true })
+  ).toEqual({ kind: 'text' });
+  expect(await generateLessonScene(unplannedInput('Una frase.'))).toMatchObject({
+    kind: 'invalid',
+  });
+  expect(
+    await generateLessonScene({ ...unplannedInput('Altra frase.'), allowTextFallback: true })
+  ).toMatchObject({ kind: 'invalid' });
+});
+
+test.each([
+  'Una formula\nillustrata.',
+  'Una formula  illustrata.',
+])('accepts text evidence when source whitespace varies: %s', async source => {
+  generateStructuredOutputMock.mockResolvedValue({
+    ...quoteDraft(''),
+    type: 'text',
+    evidence: 'Una formula illustrata.',
+  });
+  expect(await generateLessonScene({ ...unplannedInput(source), allowTextFallback: true })).toEqual(
+    { kind: 'text' }
+  );
+});
+
+test.each([
+  'guided-path',
+  'proportional',
+] as const)('validates %s cues against spoken math while grounding quantities in source text', async type => {
+  const source =
+    'Consideriamo $x$. Poi osserviamo $y$. Da 1 a 6 repliche, inizialmente 2, 128 MB ciascuna.';
+  const narration =
+    'Consideriamo ics. Poi osserviamo ipsilon. Da uno a sei repliche, inizialmente due, centoventotto megabyte ciascuna.';
+  const sceneFor = (anchors: readonly string[]) =>
+    type === 'guided-path'
+      ? {
+          ...guidedPathScene,
+          narration: undefined,
+          steps: [
+            { label: 'Prima quantità', detail: 'Osserva la prima.', anchor: anchors[0] },
+            { label: 'Seconda quantità', detail: 'Osserva la seconda.', anchor: anchors[1] },
+          ],
+        }
+      : {
+          ...proportionalScene,
+          narration: undefined,
+          cues: [
+            { anchor: anchors[0], value: 2 },
+            { anchor: anchors[1], value: 6 },
+          ],
+        };
+  const scene = sceneFor(['Consideriamo ics', 'Poi osserviamo ipsilon']);
+  const draft = { ...quoteDraft(''), ...scene, evidence: source, intent: 'Follow the quantities.' };
+  const input = { ...unplannedInput(source), narration };
+  generateStructuredOutputMock.mockResolvedValue(draft);
+  expect(await generateLessonScene(input)).toMatchObject({ kind: 'scene', scene: { type } });
+  const rawAnchors = { ...draft, ...sceneFor(['Consideriamo $x$', 'Poi osserviamo $y$']) };
+  generateStructuredOutputMock.mockResolvedValue(rawAnchors);
+  expect(await generateLessonScene(input)).toMatchObject({ kind: 'invalid' });
+  if (type === 'proportional') {
+    generateStructuredOutputMock.mockResolvedValue({ ...draft, amountPerUnit: 256 });
+    expect(await generateLessonScene(input)).toMatchObject({ kind: 'invalid' });
+  }
+});
+
+test('admits a spotlight only when the caller supplies canonical narration', async () => {
+  const draft = {
+    ...quoteDraft(''),
+    ...formulaSpotlight,
+    evidence: FORMULA_SPOTLIGHT_MARKDOWN,
+    intent: 'Explain the symbols.',
+  };
+  generateStructuredOutputMock.mockResolvedValue(draft);
+  expect(await generateLessonScene(unplannedInput(FORMULA_SPOTLIGHT_MARKDOWN))).toMatchObject({
+    kind: 'invalid',
+  });
+  const schema = z.fromJSONSchema(generateStructuredOutputMock.mock.calls[0][0].output.schema);
+  expect(schema.safeParse(draft).success).toBe(false);
+});
+test('keeps transcription provenance separate from the admissible scene passage', async () => {
+  const speech = 'Quali fonti sostengono la tesi?';
+  const sourceProvenance = {
+    kind: 'vision-transcription' as const,
+    sources: [{ title: 'Synthetic notes', transcribedPages: [7] }],
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(quoteDraft(speech));
+  const request = { ...unplannedInput(speech), sourceProvenance };
+  expect(await generateLessonScene(request)).toMatchObject({
+    kind: 'scene',
+    scene: { quote: speech },
+  });
+  const prompt = generateStructuredOutputMock.mock.calls[0][0].prompt as string;
+  const metadata = prompt.split('\n').find(line => line.startsWith('Source provenance: '));
+  expect(JSON.parse(metadata?.slice('Source provenance: '.length) || 'null')).toEqual(
+    sourceProvenance
+  );
 });

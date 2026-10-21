@@ -1,5 +1,10 @@
-import type { LessonPlaybackBlock, PlaybackRange, PlaybackVisual } from '@shared/lessonPlayback';
-import { resolvePlaybackNarration } from '@shared/lessonPlayback';
+import {
+  getPlaybackMathMarkdown,
+  type LessonPlaybackBlock,
+  type PlaybackRange,
+  type PlaybackVisual,
+  resolvePlaybackNarration,
+} from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
 import {
   Fragment,
@@ -100,7 +105,7 @@ function PlaybackScene({
 }>) {
   const host = useRef<HTMLDivElement>(null);
   const readAnimationFrame = useMemo<ReadSceneAnimationFrame | undefined>(() => {
-    if (!isAnimatedLessonScene(scene)) return undefined;
+    if (!isAnimatedLessonScene(scene) && scene.type !== 'formula-spotlight') return undefined;
     const anchors = sceneCaptionAnchors(scene, block.speech);
     let previousClock: CaptionClock | null = null;
     let times: number[] | undefined;
@@ -136,7 +141,12 @@ function PlaybackScene({
     };
   }, [scene, block.speech, clock, interval.start, interval.duration]);
   useEffect(() => {
-    if (isAnimatedLessonScene(scene) || !block.prepared?.motion.length) return;
+    if (
+      isAnimatedLessonScene(scene) ||
+      scene.type === 'formula-spotlight' ||
+      !block.prepared?.motion.length
+    )
+      return;
     const element = host.current;
     if (!element) throw new Error('Playback scene must be mounted');
     let elements = sceneElements(element, scene);
@@ -358,13 +368,21 @@ export default function LessonPlaybackStage({
       slot.style.height = `${height * scale}px`;
       slot.style.setProperty('--scene-left', `${(slot.clientWidth - width * scale) / 2}px`);
     };
-    const observer = new ResizeObserver(fitScene);
+    let fitFrame: number | undefined;
+    // ResizeObserver notifications must not resize their own observed ancestors.
+    const scheduleFit = () => {
+      fitFrame ??= requestAnimationFrame(() => {
+        fitFrame = undefined;
+        fitScene();
+      });
+    };
+    const observer = new ResizeObserver(scheduleFit);
     observer.observe(slot);
     observer.observe(card);
     observer.observe(stage);
     observer.observe(captionSection);
     // A replacement or asynchronous diagram can change overflow without resizing the card.
-    const mutations = new MutationObserver(fitScene);
+    const mutations = new MutationObserver(scheduleFit);
     mutations.observe(card, {
       childList: true,
       characterData: true,
@@ -376,6 +394,7 @@ export default function LessonPlaybackStage({
     return () => {
       observer.disconnect();
       mutations.disconnect();
+      if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);
     };
   }, []);
   useLayoutEffect(() => {
@@ -477,10 +496,14 @@ export default function LessonPlaybackStage({
   }, []);
 
   const visuals = useMemo(() => {
+    if (block.prepared?.scene && getPlaybackMathMarkdown(block))
+      return [{ kind: 'scene' as const, scene: block.prepared.scene }];
     if (block.visuals.length) return block.visuals;
     if (block.prepared?.scene) return [{ kind: 'scene' as const, scene: block.prepared.scene }];
+    if (block.prepared)
+      return [{ kind: 'markdown' as const, markdown: captionSource(block, sources).markdown }];
     return [];
-  }, [block]);
+  }, [block, sources]);
   const [selection, setSelection] = useState<{
     visuals: readonly PlaybackVisual[];
     index: number;

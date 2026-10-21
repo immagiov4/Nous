@@ -1,6 +1,8 @@
 import { PDF_PAGE_TEXT_SEPARATOR } from './pdfDocumentPolicy';
+import type { PdfPageProvenance } from './pdfTranscription';
 
 export interface PdfTextPage {
+  provenance?: PdfPageProvenance;
   pageNumber: number;
   text: string;
 }
@@ -48,6 +50,7 @@ export const buildPdfPageTextLayout = (
       const startOffset = combinedText.length;
       if (normalizedText.length > 0) combinedText += normalizedText;
       return {
+        ...page,
         pageNumber: page.pageNumber,
         text: normalizedText,
         startOffset,

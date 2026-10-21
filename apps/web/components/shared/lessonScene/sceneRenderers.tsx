@@ -1,3 +1,4 @@
+import type { FormulaSpotlightData } from '@shared/formulaSpotlight';
 import type {
   GuidedPathLessonScene,
   LessonScenePanel,
@@ -6,10 +7,10 @@ import type {
 } from '@shared/lessonScene';
 import { proportionalTotal } from '@shared/lessonSceneAnimation';
 import { Fragment, type ReactNode } from 'react';
-
 import { getAppLocale } from '../../../i18n/uiMessages.ts';
-
 import { AnimatedScene } from './AnimatedScene.tsx';
+import { CausalGrid } from './CausalGrid.tsx';
+import { FormulaSpotlight } from './FormulaSpotlight.tsx';
 import {
   concepts,
   groups,
@@ -43,31 +44,40 @@ const diagram: SceneRenderer = ({ scene, isDarkMode }) => (
 );
 
 export const SCENE_RENDERERS = {
+  'formula-spotlight': c => (
+    <FormulaSpotlight
+      scene={c.scene as typeof c.scene & FormulaSpotlightData}
+      readFrame={c.readFrame}
+    />
+  ),
   definition: c => concepts(c, { className: 'definition', badges: true }),
   parts: c => concepts(c, { className: 'parts' }),
   signals: c => groups(c, 'signals'),
   comparison: groups,
   matrix,
   checklist: c => sequence(c, 'checklist'),
-  causal: c => (
-    <div className="causal">
-      {c.scene.items.map((item, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; authored order is static
-        <Fragment key={`${index}-${item.label}`}>
-          {index > 0 ? (
-            <span className="arrow">
-              <SceneIcon name="arrow-right" />
-            </span>
-          ) : null}
-          <div className="cause">
-            <SceneIcon name={item.icon} />
-            <strong>{item.label}</strong>
-            <p>{item.detail}</p>
-          </div>
-        </Fragment>
-      ))}
-    </div>
-  ),
+  causal: c =>
+    c.playback ? (
+      <CausalGrid items={c.scene.items} />
+    ) : (
+      <div className="causal">
+        {c.scene.items.map((item, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; authored order is static
+          <Fragment key={`${index}-${item.label}`}>
+            {index > 0 ? (
+              <span className="arrow">
+                <SceneIcon name="arrow-right" />
+              </span>
+            ) : null}
+            <div className="cause">
+              <SceneIcon name={item.icon} />
+              <strong>{item.label}</strong>
+              <p>{item.detail}</p>
+            </div>
+          </Fragment>
+        ))}
+      </div>
+    ),
   steps: c => sequence(c, c.scene.type),
   timeline: c => sequence(c, c.scene.type),
   hierarchy: c =>

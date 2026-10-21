@@ -23,7 +23,6 @@ import {
   LESSON_SCENE_INDEPENDENT_CONTENT_RULE,
 } from '@shared/lessonVisualContracts';
 import * as z from 'zod';
-
 import { getResolvedModelConfigForProvider } from '../../config/modelConfig.js';
 import {
   toWorkflowErrorDiagnostic,
@@ -33,6 +32,7 @@ import {
   isInvalidLessonVisualStructuredOutput,
   type RenderResolvedLessonVisualInput,
 } from '../lessonGenerationVisuals.js';
+import type { LessonSourceProvenance } from '../lessonPrimarySourceContext.js';
 import { generateStructuredOutput } from '../structuredGeneration.js';
 import { chooseLessonSceneIcons, type SceneIconEntry } from './lessonSceneIconChoice.js';
 
@@ -53,6 +53,8 @@ export type LessonSceneOutcome =
 
 export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'plan'> & {
   readonly allowedSceneTypes?: readonly LessonSceneType[];
+  readonly narration?: string;
+  readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
 };
 
@@ -177,7 +179,7 @@ const catalogText = (types: readonly LessonSceneType[]): string =>
 
 const sceneSystemPrompt = (
   types: readonly LessonSceneType[]
-) => `Design the visual scene that accompanies one concept of a lesson for adults. First state the reader's task: what must the reader understand? Then choose the semantic relation (definition, distinction, comparison by a criterion, check, sequence, limit, question) and only then choose the form from the catalog. Use only the lesson text. Preserve negations, scope, conditions, and uncertainty. All visible text uses the lesson language.
+) => String.raw`Design the visual scene that accompanies one concept of a lesson for adults. First state the reader's task: what must the reader understand? Then choose the semantic relation (definition, distinction, comparison by a criterion, check, sequence, limit, question) and only then choose the form from the catalog. Use only the lesson text. Preserve negations, scope, conditions, and uncertainty. All visible text uses the lesson language.
 
 FIELDS
 - intent: one concrete sentence about the reader's task; never shown.
@@ -192,8 +194,9 @@ FIELDS
 - relation: for comparison and signals with two genuinely related terms, {kind, label, evidence}; otherwise null. kind is greater, less, different, equal, versus, or leads. label is only read by screen readers. evidence is an exact quotation (may be "" for versus). Use different only for an explicit distinction and leads only for an explicit process or consequence. Do not impose a winner when the lesson asks the reader to choose.
 - diagram: for flowchart, sequence, and journey only, {nodes: [{id, label, kind}], edges: [{from, to, label, kind, evidence}]}; otherwise null. 2 to 8 nodes, 1 to 12 connections. Node kind is step, decision, start, or end; edge kind is call, return, or event. Every connection carries an EXACT lesson quotation in evidence. Decision branches carry their condition in the label. A sequence keeps message order and distinguishes returns and asynchronous events; a journey follows its nodes in order without branches. Never write SVG, coordinates, CSS, or Mermaid code.
 - proportional: items and groups []; supply autoplay, inputLabel, unitLabel, min, max, initial (integers, 1 <= min <= initial <= max), positive amountPerUnit, outputUnit, outputLabel, assumption. The fixed renderer multiplies quantity by amountPerUnit. Use only quantities and a proportional relation stated in the lesson. Optional cues are {anchor, value}: increasing cumulative quantities ending at max.
+- formula-spotlight: items and groups []; formula is complete LaTeX with explicit \nousSymbol{id} references, not HTML or CSS. symbols is an ordered array of {id,latex,name,meaning,anchor}. Each id is a letter followed by letters or digits. Replace the original symbol with its reference, never append the reference after the glyph. Substituting every reference with its latex must reproduce the authored formula without adding or removing operators. Every symbol occurs through its reference in formula (including repeated occurrences); explain every symbol in natural language. Bare mathematical identifiers are invalid, including subscripts and macro-expanded identifiers; an operator with its own symbol entry must use its reference at every occurrence. Keep symbols with distinct meanings separate, including an operator and its operands. Bind each anchor to the narration explaining that exact symbol, not adjacent text. Each anchor is an exact, unique narration quotation, distinct from every other symbol anchor; list symbols by their first spoken mention. The fixed renderer shows the symbol and name and expands only the currently narrated meaning. Choose this form when a large formula and its definitions teach the passage; do not select by formula count or keyword. Prefer a useful visual over repeating prose; retain the source meaning and conditions.
 - guided-path: items and groups []; supply autoplay and steps: ${GUIDED_PATH_MIN_STEPS} to ${GUIDED_PATH_MAX_STEPS} {label, detail, optional anchor} entries following the explicit path in the lesson. Every label and detail is non-empty.
-- Animated forms reuse title and body as the prototype's title and description. Set autoplay true for gradual reader playback. Narration, when supplied, quotes the lesson; anchors are exact quotations of the lesson text. Supply data only, never formulas, scripts, CSS, coordinates, or animation code.
+- Animated forms reuse title and body as the prototype's title and description. Set autoplay true for gradual reader playback. Narration and cue anchors quote the canonical narration when supplied, otherwise the lesson text. Ground quantities and other facts in the lesson text. Supply data only, never executable formulas, scripts, CSS, coordinates, or animation code. The formula-spotlight LaTeX field is mathematical notation, not executable code.
 - Additional static forms use their own fields and replace the preceding items/groups constraints. Their field instructions appear below. Items may also carry id, parent, start, end, x, or y for those forms. A group's optional details has one short description per entity. Optional groupIconQueries chooses a group's heading icon; optional top-level iconQueries chooses the center icon. Both use the same three search phrases as item iconQueries.
 
 ANIMATED SCENE SELECTION
@@ -262,8 +265,12 @@ const buildScenePrompt = (input: GenerateLessonSceneInput): string => {
   const correction = input.retryFeedback?.trim()
     ? `\nRequired correction from the previous attempt:\n${input.retryFeedback.trim()}\n`
     : '';
+  const provenance = input.sourceProvenance
+    ? `Source provenance: ${JSON.stringify(input.sourceProvenance)}`
+    : '';
   return `Lesson: ${input.sectionTitle}
 Description: ${input.sectionDescription}
+${provenance}
 ${
   input.plan
     ? `Planned visual: ${JSON.stringify({
@@ -277,6 +284,7 @@ ${
     : ''
 }
 ${correction}
+${input.narration ? `CANONICAL NARRATION (copy symbol and animation cue anchors exactly from this text):\n${input.narration}\n` : ''}
 ${input.lessonMarkdown.length > MAX_VISUAL_LESSON_CHARS ? 'LESSON EXCERPT (truncated; only this excerpt is available for analysis):' : 'LESSON TEXT:'}
 ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`;
 };
@@ -378,7 +386,12 @@ const iconEntries = (draft: SceneDraft): SceneIconEntry[] => [
 // Support quotations carry no offsets; source line wrapping does not change their words.
 const supportQuotationText = (text: string): string => text.replaceAll(/\s+/gu, ' ').trim();
 
-const findDraftProblems = (draft: SceneDraft, scene: LessonScene, source: string): string[] => [
+const findDraftProblems = (
+  draft: SceneDraft,
+  scene: LessonScene,
+  source: string,
+  narration?: string
+): string[] => [
   ...(isAnimatedLessonScene(scene) && scene.autoplay !== true
     ? ['Generated animated scenes must enable autoplay.']
     : []),
@@ -392,20 +405,28 @@ const findDraftProblems = (draft: SceneDraft, scene: LessonScene, source: string
   ...(hasConflictingLessonSceneClosingText(scene)
     ? ['Use either an essential closing question or a necessary note, or leave both empty.']
     : []),
-  ...findLessonSceneProblems(scene, source),
+  ...findLessonSceneProblems(scene, source, narration),
 ];
 
 /** Generates and validates one lesson scene, then chooses its icons. */
-export const generateLessonScene = async (
-  input: GenerateLessonSceneInput
-): Promise<LessonSceneOutcome> => {
+export function generateLessonScene(
+  input: GenerateLessonSceneInput & { allowTextFallback: true }
+): Promise<LessonSceneOutcome | { readonly kind: 'text' }>;
+export function generateLessonScene(input: GenerateLessonSceneInput): Promise<LessonSceneOutcome>;
+export async function generateLessonScene(
+  input: GenerateLessonSceneInput & { allowTextFallback?: boolean }
+): Promise<LessonSceneOutcome | { readonly kind: 'text' }> {
   // Scenes replace the artifact pipeline, so they run on the provider resolved for this run's
   // visuals (the learner's provider), while scene models come from the live configuration.
   const config = await getResolvedModelConfigForProvider(input.config.artifact.provider);
   // A resumed workflow must generate within the catalog admitted by its saved contract.
-  const schema = input.allowedSceneTypes
-    ? SceneDraftSchema.extend({ type: z.enum(input.allowedSceneTypes) })
-    : SceneDraftSchema;
+  // Spotlight definitions need the owning playback's canonical speech, not raw Markdown anchors.
+  const types = (input.allowedSceneTypes ?? LESSON_SCENE_TYPES).filter(
+    type => type !== 'formula-spotlight' || input.narration !== undefined
+  );
+  const schema = SceneDraftSchema.extend({
+    type: z.enum(input.allowTextFallback ? [...types, 'text'] : types),
+  });
   const { $schema: _dialect, ...outputSchema } = z.toJSONSchema(schema);
   // Malformed output surfaces either as an error or as JSON of the wrong shape; both become
   // corrective feedback for the next attempt.
@@ -413,6 +434,7 @@ export const generateLessonScene = async (
   const diagnostic = (stage: 'schema' | 'domain', problems: unknown) =>
     toWorkflowErrorDiagnostic(new Error(JSON.stringify({ outputPath, stage, problems })));
   const response = await generateStructuredOutput<unknown>({
+    sourceAware: Boolean(input.sourceProvenance),
     onOutputPath: path => {
       outputPath = path;
     },
@@ -421,7 +443,7 @@ export const generateLessonScene = async (
     prompt: buildScenePrompt(input),
     signal: input.signal,
     slot: 'scene',
-    system: `${sceneSystemPrompt(input.allowedSceneTypes ?? LESSON_SCENE_TYPES)}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
+    system: `${sceneSystemPrompt(types)}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The player retains the complete authored passage. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
   }).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
@@ -438,12 +460,21 @@ export const generateLessonScene = async (
       ),
     };
   }
-  const draft = parsed.data;
+  if (parsed.data.type === 'text') {
+    return parsed.data.evidence.trim() &&
+      supportQuotationText(input.lessonMarkdown).includes(
+        supportQuotationText(parsed.data.evidence)
+      )
+      ? { kind: 'text' }
+      : { kind: 'invalid', problems: ['Text fallback needs exact source evidence.'] };
+  }
+  const draft = { ...parsed.data, type: parsed.data.type };
   const scene = toScene(draft);
   const problems = findDraftProblems(
     draft,
     scene,
-    input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)
+    input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS),
+    input.narration
   );
   if (problems.length)
     return {
@@ -472,4 +503,4 @@ export const generateLessonScene = async (
       signal: input.signal,
     }),
   };
-};
+}
