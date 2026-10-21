@@ -77,6 +77,8 @@ import {
 import {
   createCorrelationId,
   getCorrelationId,
+  getRequestTimings,
+  recordRequestTiming,
   runWithCorrelationId,
 } from './workflows/requestObservability.js';
 import {
@@ -215,7 +217,32 @@ export const createApp = (options: CreateAppOptions = {}) => {
       requestedCorrelationId && UUID_PATTERN.test(requestedCorrelationId)
         ? requestedCorrelationId.toLowerCase()
         : createCorrelationId();
+    const started = performance.now();
+    let timings: Record<string, number> | undefined;
+    let responseBytes: number | undefined;
     res.setHeader('x-request-id', correlationId);
+    const json = res.json;
+    const send = res.send;
+    let serializationStarted: number | undefined;
+    res.json = function (body) {
+      serializationStarted = performance.now();
+      try {
+        return json.call(this, body);
+      } finally {
+        serializationStarted = undefined;
+      }
+    };
+    res.send = function (body) {
+      if (serializationStarted !== undefined && typeof body === 'string') {
+        recordRequestTiming('serialization', performance.now() - serializationStarted);
+        responseBytes = Buffer.byteLength(body);
+        const phases = Object.entries(timings ?? {}).map(
+          ([phase, duration]) => `${phase};dur=${duration.toFixed(2)}`
+        );
+        if (phases.length) this.append('Server-Timing', phases.join(', '));
+      }
+      return send.call(this, body);
+    };
     res.on('finish', () => {
       const requestPath = getRequestPath(req);
       if (shouldLogRequest(req.method, requestPath, res.statusCode)) {
@@ -227,6 +254,9 @@ export const createApp = (options: CreateAppOptions = {}) => {
           ...(failure ? { failure } : {}),
           method: req.method,
           operation: 'http_request',
+          durationMs: performance.now() - started,
+          timings,
+          responseBytes,
           path: getRequestLogPath(req),
           statusCode: res.statusCode,
         });
@@ -240,11 +270,17 @@ export const createApp = (options: CreateAppOptions = {}) => {
           entity: 'lifecycle',
           method: req.method,
           operation: 'http_request',
+          durationMs: performance.now() - started,
+          timings,
+          responseBytes,
           path: getRequestLogPath(req),
         });
       }
     });
-    runWithCorrelationId(correlationId, next);
+    runWithCorrelationId(correlationId, () => {
+      timings = getRequestTimings();
+      next();
+    });
   });
 
   app.use(
@@ -263,7 +299,7 @@ export const createApp = (options: CreateAppOptions = {}) => {
         callback(new Error('Origine non consentita dalla configurazione CORS.'));
       },
       credentials: true,
-      exposedHeaders: ['x-request-id'],
+      exposedHeaders: ['x-request-id', 'Server-Timing'],
     })
   );
   app.use('/api/openrouter', express.json({ limit: OPENROUTER_JSON_BODY_LIMIT }));

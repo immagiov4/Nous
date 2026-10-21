@@ -1626,3 +1626,102 @@ test('a network blip during preparation keeps following the accepted operation w
   expect(loaded?.snapshot.id).toBe(snapshot.id);
   expect(statuses).toBe(2);
 });
+
+test('course response progress keeps the existing deadline alive, but a stalled body aborts', async () => {
+  vi.useFakeTimers();
+  try {
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    fetchMock.mockImplementationOnce((_url, init) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          body = controller;
+        },
+      });
+      init.signal.addEventListener('abort', () =>
+        body.error(new DOMException('Aborted', 'AbortError'))
+      );
+      return Promise.resolve(
+        new Response(stream, { headers: { 'content-type': 'application/json' } })
+      );
+    });
+    const loaded = new HttpProjectRepository('http://backend.test').loadProjectWithRevision(
+      'course'
+    );
+    const result = loaded.then(
+      value => ({ value }),
+      error => ({ error })
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    body.enqueue(new TextEncoder().encode('{"success":true,'));
+    await vi.advanceTimersByTimeAsync(10_000);
+    body.enqueue(new TextEncoder().encode('"project":null'));
+    await vi.advanceTimersByTimeAsync(10_000);
+    body.enqueue(new TextEncoder().encode('}'));
+    body.close();
+    expect(await result).toEqual({ value: null });
+
+    fetchMock.mockImplementationOnce(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () =>
+            reject(new DOMException('Aborted', 'AbortError'))
+          );
+        })
+    );
+    const stalled = new HttpProjectRepository('http://backend.test').loadProjectWithRevision(
+      'course'
+    );
+    const rejection = expect(stalled).rejects.toBeInstanceOf(ProjectStorageError);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await rejection;
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('a response that stops after its headers and first bytes still times out', async () => {
+  vi.useFakeTimers();
+  try {
+    fetchMock.mockImplementationOnce((_url, init) =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"success":true,'));
+              init.signal.addEventListener('abort', () =>
+                controller.error(new DOMException('Aborted', 'AbortError'))
+              );
+            },
+          })
+        )
+      )
+    );
+    const rejected = expect(
+      new HttpProjectRepository('http://backend.test').loadProjectWithRevision('course')
+    ).rejects.toBeInstanceOf(ProjectStorageError);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await rejected;
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('incremental response decoding preserves UTF-8 split between network chunks', async () => {
+  const bytes = new TextEncoder().encode(
+    JSON.stringify({ success: true, folders: [{ id: 'folder', name: 'caffè ☕' }] })
+  );
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          for (const byte of bytes) controller.enqueue(new Uint8Array([byte]));
+          controller.close();
+        },
+      })
+    )
+  );
+  await expect(new HttpProjectRepository('http://backend.test').listFolders()).resolves.toEqual([
+    { id: 'folder', name: 'caffè ☕' },
+  ]);
+});

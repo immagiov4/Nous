@@ -5,6 +5,7 @@ import {
   remapProjectAssetReferences,
 } from '@shared/projectBackupAssets';
 import type { Sql, TransactionSql } from 'postgres';
+import { measureRequestPhase } from '../workflows/requestObservability.js';
 import { releaseAdvisoryLockSession } from './projectAdvisoryLockSession.js';
 import {
   createProjectAssetStorage,
@@ -63,13 +64,16 @@ const collectValidatedArchiveReferences = (
 
 const lockObjectPaths = async (sql: ReservedSql, objectPaths: readonly string[]): Promise<void> => {
   if (objectPaths.length === 0) return;
-  await sql`
+  await measureRequestPhase(
+    'query',
+    () => sql`
     select pg_advisory_lock(hashtextextended(locked.lock_key, 0))
     from jsonb_to_recordset(
       ${sql.json(objectPaths.map(lock_key => ({ lock_key })))}
     ) as locked(lock_key text)
     order by locked.lock_key
-  `;
+  `
+  );
 };
 
 const recordCleanupIntents = async (
@@ -77,19 +81,22 @@ const recordCleanupIntents = async (
   objectPaths: readonly string[]
 ): Promise<void> => {
   if (objectPaths.length === 0) return;
-  await sql.unsafe('begin');
+  await measureRequestPhase('query', () => sql.unsafe('begin'));
   try {
-    await sql`
+    await measureRequestPhase(
+      'query',
+      () => sql`
       insert into public.project_asset_deletions (object_path)
       select queued.object_path
       from jsonb_to_recordset(
         ${sql.json(objectPaths.map(object_path => ({ object_path })))}
       ) as queued(object_path text)
       on conflict (object_path) do nothing
-    `;
-    await sql.unsafe('commit');
+    `
+    );
+    await measureRequestPhase('query', () => sql.unsafe('commit'));
   } catch (error) {
-    await sql.unsafe('rollback');
+    await measureRequestPhase('query', () => sql.unsafe('rollback'));
     throw error;
   }
 };
@@ -136,7 +143,7 @@ export class PostgresProjectAssetImporter {
       return { assets: [], release: async () => {}, snapshot };
     }
 
-    const reserved = await this.sql.reserve();
+    const reserved = await measureRequestPhase('poolWait', () => this.sql.reserve());
     const objectPaths = descriptors
       .map(asset => asset.objectPath)
       .sort((left, right) => left.localeCompare(right));
@@ -210,7 +217,9 @@ export const publishImportedProjectAssets = async (
     media_type: asset.mediaType,
     object_path: asset.objectPath,
   }));
-  await transaction`
+  await measureRequestPhase(
+    'query',
+    () => transaction`
     insert into public.project_assets (
       id, user_id, project_id, origin_kind, workflow_run_id, node_instance_id,
       idempotency_key, content_hash, byte_size, media_type, object_path, state, activated_at
@@ -228,8 +237,11 @@ export const publishImportedProjectAssets = async (
       object_path text
     )
     on conflict (id) do nothing
-  `;
-  const rows = await transaction<ImportedProjectAssetRow[]>`
+  `
+  );
+  const rows = await measureRequestPhase(
+    'query',
+    () => transaction<ImportedProjectAssetRow[]>`
     select asset.*
     from public.project_assets asset
     join jsonb_to_recordset(${transaction.json(input.assets.map(asset => ({ id: asset.id })))})
@@ -237,7 +249,8 @@ export const publishImportedProjectAssets = async (
     where asset.user_id = ${input.userId} and asset.project_id = ${input.projectId}
     order by asset.id
     for update of asset
-  `;
+  `
+  );
   const rowsById = new Map(rows.map(row => [row.id, row]));
   if (rowsById.size !== input.assets.length) throw new ProjectAssetStoreError('metadata-conflict');
   for (const descriptor of input.assets) {
@@ -245,11 +258,14 @@ export const publishImportedProjectAssets = async (
     if (!row) throw new ProjectAssetStoreError('metadata-conflict');
     assertPublishedAsset(row, descriptor, input);
   }
-  await transaction`
+  await measureRequestPhase(
+    'query',
+    () => transaction`
     delete from public.project_asset_deletions deletion
     using jsonb_to_recordset(
       ${transaction.json(input.assets.map(asset => ({ object_path: asset.objectPath })))}
     ) as published(object_path text)
     where deletion.object_path = published.object_path
-  `;
+  `
+  );
 };

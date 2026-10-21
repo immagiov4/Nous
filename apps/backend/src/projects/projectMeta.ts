@@ -1,3 +1,4 @@
+import { recordRequestTiming } from '../workflows/requestObservability.js';
 // Builds metadata objects for persisted project records.
 
 import {
@@ -196,41 +197,46 @@ export const normalizeProjectSnapshot = (
   imported = false,
   options: ProjectSnapshotWireDecodeOptions = {}
 ): ProjectSnapshot => {
-  const now = timestampIso();
-  const record = decodeProjectSnapshotWire(data, options);
-  const snapshot = {
-    ...record,
-    id: ensureString(record.id, createProjectId()),
-    version: ensureString(record.version, DEFAULT_PROJECT_VERSION),
-    state: ensureString(record.state, record.learningPlan ? 'READING' : 'LIBRARY'),
-    source: record.source ?? null,
-    learningPlan: record.learningPlan ?? null,
-    isLearnMode: record.isLearnMode ?? false,
-    userProfile: record.userProfile ?? null,
-    syllabus: record.syllabus ?? [],
-    activeSectionId: record.activeSectionId ?? null,
-    createdAt: ensureString(record.createdAt, now),
-    updatedAt: ensureString(record.updatedAt, now),
-    lastOpenedAt: ensureString(record.lastOpenedAt, now),
-  } as ProjectSnapshot;
+  const started = performance.now();
+  try {
+    const now = timestampIso();
+    const record = decodeProjectSnapshotWire(data, options);
+    const snapshot = {
+      ...record,
+      id: ensureString(record.id, createProjectId()),
+      version: ensureString(record.version, DEFAULT_PROJECT_VERSION),
+      state: ensureString(record.state, record.learningPlan ? 'READING' : 'LIBRARY'),
+      source: record.source ?? null,
+      learningPlan: record.learningPlan ?? null,
+      isLearnMode: record.isLearnMode ?? false,
+      userProfile: record.userProfile ?? null,
+      syllabus: record.syllabus ?? [],
+      activeSectionId: record.activeSectionId ?? null,
+      createdAt: ensureString(record.createdAt, now),
+      updatedAt: ensureString(record.updatedAt, now),
+      lastOpenedAt: ensureString(record.lastOpenedAt, now),
+    } as ProjectSnapshot;
 
-  const normalizedSnapshot = {
-    ...snapshot,
-    researchDossiersBySectionId: normalizeResearchDossiers(snapshot.researchDossiersBySectionId),
-    sourceKind: inferProjectSourceKind(snapshot, imported),
-  };
-  const explicitTitle = ensureString(snapshot.title);
-  const titledSnapshot = explicitTitle
-    ? {
-        ...normalizedSnapshot,
-        title: explicitTitle,
-        learningPlan: normalizedSnapshot.learningPlan
-          ? { ...normalizedSnapshot.learningPlan, title: explicitTitle }
-          : normalizedSnapshot.learningPlan,
-      }
-    : normalizedSnapshot;
+    const normalizedSnapshot = {
+      ...snapshot,
+      researchDossiersBySectionId: normalizeResearchDossiers(snapshot.researchDossiersBySectionId),
+      sourceKind: inferProjectSourceKind(snapshot, imported),
+    };
+    const explicitTitle = ensureString(snapshot.title);
+    const titledSnapshot = explicitTitle
+      ? {
+          ...normalizedSnapshot,
+          title: explicitTitle,
+          learningPlan: normalizedSnapshot.learningPlan
+            ? { ...normalizedSnapshot.learningPlan, title: explicitTitle }
+            : normalizedSnapshot.learningPlan,
+        }
+      : normalizedSnapshot;
 
-  return encodeProjectSnapshotWire(titledSnapshot, options) as ProjectSnapshot;
+    return encodeProjectSnapshotWire(titledSnapshot, options) as ProjectSnapshot;
+  } finally {
+    recordRequestTiming('normalization', performance.now() - started);
+  }
 };
 
 export const buildProjectMeta = (

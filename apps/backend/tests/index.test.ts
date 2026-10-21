@@ -76,6 +76,22 @@ describe('request lifecycle observability', () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get('x-request-id')).toBe(correlationId);
+      const body = await response.text();
+      expect(response.headers.get('server-timing')).toMatch(/serialization;dur=\d/);
+      const completed = info.mock.calls
+        .flatMap(call => call.filter((entry): entry is string => typeof entry === 'string'))
+        .map(entry => {
+          try {
+            return JSON.parse(entry);
+          } catch {
+            return null;
+          }
+        })
+        .find(entry => entry?.correlationId === correlationId && entry?.action === 'completed');
+      expect(completed).toBeDefined();
+      expect(completed.responseBytes).toBe(Buffer.byteLength(body));
+      expect(completed.durationMs).toBeGreaterThanOrEqual(completed.timings.serialization);
+
       expect(info).toHaveBeenCalledWith(
         expect.stringContaining(`"correlationId":"${correlationId}"`)
       );
@@ -305,4 +321,31 @@ describe('request lifecycle observability', () => {
       });
     }
   });
+});
+
+test('rejected project authentication includes auth timing before headers and completion logs', async () => {
+  vi.stubEnv('AUTH_MODE', 'supabase');
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  const server = createApp().listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Expected TCP address');
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/projects/projects/course`);
+    expect(response.status).toBe(401);
+    await response.text();
+    expect(response.headers.get('server-timing')).toMatch(/auth;dur=\d/);
+    const entries = errorLog.mock.calls
+      .flat()
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map(entry => JSON.parse(entry));
+    expect(
+      entries.find(entry => entry.correlationId === response.headers.get('x-request-id'))?.timings
+        .auth
+    ).toBeTypeOf('number');
+  } finally {
+    vi.unstubAllEnvs();
+    errorLog.mockRestore();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
 });
