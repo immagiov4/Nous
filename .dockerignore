@@ -13,7 +13,7 @@ apps/backend/dist
 apps/web/dist
 cookies-chromium.json
 graphify-out
-node_modules
+**/node_modules
 deploy/backups
 deploy/supabase-project
 *.log
