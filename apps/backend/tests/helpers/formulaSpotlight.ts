@@ -1,7 +1,10 @@
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
 
-export const FORMULA_SPOTLIGHT_MARKDOWN = String.raw`Consideriamo $p_\theta(y\mid x)$. La probabilità, indicata con p, è la stima del modello. I parametri, indicati con theta, sono i valori appresi. Il risultato, indicato con y, è ciò che prevediamo. La barra verticale significa dato: introduce la condizione. L’informazione osservata, indicata con x, è ciò che conosciamo.`;
+// Raw notation stays ASCII; ordinary prose preserves Unicode cue anchors in the Bun command.
+export const FORMULA_SPOTLIGHT_MARKDOWN =
+  String.raw`Consideriamo $p_\theta(y\mid x)$. ` +
+  'La probabilità, indicata con p, è la stima del modello. I parametri, indicati con theta, sono i valori appresi. Il risultato, indicato con y, è ciò che prevediamo. La barra verticale significa dato: introduce la condizione. L’informazione osservata, indicata con x, è ciò che conosciamo.';
 export const FORMULA_SPOTLIGHT_SPEECH = segmentLessonPlayback([
   { type: 'markdown', markdown: FORMULA_SPOTLIGHT_MARKDOWN },
 ])[0].speech;

@@ -1,0 +1,7 @@
+/* The requested viewport is the available box for the isolated production stage. */
+#root {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}
