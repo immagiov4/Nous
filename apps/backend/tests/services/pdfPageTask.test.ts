@@ -1,5 +1,5 @@
 import * as processes from 'node:child_process';
-import { once } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -77,4 +77,32 @@ test('inspects text through the actual Bun backend runtime and Node child', asyn
     { windowsHide: true }
   );
   expect(stdout).toContain('"pageCount":1');
+});
+
+test('rejects cancellation with an Error when the caller supplied a string reason', async () => {
+  const child = Object.assign(new EventEmitter(), {
+    send: vi.fn(),
+    kill: vi.fn(() => true),
+  });
+  const fork = vi
+    .spyOn(processes, 'fork')
+    .mockReturnValue(child as unknown as processes.ChildProcess);
+  const controller = new AbortController();
+  try {
+    const pending = runPdfPageTask(
+      Buffer.alloc(0),
+      { kind: 'inspect', extracted },
+      controller.signal
+    );
+    const rejected = expect(pending).rejects.toMatchObject({
+      message: 'PDF page processing cancelled.',
+      cause: 'selection changed',
+    });
+    controller.abort('selection changed');
+    expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+    child.emit('close', null);
+    await rejected;
+  } finally {
+    fork.mockRestore();
+  }
 });

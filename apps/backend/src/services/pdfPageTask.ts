@@ -43,9 +43,12 @@ export function runPdfPageTask(
       options
     );
     let response: { result?: InspectedPdfPages | RenderedPdfPage; error?: boolean } | undefined;
-    let failure: unknown;
+    let failure: Error | undefined;
     const abort = () => {
-      failure = signal.reason;
+      failure =
+        signal.reason instanceof Error
+          ? signal.reason
+          : new Error('PDF page processing cancelled.', { cause: signal.reason });
       child.kill('SIGKILL');
     };
     signal.addEventListener('abort', abort, { once: true });

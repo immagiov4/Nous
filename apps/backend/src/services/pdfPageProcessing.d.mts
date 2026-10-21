@@ -11,3 +11,9 @@ export interface InspectedPdfPages {
   planned: Array<{ pageNumber: number; reasons: string[] }>;
   pageCount: number;
 }
+
+export const PDF_PAGE_LOAD_OPTIONS: import('pdf-parse').LoadParameters;
+export function inspectPdfTextPages(
+  parser: import('pdf-parse').PDFParse,
+  extracted: import('./pdfTextExtractor.js').ExtractedPdfText
+): Promise<InspectedPdfPages>;
