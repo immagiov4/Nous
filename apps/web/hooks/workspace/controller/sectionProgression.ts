@@ -22,7 +22,7 @@ import {
   LESSON_SOURCE_UNAVAILABLE_MESSAGE,
   LessonSourceUnavailableError,
 } from '../../../services/openrouter/lessonGenerationClient.ts';
-import { loadDocumentText } from '../../../services/projects/documentText';
+import { loadDocumentText, releaseDocumentText } from '../../../services/projects/documentText';
 import {
   selectIsBlocking,
   type WorkspaceWorkflowId,
@@ -1139,6 +1139,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
   }
 
   async function goToLibrary(): Promise<void> {
+    releaseDocumentText(projectLibrary.getCurrentProjectId());
     stopAudio(true);
     state.invalidateOpenSectionRequests();
     state.invalidateWorkflows(READING_WORKFLOWS_TO_CANCEL_ON_LIBRARY_RETURN);

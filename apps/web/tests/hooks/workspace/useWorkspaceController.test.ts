@@ -8012,7 +8012,7 @@ test('openExercise reopens its running brief without starting concurrent generat
 
   const generation = controller.openExercise(exercise);
   try {
-    assert.equal(generateApplicationExerciseBrief.mock.calls.length, 1);
+    await vi.waitFor(() => assert.equal(generateApplicationExerciseBrief.mock.calls.length, 1));
     assert.equal(await controller.openSection(readyLesson), 'reused-cached');
     assert.equal(domain.activeSectionId, readyLesson.id);
     const requestId = state.adapter.getWorkflowState().loadSection.requestId;

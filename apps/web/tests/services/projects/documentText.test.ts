@@ -13,7 +13,7 @@ vi.mock('../../../services/projects/httpProjectRepository', () => ({
   },
 }));
 
-import { loadDocumentText } from '../../../services/projects/documentText';
+import { loadDocumentText, releaseDocumentText } from '../../../services/projects/documentText';
 
 const createIndex = (deferred = false): PdfTextIndex => ({
   kind: 'pdf-text-index',
@@ -153,4 +153,23 @@ test('clears cached source text when the signed-in account changes', async () =>
   mocks.userId++;
   await loadDocumentText('same-course-id', current);
   expect(mocks.load).toHaveBeenCalledTimes(2);
+});
+
+test('releases a closed course while preserving another course and active consumers', async () => {
+  const current = { documentIndex: createIndex(true), source: null };
+  const loaded = { documentIndex: createIndex(), source: null };
+  const complete = createDeferred();
+  mocks.load.mockReturnValue(complete.promise.then(() => ({ snapshot: loaded })));
+  const active = loadDocumentText('closed-course', current);
+  await Promise.resolve();
+  releaseDocumentText('closed-course');
+  complete.resolve();
+  expect(await active).toEqual(loaded);
+  await loadDocumentText('other-course', current);
+  await loadDocumentText('closed-course', current);
+  releaseDocumentText('closed-course');
+  await loadDocumentText('other-course', current);
+  expect(mocks.load).toHaveBeenCalledTimes(3);
+  await loadDocumentText('closed-course', current);
+  expect(mocks.load).toHaveBeenCalledTimes(4);
 });

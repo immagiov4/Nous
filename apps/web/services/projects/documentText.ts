@@ -8,7 +8,12 @@ interface DocumentText {
   documentIndex: PdfTextIndex | null;
   source: ProjectSource | null;
 }
-const pending = new Map<string, Promise<DocumentText>>();
+const pending = new Map<string, Map<string, Promise<DocumentText>>>();
+
+/** Releases cached text when its loaded course closes; existing consumers keep their promise. */
+export const releaseDocumentText = (projectId: string | null): void => {
+  if (projectId) pending.delete(projectId);
+};
 let ownerId: string | undefined;
 const repository = new HttpProjectRepository();
 export const documentTextSourceIdentity = (source: ProjectSource | null): string =>
@@ -44,7 +49,12 @@ export const loadDocumentText = async (
       ? []
       : [current.documentIndex?.parsedAt, current.documentIndex?.sourceHash]),
   ]);
-  let request = pending.get(identity);
+  let requests = pending.get(projectId);
+  if (!requests) {
+    requests = new Map();
+    pending.set(projectId, requests);
+  }
+  let request = requests.get(identity);
   if (!request) {
     request = repository
       .loadProjectWithRevision(projectId, { includeDocumentText: true })
@@ -64,10 +74,10 @@ export const loadDocumentText = async (
         return { documentIndex: index ?? null, source: record.snapshot.source };
       })
       .catch(error => {
-        if (pending.get(identity) === request) pending.delete(identity);
+        if (requests.get(identity) === request) requests.delete(identity);
         throw error;
       });
-    pending.set(identity, request);
+    requests.set(identity, request);
   }
   return request;
 };
