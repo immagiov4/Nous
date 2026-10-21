@@ -9,6 +9,17 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|exec_command|shell_command|shell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun -e \"const fs=require('node:fs'),path=require('node:path');let root=process.cwd();while(!fs.existsSync(path.join(root,'.git'))){const parent=path.dirname(root);if(parent===root)throw Error('Repository root not found');root=parent}import(require('node:url').pathToFileURL(path.join(root,'scripts/github-body-hook.mjs')).href).then(async m=>{let s='';for await(const c of process.stdin)s+=c;try{await m.runHook(JSON.parse(s))}catch(e){process.stderr.write(e.message+'\\nRead .agents/skills/writing-for-humans/SKILL.md and .agents/skills/writing-for-humans/references/change-reports.md.\\n');process.exitCode=2}})\""
+          }
+        ]
+      }
     ]
   }
 }

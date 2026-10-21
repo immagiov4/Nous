@@ -12,10 +12,10 @@ import {
 } from './github-body.mjs';
 
 const validBody =
-  '## Summary\n\nThe body keeps its paragraphs separate.\n\n- First item\n- Second item\n\n' +
+  '**Problem:** The body keeps its paragraphs separate.\n\n**Approach:** Validate structure.\n\n**Result:** Not measured.\n\n- First item\n- Second item\n\n' +
   '## Testing\n\nThe focused test passed.\n';
 const validRenderedBody =
-  '<h2>Summary</h2><p>The body keeps its paragraphs separate.</p>' +
+  '<p><strong>Problem:</strong> The body keeps its paragraphs separate.</p><p><strong>Approach:</strong> Validate structure.</p><p><strong>Result:</strong> Not measured.</p>' +
   '<ul><li>First item</li><li>Second item</li></ul>' +
   '<h2>Testing</h2><p>The focused test passed.</p>';
 const managedSuffix =
@@ -224,7 +224,7 @@ describe('GitHub body remote lifecycle', () => {
       expect(runGhCommand).toHaveBeenCalledTimes(1);
     }
 
-    const unclosedFenceFile = await createBodyFile('## Summary\n\n```text\nUnclosed fence\n');
+    const unclosedFenceFile = await createBodyFile(`${validBody}\n\`\`\`text\nUnclosed fence\n`);
     const remoteBody = `${validBody.trimEnd()}\n\n${managedSuffix}`;
     const runGhCommand = vi
       .fn()
