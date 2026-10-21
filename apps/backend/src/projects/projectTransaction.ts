@@ -1,8 +1,8 @@
-import type { TransactionSql } from 'postgres';
+import { measureRequestPhase } from '../workflows/requestObservability.js';
 import { buildProjectMeta } from './projectMeta.js';
 import { applyProjectPatch } from './projectPatch.js';
 import { mergeProjectSnapshotRow } from './projectPersistence.js';
-import { commitProjectRevision } from './projectRevisionWrite.js';
+import { commitProjectRevision, type ProjectWriteSql } from './projectRevisionWrite.js';
 import type {
   ProjectPatch,
   ProjectSaveResult,
@@ -47,7 +47,7 @@ export class ProjectTransactionTargetNotFoundError extends Error {
 }
 
 const lockProjectInTransaction = async (
-  transaction: TransactionSql,
+  transaction: ProjectWriteSql,
   input: Pick<TransactionalProjectPatchInput, 'projectId' | 'userId' | 'waitForProjectLock'>
 ): Promise<{
   currentRevision: number;
@@ -55,7 +55,9 @@ const lockProjectInTransaction = async (
   row: LockedProjectRow;
 }> => {
   const rows = input.waitForProjectLock
-    ? await transaction<LockedProjectRow[]>`
+    ? await measureRequestPhase(
+        'query',
+        () => transaction<LockedProjectRow[]>`
       select
         project.incarnation_id,
         project.meta,
@@ -68,7 +70,10 @@ const lockProjectInTransaction = async (
       where project.user_id = ${input.userId} and project.id = ${input.projectId}
       for update of project, project_snapshot
     `
-    : await transaction<LockedProjectRow[]>`
+      )
+    : await measureRequestPhase(
+        'query',
+        () => transaction<LockedProjectRow[]>`
       select
         project.incarnation_id,
         project.meta,
@@ -80,7 +85,8 @@ const lockProjectInTransaction = async (
         on project_snapshot.user_id = project.user_id and project_snapshot.id = project.id
       where project.user_id = ${input.userId} and project.id = ${input.projectId}
       for update of project, project_snapshot nowait
-    `;
+    `
+      );
   const row = rows[0];
   if (!row) throw new ProjectTransactionTargetNotFoundError(input.projectId);
   return {
@@ -127,7 +133,7 @@ export const planProjectPatch = (
  * transformation; external work must finish before entering this function.
  */
 export const patchProjectInTransaction = async (
-  transaction: TransactionSql,
+  transaction: ProjectWriteSql,
   input: TransactionalProjectPatchInput
 ): Promise<TransactionalProjectSaveResult> => {
   // Checkpoints already hold workflow rows; waiting behind project deletion would

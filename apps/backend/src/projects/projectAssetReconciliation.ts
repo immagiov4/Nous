@@ -1,5 +1,6 @@
 import { collectProjectAssetReferences } from '@shared/projectBackupAssets';
 import type { TransactionSql } from 'postgres';
+import { measureRequestPhase } from '../workflows/requestObservability.js';
 
 import { ProjectAssetStoreError } from './projectAsset.js';
 import type { ProjectSnapshot } from './types.js';
@@ -24,7 +25,9 @@ export const reconcileProjectAssets = async (
   const reachableAssets = collectProjectAssetReferences(input.snapshot);
   const reachableAssetIds = reachableAssets.map(asset => asset.id);
   if (reachableAssetIds.length > 0) {
-    const reachable = await transaction<ReachableAssetRow[]>`
+    const reachable = await measureRequestPhase(
+      'query',
+      () => transaction<ReachableAssetRow[]>`
       select id, state, content_hash, byte_size, media_type
       from public.project_assets
       where id in ${transaction(reachableAssetIds)}
@@ -32,7 +35,8 @@ export const reconcileProjectAssets = async (
         and project_id = ${input.projectId}
       order by id
       for update
-    `;
+    `
+    );
     const storedById = new Map(reachable.map(asset => [asset.id, asset]));
     if (reachable.length !== reachableAssetIds.length) {
       throw new ProjectAssetStoreError('asset-not-adoptable');
@@ -58,7 +62,9 @@ export const reconcileProjectAssets = async (
     : [];
   if (removedAssetIds.length === 0) return 0;
 
-  const queued = await transaction<Array<{ id: string }>>`
+  const queued = await measureRequestPhase(
+    'query',
+    () => transaction<Array<{ id: string }>>`
     update public.project_assets
     set state = 'deletion-pending',
         deletion_queued_at = coalesce(deletion_queued_at, clock_timestamp())
@@ -67,6 +73,7 @@ export const reconcileProjectAssets = async (
       and state = 'active'
       and id in ${transaction(removedAssetIds)}
     returning id
-  `;
+  `
+  );
   return queued.length;
 };

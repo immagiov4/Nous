@@ -1,4 +1,5 @@
 import type { Sql, TransactionSql } from 'postgres';
+import { measureRequestPhase } from '../workflows/requestObservability.js';
 import { releaseAdvisoryLockSession } from './projectAdvisoryLockSession.js';
 import {
   createProjectAssetStorage,
@@ -53,26 +54,35 @@ export class PostgresProjectAssetDeletionQueue implements ProjectAssetDeletionQu
     transaction: TransactionSql,
     input: { projectId: string; userId: string }
   ): Promise<readonly string[]> {
-    const rows = await transaction<Array<{ object_path: string }>>`
+    const rows = await measureRequestPhase(
+      'query',
+      () => transaction<Array<{ object_path: string }>>`
       select object_path
       from public.project_assets
       where user_id = ${input.userId} and project_id = ${input.projectId}
       order by object_path
       for update
-    `;
+    `
+    );
     const objectPaths = rows.map(row => row.object_path);
     if (objectPaths.length === 0) return [];
-    await transaction`
+    await measureRequestPhase(
+      'query',
+      () => transaction`
       insert into public.project_asset_deletions (object_path)
       select queued.object_path
       from jsonb_to_recordset(${transaction.json(objectPaths.map(object_path => ({ object_path })))})
         as queued(object_path text)
       on conflict (object_path) do nothing
-    `;
-    await transaction`
+    `
+    );
+    await measureRequestPhase(
+      'query',
+      () => transaction`
       delete from public.project_assets
       where user_id = ${input.userId} and project_id = ${input.projectId}
-    `;
+    `
+    );
     return objectPaths;
   }
 
@@ -81,7 +91,9 @@ export class PostgresProjectAssetDeletionQueue implements ProjectAssetDeletionQu
     workerId: string;
   }): Promise<ProjectAssetDeletionClaim | null> {
     assertClaimInput(input);
-    const rows = await this.sql<ProjectAssetDeletionRow[]>`
+    const rows = await measureRequestPhase(
+      'query',
+      () => this.sql<ProjectAssetDeletionRow[]>`
       with candidate as (
         select object_path
         from public.project_asset_deletions
@@ -99,7 +111,8 @@ export class PostgresProjectAssetDeletionQueue implements ProjectAssetDeletionQu
       from candidate
       where deletion.object_path = candidate.object_path
       returning deletion.object_path, deletion.cleanup_worker_id, deletion.cleanup_fencing_token
-    `;
+    `
+    );
     const row = rows[0];
     return row
       ? {
@@ -111,24 +124,30 @@ export class PostgresProjectAssetDeletionQueue implements ProjectAssetDeletionQu
   }
 
   async cleanupQueuedObject(claim: ProjectAssetDeletionClaim): Promise<'deleted' | 'retrying'> {
-    const reserved = await this.sql.reserve();
+    const reserved = await measureRequestPhase('poolWait', () => this.sql.reserve());
     let lockAcquired = false;
     try {
-      const lockRows = await reserved<Array<{ acquired: boolean }>>`
+      const lockRows = await measureRequestPhase(
+        'query',
+        () => reserved<Array<{ acquired: boolean }>>`
         select pg_try_advisory_lock(hashtextextended(${claim.objectPath}, 0)) as acquired
-      `;
+      `
+      );
       lockAcquired = lockRows[0]?.acquired === true;
       if (!lockAcquired) {
         await this.releaseClaimForRetry(reserved, claim);
         return 'retrying';
       }
       await this.assertCurrentClaim(reserved, claim);
-      const activeRows = await reserved<Array<{ found: number }>>`
+      const activeRows = await measureRequestPhase(
+        'query',
+        () => reserved<Array<{ found: number }>>`
         select 1 as found
         from public.project_assets
         where object_path = ${claim.objectPath} and state = 'active'
         limit 1
-      `;
+      `
+      );
       if (activeRows[0]) {
         await this.deleteCurrentTombstone(reserved, claim);
         return 'deleted';
@@ -152,13 +171,16 @@ export class PostgresProjectAssetDeletionQueue implements ProjectAssetDeletionQu
     sql: ReservedSql,
     claim: ProjectAssetDeletionClaim
   ): Promise<void> {
-    const deleted = await sql<Array<{ object_path: string }>>`
+    const deleted = await measureRequestPhase(
+      'query',
+      () => sql<Array<{ object_path: string }>>`
       delete from public.project_asset_deletions
       where object_path = ${claim.objectPath}
         and cleanup_worker_id = ${claim.workerId}
         and cleanup_fencing_token = ${claim.fencingToken}
       returning object_path
-    `;
+    `
+    );
     if (!deleted[0]) throw new ProjectAssetStoreError('cleanup-lease-lost');
   }
 
@@ -166,11 +188,14 @@ export class PostgresProjectAssetDeletionQueue implements ProjectAssetDeletionQu
     sql: ReservedSql,
     claim: ProjectAssetDeletionClaim
   ): Promise<void> {
-    const rows = await sql<ProjectAssetDeletionRow[]>`
+    const rows = await measureRequestPhase(
+      'query',
+      () => sql<ProjectAssetDeletionRow[]>`
       select object_path, cleanup_worker_id, cleanup_fencing_token
       from public.project_asset_deletions
       where object_path = ${claim.objectPath}
-    `;
+    `
+    );
     const row = rows[0];
     if (
       row?.cleanup_worker_id !== claim.workerId ||
@@ -184,14 +209,17 @@ export class PostgresProjectAssetDeletionQueue implements ProjectAssetDeletionQu
     sql: ReservedSql,
     claim: ProjectAssetDeletionClaim
   ): Promise<void> {
-    const rows = await sql<Array<{ object_path: string }>>`
+    const rows = await measureRequestPhase(
+      'query',
+      () => sql<Array<{ object_path: string }>>`
       update public.project_asset_deletions
       set cleanup_worker_id = null, cleanup_lease_expires_at = null
       where object_path = ${claim.objectPath}
         and cleanup_worker_id = ${claim.workerId}
         and cleanup_fencing_token = ${claim.fencingToken}
       returning object_path
-    `;
+    `
+    );
     if (!rows[0]) throw new ProjectAssetStoreError('cleanup-lease-lost');
   }
 
@@ -202,14 +230,17 @@ export class PostgresProjectAssetDeletionQueue implements ProjectAssetDeletionQu
   ): Promise<void> {
     const code = error instanceof ProjectSourceStorageError ? error.code : 'unknown';
     const status = error instanceof ProjectSourceStorageError ? (error.status ?? null) : null;
-    const rows = await sql<Array<{ object_path: string }>>`
+    const rows = await measureRequestPhase(
+      'query',
+      () => sql<Array<{ object_path: string }>>`
       update public.project_asset_deletions
       set last_error = ${this.sql.json({ code, status })}
       where object_path = ${claim.objectPath}
         and cleanup_worker_id = ${claim.workerId}
         and cleanup_fencing_token = ${claim.fencingToken}
       returning object_path
-    `;
+    `
+    );
     if (!rows[0]) throw new ProjectAssetStoreError('cleanup-lease-lost');
   }
 
