@@ -1,11 +1,16 @@
+import {
+  type LessonPlaybackBlock,
+  type PlaybackContentBlock,
+  resolvePlaybackNarration,
+  segmentLessonPlayback,
+} from '@shared/lessonPlayback';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE } from '../../services/audio/voiceProfile';
 import * as OpenRouterService from '../../services/openrouter';
 import type { AudioChunk, AudioState, TtsModelSummary, VoiceProfileId } from '../../types';
-import { prepareMarkdownForSpeech } from '../../utils/reader/readingText';
+import { projectReadableSpeech } from '../../utils/reader/readingText';
 
-const CHUNK_SIZE_APPROX = 580;
 const CHUNK_LABEL_MAX_CHARACTERS = 72;
 const CHUNK_CROSSFADE_SECONDS = 0.035;
 const TTS_GENERATION_MAX_RETRIES = 1;
@@ -25,9 +30,10 @@ const isRetryableTtsError = (error: unknown): boolean => {
 };
 
 interface UseTtsPlayerParams {
+  projectId?: string | null;
+  contentBlocks?: readonly PlaybackContentBlock[];
   activeSectionId: string | null;
   sectionContent: string;
-  speechBlocks: string[];
 }
 
 interface UseTtsPlayerResult {
@@ -62,197 +68,11 @@ interface PlaybackRun {
   cancelled: boolean;
 }
 
-const splitSentencesByTerminator = (text: string): string[] => {
-  const sentences: string[] = [];
-  let segmentStartIndex = 0;
-  let index = 0;
-
-  while (index < text.length) {
-    const character = text[index];
-    if (character !== '.' && character !== '!' && character !== '?') {
-      index += 1;
-      continue;
-    }
-
-    let nextIndex = index + 1;
-    while (nextIndex < text.length && /\s/u.test(text[nextIndex] || '')) {
-      nextIndex += 1;
-    }
-
-    sentences.push(text.slice(segmentStartIndex, nextIndex));
-    segmentStartIndex = nextIndex;
-    index = nextIndex;
-  }
-
-  if (segmentStartIndex < text.length) {
-    sentences.push(text.slice(segmentStartIndex));
-  }
-
-  return sentences.filter(sentence => sentence.trim().length > 0);
-};
-
-export const splitOversizedText = (text: string, maxLength: number): string[] => {
-  if (text.length <= maxLength) {
-    return [text];
-  }
-
-  const clauseParts = text.split(/(?<=[,;:])\s+/);
-  if (clauseParts.length > 1) {
-    return clauseParts.flatMap(part => splitOversizedText(part.trim(), maxLength));
-  }
-
-  const wordParts = text.split(/\s+/);
-  if (wordParts.length > 1) {
-    const segments: string[] = [];
-    let currentSegment = '';
-
-    wordParts.forEach(word => {
-      const candidate = currentSegment ? `${currentSegment} ${word}` : word;
-      if (candidate.length <= maxLength) {
-        currentSegment = candidate;
-        return;
-      }
-
-      if (currentSegment) {
-        segments.push(currentSegment);
-      }
-
-      if (word.length <= maxLength) {
-        currentSegment = word;
-        return;
-      }
-
-      for (let index = 0; index < word.length; index += maxLength) {
-        segments.push(word.slice(index, index + maxLength));
-      }
-      currentSegment = '';
-    });
-
-    if (currentSegment) {
-      segments.push(currentSegment);
-    }
-
-    return segments;
-  }
-
-  const segments: string[] = [];
-  for (let index = 0; index < text.length; index += maxLength) {
-    segments.push(text.slice(index, index + maxLength));
-  }
-  return segments;
-};
-
-export const splitContentIntoChunks = (text: string, speechBlocks: string[]): string[] => {
-  const normalizedBlocks = speechBlocks
-    .map(block => block.replaceAll(/\s+/g, ' ').trim())
-    .filter(Boolean);
-
-  if (normalizedBlocks.length > 0) {
-    const chunks: string[] = [];
-    let currentChunk = '';
-
-    const flushChunk = () => {
-      if (currentChunk.trim()) {
-        chunks.push(currentChunk.trim());
-        currentChunk = '';
-      }
-    };
-
-    const appendUnit = (unit: string, separator = '\n\n') => {
-      if (!unit) {
-        return;
-      }
-
-      if (!currentChunk) {
-        currentChunk = unit;
-        return;
-      }
-
-      if (currentChunk.length + separator.length + unit.length > CHUNK_SIZE_APPROX) {
-        flushChunk();
-        currentChunk = unit;
-        return;
-      }
-
-      currentChunk += `${separator}${unit}`;
-    };
-
-    const appendBoundedUnit = (unit: string, separator = '\n\n') => {
-      splitOversizedText(unit, CHUNK_SIZE_APPROX).forEach((part, index) => {
-        appendUnit(part.trim(), index === 0 ? separator : ' ');
-      });
-    };
-
-    normalizedBlocks.forEach(block => {
-      if (block.length <= CHUNK_SIZE_APPROX) {
-        appendUnit(block);
-        return;
-      }
-
-      const sentences = splitSentencesByTerminator(block);
-      sentences.forEach(sentence => {
-        appendBoundedUnit(sentence.trim(), ' ');
-      });
-    });
-
-    flushChunk();
-    return chunks;
-  }
-
-  const cleanText = prepareMarkdownForSpeech(text);
-  const paragraphs = cleanText.split(/\n\n+/);
-  const chunks: string[] = [];
-  let currentChunk = '';
-
-  const pushCurrentChunk = () => {
-    if (currentChunk.trim()) {
-      chunks.push(currentChunk.trim());
-      currentChunk = '';
-    }
-  };
-
-  const appendParagraphPart = (part: string, separator = '\n\n') => {
-    if (!part) {
-      return;
-    }
-
-    if (!currentChunk) {
-      currentChunk = part;
-      return;
-    }
-
-    if (currentChunk.length + separator.length + part.length > CHUNK_SIZE_APPROX) {
-      pushCurrentChunk();
-      currentChunk = part;
-      return;
-    }
-
-    currentChunk += `${separator}${part}`;
-  };
-
-  paragraphs.forEach(paragraph => {
-    if (paragraph.length > CHUNK_SIZE_APPROX) {
-      const sentences = splitSentencesByTerminator(paragraph);
-      sentences.forEach(sentence => {
-        splitOversizedText(sentence.trim(), CHUNK_SIZE_APPROX).forEach(part => {
-          appendParagraphPart(part, ' ');
-        });
-      });
-      return;
-    }
-
-    if (currentChunk.length + paragraph.length > CHUNK_SIZE_APPROX) {
-      pushCurrentChunk();
-      currentChunk = paragraph;
-    } else {
-      currentChunk += `${currentChunk ? '\n\n' : ''}${paragraph}`;
-    }
-  });
-
-  pushCurrentChunk();
-
-  return chunks;
-};
+const sourceChunkText = (block: LessonPlaybackBlock): string =>
+  resolvePlaybackNarration(
+    block,
+    block.spans.flatMap(span => (span.math ? [{ formula: span.math, spoken: span.math }] : []))
+  ).speech.trim();
 
 const createAudioChunks = (chunks: string[]): AudioChunk[] =>
   chunks.map((text, index) => ({
@@ -283,13 +103,23 @@ const createIdlePlaybackRun = (): PlaybackRun => ({
 });
 
 export const useTtsPlayer = ({
+  projectId,
+  contentBlocks,
   activeSectionId,
   sectionContent,
-  speechBlocks,
 }: UseTtsPlayerParams): UseTtsPlayerResult => {
-  const preparedChunkTexts = useMemo(
-    () => splitContentIntoChunks(sectionContent, speechBlocks),
-    [sectionContent, speechBlocks]
+  const sourceContent = useMemo(
+    () =>
+      contentBlocks?.length
+        ? contentBlocks
+        : [{ type: 'markdown' as const, markdown: sectionContent }],
+    [contentBlocks, sectionContent]
+  );
+  const sourceBlocks = useMemo(() => segmentLessonPlayback(sourceContent), [sourceContent]);
+  const preparedChunkTexts = useMemo(() => sourceBlocks.map(sourceChunkText), [sourceBlocks]);
+  const selectionChunkTexts = useMemo(
+    () => projectReadableSpeech(sourceBlocks, sourceContent),
+    [sourceBlocks, sourceContent]
   );
   const chunkOptions = useMemo(
     () =>
@@ -322,33 +152,24 @@ export const useTtsPlayer = ({
   const chunkPromisesRef = useRef<Partial<Record<number, Promise<string | null>>>>({});
   const failedChunkIndexesRef = useRef<Set<number>>(new Set());
   const playbackSessionRef = useRef(0);
+  const audioGenerationRef = useRef(0);
   const playbackRunIdRef = useRef(0);
   const playRequestIdRef = useRef(0);
   const generatedObjectUrlsRef = useRef<Set<string>>(new Set());
   const ttsCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const playbackRunRef = useRef<PlaybackRun>(createIdlePlaybackRun());
   const pausedTimeRef = useRef(0);
-  const activeSectionIdRef = useRef(activeSectionId);
-  const speechBlocksVersionRef = useRef(0);
+  const sourceIdentity = useMemo(
+    () => JSON.stringify([projectId, activeSectionId, sourceBlocks]),
+    [projectId, activeSectionId, sourceBlocks]
+  );
+  const sourceIdentityRef = useRef(sourceIdentity);
 
-  // Reset playback state when the active section changes or speech blocks are
-  // rebuilt (e.g. after the DOM re-renders a chapter that contains images).
-  // Without this, stale chunks from the previous section can survive inside
-  // audioStateRef and the player may try to generate audio for text that no
-  // longer matches the visible content — causing a silent stall.
+  // Source changes release recordings and invalidate pending playback requests.
   useEffect(() => {
-    const sectionChanged = activeSectionIdRef.current !== activeSectionId;
-    if (sectionChanged) {
-      activeSectionIdRef.current = activeSectionId;
-    }
-
-    // Bump a version counter whenever the speech-block array identity changes
-    // (useReaderSpeech returns a new array on every update).
-    speechBlocksVersionRef.current += 1;
-
-    if (!sectionChanged) {
-      return;
-    }
+    if (sourceIdentityRef.current === sourceIdentity) return;
+    sourceIdentityRef.current = sourceIdentity;
+    audioGenerationRef.current += 1;
 
     // Abort any in-flight playback and drop stale chunks so the next
     // togglePlayPause() call will re-chunk from the fresh content.
@@ -384,6 +205,8 @@ export const useTtsPlayer = ({
     playbackSessionRef.current += 1;
     chunkPromisesRef.current = {};
     failedChunkIndexesRef.current.clear();
+    for (const url of generatedObjectUrlsRef.current) URL.revokeObjectURL(url);
+    generatedObjectUrlsRef.current.clear();
     pausedTimeRef.current = 0;
 
     // Use setAudioState directly instead of setTrackedAudioState (defined
@@ -404,7 +227,7 @@ export const useTtsPlayer = ({
     };
     setPlayerCurrentTime(0);
     setPlayerDuration(0);
-  }, [activeSectionId]);
+  }, [sourceIdentity]);
 
   const logPlayback = useCallback((event: string, details: Record<string, unknown> = {}) => {
     if (!DEBUG_TTS_PLAYER) {
@@ -623,10 +446,17 @@ export const useTtsPlayer = ({
 
   const generateChunkAudio = useCallback(
     async (index: number, retries = TTS_GENERATION_MAX_RETRIES): Promise<string | null> => {
+      const requestedSource = sourceIdentity;
+      const generationId = audioGenerationRef.current;
+      // Pausing preserves recordings; source/profile changes and unmount invalidate them.
+      const isCurrentGeneration = () =>
+        requestedSource === sourceIdentityRef.current &&
+        generationId === audioGenerationRef.current;
       const generateChunkAudioWithRetries = async (
         retryIndex: number,
         remainingRetries: number
       ): Promise<string | null> => {
+        if (!isCurrentGeneration()) return null;
         const chunk = audioStateRef.current.chunks[retryIndex];
         if (!chunk?.text.trim()) {
           // Empty chunk (e.g. produced from an image-only section). Skip the
@@ -647,11 +477,16 @@ export const useTtsPlayer = ({
           const requestedVoice = audioStateRef.current.currentVoice;
           const requestedText = chunk.text;
           const requestedModel = audioStateRef.current.currentModel;
-          const speechAudio = await OpenRouterService.generateSpeech(
-            requestedText,
-            requestedVoice,
-            requestedModel
-          );
+          if (!projectId || !activeSectionId)
+            throw new Error('Lesson speech requires a saved project and section.');
+          const speechAudio = await OpenRouterService.generateSpeech({
+            text: requestedText,
+            voice: requestedVoice,
+            model: requestedModel,
+            block: sourceBlocks[retryIndex],
+            target: { projectId, sectionId: activeSectionId },
+          });
+          if (!isCurrentGeneration()) return null;
           const audioBlob = new Blob([speechAudio.audioBuffer], { type: speechAudio.contentType });
           const url = URL.createObjectURL(audioBlob);
           generatedObjectUrlsRef.current.add(url);
@@ -691,6 +526,7 @@ export const useTtsPlayer = ({
           setErrorMessage(null);
           return url;
         } catch (error) {
+          if (!isCurrentGeneration()) return null;
           if (remainingRetries > 0 && isRetryableTtsError(error)) {
             delete chunkPromisesRef.current[retryIndex];
             await new Promise(resolve => setTimeout(resolve, TTS_GENERATION_RETRY_DELAY_MS));
@@ -734,7 +570,14 @@ export const useTtsPlayer = ({
       chunkPromisesRef.current[index] = promise;
       return promise;
     },
-    [revokeTrackedUrl, setTrackedAudioState]
+    [
+      revokeTrackedUrl,
+      sourceBlocks,
+      sourceIdentity,
+      setTrackedAudioState,
+      projectId,
+      activeSectionId,
+    ]
   );
 
   const playAudioRef = useRef<(startIndex?: number, startTime?: number) => Promise<void>>(
@@ -835,6 +678,15 @@ export const useTtsPlayer = ({
       let url = chunk.blobUrl;
       if (!url) {
         url = await generateChunkAudio(startIndex);
+        if (
+          !shouldPlayRef.current ||
+          requestId !== playRequestIdRef.current ||
+          sessionId !== playbackSessionRef.current ||
+          runId !== playbackRunRef.current.runId ||
+          playbackRunRef.current.cancelled
+        ) {
+          return;
+        }
         if (!url) {
           shouldPlayRef.current = false;
           abortCurrentRun('error');
@@ -843,16 +695,6 @@ export const useTtsPlayer = ({
             isPlaying: false,
             audioElement: null,
           }));
-          return;
-        }
-
-        if (
-          !shouldPlayRef.current ||
-          requestId !== playRequestIdRef.current ||
-          sessionId !== playbackSessionRef.current ||
-          runId !== playbackRunRef.current.runId ||
-          playbackRunRef.current.cancelled
-        ) {
           return;
         }
       }
@@ -973,6 +815,7 @@ export const useTtsPlayer = ({
       abortCurrentRun('stop');
       chunkPromisesRef.current = {};
       if (clearChunks) {
+        audioGenerationRef.current += 1;
         failedChunkIndexesRef.current.clear();
       }
 
@@ -1343,6 +1186,7 @@ export const useTtsPlayer = ({
       playbackSessionRef.current += 1;
       playRequestIdRef.current += 1;
       abortCurrentRun('unmount');
+      audioGenerationRef.current += 1;
       playbackRunRef.current = createIdlePlaybackRun();
       generatedObjectUrlsRef.current.forEach(url => {
         URL.revokeObjectURL(url);
@@ -1359,7 +1203,7 @@ export const useTtsPlayer = ({
     availableVoices,
     audioState,
     chunkOptions,
-    chunkTexts: preparedChunkTexts,
+    chunkTexts: selectionChunkTexts,
     errorMessage,
     handleModelChange,
     handleSeek,

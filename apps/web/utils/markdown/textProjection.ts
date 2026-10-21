@@ -103,6 +103,7 @@ export const normalizeLooseText = (value: string): string =>
     .trim();
 
 interface VisibleProjectionState {
+  literalSource: Uint8Array;
   activeCodeDelimiter: string | null;
   atLineStart: boolean;
   boundaryRangesByStart: Map<number, MarkdownRange>;
@@ -120,6 +121,9 @@ interface VisibleProjectionState {
   sourceIndexes: number[];
   tableSyntaxRangesByStart: Map<number, MarkdownProjectionRange>;
 }
+
+const isLiteralSource = (state: VisibleProjectionState): boolean =>
+  state.literalSource[state.index] === 1;
 
 const pushVisibleCharacter = (
   state: VisibleProjectionState,
@@ -240,7 +244,7 @@ const projectActiveCode = (state: VisibleProjectionState): boolean => {
 };
 
 const openInlineCode = (state: VisibleProjectionState): boolean => {
-  if (state.content[state.index] !== '`') return false;
+  if (state.content[state.index] !== '`' || isLiteralSource(state)) return false;
   const delimiterLength =
     CODE_DELIMITER_AT_START_REGEX.exec(state.content.slice(state.index))?.[0].length ?? 1;
   state.activeCodeDelimiter = '`'.repeat(delimiterLength);
@@ -292,7 +296,7 @@ const projectMalformedImageLabel = (state: VisibleProjectionState): boolean => {
 
 const skipLinkBracket = (state: VisibleProjectionState): boolean => {
   const character = state.content[state.index];
-  if (character !== '[' && character !== ']') return false;
+  if ((character !== '[' && character !== ']') || isLiteralSource(state)) return false;
   if (character === ']' && state.content[state.index + 1] === '(') {
     const destinationRange = state.linkDestinationRangesByStart.get(state.index + 1);
     if (destinationRange) {
@@ -305,7 +309,12 @@ const skipLinkBracket = (state: VisibleProjectionState): boolean => {
 };
 
 const projectEscapedCharacter = (state: VisibleProjectionState): boolean => {
-  if (state.content[state.index] !== '\\' || state.index + 1 >= state.content.length) return false;
+  if (
+    state.content[state.index] !== '\\' ||
+    state.index + 1 >= state.content.length ||
+    isLiteralSource(state)
+  )
+    return false;
   pushVisibleCharacter(state, state.content[state.index + 1], state.index + 1);
   state.atLineStart = false;
   state.index += 2;
@@ -314,7 +323,7 @@ const projectEscapedCharacter = (state: VisibleProjectionState): boolean => {
 
 const skipMarkdownToken = (state: VisibleProjectionState): boolean => {
   const token = MARKDOWN_TOKENS.find(candidate => state.content.startsWith(candidate, state.index));
-  if (!token) return false;
+  if (!token || isLiteralSource(state)) return false;
   state.index += token.length;
   return true;
 };
@@ -354,9 +363,13 @@ const advanceVisibleProjection = (state: VisibleProjectionState): void => {
 export const buildVisibleProjection = (
   content: string,
   analysis: MarkdownAnalysis = parseMarkdownAnalysis(content),
-  tableSyntaxRanges: readonly MarkdownProjectionRange[] = []
+  tableSyntaxRanges: readonly MarkdownProjectionRange[] = [],
+  literalSourceRanges: readonly MarkdownRange[] = []
 ): VisibleProjection => {
+  const literalSource = new Uint8Array(content.length);
+  for (const range of literalSourceRanges) literalSource.fill(1, range.start, range.end);
   const state: VisibleProjectionState = {
+    literalSource,
     activeCodeDelimiter: null,
     atLineStart: true,
     boundaryRangesByStart: indexLongestRangeByStart(

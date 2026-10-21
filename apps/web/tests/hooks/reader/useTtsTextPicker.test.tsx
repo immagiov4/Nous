@@ -1,8 +1,10 @@
+import { segmentLessonPlayback } from '@shared/lessonPlayback';
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { RefObject } from 'react';
 import { expect, test, vi } from 'vitest';
 import { useTtsTextPicker } from '../../../hooks/reader/useTtsTextPicker.ts';
+import { projectReadableSpeech } from '../../../utils/reader/readingText.ts';
 
 const createRect = (top: number, height: number): DOMRect =>
   ({
@@ -66,4 +68,36 @@ test('highlights the hovered reading part and selects its TTS chunk without chan
   expect(onSelectChunk).toHaveBeenCalledWith(1);
   expect(result.current.isActive).toBe(false);
   expect(container.textContent).toContain('Seconda parte con un esempio.');
+});
+
+test('selects rendered prose entities while retaining literal inline-code entities', async () => {
+  const markdown = 'Consideriamo A &amp; B e `$x &amp; y$`.';
+  const content = [{ type: 'markdown' as const, markdown }];
+  const chunks = projectReadableSpeech(segmentLessonPlayback(content), content);
+  const container = document.createElement('section');
+  container.innerHTML =
+    '<article class="prose"><p>Consideriamo A &amp; B e <code>$x &amp;amp; y$</code>.</p></article>';
+  document.body.appendChild(container);
+  const paragraph = container.querySelector('p') as HTMLParagraphElement;
+  vi.spyOn(paragraph, 'getBoundingClientRect').mockReturnValue(createRect(80, 40));
+  const onSelectChunk = vi.fn();
+  const { result } = renderHook(() =>
+    useTtsTextPicker({
+      chunkTexts: chunks,
+      contentRef: { current: container } as RefObject<HTMLDivElement | null>,
+      onSelectChunk,
+    })
+  );
+  act(() => result.current.setIsActive(true));
+  await waitFor(() => expect(result.current.isActive).toBe(true));
+  act(() =>
+    paragraph.dispatchEvent(
+      new MouseEvent('pointermove', { bubbles: true, clientX: 200, clientY: 90 })
+    )
+  );
+  expect(result.current.hoveredChunkIndex).toBe(0);
+  act(() =>
+    paragraph.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 200, clientY: 90 }))
+  );
+  expect(onSelectChunk).toHaveBeenCalledWith(0);
 });

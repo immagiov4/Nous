@@ -103,3 +103,13 @@ test('anchors narrated fenced prose to its complete original source instead of p
     'A vector has two entries.'
   );
 });
+
+test('keeps a formula after a pending heading with its spoken block', () => {
+  const blocks = segmentLessonPlayback([
+    { type: 'markdown', markdown: 'Intro.\n\n## Topic\n\n$$x = 2$$\n\nThen.' },
+  ]);
+  expect(blocks).toHaveLength(2);
+  expect(blocks[0].visuals).toEqual([]);
+  expect(blocks[1].spans.filter(span => span.math).map(span => span.math)).toEqual(['$$x = 2$$']);
+  expect(blocks[1].visuals).toEqual([{ kind: 'markdown', markdown: '$$x = 2$$' }]);
+});

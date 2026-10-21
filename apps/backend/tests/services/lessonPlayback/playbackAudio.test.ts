@@ -1,5 +1,7 @@
 import { Mp3Encoder } from '@breezystack/lamejs';
+import { MPEGDecoder } from 'mpg123-decoder';
 import { beforeEach, expect, test, vi } from 'vitest';
+import { synthesizeSpeech } from '../../../src/services/speechPreparation.js';
 
 const { generateSpeech, getConfig } = vi.hoisted(() => ({
   generateSpeech: vi.fn(),
@@ -58,7 +60,11 @@ test.each([
   });
   const input = request();
   const result = await preparePlaybackAudio(input);
-  expect(generateSpeech).toHaveBeenCalledWith({ ...input, model: 'google/gemini-3.8-flash-tts' });
+  expect(generateSpeech).toHaveBeenCalledWith({
+    ...input,
+    model: 'google/gemini-3.8-flash-tts',
+    speed: 1,
+  });
   expect(result).toMatchObject({ mediaType: 'audio/mpeg', durationSeconds: 1, voice: 'Kore' });
   // Independently inspect every MPEG-2 Layer III frame: 24 kHz, 64 kb/s, mono, 576 samples.
   const bytes = Buffer.from(result.bytes);
@@ -188,4 +194,31 @@ test.each([
 ])('rejects unsupported or malformed %s audio', async contentType => {
   generateSpeech.mockResolvedValue({ audioBuffer: new ArrayBuffer(0), contentType });
   await expect(preparePlaybackAudio(request())).rejects.toThrow();
+});
+
+test('keeps a long standard-reader paragraph within provider request bounds and returns playable audio', async () => {
+  generateSpeech.mockResolvedValue({
+    audioBuffer: pcmWav(),
+    contentType: 'audio/wav',
+    model: 'tts-model',
+    voice: 'Kore',
+  });
+  const text = 'Una lunga spiegazione matematica. '.repeat(400);
+  const audio = await synthesizeSpeech({ text, model: 'tts-model', voice: 'Kore' });
+  expect(generateSpeech.mock.calls.length).toBeGreaterThan(1);
+  expect(
+    generateSpeech.mock.calls.every(([request]) => request.text.length <= MAX_TTS_TEXT_CHARS)
+  ).toBe(true);
+  expect(generateSpeech.mock.calls.map(([request]) => request.text).join(' ')).toBe(text.trim());
+  expect(audio.contentType).toBe('audio/mpeg');
+  expect(mp3DurationSeconds(new Uint8Array(audio.audioBuffer))).toBeGreaterThan(1);
+  const decoder = new MPEGDecoder();
+  await decoder.ready;
+  try {
+    const decoded = decoder.decode(new Uint8Array(audio.audioBuffer));
+    expect(decoded.errors).toEqual([]);
+    expect(decoded.samplesDecoded).toBeGreaterThan(decoded.sampleRate);
+  } finally {
+    decoder.free();
+  }
 });
