@@ -155,6 +155,7 @@ beforeEach(() => {
   vi.mocked(requestSpeechTranscription).mockReset().mockResolvedValue('Perché funziona?');
   playback = {
     blocks,
+    recording: undefined,
     index: 0,
     time: 0,
     duration: 12,

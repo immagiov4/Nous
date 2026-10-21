@@ -13,10 +13,11 @@ import {
   getLessonPlayback,
   LessonPlaybackRequestError,
   prepareLessonPlayback,
+  subscribeToPlaybackChanges,
   waitForLessonPlayback,
 } from '../../services/openrouter/lessonPlaybackClient.ts';
 import { downloadProjectAssetBytes } from '../../services/projects/projectAssetClient.ts';
-import { playbackTimeline } from '../../utils/reader/lessonPlayback.ts';
+import { mergeRecordingAlignment, playbackTimeline } from '../../utils/reader/lessonPlayback.ts';
 import {
   LessonPlaybackAudio,
   type PlaybackRecording,
@@ -30,11 +31,13 @@ import {
 // A player can close before its owned server cancellation settles.
 const playbackCancellations = new Map<string, Promise<void>>();
 
-type Playback = Awaited<ReturnType<typeof getLessonPlayback>>;
-type PreparedPlayback = Extract<
-  Awaited<ReturnType<typeof prepareLessonPlayback>>,
-  { block: unknown }
-> & { buffer: AudioBuffer };
+type Playback = { lessonKey: string; blocks: readonly LessonPlaybackBlock[] };
+type PreparedPlayback = {
+  block: LessonPlaybackBlock;
+  voice: string;
+  model: string;
+  buffer: AudioBuffer;
+};
 
 /** Resumes the audio clock synchronously inside the opening or play gesture. */
 export function unlockLessonPlaybackAudio(audio: LessonPlaybackAudio) {
@@ -154,6 +157,45 @@ export function useLessonPlayback({
   const prefetchFailed = useRef(false);
   const intent = useRef({ playing: false, index: 0, epoch: 0 });
   const ready = useRef(new Map<string, PreparedPlayback>());
+  useEffect(() => {
+    let controller: AbortController | undefined;
+    const refresh = () => {
+      if (!playbackRef.current) return;
+      controller?.abort();
+      const request = new AbortController();
+      controller = request;
+      void getLessonPlayback({ projectId, sectionId }, request.signal)
+        .then(incoming => {
+          if (request.signal.aborted || incoming.lessonKey !== playbackRef.current?.lessonKey)
+            return;
+          const merge = (block: LessonPlaybackBlock) =>
+            mergeRecordingAlignment(
+              block,
+              incoming.blocks.find(next => next.id === block.id)
+            );
+          for (const [key, prepared] of ready.current) {
+            const block = merge(prepared.block);
+            if (block !== prepared.block) ready.current.set(key, { ...prepared, block });
+          }
+          playbackRef.current = {
+            ...playbackRef.current,
+            blocks: playbackRef.current.blocks.map(merge),
+          };
+          setBlocks(current => {
+            const blocks = current.map(merge);
+            return blocks.some((block, index) => block !== current[index]) ? blocks : current;
+          });
+        })
+        .catch(error => {
+          if (!request.signal.aborted) console.warn('Could not refresh recording timing.', error);
+        });
+    };
+    const stop = subscribeToPlaybackChanges(projectId, refresh);
+    return () => {
+      stop();
+      controller?.abort();
+    };
+  }, [projectId, sectionId]);
   const isCurrentAttempt = useCallback(
     (epoch: number, signal: AbortSignal) => epoch === intent.current.epoch && !signal.aborted,
     []
@@ -580,6 +622,10 @@ export function useLessonPlayback({
   };
   return {
     blocks,
+    recording: blocks[index]?.audio.find(audio => {
+      const resolved = resolvedVoices.get(voice);
+      return audio.voice === resolved?.voice && audio.model === resolved.model;
+    }),
     index,
     time,
     duration,

@@ -5,6 +5,7 @@ import { unified } from 'unified';
 import { isAnimatedLessonScene, type LessonScene } from './lessonScene';
 import { projectMarkdownRenderingControls } from './markdownControlCharacters';
 import { getMarkdownMathRangeAt } from './markdownMathSyntax';
+import type { PlaybackWordAlignment } from './playbackWordTiming';
 import type { ProjectAssetRef } from './projectAsset';
 
 /** UTF-16 offsets, end exclusive. */
@@ -82,6 +83,7 @@ export const motionTargets = (scene: LessonScene): { id: string; label: string }
 };
 
 export interface PlaybackAudio {
+  readonly wordAlignment?: PlaybackWordAlignment;
   readonly model: string;
   readonly voice: string;
   readonly asset: ProjectAssetRef;

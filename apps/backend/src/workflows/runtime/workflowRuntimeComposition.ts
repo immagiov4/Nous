@@ -140,6 +140,12 @@ import {
   lessonProjectRevisionEventProjector,
   type ProjectRevisionNotificationReceiver,
 } from '../projectRevisionNotifications.js';
+import {
+  createProductionRecordingAlignmentServices,
+  createRecordingAlignmentStarter,
+  createRecordingAlignmentWorkflow,
+  RECORDING_ALIGNMENT_WORKFLOW_ID,
+} from '../recordingAlignment.js';
 import { schemasMatch } from '../schemaFingerprint.js';
 import { reconcileUnavailableWorkflowDefinitions } from '../workflowDefinitionReconciler.js';
 import {
@@ -175,6 +181,7 @@ const createPublishedEventProjectors = (
     [LESSON_GENERATION_WORKFLOW_ID, lessonProjectRevisionEventProjector],
     [LESSON_VISUAL_RETRY_WORKFLOW_ID, lessonProjectRevisionEventProjector],
     [LESSON_PLAYBACK_WORKFLOW_ID, lessonProjectRevisionEventProjector],
+    [RECORDING_ALIGNMENT_WORKFLOW_ID, lessonProjectRevisionEventProjector],
     ...(overrides ?? []),
   ]);
 
@@ -557,8 +564,13 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     ],
   });
   registry.register({
-    current: currentScenes.legacyVisualPlayback,
+    current: createLessonPlaybackWorkflow(
+      playbackExecutionDefaults,
+      createLessonPlaybackBlockSchema(sceneSchema, true, true, true),
+      true
+    ),
     previous: [
+      currentScenes.legacyVisualPlayback,
       ...[currentScenes, ...historicalScenes].map(definition => definition.playback),
       ...[currentScenes, ...historicalScenes].map(definition => definition.spokenMathPlayback),
       ...[currentScenes, ...historicalScenes].map(definition => definition.fencedCodePlayback),
@@ -568,6 +580,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
       ...historicalScenes.map(definition => definition.legacyVisualPlayback),
     ],
   });
+  registry.register({ current: createRecordingAlignmentWorkflow(playbackExecutionDefaults) });
   return registry;
 };
 
@@ -608,6 +621,12 @@ const createProductionWorker = (
     ...createProductionCourseGenerationServices(store),
     ...createProductionLessonGenerationServices(store),
     ...createProductionLessonPlaybackServices(store.projectAssets),
+    ...createProductionRecordingAlignmentServices(store.projectAssets),
+    queueRecordingAlignment: async (
+      result: import('../lessonPlaybackWorkflow.js').LessonPlaybackResult
+    ) => {
+      await createRecordingAlignmentStarter({ registry, store })(result.target, result.block);
+    },
     ...createProductionPdfMappingRepairServices(),
   };
   const worker = createWorkflowRuntimeWorker({
@@ -767,6 +786,7 @@ export const createWorkflowRuntimeComposition = (
             store: productionStore,
             publishTransientEvent,
             resolveTtsModel: async () => (await getResolvedGlobalModelConfig()).ttsModel,
+            alignRecording: createRecordingAlignmentStarter({ registry, store: productionStore }),
           })
         : unavailableLessonPlaybackApi),
     lessonVisualRetryStarter,

@@ -68,18 +68,27 @@ const createPlaybackPreparedSchema = (
 
 export const PlaybackPreparedSchema = createPlaybackPreparedSchema(LessonSceneSchema, true, true);
 
-export const PlaybackAudioSchema = z.object({
+const LegacyPlaybackAudioSchema = z.object({
   model: z.string().min(1),
   voice: z.string().min(1),
   asset: ProjectAssetRefSchema,
   durationSeconds: z.number().positive(),
 });
 
+export const PlaybackWordAlignmentSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('aligned'), onsets: z.array(z.number().nonnegative()) }),
+  z.object({ status: z.literal('failed') }),
+]);
+export const PlaybackAudioSchema = LegacyPlaybackAudioSchema.extend({
+  wordAlignment: PlaybackWordAlignmentSchema.optional(),
+});
+
 export const createLessonPlaybackBlockSchema = (
   sceneSchema = LessonSceneSchema,
   spokenMath = false,
   fencedCode = false,
-  legacyVisuals = false
+  legacyVisuals = false,
+  wordAlignment = false
 ) => {
   const spanSchema = z.object({
     fencedCode: z
@@ -120,12 +129,13 @@ export const createLessonPlaybackBlockSchema = (
       ])
     ),
     prepared: createPlaybackPreparedSchema(sceneSchema, spokenMath, fencedCode).optional(),
-    audio: z.array(PlaybackAudioSchema),
+    audio: z.array(wordAlignment ? PlaybackAudioSchema : LegacyPlaybackAudioSchema),
   });
 };
 
 export const LessonPlaybackBlockSchema = createLessonPlaybackBlockSchema(
   LessonSceneSchema,
+  true,
   true,
   true,
   true

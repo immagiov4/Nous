@@ -2,6 +2,7 @@ import { type FormulaSpotlightData, resolveFormulaReferences } from '@shared/for
 import type { PlaybackMotionEvent, PlaybackRange } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
 import { cueTimes, playbackMode } from '@shared/lessonSceneAnimation';
+import { alignedRangeTime, type alignedWordTimes } from '@shared/playbackWordTiming';
 
 export const MOTION_TIMING = { transitionMs: 420, stepMs: 2400, holdMs: 1600, maxFocusMs: 4000 };
 const REVEAL_DURATION_MS = 700;
@@ -63,6 +64,7 @@ export function captionAnchorTimes({
   width,
   feather,
   duration,
+  aligned,
 }: {
   anchors: readonly string[];
   speech: string;
@@ -71,10 +73,13 @@ export function captionAnchorTimes({
   width: number;
   feather: number;
   duration: number;
+  aligned?: ReturnType<typeof alignedWordTimes>;
 }): number[] {
   return anchors.map(anchor => {
     const offset = speech.indexOf(anchor);
     if (offset < 0) throw new Error('Caption quotation must exist in speech');
+    if (aligned)
+      return alignedRangeTime(aligned, { start: offset, end: offset + anchor.length }).start * 1000;
     const first = runs[speechRanges.findIndex(word => word.end > offset)];
     if (!first) throw new Error('Caption quotation must cover caption words');
     return (first.start / (width + feather)) * duration * 1000;
@@ -83,6 +88,20 @@ export function captionAnchorTimes({
 
 /** The complete quoted span, on the same measured clock as the caption reveal and scene cues. */
 export function captionAnchorSpan(input: Parameters<typeof captionAnchorTimes>[0]) {
+  if (input.aligned) {
+    const spans = input.anchors.map(anchor => {
+      const start = input.speech.indexOf(anchor);
+      if (start < 0) throw new Error('Caption quotation must exist in speech');
+      return alignedRangeTime(input.aligned as NonNullable<typeof input.aligned>, {
+        start,
+        end: start + anchor.length,
+      });
+    });
+    return {
+      startMs: Math.min(...spans.map(span => span.start)) * 1000,
+      endMs: Math.max(...spans.map(span => span.end)) * 1000,
+    };
+  }
   const times = captionAnchorTimes(input);
   const endOffset = Math.max(
     ...input.anchors.map(anchor => input.speech.indexOf(anchor) + anchor.length)
@@ -109,6 +128,7 @@ export function captionMotionEvents({
   width,
   feather,
   duration,
+  aligned,
 }: {
   events: readonly PlaybackMotionEvent[];
   speech: string;
@@ -117,6 +137,7 @@ export function captionMotionEvents({
   width: number;
   feather: number;
   duration: number;
+  aligned?: ReturnType<typeof alignedWordTimes>;
 }): TimedMotionEvent[] {
   const times = captionAnchorTimes({
     anchors: events.map(event => event.quote),
@@ -126,6 +147,7 @@ export function captionMotionEvents({
     width,
     feather,
     duration,
+    aligned,
   });
   const timed = events.map((event, index) => {
     const offset = speech.indexOf(event.quote);
@@ -145,7 +167,11 @@ export function captionMotionEvents({
         ? REVEAL_DURATION_MS
         : Math.max(
             MOTION_TIMING.holdMs,
-            ((last.start + last.width - first.start) / (width + feather)) * duration * 1000
+            aligned
+              ? alignedRangeTime(aligned, { start: offset, end: offset + event.quote.length }).end *
+                  1000 -
+                  atMs
+              : ((last.start + last.width - first.start) / (width + feather)) * duration * 1000
           );
     return { ...event, atMs, durationMs };
   });

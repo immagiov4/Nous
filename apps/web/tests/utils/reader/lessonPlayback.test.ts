@@ -51,6 +51,15 @@ test('seeking selects the corresponding sentence and disambiguates repeated text
   expect(second?.start).toBeGreaterThan(first?.start ?? 0);
 });
 
+test('seek annotations use the saved acoustic word clock rather than equal word durations', () => {
+  const source = [{ type: 'markdown' as const, markdown: 'Prima frase. Seconda frase.' }];
+  const block = segmentLessonPlayback(source)[0];
+  const alignment = { status: 'aligned' as const, onsets: [0.1, 0.4, 8, 8.4] };
+  expect(playbackSentenceSelector(block, 7, 10, source, alignment)?.exact).toBe('Prima frase.');
+  expect(playbackSentenceSelector(block, 8.1, 10, source, alignment)?.exact).toBe('Seconda frase.');
+  expect(playbackSentenceSelector(block, 0.2, 10, source, alignment)?.exact).toBe('Prima frase.');
+});
+
 test('the timeline replaces estimated durations with measured recordings', () => {
   const blocks = segmentLessonPlayback([
     { type: 'markdown', markdown: 'Due parole.\n\nQui quattro parole scritte.' },

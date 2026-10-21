@@ -214,7 +214,13 @@ export default function LessonPlayer({
       })
     )
       return null;
-    return playbackSentenceSelector(block, position.time, position.duration, sourceBlocks);
+    return playbackSentenceSelector(
+      block,
+      position.time,
+      position.duration,
+      sourceBlocks,
+      playback.recording?.wordAlignment
+    );
   };
   const changeDraft = (value: string) => {
     if (!draft && value) anchor.current = currentAnchor();
@@ -528,6 +534,7 @@ export default function LessonPlayer({
           content={content}
           speed={tts.playbackRate}
           readTime={playback.readTime}
+          alignment={playback.recording?.wordAlignment}
         />
       ) : (
         <p className="flex-1 p-4">{t('Questa lezione non contiene testo da ascoltare.')}</p>

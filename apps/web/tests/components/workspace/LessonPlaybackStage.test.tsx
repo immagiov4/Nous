@@ -675,6 +675,76 @@ import {
 } from '../../../../backend/tests/helpers/formulaSpotlight';
 import { sceneCaptionAnchors } from '../../../components/workspace/playback/stageMotion.ts';
 
+test('uses recording onsets for formula selection and captions after forward and backward seeks', () => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const sources = [
+    { type: 'markdown' as const, markdown: '$x$. Ics è il valore. Ics compare ancora.' },
+  ];
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: {
+      motion: [],
+      spokenMath: [{ formula: '$x$', spoken: 'ics' }],
+      scene: {
+        ...formulaSpotlight,
+        formula: String.raw`\nousSymbol{x}`,
+        symbols: [
+          {
+            id: 'x',
+            latex: 'x',
+            name: 'Variabile',
+            meaning: 'Il valore',
+            anchor: 'Ics è il valore.',
+          },
+        ],
+      },
+    },
+  };
+  const alignment = { status: 'aligned' as const, onsets: [0, 5, 5.2, 5.4, 5.6, 7, 7.2, 7.4] };
+  const props = {
+    block,
+    content: { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel,
+    duration: 10,
+    alignment,
+  };
+  const { container, rerender } = render(<LessonPlaybackStage {...props} time={4} />);
+  container
+    .querySelector<HTMLElement>('.caption-page')
+    ?.style.setProperty('--caption-feather', '0');
+  act(() => window.dispatchEvent(new Event('resize')));
+  for (const [time, selected] of [
+    [4, false],
+    [5.1, true],
+    [7.1, false],
+    [5.1, true],
+  ] as const) {
+    rerender(<LessonPlaybackStage {...props} time={time} />);
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    });
+    expect(container.querySelector('.nous-formula-symbol-x')?.getAttribute('data-active')).toBe(
+      String(selected)
+    );
+  }
+  const captions = container.querySelectorAll<HTMLElement>('.caption-word');
+  expect(captions[1].style.opacity).toBe('1');
+  expect(captions[5].style.opacity).toBe('0');
+});
+
 test('a complete spotlight replaces sourced math while text fallback shows the formula without prose', () => {
   const source = [{ type: 'markdown' as const, markdown: FORMULA_SPOTLIGHT_MARKDOWN }];
   const block = segmentLessonPlayback(source)[0];

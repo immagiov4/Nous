@@ -35,6 +35,7 @@ export type LessonPlaybackInput = z.infer<typeof LessonPlaybackInputSchema>;
 export type LessonPlaybackResult = z.infer<typeof LessonPlaybackResultSchema>;
 
 export interface LessonPlaybackServices {
+  queueRecordingAlignment?: (result: LessonPlaybackResult) => Promise<void>;
   preparePlayback: (
     context: StepExecutionContext<
       LessonPlaybackInput,
@@ -58,7 +59,8 @@ export interface LessonPlaybackServices {
 
 export const createLessonPlaybackWorkflow = (
   executionDefaults: WorkflowExecutionDefaults,
-  blockSchema = LessonPlaybackBlockSchema
+  blockSchema = LessonPlaybackBlockSchema,
+  queueAlignment = false
 ) => {
   const resultSchema = LessonPlaybackResultSchema.extend({ block: blockSchema });
   const sceneTypes = blockSchema.shape.prepared.unwrap().shape.scene.unwrap().shape.type.options;
@@ -99,6 +101,24 @@ export const createLessonPlaybackWorkflow = (
     run: async ({ input }) => input,
     commit: context => context.services.persistPlayback(context),
   });
+  const align = step<
+    typeof resultSchema,
+    typeof resultSchema,
+    WorkflowExecutionDefaults,
+    LessonPlaybackServices
+  >({
+    id: 'queue-alignment',
+    inputSchema: resultSchema,
+    outputSchema: resultSchema,
+    run: async ({ input, services }) => {
+      try {
+        await services.queueRecordingAlignment?.(input);
+      } catch (error) {
+        console.warn('[recording-alignment] Could not queue new recording.', error);
+      }
+      return input;
+    },
+  });
   return workflow({
     id: LESSON_PLAYBACK_WORKFLOW_ID,
     compatibilityId: 'prepare-lesson-playback-block-v1',
@@ -113,6 +133,9 @@ export const createLessonPlaybackWorkflow = (
         schemaVersion: PROJECT_REVISION_EVENT_SCHEMA_VERSION,
       },
     },
-    root: sequence({ id: 'root', nodes: [prepare, persist] as const }),
+    root: sequence({
+      id: 'root',
+      nodes: queueAlignment ? ([prepare, persist, align] as const) : ([prepare, persist] as const),
+    }),
   });
 };

@@ -15,6 +15,11 @@ import {
 } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
 import {
+  alignedRangeTime,
+  alignedWordTimes,
+  type PlaybackWordAlignment,
+} from '@shared/playbackWordTiming';
+import {
   Fragment,
   type RefObject,
   useEffect,
@@ -61,6 +66,8 @@ interface CaptionClock {
   feather: number;
   bodyDuration: number;
   speechRanges: PlaybackRange[];
+  aligned?: ReturnType<typeof alignedWordTimes>;
+  captionTimes?: { start: number; end: number }[];
   read: () => { blockTime: number; bodyTime: number; revealTime: number };
 }
 
@@ -132,6 +139,7 @@ function PlaybackScene({
               width: current.width,
               feather: current.feather,
               duration: current.bodyDuration,
+              aligned: current.aligned,
             })
           : undefined;
         if (scene.type === 'formula-spotlight' && anchors) {
@@ -147,6 +155,7 @@ function PlaybackScene({
               width: current.width,
               feather: current.feather,
               duration: current.bodyDuration,
+              aligned: current.aligned,
             });
             times[reference.index] = span.startMs;
             ends[reference.index] = span.endMs;
@@ -194,6 +203,7 @@ function PlaybackScene({
           width: current.width,
           feather: current.feather,
           duration: current.bodyDuration,
+          aligned: current.aligned,
         });
         previousClock = current;
         previousFrame = '';
@@ -343,6 +353,7 @@ export default function LessonPlaybackStage({
   content,
   speed = 1,
   readTime,
+  alignment,
 }: Readonly<{
   block: LessonPlaybackBlock;
   time: number;
@@ -350,6 +361,7 @@ export default function LessonPlaybackStage({
   content: WorkspaceReaderContentModel;
   speed?: number;
   readTime?: () => number;
+  alignment?: PlaybackWordAlignment;
 }>) {
   const block = useMemo(() => resolvePlaybackNarration(sourceBlock), [sourceBlock]);
   const sources = useMemo(
@@ -444,8 +456,13 @@ export default function LessonPlaybackStage({
       const feather = Number.parseFloat(
         getComputedStyle(paragraph).getPropertyValue('--caption-feather')
       );
-      const bodyDuration =
-        (duration * formatted.words.length) / (formatted.words.length + formatted.headingWords);
+      const aligned = alignedWordTimes(block.speech, duration, alignment);
+      const captionTimes = aligned?.length
+        ? formatted.speechRanges.map(range => alignedRangeTime(aligned, range))
+        : undefined;
+      const bodyDuration = aligned
+        ? duration
+        : (duration * formatted.words.length) / (formatted.words.length + formatted.headingWords);
       const pauses = captionPauses(
         formatted.words,
         runs.map(run => (run.start + run.width) / width),
@@ -458,6 +475,8 @@ export default function LessonPlaybackStage({
         width,
         feather,
         bodyDuration,
+        aligned,
+        captionTimes,
         speechRanges: formatted.speechRanges,
         read: () => {
           const {
@@ -467,12 +486,12 @@ export default function LessonPlaybackStage({
             animate: motion,
           } = latest.current;
           const elapsed = read ? read() : fallbackTime;
-          const bodyTime = elapsed - duration * headingShare;
+          const bodyTime = aligned ? elapsed : elapsed - duration * headingShare;
           const ahead = bodyTime + captionLookAhead(elapsed, rate, CAPTION_TIMING.lookAheadSeconds);
           return {
             blockTime: elapsed,
             bodyTime,
-            revealTime: motion ? pacedCaptionTime(ahead, pauses) : ahead,
+            revealTime: motion && !aligned ? pacedCaptionTime(ahead, pauses) : ahead,
           };
         },
       };
@@ -482,7 +501,7 @@ export default function LessonPlaybackStage({
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, [duration, formatted]);
+  }, [block.id, block.speech, duration, formatted, alignment]);
 
   useEffect(() => {
     let previousClock: CaptionClock | null = null;
@@ -500,13 +519,28 @@ export default function LessonPlaybackStage({
       const motion = latest.current.animate;
       if (previousBodyTime === bodyTime) return;
       const progress = Math.max(0, Math.min(1, revealTime / current.bodyDuration));
-      const edge = progress * (current.width + current.feather);
+      let edge = progress * (current.width + current.feather);
+      if (current.captionTimes) {
+        edge = 0;
+        current.captionTimes.forEach((span, index) => {
+          if (revealTime < span.start) return;
+          const run = current.runs[index];
+          const fraction =
+            span.end > span.start
+              ? Math.min(1, (revealTime - span.start) / (span.end - span.start))
+              : 1;
+          edge = run.start + run.width * fraction;
+        });
+      }
       let active = edge >= current.width ? current.runs.at(-1)?.span : undefined;
-      for (const run of current.runs) {
+      for (const [index, run] of current.runs.entries()) {
         const local = edge - run.start;
         run.span.style.opacity = local > 0 ? '1' : '0';
         run.span.style.setProperty('--reveal-edge', `${local}px`);
-        const readAge = bodyTime - ((run.start + run.width) / current.width) * current.bodyDuration;
+        const readAge =
+          bodyTime -
+          (current.captionTimes?.[index].end ??
+            ((run.start + run.width) / current.width) * current.bodyDuration);
         const fade = Math.max(0, Math.min(1, readAge / CAPTION_TIMING.readFadeSeconds));
         const text = run.span.firstElementChild as HTMLElement;
         text.style.opacity = String(1 - fade * (1 - CAPTION_TIMING.readOpacity));
@@ -597,6 +631,7 @@ export default function LessonPlaybackStage({
                   width: current.width,
                   feather: current.feather,
                   duration: current.bodyDuration,
+                  aligned: current.aligned,
                 })
               : undefined
           );
