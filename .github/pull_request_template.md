@@ -4,12 +4,8 @@
 
 **Approach:** <!-- Explain the change and why it fits, in a few lines. -->
 
-**Result:** <!-- Give verified before/after numbers, a before/after diagram for a refactor, or screenshot links for UI. For a bug fix, state the failing reproduction and passing result. If unmeasured, say "Not measured" in one line. -->
+**Result:** <!-- Include a Before/After table or screenshot link with verified results. If unmeasured, say "Not measured" in one line. -->
 
 ## Testing
 
-<!-- One or two lines naming the relevant suites and their results. -->
-
-## Sonar merge decision
-
-<!-- One or two lines: required scan result on the final candidate, pending/blocked status, or the narrow documentation/metadata/workflow skip rationale under AGENTS.md. -->
+<!-- Name relevant suites and results. Keep CI and SonarCloud status together on one line. -->

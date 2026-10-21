@@ -23,11 +23,13 @@ The diagnostic commands inspect environment prerequisites separately from starti
 The repository's GitHub-body helper validates a Markdown file before publication, then compares the published raw body with the reviewed file and checks GitHub-rendered HTML. This catches flattened Markdown or a remote body that differs from the reviewed file. Keep the body in a file so shell quoting does not become part of its formatting.
 
 ```bash
-bun scripts/github-body.mjs validate --body-file body.md
+bun scripts/github-body.mjs validate --kind pr --body-file body.md
 bun scripts/github-body.mjs preview --repo immagiov4/Nous --body-file body.md
 bun scripts/github-body.mjs update --kind pr --repo immagiov4/Nous --number 123 --body-file body.md
 bun scripts/github-body.mjs verify --kind pr --repo immagiov4/Nous --number 123 --body-file body.md
 ```
+
+PRs open with **Problem:**, **Approach:** and **Result:**, followed by `## Testing`. Result includes a Before/After table, screenshot link, or "Not measured". The visible-word limit is 200; `<details>` holds supporting notes. Repository Claude and Codex shell hooks validate literal PR publication bodies before execution; unreadable shell expansions require a literal body file. CI and SonarCloud status share one Testing line.
 
 `verify` reads the published artifact; `update` publishes the file and performs the same verification. Use `--kind issue` for an issue. The helper's check proves body identity and rendering, while [CI and review](02-p-testing-quality.md) establish the change's merge evidence.
 
