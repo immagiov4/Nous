@@ -298,3 +298,12 @@ test('trimSegmentWhitespace trims source ranges without changing inner text', ()
 test('trimSegmentWhitespace returns null for whitespace-only ranges', () => {
   assert.equal(trimSegmentWhitespace('A\n \t\nB', { start: 1, end: 5 }), null);
 });
+
+test.each([
+  '$a\u007fb$',
+  '$a\u001b[31mb$',
+])('projects rendering controls inside math with authored indexes: %j', content => {
+  const projection = buildVisibleProjection(content);
+  expect(projection.text).toBe('ab');
+  expect(projection.sourceIndexes).toEqual([content.indexOf('a'), content.lastIndexOf('b')]);
+});

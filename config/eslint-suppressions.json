@@ -535,11 +535,6 @@
       "count": 1
     }
   },
-  "apps/web/utils/markdown/render.ts": {
-    "unicorn/prefer-string-raw": {
-      "count": 1
-    }
-  },
   "apps/web/utils/markdown/textProjection.ts": {
     "sonarjs/cognitive-complexity": {
       "count": 1
