@@ -13,6 +13,11 @@ import {
   PDF_SCANNED_PAGE_LIMIT_MESSAGE,
 } from '@shared/pdfTranscription';
 import { PROJECT_API_ERROR_CODE } from '@shared/projectContract';
+import {
+  hasDeferredDocumentText,
+  PROJECT_DEFERRED_WRITE_SUFFIX,
+  PROJECT_DOCUMENT_TEXT_HEADER,
+} from '@shared/projectDocumentText';
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
 import {
   type DecodedProjectSnapshotWire,
@@ -528,7 +533,7 @@ export class HttpProjectRepository implements ProjectRepository {
 
   async loadProjectWithRevision(
     id: ProjectId,
-    options?: Pick<ProjectSaveOptions, 'onSourceProgress'>
+    options?: Pick<ProjectSaveOptions, 'onSourceProgress'> & { includeDocumentText?: boolean }
   ): Promise<{
     revision: number;
     snapshot: ProjectSnapshot;
@@ -537,7 +542,9 @@ export class HttpProjectRepository implements ProjectRepository {
       project?: ProjectSnapshot | null;
       revision?: number;
       preparation?: ApiResponse['preparation'];
-    }>(`/api/projects/projects/${encodeURIComponent(id)}`);
+    }>(
+      `/api/projects/projects/${encodeURIComponent(id)}${options?.includeDocumentText ? '?documentText=full' : ''}`
+    );
     if (response.preparation && (response.preparation.status !== 'failed' || !response.project)) {
       const saved = await this.completeSourceProjectUpload(
         response.preparation.uploadId,
@@ -698,10 +705,13 @@ export class HttpProjectRepository implements ProjectRepository {
     const response = await this.request<{
       meta?: SavedProjectMeta;
       snapshot?: ProjectSnapshot;
-    }>(`/api/projects/projects/${encodeURIComponent(snapshot.id)}`, {
-      method: 'PUT',
-      body: JSON.stringify({ snapshot: projectPayload, ...options }),
-    });
+    }>(
+      `/api/projects/projects/${encodeURIComponent(snapshot.id)}${hasDeferredDocumentText(snapshot) ? PROJECT_DEFERRED_WRITE_SUFFIX : ''}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ snapshot: projectPayload, ...options }),
+      }
+    );
     return {
       meta: assertValue(response.meta, 'Il progetto sincronizzato non è stato salvato.'),
       snapshot: normalizeProjectResponse(
@@ -769,11 +779,12 @@ export class HttpProjectRepository implements ProjectRepository {
 
   private async readSourcePreparationStatus(
     uploadId: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    includeDocumentText = false
   ): Promise<ApiResponse> {
     try {
       return await this.request<ApiResponse>(
-        `/api/projects/import/chunks/${encodeURIComponent(uploadId)}`,
+        `/api/projects/import/chunks/${encodeURIComponent(uploadId)}${includeDocumentText ? '?documentText=full' : ''}`,
         { signal }
       );
     } catch (error) {
@@ -815,19 +826,29 @@ export class HttpProjectRepository implements ProjectRepository {
   private async completeSourceProjectUpload(
     uploadId: string,
     body: Record<string, unknown> | undefined,
-    options: Pick<ProjectSaveOptions, 'signal' | 'onSourceProgress'> = {}
+    options: Pick<ProjectSaveOptions, 'signal' | 'onSourceProgress'> & {
+      includeDocumentText?: boolean;
+    } = {}
   ): Promise<ProjectSaveResult> {
     try {
       let response = body
         ? await this.beginSourcePreparation(uploadId, body, options.signal)
-        : await this.readSourcePreparationStatus(uploadId, options.signal);
+        : await this.readSourcePreparationStatus(
+            uploadId,
+            options.signal,
+            options.includeDocumentText
+          );
       while (!isCompletedProjectImport(response)) {
         options.signal?.throwIfAborted();
         if (response.progress) options.onSourceProgress?.(response.progress);
         response =
           response.uploadStatus === 'receiving' && body
             ? await this.beginSourcePreparation(uploadId, body, options.signal)
-            : await this.readSourcePreparationStatus(uploadId, options.signal);
+            : await this.readSourcePreparationStatus(
+                uploadId,
+                options.signal,
+                options.includeDocumentText
+              );
         if (response.complete) break;
         if (!isPendingProjectImport(response, Boolean(body)))
           throw new ProjectStorageError(
@@ -891,7 +912,7 @@ export class HttpProjectRepository implements ProjectRepository {
     options: ProjectWriteOptions = {}
   ): Promise<SavedProjectMeta> {
     const response = await this.request<{ meta?: SavedProjectMeta }>(
-      `/api/projects/projects/${encodeURIComponent(id)}`,
+      `/api/projects/projects/${encodeURIComponent(id)}${patch.documentIndex?.textDeferred ? PROJECT_DEFERRED_WRITE_SUFFIX : ''}`,
       {
         method: 'PATCH',
         body: JSON.stringify({ patch, ...options }),
@@ -1284,6 +1305,7 @@ export class HttpProjectRepository implements ProjectRepository {
             ? init.headers
             : {
                 'Content-Type': 'application/json',
+                [PROJECT_DOCUMENT_TEXT_HEADER]: 'deferred',
                 ...init.headers,
               },
         signal: init.signal

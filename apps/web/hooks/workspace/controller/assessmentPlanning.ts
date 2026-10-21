@@ -18,6 +18,7 @@ import { recordFeedbackWorkflowSnapshot } from '../../../services/feedback/brows
 import type { CourseInterviewSnapshot } from '../../../services/openrouter/courseInterviewClient.ts';
 import { createGenerationProgressBridge } from '../../../services/openrouter/generationProgress.ts';
 import { sortSourceFiles } from '../../../services/projects/courseSources.ts';
+import { loadDocumentText } from '../../../services/projects/documentText';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import {
   createProjectId,
@@ -351,6 +352,13 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     });
 
     try {
+      if (sources?.some(source => source.documentIndex?.textDeferred)) {
+        const loaded = await loadDocumentText(projectLibrary.getCurrentProjectId(), {
+          documentIndex: domain.documentIndex,
+          source: domain.source,
+        });
+        sources = loaded.source?.sources;
+      }
       const assessmentContext = sources?.length
         ? openRouter.buildAssessmentDocumentContextFromSourceSet(sources)
         : textSource
@@ -882,7 +890,11 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     requestId: number
   ) => {
     if (source.sources?.length) {
-      return openRouter.buildAssessmentDocumentContextFromSourceSet(source.sources);
+      const loaded = await loadDocumentText(projectLibrary.getCurrentProjectId(), {
+        documentIndex: null,
+        source,
+      });
+      return openRouter.buildAssessmentDocumentContextFromSourceSet(loaded.source?.sources ?? []);
     }
     if (source.kind === 'archive') {
       return openRouter.buildAssessmentDocumentContextFromTextSource({

@@ -22,6 +22,7 @@ import {
   LESSON_SOURCE_UNAVAILABLE_MESSAGE,
   LessonSourceUnavailableError,
 } from '../../../services/openrouter/lessonGenerationClient.ts';
+import { loadDocumentText } from '../../../services/projects/documentText';
 import {
   selectIsBlocking,
   type WorkspaceWorkflowId,
@@ -152,8 +153,13 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         state.isWorkflowCurrent('loadSection', requestId);
 
       try {
-        const result = await openRouter.generateApplicationExerciseBrief({
+        const sourceText = await loadDocumentText(projectId, {
           documentIndex: domain.documentIndex,
+          source: domain.source,
+        });
+        if (!isGenerationRequestCurrent()) return;
+        const result = await openRouter.generateApplicationExerciseBrief({
+          documentIndex: sourceText.documentIndex,
           exercise,
           learningPlan,
           profile: domain.userProfile,
