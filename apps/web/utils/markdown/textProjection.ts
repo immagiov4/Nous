@@ -1,3 +1,4 @@
+import { projectMarkdownRenderingControls } from '@shared/markdownControlCharacters';
 import { decodeString } from 'micromark-util-decode-string';
 import {
   findInlineLabelEnd,
@@ -362,10 +363,36 @@ const advanceVisibleProjection = (state: VisibleProjectionState): void => {
 
 export const buildVisibleProjection = (
   content: string,
-  analysis: MarkdownAnalysis = parseMarkdownAnalysis(content),
+  analysis?: MarkdownAnalysis,
   tableSyntaxRanges: readonly MarkdownProjectionRange[] = [],
   literalSourceRanges: readonly MarkdownRange[] = []
 ): VisibleProjection => {
+  const controls = projectMarkdownRenderingControls(content);
+  const offsets = controls.sourceOffsets;
+  if (offsets) {
+    const mapRange = <Range extends MarkdownRange>(range: Range): Range => ({
+      ...range,
+      start: offsets.findIndex(offset => offset >= range.start),
+      end: offsets.findIndex(offset => offset >= range.end),
+    });
+    const projection = buildVisibleProjection(
+      controls.content,
+      undefined,
+      tableSyntaxRanges.map(mapRange),
+      literalSourceRanges.map(mapRange)
+    );
+    return {
+      text: projection.text,
+      insertedBoundarySourceIndexes: projection.insertedBoundarySourceIndexes.map(
+        offset => offsets[offset]
+      ),
+      sourceIndexes: projection.sourceIndexes.map(offset => offsets[offset]),
+      sourceEnds: projection.sourceEnds.map((end, index) =>
+        end === projection.sourceIndexes[index] ? offsets[end] : offsets[end - 1] + 1
+      ),
+    };
+  }
+  analysis ??= parseMarkdownAnalysis(content);
   const literalSource = new Uint8Array(content.length);
   for (const range of literalSourceRanges) literalSource.fill(1, range.start, range.end);
   const state: VisibleProjectionState = {

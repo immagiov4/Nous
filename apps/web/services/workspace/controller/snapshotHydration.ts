@@ -11,7 +11,6 @@ import {
   flattenLessons,
   flattenPathNodes,
 } from '../../../utils/learning/pathNodes.ts';
-import { normalizeMarkdownForRendering } from '../../../utils/markdown/render.ts';
 import { restoreLegacyPdfImagePlaceholders } from '../../../utils/pdf/imagePlaceholders.ts';
 import { pushNousDebugTrace } from '../../core/debugTrace.ts';
 import { groupSectionsIntoModules } from '../../learning/groupSectionsIntoModules.ts';
@@ -151,27 +150,25 @@ const repairFlattenedLearnModePlan = (
   };
 };
 
-const normalizeLessonContent = (lesson: LessonNode): LessonNode => {
-  if (!lesson.content) {
+const migrateLegacyPdfReferences = (lesson: LessonNode): LessonNode => {
+  if (!lesson.content || lesson.contentBlocks?.length) {
     return lesson;
   }
-  const normalizedContent = normalizeMarkdownForRendering(
-    restoreLegacyPdfImagePlaceholders(lesson.content)
-  );
-  if (normalizedContent === lesson.content) {
+  const migratedContent = restoreLegacyPdfImagePlaceholders(lesson.content);
+  if (migratedContent === lesson.content) {
     return lesson;
   }
-  return { ...lesson, content: normalizedContent };
+  return { ...lesson, content: migratedContent };
 };
 
-const normalizeLearningPlanContent = (plan: LearningPlan | null): LearningPlan | null => {
+const migrateLegacyPlanPdfReferences = (plan: LearningPlan | null): LearningPlan | null => {
   if (!plan) return null;
   let didChange = false;
   const modules = plan.modules.map(module => {
     let moduleChanged = false;
     const children = module.children.map(child => {
       if (child.kind !== 'lesson') return child;
-      const next = normalizeLessonContent(child);
+      const next = migrateLegacyPdfReferences(child);
       if (next !== child) moduleChanged = true;
       return next;
     });
@@ -208,7 +205,7 @@ export const prepareSnapshotForHydrationResult = (
   const migration = migrateLegacyPlanShape(snapshot.learningPlan as unknown);
   const cleanedPlan = migration.plan ? removeTemporaryMiniLabLessons(migration.plan) : null;
   const repairedPlan = repairFlattenedLearnModePlan(cleanedPlan, snapshot);
-  const normalizedPlan = normalizeLearningPlanContent(repairedPlan);
+  const migratedPlan = migrateLegacyPlanPdfReferences(repairedPlan);
 
   const legacy = snapshot as unknown as Record<string, unknown>;
   const hasLegacyLaboratory = Object.hasOwn(legacy, 'laboratory');
@@ -217,7 +214,7 @@ export const prepareSnapshotForHydrationResult = (
     pushNousDebugTrace('snapshot-hydration:dropped-legacy-laboratory', {});
   }
 
-  const activeLesson = resolvePlanLesson(normalizedPlan, snapshot.activeSectionId);
+  const activeLesson = resolvePlanLesson(migratedPlan, snapshot.activeSectionId);
   if (activeLesson?.content) {
     pushNousDebugTrace('snapshot-hydration:active-section', {
       sectionId: activeLesson.id,
@@ -231,7 +228,7 @@ export const prepareSnapshotForHydrationResult = (
     migration.didChange ||
     cleanedPlan !== migration.plan ||
     repairedPlan !== cleanedPlan ||
-    normalizedPlan !== repairedPlan ||
+    migratedPlan !== repairedPlan ||
     hasLegacyLaboratory ||
     hasLegacyActiveExercise ||
     nextActiveSectionId !== snapshot.activeSectionId;
@@ -248,7 +245,7 @@ export const prepareSnapshotForHydrationResult = (
     didChange: true,
     snapshot: {
       ...(rest as unknown as ProjectSnapshot),
-      learningPlan: normalizedPlan,
+      learningPlan: migratedPlan,
       activeSectionId: nextActiveSectionId,
     },
   };

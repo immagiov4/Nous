@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { test } from 'vitest';
 import { createProjectSnapshot } from '../../../../services/projects/projectSnapshot.ts';
 import {
@@ -8,6 +9,10 @@ import {
 } from '../../../../services/workspace/controller/snapshotHydration.ts';
 import { AppState, type LearningPlan, type ProjectSnapshot } from '../../../../types.ts';
 import { flattenLessons, flattenPathNodes } from '../../../../utils/learning/pathNodes.ts';
+import {
+  applySectionAnnotation,
+  getSectionAnnotationText,
+} from '../../../../utils/learning/sectionAnnotations.ts';
 import { buildTestLearningPlan, buildTestLesson } from '../../../helpers/learningPlan.ts';
 
 const CURRENT_LEGACY_LABORATORY_SCHEMA_VERSION = 3;
@@ -465,4 +470,78 @@ test('prepareSnapshotForHydration removes temporary mini-lab lessons without inv
     [{ kind: 'lesson', title: 'Mappare host e servizi' }]
   );
   assert.equal(prepared.learningPlan?.applicationExercisePlanningStatus, 'not-run');
+});
+
+test('hydration preserves authored Markdown and does not schedule a display-only migration', () => {
+  const content = 'Formula: \u007f$E = mc^2$';
+  const lesson = buildTestLesson({ id: 'authored', content });
+  const unopened = buildTestLesson({ id: 'unopened', content: 'Second \u007fpassage' });
+  const snapshot = createProjectSnapshot({
+    id: 'display-only',
+    state: AppState.READING,
+    activeSectionId: lesson.id,
+    learningPlan: buildTestLearningPlan([lesson, unopened]),
+  });
+  const result = prepareSnapshotForHydrationResult(snapshot);
+  assert.equal(result.didChange, false);
+  assert.equal(result.snapshot, snapshot);
+  assert.equal(flattenLessons(result.snapshot.learningPlan?.modules)[0]?.content, content);
+  assert.equal(flattenLessons(result.snapshot.learningPlan?.modules)[1]?.content, unopened.content);
+  assert.equal(lesson.content, content);
+});
+
+test('hydration keeps annotation anchors and speech source identity on authored content', () => {
+  const content =
+    'Before\r\n\r\nFormula: \u007f$E = mc^2$. Select this passage.\r\n\r\n```js\r\nconst literal = "<figure>";\r\n```';
+  const annotated = applySectionAnnotation({ content, selectedText: 'Select this passage.' });
+  assert.ok(annotated);
+  const snapshot = createProjectSnapshot({
+    id: 'anchored-source',
+    state: AppState.READING,
+    activeSectionId: 'anchored',
+    learningPlan: buildTestLearningPlan([
+      buildTestLesson({ id: 'anchored', content, annotations: annotated.annotations }),
+    ]),
+  });
+  const before = segmentLessonPlayback([{ type: 'markdown', markdown: content }]);
+  const hydrated = prepareSnapshotForHydrationResult(snapshot);
+  const lesson = flattenLessons(hydrated.snapshot.learningPlan?.modules)[0];
+  assert.ok(lesson?.content);
+  assert.equal(
+    getSectionAnnotationText(lesson.content, annotated.annotations[0].id, lesson.annotations),
+    'Select this passage.'
+  );
+  assert.deepEqual(segmentLessonPlayback([{ type: 'markdown', markdown: lesson.content }]), before);
+  assert.equal(hydrated.didChange, false);
+});
+
+test('hydration migrates legacy PDF references for rendering and shared speech without normalizing prose', () => {
+  const content =
+    'Before\n\n<figure><img data-pdf-asset-id="legacy-image" alt="Diagram"><figcaption>Caption</figcaption></figure>\nAfter \u007ftext.';
+  const snapshot = createProjectSnapshot({
+    id: 'legacy-pdf',
+    state: AppState.READING,
+    activeSectionId: 'pdf',
+    learningPlan: buildTestLearningPlan([buildTestLesson({ id: 'pdf', content })]),
+  });
+  const result = prepareSnapshotForHydrationResult(snapshot);
+  const migrated = flattenLessons(result.snapshot.learningPlan?.modules)[0]?.content;
+  assert.ok(migrated);
+  assert.equal(result.didChange, true);
+  assert.match(migrated, /\{\{PDF_IMAGE:legacy-image\|alt=Diagram\|caption=Caption\}\}/u);
+  assert.ok(migrated.endsWith('After \u007ftext.'));
+  const blocks = segmentLessonPlayback([{ type: 'markdown', markdown: migrated }]);
+  assert.ok(
+    blocks.some(block =>
+      block.visuals.some(
+        visual => visual.kind === 'markdown' && visual.markdown.includes('PDF_IMAGE:legacy-image')
+      )
+    )
+  );
+  assert.ok(
+    blocks
+      .map(block => block.speech)
+      .join(' ')
+      .includes('After text.')
+  );
 });

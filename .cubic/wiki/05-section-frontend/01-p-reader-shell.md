@@ -13,6 +13,8 @@ The reader must keep a saved lesson usable while its replacement is still genera
 
 Server project state supplies accepted lesson content and progress. The browser owns the current selection, open panels and playback controls, which can change without a project save. The [application composition](../../../apps/web/app/) joins these lifetimes: it passes the active target and its state into the content renderer, navigation and dialogs.
 
+Snapshot hydration owns structural migrations, legacy PDF references and active-lesson recovery. Rendering normalization belongs to the shared Markdown renderer and its content-keyed cache, so opening a course prepares only the displayed fragments. Source projections for selection and speech omit the same rendering control characters while retaining their authored offsets. Canonical content blocks remain authoritative; structural and legacy-reference migrations determine whether hydration schedules a save.
+
 Navigation can change that target while other interactions are unfinished. A selected passage needs a stable mapping to saved lesson text so an annotation can retain its anchor. A streaming [chat response](../03-section-features/07-p-chat-ui.md) must retain the lesson where it began rather than adopt the page active when it arrives. These are identity requirements across interactions, not just rendering concerns.
 
 ## Present independent work without changing the target

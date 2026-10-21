@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
+
 import { deriveLegacyLessonContent } from '@shared/lessonContent';
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import { MARKDOWN_RENDERING_CONTROL_PATTERN } from '@shared/markdownControlCharacters';
 import { expect, test } from 'vitest';
 import { applySectionAnnotation } from '../../../utils/learning/sectionAnnotations.ts';
+import { buildVisibleProjection } from '../../../utils/markdown/textProjection.ts';
 import {
   playbackSentenceSelector,
   playbackTimeline,
@@ -112,4 +115,66 @@ test('keeps a formula after a pending heading with its spoken block', () => {
   expect(blocks[0].visuals).toEqual([]);
   expect(blocks[1].spans.filter(span => span.math).map(span => span.math)).toEqual(['$$x = 2$$']);
   expect(blocks[1].visuals).toEqual([{ kind: 'markdown', markdown: '$$x = 2$$' }]);
+});
+
+test.each([
+  'Se\u007flect this passage.',
+  'Se\u001b[31mlect\u001b[0m this passage.',
+])('projects rendering controls out of speech while preserving source offsets: %j', markdown => {
+  const source = [{ type: 'markdown' as const, markdown }];
+  const blocks = segmentLessonPlayback(source);
+  expect(blocks.map(block => block.speech)).toEqual(['Select this passage.']);
+  const selector = playbackSentenceSelector(blocks[0], 0, blocks[0].speech.length, source);
+  expect(selector?.exact).toBe('Select this passage.');
+  expect(selector?.selectionStart).toBe(0);
+});
+
+test.each([
+  '\u007f',
+  '\u001b[31m',
+])('keeps heading structure across rendering controls: %j', control => {
+  const markdown = `${control}# Heading\n\nBody.`;
+  const blocks = segmentLessonPlayback([{ type: 'markdown', markdown }]);
+  expect(blocks[0].heading).toBe('Heading');
+  expect(blocks[0].speech).toBe('Heading\nBody.');
+  expect(blocks[0].spans[0].source.start).toBe(control.length + 2);
+});
+
+test.each([
+  '\u007f',
+  '\u001b[31m',
+])('ends an inline-code source range before a following rendering control: %j', control => {
+  const markdown = `Use \`ab\`${control} here.`;
+  const blocks = segmentLessonPlayback([{ type: 'markdown', markdown }]);
+  expect(blocks.map(block => block.speech)).toEqual(['Use ab here.']);
+});
+
+test('keeps displayed text, speech and source offsets when controls occur at every Markdown boundary', () => {
+  const source =
+    '# Heading\n\nUse `ab` and **bold** with $a+b$.\n\n![alt](image.png)\n\n```js\nx()\n```\n\nAfter \\*literal\\* and {{PDF_IMAGE:asset}}.';
+  const expected = segmentLessonPlayback([{ type: 'markdown', markdown: source }]).map(block => ({
+    speech: block.speech,
+    heading: block.heading,
+  }));
+  const expectedText = buildVisibleProjection(source).text;
+  for (const control of ['\u007f', '\u001b[31m']) {
+    for (let index = 0; index <= source.length; index += 1) {
+      const markdown = source.slice(0, index) + control + source.slice(index);
+      const blocks = segmentLessonPlayback([{ type: 'markdown', markdown }]);
+      expect(blocks.map(block => ({ speech: block.speech, heading: block.heading }))).toEqual(
+        expected
+      );
+      expect(buildVisibleProjection(markdown).text).toBe(expectedText);
+      for (const block of blocks) {
+        for (const span of block.spans) {
+          if (span.math || span.fencedCode || span.source.start === span.source.end) continue;
+          expect(
+            markdown
+              .slice(span.source.start, span.source.end)
+              .replaceAll(MARKDOWN_RENDERING_CONTROL_PATTERN, '')
+          ).toBe(block.speech.slice(span.speech.start, span.speech.end));
+        }
+      }
+    }
+  }
 });

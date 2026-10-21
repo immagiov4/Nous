@@ -772,3 +772,34 @@ test('removeSectionAnnotation deletes anchored metadata', () => {
   assert.equal(removed.removed, true);
   assert.deepEqual(removed.annotations, []);
 });
+
+test.each([
+  'Se\u007flect this passage.',
+  'Se\u001b[31mlect\u001b[0m this passage.',
+])('anchors displayed selections across rendering-only controls: %j', content => {
+  const selectedText = 'Select this passage.';
+  const annotation = applySectionAnnotation({ content, selectedText });
+  assert.ok(annotation);
+  assert.equal(buildVisibleProjection(content).text, selectedText);
+  assert.equal(
+    getSectionAnnotationText(content, annotation.annotations[0].id, annotation.annotations),
+    selectedText
+  );
+  const selector = annotation.annotations[0].anchor;
+  assert.equal(selector?.kind, 'selection');
+  if (selector?.kind === 'selection') {
+    assert.equal(selector.selector.start, 0);
+    assert.equal(selector.selector.end, content.length);
+  }
+});
+
+test('anchors displayed text across image syntax containing a rendering control', () => {
+  const content = 'Before !\u007f[alt](image.png) after.';
+  const selectedText = 'Before after.';
+  const annotation = applySectionAnnotation({ content, selectedText });
+  assert.ok(annotation);
+  assert.equal(
+    getSectionAnnotationText(content, annotation.annotations[0].id, annotation.annotations),
+    selectedText
+  );
+});
