@@ -1,4 +1,4 @@
-<!-- Read .agents/skills/writing-for-humans/SKILL.md and .agents/skills/writing-for-humans/references/change-reports.md before writing. Keep the visible description under about 200 words; put supporting detail in a collapsed Details block. -->
+<!-- Apply AGENTS.md Cubic Wiki Governance to documentation changes; omit documentation commentary when no page needs updating. Read .agents/skills/writing-for-humans/SKILL.md and .agents/skills/writing-for-humans/references/change-reports.md before writing. Keep the visible description under about 200 words; put supporting detail in a collapsed Details block. -->
 
 **Problem:** <!-- Describe the issue in user-visible terms; preserve issue references. -->
 
