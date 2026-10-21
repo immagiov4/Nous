@@ -1,121 +1,316 @@
-import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it, vi } from 'vitest';
-import { initializeIsolatedDatabase, migrationFingerprint, mirrorMigrations } from '../stack';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import {
+  ensureSharedSupabase,
+  releaseSharedSupabase,
+  SUPABASE_IDLE_MS,
+  sharedSupabaseStatus,
+  stopIdleSupabase,
+  watchIdleSupabase,
+} from '../../../scripts/shared-supabase';
+import { processIdentity } from '../processIdentity';
 
 let root: string;
+const status = {
+  API_URL: 'http://127.0.0.1:54321',
+  DB_URL: 'postgresql://postgres:test@127.0.0.1:54322/postgres',
+  ANON_KEY: 'test',
+  SERVICE_ROLE_KEY: 'test',
+  JWT_SECRET: 'test',
+};
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), 'nous-shared-stack-'));
+  vi.stubEnv('NOUS_SHARED_SUPABASE_DATA', root);
+});
 afterEach(async () => {
   vi.unstubAllEnvs();
-  if (root) await rm(root, { recursive: true, force: true });
+  await rm(root, { recursive: true, force: true });
 });
-async function fixture() {
-  root = await mkdtemp(join(tmpdir(), 'nous-migrations-'));
-  vi.stubEnv('NOUS_E2E_DATA', root);
-  const source = join(root, 'repository-migrations');
-  await mkdir(source);
-  await writeFile(join(source, '002.sql'), 'select 2;');
-  await writeFile(join(source, '001.sql'), 'select 1;');
-  return source;
-}
-it('hashes sorted names and contents, including edits, additions, renames and deletions', async () => {
-  const source = await fixture();
-  const original = await migrationFingerprint(source);
-  await rm(join(source, '001.sql'));
-  await writeFile(join(source, '001.sql'), 'select 1;');
-  expect(await migrationFingerprint(source)).toBe(original);
-  await writeFile(join(source, '001.sql'), 'select 3;');
-  expect(await migrationFingerprint(source)).not.toBe(original);
-  const edited = await migrationFingerprint(source);
-  await rename(join(source, '001.sql'), join(source, '003.sql'));
-  expect(await migrationFingerprint(source)).not.toBe(edited);
-  const renamed = await migrationFingerprint(source);
-  await writeFile(join(source, '004.sql'), 'select 4;');
-  expect(await migrationFingerprint(source)).not.toBe(renamed);
-  await rm(join(source, '004.sql'));
-  expect(await migrationFingerprint(source)).toBe(renamed);
-});
-it('mirrors exactly and removes stale files, committing the fingerprint only after apply', async () => {
-  const source = await fixture();
-  const destination = join(root, 'stack', 'supabase', 'migrations');
-  await mkdir(destination, { recursive: true });
-  await writeFile(join(destination, 'stale.sql'), 'stale');
-  const mirrored = await mirrorMigrations(source);
-  expect((await readdir(destination)).sort()).toEqual(['001.sql', '002.sql']);
-  expect(await readFile(join(destination, '001.sql'), 'utf8')).toBe('select 1;');
-  expect(mirrored.changed).toBe(true);
-  await expect(readFile(mirrored.marker)).rejects.toMatchObject({ code: 'ENOENT' });
-  await writeFile(mirrored.marker, mirrored.fingerprint);
-  expect((await mirrorMigrations(source)).changed).toBe(false);
-});
-it('resets only a changed identity-verified isolated database and preserves the marker on failure', async () => {
-  const migrations = await fixture();
-  const status = {
-    API_URL: 'http://127.0.0.1:55321',
-    DB_URL: 'postgresql://postgres:test@127.0.0.1:55322/postgres',
-    ANON_KEY: 'test',
-    SERVICE_ROLE_KEY: 'test',
-    JWT_SECRET: 'test',
+function runtime() {
+  return {
+    run: vi.fn(async (_args: string[]) => JSON.stringify(status)),
+    health: vi.fn(async () => {}),
+    watch: vi.fn(async () => {}),
+    container: vi.fn(async () => 'container-owned'),
   };
-  const command = vi.fn(async (args: string[]) =>
-    args[0] === 'status' ? JSON.stringify(status) : ''
-  );
-  await initializeIsolatedDatabase({ migrations, command });
-  expect(command.mock.calls.map(([args]) => args)).toEqual([
+}
+it('reuses healthy Supabase across proof data directories, preserving users and migrations', async () => {
+  const options = runtime();
+  vi.stubEnv('NOUS_E2E_DATA', join(root, 'proof-a'));
+  expect(await ensureSharedSupabase(options)).toEqual(status);
+  await releaseSharedSupabase();
+  vi.stubEnv('NOUS_E2E_DATA', join(root, 'proof-b'));
+  expect(await ensureSharedSupabase(options)).toEqual(status);
+  expect(options.run.mock.calls.map(([args]) => args)).toEqual([
+    ['status', '--output', 'json'],
+    ['status', '--output', 'json'],
+  ]);
+  await releaseSharedSupabase();
+  expect(await readdir(join(root, 'runs'))).toEqual([]);
+  await expect(readFile(join(root, 'managed'))).rejects.toMatchObject({ code: 'ENOENT' });
+});
+it('starts an absent stack once and applies migrations without resetting it', async () => {
+  const options = runtime();
+  options.run.mockRejectedValueOnce(new Error('absent'));
+  options.container.mockResolvedValueOnce('');
+  await ensureSharedSupabase(options);
+  expect(options.run.mock.calls.map(([args]) => args)).toEqual([
+    ['status', '--output', 'json'],
     ['start'],
     ['status', '--output', 'json'],
-    ['db', 'reset', '--local'],
     ['migration', 'up', '--local'],
   ]);
-  command.mockClear();
-  await initializeIsolatedDatabase({ migrations, command });
-  expect(command.mock.calls.map(([args]) => args)).not.toContainEqual(['db', 'reset', '--local']);
-  const marker = join(root, 'stack', 'migrations.sha256');
-  const previous = await readFile(marker, 'utf8');
-  await writeFile(join(migrations, '001.sql'), 'select 9;');
-  command.mockImplementation(async args => {
-    if (args[0] === 'db') throw new Error('Reset failed');
-    return args[0] === 'status' ? JSON.stringify(status) : '';
+  expect(await readFile(join(root, 'managed'), 'utf8')).toBe('container-owned');
+});
+it('preserves an unhealthy existing stack, including a stopped database container', async () => {
+  const options = runtime();
+  options.run.mockRejectedValue(new Error('unhealthy'));
+  await expect(ensureSharedSupabase(options)).rejects.toThrow('preserve the existing stack');
+  expect(options.run).toHaveBeenCalledOnce();
+  expect(options.watch).not.toHaveBeenCalled();
+});
+it('owns a newly started stack after the previous managed container was removed', async () => {
+  await writeFile(join(root, 'managed'), 'removed-container');
+  await writeFile(join(root, 'incomplete'), 'removed-container');
+  const options = runtime();
+  options.run.mockRejectedValueOnce(new Error('absent'));
+  options.container.mockResolvedValueOnce('');
+  await ensureSharedSupabase(options);
+  expect(await readFile(join(root, 'managed'), 'utf8')).toBe('container-owned');
+  await releaseSharedSupabase();
+  const stop = vi.fn(async () => {});
+  expect(
+    await stopIdleSupabase({
+      now: Date.now() + SUPABASE_IDLE_MS,
+      stop,
+      container: options.container,
+    })
+  ).toBe(true);
+  expect(stop).toHaveBeenCalledOnce();
+});
+it('serializes simultaneous admissions so an absent stack starts only once', async () => {
+  let started = false;
+  const options = runtime();
+  options.run.mockImplementation(async args => {
+    if (args[0] === 'status' && !started) throw new Error('absent');
+    if (args[0] === 'start') started = true;
+    return JSON.stringify(status);
   });
-  await expect(initializeIsolatedDatabase({ migrations, command })).rejects.toThrow('Reset failed');
-  expect(await readFile(marker, 'utf8')).toBe(previous);
-  command.mockClear();
-  command.mockResolvedValue(JSON.stringify({ ...status, API_URL: 'http://127.0.0.1:54321' }));
-  await expect(initializeIsolatedDatabase({ migrations, command })).rejects.toThrow(
-    'isolated playtest'
+  options.container.mockImplementation(async () => (started ? 'container-owned' : ''));
+  const admitted = await Promise.all([
+    ensureSharedSupabase(options),
+    ensureSharedSupabase(options),
+  ]);
+  expect(admitted).toEqual([status, status]);
+  expect(options.run.mock.calls.filter(([args]) => args[0] === 'start')).toHaveLength(1);
+  await releaseSharedSupabase();
+  expect(await readdir(join(root, 'runs'))).toEqual([]);
+});
+it.each([
+  'exited-owner',
+  'empty-reservation',
+])('recovers a lifecycle reservation left by %s', async kind => {
+  const reservation = join(root, 'lifecycle.lock');
+  await mkdir(reservation);
+  if (kind === 'exited-owner') {
+    const child = spawn(process.execPath, ['-e', ''], { windowsHide: true, stdio: 'ignore' });
+    await once(child, 'exit');
+    await writeFile(
+      join(reservation, 'exited-owner'),
+      JSON.stringify({ pid: child.pid, identity: 'exited-process-identity' })
+    );
+  }
+  const options = runtime();
+  expect(await ensureSharedSupabase(options)).toEqual(status);
+  await releaseSharedSupabase();
+  await expect(readdir(reservation)).rejects.toMatchObject({ code: 'ENOENT' });
+});
+it('cancels a waiting admission without removing the live reservation', async () => {
+  const reservation = join(root, 'lifecycle.lock');
+  await mkdir(reservation);
+  const identity = await processIdentity(process.pid, { includeCommand: false });
+  await writeFile(join(reservation, 'live-owner'), JSON.stringify({ pid: process.pid, identity }));
+  const options = runtime();
+  await expect(
+    ensureSharedSupabase({ ...options, signal: AbortSignal.abort(new Error('cancelled')) })
+  ).rejects.toThrow('cancelled');
+  expect(options.run).not.toHaveBeenCalled();
+  expect(JSON.parse(await readFile(join(reservation, 'live-owner'), 'utf8'))).toEqual({
+    pid: process.pid,
+    identity,
+  });
+  expect((await readdir(root)).filter(name => name.startsWith('lifecycle-'))).toEqual([]);
+});
+it('reclaims a lifecycle reservation whose PID has been recycled', async () => {
+  const reservation = join(root, 'lifecycle.lock');
+  await mkdir(reservation);
+  await writeFile(
+    join(reservation, 'previous-owner'),
+    JSON.stringify({ pid: process.pid, identity: 'previous-process-identity' })
   );
-  expect(command.mock.calls.map(([args]) => args)).not.toContainEqual(['db', 'reset', '--local']);
+  const options = runtime();
+  expect(await ensureSharedSupabase(options)).toEqual(status);
+  await releaseSharedSupabase();
+});
+it('does not retain an idle stack for a recycled proof PID', async () => {
+  const options = runtime();
+  await ensureSharedSupabase(options);
+  await releaseSharedSupabase();
+  await writeFile(join(root, 'managed'), 'container-owned');
+  await writeFile(
+    join(root, 'runs', 'previous-proof'),
+    JSON.stringify({ pid: process.pid, identity: 'previous-process-identity' })
+  );
+  const stop = vi.fn(async () => {});
+  expect(
+    await stopIdleSupabase({
+      now: Date.now() + SUPABASE_IDLE_MS,
+      stop,
+      container: options.container,
+    })
+  ).toBe(true);
+  expect(stop).toHaveBeenCalledOnce();
+});
+it.each(['migration', 'health'])('schedules idle cleanup after a failed %s', async failure => {
+  const options = runtime();
+  options.container.mockResolvedValueOnce('');
+  options.run.mockRejectedValueOnce(new Error('absent'));
+  if (failure === 'migration')
+    options.run.mockImplementation(async args => {
+      if (args[0] === 'migration') throw new Error('initialization failed');
+      return JSON.stringify(status);
+    });
+  else options.health.mockRejectedValueOnce(new Error('initialization failed'));
+  await expect(ensureSharedSupabase(options)).rejects.toThrow('initialization failed');
+  expect(options.watch).toHaveBeenCalledOnce();
+  expect(await readFile(join(root, 'managed'), 'utf8')).toBe('container-owned');
+  expect(await readdir(join(root, 'runs'))).toEqual([]);
+  expect(Number(await readFile(join(root, 'last-run'), 'utf8'))).toBeGreaterThan(0);
+  if (failure === 'migration')
+    await expect(ensureSharedSupabase(options)).rejects.toThrow('initialization is incomplete');
+});
+it('retains startup ownership when Docker inspection fails after start', async () => {
+  const options = runtime();
+  options.run.mockRejectedValueOnce(new Error('absent'));
+  options.container
+    .mockResolvedValueOnce('')
+    .mockRejectedValueOnce(new Error('Docker inspection unavailable'));
+  await expect(ensureSharedSupabase(options)).rejects.toThrow('Docker inspection unavailable');
+  expect(await readFile(join(root, 'starting'), 'utf8')).toBe('nous-reader');
+  expect(options.watch).toHaveBeenCalledOnce();
+  await expect(ensureSharedSupabase(options)).rejects.toThrow('initialization is incomplete');
+  expect(await readFile(join(root, 'managed'), 'utf8')).toBe('container-owned');
+  const stop = vi.fn(async () => {});
+  expect(
+    await stopIdleSupabase({
+      now: Date.now() + SUPABASE_IDLE_MS,
+      stop,
+      container: options.container,
+    })
+  ).toBe(true);
+  expect(stop).toHaveBeenCalledOnce();
 });
 
-it('replaces an old generated config only after validating the isolated identity', async () => {
-  const migrations = await fixture();
-  const status = {
-    API_URL: 'http://127.0.0.1:55321',
-    DB_URL: 'postgresql://postgres:test@127.0.0.1:55322/postgres',
-    ANON_KEY: 'test',
-    SERVICE_ROLE_KEY: 'test',
-    JWT_SECRET: 'test',
+it('rechecks at the release deadline instead of waiting a second full idle interval', async () => {
+  let now = 0;
+  await writeFile(join(root, 'managed'), 'container-owned');
+  await writeFile(join(root, 'last-run'), '0');
+  const releasedAt = SUPABASE_IDLE_MS / 2;
+  const wait = vi.fn(async (milliseconds: number) => {
+    now += milliseconds;
+  });
+  const check = vi.fn(async () => {
+    if (check.mock.calls.length === 1) await writeFile(join(root, 'last-run'), String(releasedAt));
+    else await rm(join(root, 'managed'));
+  });
+  await watchIdleSupabase({ wait, now: () => now, check });
+  expect(wait.mock.calls.map(([milliseconds]) => milliseconds)).toEqual([
+    SUPABASE_IDLE_MS,
+    releasedAt,
+  ]);
+  expect(now).toBe(releasedAt + SUPABASE_IDLE_MS);
+});
+it('adopts a healthy replacement after an incomplete initialization of another container', async () => {
+  await writeFile(join(root, 'managed'), 'old-container');
+  await writeFile(join(root, 'incomplete'), 'old-container');
+  const options = runtime();
+  expect(await ensureSharedSupabase(options)).toEqual(status);
+  await expect(readFile(join(root, 'incomplete'))).rejects.toMatchObject({ code: 'ENOENT' });
+  expect(options.run.mock.calls.map(([args]) => args)).toEqual([['status', '--output', 'json']]);
+  await releaseSharedSupabase();
+});
+it('retains incomplete initialization while temporarily adopting the other project', async () => {
+  await writeFile(join(root, 'managed'), 'container-owned');
+  await writeFile(join(root, 'incomplete'), 'container-owned');
+  const options = runtime();
+  options.run.mockResolvedValueOnce(
+    JSON.stringify({
+      ...status,
+      API_URL: 'http://127.0.0.1:55321',
+      DB_URL: 'postgresql://postgres:test@127.0.0.1:55322/postgres',
+    })
+  );
+  await ensureSharedSupabase(options);
+  await releaseSharedSupabase();
+  expect(await readFile(join(root, 'incomplete'), 'utf8')).toBe('container-owned');
+  await expect(ensureSharedSupabase(options)).rejects.toThrow('initialization is incomplete');
+});
+it('continues watching after Docker becomes temporarily unavailable', async () => {
+  let now = 0;
+  await writeFile(join(root, 'managed'), 'container-owned');
+  await writeFile(join(root, 'last-run'), '0');
+  const wait = async (milliseconds: number) => {
+    now += milliseconds;
   };
-  const command = vi.fn(async (args: string[]) =>
-    args[0] === 'status' ? JSON.stringify(status) : ''
+  const check = vi.fn(async () => {
+    if (check.mock.calls.length === 1) throw new Error('Docker unavailable');
+    await rm(join(root, 'managed'));
+  });
+  await watchIdleSupabase({ wait, now: () => now, check });
+  expect(check).toHaveBeenCalledTimes(2);
+  expect(await readFile(join(root, 'idle-error.log'), 'utf8')).toContain('Docker unavailable');
+});
+it('rejects failed health checks before admitting a run', async () => {
+  const options = runtime();
+  options.health.mockRejectedValueOnce(new Error('auth unavailable'));
+  await expect(ensureSharedSupabase(options)).rejects.toThrow('auth unavailable');
+  expect(await readdir(join(root, 'runs'))).toEqual([]);
+});
+it('checks loopback identity before health requests or writes', async () => {
+  const options = runtime();
+  options.run.mockResolvedValue(
+    JSON.stringify({ ...status, API_URL: 'https://remote.example:54321' })
   );
-  await initializeIsolatedDatabase({ migrations, command });
-  const path = join(root, 'stack', 'supabase', 'config.toml');
-  const generated = await readFile(path, 'utf8');
-  await writeFile(
-    path,
-    generated.replace('site_url = "http://localhost:5173"', 'site_url = "http://localhost:9999"') +
-      '\n# Previous repository generation\n'
+  await expect(sharedSupabaseStatus(options.run)).rejects.toThrow('local proof project');
+});
+it('stops only the managed container after 20 idle minutes and never while a proof is alive', async () => {
+  const options = runtime();
+  await ensureSharedSupabase(options);
+  await writeFile(join(root, 'managed'), 'container-owned');
+  const stamp = Number(await readFile(join(root, 'last-run'), 'utf8'));
+  const stop = vi.fn(async () => {});
+  const container = options.container;
+  expect(await stopIdleSupabase({ now: stamp + SUPABASE_IDLE_MS, stop, container })).toBe(false);
+  await releaseSharedSupabase();
+  const released = Number(await readFile(join(root, 'last-run'), 'utf8'));
+  expect(await stopIdleSupabase({ now: released + SUPABASE_IDLE_MS - 1, stop, container })).toBe(
+    false
   );
-  await initializeIsolatedDatabase({ migrations, command });
-  expect(await readFile(path, 'utf8')).toBe(generated);
-  command.mockClear();
-  const foreign = generated.replace(
-    'project_id = "nous-playtest"',
-    'project_id = "developer-project"'
-  );
-  await writeFile(path, foreign);
-  await expect(initializeIsolatedDatabase({ migrations, command })).rejects.toThrow();
-  expect(command).not.toHaveBeenCalled();
-  expect(await readFile(path, 'utf8')).toBe(foreign);
+  expect(await stopIdleSupabase({ now: released + SUPABASE_IDLE_MS, stop, container })).toBe(true);
+  expect(stop).toHaveBeenCalledOnce();
+});
+it('keeps an adopted or replaced stack running even when idle', async () => {
+  const options = runtime();
+  await ensureSharedSupabase(options);
+  await releaseSharedSupabase();
+  const stop = vi.fn(async () => {});
+  const now = Date.now() + SUPABASE_IDLE_MS;
+  expect(await stopIdleSupabase({ now, stop, container: options.container })).toBe(false);
+  await writeFile(join(root, 'managed'), 'other-container');
+  expect(await stopIdleSupabase({ now, stop, container: options.container })).toBe(false);
+  expect(stop).not.toHaveBeenCalled();
 });
