@@ -15,6 +15,11 @@ import {
 } from '../../../services/openrouter/lessonPlaybackClient.ts';
 import { downloadProjectAssetBytes } from '../../../services/projects/projectAssetClient.ts';
 import type { LessonPlaybackAudio } from '../../../utils/reader/lessonPlaybackAudio.ts';
+import { loadSceneIconNodes } from '../../../utils/visuals/sceneIconNodes.ts';
+
+vi.mock('../../../utils/visuals/sceneIconNodes.ts', () => ({
+  loadSceneIconNodes: vi.fn(async () => ({})),
+}));
 
 vi.mock('../../../services/openrouter/lessonPlaybackClient.ts', async importOriginal => ({
   ...(await importOriginal<
@@ -106,6 +111,7 @@ vi.mock('../../../utils/reader/lessonPlaybackAudio.ts', () => ({
 }));
 
 beforeEach(() => {
+  vi.mocked(loadSceneIconNodes).mockReset().mockResolvedValue({});
   for (const mock of [
     cancelLessonPlaybackPreparation,
     getLessonPlayback,
@@ -138,6 +144,34 @@ function pendingUntilAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promis
     void promise.then(resolve, reject).finally(() => signal?.removeEventListener('abort', abort));
   });
 }
+
+test('loads scene paths after Play and waits for them while preparing audio', async () => {
+  const paths = deferred<Awaited<ReturnType<typeof loadSceneIconNodes>>>();
+  vi.mocked(loadSceneIconNodes).mockReturnValueOnce(paths.promise);
+  const { result } = renderHook(() => useLessonPlayback(target));
+  expect(loadSceneIconNodes).not.toHaveBeenCalled();
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(downloadProjectAssetBytes).toHaveBeenCalled());
+  expect(audio.start).not.toHaveBeenCalled();
+  await act(async () => paths.resolve({}));
+  expect(audio.start).toHaveBeenCalledOnce();
+});
+
+test('keeps complete scene text and audio available when decorative paths fail', async () => {
+  vi.mocked(loadSceneIconNodes).mockRejectedValueOnce(new Error('Asset unavailable'));
+  const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    const { result } = renderHook(() => useLessonPlayback(target));
+    await act(async () => result.current.play());
+    expect(audio.start).toHaveBeenCalledOnce();
+    expect(result.current.failed).toBe(false);
+    expect(logged).toHaveBeenCalledOnce();
+  } finally {
+    logged.mockRestore();
+  }
+});
 
 test('prefetches thirty seconds and supplies ready contiguous recordings', async () => {
   const first = deferred<Awaited<ReturnType<typeof prepareLessonPlayback>>>();

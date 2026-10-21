@@ -1,4 +1,8 @@
+import stretchModuleUrl from 'signalsmith-stretch?url';
 import SignalsmithStretch from 'signalsmith-stretch';
+
+// Bundler helpers cannot cross the worklet's serialized closure.
+Object.assign(SignalsmithStretch, { moduleUrl: stretchModuleUrl });
 
 // Preserve the library's default clock notification interval.
 const CLOCK_UPDATE_SECONDS = 0.1;

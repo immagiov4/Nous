@@ -26,6 +26,7 @@ import {
   playbackBufferIndexes,
   waitForPlaybackCancellation,
 } from '../../utils/reader/lessonPlaybackBuffer.ts';
+import { loadSceneIconNodes } from '../../utils/visuals/sceneIconNodes.ts';
 
 // A player can close before its owned server cancellation settles.
 const playbackCancellations = new Map<string, Promise<void>>();
@@ -455,6 +456,10 @@ export function useLessonPlayback({
       audio.pause();
       loadedVoice.current = null;
       try {
+        const visualAssets = loadSceneIconNodes().catch(error => {
+          // Decorative paths can fail while the complete scene text remains available.
+          console.error('Lesson scene icons could not be loaded.', error);
+        });
         if (!playbackRef.current)
           playbackRef.current = await getLessonPlayback({ projectId, sectionId }, signal);
         signal.throwIfAborted();
@@ -478,6 +483,8 @@ export function useLessonPlayback({
           audio.select({ index: blockIndex, buffer: prepared.buffer }, position);
           return;
         }
+        await visualAssets;
+        if (!isCurrentStart()) return;
         await audio.start(bufferedRecordings(), position, latest.current.speed, signal);
         if (!isCurrentStart()) return;
         setPlaying(true);
