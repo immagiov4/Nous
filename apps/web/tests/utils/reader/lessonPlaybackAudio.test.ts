@@ -149,3 +149,14 @@ test('audio clock notifications advance passages when animation frames are suspe
   clockNotifications.update();
   expect(positions).toHaveBeenLastCalledWith({ index: 1, time: 0, duration: 1 });
 });
+
+test('a late append reports exhaustion instead of skipping the next clip opening', async () => {
+  const ended = vi.fn();
+  audio.onEnded = ended;
+  await audio.start([recording(0)], 0, 1, new AbortController().signal);
+  clock.currentTime = 1.05;
+  await audio.append([recording(0), recording(1)]);
+  expect(ended).toHaveBeenCalledTimes(1);
+  expect(audio.position).toEqual({ index: 0, time: 1, duration: 1 });
+  expect(stretch.addBuffers).toHaveBeenCalledTimes(1);
+});

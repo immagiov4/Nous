@@ -163,7 +163,7 @@ export function useLessonPlayback({
     () => new Map<string, { voice: string; model: string }>()
   );
   const started = useRef(false);
-  const openingWaits = useRef(new Set<() => void>());
+  const activeStart = useRef(0);
   const previousVoice = useRef(voice);
   const loadedVoice = useRef<string | null>(null);
   const targetPosition = useRef({ offset: 0, relative: false });
@@ -430,65 +430,6 @@ export function useLessonPlayback({
     setLoading(false);
   }, [getAudio]);
 
-  const prepareOpeningBuffer = useCallback(
-    async ({
-      blockIndex,
-      requestedVoice,
-      epoch,
-      signal,
-      profile,
-      offset,
-      relative,
-    }: {
-      blockIndex: number;
-      requestedVoice: string;
-      epoch: number;
-      signal: AbortSignal;
-      profile: { voice: string; model: string };
-      offset: number;
-      relative: boolean;
-    }) => {
-      const lessonKey = playbackRef.current?.lessonKey;
-      const ensureReady = async (): Promise<void> => {
-        const playback = playbackRef.current;
-        if (!playback) throw new Error('Playback metadata missing');
-        if (playback.lessonKey !== lessonKey) return;
-        const durations = playbackTimeline(playback.blocks, profile.voice, profile.model);
-        const current = durations[blockIndex];
-        durations[blockIndex] = {
-          ...current,
-          duration: Math.max(0, current.duration - (relative ? offset * current.duration : offset)),
-        };
-        const indexes = playbackBufferIndexes(durations, blockIndex - 1, latest.current.speed);
-        const missing = indexes.filter(
-          index => !ready.current.has(`${playback.lessonKey}:${index}:${requestedVoice}`)
-        );
-        signal.throwIfAborted();
-        if (!missing.length) return;
-        let wake!: () => void;
-        const changed = new Promise<void>(resolve => {
-          wake = resolve;
-        });
-        const abort = () => wake();
-        openingWaits.current.add(wake);
-        signal.addEventListener('abort', abort, { once: true });
-        try {
-          await Promise.race([
-            changed,
-            ...missing.map(index => prepare({ blockIndex: index, requestedVoice, epoch, signal })),
-          ]);
-        } finally {
-          openingWaits.current.delete(wake);
-          signal.removeEventListener('abort', abort);
-        }
-        signal.throwIfAborted();
-        return ensureReady();
-      };
-      await ensureReady();
-    },
-    [prepare]
-  );
-
   const start = useCallback(
     async function start(
       blockIndex: number,
@@ -499,6 +440,10 @@ export function useLessonPlayback({
       const audio = getAudio();
       started.current = true;
       const { epoch, signal } = beginPlaybackAttempt(continuing);
+      const startId = ++activeStart.current;
+      // A continuation shares preparation ownership, but owns its loading state.
+      const isCurrentStart = () =>
+        startId === activeStart.current && isCurrentAttempt(epoch, signal);
       const requestedVoice = latest.current.voice;
       intent.current.index = blockIndex;
       targetPosition.current = { offset, relative };
@@ -518,20 +463,9 @@ export function useLessonPlayback({
         if (!continuing) void refill.current();
         // A ready recording bypasses preparation while preserving the active attempt.
         const prepared = await current;
-        if (!isCurrentAttempt(epoch, signal)) return;
+        if (!isCurrentStart()) return;
         if (playbackRef.current?.lessonKey !== startingKey) return start(0);
         if (!prepared) return;
-        if (!continuing && intent.current.playing)
-          await prepareOpeningBuffer({
-            blockIndex,
-            requestedVoice,
-            epoch,
-            signal,
-            profile: prepared,
-            offset,
-            relative,
-          });
-        if (playbackRef.current?.lessonKey !== startingKey) return start(0);
         const position = Math.min(
           relative ? offset * prepared.buffer.duration : offset,
           prepared.buffer.duration
@@ -545,16 +479,16 @@ export function useLessonPlayback({
           return;
         }
         await audio.start(bufferedRecordings(), position, latest.current.speed, signal);
-        if (!isCurrentAttempt(epoch, signal)) return;
+        if (!isCurrentStart()) return;
         setPlaying(true);
         void refill.current();
       } catch (error) {
-        if (!isCurrentAttempt(epoch, signal)) return;
+        if (!isCurrentStart()) return;
         console.error('Lesson playback failed', error);
         pause();
         setFailed(true);
       } finally {
-        if (isCurrentAttempt(epoch, signal)) setLoading(false);
+        if (isCurrentStart()) setLoading(false);
       }
     },
     [
@@ -564,7 +498,6 @@ export function useLessonPlayback({
       getAudio,
       pause,
       prepare,
-      prepareOpeningBuffer,
       projectId,
       sectionId,
     ]
@@ -600,7 +533,6 @@ export function useLessonPlayback({
 
   useEffect(() => {
     getAudio().changeSpeed(speed);
-    for (const wake of openingWaits.current) wake();
     void refill.current();
   }, [getAudio, speed]);
   useEffect(() => {

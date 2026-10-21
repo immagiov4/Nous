@@ -139,7 +139,7 @@ function pendingUntilAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promis
   });
 }
 
-test('buffers thirty seconds and supplies contiguous recordings before starting', async () => {
+test('prefetches thirty seconds and supplies ready contiguous recordings', async () => {
   const first = deferred<Awaited<ReturnType<typeof prepareLessonPlayback>>>();
   vi.mocked(prepareLessonPlayback).mockReturnValueOnce(first.promise);
   const { result } = renderHook(() => useLessonPlayback(target));
@@ -156,6 +156,28 @@ test('buffers thirty seconds and supplies contiguous recordings before starting'
   act(() => audio.moveTo(1));
   expect(result.current.index).toBe(1);
   expect(audio.start).toHaveBeenCalledTimes(starts);
+});
+
+test('starts the current clip while the next uncached clip is still preparing', async () => {
+  const next = deferred<Awaited<ReturnType<typeof prepareLessonPlayback>>>();
+  vi.mocked(prepareLessonPlayback).mockImplementation(async request =>
+    request.blockId === '1'
+      ? next.promise
+      : { block: blocks[Number(request.blockId)], voice: 'Kore', model: 'tts' }
+  );
+  const { result } = renderHook(() => useLessonPlayback(target));
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(audio.start).toHaveBeenCalledTimes(1));
+  expect(result.current.loading).toBe(false);
+  expect(result.current.playing).toBe(true);
+  expect(audio.recordings.map(recording => recording.index)).toEqual([0]);
+  await act(async () => next.resolve({ block: blocks[1], voice: 'Kore', model: 'tts' }));
+  expect(audio.start).toHaveBeenCalledTimes(1);
+  expect(
+    vi.mocked(prepareLessonPlayback).mock.calls.filter(([request]) => request.blockId === '1')
+  ).toHaveLength(1);
 });
 
 test('uses the audio clock unlocked in the opening gesture', async () => {
@@ -691,7 +713,7 @@ test('changing voice while the first listen is paused prepares only the selected
 test.each([
   'seek',
   'resume',
-])('%s near the end waits for ready upcoming audio before restarting', async action => {
+])('%s near the end starts without waiting for upcoming audio', async action => {
   audio.decode.mockResolvedValue({ duration: 40 } as AudioBuffer);
   const long = blocks.map((block, index) => ({
     ...block,
@@ -714,8 +736,8 @@ test.each([
     });
   } else act(() => result.current.seek(39));
   await act(async () => {});
-  expect(audio.paused).toBe(true);
-  expect(result.current.loading).toBe(true);
+  expect(audio.paused).toBe(false);
+  expect(result.current.loading).toBe(false);
   await act(async () => pending.resolve({ block: long[1], voice: 'Kore', model: 'tts' }));
   await waitFor(() => expect(audio.paused).toBe(false));
   expect(audio.position.time).toBe(39);
@@ -748,7 +770,7 @@ test('a ready next passage reaches the stream while a farther passage is pending
   await act(async () => pending.resolve({ block: long[2], voice: 'Kore', model: 'tts' }));
 });
 
-test('reducing speed starts as soon as the current horizon is ready', async () => {
+test('speed changes keep playing while the horizon is preparing', async () => {
   const long = blocks.map(block => ({
     ...block,
     audio: [{ ...block.audio[0], durationSeconds: 20 }],
@@ -773,8 +795,10 @@ test('reducing speed starts as soon as the current horizon is ready', async () =
       vi.mocked(prepareLessonPlayback).mock.calls.some(([request]) => request.blockId === '2')
     ).toBe(true)
   );
-  expect(result.current.playing).toBe(false);
+  expect(result.current.playing).toBe(true);
+  const starts = audio.start.mock.calls.length;
   rerender({ speed: 1 });
+  expect(audio.start).toHaveBeenCalledTimes(starts);
   await waitFor(() => expect(result.current.playing).toBe(true));
   await act(async () => pending.resolve({ block: long[2], voice: 'Kore', model: 'tts' }));
 });
@@ -887,4 +911,62 @@ test('reopening a player waits for the previous instance to finish owned cancell
     });
   }
   await waitFor(() => expect(second.result.current.playing).toBe(true));
+});
+
+test('an underrun waits for the existing preparation and resumes at the next clip', async () => {
+  const next = deferred<Awaited<ReturnType<typeof prepareLessonPlayback>>>();
+  vi.mocked(prepareLessonPlayback).mockImplementation(async request =>
+    request.blockId === '1'
+      ? next.promise
+      : { block: blocks[Number(request.blockId)], voice: 'Kore', model: 'tts' }
+  );
+  const { result } = renderHook(() => useLessonPlayback(target));
+  await act(async () => result.current.play());
+  audio.position.time = 10;
+  act(() => {
+    audio.pause();
+    audio.onEnded?.();
+  });
+  expect(result.current.loading).toBe(true);
+  expect(result.current.index).toBe(1);
+  expect(audio.paused).toBe(true);
+  await act(async () => next.resolve({ block: blocks[1], voice: 'Kore', model: 'tts' }));
+  expect(result.current.loading).toBe(false);
+  expect(result.current.playing).toBe(true);
+  expect(audio.position).toEqual({ index: 1, time: 0, duration: 10 });
+  expect(
+    vi.mocked(prepareLessonPlayback).mock.calls.filter(([request]) => request.blockId === '1')
+  ).toHaveLength(1);
+  expect(audio.start).toHaveBeenCalledTimes(2);
+});
+
+test('an ending start cannot hide loading for its pending successor', async () => {
+  const next = deferred<Awaited<ReturnType<typeof prepareLessonPlayback>>>();
+  const scheduled = deferred<void>();
+  vi.mocked(prepareLessonPlayback).mockImplementation(async request =>
+    request.blockId === '1'
+      ? next.promise
+      : { block: blocks[Number(request.blockId)], voice: 'Kore', model: 'tts' }
+  );
+  const start = audio.start.getMockImplementation();
+  if (!start) throw new Error('Playback test start must be installed');
+  audio.start.mockImplementationOnce(async (...args) => {
+    await start(...args);
+    await scheduled.promise;
+    audio.position.time = 10;
+    audio.pause();
+    audio.onEnded?.();
+  });
+  const { result } = renderHook(() => useLessonPlayback(target));
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(audio.start).toHaveBeenCalledTimes(1));
+  await act(async () => scheduled.resolve());
+  expect(result.current.index).toBe(1);
+  expect(result.current.loading).toBe(true);
+  await act(async () => next.resolve({ block: blocks[1], voice: 'Kore', model: 'tts' }));
+  expect(result.current.loading).toBe(false);
+  expect(result.current.playing).toBe(true);
+  expect(audio.position).toEqual({ index: 1, time: 0, duration: 10 });
 });

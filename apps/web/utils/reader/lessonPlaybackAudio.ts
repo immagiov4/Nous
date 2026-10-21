@@ -110,6 +110,11 @@ export class LessonPlaybackAudio {
     return this.enqueue(async node => {
       if (!this.anchor || generation !== this.generation) return;
       const last = this.recordings.at(-1);
+      // A late append must not turn elapsed silence into skipped narration.
+      if (last && this.inputTime() >= last.end) {
+        this.tick();
+        return;
+      }
       await this.addRecordings(
         node,
         recordings.filter(recording => !last || recording.index > last.index)
