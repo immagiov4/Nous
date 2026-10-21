@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { type Browser, chromium, type Page } from 'playwright';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { withMutedAudio } from '../../../scripts/browser-audio';
 import { collectSignals, installProbes } from '../src/probes/collect';
 import type { ProbeSignal } from '../src/probes/pageProbes';
 import { toFindings } from '../src/probes/thresholds';
@@ -25,7 +26,7 @@ let browser: Browser;
 let page: Page;
 
 beforeAll(async () => {
-  browser = await chromium.launch({ headless: true, channel: 'chromium' });
+  browser = await chromium.launch(withMutedAudio({ headless: true, channel: 'chromium' }));
 });
 afterAll(async () => {
   await browser?.close();

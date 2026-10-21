@@ -2,6 +2,7 @@ import path from 'node:path';
 import { type Browser, chromium, type Page } from 'playwright';
 import { createServer, type ViteDevServer } from 'vite';
 import { afterAll, beforeAll, expect, test } from 'vitest';
+import { withMutedAudio } from '../../../../../scripts/browser-audio';
 import viteConfig from '../../../vite.config.ts';
 
 let server: ViteDevServer;
@@ -19,7 +20,7 @@ beforeAll(async () => {
   });
   await server.listen();
   baseUrl = server.resolvedUrls?.local[0] ?? '';
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch(withMutedAudio({ headless: true }));
 });
 
 afterAll(async () => {
