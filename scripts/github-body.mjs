@@ -153,10 +153,152 @@ export const validateMarkdownBody = body => {
     ...collectRootBlockSpacingIssues(root, normalizedBody.split('\n')),
   ];
 };
+const REPORT_WORD_LIMIT = 200;
+const REPORT_LABELS = ['Problem:', 'Approach:', 'Result:'];
+
+// Mask collapsed content using parsed HTML nodes, so examples in code stay visible.
+const expandedReport = body => {
+  const characters = body.split('');
+  let depth = 0;
+  let hiddenStart;
+  walkAst(parseMarkdown(body), node => {
+    if (node.type !== 'html') return;
+    const start = nodeOffset(node, 'start');
+    const end = nodeOffset(node, 'end');
+    for (const match of node.value.matchAll(/<!--[\s\S]*?-->|<\/?details\b[^>]*>/giu)) {
+      const offset = start + match.index;
+      if (match[0].startsWith('<!--')) {
+        maskRange(characters, offset, offset + match[0].length);
+      } else if (/^<details\b/iu.test(match[0])) {
+        if (depth === 0) hiddenStart = offset;
+        depth += 1;
+      } else if (depth > 0) {
+        depth -= 1;
+        if (depth === 0) maskRange(characters, hiddenStart, offset + match[0].length);
+      }
+    }
+    if (depth > 0 && end === body.length) maskRange(characters, hiddenStart, end);
+  });
+  if (depth > 0) maskRange(characters, hiddenStart, body.length);
+  return characters.join('');
+};
+const reportText = root => {
+  const words = [];
+  walkAst(root, node => {
+    if (['text', 'inlineCode', 'code'].includes(node.type)) words.push(node.value);
+    if (node.type === 'image') words.push(node.alt ?? '');
+    if (node.type === 'html') words.push(node.value.replace(/<[^>]*>/gu, ' '));
+  });
+  return words.join(' ');
+};
+export const countVisibleWords = body =>
+  reportText(parseMarkdown(expandedReport(normalizeLineEndings(body)))).match(
+    /[\p{L}\p{N}]+(?:['’_-][\p{L}\p{N}]+)*/gu
+  )?.length ?? 0;
+
+const hasResultEvidence = (nodes, root) => {
+  const definitions = new Map(
+    root.children
+      .filter(node => node.type === 'definition')
+      .map(node => [node.identifier, node.url])
+  );
+  let found = false;
+  walkAst({ children: nodes }, node => {
+    if (node.type === 'text' && /\bNot measured\b/u.test(node.value)) found = true;
+    if (node.type === 'table') {
+      const headings = node.children[0]?.children.map(cell =>
+        reportText(cell).trim().toLowerCase()
+      );
+      if (headings?.includes('before') && headings.includes('after') && node.children.length > 1)
+        found = true;
+    }
+    const url = node.url ?? definitions.get(node.identifier) ?? '';
+    if (
+      node.type === 'image' ||
+      node.type === 'imageReference' ||
+      (['link', 'linkReference'].includes(node.type) &&
+        (/screenshot/iu.test(reportText(node)) ||
+          /\.(?:png|jpe?g|webp|gif)(?:[?#]|$)|\/user-attachments\/assets\//iu.test(url)))
+    )
+      found = true;
+  });
+  return found;
+};
+
+/** Enforce the explicit public report contract; prose meaning remains a review responsibility. */
+export const validateChangeReport = body => {
+  const visible = expandedReport(normalizeLineEndings(body));
+  const root = parseMarkdown(visible);
+  const blocks = root.children.filter(node => node.type !== 'html' || node.value.trim());
+  const labels = REPORT_LABELS;
+  const validOpening = labels.every((label, index) => {
+    const block = blocks[index];
+    const first = block?.children?.[0];
+    return (
+      block?.type === 'paragraph' &&
+      first?.type === 'strong' &&
+      reportText(first) === label &&
+      (index === 2 || reportText({ children: block.children.slice(1) }).trim().length > 0)
+    );
+  });
+  const issues = validOpening
+    ? []
+    : [
+        issue(
+          'opening',
+          1,
+          `Open with ${labels.map(label => `**${label}**`).join(' / ')} in that order, each as its own paragraph.`
+        ),
+      ];
+  {
+    const testingIndex = blocks.findIndex(
+      node => node.type === 'heading' && node.depth === 2 && reportText(node) === 'Testing'
+    );
+    if (
+      testingIndex < 0 ||
+      !blocks[testingIndex + 1] ||
+      blocks[testingIndex + 1].type === 'heading'
+    )
+      issues.push(
+        issue('testing', 1, 'Include a visible ## Testing section with test and CI status.')
+      );
+    const end = blocks.findIndex((node, index) => index > 2 && node.type === 'heading');
+    if (!validOpening || !hasResultEvidence(blocks.slice(2, end < 0 ? undefined : end), root))
+      issues.push(
+        issue(
+          'result-evidence',
+          1,
+          'Result must contain a Before/After table, a screenshot link, or "Not measured".'
+        )
+      );
+  }
+  if (blocks.some(node => node.type === 'heading' && reportText(node) === 'Sonar merge decision'))
+    issues.push(
+      issue(
+        'sonar-section',
+        1,
+        'Put CI and SonarCloud status on one line in Testing, rather than a separate Sonar merge decision section.'
+      )
+    );
+  const count = countVisibleWords(body);
+  if (count > REPORT_WORD_LIMIT)
+    issues.push(
+      issue(
+        'visible-word-limit',
+        1,
+        `${count} visible words; maximum ${REPORT_WORD_LIMIT}. Move investigation notes into <details>.`
+      )
+    );
+  return issues;
+};
+
 export const formatValidationIssues = (issues, bodyFile = 'body.md') =>
   issues.map(({ line, message }) => `${bodyFile}:${line}: ${message}`).join('\n');
-export const assertValidMarkdownBody = (body, bodyFile) => {
-  const issues = validateMarkdownBody(body);
+export const assertValidMarkdownBody = (body, bodyFile, kind) => {
+  const issues = [
+    ...validateMarkdownBody(body),
+    ...(kind === 'pr' ? validateChangeReport(body) : []),
+  ];
   if (issues.length > 0) throw new Error(formatValidationIssues(issues, bodyFile));
 };
 const expectedRenderedTags = body => {
@@ -220,7 +362,7 @@ const runProcess = (command, args) =>
     });
   });
 
-const runGh = args => runProcess('gh', args);
+export const runGh = args => runProcess('gh', args);
 
 const validateRepository = repository => {
   if (!REPOSITORY_PATTERN.test(repository)) {
@@ -347,7 +489,7 @@ const verifyRemoteSnapshot = ({ exactBodyMatch = false, kind, localBody, number,
   ) {
     throw new Error('GitHub raw body does not match the Markdown body file.');
   }
-  assertValidMarkdownBody(remote.body, `${kind} #${number} raw body`);
+  assertValidMarkdownBody(remote.body, `${kind} #${number} raw body`, kind);
   assertGitHubRendering(remote.body, remote.body_html);
   return { htmlLength: Buffer.byteLength(remote.body_html, 'utf8') };
 };
@@ -402,7 +544,7 @@ export const verifyGitHubBody = async ({
   runGhCommand = runGh,
 }) => {
   const localBody = await readFile(resolve(bodyFile), 'utf8');
-  assertValidMarkdownBody(localBody, resolve(bodyFile));
+  assertValidMarkdownBody(localBody, resolve(bodyFile), kind);
   const endpoint = endpointFor({ kind, number, repository });
   const remote = await fetchRemoteBody({ endpoint, runGhCommand });
   return { endpoint, ...verifyRemoteSnapshot({ kind, localBody, number, remote }) };
@@ -419,7 +561,8 @@ export const updateGitHubBody = async ({
   const localBody = await readFile(absoluteBodyFile, 'utf8');
   assertValidMarkdownBody(
     kind === 'pr' ? bodyWithoutManagedPrSuffix(localBody) : localBody,
-    absoluteBodyFile
+    absoluteBodyFile,
+    kind
   );
   const endpoint = endpointFor({ kind, number, repository });
   const remoteBefore = await fetchRemoteBody({ endpoint, runGhCommand });
@@ -429,7 +572,7 @@ export const updateGitHubBody = async ({
     localBody,
     remoteBody: remoteBefore.body,
   });
-  assertValidMarkdownBody(uploadBody, `${absoluteBodyFile} with remote managed suffix`);
+  assertValidMarkdownBody(uploadBody, `${absoluteBodyFile} with remote managed suffix`, kind);
 
   await withBodySnapshot('nous-github-body-upload-', uploadBody, async snapshotFile => {
     const rendered = await renderGitHubMarkdown({
@@ -499,7 +642,7 @@ export const runCli = async (args, dependencies = {}) => {
   const flags = parseFlags(flagArguments);
   const bodyFile = requiredFlag(flags, '--body-file');
   if (command === 'validate') {
-    assertValidMarkdownBody(await readFile(bodyFile, 'utf8'), bodyFile);
+    assertValidMarkdownBody(await readFile(bodyFile, 'utf8'), bodyFile, flags.get('--kind'));
     process.stdout.write(`Validated GitHub body: ${bodyFile}\n`);
     return;
   }
