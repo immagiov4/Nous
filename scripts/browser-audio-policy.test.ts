@@ -9,7 +9,11 @@ const root = resolve(import.meta.dirname, '..');
 function finalProperty(object: ts.ObjectLiteralExpression, name: string) {
   let result: ts.PropertyAssignment | undefined;
   for (const property of object.properties) {
-    if (ts.isSpreadAssignment(property)) result = undefined;
+    if (
+      ts.isSpreadAssignment(property) ||
+      (property.name && ts.isComputedPropertyName(property.name))
+    )
+      result = undefined;
     else if (property.name?.getText().replace(/['"]/g, '') === name) {
       result = ts.isPropertyAssignment(property) ? property : undefined;
     }
@@ -19,7 +23,6 @@ function finalProperty(object: ts.ObjectLiteralExpression, name: string) {
 
 function unmutedLaunches(source: string, filename: string): string[] {
   const isConfig = /playwright[^/]*config[^/]*\.[cm]?[jt]s$/.test(filename);
-  if (!isConfig && !/launch/.test(source)) return [];
   const tree = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true);
   let configExports = 0;
   const failures: string[] = [];
@@ -61,34 +64,18 @@ function unmutedLaunches(source: string, filename: string): string[] {
     failures.push(`${filename}:${tree.getLineAndCharacterOfPosition(node.getStart()).line + 1}`);
   }
   function visit(node: ts.Node) {
-    if (
-      ts.isPropertyAccessExpression(node) &&
-      ['launch', 'launchPersistentContext', 'launchServer'].includes(node.name.text) &&
-      !(
-        ts.isCallExpression(node.parent) &&
-        (node.parent.expression === node || node.parent.expression.getText(tree) === 'expect')
-      )
-    )
-      report(node);
-    if (ts.isCallExpression(node)) {
-      const expression = node.expression;
-      let method: string | undefined;
-      if (ts.isPropertyAccessExpression(expression)) method = expression.name.text;
-      if (
-        ts.isElementAccessExpression(expression) &&
-        ts.isStringLiteral(expression.argumentExpression)
-      ) {
-        method = expression.argumentExpression.text;
-      }
-      if (
-        ts.isElementAccessExpression(expression) &&
-        !ts.isStringLiteral(expression.argumentExpression) &&
-        browserImports.has(expression.expression.getText(tree))
-      )
+    let method: string | undefined;
+    if (ts.isPropertyAccessExpression(node)) method = node.name.text;
+    if (ts.isElementAccessExpression(node)) {
+      if (ts.isStringLiteral(node.argumentExpression)) method = node.argumentExpression.text;
+      else if (browserImports.has(node.expression.getText(tree))) report(node);
+    }
+    if (method && ['launch', 'launchPersistentContext', 'launchServer'].includes(method)) {
+      const call = node.parent;
+      if (ts.isCallExpression(call) && call.expression === node) {
+        if (!isMuted(call.arguments[method === 'launchPersistentContext' ? 1 : 0])) report(call);
+      } else if (!(ts.isCallExpression(call) && call.expression.getText(tree) === 'expect'))
         report(node);
-      if (method && ['launch', 'launchPersistentContext', 'launchServer'].includes(method)) {
-        if (!isMuted(node.arguments[method === 'launchPersistentContext' ? 1 : 0])) report(node);
-      }
     }
     if (isConfig) {
       if (ts.isPropertyAssignment(node) && node.name.getText(tree).replace(/['"]/g, '') === 'use') {
@@ -108,7 +95,10 @@ function unmutedLaunches(source: string, filename: string): string[] {
           projects.elements.some(
             project =>
               !ts.isObjectLiteralExpression(project) ||
-              project.properties.some(ts.isSpreadAssignment)
+              project.properties.some(
+                property =>
+                  !ts.isPropertyAssignment(property) || ts.isComputedPropertyName(property.name)
+              )
           )
         )
           report(node);
@@ -120,6 +110,10 @@ function unmutedLaunches(source: string, filename: string): string[] {
         if (
           !options ||
           !ts.isObjectLiteralExpression(options) ||
+          options.properties.some(
+            property =>
+              !ts.isPropertyAssignment(property) || ts.isComputedPropertyName(property.name)
+          ) ||
           !finalProperty(options, 'use') ||
           (ts.isCallExpression(config) && config.arguments.length !== 1)
         )
@@ -161,6 +155,7 @@ describe('browser audio policy', () => {
     'firefox.launch({ headless: true })',
     'chromium.launchServer({ headless: false })',
     'const start = chromium.launch.bind(chromium); start({ headless: false });',
+    'const start = chromium["launch"].bind(chromium); start({ headless: false });',
     'browserType.launchPersistentContext(profile, {})',
     'chromium.launch({ args: ["--mute-audio"] })',
     'chromium.launch({ ...withMutedAudio(), args: [] })',
@@ -204,6 +199,10 @@ describe('browser audio policy', () => {
 
   it.each([
     "export default defineConfig({ 'use': { launchOptions: {} } });",
+    'export default defineConfig({ ...externalConfig, use: { launchOptions: withMutedAudio() } });',
+    'export default defineConfig({ use: { launchOptions: withMutedAudio(), [key]: {} } });',
+    'export default defineConfig({ use: { launchOptions: withMutedAudio() }, projects: [{ [key]: {} }] });',
+    'const use = { launchOptions: {} }; export default defineConfig({ use: { launchOptions: withMutedAudio() }, projects: [{ use }] });',
     'export default defineConfig({ use: { launchOptions: withMutedAudio() }, projects: externalProjects });',
     'export default defineConfig({ use: { launchOptions: withMutedAudio() }, projects: [...externalProjects] });',
     'export default defineConfig({ use: { launchOptions: withMutedAudio() }, projects: [{ ...externalProject }] });',
