@@ -36,7 +36,7 @@ const recording = (index: number, duration = 1) => ({
   } as unknown as AudioBuffer,
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   clock = {
     currentTime: 0,
     destination: {},
@@ -47,6 +47,7 @@ beforeEach(() => {
     return clock;
   });
   audio = new LessonPlaybackAudio();
+  await audio.ready();
 });
 afterEach(() => {
   audio.close();
@@ -169,6 +170,7 @@ test('initialization failure rejects start and an explicit unlock creates a work
   audio = new LessonPlaybackAudio();
   const failed = vi.fn();
   audio.onError = failed;
+  await expect(audio.ready()).rejects.toThrow('Module load failed');
   await vi.waitFor(() => expect(failed).toHaveBeenCalled());
   await expect(audio.start([recording(0)], 0, 1, new AbortController().signal)).rejects.toThrow(
     'Module load failed'
@@ -192,6 +194,7 @@ test('a context constructor failure is observable and retry creates a context', 
   audio = new LessonPlaybackAudio();
   const failed = vi.fn();
   audio.onError = failed;
+  await expect(audio.ready()).rejects.toThrow('Context failed');
   await vi.waitFor(() => expect(failed).toHaveBeenCalled());
   await audio.unlock();
   await audio.start([recording(0)], 0, 1, new AbortController().signal);

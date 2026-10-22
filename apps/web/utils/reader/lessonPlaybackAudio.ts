@@ -15,7 +15,7 @@ type StretchNode = Awaited<ReturnType<typeof SignalsmithStretch>>;
 /** One sample stream preserves pitch and passage boundaries without event-driven hand-offs. */
 export class LessonPlaybackAudio {
   private context!: AudioContext;
-  private node: Promise<StretchNode>;
+  private node: Promise<StretchNode> | null = null;
   private failed = false;
   private operation = Promise.resolve();
   private recordings: BufferedRecording[] = [];
@@ -28,8 +28,10 @@ export class LessonPlaybackAudio {
   onEnded: (() => void) | null = null;
   onError: ((error: unknown) => void) | null = null;
 
-  constructor() {
-    this.node = this.initialize();
+  /** Initializes the worklet once; callers can observe readiness or failure explicitly. */
+  ready() {
+    this.node ??= this.initialize();
+    return this.node;
   }
 
   private initialize() {
@@ -65,9 +67,12 @@ export class LessonPlaybackAudio {
       this.releaseContext();
       this.failed = false;
       this.operation = Promise.resolve();
-      this.node = this.initialize();
+      this.node = null;
     }
-    return this.resumeContext();
+    const node = this.ready();
+    // Resume inside the user gesture, while worklet loading can still be pending.
+    if (this.context) await this.resumeContext();
+    await node;
   }
 
   private async resumeContext() {
@@ -80,7 +85,7 @@ export class LessonPlaybackAudio {
     }
   }
   async decode(bytes: Uint8Array): Promise<AudioBuffer> {
-    await this.node;
+    await this.ready();
     return this.context.decodeAudioData(Uint8Array.from(bytes).buffer);
   }
 
@@ -106,6 +111,7 @@ export class LessonPlaybackAudio {
     this.pause();
     const generation = this.generation;
     this.speed = speed;
+    await this.ready();
     await this.resumeContext();
     signal.throwIfAborted();
     await this.enqueue(async node => {
@@ -168,7 +174,7 @@ export class LessonPlaybackAudio {
     const input = this.inputTime();
     const output = this.context.currentTime;
     this.anchor = { input, output, speed };
-    const session = this.node;
+    const session = this.ready();
     void session
       .then(node => node.schedule({ input, output, outputTime: output, rate: speed, semitones: 0 }))
       .catch(error => {
@@ -178,7 +184,7 @@ export class LessonPlaybackAudio {
 
   pause() {
     this.stopClock();
-    if (this.failed) return;
+    if (!this.node || this.failed) return;
     const session = this.node;
     void this.enqueue(async node => {
       await node.stop();
@@ -201,7 +207,7 @@ export class LessonPlaybackAudio {
   }
 
   private enqueue(operation: (node: StretchNode) => Promise<void>): Promise<void> {
-    const session = this.node;
+    const session = this.ready();
     const next = this.operation.then(() => session).then(operation);
     // Each caller observes its own error; later user actions can still recover.
     this.operation = next.catch(() => {});
