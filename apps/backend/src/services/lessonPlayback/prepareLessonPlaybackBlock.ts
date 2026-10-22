@@ -157,18 +157,11 @@ const prepareScene = async (
     retryFeedback = outcome.problems.join('\n');
     diagnostic = outcome.diagnostic;
   }
-  if (formulas) {
-    console.warn('[lesson-playback] Scene did not validate; presenting sourced mathematics.', {
-      diagnostic,
-      retryFeedback,
-    });
-    return undefined;
-  }
-  throw failPermanently({
-    code: 'lesson_playback_scene_invalid',
-    message: 'Playback scene preparation failed validation after corrective attempts.',
-    ...(diagnostic ? { details: { diagnostic } } : {}),
+  console.warn('[lesson-playback] Scene did not validate; retaining source visuals.', {
+    diagnostic,
+    retryFeedback,
   });
+  return undefined;
 };
 
 /** Prepares one block's visual cues and audio; the caller owns its eventual asset reference. */

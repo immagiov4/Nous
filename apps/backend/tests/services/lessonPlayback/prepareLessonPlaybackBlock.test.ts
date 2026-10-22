@@ -46,7 +46,6 @@ vi.mock('../../../src/services/lessonPlayback/playbackMotion.js', () => ({
 import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
 import { prepareLessonPlaybackBlock } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { MAX_TTS_TEXT_CHARS } from '../../../src/services/ttsClient.js';
-import { toStepFailure } from '../../../src/workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../../src/workflows/types.js';
 import { guidedPathScene, proportionalScene } from '../../helpers/animatedLessonScenes';
 
@@ -294,10 +293,12 @@ test('reuses prepared visuals and motion when preparing another voice', async ()
   });
 });
 
-test('exhausts exactly three scene attempts and propagates operational errors immediately', async () => {
+test('continues after exactly three invalid scene attempts and propagates operational errors immediately', async () => {
   sceneGeneration.mockResolvedValue({ kind: 'invalid', problems: ['Invalid quotation.'] });
-  const failure = await prepareLessonPlaybackBlock(input()).catch(error => toStepFailure(error));
-  expect(failure).toMatchObject({ kind: 'permanent', code: 'lesson_playback_scene_invalid' });
+  await expect(prepareLessonPlaybackBlock(input())).resolves.toMatchObject({
+    prepared: { motion: [] },
+    audio: preparedAudio,
+  });
   expect(sceneGeneration).toHaveBeenCalledTimes(3);
   sceneGeneration.mockReset().mockRejectedValue(new Error('Provider unavailable'));
   await expect(prepareLessonPlaybackBlock(input())).rejects.toThrow('Provider unavailable');
@@ -398,7 +399,8 @@ test.each([
   expect(motion).not.toHaveBeenCalled();
 });
 
-test('retains final bounded scene diagnostics in the workflow failure', async () => {
+test('logs final bounded scene diagnostics while continuing playback', async () => {
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
   const diagnostic = {
     type: 'Error',
     originalMessage: JSON.stringify({
@@ -412,14 +414,21 @@ test('retains final bounded scene diagnostics in the workflow failure', async ()
     problems: ['Malformed scene.'],
     diagnostic,
   });
-  const failure = await prepareLessonPlaybackBlock(input()).catch(error => toStepFailure(error));
-  expect(failure).toMatchObject({
-    code: 'lesson_playback_scene_invalid',
-    details: { diagnostic },
-  });
+  try {
+    await expect(prepareLessonPlaybackBlock(input())).resolves.toMatchObject({
+      prepared: { motion: [] },
+      audio: preparedAudio,
+    });
+    expect(warning).toHaveBeenCalledWith(expect.any(String), {
+      diagnostic,
+      retryFeedback: 'Malformed scene.',
+    });
+  } finally {
+    warning.mockRestore();
+  }
 });
 
-import { getPlaybackMathMarkdown } from '@shared/lessonPlayback';
+import { getPlaybackFormulaMarkdown, getPlaybackMathMarkdown } from '@shared/lessonPlayback';
 import { FORMULA_SPOTLIGHT_MARKDOWN, formulaSpotlight } from '../../helpers/formulaSpotlight';
 
 test('preparation asks the model to choose a form for the complete math passage', async () => {
@@ -754,4 +763,31 @@ test('supplies the retained complete equation when the current passage names an 
   expect(sceneGeneration).toHaveBeenCalledWith(
     expect.objectContaining({ lessonMarkdown: expect.stringContaining('h_i=b_i+w_i x') })
   );
+});
+
+test('reuses a degraded formula through saved preparation and regenerates it on request', async () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: '$$x+y$$\n\nLa somma riunisce gli ingressi.' },
+  ];
+  const raw = segmentLessonPlayback(sources).at(-1);
+  if (!raw) throw new Error('Expected a formula passage.');
+  structured.mockResolvedValue({ spokenMath: [{ formula: '$$x+y$$', spoken: 'ics più ipsilon' }] });
+  sceneGeneration.mockResolvedValue({
+    kind: 'invalid',
+    problems: ['Formula symbol anchors must be exact, unique and ordered in the narration.'],
+  });
+  const request = { ...input(), block: raw, lesson: { title: '', sources } };
+  const result = await prepareLessonPlaybackBlock(request);
+  expect(result.prepared.scene).toBeUndefined();
+  expect(result.prepared.motion).toEqual([]);
+  expect(result.audio.bytes).toEqual(preparedAudio.bytes);
+  expect(sceneGeneration).toHaveBeenCalledTimes(3);
+  expect(getPlaybackFormulaMarkdown(raw, sources)).toContain('x+y');
+  await prepareLessonPlaybackBlock({
+    ...request,
+    block: { ...raw, prepared: JSON.parse(JSON.stringify(result.prepared)) },
+  });
+  expect(sceneGeneration).toHaveBeenCalledTimes(3);
+  await prepareLessonPlaybackBlock(request);
+  expect(sceneGeneration).toHaveBeenCalledTimes(6);
 });
