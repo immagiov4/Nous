@@ -184,7 +184,7 @@ export class LessonPlaybackAudio {
 
   pause() {
     this.stopClock();
-    if (!this.node || this.failed) return;
+    if (this.node === null || this.failed) return;
     const session = this.node;
     void this.enqueue(async node => {
       await node.stop();
