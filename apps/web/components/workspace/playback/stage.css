@@ -1904,8 +1904,7 @@
 }
 .lesson-player-stage .captions p {
   font-size: clamp(23px, 2.4vw, 34px);
-  --caption-leading: 1.5;
-  line-height: var(--caption-leading);
+  line-height: 1.5;
   letter-spacing: -0.025em;
   width: 100%;
 }
@@ -1973,7 +1972,7 @@
   }
   .lesson-player-stage .captions p {
     font-size: 22px;
-    --caption-leading: 1.45;
+    line-height: 1.45;
     text-align: center;
   }
   .lesson-player-stage .lesson-scene .scene h2 {
@@ -2282,29 +2281,8 @@
     visibility: hidden;
     pointer-events: none;
   }
-  .lesson-player-stage[data-has-visual="false"] .captions {
-    position: static;
-    visibility: visible;
-    pointer-events: auto;
-  }
   .lesson-player-stage .scene-fit {
     flex-shrink: 0;
     order: 0;
   }
-}
-
-.lesson-player-stage[data-has-visual="false"] .listening-stage {
-  grid-template-columns: minmax(0, 1fr);
-}
-.lesson-player-stage[data-has-visual="false"] .captions p {
-  --caption-height: min(45dvh, 8lh);
-  line-height: round(up, calc(var(--caption-leading) * 1em), 1px);
-  max-height: round(down, var(--caption-height), 1lh);
-  animation: none;
-}
-.lesson-player-stage[data-has-visual="false"] .captions p::after {
-  display: none;
-}
-.lesson-player-stage[data-has-visual="false"] .caption-word {
-  mask-image: none;
 }

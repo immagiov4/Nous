@@ -63,76 +63,48 @@ export function captionSource(
   sources: readonly PlaybackContentBlock[]
 ) {
   const lines = captionSourceLines(block, sources);
-  const projection: CaptionProjection = { markdown: '', ranges: [] };
-  const renderedMath = new Set<LessonPlaybackBlock['spans'][number]>();
+  let markdown = '';
+  const ranges: { source: PlaybackRange; speech: PlaybackRange }[] = [];
   for (const line of lines.values()) {
     if (line.fencedSpeech) {
-      projection.ranges.push({
-        source: {
-          start: projection.markdown.length,
-          end: projection.markdown.length + line.text.length,
-        },
+      ranges.push({
+        source: { start: markdown.length, end: markdown.length + line.text.length },
         speech: line.fencedSpeech,
       });
-      projection.markdown += `${line.text}\n`;
+      markdown += `${line.text}\n`;
       continue;
     }
-    appendCaptionSourceLine({ line, block, renderedMath, projection });
-  }
-  return projection;
-}
-
-interface CaptionProjection {
-  markdown: string;
-  ranges: { source: PlaybackRange; speech: PlaybackRange }[];
-}
-
-function appendCaptionSourceLine({
-  line,
-  block,
-  renderedMath,
-  projection,
-}: {
-  line: { text: string; start: number; sourceBlockIndex: number };
-  block: LessonPlaybackBlock;
-  renderedMath: Set<LessonPlaybackBlock['spans'][number]>;
-  projection: CaptionProjection;
-}) {
-  let cursor = line.start;
-  const lineSpans = block.spans.filter(
-    span =>
-      !span.fencedCode &&
-      span.sourceBlockIndex === line.sourceBlockIndex &&
-      span.speech.start !== span.speech.end
-  );
-  for (const span of lineSpans) {
-    const start = Math.max(line.start, span.source.start);
-    const end = Math.min(line.start + line.text.length, span.source.end);
-    if (start >= end) continue;
-    // One source formula can cover several authored lines but has one pronunciation.
-    if (span.math && renderedMath.has(span)) {
+    let cursor = line.start;
+    const lineSpans = block.spans.filter(
+      span =>
+        !span.fencedCode &&
+        span.sourceBlockIndex === line.sourceBlockIndex &&
+        span.speech.start !== span.speech.end
+    );
+    for (const span of lineSpans) {
+      const start = Math.max(line.start, span.source.start);
+      const end = Math.min(line.start + line.text.length, span.source.end);
+      if (start >= end) continue;
+      markdown += line.text.slice(cursor - line.start, start - line.start);
+      const speech = span.math
+        ? span.speech
+        : {
+            start: span.speech.start + start - span.source.start,
+            end: span.speech.start + end - span.source.start,
+          };
+      const text = span.math
+        ? block.speech.slice(speech.start, speech.end)
+        : line.text.slice(start - line.start, end - line.start);
+      ranges.push({
+        source: { start: markdown.length, end: markdown.length + text.length },
+        speech,
+      });
+      markdown += text;
       cursor = end;
-      continue;
     }
-    if (span.math) renderedMath.add(span);
-    projection.markdown += line.text.slice(cursor - line.start, start - line.start);
-    const speech = span.math
-      ? span.speech
-      : {
-          start: span.speech.start + start - span.source.start,
-          end: span.speech.start + end - span.source.start,
-        };
-    const text = span.math
-      ? block.speech.slice(speech.start, speech.end)
-      : line.text.slice(start - line.start, end - line.start);
-    projection.ranges.push({
-      source: { start: projection.markdown.length, end: projection.markdown.length + text.length },
-      speech,
-    });
-    projection.markdown += text;
-    cursor = end;
+    markdown += `${line.text.slice(cursor - line.start)}\n`;
   }
-  projection.markdown += `${line.text.slice(cursor - line.start)}\n`;
+  return { markdown, ranges };
 }
 
 interface CaptionStyle {
