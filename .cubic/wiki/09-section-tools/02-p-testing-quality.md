@@ -11,6 +11,8 @@ Verification starts at the changed behavior and expands to the service boundarie
 
 Browser tests are always muted; audio is verified inside the page or from files.
 
+The production audio contract runs Chromium and Firefox against the built frontend. Linux CI supplies a PulseAudio null sink so Firefox can start its real audio clock without a physical output device. The test step owns that audio server and stops it on exit.
+
 ## During development
 
 Local checks stay on changed files: run `bun run check:changed` and the targeted behavior tests for the code changed. The command applies Biome and both ESLint configurations to existing changed files against the merge base with `origin/main`, including staged, unstaged and untracked work. Run `bun run lint:types` when types or interfaces change. These fast checks run directly; CI owns full-repository quality, tests, coverage and SonarCloud. The [quality workflow](../../../.agents/skills/quality-workflow/SKILL.md) describes verification depth for integrations and visual changes, while this page defines the local/CI split and merge requirement.

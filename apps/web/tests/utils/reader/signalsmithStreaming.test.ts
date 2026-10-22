@@ -8,7 +8,7 @@ type Processor = {
   process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean;
 };
 
-test('the shipped worklet produces identical samples for one buffer and contiguous pieces', async () => {
+test('the installed worklet source produces identical samples for one buffer and contiguous pieces', async () => {
   const sampleRate = 48_000;
   const quantum = 128; // Web Audio render quantum.
   let Constructor: new (options: AudioWorkletNodeOptions) => Processor;

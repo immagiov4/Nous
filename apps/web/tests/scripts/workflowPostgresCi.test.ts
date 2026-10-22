@@ -58,12 +58,21 @@ describe('workflow PostgreSQL CI contract', () => {
     });
   });
 
-  test('provisions Chromium before the shared checks and single Node coverage suite', async () => {
+  test('verifies production audio in Chromium and Firefox before the shared checks and single Node coverage suite', async () => {
     const commands = testSteps.flatMap(step => (step.run ? [step.run] : []));
 
     expect(commands).toEqual([
       'bun install --frozen-lockfile',
-      'bunx playwright install --with-deps chromium',
+      'bunx playwright install --with-deps chromium firefox',
+      [
+        'sudo apt-get install --yes pulseaudio',
+        'pulseaudio --start',
+        "trap 'pulseaudio --kill || true' EXIT",
+        'pactl load-module module-null-sink sink_name=nous_playback',
+        'pactl set-default-sink nous_playback',
+        'bun run test:audio-production',
+        '',
+      ].join('\n'),
       'bun run gate:ci',
     ]);
     expect(await probePackageScripts(['gate:ci'])).toEqual([
