@@ -534,6 +534,7 @@ export default function LessonPlayer({
           content={content}
           speed={tts.playbackRate}
           readTime={playback.readTime}
+          seekRevision={playback.seekRevision}
           alignment={playback.recording?.wordAlignment}
         />
       ) : (

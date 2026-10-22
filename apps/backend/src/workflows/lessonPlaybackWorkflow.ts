@@ -45,7 +45,8 @@ export interface LessonPlaybackServices {
     allowedSceneTypes?: readonly LessonSceneType[],
     supportsSpokenMath?: boolean,
     supportsFencedCode?: boolean,
-    supportsUnlinkedFormulaSymbols?: boolean
+    supportsUnlinkedFormulaSymbols?: boolean,
+    synchronizeAnimations?: boolean
   ) => Promise<LessonPlaybackResult>;
   persistPlayback: (
     context: StepCommitContext<
@@ -60,7 +61,8 @@ export interface LessonPlaybackServices {
 export const createLessonPlaybackWorkflow = (
   executionDefaults: WorkflowExecutionDefaults,
   blockSchema = LessonPlaybackBlockSchema,
-  queueAlignment = false
+  queueAlignment = false,
+  synchronizeAnimations = false
 ) => {
   const resultSchema = LessonPlaybackResultSchema.extend({ block: blockSchema });
   const sceneTypes = blockSchema.shape.prepared.unwrap().shape.scene.unwrap().shape.type.options;
@@ -76,7 +78,7 @@ export const createLessonPlaybackWorkflow = (
     WorkflowExecutionDefaults,
     LessonPlaybackServices
   >({
-    id: 'prepare-block',
+    id: synchronizeAnimations ? 'prepare-synchronized-block' : 'prepare-block',
     externalEffect: 'provider-with-postprocessing',
     inputSchema: LessonPlaybackInputSchema,
     outputSchema: resultSchema,
@@ -86,7 +88,8 @@ export const createLessonPlaybackWorkflow = (
         sceneTypes,
         supportsSpokenMath,
         supportsFencedCode,
-        supportsUnlinkedFormulaSymbols
+        supportsUnlinkedFormulaSymbols,
+        synchronizeAnimations
       ),
   });
   const persist = step<

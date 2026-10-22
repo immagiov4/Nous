@@ -65,6 +65,7 @@ export function captionAnchorTimes({
   feather,
   duration,
   aligned,
+  startOffset = 0,
 }: {
   anchors: readonly string[];
   speech: string;
@@ -74,6 +75,7 @@ export function captionAnchorTimes({
   feather: number;
   duration: number;
   aligned?: ReturnType<typeof alignedWordTimes>;
+  startOffset?: number;
 }): number[] {
   return anchors.map(anchor => {
     const offset = speech.indexOf(anchor);
@@ -82,7 +84,7 @@ export function captionAnchorTimes({
       return alignedRangeTime(aligned, { start: offset, end: offset + anchor.length }).start * 1000;
     const first = runs[speechRanges.findIndex(word => word.end > offset)];
     if (!first) throw new Error('Caption quotation must cover caption words');
-    return (first.start / (width + feather)) * duration * 1000;
+    return (startOffset + (first.start / (width + feather)) * duration) * 1000;
   });
 }
 
@@ -115,11 +117,14 @@ export function captionAnchorSpan(input: Parameters<typeof captionAnchorTimes>[0
   if (!last) throw new Error('Caption quotation must cover caption words');
   return {
     startMs: Math.min(...times),
-    endMs: ((last.start + last.width) / (input.width + input.feather)) * input.duration * 1000,
+    endMs:
+      ((input.startOffset ?? 0) +
+        ((last.start + last.width) / (input.width + input.feather)) * input.duration) *
+      1000,
   };
 }
 
-/** The API stores quotations; resolve them to the same word-width clock as listen.mjs. */
+/** Exact narration citations use acoustic onsets; missing alignment retains the width estimate. */
 export function captionMotionEvents({
   events,
   speech,
@@ -129,6 +134,7 @@ export function captionMotionEvents({
   feather,
   duration,
   aligned,
+  startOffset,
 }: {
   events: readonly PlaybackMotionEvent[];
   speech: string;
@@ -138,6 +144,7 @@ export function captionMotionEvents({
   feather: number;
   duration: number;
   aligned?: ReturnType<typeof alignedWordTimes>;
+  startOffset?: number;
 }): TimedMotionEvent[] {
   const times = captionAnchorTimes({
     anchors: events.map(event => event.quote),
@@ -148,6 +155,7 @@ export function captionMotionEvents({
     feather,
     duration,
     aligned,
+    startOffset,
   });
   const timed = events.map((event, index) => {
     const offset = speech.indexOf(event.quote);
@@ -162,24 +170,22 @@ export function captionMotionEvents({
     const last = runs[endIndex];
     if (!first || !last) throw new Error('Motion quotation must cover caption words');
     const atMs = times[index];
+    const spokenDurationMs = aligned
+      ? alignedRangeTime(aligned, { start: offset, end: offset + event.quote.length }).end * 1000 -
+        atMs
+      : ((last.start + last.width - first.start) / (width + feather)) * duration * 1000;
     const durationMs =
       event.effect === 'reveal'
         ? REVEAL_DURATION_MS
-        : Math.max(
-            MOTION_TIMING.holdMs,
-            aligned
-              ? alignedRangeTime(aligned, { start: offset, end: offset + event.quote.length }).end *
-                  1000 -
-                  atMs
-              : ((last.start + last.width - first.start) / (width + feather)) * duration * 1000
-          );
+        : Math.max(MOTION_TIMING.holdMs, spokenDurationMs);
     return { ...event, atMs, durationMs };
   });
   return timed.map(event => ({
     ...event,
     durationMs: Math.min(
       event.durationMs,
-      (timed.find(next => next.atMs > event.atMs)?.atMs ?? duration * 1000) - event.atMs
+      (timed.find(next => next.atMs > event.atMs)?.atMs ?? ((startOffset ?? 0) + duration) * 1000) -
+        event.atMs
     ),
   }));
 }
@@ -278,4 +284,16 @@ export function sceneElements(host: HTMLElement, scene: LessonScene) {
   const relation = host.querySelector<HTMLElement>('.relation');
   if (relation) elements.set('relation', [relation]);
   return elements;
+}
+
+/** Keep already presented cues stable when acoustic timing arrives during playback. */
+export function adoptCueTimes(
+  previous: readonly number[] | undefined,
+  next: number[],
+  time: number
+) {
+  return next.map((onset, index) => {
+    const estimated = previous?.[index];
+    return estimated !== undefined && estimated <= time ? estimated : onset;
+  });
 }

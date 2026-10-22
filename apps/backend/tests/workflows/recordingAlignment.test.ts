@@ -14,6 +14,8 @@ import {
   preparedPlayback,
 } from '../helpers/lessonPlayback.js';
 
+const registry = createProductionRegistry();
+
 test('returns a cached recording while alignment remains pending', async () => {
   const section = playbackSection();
   section.playback = preparedPlayback(section);
@@ -32,7 +34,7 @@ test('returns a cached recording while alignment remains pending', async () => {
         incarnationId: 'incarnation-1',
       }),
     },
-    registry: createProductionRegistry(),
+    registry,
     store: { createRun },
     resolveTtsModel: async () => 'tts-model',
     alignRecording,
@@ -103,7 +105,7 @@ test('stores onsets only on the matching asset, preserving other voices and note
 test('uses stable durable request identity and skips an already attempted recording', async () => {
   const createRun = vi.fn(async input => ({ created: true, run: { ...input, status: 'queued' } }));
   const start = createRecordingAlignmentStarter({
-    registry: createProductionRegistry(),
+    registry,
     store: { createRun },
   });
   const { target, block } = playbackResult();

@@ -156,6 +156,7 @@ beforeEach(() => {
   playback = {
     blocks,
     recording: undefined,
+    seekRevision: 0,
     index: 0,
     time: 0,
     duration: 12,

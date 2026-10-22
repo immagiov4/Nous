@@ -39,6 +39,19 @@ type PreparedPlayback = {
   buffer: AudioBuffer;
 };
 
+/** Merge timing revisions without replacing unchanged lesson or recording content. */
+function recordingTimingUpdate(incoming: Playback) {
+  const byId = new Map(incoming.blocks.map(block => [block.id, block]));
+  const merge = (block: LessonPlaybackBlock) => mergeRecordingAlignment(block, byId.get(block.id));
+  return {
+    merge,
+    blocks: (current: readonly LessonPlaybackBlock[]) => {
+      const next = current.map(merge);
+      return next.some((block, index) => block !== current[index]) ? next : current;
+    },
+  };
+}
+
 /** Resumes the audio clock synchronously inside the opening or play gesture. */
 export function unlockLessonPlaybackAudio(audio: LessonPlaybackAudio) {
   void audio.unlock().catch(error => console.error('Lesson audio unlock failed', error));
@@ -139,6 +152,7 @@ export function useLessonPlayback({
   const [index, setIndex] = useState(0);
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [seekRevision, setSeekRevision] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -149,6 +163,7 @@ export function useLessonPlayback({
     return audio;
   }, []);
   const playbackRef = useRef<Playback | null>(null);
+  const latestRecordingTimings = useRef<Playback | null>(null);
   const queue = useRef(new PlaybackPreparationQueue());
   const pending = useRef(new Map<string, Promise<PreparedPlayback | null>>());
   const advance = useRef<() => void>(() => {});
@@ -168,23 +183,17 @@ export function useLessonPlayback({
         .then(incoming => {
           if (request.signal.aborted || incoming.lessonKey !== playbackRef.current?.lessonKey)
             return;
-          const merge = (block: LessonPlaybackBlock) =>
-            mergeRecordingAlignment(
-              block,
-              incoming.blocks.find(next => next.id === block.id)
-            );
+          latestRecordingTimings.current = incoming;
+          const update = recordingTimingUpdate(incoming);
           for (const [key, prepared] of ready.current) {
-            const block = merge(prepared.block);
+            const block = update.merge(prepared.block);
             if (block !== prepared.block) ready.current.set(key, { ...prepared, block });
           }
           playbackRef.current = {
             ...playbackRef.current,
-            blocks: playbackRef.current.blocks.map(merge),
+            blocks: update.blocks(playbackRef.current.blocks),
           };
-          setBlocks(current => {
-            const blocks = current.map(merge);
-            return blocks.some((block, index) => block !== current[index]) ? blocks : current;
-          });
+          setBlocks(update.blocks);
         })
         .catch(error => {
           if (!request.signal.aborted) console.warn('Could not refresh recording timing.', error);
@@ -363,7 +372,7 @@ export function useLessonPlayback({
         }
         if (playbackRef.current && playbackRef.current.lessonKey !== playback.lessonKey)
           return null;
-        const preparedBlock = result.block;
+        let preparedBlock: LessonPlaybackBlock = result.block;
         const recording = preparedBlock.audio.find(
           audio => audio.voice === result.voice && audio.model === result.model
         );
@@ -376,7 +385,14 @@ export function useLessonPlayback({
         signal.throwIfAborted();
         if (playbackRef.current && playbackRef.current.lessonKey !== playback.lessonKey)
           return null;
-        const prepared = { ...result, buffer };
+        const latestTimings = latestRecordingTimings.current;
+        if (latestTimings?.lessonKey === playback.lessonKey) {
+          preparedBlock = mergeRecordingAlignment(
+            preparedBlock,
+            latestTimings.blocks.find(block => block.id === preparedBlock.id)
+          );
+        }
+        const prepared = { ...result, block: preparedBlock, buffer };
         ready.current.set(cacheKey(), prepared);
         const profile = { voice: result.voice, model: result.model };
         setResolvedVoices(current => {
@@ -612,6 +628,7 @@ export function useLessonPlayback({
   const total = timeline.reduce((sum, block) => sum + block.duration, 0);
   const seek = (target: number) => {
     if (!started.current) return;
+    setSeekRevision(revision => revision + 1);
     let offset = Math.max(0, Math.min(total, target));
     let next = 0;
     while (next < timeline.length - 1 && offset >= timeline[next].duration) {
@@ -639,6 +656,7 @@ export function useLessonPlayback({
     pause,
     seek,
     readTime,
+    seekRevision,
     readPosition,
   };
 }

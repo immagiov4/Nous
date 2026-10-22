@@ -14,11 +14,7 @@ import {
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
-import {
-  alignedRangeTime,
-  alignedWordTimes,
-  type PlaybackWordAlignment,
-} from '@shared/playbackWordTiming';
+import { alignedWordTimes, type PlaybackWordAlignment } from '@shared/playbackWordTiming';
 import {
   Fragment,
   type RefObject,
@@ -49,6 +45,7 @@ import {
   pacedCaptionTime,
 } from './captionFormat.ts';
 import {
+  adoptCueTimes,
   type CaptionRun,
   captionAnchorSpan,
   captionAnchorTimes,
@@ -67,7 +64,9 @@ interface CaptionClock {
   bodyDuration: number;
   speechRanges: PlaybackRange[];
   aligned?: ReturnType<typeof alignedWordTimes>;
-  captionTimes?: { start: number; end: number }[];
+  duration: number;
+  headingDuration: number;
+  seekRevision: number;
   read: () => { blockTime: number; bodyTime: number; revealTime: number };
 }
 
@@ -101,11 +100,52 @@ function captionTag(word: CaptionWord) {
   return word.bold ? 'strong' : 'span';
 }
 
+function formulaCueTiming(scene: FormulaSpotlightData, speech: string, current: CaptionClock) {
+  const times = scene.symbols.map(() => Number.POSITIVE_INFINITY);
+  const ends = scene.symbols.map(() => Number.NEGATIVE_INFINITY);
+  for (const reference of resolveFormulaReferences(scene, speech)) {
+    const span = captionAnchorSpan({
+      anchors: [reference.anchor],
+      speech,
+      speechRanges: current.speechRanges,
+      runs: current.runs,
+      width: current.width,
+      feather: current.feather,
+      duration: current.bodyDuration,
+      startOffset: current.headingDuration,
+      aligned: current.aligned,
+    });
+    times[reference.index] = span.startMs;
+    ends[reference.index] = span.endMs;
+  }
+  return { times, ends };
+}
+
+function canRetainPresentedCues(
+  current: CaptionClock,
+  previous: CaptionClock | null
+): previous is CaptionClock {
+  return (
+    previous !== null &&
+    previous.aligned !== current.aligned &&
+    previous.seekRevision === current.seekRevision
+  );
+}
+
+function retainPresentedCues(
+  current: CaptionClock,
+  previous: CaptionClock | null,
+  before: number[] | undefined,
+  next: number[] | undefined
+) {
+  if (!next || !canRetainPresentedCues(current, previous)) return next;
+  return adoptCueTimes(before, next, current.read().blockTime * 1000);
+}
+
 function PlaybackScene({
   scene,
   block,
   clock,
-  speed,
   animate,
   isDarkMode,
   interval,
@@ -130,6 +170,8 @@ function PlaybackScene({
       if (!current?.bodyDuration) return undefined;
       if (anchors && !current.width) return undefined;
       if (current !== previousClock) {
+        const previousTimes = times;
+        const previousEnds = ends;
         times = anchors
           ? captionAnchorTimes({
               anchors,
@@ -139,42 +181,33 @@ function PlaybackScene({
               width: current.width,
               feather: current.feather,
               duration: current.bodyDuration,
+              startOffset: current.headingDuration,
               aligned: current.aligned,
             })
           : undefined;
         if (scene.type === 'formula-spotlight' && anchors) {
-          const references = resolveFormulaReferences(scene as FormulaSpotlightData, block.speech);
-          times = (scene as FormulaSpotlightData).symbols.map(() => Number.POSITIVE_INFINITY);
-          ends = (scene as FormulaSpotlightData).symbols.map(() => Number.NEGATIVE_INFINITY);
-          for (const reference of references) {
-            const span = captionAnchorSpan({
-              anchors: [reference.anchor],
-              speech: block.speech,
-              speechRanges: current.speechRanges,
-              runs: current.runs,
-              width: current.width,
-              feather: current.feather,
-              duration: current.bodyDuration,
-              aligned: current.aligned,
-            });
-            times[reference.index] = span.startMs;
-            ends[reference.index] = span.endMs;
-          }
+          ({ times, ends } = formulaCueTiming(
+            scene as FormulaSpotlightData,
+            block.speech,
+            current
+          ));
         }
+        times = retainPresentedCues(current, previousClock, previousTimes, times);
+        ends = retainPresentedCues(current, previousClock, previousEnds, ends);
         previousClock = current;
       }
-      const { blockTime, bodyTime, revealTime } = current.read();
+      const { blockTime } = current.read();
       return anchors
         ? {
-            elapsedMs:
-              (scene.type === 'formula-spotlight' ? bodyTime : Math.max(0, revealTime)) * 1000,
-            durationMs: current.bodyDuration * 1000,
+            elapsedMs: blockTime * 1000,
+            durationMs: current.duration * 1000,
             cueTimes: times,
             cueEndTimes: ends,
           }
         : {
             elapsedMs: (blockTime - interval.start) * 1000,
             durationMs: interval.duration * 1000,
+            cueTimes: [],
           };
     };
   }, [scene, block.speech, clock, interval.start, interval.duration]);
@@ -195,6 +228,7 @@ function PlaybackScene({
       const current = clock.current;
       if (!current?.width || !current.bodyDuration) return;
       if (current !== previousClock) {
+        const previousEvents = events;
         events = captionMotionEvents({
           events: block.prepared?.motion ?? [],
           speech: block.speech,
@@ -203,23 +237,33 @@ function PlaybackScene({
           width: current.width,
           feather: current.feather,
           duration: current.bodyDuration,
+          startOffset: current.headingDuration,
           aligned: current.aligned,
         });
+        if (canRetainPresentedCues(current, previousClock)) {
+          const onsets = adoptCueTimes(
+            previousEvents.map(event => event.atMs),
+            events.map(event => event.atMs),
+            current.read().blockTime * 1000
+          );
+          events = events.map((event, index) => ({
+            ...event,
+            atMs: onsets[index],
+            durationMs:
+              previousEvents[index]?.atMs === onsets[index]
+                ? previousEvents[index].durationMs
+                : event.durationMs,
+          }));
+        }
         previousClock = current;
         previousFrame = '';
       }
       if (hasMissingMotionTargets(events, elements)) return;
-      const revealTime = Math.max(0, current.read().revealTime * 1000);
-      const frameKey = `${revealTime}:${animate}:${speed}`;
+      const voiceTime = current.read().blockTime * 1000;
+      const frameKey = `${voiceTime}:${animate}`;
       if (frameKey === previousFrame) return;
       previousFrame = frameKey;
-      const states = motionStates(
-        Array.from(elements.keys()),
-        events,
-        revealTime,
-        !animate,
-        CAPTION_TIMING.highlightDelaySeconds * 1000 * speed
-      );
+      const states = motionStates(Array.from(elements.keys()), events, voiceTime, !animate, 0);
       for (const [id, targets] of elements) {
         const state = states.get(id);
         if (!state) throw new Error('Motion target state must exist');
@@ -254,7 +298,7 @@ function PlaybackScene({
         delete target.dataset.motionId;
       }
     };
-  }, [animate, block.prepared?.motion, block.speech, clock, scene, speed]);
+  }, [animate, block.prepared?.motion, block.speech, clock, scene]);
   return (
     <div ref={host}>
       <LessonSceneVisual
@@ -354,6 +398,7 @@ export default function LessonPlaybackStage({
   speed = 1,
   readTime,
   alignment,
+  seekRevision = 0,
 }: Readonly<{
   block: LessonPlaybackBlock;
   time: number;
@@ -362,6 +407,7 @@ export default function LessonPlaybackStage({
   speed?: number;
   readTime?: () => number;
   alignment?: PlaybackWordAlignment;
+  seekRevision?: number;
 }>) {
   const block = useMemo(() => resolvePlaybackNarration(sourceBlock), [sourceBlock]);
   const sources = useMemo(
@@ -381,6 +427,7 @@ export default function LessonPlaybackStage({
   const sceneCard = useRef<HTMLElement>(null);
   const clock = useRef<CaptionClock | null>(null);
   const scroll = useRef({ line: -1, target: 0 });
+  const measuredParagraph = useRef<HTMLElement | null>(null);
   const animate = useShouldAnimate();
   const latest = useRef({ time, speed, readTime, animate });
   useLayoutEffect(() => {
@@ -442,6 +489,7 @@ export default function LessonPlaybackStage({
     latest.current = { time, speed, readTime, animate };
   }, [time, speed, readTime, animate]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a passage id remounts the paragraph even when its text repeats.
   useLayoutEffect(() => {
     const paragraph = captions.current;
     if (!paragraph) throw new Error('Captions must be mounted');
@@ -457,12 +505,8 @@ export default function LessonPlaybackStage({
         getComputedStyle(paragraph).getPropertyValue('--caption-feather')
       );
       const aligned = alignedWordTimes(block.speech, duration, alignment);
-      const captionTimes = aligned?.length
-        ? formatted.speechRanges.map(range => alignedRangeTime(aligned, range))
-        : undefined;
-      const bodyDuration = aligned
-        ? duration
-        : (duration * formatted.words.length) / (formatted.words.length + formatted.headingWords);
+      const bodyDuration =
+        (duration * formatted.words.length) / (formatted.words.length + formatted.headingWords);
       const pauses = captionPauses(
         formatted.words,
         runs.map(run => (run.start + run.width) / width),
@@ -476,7 +520,9 @@ export default function LessonPlaybackStage({
         feather,
         bodyDuration,
         aligned,
-        captionTimes,
+        duration,
+        seekRevision,
+        headingDuration: duration - bodyDuration,
         speechRanges: formatted.speechRanges,
         read: () => {
           const {
@@ -486,22 +532,25 @@ export default function LessonPlaybackStage({
             animate: motion,
           } = latest.current;
           const elapsed = read ? read() : fallbackTime;
-          const bodyTime = aligned ? elapsed : elapsed - duration * headingShare;
+          const bodyTime = elapsed - duration * headingShare;
           const ahead = bodyTime + captionLookAhead(elapsed, rate, CAPTION_TIMING.lookAheadSeconds);
           return {
             blockTime: elapsed,
             bodyTime,
-            revealTime: motion && !aligned ? pacedCaptionTime(ahead, pauses) : ahead,
+            revealTime: motion ? pacedCaptionTime(ahead, pauses) : ahead,
           };
         },
       };
-      paragraph.scrollTop = 0;
-      scroll.current = { line: -1, target: 0 };
+      if (measuredParagraph.current !== paragraph) {
+        paragraph.scrollTop = 0;
+        scroll.current = { line: -1, target: 0 };
+        measuredParagraph.current = paragraph;
+      }
     };
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, [block.id, block.speech, duration, formatted, alignment]);
+  }, [block.id, block.speech, duration, formatted, alignment, seekRevision]);
 
   useEffect(() => {
     let previousClock: CaptionClock | null = null;
@@ -519,28 +568,13 @@ export default function LessonPlaybackStage({
       const motion = latest.current.animate;
       if (previousBodyTime === bodyTime) return;
       const progress = Math.max(0, Math.min(1, revealTime / current.bodyDuration));
-      let edge = progress * (current.width + current.feather);
-      if (current.captionTimes) {
-        edge = 0;
-        current.captionTimes.forEach((span, index) => {
-          if (revealTime < span.start) return;
-          const run = current.runs[index];
-          const fraction =
-            span.end > span.start
-              ? Math.min(1, (revealTime - span.start) / (span.end - span.start))
-              : 1;
-          edge = run.start + run.width * fraction;
-        });
-      }
+      const edge = progress * (current.width + current.feather);
       let active = edge >= current.width ? current.runs.at(-1)?.span : undefined;
-      for (const [index, run] of current.runs.entries()) {
+      for (const run of current.runs) {
         const local = edge - run.start;
         run.span.style.opacity = local > 0 ? '1' : '0';
         run.span.style.setProperty('--reveal-edge', `${local}px`);
-        const readAge =
-          bodyTime -
-          (current.captionTimes?.[index].end ??
-            ((run.start + run.width) / current.width) * current.bodyDuration);
+        const readAge = bodyTime - ((run.start + run.width) / current.width) * current.bodyDuration;
         const fade = Math.max(0, Math.min(1, readAge / CAPTION_TIMING.readFadeSeconds));
         const text = run.span.firstElementChild as HTMLElement;
         text.style.opacity = String(1 - fade * (1 - CAPTION_TIMING.readOpacity));
@@ -573,13 +607,22 @@ export default function LessonPlaybackStage({
       return projected.length ? projected : [{ kind: 'markdown' as const, markdown: formulas }];
     if (block.prepared?.scene && getPlaybackMathMarkdown(block))
       return [...projected, { kind: 'scene' as const, scene: block.prepared.scene }];
-    if (projected.length) return projected;
+    if (projected.length)
+      return projected.map(visual => {
+        if (!scene) return visual;
+        const existingScene =
+          visual.kind === 'scene' ||
+          (visual.kind === 'generated-visual' &&
+            content.activeSectionGeneratedVisualsById?.[visual.visualId] &&
+            getStoredLessonVisualScene(content.activeSectionGeneratedVisualsById[visual.visualId]));
+        return existingScene ? { kind: 'scene' as const, scene } : visual;
+      });
     if (formulas && !block.prepared?.scene)
       return [{ kind: 'markdown' as const, markdown: formulas }];
     if (block.prepared?.scene) return [{ kind: 'scene' as const, scene: block.prepared.scene }];
     if (formulas) return [{ kind: 'markdown' as const, markdown: formulas }];
     return [];
-  }, [block, sources]);
+  }, [block, sources, content.activeSectionGeneratedVisualsById]);
   const visualProjection = JSON.stringify(visualCandidates, (_key, value: unknown) =>
     value && typeof value === 'object' && !Array.isArray(value)
       ? Object.fromEntries(
@@ -606,7 +649,6 @@ export default function LessonPlaybackStage({
           visual.kind === 'scene' ? visual.scene : stored && getStoredLessonVisualScene(stored);
         return {
           anchors: visuals.length > 1 ? sceneCaptionAnchors(scene, block.speech) : undefined,
-          usesSpokenClock: scene?.type === 'formula-spotlight',
         };
       }),
     [visuals, content.activeSectionGeneratedVisualsById, block.speech]
@@ -621,6 +663,7 @@ export default function LessonPlaybackStage({
       const current = clock.current;
       if (current && (current.width || !visualReferences.some(reference => reference.anchors))) {
         if (current !== previousClock) {
+          const previousSpans = spans;
           spans = visualReferences.map(({ anchors: quotation }) =>
             quotation
               ? captionAnchorSpan({
@@ -631,27 +674,33 @@ export default function LessonPlaybackStage({
                   width: current.width,
                   feather: current.feather,
                   duration: current.bodyDuration,
+                  startOffset: current.headingDuration,
                   aligned: current.aligned,
                 })
               : undefined
           );
+          if (canRetainPresentedCues(current, previousClock)) {
+            const heardMs = current.read().blockTime * 1000;
+            spans = spans.map((span, index) => {
+              const previous = previousSpans[index];
+              if (!span || !previous) return span;
+              return {
+                startMs: adoptCueTimes([previous.startMs], [span.startMs], heardMs)[0],
+                endMs: adoptCueTimes([previous.endMs], [span.endMs], heardMs)[0],
+              };
+            });
+          }
           previousClock = current;
         }
-        const { blockTime, bodyTime, revealTime } = current.read();
-        const captionOffset = Math.max(0, revealTime) - blockTime;
+        const { blockTime } = current.read();
         let active = -1;
         let latestStart = Number.NEGATIVE_INFINITY;
         spans.forEach((span, index) => {
-          const offset = visualReferences[index].usesSpokenClock
-            ? bodyTime - blockTime
-            : captionOffset;
-          const start = span ? span.startMs / 1000 - offset : (duration * index) / visuals.length;
+          const start = span ? span.startMs / 1000 : (duration * index) / visuals.length;
           // A later start replaces the earlier scene permanently, even if it ends first.
           if (start <= blockTime && start >= latestStart) {
             latestStart = start;
-            const end = span
-              ? span.endMs / 1000 - offset
-              : (duration * (index + 1)) / visuals.length;
+            const end = span ? span.endMs / 1000 : (duration * (index + 1)) / visuals.length;
             active = blockTime <= end ? index : -1;
           }
         });

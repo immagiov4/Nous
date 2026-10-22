@@ -3,6 +3,7 @@ import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonP
 import type { LessonScene } from '@shared/lessonScene';
 import { act, render, screen } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
+import { guidedPathScene } from '../../../../backend/tests/helpers/animatedLessonScenes';
 import { discreteMathCases } from '../../../../backend/tests/helpers/discreteMath';
 import {
   CAPTION_TIMING,
@@ -15,6 +16,7 @@ import {
 } from '../../../components/workspace/playback/captionFormat.ts';
 import LessonPlaybackStage from '../../../components/workspace/playback/LessonPlaybackStage.tsx';
 import {
+  adoptCueTimes,
   captionMotionEvents,
   motionStates,
 } from '../../../components/workspace/playback/stageMotion.ts';
@@ -675,7 +677,7 @@ import {
 } from '../../../../backend/tests/helpers/formulaSpotlight';
 import { sceneCaptionAnchors } from '../../../components/workspace/playback/stageMotion.ts';
 
-test('uses recording onsets for formula selection and captions after forward and backward seeks', () => {
+test('uses recording onsets for formula selection after forward and backward seeks', () => {
   const frames = new Map<number, FrameRequestCallback>();
   let frameId = 0;
   vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
@@ -742,7 +744,7 @@ test('uses recording onsets for formula selection and captions after forward and
   }
   const captions = container.querySelectorAll<HTMLElement>('.caption-word');
   expect(captions[1].style.opacity).toBe('1');
-  expect(captions[5].style.opacity).toBe('0');
+  expect(captions[5].style.opacity).toBe('1');
 });
 
 test('a complete spotlight replaces sourced math while text fallback shows the formula without prose', () => {
@@ -1097,4 +1099,177 @@ test.each([
   expect(
     container.querySelector(`.nous-formula-symbol-${other}`)?.getAttribute('data-active')
   ).toBe('false');
+});
+
+test.each([
+  { animate: true, effect: 'reveal' as const },
+  { animate: false, effect: 'reveal' as const },
+  { animate: true, effect: 'focus' as const },
+  { animate: false, effect: 'focus' as const },
+])('right-side $effect uses heard onsets while captions retain their lead (animate=$animate)', ({
+  animate,
+  effect,
+}) => {
+  vi.mocked(useShouldAnimate).mockReturnValue(animate);
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const style = document.createElement('p').style;
+  style.setProperty('--caption-feather', '0');
+  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
+  const sources = [{ type: 'markdown' as const, markdown: 'Prima parte. Seconda parte.' }];
+  const scene: LessonScene = {
+    type: 'steps',
+    title: 'Parti',
+    body: '',
+    items: [
+      { label: 'Prima', detail: '', icon: 'circle' },
+      { label: 'Seconda', detail: '', icon: 'circle' },
+    ],
+    groups: [],
+    note: '',
+    quote: '',
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: {
+      scene,
+      motion: [
+        { effect, targets: ['item:0'], quote: 'Prima parte.' },
+        { effect, targets: ['item:1'], quote: 'Seconda parte.' },
+      ],
+    },
+  };
+  const props = {
+    block,
+    content: { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel,
+    duration: 10,
+  };
+  const alignment = { status: 'aligned' as const, onsets: [0, 1, 6.2, 7] };
+  let heard = 3.9;
+  const readTime = () => heard;
+  const { container, rerender } = render(
+    <LessonPlaybackStage {...props} alignment={alignment} time={0} readTime={readTime} />
+  );
+  const flush = () =>
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      pending.forEach(callback => {
+        callback(0);
+      });
+    });
+  flush();
+  const target = () => container.querySelector<HTMLElement>('[data-motion-id="item:1"]');
+  const visualValue = () =>
+    effect === 'reveal'
+      ? target()?.style.opacity
+      : target()?.style.getPropertyValue('--motion-emphasis');
+  expect(visualValue()).toBe('0');
+  expect(container.querySelectorAll<HTMLElement>('.caption-word')[2].style.opacity).toBe('1');
+  heard = 6.3;
+  flush();
+  expect(Number(visualValue())).toBeGreaterThan(0);
+  const paused = visualValue();
+  rerender(
+    <LessonPlaybackStage {...props} alignment={alignment} time={9} speed={2} readTime={readTime} />
+  );
+  flush();
+  expect(visualValue()).toBe(paused);
+  heard = 6.19;
+  flush();
+  expect(visualValue()).toBe('0');
+  heard = 6.3;
+  flush();
+  expect(visualValue()).toBe(paused);
+  const captionState = () =>
+    Array.from(container.querySelectorAll<HTMLElement>('.caption-word'), word => [
+      word.style.cssText,
+      (word.firstElementChild as HTMLElement).style.cssText,
+    ]);
+  const withAlignment = captionState();
+  rerender(<LessonPlaybackStage {...props} time={0} speed={2} readTime={readTime} />);
+  flush();
+  expect(captionState()).toEqual(withAlignment);
+  const later = { status: 'aligned' as const, onsets: [0, 1, 8, 9] };
+  const presented = visualValue();
+  rerender(<LessonPlaybackStage {...props} alignment={later} time={0} readTime={readTime} />);
+  flush();
+  expect(visualValue()).toBe(presented);
+  heard = 7.5;
+  rerender(
+    <LessonPlaybackStage
+      {...props}
+      alignment={later}
+      time={0}
+      readTime={readTime}
+      seekRevision={1}
+    />
+  );
+  flush();
+  expect(visualValue()).toBe('0');
+  heard = 8.1;
+  flush();
+  expect(Number(visualValue())).toBeGreaterThan(0);
+});
+
+test('retains a final aligned reveal after the spoken heading share', () => {
+  const events = captionMotionEvents({
+    events: [{ effect: 'reveal', targets: ['item:0'], quote: 'Ultima' }],
+    speech: 'Titolo Ultima',
+    speechRanges: [{ start: 7, end: 13 }],
+    runs: [{ span: document.createElement('span'), start: 0, width: 100 }],
+    width: 100,
+    feather: 0,
+    duration: 8,
+    startOffset: 2,
+    aligned: [
+      { text: 'Titolo', start: 0, end: 6, onset: 0, endTime: 9 },
+      { text: 'Ultima', start: 7, end: 13, onset: 9, endTime: 10 },
+    ],
+  });
+  expect(events[0].atMs).toBe(9000);
+  expect(events[0].durationMs).toBe(700);
+  expect(motionStates(['item:0'], events, 9700, false, 0).get('item:0')?.opacity).toBe(1);
+});
+
+test('renders resolved step citations instead of the unanchored source scene', () => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const sources = [{ type: 'markdown' as const, markdown: guidedPathScene.narration ?? '' }];
+  const sourceScene = {
+    ...guidedPathScene,
+    steps: guidedPathScene.steps.map(step => ({ ...step, anchor: undefined })),
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    visuals: [{ kind: 'scene' as const, scene: sourceScene }],
+    prepared: { scene: guidedPathScene, motion: [] },
+  };
+  const words = block.speech.match(/\S+/gu) ?? [];
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      time={0.5}
+      duration={40}
+      alignment={{ status: 'aligned', onsets: words.map((_, index) => index) }}
+    />
+  );
+  expect(container.querySelector('[data-stop="0"]')?.getAttribute('aria-current')).toBe('step');
+});
+
+test('adopts an overdue acoustic cue instead of waiting for its future estimate', () => {
+  expect(adoptCueTimes([8000, 2000, 9000], [3000, 1000, 7000], 5000)).toEqual([3000, 2000, 7000]);
 });

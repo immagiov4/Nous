@@ -21,8 +21,7 @@ export function mergeRecordingAlignment(
   incoming: LessonPlaybackBlock | undefined
 ) {
   if (
-    !incoming ||
-    incoming.id !== saved.id ||
+    incoming?.id !== saved.id ||
     resolvePlaybackNarration(incoming).speech !== resolvePlaybackNarration(saved).speech
   )
     return saved;

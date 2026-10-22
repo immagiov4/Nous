@@ -30,7 +30,8 @@ export const createProductionLessonPlaybackServices = (
     allowedSceneTypes,
     supportsSpokenMath = true,
     supportsFencedCode = true,
-    supportsUnlinkedFormulaSymbols = true
+    supportsUnlinkedFormulaSymbols = true,
+    synchronizeAnimations = false
   ) => {
     const project = await projectStore.loadProjectWithRevision(input.userId, input.projectId);
     const section = project && findProjectLessonSection(project.snapshot, input.sectionId);
@@ -68,6 +69,7 @@ export const createProductionLessonPlaybackServices = (
     if (!providerEffect) throw new Error('Playback preparation requires durable provider results.');
     const prepared = await prepareLessonPlaybackBlock({
       userId: input.userId,
+      synchronizeAnimations,
       allowedSceneTypes,
       supportsSpokenMath,
       supportsFencedCode,
