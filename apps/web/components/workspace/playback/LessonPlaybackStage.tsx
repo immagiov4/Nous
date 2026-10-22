@@ -522,7 +522,8 @@ export default function LessonPlaybackStage({
       }),
     [visuals, content.activeSectionGeneratedVisualsById, block.speech]
   );
-  useEffect(() => {
+  // Select against the new caption clock before painting or running retired scene frames.
+  useLayoutEffect(() => {
     if (!visuals.length) return;
     let previousClock: CaptionClock | null = null;
     let previousActive: number | undefined;

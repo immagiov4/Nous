@@ -28,6 +28,38 @@ afterAll(async () => {
   await server?.close();
 });
 
+test('paints each new caption with its ready scene and retires the previous motion clock', async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  try {
+    await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?boundary`);
+    await page.locator('.scene-host > *').waitFor();
+    for (let transition = 0; transition < 6; transition++) {
+      const frames = await page.evaluate(
+        () =>
+          new Promise<boolean[]>(resolve => {
+            const previousCaption = document.querySelector('.caption-page');
+            const scenes: boolean[] = [];
+            const observe = () => {
+              if (document.querySelector('.caption-page') !== previousCaption)
+                scenes.push(Boolean(document.querySelector('.scene-host')?.firstElementChild));
+              if (scenes.length === 4) resolve(scenes);
+              else requestAnimationFrame(observe);
+            };
+            requestAnimationFrame(observe);
+            // Audio position updates arrive asynchronously, outside a discrete input event.
+            setTimeout(() => dispatchEvent(new Event('playback-next')), 0);
+          })
+      );
+      expect(frames).toEqual([true, true, true, true]);
+    }
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
 async function expectConnectedCards(page: Page) {
   await page.waitForFunction(() => {
     const flow = document.querySelector<HTMLElement>('.causal-grid');
