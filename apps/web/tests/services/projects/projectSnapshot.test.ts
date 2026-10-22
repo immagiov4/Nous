@@ -782,3 +782,28 @@ test('preserves validated source warning reasons across snapshot normalization',
   const restored = normalizeStoredProject(exportProjectData(snapshot));
   expect(restored.source?.preparationWarnings).toEqual(snapshot.source.preparationWarnings);
 });
+
+test('retains deferred source navigation metadata through normalization and save serialization', () => {
+  const documentIndex = {
+    kind: 'pdf-text-index' as const,
+    parsedAt: '2026-10-21',
+    textDeferred: true as const,
+    chunks: [
+      {
+        id: 'source-segment',
+        text: '',
+        sequence: 0,
+        headingPath: [],
+        startOffset: 0,
+        endOffset: 20,
+        pageStart: 2,
+        pageEnd: 3,
+      },
+    ],
+  };
+  const normalized = normalizeStoredProject(
+    createProjectSnapshot({ id: 'deferred-course', source: null, documentIndex })
+  );
+  expect(normalized.documentIndex).toMatchObject(documentIndex);
+  expect(exportProjectData(normalized).documentIndex).toMatchObject(documentIndex);
+});

@@ -6,6 +6,7 @@ import { readSupabaseSession } from '../../services/auth/supabaseAuth.ts';
 import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
 import { ensureProjectCover } from '../../services/projects/courseCover.ts';
+import { releaseDocumentText } from '../../services/projects/documentText';
 import {
   getProjectRequestId,
   HttpProjectRepository,
@@ -212,6 +213,7 @@ export const useProjectLibrary = ({
     projectId: null,
   });
   const currentProjectIdRef = useRef<string | null>(null);
+  useEffect(() => () => releaseDocumentText(currentProjectIdRef.current), []);
 
   const rememberExplicitProjectTitle = useCallback(
     (project: Pick<ProjectSnapshot, 'id' | 'title'>) => {
@@ -308,6 +310,7 @@ export const useProjectLibrary = ({
   );
 
   const selectCurrentProject = useCallback((projectId: string | null) => {
+    if (currentProjectIdRef.current !== projectId) releaseDocumentText(currentProjectIdRef.current);
     currentProjectIdRef.current = projectId;
     const meta = savedProjectsRef.current.find(project => project.id === projectId);
     loadedProjectRevisionRef.current = { projectId, revision: meta?.revision };

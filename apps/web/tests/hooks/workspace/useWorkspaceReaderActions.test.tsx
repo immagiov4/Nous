@@ -1,3 +1,5 @@
+import * as documentTextService from '../../../services/projects/documentText';
+import { createDeferred } from '../../helpers/deferred';
 // @vitest-environment jsdom
 
 import { act, renderHook, waitFor } from '@testing-library/react';
@@ -423,4 +425,55 @@ test('rejects retained-answer mutations after cross-course navigation', async ()
   });
   expect(updateSection).not.toHaveBeenCalled();
   expect(patchSectionAnnotations).not.toHaveBeenCalled();
+});
+
+test('keeps a pending context question when autosave adopts an equivalent source', async () => {
+  const source: NonNullable<HookArgs['source']> = {
+    kind: 'pdf',
+    file: { name: 'source.pdf', mimeType: 'application/pdf', data: '' },
+    ref: {
+      id: 'source',
+      name: 'source.pdf',
+      mimeType: 'application/pdf',
+      hash: 'source-hash',
+      byteSize: 1,
+      objectPath: 'source/original',
+    },
+  };
+  const documentIndex: NonNullable<HookArgs['documentIndex']> = {
+    kind: 'pdf-text-index',
+    parsedAt: '2026-10-21',
+    textDeferred: true,
+    chunks: [],
+  };
+  const loaded = createDeferred();
+  vi.spyOn(documentTextService, 'loadDocumentText').mockReturnValue(
+    loaded.promise.then(() => ({ source, documentIndex: null }))
+  );
+  const openContextAnswer = vi.fn();
+  const args = buildHookArgs({
+    source,
+    documentIndex,
+    activeSectionId: 'lesson',
+    learningPlan: buildTestLearningPlan([
+      buildTestLesson({ id: 'lesson', content: 'Lesson text' }),
+    ]),
+    contextMenu: { ...buildHookArgs().contextMenu, type: 'lesson' },
+    openContextAnswer,
+  });
+  const { result, rerender } = renderHook((props: HookArgs) => useWorkspaceReaderActions(props), {
+    initialProps: args,
+  });
+  let question: Promise<void>;
+  act(() => {
+    question = result.current.handleContextQuestion('Explain this');
+  });
+  rerender({ ...args, source: { ...source, file: { ...source.file } } });
+  await act(async () => {
+    loaded.resolve();
+    await question;
+  });
+  expect(openContextAnswer).toHaveBeenCalledWith(
+    expect.objectContaining({ initialQuestion: 'Explain this', lessonId: 'lesson' })
+  );
 });

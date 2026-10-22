@@ -555,6 +555,7 @@ function parseDocumentIndex(value: unknown): PdfTextIndex | null {
 
   return {
     kind: 'pdf-text-index',
+    ...(value.textDeferred === true ? { textDeferred: true as const } : {}),
     parsedAt: ensureString(value.parsedAt, timestampIso()),
     sourceHash: ensureString(value.sourceHash),
     sourceIds: Array.isArray(value.sourceIds)
@@ -585,7 +586,7 @@ function parseDocumentIndex(value: unknown): PdfTextIndex | null {
         pageEnd: typeof chunk.pageEnd === 'number' ? chunk.pageEnd : undefined,
         sourceId: ensureString(chunk.sourceId) || undefined,
       }))
-      .filter(chunk => chunk.id && chunk.text),
+      .filter(chunk => chunk.id && (chunk.text || value.textDeferred === true)),
     mappingQuality: isRecord(value.mappingQuality)
       ? {
           coverageRatio:

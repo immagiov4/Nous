@@ -5,6 +5,7 @@ import {
   canonicalizeLessonNodeContent,
 } from '@shared/projectSnapshotWire';
 import { isRecord } from '../utils/validation.js';
+import { restoreProjectDocumentText } from './projectDocumentText.js';
 import { findProjectLessonSection } from './projectLesson.js';
 import { ProjectRevisionConflictError } from './projectRevision.js';
 import type {
@@ -196,5 +197,5 @@ export const applyProjectPatch = (
   }
 
   snapshot.updatedAt = updatedAt;
-  return snapshot;
+  return restoreProjectDocumentText(snapshot, existing);
 };

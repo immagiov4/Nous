@@ -157,7 +157,12 @@ test('the production HTTP adapter chunks files and polls an asynchronous job thr
     expect(await store.loadProject('local-user', snapshot.id)).toBeNull();
     finish();
     const result = await saving;
-    expect(result.snapshot.documentIndex?.chunks.map(chunk => chunk.text).join('')).toBe(
+    expect(result.snapshot.documentIndex?.textDeferred).toBe(true);
+    expect(result.snapshot.documentIndex?.chunks.every(chunk => chunk.text === '')).toBe(true);
+    const full = await repository.loadProjectWithRevision(snapshot.id, {
+      includeDocumentText: true,
+    });
+    expect(full?.snapshot.documentIndex?.chunks.map(chunk => chunk.text).join('')).toBe(
       text.trim()
     );
     expect(result.snapshot.source?.sources).toMatchObject([

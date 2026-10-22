@@ -5,6 +5,7 @@ import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { LibrarySiblingSetChangedError } from '../../src/projects/librarySiblingOrder.js';
 import { PostgresProjectStore } from '../../src/projects/postgresProjectStore.js';
+import { deferProjectDocumentText } from '../../src/projects/projectDocumentText';
 import {
   ProjectNotFoundError,
   ProjectRevisionConflictError,
@@ -85,6 +86,62 @@ const projectSnapshot: ProjectSnapshot = {
 };
 
 describe.skipIf(!shouldRun)('transactional project patch integration', () => {
+  test('opening without loading text preserves the database index through full save, patch and export', async () => {
+    if (!sql) throw new Error('Workflow integration database is required.');
+    const store = new PostgresProjectStore(undefined, sql);
+    const id = `deferred-text-${randomUUID()}`;
+    const documentIndex = {
+      kind: 'pdf-text-index',
+      parsedAt: createdAt,
+      chunks: [
+        {
+          id: 'source-segment',
+          text: 'Synthetic source text',
+          headingPath: [],
+          sequence: 0,
+          startOffset: 0,
+          endOffset: 21,
+        },
+      ],
+    };
+    try {
+      await store.saveProject(userId, { ...projectSnapshot, id, source: null, documentIndex });
+      const opened = await store.loadProjectWithRevision(userId, id);
+      if (!opened) throw new Error('Project missing after creation.');
+      const unopened = deferProjectDocumentText(opened.snapshot);
+      expect(unopened.documentIndex).toMatchObject({ textDeferred: true });
+      const saved = await store.saveProject(
+        userId,
+        { ...unopened, title: 'Reader edit' },
+        { expectedRevision: opened.revision }
+      );
+      const [row] =
+        await sql`select document_index from public.project_snapshots where user_id = ${userId} and id = ${id}`;
+      expect(row.document_index).toEqual(documentIndex);
+      const patched = await store.patchProject(
+        userId,
+        id,
+        { documentIndex: unopened.documentIndex, title: 'Patch edit' },
+        { expectedRevision: saved.meta.revision }
+      );
+      const savedWithoutIndex = await store.saveProject(
+        userId,
+        { ...unopened, documentIndex: null },
+        { expectedRevision: patched.revision }
+      );
+      await store.patchProject(
+        userId,
+        id,
+        { documentIndex: null },
+        { expectedRevision: savedWithoutIndex.meta.revision }
+      );
+      const reloaded = await store.loadProject(userId, id);
+      expect(reloaded?.documentIndex).toEqual(documentIndex);
+      expect((await store.exportProject(userId, id))?.documentIndex).toEqual(documentIndex);
+    } finally {
+      await store.deleteProject(userId, id);
+    }
+  });
   beforeAll(async () => {
     if (!sql) throw new Error('Workflow integration database is required.');
     await sql`
