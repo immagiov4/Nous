@@ -483,7 +483,7 @@ export function useLessonPlayback({
           audio.select({ index: blockIndex, buffer: prepared.buffer }, position);
           return;
         }
-        await visualAssets;
+        if (prepared.block.prepared?.scene) await visualAssets;
         if (!isCurrentStart()) return;
         await audio.start(bufferedRecordings(), position, latest.current.speed, signal);
         if (!isCurrentStart()) return;

@@ -145,7 +145,38 @@ function pendingUntilAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promis
   });
 }
 
+const sceneBlocks = blocks.map(block => ({
+  ...block,
+  prepared: {
+    motion: [],
+    scene: {
+      type: 'parts' as const,
+      title: 'Concetti',
+      body: '',
+      items: [{ icon: 'point', label: 'Prima', detail: '' }],
+      groups: [],
+      note: '',
+      quote: '',
+    },
+  },
+}));
+
+test('starts text-only playback while scene paths remain pending', async () => {
+  vi.mocked(loadSceneIconNodes).mockReturnValueOnce(new Promise(() => {}));
+  const { result } = renderHook(() => useLessonPlayback(target));
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(audio.start).toHaveBeenCalledOnce());
+  expect(result.current.loading).toBe(false);
+});
+
 test('loads scene paths after Play and waits for them while preparing audio', async () => {
+  vi.mocked(prepareLessonPlayback).mockImplementation(async request => ({
+    block: sceneBlocks[Number(request.blockId)],
+    voice: 'Kore',
+    model: 'tts',
+  }));
   const paths = deferred<Awaited<ReturnType<typeof loadSceneIconNodes>>>();
   vi.mocked(loadSceneIconNodes).mockReturnValueOnce(paths.promise);
   const { result } = renderHook(() => useLessonPlayback(target));

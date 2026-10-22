@@ -88,6 +88,11 @@ jobs:
 
   supabase-contract:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      SUPABASE_INTERNAL_IMAGE_REGISTRY: ghcr.io
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-supabase
       cancel-in-progress: true
@@ -103,6 +108,13 @@ jobs:
 
       - name: Install Dependencies
         run: bun install --frozen-lockfile
+
+      - name: Authenticate Supabase image pulls
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Start Local Supabase
         env:
