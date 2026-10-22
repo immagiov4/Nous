@@ -62,7 +62,10 @@ test('fits the complete scene into both available dimensions and releases the ob
   const sources = [{ type: 'markdown' as const, markdown: 'Una frase.' }];
   const { container, unmount } = render(
     <LessonPlaybackStage
-      block={segmentLessonPlayback(sources)[0]}
+      block={{
+        ...segmentLessonPlayback(sources)[0],
+        visuals: [{ kind: 'markdown', markdown: 'Una figura' }],
+      }}
       content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
       duration={6}
       time={0}
@@ -202,7 +205,11 @@ test.each([
   };
   advance(0.1);
   const first = paragraph.querySelector<HTMLElement>('.caption-word');
+  expect(container.querySelector('.scene-host')).toBeNull();
   expect(first?.style.opacity).toBe('1');
+  expect(paragraph.querySelector<HTMLElement>('.caption-word:last-of-type')?.style.opacity).toBe(
+    '0'
+  );
   expect(parseFloat(first?.style.getPropertyValue('--reveal-edge') ?? '')).toBeGreaterThan(0);
   expect(parseFloat(first?.style.getPropertyValue('--reveal-edge') ?? '')).toBeLessThan(100);
   advance(1);
@@ -774,4 +781,34 @@ test.each([
   );
   expect(container.querySelector('.scene-host pre')).toBeNull();
   expect(container.querySelector('.scene-host p')?.textContent?.trim()).toBe(body.trim());
+});
+
+test.each([
+  false,
+  true,
+])('omits the scene card for caption-only passages (prepared=%s)', prepared => {
+  const sources = [{ type: 'markdown' as const, markdown: 'Una frase senza figura.' }];
+  const block = segmentLessonPlayback(sources)[0];
+  const props = {
+    content: { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel,
+    duration: 6,
+    time: 0,
+  };
+  const captionOnly = { ...block, prepared: prepared ? { motion: [] } : undefined };
+  const withVisual = {
+    ...block,
+    id: 'visual',
+    visuals: [{ kind: 'markdown' as const, markdown: 'Una figura' }],
+  };
+  const { container, rerender } = render(<LessonPlaybackStage {...props} block={withVisual} />);
+  expect(container.querySelector('.scene-host')).not.toBeNull();
+  rerender(<LessonPlaybackStage {...props} block={captionOnly} />);
+  expect(container.querySelector('.scene-fit')).toBeNull();
+  expect(screen.getByLabelText('Sottotitoli').textContent).toContain('Una frase senza figura.');
+  const paragraph = container.querySelector('.caption-page');
+  rerender(<LessonPlaybackStage {...props} block={captionOnly} time={3} />);
+  expect(container.querySelector('.caption-page')).toBe(paragraph);
+  expect(container.querySelector('.scene-host')).toBeNull();
+  rerender(<LessonPlaybackStage {...props} block={withVisual} />);
+  expect(container.querySelector('.scene-host')).not.toBeNull();
 });

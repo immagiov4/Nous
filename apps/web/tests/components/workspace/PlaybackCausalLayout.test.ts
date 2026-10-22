@@ -131,3 +131,43 @@ for (const viewport of [
     }
   });
 }
+
+for (const viewport of [
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+]) {
+  test.each([
+    'reduce',
+    'no-preference',
+  ] as const)(`shows full-width progressive captions without a scene at ${viewport.width}x${viewport.height} (%s)`, async reducedMotion => {
+    const page = await browser.newPage({ viewport, reducedMotion });
+    try {
+      await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?captionOnly`);
+      await page.locator('.caption-page').waitFor({ state: 'attached' });
+      await page.waitForFunction(() =>
+        [...document.querySelectorAll('.caption-word')].some(
+          word => getComputedStyle(word).opacity === '1'
+        )
+      );
+      expect(await page.locator('.captions').isVisible()).toBe(true);
+      expect(await page.locator('.scene-host').count()).toBe(0);
+      const layout = await page.evaluate(() => {
+        const caption = document.querySelector('.caption-page');
+        const stage = document.querySelector('.listening-stage');
+        if (!caption || !stage) throw new Error('Captions must exist');
+        const words = [...caption.querySelectorAll('.caption-word')];
+        return {
+          width: caption.getBoundingClientRect().width,
+          stageWidth: stage.getBoundingClientRect().width,
+          visible: words.filter(word => getComputedStyle(word).opacity === '1').length,
+          hidden: words.filter(word => getComputedStyle(word).opacity === '0').length,
+        };
+      });
+      expect(layout.width).toBeCloseTo(layout.stageWidth, 0);
+      expect(layout.visible).toBeGreaterThan(0);
+      expect(layout.hidden).toBeGreaterThan(0);
+    } finally {
+      await page.close();
+    }
+  });
+}

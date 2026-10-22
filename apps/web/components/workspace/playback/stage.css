@@ -1894,6 +1894,9 @@
   align-items: center;
   padding: 32px 0;
 }
+.lesson-player-stage .listening-stage[data-caption-only] {
+  grid-template-columns: minmax(0, 1fr);
+}
 .lesson-player-stage .captions {
   min-height: 210px;
   display: flex;
@@ -2281,5 +2284,13 @@
   .lesson-player-stage .scene-fit {
     flex-shrink: 0;
     order: 0;
+  }
+}
+
+@media (max-width: 650px) {
+  .lesson-player-stage .listening-stage[data-caption-only] .captions {
+    position: static;
+    visibility: visible;
+    pointer-events: auto;
   }
 }

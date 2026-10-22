@@ -335,6 +335,14 @@ export default function LessonPlaybackStage({
     const captions = captionFormat(source.markdown, source.ranges);
     return { ...captions, speechRanges: captionSpeechRanges(captions.words, source.ranges) };
   }, [block, sources]);
+  const visuals = useMemo(() => {
+    if (block.prepared?.scene && getPlaybackMathMarkdown(block))
+      return [{ kind: 'scene' as const, scene: block.prepared.scene }];
+    if (block.visuals.length) return block.visuals;
+    if (block.prepared?.scene) return [{ kind: 'scene' as const, scene: block.prepared.scene }];
+    return [];
+  }, [block]);
+  const hasVisuals = visuals.length > 0;
   const captions = useRef<HTMLParagraphElement>(null);
   const sceneFit = useRef<HTMLDivElement>(null);
   const sceneCard = useRef<HTMLElement>(null);
@@ -343,6 +351,7 @@ export default function LessonPlaybackStage({
   const animate = useShouldAnimate();
   const latest = useRef({ time, speed, readTime, animate });
   useLayoutEffect(() => {
+    if (!hasVisuals) return;
     const slot = sceneFit.current;
     const card = sceneCard.current;
     const stage = slot?.parentElement;
@@ -396,7 +405,7 @@ export default function LessonPlaybackStage({
       mutations.disconnect();
       if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);
     };
-  }, []);
+  }, [hasVisuals]);
   useLayoutEffect(() => {
     latest.current = { time, speed, readTime, animate };
   }, [time, speed, readTime, animate]);
@@ -495,15 +504,6 @@ export default function LessonPlaybackStage({
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const visuals = useMemo(() => {
-    if (block.prepared?.scene && getPlaybackMathMarkdown(block))
-      return [{ kind: 'scene' as const, scene: block.prepared.scene }];
-    if (block.visuals.length) return block.visuals;
-    if (block.prepared?.scene) return [{ kind: 'scene' as const, scene: block.prepared.scene }];
-    if (block.prepared)
-      return [{ kind: 'markdown' as const, markdown: captionSource(block, sources).markdown }];
-    return [];
-  }, [block, sources]);
   const [selection, setSelection] = useState<{
     visuals: readonly PlaybackVisual[];
     index: number;
@@ -583,7 +583,7 @@ export default function LessonPlaybackStage({
   };
   return (
     <div className="lesson-player-stage">
-      <section className="listening-stage">
+      <section className="listening-stage" data-caption-only={!hasVisuals || undefined}>
         <section className="captions" aria-label={t('Sottotitoli')}>
           {(formatted.headings.length ? formatted.headings : [block.heading]).map(
             (heading, index) => (
@@ -606,26 +606,28 @@ export default function LessonPlaybackStage({
             })}
           </p>
         </section>
-        <div ref={sceneFit} className="scene-fit">
-          <section
-            ref={sceneCard}
-            className="scene-host"
-            aria-label={t('Visualizzazione della lezione')}
-          >
-            {visual ? (
-              <PlaybackVisualContent
-                key={`${block.id}:${visualIndex}`}
-                {...sceneProps}
-                interval={{
-                  start: (duration * visualIndex) / visuals.length,
-                  duration: duration / visuals.length,
-                }}
-                visual={visual}
-                content={content}
-              />
-            ) : null}
-          </section>
-        </div>
+        {hasVisuals ? (
+          <div ref={sceneFit} className="scene-fit">
+            <section
+              ref={sceneCard}
+              className="scene-host"
+              aria-label={t('Visualizzazione della lezione')}
+            >
+              {visual ? (
+                <PlaybackVisualContent
+                  key={`${block.id}:${visualIndex}`}
+                  {...sceneProps}
+                  interval={{
+                    start: (duration * visualIndex) / visuals.length,
+                    duration: duration / visuals.length,
+                  }}
+                  visual={visual}
+                  content={content}
+                />
+              ) : null}
+            </section>
+          </div>
+        ) : null}
       </section>
     </div>
   );

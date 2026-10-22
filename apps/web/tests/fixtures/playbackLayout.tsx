@@ -46,9 +46,10 @@ const scene: LessonScene = {
   note: '',
   quote: '',
 };
+const captionOnly = new URLSearchParams(location.search).has('captionOnly');
 const block: LessonPlaybackBlock = {
   ...segmentLessonPlayback(sources)[0],
-  visuals: [{ kind: 'scene', scene }],
+  visuals: captionOnly ? [] : [{ kind: 'scene', scene }],
 };
 document.documentElement.style.cssText =
   '--bg-paper:#fdfbf7;--bg-surface:#fff;--ink-primary:#1f1f1f;--ink-secondary:#4a4a4a;--border-subtle:#e5e7eb';
@@ -60,7 +61,7 @@ createRoot(root).render(
       block={block}
       content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
       duration={30}
-      time={15}
+      time={captionOnly ? 3 : 15}
     />
   </div>
 );
