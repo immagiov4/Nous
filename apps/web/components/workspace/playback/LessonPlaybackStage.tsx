@@ -339,7 +339,7 @@ export default function LessonPlaybackStage({
   const sceneFit = useRef<HTMLDivElement>(null);
   const sceneCard = useRef<HTMLElement>(null);
   const clock = useRef<CaptionClock | null>(null);
-  const scroll = useRef({ line: -1, target: 0 });
+  const scroll = useRef({ blockId: block.id, line: -1, target: 0 });
   const animate = useShouldAnimate();
   const latest = useRef({ time, speed, readTime, animate });
   useLayoutEffect(() => {
@@ -404,6 +404,9 @@ export default function LessonPlaybackStage({
   useLayoutEffect(() => {
     const paragraph = captions.current;
     if (!paragraph) throw new Error('Captions must be mounted');
+    // Snapshot updates can remeasure the same page without restarting its scroll.
+    if (scroll.current.blockId !== block.id)
+      scroll.current = { blockId: block.id, line: -1, target: 0 };
     const measure = () => {
       let width = 0;
       const runs = Array.from(paragraph.querySelectorAll<HTMLElement>('.caption-word'), span => {
@@ -447,13 +450,11 @@ export default function LessonPlaybackStage({
           };
         },
       };
-      paragraph.scrollTop = 0;
-      scroll.current = { line: -1, target: 0 };
     };
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, [duration, formatted]);
+  }, [block.id, duration, formatted]);
 
   useEffect(() => {
     let previousClock: CaptionClock | null = null;
@@ -505,7 +506,7 @@ export default function LessonPlaybackStage({
     return [];
   }, [block, sources]);
   const [selection, setSelection] = useState<{
-    visuals: readonly PlaybackVisual[];
+    blockId: string;
     index: number;
   } | null>(null);
   const anchors = useMemo(
@@ -565,7 +566,11 @@ export default function LessonPlaybackStage({
         });
         if (active !== previousActive) {
           previousActive = active;
-          setSelection({ visuals, index: active });
+          setSelection(current =>
+            current?.blockId === block.id && current.index === active
+              ? current
+              : { blockId: block.id, index: active }
+          );
         }
       }
       frame = requestAnimationFrame(tick);
@@ -573,7 +578,7 @@ export default function LessonPlaybackStage({
     tick();
     return () => cancelAnimationFrame(frame);
   }, [anchors, block, duration, visuals]);
-  const visualIndex = selection?.visuals === visuals ? selection.index : -1;
+  const visualIndex = selection?.blockId === block.id ? selection.index : -1;
   const visual = visuals[visualIndex];
   const sceneProps = {
     block,
