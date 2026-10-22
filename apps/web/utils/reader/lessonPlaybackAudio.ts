@@ -1,5 +1,9 @@
 import stretchModuleUrl from 'signalsmith-stretch?url';
 import SignalsmithStretch from 'signalsmith-stretch';
+import workletUrl from './signalsmithWorklet?worker&url';
+
+// Ship the complete module: serialized functions can refer to bundle-local helpers.
+SignalsmithStretch.moduleUrl = workletUrl;
 
 // Bundler helpers cannot cross the worklet's serialized closure.
 Object.assign(SignalsmithStretch, { moduleUrl: stretchModuleUrl });
@@ -14,8 +18,9 @@ type StretchNode = Awaited<ReturnType<typeof SignalsmithStretch>>;
 
 /** One sample stream preserves pitch and passage boundaries without event-driven hand-offs. */
 export class LessonPlaybackAudio {
-  private readonly context = new AudioContext();
-  private readonly node: Promise<StretchNode>;
+  private context!: AudioContext;
+  private node: Promise<StretchNode> | null = null;
+  private failed = false;
   private operation = Promise.resolve();
   private recordings: BufferedRecording[] = [];
   private anchor: { input: number; output: number; speed: number } | null = null;
@@ -27,24 +32,64 @@ export class LessonPlaybackAudio {
   onEnded: (() => void) | null = null;
   onError: ((error: unknown) => void) | null = null;
 
-  constructor() {
-    this.node = SignalsmithStretch(this.context, {
+  /** Initializes the worklet once; callers can observe readiness or failure explicitly. */
+  ready() {
+    this.node ??= this.initialize();
+    return this.node;
+  }
+
+  private initialize() {
+    const node = this.createNode();
+    void node.catch(error => {
+      if (this.node === node) this.reportError(error);
+    });
+    return node;
+  }
+
+  private async createNode() {
+    const context = new AudioContext();
+    this.context = context;
+    context.onstatechange = () => {
+      if (this.context === context && context.state === 'closed')
+        this.reportError(new Error('Audio context closed'));
+    };
+    const node = await SignalsmithStretch(context, {
       numberOfInputs: 1,
       numberOfOutputs: 1,
       outputChannelCount: [2],
-    }).then((node: StretchNode) => {
-      node.onprocessorerror = () => this.reportError(new Error('Audio processing failed'));
-      void node.setUpdateInterval(CLOCK_UPDATE_SECONDS, this.tick);
-      node.connect(this.context.destination);
-      return node;
     });
-    void this.node.catch(error => this.reportError(error));
+    node.onprocessorerror = () => {
+      if (this.context === context) this.reportError(new Error('Audio processing failed'));
+    };
+    node.connect(context.destination);
+    await node.setUpdateInterval(CLOCK_UPDATE_SECONDS, this.tick);
+    return node;
   }
 
-  unlock() {
-    return this.context.resume();
+  async unlock() {
+    if (this.failed) {
+      this.releaseContext();
+      this.failed = false;
+      this.operation = Promise.resolve();
+      this.node = null;
+    }
+    const node = this.ready();
+    // Resume inside the user gesture, while worklet loading can still be pending.
+    if (this.context) await this.resumeContext();
+    await node;
   }
-  decode(bytes: Uint8Array): Promise<AudioBuffer> {
+
+  private async resumeContext() {
+    const context = this.context;
+    try {
+      await context.resume();
+    } catch (error) {
+      if (this.context === context) this.reportError(error);
+      throw error;
+    }
+  }
+  async decode(bytes: Uint8Array): Promise<AudioBuffer> {
+    await this.ready();
     return this.context.decodeAudioData(Uint8Array.from(bytes).buffer);
   }
 
@@ -70,7 +115,8 @@ export class LessonPlaybackAudio {
     this.pause();
     const generation = this.generation;
     this.speed = speed;
-    await this.unlock();
+    await this.ready();
+    await this.resumeContext();
     signal.throwIfAborted();
     await this.enqueue(async node => {
       if (generation !== this.generation) return;
@@ -132,27 +178,41 @@ export class LessonPlaybackAudio {
     const input = this.inputTime();
     const output = this.context.currentTime;
     this.anchor = { input, output, speed };
-    void this.node
+    const session = this.ready();
+    void session
       .then(node => node.schedule({ input, output, outputTime: output, rate: speed, semitones: 0 }))
-      .catch(error => this.reportError(error));
+      .catch(error => {
+        if (this.node === session) this.reportError(error);
+      });
   }
 
   pause() {
     this.stopClock();
+    if (this.node === null || this.failed) return;
+    const session = this.node;
     void this.enqueue(async node => {
       await node.stop();
-    }).catch(error => this.reportError(error));
+    }).catch(error => {
+      if (this.node === session) this.reportError(error);
+    });
   }
 
   close() {
     this.stopClock();
     this.onPosition = null;
     this.onEnded = null;
-    void this.context.close().catch(error => this.reportError(error));
+    this.releaseContext();
+  }
+
+  private releaseContext() {
+    if (!this.context) return;
+    this.context.onstatechange = null;
+    void this.context.close().catch(error => console.error('Lesson audio close failed', error));
   }
 
   private enqueue(operation: (node: StretchNode) => Promise<void>): Promise<void> {
-    const next = this.operation.then(() => this.node).then(operation);
+    const session = this.ready();
+    const next = this.operation.then(() => session).then(operation);
     // Each caller observes its own error; later user actions can still recover.
     this.operation = next.catch(() => {});
     return next;
@@ -187,6 +247,7 @@ export class LessonPlaybackAudio {
 
   private reportError(error: unknown) {
     this.stopClock();
+    this.failed = true;
     console.error('Lesson audio failed', error);
     this.onError?.(error);
   }

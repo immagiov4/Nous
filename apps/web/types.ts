@@ -469,6 +469,7 @@ export interface PdfTextChunk {
 }
 
 export interface PdfTextIndex {
+  textDeferred?: true;
   kind: 'pdf-text-index';
   parsedAt: string;
   sourceHash?: string;

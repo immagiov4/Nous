@@ -72,7 +72,8 @@
     "test:coverage": "bun scripts/heavy-run.mjs --label test:coverage --shell \"bun run prepare:coverage && vitest run --coverage --config apps/web/vitest.config.ts\" --",
     "check:changed": "bun scripts/check-changed.mjs",
     "atlas:playback": "bun run e2e/nous/playbackAtlas.ts",
-    "test:atlas:browser": "bun run e2e/nous/tests/playbackAtlas.browser.ts"
+    "test:atlas:browser": "bun run e2e/nous/tests/playbackAtlas.browser.ts",
+    "test:audio-production": "bun scripts/test-production-audio.browser.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.139",

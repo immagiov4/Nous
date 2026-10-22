@@ -398,6 +398,31 @@ test('a genuine media failure remains visible and retry retains its position', a
   expect(audio.position.time).toBe(7);
 });
 
+test.each([
+  'play',
+  'resume',
+  'seek',
+  'voice',
+])('a start rejection during %s settles loading and permits retry', async entry => {
+  const { result, rerender } = renderHook(({ voice }) => useLessonPlayback({ ...target, voice }), {
+    initialProps: { voice: 'Kore' },
+  });
+  if (entry !== 'play') await act(async () => result.current.play());
+  if (entry === 'resume') act(() => result.current.pause());
+  audio.start.mockRejectedValueOnce(new Error('Worklet initialization failed'));
+  await act(async () => {
+    if (entry === 'seek') result.current.seek(2);
+    else if (entry === 'voice') rerender({ voice: 'Puck' });
+    else await result.current.play();
+  });
+  await waitFor(() => expect(result.current.failed).toBe(true));
+  expect(result.current.loading).toBe(false);
+  expect(result.current.playing).toBe(false);
+  await act(async () => result.current.play());
+  expect(result.current.failed).toBe(false);
+  expect(result.current.playing).toBe(true);
+});
+
 test('seek within a recording cancels and refills prefetch without redownloading audio', async () => {
   const { result } = renderHook(() => useLessonPlayback(target));
   await act(async () => result.current.play());

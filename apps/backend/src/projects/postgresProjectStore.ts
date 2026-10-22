@@ -38,6 +38,7 @@ import {
   PostgresProjectAssetImporter,
   publishImportedProjectAssets,
 } from './projectAssetImport.js';
+import { restoreProjectDocumentText } from './projectDocumentText.js';
 import { projectImportConfig } from './projectImportConfig.js';
 import { buildProjectMeta, normalizeProjectSnapshot } from './projectMeta.js';
 import { applyProjectPatch, assertRebasedProjectPatch } from './projectPatch.js';
@@ -1169,7 +1170,7 @@ export class PostgresProjectStore implements ProjectStore {
           `
           );
           if (!lockedRows[0]) throw new ProjectNotFoundError();
-          if (!sourceWrite && snapshot.source != null) {
+          if (!sourceWrite) {
             previousSnapshot = await lockPreviousSnapshot();
           }
         }
@@ -1178,7 +1179,9 @@ export class PostgresProjectStore implements ProjectStore {
             ? await this.canonicalizeDetachedProjectSource(sql, userId, snapshot)
             : snapshot;
         const snapshotToPersist = restoreStoredPreparedPdfText(
-          canonicalSnapshot,
+          sourceWrite
+            ? canonicalSnapshot
+            : restoreProjectDocumentText(canonicalSnapshot, previousSnapshot ?? existingSnapshot),
           previousSnapshot ?? existingSnapshot,
           new Set(sourcePreparation ? sourceFiles?.files.map(file => file.id) : [])
         );
