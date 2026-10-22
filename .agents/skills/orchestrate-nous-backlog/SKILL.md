@@ -163,7 +163,9 @@ subagents. Use a local subagent only for a short, read-only verification that su
 chat; never use one to implement, publish, or own a backlog issue. Keep roughly 8-10 tasks or fewer
 active and queue excess work.
 
-1. Group overlapping issues by subsystem before creating tasks. Use `gpt-6-astra` for all tasks:
+1. Group overlapping issues by subsystem before creating tasks. Use `gpt-6.1-sol` on the standard (`default`) service tier for all tasks; never pick
+   another model (such as `gpt-6-astra`) or the fast/priority tier, and never let a task spawn
+   sub-agents, unless the user explicitly authorizes it. Reasoning effort:
    `low` reasoning for simple, bounded work such as a small UI change expected to take about
    5-10 minutes; `medium` for normal work; `high` for difficult or high-impact work.
    The user's "Light" level maps to `low`. Keep `high` as the maximum unless the user explicitly
