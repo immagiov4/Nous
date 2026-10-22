@@ -157,3 +157,21 @@ test('cancellation waits for terminal cleanup before releasing its block', async
   expect(settled).toBe(true);
   expect(fetchMock).toHaveBeenCalledTimes(3);
 });
+
+test('aborts the reader wait immediately while a durable preparation is retrying', async () => {
+  const running = await completed().json();
+  running.state.run.status = 'running';
+  fetchMock.mockResolvedValue(new Response(JSON.stringify(running)));
+  const stop = vi.fn();
+  subscribe.mockReturnValueOnce(stop);
+  const controller = new AbortController();
+  const waiting = waitForLessonPlayback('run', 'project', controller.signal);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetchMock).toHaveBeenCalledOnce();
+  controller.abort();
+  await expect(waiting).rejects.toMatchObject({ name: 'AbortError' });
+  expect(stop).toHaveBeenCalledOnce();
+  expect(vi.getTimerCount()).toBe(0);
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(fetchMock).toHaveBeenCalledOnce();
+});

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { TtsRequestError } from '../../../services/openrouter/ttsClient.ts';
 
 const openRouterMocks = vi.hoisted(() => ({
   checkTTSStatus: vi.fn(),
@@ -524,4 +525,226 @@ test('discards a pending recording after unmount', async () => {
   unmount();
   await act(async () => release({ audioBuffer: new ArrayBuffer(480), contentType: 'audio/wav' }));
   expect(URL.createObjectURL).not.toHaveBeenCalled();
+});
+
+test.each([
+  12_000, 30_000, 45_000,
+])('standard reader respects a %s ms provider hint and its cap', async retryAfterMs => {
+  vi.useFakeTimers();
+  const { result, unmount } = renderHook(() =>
+    useTtsPlayer({
+      projectId: 'project-1',
+      activeSectionId: 'retry',
+      sectionContent: 'Synthetic narration.',
+    })
+  );
+  try {
+    openRouterMocks.generateSpeech.mockRejectedValue(
+      new TtsRequestError('Speech unavailable.', 502, { retryAfterMs, maxRetryDelayMs: 30_000 })
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => result.current.togglePlayPause());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(1);
+    if (retryAfterMs > 30_000) {
+      expect(result.current.errorMessage).toBeTruthy();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(retryAfterMs);
+      });
+      expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(1);
+    } else {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(retryAfterMs - 1);
+      });
+      expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(2);
+      expect(result.current.errorMessage).toBeTruthy();
+    }
+  } finally {
+    unmount();
+    vi.useRealTimers();
+  }
+});
+
+test.each([
+  'pause',
+  'seek',
+  'unmount',
+] as const)('standard reader cancels a provider retry wait on %s', async action => {
+  vi.useFakeTimers();
+  const { result, unmount } = renderHook(() =>
+    useTtsPlayer({
+      projectId: 'project-1',
+      activeSectionId: 'retry',
+      sectionContent: 'First passage.\n\nSecond passage.',
+    })
+  );
+  let mounted = true;
+  try {
+    openRouterMocks.generateSpeech.mockRejectedValueOnce(
+      new TtsRequestError('Speech unavailable.', 502, {
+        retryAfterMs: 30_000,
+        maxRetryDelayMs: 30_000,
+      })
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => result.current.togglePlayPause());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(1);
+    const firstText = openRouterMocks.generateSpeech.mock.calls[0][0].text;
+    act(() => {
+      if (action === 'pause') result.current.togglePlayPause();
+      else if (action === 'seek') result.current.handleSelectChunk(1);
+      else {
+        unmount();
+        mounted = false;
+      }
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    if (mounted) {
+      expect(result.current.audioState.chunks[0].isLoading).toBe(false);
+      expect(result.current.errorMessage).toBeNull();
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(
+      openRouterMocks.generateSpeech.mock.calls.filter(([request]) => request.text === firstText)
+    ).toHaveLength(1);
+  } finally {
+    if (mounted) unmount();
+    vi.useRealTimers();
+  }
+});
+
+test.each([
+  'pause',
+  'seek',
+] as const)('a late failed request cannot schedule a retry after %s', async action => {
+  vi.useFakeTimers();
+  let rejectSpeech!: (error: Error) => void;
+  openRouterMocks.generateSpeech.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        rejectSpeech = reject;
+      })
+  );
+  const { result, unmount } = renderHook(() =>
+    useTtsPlayer({
+      projectId: 'project-1',
+      activeSectionId: 'late-retry',
+      sectionContent: 'First passage.\n\nSecond passage.',
+    })
+  );
+  try {
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => result.current.togglePlayPause());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const firstText = openRouterMocks.generateSpeech.mock.calls[0][0].text;
+    act(() => {
+      if (action === 'pause') result.current.togglePlayPause();
+      else result.current.handleSelectChunk(1);
+    });
+    await act(async () => {
+      rejectSpeech(
+        new TtsRequestError('Speech unavailable.', 502, {
+          retryAfterMs: 30_000,
+          maxRetryDelayMs: 30_000,
+        })
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.audioState.chunks[0].isLoading).toBe(false);
+    expect(result.current.errorMessage).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(
+      openRouterMocks.generateSpeech.mock.calls.filter(([request]) => request.text === firstText)
+    ).toHaveLength(1);
+  } finally {
+    unmount();
+    vi.useRealTimers();
+  }
+});
+
+test.each([
+  'resume',
+  'prefetch',
+] as const)('a new listening request can retry a reused pending %s recording', async action => {
+  vi.useFakeTimers();
+  let rejectSpeech!: (error: Error) => void;
+  if (action === 'prefetch') {
+    openRouterMocks.generateSpeech.mockResolvedValueOnce({
+      audioBuffer: new ArrayBuffer(480),
+      contentType: 'audio/wav',
+    });
+  }
+  openRouterMocks.generateSpeech.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        rejectSpeech = reject;
+      })
+  );
+  const { result, unmount } = renderHook(() =>
+    useTtsPlayer({
+      projectId: 'project-1',
+      activeSectionId: 'reuse-retry',
+      sectionContent: action === 'prefetch' ? 'First passage.\n\nSecond passage.' : 'Only passage.',
+    })
+  );
+  try {
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => result.current.togglePlayPause());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const initialRequests = action === 'prefetch' ? 2 : 1;
+    expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(initialRequests);
+    if (action === 'prefetch') {
+      act(() => result.current.handleSelectChunk(1));
+    } else {
+      act(() => result.current.togglePlayPause());
+      act(() => result.current.togglePlayPause());
+    }
+    await act(async () => {
+      rejectSpeech(
+        new TtsRequestError('Speech unavailable.', 502, {
+          retryAfterMs: 12_000,
+          maxRetryDelayMs: 30_000,
+        })
+      );
+      await vi.advanceTimersByTimeAsync(11_999);
+    });
+    expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(initialRequests);
+    expect(result.current.errorMessage).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(initialRequests + 1);
+    expect(result.current.audioState.isPlaying).toBe(true);
+    expect(result.current.audioState.chunks[action === 'prefetch' ? 1 : 0].isLoading).toBe(false);
+  } finally {
+    unmount();
+    vi.useRealTimers();
+  }
 });

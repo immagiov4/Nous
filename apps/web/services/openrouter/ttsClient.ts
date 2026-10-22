@@ -1,4 +1,5 @@
 import type { LessonPlaybackBlock } from '@shared/lessonPlayback';
+import * as z from 'zod';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from './config.ts';
 import type { TtsModelsResponse, TtsStatusResponse, TtsVoiceDescriptor } from './types.ts';
@@ -19,9 +20,11 @@ export interface SpeechAudioResponse {
   contentType: string;
 }
 
-interface TtsErrorResponse {
-  error?: string;
-}
+const TtsErrorResponseSchema = z.object({
+  error: z.string().optional(),
+  retryAfterMs: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  maxRetryDelayMs: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+});
 
 interface TtsVoicesResponse {
   voices?: TtsVoiceDescriptor[];
@@ -30,7 +33,11 @@ interface TtsVoicesResponse {
 export class TtsRequestError extends Error {
   constructor(
     message: string,
-    readonly status: number
+    readonly status: number,
+    readonly retry: Pick<
+      z.infer<typeof TtsErrorResponseSchema>,
+      'retryAfterMs' | 'maxRetryDelayMs'
+    > = {}
   ) {
     super(message);
     this.name = 'TtsRequestError';
@@ -49,12 +56,12 @@ export const requestSpeechAudio = async (
   });
 
   if (!response.ok) {
-    const errorData = (await response
-      .json()
-      .catch(() => ({ error: 'Unknown error' }))) as TtsErrorResponse;
+    const parsed = TtsErrorResponseSchema.safeParse(await response.json().catch(() => ({})));
+    const errorData = parsed.success ? parsed.data : {};
     throw new TtsRequestError(
       `TTS API error: ${response.status} - ${errorData.error || 'Unknown error'}`,
-      response.status
+      response.status,
+      { retryAfterMs: errorData.retryAfterMs, maxRetryDelayMs: errorData.maxRetryDelayMs }
     );
   }
 

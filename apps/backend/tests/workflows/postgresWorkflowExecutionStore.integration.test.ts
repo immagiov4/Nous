@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import * as z from 'zod';
+import { ttsClient } from '../../src/services/ttsClient.js';
 import { WorkflowExecutionDefaultsSchema } from '../../src/workflows/config.js';
 import { createWorkflowRegistry, fanOut, step, workflow } from '../../src/workflows/definition.js';
 import { materializeWorkflowStart } from '../../src/workflows/materialization.js';
@@ -12,6 +13,7 @@ import {
   failPermanently,
   retryCorrective,
   retryOperational,
+  toStepFailure,
 } from '../../src/workflows/retryPolicy.js';
 import {
   WorkflowLeaseLostError,
@@ -225,6 +227,77 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
       store.providerEffects.recordResult({ ...identity, output: { content: 'late' } })
     ).rejects.toBeInstanceOf(WorkflowLeaseLostError);
     await sql`delete from public.workflow_runs where id = ${runId}`;
+  });
+
+  test('cancels a durable TTS retry before its provider wait expires', async () => {
+    if (!sql) throw new Error('Workflow integration database is required.');
+    await withPostgresWorkflowTestLock(
+      sql,
+      POSTGRES_WORKFLOW_TEST_LOCK.terminalReconciliation,
+      async () => {
+        const store = createStore(sql);
+        const definition = registeredStepWorkflow('tts-retry-cancellation', 'generate');
+        const runId = randomUUID();
+        const input = { content: 'Synthetic narration.' };
+        await store.createRun({
+          config: definition.executionDefaults,
+          definitionHash: definition.definitionHash,
+          definitionHashVersion: definition.definitionHashVersion,
+          id: runId,
+          input,
+          materialization: materializeWorkflowStart(definition, input, {
+            resolvedConfig: definition.executionDefaults,
+          }),
+          projectId,
+          requestKey: randomUUID(),
+          userId,
+          workflowId: definition.id,
+        });
+        const fetchMock = vi
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValue(
+            new Response('Rate limited', { status: 429, headers: { 'retry-after': '30' } })
+          );
+        vi.stubEnv('OPENROUTER_API_KEY', 'synthetic-key');
+        try {
+          const claim = await claimNextStep(store, definition, 'tts-worker');
+          if (!claim) throw new Error('Expected the speech claim.');
+          const error = await ttsClient
+            .generateSpeech({ text: input.content, model: 'x-ai/grok-voice-tts-1.0' })
+            .catch(error => error);
+          expect(error).toMatchObject({ name: 'OpenRouterTtsError' });
+          const failure = toStepFailure(error);
+          expect(
+            await store.steps.recordFailure({ claim, definition, failure, random: () => 1 })
+          ).toMatchObject({ status: 'retrying' });
+          const [scheduled] = await sql`
+          select error, available_at > clock_timestamp() + interval '25 seconds' as waiting
+          from public.workflow_node_runs where run_id = ${runId}
+        `;
+          expect(scheduled).toMatchObject({
+            error: { retryAfterMs: 30_000, maxRetryDelayMs: 30_000 },
+            waiting: true,
+          });
+          expect(await claimNextStep(store, definition, 'early-worker')).toBeNull();
+          await store.cancellation.request({ runId, userId });
+          expect(await store.cancellation.reconcileNext()).toMatchObject({
+            runId,
+            runStatus: 'cancelled',
+          });
+          const [cancelled] = await sql`
+          select status, available_at > clock_timestamp() as before_retry from public.workflow_node_runs where run_id = ${runId}
+        `;
+          expect(cancelled).toMatchObject({ status: 'cancelled', before_retry: true });
+          await sql`update public.workflow_node_runs set available_at = clock_timestamp() where run_id = ${runId}`;
+          expect(await claimNextStep(store, definition, 'late-worker')).toBeNull();
+          expect(fetchMock).toHaveBeenCalledTimes(1);
+        } finally {
+          fetchMock.mockRestore();
+          vi.unstubAllEnvs();
+          await sql`delete from public.workflow_runs where id = ${runId}`;
+        }
+      }
+    );
   });
 
   test('preserves corrective feedback identity across an operational retry', async () => {
