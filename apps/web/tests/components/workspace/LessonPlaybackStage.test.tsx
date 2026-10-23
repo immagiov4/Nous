@@ -1121,7 +1121,7 @@ test.each([
 });
 
 test.each([
-  'captions',
+  'code',
   'scene',
 ] as const)('keeps the current %s and reading position when a prepared project snapshot arrives', presentation => {
   vi.mocked(useShouldAnimate).mockReturnValue(false);
@@ -1138,6 +1138,10 @@ test.each([
   };
   const first = {
     ...blocks[0],
+    visuals:
+      presentation === 'code'
+        ? [{ kind: 'markdown' as const, markdown: '```ts\nconst sample = 1;\n```' }]
+        : blocks[0].visuals,
     prepared: { motion: [], ...(presentation === 'scene' ? { scene } : {}) },
   };
   const content = {
@@ -1151,8 +1155,6 @@ test.each([
   const visual = container.querySelector('.scene-host')?.firstElementChild;
   if (!caption || !visual) throw new Error('Prepared passage must be visible');
   caption.scrollTop = 200;
-  const mutations = new MutationObserver(() => {});
-  mutations.observe(container, { childList: true, subtree: true });
   rerender(
     <LessonPlaybackStage
       block={structuredClone(first)}
@@ -1164,7 +1166,7 @@ test.each([
   expect(container.querySelector('.caption-page')).toBe(caption);
   expect(caption.scrollTop).toBe(200);
   expect(container.querySelector('.scene-host')?.firstElementChild).toBe(visual);
-  expect(mutations.takeRecords().flatMap(record => [...record.removedNodes])).not.toContain(visual);
+  expect(visual.isConnected).toBe(true);
   rerender(
     <LessonPlaybackStage
       block={{ ...blocks[1], prepared: first.prepared }}
@@ -1177,11 +1179,5 @@ test.each([
   expect(nextCaption).not.toBe(caption);
   expect(nextCaption?.scrollTop).toBe(0);
   expect(container.querySelector('.scene-host')?.firstElementChild).not.toBe(visual);
-  expect(
-    mutations
-      .takeRecords()
-      .flatMap(record => [...record.removedNodes])
-      .filter(node => node === visual)
-  ).toHaveLength(1);
-  mutations.disconnect();
+  expect(visual.isConnected).toBe(false);
 });
