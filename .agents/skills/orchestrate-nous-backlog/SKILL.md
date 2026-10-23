@@ -254,9 +254,8 @@ Apply these Nous-specific rules to every workstream:
 After each coherent block, verify the smallest meaningful artifact first. Use `$code-review` for
 the independent standards/spec review, `$blast-radius` for material cross-cutting risk, and
 `$receiving-pr-reviews` before changing code in response to PR findings, local reviewing
-agents, or self-review. Use
-These skills own
-review mechanics; this skill retains the Nous-specific gates below.
+agents, or self-review.
+These skills own review mechanics; this skill retains the Nous-specific gates below.
 
 1. Run the narrowest meaningful tests first.
 2. Run the cheap, relevant checks: type checks, formatter/linter, focused static/security checks,
