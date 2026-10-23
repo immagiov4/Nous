@@ -25,7 +25,6 @@ import { LessonSceneVisual } from '../../shared/lessonScene/LessonSceneVisual.ts
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import type { WorkspaceReaderContentModel } from '../shell/types.ts';
 import {
-  CAPTION_SCROLL,
   CAPTION_TIMING,
   type CaptionWord,
   captionFormat,
@@ -35,6 +34,7 @@ import {
   captionSpeechRanges,
   pacedCaptionTime,
 } from './captionFormat.ts';
+import { captionViewport } from './captionViewport.ts';
 import {
   type CaptionRun,
   captionAnchorSpan,
@@ -48,6 +48,7 @@ import {
 import './stage.css';
 
 interface CaptionClock {
+  viewport: ReturnType<typeof captionViewport>;
   runs: CaptionRun[];
   width: number;
   feather: number;
@@ -63,31 +64,13 @@ function hasMissingMotionTargets(
   return events.some(event => event.targets.some(target => !elements.has(target)));
 }
 
-function scrollToCaptionLine(
-  paragraph: HTMLElement,
-  active: HTMLElement | undefined,
-  scroll: { line: number; target: number },
-  motion: boolean
-) {
-  if (!active || active.offsetTop === scroll.line) return;
-  const line = active.offsetTop;
-  if (
-    line + active.offsetHeight >
-    scroll.target + paragraph.clientHeight * CAPTION_SCROLL.trigger
-  ) {
-    scroll.target = Math.max(0, line - paragraph.clientHeight * CAPTION_SCROLL.destination);
-    paragraph.scrollTo({ top: scroll.target, behavior: motion ? 'smooth' : 'instant' });
-  }
-  scroll.line = line;
-}
-
 function captionTag(word: CaptionWord) {
   if (word.code) return 'code';
   return word.bold ? 'strong' : 'span';
 }
 
 function PlaybackScene({
-  scene,
+  scene: sourceScene,
   block,
   clock,
   speed,
@@ -103,6 +86,9 @@ function PlaybackScene({
   isDarkMode: boolean;
   interval: { start: number; duration: number };
 }>) {
+  // Parsed preparation snapshots can contain an equivalent scene with a new object identity.
+  const sceneKey = JSON.stringify(sourceScene);
+  const scene = useMemo<LessonScene>(() => JSON.parse(sceneKey), [sceneKey]);
   const host = useRef<HTMLDivElement>(null);
   const readAnimationFrame = useMemo<ReadSceneAnimationFrame | undefined>(() => {
     if (!isAnimatedLessonScene(scene) && scene.type !== 'formula-spotlight') return undefined;
@@ -330,16 +316,18 @@ export default function LessonPlaybackStage({
         : [{ type: 'markdown' as const, markdown: content.sectionContent }],
     [content.sectionContentBlocks, content.sectionContent]
   );
+  const source = useMemo(() => captionSource(block, sources), [block, sources]);
+  // Equivalent snapshots retain the measured viewport; a new passage measures its new DOM.
+  const captionKey = JSON.stringify({ blockId: block.id, ...source });
   const formatted = useMemo(() => {
-    const source = captionSource(block, sources);
+    const source = JSON.parse(captionKey) as ReturnType<typeof captionSource>;
     const captions = captionFormat(source.markdown, source.ranges);
     return { ...captions, speechRanges: captionSpeechRanges(captions.words, source.ranges) };
-  }, [block, sources]);
+  }, [captionKey]);
   const captions = useRef<HTMLParagraphElement>(null);
   const sceneFit = useRef<HTMLDivElement>(null);
   const sceneCard = useRef<HTMLElement>(null);
   const clock = useRef<CaptionClock | null>(null);
-  const scroll = useRef({ blockId: block.id, line: -1, target: 0 });
   const animate = useShouldAnimate();
   const latest = useRef({ time, speed, readTime, animate });
   useLayoutEffect(() => {
@@ -404,9 +392,6 @@ export default function LessonPlaybackStage({
   useLayoutEffect(() => {
     const paragraph = captions.current;
     if (!paragraph) throw new Error('Captions must be mounted');
-    // Snapshot updates can remeasure the same page without restarting its scroll.
-    if (scroll.current.blockId !== block.id)
-      scroll.current = { blockId: block.id, line: -1, target: 0 };
     const measure = () => {
       let width = 0;
       const runs = Array.from(paragraph.querySelectorAll<HTMLElement>('.caption-word'), span => {
@@ -428,6 +413,7 @@ export default function LessonPlaybackStage({
       const headingShare =
         formatted.headingWords / (formatted.words.length + formatted.headingWords);
       clock.current = {
+        viewport: captionViewport(paragraph),
         runs,
         width,
         feather,
@@ -453,8 +439,12 @@ export default function LessonPlaybackStage({
     };
     measure();
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, [block.id, duration, formatted]);
+    document.fonts.addEventListener('loadingdone', measure);
+    return () => {
+      window.removeEventListener('resize', measure);
+      document.fonts.removeEventListener('loadingdone', measure);
+    };
+  }, [duration, formatted]);
 
   useEffect(() => {
     let previousClock: CaptionClock | null = null;
@@ -470,6 +460,7 @@ export default function LessonPlaybackStage({
       }
       const { bodyTime, revealTime } = current.read();
       const motion = latest.current.animate;
+      current.viewport.clip();
       if (previousBodyTime === bodyTime) return;
       const progress = Math.max(0, Math.min(1, revealTime / current.bodyDuration));
       const edge = progress * (current.width + current.feather);
@@ -484,7 +475,11 @@ export default function LessonPlaybackStage({
         text.style.opacity = String(1 - fade * (1 - CAPTION_TIMING.readOpacity));
         if (local >= 0 && local <= run.width) active = run.span;
       }
-      scrollToCaptionLine(paragraph, active, scroll.current, motion);
+      // Place new or backward seeks immediately; animate subsequent playback updates.
+      current.viewport.follow(
+        active,
+        motion && previousBodyTime !== undefined && bodyTime > previousBodyTime
+      );
       previousBodyTime = bodyTime;
     };
     let frame = 0;

@@ -13,8 +13,10 @@ const sources = [
   },
 ];
 const boundaryProof = new URLSearchParams(location.search).has('boundary');
+const snapshotProof = new URLSearchParams(location.search).has('snapshot');
+if (snapshotProof) sources[0].markdown = Array(50).fill(sources[0].markdown).join(' ');
 if (boundaryProof) sources[0].markdown += '\n\nIl file è pronto.';
-const scene: LessonScene = {
+let scene: LessonScene = {
   type: (new URLSearchParams(location.search).get('type') || 'causal') as LessonScene['type'],
   title: 'Il percorso da open() alla system call',
   body: '',
@@ -44,10 +46,20 @@ const scene: LessonScene = {
         'Il kernel verifica i permessi, apre il file e restituisce un descrittore oppure un errore al programma.',
     },
   ],
+  diagram: {
+    nodes: [
+      { id: 'a', label: 'Programma', kind: 'start' },
+      { id: 'b', label: 'Kernel', kind: 'end' },
+    ],
+    edges: [{ from: 'a', to: 'b', label: 'open', kind: 'call', evidence: sources[0].markdown }],
+  },
   groups: [],
   note: '',
   quote: '',
 };
+scene.items.forEach((item, index) => {
+  item.value = index + 1;
+});
 const blocks = segmentLessonPlayback(sources);
 document.documentElement.style.cssText =
   '--bg-paper:#fdfbf7;--bg-surface:#fff;--ink-primary:#1f1f1f;--ink-secondary:#4a4a4a;--border-subtle:#e5e7eb';
@@ -77,9 +89,12 @@ function renderBlock(index: number) {
   playbackRoot.render(
     <div style={{ height: '100dvh', display: 'flex' }}>
       <LessonPlaybackStage
-        block={block}
+        block={structuredClone(block)}
         content={
-          { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel
+          {
+            isDarkMode: false,
+            sectionContentBlocks: structuredClone(sources),
+          } as WorkspaceReaderContentModel
         }
         duration={30}
         time={15}
@@ -93,5 +108,15 @@ if (boundaryProof) {
   addEventListener('playback-next', () => {
     index = (index + 1) % blocks.length;
     renderBlock(index);
+  });
+}
+
+if (snapshotProof) {
+  addEventListener('playback-snapshot', () => renderBlock(0));
+  addEventListener('playback-scene-change', () => {
+    scene = { ...scene, title: 'Nuovo contenuto' };
+    if (scene.diagram) scene.diagram.nodes[0].label = 'Nuovo programma';
+    scene.items[0].value = 10;
+    renderBlock(0);
   });
 }
