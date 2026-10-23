@@ -57,8 +57,11 @@ With those results ready, the [reader](../05-section-frontend/01-p-reader-shell.
 
 Playback causal scenes use an ordered grid with numbered cards: two columns on desktop and one at the existing narrow scene-host query. Connectors use unscaled card positions to follow authored order across the row gap. The stage retains its caption and visual columns and fits the complete scene into the available area. The [causal grid](../../../apps/web/components/shared/lessonScene/CausalGrid.tsx) owns these cards and connectors.
 
+During lesson playback, captions show complete text rows at the reading-zone edges while text appears progressively and spoken words fade. Seeking preserves visible text.
+
 ## Keep the mathematical source available
 
 The shared playback projection keeps each whitespace-separated formula group together. When the next passage explains that group, its equations remain available within the same authored heading. Scene preparation receives this source together with the current narration. The right panel presents a chosen visual with its sourced mathematics, or the sourced equations alone when no useful scene exists. With neither, the panel stays empty; narration prose remains in captions. Authored code, tables, diagrams and images retain their visual representation, including images embedded in mathematical prose.
 
 Saved recordings and pronunciations remain reusable. These display and reference-span rules apply when cached lessons are rendered, without regenerating audio. Word positions within a recording remain estimates until an acoustic alignment is available.
+
