@@ -1,4 +1,9 @@
-import type { PlaybackMotionEvent, PlaybackRange } from '@shared/lessonPlayback';
+import type {
+  LessonPlaybackBlock,
+  PlaybackMotionEvent,
+  PlaybackRange,
+  PlaybackVisual,
+} from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
 import { cueTimes, playbackMode } from '@shared/lessonSceneAnimation';
 
@@ -23,6 +28,51 @@ export interface CaptionRun {
 export interface TimedMotionEvent extends PlaybackMotionEvent {
   atMs: number;
   durationMs: number;
+}
+
+/** Authored cards keep the occurrence identity already recorded by narration projection. */
+export function visualSpeechRange(block: LessonPlaybackBlock, visual: PlaybackVisual) {
+  const visualIndex = block.visuals.indexOf(visual);
+  if (visualIndex < 0) return undefined;
+  const fenced = block.spans.find(span => span.fencedCode?.visualIndex === visualIndex);
+  if (fenced) return fenced.speech.end > fenced.speech.start ? fenced.speech : undefined;
+  if (visual.kind !== 'markdown') return undefined;
+  const occurrence = block.visuals
+    .slice(0, visualIndex)
+    .filter(
+      previous => previous.kind === 'markdown' && previous.markdown === visual.markdown
+    ).length;
+  const span = block.spans.filter(span => span.math === visual.markdown)[occurrence];
+  return span && span.speech.end > span.speech.start ? span.speech : undefined;
+}
+
+/** Project a saved narration range onto the voice estimate, preserving repeated occurrences. */
+export function captionRangeSpan({
+  range,
+  speechRanges,
+  runs,
+  width,
+  feather,
+  duration,
+}: {
+  range: PlaybackRange;
+  speechRanges: readonly PlaybackRange[];
+  runs: readonly CaptionRun[];
+  width: number;
+  feather: number;
+  duration: number;
+}) {
+  const first = runs[speechRanges.findIndex(word => word.end > range.start)];
+  const lastIndex = speechRanges.reduce(
+    (last, word, index) => (word.start < range.end ? index : last),
+    0
+  );
+  const last = runs[lastIndex];
+  if (!first || !last) throw new Error('Visual narration range must cover caption words');
+  return {
+    startMs: (first.start / (width + feather)) * duration * 1000,
+    endMs: ((last.start + last.width) / (width + feather)) * duration * 1000,
+  };
 }
 
 /** Visibility and animation must make the same all-or-nothing synchronization decision. */

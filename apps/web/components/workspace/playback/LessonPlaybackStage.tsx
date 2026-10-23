@@ -41,10 +41,12 @@ import {
   captionAnchorSpan,
   captionAnchorTimes,
   captionMotionEvents,
+  captionRangeSpan,
   motionStates,
   sceneCaptionAnchors,
   sceneElements,
   type TimedMotionEvent,
+  visualSpeechRange,
 } from './stageMotion.ts';
 import './stage.css';
 
@@ -522,6 +524,10 @@ export default function LessonPlaybackStage({
       }),
     [visuals, content.activeSectionGeneratedVisualsById, block.speech]
   );
+  const visualRanges = useMemo(
+    () => visuals.map(visual => visualSpeechRange(block, visual)),
+    [block, visuals]
+  );
   useEffect(() => {
     if (!visuals.length) return;
     let previousClock: CaptionClock | null = null;
@@ -530,21 +536,21 @@ export default function LessonPlaybackStage({
     let frame = 0;
     const tick = () => {
       const current = clock.current;
-      if (current && (current.width || !anchors.some(Boolean))) {
+      if (current && (current.width || !(anchors.some(Boolean) || visualRanges.some(Boolean)))) {
         if (current !== previousClock) {
-          spans = anchors.map(quotation =>
-            quotation
-              ? captionAnchorSpan({
-                  anchors: quotation,
-                  speech: block.speech,
-                  speechRanges: current.speechRanges,
-                  runs: current.runs,
-                  width: current.width,
-                  feather: 0,
-                  duration: current.bodyDuration,
-                })
-              : undefined
-          );
+          spans = anchors.map((quotation, index) => {
+            const timing = {
+              speechRanges: current.speechRanges,
+              runs: current.runs,
+              width: current.width,
+              feather: 0,
+              duration: current.bodyDuration,
+            };
+            const range = visualRanges[index];
+            if (range) return captionRangeSpan({ ...timing, range });
+            if (!quotation) return undefined;
+            return captionAnchorSpan({ ...timing, anchors: quotation, speech: block.speech });
+          });
           previousClock = current;
         }
         const { blockTime, bodyTime } = current.read();
@@ -575,7 +581,7 @@ export default function LessonPlaybackStage({
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, [anchors, block, duration, visuals]);
+  }, [anchors, block, duration, visuals, visualRanges]);
   const visualIndex = selection?.visuals === visuals ? selection.index : 0;
   const visual = visuals[visualIndex];
   const sceneProps = {

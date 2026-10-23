@@ -747,6 +747,64 @@ test('uses the prepared spoken formula in captions while retaining authored math
   expect(container.querySelector('.scene-host')?.textContent).toContain('La probabilità');
 });
 
+test('selects authored formula cards at their spoken occurrence and retains them through pauses and seeks', () => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const sources = [
+    { type: 'markdown' as const, markdown: 'Uno $a$ $b$ Attesa lunga pausa resta qui $a$ Fine' },
+  ];
+  const formulas = ['$a$', '$b$', '$a$'];
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    visuals: formulas.map(markdown => ({ kind: 'markdown' as const, markdown })),
+    prepared: {
+      motion: [],
+      spokenMath: formulas.map((formula, index) => ({
+        formula,
+        spoken: index === 1 ? 'Beta' : 'Alfa',
+      })),
+    },
+  };
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const style = document.createElement('p').style;
+  style.setProperty('--caption-feather', '22px');
+  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
+  let time = 0;
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={10}
+      time={0}
+      readTime={() => time}
+    />
+  );
+  const advance = (next: number) => {
+    time = next;
+    const queued = [...frames.values()];
+    frames.clear();
+    act(() => {
+      for (const callback of queued) callback(0);
+    });
+    return container.querySelector('.scene-host annotation')?.textContent;
+  };
+  expect(advance(1.99)).toBe('a');
+  expect(advance(2.01)).toBe('b');
+  expect(advance(7.99)).toBe('b');
+  expect(advance(8.01)).toBe('a');
+  expect(advance(2.01)).toBe('b');
+});
+
 test.each(
   discreteMathCases
 )('renders $name as spoken caption words with authored KaTeX on the card', fixture => {

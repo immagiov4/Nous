@@ -156,6 +156,20 @@ test('finishes voice cue fades at word start while captions retain their 1.3 sec
         expect(state.definitionVisible).toBe(true);
       }
     }
+    await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=cards`);
+    await page.locator('.scene-host annotation').waitFor({ state: 'attached' });
+    const cards = await page.evaluate(async () => {
+      const controls = window as unknown as { setPlaybackTime: (time: number) => void };
+      const selected: (string | null | undefined)[] = [];
+      for (const time of [1.99, 2.01, 7.99, 8.01, 2.01]) {
+        controls.setPlaybackTime(time);
+        await new Promise(requestAnimationFrame);
+        await new Promise(requestAnimationFrame);
+        selected.push(document.querySelector('.scene-host annotation')?.textContent);
+      }
+      return selected;
+    });
+    expect(cards).toEqual(['a', 'b', 'b', 'a', 'b']);
     await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=fallback`);
     await page.locator('.scene').waitFor({ state: 'attached' });
     expect(
