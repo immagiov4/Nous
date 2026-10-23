@@ -336,8 +336,8 @@ function PlaybackVisualContent({
   );
 }
 
-export default function LessonPlaybackStage({
-  block: sourceBlock,
+function PlaybackPassage({
+  block,
   time,
   duration,
   content,
@@ -351,7 +351,6 @@ export default function LessonPlaybackStage({
   speed?: number;
   readTime?: () => number;
 }>) {
-  const block = useMemo(() => resolvePlaybackNarration(sourceBlock), [sourceBlock]);
   const sources = useMemo(
     () =>
       content.sectionContentBlocks?.length
@@ -695,4 +694,10 @@ export default function LessonPlaybackStage({
       </section>
     </div>
   );
+}
+
+/** Each narration owns its clock so retiring subscriptions keep their original text ranges. */
+export default function LessonPlaybackStage(props: Parameters<typeof PlaybackPassage>[0]) {
+  const block = useMemo(() => resolvePlaybackNarration(props.block), [props.block]);
+  return <PlaybackPassage {...props} block={block} key={`${block.id}:${block.speech}`} />;
 }

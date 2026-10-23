@@ -2,6 +2,7 @@
 import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
 import { act, render, screen } from '@testing-library/react';
+import { useLayoutEffect } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { discreteMathCases } from '../../../../backend/tests/helpers/discreteMath';
 import {
@@ -1027,4 +1028,88 @@ test.each([
   expect(
     container.querySelector(`.nous-formula-symbol-${other}`)?.getAttribute('data-active')
   ).toBe('false');
+});
+
+test('a pending scene observer retains its passage ranges during the next commit', () => {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const style = document.createElement('p').style;
+  style.setProperty('--caption-feather', '22px');
+  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
+  const observers: { callback: MutationCallback; active: boolean }[] = [];
+  vi.stubGlobal(
+    'MutationObserver',
+    class {
+      readonly observation: (typeof observers)[number];
+      constructor(callback: MutationCallback) {
+        this.observation = { callback, active: true };
+        observers.push(this.observation);
+      }
+      observe() {}
+      disconnect() {
+        this.observation.active = false;
+      }
+    }
+  );
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const scene: LessonScene = {
+    type: 'steps',
+    title: 'Visual',
+    body: '',
+    items: [{ label: 'Current', detail: '', icon: 'circle' }],
+    groups: [],
+    note: '',
+    quote: '',
+  };
+  const firstSources = [
+    {
+      type: 'markdown' as const,
+      markdown: 'A long narration with several extra words before last.',
+    },
+  ];
+  const nextSources = [{ type: 'markdown' as const, markdown: 'Now.' }];
+  const block = (sources: typeof firstSources, id: string, quote: string) => ({
+    ...segmentLessonPlayback(sources)[0],
+    id,
+    prepared: { scene, motion: [{ effect: 'focus' as const, targets: ['item:0'], quote }] },
+  });
+  function CommitObserver({ changed }: { changed: boolean }) {
+    useLayoutEffect(() => {
+      if (changed)
+        for (const observer of [...observers]) {
+          if (observer.active) observer.callback([], {} as MutationObserver);
+        }
+    }, [changed]);
+    return null;
+  }
+  const view = (changed: boolean) => (
+    <>
+      <LessonPlaybackStage
+        block={changed ? block(nextSources, '1', 'Now.') : block(firstSources, '0', 'last.')}
+        content={
+          {
+            isDarkMode: false,
+            sectionContentBlocks: changed ? nextSources : firstSources,
+          } as WorkspaceReaderContentModel
+        }
+        duration={4}
+        time={0.5}
+      />
+      <CommitObserver changed={changed} />
+    </>
+  );
+  const mounted = render(view(false));
+  try {
+    mounted.rerender(view(true));
+    expect(mounted.container.querySelector('.captions')?.textContent).toBe('Now. ');
+    expect(
+      mounted.container
+        .querySelector<HTMLElement>('[data-motion-id="item:0"]')
+        ?.style.getPropertyValue('--motion-emphasis')
+    ).toBe('1');
+  } finally {
+    mounted.unmount();
+    vi.unstubAllGlobals();
+  }
 });
