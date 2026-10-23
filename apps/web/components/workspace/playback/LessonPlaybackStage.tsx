@@ -26,7 +26,6 @@ import { LessonSceneVisual } from '../../shared/lessonScene/LessonSceneVisual.ts
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import type { WorkspaceReaderContentModel } from '../shell/types.ts';
 import {
-  CAPTION_SCROLL,
   CAPTION_TIMING,
   type CaptionWord,
   captionFormat,
@@ -36,6 +35,7 @@ import {
   captionSpeechRanges,
   pacedCaptionTime,
 } from './captionFormat.ts';
+import { captionViewport } from './captionViewport.ts';
 import {
   adoptCueTimes,
   type CaptionRun,
@@ -50,6 +50,7 @@ import {
 import './stage.css';
 
 interface CaptionClock {
+  viewport: ReturnType<typeof captionViewport>;
   runs: CaptionRun[];
   width: number;
   feather: number;
@@ -67,24 +68,6 @@ function hasMissingMotionTargets(
   elements: ReturnType<typeof sceneElements>
 ) {
   return events.some(event => event.targets.some(target => !elements.has(target)));
-}
-
-function scrollToCaptionLine(
-  paragraph: HTMLElement,
-  active: HTMLElement | undefined,
-  scroll: { line: number; target: number },
-  motion: boolean
-) {
-  if (!active || active.offsetTop === scroll.line) return;
-  const line = active.offsetTop;
-  if (
-    line + active.offsetHeight >
-    scroll.target + paragraph.clientHeight * CAPTION_SCROLL.trigger
-  ) {
-    scroll.target = Math.max(0, line - paragraph.clientHeight * CAPTION_SCROLL.destination);
-    paragraph.scrollTo({ top: scroll.target, behavior: motion ? 'smooth' : 'instant' });
-  }
-  scroll.line = line;
 }
 
 function captionTag(word: CaptionWord) {
@@ -416,8 +399,7 @@ function PlaybackPassage({
   const sceneFit = useRef<HTMLDivElement>(null);
   const sceneCard = useRef<HTMLElement>(null);
   const clock = useRef<CaptionClock | null>(null);
-  const scroll = useRef({ line: -1, target: 0 });
-  const measuredParagraph = useRef<HTMLElement | null>(null);
+
   const animate = useShouldAnimate();
   const latest = useRef({ time, speed, readTime, animate });
   useLayoutEffect(() => {
@@ -505,6 +487,7 @@ function PlaybackPassage({
       const headingShare =
         formatted.headingWords / (formatted.words.length + formatted.headingWords);
       clock.current = {
+        viewport: captionViewport(paragraph),
         runs,
         width,
         feather,
@@ -531,15 +514,14 @@ function PlaybackPassage({
           };
         },
       };
-      if (measuredParagraph.current !== paragraph) {
-        paragraph.scrollTop = 0;
-        scroll.current = { line: -1, target: 0 };
-        measuredParagraph.current = paragraph;
-      }
     };
     measure();
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    document.fonts.addEventListener('loadingdone', measure);
+    return () => {
+      window.removeEventListener('resize', measure);
+      document.fonts.removeEventListener('loadingdone', measure);
+    };
   }, [block.id, block.speech, duration, formatted, alignment, seekRevision]);
 
   useLayoutEffect(() => {
@@ -556,6 +538,7 @@ function PlaybackPassage({
       }
       const { bodyTime, revealTime } = current.read();
       const motion = latest.current.animate;
+      current.viewport.clip();
       if (previousBodyTime === bodyTime) return;
       const progress = Math.max(0, Math.min(1, revealTime / current.bodyDuration));
       const edge = progress * (current.width + current.feather);
@@ -570,7 +553,11 @@ function PlaybackPassage({
         text.style.opacity = String(1 - fade * (1 - CAPTION_TIMING.readOpacity));
         if (local >= 0 && local <= run.width) active = run.span;
       }
-      scrollToCaptionLine(paragraph, active, scroll.current, motion);
+      // Place new or backward seeks immediately; animate subsequent playback updates.
+      current.viewport.follow(
+        active,
+        motion && previousBodyTime !== undefined && bodyTime > previousBodyTime
+      );
       previousBodyTime = bodyTime;
     };
     let frame = 0;
