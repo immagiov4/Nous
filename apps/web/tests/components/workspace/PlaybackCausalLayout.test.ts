@@ -28,6 +28,86 @@ afterAll(async () => {
   await server?.close();
 });
 
+test('paints each new caption with its ready scene and retires the previous motion clock', async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  try {
+    await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?boundary`);
+    await page.locator('.scene-host > *').waitFor();
+    for (let transition = 0; transition < 6; transition++) {
+      const frames = await page.evaluate(
+        () =>
+          new Promise<boolean[]>(resolve => {
+            const previousCaption = document.querySelector('.caption-page');
+            const scenes: boolean[] = [];
+            const observe = () => {
+              if (document.querySelector('.caption-page') !== previousCaption)
+                scenes.push(Boolean(document.querySelector('.scene-host')?.firstElementChild));
+              if (scenes.length === 4) resolve(scenes);
+              else requestAnimationFrame(observe);
+            };
+            requestAnimationFrame(observe);
+            // Audio position updates arrive asynchronously, outside a discrete input event.
+            setTimeout(() => dispatchEvent(new Event('playback-next')), 0);
+          })
+      );
+      expect(frames).toEqual([true, true, true, true]);
+    }
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+for (const type of ['flowchart', 'sequence', 'journey', 'bars']) {
+  test(`keeps the nested ${type} drawing and caption position across equivalent snapshots`, async () => {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    try {
+      await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?snapshot&type=${type}`);
+      const drawing = page.locator('.scene .visual-content svg').first();
+      await drawing.waitFor();
+      const result = await page.evaluate(async () => {
+        const graphic = document.querySelector('.scene .visual-content svg');
+        const paragraph = document.querySelector<HTMLElement>('.caption-page');
+        if (!graphic || !paragraph) throw new Error('Drawing and captions must exist');
+        const scroll = paragraph.scrollTop;
+        const host = document.querySelector('.scene-host');
+        if (!host) throw new Error('Scene host must exist');
+        const observer = new MutationObserver(() => {});
+        observer.observe(host, {
+          childList: true,
+          subtree: true,
+        });
+        dispatchEvent(new Event('playback-snapshot'));
+        for (let frame = 0; frame < 4; frame++) await new Promise(requestAnimationFrame);
+        const removed = observer.takeRecords().flatMap(record => [...record.removedNodes]);
+        observer.disconnect();
+        return {
+          retained: document.querySelector('.scene .visual-content svg') === graphic,
+          removed: removed.some(node => node === graphic || node.contains(graphic)),
+          scrollBefore: scroll,
+          scrollAfter: paragraph.scrollTop,
+        };
+      });
+      expect(result.retained).toBe(true);
+      expect(result.removed).toBe(false);
+      expect(result.scrollBefore).toBeGreaterThan(0);
+      expect(result.scrollAfter).toBe(result.scrollBefore);
+      const original = await drawing.elementHandle();
+      await page.evaluate(() => dispatchEvent(new Event('playback-scene-change')));
+      await page.waitForFunction(
+        () => document.querySelector('.scene h2')?.textContent === 'Nuovo contenuto'
+      );
+      await page.waitForFunction(element => !element?.isConnected, original);
+      await drawing.waitFor();
+      expect(await page.locator('.scene h2').textContent()).toBe('Nuovo contenuto');
+    } finally {
+      await page.close();
+    }
+  });
+}
+
 async function expectConnectedCards(page: Page) {
   await page.waitForFunction(() => {
     const flow = document.querySelector<HTMLElement>('.causal-grid');

@@ -70,7 +70,7 @@ function captionTag(word: CaptionWord) {
 }
 
 function PlaybackScene({
-  scene,
+  scene: sourceScene,
   block,
   clock,
   speed,
@@ -86,6 +86,9 @@ function PlaybackScene({
   isDarkMode: boolean;
   interval: { start: number; duration: number };
 }>) {
+  // Parsed preparation snapshots can contain an equivalent scene with a new object identity.
+  const sceneKey = JSON.stringify(sourceScene);
+  const scene = useMemo<LessonScene>(() => JSON.parse(sceneKey), [sceneKey]);
   const host = useRef<HTMLDivElement>(null);
   const readAnimationFrame = useMemo<ReadSceneAnimationFrame | undefined>(() => {
     if (!isAnimatedLessonScene(scene) && scene.type !== 'formula-spotlight') return undefined;
@@ -313,11 +316,14 @@ export default function LessonPlaybackStage({
         : [{ type: 'markdown' as const, markdown: content.sectionContent }],
     [content.sectionContentBlocks, content.sectionContent]
   );
+  const source = useMemo(() => captionSource(block, sources), [block, sources]);
+  // Equivalent snapshots retain the measured viewport; a new passage measures its new DOM.
+  const captionKey = JSON.stringify({ blockId: block.id, ...source });
   const formatted = useMemo(() => {
-    const source = captionSource(block, sources);
+    const source = JSON.parse(captionKey) as ReturnType<typeof captionSource>;
     const captions = captionFormat(source.markdown, source.ranges);
     return { ...captions, speechRanges: captionSpeechRanges(captions.words, source.ranges) };
-  }, [block, sources]);
+  }, [captionKey]);
   const captions = useRef<HTMLParagraphElement>(null);
   const sceneFit = useRef<HTMLDivElement>(null);
   const sceneCard = useRef<HTMLElement>(null);
@@ -495,7 +501,7 @@ export default function LessonPlaybackStage({
     return [];
   }, [block, sources]);
   const [selection, setSelection] = useState<{
-    visuals: readonly PlaybackVisual[];
+    blockId: string;
     index: number;
   } | null>(null);
   const anchors = useMemo(
@@ -511,7 +517,8 @@ export default function LessonPlaybackStage({
       }),
     [visuals, content.activeSectionGeneratedVisualsById, block.speech]
   );
-  useEffect(() => {
+  // Select against the new caption clock before painting or running retired scene frames.
+  useLayoutEffect(() => {
     if (!visuals.length) return;
     let previousClock: CaptionClock | null = null;
     let previousActive: number | undefined;
@@ -555,7 +562,11 @@ export default function LessonPlaybackStage({
         });
         if (active !== previousActive) {
           previousActive = active;
-          setSelection({ visuals, index: active });
+          setSelection(current =>
+            current?.blockId === block.id && current.index === active
+              ? current
+              : { blockId: block.id, index: active }
+          );
         }
       }
       frame = requestAnimationFrame(tick);
@@ -563,7 +574,7 @@ export default function LessonPlaybackStage({
     tick();
     return () => cancelAnimationFrame(frame);
   }, [anchors, block, duration, visuals]);
-  const visualIndex = selection?.visuals === visuals ? selection.index : -1;
+  const visualIndex = selection?.blockId === block.id ? selection.index : -1;
   const visual = visuals[visualIndex];
   const sceneProps = {
     block,
