@@ -230,3 +230,17 @@ describe('workflow retry policy', () => {
     ).toEqual({ delayMs: Number.MAX_SAFE_INTEGER, retry: true });
   });
 });
+
+test.each([
+  -1,
+  0.5,
+  Number.POSITIVE_INFINITY,
+])('rejects invalid persisted retry caps: %s', maxRetryDelayMs => {
+  expect(() =>
+    retryOperational({
+      code: 'tts_request_failed',
+      message: 'Speech unavailable.',
+      maxRetryDelayMs,
+    })
+  ).toThrow('maxRetryDelayMs must be a non-negative integer.');
+});

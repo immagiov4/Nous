@@ -54,16 +54,19 @@ export type StepFailure =
       readonly feedback: string;
       readonly kind: 'corrective';
       readonly retryAfterMs?: never;
+      readonly maxRetryDelayMs?: never;
     })
   | (StepFailureBase & {
       readonly feedback?: never;
       readonly kind: 'operational';
       readonly retryAfterMs?: number;
+      readonly maxRetryDelayMs?: number;
     })
   | (StepFailureBase & {
       readonly feedback?: never;
       readonly kind: 'permanent';
       readonly retryAfterMs?: never;
+      readonly maxRetryDelayMs?: never;
     });
 
 export interface WorkflowExecutionDefaults {
