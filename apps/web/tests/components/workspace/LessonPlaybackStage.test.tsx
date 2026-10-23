@@ -1300,10 +1300,10 @@ test('sequence participants and message labels retain their authored motion targ
     type: 'sequence',
     diagram: {
       nodes: [
-        { id: 'from', label: 'From' },
-        { id: 'to', label: 'To' },
+        { id: 'from', label: 'From', kind: 'step' },
+        { id: 'to', label: 'To', kind: 'step' },
       ],
-      edges: [{ from: 'from', to: 'to', label: 'Send' }],
+      edges: [{ from: 'from', to: 'to', label: 'Send', kind: 'event', evidence: 'Send' }],
     },
   };
   expect(
