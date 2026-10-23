@@ -104,6 +104,80 @@ beforeEach(() => {
   motion.mockResolvedValue(events);
 });
 
+test('plans the same scene motion while its icon selection is still pending', async () => {
+  let finishIcons!: () => void;
+  const icons = new Promise<void>(resolve => {
+    finishIcons = resolve;
+  });
+  sceneGeneration.mockImplementationOnce(async request => {
+    request.onValidatedScene?.(scene);
+    await icons;
+    return { kind: 'scene', scene };
+  });
+  let completed = false;
+  const preparation = prepareLessonPlaybackBlock(input()).then(result => {
+    completed = true;
+    return result;
+  });
+  try {
+    await vi.waitFor(() => expect(motion).toHaveBeenCalledOnce());
+    expect(motion.mock.calls[0][0].scene).toEqual(scene);
+    expect(completed).toBe(false);
+  } finally {
+    finishIcons();
+  }
+  expect((await preparation).prepared).toEqual({ scene, motion: events });
+});
+
+test('binds early motion to its scene when icon failure forces scene generation again', async () => {
+  const recorded = new Map<string, unknown>();
+  const providerEffect: WorkflowProviderEffectExecutor = {
+    run: async ({ key, operation, outputSchema }) => {
+      if (!recorded.has(key)) recorded.set(key, await operation());
+      return outputSchema.parse(recorded.get(key));
+    },
+  };
+  const nextScene = { ...scene, title: 'Componenti', items: [...scene.items].reverse() };
+  const nextEvents = [{ effect: 'reveal' as const, targets: ['item:1'], quote: 'interazioni.' }];
+  sceneGeneration.mockImplementationOnce(async request => {
+    request.onValidatedScene?.(scene);
+    await vi.waitFor(() => expect(motion).toHaveBeenCalledOnce());
+    throw new Error('Icons unavailable');
+  });
+  sceneGeneration.mockImplementationOnce(async request => {
+    request.onValidatedScene?.(nextScene);
+    return { kind: 'scene', scene: nextScene };
+  });
+  motion.mockResolvedValueOnce(events).mockResolvedValueOnce(nextEvents);
+  const request = { ...input(), providerEffect };
+  await expect(prepareLessonPlaybackBlock(request)).rejects.toThrow('Icons unavailable');
+  await expect(prepareLessonPlaybackBlock(request)).resolves.toMatchObject({
+    prepared: { scene: nextScene, motion: nextEvents },
+  });
+  expect(motion).toHaveBeenCalledTimes(2);
+});
+
+test('uses the committed scene motion when a competing attempt wins the scene checkpoint', async () => {
+  const committedScene = { ...scene, title: 'Componenti', items: [...scene.items].reverse() };
+  const committedEvents = [
+    { effect: 'reveal' as const, targets: ['item:1'], quote: 'interazioni.' },
+  ];
+  sceneGeneration.mockImplementationOnce(async request => {
+    request.onValidatedScene?.(scene);
+    return { kind: 'scene', scene };
+  });
+  motion.mockResolvedValueOnce(events).mockResolvedValueOnce(committedEvents);
+  const providerEffect: WorkflowProviderEffectExecutor = {
+    run: async ({ key, operation, outputSchema }) => {
+      const result = await operation();
+      return outputSchema.parse(key === 'scene' ? { scene: committedScene } : result);
+    },
+  };
+  const result = await prepareLessonPlaybackBlock({ ...input(), providerEffect });
+  expect(result.prepared).toEqual({ scene: committedScene, motion: committedEvents });
+  expect(motion.mock.calls.map(([request]) => request.scene)).toEqual([scene, committedScene]);
+});
+
 test.each([
   proportionalScene,
   guidedPathScene,
