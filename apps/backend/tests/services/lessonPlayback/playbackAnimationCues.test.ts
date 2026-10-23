@@ -1,4 +1,5 @@
 import type { LessonScene } from '@shared/lessonScene';
+import { playbackMode } from '@shared/lessonSceneAnimation';
 import { expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
 import { resolvePlaybackAnimationCues } from '../../../src/services/lessonPlayback/playbackAnimationCues.js';
@@ -68,4 +69,36 @@ test('reuses complete citations without provider work', async () => {
   } as LessonScene;
   expect(await resolvePlaybackAnimationCues({ ...input(), scene: anchored })).toBe(anchored);
   expect(generateStructuredOutput).not.toHaveBeenCalled();
+});
+
+test.each([
+  null,
+  { cues: 'invalid' },
+  { cues: [{ anchor: 'Riceviamo i dati.', value: 0.5 }] },
+])('keeps automatic animation after malformed cue output (%j)', async response => {
+  vi.mocked(generateStructuredOutput).mockResolvedValue(response);
+  const result = await resolvePlaybackAnimationCues(input());
+  expect(result).toMatchObject({ type: 'guided-path', autoplay: true, steps: scene.steps });
+  if (result.type !== 'guided-path') throw new Error('Expected guided path');
+  expect(playbackMode(result)).toBe('automatic');
+});
+
+test('keeps automatic animation after cue generation fails', async () => {
+  vi.mocked(generateStructuredOutput).mockRejectedValue(new Error('Malformed provider response'));
+  const result = await resolvePlaybackAnimationCues(input());
+  expect(result).toMatchObject({ type: 'guided-path', autoplay: true, steps: scene.steps });
+  if (result.type !== 'guided-path') throw new Error('Expected guided path');
+  expect(playbackMode(result)).toBe('automatic');
+});
+
+test('propagates cancellation instead of adopting automatic animation', async () => {
+  const controller = new AbortController();
+  const reason = new Error('Playback cancelled');
+  vi.mocked(generateStructuredOutput).mockImplementation(async () => {
+    controller.abort(reason);
+    throw new Error('Provider cancelled');
+  });
+  await expect(
+    resolvePlaybackAnimationCues({ ...input(), signal: controller.signal })
+  ).rejects.toBe(reason);
 });
