@@ -105,7 +105,11 @@ try {
                 await seek.fill(String(time));
                 const result = await visibleCaptionRows(page);
                 assert.deepEqual(result.violations, [], `${label} time=${time}`);
-                if (time > 0) assert(result.visible > 0, `${label}: revealed rows must be visible`);
+                if (time > 0)
+                  assert(
+                    result.visible > 0,
+                    `${label} time=${time}: revealed rows must be visible`
+                  );
               }
               await page.setViewportSize({ width: width - 57, height: height - 31 });
               assert.deepEqual((await visibleCaptionRows(page)).violations, [], `${label} resize`);

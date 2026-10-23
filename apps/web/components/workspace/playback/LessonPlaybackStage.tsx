@@ -465,7 +465,11 @@ export default function LessonPlaybackStage({
         text.style.opacity = String(1 - fade * (1 - CAPTION_TIMING.readOpacity));
         if (local >= 0 && local <= run.width) active = run.span;
       }
-      current.viewport.follow(active, motion);
+      // A backward seek hides future words immediately; scrolling there must be immediate too.
+      current.viewport.follow(
+        active,
+        motion && (previousBodyTime === undefined || bodyTime > previousBodyTime)
+      );
       previousBodyTime = bodyTime;
     };
     let frame = 0;
