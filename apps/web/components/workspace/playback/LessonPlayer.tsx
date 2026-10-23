@@ -528,6 +528,7 @@ export default function LessonPlayer({
       </header>
       {block ? (
         <LessonPlaybackStage
+          key={playback.lessonKey}
           block={block}
           time={playback.time}
           duration={playback.duration}

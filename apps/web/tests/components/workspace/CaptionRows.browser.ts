@@ -59,6 +59,26 @@ async function visibleCaptionRows(page: Page) {
   });
 }
 
+async function activeCaptionIsVisible(page: Page) {
+  return page.evaluate(async () => {
+    await new Promise(requestAnimationFrame);
+    const paragraph = document.querySelector<HTMLElement>('.caption-page');
+    if (!paragraph) throw new Error('Captions must exist');
+    const box = paragraph.getBoundingClientRect();
+    const active = Array.from(paragraph.querySelectorAll<HTMLElement>('.caption-word')).find(
+      word => {
+        const edge = Number.parseFloat(word.style.getPropertyValue('--reveal-edge'));
+        return edge >= 0 && edge <= word.getBoundingClientRect().width;
+      }
+    );
+    if (!active?.firstElementChild) throw new Error('Playback must reveal an active caption word');
+    const range = document.createRange();
+    range.selectNodeContents(active.firstElementChild);
+    const word = range.getBoundingClientRect();
+    return word.top >= box.top && word.bottom <= box.bottom;
+  });
+}
+
 // Like the playback atlas contract, run explicitly without changing the unit-test timeout.
 const output = await realpath(await mkdtemp(path.join(tmpdir(), 'nous-caption-rows-')));
 const started = performance.now();
@@ -175,25 +195,7 @@ try {
                     0
                   );
                   await page.getByRole('button', { name: 'Previous passage midpoint' }).click();
-                  const atSeek = await page.evaluate(async () => {
-                    await new Promise(requestAnimationFrame);
-                    const paragraph = document.querySelector<HTMLElement>('.caption-page');
-                    if (!paragraph) throw new Error('Captions must exist');
-                    const box = paragraph.getBoundingClientRect();
-                    const active = Array.from(
-                      paragraph.querySelectorAll<HTMLElement>('.caption-word')
-                    ).find(word => {
-                      const edge = Number.parseFloat(word.style.getPropertyValue('--reveal-edge'));
-                      return edge >= 0 && edge <= word.getBoundingClientRect().width;
-                    });
-                    if (!active) throw new Error('Seek must reveal an active caption word');
-                    const text = active.firstElementChild;
-                    if (!text) throw new Error('Caption word must contain text');
-                    const range = document.createRange();
-                    range.selectNodeContents(text);
-                    const word = range.getBoundingClientRect();
-                    return word.top >= box.top && word.bottom <= box.bottom;
-                  });
+                  const atSeek = await activeCaptionIsVisible(page);
                   assert(
                     atSeek,
                     `${label}: cross-passage seek must place the active row immediately`
@@ -230,6 +232,30 @@ try {
                     pausedGeometryReads,
                     0,
                     `${label}: paused captions must not reread geometry`
+                  );
+                  await page.evaluate(() => {
+                    document.documentElement.style.zoom = '1';
+                  });
+                  await page.setViewportSize({ width: 700, height: 900 });
+                  await seek.fill('38');
+                  await visibleCaptionRows(page);
+                  const narrowScroll = await page
+                    .locator('.caption-page')
+                    .evaluate(element => element.scrollTop);
+                  await page.setViewportSize({ width: 950, height: 900 });
+                  assert(
+                    await activeCaptionIsVisible(page),
+                    `${label}: reflow must retain the active row`
+                  );
+                  assert(
+                    (await page.locator('.caption-page').evaluate(element => element.scrollTop)) <
+                      narrowScroll,
+                    `${label}: widening must follow the active row upward`
+                  );
+                  assert.deepEqual(
+                    (await visibleCaptionRows(page)).violations,
+                    [],
+                    `${label} widening`
                   );
                   await page.setViewportSize({ width: 390, height: 844 });
                   assert.equal(
