@@ -173,12 +173,8 @@ test('finishes voice cue fades at word start while captions retain their 1.3 sec
     await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=fallback`);
     await page.locator('.scene').waitFor({ state: 'attached' });
     expect(
-      await page
-        .locator('.scene')
-        .evaluate(element =>
-          element.getAnimations().map(animation => animation.effect?.getTiming().duration)
-        )
-    ).toContain(180);
+      await page.locator('.scene').evaluate(element => getComputedStyle(element).animationDuration)
+    ).toBe('0.18s');
   } finally {
     await page.close();
   }
