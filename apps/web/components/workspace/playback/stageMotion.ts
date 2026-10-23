@@ -235,6 +235,34 @@ export function motionStates(
   return states;
 }
 
+/** Mermaid's authored node order identifies both flowchart nodes and sequence participants. */
+function diagramElements(
+  host: HTMLElement,
+  diagram: NonNullable<LessonScene['diagram']>,
+  sequence: boolean
+) {
+  const elements = new Map<string, (HTMLElement | SVGElement)[]>();
+  const nodes = Array.from(
+    host.querySelectorAll<SVGElement>(sequence ? '[data-et="participant"]' : 'g.node')
+  );
+  diagram.nodes.forEach((node, index) => {
+    const matches = nodes.filter(element =>
+      sequence ? element.dataset.id === `n${index}` : element.id.includes(`flowchart-n${index}-`)
+    );
+    if (matches.length) elements.set(`node:${node.id}`, matches);
+  });
+  const labels = host.querySelectorAll<SVGElement>('.messageText');
+  host
+    .querySelectorAll<SVGElement>(sequence ? '[data-et="message"]' : 'path.flowchart-link')
+    .forEach((element, index) => {
+      elements.set(
+        `edge:${index}`,
+        sequence && labels[index] ? [element, labels[index]] : [element]
+      );
+    });
+  return elements;
+}
+
 export function sceneElements(host: HTMLElement, scene: LessonScene) {
   const elements = new Map<string, (HTMLElement | SVGElement)[]>();
   const structuredGroups = host.querySelectorAll<HTMLElement>(
@@ -263,25 +291,7 @@ export function sceneElements(host: HTMLElement, scene: LessonScene) {
       elements.set(`row:${index}`, [element]);
     });
   else if (scene.diagram) {
-    const sequence = scene.type === 'sequence';
-    const nodes = Array.from(
-      host.querySelectorAll<SVGElement>(sequence ? '[data-et="participant"]' : 'g.node')
-    );
-    scene.diagram.nodes.forEach((node, index) => {
-      const matches = nodes.filter(element =>
-        sequence ? element.dataset.id === `n${index}` : element.id.includes(`flowchart-n${index}-`)
-      );
-      if (matches.length) elements.set(`node:${node.id}`, matches);
-    });
-    const labels = host.querySelectorAll<SVGElement>('.messageText');
-    host
-      .querySelectorAll<SVGElement>(sequence ? '[data-et="message"]' : 'path.flowchart-link')
-      .forEach((element, index) => {
-        elements.set(
-          `edge:${index}`,
-          sequence && labels[index] ? [element, labels[index]] : [element]
-        );
-      });
+    return diagramElements(host, scene.diagram, scene.type === 'sequence');
   } else {
     const grouped = scene.groups.length > 0;
     host
