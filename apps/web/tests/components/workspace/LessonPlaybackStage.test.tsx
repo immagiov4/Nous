@@ -1119,3 +1119,69 @@ test.each([
     vi.unstubAllGlobals();
   }
 });
+
+test.each([
+  'captions',
+  'scene',
+] as const)('keeps the current %s and reading position when a prepared project snapshot arrives', presentation => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const sources = [{ type: 'markdown' as const, markdown: 'Prima frase.\n\nSeconda frase.' }];
+  const blocks = segmentLessonPlayback(sources);
+  const scene: LessonScene = {
+    type: 'parts',
+    title: 'Concetti',
+    body: '',
+    items: [{ icon: 'point', label: 'Prima', detail: '' }],
+    groups: [],
+    note: '',
+    quote: '',
+  };
+  const first = {
+    ...blocks[0],
+    prepared: { motion: [], ...(presentation === 'scene' ? { scene } : {}) },
+  };
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+  } as WorkspaceReaderContentModel;
+  const { container, rerender } = render(
+    <LessonPlaybackStage block={first} content={content} duration={6} time={5.8} />
+  );
+  const caption = container.querySelector<HTMLElement>('.caption-page');
+  const visual = container.querySelector('.scene-host')?.firstElementChild;
+  if (!caption || !visual) throw new Error('Prepared passage must be visible');
+  caption.scrollTop = 200;
+  const mutations = new MutationObserver(() => {});
+  mutations.observe(container, { childList: true, subtree: true });
+  rerender(
+    <LessonPlaybackStage
+      block={structuredClone(first)}
+      content={{ ...content, sectionContentBlocks: structuredClone(sources) }}
+      duration={6}
+      time={5.8}
+    />
+  );
+  expect(container.querySelector('.caption-page')).toBe(caption);
+  expect(caption.scrollTop).toBe(200);
+  expect(container.querySelector('.scene-host')?.firstElementChild).toBe(visual);
+  expect(mutations.takeRecords().flatMap(record => [...record.removedNodes])).not.toContain(visual);
+  rerender(
+    <LessonPlaybackStage
+      block={{ ...blocks[1], prepared: first.prepared }}
+      content={content}
+      duration={6}
+      time={0}
+    />
+  );
+  const nextCaption = container.querySelector('.caption-page');
+  expect(nextCaption).not.toBe(caption);
+  expect(nextCaption?.scrollTop).toBe(0);
+  expect(container.querySelector('.scene-host')?.firstElementChild).not.toBe(visual);
+  expect(
+    mutations
+      .takeRecords()
+      .flatMap(record => [...record.removedNodes])
+      .filter(node => node === visual)
+  ).toHaveLength(1);
+  mutations.disconnect();
+});

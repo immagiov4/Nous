@@ -23,7 +23,7 @@ const answerPanelProps = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../hooks/reader/useLessonPlayback.ts', () => ({ useLessonPlayback: vi.fn() }));
 vi.mock('../../../components/workspace/playback/LessonPlaybackStage.tsx', () => ({
-  default: () => <div />,
+  default: () => <div data-testid="playback-stage" />,
 }));
 vi.mock('../../../services/openrouter/sttClient.ts', () => ({
   requestSpeechTranscription: vi.fn(),
@@ -154,6 +154,7 @@ beforeEach(() => {
   vi.stubGlobal('MediaRecorder', Recorder);
   vi.mocked(requestSpeechTranscription).mockReset().mockResolvedValue('Perché funziona?');
   playback = {
+    lessonKey: 'old',
     blocks,
     index: 0,
     time: 0,
@@ -960,4 +961,18 @@ test('Escape in a portaled child dialog preserves the answer', async () => {
   fireEvent.keyDown(preview, { key: 'Escape' });
   expect(screen.getByRole('button', { name: 'Chiudi risposta' })).toBeInTheDocument();
   expect(props.onClose).not.toHaveBeenCalled();
+});
+
+test('preserves the stage for preparation updates and remounts it for a new lesson version', () => {
+  const { rerender } = render(<LessonPlayer {...props} autoPlay={false} />);
+  const stage = screen.getByTestId('playback-stage');
+  stage.scrollTop = 200;
+  playback = { ...playback, blocks: structuredClone(blocks) };
+  rerender(<LessonPlayer {...props} autoPlay={false} />);
+  expect(screen.getByTestId('playback-stage')).toBe(stage);
+  expect(stage.scrollTop).toBe(200);
+  playback = { ...playback, lessonKey: 'new', time: 0 };
+  rerender(<LessonPlayer {...props} autoPlay={false} />);
+  expect(screen.getByTestId('playback-stage')).not.toBe(stage);
+  expect(screen.getByTestId('playback-stage').scrollTop).toBe(0);
 });
