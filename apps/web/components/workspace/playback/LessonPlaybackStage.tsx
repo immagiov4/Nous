@@ -14,15 +14,7 @@ import {
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
-import {
-  Fragment,
-  type RefObject,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { Fragment, type RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
@@ -169,7 +161,7 @@ function PlaybackScene({
           };
     };
   }, [scene, block.speech, clock, interval.start, interval.duration]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (
       isAnimatedLessonScene(scene) ||
       scene.type === 'formula-spotlight' ||
@@ -483,7 +475,7 @@ function PlaybackPassage({
     return () => window.removeEventListener('resize', measure);
   }, [duration, formatted]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let previousClock: CaptionClock | null = null;
     let previousBodyTime: number | undefined;
     const render = () => {
@@ -576,7 +568,7 @@ function PlaybackPassage({
       }),
     [visuals, content.activeSectionGeneratedVisualsById, block.speech]
   );
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!visuals.length) return;
     let previousClock: CaptionClock | null = null;
     let previousActive: number | undefined;

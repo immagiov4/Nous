@@ -1030,7 +1030,19 @@ test.each([
   ).toBe('false');
 });
 
-test('a pending scene observer retains its passage ranges during the next commit', () => {
+test.each([
+  false,
+  true,
+])('a pending scene observer retains its passage ranges during the next commit (longer=%s)', longer => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
     width: 100,
   } as DOMRect);
@@ -1062,13 +1074,17 @@ test('a pending scene observer retains its passage ranges during the next commit
     note: '',
     quote: '',
   };
-  const firstSources = [
+  const longSources = [
     {
       type: 'markdown' as const,
       markdown: 'A long narration with several extra words before last.',
     },
   ];
-  const nextSources = [{ type: 'markdown' as const, markdown: 'Now.' }];
+  const shortSources = [{ type: 'markdown' as const, markdown: 'Now.' }];
+  const firstSources = longer ? shortSources : longSources;
+  const nextSources = longer ? longSources : shortSources;
+  const firstQuote = longer ? 'Now.' : 'last.';
+  const nextQuote = longer ? 'last.' : 'Now.';
   const block = (sources: typeof firstSources, id: string, quote: string) => ({
     ...segmentLessonPlayback(sources)[0],
     id,
@@ -1076,17 +1092,21 @@ test('a pending scene observer retains its passage ranges during the next commit
   });
   function CommitObserver({ changed }: { changed: boolean }) {
     useLayoutEffect(() => {
-      if (changed)
+      if (changed) {
         for (const observer of [...observers]) {
           if (observer.active) observer.callback([], {} as MutationObserver);
         }
+        const pending = [...frames.values()];
+        frames.clear();
+        for (const callback of pending) callback(0);
+      }
     }, [changed]);
     return null;
   }
   const view = (changed: boolean) => (
     <>
       <LessonPlaybackStage
-        block={changed ? block(nextSources, '1', 'Now.') : block(firstSources, '0', 'last.')}
+        block={changed ? block(nextSources, '1', nextQuote) : block(firstSources, '0', firstQuote)}
         content={
           {
             isDarkMode: false,
@@ -1102,12 +1122,14 @@ test('a pending scene observer retains its passage ranges during the next commit
   const mounted = render(view(false));
   try {
     mounted.rerender(view(true));
-    expect(mounted.container.querySelector('.captions')?.textContent).toBe('Now. ');
+    expect(mounted.container.querySelector('.captions')?.textContent).toBe(
+      `${nextSources[0].markdown} `
+    );
     expect(
       mounted.container
         .querySelector<HTMLElement>('[data-motion-id="item:0"]')
         ?.style.getPropertyValue('--motion-emphasis')
-    ).toBe('1');
+    ).toBe(longer ? '0' : '1');
   } finally {
     mounted.unmount();
     vi.unstubAllGlobals();
