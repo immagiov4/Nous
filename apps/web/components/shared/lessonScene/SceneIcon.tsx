@@ -1,18 +1,12 @@
 import { createContext, createElement, useContext, useEffect, useState } from 'react';
-
-type IconNodes = Record<string, [string, Record<string, string>][]>;
+import {
+  type IconNodes,
+  loadSceneIconNodes,
+  readSceneIconNodes,
+} from '../../../utils/visuals/sceneIconNodes.ts';
 
 // Shown when a stored icon name is missing from the installed Tabler version.
 const FALLBACK_ICON = 'point';
-
-let iconNodesPromise: Promise<IconNodes> | undefined;
-
-const loadIconNodes = (): Promise<IconNodes> => {
-  iconNodesPromise ??= import('@tabler-icon-nodes').then(
-    module => module.default as unknown as IconNodes
-  );
-  return iconNodesPromise;
-};
 
 const IconNodesContext = createContext<IconNodes | null>(null);
 export const ScenePrototypeContext = createContext(false);
@@ -25,10 +19,10 @@ export const SceneIconProvider = ({
   readonly children: React.ReactNode;
   readonly prototype?: boolean;
 }) => {
-  const [nodes, setNodes] = useState<IconNodes | null>(null);
+  const [nodes, setNodes] = useState<IconNodes | null>(readSceneIconNodes);
   useEffect(() => {
     let active = true;
-    loadIconNodes()
+    loadSceneIconNodes()
       .then(loaded => {
         if (active) setNodes(loaded);
       })

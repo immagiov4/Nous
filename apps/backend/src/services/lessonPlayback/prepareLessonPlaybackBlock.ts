@@ -1,10 +1,13 @@
+import { createHash } from 'node:crypto';
 import { type FormulaSpotlightData, formulaSpotlightCovers } from '@shared/formulaSpotlight';
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import {
   getPlaybackFormulaMarkdown,
   getPlaybackFormulaSources,
   type LessonPlaybackBlock,
+  motionTargets,
   type PlaybackContentBlock,
+  type PlaybackMotionEvent,
 } from '@shared/lessonPlayback';
 import {
   LessonSceneSchema,
@@ -110,7 +113,8 @@ const compatibleSceneTypes = (input: PrepareLessonPlaybackBlockInput) =>
     : input.allowedSceneTypes;
 
 const prepareScene = async (
-  input: PrepareLessonPlaybackBlockInput
+  input: PrepareLessonPlaybackBlockInput,
+  onValidatedScene?: (scene: LessonScene) => void
 ): Promise<LessonScene | undefined> => {
   const { block, config, signal } = input;
   const formulas = getPlaybackFormulaMarkdown(block, input.lesson.sources);
@@ -130,6 +134,7 @@ const prepareScene = async (
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt += 1) {
     signal.throwIfAborted();
     const outcome = await generateLessonScene({
+      onValidatedScene,
       allowedSceneTypes,
       config: resolveLessonVisualModelConfig(config),
       lessonMarkdown: mathMarkdown ?? block.speech,
@@ -226,34 +231,69 @@ const prepareVisuals = async (
   const { block, config, signal } = input;
   let prepared = block.prepared;
   if (!prepared) {
-    const scene = input.providerEffect
-      ? (
-          await input.providerEffect.run({
-            key: 'scene',
-            outputSchema: z.object({ scene: LessonSceneSchema.optional() }),
-            operation: async () => ({ scene: await prepareScene(input) }),
+    const motions = new Map<string, Promise<readonly PlaybackMotionEvent[]>>();
+    const prepareMotion = (scene?: LessonScene) => {
+      // Icons do not affect motion targets. A failed icon request can regenerate a different scene.
+      const sceneKey = createHash('sha256')
+        .update(
+          JSON.stringify(
+            scene ? { type: scene.type, title: scene.title, targets: motionTargets(scene) } : null
+          )
+        )
+        .digest('hex');
+      const planMotion = async () =>
+        scene && scene.type !== 'formula-spotlight' && !isAnimatedLessonScene(scene)
+          ? await planPlaybackMotion({
+              scene,
+              speech: block.speech,
+              config,
+              signal,
+              sourceProvenance: input.lesson.sourceProvenance,
+            })
+          : [];
+      let motion = motions.get(sceneKey);
+      if (!motion) {
+        motion = input.providerEffect
+          ? input.providerEffect.run({
+              key: `motion:${sceneKey}`,
+              outputSchema: PlaybackPreparedSchema.shape.motion,
+              operation: planMotion,
+            })
+          : planMotion();
+        motions.set(sceneKey, motion);
+      }
+      return motion;
+    };
+    // The owner awaits this promise after icons, retaining its failure until both settle.
+    const onValidatedScene = (scene: LessonScene) => {
+      void prepareMotion(scene).catch(() => {});
+    };
+    try {
+      const scene = input.providerEffect
+        ? (
+            await input.providerEffect.run({
+              key: 'scene',
+              outputSchema: z.object({ scene: LessonSceneSchema.optional() }),
+              operation: async () => ({ scene: await prepareScene(input, onValidatedScene) }),
+            })
+          ).scene
+        : await prepareScene(input, onValidatedScene);
+      const savedMotion = input.providerEffect
+        ? await input.providerEffect.run({
+            key: 'motion',
+            outputSchema: PlaybackPreparedSchema.shape.motion,
+            operation: () => prepareMotion(scene),
           })
-        ).scene
-      : await prepareScene(input);
-    const synchronizedScene = await prepareAnimationCues(input, scene);
-    const planMotion = async () =>
-      scene && scene.type !== 'formula-spotlight' && !isAnimatedLessonScene(scene)
-        ? await planPlaybackMotion({
-            scene,
-            speech: block.speech,
-            config,
-            signal,
-            sourceProvenance: input.lesson.sourceProvenance,
-          })
-        : [];
-    const motion = input.providerEffect
-      ? await input.providerEffect.run({
-          key: 'motion',
-          outputSchema: PlaybackPreparedSchema.shape.motion,
-          operation: planMotion,
-        })
-      : await planMotion();
-    prepared = { ...(synchronizedScene ? { scene: synchronizedScene } : {}), motion };
+        : await prepareMotion(scene);
+      const synchronizedScene = await prepareAnimationCues(input, scene);
+      prepared = {
+        ...(synchronizedScene ? { scene: synchronizedScene } : {}),
+        motion: savedMotion,
+      };
+    } finally {
+      // A competing workflow attempt can commit a different authoritative scene.
+      await Promise.allSettled(motions.values());
+    }
   }
   return prepared;
 };

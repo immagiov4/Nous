@@ -56,6 +56,8 @@ export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'pl
   readonly narration?: string;
   readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
+  /** Starts independent preparation after validation, while icons are chosen. */
+  readonly onValidatedScene?: (scene: LessonScene) => void;
 };
 
 const SceneIconQueriesSchema = z.strictObject({
@@ -494,6 +496,7 @@ export async function generateLessonScene(
         })
       ),
     };
+  input.onValidatedScene?.(scene);
   return {
     kind: 'scene',
     scene: await chooseLessonSceneIcons({
