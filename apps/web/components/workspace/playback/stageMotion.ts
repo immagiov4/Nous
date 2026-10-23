@@ -263,14 +263,25 @@ export function sceneElements(host: HTMLElement, scene: LessonScene) {
       elements.set(`row:${index}`, [element]);
     });
   else if (scene.diagram) {
-    const nodes = Array.from(host.querySelectorAll<SVGElement>('g.node'));
+    const sequence = scene.type === 'sequence';
+    const nodes = Array.from(
+      host.querySelectorAll<SVGElement>(sequence ? '[data-et="participant"]' : 'g.node')
+    );
     scene.diagram.nodes.forEach((node, index) => {
-      const element = nodes.find(element => element.id.includes(`flowchart-n${index}-`));
-      if (element) elements.set(`node:${node.id}`, [element]);
+      const matches = nodes.filter(element =>
+        sequence ? element.dataset.id === `n${index}` : element.id.includes(`flowchart-n${index}-`)
+      );
+      if (matches.length) elements.set(`node:${node.id}`, matches);
     });
-    host.querySelectorAll<SVGElement>('path.flowchart-link').forEach((element, index) => {
-      elements.set(`edge:${index}`, [element]);
-    });
+    const labels = host.querySelectorAll<SVGElement>('.messageText');
+    host
+      .querySelectorAll<SVGElement>(sequence ? '[data-et="message"]' : 'path.flowchart-link')
+      .forEach((element, index) => {
+        elements.set(
+          `edge:${index}`,
+          sequence && labels[index] ? [element, labels[index]] : [element]
+        );
+      });
   } else {
     const grouped = scene.groups.length > 0;
     host

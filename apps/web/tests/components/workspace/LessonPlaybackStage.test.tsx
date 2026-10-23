@@ -19,6 +19,7 @@ import {
   adoptCueTimes,
   captionMotionEvents,
   motionStates,
+  sceneElements,
 } from '../../../components/workspace/playback/stageMotion.ts';
 import type { WorkspaceReaderContentModel } from '../../../components/workspace/shell/types.ts';
 import { resolveProjectVisual } from '../../../services/projects/projectVisualResolver.ts';
@@ -1284,4 +1285,35 @@ test('renders resolved step citations instead of the unanchored source scene', (
 
 test('adopts an overdue acoustic cue instead of waiting for its future estimate', () => {
   expect(adoptCueTimes([8000, 2000, 9000], [3000, 1000, 7000], 5000)).toEqual([3000, 2000, 7000]);
+});
+
+test('sequence participants and message labels retain their authored motion targets', () => {
+  const host = document.createElement('div');
+  host.innerHTML = `<svg>
+    <g id="second" data-et="participant" data-id="n1"></g>
+    <g id="first" data-et="participant" data-id="n0"></g>
+    <text id="label" class="messageText">Send</text>
+    <line id="message" data-et="message"></line>
+  </svg>`;
+  const scene: LessonScene = {
+    ...formulaSpotlight,
+    type: 'sequence',
+    diagram: {
+      nodes: [
+        { id: 'from', label: 'From' },
+        { id: 'to', label: 'To' },
+      ],
+      edges: [{ from: 'from', to: 'to', label: 'Send' }],
+    },
+  };
+  expect(
+    Array.from(sceneElements(host, scene), ([id, targets]) => [
+      id,
+      targets.map(target => target.id),
+    ])
+  ).toEqual([
+    ['node:from', ['first']],
+    ['node:to', ['second']],
+    ['edge:0', ['message', 'label']],
+  ]);
 });
