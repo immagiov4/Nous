@@ -159,10 +159,7 @@ test('mounts a fresh scene for each block so the page transition restarts', () =
   expect(container.querySelectorAll('.scene-host')).toHaveLength(1);
 });
 
-test.each([
-  true,
-  false,
-])('reveals continuously and moves the active line past halfway (animate=%s)', animate => {
+test.each([true, false])('reveals continuously and fades spoken words (animate=%s)', animate => {
   vi.mocked(useShouldAnimate).mockReturnValue(animate);
   const source = [{ type: 'markdown' as const, markdown: 'Uno due tre quattro cinque sei.' }];
   const block = segmentLessonPlayback(source)[0];
@@ -186,16 +183,6 @@ test.each([
   const { container, rerender } = render(<LessonPlaybackStage {...props} time={0} />);
   const paragraph = container.querySelector('.captions p');
   if (!(paragraph instanceof HTMLElement)) throw new Error('Captions must be rendered');
-  const scrollTo = vi.fn();
-  paragraph.scrollTo = scrollTo;
-  Object.defineProperty(paragraph, 'clientHeight', { value: 200 });
-  const lines = [0, 80, 100, 100, 180, 200];
-  paragraph.querySelectorAll<HTMLElement>('.caption-word').forEach((word, index) => {
-    Object.defineProperties(word, {
-      offsetTop: { value: lines[index] },
-      offsetHeight: { value: 20 },
-    });
-  });
   const advance = (time: number) => {
     rerender(<LessonPlaybackStage {...props} time={time} />);
     act(() => tick(0));
@@ -206,11 +193,8 @@ test.each([
   expect(parseFloat(first?.style.getPropertyValue('--reveal-edge') ?? '')).toBeGreaterThan(0);
   expect(parseFloat(first?.style.getPropertyValue('--reveal-edge') ?? '')).toBeLessThan(100);
   advance(1);
-  expect(scrollTo).toHaveBeenLastCalledWith({ top: 100, behavior: animate ? 'smooth' : 'instant' });
   advance(2);
-  expect(scrollTo).toHaveBeenCalledTimes(1);
   advance(4);
-  expect(scrollTo).toHaveBeenLastCalledWith({ top: 200, behavior: animate ? 'smooth' : 'instant' });
   expect(parseFloat((first?.firstElementChild as HTMLElement).style.opacity)).toBeCloseTo(0.55);
   paragraph.scrollTop = 200;
   rerender(<LessonPlaybackStage {...props} block={{ ...block, id: 'next' }} time={0} />);

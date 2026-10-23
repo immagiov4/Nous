@@ -59,6 +59,11 @@ jobs:
           pactl set-default-sink nous_playback
           bun run test:audio-production
 
+      - name: Verify complete caption rows
+        run: |
+          bun run test:caption-rows
+          CAPTION_TEST_BROWSER=firefox bun run test:caption-rows
+
       - name: Run CI Gate
         run: bun run gate:ci
 
