@@ -2038,7 +2038,7 @@
   }
 }
 .lesson-player-stage .captions p {
-  --caption-height: round(down, min(45dvh, 8lh), 1lh);
+  --caption-height: min(45dvh, 8lh);
   position: relative;
   max-height: var(--caption-height);
   overflow: auto;

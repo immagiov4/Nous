@@ -57,4 +57,4 @@ With those results ready, the [reader](../05-section-frontend/01-p-reader-shell.
 
 Playback causal scenes use an ordered grid with numbered cards: two columns on desktop and one at the existing narrow scene-host query. Connectors use unscaled card positions to follow authored order across the row gap. The stage retains its caption and visual columns and fits the complete scene into the available area. The [causal grid](../../../apps/web/components/shared/lessonScene/CausalGrid.tsx) owns these cards and connectors.
 
-The caption viewport fits a whole number of line heights. It measures actual wrapped rows, follows their fractional positions and excludes any partial boundary rows during smooth scrolling. Progressive reveal, the 1.3-second lookahead and spoken-word fading use the existing caption clock. `bun run test:caption-rows` checks visible glyph geometry through scrolling, seeking, resize and passage replacement with synthetic text; set `CAPTION_TEST_BROWSER=firefox` for Firefox.
+During lesson playback, captions show complete text rows at the reading-zone edges while text appears progressively and spoken words fade. Seeking preserves visible text.

@@ -433,7 +433,11 @@ export default function LessonPlaybackStage({
     };
     measure();
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    document.fonts.addEventListener('loadingdone', measure);
+    return () => {
+      window.removeEventListener('resize', measure);
+      document.fonts.removeEventListener('loadingdone', measure);
+    };
   }, [duration, formatted]);
 
   useEffect(() => {

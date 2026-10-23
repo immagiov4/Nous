@@ -1,4 +1,5 @@
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import fontUrl from 'katex/dist/fonts/KaTeX_Main-Regular.woff2?url';
 import { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import LessonPlaybackStage from '../../components/workspace/playback/LessonPlaybackStage';
@@ -30,6 +31,7 @@ function Fixture() {
   const currentBlock = useMemo(() => ({ ...block, id: String(passage) }), [passage]);
   return (
     <>
+      <style>{`@font-face { font-family: "Caption fixture"; src: url("${fontUrl}"); font-display: swap; } .lesson-player-stage { font-family: "Caption fixture", sans-serif; }`}</style>
       <div style={{ height: '100dvh', display: 'flex' }}>
         <LessonPlaybackStage block={currentBlock} content={content} duration={60} time={time} />
       </div>

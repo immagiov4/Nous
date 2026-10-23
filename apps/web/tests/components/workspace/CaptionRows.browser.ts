@@ -42,6 +42,12 @@ async function visibleCaptionRows(page: Page) {
         range.selectNodeContents(word.firstElementChild);
         const rect = range.getBoundingClientRect();
         if (rect.bottom <= top || rect.top >= bottom) continue;
+        const revealEdge = Number.parseFloat(word.style.getPropertyValue('--reveal-edge'));
+        if (
+          getComputedStyle(word).maskImage !== 'none' &&
+          word.getBoundingClientRect().left + revealEdge <= rect.left
+        )
+          continue;
         frameVisible++;
         if (rect.top < top || rect.bottom > bottom)
           violations.push(`${word.textContent}: ${rect.top - top}, ${bottom - rect.bottom}`);
@@ -98,7 +104,17 @@ try {
             });
             const label = `${browserName} ${width}x${height} viewport/DPR zoom=${zoom} motion=${reducedMotion}`;
             try {
-              await page.goto(`${baseUrl}tests/fixtures/captionRows.html`);
+              let releaseFont!: () => void;
+              const fontReady = new Promise<void>(resolve => {
+                releaseFont = resolve;
+              });
+              await page.route('**/*.woff2', async route => {
+                await fontReady;
+                await route.continue();
+              });
+              await page.goto(`${baseUrl}tests/fixtures/captionRows.html`, {
+                waitUntil: 'domcontentloaded',
+              });
               await page.locator('.caption-word').first().waitFor();
               const seek = page.getByRole('spinbutton', { name: 'Playback time' });
               for (const time of [0, 18, 38, 8, 55]) {
@@ -111,6 +127,24 @@ try {
                     `${label} time=${time}: revealed rows must be visible`
                   );
               }
+              releaseFont();
+              await page.evaluate(() => document.fonts.ready);
+              const loadedFont = await visibleCaptionRows(page);
+              assert.deepEqual(loadedFont.violations, [], `${label} late font`);
+              assert(loadedFont.visible > 0, `${label} late font must retain revealed text`);
+              if (reducedMotion === 'no-preference') {
+                await page.evaluate(() => {
+                  for (const word of document.querySelectorAll<HTMLElement>('.caption-word')) {
+                    word.style.setProperty('--reveal-edge', '-1px');
+                  }
+                });
+                assert.equal(
+                  (await visibleCaptionRows(page)).visible,
+                  0,
+                  'Masked text must not count as revealed'
+                );
+              }
+              await seek.fill('54');
               await page.setViewportSize({ width: width - 57, height: height - 31 });
               assert.deepEqual((await visibleCaptionRows(page)).violations, [], `${label} resize`);
               await page.evaluate(() => {
