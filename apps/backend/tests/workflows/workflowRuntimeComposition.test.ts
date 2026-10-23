@@ -15,12 +15,15 @@ import {
   createProductionRegistry,
   createRuntimeProjectRevisionNotificationDelivery,
   createWorkflowRuntimeComposition,
+  WORKFLOW_SET_VERSION,
   type WorkflowRuntimeCompositionStore,
 } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
 import { hashPreProviderPostprocessingWorkflowManifest } from '../../src/workflows/validation.js';
 import { WorkflowSignalError } from '../../src/workflows/workflowErrors.js';
 import { subscribeToWorkflowTransientEvents } from '../../src/workflows/workflowObservability.js';
 import type { WorkflowRunState } from '../../src/workflows/workflowReadModel.js';
+
+import frozenContracts from './fixtures/productionWorkflowContracts.json';
 
 const RUN_ID = '9de19290-0dab-470d-a554-9a214073283e';
 const PRE_PDF_SOURCE_HASH_LESSON_DEFINITION =
@@ -62,6 +65,24 @@ const createStore = (): WorkflowRuntimeCompositionStore => ({
 });
 
 describe('workflow runtime production composition', () => {
+  test('registered contracts are immutable within each workflow-set version', () => {
+    const frozen = frozenContracts.find(entry => entry.version === WORKFLOW_SET_VERSION);
+    expect(frozen, 'Freeze the manifest when adding a workflow-set version').toBeDefined();
+    expect(productionRegistry.listDefinitionDeployments().map(entry => entry.current)).toEqual(
+      frozen?.current
+    );
+  });
+
+  test('in-flight runs retain every frozen workflow-set contract', () => {
+    for (const deployment of frozenContracts) {
+      for (const boundary of deployment.current) {
+        expect(
+          productionRegistry.resolve(boundary.workflowId, boundary.definitionHash)?.definitionHash
+        ).toBe(boundary.definitionHash);
+      }
+    }
+  });
+
   // Captured on claude/247-playback-prep before registering playback persistence.
   test.each([
     ['course-generation', '7e93aedf22f6046159dc3e2aa8de7576d38eb55cfdf8464adcaf8b290eee54f6'],

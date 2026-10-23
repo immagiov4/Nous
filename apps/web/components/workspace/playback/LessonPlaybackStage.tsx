@@ -1,20 +1,20 @@
 import {
+  type FormulaSpotlightData,
+  formulaSpotlightCovers,
+  resolveFormulaReferences,
+} from '@shared/formulaSpotlight';
+import {
+  getPlaybackFormulaMarkdown,
+  getPlaybackFormulaSources,
   getPlaybackMathMarkdown,
   type LessonPlaybackBlock,
   type PlaybackRange,
   type PlaybackVisual,
+  playbackNonProseVisuals,
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
-import {
-  Fragment,
-  type RefObject,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { Fragment, type RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
@@ -95,6 +95,7 @@ function PlaybackScene({
     const anchors = sceneCaptionAnchors(scene, block.speech);
     let previousClock: CaptionClock | null = null;
     let times: number[] | undefined;
+    let ends: number[] | undefined;
     return () => {
       const current = clock.current;
       if (!current?.bodyDuration) return undefined;
@@ -111,14 +112,34 @@ function PlaybackScene({
               duration: current.bodyDuration,
             })
           : undefined;
+        if (scene.type === 'formula-spotlight' && anchors) {
+          const references = resolveFormulaReferences(scene as FormulaSpotlightData, block.speech);
+          times = (scene as FormulaSpotlightData).symbols.map(() => Number.POSITIVE_INFINITY);
+          ends = (scene as FormulaSpotlightData).symbols.map(() => Number.NEGATIVE_INFINITY);
+          for (const reference of references) {
+            const span = captionAnchorSpan({
+              anchors: [reference.anchor],
+              speech: block.speech,
+              speechRanges: current.speechRanges,
+              runs: current.runs,
+              width: current.width,
+              feather: current.feather,
+              duration: current.bodyDuration,
+            });
+            times[reference.index] = span.startMs;
+            ends[reference.index] = span.endMs;
+          }
+        }
         previousClock = current;
       }
-      const { blockTime, revealTime } = current.read();
+      const { blockTime, bodyTime, revealTime } = current.read();
       return anchors
         ? {
-            elapsedMs: Math.max(0, revealTime * 1000),
+            elapsedMs:
+              (scene.type === 'formula-spotlight' ? bodyTime : Math.max(0, revealTime)) * 1000,
             durationMs: current.bodyDuration * 1000,
             cueTimes: times,
+            cueEndTimes: ends,
           }
         : {
             elapsedMs: (blockTime - interval.start) * 1000,
@@ -126,7 +147,7 @@ function PlaybackScene({
           };
     };
   }, [scene, block.speech, clock, interval.start, interval.duration]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (
       isAnimatedLessonScene(scene) ||
       scene.type === 'formula-spotlight' ||
@@ -293,8 +314,8 @@ function PlaybackVisualContent({
   );
 }
 
-export default function LessonPlaybackStage({
-  block: sourceBlock,
+function PlaybackPassage({
+  block,
   time,
   duration,
   content,
@@ -308,7 +329,6 @@ export default function LessonPlaybackStage({
   speed?: number;
   readTime?: () => number;
 }>) {
-  const block = useMemo(() => resolvePlaybackNarration(sourceBlock), [sourceBlock]);
   const sources = useMemo(
     () =>
       content.sectionContentBlocks?.length
@@ -446,7 +466,7 @@ export default function LessonPlaybackStage({
     };
   }, [duration, formatted]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let previousClock: CaptionClock | null = null;
     let previousBodyTime: number | undefined;
     const render = () => {
@@ -491,20 +511,44 @@ export default function LessonPlaybackStage({
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const visuals = useMemo(() => {
+  const visualCandidates = useMemo(() => {
+    const formulas = getPlaybackFormulaMarkdown(block, sources);
+    const projected = playbackNonProseVisuals(block);
+    const scene = block.prepared?.scene;
+    if (
+      scene?.type === 'formula-spotlight' &&
+      formulas &&
+      !formulaSpotlightCovers(
+        scene as FormulaSpotlightData,
+        getPlaybackFormulaSources(block, sources)
+      )
+    )
+      return projected.length ? projected : [{ kind: 'markdown' as const, markdown: formulas }];
     if (block.prepared?.scene && getPlaybackMathMarkdown(block))
-      return [{ kind: 'scene' as const, scene: block.prepared.scene }];
-    if (block.visuals.length) return block.visuals;
+      return [...projected, { kind: 'scene' as const, scene: block.prepared.scene }];
+    if (projected.length) return projected;
+    if (formulas && !block.prepared?.scene)
+      return [{ kind: 'markdown' as const, markdown: formulas }];
     if (block.prepared?.scene) return [{ kind: 'scene' as const, scene: block.prepared.scene }];
-    if (block.prepared)
-      return [{ kind: 'markdown' as const, markdown: captionSource(block, sources).markdown }];
+    if (formulas) return [{ kind: 'markdown' as const, markdown: formulas }];
     return [];
   }, [block, sources]);
+  const visualProjection = JSON.stringify(visualCandidates, (_key, value: unknown) =>
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(
+          Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+        )
+      : value
+  );
+  const visuals = useMemo(
+    () => JSON.parse(visualProjection) as readonly PlaybackVisual[],
+    [visualProjection]
+  );
   const [selection, setSelection] = useState<{
     blockId: string;
     index: number;
   } | null>(null);
-  const anchors = useMemo(
+  const visualReferences = useMemo(
     () =>
       visuals.map(visual => {
         const stored =
@@ -513,11 +557,15 @@ export default function LessonPlaybackStage({
             : undefined;
         const scene =
           visual.kind === 'scene' ? visual.scene : stored && getStoredLessonVisualScene(stored);
-        return visuals.length > 1 ? sceneCaptionAnchors(scene, block.speech) : undefined;
+        return {
+          anchors: visuals.length > 1 ? sceneCaptionAnchors(scene, block.speech) : undefined,
+          usesSpokenClock: scene?.type === 'formula-spotlight',
+        };
       }),
     [visuals, content.activeSectionGeneratedVisualsById, block.speech]
   );
   // Select against the new caption clock before painting or running retired scene frames.
+
   useLayoutEffect(() => {
     if (!visuals.length) return;
     let previousClock: CaptionClock | null = null;
@@ -526,9 +574,9 @@ export default function LessonPlaybackStage({
     let frame = 0;
     const tick = () => {
       const current = clock.current;
-      if (current && (current.width || !anchors.some(Boolean))) {
+      if (current && (current.width || !visualReferences.some(reference => reference.anchors))) {
         if (current !== previousClock) {
-          spans = anchors.map(quotation =>
+          spans = visualReferences.map(({ anchors: quotation }) =>
             quotation
               ? captionAnchorSpan({
                   anchors: quotation,
@@ -543,19 +591,20 @@ export default function LessonPlaybackStage({
           );
           previousClock = current;
         }
-        const { blockTime, revealTime } = current.read();
+        const { blockTime, bodyTime, revealTime } = current.read();
         const captionOffset = Math.max(0, revealTime) - blockTime;
         let active = -1;
         let latestStart = Number.NEGATIVE_INFINITY;
         spans.forEach((span, index) => {
-          const start = span
-            ? span.startMs / 1000 - captionOffset
-            : (duration * index) / visuals.length;
+          const offset = visualReferences[index].usesSpokenClock
+            ? bodyTime - blockTime
+            : captionOffset;
+          const start = span ? span.startMs / 1000 - offset : (duration * index) / visuals.length;
           // A later start replaces the earlier scene permanently, even if it ends first.
           if (start <= blockTime && start >= latestStart) {
             latestStart = start;
             const end = span
-              ? span.endMs / 1000 - captionOffset
+              ? span.endMs / 1000 - offset
               : (duration * (index + 1)) / visuals.length;
             active = blockTime <= end ? index : -1;
           }
@@ -573,9 +622,14 @@ export default function LessonPlaybackStage({
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, [anchors, block, duration, visuals]);
+  }, [visualReferences, block.id, block.speech, duration, visuals]);
   const visualIndex = selection?.blockId === block.id ? selection.index : -1;
+
   const visual = visuals[visualIndex];
+  const formulaMarkdown = useMemo(
+    () => getPlaybackFormulaMarkdown(block, sources),
+    [block, sources]
+  );
   const sceneProps = {
     block,
     clock,
@@ -613,6 +667,11 @@ export default function LessonPlaybackStage({
             className="scene-host"
             aria-label={t('Visualizzazione della lezione')}
           >
+            {formulaMarkdown &&
+            !(visual?.kind === 'scene' && visual.scene.type === 'formula-spotlight') &&
+            !(visual?.kind === 'markdown' && visual.markdown === formulaMarkdown) ? (
+              <MarkdownRenderer content={formulaMarkdown} isDarkMode={content.isDarkMode} />
+            ) : null}
             {visual ? (
               <PlaybackVisualContent
                 key={`${block.id}:${visualIndex}`}
@@ -630,4 +689,10 @@ export default function LessonPlaybackStage({
       </section>
     </div>
   );
+}
+
+/** Each narration owns its clock so retiring subscriptions keep their original text ranges. */
+export default function LessonPlaybackStage(props: Parameters<typeof PlaybackPassage>[0]) {
+  const block = useMemo(() => resolvePlaybackNarration(props.block), [props.block]);
+  return <PlaybackPassage {...props} block={block} key={`${block.id}:${block.speech}`} />;
 }

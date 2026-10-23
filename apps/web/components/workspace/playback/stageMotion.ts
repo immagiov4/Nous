@@ -1,3 +1,4 @@
+import { type FormulaSpotlightData, resolveFormulaReferences } from '@shared/formulaSpotlight';
 import type { PlaybackMotionEvent, PlaybackRange } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
 import { cueTimes, playbackMode } from '@shared/lessonSceneAnimation';
@@ -32,8 +33,16 @@ export function sceneCaptionAnchors(
 ): string[] | undefined {
   if (!scene) return undefined;
   let cues: readonly { readonly anchor?: string }[] | undefined;
-  if (scene.type === 'formula-spotlight') cues = scene.symbols;
-  else if (isAnimatedLessonScene(scene) && playbackMode(scene) === 'text') {
+  if (scene.type === 'formula-spotlight') {
+    try {
+      const anchors = resolveFormulaReferences(scene as FormulaSpotlightData, speech).map(
+        reference => reference.anchor
+      );
+      return anchors.length ? anchors : undefined;
+    } catch {
+      return undefined;
+    }
+  } else if (isAnimatedLessonScene(scene) && playbackMode(scene) === 'text') {
     cues = scene.type === 'guided-path' ? scene.steps : scene.cues;
   }
   if (!cues) return undefined;

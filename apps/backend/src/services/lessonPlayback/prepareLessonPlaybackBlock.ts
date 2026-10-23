@@ -1,9 +1,12 @@
 import { createHash } from 'node:crypto';
+import { type FormulaSpotlightData, formulaSpotlightCovers } from '@shared/formulaSpotlight';
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import {
-  getPlaybackMathMarkdown,
+  getPlaybackFormulaMarkdown,
+  getPlaybackFormulaSources,
   type LessonPlaybackBlock,
   motionTargets,
+  type PlaybackContentBlock,
   type PlaybackMotionEvent,
 } from '@shared/lessonPlayback';
 import {
@@ -11,7 +14,12 @@ import {
   PlaybackAudioSchema,
   PlaybackPreparedSchema,
 } from '@shared/lessonPlaybackSchema';
-import { isAnimatedLessonScene, type LessonScene, type LessonSceneType } from '@shared/lessonScene';
+import {
+  isAnimatedLessonScene,
+  LESSON_SCENE_TYPES,
+  type LessonScene,
+  type LessonSceneType,
+} from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
@@ -33,6 +41,7 @@ interface PrepareLessonPlaybackBlockInput {
   readonly userId: string;
   readonly supportsSpokenMath?: boolean;
   readonly supportsFencedCode?: boolean;
+  readonly supportsUnlinkedFormulaSymbols?: boolean;
   readonly allowedSceneTypes?: readonly LessonSceneType[];
   readonly providerEffect?: WorkflowProviderEffectExecutor;
   readonly ttsModel?: string;
@@ -41,6 +50,7 @@ interface PrepareLessonPlaybackBlockInput {
     readonly title: string;
     readonly description?: string;
     readonly sourceProvenance?: LessonSourceProvenance;
+    readonly sources?: readonly PlaybackContentBlock[];
     readonly generatedVisuals?: readonly ProjectLessonVisual[];
   };
   readonly voice: string;
@@ -66,13 +76,22 @@ const existingScenes = ({
 
 /** Check persisted scenes against the resumed catalog before starting provider or asset work. */
 export const validatePlaybackSceneTypes = (
-  input: Pick<PrepareLessonPlaybackBlockInput, 'block' | 'lesson' | 'allowedSceneTypes'>
+  input: Pick<
+    PrepareLessonPlaybackBlockInput,
+    'block' | 'lesson' | 'allowedSceneTypes' | 'supportsUnlinkedFormulaSymbols'
+  >
 ): void => {
   const { allowedSceneTypes } = input;
-  if (!allowedSceneTypes) return;
   const scenes = existingScenes(input);
   if (input.block.prepared?.scene) scenes.push(input.block.prepared.scene);
-  if (scenes.some(scene => !allowedSceneTypes.includes(scene.type))) {
+  const unsupported = scenes.some(
+    scene =>
+      (allowedSceneTypes && !allowedSceneTypes.includes(scene.type)) ||
+      (input.supportsUnlinkedFormulaSymbols === false &&
+        scene.type === 'formula-spotlight' &&
+        (scene as FormulaSpotlightData).symbols.some(symbol => !symbol.anchor))
+  );
+  if (unsupported) {
     throw failPermanently({
       code: 'lesson_playback_scene_invalid',
       message: 'A stored playback scene is outside the resumed visual contract.',
@@ -80,12 +99,24 @@ export const validatePlaybackSceneTypes = (
   }
 };
 
+/** A structured spotlight may replace source equations only when their mathematics is complete. */
+const sceneRetainsSourceMath = (scene: LessonScene, formulas: readonly string[]): boolean =>
+  scene.type !== 'formula-spotlight' ||
+  formulaSpotlightCovers(scene as FormulaSpotlightData, formulas);
+
+/** Historical frozen contracts require an anchor for every symbol; choose another visual form. */
+const compatibleSceneTypes = (input: PrepareLessonPlaybackBlockInput) =>
+  input.supportsUnlinkedFormulaSymbols === false
+    ? (input.allowedSceneTypes ?? LESSON_SCENE_TYPES).filter(type => type !== 'formula-spotlight')
+    : input.allowedSceneTypes;
+
 const prepareScene = async (
   input: PrepareLessonPlaybackBlockInput,
   onValidatedScene?: (scene: LessonScene) => void
 ): Promise<LessonScene | undefined> => {
   const { block, config, signal } = input;
-  const mathMarkdown = getPlaybackMathMarkdown(block);
+  const formulas = getPlaybackFormulaMarkdown(block, input.lesson.sources);
+  const mathMarkdown = formulas?.concat('\n\n', block.speech);
   if (block.visuals.length && !mathMarkdown) {
     const scenes = existingScenes(input);
     // Motion events carry no scene id, so a block with several scenes shows them without motion.
@@ -95,13 +126,14 @@ const prepareScene = async (
   if (Math.max(block.speech.length, mathMarkdown?.length ?? 0) > MAX_VISUAL_LESSON_CHARS) {
     throw new Error('Playback block speech exceeds the scene generation text limit.');
   }
+  const allowedSceneTypes = compatibleSceneTypes(input);
   let retryFeedback: string | undefined;
   let diagnostic: WorkflowErrorDiagnostic | undefined;
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt += 1) {
     signal.throwIfAborted();
     const outcome = await generateLessonScene({
       onValidatedScene,
-      allowedSceneTypes: input.allowedSceneTypes,
+      allowedSceneTypes,
       config: resolveLessonVisualModelConfig(config),
       lessonMarkdown: mathMarkdown ?? block.speech,
       narration: block.speech,
@@ -114,16 +146,27 @@ const prepareScene = async (
       signal,
     });
     signal.throwIfAborted();
-    if (outcome.kind === 'scene') return outcome.scene;
+    if (outcome.kind === 'scene') {
+      if (
+        sceneRetainsSourceMath(
+          outcome.scene,
+          getPlaybackFormulaSources(block, input.lesson.sources)
+        )
+      )
+        return outcome.scene;
+      retryFeedback =
+        'The spotlight must retain every complete authored expression, including scripts, conditions and operators. Return the complete equations or choose text for the sourced-formula presentation.';
+      continue;
+    }
     if (outcome.kind === 'text') return undefined;
     retryFeedback = outcome.problems.join('\n');
     diagnostic = outcome.diagnostic;
   }
-  throw failPermanently({
-    code: 'lesson_playback_scene_invalid',
-    message: 'Playback scene preparation failed validation after corrective attempts.',
-    ...(diagnostic ? { details: { diagnostic } } : {}),
+  console.warn('[lesson-playback] Scene did not validate; retaining source visuals.', {
+    diagnostic,
+    retryFeedback,
   });
+  return undefined;
 };
 
 /** Prepares one block's visual cues and audio; the caller owns its eventual asset reference. */

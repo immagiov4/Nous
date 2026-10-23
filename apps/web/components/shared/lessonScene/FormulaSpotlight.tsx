@@ -38,7 +38,10 @@ export const FormulaSpotlight = memo(function FormulaSpotlight({
       const current = readFrame?.();
       const active =
         current?.cueTimes?.reduce(
-          (last, time, index) => (time <= current.elapsedMs ? index : last),
+          (last, time, index) =>
+            time <= current.elapsedMs && current.elapsedMs < (current.cueEndTimes?.[index] ?? time)
+              ? index
+              : last,
           -1
         ) ?? -1;
       if (active !== previous) {
