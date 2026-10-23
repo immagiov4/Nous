@@ -350,13 +350,11 @@ test('keeps motion quotation anchors aligned after formatted punctuation and lin
   );
 });
 
-test('recomputes smooth reveal, focus delay, holds and backward seeks from time', () => {
+test('recomputes immediate reveal, focus delay, holds and backward seeks from time', () => {
   const reveal = [
     { effect: 'reveal' as const, targets: ['item:0'], quote: 'Prima', atMs: 100, durationMs: 700 },
   ];
-  expect(motionStates(['item:0', 'item:1'], reveal, 450, false, 0).get('item:0')?.opacity).toBe(
-    0.5
-  );
+  expect(motionStates(['item:0', 'item:1'], reveal, 450, false, 0).get('item:0')?.opacity).toBe(1);
   expect(motionStates(['item:0'], reveal, 100, true, 0).get('item:0')?.opacity).toBe(1);
   expect(motionStates(['item:0'], reveal, 50, false, 0).get('item:0')?.opacity).toBe(0);
   const focus = [
@@ -369,6 +367,27 @@ test('recomputes smooth reveal, focus delay, holds and backward seeks from time'
   expect(focused.get('item:0')?.emphasis).toBeGreaterThan(0);
   expect(focused.get('item:1')).toEqual({ opacity: 1, emphasis: 0 });
   expect(motionStates(['item:0'], focus, 5400, false, 1300).get('item:0')?.emphasis).toBe(0);
+});
+
+test.each([
+  'reveal',
+  'focus',
+] as const)('%s is visible at the aligned word start without an enter ramp', effect => {
+  const alignedWordStartMs = 2300;
+  const events = [
+    { effect, targets: ['item:0'], quote: 'Segnale', atMs: alignedWordStartMs, durationMs: 700 },
+  ];
+  const visible = (time: number) => {
+    const state = motionStates(['item:0'], events, time, false, 0).get('item:0');
+    if (!state) throw new Error('Cue target must exist');
+    return effect === 'reveal' ? state.opacity : state.emphasis;
+  };
+  expect(visible(alignedWordStartMs - 1)).toBe(0);
+    const visibleOffsetMs = [0, 16, 50, 100, 150].find(
+    offset => visible(alignedWordStartMs + offset) === 1
+  );
+    expect(visibleOffsetMs).toBe(0);
+  expect(visible(alignedWordStartMs - 1)).toBe(0);
 });
 
 test('captions display canonical inline text and every spoken heading', () => {

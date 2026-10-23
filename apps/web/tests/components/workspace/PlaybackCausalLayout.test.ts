@@ -62,6 +62,100 @@ async function expectConnectedCards(page: Page) {
   });
 }
 
+test('paints voice cues at word start while captions retain their 1.3 second lead', async () => {
+  const page = await browser.newPage({
+    viewport: { width: 1440, height: 900 },
+    reducedMotion: 'no-preference',
+  });
+  try {
+    await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html`);
+    await page.locator('[data-motion-id]').first().waitFor({ state: 'attached' });
+    const result = await page.evaluate(async () => {
+      const controls = window as unknown as { setPlaybackTime: (time: number) => void };
+      const frame = () => new Promise(requestAnimationFrame);
+      const words = [...document.querySelectorAll<HTMLElement>('.caption-word')];
+      const reveal = document.querySelector<HTMLElement>('[data-motion-id="item:0"]');
+      const focus = document.querySelector<HTMLElement>('[data-motion-id="item:1"]');
+      const paragraph = document.querySelector<HTMLElement>('.caption-page');
+      if (!reveal || !focus || !paragraph) throw new Error('Playback cue targets must exist');
+      controls.setPlaybackTime(1);
+      await frame();
+      await frame();
+      const width = words.reduce((sum, word) => sum + word.getBoundingClientRect().width, 0);
+      const feather = Number.parseFloat(
+        getComputedStyle(paragraph).getPropertyValue('--caption-feather')
+      );
+      const captionEdge = Number.parseFloat(words[1].style.getPropertyValue('--reveal-edge'));
+      const before = {
+        opacity: Number(getComputedStyle(reveal).opacity),
+        emphasis: Number(focus.style.getPropertyValue('--motion-emphasis')),
+      };
+      controls.setPlaybackTime(2);
+      await frame();
+      await frame();
+      return {
+        before,
+        atWordStart: {
+          opacity: Number(getComputedStyle(reveal).opacity),
+          emphasis: Number(focus.style.getPropertyValue('--motion-emphasis')),
+        },
+        captionLead:
+          ((captionEdge + words[0].getBoundingClientRect().width) / (width + feather)) * 6 - 1,
+      };
+    });
+    expect(result.before).toEqual({ opacity: 0, emphasis: 0 });
+    expect(result.atWordStart).toEqual({ opacity: 1, emphasis: 1 });
+    expect(result.captionLead).toBeCloseTo(1.3);
+    for (const mode of ['path', 'formula']) {
+      await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=${mode}`);
+      await page.locator('.scene').waitFor({ state: 'attached' });
+      const state = await page.evaluate(async () => {
+        const controls = window as unknown as { setPlaybackTime: (time: number) => void };
+        const frame = () => new Promise(requestAnimationFrame);
+        controls.setPlaybackTime(1.99);
+        await frame();
+        await frame();
+        const before = {
+          step: document.querySelector('[data-stop="1"]')?.classList.contains('current') ?? false,
+          symbol:
+            document.querySelector('[data-formula-symbol]')?.getAttribute('data-active') === 'true',
+        };
+        controls.setPlaybackTime(2);
+        await frame();
+        await frame();
+        const stop = document.querySelector<HTMLElement>('[data-stop="1"]');
+        return {
+          before,
+          step: stop?.classList.contains('current') ?? false,
+          transition: stop ? getComputedStyle(stop).transitionDuration : null,
+          symbol:
+            document.querySelector('[data-formula-symbol]')?.getAttribute('data-active') === 'true',
+          definitionVisible: document.querySelector('dd')?.hidden === false,
+        };
+      });
+      if (mode === 'path') {
+        expect(state.before.step).toBe(false);
+        expect(state.step).toBe(true);
+        expect(state.transition?.split(',').every(duration => duration.trim() === '0s')).toBe(true);
+      } else {
+        expect(state.before.symbol).toBe(false);
+        expect(state.symbol).toBe(true);
+        expect(state.definitionVisible).toBe(true);
+      }
+    }
+    await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=fallback`);
+    await page.locator('.scene').waitFor({ state: 'attached' });
+    expect(
+      await page.locator('.scene').evaluate(element => ({
+        opacity: getComputedStyle(element).opacity,
+        animations: element.getAnimations().length,
+      }))
+    ).toEqual({ opacity: '1', animations: 0 });
+  } finally {
+    await page.close();
+  }
+});
+
 for (const viewport of [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },

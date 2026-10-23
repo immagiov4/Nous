@@ -1937,7 +1937,11 @@
   border: 0;
 }
 .lesson-player-stage .lesson-scene .scene {
-  animation: lesson-player-caption-in var(--caption-change) ease-out;
+  /* Voice cues are visible on onset; caption entrances retain their own animation. */
+  animation: none;
+}
+.lesson-player-stage .lesson-scene.lesson-scene-animated .scene.interaction-card {
+  --interaction-transition: 0ms;
 }
 @keyframes lesson-player-caption-in {
   from {

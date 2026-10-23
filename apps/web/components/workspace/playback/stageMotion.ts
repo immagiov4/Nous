@@ -156,16 +156,13 @@ export const smooth = (fraction: number) => {
 
 function motionUpdate(event: TimedMotionEvent, eventTime: number, reduced: boolean) {
   if (event.effect === 'reveal') {
-    return { opacity: reduced ? 1 : smooth((eventTime - event.atMs) / event.durationMs) };
+    return { opacity: 1 };
   }
   const focusDuration = Math.min(event.durationMs, MOTION_TIMING.maxFocusMs);
   if (!(event.effect === 'focus' && eventTime < event.atMs + focusDuration)) return {};
   const transition = Math.min(MOTION_TIMING.transitionMs, focusDuration / 2);
   return {
-    emphasis: reduced
-      ? 1
-      : smooth((eventTime - event.atMs) / transition) *
-        smooth((event.atMs + focusDuration - eventTime) / transition),
+    emphasis: reduced ? 1 : smooth((event.atMs + focusDuration - eventTime) / transition),
   };
 }
 
