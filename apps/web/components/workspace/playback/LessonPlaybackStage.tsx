@@ -108,6 +108,7 @@ function PlaybackScene({
   const readAnimationFrame = useMemo<ReadSceneAnimationFrame | undefined>(() => {
     if (!isAnimatedLessonScene(scene) && scene.type !== 'formula-spotlight') return undefined;
     const anchors = sceneCaptionAnchors(scene, block.speech);
+    // Voice cues exclude both caption look-ahead and its graphical reveal feather.
     let previousClock: CaptionClock | null = null;
     let times: number[] | undefined;
     return () => {
@@ -122,7 +123,7 @@ function PlaybackScene({
               speechRanges: current.speechRanges,
               runs: current.runs,
               width: current.width,
-              feather: current.feather,
+              feather: 0,
               duration: current.bodyDuration,
             })
           : undefined;
@@ -164,7 +165,7 @@ function PlaybackScene({
           speechRanges: current.speechRanges,
           runs: current.runs,
           width: current.width,
-          feather: current.feather,
+          feather: 0,
           duration: current.bodyDuration,
         });
         previousClock = current;
@@ -539,7 +540,7 @@ export default function LessonPlaybackStage({
                   speechRanges: current.speechRanges,
                   runs: current.runs,
                   width: current.width,
-                  feather: current.feather,
+                  feather: 0,
                   duration: current.bodyDuration,
                 })
               : undefined
@@ -547,13 +548,13 @@ export default function LessonPlaybackStage({
           previousClock = current;
         }
         const { blockTime, bodyTime } = current.read();
-        const captionOffset = Math.max(0, bodyTime) - blockTime;
+        const bodyOffset = Math.max(0, bodyTime) - blockTime;
         let active = 0;
         let latestStart = Number.NEGATIVE_INFINITY;
         let earliestStart = Number.POSITIVE_INFINITY;
         spans.forEach((span, index) => {
           const start = span
-            ? span.startMs / 1000 - captionOffset
+            ? span.startMs / 1000 - bodyOffset
             : (duration * index) / visuals.length;
           if (latestStart === Number.NEGATIVE_INFINITY && start < earliestStart) {
             earliestStart = start;

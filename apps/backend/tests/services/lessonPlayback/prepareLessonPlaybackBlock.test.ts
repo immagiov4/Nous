@@ -764,3 +764,15 @@ test.each([
   expect(result.audio).toEqual(preparedAudio);
   expect(motion).not.toHaveBeenCalled();
 });
+
+test('propagates cancellation during scene generation instead of committing a fallback', async () => {
+  const controller = new AbortController();
+  const reason = new Error('Preparation cancelled');
+  sceneGeneration.mockImplementationOnce(async () => {
+    controller.abort(reason);
+    throw new Error('Provider interrupted');
+  });
+  await expect(prepareLessonPlaybackBlock({ ...input(), signal: controller.signal })).rejects.toBe(
+    reason
+  );
+});

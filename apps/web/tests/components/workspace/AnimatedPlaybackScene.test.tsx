@@ -115,9 +115,9 @@ test('complete anchors follow heard words regardless of caption lead or playback
     ],
   };
   const { container, advance } = mount(scene, 'Uno due Tre quattro.', 4);
-  advance(1.89);
+  advance(1.99);
   expect(container.querySelectorAll('[aria-current=step]')).toHaveLength(1);
-  advance(1.9);
+  advance(2.01);
   expect(container.querySelectorAll('[aria-current=step]')).toHaveLength(2);
   expect(container.querySelector('.path-explanation p')?.textContent).toBe(
     'Secondo passaggio. Lo stesso gruppo.'
@@ -127,7 +127,7 @@ test('complete anchors follow heard words regardless of caption lead or playback
   );
   flush();
   expect(container.querySelectorAll('[aria-current=step]')).toHaveLength(2);
-  advance(1.9, 0.5);
+  advance(2.01, 0.5);
   expect(container.querySelectorAll('[aria-current=step]')).toHaveLength(2);
   advance(4);
   expect(container.querySelectorAll('.visited')).toHaveLength(3);
@@ -181,9 +181,9 @@ test('quantity cues are cumulative groups driven by captions', () => {
     ],
   };
   const { container, advance } = mount(scene, 'Uno due Tre quattro.', 4);
-  advance(1.89);
+  advance(1.99);
   expect(container.querySelectorAll('.present')).toHaveLength(2);
-  advance(1.9);
+  advance(2.01);
   expect(container.querySelectorAll('.present')).toHaveLength(6);
   advance(0);
   expect(container.querySelectorAll('.present')).toHaveLength(2);
@@ -198,9 +198,9 @@ test('quantity stays initial before its first quoted group and after seeking bac
     ],
   };
   const { container, advance } = mount(scene, 'Uno due Tre quattro.', 4);
-  advance(1.89);
+  advance(1.99);
   expect(container.querySelectorAll('.present')).toHaveLength(2);
-  advance(1.9);
+  advance(2.01);
   expect(container.querySelectorAll('.present')).toHaveLength(4);
   advance(0);
   expect(container.querySelectorAll('.present')).toHaveLength(2);
@@ -260,7 +260,7 @@ test.each([
   tick(3.1);
   expect(mountedTitles(container)).toEqual(['Middle']);
   // Six starts on the measured voice clock, independently of caption look-ahead.
-  const replacementTime = (500 / 822) * 8;
+  const replacementTime = (500 / 800) * 8;
   tick(replacementTime - 0.001);
   expect(mountedTitles(container)).toEqual(['Middle']);
   tick(replacementTime);
