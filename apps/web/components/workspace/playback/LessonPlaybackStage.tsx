@@ -6,6 +6,7 @@ import {
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
+import { createPassageFallbackScene } from '@shared/lessonSceneFallback';
 import {
   Fragment,
   type RefObject,
@@ -127,10 +128,10 @@ function PlaybackScene({
           : undefined;
         previousClock = current;
       }
-      const { blockTime, revealTime } = current.read();
+      const { blockTime, bodyTime } = current.read();
       return anchors
         ? {
-            elapsedMs: Math.max(0, revealTime * 1000),
+            elapsedMs: Math.max(0, bodyTime * 1000),
             durationMs: current.bodyDuration * 1000,
             cueTimes: times,
           }
@@ -170,17 +171,11 @@ function PlaybackScene({
         previousFrame = '';
       }
       if (hasMissingMotionTargets(events, elements)) return;
-      const revealTime = Math.max(0, current.read().revealTime * 1000);
-      const frameKey = `${revealTime}:${animate}:${speed}`;
+      const voiceTime = Math.max(0, current.read().bodyTime * 1000);
+      const frameKey = `${voiceTime}:${animate}:${speed}`;
       if (frameKey === previousFrame) return;
       previousFrame = frameKey;
-      const states = motionStates(
-        Array.from(elements.keys()),
-        events,
-        revealTime,
-        !animate,
-        CAPTION_TIMING.highlightDelaySeconds * 1000 * speed
-      );
+      const states = motionStates(Array.from(elements.keys()), events, voiceTime, !animate, 0);
       for (const [id, targets] of elements) {
         const state = states.get(id);
         if (!state) throw new Error('Motion target state must exist');
@@ -498,12 +493,17 @@ export default function LessonPlaybackStage({
   const visuals = useMemo(() => {
     if (block.prepared?.scene && getPlaybackMathMarkdown(block))
       return [{ kind: 'scene' as const, scene: block.prepared.scene }];
-    if (block.visuals.length) return block.visuals;
+    const available = block.visuals.filter(
+      visual =>
+        visual.kind !== 'generated-visual' ||
+        content.activeSectionGeneratedVisualsById?.[visual.visualId]
+    );
+    if (available.length) return available;
     if (block.prepared?.scene) return [{ kind: 'scene' as const, scene: block.prepared.scene }];
-    if (block.prepared)
-      return [{ kind: 'markdown' as const, markdown: captionSource(block, sources).markdown }];
-    return [];
-  }, [block, sources]);
+    return [
+      { kind: 'scene' as const, scene: createPassageFallbackScene(block.speech, block.heading) },
+    ];
+  }, [block, content.activeSectionGeneratedVisualsById]);
   const [selection, setSelection] = useState<{
     visuals: readonly PlaybackVisual[];
     index: number;
@@ -546,21 +546,23 @@ export default function LessonPlaybackStage({
           );
           previousClock = current;
         }
-        const { blockTime, revealTime } = current.read();
-        const captionOffset = Math.max(0, revealTime) - blockTime;
-        let active = -1;
+        const { blockTime, bodyTime } = current.read();
+        const captionOffset = Math.max(0, bodyTime) - blockTime;
+        let active = 0;
         let latestStart = Number.NEGATIVE_INFINITY;
+        let earliestStart = Number.POSITIVE_INFINITY;
         spans.forEach((span, index) => {
           const start = span
             ? span.startMs / 1000 - captionOffset
             : (duration * index) / visuals.length;
+          if (latestStart === Number.NEGATIVE_INFINITY && start < earliestStart) {
+            earliestStart = start;
+            active = index;
+          }
           // A later start replaces the earlier scene permanently, even if it ends first.
           if (start <= blockTime && start >= latestStart) {
             latestStart = start;
-            const end = span
-              ? span.endMs / 1000 - captionOffset
-              : (duration * (index + 1)) / visuals.length;
-            active = blockTime <= end ? index : -1;
+            active = index;
           }
         });
         if (active !== previousActive) {
@@ -573,7 +575,7 @@ export default function LessonPlaybackStage({
     tick();
     return () => cancelAnimationFrame(frame);
   }, [anchors, block, duration, visuals]);
-  const visualIndex = selection?.visuals === visuals ? selection.index : -1;
+  const visualIndex = selection?.visuals === visuals ? selection.index : 0;
   const visual = visuals[visualIndex];
   const sceneProps = {
     block,

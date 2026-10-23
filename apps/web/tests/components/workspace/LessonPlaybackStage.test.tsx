@@ -170,10 +170,10 @@ test.each([
     isDarkMode: false,
     sectionContentBlocks: source,
   } as WorkspaceReaderContentModel;
-  let tick: FrameRequestCallback = () => {};
+  const ticks = new Set<FrameRequestCallback>();
   vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
-    tick = callback;
-    return 1;
+    ticks.add(callback);
+    return ticks.size;
   });
   vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {});
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
@@ -198,7 +198,9 @@ test.each([
   });
   const advance = (time: number) => {
     rerender(<LessonPlaybackStage {...props} time={time} />);
-    act(() => tick(0));
+    act(() => {
+      for (const tick of [...ticks]) tick(0);
+    });
   };
   advance(0.1);
   const first = paragraph.querySelector<HTMLElement>('.caption-word');
@@ -399,10 +401,9 @@ test('captions display canonical inline text and every spoken heading', () => {
       time={0}
     />
   );
-  expect(Array.from(container.querySelectorAll('h2'), heading => heading.textContent)).toEqual([
-    'Tema',
-    'Dettaglio',
-  ]);
+  expect(
+    Array.from(container.querySelectorAll('.captions h2'), heading => heading.textContent)
+  ).toEqual(['Tema', 'Dettaglio']);
   expect(container.querySelector('.caption-page')?.textContent).not.toContain(
     'https://example.com'
   );
@@ -774,4 +775,35 @@ test.each([
   );
   expect(container.querySelector('.scene-host pre')).toBeNull();
   expect(container.querySelector('.scene-host p')?.textContent?.trim()).toBe(body.trim());
+});
+
+test.each([
+  'unprepared',
+  'legacy',
+  'missing-reference',
+])('shows a passage-derived visual for %s content throughout playback', state => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const sources = [{ type: 'markdown' as const, markdown: 'A boundary separates two regions.' }];
+  const raw = segmentLessonPlayback(sources)[0];
+  const block = {
+    ...raw,
+    ...(state !== 'unprepared' ? { prepared: { motion: [] } } : {}),
+    visuals:
+      state === 'missing-reference'
+        ? [{ kind: 'generated-visual' as const, visualId: 'missing' }]
+        : [],
+  };
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+  } as WorkspaceReaderContentModel;
+  const { container, rerender } = render(
+    <LessonPlaybackStage block={block} content={content} duration={8} time={0} />
+  );
+  const visual = container.querySelector('.scene-host');
+  expect(visual?.querySelector('blockquote')?.textContent).toContain(raw.speech);
+  for (const time of [4, 8, 8.1]) {
+    rerender(<LessonPlaybackStage block={block} content={content} duration={8} time={time} />);
+    expect(visual?.querySelector('blockquote')?.textContent).toContain(raw.speech);
+  }
 });

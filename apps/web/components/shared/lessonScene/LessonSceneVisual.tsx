@@ -48,7 +48,7 @@ export const LessonSceneVisual = ({
         className={`scene type-${scene.type}${isAnimatedLessonScene(scene) ? ' interaction-card' : ''}${isQuickLessonScene(scene) ? ' quick-scene' : ''}`}
       >
         <header>
-          <h2>{scene.title}</h2>
+          {scene.title ? <h2>{scene.title}</h2> : null}
           {scene.body && scene.type !== 'quote' ? (
             <p className={isAnimatedLessonScene(scene) ? undefined : 'scene-intro'}>{scene.body}</p>
           ) : null}

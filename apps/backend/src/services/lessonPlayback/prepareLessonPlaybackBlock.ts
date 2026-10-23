@@ -12,14 +12,21 @@ import {
   PlaybackPreparedSchema,
 } from '@shared/lessonPlaybackSchema';
 import { isAnimatedLessonScene, type LessonScene, type LessonSceneType } from '@shared/lessonScene';
+import { createPassageFallbackScene } from '@shared/lessonSceneFallback';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
 import { failPermanently } from '../../workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../workflows/types.js';
-import type { WorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
+import {
+  toWorkflowErrorDiagnostic,
+  type WorkflowErrorDiagnostic,
+} from '../../workflows/workflowErrorDiagnostics.js';
 import type { LessonSourceProvenance } from '../lessonPrimarySourceContext.js';
-import { generateLessonScene } from '../lessonScenes/lessonSceneGeneration.js';
+import {
+  generateLessonScene,
+  type LessonSceneOutcome,
+} from '../lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../lessonVisualModelConfig.js';
 import { prepareSpeech } from '../speechPreparation.js';
 import {
@@ -99,31 +106,37 @@ const prepareScene = async (
   let diagnostic: WorkflowErrorDiagnostic | undefined;
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt += 1) {
     signal.throwIfAborted();
-    const outcome = await generateLessonScene({
-      onValidatedScene,
-      allowedSceneTypes: input.allowedSceneTypes,
-      config: resolveLessonVisualModelConfig(config),
-      lessonMarkdown: mathMarkdown ?? block.speech,
-      narration: block.speech,
-      allowTextFallback: true,
-      retryFeedback,
-      // Only this block is admissible evidence; lesson metadata can describe other passages.
-      sectionDescription: '',
-      sourceProvenance: input.lesson.sourceProvenance,
-      sectionTitle: '',
-      signal,
-    });
+    let outcome: LessonSceneOutcome;
+    try {
+      outcome = await generateLessonScene({
+        onValidatedScene,
+        allowedSceneTypes: input.allowedSceneTypes,
+        config: resolveLessonVisualModelConfig(config),
+        lessonMarkdown: mathMarkdown ?? block.speech,
+        narration: block.speech,
+        retryFeedback,
+        // Only this block is admissible evidence; lesson metadata can describe other passages.
+        sectionDescription: '',
+        sourceProvenance: input.lesson.sourceProvenance,
+        sectionTitle: '',
+        signal,
+      });
+    } catch (error) {
+      signal.throwIfAborted();
+      console.warn('Playback scene generation unavailable; using a literal passage visual.', {
+        diagnostic: toWorkflowErrorDiagnostic(error),
+      });
+      return createPassageFallbackScene(block.speech, block.heading);
+    }
     signal.throwIfAborted();
     if (outcome.kind === 'scene') return outcome.scene;
-    if (outcome.kind === 'text') return undefined;
     retryFeedback = outcome.problems.join('\n');
     diagnostic = outcome.diagnostic;
   }
-  throw failPermanently({
-    code: 'lesson_playback_scene_invalid',
-    message: 'Playback scene preparation failed validation after corrective attempts.',
-    ...(diagnostic ? { details: { diagnostic } } : {}),
+  console.warn('Playback scene validation exhausted; using a literal passage visual.', {
+    diagnostic,
   });
+  return createPassageFallbackScene(block.speech, block.heading);
 };
 
 /** Prepares one block's visual cues and audio; the caller owns its eventual asset reference. */
@@ -174,7 +187,10 @@ const prepareVisuals = async (
         )
         .digest('hex');
       const planMotion = async () =>
-        scene && scene.type !== 'formula-spotlight' && !isAnimatedLessonScene(scene)
+        scene &&
+        scene.type !== 'formula-spotlight' &&
+        !isAnimatedLessonScene(scene) &&
+        motionTargets(scene).length > 0
           ? await planPlaybackMotion({
               scene,
               speech: block.speech,
