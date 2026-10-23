@@ -55,7 +55,7 @@ export function sceneCaptionAnchors(
   return cues.map(cue => cue.anchor as string);
 }
 
-/** Resolves exact anchors on the caption clock, including anchors in the spoken heading. */
+/** Resolves narration citations to acoustic onsets or the existing measured timing estimate. */
 export function captionAnchorTimes({
   anchors,
   speech,
@@ -88,7 +88,7 @@ export function captionAnchorTimes({
   });
 }
 
-/** The complete quoted span, on the same measured clock as the caption reveal and scene cues. */
+/** The complete quoted span on the recording clock, including its final spoken word. */
 export function captionAnchorSpan(input: Parameters<typeof captionAnchorTimes>[0]) {
   if (input.aligned) {
     const spans = input.anchors.map(anchor => {
