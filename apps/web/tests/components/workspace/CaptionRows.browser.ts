@@ -203,6 +203,34 @@ try {
                     [],
                     `${label} cross-passage seek`
                   );
+                  const pausedGeometryReads = await page.evaluate(async () => {
+                    const paragraph = document.querySelector<HTMLElement>('.caption-page');
+                    if (!paragraph) throw new Error('Captions must exist');
+                    const firstWord = paragraph.querySelector<HTMLElement>('.caption-word');
+                    if (!firstWord) throw new Error('Caption words must exist');
+                    const elements = [paragraph, firstWord];
+                    let reads = 0;
+                    for (const element of elements) {
+                      element.getBoundingClientRect = () => {
+                        reads++;
+                        return HTMLElement.prototype.getBoundingClientRect.call(element);
+                      };
+                    }
+                    try {
+                      const pausedFrames = 12;
+                      for (let frame = 0; frame < pausedFrames; frame++)
+                        await new Promise(requestAnimationFrame);
+                      return reads;
+                    } finally {
+                      for (const element of elements)
+                        Reflect.deleteProperty(element, 'getBoundingClientRect');
+                    }
+                  });
+                  assert.equal(
+                    pausedGeometryReads,
+                    0,
+                    `${label}: paused captions must not reread geometry`
+                  );
                   await page.setViewportSize({ width: 390, height: 844 });
                   assert.equal(
                     await page
