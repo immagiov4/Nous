@@ -1,21 +1,21 @@
 import {
+  type FormulaSpotlightData,
+  formulaSpotlightCovers,
+  resolveFormulaReferences,
+} from '@shared/formulaSpotlight';
+import {
+  getPlaybackFormulaMarkdown,
+  getPlaybackFormulaSources,
   getPlaybackMathMarkdown,
   type LessonPlaybackBlock,
   type PlaybackRange,
   type PlaybackVisual,
+  playbackNonProseVisuals,
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
 import { createPassageFallbackScene } from '@shared/lessonSceneFallback';
-import {
-  Fragment,
-  type RefObject,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { Fragment, type RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
@@ -26,7 +26,6 @@ import { LessonSceneVisual } from '../../shared/lessonScene/LessonSceneVisual.ts
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import type { WorkspaceReaderContentModel } from '../shell/types.ts';
 import {
-  CAPTION_SCROLL,
   CAPTION_TIMING,
   type CaptionWord,
   captionFormat,
@@ -36,6 +35,7 @@ import {
   captionSpeechRanges,
   pacedCaptionTime,
 } from './captionFormat.ts';
+import { captionViewport } from './captionViewport.ts';
 import {
   type CaptionRun,
   captionAnchorSpan,
@@ -51,6 +51,7 @@ import {
 import './stage.css';
 
 interface CaptionClock {
+  viewport: ReturnType<typeof captionViewport>;
   runs: CaptionRun[];
   width: number;
   feather: number;
@@ -66,31 +67,13 @@ function hasMissingMotionTargets(
   return events.some(event => event.targets.some(target => !elements.has(target)));
 }
 
-function scrollToCaptionLine(
-  paragraph: HTMLElement,
-  active: HTMLElement | undefined,
-  scroll: { line: number; target: number },
-  motion: boolean
-) {
-  if (!active || active.offsetTop === scroll.line) return;
-  const line = active.offsetTop;
-  if (
-    line + active.offsetHeight >
-    scroll.target + paragraph.clientHeight * CAPTION_SCROLL.trigger
-  ) {
-    scroll.target = Math.max(0, line - paragraph.clientHeight * CAPTION_SCROLL.destination);
-    paragraph.scrollTo({ top: scroll.target, behavior: motion ? 'smooth' : 'instant' });
-  }
-  scroll.line = line;
-}
-
 function captionTag(word: CaptionWord) {
   if (word.code) return 'code';
   return word.bold ? 'strong' : 'span';
 }
 
 function PlaybackScene({
-  scene,
+  scene: sourceScene,
   block,
   clock,
   speed,
@@ -106,6 +89,9 @@ function PlaybackScene({
   isDarkMode: boolean;
   interval: { start: number; duration: number };
 }>) {
+  // Parsed preparation snapshots can contain an equivalent scene with a new object identity.
+  const sceneKey = JSON.stringify(sourceScene);
+  const scene = useMemo<LessonScene>(() => JSON.parse(sceneKey), [sceneKey]);
   const host = useRef<HTMLDivElement>(null);
   const readAnimationFrame = useMemo<ReadSceneAnimationFrame | undefined>(() => {
     if (!isAnimatedLessonScene(scene) && scene.type !== 'formula-spotlight') return undefined;
@@ -113,6 +99,7 @@ function PlaybackScene({
     // Voice cues exclude both caption look-ahead and its graphical reveal feather.
     let previousClock: CaptionClock | null = null;
     let times: number[] | undefined;
+    let ends: number[] | undefined;
     return () => {
       const current = clock.current;
       if (!current?.bodyDuration) return undefined;
@@ -129,6 +116,24 @@ function PlaybackScene({
               duration: current.bodyDuration,
             })
           : undefined;
+        if (scene.type === 'formula-spotlight' && anchors) {
+          const references = resolveFormulaReferences(scene as FormulaSpotlightData, block.speech);
+          times = (scene as FormulaSpotlightData).symbols.map(() => Number.POSITIVE_INFINITY);
+          ends = (scene as FormulaSpotlightData).symbols.map(() => Number.NEGATIVE_INFINITY);
+          for (const reference of references) {
+            const span = captionAnchorSpan({
+              anchors: [reference.anchor],
+              speech: block.speech,
+              speechRanges: current.speechRanges,
+              runs: current.runs,
+              width: current.width,
+              feather: current.feather,
+              duration: current.bodyDuration,
+            });
+            times[reference.index] = span.startMs;
+            ends[reference.index] = span.endMs;
+          }
+        }
         previousClock = current;
       }
       const { blockTime, bodyTime } = current.read();
@@ -137,6 +142,7 @@ function PlaybackScene({
             elapsedMs: Math.max(0, bodyTime * 1000),
             durationMs: current.bodyDuration * 1000,
             cueTimes: times,
+            cueEndTimes: ends,
           }
         : {
             elapsedMs: (blockTime - interval.start) * 1000,
@@ -144,7 +150,7 @@ function PlaybackScene({
           };
     };
   }, [scene, block.speech, clock, interval.start, interval.duration]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (
       isAnimatedLessonScene(scene) ||
       scene.type === 'formula-spotlight' ||
@@ -305,8 +311,8 @@ function PlaybackVisualContent({
   );
 }
 
-export default function LessonPlaybackStage({
-  block: sourceBlock,
+function PlaybackPassage({
+  block,
   time,
   duration,
   content,
@@ -320,7 +326,6 @@ export default function LessonPlaybackStage({
   speed?: number;
   readTime?: () => number;
 }>) {
-  const block = useMemo(() => resolvePlaybackNarration(sourceBlock), [sourceBlock]);
   const sources = useMemo(
     () =>
       content.sectionContentBlocks?.length
@@ -328,16 +333,18 @@ export default function LessonPlaybackStage({
         : [{ type: 'markdown' as const, markdown: content.sectionContent }],
     [content.sectionContentBlocks, content.sectionContent]
   );
+  const source = useMemo(() => captionSource(block, sources), [block, sources]);
+  // Equivalent snapshots retain the measured viewport; a new passage measures its new DOM.
+  const captionKey = JSON.stringify({ blockId: block.id, ...source });
   const formatted = useMemo(() => {
-    const source = captionSource(block, sources);
+    const source = JSON.parse(captionKey) as ReturnType<typeof captionSource>;
     const captions = captionFormat(source.markdown, source.ranges);
     return { ...captions, speechRanges: captionSpeechRanges(captions.words, source.ranges) };
-  }, [block, sources]);
+  }, [captionKey]);
   const captions = useRef<HTMLParagraphElement>(null);
   const sceneFit = useRef<HTMLDivElement>(null);
   const sceneCard = useRef<HTMLElement>(null);
   const clock = useRef<CaptionClock | null>(null);
-  const scroll = useRef({ line: -1, target: 0 });
   const animate = useShouldAnimate();
   const latest = useRef({ time, speed, readTime, animate });
   useLayoutEffect(() => {
@@ -423,6 +430,7 @@ export default function LessonPlaybackStage({
       const headingShare =
         formatted.headingWords / (formatted.words.length + formatted.headingWords);
       clock.current = {
+        viewport: captionViewport(paragraph),
         runs,
         width,
         feather,
@@ -445,15 +453,17 @@ export default function LessonPlaybackStage({
           };
         },
       };
-      paragraph.scrollTop = 0;
-      scroll.current = { line: -1, target: 0 };
     };
     measure();
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    document.fonts.addEventListener('loadingdone', measure);
+    return () => {
+      window.removeEventListener('resize', measure);
+      document.fonts.removeEventListener('loadingdone', measure);
+    };
   }, [duration, formatted]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let previousClock: CaptionClock | null = null;
     let previousBodyTime: number | undefined;
     const render = () => {
@@ -467,6 +477,7 @@ export default function LessonPlaybackStage({
       }
       const { bodyTime, revealTime } = current.read();
       const motion = latest.current.animate;
+      current.viewport.clip();
       if (previousBodyTime === bodyTime) return;
       const progress = Math.max(0, Math.min(1, revealTime / current.bodyDuration));
       const edge = progress * (current.width + current.feather);
@@ -481,7 +492,11 @@ export default function LessonPlaybackStage({
         text.style.opacity = String(1 - fade * (1 - CAPTION_TIMING.readOpacity));
         if (local >= 0 && local <= run.width) active = run.span;
       }
-      scrollToCaptionLine(paragraph, active, scroll.current, motion);
+      // Place new or backward seeks immediately; animate subsequent playback updates.
+      current.viewport.follow(
+        active,
+        motion && previousBodyTime !== undefined && bodyTime > previousBodyTime
+      );
       previousBodyTime = bodyTime;
     };
     let frame = 0;
@@ -493,25 +508,58 @@ export default function LessonPlaybackStage({
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const visuals = useMemo(() => {
-    if (block.prepared?.scene && getPlaybackMathMarkdown(block))
-      return [{ kind: 'scene' as const, scene: block.prepared.scene }];
-    const available = block.visuals.filter(
+  const visualCandidates = useMemo(() => {
+    const formulas = getPlaybackFormulaMarkdown(block, sources);
+    const cards = block.visuals.filter(
+      visual =>
+        visual.kind === 'markdown' && block.spans.some(span => span.math === visual.markdown)
+    );
+    const projected = (
+      cards.length === block.visuals.length && !block.prepared?.scene
+        ? cards
+        : playbackNonProseVisuals(block)
+    ).filter(
       visual =>
         visual.kind !== 'generated-visual' ||
         content.activeSectionGeneratedVisualsById?.[visual.visualId]
     );
-    if (available.length) return available;
+    const scene = block.prepared?.scene;
+    if (
+      scene?.type === 'formula-spotlight' &&
+      formulas &&
+      !formulaSpotlightCovers(
+        scene as FormulaSpotlightData,
+        getPlaybackFormulaSources(block, sources)
+      )
+    )
+      return projected.length ? projected : [{ kind: 'markdown' as const, markdown: formulas }];
+    if (block.prepared?.scene && getPlaybackMathMarkdown(block))
+      return [...projected, { kind: 'scene' as const, scene: block.prepared.scene }];
+    if (projected.length) return projected;
+    if (formulas && !block.prepared?.scene)
+      return [{ kind: 'markdown' as const, markdown: formulas }];
     if (block.prepared?.scene) return [{ kind: 'scene' as const, scene: block.prepared.scene }];
+    if (formulas) return [{ kind: 'markdown' as const, markdown: formulas }];
     return [
       { kind: 'scene' as const, scene: createPassageFallbackScene(block.speech, block.heading) },
     ];
-  }, [block, content.activeSectionGeneratedVisualsById]);
+  }, [block, sources, content.activeSectionGeneratedVisualsById]);
+  const visualProjection = JSON.stringify(visualCandidates, (_key, value: unknown) =>
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(
+          Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+        )
+      : value
+  );
+  const visuals = useMemo(
+    () => JSON.parse(visualProjection) as readonly PlaybackVisual[],
+    [visualProjection]
+  );
   const [selection, setSelection] = useState<{
-    visuals: readonly PlaybackVisual[];
+    blockId: string;
     index: number;
   } | null>(null);
-  const anchors = useMemo(
+  const visualReferences = useMemo(
     () =>
       visuals.map(visual => {
         const stored =
@@ -520,15 +568,32 @@ export default function LessonPlaybackStage({
             : undefined;
         const scene =
           visual.kind === 'scene' ? visual.scene : stored && getStoredLessonVisualScene(stored);
-        return visuals.length > 1 ? sceneCaptionAnchors(scene, block.speech) : undefined;
+        return {
+          anchors: visuals.length > 1 ? sceneCaptionAnchors(scene, block.speech) : undefined,
+          usesSpokenClock: scene?.type === 'formula-spotlight',
+        };
       }),
     [visuals, content.activeSectionGeneratedVisualsById, block.speech]
   );
   const visualRanges = useMemo(
-    () => visuals.map(visual => visualSpeechRange(block, visual)),
-    [block, visuals]
+    () =>
+      visualCandidates.map((visual, index) =>
+        visualSpeechRange(
+          block,
+          visual,
+          visualCandidates
+            .slice(0, index)
+            .filter(
+              previous =>
+                previous.kind === 'markdown' &&
+                visual.kind === 'markdown' &&
+                previous.markdown === visual.markdown
+            ).length
+        )
+      ),
+    [block, visualCandidates]
   );
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!visuals.length) return;
     let previousClock: CaptionClock | null = null;
     let previousActive: number | undefined;
@@ -536,9 +601,13 @@ export default function LessonPlaybackStage({
     let frame = 0;
     const tick = () => {
       const current = clock.current;
-      if (current && (current.width || !(anchors.some(Boolean) || visualRanges.some(Boolean)))) {
+      if (
+        current &&
+        (current.width ||
+          !(visualReferences.some(reference => reference.anchors) || visualRanges.some(Boolean)))
+      ) {
         if (current !== previousClock) {
-          spans = anchors.map((quotation, index) => {
+          spans = visualReferences.map(({ anchors: quotation }, index) => {
             const timing = {
               speechRanges: current.speechRanges,
               runs: current.runs,
@@ -574,16 +643,24 @@ export default function LessonPlaybackStage({
         });
         if (active !== previousActive) {
           previousActive = active;
-          setSelection({ visuals, index: active });
+          setSelection(current =>
+            current?.blockId === block.id && current.index === active
+              ? current
+              : { blockId: block.id, index: active }
+          );
         }
       }
       frame = requestAnimationFrame(tick);
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, [anchors, block, duration, visuals, visualRanges]);
-  const visualIndex = selection?.visuals === visuals ? selection.index : 0;
+  }, [visualReferences, block, duration, visuals, visualRanges]);
+  const visualIndex = selection?.blockId === block.id ? selection.index : 0;
   const visual = visuals[visualIndex];
+  const formulaMarkdown = useMemo(
+    () => getPlaybackFormulaMarkdown(block, sources),
+    [block, sources]
+  );
   const sceneProps = {
     block,
     clock,
@@ -621,6 +698,12 @@ export default function LessonPlaybackStage({
             className="scene-host"
             aria-label={t('Visualizzazione della lezione')}
           >
+            {formulaMarkdown &&
+            !visualRanges[visualIndex] &&
+            !(visual?.kind === 'scene' && visual.scene.type === 'formula-spotlight') &&
+            !(visual?.kind === 'markdown' && visual.markdown === formulaMarkdown) ? (
+              <MarkdownRenderer content={formulaMarkdown} isDarkMode={content.isDarkMode} />
+            ) : null}
             {visual ? (
               <PlaybackVisualContent
                 key={`${block.id}:${visualIndex}`}
@@ -638,4 +721,10 @@ export default function LessonPlaybackStage({
       </section>
     </div>
   );
+}
+
+/** Each narration owns its clock so retiring subscriptions keep their original text ranges. */
+export default function LessonPlaybackStage(props: Parameters<typeof PlaybackPassage>[0]) {
+  const block = useMemo(() => resolvePlaybackNarration(props.block), [props.block]);
+  return <PlaybackPassage {...props} block={block} key={`${block.id}:${block.speech}`} />;
 }

@@ -395,6 +395,7 @@ test('a regenerated lesson while listening pauses and resets the old recording',
   await waitFor(() => expect(result.current.blocks).toHaveLength(1));
   expect(result.current.playing).toBe(false);
   expect(result.current.time).toBe(0);
+  expect(result.current.lessonKey).toBe('new');
 });
 
 test.each([

@@ -3,7 +3,10 @@ import * as z from 'zod';
 import { FormulaSpotlightDataSchema, findFormulaSpotlightProblems } from './formulaSpotlight';
 
 import { cueTimes, playbackMode } from './lessonSceneAnimation';
-import { LESSON_SCENE_CATALOG_SNAPSHOTS } from './lessonSceneCatalogSnapshots';
+import {
+  LESSON_SCENE_CATALOG_SNAPSHOTS,
+  UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT,
+} from './lessonSceneCatalogSnapshots';
 
 /** Lesson scene contract: a validated JSON description of one lesson visual, chosen from a fixed catalog of forms. The model fills content; the reader components own geometry and style, so scenes stay legible and can be restyled later without regeneration.
  *
@@ -1294,13 +1297,35 @@ export const LessonSceneAnimationShape = Object.fromEntries(
   )
 ) as Omit<typeof animatedSceneSchema.shape, keyof typeof SceneDataSchema.shape | 'type'>;
 
-/** Historical catalogs merge only their own entries, excluding fields belonging to future forms. */
-export const HistoricalLessonSceneSchemas = LESSON_SCENE_CATALOG_SNAPSHOTS.map(
-  types =>
-    createLessonSceneSchema(
-      Object.fromEntries(types.map(type => [type, LESSON_SCENE_REGISTRY[type]]))
-    ) as typeof LessonSceneSchema
-);
+/** Frozen catalogs retain their form fields and formula-anchor constraints. */
+const createFrozenLessonSceneSchema = (
+  types: readonly (keyof typeof LESSON_SCENE_REGISTRY)[],
+  anchorSchema: z.ZodString
+) =>
+  createLessonSceneSchema(
+    Object.fromEntries(
+      types.map(type => [
+        type,
+        type === 'formula-spotlight'
+          ? {
+              schema: LESSON_SCENE_REGISTRY[type].schema.extend({
+                symbols: FormulaSpotlightDataSchema.shape.symbols.element
+                  .extend({ anchor: anchorSchema })
+                  .array()
+                  .min(1),
+              }),
+            }
+          : LESSON_SCENE_REGISTRY[type],
+      ])
+    )
+  ) as typeof LessonSceneSchema;
+
+export const HistoricalLessonSceneSchemas = [
+  ...LESSON_SCENE_CATALOG_SNAPSHOTS.map(types =>
+    createFrozenLessonSceneSchema(types, z.string().min(1).regex(/\S/u))
+  ),
+  createFrozenLessonSceneSchema(UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT, z.string()),
+];
 
 const findFormContentProblems = (
   form: SceneForm,

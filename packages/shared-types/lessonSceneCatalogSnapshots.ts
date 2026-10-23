@@ -67,3 +67,8 @@ export const LESSON_SCENE_CATALOG_SNAPSHOTS = [
   EXPANDED_TYPES,
   ['formula-spotlight', ...EXPANDED_TYPES],
 ] as const;
+
+export const UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT = [
+  'formula-spotlight',
+  ...EXPANDED_TYPES,
+] as const;

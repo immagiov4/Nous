@@ -39,6 +39,10 @@ beforeEach(() => {
   vi.restoreAllMocks();
   if (typeof globalThis.window !== 'undefined') {
     globalThis.scrollTo = vi.fn();
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: Object.assign(new EventTarget(), { ready: Promise.resolve() }),
+    });
     vi.spyOn(globalThis.HTMLMediaElement.prototype, 'play').mockResolvedValue();
     vi.spyOn(globalThis.HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
     Object.defineProperties(globalThis.navigator, {

@@ -133,6 +133,7 @@ export function useLessonPlayback({
   initialBlocks: LessonPlaybackBlock[];
   audioSessionRef?: RefObject<LessonPlaybackAudio>;
 }) {
+  const [lessonKey, setLessonKey] = useState<string>();
   const [blocks, setBlocks] = useState<readonly LessonPlaybackBlock[]>(initialBlocks);
   const [index, setIndex] = useState(0);
   const [time, setTime] = useState(0);
@@ -282,6 +283,7 @@ export function useLessonPlayback({
             signal.throwIfAborted();
             if (!loadedVoice.current && intent.current.index === 0) {
               playbackRef.current = playback;
+              setLessonKey(playback.lessonKey);
               return blockIndex === 0 ? request() : null;
             }
             // A regenerated lesson cannot share the old recording's captions or note anchors.
@@ -292,6 +294,7 @@ export function useLessonPlayback({
             intent.current.playing = false;
             loadedVoice.current = null;
             playbackRef.current = playback;
+            setLessonKey(playback.lessonKey);
             const audio = getAudio();
             audio.pause();
             setBlocks(playback.blocks);
@@ -351,6 +354,7 @@ export function useLessonPlayback({
           blocks: base.blocks.map(block => (block.id === preparedBlock.id ? preparedBlock : block)),
         };
         playbackRef.current = playback;
+        setLessonKey(playback.lessonKey);
         setBlocks(playback.blocks);
         return prepared;
       }, signal);
@@ -463,6 +467,7 @@ export function useLessonPlayback({
         if (!playbackRef.current)
           playbackRef.current = await getLessonPlayback({ projectId, sectionId }, signal);
         signal.throwIfAborted();
+        setLessonKey(playbackRef.current.lessonKey);
         const startingKey = playbackRef.current.lessonKey;
         const current = prepare({ blockIndex, requestedVoice, epoch, signal });
         if (!continuing) void refill.current();
@@ -586,6 +591,7 @@ export function useLessonPlayback({
     void start(next, offset);
   };
   return {
+    lessonKey,
     blocks,
     index,
     time,

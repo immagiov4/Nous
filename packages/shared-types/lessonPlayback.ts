@@ -990,6 +990,108 @@ export const getPlaybackMathMarkdown = (block: LessonPlaybackBlock): string | un
   return passages.join('\n\n');
 };
 
+/** Source formulas for this passage, retaining the preceding formula group within its heading. */
+export function getPlaybackFormulaSources(
+  block: LessonPlaybackBlock,
+  sources: readonly PlaybackContentBlock[] = []
+): string[] {
+  const formulas = block.spans.flatMap(span => (span.math ? [span.math] : []));
+  for (const visual of formulas.length ? [] : block.visuals) {
+    if (visual.kind !== 'markdown') continue;
+    formulas.push(
+      ...analyzeMarkdown(visual.markdown).math.map(range =>
+        visual.markdown.slice(range.start, range.end)
+      )
+    );
+  }
+  if (formulas.some(isDisplayFormula)) return formulas;
+  return [...precedingPlaybackFormulas(block, sources), ...formulas];
+}
+
+function precedingPlaybackFormulas(
+  block: LessonPlaybackBlock,
+  sources: readonly PlaybackContentBlock[]
+): string[] {
+  const first = block.spans.find(span => span.source.start !== span.source.end);
+  if (!first) return [];
+  let inlineContext: string[] = [];
+  for (let sourceIndex = first.sourceBlockIndex; sourceIndex >= 0; sourceIndex--) {
+    const source = sources[sourceIndex];
+    if (source?.type !== 'markdown') break;
+    const sourceOffset =
+      sourceIndex === first.sourceBlockIndex ? first.source.start : source.markdown.length;
+    const { content: markdown, sourceOffsets } = projectMarkdownRenderingControls(source.markdown);
+    const offset = sourceOffsets
+      ? sourceOffsets.findIndex(position => position >= sourceOffset)
+      : sourceOffset;
+    const preceding = precedingFormulaGroup(markdown, offset);
+    if (preceding.some(isDisplayFormula)) return preceding;
+    if (!inlineContext.length) inlineContext = preceding;
+    if (analyzeMarkdown(markdown).headings.some(heading => heading.start <= offset)) break;
+  }
+  return inlineContext;
+}
+
+const isDisplayFormula = (formula: string): boolean =>
+  formula.startsWith('$$') || formula.startsWith(String.raw`\[`);
+
+/** Whitespace-separated equations form one authored visual group; headings end its context. */
+function precedingFormulaGroup(markdown: string, offset: number): string[] {
+  const analysis = analyzeMarkdown(markdown);
+  const heading = analysis.headings.filter(range => range.start <= offset).at(-1);
+  const preceding = analysis.math.filter(
+    range => range.end <= offset && range.start >= (heading?.end ?? 0)
+  );
+  const last =
+    preceding.filter(range => isDisplayFormula(markdown.slice(range.start, range.end))).at(-1) ??
+    preceding.at(-1);
+  if (!last) return [];
+  const lastIndex = preceding.indexOf(last);
+  const group = [last];
+  for (let index = lastIndex - 1; index >= 0; index--) {
+    const range = preceding[index];
+    if (markdown.slice(range.end, group[0].start).trim()) break;
+    group.unshift(range);
+  }
+  const formulas = group.map(range => markdown.slice(range.start, range.end));
+  return formulas;
+}
+
+/** Display mathematical source without copying the surrounding lesson prose. */
+export function getPlaybackFormulaMarkdown(
+  block: LessonPlaybackBlock,
+  sources: readonly PlaybackContentBlock[] = []
+) {
+  const formulas = getPlaybackFormulaSources(block, sources);
+  return formulas.length
+    ? formulas
+        .map(formula => {
+          const delimiter = formula.startsWith('$$') || formula.startsWith('\\') ? 2 : 1;
+          return `$$\n${formula.slice(delimiter, -delimiter).trim()}\n$$`;
+        })
+        .join('\n\n')
+    : undefined;
+}
+
+/** Preserve syntax-defined code, tables and media while excluding narrated Markdown prose. */
+export function playbackNonProseVisuals(block: LessonPlaybackBlock): PlaybackVisual[] {
+  return block.visuals.flatMap(visual => {
+    if (visual.kind !== 'markdown') return [visual];
+    const analysis = analyzeMarkdown(visual.markdown);
+    const chunks = markdownChunks(visual.markdown, analysis).filter(
+      chunk => chunk.kind === 'visual'
+    );
+    const inline = analysis.inlineVisuals.filter(
+      range =>
+        !analysis.math.includes(range) &&
+        !chunks.some(chunk => chunk.start <= range.start && chunk.end >= range.end)
+    );
+    return [...chunks, ...inline.map(range => ({ ...range, kind: 'visual' as const }))]
+      .sort((left, right) => left.start - right.start)
+      .flatMap(chunk => projectBlockVisuals(visual.markdown, chunk, analysis));
+  });
+}
+
 /** Model-authored pronunciations, one per formula occurrence in source order. */
 export interface PlaybackSpokenMath {
   readonly formula: string;

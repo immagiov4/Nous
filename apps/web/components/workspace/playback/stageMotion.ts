@@ -1,3 +1,4 @@
+import { type FormulaSpotlightData, resolveFormulaReferences } from '@shared/formulaSpotlight';
 import type {
   LessonPlaybackBlock,
   PlaybackMotionEvent,
@@ -31,18 +32,30 @@ export interface TimedMotionEvent extends PlaybackMotionEvent {
 }
 
 /** Authored cards keep the occurrence identity already recorded by narration projection. */
-export function visualSpeechRange(block: LessonPlaybackBlock, visual: PlaybackVisual) {
-  const visualIndex = block.visuals.indexOf(visual);
+export function visualSpeechRange(
+  block: LessonPlaybackBlock,
+  visual: PlaybackVisual,
+  occurrence = 0
+) {
+  const visualIndex =
+    visual.kind === 'markdown'
+      ? (block.visuals
+          .map((candidate, index) => ({ candidate, index }))
+          .filter(
+            ({ candidate }) =>
+              candidate.kind === 'markdown' && candidate.markdown === visual.markdown
+          )[occurrence]?.index ?? -1)
+      : block.visuals.indexOf(visual);
   if (visualIndex < 0) return undefined;
   const fenced = block.spans.find(span => span.fencedCode?.visualIndex === visualIndex);
   if (fenced) return fenced.speech.end > fenced.speech.start ? fenced.speech : undefined;
   if (visual.kind !== 'markdown') return undefined;
-  const occurrence = block.visuals
+  const sourceOccurrence = block.visuals
     .slice(0, visualIndex)
     .filter(
       previous => previous.kind === 'markdown' && previous.markdown === visual.markdown
     ).length;
-  const span = block.spans.filter(span => span.math === visual.markdown)[occurrence];
+  const span = block.spans.filter(span => span.math === visual.markdown)[sourceOccurrence];
   return span && span.speech.end > span.speech.start ? span.speech : undefined;
 }
 
@@ -82,8 +95,16 @@ export function sceneCaptionAnchors(
 ): string[] | undefined {
   if (!scene) return undefined;
   let cues: readonly { readonly anchor?: string }[] | undefined;
-  if (scene.type === 'formula-spotlight') cues = scene.symbols;
-  else if (isAnimatedLessonScene(scene) && playbackMode(scene) === 'text') {
+  if (scene.type === 'formula-spotlight') {
+    try {
+      const anchors = resolveFormulaReferences(scene as FormulaSpotlightData, speech).map(
+        reference => reference.anchor
+      );
+      return anchors.length ? anchors : undefined;
+    } catch {
+      return undefined;
+    }
+  } else if (isAnimatedLessonScene(scene) && playbackMode(scene) === 'text') {
     cues = scene.type === 'guided-path' ? scene.steps : scene.cues;
   }
   if (!cues) return undefined;

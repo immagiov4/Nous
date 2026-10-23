@@ -43,7 +43,8 @@ export interface LessonPlaybackServices {
     >,
     allowedSceneTypes?: readonly LessonSceneType[],
     supportsSpokenMath?: boolean,
-    supportsFencedCode?: boolean
+    supportsFencedCode?: boolean,
+    supportsUnlinkedFormulaSymbols?: boolean
   ) => Promise<LessonPlaybackResult>;
   persistPlayback: (
     context: StepCommitContext<
@@ -63,6 +64,10 @@ export const createLessonPlaybackWorkflow = (
   const sceneTypes = blockSchema.shape.prepared.unwrap().shape.scene.unwrap().shape.type.options;
   const supportsFencedCode = 'fencedCode' in blockSchema.shape.prepared.unwrap().shape;
   const supportsSpokenMath = 'spokenMath' in blockSchema.shape.prepared.unwrap().shape;
+  const sceneSchema = blockSchema.shape.prepared.unwrap().shape.scene.unwrap();
+  const supportsUnlinkedFormulaSymbols =
+    sceneTypes.includes('formula-spotlight') &&
+    sceneSchema.shape.symbols.unwrap().element.shape.anchor.safeParse('').success;
   const prepare = step<
     typeof LessonPlaybackInputSchema,
     typeof resultSchema,
@@ -74,7 +79,13 @@ export const createLessonPlaybackWorkflow = (
     inputSchema: LessonPlaybackInputSchema,
     outputSchema: resultSchema,
     run: context =>
-      context.services.preparePlayback(context, sceneTypes, supportsSpokenMath, supportsFencedCode),
+      context.services.preparePlayback(
+        context,
+        sceneTypes,
+        supportsSpokenMath,
+        supportsFencedCode,
+        supportsUnlinkedFormulaSymbols
+      ),
   });
   const persist = step<
     typeof resultSchema,

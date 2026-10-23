@@ -56,6 +56,9 @@
   display: none !important;
 }
 .lesson-player-stage .scene-host {
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space);
   background: var(--surface);
   border-radius: var(--radius);
   min-height: 460px;

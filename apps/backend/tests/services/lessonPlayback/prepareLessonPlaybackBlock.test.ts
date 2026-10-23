@@ -46,7 +46,6 @@ vi.mock('../../../src/services/lessonPlayback/playbackMotion.js', () => ({
 import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
 import { prepareLessonPlaybackBlock } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { MAX_TTS_TEXT_CHARS } from '../../../src/services/ttsClient.js';
-import { toStepFailure } from '../../../src/workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../../src/workflows/types.js';
 import { guidedPathScene, proportionalScene } from '../../helpers/animatedLessonScenes';
 
@@ -484,10 +483,13 @@ test('keeps source visuals and bounded diagnostics after scene validation failur
     prepared: { scene: { type: 'quote', quote: input().block.speech }, motion: [] },
   });
   expect(sceneGeneration).toHaveBeenCalledTimes(3);
-  expect(warning).toHaveBeenCalledWith(expect.any(String), { diagnostic });
+  expect(warning).toHaveBeenCalledWith(expect.any(String), {
+    diagnostic,
+    retryFeedback: 'Malformed scene.',
+  });
 });
 
-import { getPlaybackMathMarkdown } from '@shared/lessonPlayback';
+import { getPlaybackFormulaMarkdown, getPlaybackMathMarkdown } from '@shared/lessonPlayback';
 import { FORMULA_SPOTLIGHT_MARKDOWN, formulaSpotlight } from '../../helpers/formulaSpotlight';
 
 test('preparation asks the model to choose a form for the complete math passage', async () => {
@@ -507,12 +509,12 @@ test('preparation asks the model to choose a form for the complete math passage'
   });
   expect(sceneGeneration).toHaveBeenCalledWith(
     expect.objectContaining({
-      lessonMarkdown: FORMULA_SPOTLIGHT_MARKDOWN,
+      lessonMarkdown: expect.stringContaining(String.raw`p_\theta(y\mid x)`),
       narration: resolvePlaybackNarration(mathBlock, spokenMath).speech,
     })
   );
   expect(motion).not.toHaveBeenCalled();
-  expect(sceneGeneration.mock.calls[0][0].allowTextFallback).not.toBe(true);
+  expect(sceneGeneration.mock.calls[0][0].allowTextFallback).toBe(true);
 });
 
 test('code containing math syntax retains its authored visual', async () => {
@@ -775,4 +777,100 @@ test('propagates cancellation during scene generation instead of committing a fa
   await expect(prepareLessonPlaybackBlock({ ...input(), signal: controller.signal })).rejects.toBe(
     reason
   );
+});
+test('uses sourced mathematics when corrective scene attempts cannot produce valid symbol links', async () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: 'La formula è questa.\n\n$$x_i+y$$\n\nIl pedice i distingue le componenti.',
+    },
+  ];
+  const mathBlock = segmentLessonPlayback(sources).find(block =>
+    block.speech.includes('Il pedice')
+  );
+  if (!mathBlock) throw new Error('Explanation must be projected');
+  sceneGeneration.mockResolvedValue({
+    kind: 'invalid',
+    problems: ['The symbol link does not cover its spoken element.'],
+  });
+  const result = await prepareLessonPlaybackBlock({
+    ...input(),
+    block: mathBlock,
+    lesson: { title: '', sources },
+  });
+  expect(result.prepared.scene).toBeUndefined();
+  expect(result.prepared.motion).toEqual([]);
+  expect(result.audio.bytes).toEqual(preparedAudio.bytes);
+});
+
+test('prepares resumed nonempty-anchor contracts without requesting unlinked spotlight symbols', async () => {
+  await prepareLessonPlaybackBlock({ ...input(), supportsUnlinkedFormulaSymbols: false });
+  const request = sceneGeneration.mock.calls[0][0];
+  expect(request.allowedSceneTypes).not.toContain('formula-spotlight');
+  expect(request.allowedSceneTypes).toContain('parts');
+});
+
+test('rejects cached unlinked references before provider work under a frozen required-anchor contract', async () => {
+  const request = input();
+  const scene = {
+    ...formulaSpotlight,
+    symbols: formulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
+  };
+  await expect(
+    prepareLessonPlaybackBlock({
+      ...request,
+      supportsUnlinkedFormulaSymbols: false,
+      block: { ...request.block, prepared: { scene, motion: [] } },
+    })
+  ).rejects.toMatchObject({ failure: { code: 'lesson_playback_scene_invalid' } });
+  expect(sceneGeneration).not.toHaveBeenCalled();
+  expect(audio).not.toHaveBeenCalled();
+});
+
+test('supplies the retained complete equation when the current passage names an inline subscript', async () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        '# Formula\n\nLa formula è\n\n$$h_i=b_i+w_i x$$\n\nIl pedice $i$ identifica la componente.',
+    },
+  ];
+  const block = segmentLessonPlayback(sources).find(candidate =>
+    candidate.speech.includes('Il pedice')
+  );
+  if (!block) throw new Error('Explanation must be projected');
+  structured.mockResolvedValue({ spokenMath: [{ formula: '$i$', spoken: 'i' }] });
+  sceneGeneration.mockResolvedValue({ kind: 'text' });
+  const request = input();
+  await prepareLessonPlaybackBlock({ ...request, block, lesson: { ...request.lesson, sources } });
+  expect(sceneGeneration).toHaveBeenCalledWith(
+    expect.objectContaining({ lessonMarkdown: expect.stringContaining('h_i=b_i+w_i x') })
+  );
+});
+
+test('reuses a degraded formula through saved preparation and regenerates it on request', async () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: '$$x+y$$\n\nLa somma riunisce gli ingressi.' },
+  ];
+  const raw = segmentLessonPlayback(sources).at(-1);
+  if (!raw) throw new Error('Expected a formula passage.');
+  structured.mockResolvedValue({ spokenMath: [{ formula: '$$x+y$$', spoken: 'ics più ipsilon' }] });
+  sceneGeneration.mockResolvedValue({
+    kind: 'invalid',
+    problems: ['Formula symbol anchors must be exact, unique and ordered in the narration.'],
+  });
+  const request = { ...input(), block: raw, lesson: { title: '', sources } };
+  const result = await prepareLessonPlaybackBlock(request);
+  expect(result.prepared.scene).toBeUndefined();
+  expect(result.prepared.motion).toEqual([]);
+  expect(result.audio.bytes).toEqual(preparedAudio.bytes);
+  expect(sceneGeneration).toHaveBeenCalledTimes(3);
+  expect(getPlaybackFormulaMarkdown(raw, sources)).toContain('x+y');
+  await prepareLessonPlaybackBlock({
+    ...request,
+    block: { ...raw, prepared: JSON.parse(JSON.stringify(result.prepared)) },
+  });
+  expect(sceneGeneration).toHaveBeenCalledTimes(3);
+  await prepareLessonPlaybackBlock(request);
+  expect(sceneGeneration).toHaveBeenCalledTimes(6);
 });

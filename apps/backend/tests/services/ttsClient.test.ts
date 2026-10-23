@@ -201,6 +201,25 @@ describe('ttsClient', () => {
     }
   });
 
+  test.each([
+    '12',
+    '45',
+  ])('passes Retry-After %s through the standard reader route', async retryAfter => {
+    fetchMock.mockResolvedValueOnce(
+      new Response('Rate limited', { status: 429, headers: { 'retry-after': retryAfter } })
+    );
+    const app = express().use(express.json()).use('/api/tts', resolveCurrentUser, ttsRouter);
+    const response = await request(app).post('/api/tts').send({ text: 'Ciao.', voice: 'Kore' });
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({
+      success: false,
+      error: 'Generazione vocale non riuscita.',
+      retryAfterMs: Number(retryAfter) * 1_000,
+      maxRetryDelayMs: 30_000,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   test('keeps Gemini metadata attached to its model ID under an environment override', async () => {
     vi.stubEnv('MODEL_TTS', 'x-ai/grok-voice-tts-1.0');
     try {
