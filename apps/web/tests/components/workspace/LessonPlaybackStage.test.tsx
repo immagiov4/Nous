@@ -350,17 +350,19 @@ test('keeps motion quotation anchors aligned after formatted punctuation and lin
   );
 });
 
-test('recomputes immediate reveal, focus delay, holds and backward seeks from time', () => {
+test('recomputes reveal fades, focus delay, holds and backward seeks from time', () => {
   const reveal = [
-    { effect: 'reveal' as const, targets: ['item:0'], quote: 'Prima', atMs: 100, durationMs: 700 },
+    { effect: 'reveal' as const, targets: ['item:0'], quote: 'Prima', atMs: 1000, durationMs: 700 },
   ];
-  expect(motionStates(['item:0', 'item:1'], reveal, 450, false, 0).get('item:0')?.opacity).toBe(1);
-  expect(motionStates(['item:0'], reveal, 100, true, 0).get('item:0')?.opacity).toBe(1);
+  expect(motionStates(['item:0', 'item:1'], reveal, 650, false, 0).get('item:0')?.opacity).toBe(
+    0.5
+  );
+  expect(motionStates(['item:0'], reveal, 1000, true, 0).get('item:0')?.opacity).toBe(1);
   expect(motionStates(['item:0'], reveal, 50, false, 0).get('item:0')?.opacity).toBe(0);
   const focus = [
     { effect: 'focus' as const, targets: ['item:0'], quote: 'Prima', atMs: 0, durationMs: 10000 },
   ];
-  expect(motionStates(['item:0', 'item:1'], focus, 1000, false, 1300).get('item:0')?.emphasis).toBe(
+  expect(motionStates(['item:0', 'item:1'], focus, 800, false, 1300).get('item:0')?.emphasis).toBe(
     0
   );
   const focused = motionStates(['item:0', 'item:1'], focus, 1600, false, 1300);
@@ -370,24 +372,34 @@ test('recomputes immediate reveal, focus delay, holds and backward seeks from ti
 });
 
 test.each([
-  'reveal',
-  'focus',
-] as const)('%s is visible at the aligned word start without an enter ramp', effect => {
+  ['reveal', 700],
+  ['focus', 420],
+] as const)('%s keeps its full enter fade before the word start', (effect, riseMs) => {
   const alignedWordStartMs = 2300;
   const events = [
-    { effect, targets: ['item:0'], quote: 'Segnale', atMs: alignedWordStartMs, durationMs: 700 },
+    {
+      effect,
+      targets: ['item:0'],
+      quote: 'Segnale',
+      atMs: alignedWordStartMs,
+      durationMs: effect === 'reveal' ? 700 : 1600,
+    },
   ];
   const visible = (time: number) => {
     const state = motionStates(['item:0'], events, time, false, 0).get('item:0');
     if (!state) throw new Error('Cue target must exist');
     return effect === 'reveal' ? state.opacity : state.emphasis;
   };
-  expect(visible(alignedWordStartMs - 1)).toBe(0);
-    const visibleOffsetMs = [0, 16, 50, 100, 150].find(
-    offset => visible(alignedWordStartMs + offset) === 1
-  );
-    expect(visibleOffsetMs).toBe(0);
-  expect(visible(alignedWordStartMs - 1)).toBe(0);
+  expect(visible(alignedWordStartMs - riseMs)).toBe(0);
+  expect(visible(alignedWordStartMs - riseMs / 2)).toBeCloseTo(0.5);
+  expect(visible(alignedWordStartMs)).toBe(1);
+  expect(visible(alignedWordStartMs - riseMs - 1)).toBe(0);
+  if (effect === 'focus') {
+    expect(visible(alignedWordStartMs + 1390)).toBeCloseTo(0.5);
+    expect(visible(alignedWordStartMs + 1600)).toBe(0);
+  } else expect(visible(alignedWordStartMs + 1600)).toBe(1);
+  const reduced = motionStates(['item:0'], events, alignedWordStartMs - 1, true, 0).get('item:0');
+  expect(effect === 'reveal' ? reduced?.opacity : reduced?.emphasis).toBe(0);
 });
 
 test('captions display canonical inline text and every spoken heading', () => {

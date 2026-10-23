@@ -154,15 +154,29 @@ export const smooth = (fraction: number) => {
   return time * time * (3 - 2 * time);
 };
 
+function motionRiseMs(event: TimedMotionEvent) {
+  return event.effect === 'reveal'
+    ? event.durationMs
+    : Math.min(
+        MOTION_TIMING.transitionMs,
+        Math.min(event.durationMs, MOTION_TIMING.maxFocusMs) / 2
+      );
+}
+
 function motionUpdate(event: TimedMotionEvent, eventTime: number, reduced: boolean) {
   if (event.effect === 'reveal') {
-    return { opacity: 1 };
+    return {
+      opacity: reduced ? 1 : smooth((eventTime - event.atMs + event.durationMs) / event.durationMs),
+    };
   }
   const focusDuration = Math.min(event.durationMs, MOTION_TIMING.maxFocusMs);
   if (!(event.effect === 'focus' && eventTime < event.atMs + focusDuration)) return {};
-  const transition = Math.min(MOTION_TIMING.transitionMs, focusDuration / 2);
+  const transition = motionRiseMs(event);
   return {
-    emphasis: reduced ? 1 : smooth((event.atMs + focusDuration - eventTime) / transition),
+    emphasis: reduced
+      ? 1
+      : smooth((eventTime - event.atMs + transition) / transition) *
+        smooth((event.atMs + focusDuration - eventTime) / transition),
   };
 }
 
@@ -180,7 +194,8 @@ export function motionStates(
   const states = new Map(ids.map(id => [id, { opacity: revealed.has(id) ? 0 : 1, emphasis: 0 }]));
   for (const event of events) {
     const eventTime = time - (event.effect === 'focus' ? focusDelayMs : 0);
-    if (eventTime < event.atMs) continue;
+    // Finish the original enter fade at the voice cue; keep the focus hold and exit on that cue.
+    if (eventTime < event.atMs - (reduced ? 0 : motionRiseMs(event))) continue;
     const update = motionUpdate(event, eventTime, reduced);
     for (const target of event.targets) {
       const state = states.get(target);

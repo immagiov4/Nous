@@ -62,7 +62,7 @@ async function expectConnectedCards(page: Page) {
   });
 }
 
-test('paints voice cues at word start while captions retain their 1.3 second lead', async () => {
+test('finishes voice cue fades at word start while captions retain their 1.3 second lead', async () => {
   const page = await browser.newPage({
     viewport: { width: 1440, height: 900 },
     reducedMotion: 'no-preference',
@@ -90,11 +90,19 @@ test('paints voice cues at word start while captions retain their 1.3 second lea
         opacity: Number(getComputedStyle(reveal).opacity),
         emphasis: Number(focus.style.getPropertyValue('--motion-emphasis')),
       };
+      controls.setPlaybackTime(1.65);
+      await frame();
+      await frame();
+      const duringFade = {
+        opacity: Number(getComputedStyle(reveal).opacity),
+        emphasis: Number(focus.style.getPropertyValue('--motion-emphasis')),
+      };
       controls.setPlaybackTime(2);
       await frame();
       await frame();
       return {
         before,
+        duringFade,
         atWordStart: {
           opacity: Number(getComputedStyle(reveal).opacity),
           emphasis: Number(focus.style.getPropertyValue('--motion-emphasis')),
@@ -104,6 +112,9 @@ test('paints voice cues at word start while captions retain their 1.3 second lea
       };
     });
     expect(result.before).toEqual({ opacity: 0, emphasis: 0 });
+    expect(result.duringFade.opacity).toBeCloseTo(0.5);
+    expect(result.duringFade.emphasis).toBeGreaterThan(0);
+    expect(result.duringFade.emphasis).toBeLessThan(1);
     expect(result.atWordStart).toEqual({ opacity: 1, emphasis: 1 });
     expect(result.captionLead).toBeCloseTo(1.3);
     for (const mode of ['path', 'formula']) {
@@ -136,7 +147,9 @@ test('paints voice cues at word start while captions retain their 1.3 second lea
       if (mode === 'path') {
         expect(state.before.step).toBe(false);
         expect(state.step).toBe(true);
-        expect(state.transition?.split(',').every(duration => duration.trim() === '0s')).toBe(true);
+        expect(state.transition?.split(',').some(duration => duration.trim() === '0.3s')).toBe(
+          true
+        );
       } else {
         expect(state.before.symbol).toBe(false);
         expect(state.symbol).toBe(true);
@@ -146,11 +159,12 @@ test('paints voice cues at word start while captions retain their 1.3 second lea
     await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=fallback`);
     await page.locator('.scene').waitFor({ state: 'attached' });
     expect(
-      await page.locator('.scene').evaluate(element => ({
-        opacity: getComputedStyle(element).opacity,
-        animations: element.getAnimations().length,
-      }))
-    ).toEqual({ opacity: '1', animations: 0 });
+      await page
+        .locator('.scene')
+        .evaluate(element =>
+          element.getAnimations().map(animation => animation.effect?.getTiming().duration)
+        )
+    ).toContain(180);
   } finally {
     await page.close();
   }
