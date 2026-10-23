@@ -60,6 +60,24 @@ const quoteDraft = (quote: string) => ({
   type: 'quote',
 });
 
+test('exposes a valid scene to independent preparation before icons and keeps invalid drafts private', async () => {
+  const onValidatedScene = vi.fn();
+  generateStructuredOutputMock.mockResolvedValueOnce(quoteDraft('Una domanda precisa.'));
+  chooseIconsMock.mockImplementationOnce(async ({ scene }) => {
+    expect(onValidatedScene).toHaveBeenCalledWith(scene);
+    return scene;
+  });
+  expect(
+    await generateLessonScene({ ...unplannedInput('Una domanda precisa.'), onValidatedScene })
+  ).toMatchObject({ kind: 'scene' });
+  onValidatedScene.mockClear();
+  generateStructuredOutputMock.mockResolvedValueOnce(quoteDraft('Citazione estranea.'));
+  expect(
+    await generateLessonScene({ ...unplannedInput('Una domanda precisa.'), onValidatedScene })
+  ).toMatchObject({ kind: 'invalid' });
+  expect(onValidatedScene).not.toHaveBeenCalled();
+});
+
 test('generation honors the catalog admitted by a resumed static-scene workflow', async () => {
   const speech = proportionalScene.body;
   const draft = { ...quoteDraft(''), ...proportionalScene, intent: 'Contare.', evidence: speech };
