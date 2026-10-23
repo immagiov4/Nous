@@ -401,13 +401,23 @@ function PlaybackPassage({
     const captions = captionFormat(source.markdown, source.ranges);
     return { ...captions, speechRanges: captionSpeechRanges(captions.words, source.ranges) };
   }, [captionKey]);
+  const alignmentKey = JSON.stringify(alignment ?? null);
+  const aligned = useMemo(
+    () =>
+      alignedWordTimes(
+        block.speech,
+        duration,
+        (JSON.parse(alignmentKey) as PlaybackWordAlignment | null) ?? undefined
+      ),
+    [alignmentKey, block.speech, duration]
+  );
   const captions = useRef<HTMLParagraphElement>(null);
   const sceneFit = useRef<HTMLDivElement>(null);
   const sceneCard = useRef<HTMLElement>(null);
   const clock = useRef<CaptionClock | null>(null);
 
   const animate = useShouldAnimate();
-  const latest = useRef({ time, speed, readTime, animate });
+  const latest = useRef({ time, speed, readTime, animate, aligned, seekRevision });
   useLayoutEffect(() => {
     const slot = sceneFit.current;
     const card = sceneCard.current;
@@ -464,10 +474,9 @@ function PlaybackPassage({
     };
   }, []);
   useLayoutEffect(() => {
-    latest.current = { time, speed, readTime, animate };
-  }, [time, speed, readTime, animate]);
+    latest.current = { time, speed, readTime, animate, aligned, seekRevision };
+  }, [time, speed, readTime, animate, aligned, seekRevision]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a passage id remounts the paragraph even when its text repeats.
   useLayoutEffect(() => {
     const paragraph = captions.current;
     if (!paragraph) throw new Error('Captions must be mounted');
@@ -482,7 +491,6 @@ function PlaybackPassage({
       const feather = Number.parseFloat(
         getComputedStyle(paragraph).getPropertyValue('--caption-feather')
       );
-      const aligned = alignedWordTimes(block.speech, duration, alignment);
       const bodyDuration =
         (duration * formatted.words.length) / (formatted.words.length + formatted.headingWords);
       const pauses = captionPauses(
@@ -498,9 +506,9 @@ function PlaybackPassage({
         width,
         feather,
         bodyDuration,
-        aligned,
+        aligned: latest.current.aligned,
         duration,
-        seekRevision,
+        seekRevision: latest.current.seekRevision,
         headingDuration: duration - bodyDuration,
         speechRanges: formatted.speechRanges,
         read: () => {
@@ -528,7 +536,15 @@ function PlaybackPassage({
       window.removeEventListener('resize', measure);
       document.fonts.removeEventListener('loadingdone', measure);
     };
-  }, [block.id, block.speech, duration, formatted, alignment, seekRevision]);
+  }, [duration, formatted]);
+
+  useLayoutEffect(() => {
+    const measured = clock.current;
+    if (!measured) throw new Error('Captions must be measured');
+    if (measured.aligned === aligned && measured.seekRevision === seekRevision) return;
+    // Recording timing changes keep the caption geometry and current reading position.
+    clock.current = { ...measured, aligned, seekRevision };
+  }, [aligned, seekRevision]);
 
   useLayoutEffect(() => {
     let previousClock: CaptionClock | null = null;

@@ -205,6 +205,26 @@ try {
                     [],
                     `${label} cross-passage seek`
                   );
+                  const beforeTimingScroll = await page
+                    .locator('.caption-page')
+                    .evaluate(element => element.scrollTop);
+                  assert(
+                    beforeTimingScroll > 0,
+                    `${label}: timing adoption must exercise a scrolled viewport`
+                  );
+                  for (const phase of ['arrival', 'equivalent refresh']) {
+                    await page.getByRole('button', { name: 'Refresh recording timing' }).click();
+                    assert.equal(
+                      await page.locator('.caption-page').evaluate(element => element.scrollTop),
+                      beforeTimingScroll,
+                      `${label} timing ${phase}: reading position`
+                    );
+                    assert.deepEqual(
+                      (await visibleCaptionRows(page)).violations,
+                      [],
+                      `${label} timing ${phase}: complete rows`
+                    );
+                  }
                   const pausedGeometryReads = await page.evaluate(async () => {
                     const paragraph = document.querySelector<HTMLElement>('.caption-page');
                     if (!paragraph) throw new Error('Captions must exist');
