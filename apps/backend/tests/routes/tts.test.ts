@@ -22,7 +22,8 @@ const ttsClientMocks = vi.hoisted(() => ({
   listModels: vi.fn(),
 }));
 
-vi.mock('../../src/services/ttsClient.js', () => ({
+vi.mock('../../src/services/ttsClient.js', async original => ({
+  ...(await original<typeof import('../../src/services/ttsClient.js')>()),
   DEFAULT_TTS_MODEL: 'openai/gpt-4o-mini-tts-2025-12-15',
   MAX_TTS_TEXT_CHARS: 10_000,
   ttsClient: {

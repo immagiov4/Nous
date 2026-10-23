@@ -6,7 +6,12 @@ import * as z from 'zod';
 import { getCurrentUser } from '../auth/currentUser.js';
 import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import { prepareSpeech, synthesizeSpeech } from '../services/speechPreparation.js';
-import { DEFAULT_TTS_MODEL, MAX_TTS_TEXT_CHARS, ttsClient } from '../services/ttsClient.js';
+import {
+  DEFAULT_TTS_MODEL,
+  MAX_TTS_TEXT_CHARS,
+  OpenRouterTtsError,
+  ttsClient,
+} from '../services/ttsClient.js';
 import {
   LessonPlaybackStaleError,
   LessonPlaybackTargetError,
@@ -44,6 +49,26 @@ router.get('/models', async (_req: Request, res: Response) => {
     });
   }
 });
+
+const sendSpeechError = (res: Response, error: unknown) => {
+  if (error instanceof LessonPlaybackTargetError)
+    return res.status(404).json({ success: false, error: 'Lezione non trovata.' });
+  if (error instanceof LessonPlaybackStaleError)
+    return res
+      .status(409)
+      .json({ success: false, error: 'La lezione è cambiata. Riaprila per ascoltarla.' });
+  console.error('[TTS Route] Error:', error);
+  res.status(502).json({
+    success: false,
+    error: 'Generazione vocale non riuscita.',
+    ...(error instanceof OpenRouterTtsError
+      ? {
+          retryAfterMs: error.failure.retryAfterMs,
+          maxRetryDelayMs: error.failure.maxRetryDelayMs,
+        }
+      : {}),
+  });
+};
 
 /**
  * POST /api/tts
@@ -114,17 +139,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     res.send(Buffer.from(generatedAudio.audioBuffer));
   } catch (error) {
-    if (error instanceof LessonPlaybackTargetError)
-      return res.status(404).json({ success: false, error: 'Lezione non trovata.' });
-    if (error instanceof LessonPlaybackStaleError)
-      return res
-        .status(409)
-        .json({ success: false, error: 'La lezione è cambiata. Riaprila per ascoltarla.' });
-    console.error('[TTS Route] Error:', error);
-    res.status(502).json({
-      success: false,
-      error: 'Generazione vocale non riuscita.',
-    });
+    sendSpeechError(res, error);
   }
 });
 

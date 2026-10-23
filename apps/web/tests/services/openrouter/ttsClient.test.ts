@@ -38,3 +38,24 @@ test('requestSpeechAudio preserves the HTTP status for retry decisions', async (
     (error: unknown) => error instanceof TtsRequestError && error.status === 502
   );
 });
+
+test('requestSpeechAudio preserves the server retry decision inputs', async () => {
+  fetchWithSupabaseAuthMock.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        error: 'Generazione vocale non riuscita.',
+        retryAfterMs: 12_000,
+        maxRetryDelayMs: 30_000,
+      }),
+      { status: 502 }
+    )
+  );
+  await assert.rejects(
+    () =>
+      requestSpeechAudio({ model: 'tts', text: 'Synthetic narration.', voice: 'Kore', speed: 1 }),
+    (error: unknown) =>
+      error instanceof TtsRequestError &&
+      error.retry.retryAfterMs === 12_000 &&
+      error.retry.maxRetryDelayMs === 30_000
+  );
+});
