@@ -30,7 +30,6 @@ vi.mock('../../../services/projects/projectVisualResolver.ts', () => ({
 let resizeScene: () => void;
 const disconnectScene = vi.fn();
 beforeEach(() => {
-  Object.defineProperty(document, 'fonts', { configurable: true, value: new EventTarget() });
   vi.stubGlobal(
     'ResizeObserver',
     class {

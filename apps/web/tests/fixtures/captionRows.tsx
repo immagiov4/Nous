@@ -51,6 +51,15 @@ function Fixture() {
         >
           Next passage
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            setPassage(passage - 1);
+            setTime(18);
+          }}
+        >
+          Previous passage midpoint
+        </button>
       </div>
     </>
   );

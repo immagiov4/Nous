@@ -26,6 +26,7 @@ function layout() {
     words,
     move: (next: number) => {
       offset = next;
+      paragraph.scrollTop = next;
     },
   };
 }
@@ -41,7 +42,9 @@ test('keeps complete boundary rows while following, scrolling and seeking backwa
   move(20);
   viewport.clip();
   expect(paragraph.style.clipPath).toBe('inset(31px 0 20px 0)');
+  const reads = vi.mocked(words[0].getBoundingClientRect).mock.calls.length;
   viewport.clip();
+  expect(vi.mocked(words[0].getBoundingClientRect).mock.calls).toHaveLength(reads);
   expect(paragraph.style.clipPath).toBe('inset(31px 0 20px 0)');
   move(51);
   viewport.clip();

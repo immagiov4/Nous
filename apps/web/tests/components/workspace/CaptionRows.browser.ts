@@ -83,110 +83,150 @@ try {
   });
   const baseUrl = server.resolvedUrls?.local[0];
   assert(baseUrl, 'Caption fixture server must expose a local URL');
-  const browserName = process.env.CAPTION_TEST_BROWSER ?? 'chromium';
-  assert(['chromium', 'firefox'].includes(browserName));
-  const browser = await (browserName === 'firefox' ? firefox : chromium).launch(
-    withMutedAudio({ headless: true })
-  );
-  const smoke = process.argv.includes('--smoke');
-  let cases = 0;
   try {
-    for (const height of smoke ? [900] : [700, 900]) {
-      for (const width of smoke ? [1440] : [900, 1440]) {
-        for (const zoom of smoke ? [1] : [0.9, 1, 1.25]) {
-          for (const reducedMotion of smoke
-            ? (['no-preference'] as const)
-            : (['no-preference', 'reduce'] as const)) {
-            const page = await browser.newPage({
-              viewport: { width: Math.round(width / zoom), height: Math.round(height / zoom) },
-              deviceScaleFactor: zoom,
-              reducedMotion,
-            });
-            const label = `${browserName} ${width}x${height} viewport/DPR zoom=${zoom} motion=${reducedMotion}`;
-            try {
-              let releaseFont!: () => void;
-              const fontReady = new Promise<void>(resolve => {
-                releaseFont = resolve;
-              });
-              await page.route('**/*.woff2', async route => {
-                await fontReady;
-                await route.continue();
-              });
-              await page.goto(`${baseUrl}tests/fixtures/captionRows.html`, {
-                waitUntil: 'domcontentloaded',
-              });
-              await page.locator('.caption-word').first().waitFor();
-              const seek = page.getByRole('spinbutton', { name: 'Playback time' });
-              for (const time of [0, 18, 38, 8, 55]) {
-                await seek.fill(String(time));
-                const result = await visibleCaptionRows(page);
-                assert.deepEqual(result.violations, [], `${label} time=${time}`);
-                if (time > 0)
-                  assert(
-                    result.visible > 0,
-                    `${label} time=${time}: revealed rows must be visible`
-                  );
-              }
-              releaseFont();
-              await page.evaluate(() => document.fonts.ready);
-              const loadedFont = await visibleCaptionRows(page);
-              assert.deepEqual(loadedFont.violations, [], `${label} late font`);
-              assert(loadedFont.visible > 0, `${label} late font must retain revealed text`);
-              if (reducedMotion === 'no-preference') {
-                await page.evaluate(() => {
-                  for (const word of document.querySelectorAll<HTMLElement>('.caption-word')) {
-                    word.style.setProperty('--reveal-edge', '-1px');
-                  }
+    const browsers = process.env.CAPTION_TEST_BROWSER
+      ? [process.env.CAPTION_TEST_BROWSER]
+      : ['chromium', 'firefox'];
+    for (const browserName of browsers) {
+      assert(['chromium', 'firefox'].includes(browserName));
+      const browser = await (browserName === 'firefox' ? firefox : chromium).launch(
+        withMutedAudio({ headless: true })
+      );
+      const smoke = process.argv.includes('--smoke');
+      let cases = 0;
+      try {
+        for (const height of smoke ? [900] : [700, 900]) {
+          for (const width of smoke ? [1440] : [900, 1440]) {
+            for (const zoom of smoke ? [1] : [0.9, 1, 1.25]) {
+              for (const reducedMotion of smoke
+                ? (['no-preference'] as const)
+                : (['no-preference', 'reduce'] as const)) {
+                const page = await browser.newPage({
+                  viewport: { width: Math.round(width / zoom), height: Math.round(height / zoom) },
+                  deviceScaleFactor: zoom,
+                  reducedMotion,
                 });
-                assert.equal(
-                  (await visibleCaptionRows(page)).visible,
-                  0,
-                  'Masked text must not count as revealed'
-                );
+                const label = `${browserName} ${width}x${height} viewport/DPR zoom=${zoom} motion=${reducedMotion}`;
+                try {
+                  let releaseFont!: () => void;
+                  const fontReady = new Promise<void>(resolve => {
+                    releaseFont = resolve;
+                  });
+                  await page.route('**/*.woff2', async route => {
+                    await fontReady;
+                    await route.continue();
+                  });
+                  await page.goto(`${baseUrl}tests/fixtures/captionRows.html`, {
+                    waitUntil: 'domcontentloaded',
+                  });
+                  await page.locator('.caption-word').first().waitFor();
+                  const seek = page.getByRole('spinbutton', { name: 'Playback time' });
+                  for (const time of [0, 18, 38, 8, 55]) {
+                    await seek.fill(String(time));
+                    const result = await visibleCaptionRows(page);
+                    assert.deepEqual(result.violations, [], `${label} time=${time}`);
+                    if (time > 0)
+                      assert(
+                        result.visible > 0,
+                        `${label} time=${time}: revealed rows must be visible`
+                      );
+                  }
+                  releaseFont();
+                  await page.evaluate(() => document.fonts.ready);
+                  const loadedFont = await visibleCaptionRows(page);
+                  assert.deepEqual(loadedFont.violations, [], `${label} late font`);
+                  assert(loadedFont.visible > 0, `${label} late font must retain revealed text`);
+                  if (reducedMotion === 'no-preference') {
+                    await page.evaluate(() => {
+                      for (const word of document.querySelectorAll<HTMLElement>('.caption-word')) {
+                        word.style.setProperty('--reveal-edge', '-1px');
+                      }
+                    });
+                    assert.equal(
+                      (await visibleCaptionRows(page)).visible,
+                      0,
+                      'Masked text must not count as revealed'
+                    );
+                  }
+                  await seek.fill('54');
+                  await page.setViewportSize({ width: width - 57, height: height - 31 });
+                  assert.deepEqual(
+                    (await visibleCaptionRows(page)).violations,
+                    [],
+                    `${label} resize`
+                  );
+                  await page.evaluate(() => {
+                    document.documentElement.style.zoom = '1.1';
+                    window.dispatchEvent(new Event('resize'));
+                  });
+                  assert.deepEqual(
+                    (await visibleCaptionRows(page)).violations,
+                    [],
+                    `${label} live zoom`
+                  );
+                  await page.getByRole('button', { name: 'Next passage' }).click();
+                  assert.deepEqual(
+                    (await visibleCaptionRows(page)).violations,
+                    [],
+                    `${label} paragraph reset`
+                  );
+                  assert.equal(
+                    await page.locator('.caption-page').evaluate(element => element.scrollTop),
+                    0
+                  );
+                  await page.getByRole('button', { name: 'Previous passage midpoint' }).click();
+                  const atSeek = await page.evaluate(async () => {
+                    await new Promise(requestAnimationFrame);
+                    const paragraph = document.querySelector<HTMLElement>('.caption-page');
+                    if (!paragraph) throw new Error('Captions must exist');
+                    const box = paragraph.getBoundingClientRect();
+                    const active = Array.from(
+                      paragraph.querySelectorAll<HTMLElement>('.caption-word')
+                    ).find(word => {
+                      const edge = Number.parseFloat(word.style.getPropertyValue('--reveal-edge'));
+                      return edge >= 0 && edge <= word.getBoundingClientRect().width;
+                    });
+                    if (!active) throw new Error('Seek must reveal an active caption word');
+                    const text = active.firstElementChild;
+                    if (!text) throw new Error('Caption word must contain text');
+                    const range = document.createRange();
+                    range.selectNodeContents(text);
+                    const word = range.getBoundingClientRect();
+                    return word.top >= box.top && word.bottom <= box.bottom;
+                  });
+                  assert(
+                    atSeek,
+                    `${label}: cross-passage seek must place the active row immediately`
+                  );
+                  assert.deepEqual(
+                    (await visibleCaptionRows(page)).violations,
+                    [],
+                    `${label} cross-passage seek`
+                  );
+                  await page.setViewportSize({ width: 390, height: 844 });
+                  assert.equal(
+                    await page
+                      .locator('.captions')
+                      .evaluate(element => getComputedStyle(element).visibility),
+                    'hidden'
+                  );
+                  cases++;
+                  console.log(`PASS ${label}`);
+                } finally {
+                  await page.close();
+                }
               }
-              await seek.fill('54');
-              await page.setViewportSize({ width: width - 57, height: height - 31 });
-              assert.deepEqual((await visibleCaptionRows(page)).violations, [], `${label} resize`);
-              await page.evaluate(() => {
-                document.documentElement.style.zoom = '1.1';
-                window.dispatchEvent(new Event('resize'));
-              });
-              assert.deepEqual(
-                (await visibleCaptionRows(page)).violations,
-                [],
-                `${label} live zoom`
-              );
-              await page.getByRole('button', { name: 'Next passage' }).click();
-              assert.deepEqual(
-                (await visibleCaptionRows(page)).violations,
-                [],
-                `${label} paragraph reset`
-              );
-              assert.equal(
-                await page.locator('.caption-page').evaluate(element => element.scrollTop),
-                0
-              );
-              await page.setViewportSize({ width: 390, height: 844 });
-              assert.equal(
-                await page
-                  .locator('.captions')
-                  .evaluate(element => getComputedStyle(element).visibility),
-                'hidden'
-              );
-              cases++;
-              console.log(`PASS ${label}`);
-            } finally {
-              await page.close();
             }
           }
         }
+        console.log(
+          JSON.stringify({ browser: browserName, cases, durationMs: performance.now() - started })
+        );
+      } finally {
+        await browser.close();
       }
     }
-    console.log(
-      JSON.stringify({ browser: browserName, cases, durationMs: performance.now() - started })
-    );
   } finally {
-    await browser.close();
     await server.close();
   }
 } finally {

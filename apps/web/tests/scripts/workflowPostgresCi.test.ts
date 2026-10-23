@@ -73,6 +73,7 @@ describe('workflow PostgreSQL CI contract', () => {
         'bun run test:audio-production',
         '',
       ].join('\n'),
+      'bun run test:caption-rows',
       'bun run gate:ci',
     ]);
     expect(await probePackageScripts(['gate:ci'])).toEqual([

@@ -469,10 +469,10 @@ export default function LessonPlaybackStage({
         text.style.opacity = String(1 - fade * (1 - CAPTION_TIMING.readOpacity));
         if (local >= 0 && local <= run.width) active = run.span;
       }
-      // A backward seek hides future words immediately; scrolling there must be immediate too.
+      // Place new or backward seeks immediately; animate subsequent playback updates.
       current.viewport.follow(
         active,
-        motion && (previousBodyTime === undefined || bodyTime > previousBodyTime)
+        motion && previousBodyTime !== undefined && bodyTime > previousBodyTime
       );
       previousBodyTime = bodyTime;
     };

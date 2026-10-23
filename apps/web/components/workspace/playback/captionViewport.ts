@@ -40,8 +40,10 @@ export function captionViewport(paragraph: HTMLElement) {
   let target = 0;
   let previousClip = '';
   let previousOffset: number | undefined;
+  let previousScrollTop: number | undefined;
   const clip = () => {
-    if (!first) return;
+    if (!first || paragraph.scrollTop === previousScrollTop) return;
+    previousScrollTop = paragraph.scrollTop;
     // Rectangles retain fractional scroll positions, including Firefox's device-pixel rounding.
     const offset =
       (paragraph.getBoundingClientRect().top - first.getBoundingClientRect().top) / scale +
