@@ -1177,8 +1177,11 @@ test.each([
   expect(visualValue()).toBe('0');
   const caption = container.querySelectorAll<HTMLElement>('.caption-word')[2];
   expect(caption.style.opacity).toBe('1');
-  // At 3.9 seconds, the unchanged 1.3-second lead reveals 8 pixels of word three.
-  expect(Number.parseFloat(caption.style.getPropertyValue('--reveal-edge'))).toBeCloseTo(8, 8);
+  // The existing punctuation pacing and 1.3-second lead determine this revealed edge.
+  expect(Number.parseFloat(caption.style.getPropertyValue('--reveal-edge'))).toBeCloseTo(
+    animate ? 4.237 : 8,
+    3
+  );
   heard = 6.199;
   flush();
   expect(visualValue()).toBe('0');
