@@ -874,3 +874,34 @@ test('reuses a degraded formula through saved preparation and regenerates it on 
   await prepareLessonPlaybackBlock(request);
   expect(sceneGeneration).toHaveBeenCalledTimes(6);
 });
+
+test('persists resolved animation citations as a durable provider result', async () => {
+  const unanchored = {
+    ...guidedPathScene,
+    steps: guidedPathScene.steps.map(step => ({ ...step, anchor: undefined })),
+  };
+  structured.mockResolvedValue({
+    cues: guidedPathScene.steps.map((step, value) => ({ anchor: step.anchor, value })),
+  });
+  const recorded = new Map<string, unknown>();
+  const providerEffect: WorkflowProviderEffectExecutor = {
+    run: async ({ key, operation, outputSchema }) => {
+      if (!recorded.has(key)) recorded.set(key, await operation());
+      return outputSchema.parse(recorded.get(key));
+    },
+  };
+  const request = {
+    ...input([{ kind: 'scene' as const, scene: unanchored }]),
+    synchronizeAnimations: true,
+    providerEffect,
+  };
+  request.block = { ...request.block, speech: guidedPathScene.narration ?? '' };
+  const result = await prepareLessonPlaybackBlock(request);
+  expect(result.prepared.scene).toMatchObject({
+    type: 'guided-path',
+    steps: guidedPathScene.steps,
+  });
+  expect(recorded.has('animation-cues')).toBe(true);
+  await prepareLessonPlaybackBlock(request);
+  expect(structured).toHaveBeenCalledOnce();
+});

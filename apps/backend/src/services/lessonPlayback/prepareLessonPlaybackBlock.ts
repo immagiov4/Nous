@@ -34,6 +34,7 @@ import type { LessonSourceProvenance } from '../lessonPrimarySourceContext.js';
 import { generateLessonScene } from '../lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../lessonVisualModelConfig.js';
 import { prepareSpeech } from '../speechPreparation.js';
+import { resolvePlaybackAnimationCues } from './playbackAnimationCues.js';
 import {
   type PreparedPlaybackAudio,
   preparePlaybackAudio,
@@ -43,6 +44,7 @@ import { MAX_PLAYBACK_PREPARATION_ATTEMPTS, planPlaybackMotion } from './playbac
 
 interface PrepareLessonPlaybackBlockInput {
   readonly userId: string;
+  readonly synchronizeAnimations?: boolean;
   readonly supportsSpokenMath?: boolean;
   readonly supportsFencedCode?: boolean;
   readonly supportsUnlinkedFormulaSymbols?: boolean;
@@ -114,6 +116,21 @@ const compatibleSceneTypes = (input: PrepareLessonPlaybackBlockInput) =>
     ? (input.allowedSceneTypes ?? LESSON_SCENE_TYPES).filter(type => type !== 'formula-spotlight')
     : input.allowedSceneTypes;
 
+/** Scene service failures retain narration and the source presentation; cancellation still propagates. */
+const generatePlaybackScene = async (
+  input: Parameters<typeof generateLessonScene>[0] & { allowTextFallback: true }
+) => {
+  try {
+    return await generateLessonScene(input);
+  } catch (error) {
+    input.signal.throwIfAborted();
+    console.warn('Playback scene generation unavailable; using a literal passage visual.', {
+      diagnostic: toWorkflowErrorDiagnostic(error),
+    });
+    return { kind: 'text' as const };
+  }
+};
+
 const prepareScene = async (
   input: PrepareLessonPlaybackBlockInput,
   onValidatedScene?: (scene: LessonScene) => void
@@ -131,33 +148,25 @@ const prepareScene = async (
     throw new Error('Playback block speech exceeds the scene generation text limit.');
   }
   const allowedSceneTypes = compatibleSceneTypes(input);
+  const fallback = formulas ? undefined : createPassageFallbackScene(block.speech, block.heading);
   let retryFeedback: string | undefined;
   let diagnostic: WorkflowErrorDiagnostic | undefined;
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt += 1) {
     signal.throwIfAborted();
-    let outcome: Awaited<ReturnType<typeof generateLessonScene>> | { readonly kind: 'text' };
-    try {
-      outcome = await generateLessonScene({
-        onValidatedScene,
-        allowedSceneTypes,
-        config: resolveLessonVisualModelConfig(config),
-        lessonMarkdown: mathMarkdown ?? block.speech,
-        narration: block.speech,
-        allowTextFallback: true,
-        retryFeedback,
-        // Only this block is admissible evidence; lesson metadata can describe other passages.
-        sectionDescription: '',
-        sourceProvenance: input.lesson.sourceProvenance,
-        sectionTitle: '',
-        signal,
-      });
-    } catch (error) {
-      signal.throwIfAborted();
-      console.warn('Playback scene generation unavailable; using a literal passage visual.', {
-        diagnostic: toWorkflowErrorDiagnostic(error),
-      });
-      return formulas ? undefined : createPassageFallbackScene(block.speech, block.heading);
-    }
+    const outcome = await generatePlaybackScene({
+      onValidatedScene,
+      allowedSceneTypes,
+      config: resolveLessonVisualModelConfig(config),
+      lessonMarkdown: mathMarkdown ?? block.speech,
+      narration: block.speech,
+      allowTextFallback: true,
+      retryFeedback,
+      // Only this block is admissible evidence; lesson metadata can describe other passages.
+      sectionDescription: '',
+      sourceProvenance: input.lesson.sourceProvenance,
+      sectionTitle: '',
+      signal,
+    });
     signal.throwIfAborted();
     if (outcome.kind === 'scene') {
       if (
@@ -171,8 +180,7 @@ const prepareScene = async (
         'The spotlight must retain every complete authored expression, including scripts, conditions and operators. Return the complete equations or choose text for the sourced-formula presentation.';
       continue;
     }
-    if (outcome.kind === 'text')
-      return formulas ? undefined : createPassageFallbackScene(block.speech, block.heading);
+    if (outcome.kind === 'text') return fallback;
     retryFeedback = outcome.problems.join('\n');
     diagnostic = outcome.diagnostic;
   }
@@ -180,7 +188,7 @@ const prepareScene = async (
     diagnostic,
     retryFeedback,
   });
-  return formulas ? undefined : createPassageFallbackScene(block.speech, block.heading);
+  return fallback;
 };
 
 /** Prepares one block's visual cues and audio; the caller owns its eventual asset reference. */
@@ -212,6 +220,29 @@ export const prepareLessonPlaybackBlock = async (
     prepared: !input.block.prepared ? { ...visuals.value, ...narration } : visuals.value,
     audio: audio.value,
   };
+};
+
+const prepareAnimationCues = async (
+  input: PrepareLessonPlaybackBlockInput,
+  scene: LessonScene | undefined
+) => {
+  if (!scene || !input.synchronizeAnimations) return scene;
+  const operation = async () => ({
+    scene: await resolvePlaybackAnimationCues({
+      scene,
+      speech: input.block.speech,
+      config: input.config,
+      signal: input.signal,
+    }),
+  });
+  const resolved = input.providerEffect
+    ? await input.providerEffect.run({
+        key: 'animation-cues',
+        outputSchema: z.object({ scene: LessonSceneSchema }),
+        operation,
+      })
+    : await operation();
+  return resolved.scene;
 };
 
 const prepareVisuals = async (
@@ -277,7 +308,11 @@ const prepareVisuals = async (
             operation: () => prepareMotion(scene),
           })
         : await prepareMotion(scene);
-      prepared = { ...(scene ? { scene } : {}), motion: savedMotion };
+      const synchronizedScene = await prepareAnimationCues(input, scene);
+      prepared = {
+        ...(synchronizedScene ? { scene: synchronizedScene } : {}),
+        motion: savedMotion,
+      };
     } finally {
       // A competing workflow attempt can commit a different authoritative scene.
       await Promise.allSettled(motions.values());

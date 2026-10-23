@@ -11,7 +11,9 @@ A self-hosted installation runs the Nous application and its Supabase data servi
 
 ## Separate public entry from private services
 
-The production Docker images share a dependency stage that copies the package manifests, lockfile and dependency patches before the frozen install. Application sources enter later stages so source edits preserve the dependency cache. CI builds the shared dependency stage to verify that the Docker context contains every declared patch.
+The production Docker images share a dependency stage that copies the package manifests, lockfile and dependency patches before the frozen install. Application sources enter later stages so source edits preserve the dependency cache. CI builds the shared dependency stage to verify that the Docker context contains every declared patch, and builds the complete backend image with its acoustic alignment executable.
+
+The backend image contains an isolated Python environment running unmodified aeneas as a separate process. Alignment intermediates use the operating-system temporary directory, including the production `/tmp` tmpfs. The existing workflow worker owns scheduling and cancellation. [Third-party notices](../../../THIRD_PARTY_NOTICES.md) identify the AGPL license, attribution and corresponding source archive included in the image.
 
 The public origin reaches the application through the configured HTTPS and reverse-proxy boundary. Database, service-role and provider credentials stay with the backend. Supabase supplies authentication, PostgreSQL and file storage, and the browser receives only its public connection information. [Authentication](../06-section-backend/02-p-auth.md) explains why privileged backend connections still require per-request ownership checks.
 

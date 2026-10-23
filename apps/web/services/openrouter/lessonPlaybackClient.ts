@@ -73,6 +73,15 @@ const PlaybackRunSchema = z.object({
   }),
 });
 
+export const subscribeToPlaybackChanges = (projectId: string, notify: () => void) =>
+  subscribeToProjectRevisionStream({
+    url: `${getBackendUrl()}/api/projects/events`,
+    listener: event => {
+      if (event.projectId === projectId) notify();
+    },
+    onCatchUp: notify,
+  });
+
 /** Wait for the preparation commit before reading the block from the lesson. */
 export const waitForLessonPlayback = async (
   runId: string,
@@ -85,13 +94,7 @@ export const waitForLessonPlayback = async (
     changed = true;
     wake?.();
   };
-  const stop = subscribeToProjectRevisionStream({
-    url: `${getBackendUrl()}/api/projects/events`,
-    listener: event => {
-      if (event.projectId === projectId) notify();
-    },
-    onCatchUp: notify,
-  });
+  const stop = subscribeToPlaybackChanges(projectId, notify);
   try {
     const readState = async () => {
       changed = false;

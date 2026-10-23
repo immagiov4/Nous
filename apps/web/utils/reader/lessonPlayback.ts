@@ -4,15 +4,43 @@ import {
   type PlaybackContentBlock,
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
+import {
+  alignedWordIndex,
+  alignedWordTimes,
+  narrationWords,
+  type PlaybackWordAlignment,
+} from '@shared/playbackWordTiming';
 import { createSectionAnnotationSelector } from '../learning/sectionAnnotationAnchors.ts';
 import { buildVisibleProjection } from '../markdown/textProjection.ts';
 
-export const playbackWords = (speech: string) =>
-  Array.from(speech.matchAll(/\S+/gu), match => ({
-    text: match[0],
-    start: match.index,
-    end: match.index + match[0].length,
-  }));
+export const playbackWords = narrationWords;
+
+/** Adopt only timing for identical recorded narration; retain mounted content and decoded audio. */
+export function mergeRecordingAlignment(
+  saved: LessonPlaybackBlock,
+  incoming: LessonPlaybackBlock | undefined
+) {
+  if (
+    incoming?.id !== saved.id ||
+    resolvePlaybackNarration(incoming).speech !== resolvePlaybackNarration(saved).speech
+  )
+    return saved;
+  let changed = false;
+  const audio = saved.audio.map(recording => {
+    if (recording.wordAlignment) return recording;
+    const next = incoming.audio.find(
+      next =>
+        next.asset.id === recording.asset.id &&
+        next.asset.hash === recording.asset.hash &&
+        next.model === recording.model &&
+        next.voice === recording.voice
+    );
+    if (!next?.wordAlignment) return recording;
+    changed = true;
+    return { ...recording, wordAlignment: next.wordAlignment };
+  });
+  return changed ? { ...saved, audio } : saved;
+}
 
 /** The block duration is measured; word positions within it are estimates, as in the lab. */
 export const playbackWordIndex = (count: number, time: number, duration: number) =>
@@ -43,11 +71,16 @@ export function playbackSentenceSelector(
   sourceBlock: LessonPlaybackBlock,
   time: number,
   duration: number,
-  contentBlocks: readonly PlaybackContentBlock[]
+  contentBlocks: readonly PlaybackContentBlock[],
+  alignment?: PlaybackWordAlignment
 ) {
   const block = resolvePlaybackNarration(sourceBlock);
   const words = playbackWords(block.speech);
-  const offset = words[playbackWordIndex(words.length, time, duration)]?.start ?? 0;
+  const aligned = alignedWordTimes(block.speech, duration, alignment);
+  const offset =
+    words[
+      aligned ? alignedWordIndex(aligned, time) : playbackWordIndex(words.length, time, duration)
+    ]?.start ?? 0;
   const sentences = Array.from(
     new Intl.Segmenter('it', { granularity: 'sentence' }).segment(block.speech)
   );

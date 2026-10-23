@@ -59,7 +59,7 @@ function mount(scene: LessonScene | LessonScene[], speech: string, duration = 9.
         ? { kind: 'generated-visual' as const, visualId: String(index) }
         : { kind: 'scene' as const, scene }
     ),
-    prepared: { scene: scenes[0], motion: [] },
+    ...(scenes.length === 1 ? { prepared: { scene: scenes[0], motion: [] } } : {}),
   };
   const content = {
     isDarkMode: false,
@@ -172,7 +172,7 @@ test.each([
   expect(container.querySelectorAll('.visited')).toHaveLength(2);
 });
 
-test('quantity cues are cumulative groups driven by captions', () => {
+test('quantity cues are cumulative groups driven by heard time', () => {
   const scene = {
     ...proportionalScene,
     cues: [
@@ -250,7 +250,7 @@ test.each([
 test.each([
   false,
   true,
-])('later scene replaces an overlap and follows caption measurement (stored: %s)', stored => {
+])('later scene replaces an overlap and follows measured voice estimates (stored: %s)', stored => {
   const { container, tick } = mount(
     [quotedPath('Late', ['sei', 'otto.']), quotedPath('Middle', ['quattro', 'sette'])],
     speech,

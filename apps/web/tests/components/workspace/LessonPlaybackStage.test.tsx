@@ -4,6 +4,7 @@ import type { LessonScene } from '@shared/lessonScene';
 import { act, render, screen } from '@testing-library/react';
 import { useLayoutEffect } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
+import { guidedPathScene } from '../../../../backend/tests/helpers/animatedLessonScenes';
 import { discreteMathCases } from '../../../../backend/tests/helpers/discreteMath';
 import {
   CAPTION_TIMING,
@@ -16,8 +17,10 @@ import {
 } from '../../../components/workspace/playback/captionFormat.ts';
 import LessonPlaybackStage from '../../../components/workspace/playback/LessonPlaybackStage.tsx';
 import {
+  adoptCueTimes,
   captionMotionEvents,
   motionStates,
+  sceneElements,
 } from '../../../components/workspace/playback/stageMotion.ts';
 import type { WorkspaceReaderContentModel } from '../../../components/workspace/shell/types.ts';
 import { resolveProjectVisual } from '../../../services/projects/projectVisualResolver.ts';
@@ -690,6 +693,76 @@ import {
 } from '../../../../backend/tests/helpers/formulaSpotlight';
 import { sceneCaptionAnchors } from '../../../components/workspace/playback/stageMotion.ts';
 
+test('uses recording onsets for formula selection after forward and backward seeks', () => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const sources = [
+    { type: 'markdown' as const, markdown: '$x$. Ics è il valore. Ics compare ancora.' },
+  ];
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: {
+      motion: [],
+      spokenMath: [{ formula: '$x$', spoken: 'ics' }],
+      scene: {
+        ...formulaSpotlight,
+        formula: String.raw`\nousSymbol{x}`,
+        symbols: [
+          {
+            id: 'x',
+            latex: 'x',
+            name: 'Variabile',
+            meaning: 'Il valore',
+            anchor: 'Ics è il valore.',
+          },
+        ],
+      },
+    },
+  };
+  const alignment = { status: 'aligned' as const, onsets: [0, 5, 5.2, 5.4, 5.6, 7, 7.2, 7.4] };
+  const props = {
+    block,
+    content: { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel,
+    duration: 10,
+    alignment,
+  };
+  const { container, rerender } = render(<LessonPlaybackStage {...props} time={4} />);
+  container
+    .querySelector<HTMLElement>('.caption-page')
+    ?.style.setProperty('--caption-feather', '0');
+  act(() => window.dispatchEvent(new Event('resize')));
+  for (const [time, selected] of [
+    [4, false],
+    [5.1, true],
+    [7.1, false],
+    [5.1, true],
+  ] as const) {
+    rerender(<LessonPlaybackStage {...props} time={time} />);
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    });
+    expect(container.querySelector('.nous-formula-symbol-x')?.getAttribute('data-active')).toBe(
+      String(selected)
+    );
+  }
+  const captions = container.querySelectorAll<HTMLElement>('.caption-word');
+  expect(captions[1].style.opacity).toBe('1');
+  expect(captions[5].style.opacity).toBe('1');
+});
+
 test('a complete spotlight replaces sourced math while text fallback shows the formula without prose', () => {
   const source = [{ type: 'markdown' as const, markdown: FORMULA_SPOTLIGHT_MARKDOWN }];
   const block = segmentLessonPlayback(source)[0];
@@ -749,10 +822,16 @@ test('uses the prepared spoken formula in captions while retaining authored math
   expect(container.querySelector('.scene-host .katex')).not.toBeNull();
 });
 
-test('selects authored formula cards at their spoken occurrence and retains them through pauses and seeks', () => {
+test.each([
+  false,
+  true,
+])('selects repeated formula cards on the absolute passage clock and retains them through seeks (aligned: %s)', aligned => {
   vi.mocked(useShouldAnimate).mockReturnValue(false);
   const sources = [
-    { type: 'markdown' as const, markdown: 'Uno $a$ $b$ Attesa lunga pausa resta qui $a$ Fine' },
+    {
+      type: 'markdown' as const,
+      markdown: `${aligned ? '# Titolo\n\n' : ''}Uno $a$ $b$ Attesa lunga pausa resta qui $a$ Fine`,
+    },
   ];
   const formulas = ['$a$', '$b$', '$a$'];
   const block = {
@@ -782,10 +861,13 @@ test('selects authored formula cards at their spoken occurrence and retains them
   style.setProperty('--caption-feather', '22px');
   vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
   let time = 0;
-  const { container } = render(
+  const { container, rerender } = render(
     <LessonPlaybackStage
       block={block}
       content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      alignment={
+        aligned ? { status: 'aligned', onsets: [0, 0.1, 0.5, 2, 3, 4, 5, 6, 7, 8, 9] } : undefined
+      }
       duration={10}
       time={0}
       readTime={() => time}
@@ -805,6 +887,24 @@ test('selects authored formula cards at their spoken occurrence and retains them
   expect(advance(7.99)).toBe('b');
   expect(advance(8.01)).toBe('a');
   expect(advance(2.01)).toBe('b');
+  if (aligned) {
+    rerender(
+      <LessonPlaybackStage
+        block={structuredClone(block)}
+        content={
+          {
+            isDarkMode: false,
+            sectionContentBlocks: structuredClone(sources),
+          } as WorkspaceReaderContentModel
+        }
+        alignment={{ status: 'aligned', onsets: [0, 0.1, 0.5, 6, 6.1, 6.2, 6.3, 6.4, 7, 8, 9] }}
+        duration={10}
+        time={time}
+        readTime={() => time}
+      />
+    );
+    expect(advance(2.02)).toBe('b');
+  }
 });
 
 test.each(
@@ -1103,6 +1203,223 @@ test.each([
 });
 
 test.each([
+  { animate: true, effect: 'reveal' as const },
+  { animate: false, effect: 'reveal' as const },
+  { animate: true, effect: 'focus' as const },
+  { animate: false, effect: 'focus' as const },
+])('right-side $effect uses heard onsets while captions retain their lead (animate=$animate)', ({
+  animate,
+  effect,
+}) => {
+  vi.mocked(useShouldAnimate).mockReturnValue(animate);
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const style = document.createElement('p').style;
+  style.setProperty('--caption-feather', '0');
+  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
+  const sources = [{ type: 'markdown' as const, markdown: 'Prima parte. Seconda parte.' }];
+  const scene: LessonScene = {
+    type: 'steps',
+    title: 'Parti',
+    body: '',
+    items: [
+      { label: 'Prima', detail: '', icon: 'circle' },
+      { label: 'Seconda', detail: '', icon: 'circle' },
+    ],
+    groups: [],
+    note: '',
+    quote: '',
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: {
+      scene,
+      motion: [
+        { effect, targets: ['item:0'], quote: 'Prima parte.' },
+        { effect, targets: ['item:1'], quote: 'Seconda parte.' },
+      ],
+    },
+  };
+  const props = {
+    block,
+    content: { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel,
+    duration: 10,
+  };
+  const alignment = { status: 'aligned' as const, onsets: [0, 1, 6.2, 7] };
+  let heard = 3.9;
+  const readTime = () => heard;
+  const { container, rerender } = render(
+    <LessonPlaybackStage {...props} alignment={alignment} time={0} readTime={readTime} />
+  );
+  const flush = () =>
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      pending.forEach(callback => {
+        callback(0);
+      });
+    });
+  flush();
+  const target = () => container.querySelector<HTMLElement>('[data-motion-id="item:1"]');
+  const visualValue = () =>
+    effect === 'reveal'
+      ? target()?.style.opacity
+      : target()?.style.getPropertyValue('--motion-emphasis');
+  expect(visualValue()).toBe('0');
+  const caption = container.querySelectorAll<HTMLElement>('.caption-word')[2];
+  expect(caption.style.opacity).toBe('1');
+  // The existing punctuation pacing and 1.3-second lead determine this revealed edge.
+  expect(Number.parseFloat(caption.style.getPropertyValue('--reveal-edge'))).toBeCloseTo(
+    animate ? 4.237 : 8,
+    3
+  );
+  heard = 6.199;
+  flush();
+  if (animate) expect(Number(visualValue())).toBeGreaterThan(0.99);
+  else expect(visualValue()).toBe('0');
+  heard = 6.201;
+  flush();
+  expect(Number(visualValue())).toBeGreaterThan(0);
+  heard = 6.3;
+  flush();
+  expect(Number(visualValue())).toBeGreaterThan(0);
+  const paused = visualValue();
+  rerender(
+    <LessonPlaybackStage {...props} alignment={alignment} time={9} speed={2} readTime={readTime} />
+  );
+  flush();
+  expect(visualValue()).toBe(paused);
+  heard = 5.49;
+  flush();
+  expect(visualValue()).toBe('0');
+  heard = 6.3;
+  flush();
+  expect(visualValue()).toBe(paused);
+  const captionState = () =>
+    Array.from(container.querySelectorAll<HTMLElement>('.caption-word'), word => [
+      word.style.cssText,
+      (word.firstElementChild as HTMLElement).style.cssText,
+    ]);
+  const withAlignment = captionState();
+  rerender(<LessonPlaybackStage {...props} time={0} speed={2} readTime={readTime} />);
+  flush();
+  expect(captionState()).toEqual(withAlignment);
+  const later = { status: 'aligned' as const, onsets: [0, 1, 8, 9] };
+  const presented = visualValue();
+  rerender(<LessonPlaybackStage {...props} alignment={later} time={0} readTime={readTime} />);
+  flush();
+  expect(visualValue()).toBe(presented);
+  heard = 7.29;
+  rerender(
+    <LessonPlaybackStage
+      {...props}
+      alignment={later}
+      time={0}
+      readTime={readTime}
+      seekRevision={1}
+    />
+  );
+  flush();
+  expect(visualValue()).toBe('0');
+  heard = 8.1;
+  flush();
+  expect(Number(visualValue())).toBeGreaterThan(0);
+});
+
+test('retains a final aligned reveal after the spoken heading share', () => {
+  const events = captionMotionEvents({
+    events: [{ effect: 'reveal', targets: ['item:0'], quote: 'Ultima' }],
+    speech: 'Titolo Ultima',
+    speechRanges: [{ start: 7, end: 13 }],
+    runs: [{ span: document.createElement('span'), start: 0, width: 100 }],
+    width: 100,
+    feather: 0,
+    duration: 8,
+    startOffset: 2,
+    aligned: [
+      { text: 'Titolo', start: 0, end: 6, onset: 0, endTime: 9 },
+      { text: 'Ultima', start: 7, end: 13, onset: 9, endTime: 10 },
+    ],
+  });
+  expect(events[0].atMs).toBe(9000);
+  expect(events[0].durationMs).toBe(700);
+  expect(motionStates(['item:0'], events, 9700, false, 0).get('item:0')?.opacity).toBe(1);
+});
+
+test('renders resolved step citations instead of the unanchored source scene', () => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const sources = [{ type: 'markdown' as const, markdown: guidedPathScene.narration ?? '' }];
+  const sourceScene = {
+    ...guidedPathScene,
+    steps: guidedPathScene.steps.map(step => ({ ...step, anchor: undefined })),
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    visuals: [{ kind: 'scene' as const, scene: sourceScene }],
+    prepared: { scene: guidedPathScene, motion: [] },
+  };
+  const words = block.speech.match(/\S+/gu) ?? [];
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      time={0.5}
+      duration={40}
+      alignment={{ status: 'aligned', onsets: words.map((_, index) => index) }}
+    />
+  );
+  expect(container.querySelector('[data-stop="0"]')?.getAttribute('aria-current')).toBe('step');
+});
+
+test('adopts an overdue acoustic cue instead of waiting for its future estimate', () => {
+  expect(adoptCueTimes([8000, 2000, 9000], [3000, 1000, 7000], 5000)).toEqual([3000, 2000, 7000]);
+});
+
+test('sequence participants and message labels retain their authored motion targets', () => {
+  const host = document.createElement('div');
+  host.innerHTML = `<svg>
+    <g id="second" data-et="participant" data-id="n1"></g>
+    <g id="first" data-et="participant" data-id="n0"></g>
+    <text id="label" class="messageText">Send</text>
+    <line id="message" data-et="message"></line>
+  </svg>`;
+  const scene: LessonScene = {
+    ...formulaSpotlight,
+    type: 'sequence',
+    diagram: {
+      nodes: [
+        { id: 'from', label: 'From', kind: 'step' },
+        { id: 'to', label: 'To', kind: 'step' },
+      ],
+      edges: [{ from: 'from', to: 'to', label: 'Send', kind: 'event', evidence: 'Send' }],
+    },
+  };
+  expect(
+    Array.from(sceneElements(host, scene), ([id, targets]) => [
+      id,
+      targets.map(target => target.id),
+    ])
+  ).toEqual([
+    ['node:from', ['first']],
+    ['node:to', ['second']],
+    ['edge:0', ['message', 'label']],
+  ]);
+});
+
+test.each([
   false,
   true,
 ])('a pending scene observer retains its passage ranges during the next commit (longer=%s)', longer => {
@@ -1249,12 +1566,25 @@ test.each([
       content={{ ...content, sectionContentBlocks: structuredClone(sources) }}
       duration={6}
       time={5.8}
+      alignment={{ status: 'aligned', onsets: [0.1, 0.8] }}
     />
   );
   expect(container.querySelector('.caption-page')).toBe(caption);
   expect(caption.scrollTop).toBe(200);
   expect(container.querySelector('.scene-host')?.firstElementChild).toBe(visual);
   expect(visual.isConnected).toBe(true);
+  rerender(
+    <LessonPlaybackStage
+      block={structuredClone(first)}
+      content={content}
+      duration={6}
+      time={5.8}
+      alignment={{ status: 'aligned', onsets: [0.1, 0.8] }}
+    />
+  );
+  expect(caption.scrollTop).toBe(200);
+  expect(container.querySelector('.scene-host')?.firstElementChild).toBe(visual);
+
   rerender(
     <LessonPlaybackStage
       block={{ ...blocks[1], prepared: first.prepared }}
