@@ -207,7 +207,6 @@ function PlaybackScene({
         : {
             elapsedMs: (blockTime - interval.start) * 1000,
             durationMs: interval.duration * 1000,
-            cueTimes: [],
           };
     };
   }, [scene, block.speech, clock, interval.start, interval.duration]);

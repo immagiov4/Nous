@@ -1175,7 +1175,16 @@ test.each([
       ? target()?.style.opacity
       : target()?.style.getPropertyValue('--motion-emphasis');
   expect(visualValue()).toBe('0');
-  expect(container.querySelectorAll<HTMLElement>('.caption-word')[2].style.opacity).toBe('1');
+  const caption = container.querySelectorAll<HTMLElement>('.caption-word')[2];
+  expect(caption.style.opacity).toBe('1');
+  // At 3.9 seconds, the unchanged 1.3-second lead reveals 8 pixels of word three.
+  expect(Number.parseFloat(caption.style.getPropertyValue('--reveal-edge'))).toBeCloseTo(8, 8);
+  heard = 6.199;
+  flush();
+  expect(visualValue()).toBe('0');
+  heard = 6.201;
+  flush();
+  expect(Number(visualValue())).toBeGreaterThan(0);
   heard = 6.3;
   flush();
   expect(Number(visualValue())).toBeGreaterThan(0);
