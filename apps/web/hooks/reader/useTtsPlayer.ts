@@ -908,6 +908,9 @@ export const useTtsPlayer = ({
       return;
     }
 
+    // An explicit Play starts a new attempt; automatic playback keeps failed chunks blocked.
+    failedChunkIndexesRef.current.clear();
+
     if (currentState.chunks.length === 0) {
       const audioChunks = createAudioChunks(preparedChunkTexts);
 
