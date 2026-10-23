@@ -18,6 +18,7 @@ interface CorrectiveFailureOptions extends FailureOptions {
 }
 
 interface OperationalFailureOptions extends FailureOptions {
+  maxRetryDelayMs?: number;
   retryAfterMs?: number;
 }
 
@@ -107,12 +108,12 @@ const assertRequiredText = (value: unknown, message: string): void => {
   if (typeof value !== 'string' || !value.trim()) throw new Error(message);
 };
 
-const assertRetryAfterMs = (value: unknown): void => {
+const assertRetryDelay = (value: unknown, field = 'retryAfterMs'): void => {
   if (
     value !== undefined &&
     (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
   ) {
-    throw new Error('retryAfterMs must be a non-negative integer.');
+    throw new Error(`${field} must be a non-negative integer.`);
   }
 };
 
@@ -128,18 +129,23 @@ const assertStepFailure: (failure: unknown) => asserts failure is StepFailure = 
   switch (failure.kind) {
     case 'corrective':
       assertRequiredText(failure.feedback, 'Corrective retry feedback is required.');
-      if (failure.retryAfterMs !== undefined) {
-        throw new Error('Corrective step failures cannot include retryAfterMs.');
+      if (failure.retryAfterMs !== undefined || failure.maxRetryDelayMs !== undefined) {
+        throw new Error('Corrective step failures cannot include retry metadata.');
       }
       break;
     case 'operational':
       if (failure.feedback !== undefined) {
         throw new Error('Operational step failures cannot include corrective feedback.');
       }
-      assertRetryAfterMs(failure.retryAfterMs);
+      assertRetryDelay(failure.retryAfterMs);
+      assertRetryDelay(failure.maxRetryDelayMs, 'maxRetryDelayMs');
       break;
     case 'permanent':
-      if (failure.feedback !== undefined || failure.retryAfterMs !== undefined) {
+      if (
+        failure.feedback !== undefined ||
+        failure.retryAfterMs !== undefined ||
+        failure.maxRetryDelayMs !== undefined
+      ) {
         throw new Error('Permanent step failures cannot include retry metadata.');
       }
       break;
@@ -219,7 +225,7 @@ export const getOperationalRetryDelayMs = (input: {
   if (!Number.isSafeInteger(input.attemptNumber) || input.attemptNumber < 1) {
     throw new Error('attemptNumber must be a positive integer.');
   }
-  assertRetryAfterMs(input.retryAfterMs);
+  assertRetryDelay(input.retryAfterMs);
   const random = (input.random ?? Math.random)();
   if (!Number.isFinite(random) || random < 0 || random > 1) {
     throw new Error('Retry jitter source must return a number between 0 and 1.');
@@ -249,6 +255,14 @@ export const getRetryDecision = (input: {
     return { retry: false };
   }
   if (failure.kind === 'corrective') return { delayMs: 0, retry: true };
+
+  if (failure.maxRetryDelayMs !== undefined) {
+    const delayMs = Math.max(
+      failure.retryAfterMs ?? 0,
+      getOperationalRetryDelayMs({ attemptNumber: input.attemptNumber, random: input.random })
+    );
+    return delayMs <= failure.maxRetryDelayMs ? { delayMs, retry: true } : { retry: false };
+  }
 
   return {
     delayMs: getOperationalRetryDelayMs({

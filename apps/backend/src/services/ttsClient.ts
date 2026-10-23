@@ -16,6 +16,8 @@ import type {
   VoiceProfilesConfig,
 } from '../types/index.js';
 import { isRecord } from '../utils/validation.js';
+import { readRetryAfterMs, WorkflowStepError } from '../workflows/retryPolicy.js';
+import { toWorkflowErrorDiagnostic } from '../workflows/workflowErrorDiagnostics.js';
 import {
   getOpenRouterJsonHeaders,
   OPENROUTER_API_BASE_URL,
@@ -41,13 +43,27 @@ interface OpenRouterSpeechAttempt {
   voice: string;
 }
 
-class OpenRouterTtsError extends Error {
+// Longer waits return control to the reader's explicit retry action.
+const MAX_TTS_RETRY_DELAY_MS = 30_000;
+
+export class OpenRouterTtsError extends WorkflowStepError {
   constructor(
     message: string,
-    readonly status?: number,
-    readonly details?: string
+    readonly status: number,
+    readonly details: string,
+    readonly responseHeaders: Readonly<Record<string, string>>
   ) {
-    super(message);
+    const retryAfterMs = readRetryAfterMs({ responseHeaders });
+    super({
+      code: 'tts_request_failed',
+      kind: 'operational',
+      message,
+      details: {
+        diagnostic: toWorkflowErrorDiagnostic({ name: 'OpenRouterTtsError', status, message }),
+      },
+      maxRetryDelayMs: MAX_TTS_RETRY_DELAY_MS,
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+    });
     this.name = 'OpenRouterTtsError';
   }
 }
@@ -233,7 +249,12 @@ class TTSClient {
       throw new OpenRouterTtsError(
         'Il servizio TTS non ha completato la richiesta. Riprova tra poco.',
         response.status,
-        details
+        details,
+        Object.fromEntries(
+          [...response.headers].filter(([name]) =>
+            ['retry-after', 'retry-after-ms', 'x-ratelimit-reset'].includes(name)
+          )
+        )
       );
     }
 
