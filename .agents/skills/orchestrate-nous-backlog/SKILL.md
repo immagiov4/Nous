@@ -34,7 +34,7 @@ the action described by the target skill.
 | unfamiliar subsystem or historical intent | `$how`, `$why` | grounding or prior trade-offs can change the answer |
 | module seam or consequential architecture | `$codebase-design`, `$architect` | interface depth, ownership, or cross-module shape is at stake |
 | hard bug or cheap regression seam | `$diagnosing-bugs`, `$tdd` | a bug needs a red-capable loop or a focused regression |
-| cross-cutting risk or adversarial challenge | `$blast-radius`, `$interrogate` | the issue has material downstream or contested risk |
+| cross-cutting risk or adversarial challenge | `$blast-radius` | the issue has material downstream or contested risk |
 | issue lifecycle and evidence ledger | `$problem-to-github-issue` | creating, editing, labeling, commenting on, closing, reopening, deduplicating, or preparing an issue |
 | vertical ticket breakdown or durable spec | `$to-tickets`, `$to-spec` | the work must be split or settled decisions must be preserved |
 | independent standards/spec review | `$code-review` | a coherent diff needs material review |
@@ -254,9 +254,8 @@ Apply these Nous-specific rules to every workstream:
 After each coherent block, verify the smallest meaningful artifact first. Use `$code-review` for
 the independent standards/spec review, `$blast-radius` for material cross-cutting risk, and
 `$receiving-pr-reviews` before changing code in response to PR findings, local reviewing
-agents, or self-review. Use
-`$interrogate` only when adversarial review is requested or genuinely needed. These skills own
-review mechanics; this skill retains the Nous-specific gates below.
+agents, or self-review.
+These skills own review mechanics; this skill retains the Nous-specific gates below.
 
 1. Run the narrowest meaningful tests first.
 2. Run the cheap, relevant checks: type checks, formatter/linter, focused static/security checks,
