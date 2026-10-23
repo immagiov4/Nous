@@ -88,7 +88,7 @@ function formulaCueTiming(scene: FormulaSpotlightData, speech: string, current: 
       speechRanges: current.speechRanges,
       runs: current.runs,
       width: current.width,
-      feather: current.feather,
+      feather: 0,
       duration: current.bodyDuration,
       startOffset: current.headingDuration,
       aligned: current.aligned,
