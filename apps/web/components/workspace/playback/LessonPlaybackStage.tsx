@@ -115,6 +115,26 @@ function canRetainPresentedCues(
   return previous !== null && previous.seekRevision === current.seekRevision;
 }
 
+function formulaSpeechTiming(range: PlaybackRange, speech: string, current: CaptionClock) {
+  const span = captionRangeSpan({
+    range,
+    speech,
+    speechRanges: current.speechRanges,
+    runs: current.runs,
+    width: current.width,
+    feather: 0,
+    duration: current.bodyDuration,
+    startOffset: current.headingDuration,
+    aligned: current.aligned,
+  });
+  if (span.endMs === span.startMs && current.aligned) {
+    // Equal-onset words share one acoustic interval rather than a zero-length formula.
+    const next = current.aligned.find(word => word.onset * 1000 > span.startMs);
+    span.endMs = (next?.onset ?? current.duration) * 1000;
+  }
+  return span;
+}
+
 function retainPresentedCues(
   current: CaptionClock,
   previous: CaptionClock | null,
@@ -593,17 +613,7 @@ function PlaybackPassage({
       if (previousClock !== current) {
         const previousTimes = formulaTimes;
         formulaTimes = formulas.map((formula, index) => {
-          const span = captionRangeSpan({
-            range: formula.speech,
-            speech: block.speech,
-            speechRanges: current.speechRanges,
-            runs: current.runs,
-            width: current.width,
-            feather: 0,
-            duration: current.bodyDuration,
-            startOffset: current.headingDuration,
-            aligned: current.aligned,
-          });
+          const span = formulaSpeechTiming(formula.speech, block.speech, current);
           const previous = previousTimes[index];
           if (!previous || !canRetainPresentedCues(current, previousClock)) return span;
           const heardMs = current.read().blockTime * 1000;
@@ -880,10 +890,9 @@ function PlaybackPassage({
         <section className="captions" aria-label={t('Sottotitoli')}>
           {(formatted.headings.length ? formatted.headings : [block.heading]).map(
             (heading, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: authored headings may repeat
               <div
                 className="caption-heading"
-                key={`${index}:${heading}`}
+                key={`${formatted.headingSources[index]?.start ?? block.id}:${heading}`}
                 aria-hidden={spokenFormulas.some(formula => {
                   const range = formatted.headingSpeechRanges[index];
                   return (

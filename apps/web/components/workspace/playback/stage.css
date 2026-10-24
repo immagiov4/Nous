@@ -2340,6 +2340,7 @@
   }
   .lesson-player-stage .caption-formula {
     visibility: visible;
+    pointer-events: auto;
   }
   .lesson-player-stage .scene-fit {
     flex-shrink: 0;

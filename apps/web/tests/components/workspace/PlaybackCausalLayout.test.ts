@@ -112,6 +112,16 @@ test.each(
     await seek(1.5);
     const formula = page.locator('.caption-formula .katex');
     expect(await formula.isVisible()).toBe(true);
+    expect(
+      await formula.evaluate(element => {
+        const bounds = element.getBoundingClientRect();
+        const target = document.elementFromPoint(
+          bounds.x + bounds.width / 2,
+          bounds.y + bounds.height / 2
+        );
+        return Boolean(target?.closest('.caption-formula'));
+      })
+    ).toBe(true);
     expect(await formula.locator('annotation').textContent()).toBe('a');
     expect(await page.locator('.caption-page').isVisible()).toBe(false);
     expect(await page.locator('.scene-fit').isVisible()).toBe(false);

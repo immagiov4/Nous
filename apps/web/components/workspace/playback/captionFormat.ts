@@ -3,6 +3,7 @@ import type {
   LessonPlaybackBlock,
   PlaybackContentBlock,
   PlaybackRange,
+  PlaybackTextSpan,
 } from '@shared/lessonPlayback';
 import { getAllowedRawHtmlTagRanges } from '../../../utils/markdown/html.ts';
 
@@ -59,6 +60,23 @@ function captionSourceLines(block: LessonPlaybackBlock, sources: readonly Playba
   return lines;
 }
 
+function captionSpanProjection(
+  span: PlaybackTextSpan,
+  narration: string,
+  source: PlaybackRange & { text: string }
+) {
+  const speech = span.math
+    ? span.speech
+    : {
+        start: span.speech.start + source.start - span.source.start,
+        end: span.speech.start + source.end - span.source.start,
+      };
+  return {
+    speech,
+    text: span.math ? narration.slice(speech.start, speech.end) : source.text,
+  };
+}
+
 /** Recover the authored lines covered by the canonical speech/source mapping. */
 export function captionSource(
   block: LessonPlaybackBlock,
@@ -87,16 +105,17 @@ export function captionSource(
       const start = Math.max(line.start, span.source.start);
       const end = Math.min(line.start + line.text.length, span.source.end);
       if (start >= end) continue;
+      if (span.math && start > span.source.start) {
+        // A multiline formula has one saved pronunciation, projected on its opening line.
+        cursor = end;
+        continue;
+      }
       markdown += line.text.slice(cursor - line.start, start - line.start);
-      const speech = span.math
-        ? span.speech
-        : {
-            start: span.speech.start + start - span.source.start,
-            end: span.speech.start + end - span.source.start,
-          };
-      const text = span.math
-        ? block.speech.slice(speech.start, speech.end)
-        : line.text.slice(start - line.start, end - line.start);
+      const { speech, text } = captionSpanProjection(span, block.speech, {
+        start,
+        end,
+        text: line.text.slice(start - line.start, end - line.start),
+      });
       ranges.push({
         source: { start: markdown.length, end: markdown.length + text.length },
         speech,

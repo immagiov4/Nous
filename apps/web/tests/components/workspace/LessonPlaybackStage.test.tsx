@@ -1078,6 +1078,22 @@ test.each([
 
 test.each([
   {
+    markdown: 'Prima $x$ dopo',
+    spokenMath: [{ formula: '$x$', spoken: 'ics' }],
+    time: 4,
+    expected: ['x'],
+    heading: false,
+    onsets: [0, 3, 3],
+  },
+  {
+    markdown: 'Prima $$\nx+y\n$$ dopo',
+    spokenMath: [{ formula: '$$\nx+y\n$$', spoken: 'ics più ipsilon' }],
+    time: 4,
+    expected: ['x+y'],
+    heading: false,
+    estimatedEnd: 8,
+  },
+  {
     markdown: '# Formula: $x$',
     spokenMath: [{ formula: '$x$', spoken: 'ics' }],
     time: 6,
@@ -1147,12 +1163,19 @@ test.each([
   expect(container.querySelector('.scene-fit')).toHaveAttribute('aria-hidden', 'true');
   if (fixture.heading)
     expect(container.querySelector('.caption-heading')).toHaveAttribute('aria-hidden', 'true');
+  if (fixture.estimatedEnd !== undefined) {
+    time = fixture.estimatedEnd;
+    flush();
+    expect(container.querySelector('.scene-fit')).toHaveAttribute('aria-hidden', 'false');
+    time = fixture.time;
+    flush();
+  }
   rerender(
     <LessonPlaybackStage
       {...props}
       alignment={{
         status: 'aligned',
-        onsets: Array.from({ length: count }, (_, index) => (10 * index) / count),
+        onsets: fixture.onsets ?? Array.from({ length: count }, (_, index) => (10 * index) / count),
       }}
       seekRevision={1}
     />
