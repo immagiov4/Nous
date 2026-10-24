@@ -108,7 +108,7 @@ export const SCENE_RENDERERS = {
     return (
       <div className="decision">
         {question || !c.prototype ? <div className="decision-question">{question}</div> : null}
-        {groups(c, question || !c.prototype ? 'branches' : 'decision-options')}
+        {groups(c, 'decision-options')}
       </div>
     );
   },

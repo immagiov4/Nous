@@ -627,3 +627,81 @@ test.each([768, 1440])('retains complete scene fitting at %s px', async width =>
     await page.close();
   }
 });
+
+for (const width of [1440, 412]) {
+  test(`decision options have no enclosing border at ${width}px`, async () => {
+    const page = await browser.newPage({ viewport: { width, height: 1000 } });
+    try {
+      await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=decision`);
+      const options = page.locator('.decision .groups');
+      await options.waitFor();
+      expect(await options.locator('section').count()).toBe(2);
+      expect(
+        await options.evaluate(element => {
+          const style = getComputedStyle(element);
+          return [
+            style.borderTopWidth,
+            style.borderRightWidth,
+            style.borderBottomWidth,
+            style.borderLeftWidth,
+          ];
+        })
+      ).toEqual(['0px', '0px', '0px', '0px']);
+      expect(await page.locator('.scene-intro').count()).toBe(0);
+      expect(await page.locator('.decision-question').innerText()).toBe(
+        'Le ragioni sostengono la conclusione?'
+      );
+    } finally {
+      await page.close();
+    }
+  });
+  test(`sequence notes cover the lifelines at ${width}px`, async () => {
+    const page = await browser.newPage({ viewport: { width, height: 1000 } });
+    try {
+      await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=sequence`);
+      await page.locator('.actor-line').first().waitFor({ state: 'attached' });
+      const note = page.locator('.scene-note');
+      expect(await note.innerText()).toBe('Le frecce descrivono un modello concettuale.');
+      const coverage = await note.evaluate(element => {
+        const bounds = element.getBoundingClientRect();
+        const y = bounds.top + bounds.height / 2;
+        const lines = Array.from(document.querySelectorAll('.actor-line')).filter(line => {
+          const box = line.getBoundingClientRect();
+          return box.left > bounds.left && box.right < bounds.right && box.bottom > y;
+        });
+        return {
+          background: getComputedStyle(element).backgroundColor,
+          covered: lines.map(line => {
+            const box = line.getBoundingClientRect();
+            return element.contains(document.elementFromPoint((box.left + box.right) / 2, y));
+          }),
+        };
+      });
+      expect(coverage.background).toBe('rgb(251, 239, 233)');
+      expect(coverage.covered).toHaveLength(3);
+      expect(coverage.covered).toEqual([true, true, true]);
+    } finally {
+      await page.close();
+    }
+  });
+}
+test.each([false, true])('reader sequence notes are opaque (dark=%s)', async dark => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(
+      `${baseUrl}tests/fixtures/playbackLayout.html?case=sequence&reader=1${dark ? '&dark=1' : ''}`
+    );
+    const note = page.locator('.scene-note');
+    await note.waitFor();
+    const background = await note.evaluate(element => {
+      const context = document.createElement('canvas').getContext('2d');
+      if (!context) throw new Error('A color sampling context is required');
+      context.fillStyle = getComputedStyle(element).backgroundColor;
+      context.fillRect(0, 0, 1, 1);
+      return Array.from(context.getImageData(0, 0, 1, 1).data);
+    });
+    expect(background).toEqual(dark ? [71, 60, 50, 255] : [251, 239, 233, 255]);
+  } finally {
+    await page.close();
+  }
+});

@@ -68,7 +68,7 @@
   --scene-dark-accent: #fdba74;
   --blue: var(--scene-dark-accent);
   --tint: rgba(251, 146, 60, 0.14);
-  --note-bg: rgba(251, 146, 60, 0.12);
+  --note-bg: color-mix(in srgb, #fb923c 12%, var(--surface));
   --note-ink: #fed7aa;
   --chart-0: #9caf8f;
   --chart-1: #82a0c0;
@@ -663,6 +663,8 @@
   background: var(--paper);
 }
 .lesson-scene .scene-note {
+  /* Paint the opaque note above overflowing SVG lifelines. */
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 10px;
