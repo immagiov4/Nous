@@ -22,6 +22,12 @@ beforeAll(async () => {
     server: { host: '127.0.0.1', port: 0, strictPort: false },
   });
   await server.listen();
+  await Promise.all(
+    ['playbackLayout', 'playbackOnset'].map(fixture =>
+      server.warmupRequest(`/tests/fixtures/${fixture}.tsx`)
+    )
+  );
+  await server.waitForRequestsIdle();
   baseUrl = server.resolvedUrls?.local[0] ?? '';
   browser = await chromium.launch(withMutedAudio({ headless: true }));
 });
@@ -502,7 +508,7 @@ test('1: a historical image-only preparation stays empty while no replacement is
   try {
     const card = await page.locator('.scene-host').innerText();
     expect(card).toBe('');
-    expect(await page.locator('.captions').innerText()).toContain('In una situazione ambigua');
+    expect(await page.locator('.captions').textContent()).toContain('In una situazione ambigua');
     expect(card).not.toContain('PDF_IMAGE');
     expect(card).not.toContain('Un esempio visivo');
     expect(card).not.toContain('Figura di esempio');
