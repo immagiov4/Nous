@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import { type LessonPlaybackBlock, segmentLessonPlayback } from '@shared/lessonPlayback';
 import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
+import type { LessonScene } from '@shared/lessonScene';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import mermaid from 'mermaid';
 import { type ComponentProps, StrictMode } from 'react';
 import { createPortal } from 'react-dom';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
@@ -21,9 +23,18 @@ const composerState = vi.hoisted(() => ({ disabled: false }));
 const answerPreview = vi.hoisted(() => ({ open: false }));
 const answerPanelProps = vi.hoisted(() => vi.fn());
 
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn(async () => ({
+      svg: '<svg><text>Prepared diagram</text></svg>',
+      diagramType: 'flowchart',
+    })),
+  },
+}));
 vi.mock('../../../hooks/reader/useLessonPlayback.ts', () => ({ useLessonPlayback: vi.fn() }));
 vi.mock('../../../components/workspace/playback/LessonPlaybackStage.tsx', () => ({
-  default: () => <div data-testid="playback-stage" />,
+  default: () => <div className="lesson-player-stage" data-testid="playback-stage" />,
 }));
 vi.mock('../../../services/openrouter/sttClient.ts', () => ({
   requestSpeechTranscription: vi.fn(),
@@ -141,6 +152,10 @@ const props = {
 let playback: ReturnType<typeof useLessonPlayback>;
 
 beforeEach(() => {
+  vi.mocked(mermaid.render).mockReset().mockResolvedValue({
+    svg: '<svg><text>Prepared diagram</text></svg>',
+    diagramType: 'flowchart',
+  });
   setAccountLocale('it');
   sendInConversation.mockReset();
   generatingResponse.stop = null;
@@ -977,4 +992,85 @@ test('preserves the stage for preparation updates and remounts it for a new less
   rerender(<LessonPlayer {...props} autoPlay={false} />);
   expect(screen.getByTestId('playback-stage')).not.toBe(stage);
   expect(screen.getByTestId('playback-stage').scrollTop).toBe(0);
+});
+
+test('prepares authored and stored playback diagrams once before narration, including both orientations', async () => {
+  const scene = (label: string): LessonScene => ({
+    type: 'flowchart',
+    title: label,
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [],
+    diagram: {
+      nodes: [
+        { id: 'a', label, kind: 'start' },
+        { id: 'b', label: 'End', kind: 'end' },
+      ],
+      edges: [{ from: 'a', to: 'b', label: 'Next', kind: 'call', evidence: 'Next' }],
+    },
+  });
+  const prepared = scene('Prepared');
+  const authored = scene('Authored');
+  const stored = scene('Stored');
+  const richBlocks: readonly LessonPlaybackBlock[] = [
+    {
+      ...blocks[0],
+      prepared: { scene: prepared, motion: [] },
+      visuals: [
+        { kind: 'scene', scene: authored },
+        { kind: 'mermaid', code: 'flowchart LR\nA[Direct]' },
+        { kind: 'generated-visual', visualId: 'stored-scene' },
+        { kind: 'generated-visual', visualId: 'legacy' },
+        { kind: 'generated-visual', visualId: 'project' },
+      ],
+    },
+  ];
+  const createdAt = '2026-01-01T00:00:00Z';
+  const richContent: WorkspaceReaderContentModel = {
+    ...content,
+    activeSectionGeneratedVisualsById: {
+      'stored-scene': {
+        id: 'stored-scene',
+        slotId: 'scene',
+        createdAt,
+        render: { kind: 'scene', scene: stored },
+      },
+      legacy: {
+        id: 'legacy',
+        title: 'Legacy',
+        createdAt,
+        kind: 'mermaid',
+        code: 'flowchart LR\nA[Legacy]',
+      },
+      project: {
+        id: 'project',
+        slotId: 'project',
+        createdAt,
+        render: { kind: 'mermaid', code: 'flowchart LR\nA[Project]' },
+      },
+    },
+  };
+  Object.assign(document.fonts, { load: vi.fn(async () => []) });
+  vi.mocked(mermaid.render).mockClear();
+  render(<LessonPlayer {...props} content={richContent} autoPlay={false} />);
+  const prepare = vi.mocked(useLessonPlayback).mock.calls.at(-1)?.[0].prepareVisuals;
+  if (!prepare) throw new Error('Playback must prepare its visual inputs');
+  const signal = new AbortController().signal;
+  await prepare(richBlocks, signal);
+  const drawings = vi.mocked(mermaid.render).mock.calls.map(call => call[1]);
+  expect(drawings).toHaveLength(9);
+  for (const label of ['Prepared', 'Authored', 'Stored', 'Direct', 'Legacy', 'Project'])
+    expect(drawings.some(code => code.includes(label))).toBe(true);
+  expect(document.querySelector('.lesson-player-stage')?.children).toHaveLength(0);
+  const fail = vi.spyOn(console, 'error').mockImplementation(() => {
+    throw new Error('Drawing repeated during playback');
+  });
+  vi.mocked(mermaid.render).mockRejectedValueOnce(
+    new Error('Drawing is unavailable while audio plays')
+  );
+  await expect(prepare(richBlocks, signal)).resolves.toBeUndefined();
+  expect(fail).not.toHaveBeenCalled();
+  expect(mermaid.render).toHaveBeenCalledTimes(9);
 });
