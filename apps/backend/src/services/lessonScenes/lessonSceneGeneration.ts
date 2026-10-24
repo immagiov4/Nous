@@ -187,7 +187,7 @@ FIELDS
 - intent: one concrete sentence about the reader's task; never shown.
 - evidence: an EXACT quotation from the lesson that supports the scene's message.
 - title: at most 7 words; it states the topic or the criterion.
-- body: one short sentence only when it adds necessary information, otherwise "".
+- body: only an essential condition needed to read the visual; never summarize the narration or restate a definition already explained in captions, otherwise "".
 - items: {label (at most 6 words), detail (at most 15 words, or ""), value (a number only for quantitative forms, else null), time (line only: the point's position in time as a number written in the lesson, such as a year; else null), iconQueries}.
 - groups: {label, items (each a self-contained phrase), iconQueries (one per item, same order), verdict ("prefer", "avoid", or "none")}.
 - quote: an EXACT quotation from the lesson; in decision forms it is the main question, otherwise only an essential closing question; default "".
