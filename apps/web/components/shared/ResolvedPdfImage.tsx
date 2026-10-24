@@ -1,4 +1,4 @@
-import { type ComponentPropsWithoutRef, memo } from 'react';
+import { type ComponentPropsWithoutRef, memo, useEffect } from 'react';
 
 import { useResolvedProjectDocumentImage } from '../../hooks/useResolvedProjectDocumentImage.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
@@ -7,6 +7,7 @@ import type { PdfDocumentImageAsset } from '../../types.ts';
 interface ResolvedPdfImageProps extends Omit<ComponentPropsWithoutRef<'img'>, 'src'> {
   readonly image: PdfDocumentImageAsset;
   readonly projectId?: string | null;
+  readonly onUnavailable?: (imageId: string) => void;
 }
 
 const ResolvedPdfImage = ({
@@ -14,12 +15,27 @@ const ResolvedPdfImage = ({
   className,
   image,
   projectId,
+  onUnavailable,
   ...imageProps
 }: ResolvedPdfImageProps) => {
   useAppLocale();
   const resolution = useResolvedProjectDocumentImage(image, projectId);
+  useEffect(() => {
+    if (resolution.status === 'failed') onUnavailable?.(image.id);
+  }, [resolution.status, image.id, onUnavailable]);
   if (resolution.status === 'ready' && resolution.result) {
-    return <img {...imageProps} alt={alt} className={className} src={resolution.result.src} />;
+    return (
+      <img
+        {...imageProps}
+        alt={alt}
+        className={className}
+        src={resolution.result.src}
+        onError={event => {
+          imageProps.onError?.(event);
+          onUnavailable?.(image.id);
+        }}
+      />
+    );
   }
 
   if (resolution.status === 'failed') {

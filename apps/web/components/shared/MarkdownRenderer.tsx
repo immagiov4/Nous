@@ -61,6 +61,7 @@ import ResolvedPdfImage from './ResolvedPdfImage.tsx';
 import SurfaceErrorBoundary from './SurfaceErrorBoundary.tsx';
 
 export interface MarkdownRendererProps {
+  readonly onImageUnavailable?: (imageId: string) => void;
   readonly content: string;
   readonly className?: string;
   readonly isDarkMode?: boolean;
@@ -382,36 +383,41 @@ const MarkdownPart = memo(({ components, content }: MarkdownPartProps) => (
 MarkdownPart.displayName = 'MarkdownPart';
 
 interface PdfImageFigureProps {
+  readonly onImageUnavailable?: (imageId: string) => void;
   readonly alt: string;
   readonly asset: PdfDocumentImageAsset;
   readonly caption?: string;
   readonly projectId?: string | null;
 }
 
-const PdfImageFigure = memo(({ alt, asset, caption, projectId }: PdfImageFigureProps) => (
-  <figure
-    className="my-10 overflow-hidden rounded-[28px] border border-gray-200/80 bg-white/85 shadow-sm [content-visibility:auto] [contain-intrinsic-size:auto_520px] dark:border-zinc-700/80 dark:bg-zinc-900/85"
-    data-nous-speech="ignore"
-  >
-    <ResolvedPdfImage
-      image={asset}
-      projectId={projectId}
-      alt={alt}
-      loading="lazy"
-      data-pdf-asset-id={asset.id}
-      className="m-0 block w-full bg-gray-50 dark:bg-zinc-950"
-    />
-    {caption ? (
-      <figcaption className="px-5 py-4 text-sm leading-relaxed text-gray-600 dark:text-gray-300">
-        {caption}
-      </figcaption>
-    ) : null}
-  </figure>
-));
+const PdfImageFigure = memo(
+  ({ alt, asset, caption, projectId, onImageUnavailable }: PdfImageFigureProps) => (
+    <figure
+      className="my-10 overflow-hidden rounded-[28px] border border-gray-200/80 bg-white/85 shadow-sm [content-visibility:auto] [contain-intrinsic-size:auto_520px] dark:border-zinc-700/80 dark:bg-zinc-900/85"
+      data-nous-speech="ignore"
+    >
+      <ResolvedPdfImage
+        onUnavailable={onImageUnavailable}
+        image={asset}
+        projectId={projectId}
+        alt={alt}
+        loading="lazy"
+        data-pdf-asset-id={asset.id}
+        className="m-0 block w-full bg-gray-50 dark:bg-zinc-950"
+      />
+      {caption ? (
+        <figcaption className="px-5 py-4 text-sm leading-relaxed text-gray-600 dark:text-gray-300">
+          {caption}
+        </figcaption>
+      ) : null}
+    </figure>
+  )
+);
 
 PdfImageFigure.displayName = 'PdfImageFigure';
 
 const MarkdownRenderer = ({
+  onImageUnavailable,
   content,
   className = '',
   isDarkMode = false,
@@ -617,6 +623,7 @@ const MarkdownRenderer = ({
           <MarkdownPart key={part.key} content={part.content} components={markdownComponents} />
         ) : part.type === 'image' ? (
           <PdfImageFigure
+            onImageUnavailable={onImageUnavailable}
             key={part.key}
             alt={part.alt}
             asset={part.asset}

@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest';
 
 import type { ProjectDocumentImageAsset } from '@shared/projectAsset';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 import ResolvedPdfImage from '../../../components/shared/ResolvedPdfImage.tsx';
@@ -108,6 +108,7 @@ test('aborts and releases the previous image before resolving a new project', as
 
 test('keeps a visible fallback when a persisted image cannot be retrieved', async () => {
   vi.mocked(resolveProjectDocumentImage).mockRejectedValue(new Error('asset unavailable'));
+  const onUnavailable = vi.fn();
 
   render(
     <ResolvedPdfImage
@@ -115,6 +116,7 @@ test('keeps a visible fallback when a persisted image cannot be retrieved', asyn
       className="h-12 rounded-xl"
       image={durableImage}
       projectId="project-1"
+      onUnavailable={onUnavailable}
     />
   );
 
@@ -122,4 +124,27 @@ test('keeps a visible fallback when a persisted image cannot be retrieved', asyn
     'h-12',
     'rounded-xl'
   );
+  await waitFor(() => expect(onUnavailable).toHaveBeenCalledWith('pdf-image-logical-1'));
+});
+
+test('reports an image decoding failure to its owner and preserves the caller error event', async () => {
+  vi.mocked(resolveProjectDocumentImage).mockResolvedValue({
+    release: () => {},
+    src: 'blob:broken',
+  });
+  const onUnavailable = vi.fn();
+  const onError = vi.fn();
+  render(
+    <ResolvedPdfImage
+      alt="Figura"
+      image={durableImage}
+      projectId="project-1"
+      onUnavailable={onUnavailable}
+      onError={onError}
+    />
+  );
+  const image = await screen.findByRole('img', { name: 'Figura' });
+  fireEvent.error(image);
+  expect(onUnavailable).toHaveBeenCalledWith('pdf-image-logical-1');
+  expect(onError.mock.calls[0]?.[0].target).toBe(image);
 });

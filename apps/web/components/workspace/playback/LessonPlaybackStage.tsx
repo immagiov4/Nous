@@ -16,10 +16,19 @@ import {
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
 import { createPassageFallbackScene } from '@shared/lessonSceneFallback';
 import { alignedWordTimes, type PlaybackWordAlignment } from '@shared/playbackWordTiming';
-import { Fragment, type RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  Fragment,
+  type RefObject,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
+import { parsePdfContentParts } from '../../../utils/pdf/imagePlaceholders.ts';
 import { getStoredLessonVisualScene } from '../../../utils/visuals/storedLessonVisual.ts';
 import GeneratedVisualFrame from '../../shared/GeneratedVisualFrame.tsx';
 import type { ReadSceneAnimationFrame } from '../../shared/lessonScene/AnimatedScene.tsx';
@@ -318,9 +327,11 @@ function PlaybackStoredVisual({
 function PlaybackVisualContent({
   visual,
   content,
+  onImageUnavailable,
   ...props
 }: Readonly<{
   visual: PlaybackVisual;
+  onImageUnavailable: (imageId: string) => void;
   content: WorkspaceReaderContentModel;
   block: LessonPlaybackBlock;
   clock: RefObject<CaptionClock | null>;
@@ -354,6 +365,7 @@ function PlaybackVisualContent({
       ) : null}
       {visual.kind === 'markdown' ? (
         <MarkdownRenderer
+          onImageUnavailable={onImageUnavailable}
           content={visual.markdown}
           isDarkMode={content.isDarkMode}
           projectId={content.projectId}
@@ -594,21 +606,42 @@ function PlaybackPassage({
     return () => cancelAnimationFrame(frame);
   }, []);
 
+  const [unavailableImages, setUnavailableImages] = useState<ReadonlySet<string>>(new Set());
+  const onImageUnavailable = useCallback((imageId: string) => {
+    setUnavailableImages(previous =>
+      previous.has(imageId) ? previous : new Set([...previous, imageId])
+    );
+  }, []);
+  const availableAssets = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(content.activeSectionAssetsById ?? {}).filter(
+          ([, asset]) => !unavailableImages.has(asset.id)
+        )
+      ),
+    [content.activeSectionAssetsById, unavailableImages]
+  );
   const visualCandidates = useMemo(() => {
     const formulas = getPlaybackFormulaMarkdown(block, sources);
     const cards = block.visuals.filter(
       visual =>
         visual.kind === 'markdown' && block.spans.some(span => span.math === visual.markdown)
     );
-    const projected = (
+    const sourceVisuals =
       cards.length > 1 && cards.length === block.visuals.length && !block.prepared?.scene
         ? cards
-        : playbackNonProseVisuals(block)
-    ).filter(
-      visual =>
-        visual.kind !== 'generated-visual' ||
-        content.activeSectionGeneratedVisualsById?.[visual.visualId]
-    );
+        : playbackNonProseVisuals(block);
+    const projected = sourceVisuals.filter(visual => {
+      if (visual.kind === 'generated-visual')
+        return content.activeSectionGeneratedVisualsById?.[visual.visualId];
+      if (visual.kind !== 'markdown') return true;
+      return parsePdfContentParts(
+        visual.markdown,
+        availableAssets,
+        content.activeSectionImageRefsById,
+        content.activeSectionGeneratedVisualsById
+      ).some(part => part.type !== 'markdown' || part.content.trim());
+    });
     const scene = block.prepared?.scene;
     if (
       scene?.type === 'formula-spotlight' &&
@@ -638,7 +671,13 @@ function PlaybackPassage({
     return [
       { kind: 'scene' as const, scene: createPassageFallbackScene(block.speech, block.heading) },
     ];
-  }, [block, sources, content.activeSectionGeneratedVisualsById]);
+  }, [
+    block,
+    sources,
+    content.activeSectionGeneratedVisualsById,
+    availableAssets,
+    content.activeSectionImageRefsById,
+  ]);
   const visualProjection = JSON.stringify(visualCandidates, (_key, value: unknown) =>
     value && typeof value === 'object' && !Array.isArray(value)
       ? Object.fromEntries(
@@ -831,6 +870,7 @@ function PlaybackPassage({
             ) : null}
             {visual ? (
               <PlaybackVisualContent
+                onImageUnavailable={onImageUnavailable}
                 key={`${block.id}:${visualIndex}`}
                 {...sceneProps}
                 interval={{
@@ -838,7 +878,7 @@ function PlaybackPassage({
                   duration: duration / visuals.length,
                 }}
                 visual={visual}
-                content={content}
+                content={{ ...content, activeSectionAssetsById: availableAssets }}
               />
             ) : null}
           </section>
