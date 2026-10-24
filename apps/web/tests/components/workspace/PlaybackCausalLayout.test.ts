@@ -18,6 +18,8 @@ beforeAll(async () => {
     root: path.resolve('apps/web'),
     optimizeDeps: {
       entries: ['tests/fixtures/playbackLayout.html', 'tests/fixtures/playbackOnset.html'],
+      // Prewarming has no browser crawl to release the initial dependency batch.
+      holdUntilCrawlEnd: false,
     },
     server: { host: '127.0.0.1', port: 0, strictPort: false },
   });

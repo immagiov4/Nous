@@ -234,7 +234,13 @@ test.each([
         : {},
   } as WorkspaceReaderContentModel;
   const { container } = render(
-    <LessonPlaybackStage block={block} content={content} duration={10} time={4} />
+    <LessonPlaybackStage
+      lessonKey="lesson-key"
+      block={block}
+      content={content}
+      duration={10}
+      time={4}
+    />
   );
   if (kind === 'broken-image') fireEvent.error(screen.getByRole('img', { name: 'Dominio' }));
   expect(container.querySelector('.scene-host')?.textContent).toBe('');
@@ -244,7 +250,7 @@ test.each([
     expect(prepareLessonPlaybackVisual).toHaveBeenCalledWith({
       projectId: 'project',
       sectionId: 'section',
-      lessonKey: undefined,
+      lessonKey: 'lesson-key',
       block: expect.objectContaining({ speech }),
     });
   });
