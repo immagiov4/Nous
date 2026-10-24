@@ -447,7 +447,40 @@ export async function generateLessonScene(
   const systemPrompt =
     sceneSystemPrompt(types) +
     (input.formulaAnchorOccurrences
-      ? '\nFORMULA OCCURRENCES: A quotation may repeat when anchorOccurrence identifies its zero-based literal occurrence in the narration. Use separate symbol ids for different positions in the formula. When the same formula part is mentioned again, add its exact quotation and optional anchorOccurrence in that symbol’s additionalAnchors array; do not duplicate the glyph or broaden the first anchor. Cover every named part in explanations and recalls as well as full formula readings. Leave every anchor empty only when no part is named. Keep quotations limited to the words naming that part; do not broaden them merely to make them unique. Order linked symbols by their selected occurrence.'
+      ? '\nFORMULA FORMAT: Return raw math without $$ or display delimiters, surrounding prose or a final sentence period. Each decoded LaTeX command uses one backslash; JSON encoding supplies its escaping. Preserve every authored operator, argument and delimiter. Every defined symbol id must occur in the formula.\nFORMULA OCCURRENCES: Count literal quotation occurrences in the complete canonical narration, including earlier explanatory mentions. Supply anchorOccurrence for every nonempty anchor. A quotation may repeat when anchorOccurrence identifies its zero-based literal occurrence in the narration. Use separate symbol ids for different positions in the formula. When the same formula part is mentioned again, add its exact quotation and optional anchorOccurrence in that symbol’s additionalAnchors array; do not duplicate the glyph or broaden the first anchor. Cover every named part in explanations and recalls as well as full formula readings. Leave every anchor empty only when no part is named. Keep quotations limited to the words naming that part; do not broaden them merely to make them unique. Order linked symbols by their selected occurrence.\nVALID ENCODING EXAMPLE: ' +
+        JSON.stringify({
+          narration: 'x; poi la formula x più x; infine ancora il primo x.',
+          formula: String.raw`\nousSymbol{left}\nousSymbol{plus}\nousSymbol{right}`,
+          symbols: [
+            {
+              id: 'left',
+              latex: 'x',
+              name: 'First x',
+              meaning: 'First term',
+              anchor: 'x',
+              anchorOccurrence: 1,
+              additionalAnchors: [{ anchor: 'x', anchorOccurrence: 3 }],
+            },
+            {
+              id: 'plus',
+              latex: '+',
+              name: 'Addition',
+              meaning: 'Adds the terms',
+              anchor: 'più',
+              anchorOccurrence: 0,
+              additionalAnchors: [],
+            },
+            {
+              id: 'right',
+              latex: 'x',
+              name: 'Second x',
+              meaning: 'Second term',
+              anchor: 'x',
+              anchorOccurrence: 2,
+              additionalAnchors: [],
+            },
+          ],
+        })
       : '');
   const response = await generateStructuredOutput<unknown>({
     sourceAware: Boolean(input.sourceProvenance),
