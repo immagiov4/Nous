@@ -2097,7 +2097,11 @@ test('returns to earlier recall equations when their symbols are named again and
   });
   vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
   const sources = [
-    { type: 'markdown' as const, markdown: 'Prima ics poi alfa ancora ipsilon poi beta fine' },
+    {
+      type: 'markdown' as const,
+      markdown:
+        '# Tema\n\n$$x+y$$\n\n$$\\alpha+\\beta$$\n\nPrima ics poi alfa ancora ipsilon poi beta fine',
+    },
   ];
   const first = {
     ...dictatedFormulaSpotlight,
@@ -2120,20 +2124,29 @@ test('returns to earlier recall equations when their symbols are named again and
       anchor: symbol.id === 'x' ? 'alfa' : symbol.id === 'y' ? 'beta' : '',
     })),
   };
+  const raw = segmentLessonPlayback(sources).at(-1);
+  if (!raw) throw new Error('The reference passage must exist');
   const normal = {
-    ...dictatedFormulaSpotlight,
+    quote: '',
+    note: '',
+    items: [],
+    groups: [],
     type: 'definition' as const,
     title: 'Spiegazione',
     body: 'Il contesto resta disponibile.',
   };
   const block = {
-    ...segmentLessonPlayback(sources)[0],
+    ...raw,
     prepared: {
       motion: [],
       scene: normal,
       formulaSpotlights: [
         { formula: '$$x+y$$', sourceFormula: '$$x+y$$', scene: first },
-        { formula: '$$a+y$$', sourceFormula: '$$a+y$$', scene: second },
+        {
+          formula: String.raw`$$\alpha+\beta$$`,
+          sourceFormula: String.raw`$$\alpha+\beta$$`,
+          scene: second,
+        },
       ],
     },
   };
