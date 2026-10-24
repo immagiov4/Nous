@@ -184,19 +184,17 @@ export class LessonPlaybackAudio {
   changeSpeed(speed: number) {
     this.speed = speed;
     if (!this.anchor || this.anchor.speed === speed) return;
-    const input = this.inputTime();
-    const output = this.context.currentTime;
-    const anchor = { input, output, speed };
-    this.anchor = anchor;
+    const generation = this.generation;
     const session = this.ready();
-    void session
-      .then(node => {
-        if (this.anchor !== anchor) return;
-        return this.route(node, input, output, true);
-      })
-      .catch(error => {
-        if (this.node === session) this.reportError(error);
-      });
+    void this.enqueue(async node => {
+      if (!this.anchor || generation !== this.generation || this.speed !== speed) return;
+      const input = this.inputTime();
+      const output = this.context.currentTime;
+      this.anchor = { input, output, speed };
+      await this.route(node, input, output, true);
+    }).catch(error => {
+      if (this.node === session) this.reportError(error);
+    });
   }
 
   pause() {

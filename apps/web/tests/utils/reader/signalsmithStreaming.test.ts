@@ -4,6 +4,7 @@ import { runInNewContext } from 'node:vm';
 import { expect, test, vi } from 'vitest';
 
 type Processor = {
+  wasmModule: { _process: (...args: number[]) => void };
   port: { onmessage: (event: { data: unknown[] }) => void };
   process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean;
 };
@@ -80,4 +81,21 @@ test('the installed worklet source produces identical samples for one buffer and
   }
   expect(energy).toBeGreaterThan(0);
   expect(maxDifference).toBe(0);
+  const processing = vi.spyOn(split.wasmModule, '_process');
+  message(split, 5, 'stop');
+  const silent = new Float32Array(quantum);
+  split.process([[]], [[silent]]);
+  expect([...silent]).toEqual(Array(quantum).fill(0));
+  expect(processing).not.toHaveBeenCalled();
+  message(split, 6, 'schedule', {
+    active: true,
+    input: 0,
+    output: environment.currentTime,
+    outputTime: environment.currentTime,
+    rate: 1.5,
+    semitones: 0,
+  });
+  split.process([[]], [[silent]]);
+  expect(processing).toHaveBeenCalledExactlyOnceWith(0, quantum);
+  expect(silent.some(sample => sample !== 0)).toBe(true);
 });

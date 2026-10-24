@@ -151,28 +151,31 @@ try {
       const pausedPosition = Number(await page.locator('output').getAttribute('data-position'));
       await page.evaluate(() => {
         window.audioContractSchedules = [];
+        window.audioContractNativeStarts = [];
       });
       await page.locator('#play').click();
       await advances(page, pausedPosition);
-      assert(
-        await page.evaluate(() => window.audioContractNativeStarts.some(offset => offset >= 0))
-      );
+      const resumed = await page.evaluate(() => window.audioContractNativeStarts);
+      assert.equal(resumed.length, 1);
+      assert(resumed[0] >= pausedPosition);
       await page.evaluate(() => {
         window.audioContractSchedules = [];
+        window.audioContractNativeStarts = [];
       });
       await page.locator('#seek').click();
       await advances(page);
-      assert.equal(await page.evaluate(() => window.audioContractNativeStarts.at(-1)), 0);
+      assert.deepEqual(await page.evaluate(() => window.audioContractNativeStarts), [0]);
       await page.evaluate(() => {
         window.audioContractSchedules = [];
+        window.audioContractNativeStarts = [];
       });
       await page.locator('#voice').click();
       const beforeVoice = Number(await page.locator('output').getAttribute('data-position'));
       await advances(page, beforeVoice);
       assert(requestedVoices.includes('Puck'));
-      assert(
-        await page.evaluate(() => window.audioContractNativeStarts.some(offset => offset >= 0))
-      );
+      const switchedVoice = await page.evaluate(() => window.audioContractNativeStarts);
+      assert.equal(switchedVoice.length, 1);
+      assert(switchedVoice[0] >= 0 && switchedVoice[0] < FIXED_AUDIO_SECONDS);
       const beforeSpeed = Number(await page.locator('output').getAttribute('data-position'));
       await page.locator('#speed').click();
       await advances(page, beforeSpeed);

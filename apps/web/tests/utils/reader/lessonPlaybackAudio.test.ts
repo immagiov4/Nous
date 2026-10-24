@@ -133,7 +133,7 @@ test('speed changes preserve position and pitch without restarting buffers', asy
   await audio.start([recording(0, 10), recording(1, 10)], 2, 1, new AbortController().signal);
   clock.currentTime = 3;
   audio.changeSpeed(2);
-  await Promise.resolve();
+  await audio.append([]);
   expect(stretch.schedule).toHaveBeenLastCalledWith({
     active: true,
     input: 5,
@@ -171,9 +171,31 @@ test('returning to unity catches up to the heard clock when the main thread adva
   clock.currentTime = 2;
   audio.changeSpeed(1);
   clock.currentTime = 2.01;
+  await audio.append([]);
+  expect(sources.at(-1)?.start.mock.calls[0][0]).toBe(2.01);
+  expect(sources.at(-1)?.start.mock.calls[0][1]).toBeCloseTo(3.015);
+  expect(audio.position?.time).toBeCloseTo(3.015);
+});
+
+test('returning to unity during an append schedules each upcoming passage exactly once', async () => {
+  const first = recording(0, 10),
+    next = recording(1, 10);
+  await audio.start([first], 0, 1.5, new AbortController().signal);
+  let release = () => {};
+  stretch.addBuffers.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        release = () => resolve(20);
+      })
+  );
+  const appending = audio.append([next]);
+  await vi.waitFor(() => expect(stretch.addBuffers).toHaveBeenCalledTimes(2));
+  audio.changeSpeed(1);
   await Promise.resolve();
-  expect(sources.at(-1)?.start.mock.calls).toEqual([[2.01, 3.01]]);
-  expect(audio.position?.time).toBeCloseTo(3.01);
+  release();
+  await appending;
+  await audio.append([]);
+  expect(sources.map(source => source.buffer)).toEqual([first.buffer, next.buffer]);
 });
 
 test('an aborted start never schedules audio and selecting a passage exposes the paused position', async () => {
