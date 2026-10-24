@@ -40,6 +40,17 @@ test.each([
   }
 });
 
+test.each([
+  String.raw`$\mathbf{x}$表示`,
+  '$x!$表示',
+  '$x^{2}$表示',
+])('renders authored math before unspaced prose in %s', copy => {
+  const { container } = render(<SceneText>{copy}</SceneText>);
+  expect(container.querySelectorAll('math')).toHaveLength(1);
+  expect(container.querySelector('annotation')?.textContent).toBe(copy.slice(1, -3));
+  expect(container.lastChild?.textContent).toBe('表示');
+});
+
 const comparison: LessonScene = {
   body: '',
   groups: [

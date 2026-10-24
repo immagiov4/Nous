@@ -117,7 +117,9 @@ export function renderPhoneVisualCards() {
   const sources = [
     {
       type: 'markdown' as const,
-      markdown: params.has('heading') ? `# Il contesto sociale\n\n${markdown}` : markdown,
+      markdown: params.has('heading')
+        ? `${params.get('heading') === 'setext' ? 'Il contesto sociale\n=====' : '# Il contesto sociale'}\n\n${markdown}`
+        : markdown,
     },
   ];
   const sourceBlock = segmentLessonPlayback(sources)[0];

@@ -437,14 +437,16 @@ async function openCard(kind: string) {
 }
 
 for (const width of [412, 1440]) {
-  for (const kind of ['prices', 'dense', 'heading']) {
+  for (const kind of ['prices', 'dense', 'heading', 'setext']) {
     test(`card followup: ${kind} at ${width}px`, async () => {
       const page = await browser.newPage({
         viewport: { width, height: 1000 },
         reducedMotion: 'reduce',
       });
       try {
-        const query = kind === 'heading' ? 'missing&historical&heading' : kind;
+        const query = ['heading', 'setext'].includes(kind)
+          ? `missing&historical&heading=${kind}`
+          : kind;
         await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=${query}`);
         await page.locator('.scene-host h2').waitFor();
         await page.evaluate(() => document.fonts.ready);
@@ -459,7 +461,7 @@ for (const width of [412, 1440]) {
             '$25 today and $30 tomorrow'
           );
           expect(await page.locator('.scene-host .katex math').count()).toBe(2);
-        } else if (kind === 'heading') {
+        } else if (['heading', 'setext'].includes(kind)) {
           expect(await page.locator('.scene-host h2').textContent()).toBe('Il contesto sociale');
           expect(
             (await page.locator('.scene-host blockquote').innerText()).replace(/^“\s*/u, '').trim()

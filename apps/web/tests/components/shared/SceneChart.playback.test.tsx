@@ -51,7 +51,10 @@ const scene: LessonScene = {
 test('a superseded pending draw never attaches its chart to the reused host', async () => {
   const attachedTitles: string[] = [];
   const replaceChildren = HTMLElement.prototype.replaceChildren;
-  vi.spyOn(HTMLElement.prototype, 'replaceChildren').mockImplementation(function (...nodes) {
+  vi.spyOn(HTMLElement.prototype, 'replaceChildren').mockImplementation(function (
+    this: HTMLElement,
+    ...nodes
+  ) {
     for (const node of nodes) {
       if (node instanceof Element) attachedTitles.push(node.getAttribute('aria-label') ?? '');
     }

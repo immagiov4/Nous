@@ -16,17 +16,17 @@ const components = { p: ({ children }: { children?: ReactNode }) => <>{children}
 function canCloseDollarMath(source: string, end: number) {
   const before = source[end - 2];
   const after = source[end] ?? ' ';
-  // CommonMark right-flanking punctuation, plus Pandoc's currency digit restriction.
+  // An opening bracket belongs to the following expression; closing braces may precede prose.
   return !(
     /\s/u.test(before) ||
     /\d/u.test(after) ||
-    (/[\p{P}\p{S}]/u.test(before) && /[^\s\p{P}\p{S}]/u.test(after))
+    (/\p{Ps}/u.test(before) && /\S/u.test(after))
   );
 }
 
 /** Scene copy is plain text except for authored mathematical notation. */
 export function SceneText({ children }: { readonly children: string }) {
-  // Use the standard dollar-delimiter whitespace/digit rules, retaining literal prices.
+  // Preserve literal prices while retaining authored dollar-delimited mathematics.
   const mathSource = children.split('');
   for (let cursor = 0; cursor < children.length; cursor++) {
     const range = getMarkdownMathRangeAt(children, cursor);
