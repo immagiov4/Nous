@@ -92,6 +92,44 @@ for (const viewport of formulaViewports) {
   });
 }
 
+test.each(
+  formulaViewports
+)('shows static formula captions and restores the visual at $width px', async viewport => {
+  const page = await browser.newPage({ viewport, reducedMotion: 'reduce' });
+  try {
+    await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=cards`);
+    await page.locator('.scene-host annotation').waitFor({ state: 'attached' });
+    const seek = async (time: number) => {
+      await page.evaluate(async time => {
+        (window as unknown as { setPlaybackTime: (time: number) => void }).setPlaybackTime(time);
+        await new Promise(requestAnimationFrame);
+        await new Promise(requestAnimationFrame);
+      }, time);
+    };
+    await seek(0.5);
+    expect(await page.locator('.scene-fit').isVisible()).toBe(true);
+    await seek(1.5);
+    const formula = page.locator('.caption-formula .katex');
+    expect(await formula.isVisible()).toBe(true);
+    expect(await formula.locator('annotation').textContent()).toBe('a');
+    expect(await page.locator('.caption-page').isVisible()).toBe(false);
+    expect(await page.locator('.scene-fit').isVisible()).toBe(false);
+    const markup = await formula.innerHTML();
+    await seek(1.8);
+    expect(await formula.innerHTML()).toBe(markup);
+    const bounds = await formula.boundingBox();
+    if (!bounds) throw new Error('Spoken formula must have visible geometry');
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width);
+    await seek(3.1);
+    expect(await page.locator('.scene-fit').isVisible()).toBe(true);
+    expect(await page.locator('.caption-page').getAttribute('aria-hidden')).toBe('false');
+    expect(await page.locator('.scene-host annotation').textContent()).toBe('b');
+  } finally {
+    await page.close();
+  }
+});
+
 test('retains the three-formula list and proportional explanation text', async () => {
   const page = await browser.newPage();
   try {

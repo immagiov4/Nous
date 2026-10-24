@@ -185,7 +185,7 @@ function renderBlock(index: number) {
             : undefined
         }
         duration={duration}
-        time={duration / 2}
+        time={formulaPath === 'cards' ? 0 : duration / 2}
       />
     </div>
   );

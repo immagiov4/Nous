@@ -225,7 +225,8 @@ export function captionFormat(original: string, ranges?: readonly { source: Play
   // Non-whitespace starts the content, or one trailing space is the entire content.
   // This keeps whitespace-only headings without overlapping unbounded repetitions.
   const headingPattern = /^#{1,6}\s+(\S.*|(?=.)\s)$/gm;
-  const headings = Array.from(source.matchAll(headingPattern), match =>
+  const headingMatches = Array.from(source.matchAll(headingPattern));
+  const headings = headingMatches.map(match =>
     visibleText(match.index + match[0].length - match[1].length, match.index + match[0].length)
   );
   const headingWords = headings.join(' ').trim().split(/\s+/).filter(Boolean).length;
@@ -246,12 +247,16 @@ export function captionFormat(original: string, ranges?: readonly { source: Play
     });
     lineStart += line.length + 1;
   }
-  return { headings, headingWords, words };
+  const headingSources = headingMatches.map(match => ({
+    start: match.index,
+    end: match.index + match[0].length,
+  }));
+  return { headings, headingWords, headingSources, words };
 }
 
 /** Keep formatted tokens aligned to canonical speech, including punctuation after inline code. */
 export function captionSpeechRanges(
-  words: readonly CaptionWord[],
+  words: readonly Pick<CaptionWord, 'source'>[],
   ranges: readonly { source: PlaybackRange; speech: PlaybackRange }[]
 ) {
   return words.map(word => {

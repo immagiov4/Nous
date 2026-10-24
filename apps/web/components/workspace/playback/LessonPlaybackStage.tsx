@@ -399,7 +399,14 @@ function PlaybackPassage({
   const formatted = useMemo(() => {
     const source = JSON.parse(captionKey) as ReturnType<typeof captionSource>;
     const captions = captionFormat(source.markdown, source.ranges);
-    return { ...captions, speechRanges: captionSpeechRanges(captions.words, source.ranges) };
+    return {
+      ...captions,
+      speechRanges: captionSpeechRanges(captions.words, source.ranges),
+      headingSpeechRanges: captionSpeechRanges(
+        captions.headingSources.map(source => ({ source })),
+        source.ranges
+      ),
+    };
   }, [captionKey]);
   const alignmentKey = JSON.stringify(alignment ?? null);
   const aligned = useMemo(
@@ -415,16 +422,18 @@ function PlaybackPassage({
   const sceneFit = useRef<HTMLDivElement>(null);
   const sceneCard = useRef<HTMLElement>(null);
   const clock = useRef<CaptionClock | null>(null);
-  const formulas = useMemo(
-    () =>
-      block.spans.flatMap(span =>
-        span.math && span.speech.end > span.speech.start
-          ? [{ math: span.math, speech: span.speech }]
-          : []
-      ),
-    [block.spans]
+  const formulaKey = JSON.stringify(
+    block.spans.flatMap(span =>
+      span.math && span.speech.end > span.speech.start
+        ? [{ math: span.math, speech: span.speech }]
+        : []
+    )
   );
-  const [spokenFormula, setSpokenFormula] = useState(-1);
+  const formulas = useMemo(
+    () => JSON.parse(formulaKey) as { math: string; speech: PlaybackRange }[],
+    [formulaKey]
+  );
+  const [spokenFormulas, setSpokenFormulas] = useState<number[]>([]);
 
   const animate = useShouldAnimate();
   const latest = useRef({ time, speed, readTime, animate, aligned, seekRevision });
@@ -563,15 +572,16 @@ function PlaybackPassage({
     let previousClock: CaptionClock | null = null;
     let previousBodyTime: number | undefined;
     let formulaTimes: ReturnType<typeof captionRangeSpan>[] = [];
-    let previousFormula: number | undefined;
+    let previousFormula: string | undefined;
     const render = () => {
       const paragraph = captions.current;
       if (!paragraph) throw new Error('Captions must be mounted');
       const current = clock.current;
-      if (!current?.width || !current.bodyDuration) return;
+      if (!current) return;
       if (previousClock !== current) {
-        formulaTimes = formulas.map(formula =>
-          captionRangeSpan({
+        const previousTimes = formulaTimes;
+        formulaTimes = formulas.map((formula, index) => {
+          const span = captionRangeSpan({
             range: formula.speech,
             speech: block.speech,
             speechRanges: current.speechRanges,
@@ -581,20 +591,30 @@ function PlaybackPassage({
             duration: current.bodyDuration,
             startOffset: current.headingDuration,
             aligned: current.aligned,
-          })
-        );
+          });
+          const previous = previousTimes[index];
+          if (!previous || !canRetainPresentedCues(current, previousClock)) return span;
+          const heardMs = current.read().blockTime * 1000;
+          return {
+            startMs: adoptCueTimes([previous.startMs], [span.startMs], heardMs)[0],
+            endMs: adoptCueTimes([previous.endMs], [span.endMs], heardMs)[0],
+          };
+        });
         previousClock = current;
         previousBodyTime = undefined;
       }
       const { blockTime, bodyTime, revealTime } = current.read();
       // Formula dictation follows the heard voice, independently of caption look-ahead.
-      const formulaIndex = formulaTimes.findIndex(
-        span => blockTime * 1000 >= span.startMs && blockTime * 1000 < span.endMs
+      // Adjacent formulas can share one acoustic word; retain every matching occurrence.
+      const activeFormulas = formulaTimes.flatMap((span, index) =>
+        blockTime * 1000 >= span.startMs && blockTime * 1000 < span.endMs ? [index] : []
       );
-      if (formulaIndex !== previousFormula) {
-        previousFormula = formulaIndex;
-        setSpokenFormula(formulaIndex);
+      const formulaKey = activeFormulas.join(':');
+      if (formulaKey !== previousFormula) {
+        previousFormula = formulaKey;
+        setSpokenFormulas(activeFormulas);
       }
+      if (!current.width || !current.bodyDuration) return;
       const motion = latest.current.animate;
       current.viewport.clip();
       if (previousBodyTime === bodyTime) return;
@@ -822,15 +842,28 @@ function PlaybackPassage({
           {(formatted.headings.length ? formatted.headings : [block.heading]).map(
             (heading, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: authored headings may repeat
-              <h2 key={`${index}:${heading}`}>{heading}</h2>
+              <div
+                className="caption-heading"
+                key={`${index}:${heading}`}
+                aria-hidden={spokenFormulas.some(formula => {
+                  const range = formatted.headingSpeechRanges[index];
+                  return (
+                    range &&
+                    formulas[formula].speech.start < range.end &&
+                    formulas[formula].speech.end > range.start
+                  );
+                })}
+              >
+                <h2>{heading}</h2>
+              </div>
             )
           )}
-          <div className="caption-slot" data-formula={spokenFormula >= 0}>
+          <div className="caption-slot" data-formula={spokenFormulas.length > 0}>
             <p
               ref={captions}
               key={block.id}
               className="caption-page"
-              aria-hidden={spokenFormula >= 0}
+              aria-hidden={spokenFormulas.length > 0}
             >
               {formatted.words.map((word, index) => {
                 const Tag = captionTag(word);
@@ -855,17 +888,20 @@ function PlaybackPassage({
                 );
               })}
             </p>
-            {spokenFormula >= 0 ? (
-              <div className="caption-formula" key={`formula:${spokenFormula}`}>
-                <MarkdownRenderer
-                  content={formulas[spokenFormula].math}
-                  isDarkMode={content.isDarkMode}
-                />
+            {spokenFormulas.length ? (
+              <div className="caption-formula" key={`formula:${spokenFormulas.join(':')}`}>
+                {spokenFormulas.map(index => (
+                  <MarkdownRenderer
+                    key={index}
+                    content={formulas[index].math}
+                    isDarkMode={content.isDarkMode}
+                  />
+                ))}
               </div>
             ) : null}
           </div>
         </section>
-        <div ref={sceneFit} className="scene-fit" aria-hidden={spokenFormula >= 0}>
+        <div ref={sceneFit} className="scene-fit" aria-hidden={spokenFormulas.length > 0}>
           <section
             ref={sceneCard}
             className="scene-host"

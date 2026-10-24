@@ -259,7 +259,12 @@ test.each([
 });
 
 test('preserves whitespace-only headings and handles long heading separators', () => {
-  expect(captionFormat('#  ')).toEqual({ headings: [' '], headingWords: 0, words: [] });
+  expect(captionFormat('#  ')).toEqual({
+    headings: [' '],
+    headingWords: 0,
+    headingSources: [{ start: 0, end: 3 }],
+    words: [],
+  });
   const markdown = `#${' '.repeat(100_000)}Title\nBody`;
   const formatted = captionFormat(markdown);
   expect(formatted.headings).toEqual(['Title']);
@@ -949,6 +954,110 @@ test.each([
   advance(1);
   // The ordinary reveal still includes the existing 1.3-second lead after catch-up.
   expect(Number.parseFloat(words[0].style.getPropertyValue('--reveal-edge'))).toBeCloseTo(117.53);
+  if (!aligned) {
+    advance(2.5);
+    const shownFormula = container.querySelector('.caption-formula');
+    const alignment = { status: 'aligned' as const, onsets: [0, 3, 4, 5, 9, 10, 13, 14, 15, 19] };
+    rerender(<LessonPlaybackStage {...props} alignment={alignment} seekRevision={1} />);
+    advance(2.5);
+    expect(container.querySelector('.caption-formula')).toBe(shownFormula);
+    expect(visual).toHaveAttribute('aria-hidden', 'true');
+    // A deliberate seek adopts the corrected boundaries instead of retaining presented cues.
+    rerender(<LessonPlaybackStage {...props} alignment={alignment} seekRevision={2} />);
+    advance(2.5);
+    expect(paragraph).toHaveAttribute('aria-hidden', 'false');
+    expect(visual).toHaveAttribute('aria-hidden', 'false');
+    advance(3);
+    expect(container.querySelector('.caption-formula annotation')?.textContent).toBe('x');
+  }
+});
+
+test.each([
+  {
+    markdown: '# Formula: $x$',
+    spokenMath: [{ formula: '$x$', spoken: 'ics' }],
+    time: 6,
+    expected: ['x'],
+    heading: true,
+  },
+  {
+    markdown: '# Formula: $x$\n\nSpiegazione.',
+    spokenMath: [{ formula: '$x$', spoken: 'ics' }],
+    time: 4,
+    expected: ['x'],
+    heading: true,
+  },
+  {
+    markdown: '$x$,$y$',
+    spokenMath: [
+      { formula: '$x$', spoken: 'ics' },
+      { formula: '$y$', spoken: 'ipsilon' },
+    ],
+    time: 1,
+    expected: ['x', 'y'],
+    heading: false,
+  },
+])('shows every dictated formula in $markdown without requiring body geometry', fixture => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const style = document.createElement('p').style;
+  style.setProperty('--caption-feather', '22px');
+  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
+  const sources = [{ type: 'markdown' as const, markdown: fixture.markdown }];
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: { motion: [], spokenMath: fixture.spokenMath },
+  };
+  const count = resolvePlaybackNarration(block).speech.trim().split(/\s+/u).length;
+  let time = fixture.time;
+  const props = {
+    block,
+    content: { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel,
+    duration: 10,
+    time: 0,
+    readTime: () => time,
+  };
+  const { container, rerender } = render(<LessonPlaybackStage {...props} />);
+  const flush = () =>
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    });
+  flush();
+  const annotations = () =>
+    Array.from(
+      container.querySelectorAll('.caption-formula annotation'),
+      element => element.textContent
+    );
+  expect(annotations()).toEqual(fixture.expected);
+  expect(container.querySelector('.scene-fit')).toHaveAttribute('aria-hidden', 'true');
+  if (fixture.heading)
+    expect(container.querySelector('.caption-heading')).toHaveAttribute('aria-hidden', 'true');
+  rerender(
+    <LessonPlaybackStage
+      {...props}
+      alignment={{
+        status: 'aligned',
+        onsets: Array.from({ length: count }, (_, index) => (10 * index) / count),
+      }}
+      seekRevision={1}
+    />
+  );
+  flush();
+  expect(annotations()).toEqual(fixture.expected);
+  time = 10;
+  flush();
+  expect(container.querySelector('.scene-fit')).toHaveAttribute('aria-hidden', 'false');
 });
 
 test('uses the prepared spoken formula in captions while retaining authored math on the visual', () => {

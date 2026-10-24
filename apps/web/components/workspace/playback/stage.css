@@ -2025,6 +2025,7 @@
   width: 100%;
 }
 .lesson-player-stage .caption-slot[data-formula="true"] > .caption-page,
+.lesson-player-stage .caption-heading[aria-hidden="true"],
 .lesson-player-stage .scene-fit[aria-hidden="true"] {
   visibility: hidden;
 }
@@ -2308,6 +2309,9 @@
     inset: 0;
     visibility: hidden;
     pointer-events: none;
+  }
+  .lesson-player-stage .caption-formula {
+    visibility: visible;
   }
   .lesson-player-stage .scene-fit {
     flex-shrink: 0;
