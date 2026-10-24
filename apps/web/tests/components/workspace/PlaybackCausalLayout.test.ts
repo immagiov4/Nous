@@ -28,6 +28,37 @@ afterAll(async () => {
   await server?.close();
 });
 
+test('uses the existing large formula size for one equation and retains the three-formula list', async () => {
+  const page = await browser.newPage();
+  try {
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?formulas=1`);
+      await page.locator('.scene-host .katex').waitFor();
+      const size = await page.locator('.scene-host .katex').evaluate(formula => ({
+        actual: Number.parseFloat(getComputedStyle(formula).fontSize),
+        expected: Number.parseFloat(getComputedStyle(formula).getPropertyValue('--symbol-size')),
+      }));
+      expect(size.actual).toBe(size.expected);
+      await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?formulas=3`);
+      await page.locator('.type-parts .concept p').first().waitFor();
+      expect(await page.locator('.scene-host .katex').count()).toBe(3);
+      expect(await page.locator('.type-parts .concept').count()).toBe(3);
+      const fonts = await page
+        .locator('.type-parts .concept p')
+        .evaluateAll(paragraphs =>
+          paragraphs.map(paragraph => getComputedStyle(paragraph).fontFamily)
+        );
+      expect(fonts.every(font => !font.includes('monospace'))).toBe(true);
+    }
+  } finally {
+    await page.close();
+  }
+});
+
 test('paints each new caption with its ready scene and retires the previous motion clock', async () => {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors: string[] = [];

@@ -695,6 +695,57 @@ import {
 } from '../../../../backend/tests/helpers/formulaSpotlight';
 import { sceneCaptionAnchors } from '../../../components/workspace/playback/stageMotion.ts';
 
+test.each([false, true])('shows one formula at spotlight size (inherited: %s)', inherited => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: '# Function\n\nThe result is $h=wx+b$.\n\nIts bias shifts the result.',
+    },
+  ];
+  const blocks = segmentLessonPlayback(sources);
+  const { container } = render(
+    <LessonPlaybackStage
+      block={{ ...blocks[inherited ? 1 : 0], prepared: { motion: [] } }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={6}
+      time={0}
+    />
+  );
+  expect(container.querySelectorAll('.scene-host .katex')).toHaveLength(1);
+  expect(container.querySelector('.lesson-player-formula .katex-display')).not.toBeNull();
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain('The result is');
+});
+
+test('keeps three formulas and their explanations in the prepared list', () => {
+  const sources = [{ type: 'markdown' as const, markdown: 'Compare $a$, $b$ and $c$.' }];
+  const scene: LessonScene = {
+    type: 'parts',
+    title: 'Three quantities',
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: ['a', 'b', 'c'].map((symbol, index) => ({
+      label: symbol,
+      detail: `Explanation ${index + 1}`,
+      icon: 'variable',
+    })),
+  };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={{ ...segmentLessonPlayback(sources)[0], prepared: { scene, motion: [] } }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={6}
+      time={5}
+    />
+  );
+  expect(container.querySelector('.lesson-player-formula')).toBeNull();
+  expect(container.querySelectorAll('.scene-host .katex')).toHaveLength(3);
+  expect(container.querySelectorAll('.scene-host .type-parts .concept')).toHaveLength(3);
+  for (const index of [1, 2, 3])
+    expect(container.querySelector('.type-parts')?.textContent).toContain(`Explanation ${index}`);
+});
+
 test('uses recording onsets for formula selection after forward and backward seeks', () => {
   const frames = new Map<number, FrameRequestCallback>();
   let frameId = 0;

@@ -598,7 +598,7 @@ function PlaybackPassage({
         visual.kind === 'markdown' && block.spans.some(span => span.math === visual.markdown)
     );
     const projected = (
-      cards.length === block.visuals.length && !block.prepared?.scene
+      cards.length > 1 && cards.length === block.visuals.length && !block.prepared?.scene
         ? cards
         : playbackNonProseVisuals(block)
     ).filter(
@@ -772,6 +772,12 @@ function PlaybackPassage({
     speed,
     animate,
   };
+  const singleFormula =
+    visuals.length === 1 &&
+    visual?.kind === 'markdown' &&
+    getPlaybackFormulaSources(block, sources).length === 1 &&
+    (visual.markdown === formulaMarkdown ||
+      block.spans.some(span => span.math === visual.markdown));
   return (
     <div className="lesson-player-stage">
       <section className="listening-stage">
@@ -800,7 +806,7 @@ function PlaybackPassage({
         <div ref={sceneFit} className="scene-fit">
           <section
             ref={sceneCard}
-            className="scene-host"
+            className={`scene-host${singleFormula ? ' lesson-player-formula' : ''}`}
             aria-label={t('Visualizzazione della lezione')}
           >
             {formulaMarkdown &&

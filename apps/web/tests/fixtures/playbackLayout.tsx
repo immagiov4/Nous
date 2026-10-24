@@ -14,6 +14,10 @@ const sources = [
 ];
 const boundaryProof = new URLSearchParams(location.search).has('boundary');
 const snapshotProof = new URLSearchParams(location.search).has('snapshot');
+const formulaCount = Number(new URLSearchParams(location.search).get('formulas'));
+if (formulaCount)
+  sources[0].markdown =
+    formulaCount === 1 ? 'The result is $h=wx+b$.' : 'Compare $a$, $b$ and $c$.';
 if (snapshotProof) sources[0].markdown = Array(50).fill(sources[0].markdown).join(' ');
 if (boundaryProof) sources[0].markdown += '\n\nIl file è pronto.';
 let scene: LessonScene = {
@@ -60,6 +64,14 @@ let scene: LessonScene = {
 scene.items.forEach((item, index) => {
   item.value = index + 1;
 });
+if (formulaCount === 3) {
+  scene = {
+    ...scene,
+    type: 'parts',
+    diagram: undefined,
+    items: scene.items.slice(0, formulaCount),
+  };
+}
 const blocks = segmentLessonPlayback(sources);
 document.documentElement.style.cssText =
   '--bg-paper:#fdfbf7;--bg-surface:#fff;--ink-primary:#1f1f1f;--ink-secondary:#4a4a4a;--border-subtle:#e5e7eb';
@@ -70,7 +82,8 @@ function renderBlock(index: number) {
   const source = blocks[index];
   const block: LessonPlaybackBlock = {
     ...source,
-    visuals: [{ kind: 'scene', scene }],
+    visuals: formulaCount ? source.visuals : [{ kind: 'scene', scene }],
+    ...(formulaCount ? { prepared: { motion: [], ...(formulaCount === 3 ? { scene } : {}) } } : {}),
     ...(boundaryProof
       ? {
           prepared: {

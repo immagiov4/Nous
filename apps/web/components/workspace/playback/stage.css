@@ -2204,6 +2204,12 @@
 .lesson-player-stage .scene-host > div {
   width: 100%;
 }
+.lesson-player-stage .lesson-player-formula .prose {
+  font-size: var(--symbol-size);
+}
+.lesson-player-stage .lesson-player-formula .katex {
+  font-size: 1em;
+}
 .lesson-player-stage .lesson-player-generated {
   margin: 0;
   padding: 0;
