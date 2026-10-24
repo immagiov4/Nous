@@ -957,7 +957,11 @@ function VoicePicker({
 const SPEED_MENU_WIDTH_PX = 224;
 const SPEED_MENU_VIEWPORT_MARGIN_PX = 8;
 
-function SpeedMenu({ tts, disabled }: Readonly<{ tts: VoiceSpeedModel; disabled: boolean }>) {
+function SpeedMenu({
+  tts,
+  disabled,
+  onClose,
+}: Readonly<{ tts: VoiceSpeedModel; disabled: boolean; onClose?: () => void }>) {
   const [open, setOpen] = useState(false);
   const host = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -966,9 +970,12 @@ function SpeedMenu({ tts, disabled }: Readonly<{ tts: VoiceSpeedModel; disabled:
     const closeOutside = (event: PointerEvent) => {
       if (event.target instanceof Node && !host.current?.contains(event.target)) setOpen(false);
     };
-    document.addEventListener('pointerdown', closeOutside);
-    return () => document.removeEventListener('pointerdown', closeOutside);
-  }, [open]);
+    document.addEventListener('pointerdown', closeOutside, true);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside, true);
+      onClose?.();
+    };
+  }, [onClose, open]);
   // Menu offset from the button's left edge: centered on the button, kept inside the viewport.
   const [menuLeft, setMenuLeft] = useState(0);
   const toggle = (button: HTMLButtonElement) => {
@@ -1089,11 +1096,13 @@ export function PlaybackVoiceSpeed({
   tts,
   disabled = false,
   pill = false,
+  onMenuClose,
 }: Readonly<{
   tts: VoiceSpeedModel;
   disabled?: boolean;
   /** Draws its own pill border, for use outside a card. */
   pill?: boolean;
+  onMenuClose?: () => void;
 }>) {
   return (
     <div
@@ -1109,7 +1118,7 @@ export function PlaybackVoiceSpeed({
       <span aria-hidden="true" className="text-gray-300 dark:text-zinc-600">
         ·
       </span>
-      <SpeedMenu tts={tts} disabled={disabled} />
+      <SpeedMenu tts={tts} disabled={disabled} onClose={onMenuClose} />
     </div>
   );
 }

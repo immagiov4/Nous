@@ -51,6 +51,8 @@ Speech synthesis uses the backend's [OpenRouter speech client](../../../apps/bac
 
 ## Keep narration ready for the next passage
 
+On desktop, opening playback focuses the player surface without scrolling or showing an outline. Space immediately starts the existing voice question and pauses narration. Dismissing playback menus, answers and artifact previews returns focus to the player, while selecting a text field keeps focus there for typing. Tab navigation retains the controls' normal visible focus. Mobile retains its existing focus behavior.
+
 The [playback hook](../../../apps/web/hooks/reader/useLessonPlayback.ts) requests at least thirty seconds of upcoming audio with two concurrent block preparations. Playback speed scales that horizon. Starting, resuming, seeking and changing voice wait only for the recording at the selected position. The upcoming horizon fills in the background; each completion appends the contiguous ready prefix. If narration reaches an unprepared passage, the player shows its loading state and resumes that passage when its existing preparation completes. A project revision notification wakes the availability check; periodic checks recover missed notifications.
 
 The stage can read the playback clock in its child layout effects before the parent mounts the audio session. That read reports zero until a position exists; transport operations still require the mounted session. The real hook-and-stage integration tests cover this initial mount and subsequent playback, including React StrictMode.

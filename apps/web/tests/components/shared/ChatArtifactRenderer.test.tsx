@@ -147,7 +147,15 @@ describe('ChatArtifactRenderer', () => {
 
   test('opens and closes a responsive artifact overlay', async () => {
     const user = userEvent.setup();
-    render(<ChatArtifactRenderer artifacts={[pdfArtifact]} isDarkMode={false} />);
+    const returnTarget = document.createElement('button');
+    document.body.append(returnTarget);
+    render(
+      <ChatArtifactRenderer
+        artifacts={[pdfArtifact]}
+        isDarkMode={false}
+        onOverlayClose={() => returnTarget.focus()}
+      />
+    );
 
     await user.click(screen.getByRole('button', { name: /Apri Schema ER/i }));
 
@@ -159,6 +167,8 @@ describe('ChatArtifactRenderer', () => {
     await user.keyboard('{Escape}');
 
     expect(screen.queryByRole('dialog', { name: /Schema ER/i })).not.toBeInTheDocument();
+    expect(returnTarget).toHaveFocus();
+    returnTarget.remove();
   });
 
   test('renders visual overlays without the inline article spacing', async () => {
