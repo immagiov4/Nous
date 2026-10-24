@@ -44,6 +44,24 @@ const comparison: LessonScene = {
   type: 'comparison',
 };
 
+test('renders matrix notation without changing the surrounding plain text', () => {
+  const scene: LessonScene = {
+    ...comparison,
+    type: 'matrix',
+    criteria: ['Ingresso'],
+    groups: [
+      { label: 'Vettore', icons: [], items: [String.raw`Prima $\mathbf{x}$ e $\omega_{11}$ dopo`] },
+    ],
+  };
+  const { container } = render(<LessonSceneVisual scene={scene} />);
+  const cell = container.querySelector('td');
+  expect(cell?.querySelectorAll('math')).toHaveLength(2);
+  expect(cell?.querySelectorAll('.katex-html')[0]?.textContent).toBe('x');
+  expect(cell?.querySelectorAll('math mi')[1]?.textContent).toBe('ω');
+  expect(cell?.firstChild?.textContent).toBe('Prima ');
+  expect(cell?.lastChild?.textContent).toBe(' dopo');
+});
+
 describe('lesson scene visual', () => {
   test('renders the player scene bare with prototype icon masks and preserves reader cards', async () => {
     const { container, rerender } = render(<LessonSceneVisual scene={comparison} variant="bare" />);

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useLayoutEffect } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { guidedPathScene } from '../../../../backend/tests/helpers/animatedLessonScenes';
@@ -35,6 +35,110 @@ vi.mock('../../../services/projects/projectVisualResolver.ts', () => ({
 
 let resizeScene: () => void;
 const disconnectScene = vi.fn();
+
+test.each([
+  'missing',
+  'broken',
+  'historical',
+  'authored',
+])('uses passage content for %s image preparation', imageState => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        'La memoria conserva i dati del programma. Il processore legge le istruzioni.\n\n{{PDF_IMAGE:figure-1|alt=Figura di esempio|caption=Un esempio visivo}}',
+    },
+  ];
+  const scene: LessonScene = {
+    type: 'definition',
+    title: 'Scena del passaggio',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [{ label: 'Il concetto', detail: 'Una spiegazione visiva.', icon: '' }],
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    visuals: [
+      {
+        kind: 'markdown' as const,
+        markdown: sources[0].markdown.slice(sources[0].markdown.indexOf('{{')),
+      },
+      ...(imageState === 'authored' ? [{ kind: 'scene' as const, scene }] : []),
+    ],
+    prepared: { ...(['historical', 'authored'].includes(imageState) ? {} : { scene }), motion: [] },
+  };
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+    activeSectionAssetsById:
+      imageState === 'broken'
+        ? {
+            'figure-1': {
+              id: 'figure-1',
+              dataUrl: 'data:image/png;base64,broken',
+              sourceOrder: 0,
+              textBefore: '',
+              textAfter: '',
+            },
+          }
+        : {},
+  } as WorkspaceReaderContentModel;
+  const { container } = render(
+    <LessonPlaybackStage block={block} content={content} duration={10} time={4} />
+  );
+  if (imageState === 'broken')
+    fireEvent.error(screen.getByRole('img', { name: 'Figura di esempio' }));
+  if (imageState === 'historical') {
+    expect(
+      container.querySelector('.scene-host blockquote')?.textContent?.replace(/^“\s*/u, '').trim()
+    ).toBe('La memoria conserva i dati del programma.');
+  } else {
+    expect(container.querySelector('.scene-host h2')?.textContent).toBe('Scena del passaggio');
+    expect(container.querySelector('.scene-host strong')?.textContent).toBe('Il concetto');
+  }
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain('PDF_IMAGE');
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain('Figura di esempio');
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain('Un esempio visivo');
+});
+test('removes one failed adjacent PDF image and retains the available image', () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: 'Un passaggio.\n\n{{PDF_IMAGE:good|alt=Good}}{{PDF_IMAGE:bad|alt=Bad}}',
+    },
+  ];
+  const block = segmentLessonPlayback(sources)[0];
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+    activeSectionAssetsById: Object.fromEntries(
+      ['good', 'bad'].map(id => [
+        id,
+        {
+          id,
+          dataUrl: `data:image/png;base64,${id}`,
+          sourceOrder: 0,
+          textBefore: '',
+          textAfter: '',
+        },
+      ])
+    ),
+  } as WorkspaceReaderContentModel;
+  const { container } = render(
+    <LessonPlaybackStage block={block} content={content} duration={10} time={4} />
+  );
+  expect(screen.getAllByRole('img').map(image => image.getAttribute('alt'))).toEqual([
+    'Good',
+    'Bad',
+  ]);
+  fireEvent.error(screen.getByRole('img', { name: 'Bad' }));
+  expect(screen.getAllByRole('img').map(image => image.getAttribute('alt'))).toEqual(['Good']);
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain(
+    'Immagine non disponibile'
+  );
+});
 beforeEach(() => {
   vi.stubGlobal(
     'ResizeObserver',

@@ -4,6 +4,10 @@ import { useEffect, useRef, useState } from 'react';
 /** Chart geometry inherited from the prototype; colors come from the scene tokens. */
 const LAYOUT = {
   axisWidth: 1.5,
+  barLabelFontSize: 13,
+  barLabelInset: 12,
+  barLabelMaxWidth: 120,
+  barLabelWidthFraction: 0.3,
   donutMaxSize: 240,
   height: 240,
   intervalHeight: 190,
@@ -104,11 +108,16 @@ const plotOptions = (plot: Plot, scene: SceneContentData, width: number, theme: 
     };
   }
   if (scene.type === 'bars') {
+    const labelWidth = Math.min(LAYOUT.barLabelMaxWidth, width * LAYOUT.barLabelWidthFraction);
     return {
       ...common,
-      marginLeft: Math.min(120, width * 0.3),
+      marginLeft: labelWidth,
       marginRight: 42,
       marks: [
+        plot.axisY({
+          lineWidth: (labelWidth - LAYOUT.barLabelInset) / LAYOUT.barLabelFontSize,
+          fontSize: LAYOUT.barLabelFontSize,
+        }),
         plot.barX(items, {
           className: 'playback-chart-items',
           fill: theme.accent,
@@ -127,7 +136,7 @@ const plotOptions = (plot: Plot, scene: SceneContentData, width: number, theme: 
         }),
       ],
       x: { grid: true, label: null, nice: true, ticks: 4, zero: true },
-      y: { domain: items.map(item => item.label), label: null },
+      y: { axis: null, domain: items.map(item => item.label), label: null },
     };
   }
   if (scene.type === 'distribution') {
