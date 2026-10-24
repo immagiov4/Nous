@@ -65,6 +65,9 @@ jobs:
       - name: Verify complete caption rows
         run: bun run test:caption-rows
 
+      - name: Verify playback keyboard focus in Chromium and Firefox
+        run: bun apps/web/tests/components/workspace/PlaybackFocus.browser.ts
+
       - name: Run CI Gate
         run: bun run gate:ci
 
