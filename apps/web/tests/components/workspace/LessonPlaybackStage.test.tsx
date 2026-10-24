@@ -2140,7 +2140,7 @@ test('returns to earlier recall equations when their symbols are named again and
       duration={10}
       time={0}
       readTime={() => time}
-      alignment={{ status: 'aligned', onsets: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] }}
+      alignment={{ status: 'aligned', onsets: [0, 1, 2, 3, 4, 5, 6, 7, 8] }}
     />
   );
   const flush = () =>
