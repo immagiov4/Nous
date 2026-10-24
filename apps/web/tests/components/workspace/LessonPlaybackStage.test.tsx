@@ -18,6 +18,8 @@ import {
 import LessonPlaybackStage from '../../../components/workspace/playback/LessonPlaybackStage.tsx';
 import {
   adoptCueTimes,
+  captionAnchorSpan,
+  captionAnchorTimes,
   captionMotionEvents,
   motionStates,
   sceneElements,
@@ -761,6 +763,25 @@ test('uses recording onsets for formula selection after forward and backward see
   const captions = container.querySelectorAll<HTMLElement>('.caption-word');
   expect(captions[1].style.opacity).toBe('1');
   expect(captions[5].style.opacity).toBe('1');
+  const later = { status: 'aligned' as const, onsets: [0, 8, 8.2, 8.4, 8.6, 9, 9.2, 9.4] };
+  rerender(<LessonPlaybackStage {...props} alignment={later} time={5.1} />);
+  const flush = () =>
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    });
+  flush();
+  act(() => window.dispatchEvent(new Event('resize')));
+  flush();
+  expect(container.querySelector('.nous-formula-symbol-x')?.getAttribute('data-active')).toBe(
+    'true'
+  );
+  rerender(<LessonPlaybackStage {...props} alignment={later} time={5.1} seekRevision={1} />);
+  flush();
+  expect(container.querySelector('.nous-formula-symbol-x')?.getAttribute('data-active')).toBe(
+    'false'
+  );
 });
 
 test('a complete spotlight replaces sourced math while text fallback shows the formula without prose', () => {
@@ -904,6 +925,8 @@ test.each([
       />
     );
     expect(advance(2.02)).toBe('b');
+    act(() => window.dispatchEvent(new Event('resize')));
+    expect(advance(2.04)).toBe('b');
   }
 });
 
@@ -1319,6 +1342,9 @@ test.each([
   rerender(<LessonPlaybackStage {...props} alignment={later} time={0} readTime={readTime} />);
   flush();
   expect(visualValue()).toBe(presented);
+  act(() => window.dispatchEvent(new Event('resize')));
+  flush();
+  expect(visualValue()).toBe(presented);
   heard = 7.29;
   rerender(
     <LessonPlaybackStage
@@ -1386,6 +1412,42 @@ test('renders resolved step citations instead of the unanchored source scene', (
 
 test('adopts an overdue acoustic cue instead of waiting for its future estimate', () => {
   expect(adoptCueTimes([8000, 2000, 9000], [3000, 1000, 7000], 5000)).toEqual([3000, 2000, 7000]);
+});
+
+test('heading quotations stay within the spoken heading interval before alignment', () => {
+  const input = {
+    speech: 'Primo titolo Corpo finale',
+    speechRanges: [
+      { start: 13, end: 18 },
+      { start: 19, end: 25 },
+    ],
+    runs: [0, 1].map(index => ({
+      span: document.createElement('span'),
+      start: index * 100,
+      width: 100,
+    })),
+    width: 200,
+    feather: 0,
+    duration: 8,
+    startOffset: 2,
+  };
+  expect(captionAnchorTimes({ ...input, anchors: ['Primo', 'titolo', 'Corpo', 'finale'] })).toEqual(
+    [0, 1000, 2000, 6000]
+  );
+  expect(captionAnchorSpan({ ...input, anchors: ['titolo'] })).toEqual({
+    startMs: 1000,
+    endMs: 2000,
+  });
+  expect(captionAnchorSpan({ ...input, anchors: ['titolo Corpo'] })).toEqual({
+    startMs: 1000,
+    endMs: 6000,
+  });
+  expect(
+    captionMotionEvents({
+      ...input,
+      events: [{ quote: 'titolo', targets: ['item:0'], effect: 'focus' }],
+    })[0]
+  ).toMatchObject({ atMs: 1000, durationMs: 1600 });
 });
 
 test('sequence participants and message labels retain their authored motion targets', () => {

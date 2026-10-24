@@ -7,7 +7,11 @@ import type {
 } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
 import { cueTimes, playbackMode } from '@shared/lessonSceneAnimation';
-import { alignedRangeTime, type alignedWordTimes } from '@shared/playbackWordTiming';
+import {
+  alignedRangeTime,
+  type alignedWordTimes,
+  narrationWords,
+} from '@shared/playbackWordTiming';
 
 export const MOTION_TIMING = { transitionMs: 420, stepMs: 2400, holdMs: 1600, maxFocusMs: 4000 };
 const REVEAL_DURATION_MS = 700;
@@ -63,6 +67,7 @@ export function visualSpeechRange(
 /** Project a saved narration range onto acoustic onsets or the voice estimate, preserving repeated occurrences. */
 export function captionRangeSpan({
   range,
+  speech,
   speechRanges,
   runs,
   width,
@@ -72,6 +77,7 @@ export function captionRangeSpan({
   startOffset = 0,
 }: {
   range: PlaybackRange;
+  speech: string;
   speechRanges: readonly PlaybackRange[];
   runs: readonly CaptionRun[];
   width: number;
@@ -84,17 +90,23 @@ export function captionRangeSpan({
     const span = alignedRangeTime(aligned, range);
     return { startMs: span.start * 1000, endMs: span.end * 1000 };
   }
-  const first = runs[speechRanges.findIndex(word => word.end > range.start)];
-  const lastIndex = speechRanges.reduce(
-    (last, word, index) => (word.start < range.end ? index : last),
-    0
-  );
-  const last = runs[lastIndex];
-  if (!first || !last) throw new Error('Visual narration range must cover caption words');
-  return {
-    startMs: (startOffset + (first.start / (width + feather)) * duration) * 1000,
-    endMs: (startOffset + ((last.start + last.width) / (width + feather)) * duration) * 1000,
+  const bodyStart = speechRanges[0]?.start ?? speech.length;
+  const heading = narrationWords(speech.slice(0, bodyStart));
+  const boundary = (offset: number, end: boolean) => {
+    if (offset <= bodyStart && heading.length) {
+      const index = end
+        ? heading.filter(word => word.start < offset).length
+        : heading.findIndex(word => word.end > offset);
+      return startOffset * (index < 0 ? 1 : index / heading.length);
+    }
+    const index = end
+      ? speechRanges.reduce((last, word, index) => (word.start < offset ? index : last), 0)
+      : speechRanges.findIndex(word => word.end > offset);
+    const run = runs[index];
+    if (!run) throw new Error('Visual narration range must cover caption words');
+    return startOffset + ((run.start + (end ? run.width : 0)) / (width + feather)) * duration;
   };
+  return { startMs: boundary(range.start, false) * 1000, endMs: boundary(range.end, true) * 1000 };
 }
 
 /** Visibility and animation must make the same all-or-nothing synchronization decision. */
@@ -150,47 +162,30 @@ export function captionAnchorTimes({
   return anchors.map(anchor => {
     const offset = speech.indexOf(anchor);
     if (offset < 0) throw new Error('Caption quotation must exist in speech');
-    if (aligned)
-      return alignedRangeTime(aligned, { start: offset, end: offset + anchor.length }).start * 1000;
-    const first = runs[speechRanges.findIndex(word => word.end > offset)];
-    if (!first) throw new Error('Caption quotation must cover caption words');
-    return (startOffset + (first.start / (width + feather)) * duration) * 1000;
+    return captionRangeSpan({
+      range: { start: offset, end: offset + anchor.length },
+      speech,
+      speechRanges,
+      runs,
+      width,
+      feather,
+      duration,
+      aligned,
+      startOffset,
+    }).startMs;
   });
 }
 
 /** The complete quoted span on the recording clock, including its final spoken word. */
 export function captionAnchorSpan(input: Parameters<typeof captionAnchorTimes>[0]) {
-  if (input.aligned) {
-    const spans = input.anchors.map(anchor => {
-      const start = input.speech.indexOf(anchor);
-      if (start < 0) throw new Error('Caption quotation must exist in speech');
-      return alignedRangeTime(input.aligned as NonNullable<typeof input.aligned>, {
-        start,
-        end: start + anchor.length,
-      });
-    });
-    return {
-      startMs: Math.min(...spans.map(span => span.start)) * 1000,
-      endMs: Math.max(...spans.map(span => span.end)) * 1000,
-    };
-  }
-  const times = captionAnchorTimes(input);
-  const endOffset = Math.max(
-    ...input.anchors.map(anchor => input.speech.indexOf(anchor) + anchor.length)
-  );
-  const lastIndex = input.speechRanges.reduce(
-    (last, word, index) => (word.start < endOffset ? index : last),
-    0
-  );
-  // A heading quotation precedes the body; like motion cues, project it onto the first word.
-  const last = input.runs[lastIndex];
-  if (!last) throw new Error('Caption quotation must cover caption words');
+  const spans = input.anchors.map(anchor => {
+    const start = input.speech.indexOf(anchor);
+    if (start < 0) throw new Error('Caption quotation must exist in speech');
+    return captionRangeSpan({ ...input, range: { start, end: start + anchor.length } });
+  });
   return {
-    startMs: Math.min(...times),
-    endMs:
-      ((input.startOffset ?? 0) +
-        ((last.start + last.width) / (input.width + input.feather)) * input.duration) *
-      1000,
+    startMs: Math.min(...spans.map(span => span.startMs)),
+    endMs: Math.max(...spans.map(span => span.endMs)),
   };
 }
 
@@ -230,20 +225,19 @@ export function captionMotionEvents({
   const timed = events.map((event, index) => {
     const offset = speech.indexOf(event.quote);
     if (offset < 0) throw new Error('Motion quotation must exist in speech');
-    // Headings precede the body clock: project their anchors onto its zero boundary.
-    const firstIndex = speechRanges.findIndex(word => word.end > offset);
-    const endIndex = speechRanges.reduce(
-      (last, word, index) => (word.start < offset + event.quote.length ? index : last),
-      0
-    );
-    const first = runs[firstIndex];
-    const last = runs[endIndex];
-    if (!first || !last) throw new Error('Motion quotation must cover caption words');
     const atMs = times[index];
-    const spokenDurationMs = aligned
-      ? alignedRangeTime(aligned, { start: offset, end: offset + event.quote.length }).end * 1000 -
-        atMs
-      : ((last.start + last.width - first.start) / (width + feather)) * duration * 1000;
+    const span = captionRangeSpan({
+      range: { start: offset, end: offset + event.quote.length },
+      speech,
+      speechRanges,
+      runs,
+      width,
+      feather,
+      duration,
+      aligned,
+      startOffset,
+    });
+    const spokenDurationMs = span.endMs - span.startMs;
     const durationMs =
       event.effect === 'reveal'
         ? REVEAL_DURATION_MS

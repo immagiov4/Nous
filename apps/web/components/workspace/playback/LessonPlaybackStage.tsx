@@ -103,11 +103,7 @@ function canRetainPresentedCues(
   current: CaptionClock,
   previous: CaptionClock | null
 ): previous is CaptionClock {
-  return (
-    previous !== null &&
-    previous.aligned !== current.aligned &&
-    previous.seekRevision === current.seekRevision
-  );
+  return previous !== null && previous.seekRevision === current.seekRevision;
 }
 
 function retainPresentedCues(
@@ -707,6 +703,7 @@ function PlaybackPassage({
           const previousSpans = spans;
           spans = visualReferences.map(({ anchors: quotation }, index) => {
             const timing = {
+              speech: block.speech,
               speechRanges: current.speechRanges,
               runs: current.runs,
               width: current.width,
