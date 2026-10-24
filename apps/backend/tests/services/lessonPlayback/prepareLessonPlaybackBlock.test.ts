@@ -165,7 +165,7 @@ test('uses the introduced flow from its authored section without borrowing the n
   });
 });
 
-test('keeps audio usable when additional authoring context exceeds the existing visual limit', async () => {
+test('prepares a scene and audio when additional authoring context exceeds the existing visual excerpt limit', async () => {
   const { MAX_VISUAL_LESSON_CHARS } = await import('@shared/lessonGenerationPolicy');
   const sources = [
     {
@@ -180,9 +180,13 @@ test('keeps audio usable when additional authoring context exceeds the existing 
     lesson: { title: 'Tema', sources },
   });
   expect(result.audio).toEqual(preparedAudio);
-  expect(result.prepared.motion).toEqual([]);
-  expect(result.prepared.scene).toBeUndefined();
-  expect(sceneGeneration).not.toHaveBeenCalled();
+  expect(result.prepared).toEqual({ scene, motion: events });
+  expect(sceneGeneration).toHaveBeenCalledWith(
+    expect.objectContaining({
+      lessonMarkdown: expect.stringMatching(/^Introduction\./u),
+      narration: raw.speech,
+    })
+  );
 });
 
 test('plans the same scene motion while its icon selection is still pending', async () => {

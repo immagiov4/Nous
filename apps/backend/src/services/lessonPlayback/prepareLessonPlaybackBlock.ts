@@ -123,8 +123,6 @@ const generatePlaybackScene = async (
   input: Parameters<typeof generateLessonScene>[0] & { allowTextFallback?: boolean }
 ) => {
   try {
-    if (input.lessonMarkdown.length > MAX_VISUAL_LESSON_CHARS)
-      throw new Error('Authored visual context exceeds the scene generation text limit.');
     return await generateLessonScene(input);
   } catch (error) {
     input.signal.throwIfAborted();
