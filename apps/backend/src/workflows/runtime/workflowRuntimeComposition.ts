@@ -577,12 +577,12 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: createLessonPlaybackWorkflow(
       playbackExecutionDefaults,
-      createLessonPlaybackBlockSchema(sceneSchema, true, true, true),
+      createLessonPlaybackBlockSchema(sceneSchema, true, true, true, false, true),
       true,
       true
     ),
     previous: [
-      ...historicalScenes.map(definition => definition.synchronizedPlayback),
+      ...[currentScenes, ...historicalScenes].map(definition => definition.synchronizedPlayback),
       ...[currentScenes, ...historicalScenes].map(definition => definition.alignedPlayback),
       currentScenes.legacyVisualPlayback,
       ...[currentScenes, ...historicalScenes].map(definition => definition.playback),

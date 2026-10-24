@@ -54,6 +54,7 @@ export type LessonSceneOutcome =
 export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'plan'> & {
   readonly allowedSceneTypes?: readonly LessonSceneType[];
   readonly narration?: string;
+  readonly formulaAnchorOccurrences?: boolean;
   readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
   /** Starts independent preparation after validation, while icons are chosen. */
@@ -428,6 +429,14 @@ export async function generateLessonScene(
   );
   const schema = SceneDraftSchema.extend({
     type: z.enum(input.allowTextFallback ? [...types, 'text'] : types),
+    symbols: input.formulaAnchorOccurrences
+      ? SceneDraftSchema.shape.symbols
+      : SceneDraftSchema.shape.symbols
+          .unwrap()
+          .element.omit({ anchorOccurrence: true })
+          .array()
+          .min(1)
+          .optional(),
   });
   const { $schema: _dialect, ...outputSchema } = z.toJSONSchema(schema);
   // Malformed output surfaces either as an error or as JSON of the wrong shape; both become
@@ -435,6 +444,11 @@ export async function generateLessonScene(
   let outputPath: 'direct' | 'json-envelope' | 'unavailable' = 'unavailable';
   const diagnostic = (stage: 'schema' | 'domain', problems: unknown) =>
     toWorkflowErrorDiagnostic(new Error(JSON.stringify({ outputPath, stage, problems })));
+  const systemPrompt =
+    sceneSystemPrompt(types) +
+    (input.formulaAnchorOccurrences
+      ? '\nFORMULA OCCURRENCES: A quotation may repeat when anchorOccurrence identifies its zero-based literal occurrence in the narration. Use separate symbol ids for separately spoken occurrences, even for identical LaTeX. Keep quotations limited to the words naming that part; do not broaden them merely to make them unique. Order linked symbols by their selected occurrence.'
+      : '');
   const response = await generateStructuredOutput<unknown>({
     sourceAware: Boolean(input.sourceProvenance),
     onOutputPath: path => {
@@ -445,7 +459,7 @@ export async function generateLessonScene(
     prompt: buildScenePrompt(input),
     signal: input.signal,
     slot: 'scene',
-    system: `${sceneSystemPrompt(types)}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
+    system: `${systemPrompt}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
   }).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;

@@ -1,10 +1,10 @@
 import request from 'supertest';
 import { describe, expect, test, vi } from 'vitest';
-
 import { createApp } from '../../src/index.js';
 import { ttsClient } from '../../src/services/ttsClient.js';
 import { createLessonPlaybackApi } from '../../src/workflows/lessonPlaybackApi.js';
 import { createProductionRegistry } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
+import { dictatedFormulaSpotlight } from '../helpers/formulaSpotlight';
 import { playbackProject, playbackSection, preparedPlayback } from '../helpers/lessonPlayback.js';
 
 const url = '/api/projects/project-1/sections/section-1/playback';
@@ -30,6 +30,36 @@ const setup = (ready = false, owner = 'local-user') => {
 };
 
 describe('lesson playback routes', () => {
+  test('prepares missing formula highlights for cached audio and reuses the saved result', async () => {
+    const { app, section, createRun } = setup(true);
+    section.contentBlocks = [{ type: 'markdown', markdown: 'Prima $x+y$ dopo' }];
+    section.content = 'Prima $x+y$ dopo';
+    const playback = preparedPlayback(section);
+    const saved = playback.blocks[0];
+    const prepared = { motion: [], spokenMath: [{ formula: '$x+y$', spoken: 'ics più ipsilon' }] };
+    section.playback = { ...playback, blocks: [{ ...saved, prepared }] };
+    const input = { lessonKey: playback.lessonKey, voice: 'Kore' };
+    const first = await request(app).post(`${url}/blocks/0/prepare`).send(input);
+    expect(first.status).toBe(202);
+    expect(first.body).toMatchObject({ created: true, blockId: '0' });
+    section.playback = {
+      ...playback,
+      blocks: [
+        {
+          ...saved,
+          prepared: {
+            ...prepared,
+            formulaSpotlights: [{ formula: '$x+y$', scene: dictatedFormulaSpotlight }],
+          },
+        },
+      ],
+    };
+    const second = await request(app).post(`${url}/blocks/0/prepare`).send(input);
+    expect(second.status).toBe(200);
+    expect(second.body.block.audio).toEqual(saved.audio);
+    expect(second.body.block.prepared.formulaSpotlights[0].scene).toEqual(dictatedFormulaSpotlight);
+    expect(createRun).toHaveBeenCalledTimes(1);
+  });
   test('GET merges segmentation with saved blocks and never starts preparation', async () => {
     const { app, section, createRun } = setup(true);
     section.playback = {

@@ -1,12 +1,13 @@
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
+import type { FormulaSpotlightData } from './formulaSpotlight';
 
 import { isAnimatedLessonScene, type LessonScene } from './lessonScene';
 import { projectMarkdownRenderingControls } from './markdownControlCharacters';
 import { getMarkdownMathRangeAt } from './markdownMathSyntax';
 import type { PlaybackWordAlignment } from './playbackWordTiming';
-import type { ProjectAssetRef } from './projectAsset';
+import type { ProjectAssetRef, ProjectLessonVisual } from './projectAsset';
 
 /** UTF-16 offsets, end exclusive. */
 export interface PlaybackRange {
@@ -100,12 +101,59 @@ export interface LessonPlaybackBlock {
   readonly visuals: readonly PlaybackVisual[];
   readonly prepared?: {
     readonly spokenMath?: readonly PlaybackSpokenMath[];
+    /** Occurrence-local narration anchors; saved audio and source remain unchanged. */
+    readonly formulaSpotlights?: readonly {
+      readonly formula: string;
+      readonly scene: LessonScene;
+      readonly sourceFormula?: string;
+    }[];
     readonly fencedCode?: readonly PlaybackFencedCodeDecision[];
     readonly scene?: LessonScene;
     readonly motion: readonly PlaybackMotionEvent[];
   };
   readonly audio: readonly PlaybackAudio[];
 }
+
+/** Locate the same prepared/imported spotlight presentations used by the playback stage. */
+export const playbackFormulaSpotlightScenes = (
+  block: LessonPlaybackBlock,
+  storedVisuals: readonly ProjectLessonVisual[] = []
+): readonly (LessonScene & FormulaSpotlightData)[] => {
+  const scenes = [
+    block.prepared?.scene,
+    ...block.visuals.flatMap(visual => {
+      if (visual.kind === 'scene') return [visual.scene];
+      if (visual.kind !== 'generated-visual') return [];
+      const stored = storedVisuals.find(stored => stored.id === visual.visualId)?.render;
+      return stored?.kind === 'scene' ? [stored.scene] : [];
+    }),
+  ];
+  return scenes.filter(scene => scene?.type === 'formula-spotlight') as (LessonScene &
+    FormulaSpotlightData)[];
+};
+
+/** Saved pronunciations and unlinked spotlight data need model-supplied exact word links. */
+export const needsPlaybackFormulaSpotlights = (
+  block: LessonPlaybackBlock,
+  storedVisuals: readonly ProjectLessonVisual[] = [],
+  sources: readonly PlaybackContentBlock[] = []
+): boolean => {
+  const scenes = playbackFormulaSpotlightScenes(block, storedVisuals);
+  if (scenes.some(scene => scene.symbols.some(symbol => symbol.anchor))) return false;
+  if (scenes.length)
+    return scenes.some(
+      scene =>
+        !block.prepared?.formulaSpotlights?.some(entry => entry.sourceFormula === scene.formula)
+    );
+  const spoken = block.prepared?.spokenMath;
+  if (spoken?.length)
+    return spoken.some(
+      (entry, index) => block.prepared?.formulaSpotlights?.[index]?.formula !== entry.formula
+    );
+  return getPlaybackFormulaSources(block, sources).some(
+    formula => !block.prepared?.formulaSpotlights?.some(entry => entry.sourceFormula === formula)
+  );
+};
 
 export interface LessonPlayback {
   readonly version: 1;

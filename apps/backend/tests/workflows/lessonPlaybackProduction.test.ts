@@ -1,7 +1,7 @@
 import { type LessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
 
-const { prepare } = vi.hoisted(() => ({ prepare: vi.fn() }));
+const { prepare, visuals } = vi.hoisted(() => ({ prepare: vi.fn(), visuals: vi.fn() }));
 vi.mock(
   '../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js',
   async importOriginal => ({
@@ -9,6 +9,7 @@ vi.mock(
       typeof import('../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js')
     >()),
     prepareLessonPlaybackBlock: prepare,
+    prepareVisuals: visuals,
   })
 );
 vi.mock('../../src/config/modelConfig.js', async importOriginal => ({
@@ -18,6 +19,7 @@ vi.mock('../../src/config/modelConfig.js', async importOriginal => ({
 
 import { createProductionLessonPlaybackServices } from '../../src/workflows/lessonPlaybackProduction.js';
 import { guidedPathScene } from '../helpers/animatedLessonScenes';
+import { dictatedFormulaSpotlight } from '../helpers/formulaSpotlight';
 import {
   playbackAsset,
   playbackProject,
@@ -60,6 +62,37 @@ const setup = () => {
     },
   };
 };
+
+test('prepares only missing formula visuals while retaining the original audio and narration', async () => {
+  const { section, assets, services, context } = setup();
+  section.contentBlocks = [{ type: 'markdown', markdown: 'Prima $x+y$ dopo' }];
+  section.content = 'Prima $x+y$ dopo';
+  const playback = preparedPlayback(section);
+  const saved = {
+    ...playback.blocks[0],
+    audio: playback.blocks[0].audio.map(audio => ({
+      ...audio,
+      wordAlignment: { status: 'aligned' as const, onsets: [0, 0.25, 0.5, 0.75, 1] },
+    })),
+    prepared: { motion: [], spokenMath: [{ formula: '$x+y$', spoken: 'ics più ipsilon' }] },
+  };
+  section.playback = { ...playback, blocks: [saved] };
+  const formulaSpotlights = [{ formula: '$x+y$', scene: dictatedFormulaSpotlight }];
+  visuals.mockResolvedValue({ ...saved.prepared, formulaSpotlights });
+  const result = await services.preparePlayback({
+    ...context,
+    input: { ...context.input, lessonKey: playback.lessonKey },
+  });
+  expect(result.block.audio).toEqual(saved.audio);
+  expect(result.block.speech).toBe(saved.speech);
+  expect(result.block.prepared).toEqual({ ...saved.prepared, formulaSpotlights });
+  expect(result.assetOwner).toBeUndefined();
+  expect(prepare).not.toHaveBeenCalled();
+  expect(assets.stage).not.toHaveBeenCalled();
+  expect(visuals).toHaveBeenCalledWith(
+    expect.objectContaining({ block: saved, supportsFormulaSpotlights: true })
+  );
+});
 
 test('reuses a block completed between the API cache read and the run starting', async () => {
   const { assets, services, context } = setup();

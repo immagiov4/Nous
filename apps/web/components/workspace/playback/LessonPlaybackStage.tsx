@@ -75,6 +75,19 @@ interface CaptionClock {
   read: () => { blockTime: number; bodyTime: number; revealTime: number };
 }
 
+type StageVisual = PlaybackVisual & {
+  formulaRange?: PlaybackRange;
+  voiceRange?: PlaybackRange;
+  referenceFormula?: boolean;
+};
+
+function formulaReferenceRange(scene: LessonScene, speech: string): PlaybackRange | undefined {
+  const references = resolveFormulaReferences(scene as FormulaSpotlightData, speech);
+  return references.length
+    ? { start: references[0].start, end: references[references.length - 1].end }
+    : undefined;
+}
+
 function hasMissingMotionTargets(
   events: readonly TimedMotionEvent[],
   elements: ReturnType<typeof sceneElements>
@@ -87,12 +100,21 @@ function captionTag(word: CaptionWord) {
   return word.bold ? 'strong' : 'span';
 }
 
-function formulaCueTiming(scene: FormulaSpotlightData, speech: string, current: CaptionClock) {
+function formulaCueTiming(
+  scene: FormulaSpotlightData,
+  speech: string,
+  current: CaptionClock,
+  range?: PlaybackRange
+) {
   const times = scene.symbols.map(() => Number.POSITIVE_INFINITY);
   const ends = scene.symbols.map(() => Number.NEGATIVE_INFINITY);
-  for (const reference of resolveFormulaReferences(scene, speech)) {
-    const span = captionAnchorSpan({
-      anchors: [reference.anchor],
+  const narration = range ? speech.slice(range.start, range.end) : speech;
+  for (const reference of resolveFormulaReferences(scene, narration)) {
+    const span = captionRangeSpan({
+      range: {
+        start: reference.start + (range?.start ?? 0),
+        end: reference.end + (range?.start ?? 0),
+      },
       speech,
       speechRanges: current.speechRanges,
       runs: current.runs,
@@ -120,26 +142,6 @@ function canRetainPresentedCues(
   );
 }
 
-function formulaSpeechTiming(range: PlaybackRange, speech: string, current: CaptionClock) {
-  const span = captionRangeSpan({
-    range,
-    speech,
-    speechRanges: current.speechRanges,
-    runs: current.runs,
-    width: current.width,
-    feather: 0,
-    duration: current.bodyDuration,
-    startOffset: current.headingDuration,
-    aligned: current.aligned,
-  });
-  if (span.endMs === span.startMs && current.aligned) {
-    // Equal-onset words share one acoustic interval rather than a zero-length formula.
-    const next = current.aligned.find(word => word.onset * 1000 > span.startMs);
-    span.endMs = (next?.onset ?? current.duration) * 1000;
-  }
-  return span;
-}
-
 function retainPresentedCues(
   current: CaptionClock,
   previous: CaptionClock | null,
@@ -157,6 +159,7 @@ function PlaybackScene({
   animate,
   isDarkMode,
   interval,
+  formulaRange,
 }: Readonly<{
   scene: LessonScene;
   block: LessonPlaybackBlock;
@@ -165,6 +168,7 @@ function PlaybackScene({
   animate: boolean;
   isDarkMode: boolean;
   interval: { start: number; duration: number };
+  formulaRange?: PlaybackRange;
 }>) {
   // Parsed preparation snapshots can contain an equivalent scene with a new object identity.
   const sceneKey = JSON.stringify(sourceScene);
@@ -172,36 +176,42 @@ function PlaybackScene({
   const host = useRef<HTMLDivElement>(null);
   const readAnimationFrame = useMemo<ReadSceneAnimationFrame | undefined>(() => {
     if (!isAnimatedLessonScene(scene) && scene.type !== 'formula-spotlight') return undefined;
-    const anchors = sceneCaptionAnchors(scene, block.speech);
+    const anchors = sceneCaptionAnchors(
+      scene,
+      formulaRange ? block.speech.slice(formulaRange.start, formulaRange.end) : block.speech
+    );
     // Voice cues exclude both caption look-ahead and its graphical reveal feather.
     let previousClock: CaptionClock | null = null;
     let times: number[] | undefined;
     let ends: number[] | undefined;
     return () => {
       const current = clock.current;
-      if (!current?.bodyDuration) return undefined;
-      if (anchors && !current.width) return undefined;
+      if (!current?.duration) return undefined;
+      if (anchors && !current.width && current.bodyDuration > 0 && !current.aligned)
+        return undefined;
       if (current !== previousClock) {
         const previousTimes = times;
         const previousEnds = ends;
-        times = anchors
-          ? captionAnchorTimes({
-              anchors,
-              speech: block.speech,
-              speechRanges: current.speechRanges,
-              runs: current.runs,
-              width: current.width,
-              feather: 0,
-              duration: current.bodyDuration,
-              startOffset: current.headingDuration,
-              aligned: current.aligned,
-            })
-          : undefined;
+        times =
+          anchors && scene.type !== 'formula-spotlight'
+            ? captionAnchorTimes({
+                anchors,
+                speech: block.speech,
+                speechRanges: current.speechRanges,
+                runs: current.runs,
+                width: current.width,
+                feather: 0,
+                duration: current.bodyDuration,
+                startOffset: current.headingDuration,
+                aligned: current.aligned,
+              })
+            : undefined;
         if (scene.type === 'formula-spotlight' && anchors) {
           ({ times, ends } = formulaCueTiming(
             scene as FormulaSpotlightData,
             block.speech,
-            current
+            current,
+            formulaRange
           ));
         }
         times = retainPresentedCues(current, previousClock, previousTimes, times);
@@ -221,7 +231,7 @@ function PlaybackScene({
             durationMs: interval.duration * 1000,
           };
     };
-  }, [scene, block.speech, clock, interval.start, interval.duration]);
+  }, [scene, block.speech, clock, interval.start, interval.duration, formulaRange]);
   useLayoutEffect(() => {
     if (
       isAnimatedLessonScene(scene) ||
@@ -355,7 +365,7 @@ function PlaybackVisualContent({
   onImageUnavailable,
   ...props
 }: Readonly<{
-  visual: PlaybackVisual;
+  visual: StageVisual;
   onImageUnavailable: (imageId: string) => void;
   content: WorkspaceReaderContentModel;
   block: LessonPlaybackBlock;
@@ -371,7 +381,12 @@ function PlaybackVisualContent({
   return (
     <div>
       {visual.kind === 'scene' ? (
-        <PlaybackScene {...props} scene={visual.scene} isDarkMode={content.isDarkMode} />
+        <PlaybackScene
+          {...props}
+          scene={visual.scene}
+          formulaRange={visual.formulaRange}
+          isDarkMode={content.isDarkMode}
+        />
       ) : null}
       {visual.kind === 'mermaid' ? (
         <GeneratedVisualFrame
@@ -452,19 +467,6 @@ function PlaybackPassage({
   const sceneFit = useRef<HTMLDivElement>(null);
   const sceneCard = useRef<HTMLElement>(null);
   const clock = useRef<CaptionClock | null>(null);
-  const formulaKey = JSON.stringify(
-    block.spans.flatMap(span =>
-      span.math && span.speech.end > span.speech.start
-        ? [{ math: span.math, speech: span.speech }]
-        : []
-    )
-  );
-  const formulas = useMemo(
-    () => JSON.parse(formulaKey) as { math: string; speech: PlaybackRange }[],
-    [formulaKey]
-  );
-  const [formulaView, setFormulaView] = useState({ active: false, indices: [] as number[] });
-
   const animate = useShouldAnimate();
   const latest = useRef({ time, speed, readTime, animate, aligned, seekRevision });
   useLayoutEffect(() => {
@@ -599,47 +601,13 @@ function PlaybackPassage({
   }, [aligned, seekRevision]);
 
   useLayoutEffect(() => {
-    let previousClock: CaptionClock | null = null;
     let previousBodyTime: number | undefined;
-    let formulaTimes: ReturnType<typeof captionRangeSpan>[] = [];
-    let previousFormula: string | undefined;
     const render = () => {
       const paragraph = captions.current;
       if (!paragraph) throw new Error('Captions must be mounted');
       const current = clock.current;
       if (!current) return;
-      if (previousClock !== current) {
-        const previousTimes = formulaTimes;
-        formulaTimes = formulas.map((formula, index) => {
-          const span = formulaSpeechTiming(formula.speech, block.speech, current);
-          const previous = previousTimes[index];
-          if (!previous || !canRetainPresentedCues(current, previousClock)) return span;
-          const heardMs = current.read().blockTime * 1000;
-          return {
-            startMs: adoptCueTimes([previous.startMs], [span.startMs], heardMs)[0],
-            endMs: adoptCueTimes([previous.endMs], [span.endMs], heardMs)[0],
-          };
-        });
-        previousClock = current;
-        previousBodyTime = undefined;
-      }
-      const { blockTime, bodyTime, revealTime } = current.read();
-      // Formula dictation follows the heard voice, independently of caption look-ahead.
-      // Adjacent formulas can share one acoustic word; retain every matching occurrence.
-      const activeFormulas = formulaTimes.flatMap((span, index) =>
-        blockTime * 1000 >= span.startMs && blockTime * 1000 < span.endMs ? [index] : []
-      );
-      const formulaKey = activeFormulas.join(':');
-      if (formulaKey !== previousFormula) {
-        previousFormula = formulaKey;
-        setFormulaView(previous => {
-          if (!activeFormulas.length && !previous.active) return previous;
-          return {
-            active: activeFormulas.length > 0,
-            indices: activeFormulas.length ? activeFormulas : previous.indices,
-          };
-        });
-      }
+      const { bodyTime, revealTime } = current.read();
       if (!current.width || !current.bodyDuration) return;
       const motion = latest.current.animate;
       current.viewport.clip();
@@ -671,7 +639,7 @@ function PlaybackPassage({
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, [block.speech, formulas]);
+  }, []);
 
   const [unavailableImages, setUnavailableImages] = useState<ReadonlySet<string>>(new Set());
   const onImageUnavailable = useCallback((imageId: string) => {
@@ -688,7 +656,7 @@ function PlaybackPassage({
       ),
     [content.activeSectionAssetsById, unavailableImages]
   );
-  const visualCandidates = useMemo(() => {
+  const normalVisualCandidates = useMemo(() => {
     const formulas = getPlaybackFormulaMarkdown(block, sources);
     const cards = block.visuals.filter(
       visual =>
@@ -713,6 +681,7 @@ function PlaybackPassage({
     if (
       scene?.type === 'formula-spotlight' &&
       formulas &&
+      block.spans.some(span => span.math) &&
       !formulaSpotlightCovers(
         scene as FormulaSpotlightData,
         getPlaybackFormulaSources(block, sources)
@@ -745,6 +714,53 @@ function PlaybackPassage({
     availableAssets,
     content.activeSectionImageRefsById,
   ]);
+  const visualCandidates = useMemo<readonly StageVisual[]>(() => {
+    const spotlights = block.prepared?.formulaSpotlights;
+    if (!spotlights?.length) return normalVisualCandidates;
+    if (spotlights.some(entry => entry.sourceFormula)) {
+      const matched = new Set<string>();
+      const original = normalVisualCandidates.map(visual => {
+        const stored =
+          visual.kind === 'generated-visual'
+            ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
+            : undefined;
+        const scene =
+          visual.kind === 'scene' ? visual.scene : stored && getStoredLessonVisualScene(stored);
+        const entry =
+          scene?.type === 'formula-spotlight' &&
+          spotlights.find(entry => entry.sourceFormula === scene.formula);
+        if (!entry) return visual;
+        matched.add(entry.sourceFormula as string);
+        const voiceRange = formulaReferenceRange(entry.scene, block.speech);
+        return { kind: 'scene' as const, scene: entry.scene, voiceRange };
+      });
+      return [
+        ...original,
+        ...spotlights.flatMap(entry => {
+          if (!entry.sourceFormula || matched.has(entry.sourceFormula)) return [];
+          const voiceRange = formulaReferenceRange(entry.scene, block.speech);
+          return voiceRange
+            ? [{ kind: 'scene' as const, scene: entry.scene, voiceRange, referenceFormula: true }]
+            : [];
+        }),
+      ];
+    }
+    if (block.prepared?.scene?.type === 'formula-spotlight') return normalVisualCandidates;
+    const formulas = block.spans.filter(span => span.math);
+    const combined = getPlaybackFormulaMarkdown(block, sources);
+    return [
+      ...normalVisualCandidates.filter(
+        visual =>
+          visual.kind !== 'markdown' ||
+          (visual.markdown !== combined && !formulas.some(span => span.math === visual.markdown))
+      ),
+      ...spotlights.map((entry, index) => ({
+        kind: 'scene' as const,
+        scene: entry.scene,
+        formulaRange: formulas[index].speech,
+      })),
+    ];
+  }, [block, sources, normalVisualCandidates, content.activeSectionGeneratedVisualsById]);
   const visualProjection = JSON.stringify(visualCandidates, (_key, value: unknown) =>
     value && typeof value === 'object' && !Array.isArray(value)
       ? Object.fromEntries(
@@ -753,7 +769,7 @@ function PlaybackPassage({
       : value
   );
   const visuals = useMemo(
-    () => JSON.parse(visualProjection) as readonly PlaybackVisual[],
+    () => JSON.parse(visualProjection) as readonly StageVisual[],
     [visualProjection]
   );
   const [selection, setSelection] = useState<{
@@ -776,19 +792,22 @@ function PlaybackPassage({
     [visuals, content.activeSectionGeneratedVisualsById, block.speech]
   );
   const visualRangeProjection = JSON.stringify(
-    visualCandidates.map((visual, index) =>
-      visualSpeechRange(
-        block,
-        visual,
-        visualCandidates
-          .slice(0, index)
-          .filter(
-            previous =>
-              previous.kind === 'markdown' &&
-              visual.kind === 'markdown' &&
-              previous.markdown === visual.markdown
-          ).length
-      )
+    visualCandidates.map(
+      (visual, index) =>
+        visual.voiceRange ??
+        visual.formulaRange ??
+        visualSpeechRange(
+          block,
+          visual,
+          visualCandidates
+            .slice(0, index)
+            .filter(
+              previous =>
+                previous.kind === 'markdown' &&
+                visual.kind === 'markdown' &&
+                previous.markdown === visual.markdown
+            ).length
+        )
     )
   );
   const visualRanges = useMemo(
@@ -806,6 +825,8 @@ function PlaybackPassage({
       if (
         current &&
         (current.width ||
+          current.aligned ||
+          current.bodyDuration === 0 ||
           !(visualReferences.some(reference => reference.anchors) || visualRanges.some(Boolean)))
       ) {
         if (current !== previousClock) {
@@ -844,6 +865,7 @@ function PlaybackPassage({
         let latestStart = Number.NEGATIVE_INFINITY;
         let earliestStart = Number.POSITIVE_INFINITY;
         spans.forEach((span, index) => {
+          if (visuals[index].referenceFormula) return;
           const start = span ? span.startMs / 1000 : (duration * index) / visuals.length;
           if (latestStart === Number.NEGATIVE_INFINITY && start < earliestStart) {
             earliestStart = start;
@@ -852,6 +874,15 @@ function PlaybackPassage({
           // A later start replaces the earlier scene permanently, even if it ends first.
           if (start <= blockTime && start >= latestStart) {
             latestStart = start;
+            active = index;
+          }
+        });
+        let referenceStart = Number.NEGATIVE_INFINITY;
+        spans.forEach((span, index) => {
+          if (!visuals[index].referenceFormula || !span) return;
+          const start = span.startMs / 1000;
+          if (start <= blockTime && blockTime < span.endMs / 1000 && start >= referenceStart) {
+            referenceStart = start;
             active = index;
           }
         });
@@ -889,8 +920,8 @@ function PlaybackPassage({
     animate,
   };
   return (
-    <div className="lesson-player-stage" data-formula={formulaView.active}>
-      <section className="listening-stage" aria-hidden={formulaView.active}>
+    <div className="lesson-player-stage">
+      <section className="listening-stage">
         <section className="captions" aria-label={t('Sottotitoli')}>
           {(formatted.headings.length ? formatted.headings : [block.heading]).map(
             (heading, index) => (
@@ -898,12 +929,7 @@ function PlaybackPassage({
               <h2 key={`${index}:${heading}`}>{heading}</h2>
             )
           )}
-          <p
-            ref={captions}
-            key={block.id}
-            className="caption-page"
-            aria-hidden={formulaView.active}
-          >
+          <p ref={captions} key={block.id} className="caption-page">
             {formatted.words.map((word, index) => {
               const Tag = captionTag(word);
               return (
@@ -928,7 +954,7 @@ function PlaybackPassage({
             })}
           </p>
         </section>
-        <div ref={sceneFit} className="scene-fit" aria-hidden={formulaView.active}>
+        <div ref={sceneFit} className="scene-fit">
           <section
             ref={sceneCard}
             className="scene-host"
@@ -954,21 +980,6 @@ function PlaybackPassage({
               />
             ) : null}
           </section>
-        </div>
-      </section>
-      <section
-        className="formula-view"
-        aria-hidden={!formulaView.active}
-        aria-label={t('Visualizzazione della lezione')}
-      >
-        <div className="formula-content" key={formulaView.indices.join(':')}>
-          {formulaView.indices.map(index => (
-            <MarkdownRenderer
-              key={index}
-              content={formulas[index].math}
-              isDarkMode={content.isDarkMode}
-            />
-          ))}
         </div>
       </section>
     </div>

@@ -11,6 +11,7 @@ import { getProjectStore } from '../projects/projectStore.js';
 import type { ProjectStore } from '../projects/types.js';
 import {
   prepareLessonPlaybackBlock,
+  prepareVisuals,
   validatePlaybackSceneTypes,
 } from '../services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { readLessonSpeechProvenance } from '../services/lessonSpeechSource.js';
@@ -31,7 +32,8 @@ export const createProductionLessonPlaybackServices = (
     supportsSpokenMath = true,
     supportsFencedCode = true,
     supportsUnlinkedFormulaSymbols = true,
-    synchronizeAnimations = false
+    synchronizeAnimations = false,
+    supportsFormulaSpotlights = true
   ) => {
     const project = await projectStore.loadProjectWithRevision(input.userId, input.projectId);
     const section = project && findProjectLessonSection(project.snapshot, input.sectionId);
@@ -62,18 +64,23 @@ export const createProductionLessonPlaybackServices = (
       supportsUnlinkedFormulaSymbols,
     });
     if (
-      isPlaybackBlockReady(block, ttsClient.resolveVoice(input.model, input.voice), input.model)
+      isPlaybackBlockReady(block, ttsClient.resolveVoice(input.model, input.voice), input.model, {
+        supportsFormulaSpotlights,
+        storedVisuals: lesson.generatedVisuals,
+        sources: lesson.sources,
+      })
     ) {
       return { target: input, block: LessonPlaybackBlockSchema.parse(block) };
     }
     if (!providerEffect) throw new Error('Playback preparation requires durable provider results.');
-    const prepared = await prepareLessonPlaybackBlock({
+    const request = {
       userId: input.userId,
       synchronizeAnimations,
       allowedSceneTypes,
       supportsSpokenMath,
       supportsFencedCode,
       supportsUnlinkedFormulaSymbols,
+      supportsFormulaSpotlights,
       block,
       lesson: {
         ...lesson,
@@ -84,7 +91,22 @@ export const createProductionLessonPlaybackServices = (
       ttsModel: input.model,
       providerEffect,
       signal,
-    });
+    };
+    const recording = block.audio.find(
+      audio =>
+        audio.voice === ttsClient.resolveVoice(input.model, input.voice) &&
+        audio.model === input.model
+    );
+    if (block.prepared && recording) {
+      return {
+        target: input,
+        block: LessonPlaybackBlockSchema.parse({
+          ...block,
+          prepared: await prepareVisuals(request),
+        }),
+      };
+    }
+    const prepared = await prepareLessonPlaybackBlock(request);
     const { bytes, mediaType, ...audio } = prepared.audio;
     const asset = await assets.stage({
       bytes,

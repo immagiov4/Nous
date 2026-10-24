@@ -46,7 +46,8 @@ export interface LessonPlaybackServices {
     supportsSpokenMath?: boolean,
     supportsFencedCode?: boolean,
     supportsUnlinkedFormulaSymbols?: boolean,
-    synchronizeAnimations?: boolean
+    synchronizeAnimations?: boolean,
+    supportsFormulaSpotlights?: boolean
   ) => Promise<LessonPlaybackResult>;
   persistPlayback: (
     context: StepCommitContext<
@@ -89,7 +90,8 @@ export const createLessonPlaybackWorkflow = (
         supportsSpokenMath,
         supportsFencedCode,
         supportsUnlinkedFormulaSymbols,
-        synchronizeAnimations
+        synchronizeAnimations,
+        'formulaSpotlights' in blockSchema.shape.prepared.unwrap().shape
       ),
   });
   const persist = step<

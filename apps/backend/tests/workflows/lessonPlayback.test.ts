@@ -6,6 +6,7 @@ import {
   buildLessonPlaybackCommitPatch,
   createLessonPlaybackPersistence,
 } from '../../src/workflows/lessonPlaybackPersistence.js';
+import { dictatedFormulaSpotlight } from '../helpers/formulaSpotlight';
 import {
   playbackProject,
   playbackResult,
@@ -14,6 +15,49 @@ import {
 } from '../helpers/lessonPlayback.js';
 
 describe('playback block commit', () => {
+  test('saves visual-only formula links while preserving authoritative audio, scene and notes', () => {
+    const section = playbackSection();
+    section.contentBlocks = [{ type: 'markdown', markdown: 'Prima $x+y$ dopo' }];
+    section.content = 'Prima $x+y$ dopo';
+    section.playback = preparedPlayback(section);
+    const saved = section.playback.blocks[0];
+    const spokenMath = [{ formula: '$x+y$', spoken: 'ics più ipsilon' }];
+    section.playback = {
+      ...section.playback,
+      blocks: [{ ...saved, prepared: { motion: [], spokenMath } }],
+    };
+    section.annotations = [{ id: 'note', text: 'Appunto' }];
+    const snapshot = playbackProject(section);
+    const formulaSpotlights = [{ formula: '$x+y$', scene: dictatedFormulaSpotlight }];
+    const result = {
+      ...playbackResult(section),
+      assetOwner: undefined,
+      block: {
+        ...section.playback.blocks[0],
+        prepared: { motion: [], spokenMath, formulaSpotlights },
+      },
+    };
+    const patch = buildLessonPlaybackCommitPatch(
+      { incarnationId: 'incarnation-1', revision: 2, snapshot },
+      result
+    );
+    const next = applyProjectPatch(snapshot, patch ?? {}, snapshot.updatedAt);
+    const updated = next.learningPlan?.sections?.[0];
+    expect(updated?.playback?.blocks[0].prepared).toEqual({
+      motion: [],
+      spokenMath,
+      formulaSpotlights,
+    });
+    expect(updated?.playback?.blocks[0].audio).toEqual(saved.audio);
+    expect(updated?.contentBlocks).toEqual(section.contentBlocks);
+    expect(updated?.annotations).toEqual(section.annotations);
+    expect(
+      buildLessonPlaybackCommitPatch(
+        { incarnationId: 'incarnation-1', revision: 3, snapshot: next },
+        result
+      )
+    ).toBeNull();
+  });
   test('updates one block while preserving a concurrent note, voice and other block', () => {
     const section = playbackSection();
     const result = playbackResult(section);

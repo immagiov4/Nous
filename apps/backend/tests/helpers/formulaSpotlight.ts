@@ -55,3 +55,19 @@ export const formulaSpotlight = {
     },
   ],
 } satisfies LessonScene;
+
+export const dictatedFormulaSpotlight = {
+  type: 'formula-spotlight',
+  title: '',
+  body: '',
+  quote: '',
+  note: '',
+  items: [],
+  groups: [],
+  formula: String.raw`\nousSymbol{x}\nousSymbol{plus}\nousSymbol{y}`,
+  symbols: [
+    { id: 'x', latex: 'x', name: 'Ics', meaning: 'Primo valore', anchor: 'ics' },
+    { id: 'plus', latex: '+', name: 'Più', meaning: 'Somma', anchor: 'più' },
+    { id: 'y', latex: 'y', name: 'Ipsilon', meaning: 'Secondo valore', anchor: 'ipsilon' },
+  ],
+} satisfies LessonScene;

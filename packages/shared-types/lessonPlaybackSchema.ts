@@ -1,6 +1,12 @@
 import * as z from 'zod';
 import {
+  type FormulaSpotlightData,
+  findFormulaSpotlightProblems,
+  formulaSpotlightCovers,
+} from './formulaSpotlight';
+import {
   type LessonPlayback,
+  resolvePlaybackNarration,
   validatePlaybackFencedCode,
   validatePlaybackSpokenMath,
 } from './lessonPlayback';
@@ -40,11 +46,21 @@ export const PlaybackFencedCodeSchema = z.array(
 const createPlaybackPreparedSchema = (
   sceneSchema = LessonSceneSchema,
   spokenMath = false,
-  fencedCode = false
+  fencedCode = false,
+  formulaSpotlights = false
 ) => {
   const schema = z.object({
     fencedCode: PlaybackFencedCodeSchema.optional(),
     spokenMath: PlaybackSpokenMathSchema.optional(),
+    formulaSpotlights: z
+      .array(
+        z.object({
+          formula: z.string().min(1),
+          scene: sceneSchema,
+          sourceFormula: z.string().min(1).optional(),
+        })
+      )
+      .optional(),
     scene: sceneSchema.optional(),
     motion: z.array(
       z.object({
@@ -57,16 +73,21 @@ const createPlaybackPreparedSchema = (
   // Frozen definitions omit unsupported fields while retaining the shared internal type.
   if (!spokenMath)
     return z.object({ scene: schema.shape.scene, motion: schema.shape.motion }) as typeof schema;
-  return fencedCode
-    ? schema
-    : (z.object({
-        spokenMath: schema.shape.spokenMath,
-        scene: schema.shape.scene,
-        motion: schema.shape.motion,
-      }) as typeof schema);
+  if (fencedCode)
+    return formulaSpotlights ? schema : (schema.omit({ formulaSpotlights: true }) as typeof schema);
+  return z.object({
+    spokenMath: schema.shape.spokenMath,
+    scene: schema.shape.scene,
+    motion: schema.shape.motion,
+  }) as typeof schema;
 };
 
-export const PlaybackPreparedSchema = createPlaybackPreparedSchema(LessonSceneSchema, true, true);
+export const PlaybackPreparedSchema = createPlaybackPreparedSchema(
+  LessonSceneSchema,
+  true,
+  true,
+  true
+);
 
 const LegacyPlaybackAudioSchema = z.object({
   model: z.string().min(1),
@@ -88,7 +109,8 @@ export const createLessonPlaybackBlockSchema = (
   spokenMath = false,
   fencedCode = false,
   legacyVisuals = false,
-  wordAlignment = false
+  wordAlignment = false,
+  formulaSpotlights = false
 ) => {
   const spanSchema = z.object({
     fencedCode: z
@@ -128,13 +150,19 @@ export const createLessonPlaybackBlockSchema = (
         ...(legacyVisuals ? [z.object({ kind: z.literal('mermaid'), code: z.string() })] : []),
       ])
     ),
-    prepared: createPlaybackPreparedSchema(sceneSchema, spokenMath, fencedCode).optional(),
+    prepared: createPlaybackPreparedSchema(
+      sceneSchema,
+      spokenMath,
+      fencedCode,
+      formulaSpotlights
+    ).optional(),
     audio: z.array(wordAlignment ? PlaybackAudioSchema : LegacyPlaybackAudioSchema),
   });
 };
 
 export const LessonPlaybackBlockSchema = createLessonPlaybackBlockSchema(
   LessonSceneSchema,
+  true,
   true,
   true,
   true,
@@ -155,6 +183,26 @@ export const isValidLessonPlayback = (value: unknown): value is LessonPlayback =
     for (const block of parsed.data.blocks) {
       if (block.prepared?.fencedCode) validatePlaybackFencedCode(block, block.prepared.fencedCode);
       if (block.prepared?.spokenMath) validatePlaybackSpokenMath(block, block.prepared.spokenMath);
+      const spotlights = block.prepared?.formulaSpotlights;
+      if (
+        spotlights &&
+        ((!spotlights.every(entry => entry.sourceFormula) &&
+          spotlights.length !== block.prepared?.spokenMath?.length) ||
+          spotlights.some((entry, index) => {
+            const spoken = block.prepared?.spokenMath?.[index];
+            const speech = entry.sourceFormula
+              ? resolvePlaybackNarration(block).speech
+              : spoken?.spoken;
+            return (
+              speech === undefined ||
+              (!entry.sourceFormula && entry.formula !== spoken?.formula) ||
+              entry.scene.type !== 'formula-spotlight' ||
+              findFormulaSpotlightProblems(entry.scene, speech).length > 0 ||
+              !formulaSpotlightCovers(entry.scene as FormulaSpotlightData, [entry.formula])
+            );
+          }))
+      )
+        return false;
     }
   } catch {
     return false;

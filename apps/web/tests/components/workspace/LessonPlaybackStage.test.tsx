@@ -6,6 +6,7 @@ import { useLayoutEffect } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { guidedPathScene } from '../../../../backend/tests/helpers/animatedLessonScenes';
 import { discreteMathCases } from '../../../../backend/tests/helpers/discreteMath';
+import { dictatedFormulaSpotlight } from '../../../../backend/tests/helpers/formulaSpotlight';
 import {
   CAPTION_TIMING,
   captionFormat,
@@ -974,224 +975,6 @@ test('a complete spotlight replaces sourced math while text fallback shows the f
   expect(container.querySelector('.scene-host')?.textContent).not.toContain('La probabilità');
   expect(container.querySelector('.scene-host .katex')).not.toBeNull();
 });
-test.each([
-  true,
-  false,
-])('formula dictation replaces captions only on the heard range (aligned: %s)', aligned => {
-  vi.mocked(useShouldAnimate).mockReturnValue(false);
-  const sources = [{ type: 'markdown' as const, markdown: 'Prima $x$ dopo ancora $x$ fine' }];
-  const block = {
-    ...segmentLessonPlayback(sources)[0],
-    prepared: {
-      motion: [],
-      spokenMath: [
-        { formula: '$x$', spoken: 'ics uguale uno' },
-        { formula: '$x$', spoken: 'ics uguale due' },
-      ],
-    },
-  };
-  const frames = new Map<number, FrameRequestCallback>();
-  let frameId = 0;
-  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
-    frames.set(++frameId, callback);
-    return frameId;
-  });
-  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-    width: 100,
-  } as DOMRect);
-  const style = document.createElement('p').style;
-  style.setProperty('--caption-feather', '22px');
-  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
-  let time = 0;
-  const props = {
-    block,
-    content: { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel,
-    duration: 20,
-    time: 0,
-    readTime: () => time,
-    alignment: aligned
-      ? { status: 'aligned' as const, onsets: [0, 3, 4, 5, 9, 10, 13, 14, 15, 19] }
-      : undefined,
-  };
-  const { container, rerender } = render(<LessonPlaybackStage {...props} />);
-  const advance = (next: number) => {
-    time = next;
-    const pending = [...frames.values()];
-    frames.clear();
-    act(() => {
-      for (const callback of pending) callback(0);
-    });
-  };
-  const paragraph = container.querySelector('.caption-page');
-  const visual = container.querySelector('.scene-fit');
-  const before = aligned ? 2.99 : 1.99;
-  const start = aligned ? 3 : 2;
-  const end = aligned ? 9 : 8;
-  advance(before);
-  expect(paragraph).toHaveAttribute('aria-hidden', 'false');
-  expect(visual).toHaveAttribute('aria-hidden', 'false');
-  expect(container.querySelector('.scene-host annotation')?.textContent).toBe('x');
-  advance(start);
-  expect(paragraph).toHaveAttribute('aria-hidden', 'true');
-  expect(visual).toHaveAttribute('aria-hidden', 'true');
-  const formula = container.querySelector('.formula-view');
-  expect(formula?.querySelector('annotation')?.textContent).toBe('x');
-  expect(formula?.textContent).not.toContain('ics');
-  advance(end - 0.01);
-  expect(container.querySelector('.formula-view')).toBe(formula);
-  advance(end);
-  expect(paragraph).toHaveAttribute('aria-hidden', 'false');
-  expect(visual).toHaveAttribute('aria-hidden', 'false');
-  expect(container.querySelector('.scene-host annotation')?.textContent).toBe('x');
-  expect(container.querySelector('.formula-view')).toHaveAttribute('aria-hidden', 'true');
-  advance(aligned ? 13 : 12);
-  expect(container.querySelector('.formula-view annotation')?.textContent).toBe('x');
-  expect(visual).toHaveAttribute('aria-hidden', 'true');
-  advance(0);
-  rerender(<LessonPlaybackStage {...props} block={structuredClone(block)} seekRevision={1} />);
-  advance(0);
-  expect(paragraph).toHaveAttribute('aria-hidden', 'false');
-  expect(visual).toHaveAttribute('aria-hidden', 'false');
-  const words = container.querySelectorAll<HTMLElement>('.caption-word');
-  advance(1);
-  // The ordinary reveal still includes the existing 1.3-second lead after catch-up.
-  expect(Number.parseFloat(words[0].style.getPropertyValue('--reveal-edge'))).toBeCloseTo(117.53);
-  if (!aligned) {
-    advance(2.5);
-    const shownFormula = container.querySelector('.formula-view');
-    const alignment = { status: 'aligned' as const, onsets: [0, 3, 4, 5, 9, 10, 13, 14, 15, 19] };
-    rerender(<LessonPlaybackStage {...props} alignment={alignment} seekRevision={1} />);
-    advance(2.5);
-    expect(container.querySelector('.formula-view')).toBe(shownFormula);
-    expect(visual).toHaveAttribute('aria-hidden', 'true');
-    // A deliberate seek adopts the corrected boundaries instead of retaining presented cues.
-    rerender(<LessonPlaybackStage {...props} alignment={alignment} seekRevision={2} />);
-    advance(2.5);
-    expect(paragraph).toHaveAttribute('aria-hidden', 'false');
-    expect(visual).toHaveAttribute('aria-hidden', 'false');
-    advance(3);
-    expect(container.querySelector('.formula-view annotation')?.textContent).toBe('x');
-  }
-  time = 0;
-  rerender(<LessonPlaybackStage {...props} duration={0} seekRevision={3} />);
-  advance(0);
-  rerender(<LessonPlaybackStage {...props} seekRevision={3} />);
-  advance(start + 0.5);
-  expect(container.querySelector('.formula-view')).toHaveAttribute('aria-hidden', 'false');
-  expect(container.querySelector('.formula-view annotation')?.textContent).toBe('x');
-});
-
-test.each([
-  {
-    markdown: 'Prima $x$ dopo',
-    spokenMath: [{ formula: '$x$', spoken: 'ics' }],
-    time: 4,
-    expected: ['x'],
-    heading: false,
-    onsets: [0, 3, 3],
-  },
-  {
-    markdown: 'Prima $$\nx+y\n$$ dopo',
-    spokenMath: [{ formula: '$$\nx+y\n$$', spoken: 'ics più ipsilon' }],
-    time: 4,
-    expected: ['x+y'],
-    heading: false,
-    estimatedEnd: 8,
-  },
-  {
-    markdown: '# Formula: $x$',
-    spokenMath: [{ formula: '$x$', spoken: 'ics' }],
-    time: 6,
-    expected: ['x'],
-    heading: true,
-  },
-  {
-    markdown: '# Formula: $x$\n\nSpiegazione.',
-    spokenMath: [{ formula: '$x$', spoken: 'ics' }],
-    time: 4,
-    expected: ['x'],
-    heading: true,
-  },
-  {
-    markdown: '$x$,$y$',
-    spokenMath: [
-      { formula: '$x$', spoken: 'ics' },
-      { formula: '$y$', spoken: 'ipsilon' },
-    ],
-    time: 1,
-    expected: ['x', 'y'],
-    heading: false,
-  },
-])('shows every dictated formula in $markdown without requiring body geometry', fixture => {
-  vi.mocked(useShouldAnimate).mockReturnValue(false);
-  const frames = new Map<number, FrameRequestCallback>();
-  let frameId = 0;
-  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
-    frames.set(++frameId, callback);
-    return frameId;
-  });
-  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-    width: 100,
-  } as DOMRect);
-  const style = document.createElement('p').style;
-  style.setProperty('--caption-feather', '22px');
-  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
-  const sources = [{ type: 'markdown' as const, markdown: fixture.markdown }];
-  const block = {
-    ...segmentLessonPlayback(sources)[0],
-    prepared: { motion: [], spokenMath: fixture.spokenMath },
-  };
-  const count = resolvePlaybackNarration(block).speech.trim().split(/\s+/u).length;
-  let time = fixture.time;
-  const props = {
-    block,
-    content: { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel,
-    duration: 10,
-    time: 0,
-    readTime: () => time,
-  };
-  const { container, rerender } = render(<LessonPlaybackStage {...props} />);
-  const flush = () =>
-    act(() => {
-      const pending = [...frames.values()];
-      frames.clear();
-      for (const callback of pending) callback(0);
-    });
-  flush();
-  const annotations = () =>
-    Array.from(
-      container.querySelectorAll('.formula-view annotation'),
-      element => element.textContent
-    );
-  expect(annotations()).toEqual(fixture.expected);
-  expect(container.querySelector('.scene-fit')).toHaveAttribute('aria-hidden', 'true');
-  expect(container.querySelector('.listening-stage')).toHaveAttribute('aria-hidden', 'true');
-  if (fixture.estimatedEnd !== undefined) {
-    time = fixture.estimatedEnd;
-    flush();
-    expect(container.querySelector('.scene-fit')).toHaveAttribute('aria-hidden', 'false');
-    time = fixture.time;
-    flush();
-  }
-  rerender(
-    <LessonPlaybackStage
-      {...props}
-      alignment={{
-        status: 'aligned',
-        onsets: fixture.onsets ?? Array.from({ length: count }, (_, index) => (10 * index) / count),
-      }}
-      seekRevision={1}
-    />
-  );
-  flush();
-  expect(annotations()).toEqual(fixture.expected);
-  time = 10;
-  flush();
-  expect(container.querySelector('.scene-fit')).toHaveAttribute('aria-hidden', 'false');
-});
-
 test('uses the prepared spoken formula in captions while retaining authored math on the visual', () => {
   const markdown = String.raw`Consideriamo $p_\theta(y\mid x)$. La probabilità descrive il risultato.`;
   const sources = [{ type: 'markdown' as const, markdown }];
@@ -2094,4 +1877,183 @@ test('renders LaTeX notation authored as inline code in captions while retaining
   const word = captionFormat(sources[0].markdown).words.find(word => word.text === notation);
   expect(word).toBeDefined();
   expect(sources[0].markdown.slice(word?.source.start, word?.source.end)).toBe(notation);
+});
+
+test.each([
+  true,
+  false,
+])('keeps normal captions and occurrence-local formula highlights on the heard clock (aligned: %s)', aligned => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const style = document.createElement('p').style;
+  style.setProperty('--caption-feather', '22px');
+  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
+  const sources = [{ type: 'markdown' as const, markdown: 'Prima $x+y$ poi $x+y$ fine' }];
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: {
+      motion: [],
+      spokenMath: Array.from({ length: 2 }, () => ({
+        formula: '$x+y$',
+        spoken: 'ics più ipsilon',
+      })),
+      formulaSpotlights: Array.from({ length: 2 }, () => ({
+        formula: '$x+y$',
+        scene: dictatedFormulaSpotlight,
+      })),
+    },
+  };
+  let time = 0;
+  const props = {
+    block,
+    content: { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel,
+    duration: 18,
+    time: 0,
+    readTime: () => time,
+    alignment: aligned
+      ? { status: 'aligned' as const, onsets: [0, 2, 4, 6, 8, 10, 12, 14, 16] }
+      : undefined,
+  };
+  const { container, rerender } = render(<LessonPlaybackStage {...props} />);
+  const flush = () =>
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    });
+  for (const [next, selected] of [
+    [1, null],
+    [2.1, 'x'],
+    [4.1, 'plus'],
+    [6.1, 'y'],
+    [10.1, 'x'],
+    [12.1, 'plus'],
+    [14.1, 'y'],
+    [17, null],
+    [2.1, 'x'],
+  ] as const) {
+    time = next;
+    flush();
+    flush();
+    expect(container.querySelector('.caption-page')?.textContent?.trim()).toBe(
+      'Prima ics più ipsilon poi ics più ipsilon fine'
+    );
+    expect(container.querySelector('.listening-stage')).not.toHaveAttribute('aria-hidden', 'true');
+    expect(container.querySelector('.scene-host .formula-spotlight')).not.toBeNull();
+    const active = container.querySelector('.spotlight-symbols [data-active="true"]');
+    expect(active?.getAttribute('data-formula-symbol') ?? null).toBe(selected);
+  }
+  rerender(<LessonPlaybackStage {...props} duration={0} />);
+  time = 0;
+  flush();
+  rerender(<LessonPlaybackStage {...props} speed={2} />);
+  time = 12.1;
+  flush();
+  flush();
+  expect(
+    container
+      .querySelector('.spotlight-symbols [data-active="true"]')
+      ?.getAttribute('data-formula-symbol')
+  ).toBe('plus');
+});
+
+test.each([
+  true,
+  false,
+])('keeps normal captions for a dictated heading formula without body geometry (aligned: %s)', aligned => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
+  const sources = [{ type: 'markdown' as const, markdown: '# Calcolo $x+y$' }];
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: {
+      motion: [],
+      spokenMath: [{ formula: '$x+y$', spoken: 'ics più ipsilon' }],
+      formulaSpotlights: [{ formula: '$x+y$', scene: dictatedFormulaSpotlight }],
+    },
+  };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={8}
+      time={4.1}
+      alignment={aligned ? { status: 'aligned', onsets: [0, 2, 4, 6] } : undefined}
+    />
+  );
+  act(() => {
+    const pending = [...frames.values()];
+    frames.clear();
+    for (const callback of pending) callback(0);
+  });
+  expect(container.querySelector('h2')?.textContent).toBe('Calcolo ics più ipsilon');
+  expect(
+    container
+      .querySelector('.spotlight-symbols [data-active="true"]')
+      ?.getAttribute('data-formula-symbol')
+  ).toBe('plus');
+});
+
+test('uses saved links for an inherited unlinked spotlight without substituting earlier equations', () => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
+  const sources = [{ type: 'markdown' as const, markdown: '# Tema\n\n$$a=b$$\n\nics più ipsilon' }];
+  const raw = segmentLessonPlayback(sources).at(-1);
+  if (!raw) throw new Error('The final passage must exist');
+  const original = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
+  };
+  const block = {
+    ...raw,
+    prepared: {
+      motion: [],
+      scene: original,
+      formulaSpotlights: [
+        { formula: '$$x+y$$', sourceFormula: original.formula, scene: dictatedFormulaSpotlight },
+      ],
+    },
+  };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={3}
+      time={1.5}
+      alignment={{ status: 'aligned', onsets: [0, 1, 2] }}
+    />
+  );
+  act(() => {
+    const pending = [...frames.values()];
+    frames.clear();
+    for (const callback of pending) callback(0);
+  });
+  expect(
+    container
+      .querySelector('.spotlight-symbols [data-active="true"]')
+      ?.getAttribute('data-formula-symbol')
+  ).toBe('plus');
+  expect(container.querySelector('.caption-page')?.textContent?.trim()).toBe('ics più ipsilon');
+  expect(
+    container.querySelectorAll('.scene-host .katex:not(.spotlight-symbol .katex)')
+  ).toHaveLength(1);
 });

@@ -32,7 +32,12 @@ export const buildLessonPlaybackCommitPatch = (
       message: 'The lesson changed during playback preparation.',
     });
   }
-  if (!result.assetOwner) return null;
+  const previous = playback.blocks.find(saved => saved.id === block.id);
+  const formulaSpotlights = block.prepared?.formulaSpotlights;
+  const hasNewFormulaSpotlights =
+    formulaSpotlights &&
+    JSON.stringify(previous?.prepared?.formulaSpotlights) !== JSON.stringify(formulaSpotlights);
+  if (!result.assetOwner && !hasNewFormulaSpotlights) return null;
   return {
     section: {
       sectionId: target.sectionId,
@@ -43,16 +48,20 @@ export const buildLessonPlaybackCommitPatch = (
             ? saved
             : {
                 ...saved,
-                prepared: saved.prepared ?? block.prepared,
-                audio: [
-                  ...saved.audio.filter(
-                    audio =>
-                      !block.audio.some(
-                        next => next.voice === audio.voice && next.model === audio.model
-                      )
-                  ),
-                  ...block.audio,
-                ],
+                prepared: saved.prepared
+                  ? { ...saved.prepared, ...(formulaSpotlights ? { formulaSpotlights } : {}) }
+                  : block.prepared,
+                audio: result.assetOwner
+                  ? [
+                      ...saved.audio.filter(
+                        audio =>
+                          !block.audio.some(
+                            next => next.voice === audio.voice && next.model === audio.model
+                          )
+                      ),
+                      ...block.audio,
+                    ]
+                  : saved.audio,
               }
         ),
       },

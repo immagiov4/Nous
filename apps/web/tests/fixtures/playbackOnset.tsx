@@ -3,19 +3,21 @@ import type { LessonScene } from '@shared/lessonScene';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { guidedPathScene } from '../../../backend/tests/helpers/animatedLessonScenes';
-import { formulaSpotlight } from '../../../backend/tests/helpers/formulaSpotlight';
+import {
+  dictatedFormulaSpotlight,
+  formulaSpotlight,
+} from '../../../backend/tests/helpers/formulaSpotlight';
 import LessonPlaybackStage from '../../components/workspace/playback/LessonPlaybackStage';
 import type { WorkspaceReaderContentModel } from '../../components/workspace/shell/types';
 
 const mode = new URLSearchParams(location.search).get('mode');
-const wideFormula = `$\\frac{${Array.from({ length: 24 }, (_, index) => `x_{${index + 1}}`).join('+')}}{y}$`;
 // Monospace words give each synthetic recording an exact, uniform word clock.
 const sources = [
   {
     type: 'markdown' as const,
     markdown:
-      mode === 'wide-formula'
-        ? `Uno ${wideFormula} Uno`
+      mode === 'dictation'
+        ? 'Uno $x+y$ Uno'
         : mode === 'cards'
           ? 'Uno $a$ $b$ Uno Uno Uno Uno Uno $a$ Uno'
           : 'Uno Due Tre',
@@ -57,8 +59,12 @@ const displayedScene =
         }
       : scene;
 const prepared =
-  mode === 'wide-formula'
-    ? { motion: [], spokenMath: [{ formula: wideFormula, spoken: 'Due' }] }
+  mode === 'dictation'
+    ? {
+        motion: [],
+        spokenMath: [{ formula: '$x+y$', spoken: 'ics più ipsilon' }],
+        scene: dictatedFormulaSpotlight,
+      }
     : mode === 'cards'
       ? {
           motion: [],
@@ -102,6 +108,9 @@ flushSync(() =>
         }}
         content={content}
         duration={mode === 'cards' ? 10 : 6}
+        alignment={
+          mode === 'dictation' ? { status: 'aligned', onsets: [0, 1, 2, 3, 5] } : undefined
+        }
         time={0}
         readTime={() => time}
       />

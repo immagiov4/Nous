@@ -12,7 +12,16 @@ const text = z.string().min(1).regex(/\S/u);
 export const FormulaSpotlightDataSchema = z.object({
   formula: text,
   symbols: z
-    .array(z.object({ id: symbolId, latex: text, name: text, meaning: text, anchor: z.string() }))
+    .array(
+      z.object({
+        id: symbolId,
+        latex: text,
+        name: text,
+        meaning: text,
+        anchor: z.string(),
+        anchorOccurrence: z.number().int().nonnegative().optional(),
+      })
+    )
     .min(1),
 });
 export type FormulaSpotlightData = Readonly<z.infer<typeof FormulaSpotlightDataSchema>>;
@@ -37,6 +46,10 @@ function compileFormula(scene: FormulaSpotlightData, highlighted: boolean): stri
     throw new Error('Every defined symbol must occur in the formula.');
   return latex;
 }
+
+/** Resolve renderer references to mathematical notation for visual-only preparation. */
+export const getFormulaSpotlightLatex = (scene: FormulaSpotlightData): string =>
+  compileFormula(scene, false);
 
 // Reuse the app's HTML parser and KaTeX's TeX atom classes, including macro-expanded output.
 const mathMarkup = unified().use(rehypeRaw);
@@ -170,7 +183,10 @@ export function findFormulaSpotlightProblems(value: unknown, source?: string): s
     );
   }
   const anchored = parsed.data.symbols.filter(symbol => symbol.anchor);
-  if (new Set(anchored.map(symbol => symbol.anchor)).size !== anchored.length) {
+  if (
+    new Set(anchored.map(symbol => JSON.stringify([symbol.anchor, symbol.anchorOccurrence])))
+      .size !== anchored.length
+  ) {
     problems.push('Every formula symbol needs its own distinct narration anchor.');
   }
   if (source !== undefined) {
@@ -189,9 +205,28 @@ export function resolveFormulaReferences(scene: FormulaSpotlightData, speech: st
     symbol.anchor ? [{ ...symbol, index }] : []
   );
   if (!linked.length) return [];
-  cueTimes(speech, linked);
+  if (linked.every(symbol => symbol.anchorOccurrence === undefined)) cueTimes(speech, linked);
+  let previous = -1;
+  let previousAnchor: string | undefined;
   return linked.map(symbol => {
-    const start = speech.indexOf(symbol.anchor);
+    let start = speech.indexOf(symbol.anchor);
+    for (
+      let occurrence = 0;
+      occurrence < (symbol.anchorOccurrence ?? 0) && start >= 0;
+      occurrence++
+    ) {
+      start = speech.indexOf(symbol.anchor, start + 1);
+    }
+    if (
+      start < 0 ||
+      start < previous ||
+      (start === previous && symbol.anchor !== previousAnchor) ||
+      (symbol.anchorOccurrence === undefined && speech.includes(symbol.anchor, start + 1))
+    ) {
+      throw new Error('Formula anchors must identify exact, ordered narration occurrences.');
+    }
+    previous = start;
+    previousAnchor = symbol.anchor;
     return { index: symbol.index, anchor: symbol.anchor, start, end: start + symbol.anchor.length };
   });
 }

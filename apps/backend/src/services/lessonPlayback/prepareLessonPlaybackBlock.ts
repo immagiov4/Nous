@@ -6,6 +6,7 @@ import {
   getPlaybackFormulaSources,
   type LessonPlaybackBlock,
   motionTargets,
+  needsPlaybackFormulaSpotlights,
   type PlaybackContentBlock,
   type PlaybackMotionEvent,
 } from '@shared/lessonPlayback';
@@ -40,12 +41,15 @@ import {
   preparePlaybackAudio,
   validatePlaybackText,
 } from './playbackAudio.js';
+import { preparePlaybackFormulaSpotlights } from './playbackFormulaSpotlights.js';
 import { MAX_PLAYBACK_PREPARATION_ATTEMPTS, planPlaybackMotion } from './playbackMotion.js';
 
 interface PrepareLessonPlaybackBlockInput {
   readonly userId: string;
   readonly synchronizeAnimations?: boolean;
   readonly supportsSpokenMath?: boolean;
+  readonly supportsFormulaSpotlights?: boolean;
+  readonly spokenMath?: NonNullable<LessonPlaybackBlock['prepared']>['spokenMath'];
   readonly supportsFencedCode?: boolean;
   readonly supportsUnlinkedFormulaSymbols?: boolean;
   readonly allowedSceneTypes?: readonly LessonSceneType[];
@@ -205,6 +209,7 @@ export const prepareLessonPlaybackBlock = async (
   const request = {
     ...input,
     block: speech.block,
+    spokenMath: narration.spokenMath,
   };
   validatePlaybackText(request.block.speech);
   // Audio does not depend on the scene, so both are prepared at the same time. Both settle
@@ -245,7 +250,7 @@ const prepareAnimationCues = async (
   return resolved.scene;
 };
 
-const prepareVisuals = async (
+export const prepareVisuals = async (
   input: PrepareLessonPlaybackBlockInput
 ): Promise<PreparedLessonPlaybackBlock['prepared']> => {
   const { block, config, signal } = input;
@@ -317,6 +322,27 @@ const prepareVisuals = async (
       // A competing workflow attempt can commit a different authoritative scene.
       await Promise.allSettled(motions.values());
     }
+  }
+  const candidate = {
+    ...block,
+    prepared: {
+      ...prepared,
+      ...(input.spokenMath ? { spokenMath: input.spokenMath } : {}),
+    },
+  };
+  if (
+    input.supportsFormulaSpotlights !== false &&
+    needsPlaybackFormulaSpotlights(candidate, input.lesson.generatedVisuals, input.lesson.sources)
+  ) {
+    return {
+      ...candidate.prepared,
+      formulaSpotlights: await preparePlaybackFormulaSpotlights({
+        ...input,
+        block: candidate,
+        storedVisuals: input.lesson.generatedVisuals,
+        sources: input.lesson.sources,
+      }),
+    };
   }
   return prepared;
 };

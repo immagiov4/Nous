@@ -7,7 +7,49 @@ test('accepts a complete formula with named symbols and exact spoken anchors', (
   expect(findLessonSceneProblems(formulaSpotlight, FORMULA_SPOTLIGHT_SPEECH)).toEqual([]);
 });
 
-import { renderSpotlightFormula, renderSpotlightSymbol } from '@shared/formulaSpotlight';
+import {
+  renderSpotlightFormula,
+  renderSpotlightSymbol,
+  resolveFormulaReferences,
+} from '@shared/formulaSpotlight';
+
+test('binds repeated spoken names to explicit ordered occurrences without guessing', () => {
+  const scene = {
+    ...formulaSpotlight,
+    formula: String.raw`\nousSymbol{first}+\nousSymbol{second}`,
+    symbols: [0, 1].map((anchorOccurrence, index) => ({
+      id: index ? 'second' : 'first',
+      latex: 'x',
+      name: 'Ics',
+      meaning: 'Valore',
+      anchor: 'ics',
+      anchorOccurrence,
+    })),
+  };
+  expect(findLessonSceneProblems(scene, 'ics più ics')).toEqual([]);
+  expect(resolveFormulaReferences(scene, 'ics più ics')).toEqual([
+    { index: 0, anchor: 'ics', start: 0, end: 3 },
+    { index: 1, anchor: 'ics', start: 8, end: 11 },
+  ]);
+  expect(() =>
+    resolveFormulaReferences(
+      {
+        ...scene,
+        symbols: scene.symbols.map(symbol => ({ ...symbol, anchorOccurrence: undefined })),
+      },
+      'ics più ics'
+    )
+  ).toThrow();
+  expect(() =>
+    resolveFormulaReferences({ ...scene, symbols: [...scene.symbols].reverse() }, 'ics più ics')
+  ).toThrow();
+  expect(() =>
+    resolveFormulaReferences(
+      { ...scene, symbols: [{ ...scene.symbols[0], anchorOccurrence: 2 }] },
+      'ics più ics'
+    )
+  ).toThrow();
+});
 
 test.each([
   { formula: '\\nousSymbol{missing}' },

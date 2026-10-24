@@ -93,65 +93,6 @@ for (const viewport of formulaViewports) {
   });
 }
 
-test.each(
-  formulaViewports
-)('shows static formula captions and restores the visual at $width px', async viewport => {
-  const page = await browser.newPage({ viewport, reducedMotion: 'reduce' });
-  try {
-    await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=cards`);
-    await page.locator('.scene-host annotation').waitFor({ state: 'attached' });
-    const seek = async (time: number) => {
-      await page.evaluate(async time => {
-        (window as unknown as { setPlaybackTime: (time: number) => void }).setPlaybackTime(time);
-        await new Promise(requestAnimationFrame);
-        await new Promise(requestAnimationFrame);
-      }, time);
-    };
-    await seek(0.5);
-    expect(await page.locator('.scene-fit').isVisible()).toBe(true);
-    await seek(1.5);
-    const formula = page.locator('.formula-view .katex');
-    expect(await formula.isVisible()).toBe(true);
-    expect(
-      await formula.evaluate(element => {
-        const bounds = element.getBoundingClientRect();
-        const target = document.elementFromPoint(
-          bounds.x + bounds.width / 2,
-          bounds.y + bounds.height / 2
-        );
-        return Boolean(target?.closest('.formula-view'));
-      })
-    ).toBe(true);
-    expect(await formula.locator('annotation').textContent()).toBe('a');
-    expect(await page.locator('.caption-page').isVisible()).toBe(false);
-    expect(await page.locator('.scene-fit').isVisible()).toBe(false);
-    const markup = await formula.innerHTML();
-    await seek(1.8);
-    expect(await formula.innerHTML()).toBe(markup);
-    const bounds = await formula.boundingBox();
-    if (!bounds) throw new Error('Spoken formula must have visible geometry');
-    expect(bounds.x).toBeGreaterThanOrEqual(0);
-    expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width);
-    const stage = await page.locator('.lesson-player-stage').boundingBox();
-    if (!stage) throw new Error('Playback stage must have visible geometry');
-    expect(Math.abs(bounds.x + bounds.width / 2 - (stage.x + stage.width / 2))).toBeLessThanOrEqual(
-      1
-    );
-    expect(
-      Math.abs(bounds.y + bounds.height / 2 - (stage.y + stage.height / 2))
-    ).toBeLessThanOrEqual(1);
-    expect(
-      await formula.evaluate(element => Number.parseFloat(getComputedStyle(element).fontSize))
-    ).toBeGreaterThanOrEqual(viewport.width === 390 ? 48 : 58);
-    await seek(3.1);
-    expect(await page.locator('.scene-fit').isVisible()).toBe(true);
-    expect(await page.locator('.caption-page').getAttribute('aria-hidden')).toBe('false');
-    expect(await page.locator('.scene-host annotation').textContent()).toBe('b');
-  } finally {
-    await page.close();
-  }
-});
-
 test('anchors the caption block while the presented scene grows and shrinks', async () => {
   const page = await browser.newPage({
     viewport: { width: 1440, height: 900 },
@@ -185,88 +126,6 @@ test('anchors the caption block while the presented scene grows and shrinks', as
       Math.max(...positions.map(position => position.paragraph)) -
         Math.min(...positions.map(position => position.paragraph))
     ).toBeLessThanOrEqual(1);
-  } finally {
-    await page.close();
-  }
-});
-
-test('crossfades the full-stage formula without moving the normal reading zone', async () => {
-  const page = await browser.newPage({
-    viewport: { width: 1440, height: 900 },
-    reducedMotion: 'no-preference',
-  });
-  try {
-    await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=cards`);
-    await page.locator('.caption-word').first().waitFor({ state: 'attached' });
-    const result = await page.evaluate(async () => {
-      const controls = window as unknown as { setPlaybackTime: (time: number) => void };
-      const formula = document.querySelector<HTMLElement>('.formula-view');
-      const captions = document.querySelector('.captions');
-      const paragraph = document.querySelector('.caption-page');
-      if (!formula || !captions || !paragraph) throw new Error('Playback views must be mounted');
-      const tops = [captions.getBoundingClientRect().top];
-      const opacities: number[] = [];
-      const durations: number[] = [];
-      for (const time of [1.5, 3.1]) {
-        controls.setPlaybackTime(time);
-        await new Promise(requestAnimationFrame);
-        await new Promise(requestAnimationFrame);
-        const transition = formula
-          .getAnimations()
-          .find(animation => (animation as CSSTransition).transitionProperty === 'opacity');
-        if (!transition?.effect) throw new Error('Formula must have an opacity transition');
-        transition.pause();
-        const duration = Number(transition.effect.getComputedTiming().duration);
-        durations.push(duration);
-        transition.currentTime = duration / 2;
-        opacities.push(Number(getComputedStyle(formula).opacity));
-        tops.push(captions.getBoundingClientRect().top);
-        transition.finish();
-      }
-      return {
-        tops,
-        opacities,
-        durations,
-        captionFade: Number.parseFloat(getComputedStyle(paragraph).animationDuration) * 1000,
-        formulaRetained: formula.querySelector('annotation')?.textContent,
-      };
-    });
-    expect(result.durations).toEqual([result.captionFade, result.captionFade]);
-    for (const opacity of result.opacities) {
-      expect(opacity).toBeGreaterThan(0);
-      expect(opacity).toBeLessThan(1);
-    }
-    expect(Math.max(...result.tops) - Math.min(...result.tops)).toBeLessThanOrEqual(1);
-    expect(result.formulaRetained).toBe('a');
-  } finally {
-    await page.close();
-  }
-});
-
-test('lets a phone listener pan a wide inline formula', async () => {
-  const page = await browser.newPage({
-    viewport: { width: 390, height: 844 },
-    reducedMotion: 'reduce',
-  });
-  try {
-    await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=wide-formula`);
-    await page.locator('.caption-word').first().waitFor({ state: 'attached' });
-    await page.evaluate(async () => {
-      (window as unknown as { setPlaybackTime: (time: number) => void }).setPlaybackTime(3);
-      await new Promise(requestAnimationFrame);
-      await new Promise(requestAnimationFrame);
-    });
-    const formula = page.locator('.formula-content');
-    const bounds = await formula.boundingBox();
-    if (!bounds) throw new Error('Formula viewport must be visible');
-    expect(await formula.evaluate(element => element.scrollWidth)).toBeGreaterThan(bounds.width);
-    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-    await page.mouse.wheel(600, 0);
-    await page.evaluate(async () => {
-      await new Promise(requestAnimationFrame);
-      await new Promise(requestAnimationFrame);
-    });
-    expect(await formula.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
   } finally {
     await page.close();
   }
@@ -802,6 +661,48 @@ test.each([768, 1440])('retains complete scene fitting at %s px', async width =>
       expect(bounds.left).toBeGreaterThanOrEqual(-1);
       expect(bounds.right).toBeLessThanOrEqual(width + 1);
     }
+  } finally {
+    await page.close();
+  }
+});
+
+test.each(
+  formulaViewports
+)('keeps the highlighting widget visible during formula dictation at $width px', async viewport => {
+  const page = await browser.newPage({ viewport });
+  try {
+    await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=dictation`);
+    await page.locator('.formula-spotlight').waitFor();
+    const positions: number[] = [];
+    for (const [time, symbol] of [
+      [0.5, null],
+      [1.5, 'x'],
+      [2.5, 'plus'],
+      [3.5, 'y'],
+      [5.5, null],
+      [1.5, 'x'],
+    ] as const) {
+      await page.evaluate(async time => {
+        (window as unknown as { setPlaybackTime: (time: number) => void }).setPlaybackTime(time);
+        await new Promise(requestAnimationFrame);
+        await new Promise(requestAnimationFrame);
+      }, time);
+      expect(await page.locator('.formula-spotlight').isVisible()).toBe(true);
+      expect(await page.locator('.scene-fit').isVisible()).toBe(true);
+      expect(await page.locator('.listening-stage').getAttribute('aria-hidden')).not.toBe('true');
+      const active = page.locator('.spotlight-symbols [data-active="true"]');
+      expect((await active.count()) ? await active.getAttribute('data-formula-symbol') : null).toBe(
+        symbol
+      );
+      if (viewport.width === 1440) {
+        expect(await page.locator('.caption-page').isVisible()).toBe(true);
+        const bounds = await page.locator('.captions').boundingBox();
+        if (!bounds) throw new Error('Captions must be visible');
+        positions.push(bounds.y);
+      }
+    }
+    if (positions.length)
+      expect(Math.max(...positions) - Math.min(...positions)).toBeLessThanOrEqual(1);
   } finally {
     await page.close();
   }

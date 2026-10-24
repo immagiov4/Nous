@@ -91,6 +91,7 @@ const input = (
   generatedVisuals: readonly ProjectLessonVisual[] = []
 ) => ({
   userId: 'speech-test-user',
+  supportsFormulaSpotlights: false,
   block: block(visuals),
   lesson: { title: 'Architettura', description: 'Sistemi', generatedVisuals },
   voice: 'Kore',
@@ -491,7 +492,33 @@ test('keeps source visuals and bounded diagnostics after scene validation failur
 });
 
 import { getPlaybackFormulaMarkdown, getPlaybackMathMarkdown } from '@shared/lessonPlayback';
-import { FORMULA_SPOTLIGHT_MARKDOWN, formulaSpotlight } from '../../helpers/formulaSpotlight';
+import {
+  dictatedFormulaSpotlight,
+  FORMULA_SPOTLIGHT_MARKDOWN,
+  formulaSpotlight,
+} from '../../helpers/formulaSpotlight';
+
+test('prepares occurrence-local highlighting for fresh formula narration when the passage scene is text', async () => {
+  const raw = segmentLessonPlayback([{ type: 'markdown', markdown: 'Prima $x+y$ dopo' }])[0];
+  const spokenMath = [{ formula: '$x+y$', spoken: 'ics più ipsilon' }];
+  structured.mockResolvedValue({ spokenMath });
+  sceneGeneration
+    .mockResolvedValueOnce({ kind: 'text' })
+    .mockResolvedValue({ kind: 'scene', scene: dictatedFormulaSpotlight });
+  const result = await prepareLessonPlaybackBlock({
+    ...input(),
+    block: raw,
+    supportsFormulaSpotlights: true,
+  });
+  expect(result.prepared).toEqual({
+    motion: [],
+    spokenMath,
+    formulaSpotlights: [{ formula: '$x+y$', scene: dictatedFormulaSpotlight }],
+  });
+  expect(audio).toHaveBeenCalledWith(
+    expect.objectContaining({ text: 'Prima ics più ipsilon dopo' })
+  );
+});
 
 test('preparation asks the model to choose a form for the complete math passage', async () => {
   const mathBlock = segmentLessonPlayback([
