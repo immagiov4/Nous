@@ -177,6 +177,7 @@ test.each([
   'missing-image',
   'broken-image',
 ] as const)('prepares a real visual for %s and keeps the pending panel empty', async kind => {
+  vi.mocked(prepareLessonPlaybackVisual).mockReset();
   const speech = 'Il client trova il controller tramite DNS e invia le credenziali al controller.';
   const scene: LessonScene = {
     type: 'steps',
@@ -238,11 +239,14 @@ test.each([
   if (kind === 'broken-image') fireEvent.error(screen.getByRole('img', { name: 'Dominio' }));
   expect(container.querySelector('.scene-host')?.textContent).toBe('');
   expect(container.querySelector('.captions')?.textContent).toContain(speech);
-  expect(prepareLessonPlaybackVisual).toHaveBeenCalledWith({
-    projectId: 'project',
-    sectionId: 'section',
-    lessonKey: undefined,
-    block: expect.objectContaining({ speech }),
+  await waitFor(() => {
+    expect(prepareLessonPlaybackVisual).toHaveBeenCalledTimes(1);
+    expect(prepareLessonPlaybackVisual).toHaveBeenCalledWith({
+      projectId: 'project',
+      sectionId: 'section',
+      lessonKey: undefined,
+      block: expect.objectContaining({ speech }),
+    });
   });
   await act(async () => complete({ scene, motion: [] }));
   await waitFor(() =>
