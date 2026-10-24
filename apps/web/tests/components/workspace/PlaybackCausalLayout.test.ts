@@ -435,6 +435,65 @@ async function openCard(kind: string) {
   await page.waitForFunction(iconsLoaded);
   return page;
 }
+
+for (const width of [412, 1440]) {
+  for (const kind of ['prices', 'dense', 'heading', 'setext']) {
+    test(`card followup: ${kind} at ${width}px`, async () => {
+      const page = await browser.newPage({
+        viewport: { width, height: 1000 },
+        reducedMotion: 'reduce',
+      });
+      try {
+        const query = ['heading', 'setext'].includes(kind)
+          ? `missing&historical&heading=${kind}`
+          : kind;
+        await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=${query}`);
+        await page.locator('.scene-host h2').waitFor();
+        await page.evaluate(() => document.fonts.ready);
+        if (kind === 'prices') {
+          expect(await page.locator('.scene-host h2').textContent()).toBe(
+            '$5 today and $10 tomorrow'
+          );
+          expect(await page.locator('.scene-host').innerText()).toContain(
+            'Budget: $15 now and $20 later.'
+          );
+          expect(await page.locator('.scene-host').innerText()).toContain(
+            '$25 today and $30 tomorrow'
+          );
+          expect(await page.locator('.scene-host .katex math').count()).toBe(2);
+        } else if (['heading', 'setext'].includes(kind)) {
+          expect(await page.locator('.scene-host h2').textContent()).toBe('Il contesto sociale');
+          expect(
+            (await page.locator('.scene-host blockquote').innerText()).replace(/^“\s*/u, '').trim()
+          ).toBe('In una situazione ambigua, le persone osservano gli altri prima di intervenire.');
+        } else {
+          await page.locator('.data-chart svg').waitFor();
+          const labels = await page
+            .locator('[aria-label="y-axis tick label"] text')
+            .evaluateAll(nodes =>
+              nodes.map(node => {
+                const box = node.getBoundingClientRect();
+                return {
+                  text: [...node.querySelectorAll('tspan')].map(line => line.textContent).join(' '),
+                  top: box.top,
+                  bottom: box.bottom,
+                };
+              })
+            );
+          expect(labels.map(label => label.text)).toEqual(
+            Array.from({ length: 6 }, (_, index) => `Persona del gruppo numero ${index + 1}`)
+          );
+          for (let index = 1; index < labels.length; index++) {
+            expect(labels[index].top).toBeGreaterThan(labels[index - 1].bottom);
+          }
+        }
+        await evidence(page, `${kind}-${width}`);
+      } finally {
+        await page.close();
+      }
+    });
+  }
+}
 async function evidence(page: Page, name: string) {
   const directory = process.env.PHONE_VISUAL_EVIDENCE;
   if (!directory) return;

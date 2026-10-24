@@ -8,6 +8,7 @@ import {
   getPlaybackFormulaSources,
   getPlaybackMathMarkdown,
   type LessonPlaybackBlock,
+  type PlaybackContentBlock,
   type PlaybackRange,
   type PlaybackVisual,
   playbackNonProseVisuals,
@@ -25,6 +26,8 @@ import {
   useRef,
   useState,
 } from 'react';
+import remarkParse from 'remark-parse';
+import { unified } from 'unified';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
@@ -73,6 +76,31 @@ interface CaptionClock {
   headingDuration: number;
   seekRevision: number;
   read: () => { blockTime: number; bodyTime: number; revealTime: number };
+}
+
+const passageParser = unified().use(remarkParse);
+
+function passageBody(block: LessonPlaybackBlock, sources: readonly PlaybackContentBlock[]) {
+  const headings = sources.map(source =>
+    source.type === 'markdown'
+      ? passageParser.parse(source.markdown).children.filter(node => node.type === 'heading')
+      : []
+  );
+  const body = block.spans.find(
+    span =>
+      block.speech.slice(span.speech.start, span.speech.end).trim() &&
+      !headings[span.sourceBlockIndex].some(node => {
+        const start = node.position?.start.offset;
+        const end = node.position?.end.offset;
+        return (
+          start !== undefined &&
+          end !== undefined &&
+          span.source.start >= start &&
+          span.source.start < end
+        );
+      })
+  );
+  return block.speech.slice(body?.speech.start ?? 0);
 }
 
 function hasMissingMotionTargets(
@@ -669,7 +697,10 @@ function PlaybackPassage({
     if (block.prepared?.scene) return [{ kind: 'scene' as const, scene: block.prepared.scene }];
     if (formulas) return [{ kind: 'markdown' as const, markdown: formulas }];
     return [
-      { kind: 'scene' as const, scene: createPassageFallbackScene(block.speech, block.heading) },
+      {
+        kind: 'scene' as const,
+        scene: createPassageFallbackScene(passageBody(block, sources), block.heading),
+      },
     ];
   }, [
     block,
