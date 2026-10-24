@@ -45,6 +45,7 @@ export interface ChatArtifactRegenerationLifecycle {
 }
 
 interface ChatArtifactRendererProps {
+  readonly artifactSourceIds?: ReadonlySet<string>;
   readonly onOpenArtifactSource?: (artifactId: string) => void;
   readonly actionFeedbackOverride?: ArtifactActionFeedback;
   readonly artifacts: LearningArtifactRenderPayload[];
@@ -487,6 +488,7 @@ const ArtifactOverlay = ({
 };
 
 const ChatArtifactRenderer = ({
+  artifactSourceIds,
   actionFeedbackOverride,
   artifacts,
   className = 'mt-3 grid gap-2 sm:grid-cols-2',
@@ -662,7 +664,11 @@ const ChatArtifactRenderer = ({
       artifact={openArtifact}
       isDarkMode={isDarkMode}
       onClose={() => setOpenArtifactId(null)}
-      onOpenArtifactSource={onOpenArtifactSource}
+      onOpenArtifactSource={
+        artifactSourceIds && !artifactSourceIds.has(openArtifact.summary.id)
+          ? undefined
+          : onOpenArtifactSource
+      }
       onDiscardArtifact={handleDiscardFromOverlay}
       onRegenerateArtifact={handleRegenerateFromOverlay}
       onReplaceArtifact={handleReplaceFromOverlay}

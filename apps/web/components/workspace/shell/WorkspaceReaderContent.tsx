@@ -46,6 +46,7 @@ import {
 } from '../../../utils/learning/artifacts.ts';
 import {
   materializeSectionAnnotationMarks,
+  resolveSectionAnnotationSegmentEntries,
   type SectionAnnotationBoundaryContext,
 } from '../../../utils/learning/sectionAnnotationAnchors.ts';
 import {
@@ -1101,6 +1102,24 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
     () => lessonAnnotations.filter(annotation => annotation.note.trim().length > 0),
     [lessonAnnotations]
   );
+  const sourceAnnotationByArtifactId = useMemo(
+    () =>
+      new Map(
+        resolveSectionAnnotationSegmentEntries(
+          renderedSectionContent || '',
+          sectionAnnotations || []
+        )
+          .filter(entry => entry.segments.length > 0)
+          .flatMap(({ annotation }) =>
+            (annotation.artifactRefs || []).map(ref => [ref.artifactId, annotation.id] as const)
+          )
+      ),
+    [renderedSectionContent, sectionAnnotations]
+  );
+  const artifactSourceIds = useMemo(
+    () => new Set(sourceAnnotationByArtifactId.keys()),
+    [sourceAnnotationByArtifactId]
+  );
   const unansweredQuestionCount = useMemo(
     () => effectiveQuiz.filter((_, index) => (quizAnswers[index] ?? -1) < 0).length,
     [effectiveQuiz, quizAnswers]
@@ -1405,17 +1424,16 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                     {visibleArtifactPayloads.length > 0 ? (
                       <ChatArtifactRenderer
                         artifacts={visibleArtifactPayloads}
+                        artifactSourceIds={artifactSourceIds}
                         onOpenArtifactSource={artifactId => {
-                          const source = sectionAnnotations?.find(annotation =>
-                            annotation.artifactRefs?.some(ref => ref.artifactId === artifactId)
-                          );
-                          const passage =
-                            source &&
-                            (resolveActiveSectionAnnotationHighlightTarget(source.id)?.element ||
+                          const sourceId = sourceAnnotationByArtifactId.get(artifactId);
+                          const passage = sourceId
+                            ? resolveActiveSectionAnnotationHighlightTarget(sourceId)?.element ||
                               contentRef.current?.querySelector(
-                                `mark[data-nous-annotation-id="${CSS.escape(source.id)}"]`
-                              ));
-                          (passage || contentRef.current)?.scrollIntoView({ block: 'center' });
+                                `mark[data-nous-annotation-id="${CSS.escape(sourceId)}"]`
+                              )
+                            : undefined;
+                          passage?.scrollIntoView({ block: 'center' });
                         }}
                         className="grid gap-2 sm:grid-cols-2"
                         isDarkMode={isDarkMode}

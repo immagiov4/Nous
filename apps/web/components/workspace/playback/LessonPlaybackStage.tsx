@@ -381,6 +381,7 @@ function PlaybackVisualContent({
 }
 
 function PlaybackPassage({
+  lessonKey = '',
   block,
   time,
   duration,
@@ -390,6 +391,7 @@ function PlaybackPassage({
   alignment,
   seekRevision = 0,
 }: Readonly<{
+  lessonKey?: string;
   block: LessonPlaybackBlock;
   time: number;
   duration: number;
@@ -861,6 +863,13 @@ function PlaybackPassage({
           <SaveablePlaybackVisual
             cardRef={sceneCard}
             scene={selectedScene}
+            visualIndex={visualIndex}
+            playback={{
+              lessonKey,
+              readTime: () => latest.current.readTime?.() ?? latest.current.time,
+              duration,
+              alignment,
+            }}
             block={block}
             content={content}
           >

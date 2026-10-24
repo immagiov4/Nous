@@ -1,6 +1,7 @@
 import { buildLearningArtifactId } from '@shared/learningArtifact';
 import type { LessonPlaybackBlock } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
+import type { PlaybackWordAlignment } from '@shared/playbackWordTiming';
 import { Bookmark, Trash2 } from 'lucide-react';
 import { type ReactNode, type RefObject, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
@@ -28,12 +29,21 @@ export function SaveablePlaybackVisual({
   block,
   content,
   cardRef,
+  visualIndex,
+  playback,
 }: Readonly<{
   children: ReactNode;
   scene: LessonScene | null;
   block: LessonPlaybackBlock;
   content: WorkspaceReaderContentModel;
   cardRef: RefObject<HTMLElement | null>;
+  visualIndex: number;
+  playback: {
+    lessonKey: string;
+    readTime: () => number;
+    duration: number;
+    alignment?: PlaybackWordAlignment;
+  };
 }>) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -42,17 +52,20 @@ export function SaveablePlaybackVisual({
   const pending = useRef(false);
   const [error, setError] = useState<string>();
   const sceneKey = useMemo(() => sceneIdentity(scene), [scene]);
+  // Identical scenes in different playback occurrences remain independent artifacts.
+  const sourceIdPrefix = `visual-draft-playback-${encodeURIComponent(playback.lessonKey)}-${encodeURIComponent(block.id)}-${visualIndex}-`;
   const saved = useMemo(
     () =>
       Object.values(content.activeSectionGeneratedVisualsById ?? {}).find(
         visual =>
           isUserGeneratedLessonArtifact(visual) &&
-          visual.anchorHeading === block.heading &&
+          visual.id.startsWith(sourceIdPrefix) &&
           sceneIdentity(getStoredLessonVisualScene(visual)) === sceneKey
       ),
-    [content.activeSectionGeneratedVisualsById, block.heading, sceneKey]
+    [content.activeSectionGeneratedVisualsById, sourceIdPrefix, sceneKey]
   );
   const enabled = !!(
+    playback.lessonKey &&
     scene &&
     content.projectId &&
     content.activeSectionId &&
@@ -63,6 +76,7 @@ export function SaveablePlaybackVisual({
   const toggleSaved = async () => {
     if (
       pending.current ||
+      !playback.lessonKey ||
       !scene ||
       !content.projectId ||
       !content.activeSectionId ||
@@ -80,7 +94,7 @@ export function SaveablePlaybackVisual({
         if (!result.succeeded) setError(result.error);
       } else {
         const visual: LessonGeneratedVisual = {
-          id: `visual-draft-${crypto.randomUUID()}`,
+          id: `${sourceIdPrefix}${crypto.randomUUID()}`,
           title: scene.title || block.heading || t('Visualizzazione della lezione'),
           kind: 'scene',
           code: '',
@@ -90,11 +104,12 @@ export function SaveablePlaybackVisual({
         };
         const passage = playbackSentenceSelector(
           block,
-          0,
-          1,
+          playback.readTime(),
+          playback.duration,
           content.sectionContentBlocks?.length
             ? content.sectionContentBlocks
-            : [{ type: 'markdown', markdown: content.sectionContent }]
+            : [{ type: 'markdown', markdown: content.sectionContent }],
+          playback.alignment
         );
         const result = await content.onSavePlaybackVisual(
           target,

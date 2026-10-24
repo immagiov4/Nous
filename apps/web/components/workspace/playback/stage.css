@@ -21,11 +21,15 @@
 }
 .lesson-player-stage .playback-visual-action {
   position: absolute;
-  bottom: calc(var(--space) / 2);
+  bottom: calc(var(--space) / 2 / var(--scene-scale, 1));
   left: 50%;
   transform: translateX(-50%);
   z-index: 1;
   animation: playback-save-pop var(--motion) ease-out;
+}
+.lesson-player-stage .playback-visual-action > button {
+  transform: scale(calc(1 / var(--scene-scale, 1)));
+  transform-origin: bottom center;
 }
 .lesson-player-stage .playback-visual-error {
   position: absolute;

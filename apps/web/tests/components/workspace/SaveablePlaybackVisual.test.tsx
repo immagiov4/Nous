@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import { type LessonPlaybackBlock, segmentLessonPlayback } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useRef, useState } from 'react';
@@ -24,15 +24,31 @@ const block = { ...segmentLessonPlayback(sources)[0], heading: 'Memoria' };
 const save = vi.fn();
 const remove = vi.fn();
 
-function Subject({ fail = false, saveGate }: { fail?: boolean; saveGate?: Promise<void> }) {
+function Subject({
+  fail = false,
+  saveGate,
+  sourceBlock = block,
+  sourceContent = sources,
+  time = 0,
+  visualIndex = 0,
+  lessonKey = 'lesson-version',
+}: {
+  fail?: boolean;
+  saveGate?: Promise<void>;
+  sourceBlock?: LessonPlaybackBlock;
+  sourceContent?: typeof sources;
+  time?: number;
+  visualIndex?: number;
+  lessonKey?: string;
+}) {
   const [visuals, setVisuals] = useState<Record<string, StoredLessonVisual>>(() =>
     JSON.parse(localStorage.getItem('saved-visual-test') ?? '{}')
   );
   const content = {
     projectId: 'course',
     activeSectionId: 'lesson',
-    sectionContent: sources[0].markdown,
-    sectionContentBlocks: sources,
+    sectionContent: sourceContent.map(source => source.markdown).join('\n\n'),
+    sectionContentBlocks: sourceContent,
     activeSectionGeneratedVisualsById: visuals,
     onSavePlaybackVisual: async (
       ...args: Parameters<NonNullable<WorkspaceReaderContentModel['onSavePlaybackVisual']>>
@@ -55,7 +71,14 @@ function Subject({ fail = false, saveGate }: { fail?: boolean; saveGate?: Promis
     },
   } as WorkspaceReaderContentModel;
   return (
-    <SaveablePlaybackVisual scene={scene} block={block} content={content} cardRef={useRef(null)}>
+    <SaveablePlaybackVisual
+      scene={scene}
+      block={sourceBlock}
+      content={content}
+      cardRef={useRef(null)}
+      visualIndex={visualIndex}
+      playback={{ lessonKey, readTime: () => time, duration: 10 }}
+    >
       <p>Conserva i dati.</p>
     </SaveablePlaybackVisual>
   );
@@ -65,6 +88,52 @@ afterEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
   setAccountLocale(null);
+});
+
+test('anchors a later save to the sentence currently being narrated', async () => {
+  const sourceContent = [
+    {
+      type: 'markdown' as const,
+      markdown: 'First sentence. Later passage contains the current visual.',
+    },
+  ];
+  render(
+    <Subject
+      sourceContent={sourceContent}
+      sourceBlock={segmentLessonPlayback(sourceContent)[0]}
+      time={8}
+    />
+  );
+  fireEvent.mouseEnter(screen.getByRole('region'));
+  fireEvent.click(screen.getByRole('button', { name: 'Salva' }));
+  await screen.findByRole('button', { name: 'Rimuovi' });
+  expect(save.mock.calls[0][3].exact).toBe('Later passage contains the current visual.');
+});
+
+test('keeps identical scenes in separate blocks and visual occurrences independently saved across reloads', async () => {
+  const first = render(<Subject />);
+  fireEvent.mouseEnter(screen.getByRole('region'));
+  fireEvent.click(screen.getByRole('button', { name: 'Salva' }));
+  await screen.findByRole('button', { name: 'Rimuovi' });
+  const firstId = save.mock.calls[0][1].id;
+  first.rerender(<Subject lessonKey="regenerated-version" />);
+  expect(screen.getByRole('button', { name: 'Salva' })).toBeInTheDocument();
+  first.rerender(<Subject sourceBlock={{ ...block, id: 'second-block' }} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Salva' }));
+  await screen.findByRole('button', { name: 'Rimuovi' });
+  const secondId = save.mock.calls[1][1].id;
+  expect(secondId).not.toBe(firstId);
+  first.rerender(<Subject sourceBlock={{ ...block, id: 'second-block' }} visualIndex={1} />);
+  expect(screen.getByRole('button', { name: 'Salva' })).toBeInTheDocument();
+  first.unmount();
+  render(<Subject sourceBlock={{ ...block, id: 'second-block' }} />);
+  fireEvent.mouseEnter(screen.getByRole('region'));
+  fireEvent.click(screen.getByRole('button', { name: 'Rimuovi' }));
+  await screen.findByRole('button', { name: 'Salva' });
+  expect(remove).toHaveBeenCalledWith({ projectId: 'course', lessonId: 'lesson' }, secondId);
+  expect(Object.keys(JSON.parse(localStorage.getItem('saved-visual-test') ?? '{}'))).toEqual([
+    firstId,
+  ]);
 });
 
 test('renders the action only during hover, focus or touch discovery', () => {
