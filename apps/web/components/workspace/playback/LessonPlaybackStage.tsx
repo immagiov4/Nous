@@ -431,14 +431,7 @@ function PlaybackPassage({
   const formatted = useMemo(() => {
     const source = JSON.parse(captionKey) as ReturnType<typeof captionSource>;
     const captions = captionFormat(source.markdown, source.ranges);
-    return {
-      ...captions,
-      speechRanges: captionSpeechRanges(captions.words, source.ranges),
-      headingSpeechRanges: captionSpeechRanges(
-        captions.headingSources.map(source => ({ source })),
-        source.ranges
-      ),
-    };
+    return { ...captions, speechRanges: captionSpeechRanges(captions.words, source.ranges) };
   }, [captionKey]);
   const alignmentKey = JSON.stringify(alignment ?? null);
   const aligned = useMemo(
@@ -465,7 +458,7 @@ function PlaybackPassage({
     () => JSON.parse(formulaKey) as { math: string; speech: PlaybackRange }[],
     [formulaKey]
   );
-  const [spokenFormulas, setSpokenFormulas] = useState<number[]>([]);
+  const [formulaView, setFormulaView] = useState({ active: false, indices: [] as number[] });
 
   const animate = useShouldAnimate();
   const latest = useRef({ time, speed, readTime, animate, aligned, seekRevision });
@@ -494,7 +487,7 @@ function PlaybackPassage({
       if (!width || !height) return;
       const scale = Math.min(1, slot.clientWidth / width, availableHeight / height);
       slot.style.setProperty('--scene-scale', String(scale));
-      // The fitted card contributes its height so captions and scene are centered as a pair.
+      // The visual centers independently inside the stage's full-height grid row.
       slot.style.height = `${height * scale}px`;
       slot.style.setProperty('--scene-left', `${(slot.clientWidth - width * scale) / 2}px`);
     };
@@ -634,7 +627,13 @@ function PlaybackPassage({
       const formulaKey = activeFormulas.join(':');
       if (formulaKey !== previousFormula) {
         previousFormula = formulaKey;
-        setSpokenFormulas(activeFormulas);
+        setFormulaView(previous => {
+          if (!activeFormulas.length && !previous.active) return previous;
+          return {
+            active: activeFormulas.length > 0,
+            indices: activeFormulas.length ? activeFormulas : previous.indices,
+          };
+        });
       }
       if (!current.width || !current.bodyDuration) return;
       const motion = latest.current.animate;
@@ -885,71 +884,46 @@ function PlaybackPassage({
     animate,
   };
   return (
-    <div className="lesson-player-stage">
-      <section className="listening-stage">
+    <div className="lesson-player-stage" data-formula={formulaView.active}>
+      <section className="listening-stage" aria-hidden={formulaView.active}>
         <section className="captions" aria-label={t('Sottotitoli')}>
           {(formatted.headings.length ? formatted.headings : [block.heading]).map(
             (heading, index) => (
-              <div
-                className="caption-heading"
-                key={`${formatted.headingSources[index]?.start ?? block.id}:${heading}`}
-                aria-hidden={spokenFormulas.some(formula => {
-                  const range = formatted.headingSpeechRanges[index];
-                  return (
-                    range &&
-                    formulas[formula].speech.start < range.end &&
-                    formulas[formula].speech.end > range.start
-                  );
-                })}
-              >
-                <h2>{heading}</h2>
-              </div>
+              // biome-ignore lint/suspicious/noArrayIndexKey: authored headings may repeat
+              <h2 key={`${index}:${heading}`}>{heading}</h2>
             )
           )}
-          <div className="caption-slot" data-formula={spokenFormulas.length > 0}>
-            <p
-              ref={captions}
-              key={block.id}
-              className="caption-page"
-              aria-hidden={spokenFormulas.length > 0}
-            >
-              {formatted.words.map((word, index) => {
-                const Tag = captionTag(word);
-                return (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: the authored caption page is static and remounted per block
-                  <Fragment key={`${index}:${word.text}`}>
-                    {word.breakBefore && index > 0 ? <br /> : null}
-                    <span className="caption-word">
-                      <Tag>
-                        {word.breakBefore ? `${word.marker} ` : ''}
-                        {word.mathHtml ? (
-                          <span
-                            // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders validated notation with trust disabled.
-                            dangerouslySetInnerHTML={{ __html: word.mathHtml }}
-                          />
-                        ) : (
-                          word.text
-                        )}
-                      </Tag>
-                    </span>{' '}
-                  </Fragment>
-                );
-              })}
-            </p>
-            {spokenFormulas.length ? (
-              <div className="caption-formula" key={`formula:${spokenFormulas.join(':')}`}>
-                {spokenFormulas.map(index => (
-                  <MarkdownRenderer
-                    key={index}
-                    content={formulas[index].math}
-                    isDarkMode={content.isDarkMode}
-                  />
-                ))}
-              </div>
-            ) : null}
-          </div>
+          <p
+            ref={captions}
+            key={block.id}
+            className="caption-page"
+            aria-hidden={formulaView.active}
+          >
+            {formatted.words.map((word, index) => {
+              const Tag = captionTag(word);
+              return (
+                // biome-ignore lint/suspicious/noArrayIndexKey: the authored caption page is static and remounted per block
+                <Fragment key={`${index}:${word.text}`}>
+                  {word.breakBefore && index > 0 ? <br /> : null}
+                  <span className="caption-word">
+                    <Tag>
+                      {word.breakBefore ? `${word.marker} ` : ''}
+                      {word.mathHtml ? (
+                        <span
+                          // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders validated notation with trust disabled.
+                          dangerouslySetInnerHTML={{ __html: word.mathHtml }}
+                        />
+                      ) : (
+                        word.text
+                      )}
+                    </Tag>
+                  </span>{' '}
+                </Fragment>
+              );
+            })}
+          </p>
         </section>
-        <div ref={sceneFit} className="scene-fit" aria-hidden={spokenFormulas.length > 0}>
+        <div ref={sceneFit} className="scene-fit" aria-hidden={formulaView.active}>
           <section
             ref={sceneCard}
             className="scene-host"
@@ -975,6 +949,21 @@ function PlaybackPassage({
               />
             ) : null}
           </section>
+        </div>
+      </section>
+      <section
+        className="formula-view"
+        aria-hidden={!formulaView.active}
+        aria-label={t('Visualizzazione della lezione')}
+      >
+        <div className="formula-content" key={formulaView.indices.join(':')}>
+          {formulaView.indices.map(index => (
+            <MarkdownRenderer
+              key={index}
+              content={formulas[index].math}
+              isDarkMode={content.isDarkMode}
+            />
+          ))}
         </div>
       </section>
     </div>

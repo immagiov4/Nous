@@ -366,7 +366,6 @@ test('preserves whitespace-only headings and handles long heading separators', (
   expect(captionFormat('#  ')).toEqual({
     headings: [' '],
     headingWords: 0,
-    headingSources: [{ start: 0, end: 3 }],
     words: [],
   });
   const markdown = `#${' '.repeat(100_000)}Title\nBody`;
@@ -1036,18 +1035,18 @@ test.each([
   advance(start);
   expect(paragraph).toHaveAttribute('aria-hidden', 'true');
   expect(visual).toHaveAttribute('aria-hidden', 'true');
-  const formula = container.querySelector('.caption-formula');
+  const formula = container.querySelector('.formula-view');
   expect(formula?.querySelector('annotation')?.textContent).toBe('x');
   expect(formula?.textContent).not.toContain('ics');
   advance(end - 0.01);
-  expect(container.querySelector('.caption-formula')).toBe(formula);
+  expect(container.querySelector('.formula-view')).toBe(formula);
   advance(end);
   expect(paragraph).toHaveAttribute('aria-hidden', 'false');
   expect(visual).toHaveAttribute('aria-hidden', 'false');
   expect(container.querySelector('.scene-host annotation')?.textContent).toBe('x');
-  expect(container.querySelector('.caption-formula')).toBeNull();
+  expect(container.querySelector('.formula-view')).toHaveAttribute('aria-hidden', 'true');
   advance(aligned ? 13 : 12);
-  expect(container.querySelector('.caption-formula annotation')?.textContent).toBe('x');
+  expect(container.querySelector('.formula-view annotation')?.textContent).toBe('x');
   expect(visual).toHaveAttribute('aria-hidden', 'true');
   advance(0);
   rerender(<LessonPlaybackStage {...props} block={structuredClone(block)} seekRevision={1} />);
@@ -1060,11 +1059,11 @@ test.each([
   expect(Number.parseFloat(words[0].style.getPropertyValue('--reveal-edge'))).toBeCloseTo(117.53);
   if (!aligned) {
     advance(2.5);
-    const shownFormula = container.querySelector('.caption-formula');
+    const shownFormula = container.querySelector('.formula-view');
     const alignment = { status: 'aligned' as const, onsets: [0, 3, 4, 5, 9, 10, 13, 14, 15, 19] };
     rerender(<LessonPlaybackStage {...props} alignment={alignment} seekRevision={1} />);
     advance(2.5);
-    expect(container.querySelector('.caption-formula')).toBe(shownFormula);
+    expect(container.querySelector('.formula-view')).toBe(shownFormula);
     expect(visual).toHaveAttribute('aria-hidden', 'true');
     // A deliberate seek adopts the corrected boundaries instead of retaining presented cues.
     rerender(<LessonPlaybackStage {...props} alignment={alignment} seekRevision={2} />);
@@ -1072,7 +1071,7 @@ test.each([
     expect(paragraph).toHaveAttribute('aria-hidden', 'false');
     expect(visual).toHaveAttribute('aria-hidden', 'false');
     advance(3);
-    expect(container.querySelector('.caption-formula annotation')?.textContent).toBe('x');
+    expect(container.querySelector('.formula-view annotation')?.textContent).toBe('x');
   }
 });
 
@@ -1156,13 +1155,12 @@ test.each([
   flush();
   const annotations = () =>
     Array.from(
-      container.querySelectorAll('.caption-formula annotation'),
+      container.querySelectorAll('.formula-view annotation'),
       element => element.textContent
     );
   expect(annotations()).toEqual(fixture.expected);
   expect(container.querySelector('.scene-fit')).toHaveAttribute('aria-hidden', 'true');
-  if (fixture.heading)
-    expect(container.querySelector('.caption-heading')).toHaveAttribute('aria-hidden', 'true');
+  expect(container.querySelector('.listening-stage')).toHaveAttribute('aria-hidden', 'true');
   if (fixture.estimatedEnd !== undefined) {
     time = fixture.estimatedEnd;
     flush();
