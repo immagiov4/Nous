@@ -1300,32 +1300,41 @@ export const LessonSceneAnimationShape = Object.fromEntries(
 /** Frozen catalogs retain their form fields and formula-anchor constraints. */
 const createFrozenLessonSceneSchema = (
   types: readonly (keyof typeof LESSON_SCENE_REGISTRY)[],
-  anchorSchema: z.ZodString
-) =>
-  createLessonSceneSchema(
+  anchorSchema: z.ZodString,
+  formulaReferences = false
+) => {
+  const symbol = FormulaSpotlightDataSchema.shape.symbols.element.shape;
+  // A fresh object retains the original durable shape; Zod omit adds empty checks.
+  const symbols = formulaReferences
+    ? FormulaSpotlightDataSchema.shape.symbols
+    : z
+        .object({
+          id: symbol.id,
+          latex: symbol.latex,
+          name: symbol.name,
+          meaning: symbol.meaning,
+          anchor: anchorSchema,
+        })
+        .array()
+        .min(1);
+  return createLessonSceneSchema(
     Object.fromEntries(
       types.map(type => [
         type,
         type === 'formula-spotlight'
-          ? {
-              schema: LESSON_SCENE_REGISTRY[type].schema.extend({
-                symbols: FormulaSpotlightDataSchema.shape.symbols.element
-                  .omit({ anchorOccurrence: true, additionalAnchors: true })
-                  .extend({ anchor: anchorSchema })
-                  .array()
-                  .min(1),
-              }),
-            }
+          ? { schema: LESSON_SCENE_REGISTRY[type].schema.extend({ symbols }) }
           : LESSON_SCENE_REGISTRY[type],
       ])
     )
   ) as typeof LessonSceneSchema;
+};
 
 export const HistoricalLessonSceneSchemas = [
   ...LESSON_SCENE_CATALOG_SNAPSHOTS.map(types =>
     createFrozenLessonSceneSchema(types, z.string().min(1).regex(/\S/u))
   ),
   createFrozenLessonSceneSchema(UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT, z.string()),
+  createFrozenLessonSceneSchema(UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT, z.string(), true),
 ];
 
 const findFormContentProblems = (

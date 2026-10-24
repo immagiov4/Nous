@@ -73,9 +73,9 @@ const createPlaybackPreparedSchema = (
   // Frozen definitions omit unsupported fields while retaining the shared internal type.
   if (!spokenMath)
     return z.object({ scene: schema.shape.scene, motion: schema.shape.motion }) as typeof schema;
-  if (fencedCode)
-    return formulaSpotlights ? schema : (schema.omit({ formulaSpotlights: true }) as typeof schema);
+  if (fencedCode && formulaSpotlights) return schema;
   return z.object({
+    ...(fencedCode ? { fencedCode: schema.shape.fencedCode } : {}),
     spokenMath: schema.shape.spokenMath,
     scene: schema.shape.scene,
     motion: schema.shape.motion,
