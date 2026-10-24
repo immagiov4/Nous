@@ -119,7 +119,12 @@ test.each([
   true,
   false,
 ])('prepares and caches inherited formula references through the service (mentioned: %s)', async mentioned => {
-  const sources = [{ type: 'markdown' as const, markdown: '# Tema\n\n$$x+y$$\n\nics più ipsilon' }];
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: '# Tema\n\nIntroduzione alla formula.\n\n$$x+y$$\n\nics più ipsilon',
+    },
+  ];
   const raw = segmentLessonPlayback(sources).at(-1);
   if (!raw) throw new Error('The reference passage must exist');
   const source = { ...raw, prepared: { motion: [] } };

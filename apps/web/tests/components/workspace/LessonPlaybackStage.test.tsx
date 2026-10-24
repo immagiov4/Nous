@@ -2046,7 +2046,12 @@ test('uses saved links for an inherited unlinked spotlight without substituting 
     return frameId;
   });
   vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
-  const sources = [{ type: 'markdown' as const, markdown: '# Tema\n\n$$a=b$$\n\nics più ipsilon' }];
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: '# Tema\n\nIntroduzione alla formula.\n\n$$a=b$$\n\nics più ipsilon',
+    },
+  ];
   const raw = segmentLessonPlayback(sources).at(-1);
   if (!raw) throw new Error('The final passage must exist');
   const original = {
@@ -2100,7 +2105,7 @@ test('returns to earlier recall equations when their symbols are named again and
     {
       type: 'markdown' as const,
       markdown:
-        '# Tema\n\n$$x+y$$\n\n$$\\alpha+\\beta$$\n\nPrima ics poi alfa ancora ipsilon poi beta fine',
+        '# Tema\n\nIntroduzione alla formula.\n\n$$x+y$$\n\n$$\\alpha+\\beta$$\n\nPrima ics poi alfa ancora ipsilon poi beta fine',
     },
   ];
   const first = {

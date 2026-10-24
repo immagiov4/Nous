@@ -213,7 +213,7 @@ test('voices of one block share canonical narration before another recording sta
 
 test('prepares inherited reference links for cached audio and reuses a saved static decision', async () => {
   const { app, section, createRun } = setup(true);
-  section.content = '# Tema\n\n$$x+y$$\n\nics più ipsilon';
+  section.content = '# Tema\n\nIntroduzione alla formula.\n\n$$x+y$$\n\nics più ipsilon';
   section.contentBlocks = [{ type: 'markdown', markdown: section.content }];
   const playback = preparedPlayback(section);
   const saved = playback.blocks.at(-1);
