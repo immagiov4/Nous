@@ -141,9 +141,8 @@ test('prepares a real scene when a stored visual reference is missing', async ()
 });
 
 test('uses the introduced flow from its authored section without borrowing the next topic', async () => {
-  const intro =
-    'Quando un PC deve autenticare un utente di dominio, il flusso concettuale è questo:';
-  const context = `## DNS e dominio\n\n${intro}\n\n1. Consultare DNS.\n2. Contattare il controller.\n3. Verificare le credenziali.`;
+  const intro = 'Per accedere al servizio, il client segue questo percorso:';
+  const context = `## Accesso al servizio\n\n${intro}\n\n1. Individuare il server.\n2. Contattare il server.\n3. Verificare la richiesta.`;
   const sources = [
     {
       type: 'markdown' as const,
