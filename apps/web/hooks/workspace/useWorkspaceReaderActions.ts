@@ -1,3 +1,4 @@
+import { buildLearningArtifactId } from '@shared/learningArtifact';
 import { type RefObject, useCallback, useEffect, useRef } from 'react';
 import type {
   ContextLessonMutationTarget,
@@ -19,6 +20,7 @@ import type {
   PdfTextIndex,
   ProjectSource,
   SectionAnnotationArtifactRef,
+  SectionAnnotationTextSelector,
   StoredLessonVisual,
 } from '../../types.ts';
 import type { ResolvedLessonSourceReference } from '../../utils/context/sourceMaterial.ts';
@@ -234,7 +236,7 @@ export const useWorkspaceReaderActions = ({
 
       const section = getSectionById(lessonId);
       return section
-        ? ({ lessonId, section } as const)
+        ? ({ lessonId, projectId, section } as const)
         : ({ error: t('Non ho trovato la sezione corrente.') } as const);
     },
     [getSectionById, projectId]
@@ -900,7 +902,8 @@ export const useWorkspaceReaderActions = ({
     async (
       target: ContextLessonMutationTarget,
       visual: StoredLessonVisual,
-      artifactRef: { artifactId: string; kind: 'generated-visual'; title: string }
+      artifactRef: { artifactId: string; kind: 'generated-visual'; title: string },
+      passage?: SectionAnnotationTextSelector
     ) => {
       const resolution = resolveMutationSection(target);
       if ('error' in resolution) {
@@ -915,6 +918,13 @@ export const useWorkspaceReaderActions = ({
         artifactRefs: [artifactRef],
         note: '',
       });
+      if (passage) {
+        const annotation = annotationResult.annotations.find(
+          candidate => candidate.id === annotationResult.annotationId
+        );
+        if (!annotation) throw new Error('Created artifact annotation must exist');
+        annotation.anchor = { kind: 'selection', selector: passage };
+      }
 
       updateSection(lessonId, currentLesson => ({
         ...currentLesson,
@@ -945,6 +955,48 @@ export const useWorkspaceReaderActions = ({
         : { error: t("Non sono riuscito a salvare l'artefatto."), succeeded: false };
     },
     [patchSectionAnnotations, resolveMutationSection, updateSection]
+  );
+
+  const handleRemovePlaybackVisual = useCallback(
+    async (target: ContextLessonMutationTarget, visualId: string) => {
+      const resolution = resolveMutationSection(target);
+      if ('error' in resolution) return { error: resolution.error, succeeded: false };
+      const { lessonId, section } = resolution;
+      const nextGeneratedVisuals = (section.generatedVisuals || []).filter(
+        visual => visual.id !== visualId
+      );
+      const artifactId = buildLearningArtifactId({
+        projectId: resolution.projectId,
+        lessonId,
+        artifactId: visualId,
+        kind: 'generated-visual',
+      });
+      const annotations = (section.annotations || []).flatMap(annotation => {
+        if (!annotation.artifactRefs?.some(ref => ref.artifactId === artifactId))
+          return [annotation];
+        const artifactRefs = annotation.artifactRefs.filter(ref => ref.artifactId !== artifactId);
+        return artifactRefs.length || annotation.note ? [{ ...annotation, artifactRefs }] : [];
+      });
+      const persisted = await commitSectionAnnotations(lessonId, {
+        annotations,
+        generatedVisuals: nextGeneratedVisuals,
+      });
+      if (!persisted) {
+        updateSection(lessonId, current => ({
+          ...current,
+          annotations:
+            current.annotations === annotations ? section.annotations : current.annotations,
+          generatedVisuals:
+            current.generatedVisuals === nextGeneratedVisuals
+              ? section.generatedVisuals
+              : current.generatedVisuals,
+        }));
+      }
+      return persisted
+        ? { succeeded: true }
+        : { succeeded: false, error: t("Non sono riuscito a rimuovere l'artefatto.") };
+    },
+    [commitSectionAnnotations, resolveMutationSection, updateSection]
   );
 
   const handleReplaceArtifactInLesson = useCallback(
@@ -1008,6 +1060,7 @@ export const useWorkspaceReaderActions = ({
     handleSelectExercise,
     handleSelectSection,
     handleSaveArtifactToLesson,
+    handleRemovePlaybackVisual,
     handleReplaceArtifactInLesson,
   };
 };

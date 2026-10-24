@@ -60,6 +60,7 @@ import {
   visualSpeechRange,
 } from './stageMotion.ts';
 import './stage.css';
+import { SaveablePlaybackVisual } from './SaveablePlaybackVisual.tsx';
 
 interface CaptionClock {
   viewport: ReturnType<typeof captionViewport>;
@@ -857,10 +858,11 @@ function PlaybackPassage({
           </p>
         </section>
         <div ref={sceneFit} className="scene-fit">
-          <section
-            ref={sceneCard}
-            className="scene-host"
-            aria-label={t('Visualizzazione della lezione')}
+          <SaveablePlaybackVisual
+            cardRef={sceneCard}
+            scene={selectedScene}
+            block={block}
+            content={content}
           >
             {formulaMarkdown &&
             !visualRanges[visualIndex] &&
@@ -881,7 +883,7 @@ function PlaybackPassage({
                 content={{ ...content, activeSectionAssetsById: availableAssets }}
               />
             ) : null}
-          </section>
+          </SaveablePlaybackVisual>
         </div>
       </section>
     </div>

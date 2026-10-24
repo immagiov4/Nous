@@ -66,6 +66,23 @@ const durablePdfArtifact: LearningArtifactRenderPayload = {
   },
 };
 
+test('opens the artifact source passage and closes the preview', async () => {
+  const openSource = vi.fn();
+  const user = userEvent.setup();
+  render(
+    <ChatArtifactRenderer
+      artifacts={[pdfArtifact]}
+      isDarkMode={false}
+      onOpenArtifactSource={openSource}
+    />
+  );
+  await user.click(screen.getByRole('button', { name: /Apri Schema ER/ }));
+  await user.click(screen.getByRole('button', { name: 'Vai al passaggio nella lezione' }));
+  expect(openSource).toHaveBeenCalledWith('project-1:lesson-1:pdf-image:pdf-img-1');
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(screen.getByRole('button', { name: /Apri Schema ER/ })).toBeInTheDocument();
+});
+
 const htmlArtifact: LearningArtifactRenderPayload = {
   summary: {
     id: 'project-1:lesson-2:generated-visual:visual-2',

@@ -19,6 +19,36 @@
   background: var(--paper);
   font-synthesis: none;
 }
+.lesson-player-stage .playback-visual-action {
+  position: absolute;
+  bottom: calc(var(--space) / 2);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  animation: playback-save-pop var(--motion) ease-out;
+}
+.lesson-player-stage .playback-visual-error {
+  position: absolute;
+  inset-inline: var(--space);
+  bottom: calc(var(--space) * 3);
+  color: var(--ink);
+  background: var(--surface);
+}
+@keyframes playback-save-pop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 20%) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lesson-player-stage .playback-visual-action {
+    animation: none;
+  }
+}
 .lesson-player-stage,
 .lesson-player-stage * {
   box-sizing: border-box;

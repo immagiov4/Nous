@@ -48,7 +48,10 @@ import {
   materializeSectionAnnotationMarks,
   type SectionAnnotationBoundaryContext,
 } from '../../../utils/learning/sectionAnnotationAnchors.ts';
-import { supportsSectionAnnotationHighlights } from '../../../utils/learning/sectionAnnotationHighlights.ts';
+import {
+  resolveActiveSectionAnnotationHighlightTarget,
+  supportsSectionAnnotationHighlights,
+} from '../../../utils/learning/sectionAnnotationHighlights.ts';
 import { stripTerminalLessonSourcesSection } from '../../../utils/markdown/lessonSources.ts';
 import { buildVisibleProjection } from '../../../utils/markdown/textProjection.ts';
 import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
@@ -1402,6 +1405,18 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                     {visibleArtifactPayloads.length > 0 ? (
                       <ChatArtifactRenderer
                         artifacts={visibleArtifactPayloads}
+                        onOpenArtifactSource={artifactId => {
+                          const source = sectionAnnotations?.find(annotation =>
+                            annotation.artifactRefs?.some(ref => ref.artifactId === artifactId)
+                          );
+                          const passage =
+                            source &&
+                            (resolveActiveSectionAnnotationHighlightTarget(source.id)?.element ||
+                              contentRef.current?.querySelector(
+                                `mark[data-nous-annotation-id="${CSS.escape(source.id)}"]`
+                              ));
+                          (passage || contentRef.current)?.scrollIntoView({ block: 'center' });
+                        }}
                         className="grid gap-2 sm:grid-cols-2"
                         isDarkMode={isDarkMode}
                       />
