@@ -970,9 +970,9 @@ function SpeedMenu({
     const closeOutside = (event: PointerEvent) => {
       if (event.target instanceof Node && !host.current?.contains(event.target)) setOpen(false);
     };
-    document.addEventListener('pointerdown', closeOutside, true);
+    document.addEventListener('pointerdown', closeOutside);
     return () => {
-      document.removeEventListener('pointerdown', closeOutside, true);
+      document.removeEventListener('pointerdown', closeOutside);
       onClose?.();
     };
   }, [onClose, open]);

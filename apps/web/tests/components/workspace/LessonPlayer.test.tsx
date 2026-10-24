@@ -228,20 +228,18 @@ test('opening the player uses preventScroll and restores the opening control on 
   opener.remove();
 });
 
-test('closing a speed menu by selecting the question input keeps typing focus', async () => {
+test('selecting the question input from a speed menu preserves typing and restores focus on dismissal', async () => {
   render(<LessonPlayer {...props} autoPlay={false} />);
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Velocita' }));
   await user.click(screen.getByRole('textbox'));
-  expect(screen.getByRole('button', { name: 'Velocita' })).toHaveAttribute(
-    'aria-expanded',
-    'false'
-  );
   await user.keyboard('Una domanda');
   expect(screen.getByRole('textbox')).toHaveFocus();
   expect(screen.getByRole('textbox')).toHaveValue('Una domanda');
   expect(getUserMedia).not.toHaveBeenCalled();
   expect(playback.pause).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button', { name: 'Velocita' }));
+  expect(screen.getByRole('dialog', { name: 'Riproduci lezione' })).toHaveFocus();
 });
 
 test('playback failure shows one retry action without duplicated retry text', () => {

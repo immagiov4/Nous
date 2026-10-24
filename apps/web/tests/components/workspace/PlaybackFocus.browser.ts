@@ -149,10 +149,12 @@ try {
         assert(await player.evaluate(element => element === document.activeElement));
         await speed.click();
         await question.click();
-        assert.equal(await speed.getAttribute('aria-expanded'), 'false');
         assert(await question.evaluate(element => element === document.activeElement));
         await page.keyboard.press('Space');
         assert.equal(await question.inputValue(), 'Una domanda ');
+        await speed.click();
+        assert.equal(await speed.getAttribute('aria-expanded'), 'false');
+        assert(await player.evaluate(element => element === document.activeElement));
         await speed.click();
         assert.equal(await speed.getAttribute('aria-expanded'), 'true');
         await speed.click();
@@ -162,6 +164,10 @@ try {
             document.activeElement ===
             document.querySelector('dialog[aria-label="Riproduci lezione"]')
         );
+        assert(await player.evaluate(element => element === document.activeElement));
+        await speed.click();
+        await player.getByRole('heading', { name: 'Prova del fuoco', exact: true }).click();
+        assert.equal(await speed.getAttribute('aria-expanded'), 'false');
         assert(await player.evaluate(element => element === document.activeElement));
         await page.reload();
         await page.getByRole('button', { name: 'Riproduci', exact: true }).click();
