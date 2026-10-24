@@ -68,14 +68,17 @@ test.each([
   'definition',
 ])('rejects retired %s output at the provider boundary', async type => {
   const source = 'Il client trova il controller tramite DNS.';
-  generateStructuredOutputMock.mockResolvedValueOnce({
-    ...sceneDraft(source),
+  const draft = sceneDraft(source);
+  const retired = {
+    ...draft,
     type,
+    items: type === 'quote' ? [] : draft.items,
     quote: type === 'quote' ? source : '',
-  });
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(retired);
   expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'invalid' });
   const schema = z.fromJSONSchema(generateStructuredOutputMock.mock.calls[0][0].output.schema);
-  expect(schema.safeParse({ ...sceneDraft(source), type }).success).toBe(false);
+  expect(schema.safeParse(retired).success).toBe(false);
   generateStructuredOutputMock.mockResolvedValueOnce(sceneDraft(source));
   expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
     kind: 'scene',
