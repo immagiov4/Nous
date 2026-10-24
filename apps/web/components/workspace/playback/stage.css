@@ -2038,6 +2038,7 @@
   position: absolute;
   inset: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
   padding: inherit;
   opacity: 0;
@@ -2056,6 +2057,7 @@
   width: max-content;
   min-width: 0;
   max-width: 100%;
+  overflow-x: auto;
 }
 .lesson-player-stage .formula-view :is(p, .katex-display) {
   margin: 0;
@@ -2063,6 +2065,9 @@
 }
 .lesson-player-stage .formula-view .katex {
   display: block;
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
   font-size: var(--symbol-size);
 }
 @media (prefers-reduced-motion: reduce) {

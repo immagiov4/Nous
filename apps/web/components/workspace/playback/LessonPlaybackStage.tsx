@@ -112,7 +112,12 @@ function canRetainPresentedCues(
   current: CaptionClock,
   previous: CaptionClock | null
 ): previous is CaptionClock {
-  return previous !== null && previous.seekRevision === current.seekRevision;
+  return (
+    previous !== null &&
+    previous.duration > 0 &&
+    current.duration > 0 &&
+    previous.seekRevision === current.seekRevision
+  );
 }
 
 function formulaSpeechTiming(range: PlaybackRange, speech: string, current: CaptionClock) {

@@ -243,6 +243,35 @@ test('crossfades the full-stage formula without moving the normal reading zone',
   }
 });
 
+test('lets a phone listener pan a wide inline formula', async () => {
+  const page = await browser.newPage({
+    viewport: { width: 390, height: 844 },
+    reducedMotion: 'reduce',
+  });
+  try {
+    await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=wide-formula`);
+    await page.locator('.caption-word').first().waitFor({ state: 'attached' });
+    await page.evaluate(async () => {
+      (window as unknown as { setPlaybackTime: (time: number) => void }).setPlaybackTime(3);
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+    });
+    const formula = page.locator('.formula-content');
+    const bounds = await formula.boundingBox();
+    if (!bounds) throw new Error('Formula viewport must be visible');
+    expect(await formula.evaluate(element => element.scrollWidth)).toBeGreaterThan(bounds.width);
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    await page.mouse.wheel(600, 0);
+    await page.evaluate(async () => {
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+    });
+    expect(await formula.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
+  } finally {
+    await page.close();
+  }
+});
+
 test('retains the three-formula list and proportional explanation text', async () => {
   const page = await browser.newPage();
   try {

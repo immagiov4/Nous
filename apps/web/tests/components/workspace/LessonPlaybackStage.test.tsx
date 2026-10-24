@@ -1073,6 +1073,13 @@ test.each([
     advance(3);
     expect(container.querySelector('.formula-view annotation')?.textContent).toBe('x');
   }
+  time = 0;
+  rerender(<LessonPlaybackStage {...props} duration={0} seekRevision={3} />);
+  advance(0);
+  rerender(<LessonPlaybackStage {...props} seekRevision={3} />);
+  advance(start + 0.5);
+  expect(container.querySelector('.formula-view')).toHaveAttribute('aria-hidden', 'false');
+  expect(container.querySelector('.formula-view annotation')?.textContent).toBe('x');
 });
 
 test.each([
