@@ -167,6 +167,14 @@ if (new URLSearchParams(location.search).has('case')) {
       block = { ...block, visuals: [{ kind: 'generated-visual', visualId: 'stored-formula' }] };
     }
     const content: Partial<WorkspaceReaderContentModel> = {
+      ...(new URLSearchParams(location.search).has('saveVisual')
+        ? {
+            projectId: 'synthetic-course',
+            activeSectionId: 'synthetic-lesson',
+            onSavePlaybackVisual: async () => ({ succeeded: true }),
+            onRemovePlaybackVisual: async () => ({ succeeded: true }),
+          }
+        : {}),
       isDarkMode: false,
       sectionContentBlocks: structuredClone(sources),
       activeSectionGeneratedVisualsById: {
@@ -184,6 +192,7 @@ if (new URLSearchParams(location.search).has('case')) {
     playbackRoot.render(
       <div style={{ height: '100dvh', display: 'flex' }}>
         <LessonPlaybackStage
+          lessonKey="synthetic-version"
           block={structuredClone(block)}
           content={content as WorkspaceReaderContentModel}
           alignment={

@@ -928,6 +928,53 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.getByRole('button', { name: /Apri Flashcard interattive/i })).toBeInTheDocument();
   });
 
+  test.each([
+    'detached',
+    'lesson',
+    'stale',
+    'selection',
+  ] as const)('exposes a source action only for a resolvable passage: %s', async source => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          currentLessonArtifactPayloads: [savedSelectionArtifact],
+          sectionAnnotations:
+            source === 'detached'
+              ? []
+              : [
+                  {
+                    id: 'saved-source',
+                    note: '',
+                    createdAt: '',
+                    updatedAt: '',
+                    artifactRefs: [
+                      { artifactId: savedSelectionArtifact.summary.id, kind: 'generated-visual' },
+                    ],
+                    anchor:
+                      source === 'lesson'
+                        ? { kind: 'lesson' }
+                        : {
+                            kind: 'selection',
+                            selector: {
+                              start: 11,
+                              end: 20,
+                              exact: source === 'stale' ? 'Removed passage' : 'Contenuto',
+                              prefix: '',
+                              suffix: '',
+                            },
+                          },
+                  },
+                ],
+        })}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Apri Flashcard interattive/i }));
+    await screen.findByRole('dialog');
+    expect(screen.queryByRole('button', { name: /Vai al passaggio nella lezione/i }) !== null).toBe(
+      source === 'selection'
+    );
+  });
+
   test('renders a saved visual attached to the whole lesson only once in one artifact section', () => {
     const secondSavedArtifact: LearningArtifactRenderPayload = {
       ...savedSelectionArtifact,

@@ -32,6 +32,7 @@ import {
 import { SceneChart } from './SceneChart.tsx';
 import { SceneDiagram } from './SceneDiagram.tsx';
 import { SceneIcon } from './SceneIcon.tsx';
+import { SceneText } from './SceneText.tsx';
 
 export type SceneRenderer = (context: SceneRenderContext) => ReactNode;
 
@@ -107,8 +108,12 @@ export const SCENE_RENDERERS = {
       : c.scene.quote || c.scene.body;
     return (
       <div className="decision">
-        {question || !c.prototype ? <div className="decision-question">{question}</div> : null}
-        {groups(c, question || !c.prototype ? 'branches' : 'decision-options')}
+        {question || !c.prototype ? (
+          <div className="decision-question">
+            <SceneText>{question}</SceneText>
+          </div>
+        ) : null}
+        {groups(c, 'decision-options')}
       </div>
     );
   },

@@ -375,6 +375,36 @@ beforeEach(() => {
   );
 });
 
+test('saves the source at the live voice clock rather than the last caption render', async () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: 'First sentence. Later passage contains this visual.' },
+  ];
+  const onSavePlaybackVisual = vi.fn<
+    NonNullable<WorkspaceReaderContentModel['onSavePlaybackVisual']>
+  >(async () => ({ succeeded: true }));
+  const { container } = render(
+    <LessonPlaybackStage
+      lessonKey="lesson-version"
+      block={segmentLessonPlayback(sources)[0]}
+      duration={10}
+      time={0}
+      readTime={() => 8}
+      content={
+        {
+          projectId: 'course',
+          activeSectionId: 'lesson',
+          sectionContentBlocks: sources,
+          onSavePlaybackVisual,
+          onRemovePlaybackVisual: vi.fn(),
+        } as unknown as WorkspaceReaderContentModel
+      }
+    />
+  );
+  fireEvent.mouseEnter(container.querySelector('.scene-host') as HTMLElement);
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Salva' })));
+  expect(onSavePlaybackVisual.mock.calls[0][3]?.exact).toBe('Later passage contains this visual.');
+});
+
 test('fits the complete scene into both available dimensions and releases the observer', () => {
   const frames = new Map<number, FrameRequestCallback>();
   let frameId = 0;
