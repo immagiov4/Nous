@@ -486,6 +486,7 @@ export const useReaderShellProps = ({
         storageError: controller.storageError,
       },
       content: {
+        projectTitle: controller.learningPlan?.title,
         activeExercise,
         exercisePrerequisiteGaps,
         activeSectionTitle: controller.activeSection?.title || null,

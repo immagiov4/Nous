@@ -14,6 +14,8 @@ import type {
 import { useLessonPlayback } from '../../../hooks/reader/useLessonPlayback.ts';
 import { setAccountLocale } from '../../../i18n/uiMessages.ts';
 import { requestSpeechTranscription } from '../../../services/openrouter/sttClient.ts';
+import { playbackHeardSentence } from '../../../utils/reader/lessonPlayback.ts';
+import { playbackQuestion } from '../../helpers/playbackQuestion.ts';
 
 const sendInConversation = vi.hoisted(() => vi.fn());
 const generatingResponse = vi.hoisted(() => ({ stop: null as null | (() => void) }));
@@ -23,7 +25,25 @@ const answerPanelProps = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../hooks/reader/useLessonPlayback.ts', () => ({ useLessonPlayback: vi.fn() }));
 vi.mock('../../../components/workspace/playback/LessonPlaybackStage.tsx', () => ({
-  default: () => <div data-testid="playback-stage" />,
+  default: ({
+    questionContextRef,
+    block,
+    time,
+    readTime,
+    duration,
+    alignment,
+  }: ComponentProps<
+    typeof import('../../../components/workspace/playback/LessonPlaybackStage.tsx').default
+  >) => {
+    if (questionContextRef)
+      questionContextRef.current = () => ({
+        passage: playbackQuestion.passage,
+        visual: playbackQuestion.visual,
+        voiceTime: readTime?.() ?? time,
+        heardSentence: playbackHeardSentence(block, readTime?.() ?? time, duration, alignment),
+      });
+    return <div data-testid="playback-stage" />;
+  },
 }));
 vi.mock('../../../services/openrouter/sttClient.ts', () => ({
   requestSpeechTranscription: vi.fn(),
@@ -139,6 +159,36 @@ const props = {
   onClose: vi.fn(),
 };
 let playback: ReturnType<typeof useLessonPlayback>;
+
+test.each([
+  'submit',
+  'Space',
+])('captures the rendered steps and heard sentence on %s while captions lead by 1.3 seconds', async trigger => {
+  playback.time = 5.5;
+  expect(playbackHeardSentence(blocks[0], playback.time + 1.3, 12)).toBe('La seconda frase.');
+  const user = userEvent.setup();
+  render(<LessonPlayer {...props} content={{ ...content, projectTitle: 'Corso reti' }} />);
+  if (trigger === 'Space') await recordQuestion();
+  else {
+    await user.type(
+      screen.getByPlaceholderText('Chiedi su questo punto della lezione'),
+      'creami una mappa di questa cosa mostrata, del controller, un flowchart'
+    );
+    await user.click(screen.getByRole('button', { name: 'Invia domanda' }));
+  }
+  expect(answerPanelProps.mock.lastCall?.[0].contextAnswer).toMatchObject({
+    projectId: 'project',
+    lessonId: 'lesson',
+    lessonTitle: 'Lezione',
+    projectTitle: 'Corso reti',
+    playbackContext: {
+      passage: playbackQuestion.passage,
+      visual: playbackQuestion.visual,
+      heardSentence: 'La prima frase.',
+      voiceTime: 5.5,
+    },
+  });
+});
 
 beforeEach(() => {
   setAccountLocale('it');

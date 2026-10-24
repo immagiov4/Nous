@@ -10,6 +10,7 @@ import {
   CONTEXT_SOURCE_ARCHIVE_TOOL_NAME,
   SOURCE_ARCHIVE_VERSION_HASH_PATTERN,
 } from '@shared/lessonSourceContext';
+import { PlaybackQuestionContextSchema } from '@shared/playbackQuestionContext';
 import {
   convertToModelMessages,
   generateId,
@@ -621,8 +622,16 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     const contextSourceMaterial = readOptionalString(sourceMaterial);
     const selectedText = readOptionalString(req.body.selectedText);
     const messages = req.body.messages;
+    const playbackContext = PlaybackQuestionContextSchema.optional().safeParse(
+      req.body.playbackContext
+    );
+    if (!playbackContext.success) {
+      res.status(400).json({ success: false, error: 'Invalid playback context.' });
+      return;
+    }
 
     const contextInput = {
+      playbackContext: playbackContext.data,
       attachedAnnotationNote: readOptionalString(attachedAnnotationNote),
       attachedAnnotationText: readOptionalString(attachedAnnotationText),
       contextAfter: readOptionalString(contextAfter),
