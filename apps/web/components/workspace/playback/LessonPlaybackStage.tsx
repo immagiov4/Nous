@@ -133,6 +133,26 @@ function formulaCueTiming(
   return { times, ends, symbolIndices };
 }
 
+/** Return to the equation containing the currently narrated part during interleaved explanations. */
+function heardReferenceVisual(
+  referenceCues: readonly (ReturnType<typeof formulaCueTiming> | undefined)[],
+  heardMs: number,
+  fallback: number
+): number {
+  let active = fallback;
+  let latestStart = Number.NEGATIVE_INFINITY;
+  for (const [index, cues] of referenceCues.entries()) {
+    if (!cues) continue;
+    for (const [symbol, start] of cues.times.entries()) {
+      if (start <= heardMs && heardMs < cues.ends[symbol] && start >= latestStart) {
+        latestStart = start;
+        active = index;
+      }
+    }
+  }
+  return active;
+}
+
 function canRetainPresentedCues(
   current: CaptionClock,
   previous: CaptionClock | null
@@ -910,18 +930,7 @@ function PlaybackPassage({
             active = index;
           }
         });
-        // Interleaved explanations can return to an earlier equation's named part.
-        let activeReferenceStart = Number.NEGATIVE_INFINITY;
-        for (const [index, cues] of referenceCues.entries()) {
-          if (!cues) continue;
-          for (const [symbol, start] of cues.times.entries()) {
-            const heardMs = blockTime * 1000;
-            if (start <= heardMs && heardMs < cues.ends[symbol] && start >= activeReferenceStart) {
-              activeReferenceStart = start;
-              active = index;
-            }
-          }
-        }
+        active = heardReferenceVisual(referenceCues, blockTime * 1000, active);
         if (active !== previousActive) {
           previousActive = active;
           setSelection(current =>

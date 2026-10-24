@@ -210,3 +210,39 @@ test('voices of one block share canonical narration before another recording sta
   await request(app).post(`${url}/blocks/0/prepare`).send({ lessonKey, voice: 'Zephyr' });
   expect(createRun.mock.calls[0][0].dedupeKey).toBe(createRun.mock.calls[1][0].dedupeKey);
 });
+
+test('prepares inherited reference links for cached audio and reuses a saved static decision', async () => {
+  const { app, section, createRun } = setup(true);
+  section.content = '# Tema\n\n$$x+y$$\n\nics più ipsilon';
+  section.contentBlocks = [{ type: 'markdown', markdown: section.content }];
+  const playback = preparedPlayback(section);
+  const saved = playback.blocks.at(-1);
+  if (!saved) throw new Error('The reference passage must exist');
+  section.playback = playback;
+  const input = { lessonKey: playback.lessonKey, voice: 'Kore' };
+  const target = `${url}/blocks/${saved.id}/prepare`;
+  expect((await request(app).post(target).send(input)).status).toBe(202);
+  const scene = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
+  };
+  section.playback = {
+    ...playback,
+    blocks: playback.blocks.map(block =>
+      block.id === saved.id
+        ? {
+            ...block,
+            prepared: {
+              ...block.prepared,
+              motion: [],
+              formulaSpotlights: [{ formula: '$$x+y$$', sourceFormula: '$$x+y$$', scene }],
+            },
+          }
+        : block
+    ),
+  };
+  const ready = await request(app).post(target).send(input);
+  expect(ready.status).toBe(200);
+  expect(ready.body.block.audio).toEqual(saved.audio);
+  expect(createRun).toHaveBeenCalledOnce();
+});
