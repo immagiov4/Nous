@@ -1305,18 +1305,22 @@ const createFrozenLessonSceneSchema = (
 ) => {
   const symbol = FormulaSpotlightDataSchema.shape.symbols.element.shape;
   // A fresh object retains the original durable shape; Zod omit adds empty checks.
-  const symbols = formulaReferences
-    ? FormulaSpotlightDataSchema.shape.symbols
-    : z
-        .object({
-          id: symbol.id,
-          latex: symbol.latex,
-          name: symbol.name,
-          meaning: symbol.meaning,
-          anchor: anchorSchema,
-        })
-        .array()
-        .min(1);
+  const symbols = z
+    .object({
+      id: symbol.id,
+      latex: symbol.latex,
+      name: symbol.name,
+      meaning: symbol.meaning,
+      anchor: anchorSchema,
+      ...(formulaReferences
+        ? {
+            anchorOccurrence: symbol.anchorOccurrence,
+            additionalAnchors: symbol.additionalAnchors,
+          }
+        : {}),
+    })
+    .array()
+    .min(1);
   return createLessonSceneSchema(
     Object.fromEntries(
       types.map(type => [
