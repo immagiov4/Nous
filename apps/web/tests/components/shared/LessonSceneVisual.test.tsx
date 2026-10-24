@@ -62,6 +62,54 @@ test('renders matrix notation without changing the surrounding plain text', () =
   expect(cell?.lastChild?.textContent).toBe(' dopo');
 });
 
+test.each([
+  'card',
+  'bare',
+] as const)('shows a repeated decision question only in its highlighted box (%s)', variant => {
+  const scene: LessonScene = {
+    ...comparison,
+    type: 'decision',
+    body: '  Quando   la conclusione regge? ',
+    quote: 'Quando la conclusione regge?',
+  };
+  const { container, rerender } = render(<LessonSceneVisual scene={scene} variant={variant} />);
+  expect(container.querySelector('.scene-intro')).toBeNull();
+  expect(container.querySelector('.decision-question')).toHaveTextContent(
+    'Quando la conclusione regge?'
+  );
+  rerender(
+    <LessonSceneVisual scene={{ ...scene, body: 'Una premessa diversa.' }} variant={variant} />
+  );
+  expect(container.querySelector('.scene-intro')).toHaveTextContent('Una premessa diversa.');
+  expect(container.querySelector('.decision-question')).toHaveTextContent(
+    'Quando la conclusione regge?'
+  );
+  rerender(<LessonSceneVisual scene={{ ...scene, quote: '' }} variant={variant} />);
+  expect(container.querySelector('.scene-intro')).toBeNull();
+  expect(container.querySelector('.decision-question')).toHaveTextContent(
+    'Quando la conclusione regge?'
+  );
+});
+
+test.each([
+  'card',
+  'bare',
+] as const)('formats math in the sole highlighted decision question (%s)', variant => {
+  const scene: LessonScene = {
+    ...comparison,
+    type: 'decision',
+    body: 'Quando $x^2 > 0$?',
+    quote: '',
+  };
+  const { container, rerender } = render(<LessonSceneVisual scene={scene} variant={variant} />);
+  expect(container.querySelector('.scene-intro')).toBeNull();
+  expect(container.querySelector('.decision-question math')).toHaveTextContent('x2>0');
+  expect(container.querySelector('.decision-question')).not.toHaveTextContent('$');
+  rerender(<LessonSceneVisual scene={{ ...scene, quote: scene.body }} variant={variant} />);
+  expect(container.querySelector('.scene-intro')).toBeNull();
+  expect(container.querySelector('.decision-question math')).toHaveTextContent('x2>0');
+});
+
 describe('lesson scene visual', () => {
   test('renders the player scene bare with prototype icon masks and preserves reader cards', async () => {
     const { container, rerender } = render(<LessonSceneVisual scene={comparison} variant="bare" />);

@@ -43,6 +43,119 @@ const buildHookArgs = (overrides: Partial<HookArgs> = {}): HookArgs => ({
   ...overrides,
 });
 
+test.each([
+  true,
+  false,
+])('playback artifact removal persists and rolls back on failure: %s', async persisted => {
+  const visual = {
+    id: 'visual-draft-saved',
+    kind: 'scene' as const,
+    title: 'Memoria',
+    code: '',
+    createdAt: '2026-10-24',
+  };
+  const otherVisual = { ...visual, id: 'visual-draft-other' };
+  const artifactId = 'project-1:lesson-1:generated-visual:visual-draft-saved';
+  const otherRef = { artifactId: 'other', kind: 'generated-visual' as const };
+  const annotation = {
+    id: 'saved',
+    note: '',
+    createdAt: '',
+    updatedAt: '',
+    artifactRefs: [{ artifactId, kind: 'generated-visual' as const }],
+  };
+  const lesson = buildTestLesson({
+    id: 'lesson-1',
+    generatedVisuals: [visual, otherVisual],
+    annotations: [
+      annotation,
+      {
+        ...annotation,
+        id: 'note',
+        note: 'Keep this note',
+        artifactRefs: [...annotation.artifactRefs, otherRef],
+      },
+    ],
+  });
+  let current = lesson;
+  const patchSectionAnnotations = vi.fn(async () => persisted);
+  const { result } = renderHook(() =>
+    useWorkspaceReaderActions(
+      buildHookArgs({
+        learningPlan: buildTestLearningPlan([lesson]),
+        patchSectionAnnotations,
+        updateSection: (_id, update) => {
+          current = update(current);
+        },
+      })
+    )
+  );
+  const outcome = await result.current.handleRemovePlaybackVisual(
+    { projectId: 'project-1', lessonId: 'lesson-1' },
+    visual.id
+  );
+  expect(patchSectionAnnotations).toHaveBeenCalledWith(
+    'lesson-1',
+    [{ ...annotation, id: 'note', note: 'Keep this note', artifactRefs: [otherRef] }],
+    undefined,
+    [otherVisual]
+  );
+  expect(current.generatedVisuals).toEqual(persisted ? [otherVisual] : lesson.generatedVisuals);
+  expect(current.annotations).toEqual(
+    persisted
+      ? [{ ...annotation, id: 'note', note: 'Keep this note', artifactRefs: [otherRef] }]
+      : lesson.annotations
+  );
+  expect(outcome.succeeded).toBe(persisted);
+});
+
+test('saved playback scene has an annotation linking its source passage', async () => {
+  const lesson = buildTestLesson({ id: 'lesson-1', content: 'La memoria conserva i dati.' });
+  const patchSectionAnnotations = vi.fn(async () => true);
+  const { result } = renderHook(() =>
+    useWorkspaceReaderActions(
+      buildHookArgs({
+        learningPlan: buildTestLearningPlan([lesson]),
+        patchSectionAnnotations,
+      })
+    )
+  );
+  const selector = {
+    start: 0,
+    end: 27,
+    exact: 'La memoria conserva i dati.',
+    prefix: '',
+    suffix: '',
+  };
+  await result.current.handleSaveArtifactToLesson(
+    { projectId: 'project-1', lessonId: 'lesson-1' },
+    { id: 'visual-draft-new', title: 'Memoria', kind: 'scene', code: '', createdAt: '' },
+    {
+      artifactId: 'project-1:lesson-1:generated-visual:visual-draft-new',
+      kind: 'generated-visual',
+      title: 'Memoria',
+    },
+    selector
+  );
+  expect(patchSectionAnnotations.mock.calls[0]).toEqual([
+    'lesson-1',
+    [
+      expect.objectContaining({
+        anchor: { kind: 'selection', selector },
+        artifactRefs: [
+          {
+            artifactId: 'project-1:lesson-1:generated-visual:visual-draft-new',
+            kind: 'generated-visual',
+            title: 'Memoria',
+          },
+        ],
+      }),
+    ],
+    undefined,
+    [expect.objectContaining({ id: 'visual-draft-new', kind: 'scene' })],
+  ]);
+});
+
 test('regeneration reports the missing persisted source rejection instead of failing silently', async () => {
   const notify = vi.fn();
   const { result } = renderHook(() =>

@@ -25,6 +25,46 @@ import {
 } from '../helpers/lessonPlayback.js';
 
 describe('playback persistence and assets', () => {
+  test('saving and removing a playback artifact preserves the prepared narration', () => {
+    const original = playbackSection();
+    original.playback = preparedPlayback(original);
+    const section = {
+      ...original,
+      generatedVisuals: [
+        {
+          id: 'visual-draft-playback',
+          kind: 'scene',
+          title: 'Tema',
+          code: '',
+          createdAt: 'now',
+          scene: {
+            type: 'quote',
+            title: 'Tema',
+            quote: 'Prima frase.',
+            body: '',
+            items: [],
+            groups: [],
+            note: '',
+          },
+        },
+      ],
+      annotations: [
+        {
+          id: 'passage',
+          anchor: {
+            kind: 'selection',
+            selector: { exact: 'Prima frase.', start: 0, end: 12, prefix: '', suffix: '' },
+          },
+        },
+      ],
+    };
+    const saved = playbackProject(section);
+    reconcileLessonPlayback(saved, playbackProject(original));
+    expect(readLessonPlayback(section)).toEqual(original.playback);
+    expect(saved.learningPlan?.sections?.[0].playback).toEqual(original.playback);
+    section.generatedVisuals = [];
+    expect(readLessonPlayback(section)).toEqual(original.playback);
+  });
   test('literal visual references in table code do not depend on stored visuals', () => {
     const section = playbackSection();
     section.contentBlocks = [

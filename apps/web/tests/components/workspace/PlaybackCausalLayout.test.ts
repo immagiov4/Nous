@@ -33,6 +33,48 @@ const formulaViewports = [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ];
+
+test('keeps the save action at its approved size when a scene is fitted on desktop or touch screens', async () => {
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  try {
+    let reference: { width: number; height: number } | undefined;
+    for (const viewport of formulaViewports) {
+      await page.setViewportSize(viewport);
+      await page.goto(
+        `${baseUrl}tests/fixtures/playbackLayout.html?saveVisual=1&formulas=1&formulaPath=wide-scene`
+      );
+      const host = page.locator('.scene-host');
+      await host.waitFor();
+      await page.waitForFunction(
+        () => !!document.querySelector('.scene-fit')?.getAttribute('style')
+      );
+      expect(await page.locator('.playback-visual-action button').count()).toBe(0);
+      await host.hover();
+      const button = page.locator('.playback-visual-action button');
+      await button.waitFor();
+      await page.evaluate(() => document.fonts.ready);
+      const size = await button.boundingBox();
+      if (!size) throw new Error('Save action must be visible');
+      const scale = await page
+        .locator('.scene-fit')
+        .evaluate(slot => Number((slot as HTMLElement).style.getPropertyValue('--scene-scale')));
+      expect(scale).toBeLessThan(1);
+      if (reference) {
+        expect(size.width).toBeCloseTo(reference.width, 0);
+        expect(size.height).toBeCloseTo(reference.height, 0);
+      }
+      reference = size;
+      const center = await host.boundingBox();
+      if (!center) throw new Error('Visual must be visible');
+      expect(size.x + size.width / 2).toBeCloseTo(center.x + center.width / 2, 0);
+      await evidence(page, `save-fitted-${viewport.width}`);
+      await page.mouse.move(0, 0);
+      await button.waitFor({ state: 'detached' });
+    }
+  } finally {
+    await page.close();
+  }
+});
 for (const viewport of formulaViewports) {
   test.each([
     'plain',
@@ -666,6 +708,7 @@ test.each([768, 1440])('retains complete scene fitting at %s px', async width =>
   }
 });
 
+<<<<<<< HEAD
 test.each(
   formulaViewports
 )('keeps the highlighting widget visible during formula dictation at $width px', async viewport => {
@@ -703,6 +746,98 @@ test.each(
     }
     if (positions.length)
       expect(Math.max(...positions) - Math.min(...positions)).toBeLessThanOrEqual(1);
+=======
+for (const width of [1440, 412]) {
+  test(`decision options have no enclosing border at ${width}px`, async () => {
+    const page = await browser.newPage({ viewport: { width, height: 1000 } });
+    try {
+      await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=decision`);
+      const options = page.locator('.decision .groups');
+      await options.waitFor();
+      expect(await options.locator('section').count()).toBe(2);
+      expect(
+        await options.evaluate(element => {
+          const style = getComputedStyle(element);
+          return [
+            style.borderTopWidth,
+            style.borderRightWidth,
+            style.borderBottomWidth,
+            style.borderLeftWidth,
+          ];
+        })
+      ).toEqual(['0px', '0px', '0px', '0px']);
+      expect(await page.locator('.scene-intro').count()).toBe(0);
+      expect(await page.locator('.decision-question').innerText()).toBe(
+        'Le ragioni sostengono la conclusione?'
+      );
+    } finally {
+      await page.close();
+    }
+  });
+  test(`sequence lifelines end above the note at ${width}px`, async () => {
+    const page = await browser.newPage({ viewport: { width, height: 1000 } });
+    try {
+      await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=sequence`);
+      await page.locator('.actor-line').first().waitFor({ state: 'attached' });
+      const note = page.locator('.scene-note');
+      expect(await note.innerText()).toBe('Le frecce descrivono un modello concettuale.');
+      const geometry = await note.evaluate(async element => {
+        await new Promise(requestAnimationFrame);
+        await new Promise(requestAnimationFrame);
+        const lines = Array.from(document.querySelectorAll<SVGLineElement>('.actor-line'));
+        const messages = Array.from(
+          document.querySelectorAll<SVGGraphicsElement>('.messageLine0, .messageLine1')
+        );
+        const messageBottomSvg = Math.max(
+          ...messages.map(message => {
+            const box = message.getBBox();
+            return box.y + box.height;
+          })
+        );
+        const graphic = document.querySelector('.mermaid-diagram > svg');
+        if (!graphic) throw new Error('The sequence drawing must exist');
+        return {
+          background: getComputedStyle(element).backgroundColor,
+          noteTop: element.getBoundingClientRect().top,
+          svgBottom: graphic.getBoundingClientRect().bottom,
+          lineBottoms: lines.map(line => line.getBoundingClientRect().bottom),
+          tails: lines.map(line => line.y2.baseVal.value - messageBottomSvg),
+          messageBottom: Math.max(
+            ...messages.map(message => message.getBoundingClientRect().bottom)
+          ),
+        };
+      });
+      expect(geometry.background).toBe('rgb(251, 239, 233)');
+      expect(geometry.lineBottoms).toHaveLength(3);
+      for (const tail of geometry.tails) expect(tail).toBeCloseTo(20);
+      expect(geometry.svgBottom).toBeLessThan(geometry.noteTop);
+      for (const bottom of geometry.lineBottoms) {
+        expect(bottom).toBeGreaterThan(geometry.messageBottom);
+        expect(bottom).toBeLessThan(geometry.svgBottom);
+        expect(bottom).toBeLessThan(geometry.noteTop);
+      }
+    } finally {
+      await page.close();
+    }
+  });
+}
+test.each([false, true])('reader sequence notes are opaque (dark=%s)', async dark => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(
+      `${baseUrl}tests/fixtures/playbackLayout.html?case=sequence&reader=1${dark ? '&dark=1' : ''}`
+    );
+    const note = page.locator('.scene-note');
+    await note.waitFor();
+    const background = await note.evaluate(element => {
+      const context = document.createElement('canvas').getContext('2d');
+      if (!context) throw new Error('A color sampling context is required');
+      context.fillStyle = getComputedStyle(element).backgroundColor;
+      context.fillRect(0, 0, 1, 1);
+      return Array.from(context.getImageData(0, 0, 1, 1).data);
+    });
+    expect(background).toEqual(dark ? [71, 60, 50, 255] : [251, 239, 233, 255]);
+>>>>>>> origin/main
   } finally {
     await page.close();
   }
