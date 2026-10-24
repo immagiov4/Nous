@@ -14,6 +14,7 @@ const stretch = vi.hoisted(() => ({
     clockNotifications.update = update;
   }),
   connect: vi.fn(),
+  disconnect: vi.fn(),
   schedule: vi.fn(async () => ({})),
   stop: vi.fn(async () => {}),
   addBuffers: vi.fn(async (_channels: Float32Array[]) => 0),
@@ -22,11 +23,36 @@ const stretch = vi.hoisted(() => ({
 vi.mock('signalsmith-stretch', () => ({ default: vi.fn(async () => stretch) }));
 let clock: {
   currentTime: number;
+  sampleRate: number;
+  createGain: typeof gain;
+  createBufferSource: typeof createSource;
   destination: object;
   resume: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
 };
 let audio: LessonPlaybackAudio;
+const gain = () => ({
+  gain: {
+    value: 1,
+    cancelScheduledValues: vi.fn(),
+    cancelAndHoldAtTime: vi.fn(),
+    setValueAtTime: vi.fn(),
+    linearRampToValueAtTime: vi.fn(),
+  },
+  connect: vi.fn(),
+  disconnect: vi.fn(),
+});
+const createSource = () => ({
+  buffer: null as AudioBuffer | null,
+  connect: vi.fn(),
+  disconnect: vi.fn(),
+  start: vi.fn(),
+  stop: vi.fn(),
+  onended: null as (() => void) | null,
+});
+const sources: ReturnType<typeof createSource>[] = [];
+const gains: ReturnType<typeof gain>[] = [];
+
 const recording = (index: number, duration = 1) => ({
   index,
   buffer: {
@@ -37,8 +63,29 @@ const recording = (index: number, duration = 1) => ({
 });
 
 beforeEach(async () => {
+  sources.length = 0;
+  gains.length = 0;
+  vi.stubGlobal(
+    'AudioWorkletNode',
+    class {
+      port = { postMessage: vi.fn() };
+      connect = vi.fn();
+      disconnect = vi.fn();
+    }
+  );
   clock = {
     currentTime: 0,
+    sampleRate: 48_000,
+    createGain: () => {
+      const node = gain();
+      gains.push(node);
+      return node;
+    },
+    createBufferSource: () => {
+      const source = createSource();
+      sources.push(source);
+      return source;
+    },
     destination: {},
     resume: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
@@ -54,7 +101,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test('streams contiguous samples once and changes passage without starting another sound', async () => {
+test('unity schedules contiguous native sources on one clock', async () => {
   const positions = vi.fn(),
     ended = vi.fn();
   audio.onPosition = positions;
@@ -64,20 +111,13 @@ test('streams contiguous samples once and changes passage without starting anoth
     [0, 0],
     [1, 1],
   ]);
-  expect(stretch.schedule).toHaveBeenCalledTimes(1);
-  expect(stretch.schedule).toHaveBeenCalledWith({
-    active: true,
-    input: 0,
-    output: 0,
-    outputTime: 0,
-    rate: 1,
-    semitones: 0,
-  });
+  expect(sources.map(source => source.start.mock.calls)).toEqual([[[0, 0]], [[1, 0]]]);
+  expect(stretch.connect).not.toHaveBeenCalled();
   clock.currentTime = 1;
   clockNotifications.update();
   expect(audio.position).toEqual({ index: 1, time: 0, duration: 1 });
   expect(positions).toHaveBeenLastCalledWith({ index: 1, time: 0, duration: 1 });
-  expect(stretch.schedule).toHaveBeenCalledTimes(1);
+  expect(stretch.schedule).not.toHaveBeenCalled();
   expect(ended).not.toHaveBeenCalled();
   clock.currentTime = 2;
   clockNotifications.update();
@@ -99,9 +139,10 @@ test('speed changes preserve position and pitch without restarting buffers', asy
   await audio.start([recording(0, 10), recording(1, 10)], 2, 1, new AbortController().signal);
   clock.currentTime = 3;
   audio.changeSpeed(2);
-  await Promise.resolve();
+  await audio.append([]);
   expect(stretch.schedule).toHaveBeenLastCalledWith({
-    input: 5,
+    active: true,
+    input: 5 + (128 / 48_000) * 2,
     output: 3,
     outputTime: 3,
     rate: 2,
@@ -129,6 +170,70 @@ test('a pause while buffers are loading prevents the stale stream from starting'
   release();
   await start;
   expect(stretch.schedule).not.toHaveBeenCalled();
+});
+
+test('returning to unity catches up to the heard clock when the main thread advances before routing', async () => {
+  await audio.start([recording(0, 10)], 0, 1.5, new AbortController().signal);
+  clock.currentTime = 2;
+  audio.changeSpeed(1);
+  clock.currentTime = 2.01;
+  await audio.append([]);
+  expect(sources.at(-1)?.start.mock.calls[0][0]).toBe(2.01);
+  expect(sources.at(-1)?.start.mock.calls[0][1]).toBeCloseTo(3.011, 6);
+  expect(audio.position?.time).toBeCloseTo(3.011, 6);
+  expect(gains[0].gain.setValueAtTime).toHaveBeenLastCalledWith(1, 2.01);
+  expect(gains[0].gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(1, 2.01 + 128 / 48_000);
+  expect(gains[1].gain.setValueAtTime).toHaveBeenLastCalledWith(0, 2.01);
+  expect(gains[1].gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(0, 2.01 + 128 / 48_000);
+});
+
+test('returning to unity during an append schedules each upcoming passage exactly once', async () => {
+  const first = recording(0, 10),
+    next = recording(1, 10);
+  await audio.start([first], 0, 1.5, new AbortController().signal);
+  let release = () => {};
+  stretch.addBuffers.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        release = () => resolve(20);
+      })
+  );
+  const appending = audio.append([next]);
+  await vi.waitFor(() => expect(stretch.addBuffers).toHaveBeenCalledTimes(2));
+  audio.changeSpeed(1);
+  await Promise.resolve();
+  release();
+  await appending;
+  await audio.append([]);
+  expect(sources.map(source => source.buffer)).toEqual([first.buffer, next.buffer]);
+});
+
+test('a processed start primes lookahead before advancing the heard recording clock', async () => {
+  await audio.start([recording(0, 10)], 0, 1.5, new AbortController().signal);
+  clock.currentTime = 128 / 48_000;
+  expect(audio.position?.time).toBe(0);
+  clock.currentTime = 256 / 48_000;
+  expect(audio.position?.time).toBeCloseTo(0.004);
+  expect(stretch.schedule).toHaveBeenLastCalledWith({
+    active: true,
+    input: 0,
+    output: 0,
+    outputTime: 0,
+    rate: 1.5,
+    semitones: 0,
+  });
+});
+
+test('native seek preserves the requested opening when source construction advances the context', async () => {
+  vi.spyOn(clock, 'createBufferSource').mockImplementationOnce(() => {
+    clock.currentTime = 0.01;
+    const source = createSource();
+    sources.push(source);
+    return source;
+  });
+  await audio.start([recording(0, 10)], 0, 1, new AbortController().signal);
+  expect(sources[0].start.mock.calls).toEqual([[0.01, 0]]);
+  expect(audio.position?.time).toBe(0);
 });
 
 test('an aborted start never schedules audio and selecting a passage exposes the paused position', async () => {
@@ -162,6 +267,31 @@ test('a late append reports exhaustion instead of skipping the next clip opening
   expect(ended).toHaveBeenCalledTimes(1);
   expect(audio.position).toEqual({ index: 0, time: 1, duration: 1 });
   expect(stretch.addBuffers).toHaveBeenCalledTimes(1);
+});
+
+test('native append schedules the complete opening before a delayed worklet acknowledgement', async () => {
+  await audio.start([recording(0)], 0, 1, new AbortController().signal);
+  clock.currentTime = 0.99;
+  let release = () => {};
+  stretch.addBuffers.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        release = () => resolve(2);
+      })
+  );
+  const appending = audio.append([recording(1)]);
+  try {
+    await vi.waitFor(() => expect(stretch.addBuffers).toHaveBeenCalledTimes(2));
+    clock.currentTime = 1.05;
+    clockNotifications.update();
+    expect(sources.map(source => source.start.mock.calls)).toEqual([[[0, 0]], [[1, 0]]]);
+    expect(audio.position?.index).toBe(1);
+    expect(audio.position?.duration).toBe(1);
+    expect(audio.position?.time).toBeCloseTo(0.05);
+  } finally {
+    release();
+    await appending;
+  }
 });
 
 test('initialization failure rejects start and an explicit unlock creates a working session', async () => {

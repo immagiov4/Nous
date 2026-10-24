@@ -16,7 +16,6 @@ import {
 } from '../../../services/openrouter/lessonPlaybackClient.ts';
 import { downloadProjectAssetBytes } from '../../../services/projects/projectAssetClient.ts';
 import { LessonPlaybackAudio } from '../../../utils/reader/lessonPlaybackAudio.ts';
-import '../../../utils/reader/signalsmithWorklet.ts';
 import workletUrl from '../../../utils/reader/signalsmithWorklet?worker&url';
 
 vi.mock('../../../services/openrouter/lessonPlaybackClient.ts', async importOriginal => ({
@@ -67,6 +66,25 @@ let sequence = 0;
 
 class FakeContext extends EventTarget {
   currentTime = 0;
+  sampleRate = 48_000;
+  createGain = () => ({
+    gain: {
+      value: 1,
+      cancelScheduledValues: vi.fn(),
+      setValueAtTime: vi.fn(),
+      linearRampToValueAtTime: vi.fn(),
+    },
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+  });
+  createBufferSource = () => ({
+    buffer: null,
+    start: vi.fn(),
+    stop: vi.fn(),
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    onended: null,
+  });
   destination = {};
   state = 'suspended';
   loaded = false;
@@ -96,6 +114,7 @@ class FakeContext extends EventTarget {
 class FakeWorkletNode extends EventTarget {
   onprocessorerror: (() => void) | null = null;
   connect = vi.fn();
+  disconnect = vi.fn();
   port = {
     onmessage: (_event: { data: unknown[] }) => {},
     postMessage: vi.fn(([id, method]: unknown[]) => {
@@ -106,9 +125,10 @@ class FakeWorkletNode extends EventTarget {
       );
     }),
   };
-  constructor(context: FakeContext) {
+  constructor(context: FakeContext, name: string) {
     super();
     if (!context.loaded || failure === 'constructor') throw new Error('Processor unavailable');
+    if (name === 'lesson-peak-limiter') return;
     nodes.push(this);
     queueMicrotask(() => {
       if (failure === 'processor') this.dispatchEvent(new Event('processorerror'));
@@ -159,7 +179,7 @@ test('constructs without audio side effects and loads the real factory through t
   expect(audio.ready()).toBe(ready);
   await ready;
   expect(contexts[0].audioWorklet.addModule).toHaveBeenCalledExactlyOnceWith(workletUrl);
-  expect(nodes[0].connect).toHaveBeenCalledWith(contexts[0].destination);
+  expect(nodes[0].connect).not.toHaveBeenCalled();
   expect(await audio.decode(new Uint8Array([1]))).toBe(buffer);
   audio.close();
 });
