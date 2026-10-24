@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { LessonPlaybackBlock } from '@shared/lessonPlayback';
+import { isRetiredLessonScene } from '@shared/lessonScene';
 
 import { readLessonPlayback } from '../projects/lessonPlayback.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
@@ -8,7 +9,7 @@ import { ttsClient } from '../services/ttsClient.js';
 import type { WorkflowRegistry } from './definition.js';
 import {
   LESSON_PLAYBACK_WORKFLOW_ID,
-  LessonPlaybackInputSchema,
+  LessonPlaybackPreparationInputSchema,
 } from './lessonPlaybackWorkflow.js';
 import { WorkflowRuntimeUnavailableError } from './runtime/workflowRuntimeApi.js';
 import type { WorkflowTransientEventPublisher } from './workflowObservability.js';
@@ -31,7 +32,12 @@ export interface LessonPlaybackApi {
     target: PlaybackTarget
   ): Promise<{ lessonKey: string; blocks: readonly LessonPlaybackBlock[] }>;
   prepare(
-    input: PlaybackTarget & { lessonKey: string; blockId: string; voice: string }
+    input: PlaybackTarget & {
+      lessonKey: string;
+      blockId: string;
+      voice: string;
+      visualOnly?: boolean;
+    }
   ): Promise<PlaybackPreparationResult>;
 }
 
@@ -79,11 +85,21 @@ export const createLessonPlaybackApi = (dependencies: {
       if (!block) throw new LessonPlaybackTargetError();
       const model = await dependencies.resolveTtsModel();
       const voice = ttsClient.resolveVoice(model, input.voice);
-      if (isPlaybackBlockReady(block, voice, model)) {
+      if (
+        input.visualOnly
+          ? block.prepared?.scene && !isRetiredLessonScene(block.prepared.scene)
+          : isPlaybackBlockReady(block, voice, model)
+      ) {
         // Playback receives the saved audio immediately; alignment has its own durable run.
-        void dependencies
-          .alignRecording?.({ ...input, incarnationId: project.incarnationId, voice, model }, block)
-          .catch(error => console.warn('[recording-alignment] Could not queue recording.', error));
+        if (!input.visualOnly)
+          void dependencies
+            .alignRecording?.(
+              { ...input, incarnationId: project.incarnationId, voice, model },
+              block
+            )
+            .catch(error =>
+              console.warn('[recording-alignment] Could not queue recording.', error)
+            );
         return { block, voice, model };
       }
       const { run, created } = await startWorkflowRun({
@@ -105,7 +121,7 @@ export const createLessonPlaybackApi = (dependencies: {
         store: dependencies.store,
         publishTransientEvent: dependencies.publishTransientEvent,
       });
-      const active = LessonPlaybackInputSchema.parse(run.input);
+      const active = LessonPlaybackPreparationInputSchema.parse(run.input);
       return { runId: run.id, blockId: active.blockId, voice: active.voice, created };
     },
   };

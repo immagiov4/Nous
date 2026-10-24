@@ -1,3 +1,4 @@
+import { isRetiredLessonScene } from '@shared/lessonScene';
 import { readLessonPlayback } from '../projects/lessonPlayback.js';
 import type { ProjectAssetWriter } from '../projects/projectAsset.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
@@ -32,19 +33,35 @@ export const buildLessonPlaybackCommitPatch = (
       message: 'The lesson changed during playback preparation.',
     });
   }
-  if (!result.assetOwner) return null;
+  if (!result.assetOwner && !target.visualOnly) return null;
+  if (target.visualOnly && !block.prepared)
+    throw new Error('A visual preparation must contain prepared scene data.');
+  const preparedVisual = block.prepared;
   return {
     section: {
       sectionId: target.sectionId,
       playback: {
         ...playback,
-        blocks: playback.blocks.map(saved =>
-          saved.id !== block.id
-            ? saved
-            : {
-                ...saved,
-                prepared: saved.prepared ?? block.prepared,
-                audio: [
+        blocks: playback.blocks.map(saved => {
+          if (saved.id !== block.id) return saved;
+          let prepared = saved.prepared ?? block.prepared;
+          if (
+            preparedVisual?.scene &&
+            !isRetiredLessonScene(preparedVisual.scene) &&
+            (!saved.prepared?.scene || isRetiredLessonScene(saved.prepared.scene))
+          ) {
+            prepared = {
+              ...(saved.prepared ?? preparedVisual),
+              scene: preparedVisual.scene,
+              motion: preparedVisual.motion,
+            };
+          }
+          return {
+            ...saved,
+            prepared,
+            audio: target.visualOnly
+              ? saved.audio
+              : [
                   ...saved.audio.filter(
                     audio =>
                       !block.audio.some(
@@ -53,8 +70,8 @@ export const buildLessonPlaybackCommitPatch = (
                   ),
                   ...block.audio,
                 ],
-              }
-        ),
+          };
+        }),
       },
     },
   };
@@ -68,7 +85,7 @@ export const createLessonPlaybackPersistence =
   }): LessonPlaybackServices['persistPlayback'] =>
   async ({ execution, input, transaction }) => {
     const { target } = input;
-    if (input.assetOwner) {
+    if (input.assetOwner && !target.visualOnly) {
       await dependencies.assets.adoptNodeAssets(transaction, {
         assetIds: input.block.audio.map(audio => audio.asset.id),
         nodeInstanceId: input.assetOwner,

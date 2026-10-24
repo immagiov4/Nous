@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
-import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
+import {
+  type LessonPlaybackBlock,
+  resolvePlaybackNarration,
+  segmentLessonPlayback,
+} from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useLayoutEffect } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { guidedPathScene } from '../../../../backend/tests/helpers/animatedLessonScenes';
@@ -25,16 +29,230 @@ import {
   sceneElements,
 } from '../../../components/workspace/playback/stageMotion.ts';
 import type { WorkspaceReaderContentModel } from '../../../components/workspace/shell/types.ts';
+import { prepareLessonPlaybackVisual } from '../../../services/openrouter/lessonPlaybackVisualClient.ts';
 import { resolveProjectVisual } from '../../../services/projects/projectVisualResolver.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 
 vi.mock('../../../utils/motion/useShouldAnimate.ts', () => ({ useShouldAnimate: vi.fn() }));
+vi.mock('../../../services/openrouter/lessonPlaybackVisualClient.ts', () => ({
+  prepareLessonPlaybackVisual: vi.fn(),
+}));
 vi.mock('../../../services/projects/projectVisualResolver.ts', () => ({
   resolveProjectVisual: vi.fn(),
 }));
 
 let resizeScene: () => void;
 const disconnectScene = vi.fn();
+
+test.each([
+  'unresolvable',
+  'broken',
+  'inline',
+] as const)('prepares a replacement for a %s generated image', async state => {
+  vi.mocked(prepareLessonPlaybackVisual).mockReset();
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: 'Il client individua il controller. Il controller verifica le credenziali.',
+    },
+  ];
+  const raw = segmentLessonPlayback(sources)[0];
+  const scene: LessonScene = {
+    type: 'steps',
+    title: 'Accesso al dominio',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [
+      { label: 'Client', detail: 'Trovare il controller', icon: '' },
+      { label: 'Controller', detail: 'Verificare le credenziali', icon: '' },
+    ],
+  };
+  const legacyImage = {
+    id: 'generated-image',
+    kind: 'image' as const,
+    title: 'Schema salvato',
+    altText: 'Schema salvato',
+    code: 'data:image/png;base64,broken',
+    createdAt: '',
+  };
+  const stored =
+    state === 'unresolvable'
+      ? {
+          id: legacyImage.id,
+          title: legacyImage.title,
+          slotId: 'slot',
+          createdAt: '',
+          render: {
+            kind: 'image' as const,
+            asset: {
+              id: 'a'.repeat(64),
+              hash: 'b'.repeat(64),
+              byteSize: 3,
+              mediaType: 'image/png',
+            },
+          },
+        }
+      : legacyImage;
+  if (state === 'unresolvable')
+    vi.mocked(resolveProjectVisual).mockRejectedValueOnce(new Error('Asset unavailable'));
+  let complete!: (prepared: NonNullable<LessonPlaybackBlock['prepared']>) => void;
+  vi.mocked(prepareLessonPlaybackVisual).mockReturnValue(
+    new Promise(resolve => {
+      complete = resolve;
+    })
+  );
+  const block = {
+    ...raw,
+    prepared: { motion: [] },
+    visuals:
+      state === 'inline'
+        ? [{ kind: 'markdown' as const, markdown: '{{VISUAL_EXAMPLE:generated-image}}' }]
+        : [{ kind: 'generated-visual' as const, visualId: stored.id }],
+  };
+  const content = {
+    isDarkMode: false,
+    projectId: 'project',
+    activeSectionId: 'section',
+    sectionContentBlocks: sources,
+    activeSectionAssetsById: {},
+    activeSectionGeneratedVisualsById: { [stored.id]: stored },
+  } as WorkspaceReaderContentModel;
+  const { container } = render(
+    <LessonPlaybackStage block={block} content={content} duration={10} time={4} />
+  );
+  if (state !== 'unresolvable')
+    fireEvent.error(await screen.findByRole('img', { name: 'Schema salvato' }));
+  await waitFor(() => expect(prepareLessonPlaybackVisual).toHaveBeenCalledTimes(1));
+  expect(container.querySelector('.scene-host')?.textContent).toBe('');
+  expect(container.querySelector('.scene-host')?.getAttribute('aria-hidden')).toBe('true');
+  await act(async () => complete({ scene, motion: [] }));
+  expect(container.querySelector('.scene-host h2')?.textContent).toBe('Accesso al dominio');
+  expect(container.querySelector('.scene-host')?.textContent).toContain(
+    'Verificare le credenziali'
+  );
+  expect(container.querySelector('blockquote, .type-quote')).toBeNull();
+});
+
+test('retains an available generated image without requesting visual preparation', () => {
+  vi.mocked(prepareLessonPlaybackVisual).mockClear();
+  const sources = [{ type: 'markdown' as const, markdown: 'Un client e un controller.' }];
+  const image = {
+    id: 'available-image',
+    kind: 'image' as const,
+    code: 'data:image/png;base64,YQ==',
+    title: 'Schema disponibile',
+    createdAt: '',
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    visuals: [{ kind: 'generated-visual' as const, visualId: image.id }],
+  };
+  render(
+    <LessonPlaybackStage
+      block={block}
+      content={
+        {
+          projectId: 'project',
+          activeSectionId: 'section',
+          isDarkMode: false,
+          sectionContentBlocks: sources,
+          activeSectionGeneratedVisualsById: { [image.id]: image },
+        } as WorkspaceReaderContentModel
+      }
+      duration={10}
+      time={4}
+    />
+  );
+  expect(screen.getByRole('img', { name: 'Schema disponibile' }).getAttribute('src')).toBe(
+    image.code
+  );
+  expect(prepareLessonPlaybackVisual).not.toHaveBeenCalled();
+});
+
+test.each([
+  'missing',
+  'quote',
+  'missing-image',
+  'broken-image',
+] as const)('prepares a real visual for %s and keeps the pending panel empty', async kind => {
+  const speech = 'Il client trova il controller tramite DNS e invia le credenziali al controller.';
+  const scene: LessonScene = {
+    type: 'steps',
+    title: 'Accesso al dominio',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [
+      { label: 'Ricerca DNS', detail: 'Individuare il controller', icon: '' },
+      { label: 'Autenticazione', detail: 'Inviare le credenziali', icon: '' },
+    ],
+  };
+  const legacy = {
+    ...scene,
+    type: 'quote' as const,
+    quote: speech,
+    items: [],
+  };
+  let complete!: (prepared: NonNullable<LessonPlaybackBlock['prepared']>) => void;
+  vi.mocked(prepareLessonPlaybackVisual).mockReturnValue(
+    new Promise(resolve => {
+      complete = resolve;
+    })
+  );
+  const block = {
+    ...segmentLessonPlayback([{ type: 'markdown', markdown: speech }])[0],
+    visuals: kind.endsWith('image')
+      ? [{ kind: 'markdown' as const, markdown: '{{PDF_IMAGE:figure-1|alt=Dominio}}' }]
+      : kind === 'missing'
+        ? []
+        : [{ kind: 'scene' as const, scene: legacy }],
+    prepared: {
+      ...(kind === 'quote' ? { scene: legacy } : {}),
+      motion: [],
+    },
+  };
+  const content = {
+    projectId: 'project',
+    activeSectionId: 'section',
+    sectionContentBlocks: [{ type: 'markdown', markdown: speech }],
+    isDarkMode: false,
+    activeSectionAssetsById:
+      kind === 'broken-image'
+        ? {
+            'figure-1': {
+              id: 'figure-1',
+              dataUrl: 'data:image/png;base64,broken',
+              sourceOrder: 0,
+              textBefore: '',
+              textAfter: '',
+            },
+          }
+        : {},
+  } as WorkspaceReaderContentModel;
+  const { container } = render(
+    <LessonPlaybackStage block={block} content={content} duration={10} time={4} />
+  );
+  if (kind === 'broken-image') fireEvent.error(screen.getByRole('img', { name: 'Dominio' }));
+  expect(container.querySelector('.scene-host')?.textContent).toBe('');
+  expect(container.querySelector('.captions')?.textContent).toContain(speech);
+  expect(prepareLessonPlaybackVisual).toHaveBeenCalledWith({
+    projectId: 'project',
+    sectionId: 'section',
+    lessonKey: undefined,
+    block: expect.objectContaining({ speech }),
+  });
+  await act(async () => complete({ scene, motion: [] }));
+  await waitFor(() =>
+    expect(container.querySelector('.scene-host h2')?.textContent).toBe('Accesso al dominio')
+  );
+  expect(container.querySelector('.scene-host')?.textContent).toContain('Ricerca DNS');
+  expect(container.querySelector('.scene-host')?.textContent).toContain('Autenticazione');
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain(speech);
+  expect(container.querySelector('blockquote, .type-quote')).toBeNull();
+});
 
 test.each([
   'missing',
@@ -50,7 +268,7 @@ test.each([
     },
   ];
   const scene: LessonScene = {
-    type: 'definition',
+    type: 'parts',
     title: 'Scena del passaggio',
     body: '',
     quote: '',
@@ -91,9 +309,10 @@ test.each([
   if (imageState === 'broken')
     fireEvent.error(screen.getByRole('img', { name: 'Figura di esempio' }));
   if (imageState === 'historical') {
-    expect(
-      container.querySelector('.scene-host blockquote')?.textContent?.replace(/^“\s*/u, '').trim()
-    ).toBe('La memoria conserva i dati del programma.');
+    expect(container.querySelector('.scene-host')?.textContent).toBe('');
+    expect(container.querySelector('.captions')?.textContent).toContain(
+      'La memoria conserva i dati del programma.'
+    );
   } else {
     expect(container.querySelector('.scene-host h2')?.textContent).toBe('Scena del passaggio');
     expect(container.querySelector('.scene-host strong')?.textContent).toBe('Il concetto');
@@ -1143,11 +1362,11 @@ test.each([
     />
   );
   expect(container.querySelector('.scene-host pre')).toBeNull();
-  expect(container.querySelector('.scene-host blockquote')?.textContent).toContain('Introduction.');
+  expect(container.querySelector('.scene-host')?.textContent).toBe('');
   expect(container.querySelector('.caption-page')?.textContent).toContain(body.trim());
 });
 
-test('keeps a text-only prepared passage in captions with its literal fallback card', () => {
+test('keeps a text-only prepared passage in captions while the visual panel is pending', () => {
   const sources = [
     { type: 'markdown' as const, markdown: 'Una spiegazione senza una visualizzazione utile.' },
   ];
@@ -1161,7 +1380,7 @@ test('keeps a text-only prepared passage in captions with its literal fallback c
     />
   );
   expect(container.querySelector('.captions')?.textContent).toContain('Una spiegazione');
-  expect(container.querySelector('.scene-host blockquote')?.textContent).toContain(block.speech);
+  expect(container.querySelector('.scene-host')?.textContent).toBe('');
 });
 
 test('retains the complete authored formula while the next passage explains its subscript', () => {
@@ -1821,7 +2040,7 @@ test.each([
   'unprepared',
   'legacy',
   'missing-reference',
-])('shows a passage-derived visual for %s content throughout playback', state => {
+])('keeps captions readable while %s content awaits a real visual', state => {
   vi.mocked(useShouldAnimate).mockReturnValue(false);
   const sources = [{ type: 'markdown' as const, markdown: 'A boundary separates two regions.' }];
   const raw = segmentLessonPlayback(sources)[0];
@@ -1841,10 +2060,12 @@ test.each([
     <LessonPlaybackStage block={block} content={content} duration={8} time={0} />
   );
   const visual = container.querySelector('.scene-host');
-  expect(visual?.querySelector('blockquote')?.textContent).toContain(raw.speech);
+  expect(visual?.textContent).toBe('');
+  expect(container.querySelector('.captions')?.textContent).toContain(raw.speech);
   for (const time of [4, 8, 8.1]) {
     rerender(<LessonPlaybackStage block={block} content={content} duration={8} time={time} />);
-    expect(visual?.querySelector('blockquote')?.textContent).toContain(raw.speech);
+    expect(visual?.textContent).toBe('');
+    expect(container.querySelector('.captions')?.textContent).toContain(raw.speech);
   }
 });
 

@@ -151,7 +151,7 @@ The image must be self-contained, accurate, and immediately readable. Do not add
 FACTUAL LESSON CONTEXT
 ${input.lessonMarkdown.slice(0, 3_000)}`;
 
-export const LESSON_SCENE_CLOSING_TEXT_RULE = `A lesson scene needs no closing text by default. Add a note only when a necessary limit would otherwise be missed, or a question only when it is essential to the reader's task. Never add both, repeat information already visible, or append generic reminders. Leave both fields empty when the scene is sufficient. In quote and decision forms, quote is the main content rather than a closing question.`;
+export const LESSON_SCENE_CLOSING_TEXT_RULE = `A lesson scene needs no closing text by default. Add a note only when a necessary limit would otherwise be missed, or a question only when it is essential to the reader's task. Never add both, repeat information already visible, or append generic reminders. Leave both fields empty when the scene is sufficient. In decision forms, quote is the main content rather than a closing question.`;
 
 export const LESSON_SCENE_INDEPENDENT_CONTENT_RULE = `Preserve every independent computation or step required by the visual's teaching goal. Use parts for independent entries shown side by side, checklist for independent checks, or comparison for genuinely comparable alternatives; use steps only when the lesson explicitly orders the actions. Flowchart, sequence, and journey require one connected graph with lesson-supported connections. If required content is disconnected, change to a suitable non-graph form, including when correcting a previous diagram attempt. Never omit independent content or invent connections to satisfy the diagram contract. A planned diagram is a form suggestion, not permission to lose required content.`;
 

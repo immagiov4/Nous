@@ -1075,6 +1075,39 @@ export function getPlaybackFormulaMarkdown(
     : undefined;
 }
 
+/** The target's authored heading bounds context, including a following list introduced by the passage. */
+export function getPlaybackPassageContext(
+  block: LessonPlaybackBlock,
+  sources: readonly PlaybackContentBlock[] = []
+): string | undefined {
+  const spans = block.spans.filter(span => span.source.start !== span.source.end);
+  if (!spans.length || !sources.length) return undefined;
+  const offsets: number[] = [];
+  let offset = 0;
+  const markdown = sources
+    .map(source => {
+      offsets.push(offset);
+      const text = source.type === 'markdown' ? source.markdown : '';
+      offset += text.length + '\n\n'.length;
+      return text;
+    })
+    .join('\n\n');
+  const start = Math.min(...spans.map(span => offsets[span.sourceBlockIndex] + span.source.start));
+  const end = Math.max(...spans.map(span => offsets[span.sourceBlockIndex] + span.source.end));
+  const headings = analyzeMarkdown(markdown).headings;
+  const preceding = headings.filter(heading => heading.start <= start).at(-1);
+  const following = headings.find(heading => heading.start >= end && heading.start > start);
+  const context = markdown.slice(preceding?.start ?? 0, following?.start ?? markdown.length);
+  const analysis = analyzeMarkdown(context);
+  const media = [
+    ...analysis.blocks.filter(range => range.kind === 'omitted'),
+    ...analysis.inlineVisuals.filter(range => !analysis.math.includes(range)),
+  ].sort((left, right) => right.start - left.start);
+  return media
+    .reduce((text, range) => text.slice(0, range.start) + text.slice(range.end), context)
+    .trim();
+}
+
 /** Preserve syntax-defined code, tables and media while excluding narrated Markdown prose. */
 export function playbackNonProseVisuals(block: LessonPlaybackBlock): PlaybackVisual[] {
   return block.visuals.flatMap(visual => {

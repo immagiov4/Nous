@@ -495,13 +495,12 @@ test('2: matrix scene cells render authored math through KaTeX', async () => {
   }
 });
 
-test('1: a historical image-only preparation shows a bounded passage-derived card without image wording', async () => {
+test('1: a historical image-only preparation stays empty while no replacement is available', async () => {
   const page = await openCard('missing&historical');
   try {
     const card = await page.locator('.scene-host').innerText();
-    expect(
-      (await page.locator('.scene-host blockquote').innerText()).replace(/^“\s*/u, '').trim()
-    ).toBe('In una situazione ambigua, le persone osservano gli altri prima di intervenire.');
+    expect(card).toBe('');
+    expect(await page.locator('.captions').innerText()).toContain('In una situazione ambigua');
     expect(card).not.toContain('PDF_IMAGE');
     expect(card).not.toContain('Un esempio visivo');
     expect(card).not.toContain('Figura di esempio');

@@ -3,6 +3,7 @@ import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import { LessonSceneAnimationShape } from '@shared/lessonPlaybackSchema';
 import {
   findLessonSceneProblems,
+  GENERATABLE_LESSON_SCENE_TYPES,
   GUIDED_PATH_MAX_STEPS,
   GUIDED_PATH_MIN_STEPS,
   hasConflictingLessonSceneClosingText,
@@ -11,7 +12,6 @@ import {
   LESSON_SCENE_DIAGRAM_TYPES,
   LESSON_SCENE_REGISTRY,
   LESSON_SCENE_RELATION_KINDS,
-  LESSON_SCENE_TYPES,
   LESSON_SCENE_VERDICTS,
   type LessonScene,
   LessonSceneSchema,
@@ -111,7 +111,7 @@ const draftItemShape = {
 const SceneDraftSchema = z.strictObject({
   intent: z.string(),
   evidence: z.string(),
-  type: z.enum(LESSON_SCENE_TYPES),
+  type: z.enum(GENERATABLE_LESSON_SCENE_TYPES),
   title: z.string(),
   body: z.string(),
   items: z.array(
@@ -181,7 +181,7 @@ const catalogText = (types: readonly LessonSceneType[]): string =>
 
 const sceneSystemPrompt = (
   types: readonly LessonSceneType[]
-) => String.raw`Design the visual scene that accompanies one concept of a lesson for adults. First state the reader's task: what must the reader understand? Then choose the semantic relation (definition, distinction, comparison by a criterion, check, sequence, limit, question) and only then choose the form from the catalog. Use only the lesson text. Preserve negations, scope, conditions, and uncertainty. All visible text uses the lesson language.
+) => String.raw`Design the visual scene that accompanies one concept of a lesson for adults. First state the reader's task: what must the reader understand? Then choose the semantic relation (definition, distinction, comparison by a criterion, check, sequence, limit, question) and only then choose the form from the catalog. Use only the lesson text. Preserve negations, scope, conditions, and uncertainty. All visible text uses the lesson language. Show the passage's structure, relationships or quantities with concise labels. A process needs its actual steps or flow. Never make a text-repeat card or copy narration sentences into the visual; captions already show the narration.
 
 FIELDS
 - intent: one concrete sentence about the reader's task; never shown.
@@ -190,7 +190,7 @@ FIELDS
 - body: one short sentence only when it adds necessary information, otherwise "".
 - items: {label (at most 6 words), detail (at most 15 words, or ""), value (a number only for quantitative forms, else null), time (line only: the point's position in time as a number written in the lesson, such as a year; else null), iconQueries}.
 - groups: {label, items (each a self-contained phrase), iconQueries (one per item, same order), verdict ("prefer", "avoid", or "none")}.
-- quote: an EXACT quotation from the lesson; in quote and decision forms it is the main content, otherwise only an essential closing question; default "".
+- quote: an EXACT quotation from the lesson; in decision forms it is the main question, otherwise only an essential closing question; default "".
 - note: one necessary limit in at most 18 words; default "".
 - criteria: row labels for matrix, otherwise [].
 - relation: for comparison and signals with two genuinely related terms, {kind, label, evidence}; otherwise null. kind is greater, less, different, equal, versus, or leads. label is only read by screen readers. evidence is an exact quotation (may be "" for versus). Use different only for an explicit distinction and leads only for an explicit process or consequence. Do not impose a winner when the lesson asks the reader to choose.
@@ -224,8 +224,8 @@ Word limits are maxima, not targets. Bad example: "Preservation process, data/op
 FORMS
 - ${LESSON_SCENE_INDEPENDENT_CONTENT_RULE}
 - Make the layout mirror the logical relations the lesson states: parallel criteria, factors, or options sit side by side in one form (checklist, parts, comparison); only steps the lesson explicitly orders become steps or a sequence. Never chain parallel items as consecutive steps.
-- definition: the defining sentence in body and attributes in items; a condition common to all attributes goes in body once, leaving detail empty. checklist: concrete questions in labels, details only when they add information. limits: two items meaning "Shows" and "Does not prove", in the lesson language. roles: people as items with a neutral profile. quote: only the exact quotation or question, in quote, with body "". steps: strictly ordered actions, not alternatives; options after a pause become a checklist with the pause in body.
-- comparison, signals, matrix, decision, balance, and beforeafter need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other original forms need at least two items, except quote, number, flowchart, sequence, journey, proportional, and guided-path; diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
+- definition: a concise concept in body and attributes in items; a condition common to all attributes goes in body once, leaving detail empty. checklist: concrete questions in labels, details only when they add information. limits: two items meaning "Shows" and "Does not prove", in the lesson language. roles: people as items with a neutral profile. steps: strictly ordered actions, not alternatives; options after a pause become a checklist with the pause in body.
+- comparison, signals, matrix, decision, balance, and beforeafter need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other original forms need at least two items, except number, flowchart, sequence, journey, proportional, and guided-path; diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
 - For hierarchies and networks the title names the common node. Do not use maps, cycles, or timelines for plain lists. beforeafter needs an actual transformation; a mere preference between two behaviours is a comparison with verdicts.
 - Quantitative forms only with REAL numbers present in the lesson, never invented scores. Each numeric item has a finite value >= 0 and a label with unit or period. interval has exactly three items: minimum, estimate, maximum. line points carry increasing times, which set their real spacing; the label shows how the lesson names each time. number has one item. HTTP codes, versions, and identifiers are not quantities.
 - A message exchange with replies and branches is a sequence, not an invented causal chain.
@@ -286,7 +286,7 @@ ${
     : ''
 }
 ${correction}
-${input.narration ? `CANONICAL NARRATION (copy symbol and animation cue anchors exactly from this text):\n${input.narration}\n` : ''}
+${input.narration ? `TARGET PASSAGE / CANONICAL NARRATION (copy symbol and animation cue anchors exactly from this text):\n${input.narration}\nThe authored context below may supply details referred to by this passage, such as the steps following an introduction. Illustrate this passage's concept, preserving the complete referenced relationship; do not substitute a neighboring topic.\n` : ''}
 ${input.lessonMarkdown.length > MAX_VISUAL_LESSON_CHARS ? 'LESSON EXCERPT (truncated; only this excerpt is available for analysis):' : 'LESSON TEXT:'}
 ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`;
 };
@@ -423,8 +423,10 @@ export async function generateLessonScene(
   const config = await getResolvedModelConfigForProvider(input.config.artifact.provider);
   // A resumed workflow must generate within the catalog admitted by its saved contract.
   // Spotlight definitions need the owning playback's canonical speech, not raw Markdown anchors.
-  const types = (input.allowedSceneTypes ?? LESSON_SCENE_TYPES).filter(
-    type => type !== 'formula-spotlight' || input.narration !== undefined
+  const types = (input.allowedSceneTypes ?? GENERATABLE_LESSON_SCENE_TYPES).filter(
+    type =>
+      GENERATABLE_LESSON_SCENE_TYPES.includes(type) &&
+      (type !== 'formula-spotlight' || input.narration !== undefined)
   );
   const schema = SceneDraftSchema.extend({
     type: z.enum(input.allowTextFallback ? [...types, 'text'] : types),

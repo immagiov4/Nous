@@ -40,7 +40,12 @@ export const getLessonPlayback = async (target: PlaybackTarget, signal?: AbortSi
 };
 
 export const prepareLessonPlayback = async (
-  target: PlaybackTarget & { blockId: string; lessonKey: string; voice: string },
+  target: PlaybackTarget & {
+    blockId: string;
+    lessonKey: string;
+    voice: string;
+    visualOnly?: boolean;
+  },
   signal?: AbortSignal
 ) => {
   const response = await fetchWithSupabaseAuth(
@@ -48,7 +53,11 @@ export const prepareLessonPlayback = async (
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lessonKey: target.lessonKey, voice: target.voice }),
+      body: JSON.stringify({
+        lessonKey: target.lessonKey,
+        voice: target.voice,
+        ...(target.visualOnly ? { visualOnly: true } : {}),
+      }),
       signal,
     }
   );

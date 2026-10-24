@@ -1,7 +1,10 @@
 import { type LessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
 
-const { prepare } = vi.hoisted(() => ({ prepare: vi.fn() }));
+const { prepare, prepareVisuals } = vi.hoisted(() => ({
+  prepare: vi.fn(),
+  prepareVisuals: vi.fn(),
+}));
 vi.mock(
   '../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js',
   async importOriginal => ({
@@ -9,6 +12,7 @@ vi.mock(
       typeof import('../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js')
     >()),
     prepareLessonPlaybackBlock: prepare,
+    prepareLessonPlaybackVisuals: prepareVisuals,
   })
 );
 vi.mock('../../src/config/modelConfig.js', async importOriginal => ({
@@ -66,6 +70,38 @@ test('reuses a block completed between the API cache read and the run starting',
   const result = await services.preparePlayback(context);
   expect(result.block.audio[0]?.asset).toEqual(playbackAsset);
   expect(result.assetOwner).toBeUndefined();
+  expect(prepare).not.toHaveBeenCalled();
+  expect(assets.stage).not.toHaveBeenCalled();
+});
+
+test('prepares a real scene for cached audio without staging or synthesizing another recording', async () => {
+  const { assets, services, context } = setup();
+  const scene: LessonScene = {
+    type: 'steps',
+    title: 'Accesso',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [
+      { label: 'DNS', detail: '', icon: '' },
+      { label: 'Controller', detail: '', icon: '' },
+    ],
+  };
+  prepareVisuals.mockResolvedValueOnce({ scene, motion: [] });
+  const result = await services.preparePlayback({
+    ...context,
+    input: { ...context.input, visualOnly: true },
+  });
+  expect(result.block.prepared).toEqual({ scene, motion: [] });
+  expect(result.block.audio).toEqual(preparedPlayback().blocks[0].audio);
+  expect(result.assetOwner).toBeUndefined();
+  expect(prepareVisuals).toHaveBeenCalledWith(
+    expect.objectContaining({
+      block: expect.objectContaining({ speech: 'Prima frase.', visuals: [] }),
+    }),
+    true
+  );
   expect(prepare).not.toHaveBeenCalled();
   expect(assets.stage).not.toHaveBeenCalled();
 });

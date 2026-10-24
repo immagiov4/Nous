@@ -1225,6 +1225,14 @@ export const LESSON_SCENE_REGISTRY = {
 
 export const LESSON_SCENE_TYPES = Object.keys(LESSON_SCENE_REGISTRY) as readonly LessonSceneType[];
 
+/** Retired forms remain readable in saved lessons and frozen workflow contracts. */
+export const isRetiredLessonScene = (scene: Pick<LessonScene, 'type'>): boolean =>
+  scene.type === 'quote';
+
+export const GENERATABLE_LESSON_SCENE_TYPES = LESSON_SCENE_TYPES.filter(
+  type => !isRetiredLessonScene({ type })
+);
+
 export const STATIC_LESSON_SCENE_TYPES = LESSON_SCENE_CATALOG_SNAPSHOTS[0];
 
 export const LESSON_SCENE_CATALOG = Object.fromEntries(

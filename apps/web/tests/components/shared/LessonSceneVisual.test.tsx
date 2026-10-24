@@ -44,6 +44,39 @@ const comparison: LessonScene = {
   type: 'comparison',
 };
 
+test.each([
+  'quote',
+] as const)('omits retired %s scenes and renders a meaningful replacement', type => {
+  const { container, rerender } = render(
+    <LessonSceneVisual scene={{ ...comparison, type, quote: 'Repeated caption.' }} />
+  );
+  expect(container.innerHTML).toBe('');
+  rerender(<LessonSceneVisual scene={comparison} />);
+  expect(container.querySelector('h2')?.textContent).toBe('A che cosa dare più peso?');
+  expect(container.querySelector('blockquote')).toBeNull();
+});
+
+test('preserves the distinct definition layout with its concept icons', () => {
+  const { container } = render(
+    <LessonSceneVisual
+      scene={{
+        ...comparison,
+        type: 'definition',
+        title: 'Componenti del sistema',
+        note: '',
+        items: [
+          { label: 'Processore', detail: 'Esegue le istruzioni', icon: 'point' },
+          { label: 'Memoria', detail: 'Conserva i dati', icon: 'point' },
+        ],
+      }}
+    />
+  );
+  expect(container.querySelector('h2')?.textContent).toBe('Componenti del sistema');
+  expect(container.querySelectorAll('.definition .concept-badge')).toHaveLength(2);
+  expect(container.querySelector('.definition')?.textContent).toContain('Esegue le istruzioni');
+  expect(container.querySelector('blockquote')).toBeNull();
+});
+
 test('renders matrix notation without changing the surrounding plain text', () => {
   const scene: LessonScene = {
     ...comparison,
@@ -164,12 +197,11 @@ describe('lesson scene visual', () => {
     if (visible) expect(screen.getByLabelText(visible)).toBeInTheDocument();
   });
 
-  test.each([
-    'quote',
-    'decision',
-  ] as const)('keeps the primary quotation or question in a %s scene', type => {
+  test('keeps the primary question in a decision scene', () => {
     const quote = 'Quali ragioni sostengono questa scelta?';
-    const { container } = render(<LessonSceneVisual scene={{ ...comparison, quote, type }} />);
+    const { container } = render(
+      <LessonSceneVisual scene={{ ...comparison, quote, type: 'decision' }} />
+    );
 
     expect(screen.getByText(quote)).toBeInTheDocument();
     expect(container.querySelectorAll('.scene-note')).toHaveLength(1);

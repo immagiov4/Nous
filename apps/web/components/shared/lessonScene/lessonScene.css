@@ -900,22 +900,6 @@
   height: 40px;
   margin-bottom: 16px;
 }
-.lesson-scene .type-quote header h2 {
-  font-size: 18px;
-  color: var(--muted);
-}
-.lesson-scene blockquote {
-  margin: 0;
-  font-size: 26px;
-  line-height: 1.4;
-  letter-spacing: -0.025em;
-}
-.lesson-scene blockquote > span {
-  display: block;
-  color: var(--blue);
-  font-size: 50px;
-  height: 40px;
-}
 .lesson-scene .layers > div {
   background: var(--tint);
   padding: 18px;
