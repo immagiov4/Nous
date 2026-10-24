@@ -40,7 +40,7 @@ export const FormulaSpotlight = memo(function FormulaSpotlight({
         current?.cueTimes?.reduce(
           (last, time, index) =>
             time <= current.elapsedMs && current.elapsedMs < (current.cueEndTimes?.[index] ?? time)
-              ? index
+              ? (current.cueSymbolIndices?.[index] ?? index)
               : last,
           -1
         ) ?? -1;

@@ -6,6 +6,7 @@ export interface SceneAnimationFrame {
   readonly durationMs: number;
   readonly cueTimes?: number[];
   readonly cueEndTimes?: number[];
+  readonly cueSymbolIndices?: number[];
 }
 
 export type ReadSceneAnimationFrame = () => SceneAnimationFrame | undefined;

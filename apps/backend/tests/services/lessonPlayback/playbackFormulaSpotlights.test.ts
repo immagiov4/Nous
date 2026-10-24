@@ -90,7 +90,7 @@ test('prepares separate local symbol links for repeated saved pronunciations and
       prepared: { ...input.block.prepared, scene: dictatedFormulaSpotlight },
     })
   ).toBe(false);
-  expect(needsPlaybackFormulaSpotlights({ ...input.block, prepared: { motion: [] } })).toBe(false);
+  expect(needsPlaybackFormulaSpotlights({ ...input.block, prepared: { motion: [] } })).toBe(true);
 });
 
 test('rejects a mathematically different widget before saving and corrects it through the same service', async () => {
@@ -113,4 +113,36 @@ test('cancels between occurrences without starting another provider request', as
     preparePlaybackFormulaSpotlights({ ...request(), signal: controller.signal })
   ).rejects.toThrow();
   expect(generate).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  true,
+  false,
+])('prepares and caches inherited formula references through the service (mentioned: %s)', async mentioned => {
+  const sources = [{ type: 'markdown' as const, markdown: '# Tema\n\n$$x+y$$\n\nics più ipsilon' }];
+  const raw = segmentLessonPlayback(sources).at(-1);
+  if (!raw) throw new Error('The reference passage must exist');
+  const source = { ...raw, prepared: { motion: [] } };
+  const scene = mentioned
+    ? dictatedFormulaSpotlight
+    : {
+        ...dictatedFormulaSpotlight,
+        symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
+      };
+  generate.mockResolvedValue({ kind: 'scene', scene });
+  expect(needsPlaybackFormulaSpotlights(source, [], sources)).toBe(true);
+  const formulaSpotlights = await preparePlaybackFormulaSpotlights({
+    ...request(),
+    block: source,
+    sources,
+  });
+  expect(formulaSpotlights).toEqual([{ formula: '$$x+y$$', sourceFormula: '$$x+y$$', scene }]);
+  expect(generate.mock.calls[0][0].narration).toBe(source.speech);
+  const saved = { ...source, prepared: { ...source.prepared, formulaSpotlights } };
+  expect(needsPlaybackFormulaSpotlights(saved, [], sources)).toBe(false);
+  generate.mockClear();
+  expect(await preparePlaybackFormulaSpotlights({ ...request(), block: saved, sources })).toEqual(
+    formulaSpotlights
+  );
+  expect(generate).not.toHaveBeenCalled();
 });

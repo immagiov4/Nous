@@ -433,7 +433,7 @@ export async function generateLessonScene(
       ? SceneDraftSchema.shape.symbols
       : SceneDraftSchema.shape.symbols
           .unwrap()
-          .element.omit({ anchorOccurrence: true })
+          .element.omit({ anchorOccurrence: true, additionalAnchors: true })
           .array()
           .min(1)
           .optional(),
@@ -447,7 +447,7 @@ export async function generateLessonScene(
   const systemPrompt =
     sceneSystemPrompt(types) +
     (input.formulaAnchorOccurrences
-      ? '\nFORMULA OCCURRENCES: A quotation may repeat when anchorOccurrence identifies its zero-based literal occurrence in the narration. Use separate symbol ids for separately spoken occurrences, even for identical LaTeX. Keep quotations limited to the words naming that part; do not broaden them merely to make them unique. Order linked symbols by their selected occurrence.'
+      ? '\nFORMULA OCCURRENCES: A quotation may repeat when anchorOccurrence identifies its zero-based literal occurrence in the narration. Use separate symbol ids for different positions in the formula. When the same formula part is mentioned again, add its exact quotation and optional anchorOccurrence in that symbol’s additionalAnchors array; do not duplicate the glyph or broaden the first anchor. Cover every named part in explanations and recalls as well as full formula readings. Leave every anchor empty only when no part is named. Keep quotations limited to the words naming that part; do not broaden them merely to make them unique. Order linked symbols by their selected occurrence.'
       : '');
   const response = await generateStructuredOutput<unknown>({
     sourceAware: Boolean(input.sourceProvenance),

@@ -107,8 +107,9 @@ function formulaCueTiming(
   current: CaptionClock,
   range?: PlaybackRange
 ) {
-  const times = scene.symbols.map(() => Number.POSITIVE_INFINITY);
-  const ends = scene.symbols.map(() => Number.NEGATIVE_INFINITY);
+  const times: number[] = [];
+  const ends: number[] = [];
+  const symbolIndices: number[] = [];
   const narration = range ? speech.slice(range.start, range.end) : speech;
   for (const reference of resolveFormulaReferences(scene, narration)) {
     const span = captionRangeSpan({
@@ -125,10 +126,11 @@ function formulaCueTiming(
       startOffset: current.headingDuration,
       aligned: current.aligned,
     });
-    times[reference.index] = span.startMs;
-    ends[reference.index] = span.endMs;
+    times.push(span.startMs);
+    ends.push(span.endMs);
+    symbolIndices.push(reference.index);
   }
-  return { times, ends };
+  return { times, ends, symbolIndices };
 }
 
 function canRetainPresentedCues(
@@ -185,6 +187,7 @@ function PlaybackScene({
     let previousClock: CaptionClock | null = null;
     let times: number[] | undefined;
     let ends: number[] | undefined;
+    let symbolIndices: number[] | undefined;
     return () => {
       const current = clock.current;
       if (!current?.duration) return undefined;
@@ -208,7 +211,7 @@ function PlaybackScene({
               })
             : undefined;
         if (scene.type === 'formula-spotlight' && anchors) {
-          ({ times, ends } = formulaCueTiming(
+          ({ times, ends, symbolIndices } = formulaCueTiming(
             scene as FormulaSpotlightData,
             block.speech,
             current,
@@ -226,6 +229,7 @@ function PlaybackScene({
             durationMs: current.duration * 1000,
             cueTimes: times,
             cueEndTimes: ends,
+            cueSymbolIndices: symbolIndices,
           }
         : {
             elapsedMs: (blockTime - interval.start) * 1000,
@@ -822,6 +826,7 @@ function PlaybackPassage({
     let previousClock: CaptionClock | null = null;
     let previousActive: number | undefined;
     let spans: (ReturnType<typeof captionAnchorSpan> | undefined)[] = [];
+    let referenceCues: (ReturnType<typeof formulaCueTiming> | undefined)[] = [];
     let frame = 0;
     const tick = () => {
       const current = clock.current;
@@ -834,6 +839,22 @@ function PlaybackPassage({
       ) {
         if (current !== previousClock) {
           const previousSpans = spans;
+          const previousReferenceCues = referenceCues;
+          referenceCues = visuals.map((visual, index) => {
+            if (!visual.referenceFormula || visual.kind !== 'scene') return undefined;
+            const next = formulaCueTiming(
+              visual.scene as FormulaSpotlightData,
+              block.speech,
+              current
+            );
+            if (!canRetainPresentedCues(current, previousClock)) return next;
+            const heardMs = current.read().blockTime * 1000;
+            return {
+              ...next,
+              times: adoptCueTimes(previousReferenceCues[index]?.times, next.times, heardMs),
+              ends: adoptCueTimes(previousReferenceCues[index]?.ends, next.ends, heardMs),
+            };
+          });
           spans = visualReferences.map(({ anchors: quotation }, index) => {
             const timing = {
               speech: block.speech,
@@ -889,6 +910,18 @@ function PlaybackPassage({
             active = index;
           }
         });
+        // Interleaved explanations can return to an earlier equation's named part.
+        let activeReferenceStart = Number.NEGATIVE_INFINITY;
+        for (const [index, cues] of referenceCues.entries()) {
+          if (!cues) continue;
+          for (const [symbol, start] of cues.times.entries()) {
+            const heardMs = blockTime * 1000;
+            if (start <= heardMs && heardMs < cues.ends[symbol] && start >= activeReferenceStart) {
+              activeReferenceStart = start;
+              active = index;
+            }
+          }
+        }
         if (active !== previousActive) {
           previousActive = active;
           setSelection(current =>

@@ -1310,7 +1310,7 @@ const createFrozenLessonSceneSchema = (
           ? {
               schema: LESSON_SCENE_REGISTRY[type].schema.extend({
                 symbols: FormulaSpotlightDataSchema.shape.symbols.element
-                  .omit({ anchorOccurrence: true })
+                  .omit({ anchorOccurrence: true, additionalAnchors: true })
                   .extend({ anchor: anchorSchema })
                   .array()
                   .min(1),

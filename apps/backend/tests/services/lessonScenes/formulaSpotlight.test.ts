@@ -219,3 +219,21 @@ test('rejects changes to vector notation and fraction-bar attributes', () => {
   };
   expect(formulaSpotlightCovers(fraction, [String.raw`$\frac{x}{2}$`])).toBe(false);
 });
+
+test('resolves repeated references to the same rendered symbol without duplicating its glyph', () => {
+  const scene = {
+    ...formulaSpotlight,
+    symbols: [
+      {
+        ...formulaSpotlight.symbols[0],
+        anchor: 'ics',
+        anchorOccurrence: 0,
+        additionalAnchors: [{ anchor: 'ics', anchorOccurrence: 1 }],
+      },
+    ],
+  };
+  expect(resolveFormulaReferences(scene, 'ics poi ics')).toEqual([
+    { index: 0, anchor: 'ics', start: 0, end: 3 },
+    { index: 0, anchor: 'ics', start: 8, end: 11 },
+  ]);
+});

@@ -78,3 +78,26 @@ test('highlights only the spoken subscript and leaves its base unselected', () =
     'false'
   );
 });
+
+test('highlights a symbol again when a later cue names the same formula position', () => {
+  const { container } = render(
+    <LessonSceneVisual
+      scene={formulaSpotlight}
+      variant="bare"
+      readAnimationFrame={() => ({
+        elapsedMs: 4200,
+        durationMs: 6000,
+        cueTimes: [0, 2000, 4000],
+        cueEndTimes: [500, 2500, 4500],
+        cueSymbolIndices: [0, 1, 0],
+      })}
+    />
+  );
+  expect(
+    container.querySelector('.nous-formula-symbol-probability')?.getAttribute('data-active')
+  ).toBe('true');
+  expect(container.querySelector('.nous-formula-symbol-theta')?.getAttribute('data-active')).toBe(
+    'false'
+  );
+  expect(container.querySelectorAll('[data-formula-symbol][data-active="true"]')).toHaveLength(1);
+});
