@@ -74,7 +74,7 @@ function hasMissingMotionTargets(
 }
 
 function captionTag(word: CaptionWord) {
-  if (word.code) return 'code';
+  if (word.code && !word.mathHtml) return 'code';
   return word.bold ? 'strong' : 'span';
 }
 
@@ -427,6 +427,9 @@ function PlaybackPassage({
       throw new Error('Playback stage must be mounted');
     // Measure before scaling: transforms must not feed back into the natural dimensions.
     const fitScene = () => {
+      // Classify the presented visual, including aligned cards and asynchronously mounted scenes.
+      const formulas = card.querySelectorAll('.katex:not(.spotlight-symbol .katex)');
+      card.classList.toggle('lesson-player-formula', formulas.length === 1);
       const layout = getComputedStyle(stage);
       const verticalPadding =
         (Number.parseFloat(layout.paddingTop) || 0) +
@@ -762,6 +765,13 @@ function PlaybackPassage({
   }, [visualReferences, block.id, block.speech, duration, visuals, visualRanges]);
   const visualIndex = selection?.blockId === block.id ? selection.index : 0;
   const visual = visuals[visualIndex];
+  const selectedStored =
+    visual?.kind === 'generated-visual'
+      ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
+      : undefined;
+  let selectedScene: LessonScene | null = null;
+  if (visual?.kind === 'scene') selectedScene = visual.scene;
+  else if (selectedStored) selectedScene = getStoredLessonVisualScene(selectedStored);
   const formulaMarkdown = useMemo(
     () => getPlaybackFormulaMarkdown(block, sources),
     [block, sources]
@@ -772,12 +782,6 @@ function PlaybackPassage({
     speed,
     animate,
   };
-  const singleFormula =
-    visuals.length === 1 &&
-    visual?.kind === 'markdown' &&
-    getPlaybackFormulaSources(block, sources).length === 1 &&
-    (visual.markdown === formulaMarkdown ||
-      block.spans.some(span => span.math === visual.markdown));
   return (
     <div className="lesson-player-stage">
       <section className="listening-stage">
@@ -796,7 +800,17 @@ function PlaybackPassage({
                 <Fragment key={`${index}:${word.text}`}>
                   {word.breakBefore && index > 0 ? <br /> : null}
                   <span className="caption-word">
-                    <Tag>{(word.breakBefore ? `${word.marker} ` : '') + word.text}</Tag>
+                    <Tag>
+                      {word.breakBefore ? `${word.marker} ` : ''}
+                      {word.mathHtml ? (
+                        <span
+                          // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders validated notation with trust disabled.
+                          dangerouslySetInnerHTML={{ __html: word.mathHtml }}
+                        />
+                      ) : (
+                        word.text
+                      )}
+                    </Tag>
                   </span>{' '}
                 </Fragment>
               );
@@ -806,12 +820,12 @@ function PlaybackPassage({
         <div ref={sceneFit} className="scene-fit">
           <section
             ref={sceneCard}
-            className={`scene-host${singleFormula ? ' lesson-player-formula' : ''}`}
+            className="scene-host"
             aria-label={t('Visualizzazione della lezione')}
           >
             {formulaMarkdown &&
             !visualRanges[visualIndex] &&
-            !(visual?.kind === 'scene' && visual.scene.type === 'formula-spotlight') &&
+            selectedScene?.type !== 'formula-spotlight' &&
             !(visual?.kind === 'markdown' && visual.markdown === formulaMarkdown) ? (
               <MarkdownRenderer content={formulaMarkdown} isDarkMode={content.isDarkMode} />
             ) : null}

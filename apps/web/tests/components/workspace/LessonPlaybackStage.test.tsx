@@ -1743,3 +1743,29 @@ test.each([
     expect(visual?.querySelector('blockquote')?.textContent).toContain(raw.speech);
   }
 });
+
+test('renders LaTeX notation authored as inline code in captions while retaining ordinary code', () => {
+  const notation = String.raw`\mathbf\Omega\mathbf x`;
+  const literal = String.raw`\notACommand`;
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: `The product \`${notation}\` uses \`open()\` and \`${literal}\`.`,
+    },
+  ];
+  const { container } = render(
+    <LessonPlaybackStage
+      block={segmentLessonPlayback(sources)[0]}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={6}
+      time={3}
+    />
+  );
+  expect(container.querySelector('.captions .katex-html')?.textContent).toContain('Ω');
+  expect(
+    Array.from(container.querySelectorAll('.captions code'), code => code.textContent)
+  ).toEqual(['open()', literal]);
+  const word = captionFormat(sources[0].markdown).words.find(word => word.text === notation);
+  expect(word).toBeDefined();
+  expect(sources[0].markdown.slice(word?.source.start, word?.source.end)).toBe(notation);
+});

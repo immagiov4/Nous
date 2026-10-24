@@ -28,25 +28,79 @@ afterAll(async () => {
   await server?.close();
 });
 
-test('uses the existing large formula size for one equation and retains the three-formula list', async () => {
+const formulaViewports = [
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+];
+for (const viewport of formulaViewports) {
+  test.each([
+    'plain',
+    'inline',
+    'inherited',
+    'cards',
+    'aligned',
+    'fallback',
+    'scene',
+    'wide-scene',
+    'stored',
+  ])(`uses the existing large formula geometry for %s at ${viewport.width}px`, async formulaPath => {
+    const page = await browser.newPage({ viewport });
+    try {
+      await page.goto(
+        `${baseUrl}tests/fixtures/playbackLayout.html?formulas=1&formulaPath=${formulaPath}`
+      );
+      const formula = page.locator('.scene-host .katex:not(.spotlight-symbol .katex)');
+      await formula.waitFor();
+      await page.waitForFunction(() =>
+        document.querySelector('.scene-host')?.classList.contains('lesson-player-formula')
+      );
+      expect(await page.locator('.scene-host .katex-error').count()).toBe(0);
+      expect(await page.locator('.scene-host').innerText()).not.toMatch(/\\(?:mathbf|omega)/);
+      const size = await formula.evaluate(formula => {
+        const actual = formula.getBoundingClientRect();
+        const reference = formula.cloneNode(true) as HTMLElement;
+        reference.style.fontSize = getComputedStyle(formula).getPropertyValue('--symbol-size');
+        formula.after(reference);
+        const expected = reference.getBoundingClientRect();
+        reference.remove();
+        return {
+          width: actual.width,
+          height: actual.height,
+          expectedWidth: expected.width,
+          expectedHeight: expected.height,
+        };
+      });
+      expect(Math.round(size.width)).toBeGreaterThanOrEqual(Math.round(size.expectedWidth));
+      expect(Math.round(size.height)).toBeGreaterThanOrEqual(Math.round(size.expectedHeight));
+      const bounds = await formula.locator('.katex-html').evaluate(glyph => {
+        const host = glyph.closest('.scene-host');
+        if (!host) throw new Error('Formula must belong to the visual area');
+        const actual = glyph.getBoundingClientRect();
+        const available = host.getBoundingClientRect();
+        return {
+          left: actual.left,
+          right: actual.right,
+          hostLeft: available.left,
+          hostRight: available.right,
+        };
+      });
+      expect(Math.round(bounds.left)).toBeGreaterThanOrEqual(Math.round(bounds.hostLeft));
+      expect(Math.round(bounds.right)).toBeLessThanOrEqual(Math.round(bounds.hostRight));
+    } finally {
+      await page.close();
+    }
+  });
+}
+
+test('retains the three-formula list and proportional explanation text', async () => {
   const page = await browser.newPage();
   try {
-    for (const viewport of [
-      { width: 1440, height: 900 },
-      { width: 390, height: 844 },
-    ]) {
+    for (const viewport of formulaViewports) {
       await page.setViewportSize(viewport);
-      await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?formulas=1`);
-      await page.locator('.scene-host .katex').waitFor();
-      const size = await page.locator('.scene-host .katex').evaluate(formula => ({
-        actual: Number.parseFloat(getComputedStyle(formula).fontSize),
-        expected: Number.parseFloat(getComputedStyle(formula).getPropertyValue('--symbol-size')),
-      }));
-      expect(size.actual).toBe(size.expected);
       await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?formulas=3`);
       await page.locator('.type-parts .concept p').first().waitFor();
       expect(await page.locator('.scene-host .katex').count()).toBe(3);
-      expect(await page.locator('.type-parts .concept').count()).toBe(3);
+      expect(await page.locator('.scene-host .type-parts .concept').count()).toBe(3);
       const fonts = await page
         .locator('.type-parts .concept p')
         .evaluateAll(paragraphs =>
