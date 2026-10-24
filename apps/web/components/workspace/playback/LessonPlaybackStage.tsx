@@ -15,10 +15,19 @@ import {
 } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
 import { alignedWordTimes, type PlaybackWordAlignment } from '@shared/playbackWordTiming';
-import { Fragment, type RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  Fragment,
+  type RefObject,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
+import { parsePdfContentParts } from '../../../utils/pdf/imagePlaceholders.ts';
 import { getStoredLessonVisualScene } from '../../../utils/visuals/storedLessonVisual.ts';
 import GeneratedVisualFrame from '../../shared/GeneratedVisualFrame.tsx';
 import type { ReadSceneAnimationFrame } from '../../shared/lessonScene/AnimatedScene.tsx';
@@ -318,9 +327,11 @@ function PlaybackStoredVisual({
 function PlaybackVisualContent({
   visual,
   content,
+  onImageUnavailable,
   ...props
 }: Readonly<{
   visual: PlaybackVisual;
+  onImageUnavailable: (imageId: string) => void;
   content: WorkspaceReaderContentModel;
   block: LessonPlaybackBlock;
   clock: RefObject<CaptionClock | null>;
@@ -354,6 +365,7 @@ function PlaybackVisualContent({
       ) : null}
       {visual.kind === 'markdown' ? (
         <MarkdownRenderer
+          onImageUnavailable={onImageUnavailable}
           content={visual.markdown}
           isDarkMode={content.isDarkMode}
           projectId={content.projectId}
@@ -591,9 +603,29 @@ function PlaybackPassage({
     return () => cancelAnimationFrame(frame);
   }, []);
 
+  const [unavailableImages, setUnavailableImages] = useState<ReadonlySet<string>>(new Set());
+  const onImageUnavailable = useCallback((imageId: string) => {
+    setUnavailableImages(previous =>
+      previous.has(imageId) ? previous : new Set([...previous, imageId])
+    );
+  }, []);
   const visualCandidates = useMemo(() => {
     const formulas = getPlaybackFormulaMarkdown(block, sources);
-    const projected = playbackNonProseVisuals(block);
+    const sourceVisuals = playbackNonProseVisuals(block);
+    const projected = sourceVisuals.filter(
+      visual =>
+        visual.kind !== 'markdown' ||
+        parsePdfContentParts(
+          visual.markdown,
+          content.activeSectionAssetsById,
+          content.activeSectionImageRefsById,
+          content.activeSectionGeneratedVisualsById
+        ).some(part =>
+          part.type === 'image'
+            ? !unavailableImages.has(part.asset.id)
+            : part.type !== 'markdown' || part.content.trim()
+        )
+    );
     const scene = block.prepared?.scene;
     if (
       scene?.type === 'formula-spotlight' &&
@@ -620,8 +652,31 @@ function PlaybackPassage({
       return [{ kind: 'markdown' as const, markdown: formulas }];
     if (block.prepared?.scene) return [{ kind: 'scene' as const, scene: block.prepared.scene }];
     if (formulas) return [{ kind: 'markdown' as const, markdown: formulas }];
+    // Image-only historical preparations may have no alternate scene saved beside the audio.
+    if (sourceVisuals.length && !projected.length)
+      return [
+        {
+          kind: 'scene' as const,
+          scene: {
+            type: 'quote' as const,
+            title: block.heading,
+            body: '',
+            items: [],
+            groups: [],
+            note: '',
+            quote: block.speech,
+          },
+        },
+      ];
     return [];
-  }, [block, sources, content.activeSectionGeneratedVisualsById]);
+  }, [
+    block,
+    sources,
+    content.activeSectionGeneratedVisualsById,
+    content.activeSectionAssetsById,
+    content.activeSectionImageRefsById,
+    unavailableImages,
+  ]);
   const visualProjection = JSON.stringify(visualCandidates, (_key, value: unknown) =>
     value && typeof value === 'object' && !Array.isArray(value)
       ? Object.fromEntries(
@@ -770,6 +825,7 @@ function PlaybackPassage({
             ) : null}
             {visual ? (
               <PlaybackVisualContent
+                onImageUnavailable={onImageUnavailable}
                 key={`${block.id}:${visualIndex}`}
                 {...sceneProps}
                 interval={{

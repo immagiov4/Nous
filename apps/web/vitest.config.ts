@@ -15,6 +15,7 @@ const MERMAID_PARSER_TEST = 'apps/backend/tests/services/mermaidValidation.test.
 // These suites own browser/parser subprocesses, process fixtures, or production registry rebuilds.
 const LOAD_SENSITIVE_TESTS = [
   'apps/web/tests/components/workspace/PlaybackCausalLayout.test.ts',
+  'apps/web/tests/components/workspace/PhoneVisualCards.test.ts',
   'packages/playtest/tests/**/*.{test,spec}.ts',
   'e2e/**/tests/**/*.{test,spec}.ts',
   'apps/backend/tests/services/pdfTextFallbackProcess.test.ts',

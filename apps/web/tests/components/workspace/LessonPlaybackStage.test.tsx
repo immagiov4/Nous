@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useLayoutEffect } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { guidedPathScene } from '../../../../backend/tests/helpers/animatedLessonScenes';
@@ -33,6 +33,62 @@ vi.mock('../../../services/projects/projectVisualResolver.ts', () => ({
 
 let resizeScene: () => void;
 const disconnectScene = vi.fn();
+
+test.each([
+  'missing',
+  'broken',
+  'historical',
+])('replaces a %s historical PDF image with the prepared scene', imageState => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: 'Una spiegazione.\n\n{{PDF_IMAGE:figure-1|alt=Figura}}',
+    },
+  ];
+  const scene: LessonScene = {
+    type: 'definition',
+    title: 'Scena del passaggio',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [{ label: 'Il concetto', detail: 'Una spiegazione visiva.', icon: '' }],
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    visuals: [{ kind: 'markdown' as const, markdown: '{{PDF_IMAGE:figure-1|alt=Figura}}' }],
+    prepared: { ...(imageState === 'historical' ? {} : { scene }), motion: [] },
+  };
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+    activeSectionAssetsById:
+      imageState === 'broken'
+        ? {
+            'figure-1': {
+              id: 'figure-1',
+              dataUrl: 'data:image/png;base64,broken',
+              sourceOrder: 0,
+              textBefore: '',
+              textAfter: '',
+            },
+          }
+        : {},
+  } as WorkspaceReaderContentModel;
+  const { container } = render(
+    <LessonPlaybackStage block={block} content={content} duration={10} time={4} />
+  );
+  if (imageState === 'broken') fireEvent.error(screen.getByRole('img', { name: 'Figura' }));
+  if (imageState === 'historical') {
+    expect(container.querySelector('.scene-host blockquote')?.textContent).toContain(
+      'Una spiegazione.'
+    );
+  } else {
+    expect(container.querySelector('.scene-host h2')?.textContent).toBe('Scena del passaggio');
+    expect(container.querySelector('.scene-host strong')?.textContent).toBe('Il concetto');
+  }
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain('PDF_IMAGE');
+});
 beforeEach(() => {
   vi.stubGlobal(
     'ResizeObserver',

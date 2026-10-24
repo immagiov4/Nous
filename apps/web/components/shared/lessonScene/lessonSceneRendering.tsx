@@ -3,6 +3,7 @@ import type { ReadSceneAnimationFrame } from '@shared/lessonSceneAnimation';
 import { type CSSProperties, Fragment, type ReactNode } from 'react';
 
 import { SceneIcon as Icon } from './SceneIcon.tsx';
+import { SceneText } from './SceneText.tsx';
 
 /** Shared content and playback context for the web scene renderers. */
 export interface SceneRenderContext {
@@ -44,8 +45,14 @@ export const concepts = (
         <Icon name={item.icon} />
       )}
       <div>
-        <strong>{item.label}</strong>
-        {item.detail ? <p>{item.detail}</p> : null}
+        <strong>
+          <SceneText>{item.label}</SceneText>
+        </strong>
+        {item.detail ? (
+          <p>
+            <SceneText>{item.detail}</SceneText>
+          </p>
+        ) : null}
       </div>
     </div>
   ));
@@ -104,14 +111,18 @@ export const groups = (context: SceneRenderContext, kind = 'comparison'): ReactN
               {group.verdict ? (
                 <Icon name={group.verdict === 'prefer' ? 'circle-check' : 'circle-x'} />
               ) : null}
-              <span>{group.label}</span>
+              <span>
+                <SceneText>{group.label}</SceneText>
+              </span>
             </h3>
             <ul>
               {group.items.map((entry, entryIndex) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; authored order is static
                 <li key={`${entryIndex}-${entry}`}>
                   <Icon name={group.icons[entryIndex] ?? ''} />
-                  <span>{entry}</span>
+                  <span>
+                    <SceneText>{entry}</SceneText>
+                  </span>
                 </li>
               ))}
             </ul>
@@ -131,8 +142,14 @@ export const sequence = ({ scene }: SceneRenderContext, kind: string) => (
           {kind === 'checklist' ? <Icon name={item.icon} /> : String(index + 1).padStart(2, '0')}
         </span>
         <div>
-          <strong>{item.label}</strong>
-          {item.detail ? <p>{item.detail}</p> : null}
+          <strong>
+            <SceneText>{item.label}</SceneText>
+          </strong>
+          {item.detail ? (
+            <p>
+              <SceneText>{item.detail}</SceneText>
+            </p>
+          ) : null}
         </div>
       </li>
     ))}
@@ -150,7 +167,7 @@ export const matrix = ({ scene, labels }: SceneRenderContext) => {
             {scene.groups.map((group, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; authored order is static
               <th key={`${index}-${group.label}`} scope="col">
-                {group.label}
+                <SceneText>{group.label}</SceneText>
               </th>
             ))}
           </tr>
@@ -159,10 +176,16 @@ export const matrix = ({ scene, labels }: SceneRenderContext) => {
           {Array.from({ length: rowCount }, (_, row) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; authored order is static
             <tr key={`${row}-${scene.criteria?.[row] ?? ''}`}>
-              {scene.criteria ? <th scope="row">{scene.criteria[row]}</th> : null}
+              {scene.criteria ? (
+                <th scope="row">
+                  <SceneText>{scene.criteria[row]}</SceneText>
+                </th>
+              ) : null}
               {scene.groups.map((group, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; authored order is static
-                <td key={`${index}-${group.label}`}>{group.items[row] ?? '—'}</td>
+                <td key={`${index}-${group.label}`}>
+                  <SceneText>{group.items[row] ?? '—'}</SceneText>
+                </td>
               ))}
             </tr>
           ))}

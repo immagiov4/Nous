@@ -27,6 +27,8 @@ The [block preparation service](../../../apps/backend/src/services/lessonPlaybac
 
 Visual preparation uses the block's existing scene references or requests a scene grounded in that block's speech. Using general lesson metadata here could illustrate a different passage. Motion cues connect explanation points to scene elements; when several scenes would make a motion target ambiguous, the scenes remain visible without that target.
 
+At display time, PDF references resolve against the lesson's available images. Missing references and images whose bytes cannot load yield the prepared scene instead of an empty card or raw placeholder. Historical image-only preparations without another scene show the passage's own text in the existing quote card. Scene matrix cells and shared labels render authored mathematical notation through KaTeX. Phone charts wrap category labels within their reserved axis width; step connectors account for motion-row padding and join badge centers.
+
 Audio and visual preparation run concurrently. Both operations settle before a failure propagates, so an attempted retry does not overlap unfinished paid work from that attempt. The [playback workflow](../../../apps/backend/src/workflows/lessonPlaybackWorkflow.ts) keeps this provider preparation separate from persistence.
 
 ## Follow a formula through its explanation

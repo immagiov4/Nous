@@ -11,6 +11,7 @@ import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { ReadSceneAnimationFrame } from './AnimatedScene.tsx';
 import type { SceneRenderContext } from './lessonSceneRendering.tsx';
 import { SceneIcon, SceneIconProvider, ScenePrototypeContext } from './SceneIcon.tsx';
+import { SceneText } from './SceneText.tsx';
 import { SCENE_RENDERERS } from './sceneRenderers.tsx';
 import './lessonScene.css';
 
@@ -48,9 +49,13 @@ export const LessonSceneVisual = ({
         className={`scene type-${scene.type}${isAnimatedLessonScene(scene) ? ' interaction-card' : ''}${isQuickLessonScene(scene) ? ' quick-scene' : ''}`}
       >
         <header>
-          <h2>{scene.title}</h2>
+          <h2>
+            <SceneText>{scene.title}</SceneText>
+          </h2>
           {scene.body && scene.type !== 'quote' ? (
-            <p className={isAnimatedLessonScene(scene) ? undefined : 'scene-intro'}>{scene.body}</p>
+            <p className={isAnimatedLessonScene(scene) ? undefined : 'scene-intro'}>
+              <SceneText>{scene.body}</SceneText>
+            </p>
           ) : null}
         </header>
         {isAnimatedLessonScene(scene) ? (
@@ -77,14 +82,18 @@ export const LessonSceneVisual = ({
         (variant === 'bare' || !hasConflictingLessonSceneClosingText(scene)) ? (
           <aside aria-label={t('Domanda')} className="scene-note scenario-question">
             <SceneIcon name="help-circle" />
-            <p>{scene.quote}</p>
+            <p>
+              <SceneText>{scene.quote}</SceneText>
+            </p>
           </aside>
         ) : null}
         {scene.note.trim() &&
         (variant === 'bare' || !hasConflictingLessonSceneClosingText(scene)) ? (
           <aside aria-label={t('Nota')} className="scene-note">
             <SceneIcon name="info-circle" />
-            <p>{scene.note}</p>
+            <p>
+              <SceneText>{scene.note}</SceneText>
+            </p>
           </aside>
         ) : null}
       </article>

@@ -2164,8 +2164,36 @@
   max-width: none;
   gap: 12px;
 }
+.lesson-player-stage .lesson-scene .scene .steps {
+  --step-badge-size: 32px;
+  --step-row-gap: 12px;
+  gap: var(--step-row-gap);
+}
+.lesson-player-stage .lesson-scene .scene .steps li {
+  --step-inset: 0px;
+  --step-top: 0px;
+}
+.lesson-player-stage .lesson-scene .scene .steps li.motion-target {
+  --step-inset: var(--motion-padding);
+  --step-top: var(--motion-row-padding-block);
+}
+.lesson-player-stage .lesson-scene .scene .steps .step-index {
+  width: var(--step-badge-size);
+  height: var(--step-badge-size);
+}
+.lesson-player-stage .lesson-scene .scene .steps li:not(:last-child):before {
+  left: calc(var(--step-inset) + var(--step-badge-size) / 2);
+  top: calc(var(--step-top) + var(--step-badge-size));
+  bottom: calc(-1 * (var(--step-row-gap) + var(--step-top)));
+}
+.lesson-player-stage .lesson-scene .groups h3:has(> .meaning-icon) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .lesson-player-stage .lesson-scene .scene .sequence > li.motion-target {
-  padding: 10px var(--motion-padding);
+  --motion-row-padding-block: 10px;
+  padding: var(--motion-row-padding-block) var(--motion-padding);
 }
 .lesson-player-stage,
 .lesson-player-stage .lesson-scene-bare {
