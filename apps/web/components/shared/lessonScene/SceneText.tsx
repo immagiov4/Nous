@@ -13,6 +13,17 @@ const remarkPlugins = [remarkMath];
 const rehypePlugins = [rehypeKatex];
 const components = { p: ({ children }: { children?: ReactNode }) => <>{children}</> };
 
+function canCloseDollarMath(source: string, end: number) {
+  const before = source[end - 2];
+  const after = source[end] ?? ' ';
+  // CommonMark right-flanking punctuation, plus Pandoc's currency digit restriction.
+  return !(
+    /\s/u.test(before) ||
+    /\d/u.test(after) ||
+    (/[\p{P}\p{S}]/u.test(before) && /[^\s\p{P}\p{S}]/u.test(after))
+  );
+}
+
 /** Scene copy is plain text except for authored mathematical notation. */
 export function SceneText({ children }: { readonly children: string }) {
   // Use the standard dollar-delimiter whitespace/digit rules, retaining literal prices.
@@ -23,9 +34,7 @@ export function SceneText({ children }: { readonly children: string }) {
     if (
       children[cursor] === '$' &&
       children[cursor + 1] !== '$' &&
-      (/\s/u.test(children[cursor + 1]) ||
-        /\s/u.test(children[range.end - 2]) ||
-        /\d/u.test(children[range.end] ?? ''))
+      (/\s/u.test(children[cursor + 1]) || !canCloseDollarMath(children, range.end))
     ) {
       mathSource[cursor] = '\0';
     } else cursor = range.end - 1;

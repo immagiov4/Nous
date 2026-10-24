@@ -16,10 +16,28 @@ vi.mock('@tabler-icon-nodes', () => ({
 
 import GeneratedVisualFrame from '../../../components/shared/GeneratedVisualFrame.tsx';
 import { LessonSceneVisual } from '../../../components/shared/lessonScene/LessonSceneVisual.tsx';
+import { SceneText } from '../../../components/shared/lessonScene/SceneText.tsx';
 
 beforeAll(async () => {
   // Load the mocked asset before measuring the component's asynchronous render.
   await import('@tabler-icon-nodes');
+});
+
+test.each([
+  '$5 ($x$)',
+  '$5 [$x$]',
+  '$5: $x$',
+  '$5 ($5 + 10$)',
+])('preserves the price beside mathematical notation in %s', copy => {
+  const { container } = render(<SceneText>{copy}</SceneText>);
+  expect(container.querySelectorAll('math')).toHaveLength(1);
+  expect(container.firstChild?.textContent).toBe(copy.slice(0, copy.indexOf('$', 1)));
+  expect(container.querySelector('annotation')?.textContent).toBe(
+    copy.includes('5 + 10') ? '5 + 10' : 'x'
+  );
+  if (copy.endsWith(')') || copy.endsWith(']')) {
+    expect(container.lastChild?.textContent).toBe(copy.at(-1));
+  }
 });
 
 const comparison: LessonScene = {

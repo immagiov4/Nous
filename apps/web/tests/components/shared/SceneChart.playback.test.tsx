@@ -7,6 +7,11 @@ import { sceneElements } from '../../../components/workspace/playback/stageMotio
 
 let theme: HTMLStyleElement;
 beforeEach(() => {
+  // jsdom has no SVG layout; real label geometry is checked in PlaybackCausalLayout.
+  Object.defineProperty(SVGElement.prototype, 'getBBox', {
+    configurable: true,
+    value: () => ({ x: 0, y: 0, width: 30, height: 14 }),
+  });
   theme = document.createElement('style');
   theme.textContent =
     '.data-chart > div { --blue: #123456; --ink: #222222; --muted: #777777; --surface: #ffffff; --chart-0: #111111; --chart-1: #222222; --chart-2: #333333; --chart-3: #444444; --chart-4: #555555; --chart-5: #666666; }';
@@ -22,7 +27,10 @@ beforeEach(() => {
     width: 600,
   } as DOMRect);
 });
-afterEach(() => theme.remove());
+afterEach(() => {
+  theme.remove();
+  Reflect.deleteProperty(SVGElement.prototype, 'getBBox');
+});
 
 const scene: LessonScene = {
   type: 'line',
@@ -39,6 +47,24 @@ const scene: LessonScene = {
     icon: '',
   })),
 };
+
+test('a superseded pending draw never attaches its chart to the reused host', async () => {
+  const attachedTitles: string[] = [];
+  const replaceChildren = HTMLElement.prototype.replaceChildren;
+  vi.spyOn(HTMLElement.prototype, 'replaceChildren').mockImplementation(function (...nodes) {
+    for (const node of nodes) {
+      if (node instanceof Element) attachedTitles.push(node.getAttribute('aria-label') ?? '');
+    }
+    replaceChildren.apply(this, nodes);
+  });
+  const bars = { ...scene, type: 'bars' as const };
+  const { container, rerender } = render(<SceneChart isDarkMode={false} scene={bars} />);
+  rerender(<SceneChart isDarkMode={false} scene={{ ...bars, title: 'New scene' }} />);
+  await waitFor(() =>
+    expect(container.querySelector('svg')).toHaveAttribute('aria-label', 'New scene')
+  );
+  expect(attachedTitles).not.toContain(bars.title);
+});
 
 test.each([
   'bars',
