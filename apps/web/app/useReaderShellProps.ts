@@ -486,6 +486,8 @@ export const useReaderShellProps = ({
         storageError: controller.storageError,
       },
       content: {
+        onSavePlaybackVisual: readerActions.handleSaveArtifactToLesson,
+        onRemovePlaybackVisual: readerActions.handleRemovePlaybackVisual,
         activeExercise,
         exercisePrerequisiteGaps,
         activeSectionTitle: controller.activeSection?.title || null,

@@ -1,6 +1,7 @@
 import { type LessonPlaybackBlock, segmentLessonPlayback } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
 import { createRoot } from 'react-dom/client';
+import { LessonSceneVisual } from '../../components/shared/lessonScene/LessonSceneVisual';
 import LessonPlaybackStage from '../../components/workspace/playback/LessonPlaybackStage';
 import type { WorkspaceReaderContentModel } from '../../components/workspace/shell/types';
 import '../../styles/app.css';
@@ -34,6 +35,48 @@ export function renderPhoneVisualCards() {
     ],
   };
   const scenes: Record<string, LessonScene> = {
+    sequence: {
+      ...base,
+      type: 'sequence',
+      title: 'Dipendenze tra servizi',
+      items: [],
+      note: 'Le frecce descrivono un modello concettuale.',
+      diagram: {
+        nodes: [
+          { id: 'client', label: 'Client', kind: 'start' },
+          { id: 'directory', label: 'Directory', kind: 'step' },
+          { id: 'service', label: 'Servizio', kind: 'end' },
+        ],
+        edges: [
+          { from: 'client', to: 'directory', label: 'ricerca', kind: 'call', evidence: 'ricerca' },
+          {
+            from: 'directory',
+            to: 'client',
+            label: 'risposta',
+            kind: 'return',
+            evidence: 'risposta',
+          },
+          {
+            from: 'client',
+            to: 'service',
+            label: 'richiesta',
+            kind: 'call',
+            evidence: 'richiesta',
+          },
+        ],
+      },
+    },
+    decision: {
+      ...base,
+      type: 'decision',
+      title: 'Quando la conclusione regge?',
+      body: 'Le ragioni sostengono la conclusione?',
+      items: [],
+      groups: [
+        { label: 'Ragioni verificabili', items: ['Prove pertinenti'], icons: ['check'] },
+        { label: 'Ragioni insufficienti', items: ['Sola apparenza'], icons: ['eye'] },
+      ],
+    },
     steps: base,
     comparison: {
       ...base,
@@ -142,10 +185,16 @@ export function renderPhoneVisualCards() {
       ],
     },
   };
-  document.documentElement.style.cssText =
-    '--bg-paper:#fdfbf7;--bg-surface:#fff;--ink-primary:#1f1f1f;--ink-secondary:#4a4a4a;--border-subtle:#e5e7eb';
   const root = document.getElementById('root');
   if (!root) throw new Error('Fixture root must exist');
+  if (params.has('reader')) {
+    const dark = params.has('dark');
+    document.documentElement.classList.toggle('dark', dark);
+    createRoot(root).render(<LessonSceneVisual scene={scenes[kind]} isDarkMode={dark} />);
+    return;
+  }
+  document.documentElement.style.cssText =
+    '--bg-paper:#fdfbf7;--bg-surface:#fff;--ink-primary:#1f1f1f;--ink-secondary:#4a4a4a;--border-subtle:#e5e7eb';
   createRoot(root).render(
     <div style={{ height: '100dvh', display: 'flex' }}>
       <LessonPlaybackStage

@@ -69,6 +69,8 @@ Playback causal scenes use an ordered grid with numbered cards: two columns on d
 
 During lesson playback, captions show complete text rows at the reading-zone edges while text appears progressively and spoken words fade. Seeking preserves visible text.
 
+Playback scenes can be saved into the lesson's existing artifacts. Hovering, focusing or tapping the visual exposes the save action; a saved scene exposes removal instead. The saved artifact retains the scene data and an annotation linking its source passage. Both actions use the reader's existing course persistence, so the saved state survives reloads while narration keeps playing.
+
 ## Keep the mathematical source available
 
 The shared playback projection keeps each whitespace-separated formula group together. When the next passage explains that group, its equations remain available within the same authored heading. Scene preparation receives this source together with the current narration. The right panel presents a chosen visual with its sourced mathematics, or the sourced equations alone when no useful scene exists. With neither, a literal passage card keeps the right panel available while narration remains in captions. Authored code, tables, diagrams and images retain their visual representation, including images embedded in mathematical prose.
