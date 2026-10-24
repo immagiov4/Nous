@@ -8,7 +8,8 @@ import GeneratedVisualFrame from '../../../components/shared/GeneratedVisualFram
 import type { LessonGeneratedVisual } from '../../../types.ts';
 import { renderMermaidDiagram } from '../../../utils/visuals/mermaidRenderer.ts';
 
-vi.mock('../../../utils/visuals/mermaidRenderer.ts', () => ({
+vi.mock('../../../utils/visuals/mermaidRenderer.ts', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../../utils/visuals/mermaidRenderer.ts')>()),
   renderMermaidDiagram: vi.fn(async () => '<svg viewBox="0 0 100 50"><text>Agente</text></svg>'),
 }));
 
@@ -160,7 +161,8 @@ describe('GeneratedVisualFrame', () => {
     expect(renderMermaidDiagram).toHaveBeenCalledWith(
       mermaidVisual.code,
       false,
-      expect.any(AbortSignal)
+      expect.any(AbortSignal),
+      null
     );
   });
 

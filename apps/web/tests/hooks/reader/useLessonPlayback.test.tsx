@@ -1121,3 +1121,53 @@ test('retains an alignment notification received while the recording is decoding
   expect(result.current.recording?.wordAlignment).toEqual(alignment);
   expect(audio.start).toHaveBeenCalledOnce();
 });
+
+test('keeps narration paused until prepared visuals are ready', async () => {
+  vi.mocked(prepareLessonPlayback).mockImplementation(async request => ({
+    block: sceneBlocks[Number(request.blockId)],
+    voice: 'Kore',
+    model: 'tts',
+  }));
+  const visuals = deferred<void>();
+  const prepareVisuals = vi.fn(
+    (_blocks: readonly (typeof blocks)[number][], _signal: AbortSignal) => visuals.promise
+  );
+  const { result } = renderHook(() => useLessonPlayback({ ...target, prepareVisuals }));
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(prepareVisuals).toHaveBeenCalledOnce());
+  expect(prepareVisuals.mock.calls[0][0][0].prepared?.scene).toEqual(sceneBlocks[0].prepared.scene);
+  expect(audio.start).not.toHaveBeenCalled();
+  expect(result.current.loading).toBe(true);
+  await act(async () => {
+    visuals.resolve();
+  });
+  await waitFor(() => expect(audio.start).toHaveBeenCalledOnce());
+  expect(result.current.playing).toBe(true);
+});
+
+test('a pause during visual preparation prevents a late audio start and permits resuming', async () => {
+  const visuals = deferred<void>();
+  const prepareVisuals = vi.fn(
+    (_blocks: readonly (typeof blocks)[number][], _signal: AbortSignal) => visuals.promise
+  );
+  const { result } = renderHook(() => useLessonPlayback({ ...target, prepareVisuals }));
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(prepareVisuals).toHaveBeenCalledOnce());
+  const signal = prepareVisuals.mock.calls[0][1];
+  act(() => result.current.pause());
+  expect(signal.aborted).toBe(true);
+  await act(async () => {
+    visuals.resolve();
+  });
+  expect(audio.start).not.toHaveBeenCalled();
+  expect(result.current.loading).toBe(false);
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(audio.start).toHaveBeenCalledOnce());
+  expect(result.current.playing).toBe(true);
+});

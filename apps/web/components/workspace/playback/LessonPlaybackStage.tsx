@@ -8,6 +8,7 @@ import {
   getPlaybackFormulaSources,
   getPlaybackMathMarkdown,
   type LessonPlaybackBlock,
+  type PlaybackContentBlock,
   type PlaybackRange,
   type PlaybackVisual,
   playbackNonProseVisuals,
@@ -381,6 +382,7 @@ function PlaybackVisualContent({
 
 function PlaybackPassage({
   block,
+  sources,
   time,
   duration,
   content,
@@ -390,6 +392,7 @@ function PlaybackPassage({
   seekRevision = 0,
 }: Readonly<{
   block: LessonPlaybackBlock;
+  sources: readonly PlaybackContentBlock[];
   time: number;
   duration: number;
   content: WorkspaceReaderContentModel;
@@ -398,13 +401,6 @@ function PlaybackPassage({
   alignment?: PlaybackWordAlignment;
   seekRevision?: number;
 }>) {
-  const sources = useMemo(
-    () =>
-      content.sectionContentBlocks?.length
-        ? content.sectionContentBlocks
-        : [{ type: 'markdown' as const, markdown: content.sectionContent }],
-    [content.sectionContentBlocks, content.sectionContent]
-  );
   const source = useMemo(() => captionSource(block, sources), [block, sources]);
   // Equivalent snapshots retain the measured viewport; a new passage measures its new DOM.
   const captionKey = JSON.stringify({ blockId: block.id, ...source });
@@ -583,7 +579,10 @@ function PlaybackPassage({
       for (const run of current.runs) {
         const local = edge - run.start;
         run.span.style.opacity = local > 0 ? '1' : '0';
-        run.span.style.setProperty('--reveal-edge', `${local}px`);
+        // Settled masks stay unchanged while the live feather crosses the next word.
+        const maskEdge = Math.max(0, Math.min(run.width + current.feather, local));
+        run.span.style.setProperty('--reveal-edge', `${maskEdge}px`);
+        run.span.style.maskImage = local >= run.width + current.feather ? 'none' : '';
         const readAge = bodyTime - ((run.start + run.width) / current.width) * current.bodyDuration;
         const fade = Math.max(0, Math.min(1, readAge / CAPTION_TIMING.readFadeSeconds));
         const text = run.span.firstElementChild as HTMLElement;
@@ -889,7 +888,26 @@ function PlaybackPassage({
 }
 
 /** Each narration owns its clock so retiring subscriptions keep their original text ranges. */
-export default function LessonPlaybackStage(props: Parameters<typeof PlaybackPassage>[0]) {
+export default function LessonPlaybackStage(
+  props: Omit<Parameters<typeof PlaybackPassage>[0], 'sources'>
+) {
+  // Equivalent project snapshots retain the source syntax analysis between passages.
+  const sourceKey = JSON.stringify(
+    props.content.sectionContentBlocks?.length
+      ? props.content.sectionContentBlocks
+      : [{ type: 'markdown', markdown: props.content.sectionContent }]
+  );
+  const sources = useMemo(
+    () => JSON.parse(sourceKey) as readonly PlaybackContentBlock[],
+    [sourceKey]
+  );
   const block = useMemo(() => resolvePlaybackNarration(props.block), [props.block]);
-  return <PlaybackPassage {...props} block={block} key={`${block.id}:${block.speech}`} />;
+  return (
+    <PlaybackPassage
+      {...props}
+      sources={sources}
+      block={block}
+      key={`${block.id}:${block.speech}`}
+    />
+  );
 }

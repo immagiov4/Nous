@@ -324,6 +324,79 @@ test.each([true, false])('reveals continuously and fades spoken words (animate=%
   expect(next?.scrollTop).toBe(0);
 });
 
+test('updates the live reveal edge each frame without changing settled word masks', () => {
+  vi.mocked(useShouldAnimate).mockReturnValue(true);
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: 'Uno due tre quattro cinque sei sette otto nove dieci.',
+    },
+  ];
+  const block = segmentLessonPlayback(sources)[0];
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+  } as WorkspaceReaderContentModel;
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const style = document.createElement('p').style;
+  style.setProperty('--caption-feather', '22px');
+  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
+  let heard = 30;
+  const { container, unmount } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={content}
+      duration={60}
+      time={0}
+      readTime={() => heard}
+    />
+  );
+  const words = Array.from(container.querySelectorAll<HTMLElement>('.caption-word'));
+  const edge = (index: number) =>
+    Number.parseFloat(words[index].style.getPropertyValue('--reveal-edge'));
+  const advance = () =>
+    act(() => {
+      const callbacks = [...frames.values()];
+      frames.clear();
+      callbacks.forEach(callback => {
+        callback(0);
+      });
+    });
+  expect(edge(0)).toBe(122);
+  expect(words[0].style.maskImage).toBe('none');
+  expect(words[5].style.maskImage).toBe('');
+  expect(edge(9)).toBe(0);
+  expect(edge(5)).toBeCloseTo(33.143333);
+  const settled = words[0].getAttribute('style');
+  const hidden = words[9].getAttribute('style');
+  const previous = edge(5);
+  heard += 1 / 60;
+  advance();
+  expect(edge(5) - previous).toBeCloseTo(1022 / 3600);
+  expect(words[0].getAttribute('style')).toBe(settled);
+  expect(words[9].getAttribute('style')).toBe(hidden);
+  expect((words[0].firstElementChild as HTMLElement).style.opacity).toBe('0.55');
+  heard = 1;
+  advance();
+  expect(edge(0)).toBeCloseTo((2.3 / 60) * 1022);
+  expect(words[0].style.maskImage).toBe('');
+  expect(edge(9)).toBe(0);
+  expect((words[0].firstElementChild as HTMLElement).style.opacity).toBe('1');
+  unmount();
+  expect(frames.size).toBe(0);
+});
+
 test('recovers heading, emphasis, code and list markers from authored source spans', () => {
   const sources = [
     {

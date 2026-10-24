@@ -159,6 +159,7 @@ try {
                   if (reducedMotion === 'no-preference') {
                     await page.evaluate(() => {
                       for (const word of document.querySelectorAll<HTMLElement>('.caption-word')) {
+                        word.style.maskImage = '';
                         word.style.setProperty('--reveal-edge', '-1px');
                       }
                     });

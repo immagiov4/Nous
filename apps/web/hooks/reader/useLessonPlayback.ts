@@ -141,6 +141,7 @@ export function useLessonPlayback({
   speed,
   initialBlocks,
   audioSessionRef,
+  prepareVisuals,
 }: {
   projectId: string;
   sectionId: string;
@@ -148,6 +149,7 @@ export function useLessonPlayback({
   speed: number;
   initialBlocks: LessonPlaybackBlock[];
   audioSessionRef?: RefObject<LessonPlaybackAudio>;
+  prepareVisuals?: (blocks: readonly LessonPlaybackBlock[], signal: AbortSignal) => Promise<void>;
 }) {
   const [lessonKey, setLessonKey] = useState<string>();
   const [blocks, setBlocks] = useState<readonly LessonPlaybackBlock[]>(initialBlocks);
@@ -548,6 +550,11 @@ export function useLessonPlayback({
         }
         if (prepared.block.prepared?.scene) await visualAssets;
         if (!isCurrentStart()) return;
+        const visualBlocks = playbackRef.current.blocks.map((block, index) =>
+          index === blockIndex ? prepared.block : block
+        );
+        await waitForPlaybackCancellation(prepareVisuals?.(visualBlocks, signal), signal);
+        if (!isCurrentStart()) return;
         await audio.start(bufferedRecordings(), position, latest.current.speed, signal);
         if (!isCurrentStart()) return;
         setPlaying(true);
@@ -568,6 +575,7 @@ export function useLessonPlayback({
       getAudio,
       pause,
       prepare,
+      prepareVisuals,
       projectId,
       sectionId,
     ]
