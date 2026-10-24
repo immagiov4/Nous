@@ -26,7 +26,6 @@ import {
   useState,
 } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
-import { prepareLessonPlaybackVisual } from '../../../services/openrouter/lessonPlaybackVisualClient.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { parsePdfContentParts } from '../../../utils/pdf/imagePlaceholders.ts';
@@ -717,14 +716,18 @@ function PlaybackPassage({
   useEffect(() => {
     if (!needsVisual || !projectId || !sectionId) return;
     let mounted = true;
-    void prepareLessonPlaybackVisual({ projectId, sectionId, block, lessonKey }).then(
-      prepared => {
-        if (mounted) setPreparedVisual(prepared);
-      },
-      error => {
-        console.warn('Playback visual preparation failed.', error);
-      }
-    );
+    void import('../../../services/openrouter/lessonPlaybackVisualClient.ts')
+      .then(({ prepareLessonPlaybackVisual }) =>
+        prepareLessonPlaybackVisual({ projectId, sectionId, block, lessonKey })
+      )
+      .then(
+        prepared => {
+          if (mounted) setPreparedVisual(prepared);
+        },
+        error => {
+          console.warn('Playback visual preparation failed.', error);
+        }
+      );
     return () => {
       mounted = false;
     };

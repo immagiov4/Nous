@@ -74,7 +74,7 @@ test.each([
     kind: 'image' as const,
     title: 'Schema salvato',
     altText: 'Schema salvato',
-    code: 'data:image/png;base64,broken',
+    code: 'data:image/png;base64,YQ==',
     createdAt: '',
   };
   const stored =

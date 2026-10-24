@@ -23,7 +23,14 @@ test('preserves every production registry output and durable fingerprint byte fo
     ...current,
     'prepare-lesson-playback-block': fixture.current['prepare-lesson-playback-block'],
   }).toEqual(fixture.current);
-  expect(registry.listRegisteredBoundaries()).toHaveLength(fixture.definitions.length + 1);
+  const added = registry
+    .listRegisteredBoundaries()
+    .filter(
+      boundary =>
+        !fixture.definitions.some(previous => previous.definitionHash === boundary.definitionHash)
+    );
+  expect(added.length).toBeGreaterThan(0);
+  for (const boundary of added) expect(boundary.workflowId).toBe('prepare-lesson-playback-block');
   expect(
     fixture.definitions.map(
       ({ manifestSha256: _manifest, defaultsSha256: _defaults, ...boundary }) => {

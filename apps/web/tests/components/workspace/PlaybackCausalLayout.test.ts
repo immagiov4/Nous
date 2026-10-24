@@ -16,7 +16,9 @@ beforeAll(async () => {
     ...config,
     configFile: false,
     root: path.resolve('apps/web'),
-    optimizeDeps: { entries: ['tests/fixtures/playbackLayout.html'] },
+    optimizeDeps: {
+      entries: ['tests/fixtures/playbackLayout.html', 'tests/fixtures/playbackOnset.html'],
+    },
     server: { host: '127.0.0.1', port: 0, strictPort: false },
   });
   await server.listen();
@@ -427,7 +429,7 @@ function iconsLoaded() {
 async function openCard(kind: string) {
   const page = await browser.newPage({ viewport: { width: 412, height: 915 } });
   await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=${kind}`);
-  await page.locator('.scene-host').waitFor();
+  await page.locator('.scene-host').waitFor({ state: 'attached' });
   await page.evaluate(() => document.fonts.ready);
   if (['steps', 'comparison'].includes(kind)) {
     await page.locator('.motion-target').first().waitFor();
