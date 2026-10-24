@@ -51,6 +51,7 @@ const createSource = () => ({
   onended: null as (() => void) | null,
 });
 const sources: ReturnType<typeof createSource>[] = [];
+const gains: ReturnType<typeof gain>[] = [];
 
 const recording = (index: number, duration = 1) => ({
   index,
@@ -63,6 +64,7 @@ const recording = (index: number, duration = 1) => ({
 
 beforeEach(async () => {
   sources.length = 0;
+  gains.length = 0;
   vi.stubGlobal(
     'AudioWorkletNode',
     class {
@@ -74,7 +76,11 @@ beforeEach(async () => {
   clock = {
     currentTime: 0,
     sampleRate: 48_000,
-    createGain: gain,
+    createGain: () => {
+      const node = gain();
+      gains.push(node);
+      return node;
+    },
     createBufferSource: () => {
       const source = createSource();
       sources.push(source);
@@ -175,6 +181,10 @@ test('returning to unity catches up to the heard clock when the main thread adva
   expect(sources.at(-1)?.start.mock.calls[0][0]).toBe(2.01);
   expect(sources.at(-1)?.start.mock.calls[0][1]).toBeCloseTo(3.011, 6);
   expect(audio.position?.time).toBeCloseTo(3.011, 6);
+  expect(gains[0].gain.setValueAtTime).toHaveBeenLastCalledWith(1, 2.01);
+  expect(gains[0].gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(1, 2.01 + 128 / 48_000);
+  expect(gains[1].gain.setValueAtTime).toHaveBeenLastCalledWith(0, 2.01);
+  expect(gains[1].gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(0, 2.01 + 128 / 48_000);
 });
 
 test('returning to unity during an append schedules each upcoming passage exactly once', async () => {
@@ -257,6 +267,31 @@ test('a late append reports exhaustion instead of skipping the next clip opening
   expect(ended).toHaveBeenCalledTimes(1);
   expect(audio.position).toEqual({ index: 0, time: 1, duration: 1 });
   expect(stretch.addBuffers).toHaveBeenCalledTimes(1);
+});
+
+test('native append schedules the complete opening before a delayed worklet acknowledgement', async () => {
+  await audio.start([recording(0)], 0, 1, new AbortController().signal);
+  clock.currentTime = 0.99;
+  let release = () => {};
+  stretch.addBuffers.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        release = () => resolve(2);
+      })
+  );
+  const appending = audio.append([recording(1)]);
+  try {
+    await vi.waitFor(() => expect(stretch.addBuffers).toHaveBeenCalledTimes(2));
+    clock.currentTime = 1.05;
+    clockNotifications.update();
+    expect(sources.map(source => source.start.mock.calls)).toEqual([[[0, 0]], [[1, 0]]]);
+    expect(audio.position?.index).toBe(1);
+    expect(audio.position?.duration).toBe(1);
+    expect(audio.position?.time).toBeCloseTo(0.05);
+  } finally {
+    release();
+    await appending;
+  }
 });
 
 test('initialization failure rejects start and an explicit unlock creates a working session', async () => {

@@ -173,11 +173,13 @@ export class LessonPlaybackAudio {
         return;
       }
       const added = recordings.filter(recording => !last || recording.index > last.index);
-      await this.addRecordings(node, added);
+      const acknowledgement = this.addRecordings(node, added);
+      // Native sources must cross the passage boundary even while the idle worklet replies.
       if (this.anchor?.speed === 1 && generation === this.generation)
         this.scheduleNative(
           this.recordings.filter(recording => !last || recording.begin >= last.end)
         );
+      await acknowledgement;
     });
   }
 

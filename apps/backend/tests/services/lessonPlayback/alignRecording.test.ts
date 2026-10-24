@@ -6,6 +6,10 @@ import { basename, dirname, resolve, sep } from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 
 vi.mock('node:child_process', { spy: true });
+vi.mock('../../../src/services/lessonPlayback/alignmentEnergy.js', () => ({
+  trimRecordingSilence: async (_bytes: Uint8Array, fragments: { begin: number }[]) =>
+    fragments.map(fragment => fragment.begin),
+}));
 
 import { alignRecording } from '../../../src/services/lessonPlayback/alignRecording.js';
 
@@ -14,13 +18,14 @@ const input = {
   bytes: new Uint8Array([73, 68, 51]),
   speech: 'Prima parola.',
   durationSeconds: 2,
+  language: 'English',
 };
 const fragments = [
-  { begin: '0.1', lines: ['Prima'] },
-  { begin: '1.2', lines: ['parola.'] },
+  { begin: '0.1', end: '1.2', lines: ['Prima'] },
+  { begin: '1.2', end: '2', lines: ['parola.'] },
 ];
 
-async function launch(signal = new AbortController().signal) {
+async function launch(signal = new AbortController().signal, speech = input.speech) {
   const child = new EventEmitter();
   const started = Promise.withResolvers<{
     command: string;
@@ -35,7 +40,7 @@ async function launch(signal = new AbortController().signal) {
     });
     return child as processes.ChildProcess;
   });
-  const operation = alignRecording({ ...input, signal });
+  const operation = alignRecording({ ...input, speech, signal });
   const call = await started.promise;
   const directory = dirname(call.args[2]);
   directories.add(directory);
@@ -53,19 +58,41 @@ afterEach(async () => {
   directories.clear();
 });
 
+test('constrains word alignment at explicit clauses without changing canonical word identity', async () => {
+  const speech = 'First clause; next clause: last sentence, still. Another.';
+  const task = await launch(new AbortController().signal, speech);
+  expect(await readFile(task.call.args[3], 'utf8')).toBe(
+    'First clause;\nnext clause:\nlast sentence,\nstill.\nAnother.'
+  );
+  await writeFile(
+    task.call.args[5],
+    JSON.stringify({
+      fragments: speech.split(' ').map((word, index) => ({
+        begin: String(index / 10),
+        end: String((index + 1) / 10),
+        lines: [word],
+      })),
+    })
+  );
+  task.child.emit('close', 0);
+  await expect(task.operation).resolves.toEqual({
+    status: 'aligned',
+    onsets: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+  });
+});
+
 test('passes canonical words and recording bytes to the child and returns word onsets', async () => {
   vi.stubEnv('AENEAS_PYTHON', 'configured-python');
   const task = await launch();
   expect(task.call.command).toBe('configured-python');
   expect(task.call.args.slice(0, 2)).toEqual(['-m', 'aeneas.tools.execute_task']);
   expect(task.call.args.slice(4)).toEqual([
-    'task_language=ita|is_text_type=plain|os_task_file_format=json',
+    'task_language=eng|is_text_type=mplain|os_task_file_format=json|os_task_file_levels=3',
     task.call.args[5],
-    '--presets-word',
   ]);
   expect(task.call.options).toMatchObject({ windowsHide: true, stdio: 'ignore' });
   expect(await readFile(task.call.args[2])).toEqual(Buffer.from(input.bytes));
-  expect(await readFile(task.call.args[3], 'utf8')).toBe('Prima\nparola.');
+  expect(await readFile(task.call.args[3], 'utf8')).toBe('Prima parola.');
   await writeFile(task.call.args[5], JSON.stringify({ fragments }));
   task.child.emit('close', 0);
   await expect(task.operation).resolves.toEqual({ status: 'aligned', onsets: [0.1, 1.2] });
