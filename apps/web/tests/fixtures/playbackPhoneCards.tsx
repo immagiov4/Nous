@@ -118,7 +118,9 @@ export function renderPhoneVisualCards() {
     {
       type: 'markdown' as const,
       markdown: params.has('heading')
-        ? `${params.get('heading') === 'setext' ? 'Il contesto sociale\n=====' : '# Il contesto sociale'}\n\n${markdown}`
+        ? params.get('heading') === 'nested'
+          ? `> # Il contesto sociale\n>\n> ${markdown.replaceAll('\n', '\n> ')}`
+          : `${params.get('heading') === 'setext' ? 'Il contesto sociale\n=====' : '# Il contesto sociale'}\n\n${markdown}`
         : markdown,
     },
   ];

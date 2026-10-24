@@ -1,6 +1,6 @@
+import remarkMath from '@shared/remarkPandocMath';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import {

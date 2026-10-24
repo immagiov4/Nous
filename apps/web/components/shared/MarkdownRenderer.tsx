@@ -1,3 +1,4 @@
+import remarkMath from '@shared/remarkPandocMath';
 import {
   type ComponentPropsWithoutRef,
   type CSSProperties,
@@ -37,7 +38,6 @@ import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
 import type {
   LessonImageRef,
   PdfDocumentImageAsset,

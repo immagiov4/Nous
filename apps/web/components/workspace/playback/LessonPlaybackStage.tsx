@@ -80,18 +80,29 @@ interface CaptionClock {
 
 const passageParser = unified().use(remarkParse);
 
+interface PassageMarkdownNode {
+  readonly type: string;
+  readonly position?: { start: { offset?: number }; end: { offset?: number } };
+  readonly children?: readonly PassageMarkdownNode[];
+}
+
+function headingPositions(node: PassageMarkdownNode): PassageMarkdownNode['position'][] {
+  return [
+    ...(node.type === 'heading' ? [node.position] : []),
+    ...(node.children?.flatMap(headingPositions) ?? []),
+  ];
+}
+
 function passageBody(block: LessonPlaybackBlock, sources: readonly PlaybackContentBlock[]) {
   const headings = sources.map(source =>
-    source.type === 'markdown'
-      ? passageParser.parse(source.markdown).children.filter(node => node.type === 'heading')
-      : []
+    source.type === 'markdown' ? headingPositions(passageParser.parse(source.markdown)) : []
   );
   const body = block.spans.find(
     span =>
       block.speech.slice(span.speech.start, span.speech.end).trim() &&
-      !headings[span.sourceBlockIndex].some(node => {
-        const start = node.position?.start.offset;
-        const end = node.position?.end.offset;
+      !headings[span.sourceBlockIndex].some(position => {
+        const start = position?.start.offset;
+        const end = position?.end.offset;
         return (
           start !== undefined &&
           end !== undefined &&
