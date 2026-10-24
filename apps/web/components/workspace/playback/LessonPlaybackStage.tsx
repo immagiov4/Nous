@@ -415,6 +415,16 @@ function PlaybackPassage({
   const sceneFit = useRef<HTMLDivElement>(null);
   const sceneCard = useRef<HTMLElement>(null);
   const clock = useRef<CaptionClock | null>(null);
+  const formulas = useMemo(
+    () =>
+      block.spans.flatMap(span =>
+        span.math && span.speech.end > span.speech.start
+          ? [{ math: span.math, speech: span.speech }]
+          : []
+      ),
+    [block.spans]
+  );
+  const [spokenFormula, setSpokenFormula] = useState(-1);
 
   const animate = useShouldAnimate();
   const latest = useRef({ time, speed, readTime, animate, aligned, seekRevision });
@@ -552,16 +562,39 @@ function PlaybackPassage({
   useLayoutEffect(() => {
     let previousClock: CaptionClock | null = null;
     let previousBodyTime: number | undefined;
+    let formulaTimes: ReturnType<typeof captionRangeSpan>[] = [];
+    let previousFormula: number | undefined;
     const render = () => {
       const paragraph = captions.current;
       if (!paragraph) throw new Error('Captions must be mounted');
       const current = clock.current;
       if (!current?.width || !current.bodyDuration) return;
       if (previousClock !== current) {
+        formulaTimes = formulas.map(formula =>
+          captionRangeSpan({
+            range: formula.speech,
+            speech: block.speech,
+            speechRanges: current.speechRanges,
+            runs: current.runs,
+            width: current.width,
+            feather: 0,
+            duration: current.bodyDuration,
+            startOffset: current.headingDuration,
+            aligned: current.aligned,
+          })
+        );
         previousClock = current;
         previousBodyTime = undefined;
       }
-      const { bodyTime, revealTime } = current.read();
+      const { blockTime, bodyTime, revealTime } = current.read();
+      // Formula dictation follows the heard voice, independently of caption look-ahead.
+      const formulaIndex = formulaTimes.findIndex(
+        span => blockTime * 1000 >= span.startMs && blockTime * 1000 < span.endMs
+      );
+      if (formulaIndex !== previousFormula) {
+        previousFormula = formulaIndex;
+        setSpokenFormula(formulaIndex);
+      }
       const motion = latest.current.animate;
       current.viewport.clip();
       if (previousBodyTime === bodyTime) return;
@@ -592,7 +625,7 @@ function PlaybackPassage({
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [block.speech, formulas]);
 
   const visualCandidates = useMemo(() => {
     const formulas = getPlaybackFormulaMarkdown(block, sources);
@@ -792,32 +825,47 @@ function PlaybackPassage({
               <h2 key={`${index}:${heading}`}>{heading}</h2>
             )
           )}
-          <p ref={captions} key={block.id} className="caption-page">
-            {formatted.words.map((word, index) => {
-              const Tag = captionTag(word);
-              return (
-                // biome-ignore lint/suspicious/noArrayIndexKey: the authored caption page is static and remounted per block
-                <Fragment key={`${index}:${word.text}`}>
-                  {word.breakBefore && index > 0 ? <br /> : null}
-                  <span className="caption-word">
-                    <Tag>
-                      {word.breakBefore ? `${word.marker} ` : ''}
-                      {word.mathHtml ? (
-                        <span
-                          // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders validated notation with trust disabled.
-                          dangerouslySetInnerHTML={{ __html: word.mathHtml }}
-                        />
-                      ) : (
-                        word.text
-                      )}
-                    </Tag>
-                  </span>{' '}
-                </Fragment>
-              );
-            })}
-          </p>
+          <div className="caption-slot" data-formula={spokenFormula >= 0}>
+            <p
+              ref={captions}
+              key={block.id}
+              className="caption-page"
+              aria-hidden={spokenFormula >= 0}
+            >
+              {formatted.words.map((word, index) => {
+                const Tag = captionTag(word);
+                return (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: the authored caption page is static and remounted per block
+                  <Fragment key={`${index}:${word.text}`}>
+                    {word.breakBefore && index > 0 ? <br /> : null}
+                    <span className="caption-word">
+                      <Tag>
+                        {word.breakBefore ? `${word.marker} ` : ''}
+                        {word.mathHtml ? (
+                          <span
+                            // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders validated notation with trust disabled.
+                            dangerouslySetInnerHTML={{ __html: word.mathHtml }}
+                          />
+                        ) : (
+                          word.text
+                        )}
+                      </Tag>
+                    </span>{' '}
+                  </Fragment>
+                );
+              })}
+            </p>
+            {spokenFormula >= 0 ? (
+              <div className="caption-formula" key={`formula:${spokenFormula}`}>
+                <MarkdownRenderer
+                  content={formulas[spokenFormula].math}
+                  isDarkMode={content.isDarkMode}
+                />
+              </div>
+            ) : null}
+          </div>
         </section>
-        <div ref={sceneFit} className="scene-fit">
+        <div ref={sceneFit} className="scene-fit" aria-hidden={spokenFormula >= 0}>
           <section
             ref={sceneCard}
             className="scene-host"

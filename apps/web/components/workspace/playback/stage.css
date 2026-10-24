@@ -2020,6 +2020,23 @@
 .lesson-player-stage .captions h2:empty {
   display: none;
 }
+.lesson-player-stage .caption-slot {
+  position: relative;
+  width: 100%;
+}
+.lesson-player-stage .caption-slot[data-formula="true"] > .caption-page,
+.lesson-player-stage .scene-fit[aria-hidden="true"] {
+  visibility: hidden;
+}
+.lesson-player-stage .caption-formula {
+  position: absolute;
+  inset: 0;
+  font-size: clamp(23px, 2.4vw, 34px);
+}
+.lesson-player-stage .caption-formula .katex-display {
+  margin: 0;
+  text-align: left;
+}
 .lesson-player-stage .caption-word code {
   font-family: ui-monospace, monospace;
   font-size: 0.87em;

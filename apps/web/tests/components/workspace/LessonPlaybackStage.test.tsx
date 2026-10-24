@@ -866,6 +866,91 @@ test('a complete spotlight replaces sourced math while text fallback shows the f
   expect(container.querySelector('.scene-host')?.textContent).not.toContain('La probabilità');
   expect(container.querySelector('.scene-host .katex')).not.toBeNull();
 });
+test.each([
+  true,
+  false,
+])('formula dictation replaces captions only on the heard range (aligned: %s)', aligned => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const sources = [{ type: 'markdown' as const, markdown: 'Prima $x$ dopo ancora $x$ fine' }];
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: {
+      motion: [],
+      spokenMath: [
+        { formula: '$x$', spoken: 'ics uguale uno' },
+        { formula: '$x$', spoken: 'ics uguale due' },
+      ],
+    },
+  };
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const style = document.createElement('p').style;
+  style.setProperty('--caption-feather', '22px');
+  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
+  let time = 0;
+  const props = {
+    block,
+    content: { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel,
+    duration: 20,
+    time: 0,
+    readTime: () => time,
+    alignment: aligned
+      ? { status: 'aligned' as const, onsets: [0, 3, 4, 5, 9, 10, 13, 14, 15, 19] }
+      : undefined,
+  };
+  const { container, rerender } = render(<LessonPlaybackStage {...props} />);
+  const advance = (next: number) => {
+    time = next;
+    const pending = [...frames.values()];
+    frames.clear();
+    act(() => {
+      for (const callback of pending) callback(0);
+    });
+  };
+  const paragraph = container.querySelector('.caption-page');
+  const visual = container.querySelector('.scene-fit');
+  const before = aligned ? 2.99 : 1.99;
+  const start = aligned ? 3 : 2;
+  const end = aligned ? 9 : 8;
+  advance(before);
+  expect(paragraph).toHaveAttribute('aria-hidden', 'false');
+  expect(visual).toHaveAttribute('aria-hidden', 'false');
+  expect(container.querySelector('.scene-host annotation')?.textContent).toBe('x');
+  advance(start);
+  expect(paragraph).toHaveAttribute('aria-hidden', 'true');
+  expect(visual).toHaveAttribute('aria-hidden', 'true');
+  const formula = container.querySelector('.caption-formula');
+  expect(formula?.querySelector('annotation')?.textContent).toBe('x');
+  expect(formula?.textContent).not.toContain('ics');
+  advance(end - 0.01);
+  expect(container.querySelector('.caption-formula')).toBe(formula);
+  advance(end);
+  expect(paragraph).toHaveAttribute('aria-hidden', 'false');
+  expect(visual).toHaveAttribute('aria-hidden', 'false');
+  expect(container.querySelector('.scene-host annotation')?.textContent).toBe('x');
+  expect(container.querySelector('.caption-formula')).toBeNull();
+  advance(aligned ? 13 : 12);
+  expect(container.querySelector('.caption-formula annotation')?.textContent).toBe('x');
+  expect(visual).toHaveAttribute('aria-hidden', 'true');
+  advance(0);
+  rerender(<LessonPlaybackStage {...props} block={structuredClone(block)} seekRevision={1} />);
+  advance(0);
+  expect(paragraph).toHaveAttribute('aria-hidden', 'false');
+  expect(visual).toHaveAttribute('aria-hidden', 'false');
+  const words = container.querySelectorAll<HTMLElement>('.caption-word');
+  advance(1);
+  // The ordinary reveal still includes the existing 1.3-second lead after catch-up.
+  expect(Number.parseFloat(words[0].style.getPropertyValue('--reveal-edge'))).toBeCloseTo(117.53);
+});
+
 test('uses the prepared spoken formula in captions while retaining authored math on the visual', () => {
   const markdown = String.raw`Consideriamo $p_\theta(y\mid x)$. La probabilità descrive il risultato.`;
   const sources = [{ type: 'markdown' as const, markdown }];
