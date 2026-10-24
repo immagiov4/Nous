@@ -195,7 +195,7 @@ if (new URLSearchParams(location.search).has('case')) {
               : undefined
           }
           duration={duration}
-          time={duration / 2}
+          time={formulaPath === 'cards' ? 0 : duration / 2}
         />
       </div>
     );

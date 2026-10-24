@@ -112,7 +112,32 @@ function canRetainPresentedCues(
   current: CaptionClock,
   previous: CaptionClock | null
 ): previous is CaptionClock {
-  return previous !== null && previous.seekRevision === current.seekRevision;
+  return (
+    previous !== null &&
+    previous.duration > 0 &&
+    current.duration > 0 &&
+    previous.seekRevision === current.seekRevision
+  );
+}
+
+function formulaSpeechTiming(range: PlaybackRange, speech: string, current: CaptionClock) {
+  const span = captionRangeSpan({
+    range,
+    speech,
+    speechRanges: current.speechRanges,
+    runs: current.runs,
+    width: current.width,
+    feather: 0,
+    duration: current.bodyDuration,
+    startOffset: current.headingDuration,
+    aligned: current.aligned,
+  });
+  if (span.endMs === span.startMs && current.aligned) {
+    // Equal-onset words share one acoustic interval rather than a zero-length formula.
+    const next = current.aligned.find(word => word.onset * 1000 > span.startMs);
+    span.endMs = (next?.onset ?? current.duration) * 1000;
+  }
+  return span;
 }
 
 function retainPresentedCues(
@@ -427,6 +452,18 @@ function PlaybackPassage({
   const sceneFit = useRef<HTMLDivElement>(null);
   const sceneCard = useRef<HTMLElement>(null);
   const clock = useRef<CaptionClock | null>(null);
+  const formulaKey = JSON.stringify(
+    block.spans.flatMap(span =>
+      span.math && span.speech.end > span.speech.start
+        ? [{ math: span.math, speech: span.speech }]
+        : []
+    )
+  );
+  const formulas = useMemo(
+    () => JSON.parse(formulaKey) as { math: string; speech: PlaybackRange }[],
+    [formulaKey]
+  );
+  const [formulaView, setFormulaView] = useState({ active: false, indices: [] as number[] });
 
   const animate = useShouldAnimate();
   const latest = useRef({ time, speed, readTime, animate, aligned, seekRevision });
@@ -455,7 +492,7 @@ function PlaybackPassage({
       if (!width || !height) return;
       const scale = Math.min(1, slot.clientWidth / width, availableHeight / height);
       slot.style.setProperty('--scene-scale', String(scale));
-      // The fitted card contributes its height so captions and scene are centered as a pair.
+      // The visual centers independently inside the stage's full-height grid row.
       slot.style.height = `${height * scale}px`;
       slot.style.setProperty('--scene-left', `${(slot.clientWidth - width * scale) / 2}px`);
     };
@@ -564,16 +601,46 @@ function PlaybackPassage({
   useLayoutEffect(() => {
     let previousClock: CaptionClock | null = null;
     let previousBodyTime: number | undefined;
+    let formulaTimes: ReturnType<typeof captionRangeSpan>[] = [];
+    let previousFormula: string | undefined;
     const render = () => {
       const paragraph = captions.current;
       if (!paragraph) throw new Error('Captions must be mounted');
       const current = clock.current;
-      if (!current?.width || !current.bodyDuration) return;
+      if (!current) return;
       if (previousClock !== current) {
+        const previousTimes = formulaTimes;
+        formulaTimes = formulas.map((formula, index) => {
+          const span = formulaSpeechTiming(formula.speech, block.speech, current);
+          const previous = previousTimes[index];
+          if (!previous || !canRetainPresentedCues(current, previousClock)) return span;
+          const heardMs = current.read().blockTime * 1000;
+          return {
+            startMs: adoptCueTimes([previous.startMs], [span.startMs], heardMs)[0],
+            endMs: adoptCueTimes([previous.endMs], [span.endMs], heardMs)[0],
+          };
+        });
         previousClock = current;
         previousBodyTime = undefined;
       }
-      const { bodyTime, revealTime } = current.read();
+      const { blockTime, bodyTime, revealTime } = current.read();
+      // Formula dictation follows the heard voice, independently of caption look-ahead.
+      // Adjacent formulas can share one acoustic word; retain every matching occurrence.
+      const activeFormulas = formulaTimes.flatMap((span, index) =>
+        blockTime * 1000 >= span.startMs && blockTime * 1000 < span.endMs ? [index] : []
+      );
+      const formulaKey = activeFormulas.join(':');
+      if (formulaKey !== previousFormula) {
+        previousFormula = formulaKey;
+        setFormulaView(previous => {
+          if (!activeFormulas.length && !previous.active) return previous;
+          return {
+            active: activeFormulas.length > 0,
+            indices: activeFormulas.length ? activeFormulas : previous.indices,
+          };
+        });
+      }
+      if (!current.width || !current.bodyDuration) return;
       const motion = latest.current.animate;
       current.viewport.clip();
       if (previousBodyTime === bodyTime) return;
@@ -604,7 +671,7 @@ function PlaybackPassage({
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [block.speech, formulas]);
 
   const [unavailableImages, setUnavailableImages] = useState<ReadonlySet<string>>(new Set());
   const onImageUnavailable = useCallback((imageId: string) => {
@@ -822,8 +889,8 @@ function PlaybackPassage({
     animate,
   };
   return (
-    <div className="lesson-player-stage">
-      <section className="listening-stage">
+    <div className="lesson-player-stage" data-formula={formulaView.active}>
+      <section className="listening-stage" aria-hidden={formulaView.active}>
         <section className="captions" aria-label={t('Sottotitoli')}>
           {(formatted.headings.length ? formatted.headings : [block.heading]).map(
             (heading, index) => (
@@ -831,7 +898,12 @@ function PlaybackPassage({
               <h2 key={`${index}:${heading}`}>{heading}</h2>
             )
           )}
-          <p ref={captions} key={block.id} className="caption-page">
+          <p
+            ref={captions}
+            key={block.id}
+            className="caption-page"
+            aria-hidden={formulaView.active}
+          >
             {formatted.words.map((word, index) => {
               const Tag = captionTag(word);
               return (
@@ -856,7 +928,7 @@ function PlaybackPassage({
             })}
           </p>
         </section>
-        <div ref={sceneFit} className="scene-fit">
+        <div ref={sceneFit} className="scene-fit" aria-hidden={formulaView.active}>
           <section
             ref={sceneCard}
             className="scene-host"
@@ -882,6 +954,21 @@ function PlaybackPassage({
               />
             ) : null}
           </section>
+        </div>
+      </section>
+      <section
+        className="formula-view"
+        aria-hidden={!formulaView.active}
+        aria-label={t('Visualizzazione della lezione')}
+      >
+        <div className="formula-content" key={formulaView.indices.join(':')}>
+          {formulaView.indices.map(index => (
+            <MarkdownRenderer
+              key={index}
+              content={formulas[index].math}
+              isDarkMode={content.isDarkMode}
+            />
+          ))}
         </div>
       </section>
     </div>

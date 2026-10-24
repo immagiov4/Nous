@@ -8,11 +8,17 @@ import LessonPlaybackStage from '../../components/workspace/playback/LessonPlayb
 import type { WorkspaceReaderContentModel } from '../../components/workspace/shell/types';
 
 const mode = new URLSearchParams(location.search).get('mode');
+const wideFormula = `$\\frac{${Array.from({ length: 24 }, (_, index) => `x_{${index + 1}}`).join('+')}}{y}$`;
 // Monospace words give each synthetic recording an exact, uniform word clock.
 const sources = [
   {
     type: 'markdown' as const,
-    markdown: mode === 'cards' ? 'Uno $a$ $b$ Uno Uno Uno Uno Uno $a$ Uno' : 'Uno Due Tre',
+    markdown:
+      mode === 'wide-formula'
+        ? `Uno ${wideFormula} Uno`
+        : mode === 'cards'
+          ? 'Uno $a$ $b$ Uno Uno Uno Uno Uno $a$ Uno'
+          : 'Uno Due Tre',
   },
 ];
 const block = segmentLessonPlayback(sources)[0];
@@ -51,27 +57,29 @@ const displayedScene =
         }
       : scene;
 const prepared =
-  mode === 'cards'
-    ? {
-        motion: [],
-        spokenMath: [
-          { formula: '$a$', spoken: 'Due' },
-          { formula: '$b$', spoken: 'Tre' },
-          { formula: '$a$', spoken: 'Due' },
-        ],
-      }
-    : mode === 'fallback'
-      ? undefined
-      : {
-          scene: displayedScene,
-          motion:
-            mode === 'path' || mode === 'formula'
-              ? []
-              : [
-                  { effect: 'reveal' as const, targets: ['item:0'], quote: 'Due' },
-                  { effect: 'focus' as const, targets: ['item:1'], quote: 'Due' },
-                ],
-        };
+  mode === 'wide-formula'
+    ? { motion: [], spokenMath: [{ formula: wideFormula, spoken: 'Due' }] }
+    : mode === 'cards'
+      ? {
+          motion: [],
+          spokenMath: [
+            { formula: '$a$', spoken: 'Due' },
+            { formula: '$b$', spoken: 'Tre' },
+            { formula: '$a$', spoken: 'Due' },
+          ],
+        }
+      : mode === 'fallback'
+        ? undefined
+        : {
+            scene: displayedScene,
+            motion:
+              mode === 'path' || mode === 'formula'
+                ? []
+                : [
+                    { effect: 'reveal' as const, targets: ['item:0'], quote: 'Due' },
+                    { effect: 'focus' as const, targets: ['item:1'], quote: 'Due' },
+                  ],
+          };
 const style = document.createElement('style');
 style.textContent =
   '.caption-word { font-family: monospace !important; font-weight: normal !important; }';

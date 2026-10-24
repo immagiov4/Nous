@@ -2020,6 +2020,62 @@
 .lesson-player-stage .captions h2:empty {
   display: none;
 }
+.lesson-player-stage .listening-stage,
+.lesson-player-stage .formula-view {
+  transition:
+    opacity var(--caption-change) ease-out,
+    visibility 0s linear var(--caption-change);
+}
+.lesson-player-stage .listening-stage[aria-hidden="true"] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.lesson-player-stage .listening-stage[aria-hidden="false"] {
+  transition-delay: 0s;
+}
+.lesson-player-stage .formula-view {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  padding: inherit;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.lesson-player-stage .formula-view[aria-hidden="false"] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+.lesson-player-stage .formula-content {
+  display: grid;
+  gap: var(--space);
+  width: max-content;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.lesson-player-stage .formula-view :is(p, .katex-display) {
+  margin: 0;
+  text-align: center;
+}
+.lesson-player-stage .formula-view .katex {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  font-size: var(--symbol-size);
+}
+@media (prefers-reduced-motion: reduce) {
+  .lesson-player-stage .listening-stage,
+  .lesson-player-stage .formula-view {
+    transition: none;
+  }
+}
 .lesson-player-stage .caption-word code {
   font-family: ui-monospace, monospace;
   font-size: 0.87em;
@@ -2063,8 +2119,9 @@
 }
 @media (min-width: 651px) {
   .lesson-player-stage .listening-stage {
-    align-items: start;
-    align-content: safe center;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: center;
+    align-content: stretch;
   }
   .lesson-player-stage .captions {
     justify-content: flex-start;
@@ -2206,6 +2263,7 @@
 }
 .lesson-player-stage {
   --lesson-player-tint: #fbefe9;
+  position: relative;
   flex: 1;
   display: flex;
   min-height: 0;
