@@ -130,6 +130,7 @@ try {
         if (message.type() === 'error') console.error(browserType.name(), message.text());
       });
       await page.goto(url);
+      assert.match(await page.locator('.scene').innerText(), /Fixed audio sample/u);
       await page.locator('#play').click();
       await advances(page);
       await page.locator('#pause').click();
@@ -159,7 +160,9 @@ try {
       await advances(page, beforeSpeed);
       assert.equal(await page.evaluate(() => window.audioContractSchedules.at(-1)?.rate), 2);
       assert.deepEqual(errors, []);
-      console.log(`${browserType.name()}: production playback, resume, seek, voice and speed pass`);
+      console.log(
+        `${browserType.name()}: production hook and stage mount, playback, resume, seek, voice and speed pass`
+      );
       await page.close();
       const failurePage = await browser.newPage();
       await serveRecordings(failurePage);

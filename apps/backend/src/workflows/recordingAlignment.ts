@@ -10,6 +10,7 @@ import {
   type LockedProjectSnapshot,
   patchProjectInTransaction,
 } from '../projects/projectTransaction.js';
+import { readProjectLanguage } from '../services/lessonGenerationSources.js';
 import { alignRecording } from '../services/lessonPlayback/alignRecording.js';
 import { timestampIso } from '../utils/time.js';
 import { WorkflowExecutionDefaultsSchema } from './config.js';
@@ -148,6 +149,7 @@ export function createProductionRecordingAlignmentServices(
         const alignment = await alignRecording({
           ...file,
           speech,
+          language: readProjectLanguage(project.snapshot),
           durationSeconds: audio.durationSeconds,
           signal,
         });

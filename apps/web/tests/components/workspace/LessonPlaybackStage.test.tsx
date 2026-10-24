@@ -18,6 +18,8 @@ import {
 import LessonPlaybackStage from '../../../components/workspace/playback/LessonPlaybackStage.tsx';
 import {
   adoptCueTimes,
+  captionAnchorSpan,
+  captionAnchorTimes,
   captionMotionEvents,
   motionStates,
   sceneElements,
@@ -99,6 +101,43 @@ test.each([
   expect(container.querySelector('.scene-host')?.textContent).not.toContain('PDF_IMAGE');
   expect(container.querySelector('.scene-host')?.textContent).not.toContain('Figura di esempio');
   expect(container.querySelector('.scene-host')?.textContent).not.toContain('Un esempio visivo');
+});
+test('removes one failed adjacent PDF image and retains the available image', () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: 'Un passaggio.\n\n{{PDF_IMAGE:good|alt=Good}}{{PDF_IMAGE:bad|alt=Bad}}',
+    },
+  ];
+  const block = segmentLessonPlayback(sources)[0];
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+    activeSectionAssetsById: Object.fromEntries(
+      ['good', 'bad'].map(id => [
+        id,
+        {
+          id,
+          dataUrl: `data:image/png;base64,${id}`,
+          sourceOrder: 0,
+          textBefore: '',
+          textAfter: '',
+        },
+      ])
+    ),
+  } as WorkspaceReaderContentModel;
+  const { container } = render(
+    <LessonPlaybackStage block={block} content={content} duration={10} time={4} />
+  );
+  expect(screen.getAllByRole('img').map(image => image.getAttribute('alt'))).toEqual([
+    'Good',
+    'Bad',
+  ]);
+  fireEvent.error(screen.getByRole('img', { name: 'Bad' }));
+  expect(screen.getAllByRole('img').map(image => image.getAttribute('alt'))).toEqual(['Good']);
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain(
+    'Immagine non disponibile'
+  );
 });
 beforeEach(() => {
   vi.stubGlobal(
@@ -415,25 +454,56 @@ test('keeps motion quotation anchors aligned after formatted punctuation and lin
   );
 });
 
-test('recomputes smooth reveal, focus delay, holds and backward seeks from time', () => {
+test('recomputes reveal fades, focus delay, holds and backward seeks from time', () => {
   const reveal = [
-    { effect: 'reveal' as const, targets: ['item:0'], quote: 'Prima', atMs: 100, durationMs: 700 },
+    { effect: 'reveal' as const, targets: ['item:0'], quote: 'Prima', atMs: 1000, durationMs: 700 },
   ];
-  expect(motionStates(['item:0', 'item:1'], reveal, 450, false, 0).get('item:0')?.opacity).toBe(
+  expect(motionStates(['item:0', 'item:1'], reveal, 650, false, 0).get('item:0')?.opacity).toBe(
     0.5
   );
-  expect(motionStates(['item:0'], reveal, 100, true, 0).get('item:0')?.opacity).toBe(1);
+  expect(motionStates(['item:0'], reveal, 1000, true, 0).get('item:0')?.opacity).toBe(1);
   expect(motionStates(['item:0'], reveal, 50, false, 0).get('item:0')?.opacity).toBe(0);
   const focus = [
     { effect: 'focus' as const, targets: ['item:0'], quote: 'Prima', atMs: 0, durationMs: 10000 },
   ];
-  expect(motionStates(['item:0', 'item:1'], focus, 1000, false, 1300).get('item:0')?.emphasis).toBe(
+  expect(motionStates(['item:0', 'item:1'], focus, 800, false, 1300).get('item:0')?.emphasis).toBe(
     0
   );
   const focused = motionStates(['item:0', 'item:1'], focus, 1600, false, 1300);
   expect(focused.get('item:0')?.emphasis).toBeGreaterThan(0);
   expect(focused.get('item:1')).toEqual({ opacity: 1, emphasis: 0 });
   expect(motionStates(['item:0'], focus, 5400, false, 1300).get('item:0')?.emphasis).toBe(0);
+});
+
+test.each([
+  ['reveal', 700],
+  ['focus', 420],
+] as const)('%s keeps its full enter fade before the word start', (effect, riseMs) => {
+  const alignedWordStartMs = 2300;
+  const events = [
+    {
+      effect,
+      targets: ['item:0'],
+      quote: 'Segnale',
+      atMs: alignedWordStartMs,
+      durationMs: effect === 'reveal' ? 700 : 1600,
+    },
+  ];
+  const visible = (time: number) => {
+    const state = motionStates(['item:0'], events, time, false, 0).get('item:0');
+    if (!state) throw new Error('Cue target must exist');
+    return effect === 'reveal' ? state.opacity : state.emphasis;
+  };
+  expect(visible(alignedWordStartMs - riseMs)).toBe(0);
+  expect(visible(alignedWordStartMs - riseMs / 2)).toBeCloseTo(0.5);
+  expect(visible(alignedWordStartMs)).toBe(1);
+  expect(visible(alignedWordStartMs - riseMs - 1)).toBe(0);
+  if (effect === 'focus') {
+    expect(visible(alignedWordStartMs + 1390)).toBeCloseTo(0.5);
+    expect(visible(alignedWordStartMs + 1600)).toBe(0);
+  } else expect(visible(alignedWordStartMs + 1600)).toBe(1);
+  const reduced = motionStates(['item:0'], events, alignedWordStartMs - 1, true, 0).get('item:0');
+  expect(effect === 'reveal' ? reduced?.opacity : reduced?.emphasis).toBe(0);
 });
 
 test('captions display canonical inline text and every spoken heading', () => {
@@ -466,10 +536,9 @@ test('captions display canonical inline text and every spoken heading', () => {
       time={0}
     />
   );
-  expect(Array.from(container.querySelectorAll('h2'), heading => heading.textContent)).toEqual([
-    'Tema',
-    'Dettaglio',
-  ]);
+  expect(
+    Array.from(container.querySelectorAll('.captions h2'), heading => heading.textContent)
+  ).toEqual(['Tema', 'Dettaglio']);
   expect(container.querySelector('.caption-page')?.textContent).not.toContain(
     'https://example.com'
   );
@@ -730,6 +799,57 @@ import {
 } from '../../../../backend/tests/helpers/formulaSpotlight';
 import { sceneCaptionAnchors } from '../../../components/workspace/playback/stageMotion.ts';
 
+test.each([false, true])('shows one formula at spotlight size (inherited: %s)', inherited => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: '# Function\n\nThe result is $h=wx+b$.\n\nIts bias shifts the result.',
+    },
+  ];
+  const blocks = segmentLessonPlayback(sources);
+  const { container } = render(
+    <LessonPlaybackStage
+      block={{ ...blocks[inherited ? 1 : 0], prepared: { motion: [] } }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={6}
+      time={0}
+    />
+  );
+  expect(container.querySelectorAll('.scene-host .katex')).toHaveLength(1);
+  expect(container.querySelector('.lesson-player-formula .katex-display')).not.toBeNull();
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain('The result is');
+});
+
+test('keeps three formulas and their explanations in the prepared list', () => {
+  const sources = [{ type: 'markdown' as const, markdown: 'Compare $a$, $b$ and $c$.' }];
+  const scene: LessonScene = {
+    type: 'parts',
+    title: 'Three quantities',
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: ['a', 'b', 'c'].map((symbol, index) => ({
+      label: symbol,
+      detail: `Explanation ${index + 1}`,
+      icon: 'variable',
+    })),
+  };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={{ ...segmentLessonPlayback(sources)[0], prepared: { scene, motion: [] } }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={6}
+      time={5}
+    />
+  );
+  expect(container.querySelector('.lesson-player-formula')).toBeNull();
+  expect(container.querySelectorAll('.scene-host .katex')).toHaveLength(3);
+  expect(container.querySelectorAll('.scene-host .type-parts .concept')).toHaveLength(3);
+  for (const index of [1, 2, 3])
+    expect(container.querySelector('.type-parts')?.textContent).toContain(`Explanation ${index}`);
+});
+
 test('uses recording onsets for formula selection after forward and backward seeks', () => {
   const frames = new Map<number, FrameRequestCallback>();
   let frameId = 0;
@@ -798,6 +918,25 @@ test('uses recording onsets for formula selection after forward and backward see
   const captions = container.querySelectorAll<HTMLElement>('.caption-word');
   expect(captions[1].style.opacity).toBe('1');
   expect(captions[5].style.opacity).toBe('1');
+  const later = { status: 'aligned' as const, onsets: [0, 8, 8.2, 8.4, 8.6, 9, 9.2, 9.4] };
+  rerender(<LessonPlaybackStage {...props} alignment={later} time={5.1} />);
+  const flush = () =>
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    });
+  flush();
+  act(() => window.dispatchEvent(new Event('resize')));
+  flush();
+  expect(container.querySelector('.nous-formula-symbol-x')?.getAttribute('data-active')).toBe(
+    'true'
+  );
+  rerender(<LessonPlaybackStage {...props} alignment={later} time={5.1} seekRevision={1} />);
+  flush();
+  expect(container.querySelector('.nous-formula-symbol-x')?.getAttribute('data-active')).toBe(
+    'false'
+  );
 });
 
 test('a complete spotlight replaces sourced math while text fallback shows the formula without prose', () => {
@@ -859,6 +998,93 @@ test('uses the prepared spoken formula in captions while retaining authored math
   expect(container.querySelector('.scene-host .katex')).not.toBeNull();
 });
 
+test.each([
+  false,
+  true,
+])('selects repeated formula cards on the absolute passage clock and retains them through seeks (aligned: %s)', aligned => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: `${aligned ? '# Titolo\n\n' : ''}Uno $a$ $b$ Attesa lunga pausa resta qui $a$ Fine`,
+    },
+  ];
+  const formulas = ['$a$', '$b$', '$a$'];
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    visuals: formulas.map(markdown => ({ kind: 'markdown' as const, markdown })),
+    prepared: {
+      motion: [],
+      spokenMath: formulas.map((formula, index) => ({
+        formula,
+        spoken: index === 1 ? 'Beta' : 'Alfa',
+      })),
+    },
+  };
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const style = document.createElement('p').style;
+  style.setProperty('--caption-feather', '22px');
+  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
+  let time = 0;
+  const { container, rerender } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      alignment={
+        aligned ? { status: 'aligned', onsets: [0, 0.1, 0.5, 2, 3, 4, 5, 6, 7, 8, 9] } : undefined
+      }
+      duration={10}
+      time={0}
+      readTime={() => time}
+    />
+  );
+  const advance = (next: number) => {
+    time = next;
+    const queued = [...frames.values()];
+    frames.clear();
+    act(() => {
+      for (const callback of queued) callback(0);
+    });
+    return container.querySelector('.scene-host annotation')?.textContent;
+  };
+  expect(advance(1.99)).toBe('a');
+  expect(advance(2.01)).toBe('b');
+  expect(advance(7.99)).toBe('b');
+  expect(advance(8.01)).toBe('a');
+  expect(advance(2.01)).toBe('b');
+  if (aligned) {
+    rerender(
+      <LessonPlaybackStage
+        block={structuredClone(block)}
+        content={
+          {
+            isDarkMode: false,
+            sectionContentBlocks: structuredClone(sources),
+          } as WorkspaceReaderContentModel
+        }
+        alignment={{ status: 'aligned', onsets: [0, 0.1, 0.5, 6, 6.1, 6.2, 6.3, 6.4, 7, 8, 9] }}
+        duration={10}
+        time={time}
+        readTime={() => time}
+      />
+    );
+    expect(advance(2.02)).toBe('b');
+    act(() => window.dispatchEvent(new Event('resize')));
+    expect(advance(2.04)).toBe('b');
+  }
+});
+
 test.each(
   discreteMathCases
 )('renders $name as spoken caption words with authored KaTeX on the card', fixture => {
@@ -917,11 +1143,11 @@ test.each([
     />
   );
   expect(container.querySelector('.scene-host pre')).toBeNull();
-  expect(container.querySelector('.scene-host')?.textContent?.trim()).toBe('');
+  expect(container.querySelector('.scene-host blockquote')?.textContent).toContain('Introduction.');
   expect(container.querySelector('.caption-page')?.textContent).toContain(body.trim());
 });
 
-test('keeps a text-only prepared passage in captions without copying it into the visual panel', () => {
+test('keeps a text-only prepared passage in captions with its literal fallback card', () => {
   const sources = [
     { type: 'markdown' as const, markdown: 'Una spiegazione senza una visualizzazione utile.' },
   ];
@@ -935,7 +1161,7 @@ test('keeps a text-only prepared passage in captions without copying it into the
     />
   );
   expect(container.querySelector('.captions')?.textContent).toContain('Una spiegazione');
-  expect(container.querySelector('.scene-host')?.textContent).toBe('');
+  expect(container.querySelector('.scene-host blockquote')?.textContent).toContain(block.speech);
 });
 
 test('retains the complete authored formula while the next passage explains its subscript', () => {
@@ -1237,7 +1463,8 @@ test.each([
   );
   heard = 6.199;
   flush();
-  expect(visualValue()).toBe('0');
+  if (animate) expect(Number(visualValue())).toBeGreaterThan(0.99);
+  else expect(visualValue()).toBe('0');
   heard = 6.201;
   flush();
   expect(Number(visualValue())).toBeGreaterThan(0);
@@ -1250,7 +1477,7 @@ test.each([
   );
   flush();
   expect(visualValue()).toBe(paused);
-  heard = 6.19;
+  heard = 5.49;
   flush();
   expect(visualValue()).toBe('0');
   heard = 6.3;
@@ -1270,7 +1497,10 @@ test.each([
   rerender(<LessonPlaybackStage {...props} alignment={later} time={0} readTime={readTime} />);
   flush();
   expect(visualValue()).toBe(presented);
-  heard = 7.5;
+  act(() => window.dispatchEvent(new Event('resize')));
+  flush();
+  expect(visualValue()).toBe(presented);
+  heard = 7.29;
   rerender(
     <LessonPlaybackStage
       {...props}
@@ -1337,6 +1567,42 @@ test('renders resolved step citations instead of the unanchored source scene', (
 
 test('adopts an overdue acoustic cue instead of waiting for its future estimate', () => {
   expect(adoptCueTimes([8000, 2000, 9000], [3000, 1000, 7000], 5000)).toEqual([3000, 2000, 7000]);
+});
+
+test('heading quotations stay within the spoken heading interval before alignment', () => {
+  const input = {
+    speech: 'Primo titolo Corpo finale',
+    speechRanges: [
+      { start: 13, end: 18 },
+      { start: 19, end: 25 },
+    ],
+    runs: [0, 1].map(index => ({
+      span: document.createElement('span'),
+      start: index * 100,
+      width: 100,
+    })),
+    width: 200,
+    feather: 0,
+    duration: 8,
+    startOffset: 2,
+  };
+  expect(captionAnchorTimes({ ...input, anchors: ['Primo', 'titolo', 'Corpo', 'finale'] })).toEqual(
+    [0, 1000, 2000, 6000]
+  );
+  expect(captionAnchorSpan({ ...input, anchors: ['titolo'] })).toEqual({
+    startMs: 1000,
+    endMs: 2000,
+  });
+  expect(captionAnchorSpan({ ...input, anchors: ['titolo Corpo'] })).toEqual({
+    startMs: 1000,
+    endMs: 6000,
+  });
+  expect(
+    captionMotionEvents({
+      ...input,
+      events: [{ quote: 'titolo', targets: ['item:0'], effect: 'focus' }],
+    })[0]
+  ).toMatchObject({ atMs: 1000, durationMs: 1600 });
 });
 
 test('sequence participants and message labels retain their authored motion targets', () => {
@@ -1549,4 +1815,61 @@ test.each([
   expect(nextCaption?.scrollTop).toBe(0);
   expect(container.querySelector('.scene-host')?.firstElementChild).not.toBe(visual);
   expect(visual.isConnected).toBe(false);
+});
+
+test.each([
+  'unprepared',
+  'legacy',
+  'missing-reference',
+])('shows a passage-derived visual for %s content throughout playback', state => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const sources = [{ type: 'markdown' as const, markdown: 'A boundary separates two regions.' }];
+  const raw = segmentLessonPlayback(sources)[0];
+  const block = {
+    ...raw,
+    ...(state !== 'unprepared' ? { prepared: { motion: [] } } : {}),
+    visuals:
+      state === 'missing-reference'
+        ? [{ kind: 'generated-visual' as const, visualId: 'missing' }]
+        : [],
+  };
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+  } as WorkspaceReaderContentModel;
+  const { container, rerender } = render(
+    <LessonPlaybackStage block={block} content={content} duration={8} time={0} />
+  );
+  const visual = container.querySelector('.scene-host');
+  expect(visual?.querySelector('blockquote')?.textContent).toContain(raw.speech);
+  for (const time of [4, 8, 8.1]) {
+    rerender(<LessonPlaybackStage block={block} content={content} duration={8} time={time} />);
+    expect(visual?.querySelector('blockquote')?.textContent).toContain(raw.speech);
+  }
+});
+
+test('renders LaTeX notation authored as inline code in captions while retaining ordinary code', () => {
+  const notation = String.raw`\mathbf\Omega\mathbf x`;
+  const literal = String.raw`\notACommand`;
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: `The product \`${notation}\` uses \`open()\` and \`${literal}\`.`,
+    },
+  ];
+  const { container } = render(
+    <LessonPlaybackStage
+      block={segmentLessonPlayback(sources)[0]}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={6}
+      time={3}
+    />
+  );
+  expect(container.querySelector('.captions .katex-html')?.textContent).toContain('Ω');
+  expect(
+    Array.from(container.querySelectorAll('.captions code'), code => code.textContent)
+  ).toEqual(['open()', literal]);
+  const word = captionFormat(sources[0].markdown).words.find(word => word.text === notation);
+  expect(word).toBeDefined();
+  expect(sources[0].markdown.slice(word?.source.start, word?.source.end)).toBe(notation);
 });
