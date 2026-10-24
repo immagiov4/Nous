@@ -382,10 +382,22 @@ test('saves the source at the live voice clock rather than the last caption rend
   const onSavePlaybackVisual = vi.fn<
     NonNullable<WorkspaceReaderContentModel['onSavePlaybackVisual']>
   >(async () => ({ succeeded: true }));
+  const scene: LessonScene = {
+    type: 'parts',
+    title: 'Passages',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [
+      { label: 'First', detail: '', icon: '' },
+      { label: 'Later', detail: '', icon: '' },
+    ],
+  };
   const { container } = render(
     <LessonPlaybackStage
       lessonKey="lesson-version"
-      block={segmentLessonPlayback(sources)[0]}
+      block={{ ...segmentLessonPlayback(sources)[0], prepared: { scene, motion: [] } }}
       duration={10}
       time={0}
       readTime={() => 8}
