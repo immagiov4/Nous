@@ -33,6 +33,48 @@ const formulaViewports = [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ];
+
+test('keeps the save action at its approved size when a scene is fitted on desktop or touch screens', async () => {
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  try {
+    let reference: { width: number; height: number } | undefined;
+    for (const viewport of formulaViewports) {
+      await page.setViewportSize(viewport);
+      await page.goto(
+        `${baseUrl}tests/fixtures/playbackLayout.html?saveVisual=1&formulas=1&formulaPath=wide-scene`
+      );
+      const host = page.locator('.scene-host');
+      await host.waitFor();
+      await page.waitForFunction(
+        () => !!document.querySelector('.scene-fit')?.getAttribute('style')
+      );
+      expect(await page.locator('.playback-visual-action button').count()).toBe(0);
+      await host.hover();
+      const button = page.locator('.playback-visual-action button');
+      await button.waitFor();
+      await page.evaluate(() => document.fonts.ready);
+      const size = await button.boundingBox();
+      if (!size) throw new Error('Save action must be visible');
+      const scale = await page
+        .locator('.scene-fit')
+        .evaluate(slot => Number((slot as HTMLElement).style.getPropertyValue('--scene-scale')));
+      expect(scale).toBeLessThan(1);
+      if (reference) {
+        expect(size.width).toBeCloseTo(reference.width, 0);
+        expect(size.height).toBeCloseTo(reference.height, 0);
+      }
+      reference = size;
+      const center = await host.boundingBox();
+      if (!center) throw new Error('Visual must be visible');
+      expect(size.x + size.width / 2).toBeCloseTo(center.x + center.width / 2, 0);
+      await evidence(page, `save-fitted-${viewport.width}`);
+      await page.mouse.move(0, 0);
+      await button.waitFor({ state: 'detached' });
+    }
+  } finally {
+    await page.close();
+  }
+});
 for (const viewport of formulaViewports) {
   test.each([
     'plain',
