@@ -2188,3 +2188,67 @@ test('returns to earlier recall equations when their symbols are named again and
     }
   }
 });
+
+test('selects a saved formula widget on its explicit spoken occurrence after reuse', () => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
+  const scene = {
+    ...dictatedFormulaSpotlight,
+    formula: String.raw`\nousSymbol{x}`,
+    symbols: [
+      { id: 'x', latex: 'x', name: 'Ics', meaning: 'Valore', anchor: 'ics', anchorOccurrence: 1 },
+    ],
+  };
+  const normal = {
+    type: 'definition' as const,
+    title: 'Contesto',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [{ label: 'Prima', detail: 'Il contesto della spiegazione.', icon: '' }],
+  };
+  const sources = [{ type: 'markdown' as const, markdown: 'prima ics poi ics fine' }];
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    visuals: [
+      { kind: 'scene' as const, scene: normal },
+      { kind: 'scene' as const, scene },
+    ],
+    prepared: { motion: [] },
+  };
+  let time = 1.5;
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={5}
+      time={0}
+      readTime={() => time}
+      alignment={{ status: 'aligned', onsets: [0, 1, 2, 3, 4] }}
+    />
+  );
+  const flush = () =>
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    });
+  flush();
+  flush();
+  expect(container.querySelector('.formula-spotlight')).toBeNull();
+  expect(container.querySelector('.scene-host')?.textContent).toContain('Contesto');
+  time = 3.5;
+  flush();
+  flush();
+  expect(
+    container
+      .querySelector('.spotlight-symbols [data-active="true"]')
+      ?.getAttribute('data-formula-symbol')
+  ).toBe('x');
+});

@@ -812,8 +812,13 @@ function PlaybackPassage({
             : undefined;
         const scene =
           visual.kind === 'scene' ? visual.scene : stored && getStoredLessonVisualScene(stored);
+        const anchors = visuals.length > 1 ? sceneCaptionAnchors(scene, block.speech) : undefined;
         return {
-          anchors: visuals.length > 1 ? sceneCaptionAnchors(scene, block.speech) : undefined,
+          anchors,
+          range:
+            scene?.type === 'formula-spotlight' && anchors
+              ? formulaReferenceRange(scene, block.speech)
+              : undefined,
         };
       }),
     [visuals, content.activeSectionGeneratedVisualsById, block.speech]
@@ -875,7 +880,7 @@ function PlaybackPassage({
               ends: adoptCueTimes(previousReferenceCues[index]?.ends, next.ends, heardMs),
             };
           });
-          spans = visualReferences.map(({ anchors: quotation }, index) => {
+          spans = visualReferences.map(({ anchors: quotation, range: referenceRange }, index) => {
             const timing = {
               speech: block.speech,
               speechRanges: current.speechRanges,
@@ -886,7 +891,7 @@ function PlaybackPassage({
               startOffset: current.headingDuration,
               aligned: current.aligned,
             };
-            const range = visualRanges[index];
+            const range = visualRanges[index] ?? referenceRange;
             if (range) return captionRangeSpan({ ...timing, range });
             if (!quotation) return undefined;
             return captionAnchorSpan({ ...timing, anchors: quotation, speech: block.speech });
