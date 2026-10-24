@@ -26,6 +26,7 @@ import type {
   ResearchSourceReference,
   SectionAnnotation,
   SectionAnnotationArtifactRef,
+  SectionAnnotationTextSelector,
   SettingsPanelSectionId,
   StoredLessonVisual,
   VoiceProfileId,
@@ -211,6 +212,11 @@ export interface WorkspaceReaderHeaderModel {
 
 export interface WorkspaceReaderContentModel {
   projectTitle?: string;
+  onSavePlaybackVisual?: WorkspaceReaderOverlaysModel['onSaveArtifactToLesson'];
+  onRemovePlaybackVisual?: (
+    target: ContextLessonMutationTarget,
+    visualId: string
+  ) => Promise<ContextArtifactMutationResult>;
   activeExercise?: ApplicationExerciseNode | null;
   exercisePrerequisiteGaps?: Array<{ id: string; title: string }>;
   activeSectionTitle?: string | null;
@@ -308,7 +314,8 @@ export interface WorkspaceReaderOverlaysModel {
   onSaveArtifactToLesson?: (
     target: ContextLessonMutationTarget,
     visual: StoredLessonVisual,
-    artifactRef: { artifactId: string; kind: 'generated-visual'; title: string }
+    artifactRef: { artifactId: string; kind: 'generated-visual'; title: string },
+    passage?: SectionAnnotationTextSelector
   ) => Promise<ContextArtifactMutationResult>;
   onReplaceArtifactInLesson?: (
     target: ContextLessonMutationTarget,

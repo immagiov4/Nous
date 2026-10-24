@@ -487,6 +487,8 @@ export const useReaderShellProps = ({
       },
       content: {
         projectTitle: controller.learningPlan?.title,
+        onSavePlaybackVisual: readerActions.handleSaveArtifactToLesson,
+        onRemovePlaybackVisual: readerActions.handleRemovePlaybackVisual,
         activeExercise,
         exercisePrerequisiteGaps,
         activeSectionTitle: controller.activeSection?.title || null,
