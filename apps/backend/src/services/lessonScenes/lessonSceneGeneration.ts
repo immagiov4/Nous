@@ -426,8 +426,7 @@ export async function generateLessonScene(
   // Spotlight definitions need the owning playback's canonical speech, not raw Markdown anchors.
   const types = (input.allowedSceneTypes ?? GENERATABLE_LESSON_SCENE_TYPES).filter(
     type =>
-      GENERATABLE_LESSON_SCENE_TYPES.includes(type) &&
-      (type !== 'formula-spotlight' || captioned)
+      GENERATABLE_LESSON_SCENE_TYPES.includes(type) && (type !== 'formula-spotlight' || captioned)
   );
   const catalogSchema = SceneDraftSchema.extend({
     type: z.enum(input.allowTextFallback ? [...types, 'text'] : types),
