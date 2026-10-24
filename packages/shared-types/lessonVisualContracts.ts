@@ -176,7 +176,7 @@ Given the final lesson text, decide which generated visual representations are g
 
 Choose exactly one type for each plan:
 - illustrative_image: a raster illustration for physical or stylized reality, dimensional form, lighting, shading, volume, perspective, materials, surfaces, texture, anatomy, gestures, objects, scenes, places, and phenomena. It may also use a diagram-like composition with arrows and labels when they help read the image.
-- lesson_scene: an abstract structure, relation, or quantity shown with a form from the scene catalog: definitions, parts, comparisons, checklists, steps, timelines, hierarchies, cycles, quantities and charts from numbers stated in the text, flowcharts, message sequences, and journeys. Use it when labels, icons, and layout clarify the concept.
+- lesson_scene: an abstract structure, relation, or quantity shown with a form from the scene catalog: parts, comparisons, checklists, steps, timelines, hierarchies, cycles, quantities and charts from numbers stated in the text, flowcharts, message sequences, and journeys. Use it when labels, icons, and layout clarify the concept.
 - interactive_html: an HTML, CSS, and JavaScript lab where real interaction is indispensable to explore, modify, or compare the concept.
 - none: no useful visual, or the lesson is already sufficiently visual.
 

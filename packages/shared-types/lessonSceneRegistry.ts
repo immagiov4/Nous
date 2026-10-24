@@ -1229,8 +1229,9 @@ export const LESSON_SCENE_TYPES = Object.keys(LESSON_SCENE_REGISTRY) as readonly
 export const isRetiredLessonScene = (scene: Pick<LessonScene, 'type'>): boolean =>
   scene.type === 'quote';
 
+/** Saved definition layouts remain readable; new scenes must convey more than a definition card. */
 export const GENERATABLE_LESSON_SCENE_TYPES = LESSON_SCENE_TYPES.filter(
-  type => !isRetiredLessonScene({ type })
+  type => !isRetiredLessonScene({ type }) && type !== 'definition'
 );
 
 export const STATIC_LESSON_SCENE_TYPES = LESSON_SCENE_CATALOG_SNAPSHOTS[0];
