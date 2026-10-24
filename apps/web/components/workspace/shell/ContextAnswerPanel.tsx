@@ -415,22 +415,24 @@ const readGenerateCurrentLessonArtifactInput = (
   }
 
   const candidate = value as Partial<GenerateCurrentLessonArtifactInput>;
-  if (candidate.mode !== 'new' && candidate.mode !== 'replacement-draft') return null;
-  return typeof candidate.prompt === 'string'
-    ? {
-        mode: candidate.mode,
-        prompt: candidate.prompt.trim(),
-        requestedVisualKind: isStoredLessonVisualKind(candidate.requestedVisualKind)
-          ? candidate.requestedVisualKind
-          : undefined,
-        revisionInstructions:
-          typeof candidate.revisionInstructions === 'string'
-            ? candidate.revisionInstructions.trim()
-            : undefined,
-        sourceArtifactId:
-          typeof candidate.sourceArtifactId === 'string' ? candidate.sourceArtifactId : undefined,
-      }
-    : null;
+  if (candidate.prompt !== undefined && typeof candidate.prompt !== 'string') return null;
+  const sourceArtifactId =
+    typeof candidate.sourceArtifactId === 'string' ? candidate.sourceArtifactId : undefined;
+  let mode = candidate.mode;
+  if (mode === undefined) mode = sourceArtifactId ? 'replacement-draft' : 'new';
+  if (mode !== 'new' && mode !== 'replacement-draft') return null;
+  return {
+    mode,
+    prompt: candidate.prompt?.trim() ?? '',
+    requestedVisualKind: isStoredLessonVisualKind(candidate.requestedVisualKind)
+      ? candidate.requestedVisualKind
+      : undefined,
+    revisionInstructions:
+      typeof candidate.revisionInstructions === 'string'
+        ? candidate.revisionInstructions.trim()
+        : undefined,
+    sourceArtifactId,
+  };
 };
 
 interface ContextChatTools {

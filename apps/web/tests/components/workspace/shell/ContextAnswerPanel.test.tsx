@@ -313,7 +313,10 @@ const renderPlaybackComposer = (
 );
 
 describe('ContextAnswerPanel', () => {
-  test('carries the frozen playback context through chat, artifact creation and replacement', async () => {
+  test.each([
+    '',
+    undefined,
+  ])('carries the frozen playback context through chat, artifact creation and replacement (prompt: %s)', async revisionPrompt => {
     const user = userEvent.setup();
     const readPlaybackContext = vi.fn(() => playbackQuestion);
     const question =
@@ -372,13 +375,11 @@ describe('ContextAnswerPanel', () => {
           },
         });
       });
-    await call(
-      { mode: 'new', prompt: 'Mappa del controller', requestedVisualKind: 'scene' },
-      'create-playback'
-    );
+    await call({ prompt: 'Mappa del controller', requestedVisualKind: 'scene' }, 'create-playback');
     expect(generateLessonArtifactDraftMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
         playbackContext: playbackQuestion,
+        mode: 'new',
         userRequest: question,
         lesson: expect.objectContaining({ id: 'lesson-1', title: 'Titolo', content: 'Contenuto' }),
       })
@@ -407,8 +408,7 @@ describe('ContextAnswerPanel', () => {
     readPlaybackContext.mockReturnValue({ ...nextPlayback, voiceTime: 10 });
     await call(
       {
-        mode: 'replacement-draft',
-        prompt: '',
+        prompt: revisionPrompt,
         sourceArtifactId: generatedDraftArtifact.summary.id,
         revisionInstructions: 'Mantieni tutti i sei passi',
       },
@@ -2030,9 +2030,11 @@ describe('ContextAnswerPanel', () => {
   });
 
   test.each([
-    { prompt: 'Aggiorna il titolo.' },
+    { mode: 'replacement-draft', prompt: 'Aggiorna il titolo.' },
     { mode: 'replacement-draft', sourceArtifactId: 'missing', prompt: 'Aggiorna il titolo.' },
-  ])('does not create an unrelated draft for an incomplete edit contract: %j', async input => {
+    { mode: 'invalid', prompt: 'Aggiorna il titolo.' },
+    { prompt: 42 },
+  ])('does not create a draft for invalid input or an unresolved revision: %j', async input => {
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
       messages: [],
