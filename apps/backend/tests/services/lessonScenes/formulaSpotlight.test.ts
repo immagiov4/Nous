@@ -223,9 +223,13 @@ test('rejects changes to vector notation and fraction-bar attributes', () => {
 test('resolves repeated references to the same rendered symbol without duplicating its glyph', () => {
   const scene = {
     ...formulaSpotlight,
+    formula: String.raw`\nousSymbol{x}`,
     symbols: [
       {
-        ...formulaSpotlight.symbols[0],
+        id: 'x',
+        latex: 'x',
+        name: 'Ics',
+        meaning: 'Valore',
         anchor: 'ics',
         anchorOccurrence: 0,
         additionalAnchors: [{ anchor: 'ics', anchorOccurrence: 1 }],

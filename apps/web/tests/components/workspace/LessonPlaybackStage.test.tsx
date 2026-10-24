@@ -2111,7 +2111,12 @@ test('returns to earlier recall equations when their symbols are named again and
     formula: first.formula,
     symbols: first.symbols.map(symbol => ({
       ...symbol,
-      latex: symbol.id === 'x' ? 'a' : symbol.latex,
+      latex:
+        symbol.id === 'x'
+          ? String.raw`\alpha`
+          : symbol.id === 'y'
+            ? String.raw`\beta`
+            : symbol.latex,
       anchor: symbol.id === 'x' ? 'alfa' : symbol.id === 'y' ? 'beta' : '',
     })),
   };
@@ -2152,9 +2157,9 @@ test('returns to earlier recall equations when their symbols are named again and
   for (const [next, expected] of [
     [0.5, null],
     [1.5, 'x'],
-    [3.5, 'a'],
+    [3.5, String.raw`\alpha`],
     [5.5, 'x'],
-    [7.5, 'a'],
+    [7.5, String.raw`\alpha`],
     [9.5, null],
   ] as const) {
     time = next;
