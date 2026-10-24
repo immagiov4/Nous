@@ -63,7 +63,10 @@ const sceneDraft = (source: string) => ({
   type: 'parts',
 });
 
-test.each(['quote', 'definition'])('rejects retired %s output at the provider boundary', async type => {
+test.each([
+  'quote',
+  'definition',
+])('rejects retired %s output at the provider boundary', async type => {
   const source = 'Il client trova il controller tramite DNS.';
   generateStructuredOutputMock.mockResolvedValueOnce({
     ...sceneDraft(source),
