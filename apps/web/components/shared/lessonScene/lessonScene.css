@@ -663,8 +663,6 @@
   background: var(--paper);
 }
 .lesson-scene .scene-note {
-  /* Paint the opaque note above overflowing SVG lifelines. */
-  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 10px;

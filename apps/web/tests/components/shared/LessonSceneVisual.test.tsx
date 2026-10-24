@@ -91,6 +91,25 @@ test.each([
   );
 });
 
+test.each([
+  'card',
+  'bare',
+] as const)('formats math in the sole highlighted decision question (%s)', variant => {
+  const scene: LessonScene = {
+    ...comparison,
+    type: 'decision',
+    body: 'Quando $x^2 > 0$?',
+    quote: '',
+  };
+  const { container, rerender } = render(<LessonSceneVisual scene={scene} variant={variant} />);
+  expect(container.querySelector('.scene-intro')).toBeNull();
+  expect(container.querySelector('.decision-question math')).toHaveTextContent('x2>0');
+  expect(container.querySelector('.decision-question')).not.toHaveTextContent('$');
+  rerender(<LessonSceneVisual scene={{ ...scene, quote: scene.body }} variant={variant} />);
+  expect(container.querySelector('.scene-intro')).toBeNull();
+  expect(container.querySelector('.decision-question math')).toHaveTextContent('x2>0');
+});
+
 describe('lesson scene visual', () => {
   test('renders the player scene bare with prototype icon masks and preserves reader cards', async () => {
     const { container, rerender } = render(<LessonSceneVisual scene={comparison} variant="bare" />);

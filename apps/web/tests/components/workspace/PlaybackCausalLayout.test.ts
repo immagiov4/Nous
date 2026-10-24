@@ -655,31 +655,48 @@ for (const width of [1440, 412]) {
       await page.close();
     }
   });
-  test(`sequence notes cover the lifelines at ${width}px`, async () => {
+  test(`sequence lifelines end above the note at ${width}px`, async () => {
     const page = await browser.newPage({ viewport: { width, height: 1000 } });
     try {
       await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=sequence`);
       await page.locator('.actor-line').first().waitFor({ state: 'attached' });
       const note = page.locator('.scene-note');
       expect(await note.innerText()).toBe('Le frecce descrivono un modello concettuale.');
-      const coverage = await note.evaluate(element => {
-        const bounds = element.getBoundingClientRect();
-        const y = bounds.top + bounds.height / 2;
-        const lines = Array.from(document.querySelectorAll('.actor-line')).filter(line => {
-          const box = line.getBoundingClientRect();
-          return box.left > bounds.left && box.right < bounds.right && box.bottom > y;
-        });
+      const geometry = await note.evaluate(async element => {
+        await new Promise(requestAnimationFrame);
+        await new Promise(requestAnimationFrame);
+        const lines = Array.from(document.querySelectorAll<SVGLineElement>('.actor-line'));
+        const messages = Array.from(
+          document.querySelectorAll<SVGGraphicsElement>('.messageLine0, .messageLine1')
+        );
+        const messageBottomSvg = Math.max(
+          ...messages.map(message => {
+            const box = message.getBBox();
+            return box.y + box.height;
+          })
+        );
+        const graphic = document.querySelector('.mermaid-diagram > svg');
+        if (!graphic) throw new Error('The sequence drawing must exist');
         return {
           background: getComputedStyle(element).backgroundColor,
-          covered: lines.map(line => {
-            const box = line.getBoundingClientRect();
-            return element.contains(document.elementFromPoint((box.left + box.right) / 2, y));
-          }),
+          noteTop: element.getBoundingClientRect().top,
+          svgBottom: graphic.getBoundingClientRect().bottom,
+          lineBottoms: lines.map(line => line.getBoundingClientRect().bottom),
+          tails: lines.map(line => line.y2.baseVal.value - messageBottomSvg),
+          messageBottom: Math.max(
+            ...messages.map(message => message.getBoundingClientRect().bottom)
+          ),
         };
       });
-      expect(coverage.background).toBe('rgb(251, 239, 233)');
-      expect(coverage.covered).toHaveLength(3);
-      expect(coverage.covered).toEqual([true, true, true]);
+      expect(geometry.background).toBe('rgb(251, 239, 233)');
+      expect(geometry.lineBottoms).toHaveLength(3);
+      for (const tail of geometry.tails) expect(tail).toBeCloseTo(20);
+      expect(geometry.svgBottom).toBeLessThan(geometry.noteTop);
+      for (const bottom of geometry.lineBottoms) {
+        expect(bottom).toBeGreaterThan(geometry.messageBottom);
+        expect(bottom).toBeLessThan(geometry.svgBottom);
+        expect(bottom).toBeLessThan(geometry.noteTop);
+      }
     } finally {
       await page.close();
     }
