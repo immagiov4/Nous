@@ -17,6 +17,13 @@ import './lessonScene.css';
 
 /** Prototype lesson layouts: the web renderer map follows the shared scene catalog. */
 
+const normalizedQuestion = (text: string) =>
+  text.normalize('NFKC').trim().replaceAll(/\s+/gu, ' ').toLowerCase();
+
+const hasDuplicateDecisionIntro = (scene: LessonScene) =>
+  scene.type === 'decision' &&
+  normalizedQuestion(scene.body) === normalizedQuestion(scene.quote || scene.body);
+
 const SceneContent = (
   props: Pick<SceneRenderContext, 'scene' | 'isDarkMode' | 'readFrame' | 'playback'>
 ) =>
@@ -54,7 +61,7 @@ export const LessonSceneVisual = ({
               <SceneText>{scene.title}</SceneText>
             </h2>
           ) : null}
-          {scene.body && scene.type !== 'quote' ? (
+          {scene.body && scene.type !== 'quote' && !hasDuplicateDecisionIntro(scene) ? (
             <p className={isAnimatedLessonScene(scene) ? undefined : 'scene-intro'}>
               <SceneText>{scene.body}</SceneText>
             </p>

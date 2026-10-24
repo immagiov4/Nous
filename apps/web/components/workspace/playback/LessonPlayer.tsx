@@ -606,6 +606,7 @@ export default function LessonPlayer({
         <MermaidRenderCacheContext.Provider value={diagramCache}>
           <LessonPlaybackStage
             key={playback.lessonKey}
+            lessonKey={playback.lessonKey}
             block={block}
             time={playback.time}
             duration={playback.duration}

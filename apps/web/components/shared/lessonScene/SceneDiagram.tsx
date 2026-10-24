@@ -11,6 +11,7 @@ import {
 
 // Below this width a flowchart runs top-down so labels keep their size instead of shrinking.
 const VERTICAL_LAYOUT_MAX_WIDTH = 560;
+const SEQUENCE_DIAGRAM_MARGIN_Y = 20;
 
 const diagramConfiguration = (host: HTMLElement) => {
   const css = getComputedStyle(host);
@@ -30,7 +31,7 @@ const diagramConfiguration = (host: HTMLElement) => {
     sequence: {
       actorMargin: 40,
       diagramMarginX: 20,
-      diagramMarginY: 20,
+      diagramMarginY: SEQUENCE_DIAGRAM_MARGIN_Y,
       height: 46,
       messageMargin: 40,
       mirrorActors: false,
@@ -80,8 +81,25 @@ const OPEN_ARROWHEAD_PATH = 'M9 1 L18 7 L9 13';
 const MESSAGE_LABEL_PADDING = { x: 4, y: 3 } as const;
 const MESSAGE_LABEL_RADIUS = '4';
 
-/** Post-processing Mermaid's sequence output: open async arrowheads and opaque message labels. */
+/** Bound sequence lifelines to their messages and refine arrowheads and label surfaces. */
 const refineSequenceGraphic = (graphic: SVGSVGElement, host: HTMLElement): void => {
+  const messages = Array.from(
+    graphic.querySelectorAll<SVGGraphicsElement>('.messageLine0, .messageLine1')
+  );
+  if (!messages.length) throw new Error('A sequence drawing must contain message paths.');
+  const lastMessageBottom = Math.max(
+    ...messages.map(message => {
+      const box = message.getBBox();
+      return box.y + box.height;
+    })
+  );
+  const lifelineBottom = lastMessageBottom + SEQUENCE_DIAGRAM_MARGIN_Y;
+  for (const line of graphic.querySelectorAll('.actor-line')) {
+    line.setAttribute('y2', String(lifelineBottom));
+  }
+  const viewBox = graphic.viewBox.baseVal;
+  viewBox.height = lifelineBottom + SEQUENCE_DIAGRAM_MARGIN_Y - viewBox.y;
+  graphic.setAttribute('height', String(viewBox.height));
   for (const marker of graphic.querySelectorAll('marker[id$="-filled-head"]')) {
     for (const [name, value] of Object.entries(OPEN_ARROWHEAD)) marker.setAttribute(name, value);
     marker.querySelector('path')?.setAttribute('d', OPEN_ARROWHEAD_PATH);
@@ -198,7 +216,7 @@ export const SceneDiagram = ({
           // Wide diagrams scale down to the scene width instead of overflowing it.
           graphic.style.maxWidth = '100%';
           graphic.style.width = `${graphic.viewBox.baseVal.width}px`;
-          refineSequenceGraphic(graphic, host);
+          if (scene.type === 'sequence') refineSequenceGraphic(graphic, host);
           setStatus('ready');
         })
         .catch(error => {
