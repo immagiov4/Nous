@@ -11,7 +11,6 @@ import {
   type LessonPlaybackBlock,
   type PlaybackRange,
   type PlaybackVisual,
-  playbackFormulaSpotlightScenes,
   playbackNonProseVisuals,
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
@@ -84,6 +83,15 @@ type StageVisual = PlaybackVisual & {
   referenceFormula?: boolean;
   staticFormula?: boolean;
 };
+
+function playbackVisualScene(
+  visual: PlaybackVisual,
+  storedById: WorkspaceReaderContentModel['activeSectionGeneratedVisualsById']
+): LessonScene | null {
+  if (visual.kind === 'scene') return visual.scene;
+  const stored = visual.kind === 'generated-visual' && storedById?.[visual.visualId];
+  return stored ? getStoredLessonVisualScene(stored) : null;
+}
 
 function formulaReferenceRange(scene: LessonScene, speech: string): PlaybackRange | undefined {
   const references = resolveFormulaReferences(scene as FormulaSpotlightData, speech);
@@ -748,21 +756,19 @@ function PlaybackPassage({
     const spotlights = block.prepared?.formulaSpotlights;
     if (!spotlights?.length) return normalVisualCandidates;
     if (
-      playbackFormulaSpotlightScenes(
-        block,
-        Object.values(content.activeSectionGeneratedVisualsById ?? {})
-      ).some(hasFormulaSpotlightReferences)
+      normalVisualCandidates.some(visual => {
+        const scene = playbackVisualScene(visual, content.activeSectionGeneratedVisualsById);
+        return (
+          scene?.type === 'formula-spotlight' &&
+          hasFormulaSpotlightReferences(scene as FormulaSpotlightData)
+        );
+      })
     )
       return normalVisualCandidates;
     if (spotlights.some(entry => entry.sourceFormula)) {
       const matched = new Set<string>();
       const original = normalVisualCandidates.map(visual => {
-        const stored =
-          visual.kind === 'generated-visual'
-            ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
-            : undefined;
-        const scene =
-          visual.kind === 'scene' ? visual.scene : stored && getStoredLessonVisualScene(stored);
+        const scene = playbackVisualScene(visual, content.activeSectionGeneratedVisualsById);
         const entry =
           scene?.type === 'formula-spotlight' &&
           spotlights.find(entry => entry.sourceFormula === scene.formula);
@@ -818,12 +824,7 @@ function PlaybackPassage({
   const visualReferences = useMemo(
     () =>
       visuals.map(visual => {
-        const stored =
-          visual.kind === 'generated-visual'
-            ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
-            : undefined;
-        const scene =
-          visual.kind === 'scene' ? visual.scene : stored && getStoredLessonVisualScene(stored);
+        const scene = playbackVisualScene(visual, content.activeSectionGeneratedVisualsById);
         const anchors = visuals.length > 1 ? sceneCaptionAnchors(scene, block.speech) : undefined;
         return {
           anchors,
@@ -964,13 +965,9 @@ function PlaybackPassage({
   }, [visualReferences, block.id, block.speech, duration, visuals, visualRanges]);
   const visualIndex = selection?.blockId === block.id ? selection.index : 0;
   const visual = visuals[visualIndex];
-  const selectedStored =
-    visual?.kind === 'generated-visual'
-      ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
-      : undefined;
-  let selectedScene: LessonScene | null = null;
-  if (visual?.kind === 'scene') selectedScene = visual.scene;
-  else if (selectedStored) selectedScene = getStoredLessonVisualScene(selectedStored);
+  const selectedScene = visual
+    ? playbackVisualScene(visual, content.activeSectionGeneratedVisualsById)
+    : null;
   const formulaMarkdown = useMemo(
     () => getPlaybackFormulaMarkdown(block, sources),
     [block, sources]
