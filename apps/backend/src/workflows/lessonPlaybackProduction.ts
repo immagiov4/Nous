@@ -1,4 +1,6 @@
+import { resolvePlaybackNarration } from '@shared/lessonPlayback';
 import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
+import { hasPreparedVisualSections } from '@shared/playbackVisualSections';
 import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import {
   lessonPlaybackContent,
@@ -11,6 +13,7 @@ import { getProjectStore } from '../projects/projectStore.js';
 import type { ProjectStore } from '../projects/types.js';
 import {
   prepareLessonPlaybackBlock,
+  prepareLessonPlaybackVisuals,
   validatePlaybackSceneTypes,
 } from '../services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { readLessonSpeechProvenance } from '../services/lessonSpeechSource.js';
@@ -31,7 +34,8 @@ export const createProductionLessonPlaybackServices = (
     supportsSpokenMath = true,
     supportsFencedCode = true,
     supportsUnlinkedFormulaSymbols = true,
-    synchronizeAnimations = false
+    synchronizeAnimations = false,
+    supportsVisualSections = true
   ) => {
     const project = await projectStore.loadProjectWithRevision(input.userId, input.projectId);
     const section = project && findProjectLessonSection(project.snapshot, input.sectionId);
@@ -62,14 +66,20 @@ export const createProductionLessonPlaybackServices = (
       supportsUnlinkedFormulaSymbols,
     });
     if (
-      isPlaybackBlockReady(block, ttsClient.resolveVoice(input.model, input.voice), input.model)
+      isPlaybackBlockReady(
+        block,
+        ttsClient.resolveVoice(input.model, input.voice),
+        input.model,
+        supportsVisualSections ? lesson.sources : []
+      )
     ) {
       return { target: input, block: LessonPlaybackBlockSchema.parse(block) };
     }
     if (!providerEffect) throw new Error('Playback preparation requires durable provider results.');
-    const prepared = await prepareLessonPlaybackBlock({
+    const preparationInput = {
       userId: input.userId,
       synchronizeAnimations,
+      supportsVisualSections,
       allowedSceneTypes,
       supportsSpokenMath,
       supportsFencedCode,
@@ -84,7 +94,20 @@ export const createProductionLessonPlaybackServices = (
       ttsModel: input.model,
       providerEffect,
       signal,
-    });
+    };
+    const recording = block.audio.find(
+      audio =>
+        audio.voice === ttsClient.resolveVoice(input.model, input.voice) &&
+        audio.model === input.model
+    );
+    if (supportsVisualSections && recording && !hasPreparedVisualSections(block, lesson.sources)) {
+      const prepared = await prepareLessonPlaybackVisuals({
+        ...preparationInput,
+        block: resolvePlaybackNarration(block),
+      });
+      return { target: input, block: LessonPlaybackBlockSchema.parse({ ...block, prepared }) };
+    }
+    const prepared = await prepareLessonPlaybackBlock(preparationInput);
     const { bytes, mediaType, ...audio } = prepared.audio;
     const asset = await assets.stage({
       bytes,

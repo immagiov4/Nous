@@ -32,7 +32,7 @@ export const buildLessonPlaybackCommitPatch = (
       message: 'The lesson changed during playback preparation.',
     });
   }
-  if (!result.assetOwner) return null;
+  if (!result.assetOwner && !block.prepared?.sections) return null;
   return {
     section: {
       sectionId: target.sectionId,
@@ -43,16 +43,20 @@ export const buildLessonPlaybackCommitPatch = (
             ? saved
             : {
                 ...saved,
-                prepared: saved.prepared ?? block.prepared,
-                audio: [
-                  ...saved.audio.filter(
-                    audio =>
-                      !block.audio.some(
-                        next => next.voice === audio.voice && next.model === audio.model
-                      )
-                  ),
-                  ...block.audio,
-                ],
+                prepared: block.prepared?.sections
+                  ? { ...saved.prepared, ...block.prepared }
+                  : (saved.prepared ?? block.prepared),
+                audio: !result.assetOwner
+                  ? saved.audio
+                  : [
+                      ...saved.audio.filter(
+                        audio =>
+                          !block.audio.some(
+                            next => next.voice === audio.voice && next.model === audio.model
+                          )
+                      ),
+                      ...block.audio,
+                    ],
               }
         ),
       },

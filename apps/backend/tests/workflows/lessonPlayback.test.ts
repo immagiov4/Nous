@@ -14,6 +14,43 @@ import {
 } from '../helpers/lessonPlayback.js';
 
 describe('playback block commit', () => {
+  test('adopts visual-only sections and preserves concurrent recordings and alignment', () => {
+    const section = playbackSection();
+    section.playback = preparedPlayback(section);
+    const result = playbackResult(section);
+    const scene = {
+      type: 'parts' as const,
+      title: 'Passi',
+      body: '',
+      note: '',
+      quote: '',
+      groups: [],
+      items: [
+        { label: 'Primo', detail: '', icon: '' },
+        { label: 'Secondo', detail: '', icon: '' },
+      ],
+    };
+    result.assetOwner = undefined;
+    result.block = {
+      ...result.block,
+      audio: [],
+      prepared: {
+        motion: [],
+        scene,
+        sections: [{ range: { start: 0, end: result.block.speech.length }, scene }],
+      },
+    };
+    const snapshot = playbackProject(section);
+    const patch = buildLessonPlaybackCommitPatch(
+      { snapshot, incarnationId: 'incarnation-1', revision: 2 },
+      result
+    );
+    const saved = applyProjectPatch(snapshot, patch ?? {}, snapshot.updatedAt).learningPlan
+      ?.sections?.[0];
+    expect(saved?.playback?.blocks[0].prepared?.sections?.[0].scene.title).toBe('Passi');
+    expect(saved?.playback?.blocks[0].audio).toEqual(section.playback.blocks[0].audio);
+    expect(saved?.playback?.blocks[1]).toEqual(section.playback.blocks[1]);
+  });
   test('updates one block while preserving a concurrent note, voice and other block', () => {
     const section = playbackSection();
     const result = playbackResult(section);

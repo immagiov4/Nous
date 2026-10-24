@@ -132,6 +132,7 @@ function PlaybackScene({
   animate,
   isDarkMode,
   interval,
+  itemRanges,
 }: Readonly<{
   scene: LessonScene;
   block: LessonPlaybackBlock;
@@ -140,6 +141,7 @@ function PlaybackScene({
   animate: boolean;
   isDarkMode: boolean;
   interval: { start: number; duration: number };
+  itemRanges?: readonly PlaybackRange[];
 }>) {
   // Parsed preparation snapshots can contain an equivalent scene with a new object identity.
   const sceneKey = JSON.stringify(sourceScene);
@@ -201,7 +203,7 @@ function PlaybackScene({
     if (
       isAnimatedLessonScene(scene) ||
       scene.type === 'formula-spotlight' ||
-      !block.prepared?.motion.length
+      !(itemRanges?.length || block.prepared?.motion.length)
     )
       return;
     const element = host.current;
@@ -216,7 +218,7 @@ function PlaybackScene({
       if (current !== previousClock) {
         const previousEvents = events;
         events = captionMotionEvents({
-          events: block.prepared?.motion ?? [],
+          events: itemRanges ? [] : (block.prepared?.motion ?? []),
           speech: block.speech,
           speechRanges: current.speechRanges,
           runs: current.runs,
@@ -226,6 +228,28 @@ function PlaybackScene({
           startOffset: current.headingDuration,
           aligned: current.aligned,
         });
+        if (itemRanges)
+          events = itemRanges.map((range, index) => {
+            const span = captionRangeSpan({
+              range,
+              speech: block.speech,
+              speechRanges: current.speechRanges,
+              runs: current.runs,
+              width: current.width,
+              feather: 0,
+              duration: current.bodyDuration,
+              startOffset: current.headingDuration,
+              aligned: current.aligned,
+            });
+            return {
+              effect: 'focus',
+              targets: [`item:${index}`],
+              quote: '',
+              atMs: span.startMs,
+              durationMs: span.endMs - span.startMs,
+              sustainFocus: true,
+            };
+          });
         if (canRetainPresentedCues(current, previousClock)) {
           const onsets = adoptCueTimes(
             previousEvents.map(event => event.atMs),
@@ -284,7 +308,7 @@ function PlaybackScene({
         delete target.dataset.motionId;
       }
     };
-  }, [animate, block.prepared?.motion, block.speech, clock, scene]);
+  }, [animate, block.prepared?.motion, block.speech, clock, scene, itemRanges]);
   return (
     <div ref={host}>
       <LessonSceneVisual
@@ -309,6 +333,7 @@ function PlaybackStoredVisual({
   speed: number;
   animate: boolean;
   interval: { start: number; duration: number };
+  itemRanges?: readonly PlaybackRange[];
 }>) {
   const scene = getStoredLessonVisualScene(visual);
   return scene ? (
@@ -338,6 +363,7 @@ function PlaybackVisualContent({
   speed: number;
   animate: boolean;
   interval: { start: number; duration: number };
+  itemRanges?: readonly PlaybackRange[];
 }>) {
   const stored =
     visual.kind === 'generated-visual'
@@ -622,6 +648,11 @@ function PlaybackPassage({
     [content.activeSectionAssetsById, unavailableImages]
   );
   const visualCandidates = useMemo(() => {
+    if (block.prepared?.sections?.length)
+      return block.prepared.sections.map(section => ({
+        kind: 'scene' as const,
+        scene: section.scene,
+      }));
     const formulas = getPlaybackFormulaMarkdown(block, sources);
     const cards = block.visuals.filter(
       visual =>
@@ -709,19 +740,21 @@ function PlaybackPassage({
     [visuals, content.activeSectionGeneratedVisualsById, block.speech]
   );
   const visualRangeProjection = JSON.stringify(
-    visualCandidates.map((visual, index) =>
-      visualSpeechRange(
-        block,
-        visual,
-        visualCandidates
-          .slice(0, index)
-          .filter(
-            previous =>
-              previous.kind === 'markdown' &&
-              visual.kind === 'markdown' &&
-              previous.markdown === visual.markdown
-          ).length
-      )
+    visualCandidates.map(
+      (visual, index) =>
+        block.prepared?.sections?.[index]?.range ??
+        visualSpeechRange(
+          block,
+          visual,
+          visualCandidates
+            .slice(0, index)
+            .filter(
+              previous =>
+                previous.kind === 'markdown' &&
+                visual.kind === 'markdown' &&
+                previous.markdown === visual.markdown
+            ).length
+        )
     )
   );
   const visualRanges = useMemo(
@@ -816,6 +849,7 @@ function PlaybackPassage({
     [block, sources]
   );
   const sceneProps = {
+    itemRanges: block.prepared?.sections?.[visualIndex]?.items,
     block,
     clock,
     speed,
@@ -863,7 +897,7 @@ function PlaybackPassage({
             aria-label={t('Visualizzazione della lezione')}
           >
             {formulaMarkdown &&
-            !visualRanges[visualIndex] &&
+            (!visualRanges[visualIndex] || block.prepared?.sections?.length) &&
             selectedScene?.type !== 'formula-spotlight' &&
             !(visual?.kind === 'markdown' && visual.markdown === formulaMarkdown) ? (
               <MarkdownRenderer content={formulaMarkdown} isDarkMode={content.isDarkMode} />

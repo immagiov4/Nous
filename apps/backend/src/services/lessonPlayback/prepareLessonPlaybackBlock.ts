@@ -21,6 +21,11 @@ import {
   type LessonSceneType,
 } from '@shared/lessonScene';
 import { createPassageFallbackScene } from '@shared/lessonSceneFallback';
+import {
+  hasPreparedVisualSections,
+  type PlaybackVisualSection,
+  playbackVisualSections,
+} from '@shared/playbackVisualSections';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
@@ -45,6 +50,7 @@ import { MAX_PLAYBACK_PREPARATION_ATTEMPTS, planPlaybackMotion } from './playbac
 interface PrepareLessonPlaybackBlockInput {
   readonly userId: string;
   readonly synchronizeAnimations?: boolean;
+  readonly supportsVisualSections?: boolean;
   readonly supportsSpokenMath?: boolean;
   readonly supportsFencedCode?: boolean;
   readonly supportsUnlinkedFormulaSymbols?: boolean;
@@ -90,6 +96,7 @@ export const validatePlaybackSceneTypes = (
   const { allowedSceneTypes } = input;
   const scenes = existingScenes(input);
   if (input.block.prepared?.scene) scenes.push(input.block.prepared.scene);
+  for (const section of input.block.prepared?.sections ?? []) scenes.push(section.scene);
   const unsupported = scenes.some(
     scene =>
       (allowedSceneTypes && !allowedSceneTypes.includes(scene.type)) ||
@@ -210,7 +217,7 @@ export const prepareLessonPlaybackBlock = async (
   // Audio does not depend on the scene, so both are prepared at the same time. Both settle
   // before a failure propagates, so a retry never overlaps paid work still in flight.
   const [visuals, audio] = await Promise.allSettled([
-    prepareVisuals(request),
+    prepareLessonPlaybackVisuals(request),
     prepareAudio(request),
   ]);
   if (visuals.status === 'rejected') throw visuals.reason;
@@ -224,7 +231,8 @@ export const prepareLessonPlaybackBlock = async (
 
 const prepareAnimationCues = async (
   input: PrepareLessonPlaybackBlockInput,
-  scene: LessonScene | undefined
+  scene: LessonScene | undefined,
+  effectKey = 'animation-cues'
 ) => {
   if (!scene || !input.synchronizeAnimations) return scene;
   const operation = async () => ({
@@ -237,7 +245,7 @@ const prepareAnimationCues = async (
   });
   const resolved = input.providerEffect
     ? await input.providerEffect.run({
-        key: 'animation-cues',
+        key: effectKey,
         outputSchema: z.object({ scene: LessonSceneSchema }),
         operation,
       })
@@ -319,6 +327,85 @@ const prepareVisuals = async (
     }
   }
   return prepared;
+};
+
+const generateSectionScene = async (
+  input: PrepareLessonPlaybackBlockInput,
+  section: PlaybackVisualSection
+) => {
+  const speech = input.block.speech.slice(section.range.start, section.range.end);
+  const types = section.items
+    ? (['parts'] as const)
+    : (input.allowedSceneTypes ?? LESSON_SCENE_TYPES).filter(
+        type => type !== 'quote' && type !== 'definition'
+      );
+  const listRule = section.items
+    ? `Use parts, one item per authored list item, in source order. Include every one of the ${section.items.length} items. Summarize each item faithfully; do not reduce the list to an earlier summary.`
+    : '';
+  let feedback = listRule;
+  for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt++) {
+    const outcome = await generateLessonScene({
+      config: resolveLessonVisualModelConfig(input.config),
+      allowedSceneTypes: types,
+      lessonMarkdown: speech,
+      narration: speech,
+      sectionTitle: '',
+      sectionDescription: '',
+      retryFeedback: feedback,
+      sourceProvenance: input.lesson.sourceProvenance,
+      signal: input.signal,
+    });
+    if (
+      outcome.kind === 'scene' &&
+      (!section.items ||
+        (outcome.scene.type === 'parts' && outcome.scene.items.length === section.items.length))
+    )
+      return { scene: outcome.scene };
+    feedback =
+      listRule +
+      (outcome.kind === 'invalid'
+        ? outcome.problems.join('\n')
+        : 'The previous scene omitted authored list items.');
+  }
+  throw new Error('The list visual did not cover every authored item.');
+};
+
+/** Prepare and cache structural visuals separately from paid narration. */
+export const prepareLessonPlaybackVisuals = async (
+  input: PrepareLessonPlaybackBlockInput
+): Promise<PreparedLessonPlaybackBlock['prepared']> => {
+  const sources = input.lesson.sources ?? [];
+  const sections =
+    input.supportsVisualSections === false ? [] : playbackVisualSections(input.block, sources);
+  if (!sections.length || hasPreparedVisualSections(input.block, sources))
+    return prepareVisuals(input);
+  const preparedSections: NonNullable<
+    NonNullable<LessonPlaybackBlock['prepared']>['sections']
+  >[number][] = [];
+  for (const [index, section] of sections.entries()) {
+    input.signal.throwIfAborted();
+    const result = input.providerEffect
+      ? await input.providerEffect.run({
+          key: `visual-section:${index}`,
+          outputSchema: z.object({ scene: LessonSceneSchema }),
+          operation: () => generateSectionScene(input, section),
+        })
+      : await generateSectionScene(input, section);
+    const scene = isAnimatedLessonScene(result.scene)
+      ? ((await prepareAnimationCues(
+          input,
+          result.scene,
+          `visual-section:${index}:animation-cues`
+        )) as LessonScene)
+      : result.scene;
+    preparedSections.push({ ...section, scene });
+  }
+  return {
+    ...input.block.prepared,
+    scene: preparedSections[0].scene,
+    motion: [],
+    sections: preparedSections,
+  };
 };
 
 const prepareAudio = async (

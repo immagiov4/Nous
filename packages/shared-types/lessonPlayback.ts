@@ -102,6 +102,11 @@ export interface LessonPlaybackBlock {
     readonly spokenMath?: readonly PlaybackSpokenMath[];
     readonly fencedCode?: readonly PlaybackFencedCodeDecision[];
     readonly scene?: LessonScene;
+    readonly sections?: readonly {
+      readonly range: PlaybackRange;
+      readonly items?: readonly PlaybackRange[];
+      readonly scene: LessonScene;
+    }[];
     readonly motion: readonly PlaybackMotionEvent[];
   };
   readonly audio: readonly PlaybackAudio[];
