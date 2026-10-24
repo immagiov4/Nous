@@ -30,7 +30,11 @@ import {
   MermaidRenderCacheContext,
   renderMermaidDiagram,
 } from '../../../utils/visuals/mermaidRenderer.ts';
-import { getStoredLessonVisualScene } from '../../../utils/visuals/storedLessonVisual.ts';
+import {
+  getStoredLessonVisualCode,
+  getStoredLessonVisualKind,
+  getStoredLessonVisualScene,
+} from '../../../utils/visuals/storedLessonVisual.ts';
 import { prepareSceneDiagrams } from '../../shared/lessonScene/SceneDiagram.tsx';
 import { appendSpeechTranscription } from '../../shared/SpeechInputButton.tsx';
 import ContextMenu from '../ContextMenu.tsx';
@@ -55,7 +59,7 @@ function playbackDiagramSources(
   blocks: readonly LessonPlaybackBlock[],
   visualsById: WorkspaceReaderContentModel['activeSectionGeneratedVisualsById']
 ) {
-  const narrations = blocks.map(resolvePlaybackNarration);
+  const narrations = blocks.map(block => resolvePlaybackNarration(block));
   const visuals = narrations.flatMap(playbackNonProseVisuals);
   const stored = visuals
     .filter(visual => visual.kind === 'generated-visual')
@@ -73,7 +77,11 @@ function playbackDiagramSources(
   ].filter(scene => LESSON_SCENE_DIAGRAM_TYPES.has(scene.type));
   const codes = new Set([
     ...visuals.filter(visual => visual.kind === 'mermaid').map(visual => visual.code),
-    ...stored.filter(visual => visual.kind === 'mermaid').map(visual => visual.code),
+    ...stored.flatMap(visual => {
+      const code =
+        getStoredLessonVisualKind(visual) === 'mermaid' ? getStoredLessonVisualCode(visual) : null;
+      return code ? [code] : [];
+    }),
   ]);
   return { scenes, codes };
 }

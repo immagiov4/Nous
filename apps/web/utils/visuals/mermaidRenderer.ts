@@ -13,7 +13,7 @@ let renderQueue: Promise<unknown> = Promise.resolve();
  * Runs Mermaid tasks one at a time across every renderer: each task initializes Mermaid's global
  * configuration before rendering, so concurrent tasks would draw with each other's settings.
  */
-export const runMermaidTask = <T>(task: (mermaid: Mermaid) => Promise<T>): Promise<T> => {
+const runMermaidTask = <T>(task: (mermaid: Mermaid) => Promise<T>): Promise<T> => {
   const run = async () => task((await import('mermaid')).default);
   const result = renderQueue.then(run, run);
   renderQueue = result.then(
@@ -24,7 +24,7 @@ export const runMermaidTask = <T>(task: (mermaid: Mermaid) => Promise<T>): Promi
 };
 
 /** A unique element id for one Mermaid render. */
-export const nextMermaidRenderId = (): string => `nous-mermaid-${++nextRenderId}`;
+const nextMermaidRenderId = (): string => `nous-mermaid-${++nextRenderId}`;
 
 /** Reuses a completed diagram within its owner's lifetime, including its exact appearance. */
 export async function renderConfiguredMermaid({

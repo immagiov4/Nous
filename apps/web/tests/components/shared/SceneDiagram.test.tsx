@@ -5,13 +5,9 @@ import { render, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { SceneDiagram } from '../../../components/shared/lessonScene/SceneDiagram';
 
-vi.mock('../../../utils/visuals/mermaidRenderer.ts', () => ({
-  nextMermaidRenderId: () => 'sequence-test',
-  runMermaidTask: async (task: (mermaid: unknown) => Promise<void>) =>
-    task({
-      initialize: () => undefined,
-      render: async () => ({
-        svg: `<svg viewBox="0 -10 600 450" height="450">
+vi.mock('../../../utils/visuals/mermaidRenderer.ts', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../../utils/visuals/mermaidRenderer.ts')>()),
+  renderConfiguredMermaid: async () => `<svg viewBox="0 -10 600 450" height="450">
       <line class="actor-line" y1="46" y2="2000" />
       <line class="actor-line" y1="46" y2="2000" />
       <line class="messageLine0" data-y="200" data-height="0" />
@@ -19,8 +15,6 @@ vi.mock('../../../utils/visuals/mermaidRenderer.ts', () => ({
       <path class="messageLine0" data-y="340" data-height="30" />
       <text class="messageText" data-y="320" data-height="16">Request</text>
     </svg>`,
-      }),
-    }),
 }));
 
 afterEach(() => {

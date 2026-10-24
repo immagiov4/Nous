@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import { type LessonPlaybackBlock, segmentLessonPlayback } from '@shared/lessonPlayback';
 import { LessonPlaybackResponseSchema } from '@shared/lessonPlaybackSchema';
 import { act, render, renderHook, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
@@ -1130,7 +1130,7 @@ test('keeps narration paused until prepared visuals are ready', async () => {
   }));
   const visuals = deferred<void>();
   const prepareVisuals = vi.fn(
-    (_blocks: readonly (typeof blocks)[number][], _signal: AbortSignal) => visuals.promise
+    (_blocks: readonly LessonPlaybackBlock[], _signal: AbortSignal) => visuals.promise
   );
   const { result } = renderHook(() => useLessonPlayback({ ...target, prepareVisuals }));
   act(() => {
@@ -1150,7 +1150,7 @@ test('keeps narration paused until prepared visuals are ready', async () => {
 test('a pause during visual preparation prevents a late audio start and permits resuming', async () => {
   const visuals = deferred<void>();
   const prepareVisuals = vi.fn(
-    (_blocks: readonly (typeof blocks)[number][], _signal: AbortSignal) => visuals.promise
+    (_blocks: readonly LessonPlaybackBlock[], _signal: AbortSignal) => visuals.promise
   );
   const { result } = renderHook(() => useLessonPlayback({ ...target, prepareVisuals }));
   act(() => {
