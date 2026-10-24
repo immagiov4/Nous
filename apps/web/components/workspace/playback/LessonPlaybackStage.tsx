@@ -1,6 +1,7 @@
 import {
   type FormulaSpotlightData,
   formulaSpotlightCovers,
+  hasFormulaSpotlightReferences,
   resolveFormulaReferences,
 } from '@shared/formulaSpotlight';
 import {
@@ -10,6 +11,7 @@ import {
   type LessonPlaybackBlock,
   type PlaybackRange,
   type PlaybackVisual,
+  playbackFormulaSpotlightScenes,
   playbackNonProseVisuals,
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
@@ -745,6 +747,13 @@ function PlaybackPassage({
   const visualCandidates = useMemo<readonly StageVisual[]>(() => {
     const spotlights = block.prepared?.formulaSpotlights;
     if (!spotlights?.length) return normalVisualCandidates;
+    if (
+      playbackFormulaSpotlightScenes(
+        block,
+        Object.values(content.activeSectionGeneratedVisualsById ?? {})
+      ).some(hasFormulaSpotlightReferences)
+    )
+      return normalVisualCandidates;
     if (spotlights.some(entry => entry.sourceFormula)) {
       const matched = new Set<string>();
       const original = normalVisualCandidates.map(visual => {

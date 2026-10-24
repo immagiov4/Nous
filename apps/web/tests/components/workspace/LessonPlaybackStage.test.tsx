@@ -2292,3 +2292,32 @@ test('uses the large static formula display when saved preparation finds no name
   expect(container.querySelector('.scene-host annotation')?.textContent).toBe('x+y');
   expect(container.querySelector('.caption-page')?.textContent?.trim()).toBe(raw.speech);
 });
+
+test('retains an existing animated widget over an older cached static decision', () => {
+  const sources = [{ type: 'markdown' as const, markdown: 'ics più ipsilon' }];
+  const scene = dictatedFormulaSpotlight;
+  const cached = { ...scene, symbols: scene.symbols.map(symbol => ({ ...symbol, anchor: '' })) };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: {
+      motion: [],
+      scene,
+      formulaSpotlights: [{ formula: '$$x+y$$', sourceFormula: scene.formula, scene: cached }],
+    },
+  };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={3}
+      time={1.5}
+      alignment={{ status: 'aligned', onsets: [0, 1, 2] }}
+    />
+  );
+  expect(container.querySelector('.formula-spotlight')).not.toBeNull();
+  expect(
+    container
+      .querySelector('.spotlight-symbols [data-active="true"]')
+      ?.getAttribute('data-formula-symbol')
+  ).toBe('plus');
+});

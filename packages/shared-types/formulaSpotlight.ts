@@ -31,6 +31,10 @@ export const FormulaSpotlightDataSchema = z.object({
 });
 export type FormulaSpotlightData = Readonly<z.infer<typeof FormulaSpotlightDataSchema>>;
 
+/** A saved formula is animated whenever any part has an explicit narration link. */
+export const hasFormulaSpotlightReferences = (scene: FormulaSpotlightData): boolean =>
+  scene.symbols.some(symbol => Boolean(symbol.anchor || symbol.additionalAnchors?.length));
+
 /** Explicit symbol references keep binding independent of glyph/substring guessing. */
 function compileFormula(scene: FormulaSpotlightData, highlighted: boolean): string {
   const used = new Set<string>();

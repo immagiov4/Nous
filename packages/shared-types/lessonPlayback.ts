@@ -1,7 +1,7 @@
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
-import type { FormulaSpotlightData } from './formulaSpotlight';
+import { type FormulaSpotlightData, hasFormulaSpotlightReferences } from './formulaSpotlight';
 
 import { isAnimatedLessonScene, type LessonScene } from './lessonScene';
 import { projectMarkdownRenderingControls } from './markdownControlCharacters';
@@ -139,7 +139,7 @@ export const needsPlaybackFormulaSpotlights = (
   sources: readonly PlaybackContentBlock[] = []
 ): boolean => {
   const scenes = playbackFormulaSpotlightScenes(block, storedVisuals);
-  if (scenes.some(scene => scene.symbols.some(symbol => symbol.anchor))) return false;
+  if (scenes.some(hasFormulaSpotlightReferences)) return false;
   if (scenes.length)
     return scenes.some(
       scene =>

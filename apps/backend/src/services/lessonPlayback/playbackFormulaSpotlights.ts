@@ -2,6 +2,7 @@ import {
   type FormulaSpotlightData,
   formulaSpotlightCovers,
   getFormulaSpotlightLatex,
+  hasFormulaSpotlightReferences,
 } from '@shared/formulaSpotlight';
 import {
   getPlaybackFormulaSources,
@@ -87,7 +88,7 @@ export async function preparePlaybackFormulaSpotlights(input: {
           outcome.scene.type === 'formula-spotlight' &&
           formulaSpotlightCovers(outcome.scene as FormulaSpotlightData, [entry.formula]) &&
           ((!entry.dictatedRange && entry.sourceFormula) ||
-            (outcome.scene as FormulaSpotlightData).symbols.some(symbol => symbol.anchor))
+            hasFormulaSpotlightReferences(outcome.scene as FormulaSpotlightData))
         ) {
           return { scene: outcome.scene };
         }
