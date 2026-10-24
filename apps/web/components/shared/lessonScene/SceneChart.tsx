@@ -305,7 +305,24 @@ export const SceneChart = ({
           chart = await drawDonut(scene, width, theme);
         } else {
           const plot = await import('@observablehq/plot');
-          chart = plot.plot(plotOptions(plot, scene, width, theme) as never);
+          const options = plotOptions(plot, scene, width, theme);
+          chart = plot.plot(options as never);
+          if (scene.type === 'bars') {
+            host.replaceChildren(chart);
+            const labelHeight = Math.max(
+              ...Array.from(
+                chart.querySelectorAll<SVGTextElement>('[aria-label="y-axis tick label"] text'),
+                label => label.getBBox().height
+              )
+            );
+            const height = Math.max(
+              LAYOUT.height,
+              LAYOUT.marginTop +
+                LAYOUT.marginBottom +
+                scene.items.length * (labelHeight + LAYOUT.barLabelInset)
+            );
+            if (height > LAYOUT.height) chart = plot.plot({ ...options, height } as never);
+          }
           chart
             .querySelectorAll<SVGElement>('.playback-chart-items > *')
             .forEach((element, index) => {

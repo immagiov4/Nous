@@ -669,10 +669,17 @@ function PlaybackPassage({
     if (block.prepared?.scene) return [{ kind: 'scene' as const, scene: block.prepared.scene }];
     if (formulas) return [{ kind: 'markdown' as const, markdown: formulas }];
     return [
-      { kind: 'scene' as const, scene: createPassageFallbackScene(block.speech, block.heading) },
+      {
+        kind: 'scene' as const,
+        scene: createPassageFallbackScene(
+          block.speech.slice(formatted.speechRanges[0]?.start ?? 0),
+          block.heading
+        ),
+      },
     ];
   }, [
     block,
+    formatted.speechRanges,
     sources,
     content.activeSectionGeneratedVisualsById,
     availableAssets,
