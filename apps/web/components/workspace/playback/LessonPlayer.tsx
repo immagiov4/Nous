@@ -253,11 +253,24 @@ export default function LessonPlayer({
   const [composerPortal, setComposerPortal] = useState<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const backButton = useRef<HTMLButtonElement>(null);
+  const openedOnMobile = useRef(content.isMobileViewport);
   const mounted = useRef(true);
   const { viewportHeight } = useMobileKeyboardOffset();
   const block = playback.blocks[playback.index];
   const canAsk = Boolean(block || content.sectionContent.trim());
   const mobile = content.isMobileViewport;
+  const focusPlayer = useCallback(() => {
+    if (mobile) return;
+    // Closing an overlay must not steal focus from a field the user just selected.
+    if (
+      dialogRef.current?.contains(document.activeElement) &&
+      document.activeElement?.closest(
+        'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
+      )
+    )
+      return;
+    dialogRef.current?.focus({ preventScroll: true });
+  }, [mobile]);
   const shouldAnimate = useShouldAnimate();
   const { play } = playback;
   useEffect(() => {
@@ -266,10 +279,11 @@ export default function LessonPlayer({
   useEffect(() => {
     mounted.current = true;
     const previous = document.activeElement as HTMLElement | null;
-    backButton.current?.focus();
+    if (openedOnMobile.current) backButton.current?.focus();
+    else dialogRef.current?.focus({ preventScroll: true });
     return () => {
       mounted.current = false;
-      previous?.focus();
+      previous?.focus({ preventScroll: true });
     };
   }, []);
   useEffect(() => {
@@ -476,6 +490,7 @@ export default function LessonPlayer({
     answerSubmissionBlocked.current = false;
     setSpokenFollowUp(null);
     setAnswer(null);
+    if (!mobile) dialogRef.current?.focus({ preventScroll: true });
   };
 
   useEffect(() => {
@@ -572,8 +587,11 @@ export default function LessonPlayer({
           dialog.querySelectorAll<HTMLElement>(
             'button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),a[href]'
           )
-        ).filter(element => element.getClientRects().length > 0);
-        if (event.shiftKey && document.activeElement === controls[0]) {
+        ).filter(element => !element.closest('[inert]') && element.getClientRects().length > 0);
+        if (
+          event.shiftKey &&
+          (document.activeElement === dialog || document.activeElement === controls[0])
+        ) {
           event.preventDefault();
           controls.at(-1)?.focus();
         } else if (!event.shiftKey && document.activeElement === controls.at(-1)) {
@@ -590,10 +608,11 @@ export default function LessonPlayer({
   return createPortal(
     <dialog
       ref={dialogRef}
+      tabIndex={-1}
       open
       aria-modal="true"
       aria-label={t('Riproduci lezione')}
-      className={`${content.isDarkMode ? 'dark' : ''} fixed inset-0 z-[80] m-0 flex w-full max-w-none max-h-none flex-col border-0 bg-paper-light p-0 font-sans text-stone-800 dark:bg-paper-dark dark:text-stone-100`}
+      className={`${content.isDarkMode ? 'dark' : ''} fixed inset-0 z-[80] m-0 flex w-full max-w-none max-h-none flex-col border-0 bg-paper-light p-0 font-sans text-stone-800 outline-0 dark:bg-paper-dark dark:text-stone-100`}
       style={{ height: viewportHeight ?? '100dvh' }}
     >
       <header className="flex shrink-0 items-center gap-3 px-4 py-3 md:gap-5 md:px-[4%] md:pt-6">
@@ -692,7 +711,7 @@ export default function LessonPlayer({
                 </span>
               </button>
               <div className="ml-auto md:ml-0">
-                <PlaybackVoiceSpeed tts={tts} pill />
+                <PlaybackVoiceSpeed tts={tts} pill onMenuClose={focusPlayer} />
               </div>
             </div>
             <div
@@ -739,6 +758,7 @@ export default function LessonPlayer({
                   libraryAssistantDataSource={overlays.libraryAssistantDataSource}
                   currentLessonArtifactPayloads={overlays.currentLessonArtifactPayloads}
                   onClose={closeAnswer}
+                  onOverlayClose={focusPlayer}
                   onOpenLibraryReference={reference => {
                     onClose();
                     overlays.onOpenLibraryReference(reference);

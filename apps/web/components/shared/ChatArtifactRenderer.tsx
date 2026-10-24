@@ -45,6 +45,7 @@ export interface ChatArtifactRegenerationLifecycle {
 }
 
 interface ChatArtifactRendererProps {
+  readonly onOverlayClose?: () => void;
   readonly artifactSourceIds?: ReadonlySet<string>;
   readonly onOpenArtifactSource?: (artifactId: string) => void;
   readonly actionFeedbackOverride?: ArtifactActionFeedback;
@@ -488,6 +489,7 @@ const ArtifactOverlay = ({
 };
 
 const ChatArtifactRenderer = ({
+  onOverlayClose,
   artifactSourceIds,
   actionFeedbackOverride,
   artifacts,
@@ -663,7 +665,10 @@ const ChatArtifactRenderer = ({
       actionFeedbackOverride={actionFeedbackOverride}
       artifact={openArtifact}
       isDarkMode={isDarkMode}
-      onClose={() => setOpenArtifactId(null)}
+      onClose={() => {
+        setOpenArtifactId(null);
+        onOverlayClose?.();
+      }}
       onOpenArtifactSource={
         artifactSourceIds && !artifactSourceIds.has(openArtifact.summary.id)
           ? undefined

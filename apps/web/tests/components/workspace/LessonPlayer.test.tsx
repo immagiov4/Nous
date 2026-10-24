@@ -196,6 +196,67 @@ beforeEach(() => {
   save.mockResolvedValue({ saved: true, merged: false, annotationId: 'annotation' });
 });
 
+test('opening desktop playback focuses its surface so Space records without a click', async () => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  const dialog = screen.getByRole('dialog', { name: 'Riproduci lezione' });
+  expect(dialog).toHaveFocus();
+  const user = userEvent.setup();
+  await user.keyboard('[Space>]');
+  expect(Recorder.instances[0].state).toBe('recording');
+  expect(playback.pause).toHaveBeenCalledOnce();
+  await user.keyboard('[/Space]');
+  expect(await screen.findByText('Perché funziona?')).toBeInTheDocument();
+});
+
+test('closing an answer restores the desktop player focus', () => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Perché?' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Invia domanda' }));
+  const close = screen.getByRole('button', { name: 'Chiudi risposta' });
+  close.focus();
+  fireEvent.click(close);
+  expect(screen.getByRole('dialog', { name: 'Riproduci lezione' })).toHaveFocus();
+});
+
+test('changing viewport mode preserves focus while writing a question', () => {
+  const view = render(<LessonPlayer {...props} autoPlay={false} />);
+  const input = screen.getByRole('textbox');
+  input.focus();
+  fireEvent.change(input, { target: { value: 'Una domanda' } });
+  view.rerender(
+    <LessonPlayer {...props} autoPlay={false} content={{ ...content, isMobileViewport: true }} />
+  );
+  expect(screen.getByRole('textbox')).toHaveFocus();
+  expect(screen.getByRole('textbox')).toHaveValue('Una domanda');
+});
+
+test('opening the player uses preventScroll and restores the opening control on close', () => {
+  const opener = document.createElement('button');
+  document.body.append(opener);
+  opener.focus();
+  const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+  const view = render(<LessonPlayer {...props} autoPlay={false} />);
+  expect(focus).toHaveBeenLastCalledWith({ preventScroll: true });
+  view.unmount();
+  expect(opener).toHaveFocus();
+  focus.mockRestore();
+  opener.remove();
+});
+
+test('selecting the question input from a speed menu preserves typing and restores focus on dismissal', async () => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Velocita' }));
+  await user.click(screen.getByRole('textbox'));
+  await user.keyboard('Una domanda');
+  expect(screen.getByRole('textbox')).toHaveFocus();
+  expect(screen.getByRole('textbox')).toHaveValue('Una domanda');
+  expect(getUserMedia).not.toHaveBeenCalled();
+  expect(playback.pause).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button', { name: 'Velocita' }));
+  expect(screen.getByRole('dialog', { name: 'Riproduci lezione' })).toHaveFocus();
+});
+
 test('playback failure shows one retry action without duplicated retry text', () => {
   playback = { ...playback, failed: true, playing: false };
   render(<LessonPlayer {...props} autoPlay={false} />);
@@ -248,10 +309,15 @@ test('keeps keyboard focus in the open player and lets the speed menu consume Es
   } as DOMRectList);
   try {
     const first = screen.getByRole('button', { name: 'Torna alla lezione' });
-    const controls = dialog.querySelectorAll<HTMLElement>(
-      'button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),a[href]'
-    );
+    const controls = Array.from(
+      dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),a[href]'
+      )
+    ).filter(element => !element.closest('[inert]'));
     const last = controls[controls.length - 1];
+    dialog.focus();
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(last).toHaveFocus();
     first.focus();
     fireEvent.keyDown(first, { key: 'Tab', shiftKey: true });
     expect(last).toHaveFocus();
@@ -260,7 +326,7 @@ test('keeps keyboard focus in the open player and lets the speed menu consume Es
     fireEvent.click(screen.getByRole('button', { name: 'Velocita' }));
     fireEvent.keyDown(screen.getByRole('slider', { name: 'Velocita' }), { key: 'Escape' });
     expect(props.onClose).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Velocita' })).toHaveFocus();
+    expect(dialog).toHaveFocus();
   } finally {
     visibleControls.mockRestore();
   }
