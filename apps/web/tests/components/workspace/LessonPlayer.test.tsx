@@ -302,6 +302,9 @@ test('keeps keyboard focus in the open player and lets the speed menu consume Es
       )
     ).filter(element => !element.closest('[inert]'));
     const last = controls[controls.length - 1];
+    dialog.focus();
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(last).toHaveFocus();
     first.focus();
     fireEvent.keyDown(first, { key: 'Tab', shiftKey: true });
     expect(last).toHaveFocus();

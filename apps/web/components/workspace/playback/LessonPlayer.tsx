@@ -504,7 +504,10 @@ export default function LessonPlayer({
             'button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),a[href]'
           )
         ).filter(element => !element.closest('[inert]') && element.getClientRects().length > 0);
-        if (event.shiftKey && document.activeElement === controls[0]) {
+        if (
+          event.shiftKey &&
+          (document.activeElement === dialog || document.activeElement === controls[0])
+        ) {
           event.preventDefault();
           controls.at(-1)?.focus();
         } else if (!event.shiftKey && document.activeElement === controls.at(-1)) {

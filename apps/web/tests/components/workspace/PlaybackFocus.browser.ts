@@ -90,6 +90,12 @@ try {
           await player.evaluate(element => getComputedStyle(element).outlineWidth),
           '0px'
         );
+        await page.keyboard.press('Shift+Tab');
+        assert(
+          await player
+            .getByRole('button', { name: 'Nota', exact: true })
+            .evaluate(element => element === document.activeElement)
+        );
         await page.keyboard.press('Tab');
         const back = page.getByRole('button', { name: 'Torna alla lezione' });
         assert(
