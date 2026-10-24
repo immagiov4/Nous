@@ -776,6 +776,7 @@ test.each([
     type === 'guided-path'
       ? {
           ...guidedPathScene,
+          body: '',
           narration: undefined,
           steps: [
             { label: 'Prima quantità', detail: 'Osserva la prima.', anchor: anchors[0] },
@@ -784,6 +785,7 @@ test.each([
         }
       : {
           ...proportionalScene,
+          body: '',
           narration: undefined,
           cues: [
             { anchor: anchors[0], value: 2 },

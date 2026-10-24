@@ -429,10 +429,12 @@ export async function generateLessonScene(
       GENERATABLE_LESSON_SCENE_TYPES.includes(type) &&
       (type !== 'formula-spotlight' || captioned)
   );
-  const schema = SceneDraftSchema.extend({
+  const catalogSchema = SceneDraftSchema.extend({
     type: z.enum(input.allowTextFallback ? [...types, 'text'] : types),
-    ...(captioned ? { body: z.literal(''), note: z.literal('') } : {}),
   });
+  const schema = captioned
+    ? catalogSchema.extend({ body: z.literal(''), note: z.literal('') })
+    : catalogSchema;
   const { $schema: _dialect, ...outputSchema } = z.toJSONSchema(schema);
   // Malformed output surfaces either as an error or as JSON of the wrong shape; both become
   // corrective feedback for the next attempt.
