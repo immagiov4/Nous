@@ -5,6 +5,7 @@ import type {
 } from '@shared/lessonPlayback';
 import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
 import { type LessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
+import { playbackMode } from '@shared/lessonSceneAnimation';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { discreteMathCases } from '../../helpers/discreteMath';
@@ -904,4 +905,23 @@ test('persists resolved animation citations as a durable provider result', async
   expect(recorded.has('animation-cues')).toBe(true);
   await prepareLessonPlaybackBlock(request);
   expect(structured).toHaveBeenCalledOnce();
+});
+
+test.each([
+  guidedPathScene,
+  proportionalScene,
+])('retains prepared audio and automatic $type animation after malformed cues', async scene => {
+  structured.mockResolvedValue({ cues: 'invalid' });
+  const result = await prepareLessonPlaybackBlock({
+    ...input([{ kind: 'scene', scene }]),
+    synchronizeAnimations: true,
+  });
+  expect(result.audio).toEqual(preparedAudio);
+  expect(result.prepared.scene).toMatchObject({ type: scene.type, autoplay: true });
+  const prepared = result.prepared.scene;
+  if (prepared?.type !== 'guided-path' && prepared?.type !== 'proportional')
+    throw new Error('Expected animated scene');
+  expect(playbackMode(prepared)).toBe('automatic');
+  expect(structured).toHaveBeenCalledOnce();
+  expect(audio).toHaveBeenCalledOnce();
 });

@@ -9,7 +9,7 @@ const CuePlanSchema = z.strictObject({
 });
 const { $schema: _dialect, ...schema } = z.toJSONSchema(CuePlanSchema);
 
-/** Resolves semantic steps to exact narration citations; an empty plan keeps the scene static. */
+/** Resolves semantic steps to exact narration citations; an empty plan retains automatic animation. */
 export async function resolvePlaybackAnimationCues(input: {
   scene: LessonScene;
   speech: string;
@@ -27,40 +27,41 @@ export async function resolvePlaybackAnimationCues(input: {
       /* Resolve invalid stored citations too. */
     }
   }
-  const response = CuePlanSchema.parse(
-    await generateStructuredOutput<unknown>({
-      config: input.config,
-      output: { name: 'playback_animation_cues', schema },
-      prompt: JSON.stringify({ speech, scene }),
-      signal,
-      slot: 'playbackPreparation',
-      system:
-        'Associate each visual change with the narration words that express it. Return exact, unique, ordered quotations from speech. For guided-path return one cue per step in step order, with value equal to its zero-based index. Steps mentioned together may share one quotation. For proportional return increasing cumulative quantity values, ending at max. Never invent a quotation or a semantic association. If the narration cannot support every step or quantity change, return cues:[]; the scene will remain static.',
-    })
-  );
-  signal.throwIfAborted();
-  const cues = response.cues;
-  let resolved = scene;
-  if (
-    scene.type === 'guided-path' &&
-    cues.length === scene.steps.length &&
-    cues.every((cue, index) => cue.value === index)
-  ) {
-    resolved = {
-      ...scene,
-      steps: scene.steps.map((step, index) => ({ ...step, anchor: cues[index].anchor })),
-    };
-  } else if (scene.type === 'proportional') {
-    resolved = { ...scene, cues };
-  }
   try {
+    const response = CuePlanSchema.parse(
+      await generateStructuredOutput<unknown>({
+        config: input.config,
+        output: { name: 'playback_animation_cues', schema },
+        prompt: JSON.stringify({ speech, scene }),
+        signal,
+        slot: 'playbackPreparation',
+        system:
+          'Associate each visual change with the narration words that express it. Return exact, unique, ordered quotations from speech. For guided-path return one cue per step in step order, with value equal to its zero-based index. Steps mentioned together may share one quotation. For proportional return increasing cumulative quantity values, ending at max. Never invent a quotation or a semantic association. If the narration cannot support every step or quantity change, return cues:[]; the scene will remain static.',
+      })
+    );
+    signal.throwIfAborted();
+    const cues = response.cues;
+    let resolved = scene;
+    if (
+      scene.type === 'guided-path' &&
+      cues.length === scene.steps.length &&
+      cues.every((cue, index) => cue.value === index)
+    ) {
+      resolved = {
+        ...scene,
+        steps: scene.steps.map((step, index) => ({ ...step, anchor: cues[index].anchor })),
+      };
+    } else if (scene.type === 'proportional') {
+      resolved = { ...scene, cues };
+    }
     const anchors = resolved.type === 'guided-path' ? resolved.steps : resolved.cues;
     if (playbackMode(resolved) !== 'text') throw new Error('Incomplete semantic cue plan');
     cueTimes(speech, anchors ?? []);
     return resolved;
   } catch {
+    signal.throwIfAborted();
     console.warn(
-      '[lesson-playback] Narration cannot anchor every animation change; keeping the scene static.',
+      '[lesson-playback] Narration cannot anchor every animation change; keeping automatic animation.',
       { sceneType: scene.type }
     );
     return scene.type === 'guided-path'
