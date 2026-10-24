@@ -7,7 +7,6 @@ import {
   guidedPathScene,
   proportionalScene,
 } from '../../../../backend/tests/helpers/animatedLessonScenes';
-import { CAPTION_TIMING } from '../../../components/workspace/playback/captionFormat';
 import LessonPlaybackStage from '../../../components/workspace/playback/LessonPlaybackStage';
 import type { WorkspaceReaderContentModel } from '../../../components/workspace/shell/types';
 
@@ -60,7 +59,7 @@ function mount(scene: LessonScene | LessonScene[], speech: string, duration = 9.
         ? { kind: 'generated-visual' as const, visualId: String(index) }
         : { kind: 'scene' as const, scene }
     ),
-    prepared: { scene: scenes[0], motion: [] },
+    ...(scenes.length === 1 ? { prepared: { scene: scenes[0], motion: [] } } : {}),
   };
   const content = {
     isDarkMode: false,
@@ -105,7 +104,7 @@ test('lesson clock owns automatic play, pause, speed and backward seek', () => {
   expect(container.querySelectorAll('button,input,select')).toHaveLength(0);
 });
 
-test('complete anchors follow measured captions, including speed, groups and backward seek', () => {
+test('complete anchors follow heard time, including speed, groups and backward seek', () => {
   const scene = {
     ...guidedPathScene,
     narration: undefined,
@@ -116,9 +115,9 @@ test('complete anchors follow measured captions, including speed, groups and bac
     ],
   };
   const { container, advance } = mount(scene, 'Uno due Tre quattro.', 4);
-  advance(0.59);
+  advance(1.89);
   expect(container.querySelectorAll('[aria-current=step]')).toHaveLength(1);
-  advance(0.61);
+  advance(1.91);
   expect(container.querySelectorAll('[aria-current=step]')).toHaveLength(2);
   expect(container.querySelector('.path-explanation p')?.textContent).toBe(
     'Secondo passaggio. Lo stesso gruppo.'
@@ -128,8 +127,8 @@ test('complete anchors follow measured captions, including speed, groups and bac
   );
   flush();
   expect(container.querySelectorAll('[aria-current=step]')).toHaveLength(2);
-  advance(0.61, 0.5);
-  expect(container.querySelector('[aria-current=step] strong')?.textContent).toBe('Prima');
+  advance(1.91, 0.5);
+  expect(container.querySelector('[aria-current=step] strong')?.textContent).toBe('Seconda');
   advance(4);
   expect(container.querySelectorAll('.visited')).toHaveLength(3);
   expect(container.querySelector('.path-explanation p')?.textContent).toBe(
@@ -173,7 +172,7 @@ test.each([
   expect(container.querySelectorAll('.visited')).toHaveLength(2);
 });
 
-test('quantity cues are cumulative groups driven by captions', () => {
+test('quantity cues are cumulative groups driven by heard time', () => {
   const scene = {
     ...proportionalScene,
     cues: [
@@ -182,9 +181,9 @@ test('quantity cues are cumulative groups driven by captions', () => {
     ],
   };
   const { container, advance } = mount(scene, 'Uno due Tre quattro.', 4);
-  advance(0.59);
+  advance(1.89);
   expect(container.querySelectorAll('.present')).toHaveLength(2);
-  advance(0.61);
+  advance(1.91);
   expect(container.querySelectorAll('.present')).toHaveLength(6);
   advance(0);
   expect(container.querySelectorAll('.present')).toHaveLength(2);
@@ -199,9 +198,9 @@ test('quantity stays initial before its first quoted group and after seeking bac
     ],
   };
   const { container, advance } = mount(scene, 'Uno due Tre quattro.', 4);
-  advance(0.59);
+  advance(1.89);
   expect(container.querySelectorAll('.present')).toHaveLength(2);
-  advance(0.61);
+  advance(1.91);
   expect(container.querySelectorAll('.present')).toHaveLength(4);
   advance(0);
   expect(container.querySelectorAll('.present')).toHaveLength(2);
@@ -217,7 +216,7 @@ const quotedPath = (title: string, anchors: string[]): LessonScene => ({
 const mountedTitles = (container: HTMLElement) =>
   Array.from(container.querySelectorAll('.scene h2'), heading => heading.textContent);
 
-test.each([false, true])('scene visibility follows complete caption spans (stored: %s)', stored => {
+test.each([false, true])('scene visibility follows complete spoken spans (stored: %s)', stored => {
   const { container, tick, advance } = mount(
     [quotedPath('Late', ['sei', 'otto.']), quotedPath('Early', ['Uno', 'due tre'])],
     speech,
@@ -229,17 +228,17 @@ test.each([false, true])('scene visibility follows complete caption spans (store
   // The last quotation still covers "tre", past its first word "due".
   tick(1.2);
   expect(visible()).toEqual(['Early']);
-  tick(2);
+  tick(3);
   expect(visible()).toEqual([]);
   // The first visual remains available after its former equal-time slot ends.
-  tick(4);
+  tick(5);
   expect(visible()).toEqual(['Late']);
   flush();
   expect(visible()).toEqual(['Late']);
   advance(3, 0.5);
   expect(visible()).toEqual([]);
   advance(3, 2);
-  expect(visible()).toEqual(['Late']);
+  expect(visible()).toEqual([]);
   tick(8);
   expect(visible()).toEqual([]);
   tick(0);
@@ -249,25 +248,25 @@ test.each([false, true])('scene visibility follows complete caption spans (store
 test.each([
   false,
   true,
-])('later scene replaces an overlap and follows caption measurement (stored: %s)', stored => {
+])('later scene replaces an overlap and follows measured voice estimates (stored: %s)', stored => {
   const { container, tick } = mount(
     [quotedPath('Late', ['sei', 'otto.']), quotedPath('Middle', ['quattro', 'sette'])],
     speech,
     8,
     stored
   );
-  tick(2);
+  tick(3);
   expect(mountedTitles(container)).toEqual(['Middle']);
-  // Six starts at this measured caption time, including the existing look-ahead.
-  const replacementTime = (500 / 822) * 8 - CAPTION_TIMING.lookAheadSeconds;
+  // The visual uses its measured spoken-word estimate without the caption lead.
+  const replacementTime = (500 / 822) * 8;
   tick(replacementTime - 0.001);
   expect(mountedTitles(container)).toEqual(['Middle']);
   tick(replacementTime);
   expect(mountedTitles(container)).toEqual(['Late']);
   expect(container.querySelector('[aria-current=step] strong')?.textContent).toBe('sei');
-  tick(6);
+  tick(7);
   expect(container.querySelector('[aria-current=step] strong')?.textContent).toBe('otto.');
-  tick(2);
+  tick(3);
   expect(mountedTitles(container)).toEqual(['Middle']);
   expect(container.querySelector('[aria-current=step] strong')?.textContent).toBe('quattro');
   tick(4);
@@ -306,9 +305,9 @@ test('a replaced scene stays hidden after the later scene ends', () => {
   );
   tick(0);
   expect(mountedTitles(container)).toEqual(['Long']);
-  tick(2);
+  tick(3);
   expect(mountedTitles(container)).toEqual(['Short']);
-  tick(4);
+  tick(5);
   expect(mountedTitles(container)).toEqual([]);
   tick(0);
   expect(mountedTitles(container)).toEqual(['Long']);

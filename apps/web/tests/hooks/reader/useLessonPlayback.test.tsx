@@ -11,6 +11,7 @@ import {
   getLessonPlayback,
   LessonPlaybackRequestError,
   prepareLessonPlayback,
+  subscribeToPlaybackChanges,
   waitForLessonPlayback,
 } from '../../../services/openrouter/lessonPlaybackClient.ts';
 import { downloadProjectAssetBytes } from '../../../services/projects/projectAssetClient.ts';
@@ -29,6 +30,7 @@ vi.mock('../../../services/openrouter/lessonPlaybackClient.ts', async importOrig
   getLessonPlayback: vi.fn(),
   prepareLessonPlayback: vi.fn(),
   waitForLessonPlayback: vi.fn(),
+  subscribeToPlaybackChanges: vi.fn(() => () => {}),
 }));
 vi.mock('../../../services/projects/projectAssetClient.ts', () => ({
   downloadProjectAssetBytes: vi.fn(),
@@ -251,6 +253,34 @@ test('uses the audio clock unlocked in the opening gesture', async () => {
   await act(async () => result.current.play());
   expect(audio.unlock).toHaveBeenCalled();
   expect(audio.paused).toBe(false);
+});
+
+test('adopts completed alignment during playback without decoding or restarting the recording', async () => {
+  const stop = vi.fn();
+  vi.mocked(subscribeToPlaybackChanges).mockReturnValueOnce(stop);
+  const { result, unmount } = renderHook(() => useLessonPlayback(target));
+  await act(async () => result.current.play());
+  const downloads = vi.mocked(downloadProjectAssetBytes).mock.calls.length;
+  const starts = audio.start.mock.calls.length;
+  const alignment = { status: 'aligned' as const, onsets: [0.1, 0.6] };
+  vi.mocked(getLessonPlayback).mockResolvedValueOnce({
+    lessonKey: 'a'.repeat(64),
+    blocks: blocks.map(block => ({
+      ...block,
+      audio: block.audio.map(audio => ({ ...audio, wordAlignment: alignment })),
+    })),
+  });
+  const notify = vi.mocked(subscribeToPlaybackChanges).mock.calls.at(-1)?.[1];
+  if (!notify) throw new Error('Playback revision listener is required');
+  await act(async () => {
+    notify();
+  });
+  expect(result.current.recording?.wordAlignment).toEqual(alignment);
+  expect(downloadProjectAssetBytes).toHaveBeenCalledTimes(downloads);
+  expect(audio.start).toHaveBeenCalledTimes(starts);
+  expect(result.current.playing).toBe(true);
+  unmount();
+  expect(stop).toHaveBeenCalledOnce();
 });
 
 test.each([
@@ -1060,4 +1090,34 @@ test('an ending start cannot hide loading for its pending successor', async () =
   expect(result.current.loading).toBe(false);
   expect(result.current.playing).toBe(true);
   expect(audio.position).toEqual({ index: 1, time: 0, duration: 10 });
+});
+
+test('retains an alignment notification received while the recording is decoding', async () => {
+  const decoded = deferred<AudioBuffer>();
+  audio.decode.mockImplementationOnce(() => decoded.promise);
+  const { result } = renderHook(() => useLessonPlayback(target));
+  let playing: Promise<void>;
+  act(() => {
+    playing = result.current.play();
+  });
+  await waitFor(() => expect(audio.decode).toHaveBeenCalled());
+  const alignment = { status: 'aligned' as const, onsets: [0.1, 0.6] };
+  vi.mocked(getLessonPlayback).mockResolvedValueOnce({
+    lessonKey: 'a'.repeat(64),
+    blocks: blocks.map(block => ({
+      ...block,
+      audio: block.audio.map(recording => ({ ...recording, wordAlignment: alignment })),
+    })),
+  });
+  const notify = vi.mocked(subscribeToPlaybackChanges).mock.calls.at(-1)?.[1];
+  if (!notify) throw new Error('Playback revision listener is required');
+  await act(async () => {
+    notify();
+  });
+  await act(async () => {
+    decoded.resolve({ duration: 10 } as AudioBuffer);
+    await playing;
+  });
+  expect(result.current.recording?.wordAlignment).toEqual(alignment);
+  expect(audio.start).toHaveBeenCalledOnce();
 });

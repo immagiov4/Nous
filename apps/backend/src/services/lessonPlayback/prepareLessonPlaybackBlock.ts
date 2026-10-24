@@ -30,6 +30,7 @@ import type { LessonSourceProvenance } from '../lessonPrimarySourceContext.js';
 import { generateLessonScene } from '../lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../lessonVisualModelConfig.js';
 import { prepareSpeech } from '../speechPreparation.js';
+import { resolvePlaybackAnimationCues } from './playbackAnimationCues.js';
 import {
   type PreparedPlaybackAudio,
   preparePlaybackAudio,
@@ -39,6 +40,7 @@ import { MAX_PLAYBACK_PREPARATION_ATTEMPTS, planPlaybackMotion } from './playbac
 
 interface PrepareLessonPlaybackBlockInput {
   readonly userId: string;
+  readonly synchronizeAnimations?: boolean;
   readonly supportsSpokenMath?: boolean;
   readonly supportsFencedCode?: boolean;
   readonly supportsUnlinkedFormulaSymbols?: boolean;
@@ -200,6 +202,29 @@ export const prepareLessonPlaybackBlock = async (
   };
 };
 
+const prepareAnimationCues = async (
+  input: PrepareLessonPlaybackBlockInput,
+  scene: LessonScene | undefined
+) => {
+  if (!scene || !input.synchronizeAnimations) return scene;
+  const operation = async () => ({
+    scene: await resolvePlaybackAnimationCues({
+      scene,
+      speech: input.block.speech,
+      config: input.config,
+      signal: input.signal,
+    }),
+  });
+  const resolved = input.providerEffect
+    ? await input.providerEffect.run({
+        key: 'animation-cues',
+        outputSchema: z.object({ scene: LessonSceneSchema }),
+        operation,
+      })
+    : await operation();
+  return resolved.scene;
+};
+
 const prepareVisuals = async (
   input: PrepareLessonPlaybackBlockInput
 ): Promise<PreparedLessonPlaybackBlock['prepared']> => {
@@ -260,7 +285,11 @@ const prepareVisuals = async (
             operation: () => prepareMotion(scene),
           })
         : await prepareMotion(scene);
-      prepared = { ...(scene ? { scene } : {}), motion: savedMotion };
+      const synchronizedScene = await prepareAnimationCues(input, scene);
+      prepared = {
+        ...(synchronizedScene ? { scene: synchronizedScene } : {}),
+        motion: savedMotion,
+      };
     } finally {
       // A competing workflow attempt can commit a different authoritative scene.
       await Promise.allSettled(motions.values());

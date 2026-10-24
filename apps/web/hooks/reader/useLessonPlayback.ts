@@ -13,10 +13,11 @@ import {
   getLessonPlayback,
   LessonPlaybackRequestError,
   prepareLessonPlayback,
+  subscribeToPlaybackChanges,
   waitForLessonPlayback,
 } from '../../services/openrouter/lessonPlaybackClient.ts';
 import { downloadProjectAssetBytes } from '../../services/projects/projectAssetClient.ts';
-import { playbackTimeline } from '../../utils/reader/lessonPlayback.ts';
+import { mergeRecordingAlignment, playbackTimeline } from '../../utils/reader/lessonPlayback.ts';
 import {
   LessonPlaybackAudio,
   type PlaybackRecording,
@@ -31,11 +32,26 @@ import { loadSceneIconNodes } from '../../utils/visuals/sceneIconNodes.ts';
 // A player can close before its owned server cancellation settles.
 const playbackCancellations = new Map<string, Promise<void>>();
 
-type Playback = Awaited<ReturnType<typeof getLessonPlayback>>;
-type PreparedPlayback = Extract<
-  Awaited<ReturnType<typeof prepareLessonPlayback>>,
-  { block: unknown }
-> & { buffer: AudioBuffer };
+type Playback = { lessonKey: string; blocks: readonly LessonPlaybackBlock[] };
+type PreparedPlayback = {
+  block: LessonPlaybackBlock;
+  voice: string;
+  model: string;
+  buffer: AudioBuffer;
+};
+
+/** Merge timing revisions without replacing unchanged lesson or recording content. */
+function recordingTimingUpdate(incoming: Playback) {
+  const byId = new Map(incoming.blocks.map(block => [block.id, block]));
+  const merge = (block: LessonPlaybackBlock) => mergeRecordingAlignment(block, byId.get(block.id));
+  return {
+    merge,
+    blocks: (current: readonly LessonPlaybackBlock[]) => {
+      const next = current.map(merge);
+      return next.some((block, index) => block !== current[index]) ? next : current;
+    },
+  };
+}
 
 /** Resumes the audio clock synchronously inside the opening or play gesture. */
 export function unlockLessonPlaybackAudio(audio: LessonPlaybackAudio) {
@@ -138,6 +154,7 @@ export function useLessonPlayback({
   const [index, setIndex] = useState(0);
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [seekRevision, setSeekRevision] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -148,6 +165,7 @@ export function useLessonPlayback({
     return audio;
   }, []);
   const playbackRef = useRef<Playback | null>(null);
+  const latestRecordingTimings = useRef<Playback | null>(null);
   const queue = useRef(new PlaybackPreparationQueue());
   const pending = useRef(new Map<string, Promise<PreparedPlayback | null>>());
   const advance = useRef<() => void>(() => {});
@@ -156,6 +174,39 @@ export function useLessonPlayback({
   const prefetchFailed = useRef(false);
   const intent = useRef({ playing: false, index: 0, epoch: 0 });
   const ready = useRef(new Map<string, PreparedPlayback>());
+  useEffect(() => {
+    let controller: AbortController | undefined;
+    const refresh = () => {
+      if (!playbackRef.current) return;
+      controller?.abort();
+      const request = new AbortController();
+      controller = request;
+      void getLessonPlayback({ projectId, sectionId }, request.signal)
+        .then(incoming => {
+          if (request.signal.aborted || incoming.lessonKey !== playbackRef.current?.lessonKey)
+            return;
+          latestRecordingTimings.current = incoming;
+          const update = recordingTimingUpdate(incoming);
+          for (const [key, prepared] of ready.current) {
+            const block = update.merge(prepared.block);
+            if (block !== prepared.block) ready.current.set(key, { ...prepared, block });
+          }
+          playbackRef.current = {
+            ...playbackRef.current,
+            blocks: update.blocks(playbackRef.current.blocks),
+          };
+          setBlocks(update.blocks);
+        })
+        .catch(error => {
+          if (!request.signal.aborted) console.warn('Could not refresh recording timing.', error);
+        });
+    };
+    const stop = subscribeToPlaybackChanges(projectId, refresh);
+    return () => {
+      stop();
+      controller?.abort();
+    };
+  }, [projectId, sectionId]);
   const isCurrentAttempt = useCallback(
     (epoch: number, signal: AbortSignal) => epoch === intent.current.epoch && !signal.aborted,
     []
@@ -325,7 +376,7 @@ export function useLessonPlayback({
         }
         if (playbackRef.current && playbackRef.current.lessonKey !== playback.lessonKey)
           return null;
-        const preparedBlock = result.block;
+        let preparedBlock: LessonPlaybackBlock = result.block;
         const recording = preparedBlock.audio.find(
           audio => audio.voice === result.voice && audio.model === result.model
         );
@@ -338,7 +389,14 @@ export function useLessonPlayback({
         signal.throwIfAborted();
         if (playbackRef.current && playbackRef.current.lessonKey !== playback.lessonKey)
           return null;
-        const prepared = { ...result, buffer };
+        const latestTimings = latestRecordingTimings.current;
+        if (latestTimings?.lessonKey === playback.lessonKey) {
+          preparedBlock = mergeRecordingAlignment(
+            preparedBlock,
+            latestTimings.blocks.find(block => block.id === preparedBlock.id)
+          );
+        }
+        const prepared = { ...result, block: preparedBlock, buffer };
         ready.current.set(cacheKey(), prepared);
         const profile = { voice: result.voice, model: result.model };
         setResolvedVoices(current => {
@@ -582,6 +640,7 @@ export function useLessonPlayback({
   const total = timeline.reduce((sum, block) => sum + block.duration, 0);
   const seek = (target: number) => {
     if (!started.current) return;
+    setSeekRevision(revision => revision + 1);
     let offset = Math.max(0, Math.min(total, target));
     let next = 0;
     while (next < timeline.length - 1 && offset >= timeline[next].duration) {
@@ -593,6 +652,10 @@ export function useLessonPlayback({
   return {
     lessonKey,
     blocks,
+    recording: blocks[index]?.audio.find(audio => {
+      const resolved = resolvedVoices.get(voice);
+      return audio.voice === resolved?.voice && audio.model === resolved.model;
+    }),
     index,
     time,
     duration,
@@ -606,6 +669,7 @@ export function useLessonPlayback({
     pause,
     seek,
     readTime,
+    seekRevision,
     readPosition,
   };
 }

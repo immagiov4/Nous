@@ -1,4 +1,5 @@
-import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
+import { narrationWords, type PlaybackWordAlignment } from '@shared/playbackWordTiming';
 import fontUrl from 'katex/dist/fonts/KaTeX_Main-Regular.woff2?url';
 import { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -25,7 +26,9 @@ const block = {
   ],
 };
 const content = { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel;
+const durationSeconds = 60;
 function Fixture() {
+  const [alignment, setAlignment] = useState<PlaybackWordAlignment>();
   const [time, setTime] = useState(0);
   const [passage, setPassage] = useState(0);
   const currentBlock = useMemo(() => ({ ...block, id: String(passage) }), [passage]);
@@ -33,9 +36,27 @@ function Fixture() {
     <>
       <style>{`@font-face { font-family: "Caption fixture"; src: url("${fontUrl}"); font-display: swap; } .lesson-player-stage { font-family: "Caption fixture", sans-serif; }`}</style>
       <div style={{ height: '100dvh', display: 'flex' }}>
-        <LessonPlaybackStage block={currentBlock} content={content} duration={60} time={time} />
+        <LessonPlaybackStage
+          block={currentBlock}
+          content={content}
+          duration={durationSeconds}
+          time={time}
+          alignment={alignment}
+        />
       </div>
       <div style={{ position: 'fixed', bottom: 0, right: 0 }}>
+        <button
+          type="button"
+          onClick={() => {
+            const words = narrationWords(resolvePlaybackNarration(currentBlock).speech);
+            setAlignment({
+              status: 'aligned',
+              onsets: words.map((_, index) => (durationSeconds * index) / words.length),
+            });
+          }}
+        >
+          Refresh recording timing
+        </button>
         <input
           aria-label="Playback time"
           type="number"

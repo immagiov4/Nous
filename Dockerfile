@@ -3,6 +3,16 @@ ARG CODEX_VERSION=0.163.0
 ARG NODE_VERSION=22.23.2
 FROM node:${NODE_VERSION}-bookworm-slim AS node-runtime
 
+FROM python:3.10-slim-bookworm AS alignment-build
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential libespeak-dev \
+    && python -m venv /opt/aeneas \
+    && /opt/aeneas/bin/pip install --no-cache-dir numpy==1.26.4 setuptools==69.5.1 wheel==0.45.1 \
+    && /opt/aeneas/bin/pip install --no-cache-dir --no-build-isolation aeneas==1.7.3.0
+RUN /opt/aeneas/bin/pip download --no-deps --no-binary=:all: --dest /opt/aeneas/source aeneas==1.7.3.0 \
+    && tar -xOf /opt/aeneas/source/aeneas-1.7.3.0.tar.gz aeneas-1.7.3.0/LICENSE > /opt/aeneas/source/LICENSE
+
 FROM oven/bun:${BUN_VERSION}-slim AS dependencies
 WORKDIR /app
 COPY package.json bun.lock ./
@@ -45,7 +55,7 @@ ARG CODEX_VERSION
 USER root
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates poppler-utils \
+    && apt-get install -y --no-install-recommends ca-certificates poppler-utils espeak ffmpeg \
     && BUN_INSTALL=/usr/local bun add --global "@openai/codex@${CODEX_VERSION}" \
     && mkdir -p /home/bun/.codex /var/lib/nous/icon-index /var/lib/nous/library-exports /var/lib/nous/source-staging \
     && chown bun:bun /home/bun/.codex /var/lib/nous/icon-index /var/lib/nous/library-exports /var/lib/nous/source-staging \
@@ -54,6 +64,9 @@ WORKDIR /app
 ENV NODE_ENV=production \
     BACKEND_HOST=0.0.0.0 \
     BACKEND_PORT=3301
+COPY --from=alignment-build /opt/aeneas /opt/aeneas
+COPY --from=alignment-build /usr/local/ /usr/local/
+COPY THIRD_PARTY_NOTICES.md /app/THIRD_PARTY_NOTICES.md
 COPY --from=dependencies --chown=bun:bun /app/node_modules node_modules
 COPY --chown=bun:bun apps/backend/package.json apps/backend/package.json
 COPY --chown=bun:bun apps/backend/src apps/backend/src

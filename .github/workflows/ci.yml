@@ -22,6 +22,9 @@ jobs:
       - name: Build shared production dependencies
         run: docker build --target dependencies .
 
+      - name: Build production backend with separate aeneas process
+        run: docker build --target backend .
+
   test:
     runs-on: ubuntu-latest
     concurrency:

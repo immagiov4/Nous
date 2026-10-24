@@ -50,6 +50,10 @@ export const createLessonPlaybackApi = (dependencies: {
   registry: WorkflowRegistry;
   store: WorkflowRunCreator;
   publishTransientEvent?: WorkflowTransientEventPublisher;
+  alignRecording?: (
+    target: import('./lessonPlaybackWorkflow.js').LessonPlaybackInput,
+    block: LessonPlaybackBlock
+  ) => Promise<void>;
 }): LessonPlaybackApi => {
   const load = async (target: PlaybackTarget) => {
     const project = await dependencies.projectReader.loadProjectWithRevision(
@@ -75,7 +79,13 @@ export const createLessonPlaybackApi = (dependencies: {
       if (!block) throw new LessonPlaybackTargetError();
       const model = await dependencies.resolveTtsModel();
       const voice = ttsClient.resolveVoice(model, input.voice);
-      if (isPlaybackBlockReady(block, voice, model)) return { block, voice, model };
+      if (isPlaybackBlockReady(block, voice, model)) {
+        // Playback receives the saved audio immediately; alignment has its own durable run.
+        void dependencies
+          .alignRecording?.({ ...input, incarnationId: project.incarnationId, voice, model }, block)
+          .catch(error => console.warn('[recording-alignment] Could not queue recording.', error));
+        return { block, voice, model };
+      }
       const { run, created } = await startWorkflowRun({
         input: { ...input, incarnationId: project.incarnationId, model },
         // Voices share one block preparation so narration stays canonical; other blocks can fill the buffer.

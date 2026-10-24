@@ -2,6 +2,7 @@ import { type FormulaSpotlightData, resolveFormulaReferences } from '@shared/for
 import type { PlaybackMotionEvent, PlaybackRange } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
 import { cueTimes, playbackMode } from '@shared/lessonSceneAnimation';
+import { alignedRangeTime, type alignedWordTimes } from '@shared/playbackWordTiming';
 
 export const MOTION_TIMING = { transitionMs: 420, stepMs: 2400, holdMs: 1600, maxFocusMs: 4000 };
 const REVEAL_DURATION_MS = 700;
@@ -54,7 +55,7 @@ export function sceneCaptionAnchors(
   return cues.map(cue => cue.anchor as string);
 }
 
-/** Resolves exact anchors on the caption clock, including anchors in the spoken heading. */
+/** Resolves narration citations to acoustic onsets or the existing measured timing estimate. */
 export function captionAnchorTimes({
   anchors,
   speech,
@@ -63,6 +64,8 @@ export function captionAnchorTimes({
   width,
   feather,
   duration,
+  aligned,
+  startOffset = 0,
 }: {
   anchors: readonly string[];
   speech: string;
@@ -71,18 +74,36 @@ export function captionAnchorTimes({
   width: number;
   feather: number;
   duration: number;
+  aligned?: ReturnType<typeof alignedWordTimes>;
+  startOffset?: number;
 }): number[] {
   return anchors.map(anchor => {
     const offset = speech.indexOf(anchor);
     if (offset < 0) throw new Error('Caption quotation must exist in speech');
+    if (aligned)
+      return alignedRangeTime(aligned, { start: offset, end: offset + anchor.length }).start * 1000;
     const first = runs[speechRanges.findIndex(word => word.end > offset)];
     if (!first) throw new Error('Caption quotation must cover caption words');
-    return (first.start / (width + feather)) * duration * 1000;
+    return (startOffset + (first.start / (width + feather)) * duration) * 1000;
   });
 }
 
-/** The complete quoted span, on the same measured clock as the caption reveal and scene cues. */
+/** The complete quoted span on the recording clock, including its final spoken word. */
 export function captionAnchorSpan(input: Parameters<typeof captionAnchorTimes>[0]) {
+  if (input.aligned) {
+    const spans = input.anchors.map(anchor => {
+      const start = input.speech.indexOf(anchor);
+      if (start < 0) throw new Error('Caption quotation must exist in speech');
+      return alignedRangeTime(input.aligned as NonNullable<typeof input.aligned>, {
+        start,
+        end: start + anchor.length,
+      });
+    });
+    return {
+      startMs: Math.min(...spans.map(span => span.start)) * 1000,
+      endMs: Math.max(...spans.map(span => span.end)) * 1000,
+    };
+  }
   const times = captionAnchorTimes(input);
   const endOffset = Math.max(
     ...input.anchors.map(anchor => input.speech.indexOf(anchor) + anchor.length)
@@ -96,11 +117,14 @@ export function captionAnchorSpan(input: Parameters<typeof captionAnchorTimes>[0
   if (!last) throw new Error('Caption quotation must cover caption words');
   return {
     startMs: Math.min(...times),
-    endMs: ((last.start + last.width) / (input.width + input.feather)) * input.duration * 1000,
+    endMs:
+      ((input.startOffset ?? 0) +
+        ((last.start + last.width) / (input.width + input.feather)) * input.duration) *
+      1000,
   };
 }
 
-/** The API stores quotations; resolve them to the same word-width clock as listen.mjs. */
+/** Exact narration citations use acoustic onsets; missing alignment retains the width estimate. */
 export function captionMotionEvents({
   events,
   speech,
@@ -109,6 +133,8 @@ export function captionMotionEvents({
   width,
   feather,
   duration,
+  aligned,
+  startOffset,
 }: {
   events: readonly PlaybackMotionEvent[];
   speech: string;
@@ -117,6 +143,8 @@ export function captionMotionEvents({
   width: number;
   feather: number;
   duration: number;
+  aligned?: ReturnType<typeof alignedWordTimes>;
+  startOffset?: number;
 }): TimedMotionEvent[] {
   const times = captionAnchorTimes({
     anchors: events.map(event => event.quote),
@@ -126,6 +154,8 @@ export function captionMotionEvents({
     width,
     feather,
     duration,
+    aligned,
+    startOffset,
   });
   const timed = events.map((event, index) => {
     const offset = speech.indexOf(event.quote);
@@ -140,20 +170,22 @@ export function captionMotionEvents({
     const last = runs[endIndex];
     if (!first || !last) throw new Error('Motion quotation must cover caption words');
     const atMs = times[index];
+    const spokenDurationMs = aligned
+      ? alignedRangeTime(aligned, { start: offset, end: offset + event.quote.length }).end * 1000 -
+        atMs
+      : ((last.start + last.width - first.start) / (width + feather)) * duration * 1000;
     const durationMs =
       event.effect === 'reveal'
         ? REVEAL_DURATION_MS
-        : Math.max(
-            MOTION_TIMING.holdMs,
-            ((last.start + last.width - first.start) / (width + feather)) * duration * 1000
-          );
+        : Math.max(MOTION_TIMING.holdMs, spokenDurationMs);
     return { ...event, atMs, durationMs };
   });
   return timed.map(event => ({
     ...event,
     durationMs: Math.min(
       event.durationMs,
-      (timed.find(next => next.atMs > event.atMs)?.atMs ?? duration * 1000) - event.atMs
+      (timed.find(next => next.atMs > event.atMs)?.atMs ?? ((startOffset ?? 0) + duration) * 1000) -
+        event.atMs
     ),
   }));
 }
@@ -203,6 +235,34 @@ export function motionStates(
   return states;
 }
 
+/** Mermaid's authored node order identifies both flowchart nodes and sequence participants. */
+function diagramElements(
+  host: HTMLElement,
+  diagram: NonNullable<LessonScene['diagram']>,
+  sequence: boolean
+) {
+  const elements = new Map<string, (HTMLElement | SVGElement)[]>();
+  const nodes = Array.from(
+    host.querySelectorAll<SVGElement>(sequence ? '[data-et="participant"]' : 'g.node')
+  );
+  diagram.nodes.forEach((node, index) => {
+    const matches = nodes.filter(element =>
+      sequence ? element.dataset.id === `n${index}` : element.id.includes(`flowchart-n${index}-`)
+    );
+    if (matches.length) elements.set(`node:${node.id}`, matches);
+  });
+  const labels = host.querySelectorAll<SVGElement>('.messageText');
+  host
+    .querySelectorAll<SVGElement>(sequence ? '[data-et="message"]' : 'path.flowchart-link')
+    .forEach((element, index) => {
+      elements.set(
+        `edge:${index}`,
+        sequence && labels[index] ? [element, labels[index]] : [element]
+      );
+    });
+  return elements;
+}
+
 export function sceneElements(host: HTMLElement, scene: LessonScene) {
   const elements = new Map<string, (HTMLElement | SVGElement)[]>();
   const structuredGroups = host.querySelectorAll<HTMLElement>(
@@ -231,14 +291,7 @@ export function sceneElements(host: HTMLElement, scene: LessonScene) {
       elements.set(`row:${index}`, [element]);
     });
   else if (scene.diagram) {
-    const nodes = Array.from(host.querySelectorAll<SVGElement>('g.node'));
-    scene.diagram.nodes.forEach((node, index) => {
-      const element = nodes.find(element => element.id.includes(`flowchart-n${index}-`));
-      if (element) elements.set(`node:${node.id}`, [element]);
-    });
-    host.querySelectorAll<SVGElement>('path.flowchart-link').forEach((element, index) => {
-      elements.set(`edge:${index}`, [element]);
-    });
+    return diagramElements(host, scene.diagram, scene.type === 'sequence');
   } else {
     const grouped = scene.groups.length > 0;
     host
@@ -252,4 +305,16 @@ export function sceneElements(host: HTMLElement, scene: LessonScene) {
   const relation = host.querySelector<HTMLElement>('.relation');
   if (relation) elements.set('relation', [relation]);
   return elements;
+}
+
+/** Keep already presented cues stable when acoustic timing arrives during playback. */
+export function adoptCueTimes(
+  previous: readonly number[] | undefined,
+  next: number[],
+  time: number
+) {
+  return next.map((onset, index) => {
+    const estimated = previous?.[index];
+    return estimated !== undefined && estimated <= time ? estimated : onset;
+  });
 }

@@ -5,6 +5,7 @@ import type {
 } from '@shared/lessonPlayback';
 import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
 import { type LessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
+import { playbackMode } from '@shared/lessonSceneAnimation';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { discreteMathCases } from '../../helpers/discreteMath';
@@ -864,4 +865,54 @@ test('reuses a degraded formula through saved preparation and regenerates it on 
   expect(sceneGeneration).toHaveBeenCalledTimes(3);
   await prepareLessonPlaybackBlock(request);
   expect(sceneGeneration).toHaveBeenCalledTimes(6);
+});
+
+test('persists resolved animation citations as a durable provider result', async () => {
+  const unanchored = {
+    ...guidedPathScene,
+    steps: guidedPathScene.steps.map(step => ({ ...step, anchor: undefined })),
+  };
+  structured.mockResolvedValue({
+    cues: guidedPathScene.steps.map((step, value) => ({ anchor: step.anchor, value })),
+  });
+  const recorded = new Map<string, unknown>();
+  const providerEffect: WorkflowProviderEffectExecutor = {
+    run: async ({ key, operation, outputSchema }) => {
+      if (!recorded.has(key)) recorded.set(key, await operation());
+      return outputSchema.parse(recorded.get(key));
+    },
+  };
+  const request = {
+    ...input([{ kind: 'scene' as const, scene: unanchored }]),
+    synchronizeAnimations: true,
+    providerEffect,
+  };
+  request.block = { ...request.block, speech: guidedPathScene.narration ?? '' };
+  const result = await prepareLessonPlaybackBlock(request);
+  expect(result.prepared.scene).toMatchObject({
+    type: 'guided-path',
+    steps: guidedPathScene.steps,
+  });
+  expect(recorded.has('animation-cues')).toBe(true);
+  await prepareLessonPlaybackBlock(request);
+  expect(structured).toHaveBeenCalledOnce();
+});
+
+test.each([
+  guidedPathScene,
+  proportionalScene,
+])('retains prepared audio and automatic $type animation after malformed cues', async scene => {
+  structured.mockResolvedValue({ cues: 'invalid' });
+  const result = await prepareLessonPlaybackBlock({
+    ...input([{ kind: 'scene', scene }]),
+    synchronizeAnimations: true,
+  });
+  expect(result.audio).toEqual(preparedAudio);
+  expect(result.prepared.scene).toMatchObject({ type: scene.type, autoplay: true });
+  const prepared = result.prepared.scene;
+  if (prepared?.type !== 'guided-path' && prepared?.type !== 'proportional')
+    throw new Error('Expected animated scene');
+  expect(playbackMode(prepared)).toBe('automatic');
+  expect(structured).toHaveBeenCalledOnce();
+  expect(audio).toHaveBeenCalledOnce();
 });
