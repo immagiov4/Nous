@@ -708,7 +708,6 @@ test.each([768, 1440])('retains complete scene fitting at %s px', async width =>
   }
 });
 
-<<<<<<< HEAD
 test.each(
   formulaViewports
 )('keeps the highlighting widget visible during formula dictation at $width px', async viewport => {
@@ -746,7 +745,11 @@ test.each(
     }
     if (positions.length)
       expect(Math.max(...positions) - Math.min(...positions)).toBeLessThanOrEqual(1);
-=======
+  } finally {
+    await page.close();
+  }
+});
+
 for (const width of [1440, 412]) {
   test(`decision options have no enclosing border at ${width}px`, async () => {
     const page = await browser.newPage({ viewport: { width, height: 1000 } });
@@ -837,7 +840,6 @@ test.each([false, true])('reader sequence notes are opaque (dark=%s)', async dar
       return Array.from(context.getImageData(0, 0, 1, 1).data);
     });
     expect(background).toEqual(dark ? [71, 60, 50, 255] : [251, 239, 233, 255]);
->>>>>>> origin/main
   } finally {
     await page.close();
   }
