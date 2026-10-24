@@ -278,5 +278,7 @@ export const parsePdfContentParts = (
     });
   }
 
-  return parts.length > 0 ? parts : [{ key: `md-0-${content.length}`, type: 'markdown', content }];
+  return parts.length > 0 || placeholderMatches.length > 0
+    ? parts
+    : [{ key: `md-0-${content.length}`, type: 'markdown', content }];
 };

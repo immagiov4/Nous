@@ -11,6 +11,7 @@ const { lineYMock, plotMock } = vi.hoisted(() => ({
 vi.mock('@observablehq/plot', () => {
   const mark = () => ({});
   return {
+    axisY: mark,
     barX: mark,
     dot: mark,
     frame: mark,
