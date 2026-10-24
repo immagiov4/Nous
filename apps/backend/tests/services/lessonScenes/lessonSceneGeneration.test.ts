@@ -92,6 +92,24 @@ test.each([
   });
 });
 
+test.each([
+  'body',
+  'note',
+] as const)('rejects %s prose in captioned generation while preserving standalone scenes', async field => {
+  const source = 'Il client invia una richiesta. Il server restituisce una risposta.';
+  const draft = { ...sceneDraft(source), [field]: source };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'scene' });
+  const captioned = { ...unplannedInput(source), narration: source };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(captioned)).toMatchObject({ kind: 'invalid' });
+  generateStructuredOutputMock.mockResolvedValueOnce(sceneDraft(source));
+  expect(await generateLessonScene(captioned)).toMatchObject({
+    kind: 'scene',
+    scene: { body: '', note: '' },
+  });
+});
+
 test('exposes a valid scene to independent preparation before icons and keeps invalid drafts private', async () => {
   const onValidatedScene = vi.fn();
   generateStructuredOutputMock.mockResolvedValueOnce(sceneDraft('Una domanda precisa.'));

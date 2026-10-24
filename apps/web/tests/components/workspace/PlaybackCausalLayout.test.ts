@@ -32,6 +32,12 @@ beforeAll(async () => {
   browser = await chromium.launch(withMutedAudio({ headless: true }));
 });
 
+beforeAll(async () => {
+  const optimizer = server.environments.client.depsOptimizer;
+  await optimizer?.scanProcessing;
+  await Promise.all(optimizer?.metadata.depInfoList.map(dependency => dependency.processing) ?? []);
+});
+
 afterAll(async () => {
   await browser?.close();
   await server?.close();

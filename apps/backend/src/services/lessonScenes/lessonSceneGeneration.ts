@@ -194,7 +194,7 @@ FIELDS
 - note: one necessary limit in at most 18 words; default "".
 - criteria: row labels for matrix, otherwise [].
 - relation: for comparison and signals with two genuinely related terms, {kind, label, evidence}; otherwise null. kind is greater, less, different, equal, versus, or leads. label is only read by screen readers. evidence is an exact quotation (may be "" for versus). Use different only for an explicit distinction and leads only for an explicit process or consequence. Do not impose a winner when the lesson asks the reader to choose.
-- diagram: for flowchart, sequence, and journey only, {nodes: [{id, label, kind}], edges: [{from, to, label, kind, evidence}]}; otherwise null. 2 to 8 nodes, 1 to 12 connections. Node kind is step, decision, start, or end; edge kind is call, return, or event. Every connection carries an EXACT lesson quotation in evidence. Decision branches carry their condition in the label. A sequence keeps message order and distinguishes returns and asynchronous events; a journey follows its nodes in order without branches. Never write SVG, coordinates, CSS, or Mermaid code.
+- diagram: for flowchart, sequence, and journey only, {nodes: [{id, label, kind}], edges: [{from, to, label, kind, evidence}]}; otherwise null. 2 to 8 nodes, 1 to 12 connections. Node kind is step, decision, start, or end; edge kind is call, return, or event. Every connection carries an EXACT lesson quotation in evidence. Decision branches carry their condition in the label. In a sequence, nodes name participants and edges name their messages; never put actions or sentences in participant boxes. A sequence keeps message order and distinguishes returns and asynchronous events; a journey follows its nodes in order without branches. An ordered list of actions belongs in steps. Never write SVG, coordinates, CSS, or Mermaid code.
 - proportional: items and groups []; supply autoplay, inputLabel, unitLabel, min, max, initial (integers, 1 <= min <= initial <= max), positive amountPerUnit, outputUnit, outputLabel, assumption. The fixed renderer multiplies quantity by amountPerUnit. Use only quantities and a proportional relation stated in the lesson. Optional cues are {anchor, value}: increasing cumulative quantities ending at max.
 - formula-spotlight: items and groups []; formula is complete LaTeX with explicit \nousSymbol{id} references, not HTML or CSS. symbols is an ordered array of {id,latex,name,meaning,anchor}. Each id is a letter followed by letters or digits. Replace the original symbol with its reference, never append the reference after the glyph. Substituting every reference with its latex must reproduce the authored formula without adding or removing operators. Every symbol occurs through its reference in formula (including repeated occurrences); explain every symbol in natural language. Bare mathematical identifiers are invalid, including subscripts and macro-expanded identifiers; an operator with its own symbol entry must use its reference at every occurrence. Keep symbols with distinct meanings separate, including an operator and its operands. Bind each anchor to the narration explaining that exact symbol, not adjacent text. Each nonempty anchor is an exact, unique narration quotation covering only the words that refer to that element; stop at the end of that reference. Use an empty anchor when the narration does not specifically refer to that element. Keep the base, subscript, superscript and operator independently targetable whenever the narration distinguishes them: x and its index i use separate references, never a single x_i target for a mention of i. List linked symbols by their first spoken mention; unlinked symbols may follow. The fixed renderer shows the complete formula and symbol names and emphasizes a linked element only for its quoted span; nothing stays emphasized between references. Include every authored term discussed in the canonical narration, including all indices, conditions, arguments and operators. Choose this form when a large formula and its definitions teach the passage; do not select by formula count or keyword. Prefer a useful visual over repeating prose; retain the source meaning and conditions.
 - guided-path: items and groups []; supply autoplay and steps: ${GUIDED_PATH_MIN_STEPS} to ${GUIDED_PATH_MAX_STEPS} {label, detail, optional anchor} entries following the explicit path in the lesson. Every label and detail is non-empty.
@@ -223,7 +223,7 @@ Keep one criterion, consistent with the title, for all entries. When several fac
 
 FORMS
 - ${LESSON_SCENE_INDEPENDENT_CONTENT_RULE}
-- Make the layout mirror the logical relations the lesson states: parallel criteria, factors, or options sit side by side in one form (checklist, parts, comparison); only steps the lesson explicitly orders become steps or a sequence. Never chain parallel items as consecutive steps.
+- Make the layout mirror the logical relations the lesson states: parallel criteria, factors, or options sit side by side in one form (checklist, parts, comparison); only actions the lesson explicitly orders become steps. Sequence diagrams show message exchanges between participants. Never chain parallel items as consecutive steps.
 - checklist: concrete questions in labels, details only when they add information. limits: two items meaning "Shows" and "Does not prove", in the lesson language. roles: people as items with a neutral profile. steps: strictly ordered actions, not alternatives; options after a pause become a checklist with the pause in body.
 - comparison, signals, matrix, decision, balance, and beforeafter need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other original forms need at least two items, except number, flowchart, sequence, journey, proportional, and guided-path; diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
 - For hierarchies and networks the title names the common node. Do not use maps, cycles, or timelines for plain lists. beforeafter needs an actual transformation; a mere preference between two behaviours is a comparison with verdicts.
@@ -421,15 +421,17 @@ export async function generateLessonScene(
   // Scenes replace the artifact pipeline, so they run on the provider resolved for this run's
   // visuals (the learner's provider), while scene models come from the live configuration.
   const config = await getResolvedModelConfigForProvider(input.config.artifact.provider);
+  const captioned = input.narration !== undefined;
   // A resumed workflow must generate within the catalog admitted by its saved contract.
   // Spotlight definitions need the owning playback's canonical speech, not raw Markdown anchors.
   const types = (input.allowedSceneTypes ?? GENERATABLE_LESSON_SCENE_TYPES).filter(
     type =>
       GENERATABLE_LESSON_SCENE_TYPES.includes(type) &&
-      (type !== 'formula-spotlight' || input.narration !== undefined)
+      (type !== 'formula-spotlight' || captioned)
   );
   const schema = SceneDraftSchema.extend({
     type: z.enum(input.allowTextFallback ? [...types, 'text'] : types),
+    ...(captioned ? { body: z.literal(''), note: z.literal('') } : {}),
   });
   const { $schema: _dialect, ...outputSchema } = z.toJSONSchema(schema);
   // Malformed output surfaces either as an error or as JSON of the wrong shape; both become
@@ -447,7 +449,7 @@ export async function generateLessonScene(
     prompt: buildScenePrompt(input),
     signal: input.signal,
     slot: 'scene',
-    system: `${sceneSystemPrompt(types)}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
+    system: `${sceneSystemPrompt(types)}${captioned ? '\nCAPTIONED PLAYBACK: body and note must be empty. The narration already supplies prose. Put every necessary condition in the visual labels, groups or data qualifiers.' : ''}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
   }).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
