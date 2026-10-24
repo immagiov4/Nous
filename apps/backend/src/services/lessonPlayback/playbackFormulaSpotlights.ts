@@ -64,13 +64,16 @@ export async function preparePlaybackFormulaSpotlights(input: {
       result.push(saved);
       continue;
     }
+    const occurrenceContext = entry.dictatedRange
+      ? `\n\nThis formula occurrence is read at narration characters [${entry.dictatedRange.start}, ${entry.dictatedRange.end}): ${JSON.stringify(entry.spoken.slice(entry.dictatedRange.start, entry.dictatedRange.end))}. Link that reading and every explanatory reference to its parts in the full narration, including later mentions of the same symbol.`
+      : '';
     const operation = async () => {
       let retryFeedback: string | undefined;
       for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt++) {
         const outcome = await generateLessonScene({
           config: resolveLessonVisualModelConfig(input.config),
           allowedSceneTypes: ['formula-spotlight'],
-          lessonMarkdown: `${entry.formula}\n\n${entry.spoken}${entry.dictatedRange ? `\n\nThis formula occurrence is read at narration characters [${entry.dictatedRange.start}, ${entry.dictatedRange.end}): ${JSON.stringify(entry.spoken.slice(entry.dictatedRange.start, entry.dictatedRange.end))}. Link that reading and every explanatory reference to its parts in the full narration, including later mentions of the same symbol.` : ''}`,
+          lessonMarkdown: `${entry.formula}\n\n${entry.spoken}${occurrenceContext}`,
           narration: entry.spoken,
           formulaAnchorOccurrences: true,
           sectionTitle: '',
