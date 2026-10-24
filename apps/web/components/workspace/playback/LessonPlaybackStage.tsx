@@ -80,6 +80,7 @@ type StageVisual = PlaybackVisual & {
   formulaRange?: PlaybackRange;
   voiceRange?: PlaybackRange;
   referenceFormula?: boolean;
+  staticFormula?: boolean;
 };
 
 function formulaReferenceRange(scene: LessonScene, speech: string): PlaybackRange | undefined {
@@ -759,7 +760,9 @@ function PlaybackPassage({
         if (!entry) return visual;
         matched.add(entry.sourceFormula as string);
         const voiceRange = formulaReferenceRange(entry.scene, block.speech);
-        return { kind: 'scene' as const, scene: entry.scene, voiceRange };
+        return voiceRange
+          ? { kind: 'scene' as const, scene: entry.scene, voiceRange }
+          : { kind: 'markdown' as const, markdown: entry.formula, staticFormula: true };
       });
       return [
         ...original,
@@ -1019,6 +1022,7 @@ function PlaybackPassage({
             content={content}
           >
             {formulaMarkdown &&
+            !visual?.staticFormula &&
             !visualRanges[visualIndex] &&
             selectedScene?.type !== 'formula-spotlight' &&
             !(visual?.kind === 'markdown' && visual.markdown === formulaMarkdown) ? (

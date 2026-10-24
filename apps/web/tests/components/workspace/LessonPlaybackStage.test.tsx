@@ -2257,3 +2257,38 @@ test('selects a saved formula widget on its explicit spoken occurrence after reu
       ?.getAttribute('data-formula-symbol')
   ).toBe('x');
 });
+
+test('uses the large static formula display when saved preparation finds no named parts', () => {
+  const scene = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
+  };
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: '# Tema\n\nIntroduzione.\n\n$$a=b$$\n\nLa relazione resta visibile.',
+    },
+  ];
+  const raw = segmentLessonPlayback(sources).at(-1);
+  if (!raw) throw new Error('The reference passage must exist');
+  const block = {
+    ...raw,
+    prepared: {
+      motion: [],
+      scene,
+      formulaSpotlights: [{ formula: '$$x+y$$', sourceFormula: scene.formula, scene }],
+    },
+  };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={4}
+      time={2}
+    />
+  );
+  expect(container.querySelector('.formula-spotlight')).toBeNull();
+  expect(container.querySelectorAll('.scene-host .katex')).toHaveLength(1);
+  expect(container.querySelector('.scene-host annotation')?.textContent).toBe('x+y');
+  expect(container.querySelector('.caption-page')?.textContent?.trim()).toBe(raw.speech);
+});
