@@ -544,6 +544,7 @@ interface ContextAnswerPanelProps {
   readonly messagesScrollTopOverride?: number;
   readonly currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
   readonly onClose: () => void;
+  readonly onOverlayClose?: () => void;
   readonly onOpenLibraryReference: (reference: LibraryNavigationTarget) => void;
   readonly onSaveConversationNote: (
     target: ContextLessonMutationTarget,
@@ -618,6 +619,7 @@ function ContextAnswerPanelSession({
   messagesScrollTopOverride,
   currentLessonArtifactPayloads = [],
   onClose,
+  onOverlayClose,
   onOpenLibraryReference,
   onSaveConversationNote,
   onUpdateConversationNote,
@@ -1121,8 +1123,9 @@ function ContextAnswerPanelSession({
     document.addEventListener('pointerdown', handlePointerDown, true);
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown, true);
+      onOverlayClose?.();
     };
-  }, [isToolMenuOpen]);
+  }, [isToolMenuOpen, onOverlayClose]);
 
   const handleRejectNoteRequest = (toolCallId: string) => {
     void addToolOutput({
@@ -1802,6 +1805,7 @@ function ContextAnswerPanelSession({
               {noteArtifactPayloads.length > 0 ? (
                 <div className="pt-1">
                   <ChatArtifactRenderer
+                    onOverlayClose={onOverlayClose}
                     artifacts={noteArtifactPayloads}
                     isDarkMode={isDarkMode}
                     regenerationLifecycle={artifactRegenerationLifecycle}
@@ -1865,6 +1869,7 @@ function ContextAnswerPanelSession({
           isDarkMode={isDarkMode}
           isLoading={(isGenerating || isAwaitingArtifactOutput) && artifactPayloads.length === 0}
           openArtifactIdOverride={artifactPreviewIdOverride}
+          onOverlayClose={onOverlayClose}
           portalContainer={artifactPortalContainer}
           regenerationLifecycle={artifactRegenerationLifecycle}
           savedArtifactIds={savedArtifactIds}
@@ -2144,6 +2149,7 @@ function ContextAnswerPanelSession({
 
             {replacementDraftPayloads.length > 0 ? (
               <ChatArtifactRenderer
+                onOverlayClose={onOverlayClose}
                 artifacts={replacementDraftPayloads}
                 savedArtifactIds={savedArtifactIds}
                 isDarkMode={isDarkMode}
