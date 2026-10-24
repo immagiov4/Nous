@@ -3,15 +3,19 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { alignedWordTimes, narrationWords } from '@shared/playbackWordTiming';
+import { trimRecordingSilence } from './alignmentEnergy.js';
+import { alignmentLanguage } from './alignmentLanguage.js';
 
 /** Runs the unmodified aeneas CLI outside the backend process; all intermediates use /tmp. */
 export async function alignRecording(input: {
   bytes: Uint8Array;
   speech: string;
   durationSeconds: number;
+  language: string;
   signal: AbortSignal;
 }) {
   input.signal.throwIfAborted();
+  const language = alignmentLanguage(input.language);
   const directory = await mkdtemp(join(tmpdir(), 'nous-alignment-'));
   try {
     const audio = join(directory, 'audio.mp3');
@@ -21,9 +25,15 @@ export async function alignRecording(input: {
       writeFile(audio, input.bytes),
       writeFile(
         text,
-        narrationWords(input.speech)
-          .map(word => word.text)
-          .join('\n')
+        Array.from(
+          new Intl.Segmenter(language, { granularity: 'sentence' }).segment(
+            narrationWords(input.speech)
+              .map(word => word.text)
+              .join(' ')
+          ),
+          // Explicit clause boundaries constrain word alignment across audible pauses too.
+          sentence => sentence.segment.trim().replaceAll(/([,;:])\s+/gu, '$1\n')
+        ).join('\n')
       ),
     ]);
     await new Promise<void>((resolve, reject) => {
@@ -34,9 +44,8 @@ export async function alignRecording(input: {
           'aeneas.tools.execute_task',
           audio,
           text,
-          'task_language=ita|is_text_type=plain|os_task_file_format=json',
+          `task_language=${language}|is_text_type=mplain|os_task_file_format=json|os_task_file_levels=3`,
           output,
-          '--presets-word',
         ],
         { signal: input.signal, windowsHide: true, stdio: 'ignore' }
       );
@@ -60,19 +69,32 @@ export async function alignRecording(input: {
     )
       throw new Error('Invalid alignment output.');
     const words = narrationWords(input.speech);
-    const onsets = result.fragments.map((fragment: unknown, index: number) => {
+    const fragments = result.fragments.map((fragment: unknown, index: number) => {
       if (
         !fragment ||
         typeof fragment !== 'object' ||
         !('begin' in fragment) ||
+        !('end' in fragment) ||
         !('lines' in fragment) ||
         !Array.isArray(fragment.lines) ||
         fragment.lines.length !== 1 ||
         fragment.lines[0] !== words[index]?.text
       )
         throw new Error('Alignment does not match canonical narration.');
-      return Number(fragment.begin);
+      const begin = Number(fragment.begin);
+      const end = Number(fragment.end);
+      if (!Number.isFinite(end) || end < begin) throw new Error('Invalid alignment word end.');
+      return { begin, end };
     });
+    if (
+      !alignedWordTimes(input.speech, input.durationSeconds, {
+        status: 'aligned',
+        onsets: fragments.map(fragment => fragment.begin),
+      })
+    )
+      throw new Error('Invalid recording word onsets.');
+    const onsets = await trimRecordingSilence(input.bytes, fragments);
+    input.signal.throwIfAborted();
     const alignment = { status: 'aligned' as const, onsets };
     if (!alignedWordTimes(input.speech, input.durationSeconds, alignment))
       throw new Error('Invalid recording word onsets.');

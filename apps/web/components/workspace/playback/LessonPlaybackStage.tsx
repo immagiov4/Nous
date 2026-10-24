@@ -14,6 +14,7 @@ import {
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
+import { createPassageFallbackScene } from '@shared/lessonSceneFallback';
 import { alignedWordTimes, type PlaybackWordAlignment } from '@shared/playbackWordTiming';
 import { Fragment, type RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
@@ -42,10 +43,12 @@ import {
   captionAnchorSpan,
   captionAnchorTimes,
   captionMotionEvents,
+  captionRangeSpan,
   motionStates,
   sceneCaptionAnchors,
   sceneElements,
   type TimedMotionEvent,
+  visualSpeechRange,
 } from './stageMotion.ts';
 import './stage.css';
 
@@ -71,7 +74,7 @@ function hasMissingMotionTargets(
 }
 
 function captionTag(word: CaptionWord) {
-  if (word.code) return 'code';
+  if (word.code && !word.mathHtml) return 'code';
   return word.bold ? 'strong' : 'span';
 }
 
@@ -85,7 +88,7 @@ function formulaCueTiming(scene: FormulaSpotlightData, speech: string, current: 
       speechRanges: current.speechRanges,
       runs: current.runs,
       width: current.width,
-      feather: current.feather,
+      feather: 0,
       duration: current.bodyDuration,
       startOffset: current.headingDuration,
       aligned: current.aligned,
@@ -100,11 +103,7 @@ function canRetainPresentedCues(
   current: CaptionClock,
   previous: CaptionClock | null
 ): previous is CaptionClock {
-  return (
-    previous !== null &&
-    previous.aligned !== current.aligned &&
-    previous.seekRevision === current.seekRevision
-  );
+  return previous !== null && previous.seekRevision === current.seekRevision;
 }
 
 function retainPresentedCues(
@@ -140,6 +139,7 @@ function PlaybackScene({
   const readAnimationFrame = useMemo<ReadSceneAnimationFrame | undefined>(() => {
     if (!isAnimatedLessonScene(scene) && scene.type !== 'formula-spotlight') return undefined;
     const anchors = sceneCaptionAnchors(scene, block.speech);
+    // Voice cues exclude both caption look-ahead and its graphical reveal feather.
     let previousClock: CaptionClock | null = null;
     let times: number[] | undefined;
     let ends: number[] | undefined;
@@ -157,7 +157,7 @@ function PlaybackScene({
               speechRanges: current.speechRanges,
               runs: current.runs,
               width: current.width,
-              feather: current.feather,
+              feather: 0,
               duration: current.bodyDuration,
               startOffset: current.headingDuration,
               aligned: current.aligned,
@@ -212,7 +212,7 @@ function PlaybackScene({
           speechRanges: current.speechRanges,
           runs: current.runs,
           width: current.width,
-          feather: current.feather,
+          feather: 0,
           duration: current.bodyDuration,
           startOffset: current.headingDuration,
           aligned: current.aligned,
@@ -427,6 +427,9 @@ function PlaybackPassage({
       throw new Error('Playback stage must be mounted');
     // Measure before scaling: transforms must not feed back into the natural dimensions.
     const fitScene = () => {
+      // Classify the presented visual, including aligned cards and asynchronously mounted scenes.
+      const formulas = card.querySelectorAll('.katex:not(.spotlight-symbol .katex)');
+      card.classList.toggle('lesson-player-formula', formulas.length === 1);
       const layout = getComputedStyle(stage);
       const verticalPadding =
         (Number.parseFloat(layout.paddingTop) || 0) +
@@ -593,7 +596,19 @@ function PlaybackPassage({
 
   const visualCandidates = useMemo(() => {
     const formulas = getPlaybackFormulaMarkdown(block, sources);
-    const projected = playbackNonProseVisuals(block);
+    const cards = block.visuals.filter(
+      visual =>
+        visual.kind === 'markdown' && block.spans.some(span => span.math === visual.markdown)
+    );
+    const projected = (
+      cards.length > 1 && cards.length === block.visuals.length && !block.prepared?.scene
+        ? cards
+        : playbackNonProseVisuals(block)
+    ).filter(
+      visual =>
+        visual.kind !== 'generated-visual' ||
+        content.activeSectionGeneratedVisualsById?.[visual.visualId]
+    );
     const scene = block.prepared?.scene;
     if (
       scene?.type === 'formula-spotlight' &&
@@ -620,7 +635,9 @@ function PlaybackPassage({
       return [{ kind: 'markdown' as const, markdown: formulas }];
     if (block.prepared?.scene) return [{ kind: 'scene' as const, scene: block.prepared.scene }];
     if (formulas) return [{ kind: 'markdown' as const, markdown: formulas }];
-    return [];
+    return [
+      { kind: 'scene' as const, scene: createPassageFallbackScene(block.speech, block.heading) },
+    ];
   }, [block, sources, content.activeSectionGeneratedVisualsById]);
   const visualProjection = JSON.stringify(visualCandidates, (_key, value: unknown) =>
     value && typeof value === 'object' && !Array.isArray(value)
@@ -652,8 +669,26 @@ function PlaybackPassage({
       }),
     [visuals, content.activeSectionGeneratedVisualsById, block.speech]
   );
-  // Select against the new caption clock before painting or running retired scene frames.
-
+  const visualRangeProjection = JSON.stringify(
+    visualCandidates.map((visual, index) =>
+      visualSpeechRange(
+        block,
+        visual,
+        visualCandidates
+          .slice(0, index)
+          .filter(
+            previous =>
+              previous.kind === 'markdown' &&
+              visual.kind === 'markdown' &&
+              previous.markdown === visual.markdown
+          ).length
+      )
+    )
+  );
+  const visualRanges = useMemo(
+    () => JSON.parse(visualRangeProjection) as (PlaybackRange | null)[],
+    [visualRangeProjection]
+  );
   useLayoutEffect(() => {
     if (!visuals.length) return;
     let previousClock: CaptionClock | null = null;
@@ -662,24 +697,29 @@ function PlaybackPassage({
     let frame = 0;
     const tick = () => {
       const current = clock.current;
-      if (current && (current.width || !visualReferences.some(reference => reference.anchors))) {
+      if (
+        current &&
+        (current.width ||
+          !(visualReferences.some(reference => reference.anchors) || visualRanges.some(Boolean)))
+      ) {
         if (current !== previousClock) {
           const previousSpans = spans;
-          spans = visualReferences.map(({ anchors: quotation }) =>
-            quotation
-              ? captionAnchorSpan({
-                  anchors: quotation,
-                  speech: block.speech,
-                  speechRanges: current.speechRanges,
-                  runs: current.runs,
-                  width: current.width,
-                  feather: current.feather,
-                  duration: current.bodyDuration,
-                  startOffset: current.headingDuration,
-                  aligned: current.aligned,
-                })
-              : undefined
-          );
+          spans = visualReferences.map(({ anchors: quotation }, index) => {
+            const timing = {
+              speech: block.speech,
+              speechRanges: current.speechRanges,
+              runs: current.runs,
+              width: current.width,
+              feather: 0,
+              duration: current.bodyDuration,
+              startOffset: current.headingDuration,
+              aligned: current.aligned,
+            };
+            const range = visualRanges[index];
+            if (range) return captionRangeSpan({ ...timing, range });
+            if (!quotation) return undefined;
+            return captionAnchorSpan({ ...timing, anchors: quotation, speech: block.speech });
+          });
           if (canRetainPresentedCues(current, previousClock)) {
             const heardMs = current.read().blockTime * 1000;
             spans = spans.map((span, index) => {
@@ -694,15 +734,19 @@ function PlaybackPassage({
           previousClock = current;
         }
         const { blockTime } = current.read();
-        let active = -1;
+        let active = 0;
         let latestStart = Number.NEGATIVE_INFINITY;
+        let earliestStart = Number.POSITIVE_INFINITY;
         spans.forEach((span, index) => {
           const start = span ? span.startMs / 1000 : (duration * index) / visuals.length;
+          if (latestStart === Number.NEGATIVE_INFINITY && start < earliestStart) {
+            earliestStart = start;
+            active = index;
+          }
           // A later start replaces the earlier scene permanently, even if it ends first.
           if (start <= blockTime && start >= latestStart) {
             latestStart = start;
-            const end = span ? span.endMs / 1000 : (duration * (index + 1)) / visuals.length;
-            active = blockTime <= end ? index : -1;
+            active = index;
           }
         });
         if (active !== previousActive) {
@@ -718,10 +762,16 @@ function PlaybackPassage({
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, [visualReferences, block.id, block.speech, duration, visuals]);
-  const visualIndex = selection?.blockId === block.id ? selection.index : -1;
-
+  }, [visualReferences, block.id, block.speech, duration, visuals, visualRanges]);
+  const visualIndex = selection?.blockId === block.id ? selection.index : 0;
   const visual = visuals[visualIndex];
+  const selectedStored =
+    visual?.kind === 'generated-visual'
+      ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
+      : undefined;
+  let selectedScene: LessonScene | null = null;
+  if (visual?.kind === 'scene') selectedScene = visual.scene;
+  else if (selectedStored) selectedScene = getStoredLessonVisualScene(selectedStored);
   const formulaMarkdown = useMemo(
     () => getPlaybackFormulaMarkdown(block, sources),
     [block, sources]
@@ -750,7 +800,17 @@ function PlaybackPassage({
                 <Fragment key={`${index}:${word.text}`}>
                   {word.breakBefore && index > 0 ? <br /> : null}
                   <span className="caption-word">
-                    <Tag>{(word.breakBefore ? `${word.marker} ` : '') + word.text}</Tag>
+                    <Tag>
+                      {word.breakBefore ? `${word.marker} ` : ''}
+                      {word.mathHtml ? (
+                        <span
+                          // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders validated notation with trust disabled.
+                          dangerouslySetInnerHTML={{ __html: word.mathHtml }}
+                        />
+                      ) : (
+                        word.text
+                      )}
+                    </Tag>
                   </span>{' '}
                 </Fragment>
               );
@@ -764,7 +824,8 @@ function PlaybackPassage({
             aria-label={t('Visualizzazione della lezione')}
           >
             {formulaMarkdown &&
-            !(visual?.kind === 'scene' && visual.scene.type === 'formula-spotlight') &&
+            !visualRanges[visualIndex] &&
+            selectedScene?.type !== 'formula-spotlight' &&
             !(visual?.kind === 'markdown' && visual.markdown === formulaMarkdown) ? (
               <MarkdownRenderer content={formulaMarkdown} isDarkMode={content.isDarkMode} />
             ) : null}

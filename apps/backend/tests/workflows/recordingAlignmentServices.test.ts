@@ -36,6 +36,7 @@ function fixture() {
     revision: 1,
     incarnationId: target.incarnationId,
   };
+  project.snapshot.userProfile = { language: 'English' };
   mocks.load.mockResolvedValue(project);
   const alignment = { status: 'aligned' as const, onsets: [0.1, 0.8] };
   mocks.align.mockResolvedValue(alignment);
@@ -71,6 +72,7 @@ test('aligns the authorized stored recording against its canonical narration', a
     mediaType: 'audio/mpeg',
     speech: resolvePlaybackNarration(f.block).speech,
     durationSeconds: 2,
+    language: 'English',
     signal: f.controller.signal,
   });
 });

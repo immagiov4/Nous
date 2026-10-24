@@ -130,7 +130,7 @@ test('plans the same scene motion while its icon selection is still pending', as
   expect((await preparation).prepared).toEqual({ scene, motion: events });
 });
 
-test('binds early motion to its scene when icon failure forces scene generation again', async () => {
+test('keeps the committed source visual without reusing discarded scene motion after icon failure', async () => {
   const recorded = new Map<string, unknown>();
   const providerEffect: WorkflowProviderEffectExecutor = {
     run: async ({ key, operation, outputSchema }) => {
@@ -138,24 +138,17 @@ test('binds early motion to its scene when icon failure forces scene generation 
       return outputSchema.parse(recorded.get(key));
     },
   };
-  const nextScene = { ...scene, title: 'Componenti', items: [...scene.items].reverse() };
-  const nextEvents = [{ effect: 'reveal' as const, targets: ['item:1'], quote: 'interazioni.' }];
   sceneGeneration.mockImplementationOnce(async request => {
     request.onValidatedScene?.(scene);
     await vi.waitFor(() => expect(motion).toHaveBeenCalledOnce());
     throw new Error('Icons unavailable');
   });
-  sceneGeneration.mockImplementationOnce(async request => {
-    request.onValidatedScene?.(nextScene);
-    return { kind: 'scene', scene: nextScene };
-  });
-  motion.mockResolvedValueOnce(events).mockResolvedValueOnce(nextEvents);
   const request = { ...input(), providerEffect };
-  await expect(prepareLessonPlaybackBlock(request)).rejects.toThrow('Icons unavailable');
-  await expect(prepareLessonPlaybackBlock(request)).resolves.toMatchObject({
-    prepared: { scene: nextScene, motion: nextEvents },
-  });
-  expect(motion).toHaveBeenCalledTimes(2);
+  const expected = { scene: { type: 'quote', quote: request.block.speech }, motion: [] };
+  await expect(prepareLessonPlaybackBlock(request)).resolves.toMatchObject({ prepared: expected });
+  await expect(prepareLessonPlaybackBlock(request)).resolves.toMatchObject({ prepared: expected });
+  expect(sceneGeneration).toHaveBeenCalledOnce();
+  expect(motion).toHaveBeenCalledOnce();
 });
 
 test('uses the committed scene motion when a competing attempt wins the scene checkpoint', async () => {
@@ -231,7 +224,7 @@ test('resumes recorded scene and motion after an audio failure without repeating
   expect(audio).toHaveBeenCalledTimes(2);
 });
 
-test('waits for audio still in flight before a scene failure propagates', async () => {
+test('waits for audio still in flight when scene failure uses a source visual', async () => {
   let finishAudio!: (value: typeof preparedAudio) => void;
   audio.mockReturnValue(
     new Promise(resolve => {
@@ -247,7 +240,10 @@ test('waits for audio still in flight before a scene failure propagates', async 
   await Promise.resolve();
   expect(settled).toBe(false);
   finishAudio(preparedAudio);
-  await expect(preparation).rejects.toThrow('Scene unavailable');
+  await expect(preparation).resolves.toMatchObject({
+    prepared: { scene: { type: 'quote' }, motion: [] },
+    audio: preparedAudio,
+  });
 });
 
 test('keeps a paid scene when motion fails before it can be recorded', async () => {
@@ -368,15 +364,17 @@ test('reuses prepared visuals and motion when preparing another voice', async ()
   });
 });
 
-test('continues after exactly three invalid scene attempts and propagates operational errors immediately', async () => {
+test('uses a source visual after three invalid attempts or an immediate operational failure', async () => {
   sceneGeneration.mockResolvedValue({ kind: 'invalid', problems: ['Invalid quotation.'] });
-  await expect(prepareLessonPlaybackBlock(input())).resolves.toMatchObject({
-    prepared: { motion: [] },
-    audio: preparedAudio,
+  const failure = await prepareLessonPlaybackBlock(input()).catch(error => toStepFailure(error));
+  expect(failure).toMatchObject({
+    prepared: { scene: { type: 'quote', quote: input().block.speech }, motion: [] },
   });
   expect(sceneGeneration).toHaveBeenCalledTimes(3);
   sceneGeneration.mockReset().mockRejectedValue(new Error('Provider unavailable'));
-  await expect(prepareLessonPlaybackBlock(input())).rejects.toThrow('Provider unavailable');
+  await expect(prepareLessonPlaybackBlock(input())).resolves.toMatchObject({
+    prepared: { scene: { type: 'quote' }, motion: [] },
+  });
   expect(sceneGeneration).toHaveBeenCalledTimes(1);
 });
 
@@ -474,33 +472,22 @@ test.each([
   expect(motion).not.toHaveBeenCalled();
 });
 
-test('logs final bounded scene diagnostics while continuing playback', async () => {
+test('keeps source visuals and bounded diagnostics after scene validation failure', async () => {
+  const diagnostic = { type: 'Error', originalMessage: 'Malformed scene.' };
   const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
-  const diagnostic = {
-    type: 'Error',
-    originalMessage: JSON.stringify({
-      outputPath: 'json-envelope',
-      stage: 'schema',
-      problems: [{ code: 'invalid_type', path: ['items', 0, 'parent'] }],
-    }),
-  };
   sceneGeneration.mockResolvedValue({
     kind: 'invalid',
     problems: ['Malformed scene.'],
     diagnostic,
   });
-  try {
-    await expect(prepareLessonPlaybackBlock(input())).resolves.toMatchObject({
-      prepared: { motion: [] },
-      audio: preparedAudio,
-    });
-    expect(warning).toHaveBeenCalledWith(expect.any(String), {
-      diagnostic,
-      retryFeedback: 'Malformed scene.',
-    });
-  } finally {
-    warning.mockRestore();
-  }
+  await expect(prepareLessonPlaybackBlock(input())).resolves.toMatchObject({
+    prepared: { scene: { type: 'quote', quote: input().block.speech }, motion: [] },
+  });
+  expect(sceneGeneration).toHaveBeenCalledTimes(3);
+  expect(warning).toHaveBeenCalledWith(expect.any(String), {
+    diagnostic,
+    retryFeedback: 'Malformed scene.',
+  });
 });
 
 import { getPlaybackFormulaMarkdown, getPlaybackMathMarkdown } from '@shared/lessonPlayback';
@@ -525,14 +512,10 @@ test('preparation asks the model to choose a form for the complete math passage'
     expect.objectContaining({
       lessonMarkdown: expect.stringContaining(String.raw`p_\theta(y\mid x)`),
       narration: resolvePlaybackNarration(mathBlock, spokenMath).speech,
-      allowTextFallback: true,
     })
   );
   expect(motion).not.toHaveBeenCalled();
-  sceneGeneration.mockResolvedValue({ kind: 'text' });
-  expect(await prepareLessonPlaybackBlock({ ...input(), block: mathBlock })).toMatchObject({
-    prepared: { motion: [] },
-  });
+  expect(sceneGeneration.mock.calls[0][0].allowTextFallback).toBe(true);
 });
 
 test('code containing math syntax retains its authored visual', async () => {
@@ -770,6 +753,32 @@ test('classifies a final fenced introduction using the previous narrated passage
   );
 });
 
+test.each([
+  'invalid',
+  'unavailable',
+])('keeps audio usable with a source visual when scene generation is %s', async failure => {
+  if (failure === 'invalid')
+    sceneGeneration.mockResolvedValue({ kind: 'invalid', problems: ['Invalid evidence'] });
+  else sceneGeneration.mockRejectedValue(new Error('Provider unavailable'));
+  const request = input();
+  const result = await prepareLessonPlaybackBlock(request);
+  expect(result.prepared.scene).toMatchObject({ type: 'quote', quote: request.block.speech });
+  expect(result.prepared.motion).toEqual([]);
+  expect(result.audio).toEqual(preparedAudio);
+  expect(motion).not.toHaveBeenCalled();
+});
+
+test('propagates cancellation during scene generation instead of committing a fallback', async () => {
+  const controller = new AbortController();
+  const reason = new Error('Preparation cancelled');
+  sceneGeneration.mockImplementationOnce(async () => {
+    controller.abort(reason);
+    throw new Error('Provider interrupted');
+  });
+  await expect(prepareLessonPlaybackBlock({ ...input(), signal: controller.signal })).rejects.toBe(
+    reason
+  );
+});
 test('uses sourced mathematics when corrective scene attempts cannot produce valid symbol links', async () => {
   const sources = [
     {

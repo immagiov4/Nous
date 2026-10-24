@@ -3,9 +3,12 @@
 import assert from 'node:assert/strict';
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { LessonPlaybackResponseSchema } from '@shared/lessonPlaybackSchema';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import SignalsmithStretch from 'signalsmith-stretch';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import LessonPlaybackStage from '../../../components/workspace/playback/LessonPlaybackStage.tsx';
+import type { WorkspaceReaderContentModel } from '../../../components/workspace/shell/types.ts';
 import { useLessonPlayback } from '../../../hooks/reader/useLessonPlayback.ts';
 import {
   getLessonPlayback,
@@ -230,5 +233,66 @@ test.each([
   await act(async () => result.current.play());
   await waitFor(() => expect(result.current.playing).toBe(true));
   expect(result.current.failed).toBe(false);
+  unmount();
+});
+
+test.each([
+  false,
+  true,
+])('mounts the real playback hook and stage before starting audio (StrictMode: %s)', async strict => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    }
+  );
+  const projectId = `stage-audio-boundary-${++sequence}`;
+  function Player() {
+    const playback = useLessonPlayback({
+      projectId,
+      sectionId: 'lesson',
+      voice: 'Kore',
+      speed: 1,
+      initialBlocks: blocks,
+    });
+    return (
+      <>
+        <button type="button" onClick={() => void playback.play()}>
+          Start lesson
+        </button>
+        <output data-testid="transport">{`${playback.playing}:${playback.time}`}</output>
+        <LessonPlaybackStage
+          block={playback.blocks[playback.index]}
+          content={
+            {
+              isDarkMode: false,
+              sectionContentBlocks: [{ type: 'markdown', markdown: 'A local audio sample.' }],
+            } as WorkspaceReaderContentModel
+          }
+          time={playback.time}
+          duration={playback.duration}
+          readTime={playback.readTime}
+        />
+      </>
+    );
+  }
+  const { container, unmount } = render(
+    strict ? (
+      <StrictMode>
+        <Player />
+      </StrictMode>
+    ) : (
+      <Player />
+    )
+  );
+  expect(container.querySelector('.scene')).toHaveTextContent('A local audio sample.');
+  expect(screen.getByTestId('transport')).toHaveTextContent('false:0');
+  fireEvent.click(screen.getByRole('button', { name: 'Start lesson' }));
+  await waitFor(() => expect(screen.getByTestId('transport')).toHaveTextContent('true:0'));
+  contexts[0].currentTime = 2;
+  act(() => nodes[0].port.onmessage({ data: ['time', 2] }));
+  expect(screen.getByTestId('transport')).toHaveTextContent('true:2');
+  expect(container.querySelector('.captions')).toHaveTextContent('A local audio sample.');
   unmount();
 });

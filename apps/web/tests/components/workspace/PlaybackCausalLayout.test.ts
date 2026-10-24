@@ -28,6 +28,91 @@ afterAll(async () => {
   await server?.close();
 });
 
+const formulaViewports = [
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+];
+for (const viewport of formulaViewports) {
+  test.each([
+    'plain',
+    'inline',
+    'inherited',
+    'cards',
+    'aligned',
+    'fallback',
+    'scene',
+    'wide-scene',
+    'stored',
+  ])(`uses the existing large formula geometry for %s at ${viewport.width}px`, async formulaPath => {
+    const page = await browser.newPage({ viewport });
+    try {
+      await page.goto(
+        `${baseUrl}tests/fixtures/playbackLayout.html?formulas=1&formulaPath=${formulaPath}`
+      );
+      const formula = page.locator('.scene-host .katex:not(.spotlight-symbol .katex)');
+      await formula.waitFor();
+      await page.waitForFunction(() =>
+        document.querySelector('.scene-host')?.classList.contains('lesson-player-formula')
+      );
+      expect(await page.locator('.scene-host .katex-error').count()).toBe(0);
+      expect(await page.locator('.scene-host').innerText()).not.toMatch(/\\(?:mathbf|omega)/);
+      const size = await formula.evaluate(formula => {
+        const actual = formula.getBoundingClientRect();
+        const reference = formula.cloneNode(true) as HTMLElement;
+        reference.style.fontSize = getComputedStyle(formula).getPropertyValue('--symbol-size');
+        formula.after(reference);
+        const expected = reference.getBoundingClientRect();
+        reference.remove();
+        return {
+          width: actual.width,
+          height: actual.height,
+          expectedWidth: expected.width,
+          expectedHeight: expected.height,
+        };
+      });
+      expect(Math.round(size.width)).toBeGreaterThanOrEqual(Math.round(size.expectedWidth));
+      expect(Math.round(size.height)).toBeGreaterThanOrEqual(Math.round(size.expectedHeight));
+      const bounds = await formula.locator('.katex-html').evaluate(glyph => {
+        const host = glyph.closest('.scene-host');
+        if (!host) throw new Error('Formula must belong to the visual area');
+        const actual = glyph.getBoundingClientRect();
+        const available = host.getBoundingClientRect();
+        return {
+          left: actual.left,
+          right: actual.right,
+          hostLeft: available.left,
+          hostRight: available.right,
+        };
+      });
+      expect(Math.round(bounds.left)).toBeGreaterThanOrEqual(Math.round(bounds.hostLeft));
+      expect(Math.round(bounds.right)).toBeLessThanOrEqual(Math.round(bounds.hostRight));
+    } finally {
+      await page.close();
+    }
+  });
+}
+
+test('retains the three-formula list and proportional explanation text', async () => {
+  const page = await browser.newPage();
+  try {
+    for (const viewport of formulaViewports) {
+      await page.setViewportSize(viewport);
+      await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?formulas=3`);
+      await page.locator('.type-parts .concept p').first().waitFor();
+      expect(await page.locator('.scene-host .katex').count()).toBe(3);
+      expect(await page.locator('.scene-host .type-parts .concept').count()).toBe(3);
+      const fonts = await page
+        .locator('.type-parts .concept p')
+        .evaluateAll(paragraphs =>
+          paragraphs.map(paragraph => getComputedStyle(paragraph).fontFamily)
+        );
+      expect(fonts.every(font => !font.includes('monospace'))).toBe(true);
+    }
+  } finally {
+    await page.close();
+  }
+});
+
 test('paints each new caption with its ready scene and retires the previous motion clock', async () => {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors: string[] = [];
@@ -141,6 +226,124 @@ async function expectConnectedCards(page: Page) {
     });
   });
 }
+
+test('finishes voice cue fades at word start while captions retain their 1.3 second lead', async () => {
+  const page = await browser.newPage({
+    viewport: { width: 1440, height: 900 },
+    reducedMotion: 'no-preference',
+  });
+  try {
+    await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html`);
+    await page.locator('[data-motion-id]').first().waitFor({ state: 'attached' });
+    const result = await page.evaluate(async () => {
+      const controls = window as unknown as { setPlaybackTime: (time: number) => void };
+      const frame = () => new Promise(requestAnimationFrame);
+      const words = [...document.querySelectorAll<HTMLElement>('.caption-word')];
+      const reveal = document.querySelector<HTMLElement>('[data-motion-id="item:0"]');
+      const focus = document.querySelector<HTMLElement>('[data-motion-id="item:1"]');
+      const paragraph = document.querySelector<HTMLElement>('.caption-page');
+      if (!reveal || !focus || !paragraph) throw new Error('Playback cue targets must exist');
+      controls.setPlaybackTime(1);
+      await frame();
+      await frame();
+      const width = words.reduce((sum, word) => sum + word.getBoundingClientRect().width, 0);
+      const feather = Number.parseFloat(
+        getComputedStyle(paragraph).getPropertyValue('--caption-feather')
+      );
+      const captionEdge = Number.parseFloat(words[1].style.getPropertyValue('--reveal-edge'));
+      const before = {
+        opacity: Number(getComputedStyle(reveal).opacity),
+        emphasis: Number(focus.style.getPropertyValue('--motion-emphasis')),
+      };
+      controls.setPlaybackTime(1.65);
+      await frame();
+      await frame();
+      const duringFade = {
+        opacity: Number(getComputedStyle(reveal).opacity),
+        emphasis: Number(focus.style.getPropertyValue('--motion-emphasis')),
+      };
+      controls.setPlaybackTime(2);
+      await frame();
+      await frame();
+      return {
+        before,
+        duringFade,
+        atWordStart: {
+          opacity: Number(getComputedStyle(reveal).opacity),
+          emphasis: Number(focus.style.getPropertyValue('--motion-emphasis')),
+        },
+        captionLead:
+          ((captionEdge + words[0].getBoundingClientRect().width) / (width + feather)) * 6 - 1,
+      };
+    });
+    expect(result.before).toEqual({ opacity: 0, emphasis: 0 });
+    expect(result.duringFade.opacity).toBeCloseTo(0.5);
+    expect(result.duringFade.emphasis).toBeGreaterThan(0);
+    expect(result.duringFade.emphasis).toBeLessThan(1);
+    expect(result.atWordStart).toEqual({ opacity: 1, emphasis: 1 });
+    expect(result.captionLead).toBeCloseTo(1.3);
+    for (const mode of ['path', 'formula']) {
+      await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=${mode}`);
+      await page.locator('.scene').waitFor({ state: 'attached' });
+      const state = await page.evaluate(async () => {
+        const controls = window as unknown as { setPlaybackTime: (time: number) => void };
+        const frame = () => new Promise(requestAnimationFrame);
+        controls.setPlaybackTime(1.99);
+        await frame();
+        await frame();
+        const before = {
+          step: document.querySelector('[data-stop="1"]')?.classList.contains('current') ?? false,
+          symbol:
+            document.querySelector('[data-formula-symbol]')?.getAttribute('data-active') === 'true',
+        };
+        controls.setPlaybackTime(2);
+        await frame();
+        await frame();
+        const stop = document.querySelector<HTMLElement>('[data-stop="1"]');
+        return {
+          before,
+          step: stop?.classList.contains('current') ?? false,
+          transition: stop ? getComputedStyle(stop).transitionDuration : null,
+          symbol:
+            document.querySelector('[data-formula-symbol]')?.getAttribute('data-active') === 'true',
+          definitionVisible: document.querySelector('dd')?.hidden === false,
+        };
+      });
+      if (mode === 'path') {
+        expect(state.before.step).toBe(false);
+        expect(state.step).toBe(true);
+        expect(state.transition?.split(',').some(duration => duration.trim() === '0.3s')).toBe(
+          true
+        );
+      } else {
+        expect(state.before.symbol).toBe(false);
+        expect(state.symbol).toBe(true);
+        expect(state.definitionVisible).toBe(true);
+      }
+    }
+    await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=cards`);
+    await page.locator('.scene-host annotation').waitFor({ state: 'attached' });
+    const cards = await page.evaluate(async () => {
+      const controls = window as unknown as { setPlaybackTime: (time: number) => void };
+      const selected: (string | null | undefined)[] = [];
+      for (const time of [1.99, 2.01, 7.99, 8.01, 2.01]) {
+        controls.setPlaybackTime(time);
+        await new Promise(requestAnimationFrame);
+        await new Promise(requestAnimationFrame);
+        selected.push(document.querySelector('.scene-host annotation')?.textContent);
+      }
+      return selected;
+    });
+    expect(cards).toEqual(['a', 'b', 'b', 'a', 'b']);
+    await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=fallback`);
+    await page.locator('.scene').waitFor({ state: 'attached' });
+    expect(
+      await page.locator('.scene').evaluate(element => getComputedStyle(element).animationDuration)
+    ).toBe('0.18s');
+  } finally {
+    await page.close();
+  }
+});
 
 for (const viewport of [
   { width: 1440, height: 900 },

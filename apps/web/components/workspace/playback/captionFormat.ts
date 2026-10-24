@@ -1,3 +1,4 @@
+import { renderSpotlightSymbol } from '@shared/formulaSpotlight';
 import type {
   LessonPlaybackBlock,
   PlaybackContentBlock,
@@ -9,6 +10,7 @@ const CAPTION_HIDDEN_TAG_CHARACTER = '\0';
 
 export interface CaptionWord {
   text: string;
+  mathHtml?: string;
   bold: boolean;
   code: boolean;
   list: boolean;
@@ -124,6 +126,16 @@ function consumeCaptionDelimiter(part: string, state: CaptionStyle) {
   return false;
 }
 
+function captionCodeMath(code: string): string | undefined {
+  if (!/^\s*\\[A-Za-z]+/u.test(code)) return undefined;
+  try {
+    return renderSpotlightSymbol(code);
+  } catch {
+    // Invalid notation remains literal authored code.
+    return undefined;
+  }
+}
+
 function appendCaptionLine({
   line,
   lineStart,
@@ -155,12 +167,15 @@ function appendCaptionLine({
     }
     const offsets = visibleOffsets(partStart, partStart + part.length);
     const projected = visibleText(partStart, partStart + part.length);
-    for (const match of projected.matchAll(/\S+/g)) {
+    const mathHtml = state.codeDelimiter && captionCodeMath(projected);
+    const tokens = mathHtml ? /\S(?:.*\S)?/g : /\S+/g;
+    for (const match of projected.matchAll(tokens)) {
       const start = offsets[match.index];
       const end = offsets[match.index + match[0].length - 1] + 1;
       const text = match[0];
       words.push({
         text,
+        ...(mathHtml && { mathHtml }),
         bold: state.bold,
         code: Boolean(state.codeDelimiter),
         list: !!list,

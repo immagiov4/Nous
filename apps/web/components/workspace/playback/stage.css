@@ -2204,6 +2204,9 @@
 .lesson-player-stage .scene-host > div {
   width: 100%;
 }
+.lesson-player-stage .lesson-player-formula .katex:not(.spotlight-symbol .katex) {
+  font-size: var(--symbol-size);
+}
 .lesson-player-stage .lesson-player-generated {
   margin: 0;
   padding: 0;
@@ -2264,7 +2267,15 @@
 }
 .lesson-player-stage
   .scene-host
-  :is(.table-wrap, .diagram-scroll, .lesson-code, pre, .katex-display, .overflow-x-auto) {
+  :is(
+    .table-wrap,
+    .diagram-scroll,
+    .lesson-code,
+    pre,
+    .spotlight-formula,
+    .katex-display,
+    .overflow-x-auto
+  ) {
   /* biome-ignore lint/complexity/noImportantStyles: override the Markdown code renderer's inline scrolling style; the complete card is scaled instead. */
   overflow: visible !important;
 }
