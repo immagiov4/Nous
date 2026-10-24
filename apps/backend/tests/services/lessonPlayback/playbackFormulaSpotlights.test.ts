@@ -58,23 +58,23 @@ test.each([
   expect(generate).not.toHaveBeenCalled();
 });
 
-test('prepares separate local symbol links for repeated saved pronunciations and reuses them', async () => {
+test('prepares separate full-passage symbol links for repeated saved pronunciations and reuses them', async () => {
   const input = request();
   const original = structuredClone(input.block);
   expect(needsPlaybackFormulaSpotlights(input.block)).toBe(true);
   const formulaSpotlights = await preparePlaybackFormulaSpotlights(input);
   expect(formulaSpotlights).toEqual(
-    Array.from({ length: 2 }, () => ({ formula: '$x+y$', scene: dictatedFormulaSpotlight }))
-  );
-  expect(
-    generate.mock.calls.map(([input]) => ({
-      source: input.lessonMarkdown,
-      speech: input.narration,
-      types: input.allowedSceneTypes,
+    Array.from({ length: 2 }, () => ({
+      formula: '$x+y$',
+      sourceFormula: '$x+y$',
+      scene: dictatedFormulaSpotlight,
     }))
-  ).toEqual([
-    { source: '$x+y$\n\nics più ipsilon', speech: 'ics più ipsilon', types: ['formula-spotlight'] },
-    { source: '$x+y$\n\nics più ipsilon', speech: 'ics più ipsilon', types: ['formula-spotlight'] },
+  );
+  const narration = 'Prima ics più ipsilon poi ics più ipsilon fine';
+  expect(generate.mock.calls.map(([input]) => input.narration)).toEqual([narration, narration]);
+  expect(generate.mock.calls.map(([input]) => input.allowedSceneTypes)).toEqual([
+    ['formula-spotlight'],
+    ['formula-spotlight'],
   ]);
   expect(input.block).toEqual(original);
   const saved = { ...input.block, prepared: { ...input.block.prepared, formulaSpotlights } };
@@ -145,4 +145,26 @@ test.each([
     formulaSpotlights
   );
   expect(generate).not.toHaveBeenCalled();
+});
+
+test('links a formula reading and explanatory mentions in the same saved passage', async () => {
+  const source = {
+    ...segmentLessonPlayback([
+      { type: 'markdown', markdown: '$x+y$: ics indica il primo valore.' },
+    ])[0],
+    prepared: { motion: [], spokenMath: [{ formula: '$x+y$', spoken: 'ics più ipsilon' }] },
+  };
+  const scene = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({
+      ...symbol,
+      ...(symbol.id === 'x'
+        ? { anchorOccurrence: 0, additionalAnchors: [{ anchor: 'ics', anchorOccurrence: 1 }] }
+        : {}),
+    })),
+  };
+  generate.mockResolvedValue({ kind: 'scene', scene });
+  const formulaSpotlights = await preparePlaybackFormulaSpotlights({ ...request(), block: source });
+  expect(generate.mock.calls[0][0].narration).toBe('ics più ipsilon: ics indica il primo valore.');
+  expect(formulaSpotlights).toEqual([{ formula: '$x+y$', sourceFormula: '$x+y$', scene }]);
 });

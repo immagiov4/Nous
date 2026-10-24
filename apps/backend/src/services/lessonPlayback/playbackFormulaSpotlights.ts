@@ -30,15 +30,28 @@ export async function preparePlaybackFormulaSpotlights(input: {
 }) {
   const result: { formula: string; scene: LessonScene; sourceFormula?: string }[] = [];
   const scenes = playbackFormulaSpotlightScenes(input.block, input.storedVisuals);
-  let entries: { formula: string; spoken: string; sourceFormula?: string }[];
+  let entries: {
+    formula: string;
+    spoken: string;
+    sourceFormula?: string;
+    dictatedRange?: { start: number; end: number };
+  }[];
   if (scenes.length)
     entries = scenes.map(scene => ({
       formula: `$$${getFormulaSpotlightLatex(scene)}$$`,
       spoken: resolvePlaybackNarration(input.block).speech,
       sourceFormula: scene.formula,
     }));
-  else if (input.block.prepared?.spokenMath?.length) entries = [...input.block.prepared.spokenMath];
-  else
+  else if (input.block.prepared?.spokenMath?.length) {
+    const narration = resolvePlaybackNarration(input.block);
+    const ranges = narration.spans.filter(span => span.math);
+    entries = input.block.prepared.spokenMath.map((entry, index) => ({
+      formula: entry.formula,
+      spoken: narration.speech,
+      sourceFormula: entry.formula,
+      dictatedRange: ranges[index].speech,
+    }));
+  } else
     entries = getPlaybackFormulaSources(input.block, input.sources ?? []).map(formula => ({
       formula,
       spoken: resolvePlaybackNarration(input.block).speech,
@@ -57,7 +70,7 @@ export async function preparePlaybackFormulaSpotlights(input: {
         const outcome = await generateLessonScene({
           config: resolveLessonVisualModelConfig(input.config),
           allowedSceneTypes: ['formula-spotlight'],
-          lessonMarkdown: `${entry.formula}\n\n${entry.spoken}`,
+          lessonMarkdown: `${entry.formula}\n\n${entry.spoken}${entry.dictatedRange ? `\n\nThis formula occurrence is read at narration characters [${entry.dictatedRange.start}, ${entry.dictatedRange.end}): ${JSON.stringify(entry.spoken.slice(entry.dictatedRange.start, entry.dictatedRange.end))}. Link that reading and every explanatory reference to its parts in the full narration, including later mentions of the same symbol.` : ''}`,
           narration: entry.spoken,
           formulaAnchorOccurrences: true,
           sectionTitle: '',
@@ -70,7 +83,7 @@ export async function preparePlaybackFormulaSpotlights(input: {
           outcome.kind === 'scene' &&
           outcome.scene.type === 'formula-spotlight' &&
           formulaSpotlightCovers(outcome.scene as FormulaSpotlightData, [entry.formula]) &&
-          (entry.sourceFormula ||
+          ((!entry.dictatedRange && entry.sourceFormula) ||
             (outcome.scene as FormulaSpotlightData).symbols.some(symbol => symbol.anchor))
         ) {
           return { scene: outcome.scene };

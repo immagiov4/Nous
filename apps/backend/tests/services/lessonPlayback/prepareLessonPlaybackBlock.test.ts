@@ -513,7 +513,9 @@ test('prepares occurrence-local highlighting for fresh formula narration when th
   expect(result.prepared).toEqual({
     motion: [],
     spokenMath,
-    formulaSpotlights: [{ formula: '$x+y$', scene: dictatedFormulaSpotlight }],
+    formulaSpotlights: [
+      { formula: '$x+y$', sourceFormula: '$x+y$', scene: dictatedFormulaSpotlight },
+    ],
   });
   expect(audio).toHaveBeenCalledWith(
     expect.objectContaining({ text: 'Prima ics più ipsilon dopo' })
