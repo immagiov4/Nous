@@ -37,6 +37,22 @@ test('keeps heading syntax in authored code inside the same source section', () 
   );
 });
 
+test('keeps an open code fence local to its authored content block', () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: '## Primo tema\n\nPrimo passaggio.\n\n```sh\n# Codice' },
+    {
+      type: 'markdown' as const,
+      markdown: '## Secondo tema\n\nSecondo passaggio.\n\n1. Uno.\n2. Due.',
+    },
+  ];
+  const blocks = segmentLessonPlayback(sources);
+  for (const [index, speech] of ['Primo passaggio.', 'Secondo passaggio.'].entries()) {
+    const block = blocks.find(block => block.speech.includes(speech));
+    if (!block) throw new Error('Missing authored passage.');
+    expect(getPlaybackPassageContext(block, sources)).toBe(sources[index].markdown);
+  }
+});
+
 test('omits media metadata while preserving literal code and source mathematics', () => {
   const sources = [
     {

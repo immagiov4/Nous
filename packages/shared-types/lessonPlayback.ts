@@ -1083,28 +1083,40 @@ export function getPlaybackPassageContext(
   const spans = block.spans.filter(span => span.source.start !== span.source.end);
   if (!spans.length || !sources.length) return undefined;
   const offsets: number[] = [];
+  const analyses: MarkdownAnalysis[] = [];
   let offset = 0;
   const markdown = sources
     .map(source => {
       offsets.push(offset);
       const text = source.type === 'markdown' ? source.markdown : '';
+      analyses.push(analyzeMarkdown(text));
       offset += text.length + '\n\n'.length;
       return text;
     })
     .join('\n\n');
   const start = Math.min(...spans.map(span => offsets[span.sourceBlockIndex] + span.source.start));
   const end = Math.max(...spans.map(span => offsets[span.sourceBlockIndex] + span.source.end));
-  const headings = analyzeMarkdown(markdown).headings;
-  const preceding = headings.filter(heading => heading.start <= start).at(-1);
-  const following = headings.find(heading => heading.start >= end && heading.start > start);
-  const context = markdown.slice(preceding?.start ?? 0, following?.start ?? markdown.length);
-  const analysis = analyzeMarkdown(context);
-  const media = [
-    ...analysis.blocks.filter(range => range.kind === 'omitted'),
-    ...analysis.inlineVisuals.filter(range => !analysis.math.includes(range)),
-  ].sort((left, right) => right.start - left.start);
+  // Markdown fences and rendering controls belong to their authored content block.
+  const headings = analyses.flatMap((analysis, index) =>
+    analysis.headings.map(heading => offsets[index] + heading.start)
+  );
+  const contextStart = headings.filter(heading => heading <= start).at(-1) ?? 0;
+  const contextEnd = headings.find(heading => heading >= end && heading > start) ?? markdown.length;
+  const media = analyses
+    .flatMap((analysis, index) =>
+      [
+        ...analysis.blocks.filter(range => range.kind === 'omitted'),
+        ...analysis.inlineVisuals.filter(range => !analysis.math.includes(range)),
+      ].map(range => ({ start: offsets[index] + range.start, end: offsets[index] + range.end }))
+    )
+    .filter(range => range.start >= contextStart && range.end <= contextEnd)
+    .sort((left, right) => right.start - left.start);
   return media
-    .reduce((text, range) => text.slice(0, range.start) + text.slice(range.end), context)
+    .reduce(
+      (text, range) =>
+        text.slice(0, range.start - contextStart) + text.slice(range.end - contextStart),
+      markdown.slice(contextStart, contextEnd)
+    )
     .trim();
 }
 
