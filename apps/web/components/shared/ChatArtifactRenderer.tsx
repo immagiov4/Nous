@@ -46,6 +46,8 @@ export interface ChatArtifactRegenerationLifecycle {
 
 interface ChatArtifactRendererProps {
   readonly onOverlayClose?: () => void;
+  readonly artifactSourceIds?: ReadonlySet<string>;
+  readonly onOpenArtifactSource?: (artifactId: string) => void;
   readonly actionFeedbackOverride?: ArtifactActionFeedback;
   readonly artifacts: LearningArtifactRenderPayload[];
   readonly className?: string;
@@ -173,9 +175,11 @@ const ArtifactOverlay = ({
   onRegenerateArtifact,
   onReplaceArtifact,
   onSaveArtifact,
+  onOpenArtifactSource,
 }: {
   actionFeedbackOverride?: ArtifactActionFeedback;
   artifact: LearningArtifactRenderPayload;
+  onOpenArtifactSource?: (artifactId: string) => void;
   isDarkMode: boolean;
   onClose: () => void;
   onDiscardArtifact?: (request: ChatArtifactActionRequest) => Promise<void> | void;
@@ -358,6 +362,20 @@ const ArtifactOverlay = ({
           ) : null}
         </div>
 
+        {onOpenArtifactSource ? (
+          <div className="shrink-0 border-t border-stone-200/80 px-4 py-3 dark:border-zinc-700 sm:px-5">
+            <button
+              type="button"
+              className="text-sm text-orange-700 underline dark:text-orange-300"
+              onClick={() => {
+                onClose();
+                onOpenArtifactSource(artifact.summary.id);
+              }}
+            >
+              {t('Vai al passaggio nella lezione')}
+            </button>
+          </div>
+        ) : null}
         {hasActions ? (
           <div className="shrink-0 space-y-3 border-t border-stone-200/80 px-4 py-3 dark:border-zinc-700 sm:px-5">
             {isRegenerationFormOpen ? (
@@ -472,6 +490,7 @@ const ArtifactOverlay = ({
 
 const ChatArtifactRenderer = ({
   onOverlayClose,
+  artifactSourceIds,
   actionFeedbackOverride,
   artifacts,
   className = 'mt-3 grid gap-2 sm:grid-cols-2',
@@ -486,6 +505,7 @@ const ChatArtifactRenderer = ({
   onRemoveArtifact,
   onReplaceArtifact,
   onSaveArtifact,
+  onOpenArtifactSource,
 }: ChatArtifactRendererProps) => {
   useAppLocale();
   const [openArtifactId, setOpenArtifactId] = useState<string | null>(null);
@@ -649,6 +669,11 @@ const ChatArtifactRenderer = ({
         setOpenArtifactId(null);
         onOverlayClose?.();
       }}
+      onOpenArtifactSource={
+        artifactSourceIds && !artifactSourceIds.has(openArtifact.summary.id)
+          ? undefined
+          : onOpenArtifactSource
+      }
       onDiscardArtifact={handleDiscardFromOverlay}
       onRegenerateArtifact={handleRegenerateFromOverlay}
       onReplaceArtifact={handleReplaceFromOverlay}

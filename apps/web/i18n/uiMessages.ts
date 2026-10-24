@@ -782,6 +782,7 @@ const ENGLISH_UI_MESSAGES = {
   Rinomina: 'Rename',
   'Rinomina cartella...': 'Rename folder...',
   Salva: 'Save',
+  'Vai al passaggio nella lezione': 'Go to the passage in the lesson',
   'Salva modelli': 'Save models',
   'Dimostrazione video: {sourceTitle}': 'Video demonstration: {sourceTitle}',
   'Micro-capitoli video': 'Video micro-chapters',
@@ -1365,6 +1366,7 @@ const ENGLISH_UI_MESSAGES = {
   'Non sono riuscito a generare un artefatto visuale utile.':
     'I could not generate a useful visual artifact.',
   "Non sono riuscito a salvare l'artefatto.": 'I could not save the artifact.',
+  "Non sono riuscito a rimuovere l'artefatto.": 'I could not remove the artifact.',
   "Non sono riuscito a sostituire l'artefatto.": 'I could not replace the artifact.',
   'Non sono riuscito a ritrovare il passaggio da annotare nella lezione corrente.':
     'I could not find the passage to annotate in the current lesson.',
