@@ -622,10 +622,11 @@ export function useLessonPlayback({
     return playbackTimeline(blocks, resolved?.voice ?? voice, resolved?.model);
   }, [blocks, resolvedVoices, voice]);
   const readTime = useCallback(() => {
-    const position = getAudio().position;
+    // Child layout effects read the clock before the parent mounts its audio session.
+    const position = audioRef.current?.position;
     if (!position) return 0;
     return position.index === index ? position.time : duration;
-  }, [getAudio, index, duration]);
+  }, [index, duration]);
   const readPosition = () => {
     const position = loadedVoice.current ? getAudio().position : null;
     if (position) return position;

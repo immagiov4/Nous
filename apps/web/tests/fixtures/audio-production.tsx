@@ -1,6 +1,8 @@
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import LessonPlaybackStage from '../../components/workspace/playback/LessonPlaybackStage';
+import type { WorkspaceReaderContentModel } from '../../components/workspace/shell/types';
 import { useLessonPlayback } from '../../hooks/reader/useLessonPlayback';
 
 function AudioContract() {
@@ -43,6 +45,18 @@ function AudioContract() {
               ? 'playing'
               : 'idle'}
       </output>
+      <LessonPlaybackStage
+        block={playback.blocks[playback.index]}
+        content={
+          {
+            isDarkMode: false,
+            sectionContentBlocks: [{ type: 'markdown', markdown: 'Fixed audio sample.' }],
+          } as WorkspaceReaderContentModel
+        }
+        time={playback.time}
+        duration={playback.duration}
+        readTime={playback.readTime}
+      />
     </>
   );
 }
