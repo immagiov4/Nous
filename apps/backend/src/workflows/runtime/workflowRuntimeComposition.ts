@@ -291,6 +291,12 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
         undefined,
         createSceneLessonGenerationDurableSchemaSet(contract)
       ),
+      visualSectionsPlayback: createLessonPlaybackWorkflow(
+        playbackExecutionDefaults,
+        createLessonPlaybackBlockSchema(schema, true, true, true, false, true),
+        true,
+        true
+      ),
       synchronizedPlayback: createLessonPlaybackWorkflow(
         playbackExecutionDefaults,
         createLessonPlaybackBlockSchema(schema, true, true, true),
@@ -575,13 +581,9 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     ],
   });
   registry.register({
-    current: createLessonPlaybackWorkflow(
-      playbackExecutionDefaults,
-      createLessonPlaybackBlockSchema(sceneSchema, true, true, true, false, true),
-      true,
-      true
-    ),
+    current: currentScenes.visualSectionsPlayback,
     previous: [
+      ...historicalScenes.map(definition => definition.visualSectionsPlayback),
       ...[currentScenes, ...historicalScenes].map(definition => definition.synchronizedPlayback),
       ...[currentScenes, ...historicalScenes].map(definition => definition.alignedPlayback),
       currentScenes.legacyVisualPlayback,
