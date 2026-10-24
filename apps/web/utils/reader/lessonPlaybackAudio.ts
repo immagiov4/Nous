@@ -188,9 +188,9 @@ export class LessonPlaybackAudio {
     const session = this.ready();
     void this.enqueue(async node => {
       if (!this.anchor || generation !== this.generation || this.speed !== speed) return;
+      if (this.anchor.speed === speed) return;
       const input = this.inputTime();
       const output = this.context.currentTime;
-      this.anchor = { input, output, speed };
       await this.route(node, input, output, true);
     }).catch(error => {
       if (this.node === session) this.reportError(error);
@@ -240,27 +240,41 @@ export class LessonPlaybackAudio {
     }
   }
 
-  private scheduleNative(recordings = this.recordings) {
+  private scheduleNative(recordings = this.recordings, preserveOffset = false) {
     const anchor = this.anchor;
-    if (!anchor) return;
+    if (!anchor) throw new Error('Native playback requires a recording clock');
+    const pending = recordings
+      .filter(recording => recording.end > anchor.input)
+      .map(recording => ({ recording, source: this.createNativeSource(recording) }));
+    // Construct nodes first: slow device setup must not discard the requested opening.
     const output = Math.max(anchor.output, this.context.currentTime);
-    const input = anchor.input + (output - anchor.output) * anchor.speed;
-    for (const recording of recordings) {
-      if (recording.end <= input) continue;
-      const source = this.context.createBufferSource();
-      source.buffer = recording.buffer;
-      source.connect(this.nativeGain);
-      source.onended = () => {
+    const input = preserveOffset
+      ? anchor.input
+      : anchor.input + (output - anchor.output) * anchor.speed;
+    for (const { recording, source } of pending) {
+      if (recording.end <= input) {
         source.disconnect();
-        this.sources = this.sources.filter(active => active !== source);
-        this.tick();
-      };
+        continue;
+      }
       source.start(
         output + Math.max(0, recording.begin - input),
         Math.max(0, input - recording.begin)
       );
       this.sources.push(source);
     }
+    return { input, output, speed: 1 };
+  }
+
+  private createNativeSource(recording: BufferedRecording) {
+    const source = this.context.createBufferSource();
+    source.buffer = recording.buffer;
+    source.connect(this.nativeGain);
+    source.onended = () => {
+      source.disconnect();
+      this.sources = this.sources.filter(active => active !== source);
+      this.tick();
+    };
+    return source;
   }
 
   private disconnectProcessed() {
@@ -276,42 +290,61 @@ export class LessonPlaybackAudio {
   private async route(node: StretchNode, input: number, output: number, transition: boolean) {
     if (this.disconnectTimer !== null) clearTimeout(this.disconnectTimer);
     this.disconnectTimer = null;
-    const fade = transition ? RENDER_QUANTUM / this.context.sampleRate : 0;
+    const lookahead = RENDER_QUANTUM / this.context.sampleRate;
+    const fade = transition ? lookahead : 0;
     const native = this.speed === 1;
     if (transition && native && !this.processedConnected) return;
+    if (native) {
+      this.stopSources(output);
+      await this.activateNative(node, fade, !transition);
+      return;
+    }
+    const prime = !this.processedConnected;
+    const fadeStart = output + (transition && prime ? lookahead : 0);
+    this.anchor = {
+      input,
+      output: output + (!transition && prime ? lookahead : 0),
+      speed: this.speed,
+    };
+    this.crossfade(false, output, fadeStart, fade);
+    this.stopSources(fadeStart + fade);
+    if (!this.processedConnected) {
+      this.limiter.port.postMessage('reset');
+      node.connect(this.limiter);
+      this.limiter.connect(this.processedGain);
+      this.processedGain.connect(this.context.destination);
+      this.processedConnected = true;
+    }
+    // Fresh lookahead needs a real block: retain native playback while it primes.
+    // An already-running limiter carries its delay in the existing stream.
+    await node.schedule({
+      active: true,
+      input: input + (transition && prime ? lookahead * this.speed : 0),
+      output: prime ? output : output - lookahead,
+      outputTime: output,
+      rate: this.speed,
+      semitones: 0,
+    });
+  }
+
+  private async activateNative(node: StretchNode, fade: number, preserveOffset: boolean) {
+    this.anchor = this.scheduleNative(this.recordings, preserveOffset);
+    const output = this.anchor.output;
+    this.crossfade(true, output, output, fade);
+    if (this.processedConnected)
+      this.disconnectTimer = setTimeout(() => this.disconnectProcessed(), fade * 1000);
+    await node.stop();
+  }
+
+  private crossfade(native: boolean, output: number, start: number, duration: number) {
     for (const [gain, target] of [
       [this.nativeGain.gain, native ? 1 : 0],
       [this.processedGain.gain, native ? 0 : 1],
     ] as const) {
       const current = gain.value;
       gain.cancelScheduledValues(output);
-      gain.setValueAtTime(current, output);
-      gain.linearRampToValueAtTime(target, output + fade);
-    }
-    this.stopSources(native ? output : output + fade);
-    if (native) {
-      this.scheduleNative();
-      if (transition && this.processedConnected) {
-        this.disconnectTimer = setTimeout(() => this.disconnectProcessed(), fade * 1000);
-      }
-      await node.stop();
-    } else {
-      if (!this.processedConnected) {
-        this.limiter.port.postMessage('reset');
-        node.connect(this.limiter);
-        this.limiter.connect(this.processedGain);
-        this.processedGain.connect(this.context.destination);
-        this.processedConnected = true;
-      }
-      // Compensate the limiter delay so its output follows the same heard-voice clock.
-      await node.schedule({
-        active: true,
-        input,
-        output: output - RENDER_QUANTUM / this.context.sampleRate,
-        outputTime: output,
-        rate: this.speed,
-        semitones: 0,
-      });
+      gain.setValueAtTime(current, start);
+      gain.linearRampToValueAtTime(target, start + duration);
     }
   }
 

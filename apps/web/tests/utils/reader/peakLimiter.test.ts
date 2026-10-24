@@ -2,7 +2,7 @@ import { expect, test } from 'vitest';
 import { PeakLimiter } from '../../../utils/reader/peakLimiter';
 
 test('lookahead preserves safe samples and bounds abrupt stereo peaks without flattening them', () => {
-  const limiter = new PeakLimiter(48_000);
+  const limiter = new PeakLimiter();
   const render = (amplitude: number) => {
     const left = Float32Array.from({ length: 128 }, (_, i) => amplitude * Math.sin(i * 0.17));
     const right = Float32Array.from(left, sample => -sample / 2);

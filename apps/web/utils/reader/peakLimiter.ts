@@ -4,18 +4,15 @@ export class PeakLimiter {
   private previousCeiling = 1;
   private gain = 1;
 
-  constructor(private readonly sampleRate: number) {}
-
   process(input: Float32Array[], output: Float32Array[]) {
     const frames = output[0].length;
     let peak = 1;
     for (const channel of input)
       for (const sample of channel) peak = Math.max(peak, Math.abs(sample));
     const ceiling = 1 / peak;
-    // 50 ms release; the next block's peak determines the advance attack ramp.
-    const release = Math.exp(-frames / (this.sampleRate * 0.05));
+    // Adjacent block peaks bound both ends of the ramp, including its recovery to unity.
     const start = Math.min(this.gain, this.previousCeiling);
-    const end = Math.min(this.previousCeiling, ceiling, 1 - (1 - start) * release);
+    const end = Math.min(this.previousCeiling, ceiling);
     for (let channel = 0; channel < output.length; channel++) {
       const previous = this.previous[channel];
       for (let frame = 0; frame < frames; frame++)

@@ -1,19 +1,18 @@
 import 'signalsmith-stretch';
 import { PeakLimiter } from './peakLimiter';
 
-declare const sampleRate: number;
 declare class AudioWorkletProcessor {
   readonly port: MessagePort;
 }
 declare function registerProcessor(name: string, processor: typeof AudioWorkletProcessor): void;
 
 class LessonPeakLimiter extends AudioWorkletProcessor {
-  private limiter = new PeakLimiter(sampleRate);
+  private limiter = new PeakLimiter();
 
   constructor() {
     super();
     this.port.onmessage = () => {
-      this.limiter = new PeakLimiter(sampleRate);
+      this.limiter = new PeakLimiter();
     };
   }
 

@@ -136,8 +136,8 @@ test('speed changes preserve position and pitch without restarting buffers', asy
   await audio.append([]);
   expect(stretch.schedule).toHaveBeenLastCalledWith({
     active: true,
-    input: 5,
-    output: 3 - 128 / 48_000,
+    input: 5 + (128 / 48_000) * 2,
+    output: 3,
     outputTime: 3,
     rate: 2,
     semitones: 0,
@@ -173,8 +173,8 @@ test('returning to unity catches up to the heard clock when the main thread adva
   clock.currentTime = 2.01;
   await audio.append([]);
   expect(sources.at(-1)?.start.mock.calls[0][0]).toBe(2.01);
-  expect(sources.at(-1)?.start.mock.calls[0][1]).toBeCloseTo(3.015);
-  expect(audio.position?.time).toBeCloseTo(3.015);
+  expect(sources.at(-1)?.start.mock.calls[0][1]).toBeCloseTo(3.011, 6);
+  expect(audio.position?.time).toBeCloseTo(3.011, 6);
 });
 
 test('returning to unity during an append schedules each upcoming passage exactly once', async () => {
@@ -196,6 +196,34 @@ test('returning to unity during an append schedules each upcoming passage exactl
   await appending;
   await audio.append([]);
   expect(sources.map(source => source.buffer)).toEqual([first.buffer, next.buffer]);
+});
+
+test('a processed start primes lookahead before advancing the heard recording clock', async () => {
+  await audio.start([recording(0, 10)], 0, 1.5, new AbortController().signal);
+  clock.currentTime = 128 / 48_000;
+  expect(audio.position?.time).toBe(0);
+  clock.currentTime = 256 / 48_000;
+  expect(audio.position?.time).toBeCloseTo(0.004);
+  expect(stretch.schedule).toHaveBeenLastCalledWith({
+    active: true,
+    input: 0,
+    output: 0,
+    outputTime: 0,
+    rate: 1.5,
+    semitones: 0,
+  });
+});
+
+test('native seek preserves the requested opening when source construction advances the context', async () => {
+  vi.spyOn(clock, 'createBufferSource').mockImplementationOnce(() => {
+    clock.currentTime = 0.01;
+    const source = createSource();
+    sources.push(source);
+    return source;
+  });
+  await audio.start([recording(0, 10)], 0, 1, new AbortController().signal);
+  expect(sources[0].start.mock.calls).toEqual([[0.01, 0]]);
+  expect(audio.position?.time).toBe(0);
 });
 
 test('an aborted start never schedules audio and selecting a passage exposes the paused position', async () => {
