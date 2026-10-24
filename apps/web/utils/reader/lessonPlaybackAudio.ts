@@ -6,6 +6,8 @@ SignalsmithStretch.moduleUrl = workletUrl;
 
 // Preserve the library's default clock notification interval.
 const CLOCK_UPDATE_SECONDS = 0.1;
+// The worklet limiter looks ahead by one Web Audio render quantum.
+const RENDER_QUANTUM = 128;
 
 export type PlaybackRecording = { index: number; buffer: AudioBuffer };
 export type PlaybackPosition = { index: number; time: number; duration: number };
@@ -24,6 +26,14 @@ export class LessonPlaybackAudio {
   private generation = 0;
   private speed = 1;
   private lastPosition: PlaybackPosition | null = null;
+  private sources: AudioBufferSourceNode[] = [];
+  private nativeGain!: GainNode;
+  private processedGain!: GainNode;
+  private limiter!: AudioWorkletNode;
+  private stretchNode!: StretchNode;
+  private processedConnected = false;
+  private clockTimer: ReturnType<typeof setInterval> | null = null;
+  private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
   onPosition: ((position: PlaybackPosition) => void) | null = null;
   onEnded: (() => void) | null = null;
   onError: ((error: unknown) => void) | null = null;
@@ -57,7 +67,15 @@ export class LessonPlaybackAudio {
     node.onprocessorerror = () => {
       if (this.context === context) this.reportError(new Error('Audio processing failed'));
     };
-    node.connect(context.destination);
+    this.stretchNode = node;
+    this.nativeGain = context.createGain();
+    this.nativeGain.connect(context.destination);
+    this.processedGain = context.createGain();
+    this.processedGain.gain.value = 0;
+    this.limiter = new AudioWorkletNode(context, 'lesson-peak-limiter', {
+      outputChannelCount: [2],
+    });
+    this.limiter.onprocessorerror = node.onprocessorerror;
     await node.setUpdateInterval(CLOCK_UPDATE_SECONDS, this.tick);
     return node;
   }
@@ -125,18 +143,11 @@ export class LessonPlaybackAudio {
       const input = Math.min(offset, recordings[0].buffer.duration);
       const output = this.context.currentTime;
       this.anchor = { input, output, speed: this.speed };
-      // outputTime is required by the published worklet's scheduling implementation.
-      await node.schedule({
-        active: true,
-        input,
-        output,
-        outputTime: output,
-        rate: this.speed,
-        semitones: 0,
-      });
+      await this.route(node, input, output, false);
       if (generation !== this.generation) return;
       this.lastPosition = null;
       this.publish();
+      this.clockTimer = setInterval(this.tick, CLOCK_UPDATE_SECONDS * 1000);
       this.tick();
     });
   }
@@ -161,10 +172,12 @@ export class LessonPlaybackAudio {
         this.tick();
         return;
       }
-      await this.addRecordings(
-        node,
-        recordings.filter(recording => !last || recording.index > last.index)
-      );
+      const added = recordings.filter(recording => !last || recording.index > last.index);
+      await this.addRecordings(node, added);
+      if (this.anchor?.speed === 1 && generation === this.generation)
+        this.scheduleNative(
+          this.recordings.filter(recording => !last || recording.begin >= last.end)
+        );
     });
   }
 
@@ -173,10 +186,14 @@ export class LessonPlaybackAudio {
     if (!this.anchor || this.anchor.speed === speed) return;
     const input = this.inputTime();
     const output = this.context.currentTime;
-    this.anchor = { input, output, speed };
+    const anchor = { input, output, speed };
+    this.anchor = anchor;
     const session = this.ready();
     void session
-      .then(node => node.schedule({ input, output, outputTime: output, rate: speed, semitones: 0 }))
+      .then(node => {
+        if (this.anchor !== anchor) return;
+        return this.route(node, input, output, true);
+      })
       .catch(error => {
         if (this.node === session) this.reportError(error);
       });
@@ -184,6 +201,13 @@ export class LessonPlaybackAudio {
 
   pause() {
     this.stopClock();
+    this.stopSources();
+    if (this.nativeGain) this.nativeGain.gain.cancelScheduledValues(0);
+    if (this.processedGain) {
+      this.processedGain.gain.cancelScheduledValues(0);
+      this.processedGain.gain.value = 0;
+    }
+    this.disconnectProcessed();
     if (this.node === null || this.failed) return;
     const session = this.node;
     void this.enqueue(async node => {
@@ -195,6 +219,8 @@ export class LessonPlaybackAudio {
 
   close() {
     this.stopClock();
+    this.stopSources();
+    this.disconnectProcessed();
     this.onPosition = null;
     this.onEnded = null;
     this.releaseContext();
@@ -204,6 +230,91 @@ export class LessonPlaybackAudio {
     if (!this.context) return;
     this.context.onstatechange = null;
     void this.context.close().catch(error => console.error('Lesson audio close failed', error));
+  }
+
+  private stopSources(when = this.context?.currentTime ?? 0) {
+    for (const source of this.sources) {
+      source.onended = () => {
+        source.disconnect();
+        this.sources = this.sources.filter(active => active !== source);
+      };
+      source.stop(when);
+    }
+  }
+
+  private scheduleNative(recordings = this.recordings) {
+    const anchor = this.anchor;
+    if (!anchor) return;
+    const output = Math.max(anchor.output, this.context.currentTime);
+    const input = anchor.input + (output - anchor.output) * anchor.speed;
+    for (const recording of recordings) {
+      if (recording.end <= input) continue;
+      const source = this.context.createBufferSource();
+      source.buffer = recording.buffer;
+      source.connect(this.nativeGain);
+      source.onended = () => {
+        source.disconnect();
+        this.sources = this.sources.filter(active => active !== source);
+        this.tick();
+      };
+      source.start(
+        output + Math.max(0, recording.begin - input),
+        Math.max(0, input - recording.begin)
+      );
+      this.sources.push(source);
+    }
+  }
+
+  private disconnectProcessed() {
+    if (this.disconnectTimer !== null) clearTimeout(this.disconnectTimer);
+    this.disconnectTimer = null;
+    if (!this.processedConnected) return;
+    this.stretchNode.disconnect();
+    this.limiter.disconnect();
+    this.processedGain.disconnect();
+    this.processedConnected = false;
+  }
+
+  private async route(node: StretchNode, input: number, output: number, transition: boolean) {
+    if (this.disconnectTimer !== null) clearTimeout(this.disconnectTimer);
+    this.disconnectTimer = null;
+    const fade = transition ? RENDER_QUANTUM / this.context.sampleRate : 0;
+    const native = this.speed === 1;
+    if (transition && native && !this.processedConnected) return;
+    for (const [gain, target] of [
+      [this.nativeGain.gain, native ? 1 : 0],
+      [this.processedGain.gain, native ? 0 : 1],
+    ] as const) {
+      const current = gain.value;
+      gain.cancelScheduledValues(output);
+      gain.setValueAtTime(current, output);
+      gain.linearRampToValueAtTime(target, output + fade);
+    }
+    this.stopSources(native ? output : output + fade);
+    if (native) {
+      this.scheduleNative();
+      if (transition && this.processedConnected) {
+        this.disconnectTimer = setTimeout(() => this.disconnectProcessed(), fade * 1000);
+      }
+      await node.stop();
+    } else {
+      if (!this.processedConnected) {
+        this.limiter.port.postMessage('reset');
+        node.connect(this.limiter);
+        this.limiter.connect(this.processedGain);
+        this.processedGain.connect(this.context.destination);
+        this.processedConnected = true;
+      }
+      // Compensate the limiter delay so its output follows the same heard-voice clock.
+      await node.schedule({
+        active: true,
+        input,
+        output: output - RENDER_QUANTUM / this.context.sampleRate,
+        outputTime: output,
+        rate: this.speed,
+        semitones: 0,
+      });
+    }
   }
 
   private enqueue(operation: (node: StretchNode) => Promise<void>): Promise<void> {
@@ -239,10 +350,14 @@ export class LessonPlaybackAudio {
     this.pausedPosition = this.position;
     this.anchor = null;
     this.generation++;
+    if (this.clockTimer !== null) clearInterval(this.clockTimer);
+    this.clockTimer = null;
   }
 
   private reportError(error: unknown) {
     this.stopClock();
+    this.stopSources();
+    this.disconnectProcessed();
     this.failed = true;
     console.error('Lesson audio failed', error);
     this.onError?.(error);

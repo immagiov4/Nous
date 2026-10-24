@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { chromium, firefox, type Page } from 'playwright';
+import { chromium, devices, firefox, type Page } from 'playwright';
 import { build, preview } from 'vite';
 import { FIXED_AUDIO_SECONDS, fixedAudio } from '../apps/web/tests/fixtures/fixedAudio';
 import { segmentLessonPlayback } from '../packages/shared-types/lessonPlayback';
@@ -10,6 +10,7 @@ import { withMutedAudio } from './browser-audio';
 
 declare global {
   interface Window {
+    audioContractNativeStarts: number[];
     audioContractSchedules: { active?: boolean; input?: number; rate?: number }[];
   }
 }
@@ -109,14 +110,28 @@ assert(address && typeof address !== 'string');
 const url = `http://127.0.0.1:${address.port}/tests/fixtures/audio-production.html`;
 const failures: unknown[] = [];
 try {
-  for (const browserType of [chromium, firefox]) {
+  for (const { browserType, device } of [
+    { browserType: chromium, device: undefined },
+    { browserType: chromium, device: devices['Pixel 7'] },
+    { browserType: firefox, device: undefined },
+  ]) {
     workletFailure = null;
     const browser = await browserType.launch(withMutedAudio({ headless: true }));
     try {
-      const page = await browser.newPage();
+      const page = await browser.newPage(device);
       const requestedVoices = await serveRecordings(page);
       await page.addInitScript(() => {
         window.audioContractSchedules = [];
+        window.audioContractNativeStarts = [];
+        const start = AudioBufferSourceNode.prototype.start;
+        AudioBufferSourceNode.prototype.start = function (when = 0, offset = 0, duration?: number) {
+          window.audioContractNativeStarts.push(offset);
+          return Reflect.apply(
+            start,
+            this,
+            duration === undefined ? [when, offset] : [when, offset, duration]
+          );
+        };
         const post = MessagePort.prototype.postMessage;
         MessagePort.prototype.postMessage = function (message: unknown, ...options: unknown[]) {
           if (Array.isArray(message) && message[1] === 'schedule')
@@ -139,13 +154,15 @@ try {
       });
       await page.locator('#play').click();
       await advances(page, pausedPosition);
-      assert.equal(await page.evaluate(() => window.audioContractSchedules.at(-1)?.active), true);
+      assert(
+        await page.evaluate(() => window.audioContractNativeStarts.some(offset => offset >= 0))
+      );
       await page.evaluate(() => {
         window.audioContractSchedules = [];
       });
       await page.locator('#seek').click();
       await advances(page);
-      assert.equal(await page.evaluate(() => window.audioContractSchedules.at(-1)?.input), 0);
+      assert.equal(await page.evaluate(() => window.audioContractNativeStarts.at(-1)), 0);
       await page.evaluate(() => {
         window.audioContractSchedules = [];
       });
@@ -153,7 +170,9 @@ try {
       const beforeVoice = Number(await page.locator('output').getAttribute('data-position'));
       await advances(page, beforeVoice);
       assert(requestedVoices.includes('Puck'));
-      assert.equal(await page.evaluate(() => window.audioContractSchedules.at(-1)?.active), true);
+      assert(
+        await page.evaluate(() => window.audioContractNativeStarts.some(offset => offset >= 0))
+      );
       const beforeSpeed = Number(await page.locator('output').getAttribute('data-position'));
       await page.locator('#speed').click();
       await advances(page, beforeSpeed);

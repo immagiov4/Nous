@@ -14,6 +14,7 @@ const stretch = vi.hoisted(() => ({
     clockNotifications.update = update;
   }),
   connect: vi.fn(),
+  disconnect: vi.fn(),
   schedule: vi.fn(async () => ({})),
   stop: vi.fn(async () => {}),
   addBuffers: vi.fn(async (_channels: Float32Array[]) => 0),
@@ -22,11 +23,35 @@ const stretch = vi.hoisted(() => ({
 vi.mock('signalsmith-stretch', () => ({ default: vi.fn(async () => stretch) }));
 let clock: {
   currentTime: number;
+  sampleRate: number;
+  createGain: typeof gain;
+  createBufferSource: typeof createSource;
   destination: object;
   resume: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
 };
 let audio: LessonPlaybackAudio;
+const gain = () => ({
+  gain: {
+    value: 1,
+    cancelScheduledValues: vi.fn(),
+    cancelAndHoldAtTime: vi.fn(),
+    setValueAtTime: vi.fn(),
+    linearRampToValueAtTime: vi.fn(),
+  },
+  connect: vi.fn(),
+  disconnect: vi.fn(),
+});
+const createSource = () => ({
+  buffer: null as AudioBuffer | null,
+  connect: vi.fn(),
+  disconnect: vi.fn(),
+  start: vi.fn(),
+  stop: vi.fn(),
+  onended: null as (() => void) | null,
+});
+const sources: ReturnType<typeof createSource>[] = [];
+
 const recording = (index: number, duration = 1) => ({
   index,
   buffer: {
@@ -37,8 +62,24 @@ const recording = (index: number, duration = 1) => ({
 });
 
 beforeEach(async () => {
+  sources.length = 0;
+  vi.stubGlobal(
+    'AudioWorkletNode',
+    class {
+      port = { postMessage: vi.fn() };
+      connect = vi.fn();
+      disconnect = vi.fn();
+    }
+  );
   clock = {
     currentTime: 0,
+    sampleRate: 48_000,
+    createGain: gain,
+    createBufferSource: () => {
+      const source = createSource();
+      sources.push(source);
+      return source;
+    },
     destination: {},
     resume: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
@@ -54,7 +95,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test('streams contiguous samples once and changes passage without starting another sound', async () => {
+test('unity schedules contiguous native sources on one clock', async () => {
   const positions = vi.fn(),
     ended = vi.fn();
   audio.onPosition = positions;
@@ -64,20 +105,13 @@ test('streams contiguous samples once and changes passage without starting anoth
     [0, 0],
     [1, 1],
   ]);
-  expect(stretch.schedule).toHaveBeenCalledTimes(1);
-  expect(stretch.schedule).toHaveBeenCalledWith({
-    active: true,
-    input: 0,
-    output: 0,
-    outputTime: 0,
-    rate: 1,
-    semitones: 0,
-  });
+  expect(sources.map(source => source.start.mock.calls)).toEqual([[[0, 0]], [[1, 0]]]);
+  expect(stretch.connect).not.toHaveBeenCalled();
   clock.currentTime = 1;
   clockNotifications.update();
   expect(audio.position).toEqual({ index: 1, time: 0, duration: 1 });
   expect(positions).toHaveBeenLastCalledWith({ index: 1, time: 0, duration: 1 });
-  expect(stretch.schedule).toHaveBeenCalledTimes(1);
+  expect(stretch.schedule).not.toHaveBeenCalled();
   expect(ended).not.toHaveBeenCalled();
   clock.currentTime = 2;
   clockNotifications.update();
@@ -101,8 +135,9 @@ test('speed changes preserve position and pitch without restarting buffers', asy
   audio.changeSpeed(2);
   await Promise.resolve();
   expect(stretch.schedule).toHaveBeenLastCalledWith({
+    active: true,
     input: 5,
-    output: 3,
+    output: 3 - 128 / 48_000,
     outputTime: 3,
     rate: 2,
     semitones: 0,
@@ -129,6 +164,16 @@ test('a pause while buffers are loading prevents the stale stream from starting'
   release();
   await start;
   expect(stretch.schedule).not.toHaveBeenCalled();
+});
+
+test('returning to unity catches up to the heard clock when the main thread advances before routing', async () => {
+  await audio.start([recording(0, 10)], 0, 1.5, new AbortController().signal);
+  clock.currentTime = 2;
+  audio.changeSpeed(1);
+  clock.currentTime = 2.01;
+  await Promise.resolve();
+  expect(sources.at(-1)?.start.mock.calls).toEqual([[2.01, 3.01]]);
+  expect(audio.position?.time).toBeCloseTo(3.01);
 });
 
 test('an aborted start never schedules audio and selecting a passage exposes the paused position', async () => {
