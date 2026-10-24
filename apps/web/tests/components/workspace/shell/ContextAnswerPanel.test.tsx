@@ -446,6 +446,32 @@ describe('ContextAnswerPanel', () => {
     chatTextComposerProps.length = 0;
   });
 
+  test('closing conversation tools returns focus to the supplied playback surface', async () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    const surface = document.createElement('div');
+    surface.tabIndex = -1;
+    document.body.append(surface);
+    render(
+      <ContextAnswerPanel
+        {...buildProps()}
+        onOverlayClose={() => surface.focus({ preventScroll: true })}
+      />
+    );
+    const user = userEvent.setup();
+    const tools = screen.getByRole('button', { name: 'Apri strumenti conversazione' });
+    await user.click(tools);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    await user.click(tools);
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(surface).toHaveFocus();
+    surface.remove();
+  });
+
   test('waits for transcription before sending the initial question', () => {
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
