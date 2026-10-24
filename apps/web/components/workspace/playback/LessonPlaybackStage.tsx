@@ -14,6 +14,7 @@ import {
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
+import { createPassageFallbackScene } from '@shared/lessonSceneFallback';
 import { alignedWordTimes, type PlaybackWordAlignment } from '@shared/playbackWordTiming';
 import {
   Fragment,
@@ -657,15 +658,7 @@ function PlaybackPassage({
       return [
         {
           kind: 'scene' as const,
-          scene: {
-            type: 'quote' as const,
-            title: block.heading,
-            body: '',
-            items: [],
-            groups: [],
-            note: '',
-            quote: block.speech,
-          },
+          scene: createPassageFallbackScene(block.speech, block.heading),
         },
       ];
     return [];

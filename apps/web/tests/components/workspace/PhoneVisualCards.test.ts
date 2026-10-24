@@ -114,13 +114,17 @@ test('2: matrix scene cells render authored math through KaTeX', async () => {
   }
 });
 
-test('1: a historical image-only preparation retains a sourced visual without regeneration', async () => {
+test('1: a historical image-only preparation shows a bounded passage-derived card without image wording', async () => {
   const page = await openCard('missing&historical');
   try {
-    expect(await page.locator('.scene-host blockquote').innerText()).toContain(
-      'Un esempio visivo accompagna questo passaggio.'
-    );
-    expect(await page.locator('.scene-host').innerText()).not.toContain('PDF_IMAGE');
+    const card = await page.locator('.scene-host').innerText();
+    expect(
+      (await page.locator('.scene-host blockquote').innerText()).replace(/^“\s*/u, '').trim()
+    ).toBe('In una situazione ambigua, le persone osservano gli altri prima di intervenire.');
+    expect(card).not.toContain('PDF_IMAGE');
+    expect(card).not.toContain('Un esempio visivo');
+    expect(card).not.toContain('Figura di esempio');
+    expect(card).not.toContain('Una figura');
     await evidence(page, '01-immagine-assente');
   } finally {
     await page.close();

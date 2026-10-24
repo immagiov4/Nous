@@ -38,11 +38,13 @@ test.each([
   'missing',
   'broken',
   'historical',
-])('replaces a %s historical PDF image with the prepared scene', imageState => {
+  'authored',
+])('uses passage content for %s image preparation', imageState => {
   const sources = [
     {
       type: 'markdown' as const,
-      markdown: 'Una spiegazione.\n\n{{PDF_IMAGE:figure-1|alt=Figura}}',
+      markdown:
+        'La memoria conserva i dati del programma. Il processore legge le istruzioni.\n\n{{PDF_IMAGE:figure-1|alt=Figura di esempio|caption=Un esempio visivo}}',
     },
   ];
   const scene: LessonScene = {
@@ -56,8 +58,14 @@ test.each([
   };
   const block = {
     ...segmentLessonPlayback(sources)[0],
-    visuals: [{ kind: 'markdown' as const, markdown: '{{PDF_IMAGE:figure-1|alt=Figura}}' }],
-    prepared: { ...(imageState === 'historical' ? {} : { scene }), motion: [] },
+    visuals: [
+      {
+        kind: 'markdown' as const,
+        markdown: sources[0].markdown.slice(sources[0].markdown.indexOf('{{')),
+      },
+      ...(imageState === 'authored' ? [{ kind: 'scene' as const, scene }] : []),
+    ],
+    prepared: { ...(['historical', 'authored'].includes(imageState) ? {} : { scene }), motion: [] },
   };
   const content = {
     isDarkMode: false,
@@ -78,16 +86,19 @@ test.each([
   const { container } = render(
     <LessonPlaybackStage block={block} content={content} duration={10} time={4} />
   );
-  if (imageState === 'broken') fireEvent.error(screen.getByRole('img', { name: 'Figura' }));
+  if (imageState === 'broken')
+    fireEvent.error(screen.getByRole('img', { name: 'Figura di esempio' }));
   if (imageState === 'historical') {
-    expect(container.querySelector('.scene-host blockquote')?.textContent).toContain(
-      'Una spiegazione.'
-    );
+    expect(
+      container.querySelector('.scene-host blockquote')?.textContent?.replace(/^“\s*/u, '').trim()
+    ).toBe('La memoria conserva i dati del programma.');
   } else {
     expect(container.querySelector('.scene-host h2')?.textContent).toBe('Scena del passaggio');
     expect(container.querySelector('.scene-host strong')?.textContent).toBe('Il concetto');
   }
   expect(container.querySelector('.scene-host')?.textContent).not.toContain('PDF_IMAGE');
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain('Figura di esempio');
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain('Un esempio visivo');
 });
 beforeEach(() => {
   vi.stubGlobal(

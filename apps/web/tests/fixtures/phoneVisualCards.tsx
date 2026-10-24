@@ -86,7 +86,7 @@ const scenes: Record<string, LessonScene> = {
 };
 const markdown =
   kind === 'missing'
-    ? 'Un esempio visivo accompagna questo passaggio.\n\n{{PDF_IMAGE:fixture-image|alt=Figura di esempio|caption=Una figura}}'
+    ? "In una situazione ambigua, le persone osservano gli altri prima di intervenire. Quando nessuno agisce, la calma apparente può rafforzare l'incertezza.\n\n{{PDF_IMAGE:fixture-image|alt=Figura di esempio|caption=Una figura}}"
     : 'La spiegazione descrive gli elementi della figura e le loro relazioni.';
 const sources = [{ type: 'markdown' as const, markdown }];
 const sourceBlock = segmentLessonPlayback(sources)[0];
