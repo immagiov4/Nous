@@ -30,7 +30,7 @@ Changed-file checks run without the shared heavy-run lock. CI owns full quality,
 
 Windows commands use a named native Job Object through a Bun FFI helper, including Node callers. The root is created suspended and assigned before admission resumes it. The lease stays held while the Job reports active processes, including descendants whose root has exited. Killing its helper closes the Job and terminates its members; supervisor disconnect also terminates it. Release terminates the named Job and waits for zero active members. CI bypasses local admission.
 
-POSIX release verifies the worker's OS creation identity before signaling and waits until every process in its group has ceased work. Terminated processes awaiting OS reaping do not hold capacity. Older running records without a verifiable creation identity retain capacity until their command exits. Identity capture follows IPC admission.
+POSIX completion retains the lease until its process group is empty, including after root exit. Release verifies a living worker's OS creation identity; a retained group whose leader has exited is stopped by its recorded group ID. Both paths wait for every member to cease work. Terminated processes awaiting OS reaping do not hold capacity. Older running records without a verifiable creation identity retain capacity until their command exits. Identity capture follows IPC admission.
 
 Only command execution acquires a lease; manual reservations are unsupported. Prepare files and wait for external signals before invoking the wrapper. Nested wrappers reuse the inherited lease instead of waiting for another slot. An inherited holder that clears `HEAVY_RUN_HELD` receives an error while its lease is active.
 

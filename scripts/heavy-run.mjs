@@ -26,6 +26,7 @@ import {
   stopChild,
   stopWindowsJob,
   WINDOWS_JOB_SCRIPT,
+  waitProcessGroup,
   waitWindowsJob,
   windowsJobRunning,
 } from './heavy-run-process.mjs';
@@ -193,7 +194,7 @@ function claimLock(prepared, lock, ticket) {
 }
 
 export async function runCommand(command, environment, abort, onSpawn) {
-  const detached = process.platform !== 'win32' && !process.env.HEAVY_RUN_GROUP_PID;
+  const detached = process.platform !== 'win32' && !environment.HEAVY_RUN_GROUP_PID;
   // The POSIX launcher records its own group before exec, preserving one group across nested wrappers.
   const invocation =
     detached && !onSpawn
@@ -363,7 +364,9 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
   let ownerFile = ticket.owner.id;
   let identityCapture = Promise.resolve();
   let identityError;
-  const windowsJob = process.platform === 'win32' ? `Local\\Nous-heavy-run-${randomUUID()}` : null;
+  let groupPid;
+  const windowsJob =
+    process.platform === 'win32' ? String.raw`Local\Nous-heavy-run-${randomUUID()}` : null;
   const heartbeat = setInterval(() => {
     const now = new Date();
     futimesSync(ticket.fd, now, now);
@@ -387,10 +390,12 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
         ...process.env,
         HEAVY_RUN_HELD: '1',
         HEAVY_RUN_LEASE: ticket.owner.id,
+        HEAVY_RUN_GROUP_PID: '',
         ...(windowsJob ? { HEAVY_RUN_WINDOWS_JOB: windowsJob } : {}),
       },
       abort,
       pid => {
+        groupPid = pid;
         // The worker waits for IPC permission until activation has won against stale recovery.
         ownerFile = activateLock(lock, ticket, pid, windowsJob);
         if (windowsJob) return;
@@ -409,8 +414,12 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
     if (identityError) throw identityError;
     return code;
   } finally {
-    clearInterval(heartbeat);
-    if (windowsJob) await waitWindowsJob(windowsJob);
+    try {
+      if (windowsJob) await waitWindowsJob(windowsJob);
+      else if (groupPid) await waitProcessGroup(groupPid);
+    } finally {
+      clearInterval(heartbeat);
+    }
     removeLock(lock, ownerFile);
     removeFile(join(prepared, ticket.owner.id));
     removeLock(prepared);
@@ -453,8 +462,11 @@ async function stopRegisteredCommand(owner) {
   if (owner?.windowsJob) return stopWindowsJob(owner.windowsJob);
   if (!owner?.childPid) return;
   if (!processRunning(owner.childPid)) {
-    if (processTreeRunning(owner.childPid))
-      throw new Error('Lease group has no verifiable leader; capacity is retained.');
+    if (processTreeRunning(owner.childPid)) {
+      if (!owner.childIdentity)
+        throw new Error('Lease process identity is unavailable; capacity is retained.');
+      await stopChild({ pid: owner.childPid, exitCode: null, signalCode: null }, owner.childPid);
+    }
     return;
   }
   if (!owner.childIdentity)

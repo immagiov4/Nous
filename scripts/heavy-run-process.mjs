@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
+import { setInterval as ticks } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
 const EXIT_POLL_MS = 20;
@@ -23,7 +23,10 @@ export function windowsJobRunning(name) {
 }
 
 export async function waitWindowsJob(name) {
-  while (windowsJobRunning(name)) await delay(EXIT_POLL_MS);
+  if (!windowsJobRunning(name)) return;
+  for await (const job of ticks(EXIT_POLL_MS, name)) {
+    if (!windowsJobRunning(job)) break;
+  }
 }
 
 export async function stopWindowsJob(name) {
@@ -110,27 +113,39 @@ export function processTreeRunning(group) {
     });
 }
 
+export async function waitProcessGroup(group) {
+  if (!processTreeRunning(group)) return;
+  for await (const pid of ticks(EXIT_POLL_MS, group)) {
+    if (!processTreeRunning(pid)) break;
+  }
+}
+
+async function stopWindowsChild(child) {
+  const code = await new Promise((resolve, reject) => {
+    const killer = spawn(
+      join(process.env.SystemRoot, 'System32/taskkill.exe'),
+      ['/pid', String(child.pid), '/T', '/F'],
+      { windowsHide: true, stdio: 'ignore' }
+    );
+    killer.once('error', reject);
+    killer.once('exit', resolve);
+  });
+  if (code !== 0 && processRunning(child.pid))
+    throw new Error('Failed to stop the lease command tree.');
+  if (processRunning(child.pid)) {
+    for await (const pid of ticks(EXIT_POLL_MS, child.pid)) {
+      if (!processRunning(pid)) break;
+    }
+  }
+}
+
 /** Stop the owned tree and retain capacity until every group member has ceased work. */
 export async function stopChild(
   child,
   ownedGroupPid = process.env.HEAVY_RUN_GROUP_PID || child?.pid
 ) {
   if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
-  if (process.platform === 'win32') {
-    const code = await new Promise((resolve, reject) => {
-      const killer = spawn(
-        join(process.env.SystemRoot, 'System32/taskkill.exe'),
-        ['/pid', String(child.pid), '/T', '/F'],
-        { windowsHide: true, stdio: 'ignore' }
-      );
-      killer.once('error', reject);
-      killer.once('exit', resolve);
-    });
-    if (code !== 0 && processRunning(child.pid))
-      throw new Error('Failed to stop the lease command tree.');
-    while (processRunning(child.pid)) await delay(EXIT_POLL_MS);
-    return;
-  }
+  if (process.platform === 'win32') return stopWindowsChild(child);
   const group = Number(ownedGroupPid);
   if (!Number.isSafeInteger(group) || group <= 0)
     throw new Error('Invalid heavy-run process group.');
@@ -139,5 +154,5 @@ export async function stopChild(
   } catch (error) {
     if (error.code !== 'ESRCH') throw error;
   }
-  while (processTreeRunning(group)) await delay(EXIT_POLL_MS);
+  await waitProcessGroup(group);
 }
