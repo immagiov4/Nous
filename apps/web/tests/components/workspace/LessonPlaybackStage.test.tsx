@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
+import type { PlaybackQuestionContext } from '@shared/playbackQuestionContext';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { useLayoutEffect } from 'react';
+import { createRef, useLayoutEffect } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { guidedPathScene } from '../../../../backend/tests/helpers/animatedLessonScenes';
 import { discreteMathCases } from '../../../../backend/tests/helpers/discreteMath';
@@ -28,6 +29,7 @@ import {
 import type { WorkspaceReaderContentModel } from '../../../components/workspace/shell/types.ts';
 import { resolveProjectVisual } from '../../../services/projects/projectVisualResolver.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
+import { controllerScene } from '../../helpers/playbackQuestion.ts';
 
 vi.mock('../../../utils/motion/useShouldAnimate.ts', () => ({ useShouldAnimate: vi.fn() }));
 vi.mock('../../../services/projects/projectVisualResolver.ts', () => ({
@@ -36,6 +38,67 @@ vi.mock('../../../services/projects/projectVisualResolver.ts', () => ({
 
 let resizeScene: () => void;
 const disconnectScene = vi.fn();
+
+test('reads all visible steps and the actual rendered emphasis from the stage snapshot', () => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const frames: FrameRequestCallback[] = [];
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback =>
+    frames.push(callback)
+  );
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {});
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const source = [
+    {
+      type: 'markdown' as const,
+      markdown: 'Il client cerca il controller. Il server controlla i permessi.',
+    },
+  ];
+  const block = {
+    ...segmentLessonPlayback(source)[0],
+    prepared: {
+      scene: controllerScene,
+      motion: [
+        { effect: 'focus' as const, targets: ['item:0'], quote: 'Il client cerca il controller.' },
+      ],
+    },
+  };
+  const questionContextRef = createRef<(() => PlaybackQuestionContext) | null>();
+  const { container, unmount } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={{ sectionContentBlocks: source, isDarkMode: false } as WorkspaceReaderContentModel}
+      time={1}
+      duration={12}
+      questionContextRef={questionContextRef}
+    />
+  );
+  const step = container.querySelector<HTMLElement>('.sequence li');
+  if (!step) throw new Error('Step must be mounted');
+  act(() =>
+    frames.splice(0).forEach(callback => {
+      callback(0);
+    })
+  );
+  expect(step.style.getPropertyValue('--motion-emphasis')).toBe('1');
+  expect(questionContextRef.current?.()).toMatchObject({
+    passage: {
+      title: '',
+      text: 'Il client cerca il controller. Il server controlla i permessi.\n',
+    },
+    heardSentence: 'Il client cerca il controller.',
+    voiceTime: 1,
+    visual: {
+      kind: 'scene',
+      title: controllerScene.title,
+      scene: controllerScene,
+      highlighted: [{ id: 'item:0', text: '01Risoluzione DNSPassaggio: Risoluzione DNS.' }],
+    },
+  });
+  unmount();
+  expect(questionContextRef.current).toBeNull();
+});
 
 test.each([
   'missing',
@@ -652,6 +715,7 @@ test('stored playback images have one asset resolver and release it on unmount',
 });
 
 test('mounts only the selected generated HTML frame and releases it on replacement', () => {
+  const questionContextRef = createRef<(() => PlaybackQuestionContext) | null>();
   const frames = new Map<number, FrameRequestCallback>();
   let frameId = 0;
   vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
@@ -667,7 +731,7 @@ test('mounts only the selected generated HTML frame and releases it on replaceme
     title,
     createdAt: '2026-10-11T00:00:00.000Z',
     kind: 'html' as const,
-    code: '<p>Content</p>',
+    code: `<p>${title}</p>`,
   }));
   const block = {
     ...segmentLessonPlayback(sources)[0],
@@ -681,12 +745,31 @@ test('mounts only the selected generated HTML frame and releases it on replaceme
     ),
   } as WorkspaceReaderContentModel;
   const { container, rerender, unmount } = render(
-    <LessonPlaybackStage block={block} content={content} duration={8} time={0} />
+    <LessonPlaybackStage
+      block={block}
+      content={content}
+      duration={8}
+      time={0}
+      questionContextRef={questionContextRef}
+    />
   );
   const first = screen.getByTitle('First');
   expect(container.querySelectorAll('iframe')).toHaveLength(1);
   expect(screen.queryByTitle('Second')).toBeNull();
-  rerender(<LessonPlaybackStage block={block} content={content} duration={8} time={4} />);
+  expect(questionContextRef.current?.().visual).toMatchObject({
+    kind: 'html',
+    title: 'First',
+    code: '<p>First</p>',
+  });
+  rerender(
+    <LessonPlaybackStage
+      block={block}
+      content={content}
+      duration={8}
+      time={4}
+      questionContextRef={questionContextRef}
+    />
+  );
   act(() => {
     const pending = [...frames.values()];
     frames.clear();
@@ -697,6 +780,11 @@ test('mounts only the selected generated HTML frame and releases it on replaceme
   expect(container.querySelectorAll('iframe')).toHaveLength(1);
   expect(screen.getByTitle('Second')).toBeInTheDocument();
   expect(first.isConnected).toBe(false);
+  expect(questionContextRef.current?.().visual).toMatchObject({
+    kind: 'html',
+    title: 'Second',
+    code: '<p>Second</p>',
+  });
   unmount();
   expect(frames.size).toBe(0);
 });
