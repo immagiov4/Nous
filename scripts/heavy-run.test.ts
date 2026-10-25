@@ -72,6 +72,7 @@ function start(
         ...process.env,
         CI: 'false',
         HEAVY_RUN_HELD: '',
+        HEAVY_RUN_LEASE: '',
         HEAVY_RUN_GROUP_PID: '',
         HEAVY_RUN_DIR: path,
         HEAVY_RUN_SLOTS: '1',
@@ -136,6 +137,7 @@ afterEach(async () => {
 function localEnvironment(path: string) {
   vi.stubEnv('CI', 'false');
   vi.stubEnv('HEAVY_RUN_HELD', '');
+  vi.stubEnv('HEAVY_RUN_LEASE', '');
   vi.stubEnv('HEAVY_RUN_GROUP_PID', '');
   vi.stubEnv('HEAVY_RUN_DIR', path);
   vi.stubEnv('HEAVY_RUN_SLOTS', '1');
@@ -236,6 +238,22 @@ describe('measured CLI integration', () => {
     channel.emit('disconnect');
     expect(await cancelled).toBeNull();
     await expect(workerCommand([], channel)).rejects.toThrow('IPC');
+  });
+
+  test('a registered worker exits when its supervisor never sends admission', async () => {
+    vi.useFakeTimers();
+    const channel = Object.assign(new EventEmitter(), {
+      send() {},
+      connected: true,
+      disconnect() {
+        this.connected = false;
+      },
+    });
+    const waiting = workerCommand(['--worker', '--', runtime, '-e', 'process.exit(99)'], channel);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(await waiting).toBeNull();
+    expect(channel.connected).toBe(false);
+    expect(channel.listenerCount('message')).toBe(0);
   });
 
   test('an aborted direct child is stopped before the runner settles', async () => {
@@ -407,6 +425,122 @@ describe('measured CLI integration', () => {
 });
 
 describe('heavy command admission', () => {
+  test('an idle living holder expires promptly and queued commands retain FIFO order', async () => {
+    const path = directory();
+    mkdirSync(join(path, 'lock'));
+    const idle = join(path, 'lock/manual.json');
+    writeFileSync(idle, JSON.stringify({ pid: process.pid, label: 'manual', id: 'manual.json' }));
+    mkdirSync(join(path, 'queue'));
+    writeFileSync(join(path, 'queue/manual.json'), readFileSync(idle));
+    const began = Date.now();
+    const order = join(path, 'order');
+    const command = (label: string) => [
+      runtime,
+      '-e',
+      `require('node:fs').appendFileSync(process.argv[1], process.argv[2])`,
+      order,
+      label,
+    ];
+    const first = output(start(path, 'first', command('a')));
+    await until(() => readdirSync(join(path, 'queue')).length === 2);
+    const second = output(start(path, 'second', command('b')));
+    expect((await first()).code).toBe(0);
+    expect((await second()).code).toBe(0);
+    expect(readFileSync(order, 'utf8')).toBe('ab');
+    expect(existsSync(idle)).toBe(false);
+    expect(Date.now() - began).toBeLessThan(10_000);
+  });
+
+  test('release stops an active command before admitting the next and reports lease metadata', async () => {
+    const path = directory();
+    localEnvironment(path);
+    const ready = join(path, 'ready');
+    const command = [
+      runtime,
+      '-e',
+      `require('node:fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1000)`,
+      ready,
+    ];
+    const first = output(start(path, 'gate:ci', command));
+    await until(() => existsSync(ready));
+    const id = readdirSync(join(path, 'queue'))[0];
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    expect(await main(['status'])).toBe(0);
+    const details = log.mock.calls.flat().join('\n');
+    expect(details).toContain(`id: ${id}; command: ${JSON.stringify(command)}`);
+    expect(details).toMatch(/queued: \d{4}-.*; start: \d{4}-.*; last activity: \d{4}-/u);
+    const next = join(path, 'next');
+    const second = output(
+      start(path, 'next', [
+        runtime,
+        '-e',
+        `require('node:fs').writeFileSync(process.argv[1], '')`,
+        next,
+      ])
+    );
+    await until(() => readdirSync(join(path, 'queue')).length === 2);
+    // A real silent command survives beyond the idle window; no output heartbeat is needed.
+    await delay(3_000);
+    expect(existsSync(next)).toBe(false);
+    expect(await main(['release', id])).toBe(0);
+    expect(() => process.kill(Number(readFileSync(ready, 'utf8')), 0)).toThrow();
+    expect((await first()).code).not.toBe(0);
+    expect((await second()).code).toBe(0);
+    expect(existsSync(next)).toBe(true);
+    expect(await main(['release', id])).toBe(1);
+    await expect(main(['release', '../outside.json'])).rejects.toThrow('lease id');
+  });
+
+  test('release removes a waiting ticket and a nested holder cannot queue another slot', async () => {
+    const path = directory();
+    localEnvironment(path);
+    mkdirSync(join(path, 'queue'));
+    writeFileSync(
+      join(path, 'queue/waiter.json'),
+      JSON.stringify({ pid: process.pid, label: 'waiter' })
+    );
+    expect(await main(['release', 'waiter.json'])).toBe(0);
+    expect(readdirSync(join(path, 'queue'))).toEqual([]);
+    mkdirSync(join(path, 'lock'));
+    writeFileSync(
+      join(path, 'lock/running-outer.json'),
+      `${JSON.stringify({ pid: process.pid, id: 'outer.json', label: 'outer' })}\n${process.pid}`
+    );
+    vi.stubEnv('HEAVY_RUN_LEASE', 'outer.json');
+    await expect(
+      main(['--label', 'nested', '--', runtime, '-e', 'process.exit(99)'])
+    ).rejects.toThrow('reuse HEAVY_RUN_HELD');
+    expect(readdirSync(join(path, 'queue'))).toEqual([]);
+  });
+
+  test('a recently renewed holder with an exited command releases immediately', async () => {
+    const path = directory();
+    const dead = spawn(runtime, ['-e', 'process.exit(0)'], { windowsHide: true, stdio: 'ignore' });
+    const pid = dead.pid;
+    await new Promise(resolveExit => dead.once('exit', resolveExit));
+    mkdirSync(join(path, 'lock'));
+    writeFileSync(
+      join(path, 'lock/running-dead.json'),
+      `${JSON.stringify({ pid: process.pid, label: 'finished', id: 'dead.json' })}\n${pid}`
+    );
+    mkdirSync(join(path, 'queue'));
+    writeFileSync(
+      join(path, 'queue/dead.json'),
+      readFileSync(join(path, 'lock/running-dead.json'))
+    );
+    const entry = join(path, 'fixed-clock.mjs');
+    writeFileSync(
+      entry,
+      `Date.now = () => ${Date.now()}; process.exitCode = await (await import(${JSON.stringify(new URL('./heavy-run.mjs', import.meta.url).href)})).main();`
+    );
+    const result = output(
+      start(path, 'next', [runtime, '-e', 'console.log("reclaimed")'], { entry })
+    );
+    expect(await result()).toMatchObject({ code: 0, stderr: '' });
+    expect((await result()).stdout).toContain('reclaimed');
+    expect(existsSync(join(path, 'lock'))).toBe(false);
+  });
+
   test.each([
     [undefined, 1],
     [undefined, 2],
@@ -490,7 +624,7 @@ describe('heavy command admission', () => {
     });
     writeFileSync(join(lock, 'a.json'), victim);
     writeFileSync(join(queue, 'a.json'), victim);
-    const living = JSON.stringify({ pid: process.pid, label: 'living', weight: 1 });
+    const living = `${JSON.stringify({ pid: process.pid, label: 'living', weight: 1 })}\n${process.pid}`;
     writeFileSync(join(lock, 'living.json'), living);
     const entry = join(path, 'activation-race.mjs');
     const counted = join(path, 'counted');

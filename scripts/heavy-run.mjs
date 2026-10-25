@@ -23,6 +23,8 @@ const DEFAULT_SLOTS = 4;
 const HEARTBEAT_MS = 30_000;
 const DEFAULT_STALE_MS = 10 * 60_000;
 const POLL_MS = 1_000;
+// Unoccupied leases get one rounded-up startup interval plus one admission poll (see TESTING.md).
+const IDLE_MS = 2 * POLL_MS;
 const EXPIRED_TICKET = 'Queue ticket expired; run the command again.';
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 
@@ -37,25 +39,34 @@ function pidAlive(pid) {
   }
 }
 
-function readEntry(path, staleMs) {
+function readEntry(path, staleMs, held = false) {
   try {
     const stat = statSync(path);
     const content = readFileSync(path, 'utf8');
     // An O_EXCL creator may still be writing its record. Its file reserves its place.
     let owner = null;
     try {
-      const [record, childPid] = content.split('\n');
-      owner = record ? { ...JSON.parse(record), childPid: Number(childPid) || undefined } : null;
+      const [record, childPid, startedAt] = content.split('\n');
+      owner = record
+        ? {
+            ...JSON.parse(record),
+            childPid: Number(childPid) || undefined,
+            startedAt: Number(startedAt) || undefined,
+          }
+        : null;
     } catch (error) {
       if (!(error instanceof SyntaxError)) throw error;
     }
+    const childAlive = owner?.childPid && pidAlive(owner.childPid);
+    const expired = Date.now() - stat.mtimeMs > (held ? IDLE_MS : staleMs);
+    const ownerGone = owner && !pidAlive(owner.pid);
     return {
       path,
       owner,
       created: stat.birthtimeMs,
-      stale:
-        !(owner?.childPid && pidAlive(owner.childPid)) &&
-        (Date.now() - stat.mtimeMs > staleMs || (owner && !pidAlive(owner.pid))),
+      lastActivity: stat.mtimeMs,
+      // A live command always retains capacity, including after its supervisor exits.
+      stale: childAlive ? false : Boolean(expired || ownerGone || owner?.childPid),
     };
   } catch (error) {
     if (error.code === 'ENOENT') return null;
@@ -80,7 +91,7 @@ function removeLock(lock, ownerFile) {
       // Retirement and activation contend for the same name; an expired owner cannot launch later.
       renameSync(join(lock, ownerFile), join(lock, retired));
     } catch (error) {
-      if (error.code === 'ENOENT') return;
+      if (error.code === 'ENOENT') return false;
       throw error;
     }
     removeFile(join(lock, retired));
@@ -91,6 +102,7 @@ function removeLock(lock, ownerFile) {
   } catch (error) {
     if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error.code)) throw error;
   }
+  return true;
 }
 
 function readLock(lock, staleMs) {
@@ -98,9 +110,9 @@ function readLock(lock, staleMs) {
     const owners = readdirSync(lock)
       .sort()
       // A record may be renamed for activation after enumeration. Reserve capacity until the next poll.
-      .map(name => readEntry(join(lock, name), staleMs) ?? { owner: null, stale: false });
+      .map(name => readEntry(join(lock, name), staleMs, true) ?? { owner: null, stale: false });
     if (owners.length) return owners;
-    return [{ owner: null, stale: Date.now() - statSync(lock).mtimeMs > staleMs }];
+    return [{ owner: null, stale: Date.now() - statSync(lock).mtimeMs > IDLE_MS }];
   } catch (error) {
     if (error.code === 'ENOENT') return [];
     throw error;
@@ -113,10 +125,7 @@ function readQueue(queue, staleMs, prune) {
     .filter(entry => {
       if (!entry) return false;
       if (prune && entry.stale) {
-        removeFile(entry.path);
-        const prepared = join(dirname(queue), 'claims', basename(entry.path));
-        removeFile(join(prepared, basename(entry.path)));
-        removeLock(prepared);
+        removeTicket(queue, basename(entry.path));
         return false;
       }
       return true;
@@ -124,14 +133,24 @@ function readQueue(queue, staleMs, prune) {
     .sort((a, b) => a.created - b.created || basename(a.path).localeCompare(basename(b.path)));
 }
 
-function createTicket(queue, label, weight) {
+function removeTicket(queue, id) {
+  if (!id || basename(id) !== id || !id.endsWith('.json'))
+    throw new Error('release requires a lease id from status.');
+  const removed = removeFile(join(queue, id));
+  const prepared = join(dirname(queue), 'claims', id);
+  removeFile(join(prepared, id));
+  removeLock(prepared);
+  return removed;
+}
+
+function createTicket(queue, label, weight, command) {
   const timestamp = Date.now();
   for (let sequence = 0; ; sequence++) {
     const id = `${timestamp}-${String(sequence).padStart(10, '0')}.json`;
     const path = join(queue, id);
     try {
       const fd = openSync(path, 'wx');
-      const owner = { pid: process.pid, label, id, weight };
+      const owner = { pid: process.pid, label, id, weight, command, queuedAt: timestamp };
       writeFileSync(fd, JSON.stringify(owner));
       return { path, fd, owner };
     } catch (error) {
@@ -144,9 +163,13 @@ function describeOwner(owner) {
   return owner ? `${owner.label} (PID ${owner.pid})` : 'initializing';
 }
 
-function claimLock(prepared, lock, id) {
+function claimLock(prepared, lock, ticket) {
+  const id = ticket.owner.id;
   try {
     mkdirSync(lock, { recursive: true });
+    // Queue residence is not idle ownership: start the lease clock at publication.
+    const now = new Date();
+    futimesSync(ticket.fd, now, now);
     // Only the first unadmitted FIFO ticket publishes a reservation. One link reserves its full weight.
     linkSync(join(prepared, id), join(lock, id));
     return true;
@@ -156,10 +179,10 @@ function claimLock(prepared, lock, id) {
   }
 }
 
-async function stopChild(child) {
+async function stopChild(child, ownedGroupPid = process.env.HEAVY_RUN_GROUP_PID || child?.pid) {
   if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
   if (process.platform === 'win32') {
-    await new Promise((resolve, reject) => {
+    const code = await new Promise((resolve, reject) => {
       const killer = spawn(
         join(process.env.SystemRoot, 'System32', 'taskkill.exe'),
         ['/pid', String(child.pid), '/T', '/F'],
@@ -171,10 +194,12 @@ async function stopChild(child) {
       killer.once('error', reject);
       killer.once('exit', resolve);
     });
+    if (code !== 0 && pidAlive(child.pid))
+      throw new Error('Failed to stop the lease command tree.');
   } else {
     try {
       // Interruption must stop every owned group member, including tools that ignore SIGTERM.
-      const groupPid = Number(process.env.HEAVY_RUN_GROUP_PID || child.pid);
+      const groupPid = Number(ownedGroupPid);
       if (!Number.isInteger(groupPid) || groupPid <= 0)
         throw new Error('Invalid heavy-run process group.');
       process.kill(-groupPid, 'SIGKILL');
@@ -231,13 +256,18 @@ export async function workerCommand(args, channel = process) {
     throw new Error('Worker requires supervisor IPC.');
   const admitted = await new Promise(resolve => {
     const received = message => {
+      clearTimeout(deadline);
       channel.removeListener('disconnect', disconnected);
       resolve(message === 'run');
     };
     const disconnected = () => {
+      clearTimeout(deadline);
+      channel.removeListener('disconnect', disconnected);
       channel.removeListener('message', received);
       resolve(false);
     };
+    // A registered worker is not heavy work until admission arrives.
+    const deadline = setTimeout(disconnected, IDLE_MS);
     channel.once('message', received);
     channel.once('disconnect', disconnected);
   });
@@ -250,7 +280,7 @@ export async function workerCommand(args, channel = process) {
 }
 
 function activateLock(lock, ticket, childPid) {
-  writeFileSync(ticket.fd, `\n${childPid}`);
+  writeFileSync(ticket.fd, `\n${childPid}\n${Date.now()}`);
   const running = `running-${ticket.owner.id}`;
   try {
     renameSync(join(lock, ticket.owner.id), join(lock, running));
@@ -280,7 +310,16 @@ function parseInvocation(args) {
     return ['bun', 'exec', [args[3], ...tail].join(' ')];
   }
   if (args[2] === '--' && args[3]) return args.slice(3);
-  throw new Error('Usage: heavy-run.mjs --label "who/what" -- command [args...] | status');
+  throw new Error(
+    'Usage: heavy-run.mjs --label "who/what" -- command [args...] | status | release <id>'
+  );
+}
+
+function retireIdleOwners(owners, lock, queue) {
+  for (const entry of owners) {
+    if (!entry.stale || !removeLock(lock, entry.path && basename(entry.path))) continue;
+    if (entry.owner?.id) removeTicket(queue, entry.owner.id);
+  }
 }
 
 function tryClaim(context) {
@@ -291,15 +330,13 @@ function tryClaim(context) {
   const position = waiting.findIndex(entry => entry.path === ticket.path);
   if (position < 0) throw new Error(EXPIRED_TICKET);
   if (position === 0) {
-    for (const owner of owners) {
-      if (owner.stale) removeLock(lock, owner.path && basename(owner.path));
-    }
+    retireIdleOwners(owners, lock, queue);
     // Activation can win retirement by renaming its record; count that surviving reservation too.
     const used = readLock(lock, staleMs).reduce(
       (sum, entry) => sum + (entry.owner ? (entry.owner.weight ?? 1) : slots),
       0
     );
-    if (used + weight <= slots && claimLock(prepared, lock, ticket.owner.id)) {
+    if (used + weight <= slots && claimLock(prepared, lock, ticket)) {
       if (!existsSync(ticket.path)) throw new Error(EXPIRED_TICKET);
       return true;
     }
@@ -326,7 +363,7 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
   const queue = join(directory, 'queue');
   const lock = join(directory, 'lock');
   mkdirSync(queue, { recursive: true });
-  const ticket = createTicket(queue, label, weight);
+  const ticket = createTicket(queue, label, weight, command);
   const prepared = join(directory, 'claims', ticket.owner.id);
   let ownerFile = ticket.owner.id;
   const heartbeat = setInterval(() => {
@@ -344,10 +381,15 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
     if (!claimed) return 130;
     process.stdout.write(`heavy-run: running ${label}\n`);
     const worker = [process.execPath, SCRIPT_PATH, '--worker', '--', ...command];
-    return await runCommand(worker, { ...process.env, HEAVY_RUN_HELD: '1' }, abort, pid => {
-      // The worker waits for IPC permission until activation has won against stale recovery.
-      ownerFile = activateLock(lock, ticket, pid);
-    });
+    return await runCommand(
+      worker,
+      { ...process.env, HEAVY_RUN_HELD: '1', HEAVY_RUN_LEASE: ticket.owner.id },
+      abort,
+      pid => {
+        // The worker waits for IPC permission until activation has won against stale recovery.
+        ownerFile = activateLock(lock, ticket, pid);
+      }
+    );
   } finally {
     clearInterval(heartbeat);
     removeLock(lock, ownerFile);
@@ -366,6 +408,7 @@ function showStatus(directory, staleMs, slots) {
     console.log(
       `Owner: ${describeOwner(entry.owner)}; weight ${entry.owner?.weight ?? 1}${entry.stale ? ' [stale]' : ''}`
     );
+    showDetails(entry);
   }
   const admitted = new Set(owners.map(entry => entry.owner?.id).filter(Boolean));
   const queue = join(directory, 'queue');
@@ -376,13 +419,54 @@ function showStatus(directory, staleMs, slots) {
     console.log(
       `${index + 1}. ${describeOwner(entry.owner)}${entry.stale ? ' [stale]' : ''}; weight ${entry.owner?.weight ?? 1}`
     );
+    showDetails(entry);
   }
 }
 
-export async function main(args = process.argv.slice(2)) {
-  const directory = process.env.HEAVY_RUN_DIR || join(homedir(), '.agent-questions', 'heavy-run');
-  const worker = args[0] === '--worker';
-  const bypass = worker || process.env.CI === 'true' || process.env.HEAVY_RUN_HELD === '1';
+function showDetails(entry) {
+  const timestamp = value => (value ? new Date(value).toISOString() : 'pending');
+  console.log(
+    `  id: ${entry.owner?.id ?? (entry.path && basename(entry.path)) ?? 'initializing'}; command: ${JSON.stringify(entry.owner?.command ?? [])}; queued: ${timestamp(entry.owner?.queuedAt ?? entry.created)}; start: ${timestamp(entry.owner?.startedAt)}; last activity: ${timestamp(entry.lastActivity)}`
+  );
+}
+
+async function releaseLease(directory, id, staleMs) {
+  let removed = removeTicket(join(directory, 'queue'), id);
+  const lock = join(directory, 'lock');
+  // Activation renames once; retirement must win that same race before stopping the worker.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const entry = readLock(lock, staleMs).find(
+      entry => entry.path && [id, `running-${id}`, `releasing-${id}`].includes(basename(entry.path))
+    );
+    if (!entry) break;
+    const retired = `releasing-${id}`;
+    try {
+      renameSync(entry.path, join(lock, retired));
+    } catch (error) {
+      if (error.code === 'ENOENT') continue;
+      throw error;
+    }
+    const owner = readEntry(join(lock, retired), staleMs)?.owner;
+    if (owner?.childPid)
+      await stopChild({ pid: owner.childPid, exitCode: null, signalCode: null }, owner.childPid);
+    removeLock(lock, retired);
+    removed = true;
+    break;
+  }
+  console.log(`heavy-run: ${removed ? 'released' : 'not found'} ${id}`);
+  return removed ? 0 : 1;
+}
+
+function inheritedLeaseActive(directory, staleMs) {
+  return (
+    process.env.HEAVY_RUN_LEASE &&
+    readLock(join(directory, 'lock'), staleMs).some(
+      entry => entry.owner?.id === process.env.HEAVY_RUN_LEASE && !entry.stale
+    )
+  );
+}
+
+function localSettings(bypass) {
   const staleMs = bypass
     ? DEFAULT_STALE_MS
     : Number(process.env.HEAVY_RUN_STALE_MS ?? DEFAULT_STALE_MS);
@@ -391,10 +475,23 @@ export async function main(args = process.argv.slice(2)) {
   const slots = bypass ? DEFAULT_SLOTS : Number(process.env.HEAVY_RUN_SLOTS ?? DEFAULT_SLOTS);
   if (!Number.isSafeInteger(slots) || slots < 1)
     throw new Error('HEAVY_RUN_SLOTS must be a positive integer.');
+  return { staleMs, slots };
+}
+
+export async function main(args = process.argv.slice(2)) {
+  const directory = process.env.HEAVY_RUN_DIR || join(homedir(), '.agent-questions', 'heavy-run');
+  const worker = args[0] === '--worker';
+  const bypass = worker || process.env.CI === 'true' || process.env.HEAVY_RUN_HELD === '1';
+  const { staleMs, slots } = localSettings(bypass);
   if (args[0] === 'status') {
     showStatus(directory, staleMs, slots);
     return 0;
   }
+  if (args[0] === 'release') return releaseLease(directory, args[1], staleMs);
+  if (!bypass && inheritedLeaseActive(directory, staleMs))
+    throw new Error(
+      'A nested command must reuse HEAVY_RUN_HELD; release its current lease before queuing another.'
+    );
   const { command, weight } = worker
     ? { command: await workerCommand(args), weight: 1 }
     : parseCommand(args);
