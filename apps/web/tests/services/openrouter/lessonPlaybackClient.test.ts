@@ -93,6 +93,29 @@ test('an optional visual still propagates a polling permission failure', async (
   ).rejects.toThrow();
 });
 
+test('an optional visual releases audio only after terminal cleanup', async () => {
+  const cleaning = await completed().json();
+  cleaning.state.run.status = 'failed';
+  cleaning.state.run.cleanupStatus = 'running';
+  const cleaned = structuredClone(cleaning);
+  cleaned.state.run.cleanupStatus = 'completed';
+  fetchMock
+    .mockResolvedValueOnce(new Response(JSON.stringify(cleaning)))
+    .mockResolvedValueOnce(new Response(JSON.stringify(cleaned)));
+  let settled = false;
+  const pending = waitForLessonPlayback('run', 'project', new AbortController().signal, true).then(
+    () => {
+      settled = true;
+    }
+  );
+  await vi.advanceTimersByTimeAsync(0);
+  expect(settled).toBe(false);
+  streamListener.current?.();
+  await pending;
+  expect(settled).toBe(true);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
 test.each([
   'network',
   'server',
