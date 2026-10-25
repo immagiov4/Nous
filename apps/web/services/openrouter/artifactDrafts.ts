@@ -1,4 +1,8 @@
 import type { ArtifactDraftWorkflowSnapshot } from '@shared/artifactDraftWorkflowContract';
+import {
+  formatPlaybackQuestionContext,
+  type PlaybackQuestionContext,
+} from '@shared/playbackQuestionContext';
 import type {
   LearningArtifactRenderPayload,
   LearningArtifactSummary,
@@ -30,6 +34,8 @@ import {
 } from './workflowClientTransport.ts';
 
 interface GenerateLessonArtifactDraftInput {
+  playbackContext?: PlaybackQuestionContext;
+  userRequest?: string;
   contextAfter?: string;
   contextBefore?: string;
   generationNotes?: string;
@@ -85,6 +91,9 @@ ${JSON.stringify(scene)}`);
 };
 
 const buildDraftLessonMarkdown = ({
+  projectTitle,
+  playbackContext,
+  userRequest,
   contextAfter,
   contextBefore,
   lesson,
@@ -103,9 +112,14 @@ const buildDraftLessonMarkdown = ({
   | 'revisionInstructions'
   | 'selectedText'
   | 'sourceArtifact'
+  | 'playbackContext'
+  | 'userRequest'
+  | 'projectTitle'
 >): string =>
   [
+    `Corso: ${projectTitle}\nLezione: ${lesson.title}`,
     `Richiesta visuale dell'utente:\n${prompt.trim()}`,
+    // Visual generators read a bounded excerpt, so revision data precedes bulky context.
     mode === 'replacement-draft'
       ? 'Modalita: crea una bozza modificata dell artefatto sorgente, non una variante indipendente.'
       : undefined,
@@ -113,6 +127,8 @@ const buildDraftLessonMarkdown = ({
       ? `Istruzioni di revisione obbligatorie:\n${revisionInstructions.trim()}`
       : undefined,
     sourceArtifact ? describeSourceArtifact(sourceArtifact) : undefined,
+    userRequest?.trim() ? `Richieste nella conversazione:\n${userRequest.trim()}` : undefined,
+    playbackContext ? formatPlaybackQuestionContext(playbackContext) : undefined,
     selectedText?.trim() ? `Passaggio selezionato:\n${selectedText.trim()}` : undefined,
     contextBefore?.trim() ? `Contesto precedente:\n${contextBefore.trim()}` : undefined,
     lesson.content?.trim() ? `Lezione:\n${lesson.content.trim()}` : undefined,
@@ -213,6 +229,8 @@ const generateDurableArtifactDraft = async (input: {
 };
 
 export const generateLessonArtifactDraft = async ({
+  playbackContext,
+  userRequest,
   contextAfter,
   contextBefore,
   generationNotes,
@@ -229,6 +247,9 @@ export const generateLessonArtifactDraft = async ({
   sourceArtifactId,
 }: GenerateLessonArtifactDraftInput): Promise<GeneratedLessonArtifactDraft | null> => {
   const lessonMarkdown = buildDraftLessonMarkdown({
+    projectTitle,
+    playbackContext,
+    userRequest,
     contextAfter,
     contextBefore,
     lesson,
