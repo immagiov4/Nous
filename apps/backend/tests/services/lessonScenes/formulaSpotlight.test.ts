@@ -233,9 +233,9 @@ test('retains compound highlight targets without treating their row wrappers as 
       { id: 'dk', latex: '{D}{k}', name: 'Dk', meaning: 'Second quantity', anchor: '' },
     ],
   };
-  expect(formulaSpotlightCovers(scene, ['${D}{i}+{D}{k}$'])).toBe(true);
+  expect(formulaSpotlightCovers(scene, [String.raw`\({D}{i}+{D}{k}\)`])).toBe(true);
   expect(formulaSpotlightCovers(scene, ['$D_i+D_k$'])).toBe(false);
-  expect(formulaSpotlightCovers(scene, ['${D}{i}-{D}{k}$'])).toBe(false);
+  expect(formulaSpotlightCovers(scene, [String.raw`\({D}{i}-{D}{k}\)`])).toBe(false);
 });
 
 test('resolves repeated references to the same rendered symbol without duplicating its glyph', () => {
