@@ -10,6 +10,7 @@ import {
   CONTEXT_SOURCE_ARCHIVE_TOOL_NAME,
   SOURCE_ARCHIVE_VERSION_HASH_PATTERN,
 } from '@shared/lessonSourceContext';
+import { PlaybackQuestionContextSchema } from '@shared/playbackQuestionContext';
 import {
   convertToModelMessages,
   generateId,
@@ -166,8 +167,8 @@ const contextChatTools = {
     description:
       'Generate a temporary visual artifact or a replacement draft for an existing generated-visual in the current lesson. For edits, including title or description changes, use replacement-draft with the exact sourceArtifactId returned by artifact tools. PDF images and future assets cannot be edited through this tool. Call once for the requested artifact and wait for the result before reporting availability. If the user specifies a format, pass it in requestedVisualKind. After showing it, call requestAddToNotes with artifactIds if the user asks to save it.',
     inputSchema: jsonSchema<{
-      mode: 'new' | 'replacement-draft';
-      prompt: string;
+      mode?: 'new' | 'replacement-draft';
+      prompt?: string;
       requestedVisualKind?: 'html' | 'image' | 'scene';
       revisionInstructions?: string;
       sourceArtifactId?: string;
@@ -179,12 +180,12 @@ const contextChatTools = {
           type: 'string',
           enum: ['new', 'replacement-draft'],
           description:
-            'Use replacement-draft when the user asks to modify or replace an existing generated-visual. Otherwise use new.',
+            'Optional operation. When omitted, a sourceArtifactId selects replacement-draft; otherwise the operation is new.',
         },
         prompt: {
           type: 'string',
           description:
-            'Precise visual request to satisfy, including the concept, teaching angle, and desired artifact type when stated.',
+            'Optional visual details. The conversation already supplies the user request and current lesson or playback context.',
         },
         requestedVisualKind: {
           type: 'string',
@@ -203,7 +204,6 @@ const contextChatTools = {
             'Exact ID of the source generated-visual to modify when mode is replacement-draft.',
         },
       },
-      required: ['mode', 'prompt'],
     }),
     outputSchema: jsonSchema<Record<string, unknown>>({
       type: 'object',
@@ -621,8 +621,16 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     const contextSourceMaterial = readOptionalString(sourceMaterial);
     const selectedText = readOptionalString(req.body.selectedText);
     const messages = req.body.messages;
+    const playbackContext = PlaybackQuestionContextSchema.optional().safeParse(
+      req.body.playbackContext
+    );
+    if (!playbackContext.success) {
+      res.status(400).json({ success: false, error: 'Invalid playback context.' });
+      return;
+    }
 
     const contextInput = {
+      playbackContext: playbackContext.data,
       attachedAnnotationNote: readOptionalString(attachedAnnotationNote),
       attachedAnnotationText: readOptionalString(attachedAnnotationText),
       contextAfter: readOptionalString(contextAfter),

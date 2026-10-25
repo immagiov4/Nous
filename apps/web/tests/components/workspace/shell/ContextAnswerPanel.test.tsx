@@ -24,6 +24,7 @@ import {
   buildTestLesson,
   buildTestProjectMeta,
 } from '../../../helpers/learningPlan.ts';
+import { playbackQuestion } from '../../../helpers/playbackQuestion.ts';
 
 const defaultChatTransportInstances: Array<{
   prepareSendMessagesRequest?: (args: unknown) => unknown;
@@ -312,6 +313,124 @@ const renderPlaybackComposer = (
 );
 
 describe('ContextAnswerPanel', () => {
+  test.each([
+    '',
+    undefined,
+  ])('carries the frozen playback context through chat, artifact creation and replacement (prompt: %s)', async revisionPrompt => {
+    const user = userEvent.setup();
+    const readPlaybackContext = vi.fn(() => playbackQuestion);
+    const question =
+      'creami una mappa di questa cosa che sta essendo mostrata in questo momento, del controller… un flowchart';
+    const userMessages: UIMessage[] = [
+      { id: 'question', role: 'user', parts: [{ type: 'text', text: question }] },
+    ];
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      messages: userMessages,
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    generateLessonArtifactDraftMock
+      .mockResolvedValueOnce({
+        artifactId: generatedDraftArtifact.summary.id,
+        payload: generatedDraftArtifact,
+        visual: generatedDraftArtifact.visual,
+      })
+      .mockResolvedValueOnce({
+        artifactId: replacementDraftArtifact.summary.id,
+        payload: {
+          ...replacementDraftArtifact,
+          summary: {
+            ...replacementDraftArtifact.summary,
+            replacementOfArtifactId: generatedDraftArtifact.summary.id,
+          },
+        },
+        visual: replacementDraftArtifact.visual,
+      });
+    render(
+      <ContextAnswerPanel
+        {...buildProps({ initialQuestion: question, playbackContext: playbackQuestion })}
+        readPlaybackContext={readPlaybackContext}
+      />
+    );
+    const request = defaultChatTransportInstances
+      .at(-1)
+      ?.prepareSendMessagesRequest?.({ id: 'chat', messages: [] }) as {
+      body: Record<string, unknown>;
+    };
+    expect(request.body).toMatchObject({
+      playbackContext: playbackQuestion,
+      lessonTitle: 'Titolo',
+      projectTitle: 'Corso',
+    });
+    expect(screen.getByText('Individuare il controller di dominio')).toBeInTheDocument();
+    const call = async (input: unknown, id: string) =>
+      act(async () => {
+        await useChatMock.mock.lastCall?.[0].onToolCall({
+          toolCall: {
+            dynamic: false,
+            toolName: 'generateCurrentLessonArtifact',
+            toolCallId: id,
+            input,
+          },
+        });
+      });
+    await call({ prompt: 'Mappa del controller', requestedVisualKind: 'scene' }, 'create-playback');
+    expect(generateLessonArtifactDraftMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        playbackContext: playbackQuestion,
+        mode: 'new',
+        userRequest: question,
+        lesson: expect.objectContaining({ id: 'lesson-1', title: 'Titolo', content: 'Contenuto' }),
+      })
+    );
+    const followUp = 'Rigenera la mappa dei sei passi visibili.';
+    const nextPlayback = {
+      ...playbackQuestion,
+      voiceTime: 6,
+      heardSentence: 'Il server valuta i permessi.',
+      visual: {
+        ...playbackQuestion.visual,
+        highlighted: [{ id: 'item:5', text: 'Valutazione dei permessi' }],
+      },
+    };
+    readPlaybackContext.mockReturnValue(nextPlayback);
+    await user.type(screen.getByRole('textbox'), followUp);
+    await user.click(screen.getByTestId('chat-text-composer'));
+    userMessages.push({ id: 'follow-up', role: 'user', parts: [{ type: 'text', text: followUp }] });
+    const followUpRequest = defaultChatTransportInstances
+      .at(-1)
+      ?.prepareSendMessagesRequest?.({ id: 'chat', messages: userMessages }) as {
+      body: Record<string, unknown>;
+    };
+    expect(followUpRequest.body.playbackContext).toEqual(nextPlayback);
+    // Later movement during the response cannot change the context of its artifact tool.
+    readPlaybackContext.mockReturnValue({ ...nextPlayback, voiceTime: 10 });
+    await call(
+      {
+        prompt: revisionPrompt,
+        sourceArtifactId: generatedDraftArtifact.summary.id,
+        revisionInstructions: 'Mantieni tutti i sei passi',
+      },
+      'revise-playback'
+    );
+    expect(addToolOutputMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        toolCallId: 'revise-playback',
+        output: expect.objectContaining({ artifactId: replacementDraftArtifact.summary.id }),
+      })
+    );
+    expect(generateLessonArtifactDraftMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        playbackContext: nextPlayback,
+        userRequest: `${question}\n\n${followUp}`,
+        mode: 'replacement-draft',
+        prompt: `${question}\n\n${followUp}`,
+        sourceArtifact: generatedDraftArtifact,
+        revisionInstructions: 'Mantieni tutti i sei passi',
+      })
+    );
+  });
   beforeEach(() => {
     defaultChatTransportInstances.length = 0;
     sendMessageMock.mockReset();
@@ -1937,9 +2056,11 @@ describe('ContextAnswerPanel', () => {
   });
 
   test.each([
-    { prompt: 'Aggiorna il titolo.' },
+    { mode: 'replacement-draft', prompt: 'Aggiorna il titolo.' },
     { mode: 'replacement-draft', sourceArtifactId: 'missing', prompt: 'Aggiorna il titolo.' },
-  ])('does not create an unrelated draft for an incomplete edit contract: %j', async input => {
+    { mode: 'invalid', prompt: 'Aggiorna il titolo.' },
+    { prompt: 42 },
+  ])('does not create a draft for invalid input or an unresolved revision: %j', async input => {
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
       messages: [],
@@ -2058,7 +2179,7 @@ describe('ContextAnswerPanel', () => {
     const onSaveArtifactToLesson = vi.fn(async () => ({ succeeded: true }));
     render(
       <ContextAnswerPanel
-        {...buildProps({ id: 'context-saved-origin-artifact' })}
+        {...buildProps({ id: 'context-saved-origin-artifact', playbackContext: playbackQuestion })}
         onSaveArtifactToLesson={onSaveArtifactToLesson}
         onReplaceArtifactInLesson={async () => ({ succeeded: true })}
       />
@@ -2113,6 +2234,18 @@ describe('ContextAnswerPanel', () => {
     await user.click(screen.getByRole('button', { name: /Rigenera artefatto/i }));
     await user.type(screen.getByLabelText(/Istruzioni rigenerazione/i), 'Aggiorna il titolo.');
     await user.click(screen.getByRole('button', { name: /Conferma rigenerazione/i }));
+    expect(generateLessonArtifactDraftMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        playbackContext: playbackQuestion,
+        mode: 'replacement-draft',
+        sourceArtifact: expect.objectContaining({
+          visual: generatedDraftArtifact.visual,
+          summary: expect.objectContaining({ id: generatedDraftArtifact.summary.id }),
+        }),
+        userRequest: 'spiega meglio',
+        revisionInstructions: 'Aggiorna il titolo.',
+      })
+    );
     await user.click(
       await screen.findByRole('button', { name: /Apri mappa concettuale rivista/i })
     );

@@ -9,6 +9,8 @@ wiki_page_id: "p-chat-ui"
 
 A chat response can arrive after the reader has navigated to another lesson. If the response used the currently displayed page at that point, its explanation or proposed note could attach to the wrong material. Nous binds the conversation to its lesson, passage or note before requesting the response and carries that context through streaming and tool execution.
 
+Playback questions also capture the passage, the rendered visual and its current emphasis, and the sentence being heard. The stage supplies this snapshot from its displayed state and voice clock, independently of the captions' intentional lead. Each new question captures the current stage and keeps that context through its response and artifact tools; revisions also carry the source draft and the user's requests. The tool can omit its repeated prompt and operation: the conversation supplies the request, and a source artifact reference selects a revision. Regenerating from an artifact card captures the stage for that operation. The conversation remains attached to the originating lesson as playback or navigation changes.
+
 ## Retrieve evidence within that conversation
 
 The saved context supplies the question's meaning and the scope of retrieval. For archive-backed lessons, tools can search the retained index or open an indexed text file. Results keep the source and path, and the backend restricts access to the authorized project and source version attached to the lesson. [Archive access](../../../apps/backend/src/projects/sourceArchiveAccess.ts) owns that boundary.
