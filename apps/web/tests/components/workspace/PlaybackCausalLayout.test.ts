@@ -22,6 +22,14 @@ beforeAll(async () => {
   await server.listen();
   baseUrl = server.resolvedUrls?.local[0] ?? '';
   browser = await chromium.launch(withMutedAudio({ headless: true }));
+  const page = await browser.newPage();
+  try {
+    // Compile the fixture before measuring the individual layout cases.
+    await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=prices`);
+    await page.locator('.scene-host h2').waitFor();
+  } finally {
+    await page.close();
+  }
 });
 
 afterAll(async () => {
