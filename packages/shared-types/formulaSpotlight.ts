@@ -32,6 +32,11 @@ export const FormulaSpotlightDataSchema = z.object({
 });
 export type FormulaSpotlightData = Readonly<z.infer<typeof FormulaSpotlightDataSchema>>;
 
+const hasExplicitFormulaReferencePositions = (scene: FormulaSpotlightData): boolean =>
+  scene.symbols.some(
+    symbol => symbol.anchorOccurrence !== undefined || symbol.additionalAnchors !== undefined
+  );
+
 /** A saved formula is animated whenever any part has an explicit narration link. */
 export const hasFormulaSpotlightReferences = (scene: FormulaSpotlightData): boolean =>
   scene.symbols.some(symbol => Boolean(symbol.anchor || symbol.additionalAnchors?.length));
@@ -233,6 +238,7 @@ export function findFormulaSpotlightProblems(value: unknown, source?: string): s
   }
   const anchored = parsed.data.symbols.filter(symbol => symbol.anchor);
   if (
+    !hasExplicitFormulaReferencePositions(parsed.data) &&
     new Set(anchored.map(symbol => JSON.stringify([symbol.anchor, symbol.anchorOccurrence])))
       .size !== anchored.length
   ) {
@@ -248,25 +254,22 @@ export function findFormulaSpotlightProblems(value: unknown, source?: string): s
   return problems;
 }
 
+/** All literal positions, including repeated quotations inside longer words. */
+export function findFormulaOccurrences(text: string, anchor: string): number[] {
+  const matchingOffsets: number[] = [];
+  if (anchor) {
+    for (let start = text.indexOf(anchor); start >= 0; start = text.indexOf(anchor, start + 1))
+      matchingOffsets.push(start);
+  }
+  return matchingOffsets;
+}
+
 /** Select a literal occurrence explicitly supplied by formula preparation. */
 export function resolveFormulaOccurrence(
   text: string,
-  selection: { anchor: string; anchorOccurrence?: number },
-  allowedBoundaries?: ReadonlySet<number>
+  selection: { anchor: string; anchorOccurrence?: number }
 ) {
-  const matchingOffsets: number[] = [];
-  if (selection.anchor) {
-    for (
-      let start = text.indexOf(selection.anchor);
-      start >= 0;
-      start = text.indexOf(selection.anchor, start + 1)
-    )
-      if (
-        !allowedBoundaries ||
-        (allowedBoundaries.has(start) && allowedBoundaries.has(start + selection.anchor.length))
-      )
-        matchingOffsets.push(start);
-  }
+  const matchingOffsets = findFormulaOccurrences(text, selection.anchor);
   const start = matchingOffsets[selection.anchorOccurrence ?? 0];
   if (
     start === undefined ||
@@ -287,9 +290,7 @@ export function resolveFormulaReferences(scene: FormulaSpotlightData, speech: st
   const linked = scene.symbols.flatMap((symbol, index) =>
     symbol.anchor ? [{ ...symbol, index }] : []
   );
-  const explicitReferences = scene.symbols.some(
-    symbol => symbol.anchorOccurrence !== undefined || symbol.additionalAnchors !== undefined
-  );
+  const explicitReferences = hasExplicitFormulaReferencePositions(scene);
   if (linked.length && !explicitReferences) cueTimes(speech, linked);
   const locate = (symbol: { anchor: string; anchorOccurrence?: number; index: number }) => ({
     index: symbol.index,

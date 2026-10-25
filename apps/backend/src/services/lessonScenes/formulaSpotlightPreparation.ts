@@ -2,15 +2,16 @@ import { INTERNAL_FAST_TASK_INSTRUCTION } from '@shared/aiPromptInstructions';
 import {
   type FormulaSpotlightData,
   FormulaSpotlightDataSchema,
+  findFormulaOccurrences,
   formulaLatexSource,
   formulaSpotlightCovers,
   hasFormulaSpotlightReferences,
   renderSpotlightFormula,
-  resolveFormulaOccurrence,
   resolveFormulaReferences,
 } from '@shared/formulaSpotlight';
 import type { PlaybackRange } from '@shared/lessonPlayback';
 import { findLessonSceneProblems, type LessonScene } from '@shared/lessonScene';
+import { narrationWords } from '@shared/playbackWordTiming';
 import * as z from 'zod';
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
 import { isInvalidLessonVisualStructuredOutput } from '../lessonGenerationVisuals.js';
@@ -29,34 +30,88 @@ interface FormulaPreparationInput {
   readonly retryFeedback?: string;
   readonly signal: AbortSignal;
 }
+class FormulaSelectionError extends Error {}
+
+interface SelectionToken extends PlaybackRange {
+  readonly id: string;
+  readonly text: string;
+}
 const symbolShape = FormulaSpotlightDataSchema.shape.symbols.element.shape;
-const voiceShape = {
-  anchor: symbolShape.anchor,
-  anchorOccurrence: symbolShape.anchorOccurrence,
-  additionalAnchors: symbolShape.additionalAnchors.unwrap(),
-};
-const sourceSymbolSchema = z.object({
-  id: symbolShape.id,
-  latex: symbolShape.latex,
-  sourceOccurrences: z
-    .array(z.object({ occurrence: symbolShape.anchorOccurrence.unwrap(), needsGroup: z.boolean() }))
-    .min(1),
-  name: symbolShape.name,
-  meaning: symbolShape.meaning,
-  ...voiceShape,
+const wordSelectionSchema = z.object({
+  first: z.string().regex(/^w\d+$/u),
+  last: z.string().regex(/^w\d+$/u),
 });
+const voiceShape = { mentions: z.array(wordSelectionSchema) };
 const sourceDraftSchema = z.object({
   mentioned: z.boolean(),
   title: symbolShape.name,
   summary: symbolShape.meaning,
-  symbols: z.array(sourceSymbolSchema),
+  symbols: z.array(
+    z.object({
+      id: symbolShape.id,
+      ranges: z
+        .array(
+          z.object({
+            first: z.string().regex(/^t\d+$/u),
+            last: z.string().regex(/^t\d+$/u),
+            needsGroup: z.boolean(),
+          })
+        )
+        .min(1),
+      name: symbolShape.name,
+      meaning: symbolShape.meaning,
+      ...voiceShape,
+    })
+  ),
 });
 type SourceFormulaDraft = z.infer<typeof sourceDraftSchema>;
+type TokenSelection = { readonly first: string; readonly last: string };
 
-const FORMULA_BINDING_INSTRUCTION = `Prepare data for the existing formula spotlight. The authored mathematics is immutable. Use only the supplied formula and narration. Return data, never styling or code.
+const FORMULA_BINDING_INSTRUCTION = `Prepare data for the existing formula spotlight. The authored mathematics is immutable. Use only the supplied formula and narration. Return data, never styling, rewritten math or rewritten speech.
 Decide whether the narration names any part of this visible formula, including explanatory references and recalls, not just complete readings. Supplied dictatedRanges are explicit readings of this formula and require mentioned:true. If no part is named, choose mentioned:false.
-Every voice anchor is an exact quotation from the complete canonical narration, limited to the words naming that part. anchorOccurrence selects its zero-based literal occurrence, including occurrences inside other words. Supply it whenever the quotation repeats. Put every later mention of the same part in additionalAnchors, each with its exact quotation and occurrence. Do not broaden quotations to avoid repetitions. Empty anchor and [] mean an unmentioned part. Never rewrite narration.
+Use the supplied narrationWords IDs to select each exact spoken mention: first and last are inclusive word IDs, equal for a single word. Copy IDs from the list; never count substring occurrences or invent quotations. Select only the words naming that part. mentions:[] means an unmentioned part. Include every later reference, too. Several parts may select the same words when one mention names a compound or a family; each of those explicit parts will light up together.
 Use the lesson language for names, meanings, title and summary. Explain only what the provided material supports. ${INTERNAL_FAST_TASK_INSTRUCTION}`;
+
+const speechTokens = (narration: string): SelectionToken[] =>
+  narrationWords(narration).map((word, index) => ({ ...word, id: `w${index}` }));
+const sourceTokens = (latex: string): SelectionToken[] =>
+  Array.from(latex.matchAll(/\\(?:[a-zA-Z@]+|[\s\S])|[\s\S]/gu), (token, index) => ({
+    id: `t${index}`,
+    text: token[0],
+    start: token.index,
+    end: token.index + token[0].length,
+  }));
+
+/** Resolve only provider-selected IDs; source control words and acoustic words are indivisible. */
+function selectedRange(
+  tokens: readonly SelectionToken[],
+  selection: TokenSelection
+): PlaybackRange {
+  const first = tokens.find(token => token.id === selection.first);
+  const last = tokens.find(token => token.id === selection.last);
+  if (!first || !last || first.start > last.start)
+    throw new FormulaSelectionError('Select existing token IDs in source order.', {
+      cause: { selection, available: tokens.map(({ id, text }) => ({ id, text })) },
+    });
+  return { start: first.start, end: last.end };
+}
+
+function heardLinks(mentions: readonly TokenSelection[], narration: string) {
+  const words = speechTokens(narration);
+  const references = mentions.map(selection => {
+    const range = selectedRange(words, selection);
+    const anchor = narration.slice(range.start, range.end);
+    const anchorOccurrence = findFormulaOccurrences(narration, anchor).indexOf(range.start);
+    if (anchorOccurrence < 0)
+      throw new Error('Selected words must retain their canonical position.');
+    return { anchor, anchorOccurrence };
+  });
+  return {
+    anchor: references[0]?.anchor ?? '',
+    anchorOccurrence: references[0]?.anchorOccurrence,
+    additionalAnchors: references.slice(1),
+  };
+}
 
 async function requestFormulaDraft<T extends z.ZodType>(
   schema: T,
@@ -72,16 +127,15 @@ async function requestFormulaDraft<T extends z.ZodType>(
     sourceAware: false,
     output: { name: 'formula_spotlight_preparation', schema: outputSchema },
     system: `${FORMULA_BINDING_INSTRUCTION}\n${instructions}`,
-    prompt: `AUTHORED TEX (copy fragments exactly, including braces and spaces):\n${formulaLatexSource(source.formula)}\n\nCANONICAL NARRATION:\n${narration}\n\n${JSON.stringify(
-      {
-        dictatedRanges: source.dictatedRanges,
-        dictatedReadings: source.dictatedRanges?.map(range =>
-          narration.slice(range.start, range.end)
-        ),
-        existingTemplate: source.template,
-        requiredCorrection: input.retryFeedback,
-      }
-    )}`,
+    prompt: JSON.stringify({
+      authoredTex: formulaLatexSource(source.formula),
+      sourceTokens: source.template ? undefined : sourceTokens(formulaLatexSource(source.formula)),
+      canonicalNarration: narration,
+      narrationWords: speechTokens(narration),
+      dictatedRanges: source.dictatedRanges,
+      existingTemplate: source.template,
+      requiredCorrection: input.retryFeedback,
+    }),
   }).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
@@ -108,10 +162,10 @@ function invalidFormulaDraft(
 }
 
 function sourceFormulaScene(
-  source: FormulaPreparationSource,
+  input: FormulaPreparationInput,
   draft: SourceFormulaDraft
 ): LessonScene & FormulaSpotlightData {
-  const latex = formulaLatexSource(source.formula);
+  const latex = formulaLatexSource(input.source.formula);
   if (!draft.mentioned)
     return {
       type: 'formula-spotlight',
@@ -134,31 +188,39 @@ function sourceFormulaScene(
         },
       ],
     };
-  // KaTeX control words are indivisible: an "a" inside \mathbf is not a source-symbol occurrence.
-  const tokens = Array.from(latex.matchAll(/\\(?:[a-zA-Z@]+|[\s\S])|[\s\S]/gu));
-  const sourceBoundaries = new Set([0, ...tokens.map(token => token.index + token[0].length)]);
-  const ranges = draft.symbols
-    .flatMap(symbol =>
-      symbol.sourceOccurrences.map(selection => ({
+  const tokens = sourceTokens(latex);
+  const parts = draft.symbols.map(symbol => {
+    const ranges = symbol.ranges.map(selection => ({
+      ...selectedRange(tokens, selection),
+      id: symbol.id,
+      needsGroup: selection.needsGroup,
+    }));
+    const fragment = latex.slice(ranges[0].start, ranges[0].end);
+    if (ranges.some(range => latex.slice(range.start, range.end) !== fragment))
+      throw new FormulaSelectionError(
+        'Different source fragments need separate symbol IDs, even when they share a spoken mention.',
+        { cause: { symbol: symbol.id, ranges } }
+      );
+    return {
+      ranges,
+      symbol: {
         id: symbol.id,
-        needsGroup: selection.needsGroup,
-        ...resolveFormulaOccurrence(
-          latex,
-          {
-            anchor: symbol.latex,
-            anchorOccurrence: selection.occurrence,
-          },
-          sourceBoundaries
-        ),
-      }))
-    )
+        latex: fragment,
+        name: symbol.name,
+        meaning: symbol.meaning,
+        ...heardLinks(symbol.mentions, input.narration),
+      },
+    };
+  });
+  const ranges = parts
+    .flatMap(part => part.ranges)
     .sort((left, right) => left.start - right.start || left.end - right.end);
   let cursor = 0;
   let formula = '';
   for (const range of ranges) {
     if (range.start < cursor)
-      throw new Error('Source formula fragments must not overlap.', {
-        cause: { range, previousEnd: cursor },
+      throw new FormulaSelectionError('Source formula fragments must not overlap.', {
+        cause: { range, previousEnd: cursor, selections: ranges },
       });
     const reference = String.raw`\nousSymbol{${range.id}}`;
     formula += latex.slice(cursor, range.start) + (range.needsGroup ? `{${reference}}` : reference);
@@ -175,7 +237,7 @@ function sourceFormulaScene(
     groups: [],
     autoplay: true,
     formula,
-    symbols: draft.symbols.map(({ sourceOccurrences: _occurrences, ...symbol }) => symbol),
+    symbols: parts.map(part => part.symbol),
   };
 }
 
@@ -215,65 +277,66 @@ function validatePreparedFormula(
   return { kind: 'scene', scene };
 }
 
-/** Bind exact source fragments to exact heard words without asking the model to re-author math. */
+/** Bind listed source tokens to listed heard words; the provider never re-authors math or counts occurrences. */
 export async function generateSourceBoundFormula(
   input: FormulaPreparationInput
 ): Promise<LessonSceneOutcome> {
   const template = input.source.template;
-  if (template) {
-    const ids = template.symbols.map(symbol => symbol.id);
-    const schema = z.object({
-      mentioned: input.source.dictatedRanges?.length ? z.literal(true) : z.boolean(),
-      links: z.array(z.object({ id: z.enum(ids), ...voiceShape })),
-    });
+  let selectedDraft: unknown;
+  try {
+    if (template) {
+      const ids = template.symbols.map(symbol => symbol.id);
+      const schema = z.object({
+        mentioned: input.source.dictatedRanges?.length ? z.literal(true) : z.boolean(),
+        links: z.array(z.object({ id: z.enum(ids), ...voiceShape })),
+      });
+      const { parsed, response } = await requestFormulaDraft(
+        schema,
+        input,
+        'The existingTemplate formula and symbol definitions are fixed. Return only links by their existing IDs, with exact narration word selections. A compound mention may link several IDs. Omit unmentioned IDs; never duplicate a link ID. Choose mentioned:false and links:[] when no part is named.'
+      );
+      if (!parsed.success)
+        return invalidFormulaDraft(['Follow the formula-link response schema.'], response);
+      selectedDraft = parsed.data;
+      const links = new Map(parsed.data.links.map(link => [link.id, link]));
+      if (links.size !== parsed.data.links.length)
+        return invalidFormulaDraft(
+          ['Every existing symbol ID may have only one link record.'],
+          parsed.data
+        );
+      const scene = {
+        ...template,
+        symbols: template.symbols.map(symbol => ({
+          ...symbol,
+          ...heardLinks(links.get(symbol.id)?.mentions ?? [], input.narration),
+        })),
+      };
+      return validatePreparedFormula(input, scene, parsed.data.mentioned, parsed.data);
+    }
+    const schema = input.source.dictatedRanges?.length
+      ? sourceDraftSchema.extend({ mentioned: z.literal(true) })
+      : sourceDraftSchema;
     const { parsed, response } = await requestFormulaDraft(
       schema,
       input,
-      'The existingTemplate formula and symbol definitions are fixed. Return links only by their existing IDs. Omit unmentioned IDs. Use additionalAnchors for repeated mentions; never duplicate a link ID. Choose mentioned:false and links:[] when no part is named.'
+      String.raw`If mentioned:false, return symbols:[] with a short title and summary. Otherwise define every mathematical identifier, including unmentioned ones. Each range selects inclusive first/last IDs from sourceTokens; single tokens use equal IDs. Select a complete independently renderable fragment. Control words such as \mathbf are indivisible. Source ranges must not overlap. Repeated occurrences use their own token IDs, even when one is a prefix of a longer fragment (for example q inside q-prime). Each symbol may have several ranges only for IDENTICAL source text; use separate symbols for distinct family members and link them to the same narration words. Never return rewritten TeX. Keep script operators _ and ^ outside a reference when selecting only their argument: select the digit, not _digit. needsGroup:true adds a paired brace group for an unbraced TeX argument (such as that digit); otherwise false. A whole base-with-script fragment can instead be selected as one part without an added group. The application preserves every source character outside the selected fragments.`
     );
     if (!parsed.success)
-      return invalidFormulaDraft(['Follow the formula-link response schema.'], response);
-    const links = new Map(parsed.data.links.map(link => [link.id, link]));
-    if (links.size !== parsed.data.links.length)
+      return invalidFormulaDraft(['Follow the source-token response schema.'], response);
+    if (!parsed.data.mentioned && parsed.data.symbols.length)
       return invalidFormulaDraft(
-        ['Every existing symbol ID may have only one link record.'],
+        ['A static decision must return symbols:[] rather than discard supplied links.'],
         parsed.data
       );
-    const scene = {
-      ...template,
-      symbols: template.symbols.map(symbol => ({
-        ...symbol,
-        anchor: '',
-        anchorOccurrence: undefined,
-        additionalAnchors: [],
-        ...links.get(symbol.id),
-      })),
-    };
-    return validatePreparedFormula(input, scene, parsed.data.mentioned, parsed.data);
-  }
-  const schema = input.source.dictatedRanges?.length
-    ? sourceDraftSchema.extend({ mentioned: z.literal(true) })
-    : sourceDraftSchema;
-  const { parsed, response } = await requestFormulaDraft(
-    schema,
-    input,
-    'If mentioned:false, return symbols:[] with a short title and summary. Otherwise define every mathematical identifier, including unmentioned ones. latex is an EXACT, independently renderable substring of AUTHORED TEX, not reformatted TeX. sourceOccurrences lists {occurrence,needsGroup}: the zero-based exact fragment occurrence in AUTHORED TEX, counting only matches that do not split a TeX control word or escaped control symbol; letters inside command names are not occurrences and whether the inserted reference needs a brace group because it is an unbraced TeX argument (for example the 0 in _0 or an unbraced function argument). Set needsGroup:true exactly for those arguments; otherwise false. The application adds only that paired group around the reference. Source fragments must not overlap. Do not return a rewritten formula. Keep base and index separately targetable when narration distinguishes them. Different positions may use separate IDs and sourceOccurrences; Use multiple distinct sourceOccurrences only when the same part appears at several source positions. The application inserts the references and preserves all other source characters.'
-  );
-  if (!parsed.success)
-    return invalidFormulaDraft(['Follow the source-fragment response schema.'], response);
-  if (!parsed.data.mentioned && parsed.data.symbols.length)
-    return invalidFormulaDraft(
-      ['A static decision must return symbols:[] rather than discard supplied links.'],
-      parsed.data
-    );
-  try {
-    const scene = sourceFormulaScene(input.source, parsed.data);
+    selectedDraft = parsed.data;
+    const scene = sourceFormulaScene(input, parsed.data);
     return validatePreparedFormula(input, scene, parsed.data.mentioned, parsed.data);
   } catch (error) {
-    if (!(error instanceof Error)) throw error;
+    input.signal.throwIfAborted();
+    if (!(error instanceof FormulaSelectionError)) throw error;
     return invalidFormulaDraft(
-      ['Select exact, nonoverlapping, complete source fragments.'],
-      parsed.data,
+      ['Select exact, ordered, nonoverlapping source and narration token IDs.'],
+      selectedDraft,
       error
     );
   }

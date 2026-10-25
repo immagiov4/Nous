@@ -2152,7 +2152,11 @@ test('uses saved links for an inherited unlinked spotlight without substituting 
       motion: [],
       scene: original,
       formulaSpotlights: [
-        { formula: '$$x+y$$', sourceFormula: original.formula, scene: dictatedFormulaSpotlight },
+        {
+          formula: '$${x}{+}{y}$$',
+          sourceFormula: original.formula,
+          scene: dictatedFormulaSpotlight,
+        },
       ],
     },
   };
@@ -2364,7 +2368,7 @@ test('uses the large static formula display when saved preparation finds no name
     prepared: {
       motion: [],
       scene,
-      formulaSpotlights: [{ formula: '$$x+y$$', sourceFormula: scene.formula, scene }],
+      formulaSpotlights: [{ formula: '$${x}{+}{y}$$', sourceFormula: scene.formula, scene }],
     },
   };
   const { container } = render(
@@ -2377,7 +2381,7 @@ test('uses the large static formula display when saved preparation finds no name
   );
   expect(container.querySelector('.formula-spotlight')).toBeNull();
   expect(container.querySelectorAll('.scene-host .katex')).toHaveLength(1);
-  expect(container.querySelector('.scene-host annotation')?.textContent).toBe('x+y');
+  expect(container.querySelector('.scene-host .katex-html')?.textContent).toBe('x+y');
   expect(container.querySelector('.caption-page')?.textContent?.trim()).toBe(raw.speech);
 });
 
@@ -2390,7 +2394,9 @@ test('retains an existing animated widget over an older cached static decision',
     prepared: {
       motion: [],
       scene,
-      formulaSpotlights: [{ formula: '$$x+y$$', sourceFormula: scene.formula, scene: cached }],
+      formulaSpotlights: [
+        { formula: '$${x}{+}{y}$$', sourceFormula: scene.formula, scene: cached },
+      ],
     },
   };
   const { container } = render(
@@ -2422,11 +2428,11 @@ test('keeps one existing widget and uses prepared links for its unlinked neighbo
   const linked = dictatedFormulaSpotlight;
   const prepared = {
     ...linked,
-    formula: String.raw`\nousSymbol{u}\nousSymbol{minus}\nousSymbol{v}`,
+    formula: linked.formula,
     symbols: [
-      { id: 'u', latex: 'u', name: 'U', meaning: 'Primo valore', anchor: 'u' },
-      { id: 'minus', latex: '-', name: 'Meno', meaning: 'Differenza', anchor: 'meno' },
-      { id: 'v', latex: 'v', name: 'Vi', meaning: 'Secondo valore', anchor: 'vi' },
+      { id: 'x', latex: 'u', name: 'U', meaning: 'Primo valore', anchor: 'u' },
+      { id: 'plus', latex: '-', name: 'Meno', meaning: 'Differenza', anchor: 'meno' },
+      { id: 'y', latex: 'v', name: 'Vi', meaning: 'Secondo valore', anchor: 'vi' },
     ],
   };
   const unlinked = {
@@ -2441,7 +2447,14 @@ test('keeps one existing widget and uses prepared links for its unlinked neighbo
     ],
     prepared: {
       motion: [],
-      formulaSpotlights: [{ formula: '$$u-v$$', sourceFormula: unlinked.formula, scene: prepared }],
+      formulaSpotlights: [
+        {
+          formula: '$${x}{+}{y}$$',
+          sourceFormula: linked.formula,
+          scene: { ...linked, symbols: linked.symbols.map(symbol => ({ ...symbol, anchor: '' })) },
+        },
+        { formula: '$${u}{-}{v}$$', sourceFormula: unlinked.formula, scene: prepared },
+      ],
     },
   };
   const content = {
@@ -2461,10 +2474,9 @@ test('keeps one existing widget and uses prepared links for its unlinked neighbo
     />
   );
   expect(
-    container
-      .querySelector('.spotlight-symbols [data-active="true"]')
-      ?.getAttribute('data-formula-symbol')
-  ).toBe('plus');
+    container.querySelector('.spotlight-symbols [data-active="true"] .spotlight-symbol annotation')
+      ?.textContent
+  ).toBe('+');
   heardTime = 5.5;
   const flush = () =>
     act(() => {
@@ -2475,9 +2487,45 @@ test('keeps one existing widget and uses prepared links for its unlinked neighbo
   flush();
   flush();
   expect(
-    container
-      .querySelector('.spotlight-symbols [data-active="true"]')
-      ?.getAttribute('data-formula-symbol')
-  ).toBe('minus');
+    container.querySelector('.spotlight-symbols [data-active="true"] .spotlight-symbol annotation')
+      ?.textContent
+  ).toBe('-');
   expect(container.querySelectorAll('.formula-spotlight')).toHaveLength(1);
+});
+
+test('ignores cached links for different mathematics while the current source is unlinked', () => {
+  const sources = [{ type: 'markdown' as const, markdown: 'ics più ipsilon' }];
+  const original = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map((symbol, index) => ({
+      ...symbol,
+      latex: ['u', '-', 'v'][index],
+      anchor: '',
+    })),
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    visuals: [{ kind: 'scene' as const, scene: original }],
+    prepared: {
+      motion: [],
+      formulaSpotlights: [
+        {
+          formula: '$${x}{+}{y}$$',
+          sourceFormula: original.formula,
+          scene: dictatedFormulaSpotlight,
+        },
+      ],
+    },
+  };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      duration={3}
+      time={1.5}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      alignment={{ status: 'aligned', onsets: [0, 1, 2] }}
+    />
+  );
+  expect(container.querySelector('.spotlight-formula .katex-html')?.textContent).toBe('u−v');
+  expect(container.querySelector('.spotlight-symbols [data-active="true"]')).toBeNull();
 });

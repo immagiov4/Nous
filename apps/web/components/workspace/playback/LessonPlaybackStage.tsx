@@ -13,6 +13,7 @@ import {
   type PlaybackRange,
   type PlaybackVisual,
   playbackNonProseVisuals,
+  preparedFormulaSpotlightMatchesScene,
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
@@ -809,11 +810,12 @@ function PlaybackPassage({
       const matched = new Set<string>();
       const original = normalVisualCandidates.map(visual => {
         const scene = playbackVisualScene(visual, content.activeSectionGeneratedVisualsById);
-        const entry =
-          scene?.type === 'formula-spotlight' &&
-          spotlights.find(entry => entry.sourceFormula === scene.formula);
+        if (scene?.type !== 'formula-spotlight') return visual;
+        matched.add(scene.formula as string);
+        const entry = spotlights.find(entry =>
+          preparedFormulaSpotlightMatchesScene(entry, scene as FormulaSpotlightData)
+        );
         if (!entry) return visual;
-        matched.add(entry.sourceFormula as string);
         if (hasFormulaSpotlightReferences(scene as FormulaSpotlightData)) return visual;
         const voiceRange = formulaReferenceRange(entry.scene, block.speech);
         return voiceRange

@@ -1,7 +1,11 @@
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
-import { type FormulaSpotlightData, hasFormulaSpotlightReferences } from './formulaSpotlight';
+import {
+  type FormulaSpotlightData,
+  getFormulaSpotlightLatex,
+  hasFormulaSpotlightReferences,
+} from './formulaSpotlight';
 
 import { isAnimatedLessonScene, type LessonScene } from './lessonScene';
 import { projectMarkdownRenderingControls } from './markdownControlCharacters';
@@ -132,6 +136,17 @@ export const playbackFormulaSpotlightScenes = (
     FormulaSpotlightData)[];
 };
 
+/** A renderer-reference pattern alone cannot distinguish different equations using the same IDs. */
+export function preparedFormulaSpotlightMatchesScene(
+  entry: { readonly formula: string; readonly sourceFormula?: string },
+  scene: FormulaSpotlightData
+): boolean {
+  return (
+    entry.sourceFormula === scene.formula &&
+    entry.formula === `$$${getFormulaSpotlightLatex(scene)}$$`
+  );
+}
+
 /** Saved pronunciations and unlinked spotlight data need model-supplied exact word links. */
 export const needsPlaybackFormulaSpotlights = (
   block: LessonPlaybackBlock,
@@ -143,7 +158,9 @@ export const needsPlaybackFormulaSpotlights = (
     return scenes.some(
       scene =>
         !hasFormulaSpotlightReferences(scene) &&
-        !block.prepared?.formulaSpotlights?.some(entry => entry.sourceFormula === scene.formula)
+        !block.prepared?.formulaSpotlights?.some(entry =>
+          preparedFormulaSpotlightMatchesScene(entry, scene)
+        )
     );
   const spoken = block.prepared?.spokenMath;
   if (spoken?.length)

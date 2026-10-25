@@ -32,22 +32,22 @@ export const FormulaSpotlight = memo(function FormulaSpotlight({
     const terms = symbols.map(symbol =>
       Array.from(element.querySelectorAll<HTMLElement>(`.nous-formula-symbol-${symbol.id}`))
     );
-    let previous: number | undefined;
+    let previous: string | undefined;
     let frame = 0;
     const tick = () => {
       const current = readFrame?.();
-      const active =
-        current?.cueTimes?.reduce(
-          (last, time, index) =>
-            time <= current.elapsedMs && current.elapsedMs < (current.cueEndTimes?.[index] ?? time)
-              ? (current.cueSymbolIndices?.[index] ?? index)
-              : last,
-          -1
-        ) ?? -1;
-      if (active !== previous) {
-        previous = active;
+      const active = new Set(
+        current?.cueTimes?.flatMap((time, index) =>
+          time <= current.elapsedMs && current.elapsedMs < (current.cueEndTimes?.[index] ?? time)
+            ? [current.cueSymbolIndices?.[index] ?? index]
+            : []
+        ) ?? []
+      );
+      const selection = [...active].sort((left, right) => left - right).join(',');
+      if (selection !== previous) {
+        previous = selection;
         for (const [index, row] of rows.entries()) {
-          const selected = index === active;
+          const selected = active.has(index);
           row.dataset.active = String(selected);
           const definition = row.querySelector('dd');
           if (!definition) throw new Error('Symbol definition must be mounted');

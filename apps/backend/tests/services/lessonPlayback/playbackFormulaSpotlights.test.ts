@@ -208,12 +208,10 @@ test('prepares only the unlinked neighbor of an existing animated formula', asyn
   const linked = dictatedFormulaSpotlight;
   const unlinked = {
     ...linked,
-    formula: String.raw`\nousSymbol{x}\nousSymbol{minus}\nousSymbol{y}`,
+    formula: linked.formula,
     symbols: linked.symbols.map(symbol => ({
       ...symbol,
-      ...(symbol.id === 'plus'
-        ? { id: 'minus', latex: '-', name: 'Meno', meaning: 'Differenza' }
-        : {}),
+      ...(symbol.id === 'plus' ? { latex: '-', name: 'Meno', meaning: 'Differenza' } : {}),
       anchor: '',
     })),
   };
@@ -223,7 +221,16 @@ test('prepares only the unlinked neighbor of an existing animated formula', asyn
       { kind: 'scene' as const, scene: linked },
       { kind: 'scene' as const, scene: unlinked },
     ],
-    prepared: { motion: [] },
+    prepared: {
+      motion: [],
+      formulaSpotlights: [
+        {
+          formula: '$${x}{+}{y}$$',
+          sourceFormula: linked.formula,
+          scene: { ...linked, symbols: linked.symbols.map(symbol => ({ ...symbol, anchor: '' })) },
+        },
+      ],
+    },
   };
   generate.mockResolvedValue({ kind: 'scene', scene: unlinked });
   expect(needsPlaybackFormulaSpotlights(source)).toBe(true);

@@ -156,3 +156,49 @@ test.each([
       ?.getAttribute('data-formula-symbol')
   ).toBe(expected);
 });
+
+test('highlights every explicitly linked part of a compound mention and clears them on the heard clock', () => {
+  let elapsedMs = 100;
+  let callbacks: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    callbacks.push(callback);
+    return callbacks.length;
+  });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const { container } = render(
+    <LessonSceneVisual
+      scene={formulaSpotlight}
+      variant="bare"
+      readAnimationFrame={() => ({
+        elapsedMs,
+        durationMs: 4000,
+        cueTimes: [0, 0, 2000],
+        cueEndTimes: [500, 500, 2500],
+        cueSymbolIndices: [0, 1, 0],
+      })}
+    />
+  );
+  const active = () =>
+    [...container.querySelectorAll('[data-formula-symbol][data-active="true"]')].map(element =>
+      element.getAttribute('data-formula-symbol')
+    );
+  expect(active()).toEqual(['probability', 'theta']);
+  expect(
+    container.querySelector('.nous-formula-symbol-probability')?.getAttribute('data-active')
+  ).toBe('true');
+  expect(container.querySelector('.nous-formula-symbol-theta')?.getAttribute('data-active')).toBe(
+    'true'
+  );
+  for (const [time, expected] of [
+    [2100, ['probability']],
+    [3000, []],
+  ] as const) {
+    elapsedMs = time;
+    const pending = callbacks;
+    callbacks = [];
+    act(() => {
+      for (const callback of pending) callback(time);
+    });
+    expect(active()).toEqual(expected);
+  }
+});
