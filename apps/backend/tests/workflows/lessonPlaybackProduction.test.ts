@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { getFormulaSpotlightLatex } from '@shared/formulaSpotlight';
 import { type LessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
@@ -135,8 +136,19 @@ test('reuses a block completed between the API cache read and the run starting',
   expect(assets.stage).not.toHaveBeenCalled();
 });
 
-test('prepares a real scene for cached audio without staging or synthesizing another recording', async () => {
-  const { assets, services, context } = setup();
+test.each([
+  false,
+  true,
+])('prepares a real scene for cached audio without another recording (historical formula contract: %s)', async historical => {
+  const { section, assets, services, context } = setup();
+  if (historical) {
+    section.contentBlocks = [{ type: 'markdown', markdown: 'Prima $x+y$ dopo' }];
+    section.content = 'Prima $x+y$ dopo';
+    section.playback = preparedPlayback(section);
+  }
+  const playback = section.playback;
+  assert(playback);
+  const saved = playback.blocks[0];
   const scene: LessonScene = {
     type: 'steps',
     title: 'Accesso',
@@ -149,17 +161,22 @@ test('prepares a real scene for cached audio without staging or synthesizing ano
       { label: 'Controller', detail: '', icon: '' },
     ],
   };
-  prepareVisuals.mockResolvedValueOnce({ scene, motion: [] });
-  const result = await services.preparePlayback({
-    ...context,
-    input: { ...context.input, visualOnly: true },
-  });
+  prepareVisuals.mockImplementationOnce(async (input, force) =>
+    force ? { scene, motion: [] } : input.block.prepared
+  );
+  const result = await services.preparePlayback(
+    {
+      ...context,
+      input: { ...context.input, lessonKey: playback.lessonKey, visualOnly: true },
+    },
+    historical ? { supportsFormulaSpotlights: false } : undefined
+  );
   expect(result.block.prepared).toEqual({ scene, motion: [] });
-  expect(result.block.audio).toEqual(preparedPlayback().blocks[0].audio);
+  expect(result.block.audio).toEqual(saved.audio);
   expect(result.assetOwner).toBeUndefined();
   expect(prepareVisuals).toHaveBeenCalledWith(
     expect.objectContaining({
-      block: expect.objectContaining({ speech: 'Prima frase.', visuals: [] }),
+      block: expect.objectContaining({ speech: saved.speech, visuals: [] }),
     }),
     true
   );

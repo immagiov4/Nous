@@ -98,7 +98,10 @@ export const createProductionLessonPlaybackServices = (
     };
     if (input.visualOnly) {
       const resolved = resolvePlaybackNarration(block);
-      const prepared = playbackFormulaTargets(block, lesson.generatedVisuals, lesson.sources).length
+      const preparesFormula =
+        supportsFormulaSpotlights &&
+        playbackFormulaTargets(block, lesson.generatedVisuals, lesson.sources).length > 0;
+      const prepared = preparesFormula
         ? await prepareLessonPlaybackVisuals(preparationInput)
         : await prepareLessonPlaybackVisuals(
             {
