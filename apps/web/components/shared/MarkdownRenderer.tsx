@@ -13,7 +13,7 @@ import {
   useRef,
 } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
+import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
 import c from 'react-syntax-highlighter/dist/esm/languages/prism/c';
 import cpp from 'react-syntax-highlighter/dist/esm/languages/prism/cpp';
