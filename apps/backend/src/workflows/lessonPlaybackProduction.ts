@@ -36,6 +36,7 @@ export const createProductionLessonPlaybackServices = (
       supportsUnlinkedFormulaSymbols = true,
       synchronizeAnimations = false,
       supportsFormulaSpotlights = true,
+      supportsVisualSections = true,
     } = {}
   ) => {
     const project = await projectStore.loadProjectWithRevision(input.userId, input.projectId);
@@ -69,6 +70,7 @@ export const createProductionLessonPlaybackServices = (
     if (
       isPlaybackBlockReady(block, ttsClient.resolveVoice(input.model, input.voice), input.model, {
         supportsFormulaSpotlights,
+        supportsVisualSections,
         storedVisuals: lesson.generatedVisuals,
         sources: lesson.sources,
         visualOnly: input.visualOnly,
@@ -80,6 +82,7 @@ export const createProductionLessonPlaybackServices = (
     const preparationInput = {
       userId: input.userId,
       synchronizeAnimations,
+      supportsVisualSections,
       allowedSceneTypes,
       supportsSpokenMath,
       supportsFencedCode,
@@ -117,6 +120,7 @@ export const createProductionLessonPlaybackServices = (
       if (
         !isPlaybackBlockReady({ ...block, prepared }, input.voice, input.model, {
           supportsFormulaSpotlights,
+          supportsVisualSections,
           storedVisuals: lesson.generatedVisuals,
           sources: lesson.sources,
           visualOnly: true,

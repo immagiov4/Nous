@@ -169,7 +169,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 8;
+export const WORKFLOW_SET_VERSION = 10;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -291,6 +291,19 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
         undefined,
         createSceneLessonGenerationDurableSchemaSet(contract)
       ),
+      formulaSectionsPlayback: createLessonPlaybackWorkflow(
+        playbackExecutionDefaults,
+        createLessonPlaybackBlockSchema(schema, {
+          spokenMath: true,
+          fencedCode: true,
+          legacyVisuals: true,
+          formulaSpotlights: true,
+          visualSections: true,
+        }),
+        true,
+        true,
+        true
+      ),
       formulaVisualPlayback: createLessonPlaybackWorkflow(
         playbackExecutionDefaults,
         createLessonPlaybackBlockSchema(schema, {
@@ -300,6 +313,29 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
           formulaSpotlights: true,
         }),
         true,
+        true,
+        true
+      ),
+      visualSectionsPlayback: createLessonPlaybackWorkflow(
+        playbackExecutionDefaults,
+        createLessonPlaybackBlockSchema(schema, {
+          spokenMath: true,
+          fencedCode: true,
+          legacyVisuals: true,
+          visualSections: true,
+        }),
+        true,
+        true,
+        true
+      ),
+      legacySectionsPlayback: createLessonPlaybackWorkflow(
+        playbackExecutionDefaults,
+        createLessonPlaybackBlockSchema(schema, {
+          spokenMath: true,
+          fencedCode: true,
+          legacyVisuals: true,
+          visualSections: true,
+        }),
         true,
         true
       ),
@@ -621,9 +657,12 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     ],
   });
   registry.register({
-    current: currentScenes.formulaVisualPlayback,
+    current: currentScenes.formulaSectionsPlayback,
     previous: [
-      ...historicalScenes.map(definition => definition.formulaVisualPlayback),
+      ...historicalScenes.map(definition => definition.formulaSectionsPlayback),
+      ...[currentScenes, ...historicalScenes].map(definition => definition.formulaVisualPlayback),
+      ...[currentScenes, ...historicalScenes].map(definition => definition.visualSectionsPlayback),
+      ...[currentScenes, ...historicalScenes].map(definition => definition.legacySectionsPlayback),
       ...[currentScenes, ...historicalScenes].map(definition => definition.visualPlayback),
       ...[currentScenes, ...historicalScenes].map(
         definition => definition.formulaSpotlightPlayback

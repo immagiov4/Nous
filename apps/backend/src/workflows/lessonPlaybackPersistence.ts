@@ -1,5 +1,6 @@
 import { isRetiredLessonScene } from '@shared/lessonScene';
-import { readLessonPlayback } from '../projects/lessonPlayback.js';
+import { hasPreparedVisualSections } from '@shared/playbackVisualSections';
+import { lessonPlaybackContent, readLessonPlayback } from '../projects/lessonPlayback.js';
 import type { ProjectAssetWriter } from '../projects/projectAsset.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
 import {
@@ -23,6 +24,7 @@ export const buildLessonPlaybackCommitPatch = (
   const section = findProjectLessonSection(project.snapshot, target.sectionId);
   const playback = section && readLessonPlayback(section);
   if (
+    !section ||
     project.incarnationId !== target.incarnationId ||
     project.snapshot.id !== target.projectId ||
     playback?.lessonKey !== target.lessonKey ||
@@ -34,12 +36,13 @@ export const buildLessonPlaybackCommitPatch = (
     });
   }
   const previous = playback.blocks.find(saved => saved.id === block.id);
+  const visualOnly = target.visualOnly || (!result.assetOwner && Boolean(block.prepared?.sections));
   const formulaSpotlights = block.prepared?.formulaSpotlights;
   const hasNewFormulaSpotlights =
     formulaSpotlights &&
     JSON.stringify(previous?.prepared?.formulaSpotlights) !== JSON.stringify(formulaSpotlights);
-  if (!result.assetOwner && !target.visualOnly && !hasNewFormulaSpotlights) return null;
-  if (target.visualOnly && !block.prepared)
+  if (!result.assetOwner && !visualOnly && !hasNewFormulaSpotlights) return null;
+  if (visualOnly && !block.prepared)
     throw new Error('A visual preparation must contain prepared scene data.');
   const preparedVisual = block.prepared;
   return {
@@ -50,15 +53,19 @@ export const buildLessonPlaybackCommitPatch = (
         blocks: playback.blocks.map(saved => {
           if (saved.id !== block.id) return saved;
           let prepared = saved.prepared ?? block.prepared;
+          const needsSections =
+            preparedVisual?.sections &&
+            !hasPreparedVisualSections(saved, lessonPlaybackContent(section));
           if (
             preparedVisual?.scene &&
             !isRetiredLessonScene(preparedVisual.scene) &&
-            (!saved.prepared?.scene || isRetiredLessonScene(saved.prepared.scene))
+            (!saved.prepared?.scene || isRetiredLessonScene(saved.prepared.scene) || needsSections)
           ) {
             prepared = {
               ...(saved.prepared ?? preparedVisual),
               scene: preparedVisual.scene,
               motion: preparedVisual.motion,
+              ...(preparedVisual.sections ? { sections: preparedVisual.sections } : {}),
             };
           }
           if (preparedVisual?.formulaSpotlights) {
@@ -71,7 +78,7 @@ export const buildLessonPlaybackCommitPatch = (
             ...saved,
             prepared,
             audio:
-              target.visualOnly || !result.assetOwner
+              visualOnly || !result.assetOwner
                 ? saved.audio
                 : [
                     ...saved.audio.filter(

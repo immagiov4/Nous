@@ -114,6 +114,7 @@ describe('lesson playback routes', () => {
     const first = await request(app).post(`${url}/blocks/0/prepare`).send(input);
     expect(first.status).toBe(202);
     expect(first.body).toMatchObject({ created: true, blockId: '0' });
+    expect(first.body.recorded).toBeUndefined();
     section.playback = {
       ...playback,
       blocks: [
@@ -319,4 +320,35 @@ test('prepares inherited reference links for cached audio and reuses a saved sta
   expect(ready.status).toBe(200);
   expect(ready.body.block.audio).toEqual(saved.audio);
   expect(createRun).toHaveBeenCalledOnce();
+});
+
+test('returns authoritative saved audio with a retriable visual-only list preparation', async () => {
+  const { app, section, createRun } = setup();
+  section.content = '1. First decision.\n2. Second decision.';
+  section.contentBlocks = [{ type: 'markdown', markdown: section.content }];
+  section.playback = preparedPlayback(section);
+  const lessonKey = section.playback.lessonKey;
+  const audio = await request(app)
+    .post(`${url}/blocks/0/prepare`)
+    .send({ lessonKey, voice: 'Kore' });
+  expect(audio.status).toBe(200);
+  expect(createRun).not.toHaveBeenCalled();
+  const response = await request(app)
+    .post(`${url}/blocks/0/prepare`)
+    .send({ lessonKey, voice: 'Kore', visualOnly: true });
+  expect(response.status).toBe(202);
+  expect(response.body.recorded).toEqual({
+    block: section.playback.blocks[0],
+    voice: 'Kore',
+    model: 'tts-model',
+  });
+  expect(createRun).toHaveBeenCalledOnce();
+  await request(app)
+    .post(`${url}/blocks/0/prepare`)
+    .send({ lessonKey, voice: 'Kore', visualOnly: true });
+  expect(createRun).toHaveBeenCalledTimes(2);
+  const otherVoice = await request(app)
+    .post(`${url}/blocks/0/prepare`)
+    .send({ lessonKey, voice: 'Zephyr' });
+  expect(otherVoice.body.recorded).toBeUndefined();
 });

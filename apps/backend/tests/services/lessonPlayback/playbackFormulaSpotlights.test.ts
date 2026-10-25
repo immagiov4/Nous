@@ -44,6 +44,39 @@ beforeEach(() => {
   }));
 });
 
+test('repairs an existing spotlight that omits a later dictated reading', async () => {
+  const input = request();
+  const firstReadingOnly = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchorOccurrence: 0 })),
+  };
+  const source = { ...input.block, prepared: { ...input.block.prepared, scene: firstReadingOnly } };
+  expect(needsPlaybackFormulaSpotlights(source)).toBe(true);
+  const formulaSpotlights = await preparePlaybackFormulaSpotlights({ ...input, block: source });
+  expect(generate).toHaveBeenCalledOnce();
+  expect(formulaSpotlights[0].scene).toEqual(repeatedScene);
+  expect(
+    needsPlaybackFormulaSpotlights({
+      ...source,
+      prepared: { ...source.prepared, formulaSpotlights },
+    })
+  ).toBe(false);
+});
+
+test('prepares later reading links even when source readiness was not queried', async () => {
+  const input = request();
+  const firstReadingOnly = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchorOccurrence: 0 })),
+  };
+  const result = await preparePlaybackFormulaSpotlights({
+    ...input,
+    block: { ...input.block, visuals: [{ kind: 'scene', scene: firstReadingOnly }] },
+  });
+  expect(generate).toHaveBeenCalledOnce();
+  expect(result[0].scene).toEqual(repeatedScene);
+});
+
 test.each([
   true,
   false,

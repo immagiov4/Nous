@@ -1,10 +1,7 @@
-import {
-  type FormulaSpotlightData,
-  hasUsableFormulaSpotlightReferences,
-  resolveFormulaReferences,
-} from '@shared/formulaSpotlight';
+import { type FormulaSpotlightData, resolveFormulaReferences } from '@shared/formulaSpotlight';
 import {
   getPlaybackFormulaMarkdown,
+  hasCompletePlaybackFormulaReferences,
   type LessonPlaybackBlock,
   type PlaybackContentBlock,
   type PlaybackRange,
@@ -23,6 +20,7 @@ export type StageVisual = PlaybackVisual & {
   voiceRange?: PlaybackRange;
   readingRanges?: readonly PlaybackRange[];
   referenceFormula?: boolean;
+  referenceOnly?: boolean;
   staticFormula?: boolean;
 };
 
@@ -65,6 +63,14 @@ export function projectStageFormulaVisuals({
     const scene = playbackVisualScene(visual, storedById);
     if (scene?.type !== 'formula-spotlight') return visual;
     const readingRanges = playbackFormulaReadingRanges(block, scene as FormulaSpotlightData);
+    if (
+      hasCompletePlaybackFormulaReferences(
+        scene as FormulaSpotlightData,
+        block.speech,
+        readingRanges
+      )
+    )
+      return { ...visual, readingRanges, referenceFormula: true };
     return readingRanges.length ? { ...visual, readingRanges } : visual;
   });
   if (!spotlights?.length) return normal;
@@ -95,12 +101,24 @@ export function projectStageFormulaVisuals({
       const entry = spotlights[sourceIndex];
       if (!entry || !preparedFormulaSpotlightMatchesScene(entry, scene as FormulaSpotlightData))
         return visual;
-      if (hasUsableFormulaSpotlightReferences(scene as FormulaSpotlightData, block.speech))
+      if (
+        hasCompletePlaybackFormulaReferences(
+          scene as FormulaSpotlightData,
+          block.speech,
+          visual.readingRanges ?? []
+        )
+      )
         return visual;
       const readingRanges = visual.readingRanges ?? [];
       const voiceRange = formulaReferenceRange(entry.scene, block.speech, readingRanges);
       return voiceRange
-        ? { kind: 'scene' as const, scene: entry.scene, voiceRange, readingRanges }
+        ? {
+            kind: 'scene' as const,
+            scene: entry.scene,
+            voiceRange,
+            readingRanges,
+            referenceFormula: true,
+          }
         : { kind: 'markdown' as const, markdown: entry.formula, staticFormula: true };
     });
     return [
@@ -120,6 +138,7 @@ export function projectStageFormulaVisuals({
                 voiceRange,
                 readingRanges,
                 referenceFormula: true,
+                referenceOnly: true,
               },
             ]
           : [];
@@ -131,14 +150,23 @@ export function projectStageFormulaVisuals({
       const scene = playbackVisualScene(visual, storedById);
       return (
         scene?.type === 'formula-spotlight' &&
-        hasUsableFormulaSpotlightReferences(scene as FormulaSpotlightData, block.speech)
+        hasCompletePlaybackFormulaReferences(
+          scene as FormulaSpotlightData,
+          block.speech,
+          visual.readingRanges ?? []
+        )
       );
     })
   )
     return normal;
   if (
     block.prepared?.scene?.type === 'formula-spotlight' &&
-    playbackPreparedFormulaIsUsable(block, sources)
+    playbackPreparedFormulaIsUsable(block, sources) &&
+    hasCompletePlaybackFormulaReferences(
+      block.prepared.scene as FormulaSpotlightData,
+      block.speech,
+      playbackFormulaReadingRanges(block, block.prepared.scene as FormulaSpotlightData)
+    )
   )
     return normal;
   const formulas = block.spans.filter(span => span.math);

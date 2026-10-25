@@ -116,6 +116,11 @@ export interface LessonPlaybackBlock {
     }[];
     readonly fencedCode?: readonly PlaybackFencedCodeDecision[];
     readonly scene?: LessonScene;
+    readonly sections?: readonly {
+      readonly range: PlaybackRange;
+      readonly items?: readonly PlaybackRange[];
+      readonly scene: LessonScene;
+    }[];
     readonly motion: readonly PlaybackMotionEvent[];
   };
   readonly audio: readonly PlaybackAudio[];
@@ -127,12 +132,14 @@ const playbackFormulaSpotlightScenes = (
   storedVisuals: readonly ProjectLessonVisual[] = [],
   sources: readonly PlaybackContentBlock[] = []
 ): readonly (LessonScene & FormulaSpotlightData)[] => {
-  const sourceScenes = block.visuals.flatMap(visual => {
-    if (visual.kind === 'scene') return [visual.scene];
-    if (visual.kind !== 'generated-visual') return [];
-    const stored = storedVisuals.find(stored => stored.id === visual.visualId)?.render;
-    return stored?.kind === 'scene' ? [stored.scene] : [];
-  });
+  const sourceScenes = block.prepared?.sections?.length
+    ? block.prepared.sections.map(section => section.scene)
+    : block.visuals.flatMap(visual => {
+        if (visual.kind === 'scene') return [visual.scene];
+        if (visual.kind !== 'generated-visual') return [];
+        const stored = storedVisuals.find(stored => stored.id === visual.visualId)?.render;
+        return stored?.kind === 'scene' ? [stored.scene] : [];
+      });
   const prepared = playbackPreparedFormulaIsUsable(block, sources)
     ? block.prepared?.scene
     : undefined;
@@ -224,6 +231,15 @@ export function isPreparedPlaybackFormula(
   if (scene.type !== 'formula-spotlight') return false;
   const formula = scene as FormulaSpotlightData;
   if (!hasFormulaSpotlightReferences(formula)) return !readings.length;
+  return hasCompletePlaybackFormulaReferences(formula, speech, readings);
+}
+
+/** An existing widget is reusable only when its exact links cover every dictated reading. */
+export function hasCompletePlaybackFormulaReferences(
+  formula: FormulaSpotlightData,
+  speech: string,
+  readings: readonly PlaybackRange[]
+): boolean {
   return (
     hasUsableFormulaSpotlightReferences(formula, speech) &&
     formulaReferencesCoverReadings(formula, speech, readings)
@@ -261,7 +277,10 @@ export const needsPlaybackFormulaSpotlights = (
 ): boolean => {
   const narration = resolvePlaybackNarration(block);
   return playbackFormulaTargets(block, storedVisuals, sources).some((target, index) => {
-    if (target.scene && hasUsableFormulaSpotlightReferences(target.scene, narration.speech))
+    if (
+      target.scene &&
+      hasCompletePlaybackFormulaReferences(target.scene, narration.speech, target.readingRanges)
+    )
       return false;
     const saved = block.prepared?.formulaSpotlights?.[index];
     return (

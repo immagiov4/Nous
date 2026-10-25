@@ -220,6 +220,10 @@ if (new URLSearchParams(location.search).has('case')) {
 
   if (snapshotProof) {
     addEventListener('playback-snapshot', () => renderBlock(0));
+    addEventListener('playback-short-scene', () => {
+      scene = { ...scene, items: scene.items.slice(0, 2) };
+      renderBlock(0);
+    });
     addEventListener('playback-scene-change', () => {
       scene = { ...scene, title: 'Nuovo contenuto' };
       if (scene.diagram) scene.diagram.nodes[0].label = 'Nuovo programma';

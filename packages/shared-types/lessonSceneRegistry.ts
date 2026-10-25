@@ -52,6 +52,7 @@ export const LESSON_SCENE_LIMITS = {
   diagramNodes: 8,
   groups: 3,
   items: 6,
+  minItems: 2,
   relationLabel: 160,
   text: 600,
 } as const;
@@ -524,7 +525,7 @@ const findNumericProblems = (
 };
 
 const findItemShapeProblems = (scene: Record<string, unknown>): string[] =>
-  (scene.items as unknown[]).length < 2
+  (scene.items as unknown[]).length < LESSON_SCENE_LIMITS.minItems
     ? [`The ${scene.type as string} form requires at least two items.`]
     : [];
 

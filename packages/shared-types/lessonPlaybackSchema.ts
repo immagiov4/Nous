@@ -6,6 +6,7 @@ import {
 } from './formulaSpotlight';
 import {
   type LessonPlayback,
+  type LessonPlaybackBlock,
   resolvePlaybackNarration,
   validatePlaybackFencedCode,
   validatePlaybackSpokenMath,
@@ -49,6 +50,7 @@ interface PlaybackSchemaCapabilities {
   legacyVisuals?: boolean;
   wordAlignment?: boolean;
   formulaSpotlights?: boolean;
+  visualSections?: boolean;
 }
 
 const createPlaybackPreparedSchema = (
@@ -57,9 +59,19 @@ const createPlaybackPreparedSchema = (
     spokenMath = false,
     fencedCode = false,
     formulaSpotlights = false,
+    visualSections = false,
   }: PlaybackSchemaCapabilities = {}
 ) => {
   const schema = z.object({
+    sections: z
+      .array(
+        z.object({
+          range: PlaybackRangeSchema,
+          items: z.array(PlaybackRangeSchema).optional(),
+          scene: sceneSchema,
+        })
+      )
+      .optional(),
     fencedCode: PlaybackFencedCodeSchema.optional(),
     spokenMath: PlaybackSpokenMathSchema.optional(),
     formulaSpotlights: z
@@ -80,13 +92,14 @@ const createPlaybackPreparedSchema = (
       })
     ),
   });
-  // Frozen definitions omit unsupported fields while retaining the shared internal type.
+  // Construct frozen shapes directly: Zod's omit adds fingerprinted checks metadata.
   if (!spokenMath)
     return z.object({ scene: schema.shape.scene, motion: schema.shape.motion }) as typeof schema;
-  if (fencedCode && formulaSpotlights) return schema;
   return z.object({
+    ...(visualSections ? { sections: schema.shape.sections } : {}),
     ...(fencedCode ? { fencedCode: schema.shape.fencedCode } : {}),
     spokenMath: schema.shape.spokenMath,
+    ...(formulaSpotlights ? { formulaSpotlights: schema.shape.formulaSpotlights } : {}),
     scene: schema.shape.scene,
     motion: schema.shape.motion,
   }) as typeof schema;
@@ -96,6 +109,7 @@ export const PlaybackPreparedSchema = createPlaybackPreparedSchema(LessonSceneSc
   spokenMath: true,
   fencedCode: true,
   formulaSpotlights: true,
+  visualSections: true,
 });
 
 const LegacyPlaybackAudioSchema = z.object({
@@ -121,6 +135,7 @@ export const createLessonPlaybackBlockSchema = (
     legacyVisuals = false,
     wordAlignment = false,
     formulaSpotlights = false,
+    visualSections = false,
   }: PlaybackSchemaCapabilities = {}
 ) => {
   const spanSchema = z.object({
@@ -165,6 +180,7 @@ export const createLessonPlaybackBlockSchema = (
       spokenMath,
       fencedCode,
       formulaSpotlights,
+      visualSections,
     }).optional(),
     audio: z.array(wordAlignment ? PlaybackAudioSchema : LegacyPlaybackAudioSchema),
   });
@@ -176,6 +192,7 @@ export const LessonPlaybackBlockSchema = createLessonPlaybackBlockSchema(LessonS
   legacyVisuals: true,
   wordAlignment: true,
   formulaSpotlights: true,
+  visualSections: true,
 });
 
 const LessonPlaybackSchema = z.object({
@@ -183,6 +200,28 @@ const LessonPlaybackSchema = z.object({
   lessonKey: z.string().length(64),
   blocks: z.array(LessonPlaybackBlockSchema),
 });
+
+const validVisualSections = (block: LessonPlaybackBlock): boolean => {
+  const sections = block.prepared?.sections;
+  if (!sections?.length) return true;
+  const length = resolvePlaybackNarration(block).speech.length;
+  return sections.every(
+    ({ range, items, scene }) =>
+      isLessonScene(scene) &&
+      range.start < range.end &&
+      range.end <= length &&
+      (!items ||
+        (scene.type === 'parts' &&
+          scene.items.length === items.length &&
+          items.every(
+            (item, index) =>
+              item.start >= range.start &&
+              item.end <= range.end &&
+              item.start < item.end &&
+              (index === 0 || item.start >= items[index - 1].end)
+          )))
+  );
+};
 
 /** Validate imported project data without adding custom checks to durable workflow schemas. */
 export const isValidLessonPlayback = (value: unknown): value is LessonPlayback => {
@@ -225,22 +264,25 @@ export const isValidLessonPlayback = (value: unknown): value is LessonPlayback =
         audio => isValidProjectAssetRef(audio.asset) && audio.asset.mediaType === 'audio/mpeg'
       ) &&
       (!block.prepared?.scene || isLessonScene(block.prepared.scene)) &&
+      validVisualSections(block) &&
       block.visuals.every(visual => visual.kind !== 'scene' || isLessonScene(visual.scene))
   );
 };
 
 export const LessonPlaybackResponseSchema = LessonPlaybackSchema.omit({ version: true });
+const RecordedPlaybackResultSchema = z.object({
+  block: LessonPlaybackBlockSchema,
+  voice: z.string().min(1),
+  model: z.string().min(1),
+});
 export const PrepareLessonPlaybackResponseSchema = z.union([
-  z.object({
-    block: LessonPlaybackBlockSchema,
-    voice: z.string().min(1),
-    model: z.string().min(1),
-  }),
+  RecordedPlaybackResultSchema,
   z.object({
     runId: z.string().min(1),
     blockId: z.string().min(1),
     voice: z.string().min(1),
     created: z.boolean().optional(),
+    recorded: RecordedPlaybackResultSchema.optional(),
     visualOnly: z.boolean().optional(),
   }),
 ]);

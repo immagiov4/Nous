@@ -67,3 +67,22 @@ test('registers visual-only requests while preserving the historical input contr
   const { visualOnly: _visualOnly, ...previousInput } = input;
   expect(historical?.inputSchema.parse(input)).toEqual(previousInput);
 });
+
+test('retains structural playback checkpoints predating visual-only requests', () => {
+  const historical = registry.resolve(
+    'prepare-lesson-playback-block',
+    '306db975b355e122ebecdd405e6b57df7641896cb2fac8f98aba499127856863'
+  );
+  expect(historical).toBeDefined();
+  const input = {
+    userId: 'user',
+    projectId: 'project',
+    sectionId: 'section',
+    incarnationId: 'incarnation',
+    lessonKey: 'a'.repeat(64),
+    blockId: '0',
+    voice: 'Kore',
+    model: 'tts-model',
+  };
+  expect(historical?.inputSchema.parse({ ...input, visualOnly: true })).toEqual(input);
+});

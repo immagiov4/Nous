@@ -6,6 +6,7 @@ import {
   playbackFormulaTargets,
 } from '@shared/lessonPlayback';
 import { isRetiredLessonScene } from '@shared/lessonScene';
+import { hasPreparedVisualSections } from '@shared/playbackVisualSections';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import {
   lessonPlaybackContent,
@@ -33,9 +34,17 @@ interface PlaybackTarget {
   projectId: string;
   sectionId: string;
 }
+type RecordedPlaybackResult = { block: LessonPlaybackBlock; voice: string; model: string };
 export type PlaybackPreparationResult =
-  | { block: LessonPlaybackBlock; voice: string; model: string }
-  | { runId: string; blockId: string; voice: string; created: boolean; visualOnly?: boolean };
+  | RecordedPlaybackResult
+  | {
+      runId: string;
+      blockId: string;
+      voice: string;
+      created: boolean;
+      recorded?: RecordedPlaybackResult;
+      visualOnly?: boolean;
+    };
 export interface LessonPlaybackApi {
   get(
     target: PlaybackTarget
@@ -56,12 +65,14 @@ export const isPlaybackBlockReady = (
   model: string,
   {
     supportsFormulaSpotlights = true,
+    supportsVisualSections = true,
     storedVisuals = [],
     sources = [],
     visualOnly = false,
   }: {
     visualOnly?: boolean;
     supportsFormulaSpotlights?: boolean;
+    supportsVisualSections?: boolean;
     storedVisuals?: readonly ProjectLessonVisual[];
     sources?: readonly PlaybackContentBlock[];
   } = {}
@@ -71,9 +82,10 @@ export const isPlaybackBlockReady = (
       (!supportsFormulaSpotlights ||
         !needsPlaybackFormulaSpotlights(block, storedVisuals, sources)) &&
       (visualOnly
-        ? (block.prepared.scene && !isRetiredLessonScene(block.prepared.scene)) ||
-          (supportsFormulaSpotlights &&
-            playbackFormulaTargets(block, storedVisuals, sources).length > 0)
+        ? (!supportsVisualSections || hasPreparedVisualSections(block, sources)) &&
+          ((block.prepared.scene && !isRetiredLessonScene(block.prepared.scene)) ||
+            (supportsFormulaSpotlights &&
+              playbackFormulaTargets(block, storedVisuals, sources).length > 0))
         : block.audio.some(audio => audio.voice === voice && audio.model === model))
   );
 
@@ -112,12 +124,15 @@ export const createLessonPlaybackApi = (dependencies: {
       if (!block) throw new LessonPlaybackTargetError();
       const model = await dependencies.resolveTtsModel();
       const voice = ttsClient.resolveVoice(model, input.voice);
+      const readiness = {
+        storedVisuals: lessonPlaybackVisuals(section),
+        sources: lessonPlaybackContent(section),
+      };
+      const recordedReady = isPlaybackBlockReady(block, voice, model, readiness);
       if (
-        isPlaybackBlockReady(block, voice, model, {
-          storedVisuals: lessonPlaybackVisuals(section),
-          sources: lessonPlaybackContent(section),
-          visualOnly: input.visualOnly,
-        })
+        input.visualOnly
+          ? isPlaybackBlockReady(block, voice, model, { ...readiness, visualOnly: true })
+          : recordedReady
       ) {
         // Playback receives the saved audio immediately; alignment has its own durable run.
         if (!input.visualOnly)
@@ -156,6 +171,7 @@ export const createLessonPlaybackApi = (dependencies: {
         blockId: active.blockId,
         voice: active.voice,
         created,
+        ...(recordedReady ? { recorded: { block, voice, model } } : {}),
         ...(active.visualOnly ? { visualOnly: true } : {}),
       };
     },

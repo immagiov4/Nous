@@ -114,6 +114,88 @@ beforeEach(() => {
   motion.mockResolvedValue(events);
 });
 
+test('replaces an earlier summary with a complete source-list scene while reusing its recording', async () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        'Prima il riepilogo.\n1. Scopo: fissare il risultato.\n2. Risorse: assegnare i mezzi.\n3. Tempi: concordare le date.\n4. Rischi: valutare gli ostacoli.\n5. Verifica: controllare il risultato.',
+    },
+  ];
+  const list = segmentLessonPlayback(sources)[1];
+  const listScene = {
+    ...scene,
+    items: ['Scopo', 'Risorse', 'Tempi', 'Rischi', 'Verifica'].map(label => ({
+      label,
+      detail: '',
+      icon: '',
+    })),
+  };
+  sceneGeneration.mockResolvedValue({ kind: 'scene', scene: listScene });
+  const recording = {
+    ...preparedAudio,
+    asset: { id: 'a'.repeat(64), hash: 'b'.repeat(64), mediaType: 'audio/mpeg', byteSize: 1 },
+  };
+  const prepared = await prepareLessonPlaybackVisuals({
+    ...input(),
+    lesson: { title: 'Piano', sources },
+    block: {
+      ...list,
+      visuals: [{ kind: 'scene', scene }],
+      prepared: { scene, motion: [] },
+      audio: [recording],
+    },
+  });
+  expect(prepared.sections?.[0].scene.items.map(item => item.label)).toEqual([
+    'Scopo',
+    'Risorse',
+    'Tempi',
+    'Rischi',
+    'Verifica',
+  ]);
+  expect(
+    prepared.sections?.[0].items?.map(range => list.speech.slice(range.start, range.end))
+  ).toEqual([
+    'Scopo: fissare il risultato.',
+    'Risorse: assegnare i mezzi.',
+    'Tempi: concordare le date.',
+    'Rischi: valutare gli ostacoli.',
+    'Verifica: controllare il risultato.',
+  ]);
+  expect(audio).not.toHaveBeenCalled();
+});
+
+test('rejects a replacement visual that omits an authored list item', async () => {
+  const sources = [{ type: 'markdown' as const, markdown: '- Scopo.\n- Risorse.\n- Verifica.' }];
+  await expect(
+    prepareLessonPlaybackVisuals({
+      ...input(),
+      block: segmentLessonPlayback(sources)[0],
+      lesson: { title: 'Piano', sources },
+    })
+  ).rejects.toThrow('The list visual did not cover every authored item.');
+  expect(audio).not.toHaveBeenCalled();
+});
+
+test('retains the existing visual for an individually recorded list item', async () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: '1. Prima.\n\n2. Seconda.',
+    },
+  ];
+  const current = segmentLessonPlayback(sources)[1];
+  sceneGeneration.mockResolvedValue({ kind: 'text' });
+  const prepared = await prepareLessonPlaybackVisuals({
+    ...input(),
+    block: { ...current, prepared: { scene, motion: [] } },
+    lesson: { title: 'Piano', sources },
+  });
+  expect(prepared).toEqual({ scene, motion: [] });
+  expect(sceneGeneration).not.toHaveBeenCalled();
+  expect(audio).not.toHaveBeenCalled();
+});
+
 test.each([
   'inline',
   'stored',
@@ -1057,6 +1139,145 @@ test('persists resolved animation citations as a durable provider result', async
   expect(recorded.has('animation-cues')).toBe(true);
   await prepareLessonPlaybackBlock(request);
   expect(structured).toHaveBeenCalledOnce();
+});
+
+test('keeps a structural section animation linked to its recording with its own checkpoint', async () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: `${guidedPathScene.narration}\n1. Confini: definire l’ambito.\n2. Interazioni: descrivere gli scambi.`,
+    },
+  ];
+  sceneGeneration.mockResolvedValueOnce({
+    kind: 'scene',
+    scene: {
+      ...guidedPathScene,
+      steps: guidedPathScene.steps.map(step => ({ ...step, anchor: undefined })),
+    },
+  });
+  sceneGeneration.mockResolvedValue({ kind: 'scene', scene });
+  structured.mockResolvedValue({
+    cues: guidedPathScene.steps.map((step, value) => ({ anchor: step.anchor, value })),
+  });
+  const recorded = new Map<string, unknown>();
+  const providerEffect: WorkflowProviderEffectExecutor = {
+    run: async ({ key, operation, outputSchema }) => {
+      if (!recorded.has(key)) recorded.set(key, await operation());
+      return outputSchema.parse(recorded.get(key));
+    },
+  };
+  const [introduction, list] = segmentLessonPlayback(sources);
+  const listOffset = introduction.speech.length + 1;
+  const request = {
+    ...input(),
+    block: {
+      ...introduction,
+      speech: `${introduction.speech}\n${list.speech}`,
+      spans: [
+        {
+          sourceBlockIndex: 0,
+          source: { start: 0, end: listOffset },
+          speech: { start: 0, end: listOffset },
+        },
+        ...list.spans.map(span => ({
+          ...span,
+          speech: { start: span.speech.start + listOffset, end: span.speech.end + listOffset },
+        })),
+      ],
+    },
+    lesson: { title: 'Percorso', sources },
+    synchronizeAnimations: true,
+    providerEffect,
+  };
+  const prepared = await prepareLessonPlaybackVisuals(request);
+  expect(prepared.sections?.[0].scene).toMatchObject({
+    type: 'guided-path',
+    steps: guidedPathScene.steps,
+  });
+  expect(recorded.has('visual-section:0:animation-cues')).toBe(true);
+  await prepareLessonPlaybackVisuals(request);
+  expect(structured).toHaveBeenCalledOnce();
+});
+
+test.each([
+  false,
+  true,
+])('prepares only missing formula links in a later structural section (linked: %s)', async linked => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: 'Contesto.\n1. Primo punto.\n2. Secondo punto.\n\nConsideriamo $x+y$.',
+    },
+  ];
+  const pieces = segmentLessonPlayback(sources);
+  let offset = 0;
+  const spans = pieces.flatMap(piece => {
+    const projected = piece.spans.map(span => ({
+      ...span,
+      speech: { start: span.speech.start + offset, end: span.speech.end + offset },
+    }));
+    offset += piece.speech.length + 1;
+    return projected;
+  });
+  const block = {
+    ...pieces[0],
+    speech: pieces.map(piece => piece.speech).join('\n'),
+    spans,
+    visuals: [],
+    prepared: { motion: [], spokenMath: [{ formula: '$x+y$', spoken: 'ics più ipsilon' }] },
+  };
+  const native = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({
+      ...symbol,
+      anchor: linked ? symbol.anchor : '',
+    })),
+  };
+  sceneGeneration.mockImplementation(request => ({
+    kind: 'scene',
+    scene: request.formulaSource
+      ? dictatedFormulaSpotlight
+      : request.narration.includes('ics più ipsilon')
+        ? native
+        : scene,
+  }));
+  const checkpoints = new Map<string, unknown>();
+  const providerEffect: WorkflowProviderEffectExecutor = {
+    run: async ({ key, outputSchema, operation }) => {
+      if (!checkpoints.has(key)) checkpoints.set(key, await operation());
+      return outputSchema.parse(checkpoints.get(key));
+    },
+  };
+  const before = structuredClone(block);
+  const request = {
+    ...input(),
+    supportsFormulaSpotlights: true,
+    block,
+    lesson: { title: 'Sezioni', sources },
+    providerEffect,
+  };
+  const prepared = await prepareLessonPlaybackVisuals(request);
+  expect(prepared.sections?.at(-1)?.scene).toEqual(native);
+  expect(prepared.formulaSpotlights).toEqual(
+    linked
+      ? undefined
+      : [
+          {
+            formula: '$${x}{+}{y}$$',
+            sourceFormula: native.formula,
+            scene: dictatedFormulaSpotlight,
+          },
+        ]
+  );
+  expect(checkpoints.has('formula-spotlight:0')).toBe(!linked);
+  expect(sceneGeneration).toHaveBeenCalledTimes(linked ? 3 : 4);
+  expect(block).toEqual(before);
+  expect(audio).not.toHaveBeenCalled();
+  await prepareLessonPlaybackVisuals({
+    ...request,
+    block: { ...block, prepared: JSON.parse(JSON.stringify(prepared)) },
+  });
+  expect(sceneGeneration).toHaveBeenCalledTimes(linked ? 3 : 4);
 });
 
 test.each([

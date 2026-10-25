@@ -44,6 +44,7 @@ export interface LessonPlaybackCapabilities {
   readonly supportsUnlinkedFormulaSymbols?: boolean;
   readonly synchronizeAnimations?: boolean;
   readonly supportsFormulaSpotlights?: boolean;
+  readonly supportsVisualSections?: boolean;
 }
 
 export interface LessonPlaybackServices {
@@ -105,6 +106,7 @@ export const createLessonPlaybackWorkflow = (
         supportsUnlinkedFormulaSymbols,
         synchronizeAnimations,
         supportsFormulaSpotlights: 'formulaSpotlights' in blockSchema.shape.prepared.unwrap().shape,
+        supportsVisualSections: 'sections' in blockSchema.shape.prepared.unwrap().shape,
       }),
   });
   const persist = step<

@@ -2,9 +2,9 @@ import {
   type FormulaSpotlightData,
   formulaSpotlightCovers,
   getFormulaSpotlightLatex,
-  hasUsableFormulaSpotlightReferences,
 } from '@shared/formulaSpotlight';
 import {
+  hasCompletePlaybackFormulaReferences,
   isPreparedPlaybackFormula,
   type LessonPlaybackBlock,
   type PlaybackContentBlock,
@@ -63,7 +63,8 @@ export async function preparePlaybackFormulaSpotlights(input: {
       spoken: narration.speech,
       dictatedRanges: target.readingRanges,
       existingScene:
-        target.scene && hasUsableFormulaSpotlightReferences(target.scene, narration.speech)
+        target.scene &&
+        hasCompletePlaybackFormulaReferences(target.scene, narration.speech, target.readingRanges)
           ? target.scene
           : undefined,
     })
