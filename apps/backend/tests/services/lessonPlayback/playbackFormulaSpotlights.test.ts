@@ -173,3 +173,26 @@ test('links a formula reading and explanatory mentions in the same saved passage
   expect(generate.mock.calls[0][0].narration).toBe('ics più ipsilon: ics indica il primo valore.');
   expect(formulaSpotlights).toEqual([{ formula: '$x+y$', sourceFormula: '$x+y$', scene }]);
 });
+
+test('corrects missing authored terms with the previous formula and exact source', async () => {
+  const source = {
+    ...segmentLessonPlayback([{ type: 'markdown', markdown: 'Prima $x+y$ fine' }])[0],
+    prepared: { motion: [], spokenMath: [{ formula: '$x+y$', spoken: 'ics più ipsilon' }] },
+  };
+  const incomplete = {
+    ...dictatedFormulaSpotlight,
+    formula: String.raw`\nousSymbol{x}`,
+    symbols: [dictatedFormulaSpotlight.symbols[0]],
+  };
+  generate.mockResolvedValueOnce({ kind: 'scene', scene: incomplete });
+  const result = await preparePlaybackFormulaSpotlights({ ...request(), block: source });
+  expect(generate).toHaveBeenCalledTimes(2);
+  expect(JSON.parse(generate.mock.calls[1][0].retryFeedback)).toMatchObject({
+    sourceFormula: '$x+y$',
+    previousFormula: '{x}',
+    previousDraft: { formula: incomplete.formula, symbols: incomplete.symbols },
+  });
+  expect(result).toEqual([
+    { formula: '$x+y$', sourceFormula: '$x+y$', scene: dictatedFormulaSpotlight },
+  ]);
+});

@@ -40,9 +40,12 @@ test('binds repeated spoken names to explicit ordered occurrences without guessi
       'ics più ics'
     )
   ).toThrow();
-  expect(() =>
+  expect(
     resolveFormulaReferences({ ...scene, symbols: [...scene.symbols].reverse() }, 'ics più ics')
-  ).toThrow();
+  ).toEqual([
+    { index: 1, anchor: 'ics', start: 0, end: 3 },
+    { index: 0, anchor: 'ics', start: 8, end: 11 },
+  ]);
   expect(() =>
     resolveFormulaReferences(
       { ...scene, symbols: [{ ...scene.symbols[0], anchorOccurrence: 2 }] },
@@ -240,4 +243,41 @@ test('resolves repeated references to the same rendered symbol without duplicati
     { index: 0, anchor: 'ics', start: 0, end: 3 },
     { index: 0, anchor: 'ics', start: 8, end: 11 },
   ]);
+});
+
+test('uses exact speech positions independently of symbol definition order', () => {
+  const scene = {
+    ...formulaSpotlight,
+    formula: String.raw`\nousSymbol{x}+\nousSymbol{y}`,
+    symbols: [
+      {
+        id: 'x',
+        latex: 'x',
+        name: 'Ics',
+        meaning: 'Primo valore',
+        anchor: 'ics',
+        anchorOccurrence: 0,
+      },
+      {
+        id: 'y',
+        latex: 'y',
+        name: 'Ipsilon',
+        meaning: 'Secondo valore',
+        anchor: 'ipsilon',
+        anchorOccurrence: 0,
+      },
+    ],
+  };
+  const speech = 'ipsilon prima di ics';
+  expect(findLessonSceneProblems(scene, speech)).toEqual([]);
+  expect(resolveFormulaReferences(scene, speech)).toEqual([
+    { index: 1, anchor: 'ipsilon', start: 0, end: 7 },
+    { index: 0, anchor: 'ics', start: 17, end: 20 },
+  ]);
+  expect(() =>
+    resolveFormulaReferences(
+      { ...scene, symbols: scene.symbols.map(({ anchorOccurrence: _, ...symbol }) => symbol) },
+      speech
+    )
+  ).toThrow();
 });

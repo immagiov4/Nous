@@ -1,4 +1,9 @@
 import { INTERNAL_FAST_TASK_INSTRUCTION } from '@shared/aiPromptInstructions';
+import {
+  type FormulaSpotlightData,
+  renderSpotlightFormula,
+  resolveFormulaReferences,
+} from '@shared/formulaSpotlight';
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import { LessonSceneAnimationShape } from '@shared/lessonPlaybackSchema';
 import {
@@ -49,6 +54,7 @@ export type LessonSceneOutcome =
       readonly kind: 'invalid';
       readonly problems: readonly string[];
       readonly diagnostic?: WorkflowErrorDiagnostic;
+      readonly formulaCorrection?: ReturnType<typeof formulaCorrectionContext>;
     };
 
 export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'plan'> & {
@@ -389,6 +395,25 @@ const iconEntries = (draft: SceneDraft): SceneIconEntry[] => [
 // Support quotations carry no offsets; source line wrapping does not change their words.
 const supportQuotationText = (text: string): string => text.replaceAll(/\s+/gu, ' ').trim();
 
+/** Private provider feedback retains the failed draft without expanding public diagnostics. */
+function formulaCorrectionContext(scene: FormulaSpotlightData, narration: string) {
+  let renderProblem: string | undefined;
+  let referenceProblem: { message: string; selection: unknown } | undefined;
+  try {
+    renderSpotlightFormula(scene);
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    renderProblem = error.message;
+  }
+  try {
+    resolveFormulaReferences(scene, narration);
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    referenceProblem = { message: error.message, selection: error.cause };
+  }
+  return { formula: scene.formula, symbols: scene.symbols, renderProblem, referenceProblem };
+}
+
 const findDraftProblems = (
   draft: SceneDraft,
   scene: LessonScene,
@@ -529,6 +554,14 @@ export async function generateLessonScene(
     return {
       kind: 'invalid',
       problems,
+      ...(input.formulaAnchorOccurrences && scene.type === 'formula-spotlight'
+        ? {
+            formulaCorrection: formulaCorrectionContext(
+              scene as FormulaSpotlightData,
+              input.narration ?? ''
+            ),
+          }
+        : {}),
       diagnostic: diagnostic(
         'domain',
         problems.map(problem => {

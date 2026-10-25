@@ -213,36 +213,33 @@ export function resolveFormulaReferences(scene: FormulaSpotlightData, speech: st
   const linked = scene.symbols.flatMap((symbol, index) =>
     symbol.anchor ? [{ ...symbol, index }] : []
   );
-  if (linked.length && linked.every(symbol => symbol.anchorOccurrence === undefined))
-    cueTimes(speech, linked);
+  const explicitReferences = scene.symbols.some(
+    symbol => symbol.anchorOccurrence !== undefined || symbol.additionalAnchors !== undefined
+  );
+  if (linked.length && !explicitReferences) cueTimes(speech, linked);
   const locate = (symbol: { anchor: string; anchorOccurrence?: number; index: number }) => {
-    let start = speech.indexOf(symbol.anchor);
+    const matchingOffsets: number[] = [];
     for (
-      let occurrence = 0;
-      occurrence < (symbol.anchorOccurrence ?? 0) && start >= 0;
-      occurrence++
+      let start = speech.indexOf(symbol.anchor);
+      start >= 0;
+      start = speech.indexOf(symbol.anchor, start + 1)
     )
-      start = speech.indexOf(symbol.anchor, start + 1);
+      matchingOffsets.push(start);
+    const start = matchingOffsets[symbol.anchorOccurrence ?? 0];
     if (
-      start < 0 ||
-      (symbol.anchorOccurrence === undefined && speech.includes(symbol.anchor, start + 1))
+      start === undefined ||
+      (symbol.anchorOccurrence === undefined && matchingOffsets.length !== 1)
     )
-      throw new Error('Formula anchors must identify exact narration occurrences.');
+      throw new Error('Formula anchors must identify exact narration occurrences.', {
+        cause: {
+          anchor: symbol.anchor,
+          anchorOccurrence: symbol.anchorOccurrence ?? null,
+          matchingOffsets,
+        },
+      });
     return { index: symbol.index, anchor: symbol.anchor, start, end: start + symbol.anchor.length };
   };
-  let previous = -1;
-  let previousAnchor: string | undefined;
-  const first = linked.map(symbol => {
-    const reference = locate(symbol);
-    if (
-      reference.start < previous ||
-      (reference.start === previous && symbol.anchor !== previousAnchor)
-    )
-      throw new Error('Formula anchors must identify ordered narration occurrences.');
-    previous = reference.start;
-    previousAnchor = symbol.anchor;
-    return reference;
-  });
+  const first = linked.map(locate);
   const additional = scene.symbols.flatMap((symbol, index) =>
     (symbol.additionalAnchors ?? []).map(anchor => locate({ ...anchor, index }))
   );

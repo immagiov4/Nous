@@ -1,3 +1,4 @@
+import { resolveFormulaReferences } from '@shared/formulaSpotlight';
 // @vitest-environment jsdom
 import { act, render, screen } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
@@ -100,4 +101,58 @@ test('highlights a symbol again when a later cue names the same formula position
     'false'
   );
   expect(container.querySelectorAll('[data-formula-symbol][data-active="true"]')).toHaveLength(1);
+});
+
+test.each([
+  { elapsedMs: 100, expected: 'y' },
+  { elapsedMs: 2100, expected: 'x' },
+])('highlights the heard reference when definitions have a different order: $expected', ({
+  elapsedMs,
+  expected,
+}) => {
+  const scene = {
+    ...formulaSpotlight,
+    formula: String.raw`\nousSymbol{x}+\nousSymbol{y}`,
+    symbols: [
+      {
+        id: 'x',
+        latex: 'x',
+        name: 'Ics',
+        meaning: 'Primo valore',
+        anchor: 'ics',
+        anchorOccurrence: 0,
+      },
+      {
+        id: 'y',
+        latex: 'y',
+        name: 'Ipsilon',
+        meaning: 'Secondo valore',
+        anchor: 'ipsilon',
+        anchorOccurrence: 0,
+      },
+    ],
+  };
+  const references = resolveFormulaReferences(scene, 'ipsilon poi ics');
+  const { container } = render(
+    <LessonSceneVisual
+      scene={scene}
+      variant="bare"
+      readAnimationFrame={() => ({
+        elapsedMs,
+        durationMs: 4000,
+        cueTimes: [0, 2000],
+        cueEndTimes: [500, 2500],
+        cueSymbolIndices: references.map(reference => reference.index),
+      })}
+    />
+  );
+  expect(container.querySelectorAll('.spotlight-formula [data-active="true"]')).toHaveLength(1);
+  expect(
+    container.querySelector(`.nous-formula-symbol-${expected}`)?.getAttribute('data-active')
+  ).toBe('true');
+  expect(
+    container
+      .querySelector('[data-formula-symbol][data-active="true"]')
+      ?.getAttribute('data-formula-symbol')
+  ).toBe(expected);
 });

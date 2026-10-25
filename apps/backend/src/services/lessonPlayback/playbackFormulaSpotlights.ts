@@ -16,9 +16,35 @@ import type { ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
 import type { WorkflowProviderEffectExecutor } from '../../workflows/types.js';
-import { generateLessonScene } from '../lessonScenes/lessonSceneGeneration.js';
+import {
+  generateLessonScene,
+  type LessonSceneOutcome,
+} from '../lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../lessonVisualModelConfig.js';
 import { MAX_PLAYBACK_PREPARATION_ATTEMPTS } from './playbackMotion.js';
+
+/** Correct the actual failed draft while keeping semantic links owned by the visual service. */
+function formulaRetryFeedback(outcome: LessonSceneOutcome, sourceFormula: string) {
+  const previous =
+    outcome.kind === 'scene' && outcome.scene.type === 'formula-spotlight'
+      ? (outcome.scene as LessonScene & FormulaSpotlightData)
+      : undefined;
+  const previousDraft =
+    outcome.kind === 'invalid'
+      ? outcome.formulaCorrection
+      : previous && { formula: previous.formula, symbols: previous.symbols };
+  return JSON.stringify({
+    problems:
+      outcome.kind === 'invalid'
+        ? outcome.problems
+        : [
+            'Restore every authored term, operator and delimiter, and link every named part with exact narration quotations.',
+          ],
+    sourceFormula,
+    previousFormula: previous ? getFormulaSpotlightLatex(previous) : undefined,
+    previousDraft,
+  });
+}
 
 /** Prepare exact local quotations through the existing visual service, without rewriting speech. */
 export async function preparePlaybackFormulaSpotlights(input: {
@@ -92,10 +118,7 @@ export async function preparePlaybackFormulaSpotlights(input: {
         ) {
           return { scene: outcome.scene };
         }
-        retryFeedback =
-          outcome.kind === 'invalid'
-            ? outcome.problems.join('\n')
-            : 'Retain the complete authored formula and link the spoken parts with exact narration quotations.';
+        retryFeedback = formulaRetryFeedback(outcome, entry.formula);
       }
       throw new Error('Formula highlighting preparation failed validation.', {
         cause: new Error(retryFeedback),

@@ -7,7 +7,7 @@ import type { ReadSceneAnimationFrame } from '@shared/lessonSceneAnimation';
 import { memo, useEffect, useMemo, useRef } from 'react';
 import 'katex/dist/katex.min.css';
 
-/** Variant B keeps symbol names visible and follows the owning caption clock. */
+/** Keeps symbol names visible and highlights the reference on the heard-voice clock. */
 export const FormulaSpotlight = memo(function FormulaSpotlight({
   scene,
   readFrame,

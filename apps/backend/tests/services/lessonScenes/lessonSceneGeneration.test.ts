@@ -772,3 +772,48 @@ test('keeps transcription provenance separate from the admissible scene passage'
     sourceProvenance
   );
 });
+
+test('returns exact reference-selection diagnostics privately to formula preparation', async () => {
+  const draft = {
+    ...quoteDraft('ics più ics'),
+    type: 'formula-spotlight',
+    quote: '',
+    autoplay: true,
+    formula: String.raw`\nousSymbol{left}+\nousSymbol{right}`,
+    symbols: [
+      {
+        id: 'left',
+        latex: 'x',
+        name: 'Primo',
+        meaning: 'Primo valore',
+        anchor: 'ics',
+        anchorOccurrence: 9,
+      },
+      {
+        id: 'right',
+        latex: 'x',
+        name: 'Secondo',
+        meaning: 'Secondo valore',
+        anchor: 'ics',
+        anchorOccurrence: 1,
+      },
+    ],
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  const outcome = await generateLessonScene({
+    ...unplannedInput('$x+x$\nics più ics'),
+    narration: 'ics più ics',
+    allowedSceneTypes: ['formula-spotlight'],
+    formulaAnchorOccurrences: true,
+  });
+  expect(outcome.kind).toBe('invalid');
+  if (outcome.kind !== 'invalid') throw new Error('An invalid selection must fail');
+  expect(outcome.formulaCorrection).toMatchObject({
+    formula: draft.formula,
+    symbols: draft.symbols,
+    referenceProblem: {
+      selection: { anchor: 'ics', anchorOccurrence: 9, matchingOffsets: [0, 8] },
+    },
+  });
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+});
