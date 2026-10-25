@@ -2411,6 +2411,13 @@ test('retains an existing animated widget over an older cached static decision',
 });
 
 test('keeps one existing widget and uses prepared links for its unlinked neighbor', () => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
   const sources = [{ type: 'markdown' as const, markdown: 'ics più ipsilon poi u meno vi' }];
   const linked = dictatedFormulaSpotlight;
   const prepared = {
@@ -2442,12 +2449,14 @@ test('keeps one existing widget and uses prepared links for its unlinked neighbo
     sectionContentBlocks: sources,
   } as WorkspaceReaderContentModel;
   const alignment = { status: 'aligned' as const, onsets: [0, 1, 2, 3, 4, 5, 6] };
-  const { container, rerender } = render(
+  let heardTime = 1.5;
+  const { container } = render(
     <LessonPlaybackStage
       block={block}
       content={content}
       duration={7}
-      time={1.5}
+      time={0}
+      readTime={() => heardTime}
       alignment={alignment}
     />
   );
@@ -2456,15 +2465,15 @@ test('keeps one existing widget and uses prepared links for its unlinked neighbo
       .querySelector('.spotlight-symbols [data-active="true"]')
       ?.getAttribute('data-formula-symbol')
   ).toBe('plus');
-  rerender(
-    <LessonPlaybackStage
-      block={block}
-      content={content}
-      duration={7}
-      time={5.5}
-      alignment={alignment}
-    />
-  );
+  heardTime = 5.5;
+  const flush = () =>
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    });
+  flush();
+  flush();
   expect(
     container
       .querySelector('.spotlight-symbols [data-active="true"]')
