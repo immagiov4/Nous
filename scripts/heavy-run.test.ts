@@ -643,6 +643,55 @@ describe('heavy command admission', () => {
     expect(readdirSync(join(path, 'queue'))).toEqual([]);
   });
 
+  test('an orphaned command group retains capacity after its supervisor and worker exit', async () => {
+    const path = directory();
+    localEnvironment(path);
+    const exited = [0, 1].map(() =>
+      spawn(runtime, ['-e', 'process.exit(0)'], { windowsHide: true, stdio: 'ignore' })
+    );
+    await Promise.all(
+      exited.map(child => new Promise(resolveExit => child.once('exit', resolveExit)))
+    );
+    const [ownerPid, workerPid] = exited.map(child => child.pid);
+    if (!ownerPid || !workerPid) throw new Error('Process fixtures require PIDs.');
+    const lifecycle = await import('./heavy-run-process.mjs');
+    const inspect = lifecycle.processTreeRunning;
+    let groupActive = true;
+    vi.spyOn(lifecycle, 'processTreeRunning').mockImplementation(pid =>
+      pid === workerPid ? groupActive : inspect(pid)
+    );
+    mkdirSync(join(path, 'lock'));
+    writeFileSync(
+      join(path, 'lock/running-orphan.json'),
+      `${JSON.stringify({ pid: ownerPid, id: 'orphan.json', label: 'orphan' })}\n${workerPid}\n${Date.now()}\n${JSON.stringify('recorded-worker-creation')}`
+    );
+    const next = join(path, 'next');
+    const messages = vi.spyOn(process.stdout, 'write');
+    const running = main([
+      '--label',
+      'after-orphan',
+      '--',
+      runtime,
+      '-e',
+      `require('node:fs').writeFileSync(process.argv[1], 'admitted')`,
+      next,
+    ]);
+    try {
+      await until(
+        () =>
+          messages.mock.calls.some(([message]) => String(message).includes('position')) ||
+          existsSync(next)
+      );
+      expect(existsSync(next)).toBe(false);
+      groupActive = false;
+      expect(await running).toBe(0);
+      expect(readFileSync(next, 'utf8')).toBe('admitted');
+    } finally {
+      groupActive = false;
+      await running;
+    }
+  });
+
   test('a recently renewed holder with an exited command releases immediately', async () => {
     const path = directory();
     const dead = spawn(runtime, ['-e', 'process.exit(0)'], { windowsHide: true, stdio: 'ignore' });

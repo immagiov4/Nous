@@ -37,7 +37,7 @@ const SCRIPT_PATH = fileURLToPath(import.meta.url);
 function registeredCommandAlive(owner, releasing, verifyIdentity) {
   if (!owner?.childPid) return false;
   if (releasing) return processTreeRunning(owner.childPid);
-  if (!processRunning(owner.childPid)) return false;
+  if (!processRunning(owner.childPid)) return processTreeRunning(owner.childPid);
   if (!owner.childIdentity || !verifyIdentity) return true;
   return processIdentity(owner.childPid) === owner.childIdentity;
 }
