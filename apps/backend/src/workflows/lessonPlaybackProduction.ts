@@ -1,6 +1,6 @@
 import { resolvePlaybackNarration } from '@shared/lessonPlayback';
 import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
-import { hasPreparedVisualSections } from '@shared/playbackVisualSections';
+import { isRetiredLessonScene } from '@shared/lessonScene';
 import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import {
   lessonPlaybackContent,
@@ -18,7 +18,7 @@ import {
 } from '../services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { readLessonSpeechProvenance } from '../services/lessonSpeechSource.js';
 import { ttsClient } from '../services/ttsClient.js';
-import { isPlaybackBlockReady } from './lessonPlaybackApi.js';
+import { isPlaybackBlockReady, isPlaybackVisualReady } from './lessonPlaybackApi.js';
 import { createLessonPlaybackPersistence } from './lessonPlaybackPersistence.js';
 import type { LessonPlaybackServices } from './lessonPlaybackWorkflow.js';
 import { failPermanently } from './retryPolicy.js';
@@ -65,13 +65,11 @@ export const createProductionLessonPlaybackServices = (
       allowedSceneTypes,
       supportsUnlinkedFormulaSymbols,
     });
+    const visualSources = supportsVisualSections ? lesson.sources : [];
     if (
-      isPlaybackBlockReady(
-        block,
-        ttsClient.resolveVoice(input.model, input.voice),
-        input.model,
-        supportsVisualSections ? lesson.sources : []
-      )
+      input.visualOnly
+        ? isPlaybackVisualReady(block, visualSources)
+        : isPlaybackBlockReady(block, ttsClient.resolveVoice(input.model, input.voice), input.model)
     ) {
       return { target: input, block: LessonPlaybackBlockSchema.parse(block) };
     }
@@ -95,16 +93,24 @@ export const createProductionLessonPlaybackServices = (
       providerEffect,
       signal,
     };
-    const recording = block.audio.find(
-      audio =>
-        audio.voice === ttsClient.resolveVoice(input.model, input.voice) &&
-        audio.model === input.model
-    );
-    if (supportsVisualSections && recording && !hasPreparedVisualSections(block, lesson.sources)) {
-      const prepared = await prepareLessonPlaybackVisuals({
-        ...preparationInput,
-        block: resolvePlaybackNarration(block),
-      });
+    if (input.visualOnly) {
+      const resolved = resolvePlaybackNarration(block);
+      const prepared = await prepareLessonPlaybackVisuals(
+        {
+          ...preparationInput,
+          block: {
+            ...resolved,
+            visuals: [],
+            prepared: { ...block.prepared, scene: undefined, motion: [] },
+          },
+        },
+        true
+      );
+      if (!prepared.scene || isRetiredLessonScene(prepared.scene))
+        throw failPermanently({
+          code: 'lesson_playback_scene_invalid',
+          message: 'No usable passage visual was prepared.',
+        });
       return { target: input, block: LessonPlaybackBlockSchema.parse({ ...block, prepared }) };
     }
     const prepared = await prepareLessonPlaybackBlock(preparationInput);

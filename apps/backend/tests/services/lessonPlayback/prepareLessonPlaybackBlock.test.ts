@@ -190,6 +190,87 @@ test('retains the existing visual for an individually recorded list item', async
   expect(audio).not.toHaveBeenCalled();
 });
 
+test.each([
+  'quote',
+] as const)('replaces a stored %s through visual preparation without synthesizing audio', async type => {
+  const request = input([
+    { kind: 'scene', scene: { ...scene, type, quote: 'Confini e interazioni.' } },
+  ]);
+  request.block = {
+    ...request.block,
+    prepared: { scene: { ...scene, type, quote: request.block.speech }, motion: [] },
+  };
+  const prepared = await prepareLessonPlaybackVisuals(request);
+  expect(prepared).toEqual({ scene, motion: events });
+  expect(sceneGeneration).toHaveBeenCalledWith(
+    expect.objectContaining({
+      lessonMarkdown: 'Confini e interazioni.',
+      narration: 'Confini e interazioni.',
+      allowTextFallback: false,
+    })
+  );
+  expect(audio).not.toHaveBeenCalled();
+});
+
+test('prepares a real scene when a stored visual reference is missing', async () => {
+  const result = await prepareLessonPlaybackBlock(
+    input([{ kind: 'generated-visual', visualId: 'missing' }])
+  );
+  expect(result).toEqual({ prepared: { scene, motion: events }, audio: preparedAudio });
+  expect(sceneGeneration).toHaveBeenCalledWith(
+    expect.objectContaining({ lessonMarkdown: 'Confini e interazioni.', allowTextFallback: false })
+  );
+});
+
+test('uses the introduced flow from its authored section without borrowing the next topic', async () => {
+  const intro = 'Per accedere al servizio, il client segue questo percorso:';
+  const context = `## Accesso al servizio\n\n${intro}\n\n1. Individuare il server.\n2. Contattare il server.\n3. Verificare la richiesta.`;
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: `${context}\n\n## Stampa\n\nInviare il documento alla stampante.`,
+    },
+  ];
+  const raw = segmentLessonPlayback(sources).find(block => block.speech.endsWith(intro));
+  if (!raw) throw new Error('Expected the introductory passage.');
+  const result = await prepareLessonPlaybackBlock({
+    ...input(),
+    block: raw,
+    lesson: { title: 'Other metadata', sources },
+  });
+  expect(result.prepared.scene).toEqual(scene);
+  expect(sceneGeneration.mock.calls[0][0]).toMatchObject({
+    lessonMarkdown: `${raw.speech}\n\nAUTHORING CONTEXT:\n${context}`,
+    narration: raw.speech,
+    sectionTitle: '',
+    sectionDescription: '',
+  });
+});
+
+test('prepares a scene and audio when additional authoring context exceeds the existing visual excerpt limit', async () => {
+  const { MAX_VISUAL_LESSON_CHARS } = await import('@shared/lessonGenerationPolicy');
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: `Introduction.\n\n${'x'.repeat(MAX_VISUAL_LESSON_CHARS)}`,
+    },
+  ];
+  const raw = segmentLessonPlayback(sources)[0];
+  const result = await prepareLessonPlaybackBlock({
+    ...input(),
+    block: raw,
+    lesson: { title: 'Tema', sources },
+  });
+  expect(result.audio).toEqual(preparedAudio);
+  expect(result.prepared).toEqual({ scene, motion: events });
+  expect(sceneGeneration).toHaveBeenCalledWith(
+    expect.objectContaining({
+      lessonMarkdown: expect.stringMatching(/^Introduction\./u),
+      narration: raw.speech,
+    })
+  );
+});
+
 test('plans the same scene motion while its icon selection is still pending', async () => {
   let finishIcons!: () => void;
   const icons = new Promise<void>(resolve => {
@@ -229,7 +310,7 @@ test('keeps the committed source visual without reusing discarded scene motion a
     throw new Error('Icons unavailable');
   });
   const request = { ...input(), providerEffect };
-  const expected = { scene: { type: 'quote', quote: request.block.speech }, motion: [] };
+  const expected = { motion: [] };
   await expect(prepareLessonPlaybackBlock(request)).resolves.toMatchObject({ prepared: expected });
   await expect(prepareLessonPlaybackBlock(request)).resolves.toMatchObject({ prepared: expected });
   expect(sceneGeneration).toHaveBeenCalledOnce();
@@ -326,7 +407,7 @@ test('waits for audio still in flight when scene failure uses a source visual', 
   expect(settled).toBe(false);
   finishAudio(preparedAudio);
   await expect(preparation).resolves.toMatchObject({
-    prepared: { scene: { type: 'quote' }, motion: [] },
+    prepared: { motion: [] },
     audio: preparedAudio,
   });
 });
@@ -400,7 +481,6 @@ test.each([
 
 test.each([
   { visuals: [{ kind: 'markdown', markdown: '| A | B |' }], stored: [] },
-  { visuals: [{ kind: 'generated-visual', visualId: 'missing' }], stored: [] },
   {
     visuals: [{ kind: 'generated-visual', visualId: 'visual-1' }],
     stored: [{ ...storedScene, render: { kind: 'svg', code: '<svg />' } }],
@@ -453,12 +533,12 @@ test('uses a source visual after three invalid attempts or an immediate operatio
   sceneGeneration.mockResolvedValue({ kind: 'invalid', problems: ['Invalid quotation.'] });
   const failure = await prepareLessonPlaybackBlock(input()).catch(error => toStepFailure(error));
   expect(failure).toMatchObject({
-    prepared: { scene: { type: 'quote', quote: input().block.speech }, motion: [] },
+    prepared: { motion: [] },
   });
   expect(sceneGeneration).toHaveBeenCalledTimes(3);
   sceneGeneration.mockReset().mockRejectedValue(new Error('Provider unavailable'));
   await expect(prepareLessonPlaybackBlock(input())).resolves.toMatchObject({
-    prepared: { scene: { type: 'quote' }, motion: [] },
+    prepared: { motion: [] },
   });
   expect(sceneGeneration).toHaveBeenCalledTimes(1);
 });
@@ -566,7 +646,7 @@ test('keeps source visuals and bounded diagnostics after scene validation failur
     diagnostic,
   });
   await expect(prepareLessonPlaybackBlock(input())).resolves.toMatchObject({
-    prepared: { scene: { type: 'quote', quote: input().block.speech }, motion: [] },
+    prepared: { motion: [] },
   });
   expect(sceneGeneration).toHaveBeenCalledTimes(3);
   expect(warning).toHaveBeenCalledWith(expect.any(String), {
@@ -847,7 +927,7 @@ test.each([
   else sceneGeneration.mockRejectedValue(new Error('Provider unavailable'));
   const request = input();
   const result = await prepareLessonPlaybackBlock(request);
-  expect(result.prepared.scene).toMatchObject({ type: 'quote', quote: request.block.speech });
+  expect(result.prepared.scene).toBeUndefined();
   expect(result.prepared.motion).toEqual([]);
   expect(result.audio).toEqual(preparedAudio);
   expect(motion).not.toHaveBeenCalled();

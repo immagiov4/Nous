@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { LessonPlaybackBlock, PlaybackContentBlock } from '@shared/lessonPlayback';
+import { isRetiredLessonScene } from '@shared/lessonScene';
 import { hasPreparedVisualSections } from '@shared/playbackVisualSections';
 
 import { lessonPlaybackContent, readLessonPlayback } from '../projects/lessonPlayback.js';
@@ -9,7 +10,7 @@ import { ttsClient } from '../services/ttsClient.js';
 import type { WorkflowRegistry } from './definition.js';
 import {
   LESSON_PLAYBACK_WORKFLOW_ID,
-  LessonPlaybackInputSchema,
+  LessonPlaybackPreparationInputSchema,
 } from './lessonPlaybackWorkflow.js';
 import { WorkflowRuntimeUnavailableError } from './runtime/workflowRuntimeApi.js';
 import type { WorkflowTransientEventPublisher } from './workflowObservability.js';
@@ -33,26 +34,39 @@ export type PlaybackPreparationResult =
       voice: string;
       created: boolean;
       recorded?: RecordedPlaybackResult;
+      visualOnly?: boolean;
     };
 export interface LessonPlaybackApi {
   get(
     target: PlaybackTarget
   ): Promise<{ lessonKey: string; blocks: readonly LessonPlaybackBlock[] }>;
   prepare(
-    input: PlaybackTarget & { lessonKey: string; blockId: string; voice: string }
+    input: PlaybackTarget & {
+      lessonKey: string;
+      blockId: string;
+      voice: string;
+      visualOnly?: boolean;
+    }
   ): Promise<PlaybackPreparationResult>;
 }
 
 export const isPlaybackBlockReady = (
   block: LessonPlaybackBlock,
   voice: string,
-  model: string,
-  sources: readonly PlaybackContentBlock[] = []
+  model: string
 ): boolean =>
   Boolean(
-    block.prepared &&
-      hasPreparedVisualSections(block, sources) &&
-      block.audio.some(audio => audio.voice === voice && audio.model === model)
+    block.prepared && block.audio.some(audio => audio.voice === voice && audio.model === model)
+  );
+
+export const isPlaybackVisualReady = (
+  block: LessonPlaybackBlock,
+  sources: readonly PlaybackContentBlock[]
+): boolean =>
+  Boolean(
+    block.prepared?.scene &&
+      !isRetiredLessonScene(block.prepared.scene) &&
+      hasPreparedVisualSections(block, sources)
   );
 
 export const createLessonPlaybackApi = (dependencies: {
@@ -94,11 +108,21 @@ export const createLessonPlaybackApi = (dependencies: {
       if (!block) throw new LessonPlaybackTargetError();
       const model = await dependencies.resolveTtsModel();
       const voice = ttsClient.resolveVoice(model, input.voice);
-      if (isPlaybackBlockReady(block, voice, model, sources)) {
+      if (
+        input.visualOnly
+          ? isPlaybackVisualReady(block, sources)
+          : isPlaybackBlockReady(block, voice, model)
+      ) {
         // Playback receives the saved audio immediately; alignment has its own durable run.
-        void dependencies
-          .alignRecording?.({ ...input, incarnationId: project.incarnationId, voice, model }, block)
-          .catch(error => console.warn('[recording-alignment] Could not queue recording.', error));
+        if (!input.visualOnly)
+          void dependencies
+            .alignRecording?.(
+              { ...input, incarnationId: project.incarnationId, voice, model },
+              block
+            )
+            .catch(error =>
+              console.warn('[recording-alignment] Could not queue recording.', error)
+            );
         return { block, voice, model };
       }
       const { run, created } = await startWorkflowRun({
@@ -120,7 +144,7 @@ export const createLessonPlaybackApi = (dependencies: {
         store: dependencies.store,
         publishTransientEvent: dependencies.publishTransientEvent,
       });
-      const active = LessonPlaybackInputSchema.parse(run.input);
+      const active = LessonPlaybackPreparationInputSchema.parse(run.input);
       return {
         runId: run.id,
         blockId: active.blockId,
@@ -129,6 +153,7 @@ export const createLessonPlaybackApi = (dependencies: {
         ...(block.audio.some(audio => audio.voice === voice && audio.model === model)
           ? { recorded: { block, voice, model } }
           : {}),
+        ...(active.visualOnly ? { visualOnly: true } : {}),
       };
     },
   };

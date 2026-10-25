@@ -16,7 +16,11 @@ const targetSchema = z.object({
 });
 const prepareParametersSchema = targetSchema.extend({ blockId: z.string().trim().min(1) });
 const prepareBodySchema = z
-  .object({ lessonKey: z.string().length(64), voice: z.string().trim().min(1) })
+  .object({
+    lessonKey: z.string().length(64),
+    voice: z.string().trim().min(1),
+    visualOnly: z.boolean().optional(),
+  })
   .strict();
 const INVALID_REQUEST = {
   success: false,

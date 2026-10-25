@@ -115,6 +115,7 @@ async function waitForPreparation({
   projectId,
   signal,
   created,
+  visualOnly,
   cancellations,
   key,
   recorded,
@@ -124,6 +125,7 @@ async function waitForPreparation({
   projectId: string;
   signal: AbortSignal;
   created?: boolean;
+  visualOnly?: boolean;
   cancellations: Map<string, Promise<void>>;
   key: string;
 }) {
@@ -133,7 +135,7 @@ async function waitForPreparation({
   };
   if (created) signal.addEventListener('abort', cancel, { once: true });
   try {
-    await waitForLessonPlayback(runId, projectId, signal);
+    await waitForLessonPlayback(runId, projectId, signal, visualOnly);
   } catch (error) {
     signal.throwIfAborted();
     if (!recorded) throw error;
@@ -380,6 +382,7 @@ export function useLessonPlayback({
             runId: result.runId,
             created: result.created,
             recorded: result.recorded,
+            visualOnly: result.visualOnly,
             projectId,
             signal,
             cancellations: playbackCancellations,

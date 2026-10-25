@@ -74,53 +74,34 @@ test('reuses a block completed between the API cache read and the run starting',
   expect(assets.stage).not.toHaveBeenCalled();
 });
 
-test('upgrades a historical list visual without synthesizing or staging its saved audio', async () => {
-  const { section, assets, services, context } = setup();
-  section.contentBlocks = [
-    {
-      type: 'markdown',
-      markdown: '1. Scopo: fissare il risultato.\n2. Risorse: assegnare i mezzi.',
-    },
-  ];
-  const playback = preparedPlayback(section);
-  section.playback = playback;
+test('prepares a real scene for cached audio without staging or synthesizing another recording', async () => {
+  const { assets, services, context } = setup();
   const scene: LessonScene = {
-    type: 'parts',
-    title: 'Piano',
+    type: 'steps',
+    title: 'Accesso',
     body: '',
     quote: '',
     note: '',
     groups: [],
     items: [
-      { label: 'Scopo', detail: '', icon: '' },
-      { label: 'Risorse', detail: '', icon: '' },
+      { label: 'DNS', detail: '', icon: '' },
+      { label: 'Controller', detail: '', icon: '' },
     ],
   };
-  const prepared = {
-    motion: [],
-    scene,
-    sections: [
-      {
-        range: { start: 0, end: playback.blocks[0].speech.length },
-        items: [
-          { start: 0, end: 28 },
-          { start: 29, end: playback.blocks[0].speech.length },
-        ],
-        scene,
-      },
-    ],
-  };
-  prepareVisuals.mockResolvedValue(prepared);
+  prepareVisuals.mockResolvedValueOnce({ scene, motion: [] });
   const result = await services.preparePlayback({
     ...context,
-    input: playbackResult(section).target,
+    input: { ...context.input, visualOnly: true },
   });
-  expect(result.block.prepared?.sections?.[0].scene.items.map(item => item.label)).toEqual([
-    'Scopo',
-    'Risorse',
-  ]);
-  expect(result.block.audio).toEqual(playback.blocks[0].audio);
+  expect(result.block.prepared).toEqual({ scene, motion: [] });
+  expect(result.block.audio).toEqual(preparedPlayback().blocks[0].audio);
   expect(result.assetOwner).toBeUndefined();
+  expect(prepareVisuals).toHaveBeenCalledWith(
+    expect.objectContaining({
+      block: expect.objectContaining({ speech: 'Prima frase.', visuals: [] }),
+    }),
+    true
+  );
   expect(prepare).not.toHaveBeenCalled();
   expect(assets.stage).not.toHaveBeenCalled();
 });
@@ -304,4 +285,55 @@ test('prepares another voice when optional evidence metadata cannot be read', as
   } finally {
     warn.mockRestore();
   }
+});
+
+test('upgrades a historical list visual without synthesizing or staging its saved audio', async () => {
+  const { section, assets, services, context } = setup();
+  section.contentBlocks = [
+    {
+      type: 'markdown',
+      markdown: '1. Scopo: fissare il risultato.\n2. Risorse: assegnare i mezzi.',
+    },
+  ];
+  const playback = preparedPlayback(section);
+  section.playback = playback;
+  const scene: LessonScene = {
+    type: 'parts',
+    title: 'Piano',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [
+      { label: 'Scopo', detail: '', icon: '' },
+      { label: 'Risorse', detail: '', icon: '' },
+    ],
+  };
+  const prepared = {
+    motion: [],
+    scene,
+    sections: [
+      {
+        range: { start: 0, end: playback.blocks[0].speech.length },
+        items: [
+          { start: 0, end: 28 },
+          { start: 29, end: playback.blocks[0].speech.length },
+        ],
+        scene,
+      },
+    ],
+  };
+  prepareVisuals.mockResolvedValue(prepared);
+  const result = await services.preparePlayback({
+    ...context,
+    input: { ...playbackResult(section).target, visualOnly: true },
+  });
+  expect(result.block.prepared?.sections?.[0].scene.items.map(item => item.label)).toEqual([
+    'Scopo',
+    'Risorse',
+  ]);
+  expect(result.block.audio).toEqual(playback.blocks[0].audio);
+  expect(result.assetOwner).toBeUndefined();
+  expect(prepare).not.toHaveBeenCalled();
+  expect(assets.stage).not.toHaveBeenCalled();
 });

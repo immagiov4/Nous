@@ -1,4 +1,6 @@
-import { readLessonPlayback } from '../projects/lessonPlayback.js';
+import { isRetiredLessonScene } from '@shared/lessonScene';
+import { hasPreparedVisualSections } from '@shared/playbackVisualSections';
+import { lessonPlaybackContent, readLessonPlayback } from '../projects/lessonPlayback.js';
 import type { ProjectAssetWriter } from '../projects/projectAsset.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
 import {
@@ -22,6 +24,7 @@ export const buildLessonPlaybackCommitPatch = (
   const section = findProjectLessonSection(project.snapshot, target.sectionId);
   const playback = section && readLessonPlayback(section);
   if (
+    !section ||
     project.incarnationId !== target.incarnationId ||
     project.snapshot.id !== target.projectId ||
     playback?.lessonKey !== target.lessonKey ||
@@ -32,33 +35,51 @@ export const buildLessonPlaybackCommitPatch = (
       message: 'The lesson changed during playback preparation.',
     });
   }
-  if (!result.assetOwner && !block.prepared?.sections) return null;
+  // Structural checkpoints encode a visual-only result with sections and no staged audio.
+  const visualOnly = target.visualOnly || (!result.assetOwner && Boolean(block.prepared?.sections));
+  if (!result.assetOwner && !visualOnly) return null;
+  if (visualOnly && !block.prepared)
+    throw new Error('A visual preparation must contain prepared scene data.');
+  const preparedVisual = block.prepared;
   return {
     section: {
       sectionId: target.sectionId,
       playback: {
         ...playback,
-        blocks: playback.blocks.map(saved =>
-          saved.id !== block.id
-            ? saved
-            : {
-                ...saved,
-                prepared: block.prepared?.sections
-                  ? { ...saved.prepared, ...block.prepared }
-                  : (saved.prepared ?? block.prepared),
-                audio: !result.assetOwner
-                  ? saved.audio
-                  : [
-                      ...saved.audio.filter(
-                        audio =>
-                          !block.audio.some(
-                            next => next.voice === audio.voice && next.model === audio.model
-                          )
-                      ),
-                      ...block.audio,
-                    ],
-              }
-        ),
+        blocks: playback.blocks.map(saved => {
+          if (saved.id !== block.id) return saved;
+          let prepared = saved.prepared ?? block.prepared;
+          const needsSections =
+            preparedVisual?.sections &&
+            !hasPreparedVisualSections(saved, lessonPlaybackContent(section));
+          if (
+            preparedVisual?.scene &&
+            !isRetiredLessonScene(preparedVisual.scene) &&
+            (!saved.prepared?.scene || isRetiredLessonScene(saved.prepared.scene) || needsSections)
+          ) {
+            prepared = {
+              ...(saved.prepared ?? preparedVisual),
+              scene: preparedVisual.scene,
+              motion: preparedVisual.motion,
+              ...(preparedVisual.sections ? { sections: preparedVisual.sections } : {}),
+            };
+          }
+          return {
+            ...saved,
+            prepared,
+            audio: visualOnly
+              ? saved.audio
+              : [
+                  ...saved.audio.filter(
+                    audio =>
+                      !block.audio.some(
+                        next => next.voice === audio.voice && next.model === audio.model
+                      )
+                  ),
+                  ...block.audio,
+                ],
+          };
+        }),
       },
     },
   };
@@ -72,7 +93,7 @@ export const createLessonPlaybackPersistence =
   }): LessonPlaybackServices['persistPlayback'] =>
   async ({ execution, input, transaction }) => {
     const { target } = input;
-    if (input.assetOwner) {
+    if (input.assetOwner && !target.visualOnly) {
       await dependencies.assets.adoptNodeAssets(transaction, {
         assetIds: input.block.audio.map(audio => audio.asset.id),
         nodeInstanceId: input.assetOwner,

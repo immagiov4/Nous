@@ -1,5 +1,5 @@
 {
-  "sourceCommit": "19cb2d8a6f45dac7d9997ef756daa38fe6e5d632",
+  "sourceCommit": "a01256a942f951dc9ca991ce956b6a5fb1da8436",
   "current": {
     "align-playback-recording": "9b66d8645614523c5d7aecd056d5b68d4100a954a92dc3489854243ca3eb40a7",
     "course-generation": "5241e9a8bc2be069dadfb311fe1bc2fad61f4615227a5c79b342dbee7af7bcab",
@@ -7,7 +7,7 @@
     "lesson-artifact-draft": "5ad844301e5d82dcc015480a2904f78bc1f121c101f77bf33aa5d6b14ff89760",
     "lesson-generation": "919c7df0f64297395b44a5a25f31983b8ce9425af5ae0156368b2fb000fde0a9",
     "pdf-mapping-repair": "30160c5aca5f1fcf6bf5593188b45cda680a10bd3f1df4fc87e300f278ae2aa4",
-    "prepare-lesson-playback-block": "306db975b355e122ebecdd405e6b57df7641896cb2fac8f98aba499127856863",
+    "prepare-lesson-playback-block": "d33ff95f6ce2cd0680aa3620f8cf92f3fb2812a51fb41f72e1d22b66099665f3",
     "retry-lesson-visual": "9989cf2ec2084ae7ad9ee4892cb01fa76dd5a6f20423505d734ffcd19529abc9"
   },
   "definitions": [
@@ -570,41 +570,6 @@
       "workflowId": "pdf-mapping-repair",
       "manifestSha256": "ff515114fdf5ce2770ba8b5f53068634776cce9e726d257b230fdfbb5dc94fe3",
       "defaultsSha256": "5aa05727a0ab29c5c12992241adb81bdd9bf1ba19698f2c7b01cc59fd64d1814"
-    },
-    {
-      "definitionHash": "306db975b355e122ebecdd405e6b57df7641896cb2fac8f98aba499127856863",
-      "definitionHashVersion": 1,
-      "workflowId": "prepare-lesson-playback-block",
-      "manifestSha256": "8c9c4d869bbb095b6d880f1ed76e84f4defb85a0a5f524d06845780c2b570dcc",
-      "defaultsSha256": "6c0f290aa85f95b38ae7bb71d2f4602476fc7240e6b4c25139b2548c3468fbc5"
-    },
-    {
-      "definitionHash": "50734ec96d6ac391bc5c990de316a89da501e9725b4c46df37163ba22d04bb05",
-      "definitionHashVersion": 1,
-      "workflowId": "prepare-lesson-playback-block",
-      "manifestSha256": "a1eebd62563152b9a2eb32658629c152aebe0c5ef12d8cff099179bfa48da490",
-      "defaultsSha256": "6c0f290aa85f95b38ae7bb71d2f4602476fc7240e6b4c25139b2548c3468fbc5"
-    },
-    {
-      "definitionHash": "50150bdcb00aa70708cc698350b650a8c89ff1bc4e697d1e6beb141feea0b521",
-      "definitionHashVersion": 1,
-      "workflowId": "prepare-lesson-playback-block",
-      "manifestSha256": "79da4160ca287f2fa1ea9a8d8b981ca11142ab97106d0c31c4f8e68933778633",
-      "defaultsSha256": "6c0f290aa85f95b38ae7bb71d2f4602476fc7240e6b4c25139b2548c3468fbc5"
-    },
-    {
-      "definitionHash": "e6731d5f7a6fc644817fba2037308e9be2bb619217799080b86aeeebb4b13eee",
-      "definitionHashVersion": 1,
-      "workflowId": "prepare-lesson-playback-block",
-      "manifestSha256": "7784c8c6c01fe76a3a5dd79953c14523b5dff0dee9ba32525f2da270c9c687d5",
-      "defaultsSha256": "6c0f290aa85f95b38ae7bb71d2f4602476fc7240e6b4c25139b2548c3468fbc5"
-    },
-    {
-      "definitionHash": "d467952b46b682edb9657bfa3df3ceabdfb7b155f4adcf12ed8dfa9f34703dea",
-      "definitionHashVersion": 1,
-      "workflowId": "prepare-lesson-playback-block",
-      "manifestSha256": "014bf379f866c6de387a03f3de34e96997e6dfa8f3ed07c3d61a07cf5cfdd619",
-      "defaultsSha256": "6c0f290aa85f95b38ae7bb71d2f4602476fc7240e6b4c25139b2548c3468fbc5"
     },
     {
       "definitionHash": "d33ff95f6ce2cd0680aa3620f8cf92f3fb2812a51fb41f72e1d22b66099665f3",

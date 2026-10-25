@@ -26,6 +26,8 @@ interface GeneratedVisualFrameProps {
   readonly projectId?: string | null;
   readonly title: string;
   readonly visual: StoredLessonVisual;
+  /** The caller owns replacement and pending/error presentation when supplied. */
+  readonly onUnavailable?: () => void;
 }
 
 const GENERATED_VISUAL_TRANSPARENT_HOST_OVERRIDE = `
@@ -515,10 +517,15 @@ const GeneratedVisualFrame = ({
   projectId,
   title,
   visual,
+  onUnavailable,
 }: GeneratedVisualFrameProps) => {
   useAppLocale();
   const resolution = useResolvedProjectVisual(visual, projectId);
+  useEffect(() => {
+    if (resolution.status === 'failed') onUnavailable?.();
+  }, [resolution.status, onUnavailable]);
   if (resolution.status !== 'ready' || !resolution.result) {
+    if (onUnavailable) return null;
     return (
       <output
         aria-busy={resolution.status === 'loading'}
@@ -553,6 +560,7 @@ const GeneratedVisualFrame = ({
       title={title}
       trustedImageUrl={resolution.result.trustedImageUrl}
       visual={resolution.result.visual}
+      onUnavailable={onUnavailable}
     />
   );
 };
@@ -564,6 +572,7 @@ const ResolvedGeneratedVisualFrame = ({
   title,
   trustedImageUrl,
   visual,
+  onUnavailable,
 }: {
   readonly className: string;
   readonly displayMode: 'full' | 'thumbnail';
@@ -571,7 +580,13 @@ const ResolvedGeneratedVisualFrame = ({
   readonly title: string;
   readonly trustedImageUrl: boolean;
   readonly visual: LessonGeneratedVisual;
+  readonly onUnavailable?: () => void;
 }) => {
+  const unsafeImage =
+    visual.kind === 'image' && !trustedImageUrl && !isSafeGeneratedImageSource(visual.code);
+  useEffect(() => {
+    if (unsafeImage) onUnavailable?.();
+  }, [unsafeImage, onUnavailable]);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [blockedVisual, setBlockedVisual] = useState<LessonGeneratedVisual | null>(null);
   const mermaidCache = useContext(MermaidRenderCacheContext);
@@ -652,6 +667,7 @@ const ResolvedGeneratedVisualFrame = ({
   }, [isThumbnail, visual]);
 
   if (visual.kind === 'image') {
+    if (unsafeImage && onUnavailable) return null;
     const imageAltText =
       visual.altText?.trim() || visual.title.replaceAll(/[_-]+/g, ' ').trim() || title;
 
@@ -664,6 +680,7 @@ const ResolvedGeneratedVisualFrame = ({
             className="mx-auto block max-h-[72dvh] w-full rounded-[1.2rem] object-contain"
             decoding="async"
             loading="lazy"
+            onError={onUnavailable}
           />
         ) : (
           <output className="block rounded-2xl border border-stone-200 bg-stone-50 px-4 py-8 text-center text-sm text-stone-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">

@@ -239,5 +239,6 @@ export const PrepareLessonPlaybackResponseSchema = z.union([
     voice: z.string().min(1),
     created: z.boolean().optional(),
     recorded: RecordedPlaybackResultSchema.optional(),
+    visualOnly: z.boolean().optional(),
   }),
 ]);

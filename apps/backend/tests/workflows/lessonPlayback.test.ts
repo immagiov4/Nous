@@ -1,3 +1,5 @@
+import type { LessonScene } from '@shared/lessonScene';
+import { playbackVisualSections } from '@shared/playbackVisualSections';
 import type { TransactionSql } from 'postgres';
 import { describe, expect, test, vi } from 'vitest';
 
@@ -13,9 +15,75 @@ import {
   preparedPlayback,
 } from '../helpers/lessonPlayback.js';
 
+test.each([
+  false,
+  true,
+])('persists a replacement once and preserves speech, recordings and other blocks (visual-only: %s)', visualOnly => {
+  const section = playbackSection();
+  section.playback = preparedPlayback(section);
+  const scene: LessonScene = {
+    type: 'steps',
+    title: 'Accesso',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [
+      { label: 'DNS', detail: '', icon: '' },
+      { label: 'Controller', detail: '', icon: '' },
+    ],
+  };
+  const blocks = section.playback.blocks;
+  section.playback = {
+    ...section.playback,
+    blocks: blocks.map(block => ({
+      ...block,
+      prepared: { scene: { ...scene, type: 'quote', quote: block.speech }, motion: [] },
+    })),
+  };
+  const before = playbackProject(section);
+  const original = playbackResult(section);
+  const result = {
+    ...original,
+    assetOwner: visualOnly ? undefined : original.assetOwner,
+    target: { ...original.target, visualOnly },
+    block: { ...original.block, prepared: { scene, motion: [] } },
+  };
+  const patch = buildLessonPlaybackCommitPatch(
+    { snapshot: before, incarnationId: 'incarnation-1', revision: 1 },
+    result
+  );
+  const saved = applyProjectPatch(before, patch ?? {}, before.updatedAt);
+  const savedBlock = saved.learningPlan?.sections?.[0]?.playback?.blocks[0];
+  expect(savedBlock?.prepared).toEqual({ scene, motion: [] });
+  expect(savedBlock?.audio).toEqual(blocks[0].audio);
+  expect(savedBlock?.speech).toBe('Prima frase.');
+  expect(saved.learningPlan?.sections?.[0]?.playback?.blocks[1]).toEqual(
+    section.playback.blocks[1]
+  );
+  const repeated = buildLessonPlaybackCommitPatch(
+    { snapshot: saved, incarnationId: 'incarnation-1', revision: 2 },
+    {
+      ...result,
+      block: {
+        ...result.block,
+        prepared: { scene: { ...scene, title: 'Competing result' }, motion: [] },
+      },
+    }
+  );
+  const reused = applyProjectPatch(saved, repeated ?? {}, saved.updatedAt);
+  expect(reused.learningPlan?.sections?.[0]?.playback?.blocks[0]).toEqual(savedBlock);
+});
+
 describe('playback block commit', () => {
-  test('adopts visual-only sections and preserves concurrent recordings and alignment', () => {
+  test.each([
+    undefined,
+    true,
+  ])('adopts sections and retains concurrent recordings (visual-only flag: %s)', visualOnly => {
     const section = playbackSection();
+    section.contentBlocks = [
+      { type: 'markdown', markdown: '1. First decision.\n2. Second decision.' },
+    ];
     section.playback = preparedPlayback(section);
     const result = playbackResult(section);
     const scene = {
@@ -31,13 +99,17 @@ describe('playback block commit', () => {
       ],
     };
     result.assetOwner = undefined;
+    result.target.visualOnly = visualOnly;
     result.block = {
       ...result.block,
       audio: [],
       prepared: {
         motion: [],
         scene,
-        sections: [{ range: { start: 0, end: result.block.speech.length }, scene }],
+        sections: playbackVisualSections(result.block, section.contentBlocks).map(section => ({
+          ...section,
+          scene,
+        })),
       },
     };
     const snapshot = playbackProject(section);
@@ -50,6 +122,29 @@ describe('playback block commit', () => {
     expect(saved?.playback?.blocks[0].prepared?.sections?.[0].scene.title).toBe('Passi');
     expect(saved?.playback?.blocks[0].audio).toEqual(section.playback.blocks[0].audio);
     expect(saved?.playback?.blocks[1]).toEqual(section.playback.blocks[1]);
+    const savedSnapshot = applyProjectPatch(snapshot, patch ?? {}, snapshot.updatedAt);
+    const competing = {
+      ...result,
+      block: {
+        ...result.block,
+        prepared: {
+          ...result.block.prepared,
+          scene: { ...scene, title: 'Competing list' },
+          sections: result.block.prepared.sections.map(section => ({
+            ...section,
+            scene: { ...scene, title: 'Competing list' },
+          })),
+        },
+      },
+    };
+    const repeated = buildLessonPlaybackCommitPatch(
+      { snapshot: savedSnapshot, incarnationId: 'incarnation-1', revision: 3 },
+      competing
+    );
+    expect(
+      applyProjectPatch(savedSnapshot, repeated ?? {}, savedSnapshot.updatedAt).learningPlan
+        ?.sections?.[0]?.playback?.blocks[0]
+    ).toEqual(saved?.playback?.blocks[0]);
   });
   test('updates one block while preserving a concurrent note, voice and other block', () => {
     const section = playbackSection();
