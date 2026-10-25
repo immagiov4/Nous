@@ -1,4 +1,10 @@
-import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
+import {
+  type LessonPlaybackBlock,
+  playbackNonProseVisuals,
+  resolvePlaybackNarration,
+  segmentLessonPlayback,
+} from '@shared/lessonPlayback';
+import { LESSON_SCENE_DIAGRAM_TYPES } from '@shared/lessonScene';
 import type { PlaybackQuestionContext } from '@shared/playbackQuestionContext';
 import { AnimatePresence, motion, useIsPresent } from 'framer-motion';
 import { ArrowLeft, Check, RotateCcw, RotateCw } from 'lucide-react';
@@ -20,6 +26,17 @@ import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { playbackSentenceSelector } from '../../../utils/reader/lessonPlayback.ts';
 import type { LessonPlaybackAudio } from '../../../utils/reader/lessonPlaybackAudio.ts';
+import {
+  type MermaidRenderCache,
+  MermaidRenderCacheContext,
+  renderMermaidDiagram,
+} from '../../../utils/visuals/mermaidRenderer.ts';
+import {
+  getStoredLessonVisualCode,
+  getStoredLessonVisualKind,
+  getStoredLessonVisualScene,
+} from '../../../utils/visuals/storedLessonVisual.ts';
+import { prepareSceneDiagrams } from '../../shared/lessonScene/SceneDiagram.tsx';
 import { appendSpeechTranscription } from '../../shared/SpeechInputButton.tsx';
 import ContextMenu from '../ContextMenu.tsx';
 import ContextAnswerPanel from '../shell/ContextAnswerPanel.tsx';
@@ -38,6 +55,37 @@ const SKIP_SECONDS = 5;
 // playback controls and the Space hint share its axis on desktop.
 const COMPOSER_BAR_HEIGHT = 'md:h-[3.375rem]';
 const noAction = () => {};
+
+function playbackDiagramSources(
+  blocks: readonly LessonPlaybackBlock[],
+  visualsById: WorkspaceReaderContentModel['activeSectionGeneratedVisualsById']
+) {
+  const narrations = blocks.map(block => resolvePlaybackNarration(block));
+  const visuals = narrations.flatMap(playbackNonProseVisuals);
+  const stored = visuals
+    .filter(visual => visual.kind === 'generated-visual')
+    .flatMap(visual => {
+      const source = visualsById?.[visual.visualId];
+      return source ? [source] : [];
+    });
+  const scenes = [
+    ...narrations.flatMap(block => (block.prepared?.scene ? [block.prepared.scene] : [])),
+    ...visuals.filter(visual => visual.kind === 'scene').map(visual => visual.scene),
+    ...stored.flatMap(visual => {
+      const scene = getStoredLessonVisualScene(visual);
+      return scene ? [scene] : [];
+    }),
+  ].filter(scene => LESSON_SCENE_DIAGRAM_TYPES.has(scene.type));
+  const codes = new Set([
+    ...visuals.filter(visual => visual.kind === 'mermaid').map(visual => visual.code),
+    ...stored.flatMap(visual => {
+      const code =
+        getStoredLessonVisualKind(visual) === 'mermaid' ? getStoredLessonVisualCode(visual) : null;
+      return code ? [code] : [];
+    }),
+  ]);
+  return { scenes, codes };
+}
 
 interface SpokenFollowUpQuestion {
   readonly id: string;
@@ -131,6 +179,42 @@ export default function LessonPlayer({
     [content.sectionContentBlocks, content.sectionContent]
   );
   const initialBlocks = useMemo(() => segmentLessonPlayback(sourceBlocks), [sourceBlocks]);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [diagramCache] = useState<MermaidRenderCache>(() => new Map());
+  const visualInputs = useRef({
+    visuals: content.activeSectionGeneratedVisualsById,
+    isDarkMode: content.isDarkMode,
+  });
+  useLayoutEffect(() => {
+    visualInputs.current = {
+      visuals: content.activeSectionGeneratedVisualsById,
+      isDarkMode: content.isDarkMode,
+    };
+  }, [content.activeSectionGeneratedVisualsById, content.isDarkMode]);
+  const prepareVisuals = useCallback(
+    async (blocks: readonly LessonPlaybackBlock[], signal: AbortSignal) => {
+      signal.throwIfAborted();
+      const { scenes, codes } = playbackDiagramSources(blocks, visualInputs.current.visuals);
+      if (!scenes.length && !codes.size) return;
+      const parent = dialogRef.current?.querySelector<HTMLElement>('.lesson-player-stage');
+      if (!parent) throw new Error('Playback stage must be mounted before preparing diagrams');
+      const report = (error: unknown) => {
+        signal.throwIfAborted();
+        console.error('Lesson diagram preparation failed.', error);
+      };
+      await prepareSceneDiagrams({ scenes, parent, cache: diagramCache, signal }).catch(report);
+      for (const code of codes) {
+        signal.throwIfAborted();
+        await renderMermaidDiagram(
+          code,
+          visualInputs.current.isDarkMode,
+          signal,
+          diagramCache
+        ).catch(report);
+      }
+    },
+    [diagramCache]
+  );
   const playback = useLessonPlayback({
     projectId,
     sectionId,
@@ -138,6 +222,7 @@ export default function LessonPlayer({
     speed: tts.playbackRate,
     initialBlocks,
     audioSessionRef,
+    prepareVisuals,
   });
   const [noteMode, setNoteMode] = useState(false);
   const [draft, setDraft] = useState('');
@@ -169,7 +254,6 @@ export default function LessonPlayer({
   });
   const [composerPortal, setComposerPortal] = useState<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const backButton = useRef<HTMLButtonElement>(null);
   const openedOnMobile = useRef(content.isMobileViewport);
   const mounted = useRef(true);
@@ -554,19 +638,21 @@ export default function LessonPlayer({
         </h1>
       </header>
       {block ? (
-        <LessonPlaybackStage
-          questionContextRef={questionContextRef}
-          key={playback.lessonKey}
-          lessonKey={playback.lessonKey}
-          block={block}
-          time={playback.time}
-          duration={playback.duration}
-          content={content}
-          speed={tts.playbackRate}
-          readTime={playback.readTime}
-          seekRevision={playback.seekRevision}
-          alignment={playback.recording?.wordAlignment}
-        />
+        <MermaidRenderCacheContext.Provider value={diagramCache}>
+          <LessonPlaybackStage
+            questionContextRef={questionContextRef}
+            key={playback.lessonKey}
+            lessonKey={playback.lessonKey}
+            block={block}
+            time={playback.time}
+            duration={playback.duration}
+            content={content}
+            speed={tts.playbackRate}
+            readTime={playback.readTime}
+            seekRevision={playback.seekRevision}
+            alignment={playback.recording?.wordAlignment}
+          />
+        </MermaidRenderCacheContext.Provider>
       ) : (
         <p className="flex-1 p-4">{t('Questa lezione non contiene testo da ascoltare.')}</p>
       )}

@@ -39,6 +39,27 @@ vi.mock('../../../services/projects/projectVisualResolver.ts', () => ({
 let resizeScene: () => void;
 const disconnectScene = vi.fn();
 
+test('serializes unchanged source inputs once across playback time notifications', () => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const authored = [{ type: 'markdown' as const, markdown: 'Prima frase. Seconda frase.' }];
+  const serialize = vi.fn(() => authored);
+  const sources = Object.assign([...authored], { toJSON: serialize });
+  const block = segmentLessonPlayback(authored)[0];
+  const content = {
+    sectionContentBlocks: sources,
+    isDarkMode: false,
+  } as unknown as WorkspaceReaderContentModel;
+  const view = (time: number) => (
+    <LessonPlaybackStage block={block} content={content} duration={10} time={time} />
+  );
+  const mounted = render(view(0));
+  expect(serialize).toHaveBeenCalledOnce();
+  mounted.rerender(view(1));
+  mounted.rerender(view(2));
+  expect(serialize).toHaveBeenCalledOnce();
+  expect(mounted.container.querySelector('.captions')?.textContent).toContain(authored[0].markdown);
+});
+
 test('reads all visible steps and the actual rendered emphasis from the stage snapshot', () => {
   vi.mocked(useShouldAnimate).mockReturnValue(false);
   const frames: FrameRequestCallback[] = [];
@@ -416,6 +437,85 @@ test.each([true, false])('reveals continuously and fades spoken words (animate=%
   rerender(<LessonPlaybackStage {...props} block={{ ...block, id: 'next' }} time={0} />);
   const next = container.querySelector('.captions p');
   expect(next?.scrollTop).toBe(0);
+});
+
+test('updates the live reveal edge each frame without changing settled word masks', () => {
+  vi.mocked(useShouldAnimate).mockReturnValue(true);
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: 'Uno due tre quattro cinque sei sette otto nove dieci.',
+    },
+  ];
+  const block = segmentLessonPlayback(sources)[0];
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+  } as WorkspaceReaderContentModel;
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const style = document.createElement('p').style;
+  style.setProperty('--caption-feather', '22px');
+  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
+  let heard = 30;
+  const { container, unmount } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={content}
+      duration={60}
+      time={0}
+      readTime={() => heard}
+    />
+  );
+  const words = Array.from(container.querySelectorAll<HTMLElement>('.caption-word'));
+  const edge = (index: number) =>
+    Number.parseFloat(words[index].style.getPropertyValue('--reveal-edge'));
+  const advance = () =>
+    act(() => {
+      const callbacks = [...frames.values()];
+      frames.clear();
+      callbacks.forEach(callback => {
+        callback(0);
+      });
+    });
+  expect(edge(0)).toBe(122);
+  expect(words[0].style.maskImage).toBe('none');
+  expect(words[5].style.maskImage).toBe('');
+  expect(edge(9)).toBe(0);
+  expect(edge(5)).toBeCloseTo(33.143333);
+  const settled = words[0].getAttribute('style');
+  const hidden = words[9].getAttribute('style');
+  const previous = edge(5);
+  const settledWrites = vi.spyOn(words[0].style, 'setProperty');
+  const hiddenWrites = vi.spyOn(words[9].style, 'setProperty');
+  const fadedWrites = vi.spyOn((words[0].firstElementChild as HTMLElement).style, 'opacity', 'set');
+  heard += 1 / 60;
+  advance();
+  expect(edge(5) - previous).toBeCloseTo(1022 / 3600);
+  expect(settledWrites).not.toHaveBeenCalled();
+  expect(hiddenWrites).not.toHaveBeenCalled();
+  expect(fadedWrites).not.toHaveBeenCalled();
+  expect(words[0].getAttribute('style')).toBe(settled);
+  expect(words[9].getAttribute('style')).toBe(hidden);
+  expect((words[0].firstElementChild as HTMLElement).style.opacity).toBe('0.55');
+  heard = 1;
+  advance();
+  expect(edge(0)).toBeCloseTo((2.3 / 60) * 1022);
+  expect(words[0].style.maskImage).toBe('');
+  expect(edge(9)).toBe(0);
+  expect((words[0].firstElementChild as HTMLElement).style.opacity).toBe('1');
+  unmount();
+  expect(frames.size).toBe(0);
 });
 
 test('recovers heading, emphasis, code and list markers from authored source spans', () => {

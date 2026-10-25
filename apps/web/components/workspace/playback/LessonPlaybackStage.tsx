@@ -74,9 +74,11 @@ import {
 import './stage.css';
 import { SaveablePlaybackVisual } from './SaveablePlaybackVisual.tsx';
 
+type DrawnCaptionRun = CaptionRun & { revealEdge?: number; readOpacity?: number };
+
 interface CaptionClock {
   viewport: ReturnType<typeof captionViewport>;
-  runs: CaptionRun[];
+  runs: DrawnCaptionRun[];
   width: number;
   feather: number;
   bodyDuration: number;
@@ -116,6 +118,33 @@ function formulaReferenceRange(
     start: Math.min(references[0].start, ...readings.map(range => range.start)),
     end: Math.max(references[references.length - 1].end, ...readings.map(range => range.end)),
   };
+}
+
+/** Draws changed word styles and identifies the word crossed by the reveal edge. */
+function drawCaptionWord(
+  run: DrawnCaptionRun,
+  clock: CaptionClock,
+  edge: number,
+  bodyTime: number
+) {
+  const local = edge - run.start;
+  // Settled words keep their cached styles to avoid per-frame invalidation.
+  const maskEdge = Math.max(0, Math.min(run.width + clock.feather, local));
+  if (run.revealEdge !== maskEdge) {
+    run.span.style.opacity = local > 0 ? '1' : '0';
+    run.span.style.setProperty('--reveal-edge', `${maskEdge}px`);
+    run.span.style.maskImage = local >= run.width + clock.feather ? 'none' : '';
+    run.revealEdge = maskEdge;
+  }
+  const readAge = bodyTime - ((run.start + run.width) / clock.width) * clock.bodyDuration;
+  const fade = Math.max(0, Math.min(1, readAge / CAPTION_TIMING.readFadeSeconds));
+  const readOpacity = 1 - fade * (1 - CAPTION_TIMING.readOpacity);
+  if (run.readOpacity !== readOpacity) {
+    const text = run.span.firstElementChild as HTMLElement;
+    text.style.opacity = String(readOpacity);
+    run.readOpacity = readOpacity;
+  }
+  return local >= 0 && local <= run.width;
 }
 
 const passageParser = unified().use(remarkParse);
@@ -547,6 +576,7 @@ function PlaybackVisualContent({
 function PlaybackPassage({
   lessonKey = '',
   block,
+  sources,
   time,
   duration,
   content,
@@ -558,6 +588,7 @@ function PlaybackPassage({
 }: Readonly<{
   lessonKey?: string;
   block: LessonPlaybackBlock;
+  sources: readonly PlaybackContentBlock[];
   time: number;
   duration: number;
   content: WorkspaceReaderContentModel;
@@ -567,13 +598,6 @@ function PlaybackPassage({
   seekRevision?: number;
   questionContextRef?: RefObject<(() => PlaybackQuestionContext) | null>;
 }>) {
-  const sources = useMemo(
-    () =>
-      content.sectionContentBlocks?.length
-        ? content.sectionContentBlocks
-        : [{ type: 'markdown' as const, markdown: content.sectionContent }],
-    [content.sectionContentBlocks, content.sectionContent]
-  );
   const source = useMemo(() => captionSource(block, sources), [block, sources]);
   // Equivalent snapshots retain the measured viewport; a new passage measures its new DOM.
   const captionKey = JSON.stringify({ blockId: block.id, ...source });
@@ -745,14 +769,7 @@ function PlaybackPassage({
       const edge = progress * (current.width + current.feather);
       let active = edge >= current.width ? current.runs.at(-1)?.span : undefined;
       for (const run of current.runs) {
-        const local = edge - run.start;
-        run.span.style.opacity = local > 0 ? '1' : '0';
-        run.span.style.setProperty('--reveal-edge', `${local}px`);
-        const readAge = bodyTime - ((run.start + run.width) / current.width) * current.bodyDuration;
-        const fade = Math.max(0, Math.min(1, readAge / CAPTION_TIMING.readFadeSeconds));
-        const text = run.span.firstElementChild as HTMLElement;
-        text.style.opacity = String(1 - fade * (1 - CAPTION_TIMING.readOpacity));
-        if (local >= 0 && local <= run.width) active = run.span;
+        if (drawCaptionWord(run, current, edge, bodyTime)) active = run.span;
       }
       // Place new or backward seeks immediately; animate subsequent playback updates.
       current.viewport.follow(
@@ -1252,7 +1269,30 @@ function PlaybackPassage({
 }
 
 /** Each narration owns its clock so retiring subscriptions keep their original text ranges. */
-export default function LessonPlaybackStage(props: Parameters<typeof PlaybackPassage>[0]) {
+export default function LessonPlaybackStage(
+  props: Omit<Parameters<typeof PlaybackPassage>[0], 'sources'>
+) {
+  // Equivalent project snapshots retain the source syntax analysis between passages.
+  const sourceKey = useMemo(
+    () =>
+      JSON.stringify(
+        props.content.sectionContentBlocks?.length
+          ? props.content.sectionContentBlocks
+          : [{ type: 'markdown', markdown: props.content.sectionContent }]
+      ),
+    [props.content.sectionContentBlocks, props.content.sectionContent]
+  );
+  const sources = useMemo(
+    () => JSON.parse(sourceKey) as readonly PlaybackContentBlock[],
+    [sourceKey]
+  );
   const block = useMemo(() => resolvePlaybackNarration(props.block), [props.block]);
-  return <PlaybackPassage {...props} block={block} key={`${block.id}:${block.speech}`} />;
+  return (
+    <PlaybackPassage
+      {...props}
+      sources={sources}
+      block={block}
+      key={`${block.id}:${block.speech}`}
+    />
+  );
 }
