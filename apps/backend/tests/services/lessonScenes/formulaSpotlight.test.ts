@@ -224,6 +224,20 @@ test('rejects changes to vector notation and fraction-bar attributes', () => {
   expect(formulaSpotlightCovers(fraction, [String.raw`$\frac{x}{2}$`])).toBe(false);
 });
 
+test('retains compound highlight targets without treating their row wrappers as new mathematics', () => {
+  const scene = {
+    ...boundVariable,
+    formula: String.raw`\nousSymbol{di}+\nousSymbol{dk}`,
+    symbols: [
+      { id: 'di', latex: '{D}{i}', name: 'Di', meaning: 'First quantity', anchor: '' },
+      { id: 'dk', latex: '{D}{k}', name: 'Dk', meaning: 'Second quantity', anchor: '' },
+    ],
+  };
+  expect(formulaSpotlightCovers(scene, ['${D}{i}+{D}{k}$'])).toBe(true);
+  expect(formulaSpotlightCovers(scene, ['$D_i+D_k$'])).toBe(false);
+  expect(formulaSpotlightCovers(scene, ['${D}{i}-{D}{k}$'])).toBe(false);
+});
+
 test('resolves repeated references to the same rendered symbol without duplicating its glyph', () => {
   const scene = {
     ...formulaSpotlight,

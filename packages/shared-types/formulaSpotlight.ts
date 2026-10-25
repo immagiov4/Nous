@@ -308,10 +308,17 @@ export function resolveFormulaReferences(scene: FormulaSpotlightData, speech: st
 
 /** Compare mathematical structure, including scripts, rather than visible glyph strings. */
 export function formulaSpotlightCovers(scene: FormulaSpotlightData, formulas: readonly string[]) {
-  const structure = (node: MathNode): unknown => {
+  type MathStructure =
+    | string
+    | {
+        tag: string;
+        attributes: Record<string, unknown>;
+        children: MathStructure[];
+      };
+  const structure = (node: MathNode): MathStructure | undefined => {
     if (node.type === 'text') return node.value.trim() || undefined;
     if (node.type !== 'element' || node.tagName === 'annotation') return undefined;
-    const children = node.children.map(structure).filter(child => child !== undefined);
+    const nested = node.children.map(structure).filter(child => child !== undefined);
     const attributes = Object.fromEntries(
       Object.entries(node.properties)
         .filter(
@@ -319,6 +326,17 @@ export function formulaSpotlightCovers(scene: FormulaSpotlightData, formulas: re
         )
         .sort(([left], [right]) => left.localeCompare(right))
     );
+    // Highlight wrappers group adjacent atoms without changing their mathematical sequence.
+    const children =
+      node.tagName === 'mrow'
+        ? nested.flatMap(child =>
+            typeof child !== 'string' &&
+            child.tag === 'mrow' &&
+            !Object.keys(child.attributes).length
+              ? child.children
+              : [child]
+          )
+        : nested;
     if (
       ['span', 'math', 'semantics', 'mrow'].includes(node.tagName) &&
       children.length === 1 &&
