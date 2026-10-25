@@ -5,6 +5,7 @@ import {
   processRunning,
   processTreeRunning,
   stopChild,
+  waitProcessGroup,
 } from './heavy-run-process.mjs';
 
 const { spawnMock, queryMock } = vi.hoisted(() => ({ spawnMock: vi.fn(), queryMock: vi.fn() }));
@@ -84,6 +85,29 @@ test('POSIX release holds capacity until running group members exit and ignores 
   await stopping;
   expect(processTreeRunning(42)).toBe(false);
   expect(processTreeRunning(99)).toBe(true);
+});
+
+test('interruption stops a retained POSIX group before descendant waiting settles', async () => {
+  Object.defineProperty(process, 'platform', { value: 'darwin' });
+  vi.useFakeTimers();
+  const kill = vi.spyOn(process, 'kill').mockReturnValue(true);
+  queryMock
+    .mockReturnValueOnce({ status: 0, stdout: '42 S' })
+    .mockReturnValueOnce({ status: 0, stdout: '42 S' })
+    .mockReturnValue({ status: 0, stdout: '42 Z' });
+  const abort = new AbortController();
+  let settled = false;
+  const waiting = waitProcessGroup(42, abort.signal).then(result => {
+    settled = true;
+    return result;
+  });
+  abort.abort('SIGINT');
+  await vi.advanceTimersByTimeAsync(0);
+  expect(kill).toHaveBeenCalledWith(-42, 'SIGKILL');
+  expect(settled).toBe(false);
+  await vi.advanceTimersByTimeAsync(20);
+  expect(await waiting).toBe(false);
+  expect(processTreeRunning(42)).toBe(false);
 });
 
 test('POSIX creation identity comes from the OS and permission errors preserve liveness', () => {
