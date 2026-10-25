@@ -16,14 +16,14 @@ export const isEscapedMarkdownCharacter = (content: string, index: number): bool
 };
 
 export const getMarkdownMathDelimitersAt = (content: string, start: number) => {
-  if (isEscapedMarkdownCharacter(content, start)) return undefined;
   for (const [open, close, display] of [
     ['$$', '$$', true],
     ['$', '$', false],
     [String.raw`\(` as '\\(', String.raw`\)` as '\\)', false],
     [String.raw`\[` as '\\[', String.raw`\]` as '\\]', true],
   ] as const) {
-    if (content.startsWith(open, start)) return { open, close, display };
+    if (content.startsWith(open, start) && !isEscapedMarkdownCharacter(content, start))
+      return { open, close, display };
   }
   return undefined;
 };
