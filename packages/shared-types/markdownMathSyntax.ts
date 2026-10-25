@@ -3,7 +3,7 @@ export interface MarkdownMathRange {
   start: number;
 }
 
-const isEscapedCharacter = (content: string, index: number): boolean => {
+export const isEscapedMarkdownCharacter = (content: string, index: number): boolean => {
   let slashCount = 0;
   let cursor = index - 1;
 
@@ -13,6 +13,25 @@ const isEscapedCharacter = (content: string, index: number): boolean => {
   }
 
   return slashCount % 2 === 1;
+};
+
+export const getMarkdownMathDelimitersAt = (content: string, start: number) => {
+  for (const [open, close, display] of [
+    ['$$', '$$', true],
+    ['$', '$', false],
+    [String.raw`\(` as '\\(', String.raw`\)` as '\\)', false],
+    [String.raw`\[` as '\\[', String.raw`\]` as '\\]', true],
+  ] as const) {
+    if (content.startsWith(open, start) && !isEscapedMarkdownCharacter(content, start))
+      return { open, close, display };
+  }
+  return undefined;
+};
+
+const startsBlankLine = (content: string, index: number): boolean => {
+  if (content[index] !== '\n' && content[index] !== '\r') return false;
+  const nextLine = index + (content.startsWith('\r\n', index) ? 2 : 1);
+  return /^[\t ]*[\r\n]/u.test(content.slice(nextLine));
 };
 
 const findDelimitedMathRange = (
@@ -26,7 +45,16 @@ const findDelimitedMathRange = (
 
   while (cursor < content.length) {
     if (!allowNewlines && content[cursor] === '\n') return null;
-    if (content.startsWith(closeDelimiter, cursor) && !isEscapedCharacter(content, cursor)) {
+    if (startsBlankLine(content, cursor)) return null;
+    if (
+      content.startsWith(closeDelimiter, cursor) &&
+      !isEscapedMarkdownCharacter(content, cursor)
+    ) {
+      if (
+        openDelimiter === '$' &&
+        (/\s/u.test(content[cursor - 1]) || /\d/u.test(content[cursor + 1] ?? ''))
+      )
+        return null;
       return { start: startIndex, end: cursor + closeDelimiter.length };
     }
     cursor += 1;
@@ -35,37 +63,21 @@ const findDelimitedMathRange = (
   return null;
 };
 
+/** Pandoc tex_math_dollars, plus explicit TeX delimiters; offsets refer to the untouched source. */
 export const getMarkdownMathRangeAt = (
   content: string,
   startIndex: number,
-  { allowInlineNewlines = false }: { allowInlineNewlines?: boolean } = {}
+  { allowInlineNewlines = true }: { allowInlineNewlines?: boolean } = {}
 ): MarkdownMathRange | null => {
-  if (content[startIndex] === '$' && !isEscapedCharacter(content, startIndex)) {
-    if (content[startIndex + 1] === '$') {
-      return findDelimitedMathRange(content, startIndex, '$$', '$$', true);
-    }
-    return findDelimitedMathRange(content, startIndex, '$', '$', allowInlineNewlines);
-  }
-
-  if (content.startsWith(String.raw`\(`, startIndex) && !isEscapedCharacter(content, startIndex)) {
-    return findDelimitedMathRange(
-      content,
-      startIndex,
-      String.raw`\(` as '\\(',
-      String.raw`\)` as '\\)',
-      false
-    );
-  }
-
-  if (content.startsWith(String.raw`\[`, startIndex) && !isEscapedCharacter(content, startIndex)) {
-    return findDelimitedMathRange(
-      content,
-      startIndex,
-      String.raw`\[` as '\\[',
-      String.raw`\]` as '\\]',
-      true
-    );
-  }
-
-  return null;
+  const delimiters = getMarkdownMathDelimitersAt(content, startIndex);
+  if (!delimiters) return null;
+  if (delimiters.open === '$' && (!content[startIndex + 1] || /\s/u.test(content[startIndex + 1])))
+    return null;
+  return findDelimitedMathRange(
+    content,
+    startIndex,
+    delimiters.open,
+    delimiters.close,
+    delimiters.display || allowInlineNewlines
+  );
 };
