@@ -8,10 +8,7 @@ import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { isLessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
-import {
-  dictatedFormulaSpotlight,
-  unlinkedIndexedFormulaSpotlight,
-} from '../../helpers/formulaSpotlight';
+import { unlinkedIndexedFormulaSpotlight } from '../../helpers/formulaSpotlight';
 
 const { chooseIconsMock, generateStructuredOutputMock } = vi.hoisted(() => ({
   chooseIconsMock: vi.fn(async ({ scene }) => scene),
