@@ -3,6 +3,7 @@ import rehypeRaw from 'rehype-raw';
 import { unified } from 'unified';
 import * as z from 'zod';
 import { cueTimes } from './lessonSceneAnimation';
+import { getMarkdownMathDelimitersAt } from './markdownMathSyntax';
 
 // Two em preserves every term in the five-symbol card at the 390 px mobile viewport.
 const SPOTLIGHT_MATH_OPTIONS = { maxSize: 2, throwOnError: true } as const;
@@ -360,11 +361,7 @@ export function formulaSpotlightCovers(scene: FormulaSpotlightData, formulas: re
 
 /** Extract the exact TeX from a delimited source formula, retaining its authored whitespace. */
 export function formulaLatexSource(formula: string): string {
-  const delimiter =
-    formula.startsWith('$$') ||
-    formula.startsWith(String.raw`\[`) ||
-    formula.startsWith(String.raw`\(`)
-      ? 2
-      : 1;
-  return formula.slice(delimiter, -delimiter);
+  const delimiters = getMarkdownMathDelimitersAt(formula, 0);
+  if (!delimiters) throw new Error('Formula source must have explicit math delimiters.');
+  return formula.slice(delimiters.open.length, -delimiters.close.length);
 }
