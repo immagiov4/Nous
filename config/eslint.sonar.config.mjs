@@ -24,9 +24,9 @@ const testProperties = new Map(
       .filter(Boolean),
   ])
 );
-const testDirectories = testProperties.get('sonar.tests');
+const testPaths = testProperties.get('sonar.tests');
 const testInclusions = testProperties.get('sonar.test.inclusions');
-if (!testDirectories?.length || !testInclusions?.length) {
+if (!testPaths?.length || !testInclusions?.length) {
   throw new Error(
     'sonar.tests and sonar.test.inclusions must define the Sonar test classification.'
   );
@@ -83,8 +83,11 @@ const config = [
 export default [
   ...config,
   {
-    files: testDirectories.flatMap(directory =>
-      testInclusions.map(inclusion => [`${directory.replace(/\/$/u, '')}/**/*`, inclusion])
+    files: testPaths.flatMap(testPath =>
+      testInclusions.flatMap(inclusion => [
+        [testPath, inclusion],
+        [`${testPath.replace(/\/$/u, '')}/**/*`, inclusion],
+      ])
     ),
     rules: Object.fromEntries(Object.keys(config[1].rules).map(rule => [rule, 'off'])),
   },
