@@ -1,3 +1,4 @@
+import { formulaLatexSource } from '@shared/formulaSpotlight';
 import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
 import request from 'supertest';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
@@ -57,9 +58,34 @@ const expected = 'Consideriamo pi di a e effe da a in bi, con somma degli i.';
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.cached.clear();
-  mocks.scene.mockResolvedValue({
-    kind: 'invalid',
-    problems: ['No scene in this speech fixture.'],
+  mocks.scene.mockImplementation(async input => {
+    if (!input.formulaSource)
+      return { kind: 'invalid', problems: ['No scene in this speech fixture.'] };
+    const reading = input.formulaSource.dictatedRanges[0];
+    if (!reading) throw new Error('The speech fixture requires an explicit formula reading');
+    return {
+      kind: 'scene',
+      scene: {
+        type: 'formula-spotlight',
+        title: 'Formula',
+        body: '',
+        quote: '',
+        note: '',
+        items: [],
+        groups: [],
+        formula: String.raw`\nousSymbol{formula}`,
+        symbols: [
+          {
+            id: 'formula',
+            latex: formulaLatexSource(input.formulaSource.formula),
+            name: 'Formula',
+            meaning: 'La relazione del caso di prova.',
+            anchor: input.narration.slice(reading.start, reading.end),
+            anchorOccurrence: 0,
+          },
+        ],
+      },
+    };
   });
   resetModelConfigForTesting();
   mocks.generate.mockImplementation(async ({ prompt }) => ({
@@ -126,6 +152,7 @@ test.each([
     await reader();
   }
   expect(mocks.generate).toHaveBeenCalledOnce();
+  expect(result.prepared.formulaSpotlights).toHaveLength(3);
   expect(mocks.speech.mock.calls[0][0].text).toBe(expected);
   expect(normalize(mocks.audio.mock.calls[0][0].text)).toBe(expected);
   expect(normalize(resolvePlaybackNarration({ ...block, prepared: result.prepared }).speech)).toBe(

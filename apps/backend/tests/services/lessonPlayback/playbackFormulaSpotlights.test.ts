@@ -236,7 +236,6 @@ test('prepares only the unlinked neighbor of an existing animated formula', asyn
   expect(needsPlaybackFormulaSpotlights(source)).toBe(true);
   const formulaSpotlights = await preparePlaybackFormulaSpotlights({ ...request(), block: source });
   expect(generate).toHaveBeenCalledTimes(1);
-  expect(generate.mock.calls[0][0].formulaSource.template).toEqual(unlinked);
   expect(formulaSpotlights).toEqual([
     { formula: '$${x}{-}{y}$$', sourceFormula: unlinked.formula, scene: unlinked },
   ]);

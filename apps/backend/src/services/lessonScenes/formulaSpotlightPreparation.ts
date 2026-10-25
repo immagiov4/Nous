@@ -20,7 +20,6 @@ import type { LessonSceneOutcome } from './lessonSceneGeneration.js';
 
 export interface FormulaPreparationSource {
   readonly formula: string;
-  readonly template?: LessonScene & FormulaSpotlightData;
   readonly dictatedRanges?: readonly PlaybackRange[];
 }
 interface FormulaPreparationInput {
@@ -132,14 +131,13 @@ async function requestFormulaDraft<T extends z.ZodType>(
     system: `${FORMULA_BINDING_INSTRUCTION}\n${instructions}`,
     prompt: JSON.stringify({
       authoredTex: formulaLatexSource(source.formula),
-      sourceTokens: source.template ? undefined : sourceTokens(formulaLatexSource(source.formula)),
+      sourceTokens: sourceTokens(formulaLatexSource(source.formula)),
       canonicalNarration: narration,
       narrationWords: words,
       dictatedRanges: source.dictatedRanges,
       dictatedWords: source.dictatedRanges?.map(range =>
         words.filter(word => word.start < range.end && word.end > range.start)
       ),
-      existingTemplate: source.template,
       requiredCorrection: input.retryFeedback,
     }),
   }).catch(error => {
@@ -287,45 +285,15 @@ function validatePreparedFormula(
 export async function generateSourceBoundFormula(
   input: FormulaPreparationInput
 ): Promise<LessonSceneOutcome> {
-  const template = input.source.template;
   let selectedDraft: unknown;
   try {
-    if (template) {
-      const ids = template.symbols.map(symbol => symbol.id);
-      const schema = z.object({
-        mentioned: input.source.dictatedRanges?.length ? z.literal(true) : z.boolean(),
-        links: z.array(z.object({ id: z.enum(ids), ...voiceShape })),
-      });
-      const { parsed, response } = await requestFormulaDraft(
-        schema,
-        input,
-        'The existingTemplate formula and symbol definitions are fixed. Return only links by their existing IDs, with exact narration word selections. A compound mention may link several IDs. Omit unmentioned IDs; never duplicate a link ID. Choose mentioned:false and links:[] when no part is named.'
-      );
-      if (!parsed.success)
-        return invalidFormulaDraft(['Follow the formula-link response schema.'], response);
-      selectedDraft = parsed.data;
-      const links = new Map(parsed.data.links.map(link => [link.id, link]));
-      if (links.size !== parsed.data.links.length)
-        return invalidFormulaDraft(
-          ['Every existing symbol ID may have only one link record.'],
-          parsed.data
-        );
-      const scene = {
-        ...template,
-        symbols: template.symbols.map(symbol => ({
-          ...symbol,
-          ...heardLinks(links.get(symbol.id)?.mentions ?? [], input.narration),
-        })),
-      };
-      return validatePreparedFormula(input, scene, parsed.data.mentioned, parsed.data);
-    }
     const schema = input.source.dictatedRanges?.length
       ? sourceDraftSchema.extend({ mentioned: z.literal(true) })
       : sourceDraftSchema;
     const { parsed, response } = await requestFormulaDraft(
       schema,
       input,
-      String.raw`If mentioned:false, return symbols:[] with a short title and summary. Otherwise define every mathematical identifier, including unmentioned ones. Each range selects inclusive first/last IDs from sourceTokens; single tokens use equal IDs. Select a complete independently renderable fragment. Control words such as \mathbf are indivisible. Source ranges must not overlap. Repeated occurrences use their own token IDs, even when one is a prefix of a longer fragment (for example q inside q-prime). Each symbol may have several ranges only for IDENTICAL source text; use separate symbols for distinct family members and link them to the same narration words. Never return rewritten TeX. Script operators _ and ^ are TeX syntax, not independently renderable fragments: never select one alone. Keep them outside a reference when selecting only their argument: select the digit, not _digit. needsGroup:true adds a paired brace group whenever the replacement occupies an unbraced TeX argument, including LETTERS as well as digits. For source q^K, selecting K requires needsGroup:true and produces q^{\nousSymbol{exponent}}, never q^\nousSymbol{exponent}. Use false when the argument already has braces or the fragment is not an argument. A whole base-with-script fragment can instead be selected as one part without an added group. The application preserves every source character outside the selected fragments.`
+      String.raw`If mentioned:false, return symbols:[] with a short title and summary. Otherwise define every mathematical identifier, including unmentioned ones. Each range selects inclusive first/last IDs from sourceTokens; single tokens use equal IDs. Select a complete independently renderable fragment. Control words such as \mathbf are indivisible. Source ranges must not overlap. Independently narrated occurrences need distinct symbol IDs when they belong to different quantities or operations; a shared glyph alone is not enough to share an ID. A generic family mention can explicitly link those distinct IDs together. Repeated occurrences use their own token IDs, even when one is a prefix of a longer fragment (for example q inside q-prime). Each symbol may have several ranges only for IDENTICAL source text; use separate symbols for distinct family members and link them to the same narration words. Never return rewritten TeX. Script operators _ and ^ are TeX syntax, not independently renderable fragments: never select one alone. Keep them outside a reference when selecting only their argument: select the digit, not _digit. needsGroup:true adds a paired brace group whenever the replacement occupies an unbraced TeX argument, including LETTERS as well as digits. For source q^K, selecting K requires needsGroup:true and produces q^{\nousSymbol{exponent}}, never q^\nousSymbol{exponent}. Use false when the argument already has braces or the fragment is not an argument. A whole base-with-script fragment can instead be selected as one part without an added group. The application preserves every source character outside the selected fragments.`
     );
     if (!parsed.success)
       return invalidFormulaDraft(['Follow the source-token response schema.'], response);

@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+
+import { getFormulaSpotlightLatex } from '@shared/formulaSpotlight';
 import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
 import type { PlaybackQuestionContext } from '@shared/playbackQuestionContext';
@@ -2636,6 +2638,95 @@ test('ignores cached links for different mathematics while the current source is
   );
   expect(container.querySelector('.spotlight-formula .katex-html')?.textContent).toBe('u−v');
   expect(container.querySelector('.spotlight-symbols [data-active="true"]')).toBeNull();
+});
+
+test('highlights only the named indexed quantity after preparing a widget with shared bases', () => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const sources = [{ type: 'markdown' as const, markdown: 'delta i poi delta k' }];
+  const original = {
+    ...dictatedFormulaSpotlight,
+    formula: String.raw`\nousSymbol{d}_{\nousSymbol{i}}+\nousSymbol{d}_{\nousSymbol{k}}`,
+    symbols: [
+      { id: 'd', latex: 'D', name: 'D', meaning: 'Dimensione', anchor: '' },
+      { id: 'i', latex: 'i', name: 'i', meaning: 'Primo indice', anchor: '' },
+      { id: 'k', latex: 'k', name: 'k', meaning: 'Secondo indice', anchor: '' },
+    ],
+  };
+  const prepared = {
+    ...original,
+    formula: String.raw`\nousSymbol{di}+\nousSymbol{dk}`,
+    symbols: [
+      {
+        id: 'di',
+        latex: 'D_i',
+        name: 'D con i',
+        meaning: 'Prima quantità',
+        anchor: 'delta i',
+        anchorOccurrence: 0,
+      },
+      {
+        id: 'dk',
+        latex: 'D_k',
+        name: 'D con k',
+        meaning: 'Seconda quantità',
+        anchor: 'delta k',
+        anchorOccurrence: 0,
+      },
+    ],
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: {
+      scene: original,
+      motion: [],
+      formulaSpotlights: [
+        {
+          formula: `$$${getFormulaSpotlightLatex(original)}$$`,
+          sourceFormula: original.formula,
+          scene: prepared,
+        },
+      ],
+    },
+  };
+  let heardTime = 0.5;
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      duration={5}
+      time={0}
+      readTime={() => heardTime}
+      alignment={{ status: 'aligned', onsets: [0, 1, 2, 3, 4] }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+    />
+  );
+  for (const [time, selected, other] of [
+    [0.5, 'di', 'dk'],
+    [3.5, 'dk', 'di'],
+  ] as const) {
+    heardTime = time;
+    for (let step = 0; step < 2; step++)
+      act(() => {
+        const pending = [...frames.values()];
+        frames.clear();
+        for (const callback of pending) callback(0);
+      });
+    expect(
+      container.querySelector(`.spotlight-formula .nous-formula-symbol-${selected}`)
+    ).toHaveAttribute('data-active', 'true');
+    expect(
+      container.querySelector(`.spotlight-formula .nous-formula-symbol-${other}`)
+    ).toHaveAttribute('data-active', 'false');
+    expect(container.querySelector('.spotlight-formula .nous-formula-symbol-d')).toBeNull();
+  }
 });
 
 test('keeps the currently dictated equation when another widget shares its named quantities', () => {

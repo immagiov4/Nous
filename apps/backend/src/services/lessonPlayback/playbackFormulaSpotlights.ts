@@ -48,7 +48,7 @@ function formulaRetryFeedback(outcome: LessonSceneOutcome, sourceFormula: string
   });
 }
 
-/** Prepare exact local quotations through the existing visual service, without rewriting speech. */
+/** Prepare source-bound heard references through the existing visual service, without rewriting speech. */
 export async function preparePlaybackFormulaSpotlights(input: {
   readonly block: LessonPlaybackBlock;
   readonly config: GlobalModelConfig;
@@ -66,7 +66,6 @@ export async function preparePlaybackFormulaSpotlights(input: {
     spoken: string;
     sourceFormula?: string;
     dictatedRanges: readonly PlaybackRange[];
-    sourceScene?: LessonScene & FormulaSpotlightData;
   }[];
   if (scenes.length)
     entries = scenes
@@ -75,7 +74,6 @@ export async function preparePlaybackFormulaSpotlights(input: {
         formula: `$$${getFormulaSpotlightLatex(scene)}$$`,
         spoken: narration.speech,
         sourceFormula: scene.formula,
-        sourceScene: scene,
         dictatedRanges: playbackFormulaReadingRanges(input.block, scene),
       }));
   else if (input.block.prepared?.spokenMath?.length) {
@@ -109,7 +107,6 @@ export async function preparePlaybackFormulaSpotlights(input: {
           narration: entry.spoken,
           formulaSource: {
             formula: entry.formula,
-            template: entry.sourceScene,
             dictatedRanges: entry.dictatedRanges,
           },
           sectionTitle: '',

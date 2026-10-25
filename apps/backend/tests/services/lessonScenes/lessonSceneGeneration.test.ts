@@ -5,6 +5,7 @@ import {
   resolveFormulaReferences,
 } from '@shared/formulaSpotlight';
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
+import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { isLessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { dictatedFormulaSpotlight } from '../../helpers/formulaSpotlight';
@@ -23,6 +24,7 @@ vi.mock('../../../src/services/lessonScenes/lessonSceneIconChoice.js', () => ({
 
 import * as z from 'zod';
 import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
+import { preparePlaybackFormulaSpotlights } from '../../../src/services/lessonPlayback/playbackFormulaSpotlights.js';
 import { generateLessonScene } from '../../../src/services/lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../../../src/services/lessonVisualModelConfig.js';
 import {
@@ -1073,52 +1075,46 @@ test('supplies the exact words of this reading separately from repeated referenc
   ]);
 });
 
-test('adds only heard-word links to an existing unlinked widget template', async () => {
-  const template = {
+test('rebuilds unlinked shared bases as independently heard indexed quantities', async () => {
+  const original = {
     ...dictatedFormulaSpotlight,
-    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
-  };
-  const input = sourceBoundInput('$x+y$', 'ipsilon poi ics');
-  generateStructuredOutputMock.mockResolvedValueOnce({
-    mentioned: true,
-    links: [
-      { id: 'x', mentions: [{ first: 'w2', last: 'w2' }] },
-      { id: 'y', mentions: [{ first: 'w0', last: 'w0' }] },
+    formula: String.raw`\nousSymbol{d}_{\nousSymbol{i}}+\nousSymbol{d}_{\nousSymbol{k}}`,
+    symbols: [
+      { id: 'd', latex: 'D', name: 'D', meaning: 'Dimensione', anchor: '' },
+      { id: 'i', latex: 'i', name: 'i', meaning: 'Primo indice', anchor: '' },
+      { id: 'k', latex: 'k', name: 'k', meaning: 'Secondo indice', anchor: '' },
     ],
-  });
-  const outcome = await generateLessonScene({
-    ...input,
-    formulaSource: { ...input.formulaSource, template },
-  });
-  expect(outcome.kind).toBe('scene');
-  if (outcome.kind !== 'scene') throw new Error('Existing symbol links must validate');
-  const scene = outcome.scene as FormulaSpotlightData;
-  expect(scene.formula).toBe(template.formula);
-  expect(
-    scene.symbols.map(({ id, latex, name, meaning }) => ({ id, latex, name, meaning }))
-  ).toEqual(template.symbols.map(({ id, latex, name, meaning }) => ({ id, latex, name, meaning })));
-  expect(
-    resolveFormulaReferences(scene, input.narration).map(reference => reference.index)
-  ).toEqual([2, 0]);
-});
-
-test('rejects duplicate existing symbol records instead of dropping one model-selected mention', async () => {
-  const template = {
-    ...dictatedFormulaSpotlight,
-    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
+  };
+  const block = {
+    ...segmentLessonPlayback([{ type: 'markdown' as const, markdown: 'delta i poi delta k' }])[0],
+    prepared: { motion: [], scene: original },
   };
   generateStructuredOutputMock.mockResolvedValueOnce({
-    mentioned: true,
-    links: [
-      { id: 'x', mentions: [{ first: 'w0', last: 'w0' }] },
-      { id: 'x', mentions: [{ first: 'w2', last: 'w2' }] },
+    ...sourceBoundDraft(),
+    symbols: [
+      boundSourceSymbol({ id: 'di', first: 0, last: 8, word: 0, lastWord: 1 }),
+      boundSourceSymbol({ id: 'dk', first: 10, last: 18, word: 3, lastWord: 4 }),
     ],
   });
-  const input = sourceBoundInput();
+  const result = await preparePlaybackFormulaSpotlights({
+    block,
+    config: sourceBoundInput().config,
+    signal: new AbortController().signal,
+  });
+  const scene = result[0].scene as FormulaSpotlightData;
+  expect(result[0].sourceFormula).toBe(original.formula);
+  expect(formulaSpotlightCovers(scene, ['$D_i+D_k$'])).toBe(true);
+  expect(scene.symbols.map(symbol => symbol.id)).toEqual(['di', 'dk']);
   expect(
-    (await generateLessonScene({ ...input, formulaSource: { ...input.formulaSource, template } }))
-      .kind
-  ).toBe('invalid');
+    resolveFormulaReferences(scene, block.speech).map(({ index, start, end }) => ({
+      index,
+      start,
+      end,
+    }))
+  ).toEqual([
+    { index: 0, start: 0, end: 7 },
+    { index: 1, start: 12, end: 19 },
+  ]);
 });
 
 test('propagates a formula-provider transport failure without converting it into a correction draft', async () => {
