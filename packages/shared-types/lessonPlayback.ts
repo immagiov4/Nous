@@ -1010,6 +1010,29 @@ export function getPlaybackFormulaSources(
   return [...precedingPlaybackFormulas(block, sources), ...formulas];
 }
 
+// Source objects own their syntax analysis; replacing or editing a source invalidates it.
+const formulaSourceContexts = new WeakMap<
+  PlaybackContentBlock,
+  {
+    markdown: string;
+    projection: ReturnType<typeof projectMarkdownRenderingControls>;
+    analysis: MarkdownAnalysis;
+  }
+>();
+
+function formulaSourceContext(source: Extract<PlaybackContentBlock, { type: 'markdown' }>) {
+  const previous = formulaSourceContexts.get(source);
+  if (previous?.markdown === source.markdown) return previous;
+  const projection = projectMarkdownRenderingControls(source.markdown);
+  const current = {
+    markdown: source.markdown,
+    projection,
+    analysis: analyzeMarkdown(projection.content),
+  };
+  formulaSourceContexts.set(source, current);
+  return current;
+}
+
 function precedingPlaybackFormulas(
   block: LessonPlaybackBlock,
   sources: readonly PlaybackContentBlock[]
@@ -1022,14 +1045,15 @@ function precedingPlaybackFormulas(
     if (source?.type !== 'markdown') break;
     const sourceOffset =
       sourceIndex === first.sourceBlockIndex ? first.source.start : source.markdown.length;
-    const { content: markdown, sourceOffsets } = projectMarkdownRenderingControls(source.markdown);
+    const { projection, analysis } = formulaSourceContext(source);
+    const { content: markdown, sourceOffsets } = projection;
     const offset = sourceOffsets
       ? sourceOffsets.findIndex(position => position >= sourceOffset)
       : sourceOffset;
-    const preceding = precedingFormulaGroup(markdown, offset);
+    const preceding = precedingFormulaGroup(markdown, offset, analysis);
     if (preceding.some(isDisplayFormula)) return preceding;
     if (!inlineContext.length) inlineContext = preceding;
-    if (analyzeMarkdown(markdown).headings.some(heading => heading.start <= offset)) break;
+    if (analysis.headings.some(heading => heading.start <= offset)) break;
   }
   return inlineContext;
 }
@@ -1038,8 +1062,11 @@ const isDisplayFormula = (formula: string): boolean =>
   formula.startsWith('$$') || formula.startsWith(String.raw`\[`);
 
 /** Whitespace-separated equations form one authored visual group; headings end its context. */
-function precedingFormulaGroup(markdown: string, offset: number): string[] {
-  const analysis = analyzeMarkdown(markdown);
+function precedingFormulaGroup(
+  markdown: string,
+  offset: number,
+  analysis: MarkdownAnalysis
+): string[] {
   const heading = analysis.headings.filter(range => range.start <= offset).at(-1);
   const preceding = analysis.math.filter(
     range => range.end <= offset && range.start >= (heading?.end ?? 0)

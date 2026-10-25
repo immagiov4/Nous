@@ -141,6 +141,7 @@ export function useLessonPlayback({
   speed,
   initialBlocks,
   audioSessionRef,
+  prepareVisuals,
 }: {
   projectId: string;
   sectionId: string;
@@ -148,6 +149,7 @@ export function useLessonPlayback({
   speed: number;
   initialBlocks: LessonPlaybackBlock[];
   audioSessionRef?: RefObject<LessonPlaybackAudio>;
+  prepareVisuals?: (blocks: readonly LessonPlaybackBlock[], signal: AbortSignal) => Promise<void>;
 }) {
   const [lessonKey, setLessonKey] = useState<string>();
   const [blocks, setBlocks] = useState<readonly LessonPlaybackBlock[]>(initialBlocks);
@@ -301,6 +303,8 @@ export function useLessonPlayback({
         let playback = playbackRef.current ?? (await getLessonPlayback(target, signal));
         playbackRef.current ??= playback;
         const cacheKey = () => `${playback.lessonKey}:${blockIndex}:${requestedVoice}`;
+        const isCurrentLesson = () =>
+          !playbackRef.current || playbackRef.current.lessonKey === playback.lessonKey;
         const preparationKey = () =>
           `${projectId}:${sectionId}:${playback.lessonKey}:${blockIndex}`;
         await waitForPlaybackCancellation(playbackCancellations.get(preparationKey()), signal);
@@ -374,8 +378,7 @@ export function useLessonPlayback({
           signal.throwIfAborted();
           if (!result) return null;
         }
-        if (playbackRef.current && playbackRef.current.lessonKey !== playback.lessonKey)
-          return null;
+        if (!isCurrentLesson()) return null;
         let preparedBlock: LessonPlaybackBlock = result.block;
         const recording = preparedBlock.audio.find(
           audio => audio.voice === result.voice && audio.model === result.model
@@ -383,12 +386,14 @@ export function useLessonPlayback({
         if (!recording) throw new Error('Prepared playback audio missing');
         const bytes = await downloadProjectAssetBytes(projectId, recording.asset, signal);
         signal.throwIfAborted();
-        if (playbackRef.current && playbackRef.current.lessonKey !== playback.lessonKey)
-          return null;
+        if (!isCurrentLesson()) return null;
         const buffer = await getAudio().decode(bytes);
         signal.throwIfAborted();
-        if (playbackRef.current && playbackRef.current.lessonKey !== playback.lessonKey)
-          return null;
+        if (!isCurrentLesson()) return null;
+        // Every caller, including background buffering, exposes audio only with its visuals ready.
+        await waitForPlaybackCancellation(prepareVisuals?.([preparedBlock], signal), signal);
+        signal.throwIfAborted();
+        if (!isCurrentLesson()) return null;
         const latestTimings = latestRecordingTimings.current;
         if (latestTimings?.lessonKey === playback.lessonKey) {
           preparedBlock = mergeRecordingAlignment(
@@ -424,7 +429,7 @@ export function useLessonPlayback({
       );
       return task;
     },
-    [getAudio, projectId, sectionId]
+    [getAudio, prepareVisuals, projectId, sectionId]
   );
 
   const bufferedRecordings = useCallback(() => {
@@ -548,6 +553,11 @@ export function useLessonPlayback({
         }
         if (prepared.block.prepared?.scene) await visualAssets;
         if (!isCurrentStart()) return;
+        const visualBlocks = playbackRef.current.blocks.map((block, index) =>
+          index === blockIndex ? prepared.block : block
+        );
+        await waitForPlaybackCancellation(prepareVisuals?.(visualBlocks, signal), signal);
+        if (!isCurrentStart()) return;
         await audio.start(bufferedRecordings(), position, latest.current.speed, signal);
         if (!isCurrentStart()) return;
         setPlaying(true);
@@ -568,6 +578,7 @@ export function useLessonPlayback({
       getAudio,
       pause,
       prepare,
+      prepareVisuals,
       projectId,
       sectionId,
     ]
