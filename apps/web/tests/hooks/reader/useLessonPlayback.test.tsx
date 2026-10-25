@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import { type LessonPlaybackBlock, segmentLessonPlayback } from '@shared/lessonPlayback';
 import { LessonPlaybackResponseSchema } from '@shared/lessonPlaybackSchema';
 import { act, render, renderHook, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
@@ -1120,4 +1120,93 @@ test('retains an alignment notification received while the recording is decoding
   });
   expect(result.current.recording?.wordAlignment).toEqual(alignment);
   expect(audio.start).toHaveBeenCalledOnce();
+});
+
+test('keeps narration paused until prepared visuals are ready', async () => {
+  vi.mocked(prepareLessonPlayback).mockImplementation(async request => ({
+    block: sceneBlocks[Number(request.blockId)],
+    voice: 'Kore',
+    model: 'tts',
+  }));
+  const visuals = deferred<void>();
+  const prepareVisuals = vi.fn(
+    (_blocks: readonly LessonPlaybackBlock[], _signal: AbortSignal) => visuals.promise
+  );
+  const { result } = renderHook(() => useLessonPlayback({ ...target, prepareVisuals }));
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(prepareVisuals).toHaveBeenCalled());
+  expect(prepareVisuals.mock.calls[0][0][0].prepared?.scene).toEqual(sceneBlocks[0].prepared.scene);
+  expect(audio.start).not.toHaveBeenCalled();
+  expect(result.current.loading).toBe(true);
+  await act(async () => {
+    visuals.resolve();
+  });
+  await waitFor(() => expect(audio.start).toHaveBeenCalledOnce());
+  expect(result.current.playing).toBe(true);
+});
+
+test('keeps a newly generated future scene out of the audio buffer until its visuals are ready', async () => {
+  const future = deferred<Awaited<ReturnType<typeof prepareLessonPlayback>>>();
+  const visual = deferred<void>();
+  vi.mocked(prepareLessonPlayback).mockImplementation(async request =>
+    request.blockId === '1'
+      ? future.promise
+      : { block: blocks[Number(request.blockId)], voice: 'Kore', model: 'tts' }
+  );
+  const prepareVisuals = vi.fn(async (prepared: readonly LessonPlaybackBlock[]) => {
+    if (prepared.some(block => block.id === '1' && block.prepared?.scene)) await visual.promise;
+  });
+  const { result } = renderHook(() => useLessonPlayback({ ...target, prepareVisuals }));
+  await act(async () => result.current.play());
+  expect(audio.start).toHaveBeenCalledOnce();
+  expect(audio.recordings.map(recording => recording.index)).toEqual([0]);
+  await act(async () => {
+    future.resolve({ block: sceneBlocks[1], voice: 'Kore', model: 'tts' });
+  });
+  expect(
+    prepareVisuals.mock.calls.some(([prepared]) =>
+      prepared.some(block => block.id === '1' && block.prepared?.scene)
+    )
+  ).toBe(true);
+  expect(
+    audio.append.mock.calls.every(([recordings]) =>
+      recordings.every(recording => recording.index !== 1)
+    )
+  ).toBe(true);
+  await act(async () => visual.resolve());
+  await waitFor(() =>
+    expect(
+      audio.append.mock.calls.some(([recordings]) =>
+        recordings.some(recording => recording.index === 1)
+      )
+    ).toBe(true)
+  );
+  expect(audio.start).toHaveBeenCalledOnce();
+});
+
+test('a pause during visual preparation prevents a late audio start and permits resuming', async () => {
+  const visuals = deferred<void>();
+  const prepareVisuals = vi.fn(
+    (_blocks: readonly LessonPlaybackBlock[], _signal: AbortSignal) => visuals.promise
+  );
+  const { result } = renderHook(() => useLessonPlayback({ ...target, prepareVisuals }));
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(prepareVisuals).toHaveBeenCalled());
+  const signal = prepareVisuals.mock.calls[0][1];
+  act(() => result.current.pause());
+  expect(signal.aborted).toBe(true);
+  await act(async () => {
+    visuals.resolve();
+  });
+  expect(audio.start).not.toHaveBeenCalled();
+  expect(result.current.loading).toBe(false);
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(audio.start).toHaveBeenCalledOnce());
+  expect(result.current.playing).toBe(true);
 });

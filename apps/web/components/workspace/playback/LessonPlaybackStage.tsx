@@ -8,6 +8,7 @@ import {
   getPlaybackFormulaSources,
   getPlaybackMathMarkdown,
   type LessonPlaybackBlock,
+  type PlaybackContentBlock,
   type PlaybackRange,
   type PlaybackVisual,
   playbackNonProseVisuals,
@@ -26,6 +27,8 @@ import {
   useRef,
   useState,
 } from 'react';
+import remarkParse from 'remark-parse';
+import { unified } from 'unified';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
@@ -68,9 +71,11 @@ import {
 import './stage.css';
 import { SaveablePlaybackVisual } from './SaveablePlaybackVisual.tsx';
 
+type DrawnCaptionRun = CaptionRun & { revealEdge?: number; readOpacity?: number };
+
 interface CaptionClock {
   viewport: ReturnType<typeof captionViewport>;
-  runs: CaptionRun[];
+  runs: DrawnCaptionRun[];
   width: number;
   feather: number;
   bodyDuration: number;
@@ -80,6 +85,69 @@ interface CaptionClock {
   headingDuration: number;
   seekRevision: number;
   read: () => { blockTime: number; bodyTime: number; revealTime: number };
+}
+
+/** Draws changed word styles and identifies the word crossed by the reveal edge. */
+function drawCaptionWord(
+  run: DrawnCaptionRun,
+  clock: CaptionClock,
+  edge: number,
+  bodyTime: number
+) {
+  const local = edge - run.start;
+  // Settled words keep their cached styles to avoid per-frame invalidation.
+  const maskEdge = Math.max(0, Math.min(run.width + clock.feather, local));
+  if (run.revealEdge !== maskEdge) {
+    run.span.style.opacity = local > 0 ? '1' : '0';
+    run.span.style.setProperty('--reveal-edge', `${maskEdge}px`);
+    run.span.style.maskImage = local >= run.width + clock.feather ? 'none' : '';
+    run.revealEdge = maskEdge;
+  }
+  const readAge = bodyTime - ((run.start + run.width) / clock.width) * clock.bodyDuration;
+  const fade = Math.max(0, Math.min(1, readAge / CAPTION_TIMING.readFadeSeconds));
+  const readOpacity = 1 - fade * (1 - CAPTION_TIMING.readOpacity);
+  if (run.readOpacity !== readOpacity) {
+    const text = run.span.firstElementChild as HTMLElement;
+    text.style.opacity = String(readOpacity);
+    run.readOpacity = readOpacity;
+  }
+  return local >= 0 && local <= run.width;
+}
+
+const passageParser = unified().use(remarkParse);
+
+interface PassageMarkdownNode {
+  readonly type: string;
+  readonly position?: { start: { offset?: number }; end: { offset?: number } };
+  readonly children?: readonly PassageMarkdownNode[];
+}
+
+function headingPositions(node: PassageMarkdownNode): PassageMarkdownNode['position'][] {
+  return [
+    ...(node.type === 'heading' ? [node.position] : []),
+    ...(node.children?.flatMap(headingPositions) ?? []),
+  ];
+}
+
+function passageBody(block: LessonPlaybackBlock, sources: readonly PlaybackContentBlock[]) {
+  const headings = sources.map(source =>
+    source.type === 'markdown' ? headingPositions(passageParser.parse(source.markdown)) : []
+  );
+  const body = block.spans.find(
+    span =>
+      block.speech.slice(span.speech.start, span.speech.end).trim() &&
+      !headings[span.sourceBlockIndex].some(position => {
+        const start = position?.start.offset;
+        const end = position?.end.offset;
+        return (
+          start !== undefined &&
+          end !== undefined &&
+          span.source.start >= start &&
+          span.source.start < end
+        );
+      })
+  );
+  return block.speech.slice(body?.speech.start ?? 0);
 }
 
 function hasMissingMotionTargets(
@@ -415,6 +483,7 @@ function PlaybackVisualContent({
 function PlaybackPassage({
   lessonKey = '',
   block,
+  sources,
   time,
   duration,
   content,
@@ -426,6 +495,7 @@ function PlaybackPassage({
 }: Readonly<{
   lessonKey?: string;
   block: LessonPlaybackBlock;
+  sources: readonly PlaybackContentBlock[];
   time: number;
   duration: number;
   content: WorkspaceReaderContentModel;
@@ -435,13 +505,6 @@ function PlaybackPassage({
   seekRevision?: number;
   questionContextRef?: RefObject<(() => PlaybackQuestionContext) | null>;
 }>) {
-  const sources = useMemo(
-    () =>
-      content.sectionContentBlocks?.length
-        ? content.sectionContentBlocks
-        : [{ type: 'markdown' as const, markdown: content.sectionContent }],
-    [content.sectionContentBlocks, content.sectionContent]
-  );
   const source = useMemo(() => captionSource(block, sources), [block, sources]);
   // Equivalent snapshots retain the measured viewport; a new passage measures its new DOM.
   const captionKey = JSON.stringify({ blockId: block.id, ...source });
@@ -618,14 +681,7 @@ function PlaybackPassage({
       const edge = progress * (current.width + current.feather);
       let active = edge >= current.width ? current.runs.at(-1)?.span : undefined;
       for (const run of current.runs) {
-        const local = edge - run.start;
-        run.span.style.opacity = local > 0 ? '1' : '0';
-        run.span.style.setProperty('--reveal-edge', `${local}px`);
-        const readAge = bodyTime - ((run.start + run.width) / current.width) * current.bodyDuration;
-        const fade = Math.max(0, Math.min(1, readAge / CAPTION_TIMING.readFadeSeconds));
-        const text = run.span.firstElementChild as HTMLElement;
-        text.style.opacity = String(1 - fade * (1 - CAPTION_TIMING.readOpacity));
-        if (local >= 0 && local <= run.width) active = run.span;
+        if (drawCaptionWord(run, current, edge, bodyTime)) active = run.span;
       }
       // Place new or backward seeks immediately; animate subsequent playback updates.
       current.viewport.follow(
@@ -711,7 +767,10 @@ function PlaybackPassage({
     if (block.prepared?.scene) return [{ kind: 'scene' as const, scene: block.prepared.scene }];
     if (formulas) return [{ kind: 'markdown' as const, markdown: formulas }];
     return [
-      { kind: 'scene' as const, scene: createPassageFallbackScene(block.speech, block.heading) },
+      {
+        kind: 'scene' as const,
+        scene: createPassageFallbackScene(passageBody(block, sources), block.heading),
+      },
     ];
   }, [
     block,
@@ -1013,7 +1072,30 @@ function PlaybackPassage({
 }
 
 /** Each narration owns its clock so retiring subscriptions keep their original text ranges. */
-export default function LessonPlaybackStage(props: Parameters<typeof PlaybackPassage>[0]) {
+export default function LessonPlaybackStage(
+  props: Omit<Parameters<typeof PlaybackPassage>[0], 'sources'>
+) {
+  // Equivalent project snapshots retain the source syntax analysis between passages.
+  const sourceKey = useMemo(
+    () =>
+      JSON.stringify(
+        props.content.sectionContentBlocks?.length
+          ? props.content.sectionContentBlocks
+          : [{ type: 'markdown', markdown: props.content.sectionContent }]
+      ),
+    [props.content.sectionContentBlocks, props.content.sectionContent]
+  );
+  const sources = useMemo(
+    () => JSON.parse(sourceKey) as readonly PlaybackContentBlock[],
+    [sourceKey]
+  );
   const block = useMemo(() => resolvePlaybackNarration(props.block), [props.block]);
-  return <PlaybackPassage {...props} block={block} key={`${block.id}:${block.speech}`} />;
+  return (
+    <PlaybackPassage
+      {...props}
+      sources={sources}
+      block={block}
+      key={`${block.id}:${block.speech}`}
+    />
+  );
 }

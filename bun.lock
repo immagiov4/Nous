@@ -95,7 +95,6 @@
         "pdf-parse": "^2.4.5",
         "pdfjs-dist": "5.4.296",
         "postgres": "^3.4.9",
-        "remark-math": "6.0.0",
         "remark-parse": "^11.0.0",
         "unified": "^11.0.5",
         "yauzl": "3.4.0",

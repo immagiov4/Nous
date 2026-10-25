@@ -211,20 +211,17 @@ test('normalizeMarkdownForRendering does not double-convert content already insi
   );
 });
 
-test('normalizeMarkdownForRendering converts backslash-paren inline math delimiters into dollar-delimited math', () => {
+test('normalizeMarkdownForRendering retains explicit inline delimiters for the shared parser', () => {
   const input =
     'Se \\(A\\) ha \\(m\\) righe e \\(n\\) colonne, scriviamo \\(A \\in \\mathbb{R}^{m\\times n}\\).';
 
-  assert.equal(
-    normalizeMarkdownForRendering(input),
-    'Se $A$ ha $m$ righe e $n$ colonne, scriviamo $A \\in \\mathbb{R}^{m\\times n}$.'
-  );
+  assert.equal(normalizeMarkdownForRendering(input), input);
 });
 
-test('normalizeMarkdownForRendering converts backslash-bracket display math into dollar display math', () => {
+test('normalizeMarkdownForRendering retains explicit display delimiters for the shared parser', () => {
   const input = 'La formula:\n\n\\[\ny = Ax\n\\]\n\nFine.';
 
-  assert.equal(normalizeMarkdownForRendering(input), 'La formula:\n\n$$\ny = Ax\n$$\n\nFine.');
+  assert.equal(normalizeMarkdownForRendering(input), input);
 });
 
 test('normalizeMarkdownForRendering repairs JSON-double-escaped commands inside display math', () => {
@@ -412,7 +409,7 @@ test('normalizeMarkdownForRendering processes prose recovered from an unclosed f
   expect(normalizeMarkdownForRendering(input)).toBe(
     [
       `${escapeFenceRun('```')}outer`,
-      '$x$',
+      String.raw`\(x\)`,
       '~~~ts',
       '    literal code',
       '~~~',

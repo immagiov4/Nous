@@ -180,19 +180,6 @@ const normalizeBareParenInlineMath = (segment: string): string =>
     plainText => normalizeBareParenInlineMathInPlainText(plainText)
   );
 
-const normalizeBackslashDelimitedMath = (segment: string): string =>
-  mapMathDelimitedSegments(segment, expression => {
-    if (expression.startsWith(String.raw`\[`) && expression.endsWith(String.raw`\]`)) {
-      return `$$${expression.slice(2, -2)}$$`;
-    }
-
-    if (expression.startsWith(String.raw`\(`) && expression.endsWith(String.raw`\)`)) {
-      return `$${expression.slice(2, -2)}$`;
-    }
-
-    return expression;
-  });
-
 const hasLikelyDisplayMathContent = (value: string): boolean =>
   LIKELY_DISPLAY_MATH_CONTENT_REGEX.test(value);
 
@@ -445,8 +432,6 @@ export const getDisplayMathClosingDelimiter = (line: string): '$$' | '\\]' | nul
 export const normalizeMathMarkdownSegment = (segment: string): string =>
   repairMathMarkdown(
     normalizeBareParenInlineMath(
-      normalizeBareDisplayMath(
-        normalizeBackslashDelimitedMath(normalizeOrphanedBracketDisplayMath(segment))
-      )
+      normalizeBareDisplayMath(normalizeOrphanedBracketDisplayMath(segment))
     )
   );
