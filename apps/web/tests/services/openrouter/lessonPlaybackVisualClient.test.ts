@@ -94,8 +94,11 @@ test('continues its visual request after a joined audio failure releases the run
   expect(prepare).toHaveBeenCalledTimes(2);
 });
 
-test('surfaces its own visual failure without starting another paid attempt', async () => {
-  prepare.mockResolvedValueOnce({ runId: 'visual-run', created: true, visualOnly: true });
+test.each([
+  true,
+  undefined,
+])('surfaces its own visual failure without starting another paid attempt (%s)', async visualOnly => {
+  prepare.mockResolvedValueOnce({ runId: 'visual-run', created: true, visualOnly });
   wait.mockImplementationOnce(async (_runId, _projectId, _signal, optionalPreparation) => {
     if (!optionalPreparation) throw new Error('Visual preparation failed');
   });

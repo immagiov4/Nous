@@ -43,7 +43,7 @@ export const prepareLessonPlaybackVisual = async (target: {
         result.runId,
         target.projectId,
         new AbortController().signal,
-        !result.visualOnly
+        result.created === false && !result.visualOnly
       );
       result = await prepareLessonPlayback(request);
     }
