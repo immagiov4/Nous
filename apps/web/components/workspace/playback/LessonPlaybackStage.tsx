@@ -973,6 +973,10 @@ function PlaybackPassage({
   }, [visualReferences, block.id, block.speech, duration, visuals, visualRanges]);
   const visualIndex = selection?.blockId === block.id ? selection.index : 0;
   const visual = visuals[visualIndex];
+  const selectedStored =
+    visual?.kind === 'generated-visual'
+      ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
+      : undefined;
   const selectedScene = visual
     ? playbackVisualScene(visual, content.activeSectionGeneratedVisualsById)
     : null;
