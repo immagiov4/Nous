@@ -117,9 +117,12 @@ test.each([
   });
 });
 
-test('rejects glossary descriptions in captioned parts while retaining standalone details', async () => {
+test.each([
+  'parts',
+  'concepts',
+] as const)('rejects glossary descriptions in captioned %s while retaining standalone details', async type => {
   const source = 'Input and output are the two parts of the system.';
-  const draft = sceneDraft(source);
+  const draft = { ...sceneDraft(source), type };
   generateStructuredOutputMock.mockResolvedValueOnce(draft);
   expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
     kind: 'scene',
@@ -140,7 +143,7 @@ test('rejects glossary descriptions in captioned parts while retaining standalon
   expect(await generateLessonScene(captioned)).toMatchObject({
     kind: 'scene',
     scene: {
-      type: 'parts',
+      type,
       items: [
         { label: 'Fonte', detail: '' },
         { label: 'Riscontri', detail: '' },

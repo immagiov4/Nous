@@ -409,10 +409,10 @@ const findDraftProblems = (
     ? ['Use either an essential closing question or a necessary note, or leave both empty.']
     : []),
   ...(narration !== undefined &&
-  scene.type === 'parts' &&
+  (scene.type === 'parts' || scene.type === 'concepts') &&
   scene.items.some(item => item.detail.trim())
     ? [
-        'Captioned parts name each part and its role in the label, with empty detail. Use grouping for shared qualifications instead of glossary descriptions.',
+        'Captioned concept lists name each part and its role in the label, with empty detail. Use grouping for shared qualifications instead of glossary descriptions.',
       ]
     : []),
   ...findLessonSceneProblems(scene, source, narration),
@@ -458,7 +458,7 @@ export async function generateLessonScene(
     prompt: buildScenePrompt(input),
     signal: input.signal,
     slot: 'scene',
-    system: `${sceneSystemPrompt(types)}${captioned ? '\nCAPTIONED PLAYBACK: body and note must be empty. The narration already supplies prose. In parts scenes, item detail must also be empty: name each part and its role directly in the label. Never turn narration into a glossary. Put every necessary condition in the visual labels, groups or data qualifiers.' : ''}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
+    system: `${sceneSystemPrompt(types)}${captioned ? '\nCAPTIONED PLAYBACK: body and note must be empty. The narration already supplies prose. In parts and concepts scenes, item detail must also be empty: name each part and its role directly in the label. Never turn narration into a glossary. Put every necessary condition in the visual labels, groups or data qualifiers.' : ''}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
   }).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
