@@ -8,6 +8,10 @@ import {
   sanitizeContextSourceDisplayName,
   sanitizeContextSourcePromptToken,
 } from '@shared/lessonSourceContext';
+import {
+  formatPlaybackQuestionContext,
+  type PlaybackQuestionContext,
+} from '@shared/playbackQuestionContext';
 import { jsonSchema, tool } from 'ai';
 
 import { requireOpenRouterApiKey } from '../config/chatConfig.js';
@@ -466,6 +470,7 @@ const buildContextArchiveToolRules = (hasSourceArchiveTool: boolean): string =>
     : '- An empty `searchLibrary` result concerns generated content and library metadata. It never proves that files or paths are absent from the source archive. If the available archive context is insufficient, say so without inventing results or attempting unregistered tools.';
 
 export const buildContextSystemPrompt = ({
+  playbackContext,
   attachedAnnotationNote,
   attachedAnnotationText,
   contextAfter,
@@ -483,6 +488,7 @@ export const buildContextSystemPrompt = ({
   sourceReferences,
   toolPreferences,
 }: {
+  playbackContext?: PlaybackQuestionContext;
   attachedAnnotationNote?: string;
   attachedAnnotationText?: string;
   contextAfter?: string;
@@ -504,7 +510,7 @@ export const buildContextSystemPrompt = ({
   const selectionContext = [contextBefore, selectedContextText, contextAfter]
     .filter(Boolean)
     .join(' ');
-  const primaryContextBlock =
+  let primaryContextBlock =
     contextScope === 'lesson'
       ? `FULL CURRENT LESSON:
 """
@@ -519,6 +525,11 @@ IMMEDIATE SELECTION CONTEXT:
 """
 ${selectionContext || selectedContextText}
 """`;
+  if (playbackContext) primaryContextBlock = formatPlaybackQuestionContext(playbackContext);
+  const emptyAnnotationBlock =
+    contextScope === 'lesson'
+      ? 'EXISTING ASSOCIATED NOTE:\n[no note linked to this lesson]'
+      : 'EXISTING ASSOCIATED NOTE:\n[no note linked to this selection]';
   const attachedAnnotationBlock = attachedAnnotationText
     ? `PREVIOUSLY ANNOTATED PASSAGE:
 """
@@ -529,9 +540,7 @@ EXISTING ASSOCIATED NOTE:
 """
 ${attachedAnnotationNote || '[no note saved yet]'}
 """`
-    : contextScope === 'lesson'
-      ? 'EXISTING ASSOCIATED NOTE:\n[no note linked to this lesson]'
-      : 'EXISTING ASSOCIATED NOTE:\n[no note linked to this selection]';
+    : emptyAnnotationBlock;
   const lessonContentBlock =
     contextScope === 'lesson'
       ? ''
@@ -539,10 +548,13 @@ ${attachedAnnotationNote || '[no note saved yet]'}
 """
 ${clip(lessonContent)}
 """`;
-  const focusRule =
+  let focusRule =
     contextScope === 'lesson'
       ? '- Stay concrete and focused on explaining the current lesson.'
       : '- Stay concrete and focused on explaining the selected passage.';
+  if (playbackContext)
+    focusRule =
+      '- Stay concrete and focused on the captured playback passage and visible visual, using the heard sentence for the spoken position.';
 
   return `You are Nous, a teaching assistant integrated into the reader.
 

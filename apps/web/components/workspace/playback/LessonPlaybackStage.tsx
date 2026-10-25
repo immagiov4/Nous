@@ -14,6 +14,7 @@ import {
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, isRetiredLessonScene, type LessonScene } from '@shared/lessonScene';
+import type { PlaybackQuestionContext } from '@shared/playbackQuestionContext';
 import { alignedWordTimes, type PlaybackWordAlignment } from '@shared/playbackWordTiming';
 import {
   Fragment,
@@ -29,7 +30,12 @@ import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { parsePdfContentParts } from '../../../utils/pdf/imagePlaceholders.ts';
-import { getStoredLessonVisualScene } from '../../../utils/visuals/storedLessonVisual.ts';
+import { playbackHeardSentence } from '../../../utils/reader/lessonPlayback.ts';
+import {
+  getStoredLessonVisualCode,
+  getStoredLessonVisualKind,
+  getStoredLessonVisualScene,
+} from '../../../utils/visuals/storedLessonVisual.ts';
 import GeneratedVisualFrame from '../../shared/GeneratedVisualFrame.tsx';
 import type { ReadSceneAnimationFrame } from '../../shared/lessonScene/AnimatedScene.tsx';
 import { LessonSceneVisual } from '../../shared/lessonScene/LessonSceneVisual.tsx';
@@ -404,6 +410,7 @@ function PlaybackPassage({
   readTime,
   alignment,
   seekRevision = 0,
+  questionContextRef,
 }: Readonly<{
   lessonKey?: string;
   block: LessonPlaybackBlock;
@@ -414,6 +421,7 @@ function PlaybackPassage({
   readTime?: () => number;
   alignment?: PlaybackWordAlignment;
   seekRevision?: number;
+  questionContextRef?: RefObject<(() => PlaybackQuestionContext) | null>;
 }>) {
   const sources = useMemo(
     () =>
@@ -868,22 +876,96 @@ function PlaybackPassage({
     () => getPlaybackFormulaMarkdown(block, sources),
     [block, sources]
   );
+  const supplementalFormula =
+    formulaMarkdown &&
+    !visualRanges[visualIndex] &&
+    selectedScene?.type !== 'formula-spotlight' &&
+    !(visual?.kind === 'markdown' && visual.markdown === formulaMarkdown)
+      ? formulaMarkdown
+      : undefined;
   const sceneProps = {
     block: preparedVisual ? { ...block, prepared: preparedVisual } : block,
     clock,
     speed,
     animate,
   };
+  const passageHeadings = formatted.headings.length ? formatted.headings : [block.heading];
+  const passageTitle = passageHeadings.join('\n');
+  useLayoutEffect(() => {
+    if (!questionContextRef) return;
+    const read = () => {
+      // Capture the committed visual and emphasis already painted by the scene renderer.
+      const voiceTime =
+        clock.current?.read().blockTime ?? latest.current.readTime?.() ?? latest.current.time;
+      const host = sceneCard.current;
+      const highlighted = host
+        ? Array.from(
+            host.querySelectorAll<HTMLElement | SVGElement>(
+              '[data-motion-id], [aria-current="step"], [data-active="true"]'
+            )
+          )
+            .filter(
+              element =>
+                element.getAttribute('aria-current') === 'step' ||
+                element.dataset.active === 'true' ||
+                Number.parseFloat(element.style.getPropertyValue('--motion-emphasis')) > 0
+            )
+            .map(element => ({
+              id:
+                element.dataset.motionId ??
+                element.dataset.formulaSymbol ??
+                element.dataset.stop ??
+                '',
+              text: element.textContent?.trim() ?? '',
+            }))
+        : [];
+      let code = visual?.kind === 'mermaid' ? visual.code : undefined;
+      if (selectedStored && getStoredLessonVisualKind(selectedStored) !== 'image') {
+        code = getStoredLessonVisualCode(selectedStored) ?? undefined;
+      }
+      return {
+        passage: { title: passageTitle, text: source.markdown },
+        voiceTime,
+        heardSentence: playbackHeardSentence(block, voiceTime, duration, alignment),
+        visual: visual
+          ? {
+              kind: selectedStored ? getStoredLessonVisualKind(selectedStored) : visual.kind,
+              title: selectedScene?.title ?? selectedStored?.title ?? block.heading,
+              scene: selectedScene ?? undefined,
+              code,
+              description: selectedStored?.altText,
+              markdown: visual.kind === 'markdown' ? visual.markdown : undefined,
+              formula: supplementalFormula,
+              renderedText: host?.textContent?.trim() ?? '',
+              highlighted,
+            }
+          : undefined,
+      };
+    };
+    questionContextRef.current = read;
+    return () => {
+      if (questionContextRef.current === read) questionContextRef.current = null;
+    };
+  }, [
+    questionContextRef,
+    block,
+    passageTitle,
+    source.markdown,
+    duration,
+    alignment,
+    visual,
+    selectedScene,
+    selectedStored,
+    supplementalFormula,
+  ]);
   return (
     <div className="lesson-player-stage">
       <section className="listening-stage">
         <section className="captions" aria-label={t('Sottotitoli')}>
-          {(formatted.headings.length ? formatted.headings : [block.heading]).map(
-            (heading, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: authored headings may repeat
-              <h2 key={`${index}:${heading}`}>{heading}</h2>
-            )
-          )}
+          {passageHeadings.map((heading, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: authored headings may repeat
+            <h2 key={`${index}:${heading}`}>{heading}</h2>
+          ))}
           <p ref={captions} key={block.id} className="caption-page">
             {formatted.words.map((word, index) => {
               const Tag = captionTag(word);
@@ -924,11 +1006,8 @@ function PlaybackPassage({
             block={block}
             content={content}
           >
-            {formulaMarkdown &&
-            !visualRanges[visualIndex] &&
-            selectedScene?.type !== 'formula-spotlight' &&
-            !(visual?.kind === 'markdown' && visual.markdown === formulaMarkdown) ? (
-              <MarkdownRenderer content={formulaMarkdown} isDarkMode={content.isDarkMode} />
+            {supplementalFormula ? (
+              <MarkdownRenderer content={supplementalFormula} isDarkMode={content.isDarkMode} />
             ) : null}
             {visual ? (
               <PlaybackVisualContent

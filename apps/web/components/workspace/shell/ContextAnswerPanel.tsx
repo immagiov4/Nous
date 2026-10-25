@@ -415,22 +415,24 @@ const readGenerateCurrentLessonArtifactInput = (
   }
 
   const candidate = value as Partial<GenerateCurrentLessonArtifactInput>;
-  if (candidate.mode !== 'new' && candidate.mode !== 'replacement-draft') return null;
-  return typeof candidate.prompt === 'string' && candidate.prompt.trim()
-    ? {
-        mode: candidate.mode,
-        prompt: candidate.prompt.trim(),
-        requestedVisualKind: isStoredLessonVisualKind(candidate.requestedVisualKind)
-          ? candidate.requestedVisualKind
-          : undefined,
-        revisionInstructions:
-          typeof candidate.revisionInstructions === 'string'
-            ? candidate.revisionInstructions.trim()
-            : undefined,
-        sourceArtifactId:
-          typeof candidate.sourceArtifactId === 'string' ? candidate.sourceArtifactId : undefined,
-      }
-    : null;
+  if (candidate.prompt !== undefined && typeof candidate.prompt !== 'string') return null;
+  const sourceArtifactId =
+    typeof candidate.sourceArtifactId === 'string' ? candidate.sourceArtifactId : undefined;
+  let mode = candidate.mode;
+  if (mode === undefined) mode = sourceArtifactId ? 'replacement-draft' : 'new';
+  if (mode !== 'new' && mode !== 'replacement-draft') return null;
+  return {
+    mode,
+    prompt: candidate.prompt?.trim() ?? '',
+    requestedVisualKind: isStoredLessonVisualKind(candidate.requestedVisualKind)
+      ? candidate.requestedVisualKind
+      : undefined,
+    revisionInstructions:
+      typeof candidate.revisionInstructions === 'string'
+        ? candidate.revisionInstructions.trim()
+        : undefined,
+    sourceArtifactId,
+  };
 };
 
 interface ContextChatTools {
@@ -518,6 +520,7 @@ const buildContextDraftLesson = (
 };
 
 interface ContextAnswerPanelProps {
+  readonly readPlaybackContext?: () => ContextAnswerState['playbackContext'];
   readonly pendingQuestion?: boolean;
   readonly docked?: boolean;
   readonly composerPortal?: HTMLElement | null;
@@ -599,6 +602,7 @@ export default function ContextAnswerPanel({ ...props }: ContextAnswerPanelProps
 }
 
 function ContextAnswerPanelSession({
+  readPlaybackContext,
   pendingQuestion = false,
   docked = false,
   composerPortal,
@@ -631,6 +635,17 @@ function ContextAnswerPanelSession({
     () => currentLessonArtifactPayloads
   );
   const [input, setInput] = useState('');
+  const [playbackContext, setPlaybackContext] = useState(contextAnswer.playbackContext);
+  // The transport can read the new question's snapshot before React commits its header update.
+  const requestPlaybackContextRef = useRef(playbackContext);
+  const readCurrentPlaybackContext = useLatestValue(readPlaybackContext);
+  const [readRequestPlaybackContext] = useState(() => () => requestPlaybackContextRef.current);
+  const [capturePlaybackContext] = useState(() => () => {
+    const snapshot = readCurrentPlaybackContext()?.();
+    if (!snapshot) return;
+    requestPlaybackContextRef.current = snapshot;
+    setPlaybackContext(snapshot);
+  });
   const [hasRequestedResponseStop, setHasRequestedResponseStop] = useState(false);
   const mutationTarget: ContextLessonMutationTarget = {
     lessonId: contextAnswer.lessonId,
@@ -683,6 +698,12 @@ function ContextAnswerPanelSession({
   // after HARD_TIMEOUT.
   const stuckToolTimestampsRef = useRef<Map<string, number>>(new Map());
   const latestGeneratedArtifactIdRef = useRef<string | null>(null);
+  const conversationMessagesRef = useRef<ContextChatMessage[]>([]);
+  const readUserRequest = () =>
+    conversationMessagesRef.current
+      .filter(message => message.role === 'user')
+      .map(getUiMessageText)
+      .join('\n\n') || contextAnswer.initialQuestion;
   const pendingArtifactSavesRef = useRef(new Map<string, Promise<boolean>>());
 
   const trackArtifactSave = (artifactIds: string[], completion: Promise<boolean>) => {
@@ -796,6 +817,7 @@ function ContextAnswerPanelSession({
               lessonContent: currentRequestState.lessonContent,
               lessonDescription: currentRequestState.lessonDescription,
               lessonTitle: currentRequestState.lessonTitle,
+              playbackContext: readRequestPlaybackContext(),
               projectId: currentRequestState.projectId,
               projectTitle: currentRequestState.projectTitle,
               selectedText: currentRequestState.selectedText,
@@ -810,7 +832,7 @@ function ContextAnswerPanelSession({
           };
         },
       }),
-    [readContextRequestState]
+    [readContextRequestState, readRequestPlaybackContext]
   );
 
   const artifactPayloadsById = useMemo(() => {
@@ -911,6 +933,7 @@ function ContextAnswerPanelSession({
         const projectId = contextAnswer.projectId;
         const currentState = readContextRequestState();
         const draftLesson = buildContextDraftLesson(contextAnswer, currentState);
+        const userRequest = readUserRequest();
         const sourceArtifactId = artifactInput?.sourceArtifactId;
         const sourceArtifact = sourceArtifactId
           ? resolveContextArtifact(artifactPayloadsById, sourceArtifactId, contextAnswer)?.artifact
@@ -954,10 +977,12 @@ function ContextAnswerPanelSession({
               contextBefore: currentState.contextBefore,
               generationNotes: undefined,
               lesson: draftLesson,
+              playbackContext: readRequestPlaybackContext(),
+              userRequest,
               mode: artifactInput.mode,
               projectId,
               projectTitle: contextAnswer.projectTitle || t('Corso'),
-              prompt: artifactInput.prompt,
+              prompt: artifactInput.prompt || userRequest,
               requestKey: toolCall.toolCallId,
               requestedVisualKind: artifactInput.requestedVisualKind,
               revisionInstructions: artifactInput.revisionInstructions,
@@ -1066,6 +1091,9 @@ function ContextAnswerPanelSession({
     },
   });
   const { addToolOutput, error, messages, sendMessage, status, stop } = contextChat;
+  useLayoutEffect(() => {
+    conversationMessagesRef.current = messages;
+  }, [messages]);
 
   const retrievedArtifactIds = useMemo(() => getRetrievedArtifactIds(messages), [messages]);
   const replacementDraftPayloads = useMemo(
@@ -1319,6 +1347,7 @@ function ContextAnswerPanelSession({
     artifactId,
     instructions,
   }: ChatArtifactRegenerateRequest): Promise<boolean> => {
+    const playbackSnapshot = readPlaybackContext?.() ?? readRequestPlaybackContext();
     const payload = resolveContextArtifact(
       artifactPayloadsById,
       artifactId,
@@ -1335,6 +1364,8 @@ function ContextAnswerPanelSession({
         contextAfter: currentState?.contextAfter,
         contextBefore: currentState?.contextBefore,
         lesson: draftLesson,
+        playbackContext: playbackSnapshot,
+        userRequest: readUserRequest(),
         mode: 'replacement-draft',
         projectId: contextAnswer.projectId,
         projectTitle: contextAnswer.projectTitle || t('Corso'),
@@ -1617,6 +1648,7 @@ function ContextAnswerPanelSession({
     setHasRequestedResponseStop(false);
     setInput('');
     setIsToolMenuOpen(false);
+    capturePlaybackContext();
     void sendMessage({ text: trimmedInput });
   };
 
@@ -2084,7 +2116,9 @@ function ContextAnswerPanelSession({
           {docked ? t('Approfondimento') : 'Follow-up'}
         </p>
         <p className="line-clamp-2 text-sm leading-6 text-stone-500 dark:text-stone-400">
-          {contextAnswer.selectedText}
+          {playbackContext?.visual?.title ||
+            playbackContext?.passage.title ||
+            contextAnswer.selectedText}
         </p>
       </div>
 
