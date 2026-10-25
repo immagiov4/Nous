@@ -157,11 +157,11 @@ test.each([
   String.raw`La relazione è \[x^2\].`,
 ])('preserves explicit math delimiters through structured scene generation: %s', async source => {
   generateStructuredOutputMock.mockResolvedValueOnce(
-    JSON.parse(JSON.stringify(quoteDraft(source)))
+    JSON.parse(JSON.stringify(sceneDraft(source)))
   );
   expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
     kind: 'scene',
-    scene: { type: 'quote', quote: source },
+    scene: { type: 'parts', items: [{ detail: source }, { detail: '' }] },
   });
 });
 
