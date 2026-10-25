@@ -1,9 +1,4 @@
 import { INTERNAL_FAST_TASK_INSTRUCTION } from '@shared/aiPromptInstructions';
-import {
-  type FormulaSpotlightData,
-  renderSpotlightFormula,
-  resolveFormulaReferences,
-} from '@shared/formulaSpotlight';
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import { LessonSceneAnimationShape } from '@shared/lessonPlaybackSchema';
 import {
@@ -39,6 +34,10 @@ import {
 } from '../lessonGenerationVisuals.js';
 import type { LessonSourceProvenance } from '../lessonPrimarySourceContext.js';
 import { generateStructuredOutput } from '../structuredGeneration.js';
+import {
+  type FormulaPreparationSource,
+  generateSourceBoundFormula,
+} from './formulaSpotlightPreparation.js';
 import { chooseLessonSceneIcons, type SceneIconEntry } from './lessonSceneIconChoice.js';
 
 /**
@@ -54,13 +53,13 @@ export type LessonSceneOutcome =
       readonly kind: 'invalid';
       readonly problems: readonly string[];
       readonly diagnostic?: WorkflowErrorDiagnostic;
-      readonly formulaCorrection?: ReturnType<typeof formulaCorrectionContext>;
+      readonly formulaCorrection?: unknown;
     };
 
 export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'plan'> & {
   readonly allowedSceneTypes?: readonly LessonSceneType[];
   readonly narration?: string;
-  readonly formulaAnchorOccurrences?: boolean;
+  readonly formulaSource?: FormulaPreparationSource;
   readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
   /** Starts independent preparation after validation, while icons are chosen. */
@@ -395,25 +394,6 @@ const iconEntries = (draft: SceneDraft): SceneIconEntry[] => [
 // Support quotations carry no offsets; source line wrapping does not change their words.
 const supportQuotationText = (text: string): string => text.replaceAll(/\s+/gu, ' ').trim();
 
-/** Private provider feedback retains the failed draft without expanding public diagnostics. */
-function formulaCorrectionContext(scene: FormulaSpotlightData, narration: string) {
-  let renderProblem: string | undefined;
-  let referenceProblem: { message: string; selection: unknown } | undefined;
-  try {
-    renderSpotlightFormula(scene);
-  } catch (error) {
-    if (!(error instanceof Error)) throw error;
-    renderProblem = error.message;
-  }
-  try {
-    resolveFormulaReferences(scene, narration);
-  } catch (error) {
-    if (!(error instanceof Error)) throw error;
-    referenceProblem = { message: error.message, selection: error.cause };
-  }
-  return { formula: scene.formula, symbols: scene.symbols, renderProblem, referenceProblem };
-}
-
 const findDraftProblems = (
   draft: SceneDraft,
   scene: LessonScene,
@@ -447,6 +427,17 @@ export async function generateLessonScene(
   // Scenes replace the artifact pipeline, so they run on the provider resolved for this run's
   // visuals (the learner's provider), while scene models come from the live configuration.
   const config = await getResolvedModelConfigForProvider(input.config.artifact.provider);
+  if (input.formulaSource) {
+    if (input.narration === undefined)
+      throw new Error('Formula preparation requires canonical narration.');
+    return generateSourceBoundFormula({
+      config,
+      source: input.formulaSource,
+      narration: input.narration,
+      retryFeedback: input.retryFeedback,
+      signal: input.signal,
+    });
+  }
   // A resumed workflow must generate within the catalog admitted by its saved contract.
   // Spotlight definitions need the owning playback's canonical speech, not raw Markdown anchors.
   const types = (input.allowedSceneTypes ?? LESSON_SCENE_TYPES).filter(
@@ -454,14 +445,12 @@ export async function generateLessonScene(
   );
   const schema = SceneDraftSchema.extend({
     type: z.enum(input.allowTextFallback ? [...types, 'text'] : types),
-    symbols: input.formulaAnchorOccurrences
-      ? SceneDraftSchema.shape.symbols
-      : SceneDraftSchema.shape.symbols
-          .unwrap()
-          .element.omit({ anchorOccurrence: true, additionalAnchors: true })
-          .array()
-          .min(1)
-          .optional(),
+    symbols: SceneDraftSchema.shape.symbols
+      .unwrap()
+      .element.omit({ anchorOccurrence: true, additionalAnchors: true })
+      .array()
+      .min(1)
+      .optional(),
   });
   const { $schema: _dialect, ...outputSchema } = z.toJSONSchema(schema);
   // Malformed output surfaces either as an error or as JSON of the wrong shape; both become
@@ -469,44 +458,7 @@ export async function generateLessonScene(
   let outputPath: 'direct' | 'json-envelope' | 'unavailable' = 'unavailable';
   const diagnostic = (stage: 'schema' | 'domain', problems: unknown) =>
     toWorkflowErrorDiagnostic(new Error(JSON.stringify({ outputPath, stage, problems })));
-  const systemPrompt =
-    sceneSystemPrompt(types) +
-    (input.formulaAnchorOccurrences
-      ? '\nFORMULA FORMAT: Return raw math without $$ or display delimiters or surrounding prose. Preserve punctuation already inside the authored math; add none. Each decoded LaTeX command uses one backslash; JSON encoding supplies its escaping. Preserve every authored operator, argument and delimiter. Every defined symbol id must occur in the formula.\nFORMULA OCCURRENCES: Count literal quotation occurrences in the complete canonical narration, including earlier explanatory mentions. Supply anchorOccurrence for every nonempty anchor. A quotation may repeat when anchorOccurrence identifies its zero-based literal occurrence in the narration. Use separate symbol ids for different positions in the formula. When the same formula part is mentioned again, add its exact quotation and optional anchorOccurrence in that symbol’s additionalAnchors array; do not duplicate the glyph or broaden the first anchor. Cover every named part in explanations and recalls as well as full formula readings. Leave every anchor empty only when no part is named. Keep quotations limited to the words naming that part; do not broaden them merely to make them unique. Order linked symbols by their selected occurrence.\nVALID ENCODING EXAMPLE: ' +
-        JSON.stringify({
-          narration: 'Un extra: x più x; infine ancora il primo x.',
-          formula: String.raw`\nousSymbol{left}\nousSymbol{plus}\nousSymbol{right}`,
-          symbols: [
-            {
-              id: 'left',
-              latex: 'x',
-              name: 'First x',
-              meaning: 'First term',
-              anchor: 'x',
-              anchorOccurrence: 1,
-              additionalAnchors: [{ anchor: 'x', anchorOccurrence: 3 }],
-            },
-            {
-              id: 'plus',
-              latex: '+',
-              name: 'Addition',
-              meaning: 'Adds the terms',
-              anchor: 'più',
-              anchorOccurrence: 0,
-              additionalAnchors: [],
-            },
-            {
-              id: 'right',
-              latex: 'x',
-              name: 'Second x',
-              meaning: 'Second term',
-              anchor: 'x',
-              anchorOccurrence: 2,
-              additionalAnchors: [],
-            },
-          ],
-        })
-      : '');
+  const systemPrompt = sceneSystemPrompt(types);
   const response = await generateStructuredOutput<unknown>({
     sourceAware: Boolean(input.sourceProvenance),
     onOutputPath: path => {
@@ -554,14 +506,6 @@ export async function generateLessonScene(
     return {
       kind: 'invalid',
       problems,
-      ...(input.formulaAnchorOccurrences && scene.type === 'formula-spotlight'
-        ? {
-            formulaCorrection: formulaCorrectionContext(
-              scene as FormulaSpotlightData,
-              input.narration ?? ''
-            ),
-          }
-        : {}),
       diagnostic: diagnostic(
         'domain',
         problems.map(problem => {

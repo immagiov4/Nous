@@ -1,6 +1,13 @@
+import {
+  type FormulaSpotlightData,
+  formulaSpotlightCovers,
+  hasFormulaSpotlightReferences,
+  resolveFormulaReferences,
+} from '@shared/formulaSpotlight';
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import { isLessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
+import { dictatedFormulaSpotlight } from '../../helpers/formulaSpotlight';
 
 const { chooseIconsMock, generateStructuredOutputMock } = vi.hoisted(() => ({
   chooseIconsMock: vi.fn(async ({ scene }) => scene),
@@ -773,47 +780,241 @@ test('keeps transcription provenance separate from the admissible scene passage'
   );
 });
 
+const boundSourceSymbol = (input: {
+  id: string;
+  latex: string;
+  sourceOccurrence: number;
+  anchor: string;
+  anchorOccurrence?: number;
+  needsGroup?: boolean;
+}) => ({
+  id: input.id,
+  latex: input.latex,
+  sourceOccurrences: [
+    { occurrence: input.sourceOccurrence, needsGroup: input.needsGroup ?? false },
+  ],
+  name: input.id,
+  meaning: 'Il valore indicato dalla fonte.',
+  anchor: input.anchor,
+  anchorOccurrence: input.anchorOccurrence ?? 0,
+  additionalAnchors: [],
+});
+const sourceBoundDraft = () => ({
+  mentioned: true,
+  title: 'La formula',
+  summary: 'La relazione fornita.',
+  symbols: [
+    boundSourceSymbol({ id: 'x', latex: 'x', sourceOccurrence: 0, anchor: 'ics' }),
+    boundSourceSymbol({ id: 'y', latex: 'y', sourceOccurrence: 0, anchor: 'ipsilon' }),
+  ],
+});
+const sourceBoundInput = (formula = '$x+y$', narration = 'ics poi ipsilon') => ({
+  ...unplannedInput(formula + '\n' + narration),
+  narration,
+  allowedSceneTypes: ['formula-spotlight'] as const,
+  formulaSource: { formula },
+});
+
 test('returns exact reference-selection diagnostics privately to formula preparation', async () => {
   const draft = {
-    ...quoteDraft('ics più ics'),
-    type: 'formula-spotlight',
-    quote: '',
-    autoplay: true,
-    formula: String.raw`\nousSymbol{left}+\nousSymbol{right}`,
+    ...sourceBoundDraft(),
     symbols: [
-      {
+      boundSourceSymbol({
         id: 'left',
         latex: 'x',
-        name: 'Primo',
-        meaning: 'Primo valore',
+        sourceOccurrence: 0,
         anchor: 'ics',
         anchorOccurrence: 9,
-      },
-      {
+      }),
+      boundSourceSymbol({
         id: 'right',
         latex: 'x',
-        name: 'Secondo',
-        meaning: 'Secondo valore',
+        sourceOccurrence: 1,
         anchor: 'ics',
         anchorOccurrence: 1,
-      },
+      }),
     ],
   };
   generateStructuredOutputMock.mockResolvedValueOnce(draft);
-  const outcome = await generateLessonScene({
-    ...unplannedInput('$x+x$\nics più ics'),
-    narration: 'ics più ics',
-    allowedSceneTypes: ['formula-spotlight'],
-    formulaAnchorOccurrences: true,
-  });
+  const outcome = await generateLessonScene(sourceBoundInput('$x+x$', 'ics più ics'));
   expect(outcome.kind).toBe('invalid');
   if (outcome.kind !== 'invalid') throw new Error('An invalid selection must fail');
   expect(outcome.formulaCorrection).toMatchObject({
-    formula: draft.formula,
-    symbols: draft.symbols,
-    referenceProblem: {
-      selection: { anchor: 'ics', anchorOccurrence: 9, matchingOffsets: [0, 8] },
-    },
+    draft: { sourceDraft: draft, formula: String.raw`\nousSymbol{left}+\nousSymbol{right}` },
+    selection: { anchor: 'ics', anchorOccurrence: 9, matchingOffsets: [0, 8] },
   });
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+});
+
+test('preserves authored macros, operators and scripts while inserting only explicit source references', async () => {
+  const formula = String.raw`$$\mathbf h=a[\beta_0+\Omega_0 x]$$`;
+  const narration = 'Acca; funzione a; beta zero; omega zero; ics.';
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...sourceBoundDraft(),
+    symbols: [
+      boundSourceSymbol({
+        id: 'h',
+        latex: String.raw`\mathbf h`,
+        sourceOccurrence: 0,
+        anchor: 'Acca',
+      }),
+      boundSourceSymbol({ id: 'a', latex: 'a', sourceOccurrence: 0, anchor: 'funzione a' }),
+      boundSourceSymbol({
+        id: 'beta',
+        latex: String.raw`\beta`,
+        sourceOccurrence: 0,
+        anchor: 'beta',
+      }),
+      boundSourceSymbol({
+        id: 'bzero',
+        latex: '0',
+        sourceOccurrence: 0,
+        anchor: 'zero',
+        needsGroup: true,
+      }),
+      boundSourceSymbol({
+        id: 'omega',
+        latex: String.raw`\Omega`,
+        sourceOccurrence: 0,
+        anchor: 'omega',
+      }),
+      boundSourceSymbol({
+        id: 'ozero',
+        latex: '0',
+        sourceOccurrence: 1,
+        anchor: 'zero',
+        anchorOccurrence: 1,
+        needsGroup: true,
+      }),
+      boundSourceSymbol({ id: 'x', latex: 'x', sourceOccurrence: 0, anchor: 'ics' }),
+    ],
+  });
+  const outcome = await generateLessonScene(sourceBoundInput(formula, narration));
+  expect(outcome.kind).toBe('scene');
+  if (outcome.kind !== 'scene' || outcome.scene.type !== 'formula-spotlight')
+    throw new Error('Source-bound formula must validate');
+  expect(outcome.scene.formula).toBe(
+    String.raw`\nousSymbol{h}=\nousSymbol{a}[\nousSymbol{beta}_{\nousSymbol{bzero}}+\nousSymbol{omega}_{\nousSymbol{ozero}} \nousSymbol{x}]`
+  );
+  expect(formulaSpotlightCovers(outcome.scene as FormulaSpotlightData, [formula])).toBe(true);
+});
+
+test('rejects reformatted source fragments instead of changing or guessing the authored math', async () => {
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...sourceBoundDraft(),
+    symbols: [
+      boundSourceSymbol({
+        id: 'h',
+        latex: String.raw`\mathbf{h}`,
+        sourceOccurrence: 0,
+        anchor: 'acca',
+      }),
+    ],
+  });
+  const outcome = await generateLessonScene(sourceBoundInput(String.raw`$\mathbf h$`, 'acca'));
+  expect(outcome.kind).toBe('invalid');
+  if (outcome.kind !== 'invalid') throw new Error('A missing literal source fragment must fail');
+  expect(outcome.formulaCorrection).toMatchObject({
+    selection: { anchor: String.raw`\mathbf{h}`, anchorOccurrence: 0, matchingOffsets: [] },
+  });
+});
+
+test('rejects overlapping source selections before building a component', async () => {
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...sourceBoundDraft(),
+    symbols: [
+      boundSourceSymbol({ id: 'sum', latex: 'x+y', sourceOccurrence: 0, anchor: 'somma' }),
+      boundSourceSymbol({ id: 'x', latex: 'x', sourceOccurrence: 0, anchor: 'ics' }),
+    ],
+  });
+  const outcome = await generateLessonScene(sourceBoundInput('$x+y$', 'somma poi ics'));
+  expect(outcome.kind).toBe('invalid');
+  if (outcome.kind !== 'invalid') throw new Error('Overlapping source selections must fail');
+  expect(outcome.formulaCorrection).toMatchObject({
+    selection: { previousEnd: 1, range: { start: 0, end: 3 } },
+  });
+});
+
+test('reports an omitted source identifier so the service can add its unlinked definition', async () => {
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...sourceBoundDraft(),
+    symbols: [boundSourceSymbol({ id: 'x', latex: 'x', sourceOccurrence: 0, anchor: 'ics' })],
+  });
+  const outcome = await generateLessonScene(sourceBoundInput());
+  expect(outcome.kind).toBe('invalid');
+  if (outcome.kind !== 'invalid') throw new Error('Unrepresented source identifiers must fail');
+  expect(outcome.formulaCorrection).toMatchObject({ selection: { unwrappedMath: 'y' } });
+});
+
+test('saves a model-declared static formula without reauthoring its math', async () => {
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...sourceBoundDraft(),
+    mentioned: false,
+    symbols: [],
+  });
+  const outcome = await generateLessonScene(
+    sourceBoundInput('$x+y$', 'Una relazione mostrata come richiamo.')
+  );
+  expect(outcome.kind).toBe('scene');
+  if (outcome.kind !== 'scene' || outcome.scene.type !== 'formula-spotlight')
+    throw new Error('A static decision must validate');
+  expect(hasFormulaSpotlightReferences(outcome.scene as FormulaSpotlightData)).toBe(false);
+  expect(formulaSpotlightCovers(outcome.scene as FormulaSpotlightData, ['$x+y$'])).toBe(true);
+});
+
+test('rejects a static decision that would silently discard supplied narration links', async () => {
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...sourceBoundDraft(), mentioned: false });
+  expect((await generateLessonScene(sourceBoundInput())).kind).toBe('invalid');
+});
+
+test('requires links for an authoritative dictated formula range', async () => {
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...sourceBoundDraft(),
+    mentioned: false,
+    symbols: [],
+  });
+  const input = sourceBoundInput();
+  expect(
+    (
+      await generateLessonScene({
+        ...input,
+        formulaSource: {
+          ...input.formulaSource,
+          dictatedRanges: [{ start: 0, end: input.narration.length }],
+        },
+      })
+    ).kind
+  ).toBe('invalid');
+});
+
+test('adds only heard-word links to an existing unlinked widget template', async () => {
+  const template = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
+  };
+  const input = sourceBoundInput('$x+y$', 'ipsilon poi ics');
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    mentioned: true,
+    links: [
+      { id: 'x', anchor: 'ics', anchorOccurrence: 0, additionalAnchors: [] },
+      { id: 'y', anchor: 'ipsilon', anchorOccurrence: 0, additionalAnchors: [] },
+    ],
+  });
+  const outcome = await generateLessonScene({
+    ...input,
+    formulaSource: { ...input.formulaSource, template },
+  });
+  expect(outcome.kind).toBe('scene');
+  if (outcome.kind !== 'scene' || outcome.scene.type !== 'formula-spotlight')
+    throw new Error('Template bindings must validate');
+  expect(outcome.scene.formula).toBe(template.formula);
+  expect(
+    outcome.scene.symbols.map(({ id, latex, name, meaning }) => ({ id, latex, name, meaning }))
+  ).toEqual(template.symbols.map(({ id, latex, name, meaning }) => ({ id, latex, name, meaning })));
+  expect(
+    resolveFormulaReferences(outcome.scene as FormulaSpotlightData, input.narration).map(
+      reference => reference.index
+    )
+  ).toEqual([2, 0]);
   expect(chooseIconsMock).not.toHaveBeenCalled();
 });

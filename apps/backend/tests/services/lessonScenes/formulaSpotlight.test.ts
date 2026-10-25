@@ -1,3 +1,4 @@
+import { formulaLatexSource, getFormulaSpotlightLatex } from '@shared/formulaSpotlight';
 import { findLessonSceneProblems } from '@shared/lessonScene';
 import { JSDOM } from 'jsdom';
 import { expect, test } from 'vitest';
@@ -280,4 +281,32 @@ test('uses exact speech positions independently of symbol definition order', () 
       speech
     )
   ).toThrow();
+});
+
+test('compares the rendered separator and preserves its punctuation class in exported source', () => {
+  const symbols = [
+    { id: 'max', latex: String.raw`\max` },
+    { id: 'open', latex: '(' },
+    { id: 'zero', latex: '0' },
+    { id: 'comma', latex: ',' },
+    { id: 'five', latex: '5' },
+    { id: 'close', latex: ')' },
+  ].map(symbol => ({ ...symbol, name: symbol.id, meaning: 'Parte della formula', anchor: '' }));
+  const scene = {
+    ...formulaSpotlight,
+    formula: symbols.map(symbol => String.raw`\nousSymbol{${symbol.id}}`).join(''),
+    symbols,
+  };
+  expect(formulaSpotlightCovers(scene, [String.raw`$\max(0,5)$`])).toBe(true);
+  expect(formulaSpotlightCovers(scene, [`$${getFormulaSpotlightLatex(scene)}$`])).toBe(true);
+  expect(formulaSpotlightCovers(scene, [String.raw`$\max(0{,}5)$`])).toBe(false);
+});
+
+test.each([
+  '$x$',
+  '$$x$$',
+  String.raw`\(x\)`,
+  String.raw`\[x\]`,
+])('retains the exact source inside supported math delimiters: %s', formula => {
+  expect(formulaLatexSource(formula)).toBe('x');
 });

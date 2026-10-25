@@ -8,6 +8,7 @@ import {
   getPlaybackFormulaSources,
   type LessonPlaybackBlock,
   type PlaybackContentBlock,
+  type PlaybackRange,
   playbackFormulaSpotlightScenes,
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
@@ -57,32 +58,38 @@ export async function preparePlaybackFormulaSpotlights(input: {
 }) {
   const result: { formula: string; scene: LessonScene; sourceFormula?: string }[] = [];
   const scenes = playbackFormulaSpotlightScenes(input.block, input.storedVisuals);
+  const narration = resolvePlaybackNarration(input.block);
+  const ranges = narration.spans.filter(span => span.math);
   let entries: {
     formula: string;
     spoken: string;
     sourceFormula?: string;
-    dictatedRange?: { start: number; end: number };
+    dictatedRanges: readonly PlaybackRange[];
+    sourceScene?: LessonScene & FormulaSpotlightData;
   }[];
   if (scenes.length)
     entries = scenes.map(scene => ({
       formula: `$$${getFormulaSpotlightLatex(scene)}$$`,
-      spoken: resolvePlaybackNarration(input.block).speech,
+      spoken: narration.speech,
       sourceFormula: scene.formula,
+      sourceScene: scene,
+      dictatedRanges: (input.block.prepared?.spokenMath ?? []).flatMap((math, index) =>
+        formulaSpotlightCovers(scene, [math.formula]) ? [ranges[index].speech] : []
+      ),
     }));
   else if (input.block.prepared?.spokenMath?.length) {
-    const narration = resolvePlaybackNarration(input.block);
-    const ranges = narration.spans.filter(span => span.math);
     entries = input.block.prepared.spokenMath.map((entry, index) => ({
       formula: entry.formula,
       spoken: narration.speech,
       sourceFormula: entry.formula,
-      dictatedRange: ranges[index].speech,
+      dictatedRanges: [ranges[index].speech],
     }));
   } else
     entries = getPlaybackFormulaSources(input.block, input.sources ?? []).map(formula => ({
       formula,
-      spoken: resolvePlaybackNarration(input.block).speech,
+      spoken: narration.speech,
       sourceFormula: formula,
+      dictatedRanges: [],
     }));
   for (const [index, entry] of entries.entries()) {
     input.signal.throwIfAborted();
@@ -91,18 +98,19 @@ export async function preparePlaybackFormulaSpotlights(input: {
       result.push(saved);
       continue;
     }
-    const occurrenceContext = entry.dictatedRange
-      ? `\n\nThis formula occurrence is read at narration characters [${entry.dictatedRange.start}, ${entry.dictatedRange.end}): ${JSON.stringify(entry.spoken.slice(entry.dictatedRange.start, entry.dictatedRange.end))}. Link that reading and every explanatory reference to its parts in the full narration, including later mentions of the same symbol.`
-      : '';
     const operation = async () => {
       let retryFeedback: string | undefined;
       for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt++) {
         const outcome = await generateLessonScene({
           config: resolveLessonVisualModelConfig(input.config),
           allowedSceneTypes: ['formula-spotlight'],
-          lessonMarkdown: `${entry.formula}\n\n${entry.spoken}${occurrenceContext}`,
+          lessonMarkdown: `${entry.formula}\n\n${entry.spoken}`,
           narration: entry.spoken,
-          formulaAnchorOccurrences: true,
+          formulaSource: {
+            formula: entry.formula,
+            template: entry.sourceScene,
+            dictatedRanges: entry.dictatedRanges,
+          },
           sectionTitle: '',
           sectionDescription: '',
           retryFeedback,
@@ -113,7 +121,7 @@ export async function preparePlaybackFormulaSpotlights(input: {
           outcome.kind === 'scene' &&
           outcome.scene.type === 'formula-spotlight' &&
           formulaSpotlightCovers(outcome.scene as FormulaSpotlightData, [entry.formula]) &&
-          ((!entry.dictatedRange && entry.sourceFormula) ||
+          ((!entry.dictatedRanges.length && entry.sourceFormula) ||
             hasFormulaSpotlightReferences(outcome.scene as FormulaSpotlightData))
         ) {
           return { scene: outcome.scene };

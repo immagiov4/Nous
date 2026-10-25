@@ -36,7 +36,10 @@ export const hasFormulaSpotlightReferences = (scene: FormulaSpotlightData): bool
   scene.symbols.some(symbol => Boolean(symbol.anchor || symbol.additionalAnchors?.length));
 
 /** Explicit symbol references keep binding independent of glyph/substring guessing. */
-function compileFormula(scene: FormulaSpotlightData, highlighted: boolean): string {
+function compileFormula(
+  scene: FormulaSpotlightData,
+  renderSymbol: (symbol: FormulaSpotlightData['symbols'][number]) => string
+): string {
   const used = new Set<string>();
   const symbols = new Map(scene.symbols.map(symbol => [symbol.id, symbol]));
   if (symbols.size !== scene.symbols.length) throw new Error('Formula symbol ids must be unique.');
@@ -46,9 +49,7 @@ function compileFormula(scene: FormulaSpotlightData, highlighted: boolean): stri
       const symbol = symbols.get(id);
       if (!symbol) throw new Error('A formula reference names an unknown symbol.');
       used.add(id);
-      return highlighted
-        ? String.raw`\htmlClass{nous-formula-symbol-${id}}{${symbol.latex}}`
-        : `{${symbol.latex}}`;
+      return renderSymbol(symbol);
     }
   );
   if (used.size !== symbols.size)
@@ -57,8 +58,29 @@ function compileFormula(scene: FormulaSpotlightData, highlighted: boolean): stri
 }
 
 /** Resolve renderer references to mathematical notation for visual-only preparation. */
-export const getFormulaSpotlightLatex = (scene: FormulaSpotlightData): string =>
-  compileFormula(scene, false);
+export function getFormulaSpotlightLatex(scene: FormulaSpotlightData): string {
+  const exported = new Map<string, string>();
+  return compileFormula(scene, symbol => {
+    const saved = exported.get(symbol.latex);
+    if (saved !== undefined) return saved;
+    const atoms: string[] = [];
+    const visit = (node: MathNode): void => {
+      if (node.type !== 'element') return;
+      const classes = Array.isArray(node.properties.className) ? node.properties.className : [];
+      const atom = classes.find(name => MATH_ATOM_CLASSES.has(String(name)));
+      if (atom) atoms.push(String(atom));
+      else for (const child of node.children) visit(child);
+    };
+    visit(renderedMath(renderSpotlightSymbol(symbol.latex)));
+    // Ordinary braces change a punctuation atom into an ordinary atom and can merge it into a number.
+    const latex =
+      atoms.length === 1 && atoms[0] === 'mpunct'
+        ? String.raw`\mathpunct{${symbol.latex}}`
+        : `{${symbol.latex}}`;
+    exported.set(symbol.latex, latex);
+    return latex;
+  });
+}
 
 // Reuse the app's HTML parser and KaTeX's TeX atom classes, including macro-expanded output.
 const mathMarkup = unified().use(rehypeRaw);
@@ -124,7 +146,9 @@ function validateRenderedSymbols(
         value &&
         (symbols.has(value) || (term && !/^[\p{N}\p{P}\s]+$/u.test(value)))
       ) {
-        throw new Error('Every mathematical symbol occurrence must use its explicit reference.');
+        throw new Error('Every mathematical symbol occurrence must use its explicit reference.', {
+          cause: { unwrappedMath: value },
+        });
       }
       return;
     }
@@ -144,26 +168,41 @@ function validateRenderedSymbols(
   visit(renderedMath(html));
 }
 
+function highlightedFormula(scene: FormulaSpotlightData, output: 'mathml' | 'htmlAndMathml') {
+  const classes = new Set(scene.symbols.map(symbol => `nous-formula-symbol-${symbol.id}`));
+  const html = katex.renderToString(
+    compileFormula(
+      scene,
+      symbol => String.raw`\htmlClass{nous-formula-symbol-${symbol.id}}{${symbol.latex}}`
+    ),
+    {
+      ...SPOTLIGHT_MATH_OPTIONS,
+      displayMode: true,
+      strict: false,
+      output,
+      // KaTeX's htmlClass is the only trust context carrying a class property.
+      trust: context => 'class' in context && classes.has(context.class),
+    }
+  );
+  return { html, classes };
+}
+
 /** Validate plain math before adding renderer-owned classes; model HTML/URLs stay untrusted. */
 export function renderSpotlightFormula(scene: FormulaSpotlightData): string {
   let requestedTrust = false;
-  katex.renderToString(compileFormula(scene, false), {
-    ...SPOTLIGHT_MATH_OPTIONS,
-    displayMode: true,
-    trust: () => {
-      requestedTrust = true;
-      return false;
-    },
-  });
+  katex.renderToString(
+    compileFormula(scene, symbol => `{${symbol.latex}}`),
+    {
+      ...SPOTLIGHT_MATH_OPTIONS,
+      displayMode: true,
+      trust: () => {
+        requestedTrust = true;
+        return false;
+      },
+    }
+  );
   if (requestedTrust) throw new Error('Formula content must contain math only.');
-  const classes = new Set(scene.symbols.map(symbol => `nous-formula-symbol-${symbol.id}`));
-  const html = katex.renderToString(compileFormula(scene, true), {
-    ...SPOTLIGHT_MATH_OPTIONS,
-    displayMode: true,
-    strict: false,
-    // KaTeX's htmlClass is the only trust context carrying a class property.
-    trust: context => 'class' in context && classes.has(context.class),
-  });
+  const { html, classes } = highlightedFormula(scene, 'htmlAndMathml');
   if (
     [...classes].some(
       name => !new RegExp(String.raw`class="[^"\n]*\b${name}(?: |")`, 'u').test(html)
@@ -208,6 +247,40 @@ export function findFormulaSpotlightProblems(value: unknown, source?: string): s
   return problems;
 }
 
+/** Select a literal occurrence explicitly supplied by formula preparation. */
+export function resolveFormulaOccurrence(
+  text: string,
+  selection: { anchor: string; anchorOccurrence?: number },
+  allowedBoundaries?: ReadonlySet<number>
+) {
+  const matchingOffsets: number[] = [];
+  if (selection.anchor) {
+    for (
+      let start = text.indexOf(selection.anchor);
+      start >= 0;
+      start = text.indexOf(selection.anchor, start + 1)
+    )
+      if (
+        !allowedBoundaries ||
+        (allowedBoundaries.has(start) && allowedBoundaries.has(start + selection.anchor.length))
+      )
+        matchingOffsets.push(start);
+  }
+  const start = matchingOffsets[selection.anchorOccurrence ?? 0];
+  if (
+    start === undefined ||
+    (selection.anchorOccurrence === undefined && matchingOffsets.length !== 1)
+  )
+    throw new Error('Formula anchors must identify exact literal occurrences.', {
+      cause: {
+        anchor: selection.anchor,
+        anchorOccurrence: selection.anchorOccurrence ?? null,
+        matchingOffsets,
+      },
+    });
+  return { start, end: start + selection.anchor.length };
+}
+
 /** Exact canonical-speech links; an unmentioned element stays visible without emphasis. */
 export function resolveFormulaReferences(scene: FormulaSpotlightData, speech: string) {
   const linked = scene.symbols.flatMap((symbol, index) =>
@@ -217,28 +290,11 @@ export function resolveFormulaReferences(scene: FormulaSpotlightData, speech: st
     symbol => symbol.anchorOccurrence !== undefined || symbol.additionalAnchors !== undefined
   );
   if (linked.length && !explicitReferences) cueTimes(speech, linked);
-  const locate = (symbol: { anchor: string; anchorOccurrence?: number; index: number }) => {
-    const matchingOffsets: number[] = [];
-    for (
-      let start = speech.indexOf(symbol.anchor);
-      start >= 0;
-      start = speech.indexOf(symbol.anchor, start + 1)
-    )
-      matchingOffsets.push(start);
-    const start = matchingOffsets[symbol.anchorOccurrence ?? 0];
-    if (
-      start === undefined ||
-      (symbol.anchorOccurrence === undefined && matchingOffsets.length !== 1)
-    )
-      throw new Error('Formula anchors must identify exact narration occurrences.', {
-        cause: {
-          anchor: symbol.anchor,
-          anchorOccurrence: symbol.anchorOccurrence ?? null,
-          matchingOffsets,
-        },
-      });
-    return { index: symbol.index, anchor: symbol.anchor, start, end: start + symbol.anchor.length };
-  };
+  const locate = (symbol: { anchor: string; anchorOccurrence?: number; index: number }) => ({
+    index: symbol.index,
+    anchor: symbol.anchor,
+    ...resolveFormulaOccurrence(speech, symbol),
+  });
   const first = linked.map(locate);
   const additional = scene.symbols.flatMap((symbol, index) =>
     (symbol.additionalAnchors ?? []).map(anchor => locate({ ...anchor, index }))
@@ -269,13 +325,7 @@ export function formulaSpotlightCovers(scene: FormulaSpotlightData, formulas: re
       return children[0];
     return { tag: node.tagName, attributes, children };
   };
-  const parse = (latex: string) => {
-    const html = katex.renderToString(latex, {
-      ...SPOTLIGHT_MATH_OPTIONS,
-      displayMode: true,
-      output: 'mathml',
-      trust: false,
-    });
+  const parse = (html: string) => {
     const tree = mathMarkup.runSync({
       type: 'root',
       children: [{ type: 'raw', value: html }],
@@ -293,12 +343,28 @@ export function formulaSpotlightCovers(scene: FormulaSpotlightData, formulas: re
     );
   };
   try {
-    const rendered = parse(compileFormula(scene, false));
+    const rendered = parse(highlightedFormula(scene, 'mathml').html);
     return formulas.every(formula => {
-      const delimiter = formula.startsWith('$$') || formula.startsWith('\\') ? 2 : 1;
-      return contains(rendered, parse(formula.slice(delimiter, -delimiter)));
+      const html = katex.renderToString(formulaLatexSource(formula), {
+        ...SPOTLIGHT_MATH_OPTIONS,
+        displayMode: true,
+        output: 'mathml',
+        trust: false,
+      });
+      return contains(rendered, parse(html));
     });
   } catch {
     return false;
   }
+}
+
+/** Extract the exact TeX from a delimited source formula, retaining its authored whitespace. */
+export function formulaLatexSource(formula: string): string {
+  const delimiter =
+    formula.startsWith('$$') ||
+    formula.startsWith(String.raw`\[`) ||
+    formula.startsWith(String.raw`\(`)
+      ? 2
+      : 1;
+  return formula.slice(delimiter, -delimiter);
 }
