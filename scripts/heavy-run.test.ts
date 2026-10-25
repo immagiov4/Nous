@@ -596,6 +596,53 @@ describe('heavy command admission', () => {
     expect(existsSync(join(path, 'lock'))).toBe(false);
   });
 
+  test('a terminated queued holder is reclaimed even while its PID remains visible', async () => {
+    const path = directory();
+    localEnvironment(path);
+    const ready = join(path, 'owner-pid');
+    const release = join(path, 'owner-done');
+    barriers.push(release);
+    const owner = output(
+      start(
+        path,
+        'visible-pid',
+        [
+          runtime,
+          '-e',
+          `const fs=require('node:fs');fs.writeFileSync(process.argv[1],String(process.pid));const timer=setInterval(()=>{if(fs.existsSync(process.argv[2]))clearInterval(timer)},20)`,
+          ready,
+          release,
+        ],
+        { environment: { CI: 'true' } }
+      )
+    );
+    await until(() => existsSync(ready));
+    const pid = Number(readFileSync(ready, 'utf8'));
+    const lifecycle = await import('./heavy-run-process.mjs');
+    const inspect = lifecycle.processRunning;
+    vi.spyOn(lifecycle, 'processRunning').mockImplementation(candidate =>
+      candidate === pid ? false : inspect(candidate)
+    );
+    expect(process.kill(pid, 0)).toBe(true);
+    mkdirSync(join(path, 'queue'));
+    writeFileSync(
+      join(path, 'queue/terminated.json'),
+      JSON.stringify({ pid, label: 'terminated', id: 'terminated.json' })
+    );
+    const signals = vi.spyOn(process, 'once');
+    const running = main(['--label', 'next', '--', runtime, '-e', 'process.exit(0)']);
+    const terminate = signals.mock.calls.find(([signal]) => signal === 'SIGTERM')?.[1];
+    const deadline = setTimeout(() => terminate?.(), 8_000);
+    try {
+      expect(await running).toBe(0);
+    } finally {
+      clearTimeout(deadline);
+      writeFileSync(release, '');
+      await owner();
+    }
+    expect(readdirSync(join(path, 'queue'))).toEqual([]);
+  });
+
   test('a recently renewed holder with an exited command releases immediately', async () => {
     const path = directory();
     const dead = spawn(runtime, ['-e', 'process.exit(0)'], { windowsHide: true, stdio: 'ignore' });

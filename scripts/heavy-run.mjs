@@ -34,17 +34,6 @@ const IDLE_MS = 2 * POLL_MS;
 const EXPIRED_TICKET = 'Queue ticket expired; run the command again.';
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 
-function pidAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    if (error.code === 'ESRCH') return false;
-    if (error.code === 'EPERM') return true;
-    throw error;
-  }
-}
-
 function registeredCommandAlive(owner, releasing, verifyIdentity) {
   if (!owner?.childPid) return false;
   if (releasing) return processTreeRunning(owner.childPid);
@@ -73,7 +62,7 @@ function readEntry(path, staleMs, held = false) {
       if (!(error instanceof SyntaxError)) throw error;
     }
     const expired = Date.now() - stat.mtimeMs > (held ? IDLE_MS : staleMs);
-    const ownerGone = owner && !pidAlive(owner.pid);
+    const ownerGone = owner && !processRunning(owner.pid);
     const heartbeatExpired = Date.now() - stat.mtimeMs > staleMs;
     const releasing = held && basename(path).startsWith('releasing-');
     const childAlive = registeredCommandAlive(owner, releasing, ownerGone || heartbeatExpired);
