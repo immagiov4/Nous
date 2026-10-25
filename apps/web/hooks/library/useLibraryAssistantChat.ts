@@ -438,7 +438,7 @@ export const useLibraryAssistantChat = ({
             toolCallId: toolCall.toolCallId,
             output: { handoffRequested: true, topic: input.topic },
           });
-          stop();
+          void stop();
           for (const call of cancelledToolCalls) void addToolOutput(cancelledToolOutput(call));
           return;
         }
@@ -512,7 +512,7 @@ export const useLibraryAssistantChat = ({
   );
   const stopLibraryMessage = useCallback(() => {
     const cancelledToolCalls = responseControl.halt({ parts: latestResponseParts(messages) });
-    stop();
+    void stop();
     for (const call of cancelledToolCalls) void addToolOutput(cancelledToolOutput(call));
     return undefined;
   }, [addToolOutput, messages, responseControl, stop]);
