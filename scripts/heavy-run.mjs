@@ -318,19 +318,24 @@ function parseInvocation(args) {
 function retireIdleOwners(owners, lock, queue) {
   for (const entry of owners) {
     if (!entry.stale || !removeLock(lock, entry.path && basename(entry.path))) continue;
-    if (entry.owner?.id) removeTicket(queue, entry.owner.id);
+    if (entry.path) {
+      const id =
+        entry.owner?.id ?? basename(entry.path).replace(/^(?:running-|releasing-|retired-)+/u, '');
+      removeTicket(queue, id);
+    }
   }
 }
 
 function tryClaim(context) {
   const { queue, lock, prepared, ticket, staleMs, label, slots, weight } = context;
   const owners = readLock(lock, staleMs);
+  // Legacy manual tickets may have no record id and otherwise remain first in the queue.
+  retireIdleOwners(owners, lock, queue);
   const admitted = new Set(owners.map(entry => entry.owner?.id).filter(Boolean));
   const waiting = readQueue(queue, staleMs, true).filter(entry => !admitted.has(entry.owner?.id));
   const position = waiting.findIndex(entry => entry.path === ticket.path);
   if (position < 0) throw new Error(EXPIRED_TICKET);
   if (position === 0) {
-    retireIdleOwners(owners, lock, queue);
     // Activation can win retirement by renaming its record; count that surviving reservation too.
     const used = readLock(lock, staleMs).reduce(
       (sum, entry) => sum + (entry.owner ? (entry.owner.weight ?? 1) : slots),

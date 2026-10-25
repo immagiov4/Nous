@@ -425,11 +425,21 @@ describe('measured CLI integration', () => {
 });
 
 describe('heavy command admission', () => {
-  test('an idle living holder expires promptly and queued commands retain FIFO order', async () => {
+  test.each([
+    true,
+    false,
+  ])('an idle living holder (record id: %s) expires and preserves FIFO order', async recordId => {
     const path = directory();
     mkdirSync(join(path, 'lock'));
     const idle = join(path, 'lock/manual.json');
-    writeFileSync(idle, JSON.stringify({ pid: process.pid, label: 'manual', id: 'manual.json' }));
+    writeFileSync(
+      idle,
+      JSON.stringify({
+        pid: process.pid,
+        label: 'manual',
+        ...(recordId ? { id: 'manual.json' } : {}),
+      })
+    );
     mkdirSync(join(path, 'queue'));
     writeFileSync(join(path, 'queue/manual.json'), readFileSync(idle));
     const began = Date.now();
