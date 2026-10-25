@@ -149,11 +149,15 @@ describe('lesson playback segmentation', () => {
     }
   });
 
-  test('keeps display delimiters separated by a blank line as prose', () => {
-    const blocks = segmentLessonPlayback([markdownBlock('$$\nx\n\ny\n$$')]);
+  test.each([
+    '\n',
+    '\r\n',
+    '\r',
+  ])('keeps display delimiters separated by a blank line as prose (%j)', newline => {
+    const blocks = segmentLessonPlayback([markdownBlock(['$$', 'x', '', 'y', '$$'].join(newline))]);
     expect(blocks.map(({ speech, visuals }) => ({ speech, visuals }))).toEqual([
-      { speech: '$$\nx', visuals: [] },
-      { speech: 'y\n$$', visuals: [] },
+      { speech: `$$${newline}x`, visuals: [] },
+      { speech: `y${newline}$$`, visuals: [] },
     ]);
   });
 

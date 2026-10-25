@@ -39,11 +39,10 @@ const findDelimitedMathRange = (
 
   while (cursor < content.length) {
     if (!allowNewlines && content[cursor] === '\n') return null;
-    if (
-      (content[cursor] === '\n' || content[cursor] === '\r') &&
-      /^(?:\r\n?|\n)[\t ]*(?:\r\n?|\n)/u.test(content.slice(cursor))
-    )
-      return null;
+    if (content[cursor] === '\n' || content[cursor] === '\r') {
+      const nextLine = cursor + (content.startsWith('\r\n', cursor) ? 2 : 1);
+      if (/^[\t ]*[\r\n]/u.test(content.slice(nextLine))) return null;
+    }
     if (
       content.startsWith(closeDelimiter, cursor) &&
       !isEscapedMarkdownCharacter(content, cursor)
