@@ -1,3 +1,4 @@
+import type { PlaybackQuestionContext } from '@shared/playbackQuestionContext';
 import type { UIMessage } from 'ai';
 import type {
   MouseEvent as ReactMouseEvent,
@@ -35,6 +36,7 @@ import type { SidebarGroup } from '../../../utils/reader/workspaceReader.ts';
 import type { LibraryNavigationTarget } from '../../shared/LibraryToolReferences.tsx';
 
 export interface ContextAnswerState {
+  playbackContext?: PlaybackQuestionContext;
   attachedAnnotationNote?: string;
   attachedAnnotationText?: string;
   contextAfter?: string;
@@ -209,6 +211,7 @@ export interface WorkspaceReaderHeaderModel {
 }
 
 export interface WorkspaceReaderContentModel {
+  projectTitle?: string;
   onSavePlaybackVisual?: WorkspaceReaderOverlaysModel['onSaveArtifactToLesson'];
   onRemovePlaybackVisual?: (
     target: ContextLessonMutationTarget,

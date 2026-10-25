@@ -58,11 +58,6 @@
       "count": 1
     }
   },
-  "apps/backend/src/routes/chatPrompts.ts": {
-    "sonarjs/no-nested-conditional": {
-      "count": 1
-    }
-  },
   "apps/backend/src/routes/libraryChat.ts": {
     "unicorn/consistent-function-scoping": {
       "count": 1
