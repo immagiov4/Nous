@@ -82,7 +82,7 @@ const MESSAGE_LABEL_PADDING = { x: 4, y: 3 } as const;
 const MESSAGE_LABEL_RADIUS = '4';
 
 /** Bound sequence lifelines to their messages and refine arrowheads and label surfaces. */
-const refineSequenceGraphic = (graphic: SVGSVGElement, host: HTMLElement): void => {
+const refineSequenceGraphic = (graphic: SVGSVGElement, surface: string): void => {
   const messages = Array.from(
     graphic.querySelectorAll<SVGGraphicsElement>('.messageLine0, .messageLine1')
   );
@@ -105,7 +105,6 @@ const refineSequenceGraphic = (graphic: SVGSVGElement, host: HTMLElement): void 
     marker.querySelector('path')?.setAttribute('d', OPEN_ARROWHEAD_PATH);
   }
   // A message label needs an opaque surface across its whole text box, including spaces.
-  const surface = getComputedStyle(host).getPropertyValue('--surface').trim();
   for (const text of graphic.querySelectorAll<SVGTextElement>('.messageText')) {
     const box = text.getBBox();
     const background = document.createElementNS(SVG_NAMESPACE, 'rect');
@@ -117,6 +116,59 @@ const refineSequenceGraphic = (graphic: SVGSVGElement, host: HTMLElement): void 
     background.setAttribute('fill', surface);
     text.before(background);
   }
+};
+
+/** Caches the complete scene drawing, including sequence layout, before it becomes visible. */
+const renderSceneDiagram = async ({
+  scene,
+  direction,
+  host,
+  cache,
+  signal,
+}: {
+  scene: SceneContentData;
+  direction: 'LR' | 'TD';
+  host: HTMLElement;
+  cache: MermaidRenderCache | null;
+  signal?: AbortSignal;
+}): Promise<string> => {
+  signal?.throwIfAborted();
+  const code = buildLessonSceneDiagramSource(scene, direction);
+  const configuration = diagramConfiguration(host);
+  const surfaceColor = configuration.themeVariables.secondaryColor;
+  const key = JSON.stringify(['scene', code, configuration]);
+  let drawing = cache?.get(key);
+  if (!drawing) {
+    drawing = renderConfiguredMermaid({ code, configuration, cache }).then(svg => {
+      if (scene.type !== 'sequence') return svg;
+      const surface = document.createElement('div');
+      Object.assign(surface.style, {
+        position: 'absolute',
+        visibility: 'hidden',
+        fontFamily: configuration.fontFamily,
+        fontSize: configuration.themeVariables.fontSize,
+      });
+      surface.innerHTML = svg;
+      // Shared preparation must retain SVG layout even if its first view is retired.
+      document.body.append(surface);
+      try {
+        const graphic = surface.querySelector('svg');
+        if (!graphic) throw new Error('A scene drawing must contain an SVG.');
+        refineSequenceGraphic(graphic, surfaceColor);
+        return graphic.outerHTML;
+      } finally {
+        surface.remove();
+      }
+    });
+    cache?.set(key, drawing);
+    const request = drawing;
+    void drawing.catch(() => {
+      if (cache?.get(key) === request) cache.delete(key);
+    });
+  }
+  const svg = await drawing;
+  signal?.throwIfAborted();
+  return svg;
 };
 
 /** Prepares both responsive layouts while narration is paused, using the scene's own theme. */
@@ -139,29 +191,24 @@ export async function prepareSceneDiagrams({
   parent.append(scope);
   try {
     const configuration = diagramConfiguration(scope);
-    const codes = new Set(
-      scenes.flatMap(scene =>
-        (['LR', 'TD'] as const).map(direction => buildLessonSceneDiagramSource(scene, direction))
-      )
+    const codes = scenes.flatMap(scene =>
+      (['LR', 'TD'] as const).map(direction => buildLessonSceneDiagramSource(scene, direction))
     );
     await document.fonts.load(
       `${configuration.themeVariables.fontSize} ${configuration.fontFamily}`,
       [...codes].join(' ')
     );
-    for (const code of codes) {
-      signal.throwIfAborted();
-      try {
-        await renderConfiguredMermaid({
-          code,
-          configuration,
-          cache,
-        });
+    for (const scene of scenes)
+      for (const direction of ['LR', 'TD'] as const) {
         signal.throwIfAborted();
-      } catch (error) {
-        signal.throwIfAborted();
-        console.error('Lesson scene diagram preparation failed.', error);
+        try {
+          await renderSceneDiagram({ scene, direction, host: scope, cache, signal });
+          signal.throwIfAborted();
+        } catch (error) {
+          signal.throwIfAborted();
+          console.error('Lesson scene diagram preparation failed.', error);
+        }
       }
-    }
   } finally {
     scope.remove();
   }
@@ -200,12 +247,7 @@ export const SceneDiagram = ({
       request?.abort();
       const current = new AbortController();
       request = current;
-      renderConfiguredMermaid({
-        code: buildLessonSceneDiagramSource(scene, direction),
-        configuration: diagramConfiguration(host),
-        cache,
-        signal: current.signal,
-      })
+      renderSceneDiagram({ scene, direction, host, cache, signal: current.signal })
         .then(svg => {
           if (disposed || renderedKey !== key) return;
           host.innerHTML = svg;
@@ -216,7 +258,6 @@ export const SceneDiagram = ({
           // Wide diagrams scale down to the scene width instead of overflowing it.
           graphic.style.maxWidth = '100%';
           graphic.style.width = `${graphic.viewBox.baseVal.width}px`;
-          if (scene.type === 'sequence') refineSequenceGraphic(graphic, host);
           setStatus('ready');
         })
         .catch(error => {
