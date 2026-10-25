@@ -27,7 +27,7 @@ export const prepareLessonPlaybackVisual = async (target: {
     throw new Error('Playback visual source changed.');
   const key = JSON.stringify([target.projectId, target.sectionId, playback.lessonKey, block.id]);
   const existing = pending.get(key);
-  if (existing) return existing;
+  if (existing !== undefined) return existing;
   const prepare = async () => {
     const request = {
       projectId: target.projectId,

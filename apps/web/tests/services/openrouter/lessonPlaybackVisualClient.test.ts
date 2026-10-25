@@ -94,6 +94,32 @@ test('continues its visual request after a joined audio failure releases the run
   expect(prepare).toHaveBeenCalledTimes(2);
 });
 
+test('shares a pending failure and releases the entry for a later preparation', async () => {
+  let failPreparation!: (error: Error) => void;
+  const pendingPreparation = new Promise<never>((_resolve, reject) => {
+    failPreparation = reject;
+  });
+  prepare.mockReturnValueOnce(pendingPreparation).mockResolvedValueOnce({
+    block: { ...block, prepared },
+    voice: 'Zephyr',
+    model: 'stored-model',
+  });
+  const sharedResults = Promise.allSettled([
+    prepareLessonPlaybackVisual(target),
+    prepareLessonPlaybackVisual(target),
+  ]);
+  await vi.waitFor(() => expect(prepare).toHaveBeenCalledOnce());
+  const failure = new Error('Visual preparation failed');
+  failPreparation(failure);
+  expect(await sharedResults).toEqual([
+    { status: 'rejected', reason: failure },
+    { status: 'rejected', reason: failure },
+  ]);
+  expect(prepare).toHaveBeenCalledOnce();
+  await expect(prepareLessonPlaybackVisual(target)).resolves.toEqual(prepared);
+  expect(prepare).toHaveBeenCalledTimes(2);
+});
+
 test.each([
   true,
   undefined,
