@@ -139,6 +139,32 @@ function activeAudio() {
   expect(audio.paused).toBe(false);
   return audio;
 }
+
+test('continues audio preparation after a joined optional visual releases its run', async () => {
+  vi.mocked(prepareLessonPlayback).mockResolvedValueOnce({
+    runId: 'visual-run',
+    blockId: '0',
+    voice: 'Kore',
+    created: false,
+    visualOnly: true,
+  });
+  const { result } = renderHook(() => useLessonPlayback(target));
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(audio.start).toHaveBeenCalledOnce());
+  expect(waitForLessonPlayback).toHaveBeenCalledWith(
+    'visual-run',
+    target.projectId,
+    expect.any(AbortSignal),
+    true
+  );
+  expect(
+    vi.mocked(prepareLessonPlayback).mock.calls.filter(([input]) => input.blockId === '0')
+  ).toHaveLength(2);
+  expect(result.current.failed).toBe(false);
+  expect(cancelLessonPlaybackPreparation).not.toHaveBeenCalled();
+});
 function pendingUntilAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
     const abort = () => reject(signal?.reason);

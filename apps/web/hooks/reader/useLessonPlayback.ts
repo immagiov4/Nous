@@ -111,6 +111,7 @@ async function waitForPreparation({
   projectId,
   signal,
   created,
+  visualOnly,
   cancellations,
   key,
 }: {
@@ -118,6 +119,7 @@ async function waitForPreparation({
   projectId: string;
   signal: AbortSignal;
   created?: boolean;
+  visualOnly?: boolean;
   cancellations: Map<string, Promise<void>>;
   key: string;
 }) {
@@ -127,7 +129,7 @@ async function waitForPreparation({
   };
   if (created) signal.addEventListener('abort', cancel, { once: true });
   try {
-    await waitForLessonPlayback(runId, projectId, signal);
+    await waitForLessonPlayback(runId, projectId, signal, visualOnly);
   } finally {
     signal.removeEventListener('abort', cancel);
   }
@@ -368,6 +370,7 @@ export function useLessonPlayback({
           await waitForPreparation({
             runId: result.runId,
             created: result.created,
+            visualOnly: result.visualOnly,
             projectId,
             signal,
             cancellations: playbackCancellations,

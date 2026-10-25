@@ -11,6 +11,20 @@ import { playbackProject, playbackSection, preparedPlayback } from '../helpers/l
 const url = '/api/projects/project-1/sections/section-1/playback';
 const registry = createProductionRegistry();
 
+test('identifies a joined visual run from its saved input when audio is requested', async () => {
+  const { app, section, createRun } = setup();
+  createRun.mockImplementationOnce(async input => ({
+    created: false,
+    run: { ...input, input: { ...input.input, visualOnly: true }, status: 'queued' },
+  }));
+  const response = await request(app)
+    .post(`${url}/blocks/0/prepare`)
+    .send({ lessonKey: preparedPlayback(section).lessonKey, voice: 'Kore' });
+  expect(response.status).toBe(202);
+  expect(response.body).toMatchObject({ created: false, visualOnly: true });
+  expect(createRun.mock.calls[0][0].input.visualOnly).toBeUndefined();
+});
+
 test.each([
   'quote',
   'missing',

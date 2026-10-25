@@ -26,7 +26,7 @@ interface PlaybackTarget {
 }
 export type PlaybackPreparationResult =
   | { block: LessonPlaybackBlock; voice: string; model: string }
-  | { runId: string; blockId: string; voice: string; created: boolean };
+  | { runId: string; blockId: string; voice: string; created: boolean; visualOnly?: boolean };
 export interface LessonPlaybackApi {
   get(
     target: PlaybackTarget
@@ -122,7 +122,13 @@ export const createLessonPlaybackApi = (dependencies: {
         publishTransientEvent: dependencies.publishTransientEvent,
       });
       const active = LessonPlaybackPreparationInputSchema.parse(run.input);
-      return { runId: run.id, blockId: active.blockId, voice: active.voice, created };
+      return {
+        runId: run.id,
+        blockId: active.blockId,
+        voice: active.voice,
+        created,
+        ...(active.visualOnly ? { visualOnly: true } : {}),
+      };
     },
   };
 };

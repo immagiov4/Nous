@@ -95,7 +95,8 @@ export const subscribeToPlaybackChanges = (projectId: string, notify: () => void
 export const waitForLessonPlayback = async (
   runId: string,
   projectId: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  optionalVisual = false
 ) => {
   let changed = false;
   let wake: (() => void) | undefined;
@@ -144,7 +145,8 @@ export const waitForLessonPlayback = async (
         (!['queued', 'running', 'waiting'].includes(state.status) &&
           !['pending', 'running'].includes(state.cleanupStatus)),
     });
-    if (run.status !== 'completed') throw new Error(PLAYBACK_ERROR);
+    // A joined optional visual cannot prevent the caller from preparing its requested audio.
+    if (run.status !== 'completed' && !optionalVisual) throw new Error(PLAYBACK_ERROR);
   } finally {
     stop();
   }
