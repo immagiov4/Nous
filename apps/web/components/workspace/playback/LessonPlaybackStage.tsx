@@ -27,6 +27,8 @@ import {
   useRef,
   useState,
 } from 'react';
+import remarkParse from 'remark-parse';
+import { unified } from 'unified';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
@@ -110,6 +112,42 @@ function drawCaptionWord(
     run.readOpacity = readOpacity;
   }
   return local >= 0 && local <= run.width;
+}
+
+const passageParser = unified().use(remarkParse);
+
+interface PassageMarkdownNode {
+  readonly type: string;
+  readonly position?: { start: { offset?: number }; end: { offset?: number } };
+  readonly children?: readonly PassageMarkdownNode[];
+}
+
+function headingPositions(node: PassageMarkdownNode): PassageMarkdownNode['position'][] {
+  return [
+    ...(node.type === 'heading' ? [node.position] : []),
+    ...(node.children?.flatMap(headingPositions) ?? []),
+  ];
+}
+
+function passageBody(block: LessonPlaybackBlock, sources: readonly PlaybackContentBlock[]) {
+  const headings = sources.map(source =>
+    source.type === 'markdown' ? headingPositions(passageParser.parse(source.markdown)) : []
+  );
+  const body = block.spans.find(
+    span =>
+      block.speech.slice(span.speech.start, span.speech.end).trim() &&
+      !headings[span.sourceBlockIndex].some(position => {
+        const start = position?.start.offset;
+        const end = position?.end.offset;
+        return (
+          start !== undefined &&
+          end !== undefined &&
+          span.source.start >= start &&
+          span.source.start < end
+        );
+      })
+  );
+  return block.speech.slice(body?.speech.start ?? 0);
 }
 
 function hasMissingMotionTargets(
@@ -698,7 +736,10 @@ function PlaybackPassage({
     if (block.prepared?.scene) return [{ kind: 'scene' as const, scene: block.prepared.scene }];
     if (formulas) return [{ kind: 'markdown' as const, markdown: formulas }];
     return [
-      { kind: 'scene' as const, scene: createPassageFallbackScene(block.speech, block.heading) },
+      {
+        kind: 'scene' as const,
+        scene: createPassageFallbackScene(passageBody(block, sources), block.heading),
+      },
     ];
   }, [
     block,
