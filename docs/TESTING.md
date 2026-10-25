@@ -28,11 +28,15 @@ Changed-file checks run without the shared heavy-run lock. CI owns full quality,
 
 `heavy-run` admits commands in FIFO order, with four slots by default and optional `--weight` and `HEAVY_RUN_SLOTS`. Every entry records its label, PID, command, queue time, command start and last activity. `bun scripts/heavy-run.mjs status` lists held and waiting entries; `bun scripts/heavy-run.mjs release <id>` cancels a waiting entry or stops a running command tree before freeing its slots. Pass credentials through the environment rather than command arguments.
 
+Release verifies the worker's OS creation identity before signaling and waits until every process in its group has ceased work. Terminated processes awaiting OS reaping do not hold capacity. Older running records without a verifiable creation identity retain capacity until their command exits. Identity capture follows IPC admission, so it does not delay the heavy command's launch.
+
 Only command execution acquires a lease; manual reservations are unsupported. Prepare files and wait for external signals before invoking the wrapper. Nested wrappers reuse the inherited lease instead of waiting for another slot. An inherited holder that clears `HEAVY_RUN_HELD` receives an error while its lease is active.
 
 A holder without a living command expires after two seconds without activity; admission checks run every second. A registered worker awaiting its supervisor's admission also expires after two seconds. A dead holder or recorded command is reclaimed on the next check. A surviving command keeps its capacity even if its supervisor dies, until the command exits. Running commands renew activity every 30 seconds and retain their lease throughout silent gates and browser work. Waiting tickets retain the existing ten-minute heartbeat expiry.
 
 The idle window covers command startup, not output gaps or total execution time. On Windows with Bun 1.4.0, one real caption-row suite registered its child in 52.9 ms and passed 24 Chromium and 24 Firefox cases (115.6 s and 218.5 s); two real `gate:ci` runs registered in 55–66 ms. These uncontended queue-to-registration measurements include record creation and worker spawn. The two-second window rounds the observed maximum up to the one-second admission interval and adds one admission interval. The passing gate retained its lease for 548 seconds with 18 activity renewals, including silent stages.
+
+Four concurrent real layout-browser proofs at the default four-slot capacity also pass. With Node 26.4.0 on Windows, publication-to-worker registration takes 35–39 ms across those four runs; FIFO waiting time is measured separately. These measurements calibrate the supported workload rather than promise a worst-case bound under arbitrary OS starvation. A supervisor that neither registers a command nor renews activity within the idle window loses its lease.
 
 ## CI and merge readiness
 

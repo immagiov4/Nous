@@ -49,6 +49,10 @@ export async function probePackageScripts(commands: string[]): Promise<string[]>
     await mkdir(join(directory, 'scripts'));
     await writeFile(join(directory, 'package.json'), JSON.stringify({ type: 'module', scripts }));
     await copyFile(resolve('scripts/heavy-run.mjs'), join(directory, 'scripts/heavy-run.mjs'));
+    await copyFile(
+      resolve('scripts/heavy-run-process.mjs'),
+      join(directory, 'scripts/heavy-run-process.mjs')
+    );
     const probe = `console.log(JSON.stringify(process.argv.slice(2)));`;
     await writeFile(join(directory, 'scripts/probe.mjs'), probe);
     await writeFile(join(directory, 'scripts/run-workflow-postgres-contract.ts'), probe);

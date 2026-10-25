@@ -16,6 +16,7 @@ import { delimiter, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { main, runCommand, workerCommand } from './heavy-run.mjs';
+import { processIdentity, processRunning } from './heavy-run-process.mjs';
 
 const wrapper = resolve('scripts/heavy-run.mjs');
 const runtime = process.execPath;
@@ -493,7 +494,7 @@ describe('heavy command admission', () => {
     await delay(3_000);
     expect(existsSync(next)).toBe(false);
     expect(await main(['release', id])).toBe(0);
-    expect(() => process.kill(Number(readFileSync(ready, 'utf8')), 0)).toThrow();
+    expect(processRunning(Number(readFileSync(ready, 'utf8')))).toBe(false);
     expect((await first()).code).not.toBe(0);
     expect((await second()).code).toBe(0);
     expect(existsSync(next)).toBe(true);
@@ -521,6 +522,78 @@ describe('heavy command admission', () => {
       main(['--label', 'nested', '--', runtime, '-e', 'process.exit(99)'])
     ).rejects.toThrow('reuse HEAVY_RUN_HELD');
     expect(readdirSync(join(path, 'queue'))).toEqual([]);
+  });
+
+  test.each([
+    'release',
+    'recovery',
+  ])('PID reuse never signals an unrelated process during %s', async action => {
+    const path = directory();
+    localEnvironment(path);
+    const ready = join(path, 'unrelated');
+    start(
+      path,
+      'independent',
+      [
+        runtime,
+        '-e',
+        `require('node:fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1000)`,
+        ready,
+      ],
+      { environment: { CI: 'true' } }
+    );
+    await until(() => existsSync(ready));
+    const pid = Number(readFileSync(ready, 'utf8'));
+    const identity = processIdentity(pid);
+    if (process.platform === 'win32') expect(processIdentity(pid, 0)).toBeNull();
+    mkdirSync(join(path, 'lock'));
+    const lock = join(path, 'lock/running-reused.json');
+    writeFileSync(
+      lock,
+      `${JSON.stringify({ pid: process.pid, label: 'old', id: 'reused.json' })}\n${pid}\n${Date.now()}\n${JSON.stringify(`${identity}-previous-process`)}`
+    );
+    utimesSync(lock, new Date(0), new Date(0));
+    if (action === 'release') expect(await main(['release', 'reused.json'])).toBe(0);
+    else expect(await main(['--label', 'next', '--', runtime, '-e', 'process.exit(0)'])).toBe(0);
+    expect(processRunning(pid)).toBe(true);
+    expect(processIdentity(pid)).toBe(identity);
+    expect(existsSync(lock)).toBe(false);
+  });
+
+  test('release retains a live legacy command when its OS identity is unavailable', async () => {
+    const path = directory();
+    localEnvironment(path);
+    const ready = join(path, 'legacy-pid');
+    const release = join(path, 'legacy-complete');
+    barriers.push(release);
+    const first = output(
+      start(
+        path,
+        'legacy',
+        [
+          runtime,
+          '-e',
+          `const fs=require('node:fs');fs.writeFileSync(process.argv[1],String(process.pid));const timer=setInterval(()=>{if(fs.existsSync(process.argv[2]))clearInterval(timer)},20)`,
+          ready,
+          release,
+        ],
+        { environment: { CI: 'true' } }
+      )
+    );
+    await until(() => existsSync(ready));
+    const pid = Number(readFileSync(ready, 'utf8'));
+    mkdirSync(join(path, 'lock'));
+    writeFileSync(
+      join(path, 'lock/running-legacy.json'),
+      `${JSON.stringify({ pid: process.pid, id: 'legacy.json', label: 'legacy' })}\n${pid}\n${Date.now()}`
+    );
+    await expect(main(['release', 'legacy.json'])).rejects.toThrow('identity is unavailable');
+    expect(processRunning(pid)).toBe(true);
+    expect(readdirSync(join(path, 'lock'))).toEqual(['releasing-legacy.json']);
+    writeFileSync(release, '');
+    expect((await first()).code).toBe(0);
+    expect(await main(['release', 'legacy.json'])).toBe(0);
+    expect(existsSync(join(path, 'lock'))).toBe(false);
   });
 
   test('a recently renewed holder with an exited command releases immediately', async () => {

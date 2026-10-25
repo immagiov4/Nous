@@ -18,6 +18,12 @@ import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { setInterval as ticks } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import {
+  processIdentity,
+  processRunning,
+  processTreeRunning,
+  stopChild,
+} from './heavy-run-process.mjs';
 
 const DEFAULT_SLOTS = 4;
 const HEARTBEAT_MS = 30_000;
@@ -39,6 +45,14 @@ function pidAlive(pid) {
   }
 }
 
+function registeredCommandAlive(owner, releasing, verifyIdentity) {
+  if (!owner?.childPid) return false;
+  if (releasing) return processTreeRunning(owner.childPid);
+  if (!processRunning(owner.childPid)) return false;
+  if (!owner.childIdentity || !verifyIdentity) return true;
+  return processIdentity(owner.childPid) === owner.childIdentity;
+}
+
 function readEntry(path, staleMs, held = false) {
   try {
     const stat = statSync(path);
@@ -46,20 +60,23 @@ function readEntry(path, staleMs, held = false) {
     // An O_EXCL creator may still be writing its record. Its file reserves its place.
     let owner = null;
     try {
-      const [record, childPid, startedAt] = content.split('\n');
+      const [record, childPid, startedAt, childIdentity] = content.split('\n');
       owner = record
         ? {
             ...JSON.parse(record),
             childPid: Number(childPid) || undefined,
             startedAt: Number(startedAt) || undefined,
+            childIdentity: childIdentity ? JSON.parse(childIdentity) : undefined,
           }
         : null;
     } catch (error) {
       if (!(error instanceof SyntaxError)) throw error;
     }
-    const childAlive = owner?.childPid && pidAlive(owner.childPid);
     const expired = Date.now() - stat.mtimeMs > (held ? IDLE_MS : staleMs);
     const ownerGone = owner && !pidAlive(owner.pid);
+    const heartbeatExpired = Date.now() - stat.mtimeMs > staleMs;
+    const releasing = held && basename(path).startsWith('releasing-');
+    const childAlive = registeredCommandAlive(owner, releasing, ownerGone || heartbeatExpired);
     return {
       path,
       owner,
@@ -179,36 +196,6 @@ function claimLock(prepared, lock, ticket) {
   }
 }
 
-async function stopChild(child, ownedGroupPid = process.env.HEAVY_RUN_GROUP_PID || child?.pid) {
-  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
-  if (process.platform === 'win32') {
-    const code = await new Promise((resolve, reject) => {
-      const killer = spawn(
-        join(process.env.SystemRoot, 'System32', 'taskkill.exe'),
-        ['/pid', String(child.pid), '/T', '/F'],
-        {
-          windowsHide: true,
-          stdio: 'ignore',
-        }
-      );
-      killer.once('error', reject);
-      killer.once('exit', resolve);
-    });
-    if (code !== 0 && pidAlive(child.pid))
-      throw new Error('Failed to stop the lease command tree.');
-  } else {
-    try {
-      // Interruption must stop every owned group member, including tools that ignore SIGTERM.
-      const groupPid = Number(ownedGroupPid);
-      if (!Number.isInteger(groupPid) || groupPid <= 0)
-        throw new Error('Invalid heavy-run process group.');
-      process.kill(-groupPid, 'SIGKILL');
-    } catch (error) {
-      if (error.code !== 'ESRCH') throw error;
-    }
-  }
-}
-
 export async function runCommand(command, environment, abort, onSpawn) {
   const detached = process.platform !== 'win32' && !process.env.HEAVY_RUN_GROUP_PID;
   // The POSIX launcher records its own group before exec, preserving one group across nested wrappers.
@@ -280,7 +267,8 @@ export async function workerCommand(args, channel = process) {
 }
 
 function activateLock(lock, ticket, childPid) {
-  writeFileSync(ticket.fd, `\n${childPid}\n${Date.now()}`);
+  ticket.startedAt = Date.now();
+  writeFileSync(ticket.fd, `\n${childPid}\n${ticket.startedAt}`);
   const running = `running-${ticket.owner.id}`;
   try {
     renameSync(join(lock, ticket.owner.id), join(lock, running));
@@ -371,6 +359,8 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
   const ticket = createTicket(queue, label, weight, command);
   const prepared = join(directory, 'claims', ticket.owner.id);
   let ownerFile = ticket.owner.id;
+  let identityCapture = Promise.resolve();
+  let identityError;
   const heartbeat = setInterval(() => {
     const now = new Date();
     futimesSync(ticket.fd, now, now);
@@ -386,15 +376,27 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
     if (!claimed) return 130;
     process.stdout.write(`heavy-run: running ${label}\n`);
     const worker = [process.execPath, SCRIPT_PATH, '--worker', '--', ...command];
-    return await runCommand(
+    const code = await runCommand(
       worker,
       { ...process.env, HEAVY_RUN_HELD: '1', HEAVY_RUN_LEASE: ticket.owner.id },
       abort,
       pid => {
         // The worker waits for IPC permission until activation has won against stale recovery.
         ownerFile = activateLock(lock, ticket, pid);
+        // IPC admission is sent synchronously before this microtask inspects the OS.
+        identityCapture = Promise.resolve()
+          .then(() => {
+            writeFileSync(ticket.fd, `\n${JSON.stringify(processIdentity(pid, ticket.startedAt))}`);
+          })
+          .catch(error => {
+            identityError = error;
+            abort.abort('SIGTERM');
+          });
       }
     );
+    await identityCapture;
+    if (identityError) throw identityError;
+    return code;
   } finally {
     clearInterval(heartbeat);
     removeLock(lock, ownerFile);
@@ -435,6 +437,19 @@ function showDetails(entry) {
   );
 }
 
+async function stopRegisteredCommand(owner) {
+  if (!owner?.childPid) return;
+  if (!processRunning(owner.childPid)) {
+    if (processTreeRunning(owner.childPid))
+      throw new Error('Lease group has no verifiable leader; capacity is retained.');
+    return;
+  }
+  if (!owner.childIdentity)
+    throw new Error('Lease process identity is unavailable; capacity is retained.');
+  if (processIdentity(owner.childPid) === owner.childIdentity)
+    await stopChild({ pid: owner.childPid, exitCode: null, signalCode: null }, owner.childPid);
+}
+
 async function releaseLease(directory, id, staleMs) {
   let removed = removeTicket(join(directory, 'queue'), id);
   const lock = join(directory, 'lock');
@@ -452,8 +467,7 @@ async function releaseLease(directory, id, staleMs) {
       throw error;
     }
     const owner = readEntry(join(lock, retired), staleMs)?.owner;
-    if (owner?.childPid)
-      await stopChild({ pid: owner.childPid, exitCode: null, signalCode: null }, owner.childPid);
+    await stopRegisteredCommand(owner);
     removeLock(lock, retired);
     removed = true;
     break;
