@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import type { LessonPlaybackBlock } from '@shared/lessonPlayback';
+import type { LessonPlaybackBlock, PlaybackContentBlock } from '@shared/lessonPlayback';
 import { isRetiredLessonScene } from '@shared/lessonScene';
+import { hasPreparedVisualSections } from '@shared/playbackVisualSections';
 
-import { readLessonPlayback } from '../projects/lessonPlayback.js';
+import { lessonPlaybackContent, readLessonPlayback } from '../projects/lessonPlayback.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
 import type { ProjectStore } from '../projects/types.js';
 import { ttsClient } from '../services/ttsClient.js';
@@ -24,9 +25,17 @@ interface PlaybackTarget {
   projectId: string;
   sectionId: string;
 }
+type RecordedPlaybackResult = { block: LessonPlaybackBlock; voice: string; model: string };
 export type PlaybackPreparationResult =
-  | { block: LessonPlaybackBlock; voice: string; model: string }
-  | { runId: string; blockId: string; voice: string; created: boolean; visualOnly?: boolean };
+  | RecordedPlaybackResult
+  | {
+      runId: string;
+      blockId: string;
+      voice: string;
+      created: boolean;
+      recorded?: RecordedPlaybackResult;
+      visualOnly?: boolean;
+    };
 export interface LessonPlaybackApi {
   get(
     target: PlaybackTarget
@@ -50,6 +59,16 @@ export const isPlaybackBlockReady = (
     block.prepared && block.audio.some(audio => audio.voice === voice && audio.model === model)
   );
 
+export const isPlaybackVisualReady = (
+  block: LessonPlaybackBlock,
+  sources: readonly PlaybackContentBlock[]
+): boolean =>
+  Boolean(
+    block.prepared?.scene &&
+      !isRetiredLessonScene(block.prepared.scene) &&
+      hasPreparedVisualSections(block, sources)
+  );
+
 export const createLessonPlaybackApi = (dependencies: {
   projectReader: Pick<ProjectStore, 'loadProjectWithRevision'>;
   resolveTtsModel: () => Promise<string>;
@@ -68,7 +87,11 @@ export const createLessonPlaybackApi = (dependencies: {
     );
     const section = project && findProjectLessonSection(project.snapshot, target.sectionId);
     if (!project || !section) throw new LessonPlaybackTargetError();
-    return { project, playback: readLessonPlayback(section) };
+    return {
+      project,
+      sources: lessonPlaybackContent(section),
+      playback: readLessonPlayback(section),
+    };
   };
   return {
     get: async target => {
@@ -79,7 +102,7 @@ export const createLessonPlaybackApi = (dependencies: {
       if (!ttsClient.getVoiceProfiles().some(profile => profile.id === input.voice)) {
         throw new LessonPlaybackVoiceError();
       }
-      const { project, playback } = await load(input);
+      const { project, playback, sources } = await load(input);
       if (playback.lessonKey !== input.lessonKey) throw new LessonPlaybackStaleError();
       const block = playback.blocks.find(candidate => candidate.id === input.blockId);
       if (!block) throw new LessonPlaybackTargetError();
@@ -87,7 +110,7 @@ export const createLessonPlaybackApi = (dependencies: {
       const voice = ttsClient.resolveVoice(model, input.voice);
       if (
         input.visualOnly
-          ? block.prepared?.scene && !isRetiredLessonScene(block.prepared.scene)
+          ? isPlaybackVisualReady(block, sources)
           : isPlaybackBlockReady(block, voice, model)
       ) {
         // Playback receives the saved audio immediately; alignment has its own durable run.
@@ -127,6 +150,9 @@ export const createLessonPlaybackApi = (dependencies: {
         blockId: active.blockId,
         voice: active.voice,
         created,
+        ...(block.audio.some(audio => audio.voice === voice && audio.model === model)
+          ? { recorded: { block, voice, model } }
+          : {}),
         ...(active.visualOnly ? { visualOnly: true } : {}),
       };
     },

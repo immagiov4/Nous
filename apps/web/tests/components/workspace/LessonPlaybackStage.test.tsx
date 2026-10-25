@@ -6,6 +6,7 @@ import {
 } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
 import type { PlaybackQuestionContext } from '@shared/playbackQuestionContext';
+import { playbackVisualSections } from '@shared/playbackVisualSections';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createRef, useLayoutEffect } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
@@ -467,6 +468,169 @@ beforeEach(() => {
       disconnect = disconnectScene;
     }
   );
+});
+
+test.each([
+  false,
+  true,
+])('replaces a summary and follows all five heard ranges (on demand: %s)', async onDemand => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        'Prima sintesi.\n1. Primo punto.\n2. Secondo punto.\n3. Terzo punto.\n4. Quarto punto.\n5. Quinto punto.',
+    },
+  ];
+  const [intro, list] = segmentLessonPlayback(sources);
+  const offset = intro.speech.length + 1;
+  const block = {
+    ...intro,
+    speech: `${intro.speech}\n${list.speech}`,
+    spans: [
+      ...intro.spans,
+      ...list.spans.map(span => ({
+        ...span,
+        speech: { start: span.speech.start + offset, end: span.speech.end + offset },
+      })),
+    ],
+  };
+  const summary: LessonScene = {
+    type: 'parts',
+    title: 'Sintesi precedente',
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: [{ label: 'Sintesi', detail: '', icon: '' }],
+  };
+  const listScene: LessonScene = {
+    ...summary,
+    title: 'Cinque decisioni',
+    items: ['Primo', 'Secondo', 'Terzo', 'Quarto', 'Quinto'].map(label => ({
+      label,
+      detail: '',
+      icon: '',
+    })),
+  };
+  const sections = playbackVisualSections(block, sources).map(section => ({
+    ...section,
+    scene: section.items ? listScene : summary,
+  }));
+  vi.mocked(prepareLessonPlaybackVisual).mockResolvedValueOnce({
+    scene: summary,
+    motion: [],
+    sections,
+  });
+  let heard = 1.5;
+  const { container } = render(
+    <LessonPlaybackStage
+      block={{
+        ...block,
+        visuals: [{ kind: 'scene', scene: summary }],
+        prepared: { scene: summary, motion: [], ...(onDemand ? {} : { sections }) },
+      }}
+      content={
+        {
+          isDarkMode: false,
+          sectionContentBlocks: sources,
+          ...(onDemand ? { projectId: 'project', activeSectionId: 'section' } : {}),
+        } as WorkspaceReaderContentModel
+      }
+      duration={37}
+      alignment={{ status: 'aligned', onsets: [0, 1, 2, 3, 9, 10, 16, 17, 23, 24, 30, 31] }}
+      time={0}
+      readTime={() => heard}
+    />
+  );
+  if (onDemand) {
+    expect(container.querySelector('.scene-host h2')).toBeNull();
+    await waitFor(() =>
+      expect(container.querySelector('.scene-host h2')?.textContent).toBe('Sintesi precedente')
+    );
+    expect(prepareLessonPlaybackVisual).toHaveBeenCalledOnce();
+  }
+  const flush = () => {
+    for (let step = 0; step < 4; step++)
+      act(() => {
+        const pending = [...frames.values()];
+        frames.clear();
+        for (const callback of pending) callback(0);
+      });
+  };
+  flush();
+  expect(container.querySelector('.scene-host h2')?.textContent).toBe('Sintesi precedente');
+  for (let index = 0; index < 5; index++) {
+    heard = 2 + index * 7 + 0.1;
+    flush();
+    expect(container.querySelector('.scene-host h2')?.textContent).toBe('Cinque decisioni');
+    expect(
+      container.querySelector(`[data-motion-id="item:${index}"]`)?.getAttribute('style')
+    ).toContain('--motion-emphasis: 1');
+    expect(container.querySelector('.scene-host')?.textContent).not.toContain('Sintesi precedente');
+    heard += 5;
+    flush();
+    expect(
+      container.querySelector(`[data-motion-id="item:${index}"]`)?.getAttribute('style')
+    ).toContain('--motion-emphasis: 1');
+  }
+  heard = 2.1;
+  flush();
+  expect(container.querySelector('[data-motion-id="item:0"]')?.getAttribute('style')).toContain(
+    '--motion-emphasis: 1'
+  );
+});
+
+test('keeps authored mathematics beside a prepared list visual', () => {
+  const questionContextRef = createRef<(() => PlaybackQuestionContext) | null>();
+  const sources = [
+    { type: 'markdown' as const, markdown: '1. Il valore è $x=2$.\n2. Confronta il risultato.' },
+  ];
+  const projected = segmentLessonPlayback(sources)[0];
+  const scene: LessonScene = {
+    type: 'parts',
+    title: 'Due passi',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [
+      { label: 'Valore', detail: '', icon: '' },
+      { label: 'Confronto', detail: '', icon: '' },
+    ],
+  };
+  const block = {
+    ...projected,
+    prepared: { spokenMath: [{ formula: '$x=2$', spoken: 'ics uguale due' }], motion: [] },
+  };
+  const sections = playbackVisualSections(block, sources).map(section => ({ ...section, scene }));
+  const { container } = render(
+    <LessonPlaybackStage
+      block={{ ...block, prepared: { ...block.prepared, scene, sections } }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={10}
+      time={0}
+      questionContextRef={questionContextRef}
+    />
+  );
+  expect(container.querySelector('.scene-host .katex annotation')?.textContent?.trim()).toBe('x=2');
+  expect(container.querySelector('.scene-host h2')?.textContent).toBe('Due passi');
+  expect(questionContextRef.current?.().visual).toMatchObject({
+    formula: '$$\nx=2\n$$',
+    scene: { type: 'parts', title: 'Due passi' },
+  });
 });
 
 test('saves the source at the live voice clock rather than the last caption render', async () => {
@@ -2337,4 +2501,59 @@ test('renders LaTeX notation authored as inline code in captions while retaining
   const word = captionFormat(sources[0].markdown).words.find(word => word.text === notation);
   expect(word).toBeDefined();
   expect(sources[0].markdown.slice(word?.source.start, word?.source.end)).toBe(notation);
+});
+
+test.each([
+  {
+    markdown: '```typescript\nconst answer = 42;\n```',
+    selector: 'pre code',
+    text: 'const answer = 42;',
+  },
+  {
+    markdown: '| Decision | Value |\n| --- | --- |\n| Backup | Daily |',
+    selector: 'table',
+    text: 'Daily',
+  },
+])('keeps authored $selector beside a prepared list', ({ markdown, selector, text }) => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: `1. First decision.\n2. Second decision.\n\n${markdown}`,
+    },
+  ];
+  const block = segmentLessonPlayback(sources)[0];
+  const scene: LessonScene = {
+    ...controllerScene,
+    type: 'parts',
+    title: 'Two decisions',
+    items: controllerScene.items.slice(0, 2),
+  };
+  const sections = playbackVisualSections(block, sources).map(section => ({ ...section, scene }));
+  const { container } = render(
+    <LessonPlaybackStage
+      block={{ ...block, prepared: { motion: [], scene, sections } }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={10}
+      time={0}
+    />
+  );
+  expect(container.querySelector('.scene-host h2')?.textContent).toBe('Two decisions');
+  expect(container.querySelector(`.scene-host ${selector}`)?.textContent).toContain(text);
+});
+
+test('leaves the list panel empty while a saved summary lacks its list preparation', () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: '1. First decision.\n2. Second decision.' },
+  ];
+  const block = segmentLessonPlayback(sources)[0];
+  const { container } = render(
+    <LessonPlaybackStage
+      block={{ ...block, prepared: { scene: controllerScene, motion: [] } }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={10}
+      time={5}
+    />
+  );
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain(controllerScene.title);
+  expect(container.querySelector('.scene-host blockquote')).toBeNull();
 });

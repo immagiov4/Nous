@@ -1128,12 +1128,17 @@ test('prepares authored and stored playback diagrams once before narration, incl
     },
   });
   const prepared = scene('Prepared');
+  const structural = scene('Structural');
   const authored = scene('Authored');
   const stored = scene('Stored');
   const richBlocks: readonly LessonPlaybackBlock[] = [
     {
       ...blocks[0],
-      prepared: { scene: prepared, motion: [] },
+      prepared: {
+        scene: prepared,
+        motion: [],
+        sections: [{ range: { start: 0, end: blocks[0].speech.length }, scene: structural }],
+      },
       visuals: [
         { kind: 'scene', scene: authored },
         { kind: 'mermaid', code: 'flowchart LR\nA[Direct]' },
@@ -1176,8 +1181,16 @@ test('prepares authored and stored playback diagrams once before narration, incl
   const signal = new AbortController().signal;
   await prepare(richBlocks, signal);
   const drawings = vi.mocked(mermaid.render).mock.calls.map(call => call[1]);
-  expect(drawings).toHaveLength(9);
-  for (const label of ['Prepared', 'Authored', 'Stored', 'Direct', 'Legacy', 'Project'])
+  expect(drawings).toHaveLength(11);
+  for (const label of [
+    'Prepared',
+    'Structural',
+    'Authored',
+    'Stored',
+    'Direct',
+    'Legacy',
+    'Project',
+  ])
     expect(drawings.some(code => code.includes(label))).toBe(true);
   expect(document.querySelector('.lesson-player-stage')?.children).toHaveLength(0);
   const fail = vi.spyOn(console, 'error').mockImplementation(() => {
@@ -1188,5 +1201,5 @@ test('prepares authored and stored playback diagrams once before narration, incl
   );
   await expect(prepare(richBlocks, signal)).resolves.toBeUndefined();
   expect(fail).not.toHaveBeenCalled();
-  expect(mermaid.render).toHaveBeenCalledTimes(9);
+  expect(mermaid.render).toHaveBeenCalledTimes(11);
 });

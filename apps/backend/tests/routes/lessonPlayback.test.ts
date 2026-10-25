@@ -245,3 +245,34 @@ test('voices of one block share canonical narration before another recording sta
   await request(app).post(`${url}/blocks/0/prepare`).send({ lessonKey, voice: 'Zephyr' });
   expect(createRun.mock.calls[0][0].dedupeKey).toBe(createRun.mock.calls[1][0].dedupeKey);
 });
+
+test('returns authoritative saved audio with a retriable visual-only list preparation', async () => {
+  const { app, section, createRun } = setup();
+  section.content = '1. First decision.\n2. Second decision.';
+  section.contentBlocks = [{ type: 'markdown', markdown: section.content }];
+  section.playback = preparedPlayback(section);
+  const lessonKey = section.playback.lessonKey;
+  const audio = await request(app)
+    .post(`${url}/blocks/0/prepare`)
+    .send({ lessonKey, voice: 'Kore' });
+  expect(audio.status).toBe(200);
+  expect(createRun).not.toHaveBeenCalled();
+  const response = await request(app)
+    .post(`${url}/blocks/0/prepare`)
+    .send({ lessonKey, voice: 'Kore', visualOnly: true });
+  expect(response.status).toBe(202);
+  expect(response.body.recorded).toEqual({
+    block: section.playback.blocks[0],
+    voice: 'Kore',
+    model: 'tts-model',
+  });
+  expect(createRun).toHaveBeenCalledOnce();
+  await request(app)
+    .post(`${url}/blocks/0/prepare`)
+    .send({ lessonKey, voice: 'Kore', visualOnly: true });
+  expect(createRun).toHaveBeenCalledTimes(2);
+  const otherVoice = await request(app)
+    .post(`${url}/blocks/0/prepare`)
+    .send({ lessonKey, voice: 'Zephyr' });
+  expect(otherVoice.body.recorded).toBeUndefined();
+});

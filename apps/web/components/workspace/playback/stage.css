@@ -1914,6 +1914,7 @@
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 6%;
   align-items: center;
   padding: 32px 0;
@@ -2349,4 +2350,8 @@
     flex-shrink: 0;
     order: 0;
   }
+}
+
+.lesson-player-stage .scene-host:empty {
+  visibility: hidden;
 }

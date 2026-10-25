@@ -18,7 +18,7 @@ import {
 } from '../services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { readLessonSpeechProvenance } from '../services/lessonSpeechSource.js';
 import { ttsClient } from '../services/ttsClient.js';
-import { isPlaybackBlockReady } from './lessonPlaybackApi.js';
+import { isPlaybackBlockReady, isPlaybackVisualReady } from './lessonPlaybackApi.js';
 import { createLessonPlaybackPersistence } from './lessonPlaybackPersistence.js';
 import type { LessonPlaybackServices } from './lessonPlaybackWorkflow.js';
 import { failPermanently } from './retryPolicy.js';
@@ -34,7 +34,8 @@ export const createProductionLessonPlaybackServices = (
     supportsSpokenMath = true,
     supportsFencedCode = true,
     supportsUnlinkedFormulaSymbols = true,
-    synchronizeAnimations = false
+    synchronizeAnimations = false,
+    supportsVisualSections = true
   ) => {
     const project = await projectStore.loadProjectWithRevision(input.userId, input.projectId);
     const section = project && findProjectLessonSection(project.snapshot, input.sectionId);
@@ -64,9 +65,10 @@ export const createProductionLessonPlaybackServices = (
       allowedSceneTypes,
       supportsUnlinkedFormulaSymbols,
     });
+    const visualSources = supportsVisualSections ? lesson.sources : [];
     if (
       input.visualOnly
-        ? block.prepared?.scene && !isRetiredLessonScene(block.prepared.scene)
+        ? isPlaybackVisualReady(block, visualSources)
         : isPlaybackBlockReady(block, ttsClient.resolveVoice(input.model, input.voice), input.model)
     ) {
       return { target: input, block: LessonPlaybackBlockSchema.parse(block) };
@@ -75,6 +77,7 @@ export const createProductionLessonPlaybackServices = (
     const preparationInput = {
       userId: input.userId,
       synchronizeAnimations,
+      supportsVisualSections,
       allowedSceneTypes,
       supportsSpokenMath,
       supportsFencedCode,

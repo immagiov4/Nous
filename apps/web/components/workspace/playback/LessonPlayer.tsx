@@ -69,7 +69,10 @@ function playbackDiagramSources(
       return source ? [source] : [];
     });
   const scenes = [
-    ...narrations.flatMap(block => (block.prepared?.scene ? [block.prepared.scene] : [])),
+    ...narrations.flatMap(block => [
+      ...(block.prepared?.scene ? [block.prepared.scene] : []),
+      ...(block.prepared?.sections?.map(section => section.scene) ?? []),
+    ]),
     ...visuals.filter(visual => visual.kind === 'scene').map(visual => visual.scene),
     ...stored.flatMap(visual => {
       const scene = getStoredLessonVisualScene(visual);
