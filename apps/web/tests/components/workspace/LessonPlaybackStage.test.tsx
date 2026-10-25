@@ -411,9 +411,15 @@ test('updates the live reveal edge each frame without changing settled word mask
   const settled = words[0].getAttribute('style');
   const hidden = words[9].getAttribute('style');
   const previous = edge(5);
+  const settledWrites = vi.spyOn(words[0].style, 'setProperty');
+  const hiddenWrites = vi.spyOn(words[9].style, 'setProperty');
+  const fadedWrites = vi.spyOn((words[0].firstElementChild as HTMLElement).style, 'opacity', 'set');
   heard += 1 / 60;
   advance();
   expect(edge(5) - previous).toBeCloseTo(1022 / 3600);
+  expect(settledWrites).not.toHaveBeenCalled();
+  expect(hiddenWrites).not.toHaveBeenCalled();
+  expect(fadedWrites).not.toHaveBeenCalled();
   expect(words[0].getAttribute('style')).toBe(settled);
   expect(words[9].getAttribute('style')).toBe(hidden);
   expect((words[0].firstElementChild as HTMLElement).style.opacity).toBe('0.55');

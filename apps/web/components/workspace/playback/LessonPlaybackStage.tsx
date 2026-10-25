@@ -63,9 +63,11 @@ import {
 import './stage.css';
 import { SaveablePlaybackVisual } from './SaveablePlaybackVisual.tsx';
 
+type DrawnCaptionRun = CaptionRun & { revealEdge?: number; readOpacity?: number };
+
 interface CaptionClock {
   viewport: ReturnType<typeof captionViewport>;
-  runs: CaptionRun[];
+  runs: DrawnCaptionRun[];
   width: number;
   feather: number;
   bodyDuration: number;
@@ -75,6 +77,33 @@ interface CaptionClock {
   headingDuration: number;
   seekRevision: number;
   read: () => { blockTime: number; bodyTime: number; revealTime: number };
+}
+
+/** Draws changed word styles and identifies the word crossed by the reveal edge. */
+function drawCaptionWord(
+  run: DrawnCaptionRun,
+  clock: CaptionClock,
+  edge: number,
+  bodyTime: number
+) {
+  const local = edge - run.start;
+  // Settled words keep their cached styles to avoid per-frame invalidation.
+  const maskEdge = Math.max(0, Math.min(run.width + clock.feather, local));
+  if (run.revealEdge !== maskEdge) {
+    run.span.style.opacity = local > 0 ? '1' : '0';
+    run.span.style.setProperty('--reveal-edge', `${maskEdge}px`);
+    run.span.style.maskImage = local >= run.width + clock.feather ? 'none' : '';
+    run.revealEdge = maskEdge;
+  }
+  const readAge = bodyTime - ((run.start + run.width) / clock.width) * clock.bodyDuration;
+  const fade = Math.max(0, Math.min(1, readAge / CAPTION_TIMING.readFadeSeconds));
+  const readOpacity = 1 - fade * (1 - CAPTION_TIMING.readOpacity);
+  if (run.readOpacity !== readOpacity) {
+    const text = run.span.firstElementChild as HTMLElement;
+    text.style.opacity = String(readOpacity);
+    run.readOpacity = readOpacity;
+  }
+  return local >= 0 && local <= run.width;
 }
 
 function hasMissingMotionTargets(
@@ -580,17 +609,7 @@ function PlaybackPassage({
       const edge = progress * (current.width + current.feather);
       let active = edge >= current.width ? current.runs.at(-1)?.span : undefined;
       for (const run of current.runs) {
-        const local = edge - run.start;
-        run.span.style.opacity = local > 0 ? '1' : '0';
-        // Settled masks stay unchanged while the live feather crosses the next word.
-        const maskEdge = Math.max(0, Math.min(run.width + current.feather, local));
-        run.span.style.setProperty('--reveal-edge', `${maskEdge}px`);
-        run.span.style.maskImage = local >= run.width + current.feather ? 'none' : '';
-        const readAge = bodyTime - ((run.start + run.width) / current.width) * current.bodyDuration;
-        const fade = Math.max(0, Math.min(1, readAge / CAPTION_TIMING.readFadeSeconds));
-        const text = run.span.firstElementChild as HTMLElement;
-        text.style.opacity = String(1 - fade * (1 - CAPTION_TIMING.readOpacity));
-        if (local >= 0 && local <= run.width) active = run.span;
+        if (drawCaptionWord(run, current, edge, bodyTime)) active = run.span;
       }
       // Place new or backward seeks immediately; animate subsequent playback updates.
       current.viewport.follow(
