@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useResolvedProjectVisual } from '../../hooks/useResolvedProjectVisual.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { LessonGeneratedVisual, StoredLessonVisual } from '../../types.ts';
@@ -13,7 +13,10 @@ import {
   findMissingDirectlyDereferencedHtmlElementIds,
   hasUnsafeHtmlElementDereferences,
 } from '../../utils/visuals/htmlElementReferences.ts';
-import { renderMermaidDiagram } from '../../utils/visuals/mermaidRenderer.ts';
+import {
+  MermaidRenderCacheContext,
+  renderMermaidDiagram,
+} from '../../utils/visuals/mermaidRenderer.ts';
 import { LessonSceneVisual } from './lessonScene/LessonSceneVisual.tsx';
 
 interface GeneratedVisualFrameProps {
@@ -586,6 +589,7 @@ const ResolvedGeneratedVisualFrame = ({
   }, [unsafeImage, onUnavailable]);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [blockedVisual, setBlockedVisual] = useState<LessonGeneratedVisual | null>(null);
+  const mermaidCache = useContext(MermaidRenderCacheContext);
   const [mermaidRender, setMermaidRender] = useState<{
     readonly failed: boolean;
     readonly key: string;
@@ -600,7 +604,7 @@ const ResolvedGeneratedVisualFrame = ({
     }
 
     const abortController = new AbortController();
-    renderMermaidDiagram(visual.code, isDarkMode, abortController.signal).then(
+    renderMermaidDiagram(visual.code, isDarkMode, abortController.signal, mermaidCache).then(
       svg => setMermaidRender({ failed: false, key: mermaidRenderKey, svg }),
       () => {
         if (!abortController.signal.aborted) {
@@ -609,7 +613,7 @@ const ResolvedGeneratedVisualFrame = ({
       }
     );
     return () => abortController.abort();
-  }, [isDarkMode, mermaidRenderKey, visual.code, visual.kind]);
+  }, [isDarkMode, mermaidCache, mermaidRenderKey, visual.code, visual.kind]);
 
   const renderedCode =
     visual.kind === 'mermaid' && mermaidRender.key === mermaidRenderKey

@@ -3,15 +3,17 @@ import '@testing-library/jest-dom/vitest';
 import type { LessonScene } from '@shared/lessonScene';
 import { render, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
-import { SceneDiagram } from '../../../components/shared/lessonScene/SceneDiagram';
+import {
+  prepareSceneDiagrams,
+  SceneDiagram,
+} from '../../../components/shared/lessonScene/SceneDiagram';
+import { MermaidRenderCacheContext } from '../../../utils/visuals/mermaidRenderer';
 
-vi.mock('../../../utils/visuals/mermaidRenderer.ts', () => ({
-  nextMermaidRenderId: () => 'sequence-test',
-  runMermaidTask: async (task: (mermaid: unknown) => Promise<void>) =>
-    task({
-      initialize: () => undefined,
-      render: async () => ({
-        svg: `<svg viewBox="0 -10 600 450" height="450">
+const originalFonts = Object.getOwnPropertyDescriptor(document, 'fonts');
+
+vi.mock('../../../utils/visuals/mermaidRenderer.ts', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../../utils/visuals/mermaidRenderer.ts')>()),
+  renderConfiguredMermaid: async () => `<svg viewBox="0 -10 600 450" height="450">
       <line class="actor-line" y1="46" y2="2000" />
       <line class="actor-line" y1="46" y2="2000" />
       <line class="messageLine0" data-y="200" data-height="0" />
@@ -19,17 +21,20 @@ vi.mock('../../../utils/visuals/mermaidRenderer.ts', () => ({
       <path class="messageLine0" data-y="340" data-height="30" />
       <text class="messageText" data-y="320" data-height="16">Request</text>
     </svg>`,
-      }),
-    }),
 }));
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   Reflect.deleteProperty(SVGElement.prototype, 'getBBox');
+  if (originalFonts) Object.defineProperty(document, 'fonts', originalFonts);
+  else Reflect.deleteProperty(document, 'fonts');
 });
 
-test('bounds sequence lifelines and SVG height to the final message, including self-message paths', async () => {
+test.each([
+  false,
+  true,
+])('bounds sequence lifelines and labels without repeating prepared layout (prepared: %s)', async prepared => {
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -72,7 +77,26 @@ test('bounds sequence lifelines and SVG height to the final message, including s
       ],
     },
   };
-  const { container } = render(<SceneDiagram scene={scene} isDarkMode={false} />);
+  const cache = new Map<string, Promise<string>>();
+  const bounds = vi.spyOn(SVGElement.prototype as SVGGraphicsElement, 'getBBox');
+  if (prepared) {
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: { load: vi.fn(async () => []) },
+    });
+    await prepareSceneDiagrams({
+      scenes: [scene],
+      parent: document.body,
+      cache,
+      signal: new AbortController().signal,
+    });
+    bounds.mockClear();
+  }
+  const { container } = render(
+    <MermaidRenderCacheContext.Provider value={cache}>
+      <SceneDiagram scene={scene} isDarkMode={false} />
+    </MermaidRenderCacheContext.Provider>
+  );
   await waitFor(() => expect(container.querySelectorAll('.actor-line')).toHaveLength(2));
   expect(
     Array.from(container.querySelectorAll('.actor-line'), line => line.getAttribute('y2'))
@@ -80,4 +104,9 @@ test('bounds sequence lifelines and SVG height to the final message, including s
   expect(container.querySelector('svg')).toHaveAttribute('viewBox', '0 -10 600 420');
   expect(container.querySelector('svg')).toHaveAttribute('height', '420');
   expect(container.querySelectorAll('.messageLine0, .messageLine1')).toHaveLength(3);
+  expect(container.querySelector('.messageText')?.previousElementSibling).toHaveAttribute(
+    'width',
+    '108'
+  );
+  if (prepared) expect(bounds).not.toHaveBeenCalled();
 });

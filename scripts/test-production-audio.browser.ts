@@ -145,7 +145,7 @@ try {
         if (message.type() === 'error') console.error(browserType.name(), message.text());
       });
       await page.goto(url);
-      assert.match(await page.locator('.scene').innerText(), /Fixed audio sample/u);
+      assert.match(await page.locator('.captions').innerText(), /Fixed audio sample/u);
       await page.locator('#play').click();
       await advances(page);
       await page.locator('#pause').click();
