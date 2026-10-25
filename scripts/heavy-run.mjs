@@ -350,10 +350,11 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
     });
   } finally {
     clearInterval(heartbeat);
+    // Windows keeps unlinked reservation entries pending until this handle closes.
+    closeSync(ticket.fd);
     removeLock(lock, ownerFile);
     removeFile(join(prepared, ticket.owner.id));
     removeLock(prepared);
-    closeSync(ticket.fd);
     removeFile(ticket.path);
   }
 }

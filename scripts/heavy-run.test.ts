@@ -476,6 +476,47 @@ describe('heavy command admission', () => {
     expect(existsSync(join(path, 'lock'))).toBe(false);
   });
 
+  test('releases a successful command when Windows requires closing the reservation before directory removal', async () => {
+    const path = directory();
+    const entry = join(path, 'open-reservation.mjs');
+    const completed = join(path, 'completed');
+    writeFileSync(
+      entry,
+      `
+      import fs from 'node:fs';
+      import { sep } from 'node:path';
+      import { syncBuiltinESMExports } from 'node:module';
+      const open = fs.openSync, close = fs.closeSync, remove = fs.rmdirSync;
+      const reservations = new Set();
+      fs.openSync = (target, ...args) => {
+        const descriptor = open(target, ...args);
+        if (String(target).startsWith(${JSON.stringify(join(path, 'queue'))} + sep)) reservations.add(descriptor);
+        return descriptor;
+      };
+      fs.closeSync = descriptor => { close(descriptor); reservations.delete(descriptor); };
+      fs.rmdirSync = (target, ...args) => {
+        if (target === ${JSON.stringify(join(path, 'lock'))} && reservations.size)
+          throw Object.assign(new Error('Reservation is still open'), { code: 'EPERM' });
+        return remove(target, ...args);
+      };
+      syncBuiltinESMExports();
+      process.exitCode = await (await import(${JSON.stringify(new URL('./heavy-run.mjs', import.meta.url).href)})).main();
+    `
+    );
+    const result = await output(
+      start(
+        path,
+        'release',
+        [runtime, '-e', "require('node:fs').writeFileSync(process.argv[1], '')", completed],
+        { entry, executable: nativeNode() }
+      )
+    )();
+    expect(existsSync(completed)).toBe(true);
+    expect(result).toMatchObject({ code: 0, stderr: '' });
+    expect(readdirSync(join(path, 'queue'))).toEqual([]);
+    expect(existsSync(join(path, 'lock'))).toBe(false);
+  });
+
   test('activation during a capacity scan cannot hide an occupied weighted reservation', async () => {
     const path = directory();
     const lock = join(path, 'lock');
