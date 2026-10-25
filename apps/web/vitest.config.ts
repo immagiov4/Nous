@@ -30,6 +30,7 @@ const LOAD_SENSITIVE_TESTS = [
   'scripts/run-eslint-sonar.test.ts',
   'scripts/check-changed.test.ts',
   'scripts/heavy-run.test.ts',
+  'scripts/heavy-run-windows-job.test.ts',
   'scripts/select-workflow-postgres-contract.test.ts',
   'scripts/summarize-gate-load.test.ts',
 ];

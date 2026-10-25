@@ -2,8 +2,31 @@ import { spawn, spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
 
 const EXIT_POLL_MS = 20;
+export const WINDOWS_JOB_SCRIPT = fileURLToPath(
+  new URL('./heavy-run-windows-job.mjs', import.meta.url)
+);
+const windowsJobs =
+  process.platform === 'win32' && process.versions.bun
+    ? await import('./heavy-run-windows-job.mjs')
+    : null;
+
+/** Node callers use the same Bun FFI helper; no PID ancestry approximation is involved. */
+export function windowsJobRunning(name) {
+  if (windowsJobs) return windowsJobs.jobRunning(name);
+  return query('bun', [WINDOWS_JOB_SCRIPT, 'query', name]) === 'true';
+}
+
+export async function waitWindowsJob(name) {
+  while (windowsJobRunning(name)) await delay(EXIT_POLL_MS);
+}
+
+export async function stopWindowsJob(name) {
+  if (windowsJobs) return windowsJobs.stopJob(name);
+  query('bun', [WINDOWS_JOB_SCRIPT, 'stop', name], 'Failed to stop the Windows lease Job.');
+}
 const bootId =
   process.platform === 'linux'
     ? readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim()
@@ -21,10 +44,10 @@ function linuxProcess(pid) {
   }
 }
 
-function query(command, args) {
+function query(command, args, failure = 'Cannot inspect the lease process identity.') {
   const result = spawnSync(command, args, { windowsHide: true, encoding: 'utf8' });
   if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error('Cannot inspect the lease process identity.');
+  if (result.status !== 0) throw new Error(failure);
   return result.stdout.trim();
 }
 

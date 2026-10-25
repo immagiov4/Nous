@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import {
   closeSync,
   existsSync,
@@ -23,6 +24,10 @@ import {
   processRunning,
   processTreeRunning,
   stopChild,
+  stopWindowsJob,
+  WINDOWS_JOB_SCRIPT,
+  waitWindowsJob,
+  windowsJobRunning,
 } from './heavy-run-process.mjs';
 
 const DEFAULT_SLOTS = 4;
@@ -35,6 +40,7 @@ const EXPIRED_TICKET = 'Queue ticket expired; run the command again.';
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 
 function registeredCommandAlive(owner, releasing, verifyIdentity) {
+  if (owner?.windowsJob) return windowsJobRunning(owner.windowsJob);
   if (!owner?.childPid) return false;
   if (releasing) return processTreeRunning(owner.childPid);
   if (!processRunning(owner.childPid)) return processTreeRunning(owner.childPid);
@@ -49,13 +55,14 @@ function readEntry(path, staleMs, held = false) {
     // An O_EXCL creator may still be writing its record. Its file reserves its place.
     let owner = null;
     try {
-      const [record, childPid, startedAt, childIdentity] = content.split('\n');
+      const [record, childPid, startedAt, childIdentity, windowsJob] = content.split('\n');
       owner = record
         ? {
             ...JSON.parse(record),
             childPid: Number(childPid) || undefined,
             startedAt: Number(startedAt) || undefined,
             childIdentity: childIdentity ? JSON.parse(childIdentity) : undefined,
+            windowsJob: windowsJob ? JSON.parse(windowsJob) : undefined,
           }
         : null;
     } catch (error) {
@@ -213,6 +220,11 @@ export async function runCommand(command, environment, abort, onSpawn) {
   abort.signal.addEventListener('abort', stopped, { once: true });
   try {
     if (child.pid && onSpawn) {
+      if (environment.HEAVY_RUN_WINDOWS_JOB) {
+        const ready = new Promise(resolve => child.once('message', resolve));
+        if ((await Promise.race([ready, completed])) !== 'ready')
+          throw new Error('Windows lease Job did not become ready.');
+      }
       onSpawn(child.pid);
       child.send('run');
     }
@@ -255,9 +267,10 @@ export async function workerCommand(args, channel = process) {
   return args.slice(2);
 }
 
-function activateLock(lock, ticket, childPid) {
+function activateLock(lock, ticket, childPid, windowsJob) {
   ticket.startedAt = Date.now();
   writeFileSync(ticket.fd, `\n${childPid}\n${ticket.startedAt}`);
+  if (windowsJob) writeFileSync(ticket.fd, `\nnull\n${JSON.stringify(windowsJob)}`);
   const running = `running-${ticket.owner.id}`;
   try {
     renameSync(join(lock, ticket.owner.id), join(lock, running));
@@ -350,6 +363,7 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
   let ownerFile = ticket.owner.id;
   let identityCapture = Promise.resolve();
   let identityError;
+  const windowsJob = process.platform === 'win32' ? `Local\\Nous-heavy-run-${randomUUID()}` : null;
   const heartbeat = setInterval(() => {
     const now = new Date();
     futimesSync(ticket.fd, now, now);
@@ -364,14 +378,22 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
     );
     if (!claimed) return 130;
     process.stdout.write(`heavy-run: running ${label}\n`);
-    const worker = [process.execPath, SCRIPT_PATH, '--worker', '--', ...command];
+    const worker = windowsJob
+      ? ['bun', WINDOWS_JOB_SCRIPT, 'worker', windowsJob, String(IDLE_MS), '--', ...command]
+      : [process.execPath, SCRIPT_PATH, '--worker', '--', ...command];
     const code = await runCommand(
       worker,
-      { ...process.env, HEAVY_RUN_HELD: '1', HEAVY_RUN_LEASE: ticket.owner.id },
+      {
+        ...process.env,
+        HEAVY_RUN_HELD: '1',
+        HEAVY_RUN_LEASE: ticket.owner.id,
+        ...(windowsJob ? { HEAVY_RUN_WINDOWS_JOB: windowsJob } : {}),
+      },
       abort,
       pid => {
         // The worker waits for IPC permission until activation has won against stale recovery.
-        ownerFile = activateLock(lock, ticket, pid);
+        ownerFile = activateLock(lock, ticket, pid, windowsJob);
+        if (windowsJob) return;
         // IPC admission is sent synchronously before this microtask inspects the OS.
         identityCapture = Promise.resolve()
           .then(() => {
@@ -388,6 +410,7 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
     return code;
   } finally {
     clearInterval(heartbeat);
+    if (windowsJob) await waitWindowsJob(windowsJob);
     removeLock(lock, ownerFile);
     removeFile(join(prepared, ticket.owner.id));
     removeLock(prepared);
@@ -427,6 +450,7 @@ function showDetails(entry) {
 }
 
 async function stopRegisteredCommand(owner) {
+  if (owner?.windowsJob) return stopWindowsJob(owner.windowsJob);
   if (!owner?.childPid) return;
   if (!processRunning(owner.childPid)) {
     if (processTreeRunning(owner.childPid))
