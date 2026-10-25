@@ -203,3 +203,41 @@ test('corrects missing authored terms with the previous formula and exact source
     { formula: '$x+y$', sourceFormula: '$x+y$', scene: dictatedFormulaSpotlight },
   ]);
 });
+
+test('prepares only the unlinked neighbor of an existing animated formula', async () => {
+  const linked = dictatedFormulaSpotlight;
+  const unlinked = {
+    ...linked,
+    formula: String.raw`\nousSymbol{x}\nousSymbol{minus}\nousSymbol{y}`,
+    symbols: linked.symbols.map(symbol => ({
+      ...symbol,
+      ...(symbol.id === 'plus'
+        ? { id: 'minus', latex: '-', name: 'Meno', meaning: 'Differenza' }
+        : {}),
+      anchor: '',
+    })),
+  };
+  const source = {
+    ...segmentLessonPlayback([{ type: 'markdown', markdown: 'ics più ipsilon' }])[0],
+    visuals: [
+      { kind: 'scene' as const, scene: linked },
+      { kind: 'scene' as const, scene: unlinked },
+    ],
+    prepared: { motion: [] },
+  };
+  generate.mockResolvedValue({ kind: 'scene', scene: unlinked });
+  expect(needsPlaybackFormulaSpotlights(source)).toBe(true);
+  const formulaSpotlights = await preparePlaybackFormulaSpotlights({ ...request(), block: source });
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(generate.mock.calls[0][0].formulaSource.template).toEqual(unlinked);
+  expect(formulaSpotlights).toEqual([
+    { formula: '$${x}{-}{y}$$', sourceFormula: unlinked.formula, scene: unlinked },
+  ]);
+  const saved = { ...source, prepared: { motion: [], formulaSpotlights } };
+  expect(needsPlaybackFormulaSpotlights(saved)).toBe(false);
+  generate.mockClear();
+  expect(await preparePlaybackFormulaSpotlights({ ...request(), block: saved })).toEqual(
+    formulaSpotlights
+  );
+  expect(generate).not.toHaveBeenCalled();
+});

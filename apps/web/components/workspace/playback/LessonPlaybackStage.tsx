@@ -805,16 +805,6 @@ function PlaybackPassage({
   const visualCandidates = useMemo<readonly StageVisual[]>(() => {
     const spotlights = block.prepared?.formulaSpotlights;
     if (!spotlights?.length) return normalVisualCandidates;
-    if (
-      normalVisualCandidates.some(visual => {
-        const scene = playbackVisualScene(visual, content.activeSectionGeneratedVisualsById);
-        return (
-          scene?.type === 'formula-spotlight' &&
-          hasFormulaSpotlightReferences(scene as FormulaSpotlightData)
-        );
-      })
-    )
-      return normalVisualCandidates;
     if (spotlights.some(entry => entry.sourceFormula)) {
       const matched = new Set<string>();
       const original = normalVisualCandidates.map(visual => {
@@ -824,6 +814,7 @@ function PlaybackPassage({
           spotlights.find(entry => entry.sourceFormula === scene.formula);
         if (!entry) return visual;
         matched.add(entry.sourceFormula as string);
+        if (hasFormulaSpotlightReferences(scene as FormulaSpotlightData)) return visual;
         const voiceRange = formulaReferenceRange(entry.scene, block.speech);
         return voiceRange
           ? { kind: 'scene' as const, scene: entry.scene, voiceRange }
@@ -840,6 +831,16 @@ function PlaybackPassage({
         }),
       ];
     }
+    if (
+      normalVisualCandidates.some(visual => {
+        const scene = playbackVisualScene(visual, content.activeSectionGeneratedVisualsById);
+        return (
+          scene?.type === 'formula-spotlight' &&
+          hasFormulaSpotlightReferences(scene as FormulaSpotlightData)
+        );
+      })
+    )
+      return normalVisualCandidates;
     if (block.prepared?.scene?.type === 'formula-spotlight') return normalVisualCandidates;
     const formulas = block.spans.filter(span => span.math);
     const combined = getPlaybackFormulaMarkdown(block, sources);

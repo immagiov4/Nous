@@ -139,10 +139,10 @@ export const needsPlaybackFormulaSpotlights = (
   sources: readonly PlaybackContentBlock[] = []
 ): boolean => {
   const scenes = playbackFormulaSpotlightScenes(block, storedVisuals);
-  if (scenes.some(hasFormulaSpotlightReferences)) return false;
   if (scenes.length)
     return scenes.some(
       scene =>
+        !hasFormulaSpotlightReferences(scene) &&
         !block.prepared?.formulaSpotlights?.some(entry => entry.sourceFormula === scene.formula)
     );
   const spoken = block.prepared?.spokenMath;

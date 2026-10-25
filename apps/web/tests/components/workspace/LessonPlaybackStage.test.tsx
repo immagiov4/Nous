@@ -2409,3 +2409,66 @@ test('retains an existing animated widget over an older cached static decision',
       ?.getAttribute('data-formula-symbol')
   ).toBe('plus');
 });
+
+test('keeps one existing widget and uses prepared links for its unlinked neighbor', () => {
+  const sources = [{ type: 'markdown' as const, markdown: 'ics più ipsilon poi u meno vi' }];
+  const linked = dictatedFormulaSpotlight;
+  const prepared = {
+    ...linked,
+    formula: String.raw`\nousSymbol{u}\nousSymbol{minus}\nousSymbol{v}`,
+    symbols: [
+      { id: 'u', latex: 'u', name: 'U', meaning: 'Primo valore', anchor: 'u' },
+      { id: 'minus', latex: '-', name: 'Meno', meaning: 'Differenza', anchor: 'meno' },
+      { id: 'v', latex: 'v', name: 'Vi', meaning: 'Secondo valore', anchor: 'vi' },
+    ],
+  };
+  const unlinked = {
+    ...prepared,
+    symbols: prepared.symbols.map(symbol => ({ ...symbol, anchor: '' })),
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    visuals: [
+      { kind: 'scene' as const, scene: linked },
+      { kind: 'scene' as const, scene: unlinked },
+    ],
+    prepared: {
+      motion: [],
+      formulaSpotlights: [{ formula: '$$u-v$$', sourceFormula: unlinked.formula, scene: prepared }],
+    },
+  };
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+  } as WorkspaceReaderContentModel;
+  const alignment = { status: 'aligned' as const, onsets: [0, 1, 2, 3, 4, 5, 6] };
+  const { container, rerender } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={content}
+      duration={7}
+      time={1.5}
+      alignment={alignment}
+    />
+  );
+  expect(
+    container
+      .querySelector('.spotlight-symbols [data-active="true"]')
+      ?.getAttribute('data-formula-symbol')
+  ).toBe('plus');
+  rerender(
+    <LessonPlaybackStage
+      block={block}
+      content={content}
+      duration={7}
+      time={5.5}
+      alignment={alignment}
+    />
+  );
+  expect(
+    container
+      .querySelector('.spotlight-symbols [data-active="true"]')
+      ?.getAttribute('data-formula-symbol')
+  ).toBe('minus');
+  expect(container.querySelectorAll('.formula-spotlight')).toHaveLength(1);
+});

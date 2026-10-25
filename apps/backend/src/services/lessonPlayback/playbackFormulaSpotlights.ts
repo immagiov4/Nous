@@ -68,15 +68,17 @@ export async function preparePlaybackFormulaSpotlights(input: {
     sourceScene?: LessonScene & FormulaSpotlightData;
   }[];
   if (scenes.length)
-    entries = scenes.map(scene => ({
-      formula: `$$${getFormulaSpotlightLatex(scene)}$$`,
-      spoken: narration.speech,
-      sourceFormula: scene.formula,
-      sourceScene: scene,
-      dictatedRanges: (input.block.prepared?.spokenMath ?? []).flatMap((math, index) =>
-        formulaSpotlightCovers(scene, [math.formula]) ? [ranges[index].speech] : []
-      ),
-    }));
+    entries = scenes
+      .filter(scene => !hasFormulaSpotlightReferences(scene))
+      .map(scene => ({
+        formula: `$$${getFormulaSpotlightLatex(scene)}$$`,
+        spoken: narration.speech,
+        sourceFormula: scene.formula,
+        sourceScene: scene,
+        dictatedRanges: (input.block.prepared?.spokenMath ?? []).flatMap((math, index) =>
+          formulaSpotlightCovers(scene, [math.formula]) ? [ranges[index].speech] : []
+        ),
+      }));
   else if (input.block.prepared?.spokenMath?.length) {
     entries = input.block.prepared.spokenMath.map((entry, index) => ({
       formula: entry.formula,
