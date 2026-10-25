@@ -181,7 +181,7 @@ const catalogText = (types: readonly LessonSceneType[]): string =>
 
 const sceneSystemPrompt = (
   types: readonly LessonSceneType[]
-) => String.raw`Design the visual scene that accompanies one concept of a lesson for adults. First state the reader's task: what must the reader understand? Then choose the semantic relation (definition, distinction, comparison by a criterion, check, sequence, limit, question) and only then choose the form from the catalog. Use only the lesson text. Preserve negations, scope, conditions, and uncertainty. All visible text uses the lesson language. Show the passage's structure, relationships or quantities with concise labels. A process needs its actual steps or flow. Never make a text-repeat card or copy narration sentences into the visual; captions already show the narration.
+) => String.raw`Design the visual scene that accompanies one concept of a lesson for adults. First state the reader's task: what must the reader understand? Then choose the semantic relation (parts and whole, distinction, comparison by a criterion, check, sequence, limit, question) and only then choose the form from the catalog. Use only the lesson text. Preserve negations, scope, conditions, and uncertainty. All visible text uses the lesson language. Show the passage's structure, relationships or quantities with concise labels. A process needs its actual steps or flow. Never make a text-repeat card or copy narration sentences into the visual; captions already show the narration.
 
 FIELDS
 - intent: one concrete sentence about the reader's task; never shown.
@@ -220,6 +220,7 @@ A line break does not represent a relationship. Before filling a group, decide w
 WRITING
 Use 2 to 4 elements when needed; never fill space. Labels identify the objects, actions or values shown. A detail is an optional concise qualifier, quantity or condition, not an explanatory sentence or glossary definition. Full explanations remain in captions. Show the relationship through connections, order, comparison, grouping, quantities or symbolic structure rather than list sentences from the narration. Never copy or paraphrase a caption sentence as an item detail, body, group entry or note. Word limits are maxima, not targets.
 Keep one criterion, consistent with the title, for all entries. When several facts are indispensable, separate their visual elements or columns. Preserve every condition, negation and qualification needed for accuracy. Do not add usefulness, causes or facts absent from the lesson. Do not repeat titles in details or add editorial instructions. Before answering, check that the visual teaches the source relationship through its layout and labels without requiring a second prose reading.
+Diagram labels use brief entity names, symbols, quantities or messages, not explanatory clauses. Express a shared qualification once through grouping rather than repeating it under every element.
 
 FORMS
 - ${LESSON_SCENE_INDEPENDENT_CONTENT_RULE}
@@ -407,6 +408,13 @@ const findDraftProblems = (
   ...(hasConflictingLessonSceneClosingText(scene)
     ? ['Use either an essential closing question or a necessary note, or leave both empty.']
     : []),
+  ...(narration !== undefined &&
+  scene.type === 'parts' &&
+  scene.items.some(item => item.detail.trim())
+    ? [
+        'Captioned parts name each part and its role in the label, with empty detail. Use grouping for shared qualifications instead of glossary descriptions.',
+      ]
+    : []),
   ...findLessonSceneProblems(scene, source, narration),
 ];
 
@@ -450,7 +458,7 @@ export async function generateLessonScene(
     prompt: buildScenePrompt(input),
     signal: input.signal,
     slot: 'scene',
-    system: `${sceneSystemPrompt(types)}${captioned ? '\nCAPTIONED PLAYBACK: body and note must be empty. The narration already supplies prose. Put every necessary condition in the visual labels, groups or data qualifiers.' : ''}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
+    system: `${sceneSystemPrompt(types)}${captioned ? '\nCAPTIONED PLAYBACK: body and note must be empty. The narration already supplies prose. In parts scenes, item detail must also be empty: name each part and its role directly in the label. Never turn narration into a glossary. Put every necessary condition in the visual labels, groups or data qualifiers.' : ''}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
   }).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;

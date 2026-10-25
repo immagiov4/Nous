@@ -103,10 +103,45 @@ test.each([
   const captioned = { ...unplannedInput(source), narration: source };
   generateStructuredOutputMock.mockResolvedValueOnce(draft);
   expect(await generateLessonScene(captioned)).toMatchObject({ kind: 'invalid' });
-  generateStructuredOutputMock.mockResolvedValueOnce(sceneDraft(source));
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...sceneDraft(source),
+    items: sceneDraft(source).items.map(item => ({ ...item, detail: '' })),
+  });
   expect(await generateLessonScene(captioned)).toMatchObject({
     kind: 'scene',
     scene: { body: '', note: '' },
+  });
+});
+
+test('rejects glossary descriptions in captioned parts while retaining standalone details', async () => {
+  const source = 'Input and output are the two parts of the system.';
+  const draft = sceneDraft(source);
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
+    kind: 'scene',
+    scene: {
+      items: [
+        { label: 'Fonte', detail: source },
+        { label: 'Riscontri', detail: '' },
+      ],
+    },
+  });
+  const captioned = { ...unplannedInput(source), narration: source };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(captioned)).toMatchObject({ kind: 'invalid' });
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...draft,
+    items: draft.items.map(item => ({ ...item, detail: '' })),
+  });
+  expect(await generateLessonScene(captioned)).toMatchObject({
+    kind: 'scene',
+    scene: {
+      type: 'parts',
+      items: [
+        { label: 'Fonte', detail: '' },
+        { label: 'Riscontri', detail: '' },
+      ],
+    },
   });
 });
 
