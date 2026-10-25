@@ -1,40 +1,19 @@
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { type Browser, chromium, type Page } from 'playwright';
-import { createServer, type ViteDevServer } from 'vite';
-import { afterAll, beforeAll, expect, test } from 'vitest';
+import { afterAll, beforeAll, expect, inject, test } from 'vitest';
 import { withMutedAudio } from '../../../../../scripts/browser-audio';
-import viteConfig from '../../../vite.config.ts';
 
-let server: ViteDevServer;
 let browser: Browser;
 let baseUrl: string;
 
 beforeAll(async () => {
-  const config = viteConfig({ command: 'serve', mode: 'test' });
-  server = await createServer({
-    ...config,
-    configFile: false,
-    root: path.resolve('apps/web'),
-    optimizeDeps: { entries: ['tests/fixtures/playbackLayout.html'] },
-    server: { host: '127.0.0.1', port: 0, strictPort: false },
-  });
-  await server.listen();
-  baseUrl = server.resolvedUrls?.local[0] ?? '';
+  baseUrl = inject('browserFixtureUrl');
   browser = await chromium.launch(withMutedAudio({ headless: true }));
-  const page = await browser.newPage();
-  try {
-    // Compile the fixture before measuring the individual layout cases.
-    await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=prices`);
-    await page.locator('.scene-host h2').waitFor();
-  } finally {
-    await page.close();
-  }
 });
 
 afterAll(async () => {
   await browser?.close();
-  await server?.close();
 });
 
 const formulaViewports = [

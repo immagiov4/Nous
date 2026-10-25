@@ -1,29 +1,18 @@
-import path from 'node:path';
 import { type Browser, chromium, type Page } from 'playwright';
-import { createServer, type ViteDevServer } from 'vite';
-import { afterAll, beforeAll, expect, test } from 'vitest';
+import { afterAll, beforeAll, expect, inject, test } from 'vitest';
 import { withMutedAudio } from '../../../../../scripts/browser-audio';
 import type {} from '../../fixtures/audio-path';
 
-let server: ViteDevServer;
 let browser: Browser;
 let page: Page;
 beforeAll(async () => {
-  server = await createServer({
-    configFile: 'apps/web/vite.config.ts',
-    cacheDir: path.resolve('node_modules/.vite/audio-signal'),
-    server: { host: '127.0.0.1', port: 0 },
-    optimizeDeps: { entries: ['tests/fixtures/audio-path.html'], include: ['signalsmith-stretch'] },
-  });
-  await server.listen();
   browser = await chromium.launch(withMutedAudio({ headless: true }));
   page = await browser.newPage();
-  await page.goto(`${server.resolvedUrls?.local[0]}tests/fixtures/audio-path.html`);
+  await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/audio-path.html`);
   await page.waitForFunction(() => typeof window.renderUnity === 'function');
 });
 afterAll(async () => {
   await browser?.close();
-  await server?.close();
 });
 
 test('unity playback is a native, sample-transparent path', async () => {
