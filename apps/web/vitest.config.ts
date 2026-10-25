@@ -12,10 +12,12 @@ const TEST_FILES = [
   'e2e/**/tests/**/*.{test,spec}.ts',
 ];
 const MERMAID_PARSER_TEST = 'apps/backend/tests/services/mermaidValidation.test.ts';
-// These suites own browser/parser subprocesses, process fixtures, or production registry rebuilds.
-const LOAD_SENSITIVE_TESTS = [
+const BROWSER_FIXTURE_TESTS = [
   'apps/web/tests/utils/reader/lessonPlaybackSignal.test.ts',
   'apps/web/tests/components/workspace/PlaybackCausalLayout.test.ts',
+];
+// These suites own browser/parser subprocesses, process fixtures, or production registry rebuilds.
+const LOAD_SENSITIVE_TESTS = [
   'packages/playtest/tests/**/*.{test,spec}.ts',
   'e2e/**/tests/**/*.{test,spec}.ts',
   'apps/backend/tests/services/pdfTextFallbackProcess.test.ts',
@@ -63,8 +65,9 @@ export default defineConfig({
       {
         extends: true,
         test: {
-          name: 'load-sensitive',
-          include: LOAD_SENSITIVE_TESTS,
+          name: 'browser-fixtures',
+          include: BROWSER_FIXTURE_TESTS,
+          globalSetup: ['./apps/web/tests/browserFixtures.global.ts'],
           maxWorkers: LOAD_SENSITIVE_WORKERS,
           sequence: { groupOrder: 1 },
         },
@@ -72,10 +75,19 @@ export default defineConfig({
       {
         extends: true,
         test: {
+          name: 'load-sensitive',
+          include: LOAD_SENSITIVE_TESTS,
+          maxWorkers: LOAD_SENSITIVE_WORKERS,
+          sequence: { groupOrder: 2 },
+        },
+      },
+      {
+        extends: true,
+        test: {
           name: 'general',
           include: TEST_FILES,
-          exclude: [MERMAID_PARSER_TEST, ...LOAD_SENSITIVE_TESTS],
-          sequence: { groupOrder: 2 },
+          exclude: [MERMAID_PARSER_TEST, ...BROWSER_FIXTURE_TESTS, ...LOAD_SENSITIVE_TESTS],
+          sequence: { groupOrder: 3 },
         },
       },
     ],

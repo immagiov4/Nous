@@ -1660,7 +1660,7 @@ function ContextAnswerPanelSession({
     const cancelledToolCalls = responseControl.halt({
       parts: messages.flatMap(message => message.parts),
     });
-    stop();
+    void stop();
     for (const call of cancelledToolCalls) void addToolOutput(cancelledToolOutput(call));
   };
 

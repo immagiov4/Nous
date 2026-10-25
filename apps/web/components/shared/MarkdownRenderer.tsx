@@ -13,7 +13,8 @@ import {
   useRef,
 } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
+// The root declaration owns the ambient types for the package's ESM subpaths.
+import type {} from 'react-syntax-highlighter';
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
 import c from 'react-syntax-highlighter/dist/esm/languages/prism/c';
 import cpp from 'react-syntax-highlighter/dist/esm/languages/prism/cpp';
@@ -32,6 +33,7 @@ import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
 import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
 import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
+import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
 import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark';
 import oneLight from 'react-syntax-highlighter/dist/esm/styles/prism/one-light';
 import rehypeKatex from 'rehype-katex';

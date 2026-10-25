@@ -122,7 +122,7 @@ function removeLock(lock, ownerFile) {
 function readLock(lock, staleMs) {
   try {
     const owners = readdirSync(lock)
-      .sort()
+      .sort((left, right) => left.localeCompare(right))
       // A record may be renamed for activation after enumeration. Reserve capacity until the next poll.
       .map(name => readEntry(join(lock, name), staleMs, true) ?? { owner: null, stale: false });
     if (owners.length) return owners;
