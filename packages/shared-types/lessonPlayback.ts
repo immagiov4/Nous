@@ -127,15 +127,28 @@ const playbackFormulaSpotlightScenes = (
   storedVisuals: readonly ProjectLessonVisual[] = [],
   sources: readonly PlaybackContentBlock[] = []
 ): readonly (LessonScene & FormulaSpotlightData)[] => {
-  const scenes = [
-    playbackPreparedFormulaIsUsable(block, sources) ? block.prepared?.scene : undefined,
-    ...block.visuals.flatMap(visual => {
-      if (visual.kind === 'scene') return [visual.scene];
-      if (visual.kind !== 'generated-visual') return [];
-      const stored = storedVisuals.find(stored => stored.id === visual.visualId)?.render;
-      return stored?.kind === 'scene' ? [stored.scene] : [];
-    }),
-  ];
+  const sourceScenes = block.visuals.flatMap(visual => {
+    if (visual.kind === 'scene') return [visual.scene];
+    if (visual.kind !== 'generated-visual') return [];
+    const stored = storedVisuals.find(stored => stored.id === visual.visualId)?.render;
+    return stored?.kind === 'scene' ? [stored.scene] : [];
+  });
+  const prepared = playbackPreparedFormulaIsUsable(block, sources)
+    ? block.prepared?.scene
+    : undefined;
+  const sceneIdentity = (scene: LessonScene) =>
+    JSON.stringify(scene, (_key, value: unknown) =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? Object.fromEntries(
+            Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+          )
+        : value
+    );
+  // Prepared scenes project a source occurrence; repeated authored visuals retain their own slots.
+  const preparedIdentity = prepared && sceneIdentity(prepared);
+  const repeatsSource =
+    preparedIdentity && sourceScenes.some(scene => sceneIdentity(scene) === preparedIdentity);
+  const scenes = [...(prepared && !repeatsSource ? [prepared] : []), ...sourceScenes];
   return scenes.filter(scene => scene?.type === 'formula-spotlight') as (LessonScene &
     FormulaSpotlightData)[];
 };

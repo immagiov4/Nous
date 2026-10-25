@@ -1,9 +1,14 @@
+import assert from 'node:assert/strict';
 import type {
   LessonPlaybackBlock,
   PlaybackMotionEvent,
   PlaybackVisual,
 } from '@shared/lessonPlayback';
-import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
+import {
+  needsPlaybackFormulaSpotlights,
+  resolvePlaybackNarration,
+  segmentLessonPlayback,
+} from '@shared/lessonPlayback';
 import { type LessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import { playbackMode } from '@shared/lessonSceneAnimation';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
@@ -104,6 +109,41 @@ beforeEach(() => {
   audio.mockResolvedValue(preparedAudio);
   sceneGeneration.mockResolvedValue({ kind: 'scene', scene });
   motion.mockResolvedValue(events);
+});
+
+test.each([
+  'inline',
+  'stored',
+] as const)('prepares one widget for an existing %s formula reused as the prepared scene', async kind => {
+  const unlinked = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
+  };
+  const stored = { ...storedScene, render: { kind: 'scene' as const, scene: unlinked } };
+  const visuals: PlaybackVisual[] = [
+    kind === 'inline'
+      ? { kind: 'scene', scene: unlinked }
+      : { kind: 'generated-visual', visualId: stored.id },
+  ];
+  const request = {
+    ...input(visuals, [stored]),
+    supportsFormulaSpotlights: true,
+    block: { ...block(visuals), speech: 'ics più ipsilon' },
+  };
+  sceneGeneration.mockResolvedValue({ kind: 'scene', scene: dictatedFormulaSpotlight });
+  const result = await prepareLessonPlaybackBlock(request);
+  expect(sceneGeneration).toHaveBeenCalledOnce();
+  expect(result.prepared?.formulaSpotlights).toHaveLength(1);
+  assert(result.prepared?.scene);
+  const cached = structuredClone(result.prepared.scene);
+  const prepared = {
+    ...result.prepared,
+    scene: Object.fromEntries(Object.entries(cached).reverse()) as LessonScene,
+  };
+  const saved = { ...request.block, prepared };
+  expect(needsPlaybackFormulaSpotlights(saved, [stored])).toBe(false);
+  await prepareLessonPlaybackBlock({ ...request, block: saved });
+  expect(sceneGeneration).toHaveBeenCalledOnce();
 });
 
 test('plans the same scene motion while its icon selection is still pending', async () => {
