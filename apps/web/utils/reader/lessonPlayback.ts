@@ -66,12 +66,10 @@ export function playbackTimeline(
   }));
 }
 
-/** Maps the current sentence through source spans to the reader's annotation selector. */
-export function playbackSentenceSelector(
+function heardSentenceSegment(
   sourceBlock: LessonPlaybackBlock,
   time: number,
   duration: number,
-  contentBlocks: readonly PlaybackContentBlock[],
   alignment?: PlaybackWordAlignment
 ) {
   const block = resolvePlaybackNarration(sourceBlock);
@@ -84,9 +82,29 @@ export function playbackSentenceSelector(
   const sentences = Array.from(
     new Intl.Segmenter('it', { granularity: 'sentence' }).segment(block.speech)
   );
-  const sentence = sentences.find(
-    part => offset >= part.index && offset < part.index + part.segment.length
-  );
+  return sentences.find(part => offset >= part.index && offset < part.index + part.segment.length);
+}
+
+/** Spoken text is resolved independently of source annotation anchors and caption lookahead. */
+export function playbackHeardSentence(
+  block: LessonPlaybackBlock,
+  time: number,
+  duration: number,
+  alignment?: PlaybackWordAlignment
+) {
+  return heardSentenceSegment(block, time, duration, alignment)?.segment.trim() ?? '';
+}
+
+/** Maps the current sentence through source spans to the reader's annotation selector. */
+export function playbackSentenceSelector(
+  sourceBlock: LessonPlaybackBlock,
+  time: number,
+  duration: number,
+  contentBlocks: readonly PlaybackContentBlock[],
+  alignment?: PlaybackWordAlignment
+) {
+  const block = resolvePlaybackNarration(sourceBlock);
+  const sentence = heardSentenceSegment(block, time, duration, alignment);
   if (!sentence) return null;
   const sentenceEnd = sentence.index + sentence.segment.length;
   const content = deriveLegacyLessonContent(contentBlocks);

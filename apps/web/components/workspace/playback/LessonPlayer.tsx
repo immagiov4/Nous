@@ -5,6 +5,7 @@ import {
   segmentLessonPlayback,
 } from '@shared/lessonPlayback';
 import { LESSON_SCENE_DIAGRAM_TYPES } from '@shared/lessonScene';
+import type { PlaybackQuestionContext } from '@shared/playbackQuestionContext';
 import { AnimatePresence, motion, useIsPresent } from 'framer-motion';
 import { ArrowLeft, Check, RotateCcw, RotateCw } from 'lucide-react';
 import {
@@ -226,6 +227,7 @@ export default function LessonPlayer({
   const [noteMode, setNoteMode] = useState(false);
   const [draft, setDraft] = useState('');
   const anchor = useRef<ReturnType<typeof playbackSentenceSelector>>(null);
+  const questionContextRef = useRef<(() => PlaybackQuestionContext) | null>(null);
   const [noteStatus, setNoteStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [answer, setAnswer] = useState<ContextAnswerState | null>(null);
   const [holdingSpace, setHoldingSpace] = useState(false);
@@ -362,13 +364,19 @@ export default function LessonPlayer({
     question: string,
     selector = anchor.current ?? currentAnchor()
   ): ContextAnswerState => {
-    const currentBlock = playback.blocks[playback.readPosition().index];
+    const position = playback.readPosition();
+    const currentBlock = playback.blocks[position.index];
+    const readContext = questionContextRef.current;
+    if (block && !readContext) throw new Error('Playback stage context must be mounted');
+    const playbackContext = readContext?.();
     return {
       id: crypto.randomUUID(),
       initialQuestion: question,
       projectId,
       lessonId: sectionId,
-      lessonTitle: content.activeSectionTitle ?? undefined,
+      lessonTitle: content.activeSectionTitle || currentBlock?.heading,
+      projectTitle: content.projectTitle,
+      playbackContext,
       lessonContent: content.sectionContent,
       contextScope: currentBlock ? 'selection' : 'lesson',
       selectedText:
@@ -632,6 +640,7 @@ export default function LessonPlayer({
       {block ? (
         <MermaidRenderCacheContext.Provider value={diagramCache}>
           <LessonPlaybackStage
+            questionContextRef={questionContextRef}
             key={playback.lessonKey}
             lessonKey={playback.lessonKey}
             block={block}
@@ -743,6 +752,7 @@ export default function LessonPlayer({
             {answer ? (
               <AnswerPanelTransition key={answer.id} shouldAnimate={shouldAnimate}>
                 <ContextAnswerPanel
+                  readPlaybackContext={() => questionContextRef.current?.()}
                   contextAnswer={answer}
                   pendingQuestion={pendingQuestion}
                   contextAnswerPanelRef={panelRef}
