@@ -8,7 +8,10 @@ import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { isLessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
-import { dictatedFormulaSpotlight } from '../../helpers/formulaSpotlight';
+import {
+  dictatedFormulaSpotlight,
+  unlinkedIndexedFormulaSpotlight,
+} from '../../helpers/formulaSpotlight';
 
 const { chooseIconsMock, generateStructuredOutputMock } = vi.hoisted(() => ({
   chooseIconsMock: vi.fn(async ({ scene }) => scene),
@@ -1076,15 +1079,7 @@ test('supplies the exact words of this reading separately from repeated referenc
 });
 
 test('rebuilds unlinked shared bases as independently heard indexed quantities', async () => {
-  const original = {
-    ...dictatedFormulaSpotlight,
-    formula: String.raw`\nousSymbol{d}_{\nousSymbol{i}}+\nousSymbol{d}_{\nousSymbol{k}}`,
-    symbols: [
-      { id: 'd', latex: 'D', name: 'D', meaning: 'Dimensione', anchor: '' },
-      { id: 'i', latex: 'i', name: 'i', meaning: 'Primo indice', anchor: '' },
-      { id: 'k', latex: 'k', name: 'k', meaning: 'Secondo indice', anchor: '' },
-    ],
-  };
+  const original = unlinkedIndexedFormulaSpotlight;
   const block = {
     ...segmentLessonPlayback([{ type: 'markdown' as const, markdown: 'delta i poi delta k' }])[0],
     prepared: { motion: [], scene: original },

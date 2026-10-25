@@ -9,7 +9,10 @@ import { createRef, useLayoutEffect } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { guidedPathScene } from '../../../../backend/tests/helpers/animatedLessonScenes';
 import { discreteMathCases } from '../../../../backend/tests/helpers/discreteMath';
-import { dictatedFormulaSpotlight } from '../../../../backend/tests/helpers/formulaSpotlight';
+import {
+  dictatedFormulaSpotlight,
+  unlinkedIndexedFormulaSpotlight,
+} from '../../../../backend/tests/helpers/formulaSpotlight';
 import {
   CAPTION_TIMING,
   captionFormat,
@@ -2652,15 +2655,7 @@ test('highlights only the named indexed quantity after preparing a widget with s
     width: 100,
   } as DOMRect);
   const sources = [{ type: 'markdown' as const, markdown: 'delta i poi delta k' }];
-  const original = {
-    ...dictatedFormulaSpotlight,
-    formula: String.raw`\nousSymbol{d}_{\nousSymbol{i}}+\nousSymbol{d}_{\nousSymbol{k}}`,
-    symbols: [
-      { id: 'd', latex: 'D', name: 'D', meaning: 'Dimensione', anchor: '' },
-      { id: 'i', latex: 'i', name: 'i', meaning: 'Primo indice', anchor: '' },
-      { id: 'k', latex: 'k', name: 'k', meaning: 'Secondo indice', anchor: '' },
-    ],
-  };
+  const original = unlinkedIndexedFormulaSpotlight;
   const prepared = {
     ...original,
     formula: String.raw`\nousSymbol{di}+\nousSymbol{dk}`,

@@ -71,3 +71,13 @@ export const dictatedFormulaSpotlight = {
     { id: 'y', latex: 'y', name: 'Ipsilon', meaning: 'Secondo valore', anchor: 'ipsilon' },
   ],
 } satisfies LessonScene;
+
+export const unlinkedIndexedFormulaSpotlight = {
+  ...dictatedFormulaSpotlight,
+  formula: String.raw`\nousSymbol{d}_{\nousSymbol{i}}+\nousSymbol{d}_{\nousSymbol{k}}`,
+  symbols: [
+    { id: 'd', latex: 'D', name: 'D', meaning: 'Dimensione', anchor: '' },
+    { id: 'i', latex: 'i', name: 'i', meaning: 'Primo indice', anchor: '' },
+    { id: 'k', latex: 'k', name: 'k', meaning: 'Secondo indice', anchor: '' },
+  ],
+} satisfies LessonScene;
