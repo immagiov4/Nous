@@ -132,7 +132,7 @@ describe('lesson playback segmentation', () => {
       ['$$', '$$'],
       ['\\[', '\\]'],
     ]) {
-      const formula = [open, 'x + y', '', '= z', close].join(newline);
+      const formula = [open, 'x + y', '= z', close].join(newline);
       const markdown = `The calculation continues${newline}${formula}${newline}with this result.${newline}${newline}A separate paragraph.`;
       const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
       expect(blocks.map(block => block.speech)).toEqual([
@@ -149,11 +149,19 @@ describe('lesson playback segmentation', () => {
     }
   });
 
+  test('keeps display delimiters separated by a blank line as prose', () => {
+    const blocks = segmentLessonPlayback([markdownBlock('$$\nx\n\ny\n$$')]);
+    expect(blocks.map(({ speech, visuals }) => ({ speech, visuals }))).toEqual([
+      { speech: '$$\nx', visuals: [] },
+      { speech: 'y\n$$', visuals: [] },
+    ]);
+  });
+
   test.each([
     '',
-    '\n',
-  ])('recognizes later headings after heading-like lines inside a formula (%j)', blank => {
-    const formula = `$$\n${blank}x\n=\ny\n$$`;
+    '  ',
+  ])('recognizes later headings after heading-like lines inside a formula (%j)', indent => {
+    const formula = `$$\n${indent}x\n=\ny\n$$`;
     const markdown = `The calculation continues\n${formula}\nwith this result.\n\n# Next topic\nThe explanation.\n\n## Detail\nMore detail.`;
     const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
     expect(blocks.map(block => block.heading)).toEqual(['', 'Next topic', 'Detail']);
@@ -181,7 +189,8 @@ describe('lesson playback segmentation', () => {
     { kind: 'table', markdown: '| A | B |\n| --- | --- |\n| x | y |' },
     { kind: 'definition', markdown: '[inside]: https://example.test/inside' },
   ])('preserves later parser blocks after a $kind in multiline math', ({ markdown: internal }) => {
-    const formula = `$$\nx\n\n${internal}\n\ny\n$$`;
+    // A thematic break keeps the parser blocks distinct without a forbidden blank line in math.
+    const formula = `$$\n***\n${internal}\n***\ny\n$$`;
     const code = '```ts\nconst result = 1;\n```';
     const table = '| Input | Output |\n| --- | --- |\n| 1 | 2 |';
     const markdown = `Introduction.\n${formula}\nResult.\n\n${code}\n\n${table}\n\n[ref]: https://example.test\n\n***\n\nRead [the reference][ref].`;
