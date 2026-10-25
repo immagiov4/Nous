@@ -35,12 +35,6 @@ beforeAll(async () => {
 });
 
 beforeAll(async () => {
-  const optimizer = server.environments.client.depsOptimizer;
-  await optimizer?.scanProcessing;
-  await Promise.all(optimizer?.metadata.depInfoList.map(dependency => dependency.processing) ?? []);
-});
-
-beforeAll(async () => {
   const page = await browser.newPage();
   try {
     // Compile the fixture before measuring the individual layout cases.
