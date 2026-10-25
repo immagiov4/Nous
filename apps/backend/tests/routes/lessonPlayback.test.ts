@@ -115,6 +115,7 @@ describe('lesson playback routes', () => {
     expect(first.status).toBe(202);
     expect(first.body).toMatchObject({ created: true, blockId: '0' });
     expect(first.body.recorded).toBeUndefined();
+    expect(first.body.formulaLinksPending).toBe(true);
     section.playback = {
       ...playback,
       blocks: [

@@ -44,6 +44,7 @@ export type PlaybackPreparationResult =
       created: boolean;
       recorded?: RecordedPlaybackResult;
       visualOnly?: boolean;
+      formulaLinksPending?: boolean;
     };
 export interface LessonPlaybackApi {
   get(
@@ -172,6 +173,9 @@ export const createLessonPlaybackApi = (dependencies: {
         voice: active.voice,
         created,
         ...(recordedReady ? { recorded: { block, voice, model } } : {}),
+        ...(needsPlaybackFormulaSpotlights(block, readiness.storedVisuals, readiness.sources)
+          ? { formulaLinksPending: true }
+          : {}),
         ...(active.visualOnly ? { visualOnly: true } : {}),
       };
     },

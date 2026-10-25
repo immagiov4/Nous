@@ -284,5 +284,6 @@ export const PrepareLessonPlaybackResponseSchema = z.union([
     created: z.boolean().optional(),
     recorded: RecordedPlaybackResultSchema.optional(),
     visualOnly: z.boolean().optional(),
+    formulaLinksPending: z.boolean().optional(),
   }),
 ]);

@@ -116,6 +116,7 @@ async function waitForPreparation({
   signal,
   created,
   visualOnly,
+  formulaLinksPending,
   cancellations,
   key,
   recorded,
@@ -126,6 +127,7 @@ async function waitForPreparation({
   signal: AbortSignal;
   created?: boolean;
   visualOnly?: boolean;
+  formulaLinksPending?: boolean;
   cancellations: Map<string, Promise<void>>;
   key: string;
 }) {
@@ -135,7 +137,8 @@ async function waitForPreparation({
   };
   if (created) signal.addEventListener('abort', cancel, { once: true });
   try {
-    await waitForLessonPlayback(runId, projectId, signal, visualOnly);
+    // A joined visual run still owns required formula links.
+    await waitForLessonPlayback(runId, projectId, signal, visualOnly && !formulaLinksPending);
   } catch (error) {
     signal.throwIfAborted();
     if (!recorded) throw error;
@@ -383,6 +386,7 @@ export function useLessonPlayback({
             created: result.created,
             recorded: result.recorded,
             visualOnly: result.visualOnly,
+            formulaLinksPending: result.formulaLinksPending,
             projectId,
             signal,
             cancellations: playbackCancellations,

@@ -55,6 +55,7 @@ test('retains the active visual-only mode when an audio request joins it', async
         voice: 'Kore',
         created: false,
         visualOnly: true,
+        formulaLinksPending: true,
       })
     )
   );
@@ -66,7 +67,7 @@ test('retains the active visual-only mode when an audio request joins it', async
       lessonKey: 'a'.repeat(64),
       voice: 'Kore',
     })
-  ).toMatchObject({ runId: 'run', visualOnly: true });
+  ).toMatchObject({ runId: 'run', visualOnly: true, formulaLinksPending: true });
 });
 
 test.each([

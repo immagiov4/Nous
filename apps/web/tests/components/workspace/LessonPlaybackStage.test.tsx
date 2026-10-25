@@ -2995,7 +2995,10 @@ test.each([
   });
   vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
   const sources = [
-    { type: 'markdown' as const, markdown: 'ics più ipsilon attesa Contesto ancora ipsilon fine' },
+    {
+      type: 'markdown' as const,
+      markdown: 'Prima ics più ipsilon attesa Contesto ancora ipsilon fine',
+    },
   ];
   const unlinked = {
     ...dictatedFormulaSpotlight,
@@ -3040,10 +3043,10 @@ test.each([
     <LessonPlaybackStage
       block={block}
       content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
-      duration={8}
+      duration={9}
       time={0}
       readTime={() => time}
-      alignment={{ status: 'aligned', onsets: [0, 1, 2, 3, 4, 5, 6, 7] }}
+      alignment={{ status: 'aligned', onsets: [0, 1, 2, 3, 4, 5, 6, 7, 8] }}
     />
   );
   const flush = () =>
@@ -3053,11 +3056,12 @@ test.each([
       for (const callback of pending) callback(0);
     });
   for (const [next, expected] of [
-    [1.5, 'plus'],
-    [3.5, 'static'],
-    [4.5, null],
-    [6.5, 'y'],
-    [7.5, null],
+    [0.5, 'static'],
+    [2.5, 'plus'],
+    [4.25, 'static'],
+    [5.5, null],
+    [7.5, 'y'],
+    [8.5, null],
   ] as const) {
     time = next;
     flush();

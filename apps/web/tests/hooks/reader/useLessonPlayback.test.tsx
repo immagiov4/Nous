@@ -165,6 +165,34 @@ test('continues audio preparation after a joined optional visual releases its ru
   expect(result.current.failed).toBe(false);
   expect(cancelLessonPlaybackPreparation).not.toHaveBeenCalled();
 });
+
+test('keeps a joined formula-link failure explicit without retrying or starting saved audio', async () => {
+  vi.mocked(prepareLessonPlayback).mockResolvedValueOnce({
+    runId: 'formula-links',
+    blockId: '0',
+    voice: 'Kore',
+    created: false,
+    visualOnly: true,
+    formulaLinksPending: true,
+  });
+  vi.mocked(waitForLessonPlayback).mockImplementationOnce(
+    async (_run, _project, _signal, optional) => {
+      if (!optional) throw new Error('Formula links unavailable');
+    }
+  );
+  const { result } = renderHook(() => useLessonPlayback(target));
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(waitForLessonPlayback).toHaveBeenCalled());
+  expect(vi.mocked(waitForLessonPlayback).mock.calls[0][3]).toBe(false);
+  await waitFor(() => expect(result.current.failed).toBe(true));
+  expect(audio.start).not.toHaveBeenCalled();
+  expect(result.current.blocks[0].audio).toEqual(blocks[0].audio);
+  expect(
+    vi.mocked(prepareLessonPlayback).mock.calls.filter(([request]) => request.blockId === '0')
+  ).toHaveLength(1);
+});
 function pendingUntilAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
     const abort = () => reject(signal?.reason);
