@@ -192,7 +192,7 @@ test.skipIf(process.platform !== 'win32')(
     const owner = launch(directory, 'windows-argv', [
       process.execPath,
       '-e',
-      "require('node:fs').writeFileSync(process.argv[1], JSON.stringify({ args: process.argv.slice(2), held: process.env.HEAVY_RUN_HELD, cwd: process.cwd() })); process.stdout.write('native-output'); process.exit(7)",
+      "require('node:fs').writeFileSync(process.argv[1], JSON.stringify({ args: process.argv.slice(2), held: process.env.HEAVY_RUN_HELD, jobControl: process.env.HEAVY_RUN_WINDOWS_JOB ?? null, cwd: process.cwd() })); process.stdout.write('native-output'); process.exit(7)",
       result,
       '',
       'a"b',
@@ -203,6 +203,7 @@ test.skipIf(process.platform !== 'win32')(
     expect(JSON.parse(readFileSync(result, 'utf8'))).toEqual({
       args: ['', 'a"b', 'tail\\', '字'],
       held: '1',
+      jobControl: null,
       cwd: process.cwd(),
     });
     expect(owner.output()).toContain('native-output');

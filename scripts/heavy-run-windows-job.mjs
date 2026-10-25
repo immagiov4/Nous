@@ -139,9 +139,15 @@ function spawnSuspended(command) {
   const info = Buffer.alloc(LAYOUT.process);
   const inherited = startupHandles(startup);
   try {
-    // The helper's IPC descriptor belongs to Bun, not to the native child.
+    // Admission control and Bun's IPC descriptor belong only to the helper.
     const environment = Object.entries(process.env)
-      .filter(([key, value]) => value !== undefined && !key.startsWith('NODE_CHANNEL_'))
+      .filter(
+        ([key, value]) =>
+          value !== undefined &&
+          !['NODE_CHANNEL_FD', 'NODE_CHANNEL_SERIALIZATION_MODE', 'HEAVY_RUN_WINDOWS_JOB'].includes(
+            key
+          )
+      )
       .sort(([left], [right]) => {
         const first = left.toUpperCase();
         const second = right.toUpperCase();
