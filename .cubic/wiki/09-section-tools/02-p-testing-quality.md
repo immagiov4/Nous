@@ -11,6 +11,8 @@ Verification starts at the changed behavior and expands to the service boundarie
 
 Browser tests are always muted; audio is verified inside the page or from files.
 
+The playback layout and audio-signal suites share one fixture build and preview server, prepared once before their workers start, as the caption and focus contracts do. Compilation completes before browser navigation; individual hooks and tests retain their existing deadlines.
+
 The production audio contract runs Chromium and Firefox against the built frontend. Linux CI supplies a PulseAudio null sink so Firefox can start its real audio clock without a physical output device. The test step owns that audio server and stops it on exit.
 
 ## During development
@@ -47,4 +49,4 @@ Provider-backed evaluations need a configured, authenticated provider and `NOUS_
 
 Browser playtests use disposable accounts on the shared local stack and recorded scenarios. Inspect intermediate states and artifacts as well as the final result: navigation, reload and persisted state can reveal failures a static rendering test misses. Generated explanations also require content review against their objectives and evidence. Deterministic schema success establishes structure; the actual explanation establishes its reasoning.
 
-Test directories include suites and their helper fixtures. The playback atlas capture page, fixtures, command and standalone browser contract are also Sonar test code. Their unit and headless contracts verify the harness; production archive readers retain source analysis and application coverage. `config/sonar-project.properties` owns this classification for both SonarCloud and local ESLint.
+Test directories include suites and their helper fixtures. The Vitest runner configuration is also test infrastructure; the application Vite configuration remains production source. The playback atlas capture page, fixtures, command and standalone browser contract are also Sonar test code. Their unit and headless contracts verify the harness; production archive readers retain source analysis and application coverage. `config/sonar-project.properties` owns this classification for both SonarCloud and local ESLint.

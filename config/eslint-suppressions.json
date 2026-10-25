@@ -26,9 +26,6 @@
     "sonarjs/cognitive-complexity": {
       "count": 3
     },
-    "sonarjs/no-alphabetical-sort": {
-      "count": 1
-    },
     "sonarjs/no-nested-conditional": {
       "count": 2
     }
