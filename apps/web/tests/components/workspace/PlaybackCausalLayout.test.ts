@@ -833,3 +833,43 @@ test.each([false, true])('reader sequence notes are opaque (dark=%s)', async dar
     await page.close();
   }
 });
+
+test('centers both columns independently without caption jumps when visual height changes', async () => {
+  const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+  try {
+    await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?snapshot&type=parts`);
+    await page.locator('.scene-host h2').waitFor();
+    await page.evaluate(() => document.fonts.ready);
+    const measure = () =>
+      page.evaluate(() => {
+        const rect = (selector: string) => {
+          const element = document.querySelector(selector);
+          if (!element) throw new Error('Playback geometry must exist');
+          const box = element.getBoundingClientRect();
+          return { top: box.top, height: box.height, center: box.top + box.height / 2 };
+        };
+        return {
+          stage: rect('.listening-stage'),
+          captions: rect('.captions'),
+          visual: rect('.scene-fit'),
+        };
+      });
+    await page.waitForFunction(() => !!document.querySelector('.scene-fit')?.getAttribute('style'));
+    const before = await measure();
+    await page.evaluate(() => dispatchEvent(new Event('playback-short-scene')));
+    await page.waitForFunction(height => {
+      const current = document.querySelector('.scene-fit')?.getBoundingClientRect().height;
+      return current !== undefined && Math.abs(current - height) > 1;
+    }, before.visual.height);
+    const after = await measure();
+    for (const geometry of [before, after]) {
+      expect(geometry.captions.center).toBeCloseTo(geometry.stage.center, 0);
+      expect(geometry.visual.center).toBeCloseTo(geometry.stage.center, 0);
+    }
+    expect(after.captions.top).toBe(before.captions.top);
+    expect(after.visual.height).toBeLessThan(before.visual.height);
+    await evidence(page, 'centered-stable-columns-1080p');
+  } finally {
+    await page.close();
+  }
+});

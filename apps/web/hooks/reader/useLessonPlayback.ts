@@ -33,6 +33,10 @@ import { loadSceneIconNodes } from '../../utils/visuals/sceneIconNodes.ts';
 const playbackCancellations = new Map<string, Promise<void>>();
 
 type Playback = { lessonKey: string; blocks: readonly LessonPlaybackBlock[] };
+type RecordedPlaybackResult = Extract<
+  Awaited<ReturnType<typeof prepareLessonPlayback>>,
+  { block: unknown }
+>;
 type PreparedPlayback = {
   block: LessonPlaybackBlock;
   voice: string;
@@ -105,7 +109,7 @@ function trackCancellation(
     .catch(error => console.error('Lesson playback cancellation failed', error));
 }
 
-/** Keeps cancellation ownership and the active recording key together until cancellation settles. */
+/** Owns run cancellation and retains a saved recording when visual preparation fails. */
 async function waitForPreparation({
   runId,
   projectId,
@@ -113,7 +117,9 @@ async function waitForPreparation({
   created,
   cancellations,
   key,
+  recorded,
 }: {
+  recorded?: RecordedPlaybackResult;
   runId: string;
   projectId: string;
   signal: AbortSignal;
@@ -128,6 +134,11 @@ async function waitForPreparation({
   if (created) signal.addEventListener('abort', cancel, { once: true });
   try {
     await waitForLessonPlayback(runId, projectId, signal);
+  } catch (error) {
+    signal.throwIfAborted();
+    if (!recorded) throw error;
+    console.warn('Lesson visual preparation failed; retaining the saved recording.', error);
+    return recorded;
   } finally {
     signal.removeEventListener('abort', cancel);
   }
@@ -365,15 +376,20 @@ export function useLessonPlayback({
         signal.throwIfAborted();
         if (!result) return null;
         while ('runId' in result) {
-          await waitForPreparation({
+          const recorded = await waitForPreparation({
             runId: result.runId,
             created: result.created,
+            recorded: result.recorded,
             projectId,
             signal,
             cancellations: playbackCancellations,
             key: preparationKey(),
           });
           signal.throwIfAborted();
+          if (recorded) {
+            result = recorded;
+            break;
+          }
           result = await requestCurrent();
           signal.throwIfAborted();
           if (!result) return null;

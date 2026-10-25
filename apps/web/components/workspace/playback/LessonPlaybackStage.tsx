@@ -14,9 +14,14 @@ import {
   playbackNonProseVisuals,
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
-import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
+import {
+  isAnimatedLessonScene,
+  LESSON_SCENE_DIAGRAM_TYPES,
+  type LessonScene,
+} from '@shared/lessonScene';
 import { createPassageFallbackScene } from '@shared/lessonSceneFallback';
 import type { PlaybackQuestionContext } from '@shared/playbackQuestionContext';
+import { hasPreparedVisualSections, playbackVisualSections } from '@shared/playbackVisualSections';
 import { alignedWordTimes, type PlaybackWordAlignment } from '@shared/playbackWordTiming';
 import {
   Fragment,
@@ -555,7 +560,7 @@ function PlaybackPassage({
       if (!width || !height) return;
       const scale = Math.min(1, slot.clientWidth / width, availableHeight / height);
       slot.style.setProperty('--scene-scale', String(scale));
-      // The fitted card contributes its height so captions and scene are centered as a pair.
+      // The fitted height centers the visual independently of the fixed caption column.
       slot.style.height = `${height * scale}px`;
       slot.style.setProperty('--scene-left', `${(slot.clientWidth - width * scale) / 2}px`);
     };
@@ -714,7 +719,34 @@ function PlaybackPassage({
       ),
     [content.activeSectionAssetsById, unavailableImages]
   );
+  const availableVisuals = useCallback(
+    (visuals: readonly PlaybackVisual[]) =>
+      visuals.filter(visual => {
+        if (visual.kind === 'generated-visual')
+          return content.activeSectionGeneratedVisualsById?.[visual.visualId];
+        if (visual.kind !== 'markdown') return true;
+        return parsePdfContentParts(
+          visual.markdown,
+          availableAssets,
+          content.activeSectionImageRefsById,
+          content.activeSectionGeneratedVisualsById
+        ).some(part => part.type !== 'markdown' || part.content.trim());
+      }),
+    [availableAssets, content.activeSectionImageRefsById, content.activeSectionGeneratedVisualsById]
+  );
+  const authoredListVisuals = useMemo(() => {
+    if (!playbackVisualSections(block, sources).length) return [];
+    return playbackNonProseVisuals(block).flatMap((visual, sourceIndex) => {
+      if (visual.kind === 'scene' && !LESSON_SCENE_DIAGRAM_TYPES.has(visual.scene.type)) return [];
+      if (visual.kind === 'markdown' && block.spans.some(span => span.math === visual.markdown))
+        return [];
+      if (!availableVisuals([visual]).length) return [];
+      // Source occurrences remain stable when another asset becomes unavailable.
+      return [{ visual, sourceIndex }];
+    });
+  }, [block, sources, availableVisuals]);
   const visualCandidates = useMemo(() => {
+    if (!hasPreparedVisualSections(block, sources)) return [];
     if (block.prepared?.sections?.length)
       return block.prepared.sections.map(section => ({
         kind: 'scene' as const,
@@ -729,17 +761,7 @@ function PlaybackPassage({
       cards.length > 1 && cards.length === block.visuals.length && !block.prepared?.scene
         ? cards
         : playbackNonProseVisuals(block);
-    const projected = sourceVisuals.filter(visual => {
-      if (visual.kind === 'generated-visual')
-        return content.activeSectionGeneratedVisualsById?.[visual.visualId];
-      if (visual.kind !== 'markdown') return true;
-      return parsePdfContentParts(
-        visual.markdown,
-        availableAssets,
-        content.activeSectionImageRefsById,
-        content.activeSectionGeneratedVisualsById
-      ).some(part => part.type !== 'markdown' || part.content.trim());
-    });
+    const projected = availableVisuals(sourceVisuals);
     const scene = block.prepared?.scene;
     if (
       scene?.type === 'formula-spotlight' &&
@@ -772,13 +794,7 @@ function PlaybackPassage({
         scene: createPassageFallbackScene(passageBody(block, sources), block.heading),
       },
     ];
-  }, [
-    block,
-    sources,
-    content.activeSectionGeneratedVisualsById,
-    availableAssets,
-    content.activeSectionImageRefsById,
-  ]);
+  }, [block, sources, content.activeSectionGeneratedVisualsById, availableVisuals]);
   const visualProjection = JSON.stringify(visualCandidates, (_key, value: unknown) =>
     value && typeof value === 'object' && !Array.isArray(value)
       ? Object.fromEntries(
@@ -1048,6 +1064,17 @@ function PlaybackPassage({
             block={block}
             content={content}
           >
+            {authoredListVisuals.map(({ visual: authored, sourceIndex }) => (
+              <PlaybackVisualContent
+                key={`authored:${sourceIndex}`}
+                {...sceneProps}
+                itemRanges={undefined}
+                onImageUnavailable={onImageUnavailable}
+                interval={{ start: 0, duration }}
+                visual={authored}
+                content={{ ...content, activeSectionAssetsById: availableAssets }}
+              />
+            ))}
             {supplementalFormula ? (
               <MarkdownRenderer content={supplementalFormula} isDarkMode={content.isDarkMode} />
             ) : null}

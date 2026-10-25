@@ -1210,3 +1210,80 @@ test('a pause during visual preparation prevents a late audio start and permits 
   await waitFor(() => expect(audio.start).toHaveBeenCalledOnce());
   expect(result.current.playing).toBe(true);
 });
+
+test('plays the authoritative saved recording when a visual-only upgrade fails', async () => {
+  const saved = { block: blocks[0], voice: 'Kore', model: 'tts' };
+  vi.mocked(prepareLessonPlayback).mockResolvedValueOnce({
+    runId: 'visual-upgrade',
+    blockId: '0',
+    voice: 'Kore',
+    created: true,
+    recorded: saved,
+  });
+  vi.mocked(waitForLessonPlayback).mockRejectedValueOnce(new Error('Visual provider unavailable'));
+  const { result } = renderHook(() => useLessonPlayback(target));
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(result.current.playing).toBe(true));
+  expect(activeAudio().recordings[0].index).toBe(0);
+  expect(result.current.failed).toBe(false);
+  expect(downloadProjectAssetBytes).toHaveBeenCalledWith(
+    target.projectId,
+    blocks[0].audio[0].asset,
+    expect.any(AbortSignal)
+  );
+  expect(
+    vi.mocked(prepareLessonPlayback).mock.calls.filter(([request]) => request.blockId === '0')
+  ).toHaveLength(1);
+});
+
+test('cancels a visual-only upgrade without starting its saved recording', async () => {
+  const pending = deferred<void>();
+  vi.mocked(prepareLessonPlayback).mockResolvedValueOnce({
+    runId: 'cancelled-visual-upgrade',
+    blockId: '0',
+    voice: 'Kore',
+    created: true,
+    recorded: { block: blocks[0], voice: 'Kore', model: 'tts' },
+  });
+  vi.mocked(waitForLessonPlayback).mockImplementationOnce((_, __, signal) =>
+    pendingUntilAbort(pending.promise, signal)
+  );
+  const { result } = renderHook(() => useLessonPlayback(target));
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(waitForLessonPlayback).toHaveBeenCalled());
+  act(() => result.current.pause());
+  await act(async () => pending.reject(new Error('Cancelled visual preparation')));
+  expect(audio.start).not.toHaveBeenCalled();
+  expect(result.current.playing).toBe(false);
+  expect(result.current.failed).toBe(false);
+});
+test('keeps a preparation failure visible without an authoritative recording, then retries', async () => {
+  vi.mocked(prepareLessonPlayback).mockResolvedValueOnce({
+    runId: 'new-recording',
+    blockId: '0',
+    voice: 'Kore',
+    created: true,
+  });
+  vi.mocked(waitForLessonPlayback).mockRejectedValueOnce(
+    new Error('Recording preparation unavailable')
+  );
+  const { result } = renderHook(() => useLessonPlayback(target));
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(result.current.failed).toBe(true));
+  expect(result.current.playing).toBe(false);
+  expect(audio.start).not.toHaveBeenCalled();
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(result.current.playing).toBe(true));
+  expect(result.current.failed).toBe(false);
+  expect(
+    vi.mocked(prepareLessonPlayback).mock.calls.filter(([request]) => request.blockId === '0')
+  ).toHaveLength(2);
+});

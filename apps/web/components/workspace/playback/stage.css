@@ -2098,7 +2098,7 @@
 }
 @media (min-width: 651px) {
   .lesson-player-stage .listening-stage {
-    align-items: start;
+    align-items: center;
     align-content: safe center;
   }
   .lesson-player-stage .captions {
@@ -2359,4 +2359,8 @@
     flex-shrink: 0;
     order: 0;
   }
+}
+
+.lesson-player-stage .scene-host:empty {
+  visibility: hidden;
 }

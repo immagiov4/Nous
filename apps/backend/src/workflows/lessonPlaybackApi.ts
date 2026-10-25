@@ -24,9 +24,16 @@ interface PlaybackTarget {
   projectId: string;
   sectionId: string;
 }
+type RecordedPlaybackResult = { block: LessonPlaybackBlock; voice: string; model: string };
 export type PlaybackPreparationResult =
-  | { block: LessonPlaybackBlock; voice: string; model: string }
-  | { runId: string; blockId: string; voice: string; created: boolean };
+  | RecordedPlaybackResult
+  | {
+      runId: string;
+      blockId: string;
+      voice: string;
+      created: boolean;
+      recorded?: RecordedPlaybackResult;
+    };
 export interface LessonPlaybackApi {
   get(
     target: PlaybackTarget
@@ -114,7 +121,15 @@ export const createLessonPlaybackApi = (dependencies: {
         publishTransientEvent: dependencies.publishTransientEvent,
       });
       const active = LessonPlaybackInputSchema.parse(run.input);
-      return { runId: run.id, blockId: active.blockId, voice: active.voice, created };
+      return {
+        runId: run.id,
+        blockId: active.blockId,
+        voice: active.voice,
+        created,
+        ...(block.audio.some(audio => audio.voice === voice && audio.model === model)
+          ? { recorded: { block, voice, model } }
+          : {}),
+      };
     },
   };
 };

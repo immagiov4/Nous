@@ -371,7 +371,7 @@ test('keeps authored mathematics beside a prepared list visual', () => {
       questionContextRef={questionContextRef}
     />
   );
-  expect(container.querySelector('.scene-host .katex annotation')?.textContent).toBe('x=2');
+  expect(container.querySelector('.scene-host .katex annotation')?.textContent?.trim()).toBe('x=2');
   expect(container.querySelector('.scene-host h2')?.textContent).toBe('Due passi');
   expect(questionContextRef.current?.().visual).toMatchObject({
     formula: '$$\nx=2\n$$',
@@ -2233,4 +2233,59 @@ test('renders LaTeX notation authored as inline code in captions while retaining
   const word = captionFormat(sources[0].markdown).words.find(word => word.text === notation);
   expect(word).toBeDefined();
   expect(sources[0].markdown.slice(word?.source.start, word?.source.end)).toBe(notation);
+});
+
+test.each([
+  {
+    markdown: '```typescript\nconst answer = 42;\n```',
+    selector: 'pre code',
+    text: 'const answer = 42;',
+  },
+  {
+    markdown: '| Decision | Value |\n| --- | --- |\n| Backup | Daily |',
+    selector: 'table',
+    text: 'Daily',
+  },
+])('keeps authored $selector beside a prepared list', ({ markdown, selector, text }) => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: `1. First decision.\n2. Second decision.\n\n${markdown}`,
+    },
+  ];
+  const block = segmentLessonPlayback(sources)[0];
+  const scene: LessonScene = {
+    ...controllerScene,
+    type: 'parts',
+    title: 'Two decisions',
+    items: controllerScene.items.slice(0, 2),
+  };
+  const sections = playbackVisualSections(block, sources).map(section => ({ ...section, scene }));
+  const { container } = render(
+    <LessonPlaybackStage
+      block={{ ...block, prepared: { motion: [], scene, sections } }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={10}
+      time={0}
+    />
+  );
+  expect(container.querySelector('.scene-host h2')?.textContent).toBe('Two decisions');
+  expect(container.querySelector(`.scene-host ${selector}`)?.textContent).toContain(text);
+});
+
+test('leaves the list panel empty while a saved summary lacks its list preparation', () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: '1. First decision.\n2. Second decision.' },
+  ];
+  const block = segmentLessonPlayback(sources)[0];
+  const { container } = render(
+    <LessonPlaybackStage
+      block={{ ...block, prepared: { scene: controllerScene, motion: [] } }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={10}
+      time={5}
+    />
+  );
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain(controllerScene.title);
+  expect(container.querySelector('.scene-host blockquote')).toBeNull();
 });

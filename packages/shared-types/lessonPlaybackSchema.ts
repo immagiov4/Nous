@@ -226,16 +226,18 @@ export const isValidLessonPlayback = (value: unknown): value is LessonPlayback =
 };
 
 export const LessonPlaybackResponseSchema = LessonPlaybackSchema.omit({ version: true });
+const RecordedPlaybackResultSchema = z.object({
+  block: LessonPlaybackBlockSchema,
+  voice: z.string().min(1),
+  model: z.string().min(1),
+});
 export const PrepareLessonPlaybackResponseSchema = z.union([
-  z.object({
-    block: LessonPlaybackBlockSchema,
-    voice: z.string().min(1),
-    model: z.string().min(1),
-  }),
+  RecordedPlaybackResultSchema,
   z.object({
     runId: z.string().min(1),
     blockId: z.string().min(1),
     voice: z.string().min(1),
     created: z.boolean().optional(),
+    recorded: RecordedPlaybackResultSchema.optional(),
   }),
 ]);
