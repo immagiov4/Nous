@@ -80,6 +80,30 @@ test('shares visual-only work across consumers and returns the persisted scene a
   ]);
 });
 
+test('continues its visual request after a joined audio failure releases the run', async () => {
+  prepare.mockResolvedValueOnce({ runId: 'audio-run', created: false }).mockResolvedValueOnce({
+    block: { ...block, prepared },
+    voice: 'Zephyr',
+    model: 'stored-model',
+  });
+  wait.mockImplementationOnce(async (_runId, _projectId, _signal, optionalPreparation) => {
+    if (!optionalPreparation) throw new Error('Audio preparation failed');
+  });
+  await expect(prepareLessonPlaybackVisual(target)).resolves.toEqual(prepared);
+  expect(wait).toHaveBeenCalledWith('audio-run', 'project', expect.any(AbortSignal), true);
+  expect(prepare).toHaveBeenCalledTimes(2);
+});
+
+test('surfaces its own visual failure without starting another paid attempt', async () => {
+  prepare.mockResolvedValueOnce({ runId: 'visual-run', created: true, visualOnly: true });
+  wait.mockImplementationOnce(async (_runId, _projectId, _signal, optionalPreparation) => {
+    if (!optionalPreparation) throw new Error('Visual preparation failed');
+  });
+  await expect(prepareLessonPlaybackVisual(target)).rejects.toThrow('Visual preparation failed');
+  expect(wait).toHaveBeenCalledWith('visual-run', 'project', expect.any(AbortSignal), false);
+  expect(prepare).toHaveBeenCalledOnce();
+});
+
 test.each([
   'speech',
   'lesson-key',

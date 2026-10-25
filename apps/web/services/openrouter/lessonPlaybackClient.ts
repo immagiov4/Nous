@@ -96,7 +96,7 @@ export const waitForLessonPlayback = async (
   runId: string,
   projectId: string,
   signal: AbortSignal,
-  optionalVisual = false
+  optionalPreparation = false
 ) => {
   let changed = false;
   let wake: (() => void) | undefined;
@@ -145,8 +145,8 @@ export const waitForLessonPlayback = async (
         (!['queued', 'running', 'waiting'].includes(state.status) &&
           !['pending', 'running'].includes(state.cleanupStatus)),
     });
-    // A joined optional visual cannot prevent the caller from preparing its requested audio.
-    if (run.status !== 'completed' && !optionalVisual) throw new Error(PLAYBACK_ERROR);
+    // Failure in another joined mode releases the caller to prepare its own requested result.
+    if (run.status !== 'completed' && !optionalPreparation) throw new Error(PLAYBACK_ERROR);
   } finally {
     stop();
   }

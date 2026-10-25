@@ -39,7 +39,12 @@ export const prepareLessonPlaybackVisual = async (target: {
     };
     let result = await prepareLessonPlayback(request);
     while ('runId' in result) {
-      await waitForLessonPlayback(result.runId, target.projectId, new AbortController().signal);
+      await waitForLessonPlayback(
+        result.runId,
+        target.projectId,
+        new AbortController().signal,
+        !result.visualOnly
+      );
       result = await prepareLessonPlayback(request);
     }
     const prepared = result.block.prepared;
