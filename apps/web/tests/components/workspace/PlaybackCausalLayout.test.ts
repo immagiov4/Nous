@@ -15,6 +15,8 @@ beforeAll(async () => {
   server = await createServer({
     ...config,
     configFile: false,
+    // The fixture and app server have different dependency optimization entries.
+    cacheDir: path.resolve('node_modules/.vite/playback-layout'),
     root: path.resolve('apps/web'),
     optimizeDeps: { entries: ['tests/fixtures/playbackLayout.html'] },
     server: { host: '127.0.0.1', port: 0, strictPort: false },
