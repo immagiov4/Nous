@@ -139,7 +139,12 @@ const renderSceneDiagram = async ({
   const key = JSON.stringify(['scene', code, configuration]);
   let drawing = cache?.get(key);
   if (!drawing) {
-    drawing = renderConfiguredMermaid({ code, configuration, cache }).then(svg => {
+    drawing = renderConfiguredMermaid({
+      code,
+      configuration,
+      cache,
+      signal: cache ? undefined : signal,
+    }).then(svg => {
       if (scene.type !== 'sequence') return svg;
       const surface = document.createElement('div');
       Object.assign(surface.style, {
