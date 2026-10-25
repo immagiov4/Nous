@@ -1,3 +1,4 @@
+import { playbackFormulaTargets, resolvePlaybackNarration } from '@shared/lessonPlayback';
 import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
 import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import {
@@ -11,7 +12,7 @@ import { getProjectStore } from '../projects/projectStore.js';
 import type { ProjectStore } from '../projects/types.js';
 import {
   prepareLessonPlaybackBlock,
-  prepareVisuals,
+  prepareLessonPlaybackVisuals,
   validatePlaybackSceneTypes,
 } from '../services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { readLessonSpeechProvenance } from '../services/lessonSpeechSource.js';
@@ -70,12 +71,13 @@ export const createProductionLessonPlaybackServices = (
         supportsFormulaSpotlights,
         storedVisuals: lesson.generatedVisuals,
         sources: lesson.sources,
+        visualOnly: input.visualOnly,
       })
     ) {
       return { target: input, block: LessonPlaybackBlockSchema.parse(block) };
     }
     if (!providerEffect) throw new Error('Playback preparation requires durable provider results.');
-    const request = {
+    const preparationInput = {
       userId: input.userId,
       synchronizeAnimations,
       allowedSceneTypes,
@@ -94,6 +96,35 @@ export const createProductionLessonPlaybackServices = (
       providerEffect,
       signal,
     };
+    if (input.visualOnly) {
+      const resolved = resolvePlaybackNarration(block);
+      const prepared = playbackFormulaTargets(block, lesson.generatedVisuals, lesson.sources).length
+        ? await prepareLessonPlaybackVisuals(preparationInput)
+        : await prepareLessonPlaybackVisuals(
+            {
+              ...preparationInput,
+              block: {
+                ...resolved,
+                visuals: [],
+                prepared: { ...block.prepared, scene: undefined, motion: [] },
+              },
+            },
+            true
+          );
+      if (
+        !isPlaybackBlockReady({ ...block, prepared }, input.voice, input.model, {
+          supportsFormulaSpotlights,
+          storedVisuals: lesson.generatedVisuals,
+          sources: lesson.sources,
+          visualOnly: true,
+        })
+      )
+        throw failPermanently({
+          code: 'lesson_playback_scene_invalid',
+          message: 'No usable passage visual was prepared.',
+        });
+      return { target: input, block: LessonPlaybackBlockSchema.parse({ ...block, prepared }) };
+    }
     const recording = block.audio.find(
       audio =>
         audio.voice === ttsClient.resolveVoice(input.model, input.voice) &&
@@ -104,11 +135,12 @@ export const createProductionLessonPlaybackServices = (
         target: input,
         block: LessonPlaybackBlockSchema.parse({
           ...block,
-          prepared: await prepareVisuals(request),
+          prepared: await prepareLessonPlaybackVisuals(preparationInput),
         }),
       };
     }
-    const prepared = await prepareLessonPlaybackBlock(request);
+    const prepared = await prepareLessonPlaybackBlock(preparationInput);
+
     const { bytes, mediaType, ...audio } = prepared.audio;
     const asset = await assets.stage({
       bytes,

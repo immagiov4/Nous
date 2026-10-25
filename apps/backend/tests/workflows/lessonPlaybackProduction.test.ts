@@ -1,7 +1,11 @@
+import { getFormulaSpotlightLatex } from '@shared/formulaSpotlight';
 import { type LessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
 
-const { prepare, visuals } = vi.hoisted(() => ({ prepare: vi.fn(), visuals: vi.fn() }));
+const { prepare, prepareVisuals } = vi.hoisted(() => ({
+  prepare: vi.fn(),
+  prepareVisuals: vi.fn(),
+}));
 vi.mock(
   '../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js',
   async importOriginal => ({
@@ -9,7 +13,7 @@ vi.mock(
       typeof import('../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js')
     >()),
     prepareLessonPlaybackBlock: prepare,
-    prepareVisuals: visuals,
+    prepareLessonPlaybackVisuals: prepareVisuals,
   })
 );
 vi.mock('../../src/config/modelConfig.js', async importOriginal => ({
@@ -63,7 +67,14 @@ const setup = () => {
   };
 };
 
-test('prepares only missing formula visuals while retaining the original audio and narration', async () => {
+test.each([
+  { visualOnly: false, native: false },
+  { visualOnly: true, native: false },
+  { visualOnly: true, native: true },
+])('prepares only missing formula visuals while retaining the original audio and narration (%j)', async ({
+  visualOnly,
+  native,
+}) => {
   const { section, assets, services, context } = setup();
   section.contentBlocks = [{ type: 'markdown', markdown: 'Prima $x+y$ dopo' }];
   section.content = 'Prima $x+y$ dopo';
@@ -74,14 +85,35 @@ test('prepares only missing formula visuals while retaining the original audio a
       ...audio,
       wordAlignment: { status: 'aligned' as const, onsets: [0, 0.25, 0.5, 0.75, 1] },
     })),
-    prepared: { motion: [], spokenMath: [{ formula: '$x+y$', spoken: 'ics più ipsilon' }] },
+    prepared: {
+      motion: [],
+      spokenMath: [{ formula: '$x+y$', spoken: 'ics più ipsilon' }],
+      ...(native
+        ? {
+            scene: {
+              ...dictatedFormulaSpotlight,
+              symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
+            },
+          }
+        : {}),
+    },
   };
   section.playback = { ...playback, blocks: [saved] };
-  const formulaSpotlights = [{ formula: '$x+y$', scene: dictatedFormulaSpotlight }];
-  visuals.mockResolvedValue({ ...saved.prepared, formulaSpotlights });
+  const formulaSpotlights = [
+    {
+      formula: native ? `$$${getFormulaSpotlightLatex(dictatedFormulaSpotlight)}$$` : '$x+y$',
+      sourceFormula: native ? dictatedFormulaSpotlight.formula : '$x+y$',
+      scene: dictatedFormulaSpotlight,
+    },
+  ];
+  prepareVisuals.mockResolvedValue({ ...saved.prepared, formulaSpotlights });
   const result = await services.preparePlayback({
     ...context,
-    input: { ...context.input, lessonKey: playback.lessonKey },
+    input: {
+      ...context.input,
+      lessonKey: playback.lessonKey,
+      ...(visualOnly ? { visualOnly: true } : {}),
+    },
   });
   expect(result.block.audio).toEqual(saved.audio);
   expect(result.block.speech).toBe(saved.speech);
@@ -89,7 +121,7 @@ test('prepares only missing formula visuals while retaining the original audio a
   expect(result.assetOwner).toBeUndefined();
   expect(prepare).not.toHaveBeenCalled();
   expect(assets.stage).not.toHaveBeenCalled();
-  expect(visuals).toHaveBeenCalledWith(
+  expect(prepareVisuals).toHaveBeenCalledWith(
     expect.objectContaining({ block: saved, supportsFormulaSpotlights: true })
   );
 });
@@ -99,6 +131,38 @@ test('reuses a block completed between the API cache read and the run starting',
   const result = await services.preparePlayback(context);
   expect(result.block.audio[0]?.asset).toEqual(playbackAsset);
   expect(result.assetOwner).toBeUndefined();
+  expect(prepare).not.toHaveBeenCalled();
+  expect(assets.stage).not.toHaveBeenCalled();
+});
+
+test('prepares a real scene for cached audio without staging or synthesizing another recording', async () => {
+  const { assets, services, context } = setup();
+  const scene: LessonScene = {
+    type: 'steps',
+    title: 'Accesso',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [
+      { label: 'DNS', detail: '', icon: '' },
+      { label: 'Controller', detail: '', icon: '' },
+    ],
+  };
+  prepareVisuals.mockResolvedValueOnce({ scene, motion: [] });
+  const result = await services.preparePlayback({
+    ...context,
+    input: { ...context.input, visualOnly: true },
+  });
+  expect(result.block.prepared).toEqual({ scene, motion: [] });
+  expect(result.block.audio).toEqual(preparedPlayback().blocks[0].audio);
+  expect(result.assetOwner).toBeUndefined();
+  expect(prepareVisuals).toHaveBeenCalledWith(
+    expect.objectContaining({
+      block: expect.objectContaining({ speech: 'Prima frase.', visuals: [] }),
+    }),
+    true
+  );
   expect(prepare).not.toHaveBeenCalled();
   expect(assets.stage).not.toHaveBeenCalled();
 });

@@ -162,12 +162,6 @@ export const SCENE_RENDERERS = {
       {groups(c, 'limits')}
     </Fragment>
   ),
-  quote: c => (
-    <blockquote>
-      <span aria-hidden="true">{'“'}</span>
-      {c.scene.quote}
-    </blockquote>
-  ),
   roles: c => (
     <div className="roles">
       {c.scene.items.map((item, index) => (
@@ -355,4 +349,4 @@ export const SCENE_RENDERERS = {
       </>
     );
   },
-} satisfies Record<LessonSceneType, SceneRenderer>;
+} satisfies Record<Exclude<LessonSceneType, 'quote'>, SceneRenderer>;

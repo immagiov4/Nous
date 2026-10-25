@@ -1,3 +1,4 @@
+import { isRetiredLessonScene } from '@shared/lessonScene';
 import { readLessonPlayback } from '../projects/lessonPlayback.js';
 import type { ProjectAssetWriter } from '../projects/projectAsset.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
@@ -37,33 +38,52 @@ export const buildLessonPlaybackCommitPatch = (
   const hasNewFormulaSpotlights =
     formulaSpotlights &&
     JSON.stringify(previous?.prepared?.formulaSpotlights) !== JSON.stringify(formulaSpotlights);
-  if (!result.assetOwner && !hasNewFormulaSpotlights) return null;
+  if (!result.assetOwner && !target.visualOnly && !hasNewFormulaSpotlights) return null;
+  if (target.visualOnly && !block.prepared)
+    throw new Error('A visual preparation must contain prepared scene data.');
+  const preparedVisual = block.prepared;
   return {
     section: {
       sectionId: target.sectionId,
       playback: {
         ...playback,
-        blocks: playback.blocks.map(saved =>
-          saved.id !== block.id
-            ? saved
-            : {
-                ...saved,
-                prepared: saved.prepared
-                  ? { ...saved.prepared, ...(formulaSpotlights ? { formulaSpotlights } : {}) }
-                  : block.prepared,
-                audio: result.assetOwner
-                  ? [
-                      ...saved.audio.filter(
-                        audio =>
-                          !block.audio.some(
-                            next => next.voice === audio.voice && next.model === audio.model
-                          )
-                      ),
-                      ...block.audio,
-                    ]
-                  : saved.audio,
-              }
-        ),
+        blocks: playback.blocks.map(saved => {
+          if (saved.id !== block.id) return saved;
+          let prepared = saved.prepared ?? block.prepared;
+          if (
+            preparedVisual?.scene &&
+            !isRetiredLessonScene(preparedVisual.scene) &&
+            (!saved.prepared?.scene || isRetiredLessonScene(saved.prepared.scene))
+          ) {
+            prepared = {
+              ...(saved.prepared ?? preparedVisual),
+              scene: preparedVisual.scene,
+              motion: preparedVisual.motion,
+            };
+          }
+          if (preparedVisual?.formulaSpotlights) {
+            prepared = {
+              ...(prepared ?? preparedVisual),
+              formulaSpotlights: preparedVisual.formulaSpotlights,
+            };
+          }
+          return {
+            ...saved,
+            prepared,
+            audio:
+              target.visualOnly || !result.assetOwner
+                ? saved.audio
+                : [
+                    ...saved.audio.filter(
+                      audio =>
+                        !block.audio.some(
+                          next => next.voice === audio.voice && next.model === audio.model
+                        )
+                    ),
+                    ...block.audio,
+                  ],
+          };
+        }),
       },
     },
   };
@@ -77,7 +97,7 @@ export const createLessonPlaybackPersistence =
   }): LessonPlaybackServices['persistPlayback'] =>
   async ({ execution, input, transaction }) => {
     const { target } = input;
-    if (input.assetOwner) {
+    if (input.assetOwner && !target.visualOnly) {
       await dependencies.assets.adoptNodeAssets(transaction, {
         assetIds: input.block.audio.map(audio => audio.asset.id),
         nodeInstanceId: input.assetOwner,

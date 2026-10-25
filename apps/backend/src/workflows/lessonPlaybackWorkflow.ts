@@ -26,12 +26,15 @@ export const LessonPlaybackInputSchema = z.object({
   voice: z.string().min(1),
   model: z.string().min(1),
 });
+export const LessonPlaybackPreparationInputSchema = LessonPlaybackInputSchema.extend({
+  visualOnly: z.boolean().optional(),
+});
 const LessonPlaybackResultSchema = z.object({
-  target: LessonPlaybackInputSchema,
+  target: LessonPlaybackPreparationInputSchema,
   block: LessonPlaybackBlockSchema,
   assetOwner: z.string().optional(),
 });
-export type LessonPlaybackInput = z.infer<typeof LessonPlaybackInputSchema>;
+export type LessonPlaybackInput = z.infer<typeof LessonPlaybackPreparationInputSchema>;
 export type LessonPlaybackResult = z.infer<typeof LessonPlaybackResultSchema>;
 
 export interface LessonPlaybackCapabilities {
@@ -67,9 +70,16 @@ export const createLessonPlaybackWorkflow = (
   executionDefaults: WorkflowExecutionDefaults,
   blockSchema = LessonPlaybackBlockSchema,
   queueAlignment = false,
-  synchronizeAnimations = false
+  synchronizeAnimations = false,
+  supportsVisualPreparation = false
 ) => {
-  const resultSchema = LessonPlaybackResultSchema.extend({ block: blockSchema });
+  const inputSchema = (
+    supportsVisualPreparation ? LessonPlaybackPreparationInputSchema : LessonPlaybackInputSchema
+  ) as typeof LessonPlaybackPreparationInputSchema;
+  const resultSchema = LessonPlaybackResultSchema.extend({
+    block: blockSchema,
+    target: inputSchema,
+  });
   const sceneTypes = blockSchema.shape.prepared.unwrap().shape.scene.unwrap().shape.type.options;
   const supportsFencedCode = 'fencedCode' in blockSchema.shape.prepared.unwrap().shape;
   const supportsSpokenMath = 'spokenMath' in blockSchema.shape.prepared.unwrap().shape;
@@ -78,14 +88,14 @@ export const createLessonPlaybackWorkflow = (
     sceneTypes.includes('formula-spotlight') &&
     sceneSchema.shape.symbols.unwrap().element.shape.anchor.safeParse('').success;
   const prepare = step<
-    typeof LessonPlaybackInputSchema,
+    typeof LessonPlaybackPreparationInputSchema,
     typeof resultSchema,
     WorkflowExecutionDefaults,
     LessonPlaybackServices
   >({
     id: synchronizeAnimations ? 'prepare-synchronized-block' : 'prepare-block',
     externalEffect: 'provider-with-postprocessing',
-    inputSchema: LessonPlaybackInputSchema,
+    inputSchema,
     outputSchema: resultSchema,
     run: context =>
       context.services.preparePlayback(context, {
@@ -119,6 +129,7 @@ export const createLessonPlaybackWorkflow = (
     inputSchema: resultSchema,
     outputSchema: resultSchema,
     run: async ({ input, services }) => {
+      if (input.target.visualOnly) return input;
       try {
         await services.queueRecordingAlignment?.(input);
       } catch (error) {
@@ -132,7 +143,7 @@ export const createLessonPlaybackWorkflow = (
     compatibilityId: 'prepare-lesson-playback-block-v1',
     configSchema: WorkflowExecutionDefaultsSchema,
     executionDefaults,
-    inputSchema: LessonPlaybackInputSchema,
+    inputSchema,
     outputSchema: resultSchema,
     events: {
       [LESSON_PROJECT_REVISION_EVENT]: {

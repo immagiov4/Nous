@@ -643,6 +643,9 @@ const MarkdownRenderer = ({
                 projectId={projectId}
                 title={part.title}
                 visual={part.visual}
+                onUnavailable={
+                  onImageUnavailable ? () => onImageUnavailable(part.visual.id) : undefined
+                }
               />
             </SurfaceErrorBoundary>
           </div>

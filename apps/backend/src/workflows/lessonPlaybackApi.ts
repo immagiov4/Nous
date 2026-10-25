@@ -3,7 +3,9 @@ import {
   type LessonPlaybackBlock,
   needsPlaybackFormulaSpotlights,
   type PlaybackContentBlock,
+  playbackFormulaTargets,
 } from '@shared/lessonPlayback';
+import { isRetiredLessonScene } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import {
   lessonPlaybackContent,
@@ -16,7 +18,7 @@ import { ttsClient } from '../services/ttsClient.js';
 import type { WorkflowRegistry } from './definition.js';
 import {
   LESSON_PLAYBACK_WORKFLOW_ID,
-  LessonPlaybackInputSchema,
+  LessonPlaybackPreparationInputSchema,
 } from './lessonPlaybackWorkflow.js';
 import { WorkflowRuntimeUnavailableError } from './runtime/workflowRuntimeApi.js';
 import type { WorkflowTransientEventPublisher } from './workflowObservability.js';
@@ -33,13 +35,18 @@ interface PlaybackTarget {
 }
 export type PlaybackPreparationResult =
   | { block: LessonPlaybackBlock; voice: string; model: string }
-  | { runId: string; blockId: string; voice: string; created: boolean };
+  | { runId: string; blockId: string; voice: string; created: boolean; visualOnly?: boolean };
 export interface LessonPlaybackApi {
   get(
     target: PlaybackTarget
   ): Promise<{ lessonKey: string; blocks: readonly LessonPlaybackBlock[] }>;
   prepare(
-    input: PlaybackTarget & { lessonKey: string; blockId: string; voice: string }
+    input: PlaybackTarget & {
+      lessonKey: string;
+      blockId: string;
+      voice: string;
+      visualOnly?: boolean;
+    }
   ): Promise<PlaybackPreparationResult>;
 }
 
@@ -51,7 +58,9 @@ export const isPlaybackBlockReady = (
     supportsFormulaSpotlights = true,
     storedVisuals = [],
     sources = [],
+    visualOnly = false,
   }: {
+    visualOnly?: boolean;
     supportsFormulaSpotlights?: boolean;
     storedVisuals?: readonly ProjectLessonVisual[];
     sources?: readonly PlaybackContentBlock[];
@@ -61,7 +70,11 @@ export const isPlaybackBlockReady = (
     block.prepared &&
       (!supportsFormulaSpotlights ||
         !needsPlaybackFormulaSpotlights(block, storedVisuals, sources)) &&
-      block.audio.some(audio => audio.voice === voice && audio.model === model)
+      (visualOnly
+        ? (block.prepared.scene && !isRetiredLessonScene(block.prepared.scene)) ||
+          (supportsFormulaSpotlights &&
+            playbackFormulaTargets(block, storedVisuals, sources).length > 0)
+        : block.audio.some(audio => audio.voice === voice && audio.model === model))
   );
 
 export const createLessonPlaybackApi = (dependencies: {
@@ -103,12 +116,19 @@ export const createLessonPlaybackApi = (dependencies: {
         isPlaybackBlockReady(block, voice, model, {
           storedVisuals: lessonPlaybackVisuals(section),
           sources: lessonPlaybackContent(section),
+          visualOnly: input.visualOnly,
         })
       ) {
         // Playback receives the saved audio immediately; alignment has its own durable run.
-        void dependencies
-          .alignRecording?.({ ...input, incarnationId: project.incarnationId, voice, model }, block)
-          .catch(error => console.warn('[recording-alignment] Could not queue recording.', error));
+        if (!input.visualOnly)
+          void dependencies
+            .alignRecording?.(
+              { ...input, incarnationId: project.incarnationId, voice, model },
+              block
+            )
+            .catch(error =>
+              console.warn('[recording-alignment] Could not queue recording.', error)
+            );
         return { block, voice, model };
       }
       const { run, created } = await startWorkflowRun({
@@ -130,8 +150,14 @@ export const createLessonPlaybackApi = (dependencies: {
         store: dependencies.store,
         publishTransientEvent: dependencies.publishTransientEvent,
       });
-      const active = LessonPlaybackInputSchema.parse(run.input);
-      return { runId: run.id, blockId: active.blockId, voice: active.voice, created };
+      const active = LessonPlaybackPreparationInputSchema.parse(run.input);
+      return {
+        runId: run.id,
+        blockId: active.blockId,
+        voice: active.voice,
+        created,
+        ...(active.visualOnly ? { visualOnly: true } : {}),
+      };
     },
   };
 };

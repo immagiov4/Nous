@@ -306,7 +306,8 @@ test.each([
       <Player />
     )
   );
-  expect(container.querySelector('.scene')).toHaveTextContent('A local audio sample.');
+  expect(container.querySelector('.scene-host')?.textContent).toBe('');
+  expect(container.querySelector('.captions')).toHaveTextContent('A local audio sample.');
   expect(screen.getByTestId('transport')).toHaveTextContent('false:0');
   fireEvent.click(screen.getByRole('button', { name: 'Start lesson' }));
   await waitFor(() => expect(screen.getByTestId('transport')).toHaveTextContent('true:0'));

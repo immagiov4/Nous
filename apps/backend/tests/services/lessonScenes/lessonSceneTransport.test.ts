@@ -25,15 +25,30 @@ beforeEach(() => {
 
 const quote = 'A system has boundaries and interactions.';
 const draft = {
-  intent: 'Read the definition.',
+  intent: 'Identify the parts of a system.',
   evidence: quote,
-  type: 'quote',
+  type: 'parts',
   title: 'Systems',
   body: '',
-  items: [],
+  items: [
+    {
+      label: 'Boundaries',
+      detail: '',
+      value: null,
+      time: null,
+      iconQueries: { object: 'boundary', action: 'separate', concept: 'system' },
+    },
+    {
+      label: 'Interactions',
+      detail: '',
+      value: null,
+      time: null,
+      iconQueries: { object: 'link', action: 'connect', concept: 'system' },
+    },
+  ],
   groups: [],
   criteria: [],
-  quote,
+  quote: '',
   note: '',
   relation: null,
   diagram: null,
@@ -62,7 +77,10 @@ test.each([
     sectionDescription: '',
     signal: new AbortController().signal,
   });
-  expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'quote', quote } });
+  expect(outcome).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'parts', items: [{ label: 'Boundaries' }, { label: 'Interactions' }] },
+  });
   if (outcome.kind !== 'scene') throw new Error('Expected grounded scene');
   expect(findLessonSceneProblems(outcome.scene, block.speech)).toEqual([]);
 });

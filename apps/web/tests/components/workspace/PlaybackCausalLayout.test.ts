@@ -295,14 +295,22 @@ async function expectConnectedCards(page: Page) {
   });
 }
 
-test('finishes voice cue fades at word start while captions retain their 1.3 second lead', async () => {
+async function openOnset(mode = '') {
   const page = await browser.newPage({
     viewport: { width: 1440, height: 900 },
     reducedMotion: 'no-preference',
   });
+  await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=${mode}`);
+  return page;
+}
+
+test('finishes voice cue fades at word start while captions retain their 1.3 second lead', async () => {
+  const page = await openOnset();
   try {
-    await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html`);
     await page.locator('[data-motion-id]').first().waitFor({ state: 'attached' });
+    expect(
+      await page.locator('.scene').evaluate(element => getComputedStyle(element).animationDuration)
+    ).toBe('0.18s');
     const result = await page.evaluate(async () => {
       const controls = window as unknown as { setPlaybackTime: (time: number) => void };
       const frame = () => new Promise(requestAnimationFrame);
@@ -350,46 +358,56 @@ test('finishes voice cue fades at word start while captions retain their 1.3 sec
     expect(result.duringFade.emphasis).toBeLessThan(1);
     expect(result.atWordStart).toEqual({ opacity: 1, emphasis: 1 });
     expect(result.captionLead).toBeCloseTo(1.3);
-    for (const mode of ['path', 'formula']) {
-      await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=${mode}`);
-      await page.locator('.scene').waitFor({ state: 'attached' });
-      const state = await page.evaluate(async () => {
-        const controls = window as unknown as { setPlaybackTime: (time: number) => void };
-        const frame = () => new Promise(requestAnimationFrame);
-        controls.setPlaybackTime(1.99);
-        await frame();
-        await frame();
-        const before = {
-          step: document.querySelector('[data-stop="1"]')?.classList.contains('current') ?? false,
-          symbol:
-            document.querySelector('[data-formula-symbol]')?.getAttribute('data-active') === 'true',
-        };
-        controls.setPlaybackTime(2);
-        await frame();
-        await frame();
-        const stop = document.querySelector<HTMLElement>('[data-stop="1"]');
-        return {
-          before,
-          step: stop?.classList.contains('current') ?? false,
-          transition: stop ? getComputedStyle(stop).transitionDuration : null,
-          symbol:
-            document.querySelector('[data-formula-symbol]')?.getAttribute('data-active') === 'true',
-          definitionVisible: document.querySelector('dd')?.hidden === false,
-        };
-      });
-      if (mode === 'path') {
-        expect(state.before.step).toBe(false);
-        expect(state.step).toBe(true);
-        expect(state.transition?.split(',').some(duration => duration.trim() === '0.3s')).toBe(
-          true
-        );
-      } else {
-        expect(state.before.symbol).toBe(false);
-        expect(state.symbol).toBe(true);
-        expect(state.definitionVisible).toBe(true);
-      }
+  } finally {
+    await page.close();
+  }
+});
+
+test.each(['path', 'formula'])('starts %s cues on the voice clock', async mode => {
+  const page = await openOnset(mode);
+  try {
+    await page.locator('.scene').waitFor({ state: 'attached' });
+    const state = await page.evaluate(async () => {
+      const controls = window as unknown as { setPlaybackTime: (time: number) => void };
+      const frame = () => new Promise(requestAnimationFrame);
+      controls.setPlaybackTime(1.99);
+      await frame();
+      await frame();
+      const before = {
+        step: document.querySelector('[data-stop="1"]')?.classList.contains('current') ?? false,
+        symbol:
+          document.querySelector('[data-formula-symbol]')?.getAttribute('data-active') === 'true',
+      };
+      controls.setPlaybackTime(2);
+      await frame();
+      await frame();
+      const stop = document.querySelector<HTMLElement>('[data-stop="1"]');
+      return {
+        before,
+        step: stop?.classList.contains('current') ?? false,
+        transition: stop ? getComputedStyle(stop).transitionDuration : null,
+        symbol:
+          document.querySelector('[data-formula-symbol]')?.getAttribute('data-active') === 'true',
+        definitionVisible: document.querySelector('dd')?.hidden === false,
+      };
+    });
+    if (mode === 'path') {
+      expect(state.before.step).toBe(false);
+      expect(state.step).toBe(true);
+      expect(state.transition?.split(',').some(duration => duration.trim() === '0.3s')).toBe(true);
+    } else {
+      expect(state.before.symbol).toBe(false);
+      expect(state.symbol).toBe(true);
+      expect(state.definitionVisible).toBe(true);
     }
-    await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=cards`);
+  } finally {
+    await page.close();
+  }
+});
+
+test('selects sourced formula cards on the voice clock after forward and backward seeks', async () => {
+  const page = await openOnset('cards');
+  try {
     await page.locator('.scene-host annotation').waitFor({ state: 'attached' });
     const cards = await page.evaluate(async () => {
       const controls = window as unknown as { setPlaybackTime: (time: number) => void };
@@ -403,11 +421,18 @@ test('finishes voice cue fades at word start while captions retain their 1.3 sec
       return selected;
     });
     expect(cards).toEqual(['a', 'b', 'b', 'a', 'b']);
-    await page.goto(`${baseUrl}tests/fixtures/playbackOnset.html?mode=fallback`);
-    await page.locator('.scene').waitFor({ state: 'attached' });
-    expect(
-      await page.locator('.scene').evaluate(element => getComputedStyle(element).animationDuration)
-    ).toBe('0.18s');
+  } finally {
+    await page.close();
+  }
+});
+
+test('keeps an unprepared passage empty beside its captions', async () => {
+  const page = await openOnset('fallback');
+  try {
+    await page.locator('.scene-host').waitFor({ state: 'attached' });
+    expect(await page.locator('.scene-host').textContent()).toBe('');
+    expect(await page.locator('.scene-host').getAttribute('aria-hidden')).toBe('true');
+    expect(await page.locator('.captions').textContent()).toContain('Uno');
   } finally {
     await page.close();
   }
@@ -494,7 +519,7 @@ function iconsLoaded() {
 async function openCard(kind: string) {
   const page = await browser.newPage({ viewport: { width: 412, height: 915 } });
   await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=${kind}`);
-  await page.locator('.scene-host').waitFor();
+  await page.locator('.scene-host').waitFor({ state: 'attached' });
   await page.evaluate(() => document.fonts.ready);
   if (['steps', 'comparison'].includes(kind)) {
     await page.locator('.motion-target').first().waitFor();
@@ -504,17 +529,14 @@ async function openCard(kind: string) {
 }
 
 for (const width of [412, 1440]) {
-  for (const kind of ['prices', 'dense', 'heading', 'setext', 'nested']) {
+  for (const kind of ['prices', 'dense']) {
     test(`card followup: ${kind} at ${width}px`, async () => {
       const page = await browser.newPage({
         viewport: { width, height: 1000 },
         reducedMotion: 'reduce',
       });
       try {
-        const query = ['heading', 'setext', 'nested'].includes(kind)
-          ? `missing&historical&heading=${kind}`
-          : kind;
-        await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=${query}`);
+        await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=${kind}`);
         await page.locator('.scene-host h2').waitFor();
         await page.evaluate(() => document.fonts.ready);
         if (kind === 'prices') {
@@ -528,11 +550,6 @@ for (const width of [412, 1440]) {
             '$25 today and $30 tomorrow'
           );
           expect(await page.locator('.scene-host .katex math').count()).toBe(2);
-        } else if (['heading', 'setext', 'nested'].includes(kind)) {
-          expect(await page.locator('.scene-host h2').textContent()).toBe('Il contesto sociale');
-          expect(
-            (await page.locator('.scene-host blockquote').innerText()).replace(/^“\s*/u, '').trim()
-          ).toBe('In una situazione ambigua, le persone osservano gli altri prima di intervenire.');
         } else {
           await page.locator('.data-chart svg').waitFor();
           const labels = await page
@@ -621,13 +638,12 @@ test('2: matrix scene cells render authored math through KaTeX', async () => {
   }
 });
 
-test('1: a historical image-only preparation shows a bounded passage-derived card without image wording', async () => {
+test('1: a historical image-only preparation stays empty while no replacement is available', async () => {
   const page = await openCard('missing&historical');
   try {
     const card = await page.locator('.scene-host').innerText();
-    expect(
-      (await page.locator('.scene-host blockquote').innerText()).replace(/^“\s*/u, '').trim()
-    ).toBe('In una situazione ambigua, le persone osservano gli altri prima di intervenire.');
+    expect(card).toBe('');
+    expect(await page.locator('.captions').textContent()).toContain('In una situazione ambigua');
     expect(card).not.toContain('PDF_IMAGE');
     expect(card).not.toContain('Un esempio visivo');
     expect(card).not.toContain('Figura di esempio');

@@ -2,6 +2,7 @@ import {
   hasConflictingLessonSceneClosingText,
   isAnimatedLessonScene,
   isQuickLessonScene,
+  isRetiredLessonScene,
   LESSON_SCENE_RELATION_SYMBOLS,
   type LessonScene,
 } from '@shared/lessonScene';
@@ -27,7 +28,7 @@ const hasDuplicateDecisionIntro = (scene: LessonScene) =>
 const SceneContent = (
   props: Pick<SceneRenderContext, 'scene' | 'isDarkMode' | 'readFrame' | 'playback'>
 ) =>
-  SCENE_RENDERERS[props.scene.type]({
+  SCENE_RENDERERS[props.scene.type as Exclude<LessonScene['type'], 'quote'>]({
     ...props,
     prototype: useContext(ScenePrototypeContext),
     labels: { comparison: t('confronto'), criterion: t('Criterio'), becomes: t('diventa') },
@@ -46,66 +47,68 @@ export const LessonSceneVisual = ({
   readonly scene: LessonScene;
   readonly readAnimationFrame?: ReadSceneAnimationFrame;
   readonly variant?: 'card' | 'bare';
-}) => (
-  <figure
-    className={`lesson-scene ${variant === 'bare' ? 'lesson-scene-bare' : ''} ${isAnimatedLessonScene(scene) ? 'lesson-scene-animated' : ''} ${className}`}
-    data-nous-speech="ignore"
-  >
-    <SceneIconProvider prototype={variant === 'bare' || isAnimatedLessonScene(scene)}>
-      <article
-        className={`scene type-${scene.type}${isAnimatedLessonScene(scene) ? ' interaction-card' : ''}${isQuickLessonScene(scene) ? ' quick-scene' : ''}`}
-      >
-        <header>
-          {scene.title ? (
-            <h2>
-              <SceneText>{scene.title}</SceneText>
-            </h2>
-          ) : null}
-          {scene.body && scene.type !== 'quote' && !hasDuplicateDecisionIntro(scene) ? (
-            <p className={isAnimatedLessonScene(scene) ? undefined : 'scene-intro'}>
-              <SceneText>{scene.body}</SceneText>
-            </p>
-          ) : null}
-        </header>
-        {isAnimatedLessonScene(scene) ? (
-          <SceneContent
-            playback={variant === 'bare'}
-            isDarkMode={isDarkMode}
-            scene={scene}
-            readFrame={readAnimationFrame}
-          />
-        ) : (
-          <div className="visual-content">
+}) => {
+  if (isRetiredLessonScene(scene)) return null;
+  return (
+    <figure
+      className={`lesson-scene ${variant === 'bare' ? 'lesson-scene-bare' : ''} ${isAnimatedLessonScene(scene) ? 'lesson-scene-animated' : ''} ${className}`}
+      data-nous-speech="ignore"
+    >
+      <SceneIconProvider prototype={variant === 'bare' || isAnimatedLessonScene(scene)}>
+        <article
+          className={`scene type-${scene.type}${isAnimatedLessonScene(scene) ? ' interaction-card' : ''}${isQuickLessonScene(scene) ? ' quick-scene' : ''}`}
+        >
+          <header>
+            {scene.title ? (
+              <h2>
+                <SceneText>{scene.title}</SceneText>
+              </h2>
+            ) : null}
+            {scene.body && !hasDuplicateDecisionIntro(scene) ? (
+              <p className={isAnimatedLessonScene(scene) ? undefined : 'scene-intro'}>
+                <SceneText>{scene.body}</SceneText>
+              </p>
+            ) : null}
+          </header>
+          {isAnimatedLessonScene(scene) ? (
             <SceneContent
               playback={variant === 'bare'}
               isDarkMode={isDarkMode}
               scene={scene}
               readFrame={readAnimationFrame}
             />
-          </div>
-        )}
-        {/* The reader omits conflicting closing text; the player follows the laboratory scene. */}
-        {scene.quote.trim() &&
-        scene.type !== 'quote' &&
-        scene.type !== 'decision' &&
-        (variant === 'bare' || !hasConflictingLessonSceneClosingText(scene)) ? (
-          <aside aria-label={t('Domanda')} className="scene-note scenario-question">
-            <SceneIcon name="help-circle" />
-            <p>
-              <SceneText>{scene.quote}</SceneText>
-            </p>
-          </aside>
-        ) : null}
-        {scene.note.trim() &&
-        (variant === 'bare' || !hasConflictingLessonSceneClosingText(scene)) ? (
-          <aside aria-label={t('Nota')} className="scene-note">
-            <SceneIcon name="info-circle" />
-            <p>
-              <SceneText>{scene.note}</SceneText>
-            </p>
-          </aside>
-        ) : null}
-      </article>
-    </SceneIconProvider>
-  </figure>
-);
+          ) : (
+            <div className="visual-content">
+              <SceneContent
+                playback={variant === 'bare'}
+                isDarkMode={isDarkMode}
+                scene={scene}
+                readFrame={readAnimationFrame}
+              />
+            </div>
+          )}
+          {/* The reader omits conflicting closing text; the player follows the laboratory scene. */}
+          {scene.quote.trim() &&
+          scene.type !== 'decision' &&
+          (variant === 'bare' || !hasConflictingLessonSceneClosingText(scene)) ? (
+            <aside aria-label={t('Domanda')} className="scene-note scenario-question">
+              <SceneIcon name="help-circle" />
+              <p>
+                <SceneText>{scene.quote}</SceneText>
+              </p>
+            </aside>
+          ) : null}
+          {scene.note.trim() &&
+          (variant === 'bare' || !hasConflictingLessonSceneClosingText(scene)) ? (
+            <aside aria-label={t('Nota')} className="scene-note">
+              <SceneIcon name="info-circle" />
+              <p>
+                <SceneText>{scene.note}</SceneText>
+              </p>
+            </aside>
+          ) : null}
+        </article>
+      </SceneIconProvider>
+    </figure>
+  );
+};

@@ -169,7 +169,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 6;
+export const WORKFLOW_SET_VERSION = 8;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -290,6 +290,29 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
         },
         undefined,
         createSceneLessonGenerationDurableSchemaSet(contract)
+      ),
+      formulaVisualPlayback: createLessonPlaybackWorkflow(
+        playbackExecutionDefaults,
+        createLessonPlaybackBlockSchema(schema, {
+          spokenMath: true,
+          fencedCode: true,
+          legacyVisuals: true,
+          formulaSpotlights: true,
+        }),
+        true,
+        true,
+        true
+      ),
+      visualPlayback: createLessonPlaybackWorkflow(
+        playbackExecutionDefaults,
+        createLessonPlaybackBlockSchema(schema, {
+          spokenMath: true,
+          fencedCode: true,
+          legacyVisuals: true,
+        }),
+        true,
+        true,
+        true
       ),
       formulaSpotlightPlayback: createLessonPlaybackWorkflow(
         playbackExecutionDefaults,
@@ -598,9 +621,13 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     ],
   });
   registry.register({
-    current: currentScenes.formulaSpotlightPlayback,
+    current: currentScenes.formulaVisualPlayback,
     previous: [
-      ...historicalScenes.map(definition => definition.formulaSpotlightPlayback),
+      ...historicalScenes.map(definition => definition.formulaVisualPlayback),
+      ...[currentScenes, ...historicalScenes].map(definition => definition.visualPlayback),
+      ...[currentScenes, ...historicalScenes].map(
+        definition => definition.formulaSpotlightPlayback
+      ),
       ...[currentScenes, ...historicalScenes].map(definition => definition.synchronizedPlayback),
       ...[currentScenes, ...historicalScenes].map(definition => definition.alignedPlayback),
       currentScenes.legacyVisualPlayback,

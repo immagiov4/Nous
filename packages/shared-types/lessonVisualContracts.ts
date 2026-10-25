@@ -151,7 +151,7 @@ The image must be self-contained, accurate, and immediately readable. Do not add
 FACTUAL LESSON CONTEXT
 ${input.lessonMarkdown.slice(0, 3_000)}`;
 
-export const LESSON_SCENE_CLOSING_TEXT_RULE = `A lesson scene needs no closing text by default. Add a note only when a necessary limit would otherwise be missed, or a question only when it is essential to the reader's task. Never add both, repeat information already visible, or append generic reminders. Leave both fields empty when the scene is sufficient. In quote and decision forms, quote is the main content rather than a closing question.`;
+export const LESSON_SCENE_CLOSING_TEXT_RULE = `A lesson scene needs no closing text by default. Add a note only when a necessary limit would otherwise be missed, or a question only when it is essential to the reader's task. Never add both, repeat information already visible, or append generic reminders. Leave both fields empty when the scene is sufficient. In decision forms, quote is the main content rather than a closing question.`;
 
 export const LESSON_SCENE_INDEPENDENT_CONTENT_RULE = `Preserve every independent computation or step required by the visual's teaching goal. Use parts for independent entries shown side by side, checklist for independent checks, or comparison for genuinely comparable alternatives; use steps only when the lesson explicitly orders the actions. Flowchart, sequence, and journey require one connected graph with lesson-supported connections. If required content is disconnected, change to a suitable non-graph form, including when correcting a previous diagram attempt. Never omit independent content or invent connections to satisfy the diagram contract. A planned diagram is a form suggestion, not permission to lose required content.`;
 
@@ -176,7 +176,7 @@ Given the final lesson text, decide which generated visual representations are g
 
 Choose exactly one type for each plan:
 - illustrative_image: a raster illustration for physical or stylized reality, dimensional form, lighting, shading, volume, perspective, materials, surfaces, texture, anatomy, gestures, objects, scenes, places, and phenomena. It may also use a diagram-like composition with arrows and labels when they help read the image.
-- lesson_scene: an abstract structure, relation, or quantity shown with a form from the scene catalog: definitions, parts, comparisons, checklists, steps, timelines, hierarchies, cycles, quantities and charts from numbers stated in the text, flowcharts, message sequences, and journeys. Use it when labels, icons, and layout clarify the concept.
+- lesson_scene: an abstract structure, relation, or quantity shown with a form from the scene catalog: parts, comparisons, checklists, steps, timelines, hierarchies, cycles, quantities and charts from numbers stated in the text, flowcharts, message sequences, and journeys. Use it when labels, icons, and layout clarify the concept.
 - interactive_html: an HTML, CSS, and JavaScript lab where real interaction is indispensable to explore, modify, or compare the concept.
 - none: no useful visual, or the lesson is already sufficiently visual.
 
