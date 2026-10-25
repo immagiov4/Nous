@@ -28,6 +28,12 @@ export const getMarkdownMathDelimitersAt = (content: string, start: number) => {
   return undefined;
 };
 
+const startsBlankLine = (content: string, index: number): boolean => {
+  if (content[index] !== '\n' && content[index] !== '\r') return false;
+  const nextLine = index + (content.startsWith('\r\n', index) ? 2 : 1);
+  return /^[\t ]*[\r\n]/u.test(content.slice(nextLine));
+};
+
 const findDelimitedMathRange = (
   content: string,
   startIndex: number,
@@ -39,10 +45,7 @@ const findDelimitedMathRange = (
 
   while (cursor < content.length) {
     if (!allowNewlines && content[cursor] === '\n') return null;
-    if (content[cursor] === '\n' || content[cursor] === '\r') {
-      const nextLine = cursor + (content.startsWith('\r\n', cursor) ? 2 : 1);
-      if (/^[\t ]*[\r\n]/u.test(content.slice(nextLine))) return null;
-    }
+    if (startsBlankLine(content, cursor)) return null;
     if (
       content.startsWith(closeDelimiter, cursor) &&
       !isEscapedMarkdownCharacter(content, cursor)
