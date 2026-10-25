@@ -1,7 +1,7 @@
 import { normalizeMathMarkdownSegment } from '@shared/markdownMathNormalization';
-import { getMarkdownMathRangeAt } from '@shared/markdownMathSyntax';
+import { getMarkdownMathDelimitersAt, getMarkdownMathRangeAt } from '@shared/markdownMathSyntax';
+import remarkMath from '@shared/remarkPandocMath';
 import { renderToString } from 'katex';
-import remarkMath from 'remark-math';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 
@@ -90,7 +90,9 @@ export const getPdfTranscriptionMathErrors = (markdown: string): string[] => {
     if ((node.type === 'math' || node.type === 'inlineMath') && node.value !== undefined) {
       try {
         renderToString(node.value, {
-          displayMode: node.type === 'math',
+          displayMode:
+            node.position &&
+            getMarkdownMathDelimitersAt(normalized, node.position.start.offset)?.display,
           throwOnError: true,
           strict: 'ignore',
         });

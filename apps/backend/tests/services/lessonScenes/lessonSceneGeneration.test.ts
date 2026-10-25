@@ -67,6 +67,19 @@ const quoteDraft = (quote: string) => ({
   type: 'quote',
 });
 
+test.each([
+  String.raw`La relazione \(x^2\) costa \$5.`,
+  String.raw`La relazione è \[x^2\].`,
+])('preserves explicit math delimiters through structured scene generation: %s', async source => {
+  generateStructuredOutputMock.mockResolvedValueOnce(
+    JSON.parse(JSON.stringify(quoteDraft(source)))
+  );
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'quote', quote: source },
+  });
+});
+
 test('exposes a valid scene to independent preparation before icons and keeps invalid drafts private', async () => {
   const onValidatedScene = vi.fn();
   generateStructuredOutputMock.mockResolvedValueOnce(quoteDraft('Una domanda precisa.'));

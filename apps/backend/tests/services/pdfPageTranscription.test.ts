@@ -6,7 +6,10 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import type { SourcePreparationContext } from '../../src/projects/sourcePreparationContext.js';
 import * as pdfTasks from '../../src/services/pdfPageTask.js';
 import { extractPdfTextLayer } from '../../src/services/pdfTextExtractor.js';
-import { normalizePdfTranscriptionMarkdown } from '../../src/services/pdfTranscriptionMath.js';
+import {
+  getPdfTranscriptionMathErrors,
+  normalizePdfTranscriptionMarkdown,
+} from '../../src/services/pdfTranscriptionMath.js';
 import { PdfTranscriptionPool } from '../../src/services/pdfTranscriptionPool.js';
 import recording from '../fixtures/pdf-transcription-response.json';
 import { buildPdfPageFixture, buildPdfTextDataUrl } from '../fixtures/pdfText.js';
@@ -673,6 +676,22 @@ test('reports a missing pinned endpoint as a page failure with no cross-provider
 test('keeps dollar signs inside Markdown code unchanged during multiline formula normalization', () => {
   const markdown = ['```sh', 'echo "$HOME"', 'echo "$PATH"', '```', '', '$x=1$'].join('\n');
   expect(normalizePdfTranscriptionMarkdown(markdown)).toBe(markdown);
+});
+
+test.each([
+  [String.raw`\(x^2\)`, String.raw`\(\notARealLatexCommand{x}\)`],
+  [String.raw`\[x^2\]`, String.raw`\[\notARealLatexCommand{x}\]`],
+])('validates explicit math delimiters against the reader grammar: %s', (valid, invalid) => {
+  expect(getPdfTranscriptionMathErrors(valid)).toEqual([]);
+  expect(getPdfTranscriptionMathErrors(invalid)).toHaveLength(1);
+});
+
+test.each([
+  String.raw`$$x^2\tag{1}$$`,
+  String.raw`\[x^2\tag{1}\]`,
+])('accepts display-only LaTeX commands under explicit display syntax: %s', source => {
+  expect(getPdfTranscriptionMathErrors(source)).toEqual([]);
+  expect(getPdfTranscriptionMathErrors(String.raw`$x^2\tag{1}$`)).toHaveLength(1);
 });
 
 test('gives a timed-out first request one fresh deadline without exceeding two calls', async () => {

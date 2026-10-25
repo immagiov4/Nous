@@ -22,6 +22,7 @@ import {
   LESSON_SCENE_CLOSING_TEXT_RULE,
   LESSON_SCENE_INDEPENDENT_CONTENT_RULE,
 } from '@shared/lessonVisualContracts';
+import { LESSON_MATH_DELIMITERS_RULE } from '@shared/lessonWritingContract';
 import * as z from 'zod';
 import { getResolvedModelConfigForProvider } from '../../config/modelConfig.js';
 import {
@@ -188,6 +189,8 @@ const catalogText = (types: readonly LessonSceneType[]): string =>
 const sceneSystemPrompt = (
   types: readonly LessonSceneType[]
 ) => String.raw`Design the visual scene that accompanies one concept of a lesson for adults. First state the reader's task: what must the reader understand? Then choose the semantic relation (definition, distinction, comparison by a criterion, check, sequence, limit, question) and only then choose the form from the catalog. Use only the lesson text. Preserve negations, scope, conditions, and uncertainty. All visible text uses the lesson language.
+
+${LESSON_MATH_DELIMITERS_RULE}
 
 FIELDS
 - intent: one concrete sentence about the reader's task; never shown.
