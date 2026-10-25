@@ -8,14 +8,17 @@ const EXIT_POLL_MS = 20;
 export const WINDOWS_JOB_SCRIPT = fileURLToPath(
   new URL('./heavy-run-windows-job.mjs', import.meta.url)
 );
-const windowsJobs =
-  process.platform === 'win32' && process.versions.bun
-    ? await import('./heavy-run-windows-job.mjs')
-    : null;
+let nativeJobRunning;
+let nativeStopJob;
+if (process.platform === 'win32' && process.versions.bun) {
+  const { jobRunning, stopJob } = await import('./heavy-run-windows-job.mjs');
+  nativeJobRunning = jobRunning;
+  nativeStopJob = stopJob;
+}
 
 /** Node callers use the same Bun FFI helper; no PID ancestry approximation is involved. */
 export function windowsJobRunning(name) {
-  if (windowsJobs) return windowsJobs.jobRunning(name);
+  if (nativeJobRunning) return nativeJobRunning(name);
   return query('bun', [WINDOWS_JOB_SCRIPT, 'query', name]) === 'true';
 }
 
@@ -24,7 +27,7 @@ export async function waitWindowsJob(name) {
 }
 
 export async function stopWindowsJob(name) {
-  if (windowsJobs) return windowsJobs.stopJob(name);
+  if (nativeStopJob) return nativeStopJob(name);
   query('bun', [WINDOWS_JOB_SCRIPT, 'stop', name], 'Failed to stop the Windows lease Job.');
 }
 const bootId =

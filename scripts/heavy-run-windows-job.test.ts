@@ -61,7 +61,7 @@ function launch(directory: string, label: string, command: string[]) {
   });
   const exited = new Promise<number | null>((resolveExit, reject) => {
     child.once('error', reject);
-    child.once('exit', resolveExit);
+    child.once('close', resolveExit);
   });
   return { child, exited, output: () => output };
 }

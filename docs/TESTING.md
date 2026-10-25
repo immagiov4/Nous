@@ -38,6 +38,8 @@ A holder without a living command expires after two seconds without activity; ad
 
 The idle window covers command startup, not output gaps or total execution time. On Windows with Bun 1.4.0, one real caption-row suite registered its child in 52.9 ms and passed 24 Chromium and 24 Firefox cases (115.6 s and 218.5 s); two real `gate:ci` runs registered in 55–66 ms. These uncontended queue-to-registration measurements include record creation and worker spawn. The two-second window rounds the observed maximum up to the one-second admission interval and adds one admission interval. The passing gate retained its lease for 548 seconds with 18 activity renewals, including silent stages.
 
+With native Windows Job ownership, an uncontended real `gate:ci` registers in 175 ms, including FFI setup, Job creation and assignment of its suspended root. Rounding this observed startup to one admission interval still gives the same two-second idle window.
+
 Four concurrent real layout-browser proofs at the default four-slot capacity also pass. With Node 26.4.0 on Windows, publication-to-worker registration takes 35–39 ms across those four runs; FIFO waiting time is measured separately. These measurements calibrate the supported workload rather than promise a worst-case bound under arbitrary OS starvation. A supervisor that neither registers a command nor renews activity within the idle window loses its lease.
 
 ## CI and merge readiness
