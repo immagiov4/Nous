@@ -38,6 +38,27 @@ vi.mock('../../../services/projects/projectVisualResolver.ts', () => ({
 let resizeScene: () => void;
 const disconnectScene = vi.fn();
 
+test('serializes unchanged source inputs once across playback time notifications', () => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const authored = [{ type: 'markdown' as const, markdown: 'Prima frase. Seconda frase.' }];
+  const serialize = vi.fn(() => authored);
+  const sources = Object.assign([...authored], { toJSON: serialize });
+  const block = segmentLessonPlayback(authored)[0];
+  const content = {
+    sectionContentBlocks: sources,
+    isDarkMode: false,
+  } as unknown as WorkspaceReaderContentModel;
+  const view = (time: number) => (
+    <LessonPlaybackStage block={block} content={content} duration={10} time={time} />
+  );
+  const mounted = render(view(0));
+  expect(serialize).toHaveBeenCalledOnce();
+  mounted.rerender(view(1));
+  mounted.rerender(view(2));
+  expect(serialize).toHaveBeenCalledOnce();
+  expect(mounted.container.querySelector('.captions')?.textContent).toContain(authored[0].markdown);
+});
+
 test('reads all visible steps and the actual rendered emphasis from the stage snapshot', () => {
   vi.mocked(useShouldAnimate).mockReturnValue(false);
   const frames: FrameRequestCallback[] = [];

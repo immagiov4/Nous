@@ -1042,10 +1042,14 @@ export default function LessonPlaybackStage(
   props: Omit<Parameters<typeof PlaybackPassage>[0], 'sources'>
 ) {
   // Equivalent project snapshots retain the source syntax analysis between passages.
-  const sourceKey = JSON.stringify(
-    props.content.sectionContentBlocks?.length
-      ? props.content.sectionContentBlocks
-      : [{ type: 'markdown', markdown: props.content.sectionContent }]
+  const sourceKey = useMemo(
+    () =>
+      JSON.stringify(
+        props.content.sectionContentBlocks?.length
+          ? props.content.sectionContentBlocks
+          : [{ type: 'markdown', markdown: props.content.sectionContent }]
+      ),
+    [props.content.sectionContentBlocks, props.content.sectionContent]
   );
   const sources = useMemo(
     () => JSON.parse(sourceKey) as readonly PlaybackContentBlock[],
