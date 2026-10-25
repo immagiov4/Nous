@@ -8,4 +8,4 @@
 
 ## Testing
 
-<!-- Name relevant suites and results. Keep CI and SonarCloud status together on one line. -->
+<!-- Name relevant suites and results. Keep CI and SonarCloud status together on one line for the exact PR head, following docs/TESTING.md. Validate and verify with scripts/github-body.mjs. -->
