@@ -1090,7 +1090,7 @@ test('rebuilds unlinked shared bases as independently heard indexed quantities',
   });
   const result = await preparePlaybackFormulaSpotlights({
     block,
-    config: sourceBoundInput().config,
+    config: getGlobalModelConfig(),
     signal: new AbortController().signal,
   });
   const scene = result[0].scene as FormulaSpotlightData;
