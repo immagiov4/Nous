@@ -96,7 +96,14 @@ test('prepares separate full-passage symbol links for repeated saved pronunciati
 test('rejects a mathematically different widget before saving and corrects it through the same service', async () => {
   generate.mockResolvedValueOnce({
     kind: 'scene',
-    scene: { ...dictatedFormulaSpotlight, formula: String.raw`\nousSymbol{x}-\nousSymbol{y}` },
+    scene: {
+      ...dictatedFormulaSpotlight,
+      symbols: dictatedFormulaSpotlight.symbols.map(symbol =>
+        symbol.id === 'plus'
+          ? { ...symbol, latex: '-', name: 'Meno', meaning: 'Differenza' }
+          : symbol
+      ),
+    },
   });
   const result = await preparePlaybackFormulaSpotlights(request());
   expect(result[0].scene).toEqual(dictatedFormulaSpotlight);
