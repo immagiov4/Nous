@@ -8,6 +8,7 @@ import {
   getPlaybackFormulaSources,
   getPlaybackMathMarkdown,
   type LessonPlaybackBlock,
+  type PlaybackContentBlock,
   type PlaybackRange,
   type PlaybackVisual,
   playbackNonProseVisuals,
