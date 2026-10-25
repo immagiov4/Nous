@@ -20,7 +20,7 @@ This skill owns the Nous-specific work that is not supplied by the companion ski
   contract is clear and whose dependencies and risks are acceptable;
 - send bounded, user-visible work to isolated Codex tasks and coordinate their ownership,
   queueing, evidence, and publication authority;
-- preserve Nous-specific contracts, local quality gates, manual-verification gates, and GitHub/Git
+- preserve Nous-specific contracts, CI merge gates, manual-verification gates, and GitHub/Git
   boundaries.
 
 Do not duplicate a companion skill's generic procedure. Route the responsibility when it applies,
@@ -261,25 +261,15 @@ These skills own review mechanics; this skill retains the Nous-specific gates be
 2. Run the cheap, relevant checks: type checks, formatter/linter, focused static/security checks,
    and the smallest service or Supabase contract that proves the changed boundary. Inspect
    `git diff --check`, staged scope, deletions, generated artifacts, and secrets before publication.
-3. In the high-throughput PR loop, open the PR after focused tests plus quality pass. Use GitHub CI
-   and configured automated reviewers as the parallel review surface. Reserve broad local gates for
-   the final merge head when required by the merge policy.
+3. Follow the Nous repository's `docs/TESTING.md`: run changed-file checks and targeted tests locally, then use CI for full quality, tests, coverage and SonarCloud on the exact PR head.
 4. Wait for CI and required automated reviewers. Use a native periodic monitor, normally about
    every two minutes, rather than assuming comments arrive immediately. Treat optional or
    rate-limited reviewers as non-blocking unless the user explicitly promoted them to a gate.
 5. Treat only concrete, reproducible review findings as work. Apply the disposition rules from
    `$receiving-pr-reviews`; fix genuine findings at their owning boundary with targeted validation,
    and explain unsupported findings with evidence.
-6. Serialize host-heavy local gates. Run at most one full gate/coverage/Sonar lane at a time. For
-   behavior-changing code, tests, security, build, dependency, or configuration changes, run the
-   final local `bun run gate:full`/Sonar gate on the exact merge head before merge when the user
-   requires it. If that head changes after review fixes, repeat the final gate only for the new
-   head. Do not run Sonar for documentation-only or trivial metadata-only changes; do not start
-   competing scanners, rotate shared tokens, or change global Sonar configuration while another
-   scan is active.
-7. If a full local gate fails under host contention, classify it as infrastructure contention,
-   preserve its output, and rely on focused checks plus fresh CI rather than calling it a code
-   regression.
+6. Merge only when CI is green on the exact PR head, including `test`, `SonarCloud Code Analysis` and applicable contract and PR-body checks. Each new commit needs its own passing checks. Resolve every new Sonar finding with an owner-visible disposition.
+7. Use `bun run gate:full` only to diagnose Windows-specific failures, following `docs/TESTING.md`; stop the local service afterward with `bun run sonar:stop`. Keep heavy local runs serialized. For unrelated test timeouts under load, run the affected files in isolation before classifying a regression.
 
 Use test and review results as evidence, not ceremony. Do not broaden the patch merely to make
 unrelated checks green.
@@ -322,6 +312,7 @@ Before publication, re-check remote state and the complete worktree.
   references where appropriate (for example, `Closes #123`). Before completion, verify that every
   resolved issue was actually closed; never leave a completed issue orphaned/open without an
   explicit remaining manual-verification reason.
+- For Nous PR bodies, follow the repository `scripts/github-body.mjs` contract: **Problem:**, **Approach:**, **Result:** and `## Testing`, with CI and SonarCloud status on one Testing line. Validate before publication and verify the remote body afterward.
 - For a documentation-only PR, keep Markdown valid: headings, blank lines, lists, and closing
   references must render correctly. Correct documentation findings manually on the same PR; do not
   regenerate Cubic merely to answer a review.
@@ -336,7 +327,7 @@ Use this only after the user has approved the loop.
    avoid CPU/RAM starvation; parallel agents may implement and run focused checks while only one
    broad gate runs.
 2. Per autonomous issue: synchronize the worktree, implement the narrow contract using the routed
-   skills, run focused tests plus `bun run quality`, inspect the diff, commit, push, and open a
+   skills, run changed-file checks and targeted tests, inspect the diff, commit, push, and open a
    non-draft PR.
 3. Monitor the PR continuously for CI and reviewer comments. Do not confuse Security Review,
    Greptile, Cubic, and Codex Code Review; report which actually ran. Do not stop babysitting after
@@ -345,8 +336,7 @@ Use this only after the user has approved the loop.
 4. Fix genuine comments in small commits. Before changing code, use `$receiving-pr-reviews`; wait
    for a fresh CI/review cycle after each material fix.
 5. Merge automatically only when the user authorized it, the applicable CI/review gates are clean,
-   all genuine review threads are resolved, and the proportional final local gate policy is
-   satisfied. A known CI failure unrelated to a documentation-only diff may be waived only when the
+   all genuine review threads are resolved, and exact-head CI includes passing SonarCloud and applicable contract checks. A known CI failure unrelated to a documentation-only diff may be waived only when the
    user explicitly authorizes that exception.
    Once this authority exists, continue the PR loop until the merge is verified. The only legitimate
    stopping states are: merged; a concrete user decision or manual-verification gate; or a specific
