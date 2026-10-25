@@ -91,7 +91,7 @@ export const subscribeToPlaybackChanges = (projectId: string, notify: () => void
     onCatchUp: notify,
   });
 
-/** Wait for the preparation commit before reading the block from the lesson. */
+/** Wait until preparation completes or releases its active block key. */
 export const waitForLessonPlayback = async (
   runId: string,
   projectId: string,
