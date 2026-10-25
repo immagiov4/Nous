@@ -1,3 +1,4 @@
+import type { LessonScene } from '@shared/lessonScene';
 import request from 'supertest';
 import { describe, expect, test, vi } from 'vitest';
 
@@ -9,6 +10,70 @@ import { playbackProject, playbackSection, preparedPlayback } from '../helpers/l
 
 const url = '/api/projects/project-1/sections/section-1/playback';
 const registry = createProductionRegistry();
+
+test('identifies a joined visual run from its saved input when audio is requested', async () => {
+  const { app, section, createRun } = setup();
+  createRun.mockImplementationOnce(async input => ({
+    created: false,
+    run: { ...input, input: { ...input.input, visualOnly: true }, status: 'queued' },
+  }));
+  const response = await request(app)
+    .post(`${url}/blocks/0/prepare`)
+    .send({ lessonKey: preparedPlayback(section).lessonKey, voice: 'Kore' });
+  expect(response.status).toBe(202);
+  expect(response.body).toMatchObject({ created: false, visualOnly: true });
+  expect(createRun.mock.calls[0][0].input.visualOnly).toBeUndefined();
+});
+
+test.each([
+  'quote',
+  'missing',
+] as const)('queues a %s visual independently of cached audio and reuses its saved replacement', async type => {
+  const { app, section, createRun } = setup(true);
+  const original = preparedPlayback(section);
+  const scene: LessonScene = {
+    type: 'steps',
+    title: 'Accesso',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [
+      { label: 'DNS', detail: '', icon: '' },
+      { label: 'Controller', detail: '', icon: '' },
+    ],
+  };
+  section.playback = {
+    ...original,
+    blocks: original.blocks.map(block => ({
+      ...block,
+      prepared: {
+        motion: [],
+        ...(type === 'missing' ? {} : { scene: { ...scene, type, quote: block.speech } }),
+      },
+    })),
+  };
+  const requestVisual = () =>
+    request(app)
+      .post(`${url}/blocks/0/prepare`)
+      .send({ lessonKey: original.lessonKey, voice: 'Kore', visualOnly: true });
+  const queued = await requestVisual();
+  expect(queued.status).toBe(202);
+  expect(createRun.mock.calls[0][0].input).toMatchObject({
+    visualOnly: true,
+    blockId: '0',
+    lessonKey: original.lessonKey,
+  });
+  section.playback = {
+    ...original,
+    blocks: original.blocks.map(block => ({ ...block, prepared: { scene, motion: [] } })),
+  };
+  const cached = await requestVisual();
+  expect(cached.status).toBe(200);
+  expect(cached.body.block.prepared.scene).toEqual(scene);
+  expect(cached.body.block.audio).toEqual(original.blocks[0].audio);
+  expect(createRun).toHaveBeenCalledTimes(1);
+});
 const setup = (ready = false, owner = 'local-user') => {
   const section = playbackSection();
   if (ready) section.playback = preparedPlayback(section);

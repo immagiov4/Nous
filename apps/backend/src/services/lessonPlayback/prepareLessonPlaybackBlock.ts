@@ -4,6 +4,7 @@ import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import {
   getPlaybackFormulaMarkdown,
   getPlaybackFormulaSources,
+  getPlaybackPassageContext,
   type LessonPlaybackBlock,
   motionTargets,
   type PlaybackContentBlock,
@@ -16,11 +17,11 @@ import {
 } from '@shared/lessonPlaybackSchema';
 import {
   isAnimatedLessonScene,
+  isRetiredLessonScene,
   LESSON_SCENE_TYPES,
   type LessonScene,
   type LessonSceneType,
 } from '@shared/lessonScene';
-import { createPassageFallbackScene } from '@shared/lessonSceneFallback';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
@@ -74,10 +75,10 @@ const existingScenes = ({
   lesson,
 }: Pick<PrepareLessonPlaybackBlockInput, 'block' | 'lesson'>): LessonScene[] =>
   block.visuals.flatMap(visual => {
-    if (visual.kind === 'scene') return [visual.scene];
+    if (visual.kind === 'scene') return isRetiredLessonScene(visual.scene) ? [] : [visual.scene];
     if (visual.kind !== 'generated-visual') return [];
     const render = lesson.generatedVisuals?.find(stored => stored.id === visual.visualId)?.render;
-    return render?.kind === 'scene' ? [render.scene] : [];
+    return render?.kind === 'scene' && !isRetiredLessonScene(render.scene) ? [render.scene] : [];
   });
 
 /** Check persisted scenes against the resumed catalog before starting provider or asset work. */
@@ -92,10 +93,11 @@ export const validatePlaybackSceneTypes = (
   if (input.block.prepared?.scene) scenes.push(input.block.prepared.scene);
   const unsupported = scenes.some(
     scene =>
-      (allowedSceneTypes && !allowedSceneTypes.includes(scene.type)) ||
-      (input.supportsUnlinkedFormulaSymbols === false &&
-        scene.type === 'formula-spotlight' &&
-        (scene as FormulaSpotlightData).symbols.some(symbol => !symbol.anchor))
+      !isRetiredLessonScene(scene) &&
+      ((allowedSceneTypes && !allowedSceneTypes.includes(scene.type)) ||
+        (input.supportsUnlinkedFormulaSymbols === false &&
+          scene.type === 'formula-spotlight' &&
+          (scene as FormulaSpotlightData).symbols.some(symbol => !symbol.anchor)))
   );
   if (unsupported) {
     throw failPermanently({
@@ -118,17 +120,30 @@ const compatibleSceneTypes = (input: PrepareLessonPlaybackBlockInput) =>
 
 /** Scene service failures retain narration and the source presentation; cancellation still propagates. */
 const generatePlaybackScene = async (
-  input: Parameters<typeof generateLessonScene>[0] & { allowTextFallback: true }
+  input: Parameters<typeof generateLessonScene>[0] & { allowTextFallback?: boolean }
 ) => {
   try {
     return await generateLessonScene(input);
   } catch (error) {
     input.signal.throwIfAborted();
-    console.warn('Playback scene generation unavailable; using a literal passage visual.', {
+    console.warn('Playback scene generation unavailable.', {
       diagnostic: toWorkflowErrorDiagnostic(error),
     });
     return { kind: 'text' as const };
   }
+};
+
+/** Select source at authored heading boundaries while keeping the heard passage the visual's target. */
+const playbackSceneMarkdown = (
+  input: PrepareLessonPlaybackBlockInput,
+  formulas?: string
+): string => {
+  const { block } = input;
+  if (formulas) return formulas.concat('\n\n', block.speech);
+  const context = getPlaybackPassageContext(block, input.lesson.sources);
+  return context && context !== block.speech
+    ? `${block.speech}\n\nAUTHORING CONTEXT:\n${context}`
+    : block.speech;
 };
 
 const prepareScene = async (
@@ -137,18 +152,31 @@ const prepareScene = async (
 ): Promise<LessonScene | undefined> => {
   const { block, config, signal } = input;
   const formulas = getPlaybackFormulaMarkdown(block, input.lesson.sources);
-  const mathMarkdown = formulas?.concat('\n\n', block.speech);
-  if (block.visuals.length && !mathMarkdown) {
-    const scenes = existingScenes(input);
+  const scenes = existingScenes(input);
+  const hasSourceVisual =
+    scenes.length ||
+    block.visuals.some(visual => {
+      if (visual.kind === 'scene') return false;
+      if (visual.kind !== 'generated-visual') return true;
+      const render = input.lesson.generatedVisuals?.find(
+        stored => stored.id === visual.visualId
+      )?.render;
+      return render && render.kind !== 'scene';
+    });
+  if (hasSourceVisual && !formulas) {
     // Motion events carry no scene id, so a block with several scenes shows them without motion.
     return scenes.length === 1 ? scenes[0] : undefined;
   }
+  const lessonMarkdown = playbackSceneMarkdown(input, formulas);
   // A prepared block must cover its complete speech, not silently inherit the lesson excerpt cut.
-  if (Math.max(block.speech.length, mathMarkdown?.length ?? 0) > MAX_VISUAL_LESSON_CHARS) {
+  const targetLength = formulas
+    ? formulas.length + '\n\n'.length + block.speech.length
+    : block.speech.length;
+  if (targetLength > MAX_VISUAL_LESSON_CHARS) {
     throw new Error('Playback block speech exceeds the scene generation text limit.');
   }
   const allowedSceneTypes = compatibleSceneTypes(input);
-  const fallback = formulas ? undefined : createPassageFallbackScene(block.speech, block.heading);
+  const allowTextFallback = Boolean(formulas);
   let retryFeedback: string | undefined;
   let diagnostic: WorkflowErrorDiagnostic | undefined;
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt += 1) {
@@ -157,11 +185,11 @@ const prepareScene = async (
       onValidatedScene,
       allowedSceneTypes,
       config: resolveLessonVisualModelConfig(config),
-      lessonMarkdown: mathMarkdown ?? block.speech,
+      lessonMarkdown,
       narration: block.speech,
-      allowTextFallback: true,
+      allowTextFallback,
       retryFeedback,
-      // Only this block is admissible evidence; lesson metadata can describe other passages.
+      // Authored heading boundaries provide context; general lesson metadata is not source evidence.
       sectionDescription: '',
       sourceProvenance: input.lesson.sourceProvenance,
       sectionTitle: '',
@@ -180,7 +208,7 @@ const prepareScene = async (
         'The spotlight must retain every complete authored expression, including scripts, conditions and operators. Return the complete equations or choose text for the sourced-formula presentation.';
       continue;
     }
-    if (outcome.kind === 'text') return fallback;
+    if (outcome.kind === 'text') return undefined;
     retryFeedback = outcome.problems.join('\n');
     diagnostic = outcome.diagnostic;
   }
@@ -188,7 +216,7 @@ const prepareScene = async (
     diagnostic,
     retryFeedback,
   });
-  return fallback;
+  return undefined;
 };
 
 /** Prepares one block's visual cues and audio; the caller owns its eventual asset reference. */
@@ -210,7 +238,7 @@ export const prepareLessonPlaybackBlock = async (
   // Audio does not depend on the scene, so both are prepared at the same time. Both settle
   // before a failure propagates, so a retry never overlaps paid work still in flight.
   const [visuals, audio] = await Promise.allSettled([
-    prepareVisuals(request),
+    prepareLessonPlaybackVisuals(request),
     prepareAudio(request),
   ]);
   if (visuals.status === 'rejected') throw visuals.reason;
@@ -245,12 +273,13 @@ const prepareAnimationCues = async (
   return resolved.scene;
 };
 
-const prepareVisuals = async (
-  input: PrepareLessonPlaybackBlockInput
+export const prepareLessonPlaybackVisuals = async (
+  input: PrepareLessonPlaybackBlockInput,
+  force = false
 ): Promise<PreparedLessonPlaybackBlock['prepared']> => {
   const { block, config, signal } = input;
   let prepared = block.prepared;
-  if (!prepared) {
+  if (force || !prepared || (prepared.scene && isRetiredLessonScene(prepared.scene))) {
     const motions = new Map<string, Promise<readonly PlaybackMotionEvent[]>>();
     const prepareMotion = (scene?: LessonScene) => {
       // Icons do not affect motion targets. A failed icon request can regenerate a different scene.
@@ -310,6 +339,8 @@ const prepareVisuals = async (
         : await prepareMotion(scene);
       const synchronizedScene = await prepareAnimationCues(input, scene);
       prepared = {
+        ...block.prepared,
+        scene: undefined,
         ...(synchronizedScene ? { scene: synchronizedScene } : {}),
         motion: savedMotion,
       };

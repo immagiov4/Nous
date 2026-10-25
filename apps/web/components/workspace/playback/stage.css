@@ -1195,19 +1195,6 @@
   height: 40px;
   margin-bottom: 16px;
 }
-.lesson-player-stage .lesson-scene .type-quote header h2 {
-  font-size: 18px;
-  color: var(--muted);
-}
-.lesson-player-stage .lesson-scene blockquote {
-  font-size: 26px;
-  line-height: 1.4;
-  letter-spacing: -0.025em;
-}
-.lesson-player-stage .lesson-scene blockquote > span {
-  font-size: 50px;
-  height: 40px;
-}
 .lesson-player-stage .lesson-scene .layers > div {
   border-color: var(--diagram-rule);
   margin-left: calc(var(--level) * 16px);
@@ -2097,8 +2084,9 @@
 }
 @media (min-width: 651px) {
   .lesson-player-stage .listening-stage {
-    align-items: start;
-    align-content: safe center;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: center;
+    align-content: stretch;
   }
   .lesson-player-stage .captions {
     justify-content: flex-start;
@@ -2262,6 +2250,9 @@
   background: transparent;
   container-type: normal;
   width: 100%;
+}
+.lesson-player-stage .scene-host[aria-hidden="true"] {
+  visibility: hidden;
 }
 .lesson-player-stage .scene-host > div {
   width: 100%;

@@ -40,7 +40,12 @@ export const getLessonPlayback = async (target: PlaybackTarget, signal?: AbortSi
 };
 
 export const prepareLessonPlayback = async (
-  target: PlaybackTarget & { blockId: string; lessonKey: string; voice: string },
+  target: PlaybackTarget & {
+    blockId: string;
+    lessonKey: string;
+    voice: string;
+    visualOnly?: boolean;
+  },
   signal?: AbortSignal
 ) => {
   const response = await fetchWithSupabaseAuth(
@@ -48,7 +53,11 @@ export const prepareLessonPlayback = async (
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lessonKey: target.lessonKey, voice: target.voice }),
+      body: JSON.stringify({
+        lessonKey: target.lessonKey,
+        voice: target.voice,
+        ...(target.visualOnly ? { visualOnly: true } : {}),
+      }),
       signal,
     }
   );
@@ -82,11 +91,12 @@ export const subscribeToPlaybackChanges = (projectId: string, notify: () => void
     onCatchUp: notify,
   });
 
-/** Wait for the preparation commit before reading the block from the lesson. */
+/** Wait until preparation completes or releases its active block key. */
 export const waitForLessonPlayback = async (
   runId: string,
   projectId: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  optionalPreparation = false
 ) => {
   let changed = false;
   let wake: (() => void) | undefined;
@@ -135,7 +145,8 @@ export const waitForLessonPlayback = async (
         (!['queued', 'running', 'waiting'].includes(state.status) &&
           !['pending', 'running'].includes(state.cleanupStatus)),
     });
-    if (run.status !== 'completed') throw new Error(PLAYBACK_ERROR);
+    // Failure in another joined mode releases the caller to prepare its own requested result.
+    if (run.status !== 'completed' && !optionalPreparation) throw new Error(PLAYBACK_ERROR);
   } finally {
     stop();
   }

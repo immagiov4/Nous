@@ -282,7 +282,7 @@ describe('lesson scene contract', () => {
     expect(isLessonScene(unquoted)).toBe(false);
   });
 
-  test('requires the quote form to show a quotation', () => {
+  test('reads historical quote data with its original validation', () => {
     const quote = scene({ body: 'Testo libero.', items: [], type: 'quote' });
     expect(findLessonSceneProblems(quote, LESSON)).toEqual([
       'The quote form requires a quotation from the lesson.',
