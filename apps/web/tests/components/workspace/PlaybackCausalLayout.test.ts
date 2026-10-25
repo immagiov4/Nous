@@ -18,26 +18,20 @@ beforeAll(async () => {
     root: path.resolve('apps/web'),
     optimizeDeps: {
       entries: ['tests/fixtures/playbackLayout.html', 'tests/fixtures/playbackOnset.html'],
-      // Prewarming has no browser crawl to release the initial dependency batch.
-      holdUntilCrawlEnd: false,
     },
     server: { host: '127.0.0.1', port: 0, strictPort: false },
   });
   await server.listen();
-  await Promise.all(
-    ['playbackLayout', 'playbackOnset'].map(fixture =>
-      server.warmupRequest(`/tests/fixtures/${fixture}.tsx`)
-    )
-  );
-  await server.waitForRequestsIdle();
   baseUrl = server.resolvedUrls?.local[0] ?? '';
   browser = await chromium.launch(withMutedAudio({ headless: true }));
-});
-
-beforeAll(async () => {
-  const optimizer = server.environments.client.depsOptimizer;
-  await optimizer?.scanProcessing;
-  await Promise.all(optimizer?.metadata.depInfoList.map(dependency => dependency.processing) ?? []);
+  const page = await browser.newPage();
+  try {
+    // Compile the fixture before measuring the individual layout cases.
+    await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=prices`);
+    await page.locator('.scene-host h2').waitFor();
+  } finally {
+    await page.close();
+  }
 });
 
 afterAll(async () => {
@@ -517,6 +511,57 @@ async function openCard(kind: string) {
   }
   await page.waitForFunction(iconsLoaded);
   return page;
+}
+
+for (const width of [412, 1440]) {
+  for (const kind of ['prices', 'dense']) {
+    test(`card followup: ${kind} at ${width}px`, async () => {
+      const page = await browser.newPage({
+        viewport: { width, height: 1000 },
+        reducedMotion: 'reduce',
+      });
+      try {
+        await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=${kind}`);
+        await page.locator('.scene-host h2').waitFor();
+        await page.evaluate(() => document.fonts.ready);
+        if (kind === 'prices') {
+          expect(await page.locator('.scene-host h2').textContent()).toBe(
+            '$5 today and $10 tomorrow'
+          );
+          expect(await page.locator('.scene-host').innerText()).toContain(
+            'Budget: $15 now and $20 later.'
+          );
+          expect(await page.locator('.scene-host').innerText()).toContain(
+            '$25 today and $30 tomorrow'
+          );
+          expect(await page.locator('.scene-host .katex math').count()).toBe(2);
+        } else {
+          await page.locator('.data-chart svg').waitFor();
+          const labels = await page
+            .locator('[aria-label="y-axis tick label"] text')
+            .evaluateAll(nodes =>
+              nodes.map(node => {
+                const box = node.getBoundingClientRect();
+                return {
+                  text: [...node.querySelectorAll('tspan')].map(line => line.textContent).join(' '),
+                  top: box.top,
+                  bottom: box.bottom,
+                };
+              })
+            );
+          expect(labels.map(label => label.text)).toEqual(
+            Array.from({ length: 6 }, (_, index) => `Persona del gruppo numero ${index + 1}`)
+          );
+          for (let index = 1; index < labels.length; index++) {
+            expect(labels[index].top).toBeGreaterThan(labels[index - 1].bottom);
+          }
+        }
+        await evidence(page, `${kind}-${width}`);
+      } finally {
+        await page.close();
+      }
+    });
+  }
 }
 async function evidence(page: Page, name: string) {
   const directory = process.env.PHONE_VISUAL_EVIDENCE;

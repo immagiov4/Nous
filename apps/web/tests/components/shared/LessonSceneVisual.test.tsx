@@ -16,10 +16,41 @@ vi.mock('@tabler-icon-nodes', () => ({
 
 import GeneratedVisualFrame from '../../../components/shared/GeneratedVisualFrame.tsx';
 import { LessonSceneVisual } from '../../../components/shared/lessonScene/LessonSceneVisual.tsx';
+import { SceneText } from '../../../components/shared/lessonScene/SceneText.tsx';
 
 beforeAll(async () => {
   // Load the mocked asset before measuring the component's asynchronous render.
   await import('@tabler-icon-nodes');
+});
+
+test.each([
+  String.raw`\$5 ($x$)`,
+  String.raw`\$5 [$x$]`,
+  String.raw`\$5: $x$`,
+  String.raw`\$5 ($5 + 10$)`,
+])('preserves escaped prices beside mathematical notation in %s', copy => {
+  const { container } = render(<SceneText>{copy}</SceneText>);
+  expect(container.querySelectorAll('math')).toHaveLength(1);
+  expect(container.firstChild?.textContent).toBe(
+    copy.slice(0, copy.indexOf('$', 2)).replace(String.raw`\$`, '$')
+  );
+  expect(container.querySelector('annotation')?.textContent).toBe(
+    copy.includes('5 + 10') ? '5 + 10' : 'x'
+  );
+  if (copy.endsWith(')') || copy.endsWith(']')) {
+    expect(container.lastChild?.textContent).toBe(copy.at(-1));
+  }
+});
+
+test.each([
+  String.raw`$\mathbf{x}$表示`,
+  '$x!$表示',
+  '$x^{2}$表示',
+])('renders authored math before unspaced prose in %s', copy => {
+  const { container } = render(<SceneText>{copy}</SceneText>);
+  expect(container.querySelectorAll('math')).toHaveLength(1);
+  expect(container.querySelector('annotation')?.textContent).toBe(copy.slice(1, -3));
+  expect(container.lastChild?.textContent).toBe('表示');
 });
 
 const comparison: LessonScene = {

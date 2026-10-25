@@ -274,6 +274,27 @@ const drawDonut = async (
   return wrapper;
 };
 
+function drawBars(
+  plot: Plot,
+  options: ReturnType<typeof plotOptions>,
+  host: HTMLElement,
+  itemCount: number
+) {
+  const chart = plot.plot(options as never);
+  host.replaceChildren(chart);
+  const labelHeight = Math.max(
+    ...Array.from(
+      chart.querySelectorAll<SVGTextElement>('[aria-label="y-axis tick label"] text'),
+      label => label.getBBox().height
+    )
+  );
+  const height = Math.max(
+    LAYOUT.height,
+    LAYOUT.marginTop + LAYOUT.marginBottom + itemCount * (labelHeight + LAYOUT.barLabelInset)
+  );
+  return height > LAYOUT.height ? plot.plot({ ...options, height } as never) : chart;
+}
+
 /** Quantitative scene drawn with Observable Plot or d3; values stay readable in the caption. */
 /** `isDarkMode` only triggers a redraw: chart colors are read from the theme tokens at draw time. */
 export const SceneChart = ({
@@ -305,7 +326,12 @@ export const SceneChart = ({
           chart = await drawDonut(scene, width, theme);
         } else {
           const plot = await import('@observablehq/plot');
-          chart = plot.plot(plotOptions(plot, scene, width, theme) as never);
+          if (disposed) return;
+          const options = plotOptions(plot, scene, width, theme);
+          chart =
+            scene.type === 'bars'
+              ? drawBars(plot, options, host, scene.items.length)
+              : plot.plot(options as never);
           chart
             .querySelectorAll<SVGElement>('.playback-chart-items > *')
             .forEach((element, index) => {

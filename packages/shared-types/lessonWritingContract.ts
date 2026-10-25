@@ -1,7 +1,9 @@
 export const FORMULA_RELEVANCE_RULE =
   'Use mathematical formulas only when they are natural to the subject or when the original material uses them and they are necessary to understand it. Do not turn qualitative, humanistic, or discursive concepts into invented or decorative equations: if a formula adds no real precision, explain the concept in prose.';
 
-export const LESSON_KATEX_FORMATTING_RULE = String.raw`Use consistent KaTeX syntax for formulas: $...$ or \(...\) inline, $$...$$ or \[...\] for display math. Always close delimiters and braces, and match every active LaTeX \begin{...} environment with the corresponding \end{...}. When you quote LaTeX commands such as \begin{equation} or \end{equation} literally without opening a real math environment, render them as inline Markdown code so validators do not treat them as active LaTeX structure.`;
+export const LESSON_MATH_DELIMITERS_RULE = String.raw`When authoring mathematical notation in prose, emit \(...\) inline and \[...\] for display math. Do not author dollar-delimited formulas. Escape literal currency dollars as \$. Encode backslashes correctly in JSON strings. Exact source quotations retain their notation. Fields explicitly defined as raw LaTeX retain raw LaTeX without delimiters.`;
+
+export const LESSON_KATEX_FORMATTING_RULE = String.raw`${LESSON_MATH_DELIMITERS_RULE} Always close delimiters and braces, and match every active LaTeX \begin{...} environment with the corresponding \end{...}. When you quote LaTeX commands such as \begin{equation} or \end{equation} literally without opening a real math environment, render them as inline Markdown code so validators do not treat them as active LaTeX structure.`;
 
 export const LESSON_COVERAGE_DEPTH_RULE =
   'Develop the content needed to satisfy the lesson title, description, and binding pedagogical context in substantive depth. Do not merely name these topics as in an outline: for each required core topic, build an explanation sufficient to understand its meaning, steps, and relevant consequences without expanding topics that belong to future lessons.';
