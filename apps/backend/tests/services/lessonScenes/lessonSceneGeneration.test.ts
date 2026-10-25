@@ -1038,6 +1038,41 @@ test('requires links for an authoritative dictated formula range', async () => {
   ).toBe('invalid');
 });
 
+test('supplies the exact words of this reading separately from repeated references', async () => {
+  const narration = 'prima ics più ipsilon dopo ics più ipsilon fine';
+  const range = { start: narration.lastIndexOf('ics'), end: narration.indexOf(' fine') };
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...sourceBoundDraft(),
+    symbols: [
+      boundSourceSymbol({ id: 'x', first: 0, word: 5 }),
+      boundSourceSymbol({ id: 'y', first: 2, word: 7 }),
+    ],
+  });
+  const input = sourceBoundInput('$x+y$', narration);
+  const outcome = await generateLessonScene({
+    ...input,
+    formulaSource: { ...input.formulaSource, dictatedRanges: [range] },
+  });
+  const request = JSON.parse(generateStructuredOutputMock.mock.calls[0][0].prompt);
+  expect(
+    request.dictatedWords[0].map(({ id, text }: { id: string; text: string }) => ({ id, text }))
+  ).toEqual([
+    { id: 'w5', text: 'ics' },
+    { id: 'w6', text: 'più' },
+    { id: 'w7', text: 'ipsilon' },
+  ]);
+  expect(outcome.kind).toBe('scene');
+  if (outcome.kind !== 'scene') throw new Error('The selected second reading must validate');
+  expect(
+    resolveFormulaReferences(outcome.scene as FormulaSpotlightData, narration).map(
+      ({ start, end }) => ({ start, end })
+    )
+  ).toEqual([
+    { start: range.start, end: range.start + 3 },
+    { start: narration.lastIndexOf('ipsilon'), end: range.end },
+  ]);
+});
+
 test('adds only heard-word links to an existing unlinked widget template', async () => {
   const template = {
     ...dictatedFormulaSpotlight,

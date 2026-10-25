@@ -70,6 +70,7 @@ type TokenSelection = { readonly first: string; readonly last: string };
 const FORMULA_BINDING_INSTRUCTION = `Prepare data for the existing formula spotlight. The authored mathematics is immutable. Use only the supplied formula and narration. Return data, never styling, rewritten math or rewritten speech.
 Decide whether the narration names any part of this visible formula, including explanatory references and recalls, not just complete readings. Supplied dictatedRanges are explicit readings of this formula and require mentioned:true. If no part is named, choose mentioned:false.
 Use the supplied narrationWords IDs to select each exact spoken mention: first and last are inclusive word IDs, equal for a single word. Copy IDs from the list; never count substring occurrences or invent quotations. Select only the words naming that part. mentions:[] means an unmentioned part. Include every later reference, too. Several parts may select the same words when one mention names a compound or a family; each of those explicit parts will light up together.
+Mathematical identity includes concrete indices and primes: two quantities with different indices or primes are not interchangeable just because their base glyph matches. A generic family reference may explicitly target its displayed members. Separate base/index targets still belong to their complete indexed quantity. Use dictatedWords for this formula's own reading; add references elsewhere only to the same quantity. Include named operators, delimiters and indices, not just letters. A named pair of brackets can link both delimiters to the same words. Select minimal naming words rather than unrelated introductory clauses.
 Use the lesson language for names, meanings, title and summary. Explain only what the provided material supports. ${INTERNAL_FAST_TASK_INSTRUCTION}`;
 
 const speechTokens = (narration: string): SelectionToken[] =>
@@ -120,6 +121,7 @@ async function requestFormulaDraft<T extends z.ZodType>(
 ) {
   const { $schema: _dialect, ...outputSchema } = z.toJSONSchema(schema);
   const { source, narration } = input;
+  const words = speechTokens(narration);
   const response = await generateStructuredOutput<unknown>({
     config: input.config,
     slot: 'scene',
@@ -131,8 +133,11 @@ async function requestFormulaDraft<T extends z.ZodType>(
       authoredTex: formulaLatexSource(source.formula),
       sourceTokens: source.template ? undefined : sourceTokens(formulaLatexSource(source.formula)),
       canonicalNarration: narration,
-      narrationWords: speechTokens(narration),
+      narrationWords: words,
       dictatedRanges: source.dictatedRanges,
+      dictatedWords: source.dictatedRanges?.map(range =>
+        words.filter(word => word.start < range.end && word.end > range.start)
+      ),
       existingTemplate: source.template,
       requiredCorrection: input.retryFeedback,
     }),

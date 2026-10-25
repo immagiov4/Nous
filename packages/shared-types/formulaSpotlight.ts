@@ -265,7 +265,7 @@ export function findFormulaOccurrences(text: string, anchor: string): number[] {
 }
 
 /** Select a literal occurrence explicitly supplied by formula preparation. */
-export function resolveFormulaOccurrence(
+function resolveFormulaOccurrence(
   text: string,
   selection: { anchor: string; anchorOccurrence?: number }
 ) {

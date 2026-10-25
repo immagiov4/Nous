@@ -12,6 +12,7 @@ import {
   type PlaybackContentBlock,
   type PlaybackRange,
   type PlaybackVisual,
+  playbackFormulaReadingRanges,
   playbackNonProseVisuals,
   preparedFormulaSpotlightMatchesScene,
   resolvePlaybackNarration,
@@ -90,6 +91,7 @@ interface CaptionClock {
 type StageVisual = PlaybackVisual & {
   formulaRange?: PlaybackRange;
   voiceRange?: PlaybackRange;
+  readingRanges?: readonly PlaybackRange[];
   referenceFormula?: boolean;
   staticFormula?: boolean;
 };
@@ -106,14 +108,14 @@ function playbackVisualScene(
 function formulaReferenceRange(
   scene: LessonScene,
   speech: string,
-  reading?: PlaybackRange
+  readings: readonly PlaybackRange[] = []
 ): PlaybackRange | undefined {
   const references = resolveFormulaReferences(scene as FormulaSpotlightData, speech);
   if (!references.length) return undefined;
-  const range = { start: references[0].start, end: references[references.length - 1].end };
-  return reading
-    ? { start: Math.min(range.start, reading.start), end: Math.max(range.end, reading.end) }
-    : range;
+  return {
+    start: Math.min(references[0].start, ...readings.map(range => range.start)),
+    end: Math.max(references[references.length - 1].end, ...readings.map(range => range.end)),
+  };
 }
 
 const passageParser = unified().use(remarkParse);
@@ -214,6 +216,41 @@ function heardReferenceVisual(
     }
   }
   return active;
+}
+
+type FormulaReadingSpan = ReturnType<typeof captionRangeSpan>;
+
+function formulaReadingSpans(
+  visuals: readonly StageVisual[],
+  timing: Omit<Parameters<typeof captionRangeSpan>[0], 'range'>
+): FormulaReadingSpan[][] {
+  return visuals.map(visual =>
+    (visual.readingRanges ?? []).map(range => captionRangeSpan({ ...timing, range }))
+  );
+}
+
+function retainReadingSpans(
+  next: FormulaReadingSpan[][],
+  previous: FormulaReadingSpan[][],
+  heardMs: number
+): FormulaReadingSpan[][] {
+  return next.map((ranges, index) =>
+    ranges.map((span, rangeIndex) => {
+      const before = previous[index]?.[rangeIndex];
+      return before
+        ? {
+            startMs: adoptCueTimes([before.startMs], [span.startMs], heardMs)[0],
+            endMs: adoptCueTimes([before.endMs], [span.endMs], heardMs)[0],
+          }
+        : span;
+    })
+  );
+}
+
+function heardReadingVisual(spans: FormulaReadingSpan[][], heardMs: number): number {
+  return spans.findIndex(ranges =>
+    ranges.some(span => span.startMs <= heardMs && heardMs < span.endMs)
+  );
 }
 
 function canRetainPresentedCues(
@@ -818,27 +855,37 @@ function PlaybackPassage({
         const scene = playbackVisualScene(visual, content.activeSectionGeneratedVisualsById);
         if (scene?.type !== 'formula-spotlight') return visual;
         matched.add(scene.formula as string);
+        const readingRanges = playbackFormulaReadingRanges(block, scene as FormulaSpotlightData);
+        const original = readingRanges.length ? { ...visual, readingRanges } : visual;
         const entry = spotlights.find(entry =>
           preparedFormulaSpotlightMatchesScene(entry, scene as FormulaSpotlightData)
         );
-        if (!entry) return visual;
-        if (hasFormulaSpotlightReferences(scene as FormulaSpotlightData)) return visual;
-        const voiceRange = formulaReferenceRange(entry.scene, block.speech);
+        if (!entry) return original;
+        if (hasFormulaSpotlightReferences(scene as FormulaSpotlightData)) return original;
+        const voiceRange = formulaReferenceRange(entry.scene, block.speech, readingRanges);
         return voiceRange
-          ? { kind: 'scene' as const, scene: entry.scene, voiceRange }
+          ? { kind: 'scene' as const, scene: entry.scene, voiceRange, readingRanges }
           : { kind: 'markdown' as const, markdown: entry.formula, staticFormula: true };
       });
       return [
         ...original,
-        ...spotlights.flatMap((entry, index) => {
+        ...spotlights.flatMap(entry => {
           if (!entry.sourceFormula || matched.has(entry.sourceFormula)) return [];
-          const reading =
-            block.prepared?.spokenMath?.[index]?.formula === entry.formula
-              ? block.spans.filter(span => span.math)[index]
-              : undefined;
-          const voiceRange = formulaReferenceRange(entry.scene, block.speech, reading?.speech);
+          const readingRanges = playbackFormulaReadingRanges(
+            block,
+            entry.scene as FormulaSpotlightData
+          );
+          const voiceRange = formulaReferenceRange(entry.scene, block.speech, readingRanges);
           return voiceRange
-            ? [{ kind: 'scene' as const, scene: entry.scene, voiceRange, referenceFormula: true }]
+            ? [
+                {
+                  kind: 'scene' as const,
+                  scene: entry.scene,
+                  voiceRange,
+                  readingRanges,
+                  referenceFormula: true,
+                },
+              ]
             : [];
         }),
       ];
@@ -928,6 +975,7 @@ function PlaybackPassage({
     let previousActive: number | undefined;
     let spans: (ReturnType<typeof captionAnchorSpan> | undefined)[] = [];
     let referenceCues: (ReturnType<typeof formulaCueTiming> | undefined)[] = [];
+    let readingSpans: ReturnType<typeof captionRangeSpan>[][] = [];
     let frame = 0;
     const tick = () => {
       const current = clock.current;
@@ -941,6 +989,7 @@ function PlaybackPassage({
         if (current !== previousClock) {
           const previousSpans = spans;
           const previousReferenceCues = referenceCues;
+          const previousReadingSpans = readingSpans;
           referenceCues = visuals.map((visual, index) => {
             if (!visual.referenceFormula || visual.kind !== 'scene') return undefined;
             const next = formulaCueTiming(
@@ -956,22 +1005,23 @@ function PlaybackPassage({
               ends: adoptCueTimes(previousReferenceCues[index]?.ends, next.ends, heardMs),
             };
           });
+          const timing = {
+            speech: block.speech,
+            speechRanges: current.speechRanges,
+            runs: current.runs,
+            width: current.width,
+            feather: 0,
+            duration: current.bodyDuration,
+            startOffset: current.headingDuration,
+            aligned: current.aligned,
+          };
           spans = visualReferences.map(({ anchors: quotation, range: referenceRange }, index) => {
-            const timing = {
-              speech: block.speech,
-              speechRanges: current.speechRanges,
-              runs: current.runs,
-              width: current.width,
-              feather: 0,
-              duration: current.bodyDuration,
-              startOffset: current.headingDuration,
-              aligned: current.aligned,
-            };
             const range = visualRanges[index] ?? referenceRange;
             if (range) return captionRangeSpan({ ...timing, range });
             if (!quotation) return undefined;
             return captionAnchorSpan({ ...timing, anchors: quotation, speech: block.speech });
           });
+          readingSpans = formulaReadingSpans(visuals, timing);
           if (canRetainPresentedCues(current, previousClock)) {
             const heardMs = current.read().blockTime * 1000;
             spans = spans.map((span, index) => {
@@ -982,6 +1032,13 @@ function PlaybackPassage({
                 endMs: adoptCueTimes([previous.endMs], [span.endMs], heardMs)[0],
               };
             });
+          }
+          if (canRetainPresentedCues(current, previousClock)) {
+            readingSpans = retainReadingSpans(
+              readingSpans,
+              previousReadingSpans,
+              current.read().blockTime * 1000
+            );
           }
           previousClock = current;
         }
@@ -1012,6 +1069,8 @@ function PlaybackPassage({
           }
         });
         active = heardReferenceVisual(referenceCues, blockTime * 1000, active);
+        const reading = heardReadingVisual(readingSpans, blockTime * 1000);
+        if (reading >= 0) active = reading;
         if (active !== previousActive) {
           previousActive = active;
           setSelection(current =>

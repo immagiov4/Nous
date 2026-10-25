@@ -3,6 +3,7 @@ import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import {
   type FormulaSpotlightData,
+  formulaSpotlightCovers,
   getFormulaSpotlightLatex,
   hasFormulaSpotlightReferences,
 } from './formulaSpotlight';
@@ -135,6 +136,18 @@ export const playbackFormulaSpotlightScenes = (
   return scenes.filter(scene => scene?.type === 'formula-spotlight') as (LessonScene &
     FormulaSpotlightData)[];
 };
+
+/** Explicit saved readings of mathematics contained in this displayed formula. */
+export function playbackFormulaReadingRanges(
+  block: LessonPlaybackBlock,
+  scene: FormulaSpotlightData
+): readonly PlaybackRange[] {
+  const narration = resolvePlaybackNarration(block);
+  const spans = narration.spans.filter(span => span.math);
+  return (narration.prepared?.spokenMath ?? []).flatMap((math, index) =>
+    formulaSpotlightCovers(scene, [math.formula]) ? [spans[index].speech] : []
+  );
+}
 
 /** A renderer-reference pattern alone cannot distinguish different equations using the same IDs. */
 export function preparedFormulaSpotlightMatchesScene(

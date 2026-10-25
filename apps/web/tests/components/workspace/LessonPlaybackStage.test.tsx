@@ -2538,6 +2538,75 @@ test('ignores cached links for different mathematics while the current source is
   expect(container.querySelector('.spotlight-symbols [data-active="true"]')).toBeNull();
 });
 
+test('keeps the currently dictated equation when another widget shares its named quantities', () => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const style = document.createElement('p').style;
+  style.setProperty('--caption-feather', '0px');
+  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
+  const sources = [{ type: 'markdown' as const, markdown: 'Prima $x+y$ poi $x-y$ fine' }];
+  const sceneFor = (operator: string) => ({
+    ...dictatedFormulaSpotlight,
+    formula: String.raw`\nousSymbol{x}${operator}\nousSymbol{y}`,
+    symbols: dictatedFormulaSpotlight.symbols
+      .filter(symbol => symbol.id === 'x' || symbol.id === 'y')
+      .map(symbol => ({
+        ...symbol,
+        anchorOccurrence: 0,
+        additionalAnchors: [{ anchor: symbol.anchor, anchorOccurrence: 1 }],
+      })),
+  });
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: {
+      motion: [],
+      spokenMath: [
+        { formula: '$x+y$', spoken: 'ics più ipsilon' },
+        { formula: '$x-y$', spoken: 'ics meno ipsilon' },
+      ],
+      formulaSpotlights: [
+        { formula: '$x+y$', sourceFormula: '$x+y$', scene: sceneFor('+') },
+        { formula: '$x-y$', sourceFormula: '$x-y$', scene: sceneFor('-') },
+      ],
+    },
+  };
+  let heardTime = 1.5;
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      duration={9}
+      time={0}
+      readTime={() => heardTime}
+      alignment={{ status: 'aligned', onsets: [0, 1, 2, 3, 4, 5, 6, 7, 8] }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+    />
+  );
+  for (const [time, equation] of [
+    [1.5, 'x+y'],
+    [3.5, 'x+y'],
+    [5.5, 'x−y'],
+    [7.5, 'x−y'],
+  ] as const) {
+    heardTime = time;
+    for (let step = 0; step < 2; step++)
+      act(() => {
+        const pending = [...frames.values()];
+        frames.clear();
+        for (const callback of pending) callback(0);
+      });
+    expect(container.querySelector('.spotlight-formula .katex-html')?.textContent).toBe(equation);
+    expect(container.querySelector('.spotlight-symbols [data-active="true"]')).not.toBeNull();
+  }
+});
+
 test.each([
   true,
   false,

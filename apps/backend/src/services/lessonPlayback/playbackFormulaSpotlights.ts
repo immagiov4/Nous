@@ -9,6 +9,7 @@ import {
   type LessonPlaybackBlock,
   type PlaybackContentBlock,
   type PlaybackRange,
+  playbackFormulaReadingRanges,
   playbackFormulaSpotlightScenes,
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
@@ -75,9 +76,7 @@ export async function preparePlaybackFormulaSpotlights(input: {
         spoken: narration.speech,
         sourceFormula: scene.formula,
         sourceScene: scene,
-        dictatedRanges: (input.block.prepared?.spokenMath ?? []).flatMap((math, index) =>
-          formulaSpotlightCovers(scene, [math.formula]) ? [ranges[index].speech] : []
-        ),
+        dictatedRanges: playbackFormulaReadingRanges(input.block, scene),
       }));
   else if (input.block.prepared?.spokenMath?.length) {
     entries = input.block.prepared.spokenMath.map((entry, index) => ({
