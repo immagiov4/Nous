@@ -293,36 +293,53 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
       ),
       formulaSpotlightPlayback: createLessonPlaybackWorkflow(
         playbackExecutionDefaults,
-        createLessonPlaybackBlockSchema(schema, true, true, true, false, true),
+        createLessonPlaybackBlockSchema(schema, {
+          spokenMath: true,
+          fencedCode: true,
+          legacyVisuals: true,
+          formulaSpotlights: true,
+        }),
         true,
         true
       ),
       synchronizedPlayback: createLessonPlaybackWorkflow(
         playbackExecutionDefaults,
-        createLessonPlaybackBlockSchema(schema, true, true, true),
+        createLessonPlaybackBlockSchema(schema, {
+          spokenMath: true,
+          fencedCode: true,
+          legacyVisuals: true,
+        }),
         true,
         true
       ),
       alignedPlayback: createLessonPlaybackWorkflow(
         playbackExecutionDefaults,
-        createLessonPlaybackBlockSchema(schema, true, true, true),
+        createLessonPlaybackBlockSchema(schema, {
+          spokenMath: true,
+          fencedCode: true,
+          legacyVisuals: true,
+        }),
         true
       ),
       legacyVisualPlayback: createLessonPlaybackWorkflow(
         playbackExecutionDefaults,
-        createLessonPlaybackBlockSchema(schema, true, true, true)
+        createLessonPlaybackBlockSchema(schema, {
+          spokenMath: true,
+          fencedCode: true,
+          legacyVisuals: true,
+        })
       ),
       legacyVisualSpokenMathPlayback: createLessonPlaybackWorkflow(
         playbackExecutionDefaults,
-        createLessonPlaybackBlockSchema(schema, true, false, true)
+        createLessonPlaybackBlockSchema(schema, { spokenMath: true, legacyVisuals: true })
       ),
       fencedCodePlayback: createLessonPlaybackWorkflow(
         playbackExecutionDefaults,
-        createLessonPlaybackBlockSchema(schema, true, true)
+        createLessonPlaybackBlockSchema(schema, { spokenMath: true, fencedCode: true })
       ),
       spokenMathPlayback: createLessonPlaybackWorkflow(
         playbackExecutionDefaults,
-        createLessonPlaybackBlockSchema(schema, true)
+        createLessonPlaybackBlockSchema(schema, { spokenMath: true })
       ),
       playback: createLessonPlaybackWorkflow(
         playbackExecutionDefaults,

@@ -2606,6 +2606,134 @@ test('keeps one existing widget and uses prepared links for its unlinked neighbo
   expect(container.querySelectorAll('.formula-spotlight')).toHaveLength(1);
 });
 
+test('renders each repeated source occurrence with its own prepared definitions and heard links', () => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
+  const sources = [{ type: 'markdown' as const, markdown: 'ics più ipsilon poi ics più ipsilon' }];
+  const unlinked = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
+  };
+  const scenes = [0, 1].map(anchorOccurrence => ({
+    ...dictatedFormulaSpotlight,
+    title: `Occorrenza ${anchorOccurrence + 1}`,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchorOccurrence })),
+  }));
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    visuals: [
+      { kind: 'scene' as const, scene: unlinked },
+      { kind: 'scene' as const, scene: unlinked },
+    ],
+    prepared: {
+      motion: [],
+      formulaSpotlights: scenes.map(scene => ({
+        formula: '$${x}{+}{y}$$',
+        sourceFormula: unlinked.formula,
+        scene,
+      })),
+    },
+  };
+  let heard = 1.5;
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      duration={7}
+      time={0}
+      readTime={() => heard}
+      alignment={{ status: 'aligned', onsets: [0, 1, 2, 3, 4, 5, 6] }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+    />
+  );
+  expect(container.querySelector('.scene-host h2')?.textContent).toBe('Occorrenza 1');
+  heard = 5.5;
+  for (let flush = 0; flush < 2; flush++)
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    });
+  expect(container.querySelector('.scene-host h2')?.textContent).toBe('Occorrenza 2');
+  expect(
+    container
+      .querySelector('.spotlight-symbols [data-active="true"]')
+      ?.getAttribute('data-formula-symbol')
+  ).toBe('plus');
+});
+
+test('highlights a compact prepared formula using global ordinals after an earlier spoken mention', () => {
+  const sources = [{ type: 'markdown' as const, markdown: 'ics prima $x+y$ fine' }];
+  const scene = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({
+      ...symbol,
+      anchorOccurrence: symbol.id === 'x' ? 1 : 0,
+    })),
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: {
+      motion: [],
+      spokenMath: [{ formula: '$x+y$', spoken: 'ics più ipsilon' }],
+      formulaSpotlights: [{ formula: '$x+y$', scene }],
+    },
+  };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      duration={6}
+      time={2.5}
+      alignment={{ status: 'aligned', onsets: [0, 1, 2, 3, 4, 5] }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+    />
+  );
+  expect(
+    container
+      .querySelector('.spotlight-symbols [data-active="true"]')
+      ?.getAttribute('data-formula-symbol')
+  ).toBe('x');
+});
+
+test('selects an existing linked widget for the complete dictated prefix before its first linked symbol', () => {
+  const sources = [{ type: 'markdown' as const, markdown: 'prima $x+y$ fine' }];
+  const native = {
+    ...dictatedFormulaSpotlight,
+    title: 'Formula esistente',
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({
+      ...symbol,
+      anchor: symbol.id === 'x' ? '' : symbol.anchor,
+    })),
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    visuals: [
+      { kind: 'scene' as const, scene: controllerScene },
+      { kind: 'scene' as const, scene: native },
+    ],
+    prepared: {
+      motion: [],
+      spokenMath: [{ formula: '$x+y$', spoken: 'si ottiene ics più ipsilon' }],
+    },
+  };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      duration={7}
+      time={1.5}
+      alignment={{ status: 'aligned', onsets: [0, 1, 2, 3, 4, 5, 6] }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+    />
+  );
+  expect(container.querySelector('.spotlight-formula')).not.toBeNull();
+  expect(container.querySelector('.scene-host h2')?.textContent).toBe(native.title);
+  expect(container.querySelector('.spotlight-symbols [data-active="true"]')).toBeNull();
+});
+
 test('ignores cached links for different mathematics while the current source is unlinked', () => {
   const sources = [{ type: 'markdown' as const, markdown: 'ics più ipsilon' }];
   const original = {

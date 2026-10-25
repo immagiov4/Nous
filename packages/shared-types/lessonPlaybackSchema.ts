@@ -43,11 +43,21 @@ export const PlaybackFencedCodeSchema = z.array(
   })
 );
 
+interface PlaybackSchemaCapabilities {
+  spokenMath?: boolean;
+  fencedCode?: boolean;
+  legacyVisuals?: boolean;
+  wordAlignment?: boolean;
+  formulaSpotlights?: boolean;
+}
+
 const createPlaybackPreparedSchema = (
   sceneSchema = LessonSceneSchema,
-  spokenMath = false,
-  fencedCode = false,
-  formulaSpotlights = false
+  {
+    spokenMath = false,
+    fencedCode = false,
+    formulaSpotlights = false,
+  }: PlaybackSchemaCapabilities = {}
 ) => {
   const schema = z.object({
     fencedCode: PlaybackFencedCodeSchema.optional(),
@@ -82,12 +92,11 @@ const createPlaybackPreparedSchema = (
   }) as typeof schema;
 };
 
-export const PlaybackPreparedSchema = createPlaybackPreparedSchema(
-  LessonSceneSchema,
-  true,
-  true,
-  true
-);
+export const PlaybackPreparedSchema = createPlaybackPreparedSchema(LessonSceneSchema, {
+  spokenMath: true,
+  fencedCode: true,
+  formulaSpotlights: true,
+});
 
 const LegacyPlaybackAudioSchema = z.object({
   model: z.string().min(1),
@@ -106,11 +115,13 @@ export const PlaybackAudioSchema = LegacyPlaybackAudioSchema.extend({
 
 export const createLessonPlaybackBlockSchema = (
   sceneSchema = LessonSceneSchema,
-  spokenMath = false,
-  fencedCode = false,
-  legacyVisuals = false,
-  wordAlignment = false,
-  formulaSpotlights = false
+  {
+    spokenMath = false,
+    fencedCode = false,
+    legacyVisuals = false,
+    wordAlignment = false,
+    formulaSpotlights = false,
+  }: PlaybackSchemaCapabilities = {}
 ) => {
   const spanSchema = z.object({
     fencedCode: z
@@ -150,24 +161,22 @@ export const createLessonPlaybackBlockSchema = (
         ...(legacyVisuals ? [z.object({ kind: z.literal('mermaid'), code: z.string() })] : []),
       ])
     ),
-    prepared: createPlaybackPreparedSchema(
-      sceneSchema,
+    prepared: createPlaybackPreparedSchema(sceneSchema, {
       spokenMath,
       fencedCode,
-      formulaSpotlights
-    ).optional(),
+      formulaSpotlights,
+    }).optional(),
     audio: z.array(wordAlignment ? PlaybackAudioSchema : LegacyPlaybackAudioSchema),
   });
 };
 
-export const LessonPlaybackBlockSchema = createLessonPlaybackBlockSchema(
-  LessonSceneSchema,
-  true,
-  true,
-  true,
-  true,
-  true
-);
+export const LessonPlaybackBlockSchema = createLessonPlaybackBlockSchema(LessonSceneSchema, {
+  spokenMath: true,
+  fencedCode: true,
+  legacyVisuals: true,
+  wordAlignment: true,
+  formulaSpotlights: true,
+});
 
 const LessonPlaybackSchema = z.object({
   version: z.literal(1),

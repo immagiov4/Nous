@@ -28,12 +28,14 @@ export const createProductionLessonPlaybackServices = (
   persistPlayback: createLessonPlaybackPersistence({ assets }),
   preparePlayback: async (
     { input, signal, execution, idempotencyKey, providerEffect },
-    allowedSceneTypes,
-    supportsSpokenMath = true,
-    supportsFencedCode = true,
-    supportsUnlinkedFormulaSymbols = true,
-    synchronizeAnimations = false,
-    supportsFormulaSpotlights = true
+    {
+      allowedSceneTypes,
+      supportsSpokenMath = true,
+      supportsFencedCode = true,
+      supportsUnlinkedFormulaSymbols = true,
+      synchronizeAnimations = false,
+      supportsFormulaSpotlights = true,
+    } = {}
   ) => {
     const project = await projectStore.loadProjectWithRevision(input.userId, input.projectId);
     const section = project && findProjectLessonSection(project.snapshot, input.sectionId);

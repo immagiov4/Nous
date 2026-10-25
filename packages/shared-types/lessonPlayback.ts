@@ -3,9 +3,11 @@ import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import {
   type FormulaSpotlightData,
+  formulaReferencesCoverReadings,
   formulaSpotlightCovers,
   getFormulaSpotlightLatex,
   hasFormulaSpotlightReferences,
+  hasUsableFormulaSpotlightReferences,
 } from './formulaSpotlight';
 
 import { isAnimatedLessonScene, type LessonScene } from './lessonScene';
@@ -120,12 +122,13 @@ export interface LessonPlaybackBlock {
 }
 
 /** Locate the same prepared/imported spotlight presentations used by the playback stage. */
-export const playbackFormulaSpotlightScenes = (
+const playbackFormulaSpotlightScenes = (
   block: LessonPlaybackBlock,
-  storedVisuals: readonly ProjectLessonVisual[] = []
+  storedVisuals: readonly ProjectLessonVisual[] = [],
+  sources: readonly PlaybackContentBlock[] = []
 ): readonly (LessonScene & FormulaSpotlightData)[] => {
   const scenes = [
-    block.prepared?.scene,
+    playbackPreparedFormulaIsUsable(block, sources) ? block.prepared?.scene : undefined,
     ...block.visuals.flatMap(visual => {
       if (visual.kind === 'scene') return [visual.scene];
       if (visual.kind !== 'generated-visual') return [];
@@ -136,6 +139,83 @@ export const playbackFormulaSpotlightScenes = (
   return scenes.filter(scene => scene?.type === 'formula-spotlight') as (LessonScene &
     FormulaSpotlightData)[];
 };
+
+/** Match the stage's sourced-math fallback before deciding a cached scene is a presentation. */
+export function playbackPreparedFormulaIsUsable(
+  block: LessonPlaybackBlock,
+  sources: readonly PlaybackContentBlock[] = []
+): boolean {
+  const scene = block.prepared?.scene;
+  return (
+    scene?.type !== 'formula-spotlight' ||
+    !block.spans.some(span => span.math) ||
+    getPlaybackFormulaSources(block, sources).some(formula =>
+      formulaSpotlightCovers(scene as FormulaSpotlightData, [formula])
+    )
+  );
+}
+
+export interface PlaybackFormulaTarget {
+  readonly formula: string;
+  readonly sourceFormula: string;
+  readonly readingRanges: readonly PlaybackRange[];
+  readonly scene?: LessonScene & FormulaSpotlightData;
+}
+
+/** Source presentations own stable cache slots; complete equations absent from them get their own slot. */
+export function playbackFormulaTargets(
+  block: LessonPlaybackBlock,
+  storedVisuals: readonly ProjectLessonVisual[] = [],
+  sources: readonly PlaybackContentBlock[] = []
+): readonly PlaybackFormulaTarget[] {
+  const scenes = playbackFormulaSpotlightScenes(block, storedVisuals, sources);
+  const targets: PlaybackFormulaTarget[] = scenes.map(scene => ({
+    formula: `$$${getFormulaSpotlightLatex(scene)}$$`,
+    sourceFormula: scene.formula,
+    readingRanges: playbackFormulaReadingRanges(block, scene),
+    scene,
+  }));
+  const narration = resolvePlaybackNarration(block);
+  const spoken = narration.prepared?.spokenMath;
+  if (spoken?.length) {
+    const ranges = narration.spans.filter(span => span.math);
+    return [
+      ...targets,
+      ...spoken.flatMap((math, index) =>
+        scenes.some(scene => formulaSpotlightCovers(scene, [math.formula]))
+          ? []
+          : [
+              {
+                formula: math.formula,
+                sourceFormula: math.formula,
+                readingRanges: [ranges[index].speech],
+              },
+            ]
+      ),
+    ];
+  }
+  if (targets.length) return targets;
+  return getPlaybackFormulaSources(block, sources).map(formula => ({
+    formula,
+    sourceFormula: formula,
+    readingRanges: [],
+  }));
+}
+
+/** Static decisions are valid only without a dictated reading; references use canonical speech. */
+export function isPreparedPlaybackFormula(
+  scene: LessonScene,
+  speech: string,
+  readings: readonly PlaybackRange[]
+): boolean {
+  if (scene.type !== 'formula-spotlight') return false;
+  const formula = scene as FormulaSpotlightData;
+  if (!hasFormulaSpotlightReferences(formula)) return !readings.length;
+  return (
+    hasUsableFormulaSpotlightReferences(formula, speech) &&
+    formulaReferencesCoverReadings(formula, speech, readings)
+  );
+}
 
 /** Explicit saved readings of mathematics contained in this displayed formula. */
 export function playbackFormulaReadingRanges(
@@ -166,23 +246,17 @@ export const needsPlaybackFormulaSpotlights = (
   storedVisuals: readonly ProjectLessonVisual[] = [],
   sources: readonly PlaybackContentBlock[] = []
 ): boolean => {
-  const scenes = playbackFormulaSpotlightScenes(block, storedVisuals);
-  if (scenes.length)
-    return scenes.some(
-      scene =>
-        !hasFormulaSpotlightReferences(scene) &&
-        !block.prepared?.formulaSpotlights?.some(entry =>
-          preparedFormulaSpotlightMatchesScene(entry, scene)
-        )
+  const narration = resolvePlaybackNarration(block);
+  return playbackFormulaTargets(block, storedVisuals, sources).some((target, index) => {
+    if (target.scene && hasUsableFormulaSpotlightReferences(target.scene, narration.speech))
+      return false;
+    const saved = block.prepared?.formulaSpotlights?.[index];
+    return (
+      saved?.formula !== target.formula ||
+      saved.sourceFormula !== target.sourceFormula ||
+      !isPreparedPlaybackFormula(saved.scene, narration.speech, target.readingRanges)
     );
-  const spoken = block.prepared?.spokenMath;
-  if (spoken?.length)
-    return spoken.some(
-      (entry, index) => block.prepared?.formulaSpotlights?.[index]?.formula !== entry.formula
-    );
-  return getPlaybackFormulaSources(block, sources).some(
-    formula => !block.prepared?.formulaSpotlights?.some(entry => entry.sourceFormula === formula)
-  );
+  });
 };
 
 export interface LessonPlayback {

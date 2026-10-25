@@ -1040,6 +1040,34 @@ test('requires links for an authoritative dictated formula range', async () => {
   ).toBe('invalid');
 });
 
+test('validates references for every repeated dictated range before accepting a source-bound scene', async () => {
+  const input = {
+    ...sourceBoundInput('$x$', 'ics poi ics'),
+    formulaSource: {
+      formula: '$x$',
+      dictatedRanges: [
+        { start: 0, end: 3 },
+        { start: 8, end: 11 },
+      ],
+    },
+  };
+  const symbol = boundSourceSymbol({ id: 'x', first: 0, word: 0 });
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...sourceBoundDraft(), symbols: [symbol] });
+  expect((await generateLessonScene(input)).kind).toBe('invalid');
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...sourceBoundDraft(),
+    symbols: [{ ...symbol, mentions: [...symbol.mentions, { first: 'w2', last: 'w2' }] }],
+  });
+  const outcome = await generateLessonScene(input);
+  expect(outcome.kind).toBe('scene');
+  if (outcome.kind !== 'scene') throw new Error('Both explicit readings must be accepted');
+  expect(
+    resolveFormulaReferences(outcome.scene as FormulaSpotlightData, input.narration).map(
+      reference => reference.start
+    )
+  ).toEqual([0, 8]);
+});
+
 test('supplies the exact words of this reading separately from repeated references', async () => {
   const narration = 'prima ics più ipsilon dopo ics più ipsilon fine';
   const range = { start: narration.lastIndexOf('ics'), end: narration.indexOf(' fine') };

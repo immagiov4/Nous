@@ -9,10 +9,59 @@ test('accepts a complete formula with named symbols and exact spoken anchors', (
 });
 
 import {
+  formulaReferencesCoverReadings,
   renderSpotlightFormula,
   renderSpotlightSymbol,
   resolveFormulaReferences,
 } from '@shared/formulaSpotlight';
+
+test('resolves explicit occurrences in canonical speech before restricting the formula range', () => {
+  const scene = {
+    ...formulaSpotlight,
+    formula: String.raw`\nousSymbol{x}`,
+    symbols: [
+      { id: 'x', latex: 'x', name: 'Ics', meaning: 'Valore', anchor: 'ics', anchorOccurrence: 1 },
+    ],
+  };
+  expect(resolveFormulaReferences(scene, 'ics prima ics dopo', { start: 10, end: 13 })).toEqual([
+    { index: 0, anchor: 'ics', start: 10, end: 13 },
+  ]);
+  const legacy = {
+    ...scene,
+    symbols: scene.symbols.map(({ anchorOccurrence: _, ...symbol }) => symbol),
+  };
+  expect(resolveFormulaReferences(legacy, 'ics prima ics dopo', { start: 10, end: 13 })).toEqual([
+    { index: 0, anchor: 'ics', start: 10, end: 13 },
+  ]);
+});
+
+test('requires a reference inside every complete reading rather than only an explanatory mention', () => {
+  const scene = {
+    ...formulaSpotlight,
+    formula: String.raw`\nousSymbol{x}`,
+    symbols: [
+      { id: 'x', latex: 'x', name: 'Ics', meaning: 'Valore', anchor: 'ics', anchorOccurrence: 0 },
+    ],
+  };
+  const ranges = [
+    { start: 0, end: 3 },
+    { start: 8, end: 11 },
+  ];
+  expect(formulaReferencesCoverReadings(scene, 'ics poi ics', ranges)).toBe(false);
+  expect(
+    formulaReferencesCoverReadings(
+      {
+        ...scene,
+        symbols: scene.symbols.map(symbol => ({
+          ...symbol,
+          additionalAnchors: [{ anchor: 'ics', anchorOccurrence: 1 }],
+        })),
+      },
+      'ics poi ics',
+      ranges
+    )
+  ).toBe(true);
+});
 
 test('binds repeated spoken names to explicit ordered occurrences without guessing', () => {
   const scene = {

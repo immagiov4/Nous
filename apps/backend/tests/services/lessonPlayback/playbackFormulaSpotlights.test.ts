@@ -25,9 +25,23 @@ const request = () => ({
   config: getGlobalModelConfig(),
   signal: new AbortController().signal,
 });
+const repeatedScene = {
+  ...dictatedFormulaSpotlight,
+  symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({
+    ...symbol,
+    anchorOccurrence: 0,
+    additionalAnchors: [{ anchor: symbol.anchor, anchorOccurrence: 1 }],
+  })),
+};
 beforeEach(() => {
   vi.resetAllMocks();
-  generate.mockResolvedValue({ kind: 'scene', scene: dictatedFormulaSpotlight });
+  generate.mockImplementation(input => ({
+    kind: 'scene',
+    scene:
+      input.narration === 'Prima ics più ipsilon poi ics più ipsilon fine'
+        ? repeatedScene
+        : dictatedFormulaSpotlight,
+  }));
 });
 
 test.each([
@@ -39,7 +53,9 @@ test.each([
     symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
   };
   const source = {
-    ...segmentLessonPlayback([{ type: 'markdown', markdown: 'ics più ipsilon' }])[0],
+    ...segmentLessonPlayback([
+      { type: 'markdown', markdown: mentioned ? 'ics più ipsilon' : 'Una relazione di richiamo.' },
+    ])[0],
     prepared: { motion: [], scene: unlinked },
   };
   const scene = mentioned ? dictatedFormulaSpotlight : unlinked;
@@ -67,7 +83,7 @@ test('prepares separate full-passage symbol links for repeated saved pronunciati
     Array.from({ length: 2 }, () => ({
       formula: '$x+y$',
       sourceFormula: '$x+y$',
-      scene: dictatedFormulaSpotlight,
+      scene: repeatedScene,
     }))
   );
   const narration = 'Prima ics più ipsilon poi ics più ipsilon fine';
@@ -87,7 +103,7 @@ test('prepares separate full-passage symbol links for repeated saved pronunciati
   expect(
     needsPlaybackFormulaSpotlights({
       ...input.block,
-      prepared: { ...input.block.prepared, scene: dictatedFormulaSpotlight },
+      prepared: { ...input.block.prepared, scene: repeatedScene },
     })
   ).toBe(false);
   expect(needsPlaybackFormulaSpotlights({ ...input.block, prepared: { motion: [] } })).toBe(true);
@@ -106,7 +122,7 @@ test('rejects a mathematically different widget before saving and corrects it th
     },
   });
   const result = await preparePlaybackFormulaSpotlights(request());
-  expect(result[0].scene).toEqual(dictatedFormulaSpotlight);
+  expect(result[0].scene).toEqual(repeatedScene);
   expect(generate).toHaveBeenCalledTimes(3);
 });
 
@@ -129,7 +145,9 @@ test.each([
   const sources = [
     {
       type: 'markdown' as const,
-      markdown: '# Tema\n\nIntroduzione alla formula.\n\n$$x+y$$\n\nics più ipsilon',
+      markdown:
+        '# Tema\n\nIntroduzione alla formula.\n\n$$x+y$$\n\n' +
+        (mentioned ? 'ics più ipsilon' : 'La relazione rimane mostrata.'),
     },
   ];
   const raw = segmentLessonPlayback(sources).at(-1);
@@ -211,12 +229,14 @@ test('prepares only the unlinked neighbor of an existing animated formula', asyn
     formula: linked.formula,
     symbols: linked.symbols.map(symbol => ({
       ...symbol,
+      ...(symbol.id === 'x' ? { latex: 'u', name: 'U' } : {}),
+      ...(symbol.id === 'y' ? { latex: 'v', name: 'Vi' } : {}),
       ...(symbol.id === 'plus' ? { latex: '-', name: 'Meno', meaning: 'Differenza' } : {}),
       anchor: '',
     })),
   };
   const source = {
-    ...segmentLessonPlayback([{ type: 'markdown', markdown: 'ics più ipsilon' }])[0],
+    ...segmentLessonPlayback([{ type: 'markdown', markdown: 'ics più ipsilon poi u meno vi' }])[0],
     visuals: [
       { kind: 'scene' as const, scene: linked },
       { kind: 'scene' as const, scene: unlinked },
@@ -232,12 +252,20 @@ test('prepares only the unlinked neighbor of an existing animated formula', asyn
       ],
     },
   };
-  generate.mockResolvedValue({ kind: 'scene', scene: unlinked });
+  const prepared = {
+    ...unlinked,
+    symbols: unlinked.symbols.map((symbol, index) => ({
+      ...symbol,
+      anchor: ['u', 'meno', 'vi'][index],
+    })),
+  };
+  generate.mockResolvedValue({ kind: 'scene', scene: prepared });
   expect(needsPlaybackFormulaSpotlights(source)).toBe(true);
   const formulaSpotlights = await preparePlaybackFormulaSpotlights({ ...request(), block: source });
   expect(generate).toHaveBeenCalledTimes(1);
   expect(formulaSpotlights).toEqual([
-    { formula: '$${x}{-}{y}$$', sourceFormula: unlinked.formula, scene: unlinked },
+    { formula: '$${x}{+}{y}$$', sourceFormula: linked.formula, scene: linked },
+    { formula: '$${u}{-}{v}$$', sourceFormula: unlinked.formula, scene: prepared },
   ]);
   const saved = { ...source, prepared: { motion: [], formulaSpotlights } };
   expect(needsPlaybackFormulaSpotlights(saved)).toBe(false);
@@ -246,4 +274,142 @@ test('prepares only the unlinked neighbor of an existing animated formula', asyn
     formulaSpotlights
   );
   expect(generate).not.toHaveBeenCalled();
+});
+
+test('keeps separate cache slots for repeated unlinked presentations of the same formula', async () => {
+  const unlinked = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
+  };
+  const source = {
+    ...segmentLessonPlayback([
+      { type: 'markdown', markdown: 'ics più ipsilon poi ics più ipsilon' },
+    ])[0],
+    visuals: [
+      { kind: 'scene' as const, scene: unlinked },
+      { kind: 'scene' as const, scene: unlinked },
+    ],
+    prepared: { motion: [] },
+  };
+  const scenes = [0, 1].map(anchorOccurrence => ({
+    ...dictatedFormulaSpotlight,
+    title: `Lettura ${anchorOccurrence + 1}`,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchorOccurrence })),
+  }));
+  for (const scene of scenes) generate.mockResolvedValueOnce({ kind: 'scene', scene });
+  const formulaSpotlights = await preparePlaybackFormulaSpotlights({ ...request(), block: source });
+  expect(formulaSpotlights.map(entry => entry.scene)).toEqual(scenes);
+  expect(
+    needsPlaybackFormulaSpotlights({
+      ...source,
+      prepared: { motion: [], formulaSpotlights: formulaSpotlights.slice(0, 1) },
+    })
+  ).toBe(true);
+  expect(
+    needsPlaybackFormulaSpotlights({ ...source, prepared: { motion: [], formulaSpotlights } })
+  ).toBe(false);
+});
+
+test('prepares the sourced equation when a linked cached scene is incomplete and the stage cannot use it', async () => {
+  const source = {
+    ...segmentLessonPlayback([{ type: 'markdown', markdown: 'Prima $x+y$ fine' }])[0],
+    prepared: {
+      motion: [],
+      spokenMath: [{ formula: '$x+y$', spoken: 'ics più ipsilon' }],
+      scene: {
+        ...dictatedFormulaSpotlight,
+        formula: String.raw`\nousSymbol{x}`,
+        symbols: [dictatedFormulaSpotlight.symbols[0]],
+      },
+    },
+  };
+  expect(needsPlaybackFormulaSpotlights(source)).toBe(true);
+  const formulaSpotlights = await preparePlaybackFormulaSpotlights({ ...request(), block: source });
+  expect(generate.mock.calls[0][0].formulaSource.formula).toBe('$x+y$');
+  expect(formulaSpotlights).toEqual([
+    { formula: '$x+y$', sourceFormula: '$x+y$', scene: dictatedFormulaSpotlight },
+  ]);
+  expect(
+    needsPlaybackFormulaSpotlights({
+      ...source,
+      prepared: { ...source.prepared, formulaSpotlights },
+    })
+  ).toBe(false);
+});
+
+test('keeps an existing complete equation and prepares only the other dictated equation', async () => {
+  const source = {
+    ...segmentLessonPlayback([{ type: 'markdown', markdown: 'prima $x+y$ poi $u-v$ fine' }])[0],
+    prepared: {
+      motion: [],
+      scene: dictatedFormulaSpotlight,
+      spokenMath: [
+        { formula: '$x+y$', spoken: 'ics più ipsilon' },
+        { formula: '$u-v$', spoken: 'u meno vi' },
+      ],
+    },
+  };
+  const second = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map((symbol, index) => ({
+      ...symbol,
+      latex: ['u', '-', 'v'][index],
+      anchor: ['u', 'meno', 'vi'][index],
+    })),
+  };
+  generate.mockResolvedValue({ kind: 'scene', scene: second });
+  expect(needsPlaybackFormulaSpotlights(source)).toBe(true);
+  const formulaSpotlights = await preparePlaybackFormulaSpotlights({ ...request(), block: source });
+  expect(generate).toHaveBeenCalledOnce();
+  expect(generate.mock.calls[0][0].formulaSource.formula).toBe('$u-v$');
+  expect(formulaSpotlights[0].scene).toBe(dictatedFormulaSpotlight);
+  expect(formulaSpotlights[1].scene).toBe(second);
+  expect(
+    needsPlaybackFormulaSpotlights({
+      ...source,
+      prepared: { ...source.prepared, formulaSpotlights },
+    })
+  ).toBe(false);
+});
+
+test('rejects a prepared widget whose links omit its explicit formula reading', async () => {
+  const input = request();
+  generate.mockResolvedValue({
+    kind: 'scene',
+    scene: {
+      ...dictatedFormulaSpotlight,
+      symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchorOccurrence: 0 })),
+    },
+  });
+  await expect(preparePlaybackFormulaSpotlights(input)).rejects.toThrow(
+    'Formula highlighting preparation failed validation.'
+  );
+  // The first reading is valid; all attempts for the second must fail rather than save a later/earlier mention.
+  expect(generate).toHaveBeenCalledTimes(4);
+});
+
+test('retains cached audio, alignment and lesson text when visual validation is exhausted', async () => {
+  const input = request();
+  const source = {
+    ...input.block,
+    audio: [
+      {
+        model: 'tts-model',
+        voice: 'Zephyr',
+        durationSeconds: 7,
+        asset: { id: 'a'.repeat(64), hash: 'b'.repeat(64), byteSize: 128, mediaType: 'audio/mpeg' },
+        wordAlignment: { status: 'aligned' as const, onsets: [0, 1, 2, 3, 4, 5, 6] },
+      },
+    ],
+  };
+  const original = structuredClone(source);
+  generate.mockResolvedValue({
+    kind: 'invalid',
+    problems: ['The source words could not be linked.'],
+  });
+  await expect(preparePlaybackFormulaSpotlights({ ...input, block: source })).rejects.toThrow(
+    'Formula highlighting preparation failed validation.'
+  );
+  expect(source).toEqual(original);
+  expect(generate).toHaveBeenCalledTimes(3);
 });

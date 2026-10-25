@@ -4,6 +4,7 @@ import {
   FormulaSpotlightDataSchema,
   findFormulaOccurrences,
   formulaLatexSource,
+  formulaReferencesCoverReadings,
   formulaSpotlightCovers,
   hasFormulaSpotlightReferences,
   renderSpotlightFormula,
@@ -260,6 +261,8 @@ function validatePreparedFormula(
     problems.push('The named-parts decision must agree with the supplied narration links.');
   if (!formulaSpotlightCovers(scene, [input.source.formula]))
     problems.push('The target fragments must retain the complete authored mathematics.');
+  if (!formulaReferencesCoverReadings(scene, input.narration, input.source.dictatedRanges ?? []))
+    problems.push('Every dictated formula reading needs its own narration references.');
   if (problems.length) {
     try {
       renderSpotlightFormula(scene);

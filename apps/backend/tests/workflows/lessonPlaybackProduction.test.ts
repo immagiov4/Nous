@@ -191,7 +191,7 @@ test.each([
         ...context,
         input: { ...context.input, ...(state === 'new-voice' ? { voice: 'Puck' } : {}) },
       },
-      STATIC_LESSON_SCENE_TYPES
+      { allowedSceneTypes: STATIC_LESSON_SCENE_TYPES }
     )
   ).rejects.toMatchObject({
     failure: { code: 'lesson_playback_scene_invalid' },

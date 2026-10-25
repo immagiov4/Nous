@@ -49,7 +49,9 @@ describe('lesson playback routes', () => {
           ...saved,
           prepared: {
             ...prepared,
-            formulaSpotlights: [{ formula: '$x+y$', scene: dictatedFormulaSpotlight }],
+            formulaSpotlights: [
+              { formula: '$x+y$', sourceFormula: '$x+y$', scene: dictatedFormulaSpotlight },
+            ],
           },
         },
       ],

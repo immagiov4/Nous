@@ -1,19 +1,20 @@
 import {
   type FormulaSpotlightData,
-  formulaSpotlightCovers,
-  hasFormulaSpotlightReferences,
+  hasExplicitFormulaReferencePositions,
+  hasUsableFormulaSpotlightReferences,
   resolveFormulaReferences,
 } from '@shared/formulaSpotlight';
 import {
   getPlaybackFormulaMarkdown,
-  getPlaybackFormulaSources,
   getPlaybackMathMarkdown,
   type LessonPlaybackBlock,
   type PlaybackContentBlock,
   type PlaybackRange,
   type PlaybackVisual,
   playbackFormulaReadingRanges,
+  playbackFormulaTargets,
   playbackNonProseVisuals,
+  playbackPreparedFormulaIsUsable,
   preparedFormulaSpotlightMatchesScene,
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
@@ -204,12 +205,11 @@ function formulaCueTiming(
   const times: number[] = [];
   const ends: number[] = [];
   const symbolIndices: number[] = [];
-  const narration = range ? speech.slice(range.start, range.end) : speech;
-  for (const reference of resolveFormulaReferences(scene, narration)) {
+  for (const reference of resolveFormulaReferences(scene, speech, range)) {
     const span = captionRangeSpan({
       range: {
-        start: reference.start + (range?.start ?? 0),
-        end: reference.end + (range?.start ?? 0),
+        start: reference.start,
+        end: reference.end,
       },
       speech,
       speechRanges: current.speechRanges,
@@ -330,7 +330,11 @@ function PlaybackScene({
     if (!isAnimatedLessonScene(scene) && scene.type !== 'formula-spotlight') return undefined;
     const anchors = sceneCaptionAnchors(
       scene,
-      formulaRange ? block.speech.slice(formulaRange.start, formulaRange.end) : block.speech
+      formulaRange &&
+        scene.type === 'formula-spotlight' &&
+        !hasExplicitFormulaReferencePositions(scene as FormulaSpotlightData)
+        ? block.speech.slice(formulaRange.start, formulaRange.end)
+        : block.speech
     );
     // Voice cues exclude both caption look-ahead and its graphical reveal feather.
     let previousClock: CaptionClock | null = null;
@@ -755,6 +759,7 @@ function PlaybackPassage({
 
   useLayoutEffect(() => {
     let previousBodyTime: number | undefined;
+    let previousViewport: CaptionClock['viewport'] | undefined;
     const render = () => {
       const paragraph = captions.current;
       if (!paragraph) throw new Error('Captions must be mounted');
@@ -764,7 +769,8 @@ function PlaybackPassage({
       if (!current.width || !current.bodyDuration) return;
       const motion = latest.current.animate;
       current.viewport.clip();
-      if (previousBodyTime === bodyTime) return;
+      const layoutChanged = previousViewport !== current.viewport;
+      if (previousBodyTime === bodyTime && !layoutChanged) return;
       const progress = Math.max(0, Math.min(1, revealTime / current.bodyDuration));
       const edge = progress * (current.width + current.feather);
       let active = edge >= current.width ? current.runs.at(-1)?.span : undefined;
@@ -774,9 +780,10 @@ function PlaybackPassage({
       // Place new or backward seeks immediately; animate subsequent playback updates.
       current.viewport.follow(
         active,
-        motion && previousBodyTime !== undefined && bodyTime > previousBodyTime
+        !layoutChanged && motion && previousBodyTime !== undefined && bodyTime > previousBodyTime
       );
       previousBodyTime = bodyTime;
+      previousViewport = current.viewport;
     };
     let frame = 0;
     const tick = () => {
@@ -824,21 +831,18 @@ function PlaybackPassage({
       ).some(part => part.type !== 'markdown' || part.content.trim());
     });
     const scene = block.prepared?.scene;
-    if (
-      scene?.type === 'formula-spotlight' &&
-      formulas &&
-      block.spans.some(span => span.math) &&
-      !formulaSpotlightCovers(
-        scene as FormulaSpotlightData,
-        getPlaybackFormulaSources(block, sources)
-      )
-    )
+    if (formulas && !playbackPreparedFormulaIsUsable(block, sources))
       return projected.length ? projected : [{ kind: 'markdown' as const, markdown: formulas }];
     if (block.prepared?.scene && getPlaybackMathMarkdown(block))
       return [...projected, { kind: 'scene' as const, scene: block.prepared.scene }];
     if (projected.length)
       return projected.map(visual => {
         if (!scene) return visual;
+        if (
+          playbackVisualScene(visual, content.activeSectionGeneratedVisualsById)?.type ===
+          'formula-spotlight'
+        )
+          return visual;
         const existingScene =
           visual.kind === 'scene' ||
           (visual.kind === 'generated-visual' &&
@@ -865,20 +869,43 @@ function PlaybackPassage({
   ]);
   const visualCandidates = useMemo<readonly StageVisual[]>(() => {
     const spotlights = block.prepared?.formulaSpotlights;
-    if (!spotlights?.length) return normalVisualCandidates;
+    const normal: readonly StageVisual[] = normalVisualCandidates.map(visual => {
+      const scene = playbackVisualScene(visual, content.activeSectionGeneratedVisualsById);
+      if (scene?.type !== 'formula-spotlight') return visual;
+      const readingRanges = playbackFormulaReadingRanges(block, scene as FormulaSpotlightData);
+      return readingRanges.length ? { ...visual, readingRanges } : visual;
+    });
+    if (!spotlights?.length) return normal;
     if (spotlights.some(entry => entry.sourceFormula)) {
-      const matched = new Set<string>();
-      const original = normalVisualCandidates.map(visual => {
+      const targets = playbackFormulaTargets(
+        {
+          ...block,
+          visuals: block.visuals.map(visual => {
+            const scene = playbackVisualScene(visual, content.activeSectionGeneratedVisualsById);
+            return scene ? { kind: 'scene' as const, scene } : visual;
+          }),
+        },
+        [],
+        sources
+      );
+      const sourceScenes = targets.flatMap(target => (target.scene ? [target.scene] : []));
+      const matched = new Set<number>();
+      const original = normal.map(visual => {
         const scene = playbackVisualScene(visual, content.activeSectionGeneratedVisualsById);
         if (scene?.type !== 'formula-spotlight') return visual;
-        matched.add(scene.formula as string);
-        const readingRanges = playbackFormulaReadingRanges(block, scene as FormulaSpotlightData);
-        const original = readingRanges.length ? { ...visual, readingRanges } : visual;
-        const entry = spotlights.find(entry =>
-          preparedFormulaSpotlightMatchesScene(entry, scene as FormulaSpotlightData)
+        // Consume distinct source occurrences; repeated projections of one scene share its slot.
+        let sourceIndex = sourceScenes.findIndex(
+          (source, index) => source === scene && !matched.has(index)
         );
-        if (!entry) return original;
-        if (hasFormulaSpotlightReferences(scene as FormulaSpotlightData)) return original;
+        if (sourceIndex < 0)
+          sourceIndex = sourceScenes.indexOf(scene as LessonScene & FormulaSpotlightData);
+        if (sourceIndex >= 0) matched.add(sourceIndex);
+        const entry = spotlights[sourceIndex];
+        if (!entry || !preparedFormulaSpotlightMatchesScene(entry, scene as FormulaSpotlightData))
+          return visual;
+        if (hasUsableFormulaSpotlightReferences(scene as FormulaSpotlightData, block.speech))
+          return visual;
+        const readingRanges = visual.readingRanges ?? [];
         const voiceRange = formulaReferenceRange(entry.scene, block.speech, readingRanges);
         return voiceRange
           ? { kind: 'scene' as const, scene: entry.scene, voiceRange, readingRanges }
@@ -886,12 +913,12 @@ function PlaybackPassage({
       });
       return [
         ...original,
-        ...spotlights.flatMap(entry => {
-          if (!entry.sourceFormula || matched.has(entry.sourceFormula)) return [];
-          const readingRanges = playbackFormulaReadingRanges(
-            block,
-            entry.scene as FormulaSpotlightData
-          );
+        ...spotlights.flatMap((entry, index) => {
+          if (!entry.sourceFormula || matched.has(index)) return [];
+          const target = targets[index];
+          if (entry.formula !== target?.formula || entry.sourceFormula !== target.sourceFormula)
+            return [];
+          const readingRanges = target.readingRanges;
           const voiceRange = formulaReferenceRange(entry.scene, block.speech, readingRanges);
           return voiceRange
             ? [
@@ -908,20 +935,24 @@ function PlaybackPassage({
       ];
     }
     if (
-      normalVisualCandidates.some(visual => {
+      normal.some(visual => {
         const scene = playbackVisualScene(visual, content.activeSectionGeneratedVisualsById);
         return (
           scene?.type === 'formula-spotlight' &&
-          hasFormulaSpotlightReferences(scene as FormulaSpotlightData)
+          hasUsableFormulaSpotlightReferences(scene as FormulaSpotlightData, block.speech)
         );
       })
     )
-      return normalVisualCandidates;
-    if (block.prepared?.scene?.type === 'formula-spotlight') return normalVisualCandidates;
+      return normal;
+    if (
+      block.prepared?.scene?.type === 'formula-spotlight' &&
+      playbackPreparedFormulaIsUsable(block, sources)
+    )
+      return normal;
     const formulas = block.spans.filter(span => span.math);
     const combined = getPlaybackFormulaMarkdown(block, sources);
     return [
-      ...normalVisualCandidates.filter(
+      ...normal.filter(
         visual =>
           visual.kind !== 'markdown' ||
           (visual.markdown !== combined && !formulas.some(span => span.math === visual.markdown))

@@ -2,15 +2,13 @@ import {
   type FormulaSpotlightData,
   formulaSpotlightCovers,
   getFormulaSpotlightLatex,
-  hasFormulaSpotlightReferences,
+  hasUsableFormulaSpotlightReferences,
 } from '@shared/formulaSpotlight';
 import {
-  getPlaybackFormulaSources,
+  isPreparedPlaybackFormula,
   type LessonPlaybackBlock,
   type PlaybackContentBlock,
-  type PlaybackRange,
-  playbackFormulaReadingRanges,
-  playbackFormulaSpotlightScenes,
+  playbackFormulaTargets,
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
 import { type LessonScene, LessonSceneSchema } from '@shared/lessonScene';
@@ -58,42 +56,35 @@ export async function preparePlaybackFormulaSpotlights(input: {
   readonly sources?: readonly PlaybackContentBlock[];
 }) {
   const result: { formula: string; scene: LessonScene; sourceFormula?: string }[] = [];
-  const scenes = playbackFormulaSpotlightScenes(input.block, input.storedVisuals);
   const narration = resolvePlaybackNarration(input.block);
-  const ranges = narration.spans.filter(span => span.math);
-  let entries: {
-    formula: string;
-    spoken: string;
-    sourceFormula?: string;
-    dictatedRanges: readonly PlaybackRange[];
-  }[];
-  if (scenes.length)
-    entries = scenes
-      .filter(scene => !hasFormulaSpotlightReferences(scene))
-      .map(scene => ({
-        formula: `$$${getFormulaSpotlightLatex(scene)}$$`,
-        spoken: narration.speech,
-        sourceFormula: scene.formula,
-        dictatedRanges: playbackFormulaReadingRanges(input.block, scene),
-      }));
-  else if (input.block.prepared?.spokenMath?.length) {
-    entries = input.block.prepared.spokenMath.map((entry, index) => ({
-      formula: entry.formula,
+  const entries = playbackFormulaTargets(input.block, input.storedVisuals, input.sources).map(
+    target => ({
+      ...target,
       spoken: narration.speech,
-      sourceFormula: entry.formula,
-      dictatedRanges: [ranges[index].speech],
-    }));
-  } else
-    entries = getPlaybackFormulaSources(input.block, input.sources ?? []).map(formula => ({
-      formula,
-      spoken: narration.speech,
-      sourceFormula: formula,
-      dictatedRanges: [],
-    }));
+      dictatedRanges: target.readingRanges,
+      existingScene:
+        target.scene && hasUsableFormulaSpotlightReferences(target.scene, narration.speech)
+          ? target.scene
+          : undefined,
+    })
+  );
   for (const [index, entry] of entries.entries()) {
     input.signal.throwIfAborted();
+    // Keep source occurrence indices stable even when a neighbor already has an animated widget.
+    if (entry.existingScene) {
+      result.push({
+        formula: entry.formula,
+        sourceFormula: entry.sourceFormula,
+        scene: entry.existingScene,
+      });
+      continue;
+    }
     const saved = input.block.prepared?.formulaSpotlights?.[index];
-    if (saved?.formula === entry.formula && saved.sourceFormula === entry.sourceFormula) {
+    if (
+      saved?.formula === entry.formula &&
+      saved.sourceFormula === entry.sourceFormula &&
+      isPreparedPlaybackFormula(saved.scene, narration.speech, entry.dictatedRanges)
+    ) {
       result.push(saved);
       continue;
     }
@@ -119,8 +110,7 @@ export async function preparePlaybackFormulaSpotlights(input: {
           outcome.kind === 'scene' &&
           outcome.scene.type === 'formula-spotlight' &&
           formulaSpotlightCovers(outcome.scene as FormulaSpotlightData, [entry.formula]) &&
-          ((!entry.dictatedRanges.length && entry.sourceFormula) ||
-            hasFormulaSpotlightReferences(outcome.scene as FormulaSpotlightData))
+          isPreparedPlaybackFormula(outcome.scene, narration.speech, entry.dictatedRanges)
         ) {
           return { scene: outcome.scene };
         }

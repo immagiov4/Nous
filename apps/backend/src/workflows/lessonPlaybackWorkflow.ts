@@ -34,6 +34,15 @@ const LessonPlaybackResultSchema = z.object({
 export type LessonPlaybackInput = z.infer<typeof LessonPlaybackInputSchema>;
 export type LessonPlaybackResult = z.infer<typeof LessonPlaybackResultSchema>;
 
+export interface LessonPlaybackCapabilities {
+  readonly allowedSceneTypes?: readonly LessonSceneType[];
+  readonly supportsSpokenMath?: boolean;
+  readonly supportsFencedCode?: boolean;
+  readonly supportsUnlinkedFormulaSymbols?: boolean;
+  readonly synchronizeAnimations?: boolean;
+  readonly supportsFormulaSpotlights?: boolean;
+}
+
 export interface LessonPlaybackServices {
   queueRecordingAlignment?: (result: LessonPlaybackResult) => Promise<void>;
   preparePlayback: (
@@ -42,12 +51,7 @@ export interface LessonPlaybackServices {
       WorkflowExecutionDefaults,
       LessonPlaybackServices
     >,
-    allowedSceneTypes?: readonly LessonSceneType[],
-    supportsSpokenMath?: boolean,
-    supportsFencedCode?: boolean,
-    supportsUnlinkedFormulaSymbols?: boolean,
-    synchronizeAnimations?: boolean,
-    supportsFormulaSpotlights?: boolean
+    capabilities?: LessonPlaybackCapabilities
   ) => Promise<LessonPlaybackResult>;
   persistPlayback: (
     context: StepCommitContext<
@@ -84,15 +88,14 @@ export const createLessonPlaybackWorkflow = (
     inputSchema: LessonPlaybackInputSchema,
     outputSchema: resultSchema,
     run: context =>
-      context.services.preparePlayback(
-        context,
-        sceneTypes,
+      context.services.preparePlayback(context, {
+        allowedSceneTypes: sceneTypes,
         supportsSpokenMath,
         supportsFencedCode,
         supportsUnlinkedFormulaSymbols,
         synchronizeAnimations,
-        'formulaSpotlights' in blockSchema.shape.prepared.unwrap().shape
-      ),
+        supportsFormulaSpotlights: 'formulaSpotlights' in blockSchema.shape.prepared.unwrap().shape,
+      }),
   });
   const persist = step<
     typeof resultSchema,

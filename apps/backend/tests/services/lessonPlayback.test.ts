@@ -51,7 +51,9 @@ describe('lesson playback segmentation', () => {
       markdownBlock('An exchange.\n\n```mermaid\nsequenceDiagram\nClient->>Server: Request\n```'),
     ])[0];
     expect(LessonPlaybackBlockSchema.parse(block)).toEqual(block);
-    expect(createLessonPlaybackBlockSchema(undefined, true).safeParse(block).success).toBe(false);
+    expect(
+      createLessonPlaybackBlockSchema(undefined, { spokenMath: true }).safeParse(block).success
+    ).toBe(false);
   });
   test.each([
     'Diagram',

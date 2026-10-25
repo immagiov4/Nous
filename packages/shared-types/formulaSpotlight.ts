@@ -32,7 +32,7 @@ export const FormulaSpotlightDataSchema = z.object({
 });
 export type FormulaSpotlightData = Readonly<z.infer<typeof FormulaSpotlightDataSchema>>;
 
-const hasExplicitFormulaReferencePositions = (scene: FormulaSpotlightData): boolean =>
+export const hasExplicitFormulaReferencePositions = (scene: FormulaSpotlightData): boolean =>
   scene.symbols.some(
     symbol => symbol.anchorOccurrence !== undefined || symbol.additionalAnchors !== undefined
   );
@@ -40,6 +40,36 @@ const hasExplicitFormulaReferencePositions = (scene: FormulaSpotlightData): bool
 /** A saved formula is animated whenever any part has an explicit narration link. */
 export const hasFormulaSpotlightReferences = (scene: FormulaSpotlightData): boolean =>
   scene.symbols.some(symbol => Boolean(symbol.anchor || symbol.additionalAnchors?.length));
+
+/** A legacy scene with unusable narration anchors still needs visual preparation. */
+export function hasUsableFormulaSpotlightReferences(
+  scene: FormulaSpotlightData,
+  speech: string
+): boolean {
+  if (!hasFormulaSpotlightReferences(scene)) return false;
+  try {
+    resolveFormulaReferences(scene, speech);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Every authored complete reading must contain a model-selected reference. */
+export function formulaReferencesCoverReadings(
+  scene: FormulaSpotlightData,
+  speech: string,
+  readings: readonly { readonly start: number; readonly end: number }[]
+): boolean {
+  try {
+    const references = resolveFormulaReferences(scene, speech);
+    return readings.every(reading =>
+      references.some(reference => reference.start >= reading.start && reference.end <= reading.end)
+    );
+  } catch {
+    return false;
+  }
+}
 
 /** Explicit symbol references keep binding independent of glyph/substring guessing. */
 function compileFormula(
@@ -286,24 +316,36 @@ function resolveFormulaOccurrence(
 }
 
 /** Exact canonical-speech links; an unmentioned element stays visible without emphasis. */
-export function resolveFormulaReferences(scene: FormulaSpotlightData, speech: string) {
+export function resolveFormulaReferences(
+  scene: FormulaSpotlightData,
+  speech: string,
+  range?: { readonly start: number; readonly end: number }
+) {
+  // Explicit ordinals count in canonical narration; older compact scenes used local anchors.
+  const local = range && !hasExplicitFormulaReferencePositions(scene) ? range : undefined;
+  const narration = local ? speech.slice(local.start, local.end) : speech;
   const linked = scene.symbols.flatMap((symbol, index) =>
     symbol.anchor ? [{ ...symbol, index }] : []
   );
   const explicitReferences = hasExplicitFormulaReferencePositions(scene);
-  if (linked.length && !explicitReferences) cueTimes(speech, linked);
+  if (linked.length && !explicitReferences) cueTimes(narration, linked);
   const locate = (symbol: { anchor: string; anchorOccurrence?: number; index: number }) => ({
     index: symbol.index,
     anchor: symbol.anchor,
-    ...resolveFormulaOccurrence(speech, symbol),
+    ...resolveFormulaOccurrence(narration, symbol),
   });
   const first = linked.map(locate);
   const additional = scene.symbols.flatMap((symbol, index) =>
     (symbol.additionalAnchors ?? []).map(anchor => locate({ ...anchor, index }))
   );
-  return [...first, ...additional].sort(
-    (left, right) => left.start - right.start || left.index - right.index
-  );
+  return [...first, ...additional]
+    .map(reference => ({
+      ...reference,
+      start: reference.start + (local?.start ?? 0),
+      end: reference.end + (local?.start ?? 0),
+    }))
+    .filter(reference => !range || (reference.start >= range.start && reference.end <= range.end))
+    .sort((left, right) => left.start - right.start || left.index - right.index);
 }
 
 /** Compare mathematical structure, including scripts, rather than visible glyph strings. */
