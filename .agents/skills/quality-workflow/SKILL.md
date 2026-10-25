@@ -5,7 +5,7 @@ description: Apply the Nous implementation quality procedure from level selectio
 
 # Follow the quality workflow
 
-Read [AGENTS.md](../../../AGENTS.md) first. It owns repository discovery, architecture references, permissions, validation commands, CI, and merge gates. Apply this procedure within those rules.
+Read [AGENTS.md](../../../AGENTS.md) first. Read [docs/TESTING.md](../../../docs/TESTING.md) for local checks, CI and merge readiness. Apply this procedure within those rules.
 
 ## Start: state the level and plan the PRs
 
@@ -13,7 +13,7 @@ State the chosen level and its reason before starting work. Use the maintainer's
 
 | Level | Required work |
 | --- | --- |
-| Local fix | Behaviour tests (a), meaningful performance measurements (b), and `bun run quality`. Apply UI stages (e–f) when the fix affects UI. |
+| Local fix | Behaviour tests (a), meaningful performance measurements (b), and focused changed-file checks. Apply UI stages (e–f) when the fix affects UI. |
 | Medium feature | Local-fix checks plus real-flow integration (c), X-ray (d), and agentic playtest (e). Apply visual hand-off (f) for UI-affecting work. |
 | Large or visual feature | Medium-feature checks; for UI-affecting work, also the functioning mockup and stages e–f. |
 
@@ -43,7 +43,7 @@ When the same violation appears in sibling paths within this work, fix every occ
 - For every new test, deliberately break the code under test once, run the test, and record the failure. Restore the code and record the passing run. A requirement restatement, copy/string check, or assertion of implementation details does not qualify.
 - Record the test, deliberate defect, command, observed failure, and restored result so its ability to detect a regression is checkable.
 - When the change has no meaningful deterministic boundary (for example behaviour that exists only in nondeterministic model output), follow AGENTS.md: write no tautological test and document the manual or evaluation-based verification instead.
-- Run `bun run quality` during iteration alongside the selected behaviour tests; use the focused-check rules in AGENTS.md.
+- Run `bun run check:changed` alongside selected behaviour tests; add `bun run lint:types` when types or interfaces change.
 
 ### b. Performance within behaviour and integration tests
 
@@ -95,12 +95,14 @@ Use problem-to-github-issue for every issue operation, including its live-label 
 - Apply the maintainer's routing above for small pre-existing bugs. These routing decisions replace receiving-pr-reviews' default of sending all separable findings only to an issue; retain its evidence checks and architecture stops.
 - Close the supported problem class and verify the complete fix batch before an authorized push. Each push re-triggers automated review; push only complete batches. Follow AGENTS.md for publication authorization and review completion.
 
-## Final candidate: Sonar once
+## Final candidate: CI and SonarCloud
 
-Use the fast ESLint sonarjs check in `bun run quality` during iteration to catch the same rules early. Verify that the command actually includes that check; report missing wiring as `needs-maintainer` rather than claiming coverage.
+Follow [docs/TESTING.md](../../../docs/TESTING.md): CI owns full quality, tests, coverage and SonarCloud on the exact PR head. Wait for all applicable checks and resolve new Sonar findings before merging. Each new commit needs its own passing checks.
 
-Run Sonar once at the end on the final candidate through `bun run gate:full`, following AGENTS.md for CI ordering, scan applicability, and candidate invalidation. Keep Sonar out of the incremental fix loop.
+Use `bun run gate:full` only to diagnose Windows-specific failures; stop the local service afterward with `bun run sonar:stop`.
+
+Write PR bodies using the contract enforced by `scripts/github-body.mjs`: **Problem:**, **Approach:**, **Result:** and `## Testing`, with CI and SonarCloud status together on one Testing line. Validate before publication and verify the remote body afterward.
 
 ## Completion evidence
 
-Report the selected level, mockup approval and temporary-page removal where required, behaviour-test failure proofs, per-run performance records, provider integration results, X-ray dispositions, playtest evidence, performance profile, visual-QA status, issue/PR relations, and final-gate result. Account for each item as passed, pending, or outside the selected scope. List every unsettled policy or quantitative decision as `needs-maintainer`.
+Report the selected level, mockup approval and temporary-page removal where required, behaviour-test failure proofs, per-run performance records, provider integration results, X-ray dispositions, playtest evidence, performance profile, visual-QA status, issue/PR relations, and exact-head CI/SonarCloud status. Account for each item as passed, pending, or outside the selected scope. List every unsettled policy or quantitative decision as `needs-maintainer`.

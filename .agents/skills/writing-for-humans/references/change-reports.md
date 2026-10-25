@@ -28,7 +28,7 @@ Anything a curious reviewer might want: edge cases, rejected alternatives, file 
 
 - **Result** is the core. Performance work shows before/after numbers. A refactor shows a before/after diagram (Mermaid) of the affected structure. A UI change links before/after screenshots. A bug fix states the reproduction that failed before and passes now.
 - **Testing** names suites, not commands and logs. Standard suites get one line together; only a check invented for this change gets its own line.
-- Keep sections a repository requires (for example a merge-decision section), at one or two lines each.
+- Follow the repository validator for required sections and status placement; keep each required section concise.
 - Leave out what the diff, the config or the commit history already shows: file-by-file changes, commands run, attempts, session narrative, tool and variable names the reviewer will not act on.
 
 ## Issues
