@@ -103,11 +103,17 @@ function playbackVisualScene(
   return stored ? getStoredLessonVisualScene(stored) : null;
 }
 
-function formulaReferenceRange(scene: LessonScene, speech: string): PlaybackRange | undefined {
+function formulaReferenceRange(
+  scene: LessonScene,
+  speech: string,
+  reading?: PlaybackRange
+): PlaybackRange | undefined {
   const references = resolveFormulaReferences(scene as FormulaSpotlightData, speech);
-  return references.length
-    ? { start: references[0].start, end: references[references.length - 1].end }
-    : undefined;
+  if (!references.length) return undefined;
+  const range = { start: references[0].start, end: references[references.length - 1].end };
+  return reading
+    ? { start: Math.min(range.start, reading.start), end: Math.max(range.end, reading.end) }
+    : range;
 }
 
 const passageParser = unified().use(remarkParse);
@@ -824,9 +830,13 @@ function PlaybackPassage({
       });
       return [
         ...original,
-        ...spotlights.flatMap(entry => {
+        ...spotlights.flatMap((entry, index) => {
           if (!entry.sourceFormula || matched.has(entry.sourceFormula)) return [];
-          const voiceRange = formulaReferenceRange(entry.scene, block.speech);
+          const reading =
+            block.prepared?.spokenMath?.[index]?.formula === entry.formula
+              ? block.spans.filter(span => span.math)[index]
+              : undefined;
+          const voiceRange = formulaReferenceRange(entry.scene, block.speech, reading?.speech);
           return voiceRange
             ? [{ kind: 'scene' as const, scene: entry.scene, voiceRange, referenceFormula: true }]
             : [];

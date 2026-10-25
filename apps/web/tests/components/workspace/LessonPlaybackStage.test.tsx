@@ -2085,9 +2085,11 @@ test.each([
 });
 
 test.each([
-  true,
-  false,
-])('keeps normal captions for a dictated heading formula without body geometry (aligned: %s)', aligned => {
+  [true, false],
+  [true, true],
+  [false, false],
+  [false, true],
+])('keeps normal captions for a dictated heading formula without body geometry (aligned: %s, full speech: %s)', (aligned, fullSpeech) => {
   const frames = new Map<number, FrameRequestCallback>();
   let frameId = 0;
   vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
@@ -2101,7 +2103,13 @@ test.each([
     prepared: {
       motion: [],
       spokenMath: [{ formula: '$x+y$', spoken: 'ics più ipsilon' }],
-      formulaSpotlights: [{ formula: '$x+y$', scene: dictatedFormulaSpotlight }],
+      formulaSpotlights: [
+        {
+          formula: '$x+y$',
+          scene: dictatedFormulaSpotlight,
+          ...(fullSpeech ? { sourceFormula: '$x+y$' } : {}),
+        },
+      ],
     },
   };
   const { container } = render(
@@ -2528,4 +2536,81 @@ test('ignores cached links for different mathematics while the current source is
   );
   expect(container.querySelector('.spotlight-formula .katex-html')?.textContent).toBe('u−v');
   expect(container.querySelector('.spotlight-symbols [data-active="true"]')).toBeNull();
+});
+
+test.each([
+  true,
+  false,
+])('keeps the widget through the complete dictated range, including unlinked prefix and tail (aligned: %s)', aligned => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const style = document.createElement('p').style;
+  style.setProperty('--caption-feather', '0px');
+  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
+  const sources = [{ type: 'markdown' as const, markdown: 'Prima $x+y$ Dopo' }];
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: {
+      motion: [],
+      spokenMath: [{ formula: '$x+y$', spoken: 'inizio ics più ipsilon fineformula' }],
+      formulaSpotlights: [
+        { formula: '$x+y$', sourceFormula: '$x+y$', scene: dictatedFormulaSpotlight },
+      ],
+      scene: {
+        type: 'definition' as const,
+        title: 'Spiegazione',
+        body: 'Il contesto.',
+        quote: '',
+        note: '',
+        items: [],
+        groups: [],
+      },
+    },
+  };
+  let heardTime = 0.5;
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      duration={7}
+      time={0}
+      readTime={() => heardTime}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      alignment={aligned ? { status: 'aligned', onsets: [0, 1, 2, 3, 4, 5, 6] } : undefined}
+    />
+  );
+  for (const [time, widget, symbol] of [
+    [0.5, false, null],
+    [1.2, true, null],
+    [2.2, true, 'x'],
+    [4.2, true, 'y'],
+    [5.2, true, null],
+    [6.5, false, null],
+  ] as const) {
+    heardTime = time;
+    for (let step = 0; step < 2; step++)
+      act(() => {
+        const pending = [...frames.values()];
+        frames.clear();
+        for (const callback of pending) callback(0);
+      });
+    expect(!!container.querySelector('.formula-spotlight')).toBe(widget);
+    expect(
+      container
+        .querySelector('.spotlight-symbols [data-active="true"]')
+        ?.getAttribute('data-formula-symbol') ?? null
+    ).toBe(symbol);
+    expect(container.querySelector('.caption-page')?.textContent?.trim()).toBe(
+      'Prima inizio ics più ipsilon fineformula Dopo'
+    );
+    expect(container.querySelector('.captions')).not.toHaveAttribute('aria-hidden', 'true');
+    expect(container.querySelector('.scene-host')?.firstElementChild).not.toBeNull();
+  }
 });
