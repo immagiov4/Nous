@@ -13,6 +13,8 @@ import {
   useRef,
 } from 'react';
 import ReactMarkdown from 'react-markdown';
+// The root declaration owns the ambient types for the package's ESM subpaths.
+import type {} from 'react-syntax-highlighter';
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
 import c from 'react-syntax-highlighter/dist/esm/languages/prism/c';
 import cpp from 'react-syntax-highlighter/dist/esm/languages/prism/cpp';

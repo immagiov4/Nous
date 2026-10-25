@@ -137,7 +137,7 @@ export default [{
 });
 
 describe('Sonar ESLint test classification', () => {
-  test('classifies atlas capture fixtures as tests and retains application checks', async () => {
+  test('classifies test configuration and atlas fixtures while retaining application checks', async () => {
     const eslint = new ESLint({ overrideConfigFile: 'config/eslint.sonar.config.mjs' });
     const application = await eslint.calculateConfigForFile(
       'apps/web/services/projects/projectArchive.ts'
@@ -145,6 +145,7 @@ describe('Sonar ESLint test classification', () => {
     const rules = Object.keys(application.rules).filter(rule => application.rules[rule][0] === 2);
     expect(rules.length).toBeGreaterThan(0);
     for (const file of [
+      'apps/web/vitest.config.ts',
       'apps/backend/tests/helpers/formulaSpotlight.ts',
       'e2e/nous/atlas/browser.tsx',
       'e2e/nous/atlas/input.ts',
@@ -154,8 +155,11 @@ describe('Sonar ESLint test classification', () => {
       const config = await eslint.calculateConfigForFile(file);
       for (const rule of rules) expect(config.rules[rule][0], `${file}: ${rule}`).toBe(0);
     }
-    const preparation = await eslint.calculateConfigForFile('e2e/nous/prepare.ts');
-    for (const rule of rules) expect(preparation.rules[rule][0], rule).toBe(2);
+    for (const file of ['e2e/nous/prepare.ts', 'apps/web/vite.config.ts']) {
+      const applicationConfig = await eslint.calculateConfigForFile(file);
+      for (const rule of rules)
+        expect(applicationConfig.rules[rule][0], `${file}: ${rule}`).toBe(2);
+    }
   });
 
   test('reads test directories and inclusion patterns from the Sonar properties', async () => {
@@ -178,7 +182,7 @@ describe('Sonar ESLint test classification', () => {
       await writeFile(
         path.join(directory, 'config/sonar-project.properties'),
         '# Synthetic classification, deliberately different from the repository\r\n' +
-          'sonar.tests = custom/unit, custom/integration/\r\n' +
+          'sonar.tests = custom/unit, custom/integration/, custom/config.verify.ts\r\n' +
           'sonar.test.inclusions = **/*.verify.ts, **/*.spec.tsx, custom/unit/**/*.target.ts\r\n'
       );
       const eslint = new ESLint({
@@ -189,6 +193,7 @@ describe('Sonar ESLint test classification', () => {
       const mainRules = Object.keys(helper.rules);
       expect(mainRules.length).toBeGreaterThan(0);
       for (const file of [
+        'custom/config.verify.ts',
         'custom/unit/example.verify.ts',
         'custom/unit/example.target.ts',
         'custom/unit/nested/example.spec.tsx',
@@ -199,6 +204,7 @@ describe('Sonar ESLint test classification', () => {
         for (const rule of mainRules) expect(config.rules[rule][0], `${file}: ${rule}`).toBe(0);
       }
       for (const file of [
+        'custom/config.ts',
         'custom/unit/helper.ts',
         'custom/unit/example.test.ts',
         'outside/example.verify.ts',

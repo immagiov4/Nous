@@ -3261,7 +3261,7 @@ export class PostgresProjectStore implements ProjectStore {
       ...new Set(
         parentFolderIds.map(parentFolderId => buildSiblingOrderLockKey(userId, parentFolderId))
       ),
-    ].sort();
+    ].sort((left, right) => left.localeCompare(right));
     await measureRequestPhase(
       'query',
       () => sql`
