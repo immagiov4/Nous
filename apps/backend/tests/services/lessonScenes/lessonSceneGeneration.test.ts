@@ -97,7 +97,11 @@ test.each([
   'note',
 ] as const)('rejects %s prose in captioned generation while preserving standalone scenes', async field => {
   const source = 'Il client invia una richiesta. Il server restituisce una risposta.';
-  const draft = { ...sceneDraft(source), [field]: source };
+  const draft = {
+    ...sceneDraft(source),
+    items: sceneDraft(source).items.map(item => ({ ...item, detail: '' })),
+    [field]: source,
+  };
   generateStructuredOutputMock.mockResolvedValueOnce(draft);
   expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'scene' });
   const captioned = { ...unplannedInput(source), narration: source };
