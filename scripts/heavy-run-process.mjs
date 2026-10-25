@@ -113,11 +113,19 @@ export function processTreeRunning(group) {
     });
 }
 
-export async function waitProcessGroup(group) {
-  if (!processTreeRunning(group)) return;
-  for await (const pid of ticks(EXIT_POLL_MS, group)) {
-    if (!processTreeRunning(pid)) break;
+/** Return false after interruption has stopped the retained group. */
+export async function waitProcessGroup(group, signal) {
+  if (!processTreeRunning(group)) return true;
+  try {
+    for await (const pid of ticks(EXIT_POLL_MS, group, { signal })) {
+      if (!processTreeRunning(pid)) break;
+    }
+  } catch (error) {
+    if (error.name !== 'AbortError' || !signal?.aborted) throw error;
+    await stopChild({ pid: group, exitCode: null, signalCode: null }, group);
+    return false;
   }
+  return true;
 }
 
 async function stopWindowsChild(child) {

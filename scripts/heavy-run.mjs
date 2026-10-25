@@ -365,6 +365,8 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
   let identityCapture = Promise.resolve();
   let identityError;
   let groupPid;
+  let commandCode;
+  let interrupted = false;
   const windowsJob =
     process.platform === 'win32' ? String.raw`Local\Nous-heavy-run-${randomUUID()}` : null;
   const heartbeat = setInterval(() => {
@@ -384,7 +386,7 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
     const worker = windowsJob
       ? ['bun', WINDOWS_JOB_SCRIPT, 'worker', windowsJob, String(IDLE_MS), '--', ...command]
       : [process.execPath, SCRIPT_PATH, '--worker', '--', ...command];
-    const code = await runCommand(
+    commandCode = await runCommand(
       worker,
       {
         ...process.env,
@@ -412,11 +414,10 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
     );
     await identityCapture;
     if (identityError) throw identityError;
-    return code;
   } finally {
     try {
       if (windowsJob) await waitWindowsJob(windowsJob);
-      else if (groupPid) await waitProcessGroup(groupPid);
+      else if (groupPid) interrupted = !(await waitProcessGroup(groupPid, abort.signal));
     } finally {
       clearInterval(heartbeat);
     }
@@ -426,6 +427,7 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
     closeSync(ticket.fd);
     removeFile(ticket.path);
   }
+  return interrupted ? 130 : commandCode;
 }
 
 function showStatus(directory, staleMs, slots) {

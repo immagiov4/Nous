@@ -47,7 +47,7 @@ async function bounded(completion) {
 }
 
 /** Exercise normal completion and leaderless release against real POSIX groups. */
-export async function probePosixLease(release) {
+export async function probePosixLease(mode = 'finish') {
   const directory = mkdtempSync(join(tmpdir(), 'nous-posix-lease-'));
   const environment = {
     ...process.env,
@@ -140,13 +140,16 @@ while (!existsSync(process.argv[6])) await new Promise(resolve => setTimeout(res
       false,
       'A descendant must retain capacity after its root exits.'
     );
-    if (release) {
+    if (mode === 'release') {
       const cleanup = launch(['release', held.replace('running-', '')]);
       assert.equal(await bounded(cleanup.completion), 0, cleanup.output());
+    } else if (mode === 'SIGINT' || mode === 'SIGTERM') {
+      owner.child.kill(mode);
     } else {
       writeFileSync(finish, 'finish');
     }
-    assert.equal(await bounded(owner.completion), 0, owner.output());
+    const interrupted = mode === 'SIGINT' || mode === 'SIGTERM';
+    assert.equal(await bounded(owner.completion), interrupted ? 130 : 0, owner.output());
     assert.equal(await bounded(successor.completion), 0, successor.output());
     assert.equal(processRunning(descendantPid), false);
     assert.equal(readFileSync(next, 'utf8'), 'admitted');
@@ -161,4 +164,4 @@ while (!existsSync(process.argv[6])) await new Promise(resolve => setTimeout(res
 }
 
 if (import.meta.main)
-  console.log(JSON.stringify(await probePosixLease(process.argv[2] === 'release')));
+  console.log(JSON.stringify(await probePosixLease(process.argv[2] ?? 'finish')));
