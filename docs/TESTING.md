@@ -24,6 +24,24 @@ bun run lint:types  # When types or interfaces changed
 
 Changed-file checks run without the shared heavy-run lock. CI owns full quality, tests, coverage and SonarCloud. Browser suites and other heavy package scripts queue automatically across worktrees. Use `bun scripts/heavy-run.mjs status` to inspect the queue and wrap additional browser or Docker proofs with `bun scripts/heavy-run.mjs --label "who/what" -- <command...>`.
 
+### Heavy command leases
+
+`heavy-run` admits commands in FIFO order, with four slots by default and optional `--weight` and `HEAVY_RUN_SLOTS`. Every entry records its label, PID, command, queue time, command start and last activity. `bun scripts/heavy-run.mjs status` lists held and waiting entries; `bun scripts/heavy-run.mjs release <id>` cancels a waiting entry or stops a running command tree before freeing its slots. Pass credentials through the environment rather than command arguments.
+
+Windows commands use a named native Job Object through a Bun FFI helper, including Node callers. The root is created suspended and assigned before admission resumes it. The lease stays held while the Job reports active processes, including descendants whose root has exited. Killing its helper closes the Job and terminates its members; supervisor disconnect also terminates it. Release terminates the named Job and waits for zero active members. CI bypasses local admission.
+
+POSIX completion retains the lease until its process group is empty, including after root exit. Release verifies a living worker's OS creation identity; a retained group whose leader has exited is stopped by its recorded group ID. Both paths wait for every member to cease work. Terminated processes awaiting OS reaping do not hold capacity. Older running records without a verifiable creation identity retain capacity until their command exits. Identity capture follows IPC admission.
+
+Only command execution acquires a lease; manual reservations are unsupported. Prepare files and wait for external signals before invoking the wrapper. Nested wrappers reuse the inherited lease instead of waiting for another slot. An inherited holder that clears `HEAVY_RUN_HELD` receives an error while its lease is active.
+
+A holder without a living command expires after two seconds without activity; admission checks run every second. A registered worker awaiting its supervisor's admission also expires after two seconds. A dead holder or recorded command is reclaimed on the next check, after its native group ceases work. Surviving POSIX commands keep capacity after supervisor death. Running commands renew activity every 30 seconds and retain their lease throughout silent gates and browser work. Waiting tickets retain the existing ten-minute heartbeat expiry.
+
+The idle window covers command startup, not output gaps or total execution time. On Windows with Bun 1.4.0, one real caption-row suite registered its child in 52.9 ms and passed 24 Chromium and 24 Firefox cases (115.6 s and 218.5 s); two real `gate:ci` runs registered in 55–66 ms. These uncontended queue-to-registration measurements include record creation and worker spawn. The two-second window rounds the observed maximum up to the one-second admission interval and adds one admission interval. The passing gate retained its lease for 548 seconds with 18 activity renewals, including silent stages.
+
+With native Windows Job ownership, an uncontended real `gate:ci` registers in 175 ms, including FFI setup, Job creation and assignment of its suspended root. Rounding this observed startup to one admission interval still gives the same two-second idle window.
+
+Four concurrent real layout-browser proofs at the default four-slot capacity also pass. With Node 26.4.0 on Windows, publication-to-worker registration takes 35–39 ms across those four runs; FIFO waiting time is measured separately. These measurements calibrate the supported workload rather than promise a worst-case bound under arbitrary OS starvation. A supervisor that neither registers a command nor renews activity within the idle window loses its lease.
+
 ## CI and merge readiness
 
 The CI `test` job runs `bun run gate:ci`: full `quality:ci` checks, dependency boundaries, the Fallow regression check, and one complete Node test suite with coverage. It then runs SonarQube Cloud analysis and waits for its quality-gate result. CI checks out the pull-request head and reports Sonar analysis against that same commit.

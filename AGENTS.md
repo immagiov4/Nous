@@ -118,7 +118,7 @@ a feature is core or better left to external tools.
 
 ## Validation Commands
 
-Local browser suites, provider batches, full gates and coverage queue automatically across worktrees and run one at a time. Fast checks use `bun run check:changed` without the lock. Use `bun scripts/heavy-run.mjs status` to see the owner and queue; wrap additional browser or Docker proofs with `bun scripts/heavy-run.mjs --label "who/what" -- <command...>`.
+Local browser suites, provider batches, gates and coverage acquire shared FIFO leases automatically. Fast checks use `bun run check:changed` without a lease. Wrap additional heavy commands with `bun scripts/heavy-run.mjs --label "who/what" -- <command...>`. Prepare inputs and wait for external signals before entering the wrapper; run only the heavy command inside it. Nested commands inherit the existing lease. Manual reservations are unsupported. Use `status` to inspect lease IDs, owners, commands and activity; `release <id>` cancels that entry and stops its command before freeing capacity. See [Testing](docs/TESTING.md#heavy-command-leases) for expiry and capacity.
 
 After installing dependencies, run `bunx playwright install chromium` for browser tests under `bun run test` and Node coverage. `bun run prepare:coverage` also installs Chromium after the Node preflight.
 
