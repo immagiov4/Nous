@@ -133,14 +133,15 @@ const playbackFormulaSpotlightScenes = (
   storedVisuals: readonly ProjectLessonVisual[] = [],
   sources: readonly PlaybackContentBlock[] = []
 ): readonly (LessonScene & FormulaSpotlightData)[] => {
-  const sourceScenes = block.prepared?.sections?.length
-    ? block.prepared.sections.map(section => section.scene)
-    : block.visuals.flatMap(visual => {
-        if (visual.kind === 'scene') return [visual.scene];
-        if (visual.kind !== 'generated-visual') return [];
-        const stored = storedVisuals.find(stored => stored.id === visual.visualId)?.render;
-        return stored?.kind === 'scene' ? [stored.scene] : [];
-      });
+  const sourceScenes = [
+    ...(block.prepared?.sections?.map(section => section.scene) ?? []),
+    ...block.visuals.flatMap(visual => {
+      if (visual.kind === 'scene') return [visual.scene];
+      if (visual.kind !== 'generated-visual') return [];
+      const stored = storedVisuals.find(stored => stored.id === visual.visualId)?.render;
+      return stored?.kind === 'scene' ? [stored.scene] : [];
+    }),
+  ];
   const prepared = playbackPreparedFormulaIsUsable(block, sources)
     ? block.prepared?.scene
     : undefined;

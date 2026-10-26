@@ -1,8 +1,10 @@
 import {
   needsPlaybackFormulaSpotlights,
+  type PlaybackContentBlock,
   playbackFormulaTargets,
   segmentLessonPlayback,
 } from '@shared/lessonPlayback';
+import { playbackVisualSections } from '@shared/playbackVisualSections';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const { generate } = vi.hoisted(() => ({ generate: vi.fn() }));
@@ -12,6 +14,7 @@ vi.mock('../../../src/services/lessonScenes/lessonSceneGeneration.js', () => ({
 
 import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
 import { preparePlaybackFormulaSpotlights } from '../../../src/services/lessonPlayback/playbackFormulaSpotlights.js';
+import { toStepFailure } from '../../../src/workflows/retryPolicy.js';
 import { dictatedFormulaSpotlight } from '../../helpers/formulaSpotlight';
 
 const block = () => ({
@@ -519,4 +522,92 @@ test('retains cached audio, alignment and lesson text when visual validation is 
   );
   expect(source).toEqual(original);
   expect(generate).toHaveBeenCalledTimes(3);
+});
+
+test('makes exhausted formula validation permanent at the workflow boundary', async () => {
+  generate.mockResolvedValue({ kind: 'invalid', problems: ['Missing formula references.'] });
+  const failure = await preparePlaybackFormulaSpotlights(request()).catch(toStepFailure);
+  expect(failure).toMatchObject({
+    kind: 'permanent',
+    code: 'lesson_playback_formula_spotlight_invalid',
+  });
+  expect(generate).toHaveBeenCalledTimes(3);
+});
+
+test('keeps provider transport failures operational without starting corrective drafts', async () => {
+  generate.mockRejectedValue(new Error('Provider unavailable'));
+  const failure = await preparePlaybackFormulaSpotlights(request()).catch(toStepFailure);
+  expect(failure).toMatchObject({ kind: 'operational' });
+  expect(generate).toHaveBeenCalledOnce();
+});
+
+test.each([
+  { origin: 'authored', linked: false },
+  { origin: 'stored', linked: false },
+  { origin: 'authored', linked: true },
+  { origin: 'stored', linked: true },
+])('prepares an incomplete $origin formula beside prepared list sections (linked: $linked)', async ({
+  origin,
+  linked,
+}) => {
+  const input = request();
+  const scene = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({
+      ...symbol,
+      anchor: linked ? symbol.anchor : '',
+      anchorOccurrence: 0,
+    })),
+  };
+  const storedVisuals = [
+    {
+      id: 'formula-widget',
+      slotId: 'formula-slot',
+      createdAt: '2026-10-26T00:00:00.000Z',
+      render: { kind: 'scene' as const, scene },
+    },
+  ];
+  const sources: PlaybackContentBlock[] = [
+    { type: 'generated-visual', visualId: 'formula-widget' },
+    { type: 'markdown', markdown: '- Prima $x+y$\n- Poi $x+y$' },
+  ];
+  const raw = segmentLessonPlayback(sources)[0];
+  const sections = playbackVisualSections(raw, sources);
+  expect(sections.some(section => section.items?.length === 2)).toBe(true);
+  const source = {
+    ...raw,
+    visuals: raw.visuals.map(visual =>
+      origin === 'authored' && visual.kind === 'generated-visual'
+        ? { kind: 'scene' as const, scene }
+        : visual
+    ),
+    prepared: {
+      ...input.block.prepared,
+      sections: sections.map(section => ({
+        ...section,
+        scene: { ...dictatedFormulaSpotlight, type: 'parts' as const },
+      })),
+    },
+  };
+  const original = structuredClone(source);
+  expect(playbackFormulaTargets(source, storedVisuals)).toMatchObject([{ scene }]);
+  expect(needsPlaybackFormulaSpotlights(source, storedVisuals)).toBe(true);
+  generate.mockResolvedValue({ kind: 'scene', scene: repeatedScene });
+  const formulaSpotlights = await preparePlaybackFormulaSpotlights({
+    ...input,
+    block: source,
+    storedVisuals,
+  });
+  expect(generate).toHaveBeenCalledOnce();
+  expect(formulaSpotlights[0].scene).toEqual(repeatedScene);
+  expect(
+    needsPlaybackFormulaSpotlights(
+      {
+        ...source,
+        prepared: { ...source.prepared, formulaSpotlights },
+      },
+      storedVisuals
+    )
+  ).toBe(false);
+  expect(source).toEqual(original);
 });

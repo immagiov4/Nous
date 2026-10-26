@@ -15,6 +15,7 @@ import { type LessonScene, LessonSceneSchema } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
+import { failPermanently } from '../../workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../workflows/types.js';
 import {
   generateLessonScene,
@@ -117,8 +118,10 @@ export async function preparePlaybackFormulaSpotlights(input: {
         }
         retryFeedback = formulaRetryFeedback(outcome, entry.formula);
       }
-      throw new Error('Formula highlighting preparation failed validation.', {
-        cause: new Error(retryFeedback),
+      throw failPermanently({
+        code: 'lesson_playback_formula_spotlight_invalid',
+        message: 'Formula highlighting preparation failed validation.',
+        details: { feedback: retryFeedback ?? '' },
       });
     };
     const { scene } = input.providerEffect
