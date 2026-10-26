@@ -35,7 +35,7 @@
     "gate:load-summary": "node scripts/summarize-gate-load.mjs",
     "gate:full": "bun scripts/heavy-run.mjs --label gate:full -- bun run scripts/run-full-quality-gate.ts",
     "gate:checks": "bun run quality:ci && bun run check:fallow:ci",
-    "gate:ci": "bun run gate:checks && bun run test:coverage",
+    "gate:ci": "bun scripts/heavy-run.mjs --label gate:ci --shell \"bun run gate:checks && bun run test:coverage\" --",
     "prepare:coverage": "node scripts/prepare-node-coverage.mjs && bunx playwright install chromium",
     "check:biome": "biome check .",
     "check:depcruise": "bun run check:depcruise:web && bun run check:depcruise:backend",

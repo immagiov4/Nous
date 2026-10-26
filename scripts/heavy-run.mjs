@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import {
   closeSync,
   existsSync,
@@ -18,44 +19,68 @@ import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { setInterval as ticks } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import {
+  processIdentity,
+  processRunning,
+  processTreeRunning,
+  stopChild,
+  stopWindowsJob,
+  WINDOWS_JOB_SCRIPT,
+  waitProcessGroup,
+  waitWindowsJob,
+  windowsJobRunning,
+} from './heavy-run-process.mjs';
 
 const DEFAULT_SLOTS = 4;
 const HEARTBEAT_MS = 30_000;
 const DEFAULT_STALE_MS = 10 * 60_000;
 const POLL_MS = 1_000;
+// Unoccupied leases get one rounded-up startup interval plus one admission poll (see TESTING.md).
+const IDLE_MS = 2 * POLL_MS;
 const EXPIRED_TICKET = 'Queue ticket expired; run the command again.';
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 
-function pidAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    if (error.code === 'ESRCH') return false;
-    if (error.code === 'EPERM') return true;
-    throw error;
-  }
+function registeredCommandAlive(owner, releasing, verifyIdentity) {
+  if (owner?.windowsJob) return windowsJobRunning(owner.windowsJob);
+  if (!owner?.childPid) return false;
+  if (releasing) return processTreeRunning(owner.childPid);
+  if (!processRunning(owner.childPid)) return processTreeRunning(owner.childPid);
+  if (!owner.childIdentity || !verifyIdentity) return true;
+  return processIdentity(owner.childPid) === owner.childIdentity;
 }
 
-function readEntry(path, staleMs) {
+function readEntry(path, staleMs, held = false) {
   try {
     const stat = statSync(path);
     const content = readFileSync(path, 'utf8');
     // An O_EXCL creator may still be writing its record. Its file reserves its place.
     let owner = null;
     try {
-      const [record, childPid] = content.split('\n');
-      owner = record ? { ...JSON.parse(record), childPid: Number(childPid) || undefined } : null;
+      const [record, childPid, startedAt, childIdentity, windowsJob] = content.split('\n');
+      owner = record
+        ? {
+            ...JSON.parse(record),
+            childPid: Number(childPid) || undefined,
+            startedAt: Number(startedAt) || undefined,
+            childIdentity: childIdentity ? JSON.parse(childIdentity) : undefined,
+            windowsJob: windowsJob ? JSON.parse(windowsJob) : undefined,
+          }
+        : null;
     } catch (error) {
       if (!(error instanceof SyntaxError)) throw error;
     }
+    const expired = Date.now() - stat.mtimeMs > (held ? IDLE_MS : staleMs);
+    const ownerGone = owner && !processRunning(owner.pid);
+    const heartbeatExpired = Date.now() - stat.mtimeMs > staleMs;
+    const releasing = held && basename(path).startsWith('releasing-');
+    const childAlive = registeredCommandAlive(owner, releasing, ownerGone || heartbeatExpired);
     return {
       path,
       owner,
       created: stat.birthtimeMs,
-      stale:
-        !(owner?.childPid && pidAlive(owner.childPid)) &&
-        (Date.now() - stat.mtimeMs > staleMs || (owner && !pidAlive(owner.pid))),
+      lastActivity: stat.mtimeMs,
+      // A live command always retains capacity, including after its supervisor exits.
+      stale: childAlive ? false : Boolean(expired || ownerGone || owner?.childPid),
     };
   } catch (error) {
     if (error.code === 'ENOENT') return null;
@@ -80,7 +105,7 @@ function removeLock(lock, ownerFile) {
       // Retirement and activation contend for the same name; an expired owner cannot launch later.
       renameSync(join(lock, ownerFile), join(lock, retired));
     } catch (error) {
-      if (error.code === 'ENOENT') return;
+      if (error.code === 'ENOENT') return false;
       throw error;
     }
     removeFile(join(lock, retired));
@@ -91,6 +116,7 @@ function removeLock(lock, ownerFile) {
   } catch (error) {
     if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error.code)) throw error;
   }
+  return true;
 }
 
 function readLock(lock, staleMs) {
@@ -98,9 +124,9 @@ function readLock(lock, staleMs) {
     const owners = readdirSync(lock)
       .sort((left, right) => left.localeCompare(right))
       // A record may be renamed for activation after enumeration. Reserve capacity until the next poll.
-      .map(name => readEntry(join(lock, name), staleMs) ?? { owner: null, stale: false });
+      .map(name => readEntry(join(lock, name), staleMs, true) ?? { owner: null, stale: false });
     if (owners.length) return owners;
-    return [{ owner: null, stale: Date.now() - statSync(lock).mtimeMs > staleMs }];
+    return [{ owner: null, stale: Date.now() - statSync(lock).mtimeMs > IDLE_MS }];
   } catch (error) {
     if (error.code === 'ENOENT') return [];
     throw error;
@@ -113,10 +139,7 @@ function readQueue(queue, staleMs, prune) {
     .filter(entry => {
       if (!entry) return false;
       if (prune && entry.stale) {
-        removeFile(entry.path);
-        const prepared = join(dirname(queue), 'claims', basename(entry.path));
-        removeFile(join(prepared, basename(entry.path)));
-        removeLock(prepared);
+        removeTicket(queue, basename(entry.path));
         return false;
       }
       return true;
@@ -124,14 +147,24 @@ function readQueue(queue, staleMs, prune) {
     .sort((a, b) => a.created - b.created || basename(a.path).localeCompare(basename(b.path)));
 }
 
-function createTicket(queue, label, weight) {
+function removeTicket(queue, id) {
+  if (!id || basename(id) !== id || !id.endsWith('.json'))
+    throw new Error('release requires a lease id from status.');
+  const removed = removeFile(join(queue, id));
+  const prepared = join(dirname(queue), 'claims', id);
+  removeFile(join(prepared, id));
+  removeLock(prepared);
+  return removed;
+}
+
+function createTicket(queue, label, weight, command) {
   const timestamp = Date.now();
   for (let sequence = 0; ; sequence++) {
     const id = `${timestamp}-${String(sequence).padStart(10, '0')}.json`;
     const path = join(queue, id);
     try {
       const fd = openSync(path, 'wx');
-      const owner = { pid: process.pid, label, id, weight };
+      const owner = { pid: process.pid, label, id, weight, command, queuedAt: timestamp };
       writeFileSync(fd, JSON.stringify(owner));
       return { path, fd, owner };
     } catch (error) {
@@ -144,9 +177,13 @@ function describeOwner(owner) {
   return owner ? `${owner.label} (PID ${owner.pid})` : 'initializing';
 }
 
-function claimLock(prepared, lock, id) {
+function claimLock(prepared, lock, ticket) {
+  const id = ticket.owner.id;
   try {
     mkdirSync(lock, { recursive: true });
+    // Queue residence is not idle ownership: start the lease clock at publication.
+    const now = new Date();
+    futimesSync(ticket.fd, now, now);
     // Only the first unadmitted FIFO ticket publishes a reservation. One link reserves its full weight.
     linkSync(join(prepared, id), join(lock, id));
     return true;
@@ -156,36 +193,8 @@ function claimLock(prepared, lock, id) {
   }
 }
 
-async function stopChild(child) {
-  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
-  if (process.platform === 'win32') {
-    await new Promise((resolve, reject) => {
-      const killer = spawn(
-        join(process.env.SystemRoot, 'System32', 'taskkill.exe'),
-        ['/pid', String(child.pid), '/T', '/F'],
-        {
-          windowsHide: true,
-          stdio: 'ignore',
-        }
-      );
-      killer.once('error', reject);
-      killer.once('exit', resolve);
-    });
-  } else {
-    try {
-      // Interruption must stop every owned group member, including tools that ignore SIGTERM.
-      const groupPid = Number(process.env.HEAVY_RUN_GROUP_PID || child.pid);
-      if (!Number.isInteger(groupPid) || groupPid <= 0)
-        throw new Error('Invalid heavy-run process group.');
-      process.kill(-groupPid, 'SIGKILL');
-    } catch (error) {
-      if (error.code !== 'ESRCH') throw error;
-    }
-  }
-}
-
 export async function runCommand(command, environment, abort, onSpawn) {
-  const detached = process.platform !== 'win32' && !process.env.HEAVY_RUN_GROUP_PID;
+  const detached = process.platform !== 'win32' && !environment.HEAVY_RUN_GROUP_PID;
   // The POSIX launcher records its own group before exec, preserving one group across nested wrappers.
   const invocation =
     detached && !onSpawn
@@ -212,6 +221,11 @@ export async function runCommand(command, environment, abort, onSpawn) {
   abort.signal.addEventListener('abort', stopped, { once: true });
   try {
     if (child.pid && onSpawn) {
+      if (environment.HEAVY_RUN_WINDOWS_JOB) {
+        const ready = new Promise(resolve => child.once('message', resolve));
+        if ((await Promise.race([ready, completed])) !== 'ready')
+          throw new Error('Windows lease Job did not become ready.');
+      }
       onSpawn(child.pid);
       child.send('run');
     }
@@ -231,13 +245,18 @@ export async function workerCommand(args, channel = process) {
     throw new Error('Worker requires supervisor IPC.');
   const admitted = await new Promise(resolve => {
     const received = message => {
+      clearTimeout(deadline);
       channel.removeListener('disconnect', disconnected);
       resolve(message === 'run');
     };
     const disconnected = () => {
+      clearTimeout(deadline);
+      channel.removeListener('disconnect', disconnected);
       channel.removeListener('message', received);
       resolve(false);
     };
+    // A registered worker is not heavy work until admission arrives.
+    const deadline = setTimeout(disconnected, IDLE_MS);
     channel.once('message', received);
     channel.once('disconnect', disconnected);
   });
@@ -249,8 +268,10 @@ export async function workerCommand(args, channel = process) {
   return args.slice(2);
 }
 
-function activateLock(lock, ticket, childPid) {
-  writeFileSync(ticket.fd, `\n${childPid}`);
+function activateLock(lock, ticket, childPid, windowsJob) {
+  ticket.startedAt = Date.now();
+  writeFileSync(ticket.fd, `\n${childPid}\n${ticket.startedAt}`);
+  if (windowsJob) writeFileSync(ticket.fd, `\nnull\n${JSON.stringify(windowsJob)}`);
   const running = `running-${ticket.owner.id}`;
   try {
     renameSync(join(lock, ticket.owner.id), join(lock, running));
@@ -280,26 +301,38 @@ function parseInvocation(args) {
     return ['bun', 'exec', [args[3], ...tail].join(' ')];
   }
   if (args[2] === '--' && args[3]) return args.slice(3);
-  throw new Error('Usage: heavy-run.mjs --label "who/what" -- command [args...] | status');
+  throw new Error(
+    'Usage: heavy-run.mjs --label "who/what" -- command [args...] | status | release <id>'
+  );
+}
+
+function retireIdleOwners(owners, lock, queue) {
+  for (const entry of owners) {
+    if (!entry.stale || !removeLock(lock, entry.path && basename(entry.path))) continue;
+    if (entry.path) {
+      const id =
+        entry.owner?.id ?? basename(entry.path).replace(/^(?:running-|releasing-|retired-)+/u, '');
+      removeTicket(queue, id);
+    }
+  }
 }
 
 function tryClaim(context) {
   const { queue, lock, prepared, ticket, staleMs, label, slots, weight } = context;
   const owners = readLock(lock, staleMs);
+  // Legacy manual tickets may have no record id and otherwise remain first in the queue.
+  retireIdleOwners(owners, lock, queue);
   const admitted = new Set(owners.map(entry => entry.owner?.id).filter(Boolean));
   const waiting = readQueue(queue, staleMs, true).filter(entry => !admitted.has(entry.owner?.id));
   const position = waiting.findIndex(entry => entry.path === ticket.path);
   if (position < 0) throw new Error(EXPIRED_TICKET);
   if (position === 0) {
-    for (const owner of owners) {
-      if (owner.stale) removeLock(lock, owner.path && basename(owner.path));
-    }
     // Activation can win retirement by renaming its record; count that surviving reservation too.
     const used = readLock(lock, staleMs).reduce(
       (sum, entry) => sum + (entry.owner ? (entry.owner.weight ?? 1) : slots),
       0
     );
-    if (used + weight <= slots && claimLock(prepared, lock, ticket.owner.id)) {
+    if (used + weight <= slots && claimLock(prepared, lock, ticket)) {
       if (!existsSync(ticket.path)) throw new Error(EXPIRED_TICKET);
       return true;
     }
@@ -326,9 +359,16 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
   const queue = join(directory, 'queue');
   const lock = join(directory, 'lock');
   mkdirSync(queue, { recursive: true });
-  const ticket = createTicket(queue, label, weight);
+  const ticket = createTicket(queue, label, weight, command);
   const prepared = join(directory, 'claims', ticket.owner.id);
   let ownerFile = ticket.owner.id;
+  let identityCapture = Promise.resolve();
+  let identityError;
+  let groupPid;
+  let commandCode;
+  let interrupted = false;
+  const windowsJob =
+    process.platform === 'win32' ? String.raw`Local\Nous-heavy-run-${randomUUID()}` : null;
   const heartbeat = setInterval(() => {
     const now = new Date();
     futimesSync(ticket.fd, now, now);
@@ -343,19 +383,51 @@ async function queuedRun({ directory, staleMs, label, command, abort, slots, wei
     );
     if (!claimed) return 130;
     process.stdout.write(`heavy-run: running ${label}\n`);
-    const worker = [process.execPath, SCRIPT_PATH, '--worker', '--', ...command];
-    return await runCommand(worker, { ...process.env, HEAVY_RUN_HELD: '1' }, abort, pid => {
-      // The worker waits for IPC permission until activation has won against stale recovery.
-      ownerFile = activateLock(lock, ticket, pid);
-    });
+    const worker = windowsJob
+      ? ['bun', WINDOWS_JOB_SCRIPT, 'worker', windowsJob, String(IDLE_MS), '--', ...command]
+      : [process.execPath, SCRIPT_PATH, '--worker', '--', ...command];
+    commandCode = await runCommand(
+      worker,
+      {
+        ...process.env,
+        HEAVY_RUN_HELD: '1',
+        HEAVY_RUN_LEASE: ticket.owner.id,
+        HEAVY_RUN_GROUP_PID: '',
+        ...(windowsJob ? { HEAVY_RUN_WINDOWS_JOB: windowsJob } : {}),
+      },
+      abort,
+      pid => {
+        groupPid = pid;
+        // The worker waits for IPC permission until activation has won against stale recovery.
+        ownerFile = activateLock(lock, ticket, pid, windowsJob);
+        if (windowsJob) return;
+        // IPC admission is sent synchronously before this microtask inspects the OS.
+        identityCapture = Promise.resolve()
+          .then(() => {
+            writeFileSync(ticket.fd, `\n${JSON.stringify(processIdentity(pid, ticket.startedAt))}`);
+          })
+          .catch(error => {
+            identityError = error;
+            abort.abort('SIGTERM');
+          });
+      }
+    );
+    await identityCapture;
+    if (identityError) throw identityError;
   } finally {
-    clearInterval(heartbeat);
+    try {
+      if (windowsJob) await waitWindowsJob(windowsJob);
+      else if (groupPid) interrupted = !(await waitProcessGroup(groupPid, abort.signal));
+    } finally {
+      clearInterval(heartbeat);
+    }
     removeLock(lock, ownerFile);
     removeFile(join(prepared, ticket.owner.id));
     removeLock(prepared);
     closeSync(ticket.fd);
     removeFile(ticket.path);
   }
+  return interrupted ? 130 : commandCode;
 }
 
 function showStatus(directory, staleMs, slots) {
@@ -366,6 +438,7 @@ function showStatus(directory, staleMs, slots) {
     console.log(
       `Owner: ${describeOwner(entry.owner)}; weight ${entry.owner?.weight ?? 1}${entry.stale ? ' [stale]' : ''}`
     );
+    showDetails(entry);
   }
   const admitted = new Set(owners.map(entry => entry.owner?.id).filter(Boolean));
   const queue = join(directory, 'queue');
@@ -376,13 +449,70 @@ function showStatus(directory, staleMs, slots) {
     console.log(
       `${index + 1}. ${describeOwner(entry.owner)}${entry.stale ? ' [stale]' : ''}; weight ${entry.owner?.weight ?? 1}`
     );
+    showDetails(entry);
   }
 }
 
-export async function main(args = process.argv.slice(2)) {
-  const directory = process.env.HEAVY_RUN_DIR || join(homedir(), '.agent-questions', 'heavy-run');
-  const worker = args[0] === '--worker';
-  const bypass = worker || process.env.CI === 'true' || process.env.HEAVY_RUN_HELD === '1';
+function showDetails(entry) {
+  const timestamp = value => (value ? new Date(value).toISOString() : 'pending');
+  console.log(
+    `  id: ${entry.owner?.id ?? (entry.path && basename(entry.path)) ?? 'initializing'}; command: ${JSON.stringify(entry.owner?.command ?? [])}; queued: ${timestamp(entry.owner?.queuedAt ?? entry.created)}; start: ${timestamp(entry.owner?.startedAt)}; last activity: ${timestamp(entry.lastActivity)}`
+  );
+}
+
+async function stopRegisteredCommand(owner) {
+  if (owner?.windowsJob) return stopWindowsJob(owner.windowsJob);
+  if (!owner?.childPid) return;
+  if (!processRunning(owner.childPid)) {
+    if (processTreeRunning(owner.childPid)) {
+      if (!owner.childIdentity)
+        throw new Error('Lease process identity is unavailable; capacity is retained.');
+      await stopChild({ pid: owner.childPid, exitCode: null, signalCode: null }, owner.childPid);
+    }
+    return;
+  }
+  if (!owner.childIdentity)
+    throw new Error('Lease process identity is unavailable; capacity is retained.');
+  if (processIdentity(owner.childPid) === owner.childIdentity)
+    await stopChild({ pid: owner.childPid, exitCode: null, signalCode: null }, owner.childPid);
+}
+
+async function releaseLease(directory, id, staleMs) {
+  let removed = removeTicket(join(directory, 'queue'), id);
+  const lock = join(directory, 'lock');
+  // Activation renames once; retirement must win that same race before stopping the worker.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const entry = readLock(lock, staleMs).find(
+      entry => entry.path && [id, `running-${id}`, `releasing-${id}`].includes(basename(entry.path))
+    );
+    if (!entry) break;
+    const retired = `releasing-${id}`;
+    try {
+      renameSync(entry.path, join(lock, retired));
+    } catch (error) {
+      if (error.code === 'ENOENT') continue;
+      throw error;
+    }
+    const owner = readEntry(join(lock, retired), staleMs)?.owner;
+    await stopRegisteredCommand(owner);
+    removeLock(lock, retired);
+    removed = true;
+    break;
+  }
+  console.log(`heavy-run: ${removed ? 'released' : 'not found'} ${id}`);
+  return removed ? 0 : 1;
+}
+
+function inheritedLeaseActive(directory, staleMs) {
+  return (
+    process.env.HEAVY_RUN_LEASE &&
+    readLock(join(directory, 'lock'), staleMs).some(
+      entry => entry.owner?.id === process.env.HEAVY_RUN_LEASE && !entry.stale
+    )
+  );
+}
+
+function localSettings(bypass) {
   const staleMs = bypass
     ? DEFAULT_STALE_MS
     : Number(process.env.HEAVY_RUN_STALE_MS ?? DEFAULT_STALE_MS);
@@ -391,10 +521,23 @@ export async function main(args = process.argv.slice(2)) {
   const slots = bypass ? DEFAULT_SLOTS : Number(process.env.HEAVY_RUN_SLOTS ?? DEFAULT_SLOTS);
   if (!Number.isSafeInteger(slots) || slots < 1)
     throw new Error('HEAVY_RUN_SLOTS must be a positive integer.');
+  return { staleMs, slots };
+}
+
+export async function main(args = process.argv.slice(2)) {
+  const directory = process.env.HEAVY_RUN_DIR || join(homedir(), '.agent-questions', 'heavy-run');
+  const worker = args[0] === '--worker';
+  const bypass = worker || process.env.CI === 'true' || process.env.HEAVY_RUN_HELD === '1';
+  const { staleMs, slots } = localSettings(bypass);
   if (args[0] === 'status') {
     showStatus(directory, staleMs, slots);
     return 0;
   }
+  if (args[0] === 'release') return releaseLease(directory, args[1], staleMs);
+  if (!bypass && inheritedLeaseActive(directory, staleMs))
+    throw new Error(
+      'A nested command must reuse HEAVY_RUN_HELD; release its current lease before queuing another.'
+    );
   const { command, weight } = worker
     ? { command: await workerCommand(args), weight: 1 }
     : parseCommand(args);
