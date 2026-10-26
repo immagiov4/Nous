@@ -25,6 +25,7 @@ const sceneIdentity = (scene: LessonScene | null) =>
 /** Keeps the saved scene in the course's existing artifact collection. */
 export function SaveablePlaybackVisual({
   children,
+  hasVisual = true,
   scene,
   block,
   content,
@@ -33,6 +34,7 @@ export function SaveablePlaybackVisual({
   playback,
 }: Readonly<{
   children: ReactNode;
+  hasVisual?: boolean;
   scene: LessonScene | null;
   block: LessonPlaybackBlock;
   content: WorkspaceReaderContentModel;
@@ -65,6 +67,7 @@ export function SaveablePlaybackVisual({
     [content.activeSectionGeneratedVisualsById, sourceIdPrefix, sceneKey]
   );
   const enabled = !!(
+    hasVisual &&
     playback.lessonKey &&
     scene &&
     content.projectId &&
@@ -144,6 +147,7 @@ export function SaveablePlaybackVisual({
     <section
       ref={cardRef}
       className="scene-host"
+      aria-hidden={!hasVisual}
       aria-label={t('Visualizzazione della lezione')}
       tabIndex={enabled ? 0 : undefined}
       onMouseEnter={() => setHovered(true)}

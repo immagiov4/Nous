@@ -340,7 +340,7 @@ For manual-only projects, explain what must be verified and where. If validation
 - Keep scenarios declarative in one shared system rather than rebuilding a harness per PR. The shared verification scenarios are being built, starting with the playback atlas; use existing capabilities and report missing coverage explicitly.
 - Parallelize independent scenarios and aggregate results only within the shared machine's capacity; keep heavy runs serialized.
 - Fix obvious defects yourself. Escalate only odd or ambiguous visual results with links to the exact artifacts; obtain the maintainer's approval of visible changes from those artifacts.
-- Run Sonar-equivalent checks early and during development, including backend tests, and resolve findings as they appear so the final gate confirms the result. Follow the [quality workflow](.agents/skills/quality-workflow/SKILL.md) and [testing wiki](.cubic/wiki/09-section-tools/02-p-testing-quality.md) for existing checks, fixtures, evidence, and final-gate rules.
+- Run changed-file checks and targeted tests during development, including affected backend tests. Follow [docs/TESTING.md](docs/TESTING.md) for the local/CI split and merge readiness, and the [quality workflow](.agents/skills/quality-workflow/SKILL.md) for verification depth and evidence.
 
 ## Bug Fixing Methodology
 

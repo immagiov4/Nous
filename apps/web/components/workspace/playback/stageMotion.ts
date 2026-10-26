@@ -34,6 +34,7 @@ export interface CaptionRun {
 export interface TimedMotionEvent extends PlaybackMotionEvent {
   atMs: number;
   durationMs: number;
+  readonly sustainFocus?: boolean;
 }
 
 /** Authored cards keep the occurrence identity already recorded by narration projection. */
@@ -274,7 +275,9 @@ function motionUpdate(event: TimedMotionEvent, eventTime: number, reduced: boole
       opacity: reduced ? 1 : smooth((eventTime - event.atMs + event.durationMs) / event.durationMs),
     };
   }
-  const focusDuration = Math.min(event.durationMs, MOTION_TIMING.maxFocusMs);
+  const focusDuration = event.sustainFocus
+    ? event.durationMs
+    : Math.min(event.durationMs, MOTION_TIMING.maxFocusMs);
   if (!(event.effect === 'focus' && eventTime < event.atMs + focusDuration)) return {};
   const transition = motionRiseMs(event);
   return {

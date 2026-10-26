@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
-import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
+import {
+  type LessonPlaybackBlock,
+  resolvePlaybackNarration,
+  segmentLessonPlayback,
+} from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
 import type { PlaybackQuestionContext } from '@shared/playbackQuestionContext';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { playbackVisualSections } from '@shared/playbackVisualSections';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createRef, useLayoutEffect } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { guidedPathScene } from '../../../../backend/tests/helpers/animatedLessonScenes';
@@ -26,11 +31,15 @@ import {
   sceneElements,
 } from '../../../components/workspace/playback/stageMotion.ts';
 import type { WorkspaceReaderContentModel } from '../../../components/workspace/shell/types.ts';
+import { prepareLessonPlaybackVisual } from '../../../services/openrouter/lessonPlaybackVisualClient.ts';
 import { resolveProjectVisual } from '../../../services/projects/projectVisualResolver.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { controllerScene } from '../../helpers/playbackQuestion.ts';
 
 vi.mock('../../../utils/motion/useShouldAnimate.ts', () => ({ useShouldAnimate: vi.fn() }));
+vi.mock('../../../services/openrouter/lessonPlaybackVisualClient.ts', () => ({
+  prepareLessonPlaybackVisual: vi.fn(),
+}));
 vi.mock('../../../services/projects/projectVisualResolver.ts', () => ({
   resolveProjectVisual: vi.fn(),
 }));
@@ -121,6 +130,230 @@ test('reads all visible steps and the actual rendered emphasis from the stage sn
 });
 
 test.each([
+  'unresolvable',
+  'broken',
+  'inline',
+] as const)('prepares a replacement for a %s generated image', async state => {
+  vi.mocked(prepareLessonPlaybackVisual).mockReset();
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: 'Il client individua il controller. Il controller verifica le credenziali.',
+    },
+  ];
+  const raw = segmentLessonPlayback(sources)[0];
+  const scene: LessonScene = {
+    type: 'steps',
+    title: 'Accesso al dominio',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [
+      { label: 'Client', detail: 'Trovare il controller', icon: '' },
+      { label: 'Controller', detail: 'Verificare le credenziali', icon: '' },
+    ],
+  };
+  const legacyImage = {
+    id: 'generated-image',
+    kind: 'image' as const,
+    title: 'Schema salvato',
+    altText: 'Schema salvato',
+    code: 'data:image/png;base64,YQ==',
+    createdAt: '',
+  };
+  const stored =
+    state === 'unresolvable'
+      ? {
+          id: legacyImage.id,
+          title: legacyImage.title,
+          slotId: 'slot',
+          createdAt: '',
+          render: {
+            kind: 'image' as const,
+            asset: {
+              id: 'a'.repeat(64),
+              hash: 'b'.repeat(64),
+              byteSize: 3,
+              mediaType: 'image/png',
+            },
+          },
+        }
+      : legacyImage;
+  if (state === 'unresolvable')
+    vi.mocked(resolveProjectVisual).mockRejectedValueOnce(new Error('Asset unavailable'));
+  let complete!: (prepared: NonNullable<LessonPlaybackBlock['prepared']>) => void;
+  vi.mocked(prepareLessonPlaybackVisual).mockReturnValue(
+    new Promise(resolve => {
+      complete = resolve;
+    })
+  );
+  const block = {
+    ...raw,
+    prepared: { motion: [] },
+    visuals:
+      state === 'inline'
+        ? [{ kind: 'markdown' as const, markdown: '{{VISUAL_EXAMPLE:generated-image}}' }]
+        : [{ kind: 'generated-visual' as const, visualId: stored.id }],
+  };
+  const content = {
+    isDarkMode: false,
+    projectId: 'project',
+    activeSectionId: 'section',
+    sectionContentBlocks: sources,
+    activeSectionAssetsById: {},
+    activeSectionGeneratedVisualsById: { [stored.id]: stored },
+  } as WorkspaceReaderContentModel;
+  const { container } = render(
+    <LessonPlaybackStage block={block} content={content} duration={10} time={4} />
+  );
+  if (state !== 'unresolvable')
+    fireEvent.error(await screen.findByRole('img', { name: 'Schema salvato' }));
+  await waitFor(() => expect(prepareLessonPlaybackVisual).toHaveBeenCalledTimes(1));
+  expect(container.querySelector('.scene-host')?.textContent).toBe('');
+  expect(container.querySelector('.scene-host')?.getAttribute('aria-hidden')).toBe('true');
+  await act(async () => complete({ scene, motion: [] }));
+  expect(container.querySelector('.scene-host h2')?.textContent).toBe('Accesso al dominio');
+  expect(container.querySelector('.scene-host')?.textContent).toContain(
+    'Verificare le credenziali'
+  );
+  expect(container.querySelector('blockquote, .type-quote')).toBeNull();
+});
+
+test('retains an available generated image without requesting visual preparation', () => {
+  vi.mocked(prepareLessonPlaybackVisual).mockClear();
+  const sources = [{ type: 'markdown' as const, markdown: 'Un client e un controller.' }];
+  const image = {
+    id: 'available-image',
+    kind: 'image' as const,
+    code: 'data:image/png;base64,YQ==',
+    title: 'Schema disponibile',
+    createdAt: '',
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    visuals: [{ kind: 'generated-visual' as const, visualId: image.id }],
+  };
+  render(
+    <LessonPlaybackStage
+      block={block}
+      content={
+        {
+          projectId: 'project',
+          activeSectionId: 'section',
+          isDarkMode: false,
+          sectionContentBlocks: sources,
+          activeSectionGeneratedVisualsById: { [image.id]: image },
+        } as WorkspaceReaderContentModel
+      }
+      duration={10}
+      time={4}
+    />
+  );
+  expect(screen.getByRole('img', { name: 'Schema disponibile' }).getAttribute('src')).toBe(
+    image.code
+  );
+  expect(prepareLessonPlaybackVisual).not.toHaveBeenCalled();
+});
+
+test.each([
+  'missing',
+  'quote',
+  'missing-image',
+  'broken-image',
+] as const)('prepares a real visual for %s and keeps the pending panel empty', async kind => {
+  vi.mocked(prepareLessonPlaybackVisual).mockReset();
+  const speech = 'Il client trova il controller tramite DNS e invia le credenziali al controller.';
+  const scene: LessonScene = {
+    type: 'steps',
+    title: 'Accesso al dominio',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [
+      { label: 'Ricerca DNS', detail: 'Individuare il controller', icon: '' },
+      { label: 'Autenticazione', detail: 'Inviare le credenziali', icon: '' },
+    ],
+  };
+  const legacy = {
+    ...scene,
+    type: 'quote' as const,
+    quote: speech,
+    items: [],
+  };
+  let complete!: (prepared: NonNullable<LessonPlaybackBlock['prepared']>) => void;
+  vi.mocked(prepareLessonPlaybackVisual).mockReturnValue(
+    new Promise(resolve => {
+      complete = resolve;
+    })
+  );
+  const block = {
+    ...segmentLessonPlayback([{ type: 'markdown', markdown: speech }])[0],
+    visuals: kind.endsWith('image')
+      ? [{ kind: 'markdown' as const, markdown: '{{PDF_IMAGE:figure-1|alt=Dominio}}' }]
+      : kind === 'missing'
+        ? []
+        : [{ kind: 'scene' as const, scene: legacy }],
+    prepared: {
+      ...(kind === 'quote' ? { scene: legacy } : {}),
+      motion: [],
+    },
+  };
+  const content = {
+    projectId: 'project',
+    activeSectionId: 'section',
+    sectionContentBlocks: [{ type: 'markdown', markdown: speech }],
+    isDarkMode: false,
+    activeSectionAssetsById:
+      kind === 'broken-image'
+        ? {
+            'figure-1': {
+              id: 'figure-1',
+              dataUrl: 'data:image/png;base64,broken',
+              sourceOrder: 0,
+              textBefore: '',
+              textAfter: '',
+            },
+          }
+        : {},
+  } as WorkspaceReaderContentModel;
+  const questionContextRef = createRef<(() => PlaybackQuestionContext) | null>();
+  const { container } = render(
+    <LessonPlaybackStage
+      lessonKey="lesson-key"
+      questionContextRef={questionContextRef}
+      block={block}
+      content={content}
+      duration={10}
+      time={4}
+    />
+  );
+  if (kind === 'broken-image') fireEvent.error(screen.getByRole('img', { name: 'Dominio' }));
+  expect(container.querySelector('.scene-host')?.textContent).toBe('');
+  expect(questionContextRef.current?.().visual).toBeUndefined();
+  expect(container.querySelector('.captions')?.textContent).toContain(speech);
+  await waitFor(() => {
+    expect(prepareLessonPlaybackVisual).toHaveBeenCalledTimes(1);
+    expect(prepareLessonPlaybackVisual).toHaveBeenCalledWith({
+      projectId: 'project',
+      sectionId: 'section',
+      lessonKey: 'lesson-key',
+      block: expect.objectContaining({ speech }),
+    });
+  });
+  await act(async () => complete({ scene, motion: [] }));
+  await waitFor(() =>
+    expect(container.querySelector('.scene-host h2')?.textContent).toBe('Accesso al dominio')
+  );
+  expect(container.querySelector('.scene-host')?.textContent).toContain('Ricerca DNS');
+  expect(questionContextRef.current?.().visual).toMatchObject({ kind: 'scene', scene });
+  expect(container.querySelector('.scene-host')?.textContent).toContain('Autenticazione');
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain(speech);
+  expect(container.querySelector('blockquote, .type-quote')).toBeNull();
+});
+
+test.each([
   'missing',
   'broken',
   'historical',
@@ -134,7 +367,7 @@ test.each([
     },
   ];
   const scene: LessonScene = {
-    type: 'definition',
+    type: 'parts',
     title: 'Scena del passaggio',
     body: '',
     quote: '',
@@ -175,9 +408,10 @@ test.each([
   if (imageState === 'broken')
     fireEvent.error(screen.getByRole('img', { name: 'Figura di esempio' }));
   if (imageState === 'historical') {
-    expect(
-      container.querySelector('.scene-host blockquote')?.textContent?.replace(/^“\s*/u, '').trim()
-    ).toBe('La memoria conserva i dati del programma.');
+    expect(container.querySelector('.scene-host')?.textContent).toBe('');
+    expect(container.querySelector('.captions')?.textContent).toContain(
+      'La memoria conserva i dati del programma.'
+    );
   } else {
     expect(container.querySelector('.scene-host h2')?.textContent).toBe('Scena del passaggio');
     expect(container.querySelector('.scene-host strong')?.textContent).toBe('Il concetto');
@@ -236,6 +470,169 @@ beforeEach(() => {
   );
 });
 
+test.each([
+  false,
+  true,
+])('replaces a summary and follows all five heard ranges (on demand: %s)', async onDemand => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        'Prima sintesi.\n1. Primo punto.\n2. Secondo punto.\n3. Terzo punto.\n4. Quarto punto.\n5. Quinto punto.',
+    },
+  ];
+  const [intro, list] = segmentLessonPlayback(sources);
+  const offset = intro.speech.length + 1;
+  const block = {
+    ...intro,
+    speech: `${intro.speech}\n${list.speech}`,
+    spans: [
+      ...intro.spans,
+      ...list.spans.map(span => ({
+        ...span,
+        speech: { start: span.speech.start + offset, end: span.speech.end + offset },
+      })),
+    ],
+  };
+  const summary: LessonScene = {
+    type: 'parts',
+    title: 'Sintesi precedente',
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: [{ label: 'Sintesi', detail: '', icon: '' }],
+  };
+  const listScene: LessonScene = {
+    ...summary,
+    title: 'Cinque decisioni',
+    items: ['Primo', 'Secondo', 'Terzo', 'Quarto', 'Quinto'].map(label => ({
+      label,
+      detail: '',
+      icon: '',
+    })),
+  };
+  const sections = playbackVisualSections(block, sources).map(section => ({
+    ...section,
+    scene: section.items ? listScene : summary,
+  }));
+  vi.mocked(prepareLessonPlaybackVisual).mockResolvedValueOnce({
+    scene: summary,
+    motion: [],
+    sections,
+  });
+  let heard = 1.5;
+  const { container } = render(
+    <LessonPlaybackStage
+      block={{
+        ...block,
+        visuals: [{ kind: 'scene', scene: summary }],
+        prepared: { scene: summary, motion: [], ...(onDemand ? {} : { sections }) },
+      }}
+      content={
+        {
+          isDarkMode: false,
+          sectionContentBlocks: sources,
+          ...(onDemand ? { projectId: 'project', activeSectionId: 'section' } : {}),
+        } as WorkspaceReaderContentModel
+      }
+      duration={37}
+      alignment={{ status: 'aligned', onsets: [0, 1, 2, 3, 9, 10, 16, 17, 23, 24, 30, 31] }}
+      time={0}
+      readTime={() => heard}
+    />
+  );
+  if (onDemand) {
+    expect(container.querySelector('.scene-host h2')).toBeNull();
+    await waitFor(() =>
+      expect(container.querySelector('.scene-host h2')?.textContent).toBe('Sintesi precedente')
+    );
+    expect(prepareLessonPlaybackVisual).toHaveBeenCalledOnce();
+  }
+  const flush = () => {
+    for (let step = 0; step < 4; step++)
+      act(() => {
+        const pending = [...frames.values()];
+        frames.clear();
+        for (const callback of pending) callback(0);
+      });
+  };
+  flush();
+  expect(container.querySelector('.scene-host h2')?.textContent).toBe('Sintesi precedente');
+  for (let index = 0; index < 5; index++) {
+    heard = 2 + index * 7 + 0.1;
+    flush();
+    expect(container.querySelector('.scene-host h2')?.textContent).toBe('Cinque decisioni');
+    expect(
+      container.querySelector(`[data-motion-id="item:${index}"]`)?.getAttribute('style')
+    ).toContain('--motion-emphasis: 1');
+    expect(container.querySelector('.scene-host')?.textContent).not.toContain('Sintesi precedente');
+    heard += 5;
+    flush();
+    expect(
+      container.querySelector(`[data-motion-id="item:${index}"]`)?.getAttribute('style')
+    ).toContain('--motion-emphasis: 1');
+  }
+  heard = 2.1;
+  flush();
+  expect(container.querySelector('[data-motion-id="item:0"]')?.getAttribute('style')).toContain(
+    '--motion-emphasis: 1'
+  );
+});
+
+test('keeps authored mathematics beside a prepared list visual', () => {
+  const questionContextRef = createRef<(() => PlaybackQuestionContext) | null>();
+  const sources = [
+    { type: 'markdown' as const, markdown: '1. Il valore è $x=2$.\n2. Confronta il risultato.' },
+  ];
+  const projected = segmentLessonPlayback(sources)[0];
+  const scene: LessonScene = {
+    type: 'parts',
+    title: 'Due passi',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [
+      { label: 'Valore', detail: '', icon: '' },
+      { label: 'Confronto', detail: '', icon: '' },
+    ],
+  };
+  const block = {
+    ...projected,
+    prepared: { spokenMath: [{ formula: '$x=2$', spoken: 'ics uguale due' }], motion: [] },
+  };
+  const sections = playbackVisualSections(block, sources).map(section => ({ ...section, scene }));
+  const { container } = render(
+    <LessonPlaybackStage
+      block={{ ...block, prepared: { ...block.prepared, scene, sections } }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={10}
+      time={0}
+      questionContextRef={questionContextRef}
+    />
+  );
+  expect(container.querySelector('.scene-host .katex annotation')?.textContent?.trim()).toBe('x=2');
+  expect(container.querySelector('.scene-host h2')?.textContent).toBe('Due passi');
+  expect(questionContextRef.current?.().visual).toMatchObject({
+    formula: '$$\nx=2\n$$',
+    scene: { type: 'parts', title: 'Due passi' },
+  });
+});
+
 test('saves the source at the live voice clock rather than the last caption render', async () => {
   const sources = [
     { type: 'markdown' as const, markdown: 'First sentence. Later passage contains this visual.' },
@@ -243,10 +640,22 @@ test('saves the source at the live voice clock rather than the last caption rend
   const onSavePlaybackVisual = vi.fn<
     NonNullable<WorkspaceReaderContentModel['onSavePlaybackVisual']>
   >(async () => ({ succeeded: true }));
+  const scene: LessonScene = {
+    type: 'parts',
+    title: 'Passages',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [
+      { label: 'First', detail: '', icon: '' },
+      { label: 'Later', detail: '', icon: '' },
+    ],
+  };
   const { container } = render(
     <LessonPlaybackStage
       lessonKey="lesson-version"
-      block={segmentLessonPlayback(sources)[0]}
+      block={{ ...segmentLessonPlayback(sources)[0], prepared: { scene, motion: [] } }}
       duration={10}
       time={0}
       readTime={() => 8}
@@ -1361,11 +1770,11 @@ test.each([
     />
   );
   expect(container.querySelector('.scene-host pre')).toBeNull();
-  expect(container.querySelector('.scene-host blockquote')?.textContent).toContain('Introduction.');
+  expect(container.querySelector('.scene-host')?.textContent).toBe('');
   expect(container.querySelector('.caption-page')?.textContent).toContain(body.trim());
 });
 
-test('keeps a text-only prepared passage in captions with its literal fallback card', () => {
+test('keeps a text-only prepared passage in captions while the visual panel is pending', () => {
   const sources = [
     { type: 'markdown' as const, markdown: 'Una spiegazione senza una visualizzazione utile.' },
   ];
@@ -1379,7 +1788,7 @@ test('keeps a text-only prepared passage in captions with its literal fallback c
     />
   );
   expect(container.querySelector('.captions')?.textContent).toContain('Una spiegazione');
-  expect(container.querySelector('.scene-host blockquote')?.textContent).toContain(block.speech);
+  expect(container.querySelector('.scene-host')?.textContent).toBe('');
 });
 
 test('retains the complete authored formula while the next passage explains its subscript', () => {
@@ -2039,7 +2448,7 @@ test.each([
   'unprepared',
   'legacy',
   'missing-reference',
-])('shows a passage-derived visual for %s content throughout playback', state => {
+])('keeps captions readable while %s content awaits a real visual', state => {
   vi.mocked(useShouldAnimate).mockReturnValue(false);
   const sources = [{ type: 'markdown' as const, markdown: 'A boundary separates two regions.' }];
   const raw = segmentLessonPlayback(sources)[0];
@@ -2059,10 +2468,12 @@ test.each([
     <LessonPlaybackStage block={block} content={content} duration={8} time={0} />
   );
   const visual = container.querySelector('.scene-host');
-  expect(visual?.querySelector('blockquote')?.textContent).toContain(raw.speech);
+  expect(visual?.textContent).toBe('');
+  expect(container.querySelector('.captions')?.textContent).toContain(raw.speech);
   for (const time of [4, 8, 8.1]) {
     rerender(<LessonPlaybackStage block={block} content={content} duration={8} time={time} />);
-    expect(visual?.querySelector('blockquote')?.textContent).toContain(raw.speech);
+    expect(visual?.textContent).toBe('');
+    expect(container.querySelector('.captions')?.textContent).toContain(raw.speech);
   }
 });
 
@@ -2090,4 +2501,59 @@ test('renders LaTeX notation authored as inline code in captions while retaining
   const word = captionFormat(sources[0].markdown).words.find(word => word.text === notation);
   expect(word).toBeDefined();
   expect(sources[0].markdown.slice(word?.source.start, word?.source.end)).toBe(notation);
+});
+
+test.each([
+  {
+    markdown: '```typescript\nconst answer = 42;\n```',
+    selector: 'pre code',
+    text: 'const answer = 42;',
+  },
+  {
+    markdown: '| Decision | Value |\n| --- | --- |\n| Backup | Daily |',
+    selector: 'table',
+    text: 'Daily',
+  },
+])('keeps authored $selector beside a prepared list', ({ markdown, selector, text }) => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: `1. First decision.\n2. Second decision.\n\n${markdown}`,
+    },
+  ];
+  const block = segmentLessonPlayback(sources)[0];
+  const scene: LessonScene = {
+    ...controllerScene,
+    type: 'parts',
+    title: 'Two decisions',
+    items: controllerScene.items.slice(0, 2),
+  };
+  const sections = playbackVisualSections(block, sources).map(section => ({ ...section, scene }));
+  const { container } = render(
+    <LessonPlaybackStage
+      block={{ ...block, prepared: { motion: [], scene, sections } }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={10}
+      time={0}
+    />
+  );
+  expect(container.querySelector('.scene-host h2')?.textContent).toBe('Two decisions');
+  expect(container.querySelector(`.scene-host ${selector}`)?.textContent).toContain(text);
+});
+
+test('leaves the list panel empty while a saved summary lacks its list preparation', () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: '1. First decision.\n2. Second decision.' },
+  ];
+  const block = segmentLessonPlayback(sources)[0];
+  const { container } = render(
+    <LessonPlaybackStage
+      block={{ ...block, prepared: { scene: controllerScene, motion: [] } }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={10}
+      time={5}
+    />
+  );
+  expect(container.querySelector('.scene-host')?.textContent).not.toContain(controllerScene.title);
+  expect(container.querySelector('.scene-host blockquote')).toBeNull();
 });

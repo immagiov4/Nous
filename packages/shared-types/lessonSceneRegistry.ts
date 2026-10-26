@@ -52,6 +52,7 @@ export const LESSON_SCENE_LIMITS = {
   diagramNodes: 8,
   groups: 3,
   items: 6,
+  minItems: 2,
   relationLabel: 160,
   text: 600,
 } as const;
@@ -524,7 +525,7 @@ const findNumericProblems = (
 };
 
 const findItemShapeProblems = (scene: Record<string, unknown>): string[] =>
-  (scene.items as unknown[]).length < 2
+  (scene.items as unknown[]).length < LESSON_SCENE_LIMITS.minItems
     ? [`The ${scene.type as string} form requires at least two items.`]
     : [];
 
@@ -1224,6 +1225,15 @@ export const LESSON_SCENE_REGISTRY = {
 } satisfies Record<string, SceneForm>;
 
 export const LESSON_SCENE_TYPES = Object.keys(LESSON_SCENE_REGISTRY) as readonly LessonSceneType[];
+
+/** Retired forms remain readable in saved lessons and frozen workflow contracts. */
+export const isRetiredLessonScene = (scene: Pick<LessonScene, 'type'>): boolean =>
+  scene.type === 'quote';
+
+/** Saved definition layouts remain readable; new scenes must convey more than a definition card. */
+export const GENERATABLE_LESSON_SCENE_TYPES = LESSON_SCENE_TYPES.filter(
+  type => !isRetiredLessonScene({ type }) && type !== 'definition'
+);
 
 export const STATIC_LESSON_SCENE_TYPES = LESSON_SCENE_CATALOG_SNAPSHOTS[0];
 

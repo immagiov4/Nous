@@ -16,6 +16,7 @@ vi.mock('../../../services/openrouter/config.ts', () => ({
 
 import {
   cancelLessonPlaybackPreparation,
+  prepareLessonPlayback,
   waitForLessonPlayback,
 } from '../../../services/openrouter/lessonPlaybackClient.ts';
 
@@ -44,6 +45,76 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.useRealTimers());
+
+test('retains the active visual-only mode when an audio request joins it', async () => {
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        runId: 'run',
+        blockId: 'block',
+        voice: 'Kore',
+        created: false,
+        visualOnly: true,
+      })
+    )
+  );
+  expect(
+    await prepareLessonPlayback({
+      projectId: 'project',
+      sectionId: 'section',
+      blockId: 'block',
+      lessonKey: 'a'.repeat(64),
+      voice: 'Kore',
+    })
+  ).toMatchObject({ runId: 'run', visualOnly: true });
+});
+
+test.each([
+  false,
+  true,
+])('a failed run only releases the wait when it is an optional visual (%s)', async optionalVisual => {
+  const failed = await completed().json();
+  failed.state.run.status = 'failed';
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(failed)));
+  const waiting = waitForLessonPlayback(
+    'run',
+    'project',
+    new AbortController().signal,
+    optionalVisual
+  );
+  if (optionalVisual) await expect(waiting).resolves.toBeUndefined();
+  else await expect(waiting).rejects.toThrow();
+});
+
+test('an optional visual still propagates a polling permission failure', async () => {
+  fetchMock.mockResolvedValueOnce(new Response(null, { status: 403 }));
+  await expect(
+    waitForLessonPlayback('run', 'project', new AbortController().signal, true)
+  ).rejects.toThrow();
+});
+
+test('an optional visual releases audio only after terminal cleanup', async () => {
+  const cleaning = await completed().json();
+  cleaning.state.run.status = 'failed';
+  cleaning.state.run.cleanupStatus = 'running';
+  const cleaned = structuredClone(cleaning);
+  cleaned.state.run.cleanupStatus = 'completed';
+  fetchMock
+    .mockResolvedValueOnce(new Response(JSON.stringify(cleaning)))
+    .mockResolvedValueOnce(new Response(JSON.stringify(cleaned)));
+  let settled = false;
+  const pending = waitForLessonPlayback('run', 'project', new AbortController().signal, true).then(
+    () => {
+      settled = true;
+    }
+  );
+  await vi.advanceTimersByTimeAsync(0);
+  expect(settled).toBe(false);
+  streamListener.current?.();
+  await pending;
+  expect(settled).toBe(true);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
 
 test.each([
   'network',

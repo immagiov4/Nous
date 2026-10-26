@@ -14,21 +14,25 @@ import {
   playbackNonProseVisuals,
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
-import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
-import { createPassageFallbackScene } from '@shared/lessonSceneFallback';
+import {
+  isAnimatedLessonScene,
+  isRetiredLessonScene,
+  LESSON_SCENE_DIAGRAM_TYPES,
+  type LessonScene,
+} from '@shared/lessonScene';
 import type { PlaybackQuestionContext } from '@shared/playbackQuestionContext';
+import { hasPreparedVisualSections, playbackVisualSections } from '@shared/playbackVisualSections';
 import { alignedWordTimes, type PlaybackWordAlignment } from '@shared/playbackWordTiming';
 import {
   Fragment,
   type RefObject,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
-import remarkParse from 'remark-parse';
-import { unified } from 'unified';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
@@ -114,42 +118,6 @@ function drawCaptionWord(
   return local >= 0 && local <= run.width;
 }
 
-const passageParser = unified().use(remarkParse);
-
-interface PassageMarkdownNode {
-  readonly type: string;
-  readonly position?: { start: { offset?: number }; end: { offset?: number } };
-  readonly children?: readonly PassageMarkdownNode[];
-}
-
-function headingPositions(node: PassageMarkdownNode): PassageMarkdownNode['position'][] {
-  return [
-    ...(node.type === 'heading' ? [node.position] : []),
-    ...(node.children?.flatMap(headingPositions) ?? []),
-  ];
-}
-
-function passageBody(block: LessonPlaybackBlock, sources: readonly PlaybackContentBlock[]) {
-  const headings = sources.map(source =>
-    source.type === 'markdown' ? headingPositions(passageParser.parse(source.markdown)) : []
-  );
-  const body = block.spans.find(
-    span =>
-      block.speech.slice(span.speech.start, span.speech.end).trim() &&
-      !headings[span.sourceBlockIndex].some(position => {
-        const start = position?.start.offset;
-        const end = position?.end.offset;
-        return (
-          start !== undefined &&
-          end !== undefined &&
-          span.source.start >= start &&
-          span.source.start < end
-        );
-      })
-  );
-  return block.speech.slice(body?.speech.start ?? 0);
-}
-
 function hasMissingMotionTargets(
   events: readonly TimedMotionEvent[],
   elements: ReturnType<typeof sceneElements>
@@ -207,6 +175,7 @@ function PlaybackScene({
   animate,
   isDarkMode,
   interval,
+  itemRanges,
 }: Readonly<{
   scene: LessonScene;
   block: LessonPlaybackBlock;
@@ -215,6 +184,7 @@ function PlaybackScene({
   animate: boolean;
   isDarkMode: boolean;
   interval: { start: number; duration: number };
+  itemRanges?: readonly PlaybackRange[];
 }>) {
   // Parsed preparation snapshots can contain an equivalent scene with a new object identity.
   const sceneKey = JSON.stringify(sourceScene);
@@ -276,7 +246,7 @@ function PlaybackScene({
     if (
       isAnimatedLessonScene(scene) ||
       scene.type === 'formula-spotlight' ||
-      !block.prepared?.motion.length
+      !(itemRanges?.length || block.prepared?.motion.length)
     )
       return;
     const element = host.current;
@@ -291,7 +261,7 @@ function PlaybackScene({
       if (current !== previousClock) {
         const previousEvents = events;
         events = captionMotionEvents({
-          events: block.prepared?.motion ?? [],
+          events: itemRanges ? [] : (block.prepared?.motion ?? []),
           speech: block.speech,
           speechRanges: current.speechRanges,
           runs: current.runs,
@@ -301,6 +271,28 @@ function PlaybackScene({
           startOffset: current.headingDuration,
           aligned: current.aligned,
         });
+        if (itemRanges)
+          events = itemRanges.map((range, index) => {
+            const span = captionRangeSpan({
+              range,
+              speech: block.speech,
+              speechRanges: current.speechRanges,
+              runs: current.runs,
+              width: current.width,
+              feather: 0,
+              duration: current.bodyDuration,
+              startOffset: current.headingDuration,
+              aligned: current.aligned,
+            });
+            return {
+              effect: 'focus',
+              targets: [`item:${index}`],
+              quote: '',
+              atMs: span.startMs,
+              durationMs: span.endMs - span.startMs,
+              sustainFocus: true,
+            };
+          });
         if (canRetainPresentedCues(current, previousClock)) {
           const onsets = adoptCueTimes(
             previousEvents.map(event => event.atMs),
@@ -359,7 +351,7 @@ function PlaybackScene({
         delete target.dataset.motionId;
       }
     };
-  }, [animate, block.prepared?.motion, block.speech, clock, scene]);
+  }, [animate, block.prepared?.motion, block.speech, clock, scene, itemRanges]);
   return (
     <div ref={host}>
       <LessonSceneVisual
@@ -375,17 +367,24 @@ function PlaybackScene({
 function PlaybackStoredVisual({
   visual,
   content,
+  onImageUnavailable,
   ...props
 }: Readonly<{
   visual: StoredLessonVisual;
+  onImageUnavailable: (imageId: string) => void;
   content: WorkspaceReaderContentModel;
   block: LessonPlaybackBlock;
   clock: RefObject<CaptionClock | null>;
   speed: number;
   animate: boolean;
   interval: { start: number; duration: number };
+  itemRanges?: readonly PlaybackRange[];
 }>) {
   const scene = getStoredLessonVisualScene(visual);
+  const onUnavailable = useCallback(
+    () => onImageUnavailable(visual.id),
+    [onImageUnavailable, visual.id]
+  );
   return scene ? (
     <PlaybackScene {...props} scene={scene} isDarkMode={content.isDarkMode} />
   ) : (
@@ -393,6 +392,7 @@ function PlaybackStoredVisual({
       className="lesson-player-generated"
       title={visual.title ?? props.block.heading}
       visual={visual}
+      onUnavailable={onUnavailable}
       projectId={content.projectId}
       isDarkMode={content.isDarkMode}
     />
@@ -413,6 +413,7 @@ function PlaybackVisualContent({
   speed: number;
   animate: boolean;
   interval: { start: number; duration: number };
+  itemRanges?: readonly PlaybackRange[];
 }>) {
   const stored =
     visual.kind === 'generated-visual'
@@ -449,7 +450,14 @@ function PlaybackVisualContent({
           generatedVisualsById={content.activeSectionGeneratedVisualsById}
         />
       ) : null}
-      {stored ? <PlaybackStoredVisual {...props} visual={stored} content={content} /> : null}
+      {stored ? (
+        <PlaybackStoredVisual
+          {...props}
+          visual={stored}
+          content={content}
+          onImageUnavailable={onImageUnavailable}
+        />
+      ) : null}
     </div>
   );
 }
@@ -529,7 +537,7 @@ function PlaybackPassage({
       if (!width || !height) return;
       const scale = Math.min(1, slot.clientWidth / width, availableHeight / height);
       slot.style.setProperty('--scene-scale', String(scale));
-      // The fitted card contributes its height so captions and scene are centered as a pair.
+      // The visual centers independently inside the stage's full-height grid row.
       slot.style.height = `${height * scale}px`;
       slot.style.setProperty('--scene-left', `${(slot.clientWidth - width * scale) / 2}px`);
     };
@@ -688,28 +696,71 @@ function PlaybackPassage({
       ),
     [content.activeSectionAssetsById, unavailableImages]
   );
+  const availableGeneratedVisuals = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(content.activeSectionGeneratedVisualsById ?? {}).filter(
+          ([id]) => !unavailableImages.has(id)
+        )
+      ),
+    [content.activeSectionGeneratedVisualsById, unavailableImages]
+  );
+  const [preparedVisual, setPreparedVisual] = useState<LessonPlaybackBlock['prepared']>(undefined);
+  const visualBlock = useMemo(
+    () => (preparedVisual ? { ...block, prepared: preparedVisual } : block),
+    [block, preparedVisual]
+  );
+  const availableVisuals = useCallback(
+    (visuals: readonly PlaybackVisual[]) =>
+      visuals.filter(visual => {
+        if (visual.kind === 'scene') return !isRetiredLessonScene(visual.scene);
+        if (visual.kind === 'generated-visual') {
+          const stored = availableGeneratedVisuals[visual.visualId];
+          const scene = stored && getStoredLessonVisualScene(stored);
+          return stored && (!scene || !isRetiredLessonScene(scene));
+        }
+        if (visual.kind !== 'markdown') return true;
+        return parsePdfContentParts(
+          visual.markdown,
+          availableAssets,
+          content.activeSectionImageRefsById,
+          availableGeneratedVisuals
+        ).some(part => part.type !== 'markdown' || part.content.trim());
+      }),
+    [availableAssets, content.activeSectionImageRefsById, availableGeneratedVisuals]
+  );
+  const authoredListVisuals = useMemo(() => {
+    if (!playbackVisualSections(block, sources).length) return [];
+    return playbackNonProseVisuals(block).flatMap((visual, sourceIndex) => {
+      if (visual.kind === 'scene' && !LESSON_SCENE_DIAGRAM_TYPES.has(visual.scene.type)) return [];
+      if (visual.kind === 'markdown' && block.spans.some(span => span.math === visual.markdown))
+        return [];
+      if (!availableVisuals([visual]).length) return [];
+      // Source occurrences remain stable when another asset becomes unavailable.
+      return [{ visual, sourceIndex }];
+    });
+  }, [block, sources, availableVisuals]);
+  const scene =
+    visualBlock.prepared?.scene && !isRetiredLessonScene(visualBlock.prepared.scene)
+      ? visualBlock.prepared.scene
+      : undefined;
   const visualCandidates = useMemo(() => {
+    if (!hasPreparedVisualSections(visualBlock, sources)) return [];
+    if (visualBlock.prepared?.sections?.length)
+      return visualBlock.prepared.sections.map(section => ({
+        kind: 'scene' as const,
+        scene: section.scene,
+      }));
     const formulas = getPlaybackFormulaMarkdown(block, sources);
     const cards = block.visuals.filter(
       visual =>
         visual.kind === 'markdown' && block.spans.some(span => span.math === visual.markdown)
     );
     const sourceVisuals =
-      cards.length > 1 && cards.length === block.visuals.length && !block.prepared?.scene
+      cards.length > 1 && cards.length === block.visuals.length && !visualBlock.prepared?.scene
         ? cards
         : playbackNonProseVisuals(block);
-    const projected = sourceVisuals.filter(visual => {
-      if (visual.kind === 'generated-visual')
-        return content.activeSectionGeneratedVisualsById?.[visual.visualId];
-      if (visual.kind !== 'markdown') return true;
-      return parsePdfContentParts(
-        visual.markdown,
-        availableAssets,
-        content.activeSectionImageRefsById,
-        content.activeSectionGeneratedVisualsById
-      ).some(part => part.type !== 'markdown' || part.content.trim());
-    });
-    const scene = block.prepared?.scene;
+    const projected = availableVisuals(sourceVisuals);
     if (
       scene?.type === 'formula-spotlight' &&
       formulas &&
@@ -719,35 +770,45 @@ function PlaybackPassage({
       )
     )
       return projected.length ? projected : [{ kind: 'markdown' as const, markdown: formulas }];
-    if (block.prepared?.scene && getPlaybackMathMarkdown(block))
-      return [...projected, { kind: 'scene' as const, scene: block.prepared.scene }];
+    if (scene && getPlaybackMathMarkdown(block))
+      return [...projected, { kind: 'scene' as const, scene }];
     if (projected.length)
       return projected.map(visual => {
         if (!scene) return visual;
         const existingScene =
           visual.kind === 'scene' ||
           (visual.kind === 'generated-visual' &&
-            content.activeSectionGeneratedVisualsById?.[visual.visualId] &&
-            getStoredLessonVisualScene(content.activeSectionGeneratedVisualsById[visual.visualId]));
+            availableGeneratedVisuals[visual.visualId] &&
+            getStoredLessonVisualScene(availableGeneratedVisuals[visual.visualId]));
         return existingScene ? { kind: 'scene' as const, scene } : visual;
       });
-    if (formulas && !block.prepared?.scene)
+    if (formulas && !visualBlock.prepared?.scene)
       return [{ kind: 'markdown' as const, markdown: formulas }];
-    if (block.prepared?.scene) return [{ kind: 'scene' as const, scene: block.prepared.scene }];
+    if (scene) return [{ kind: 'scene' as const, scene }];
     if (formulas) return [{ kind: 'markdown' as const, markdown: formulas }];
-    return [
-      {
-        kind: 'scene' as const,
-        scene: createPassageFallbackScene(passageBody(block, sources), block.heading),
-      },
-    ];
-  }, [
-    block,
-    sources,
-    content.activeSectionGeneratedVisualsById,
-    availableAssets,
-    content.activeSectionImageRefsById,
-  ]);
+    return [];
+  }, [visualBlock, scene, availableVisuals, block, sources, availableGeneratedVisuals]);
+  const needsVisual = visualCandidates.length === 0;
+  const { projectId, activeSectionId: sectionId } = content;
+  useEffect(() => {
+    if (!needsVisual || !projectId || !sectionId) return;
+    let mounted = true;
+    void import('../../../services/openrouter/lessonPlaybackVisualClient.ts')
+      .then(({ prepareLessonPlaybackVisual }) =>
+        prepareLessonPlaybackVisual({ projectId, sectionId, block, lessonKey })
+      )
+      .then(
+        prepared => {
+          if (mounted) setPreparedVisual(prepared);
+        },
+        error => {
+          console.warn('Playback visual preparation failed.', error);
+        }
+      );
+    return () => {
+      mounted = false;
+    };
+  }, [needsVisual, projectId, sectionId, block, lessonKey]);
   const visualProjection = JSON.stringify(visualCandidates, (_key, value: unknown) =>
     value && typeof value === 'object' && !Array.isArray(value)
       ? Object.fromEntries(
@@ -768,7 +829,7 @@ function PlaybackPassage({
       visuals.map(visual => {
         const stored =
           visual.kind === 'generated-visual'
-            ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
+            ? availableGeneratedVisuals[visual.visualId]
             : undefined;
         const scene =
           visual.kind === 'scene' ? visual.scene : stored && getStoredLessonVisualScene(stored);
@@ -776,22 +837,24 @@ function PlaybackPassage({
           anchors: visuals.length > 1 ? sceneCaptionAnchors(scene, block.speech) : undefined,
         };
       }),
-    [visuals, content.activeSectionGeneratedVisualsById, block.speech]
+    [visuals, availableGeneratedVisuals, block.speech]
   );
   const visualRangeProjection = JSON.stringify(
-    visualCandidates.map((visual, index) =>
-      visualSpeechRange(
-        block,
-        visual,
-        visualCandidates
-          .slice(0, index)
-          .filter(
-            previous =>
-              previous.kind === 'markdown' &&
-              visual.kind === 'markdown' &&
-              previous.markdown === visual.markdown
-          ).length
-      )
+    visualCandidates.map(
+      (visual, index) =>
+        visualBlock.prepared?.sections?.[index]?.range ??
+        visualSpeechRange(
+          block,
+          visual,
+          visualCandidates
+            .slice(0, index)
+            .filter(
+              previous =>
+                previous.kind === 'markdown' &&
+                visual.kind === 'markdown' &&
+                previous.markdown === visual.markdown
+            ).length
+        )
     )
   );
   const visualRanges = useMemo(
@@ -875,9 +938,7 @@ function PlaybackPassage({
   const visualIndex = selection?.blockId === block.id ? selection.index : 0;
   const visual = visuals[visualIndex];
   const selectedStored =
-    visual?.kind === 'generated-visual'
-      ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
-      : undefined;
+    visual?.kind === 'generated-visual' ? availableGeneratedVisuals[visual.visualId] : undefined;
   let selectedScene: LessonScene | null = null;
   if (visual?.kind === 'scene') selectedScene = visual.scene;
   else if (selectedStored) selectedScene = getStoredLessonVisualScene(selectedStored);
@@ -887,13 +948,14 @@ function PlaybackPassage({
   );
   const supplementalFormula =
     formulaMarkdown &&
-    !visualRanges[visualIndex] &&
+    (!visualRanges[visualIndex] || visualBlock.prepared?.sections?.length) &&
     selectedScene?.type !== 'formula-spotlight' &&
     !(visual?.kind === 'markdown' && visual.markdown === formulaMarkdown)
       ? formulaMarkdown
       : undefined;
   const sceneProps = {
-    block,
+    itemRanges: visualBlock.prepared?.sections?.[visualIndex]?.items,
+    block: visualBlock,
     clock,
     speed,
     animate,
@@ -1002,6 +1064,7 @@ function PlaybackPassage({
         </section>
         <div ref={sceneFit} className="scene-fit">
           <SaveablePlaybackVisual
+            hasVisual={!!visual}
             cardRef={sceneCard}
             scene={selectedScene}
             visualIndex={visualIndex}
@@ -1014,6 +1077,17 @@ function PlaybackPassage({
             block={block}
             content={content}
           >
+            {authoredListVisuals.map(({ visual: authored, sourceIndex }) => (
+              <PlaybackVisualContent
+                key={`authored:${sourceIndex}`}
+                {...sceneProps}
+                itemRanges={undefined}
+                onImageUnavailable={onImageUnavailable}
+                interval={{ start: 0, duration }}
+                visual={authored}
+                content={{ ...content, activeSectionAssetsById: availableAssets }}
+              />
+            ))}
             {supplementalFormula ? (
               <MarkdownRenderer content={supplementalFormula} isDarkMode={content.isDarkMode} />
             ) : null}
@@ -1027,7 +1101,11 @@ function PlaybackPassage({
                   duration: duration / visuals.length,
                 }}
                 visual={visual}
-                content={{ ...content, activeSectionAssetsById: availableAssets }}
+                content={{
+                  ...content,
+                  activeSectionAssetsById: availableAssets,
+                  activeSectionGeneratedVisualsById: availableGeneratedVisuals,
+                }}
               />
             ) : null}
           </SaveablePlaybackVisual>
