@@ -823,17 +823,6 @@ function PlaybackPassage({
       }),
     [availableAssets, content.activeSectionImageRefsById, availableGeneratedVisuals]
   );
-  const authoredListVisuals = useMemo(() => {
-    if (!playbackVisualSections(block, sources).length) return [];
-    return playbackNonProseVisuals(block).flatMap((visual, sourceIndex) => {
-      if (visual.kind === 'scene' && !LESSON_SCENE_DIAGRAM_TYPES.has(visual.scene.type)) return [];
-      if (visual.kind === 'markdown' && block.spans.some(span => span.math === visual.markdown))
-        return [];
-      if (!availableVisuals([visual]).length) return [];
-      // Source occurrences remain stable when another asset becomes unavailable.
-      return [{ visual, sourceIndex }];
-    });
-  }, [block, sources, availableVisuals]);
   const scene =
     visualBlock.prepared?.scene && !isRetiredLessonScene(visualBlock.prepared.scene)
       ? visualBlock.prepared.scene
@@ -894,6 +883,23 @@ function PlaybackPassage({
           }),
     [visualBlock, sources, normalVisualCandidates, availableGeneratedVisuals]
   );
+  const authoredListVisuals = useMemo(() => {
+    if (!playbackVisualSections(block, sources).length) return [];
+    return playbackNonProseVisuals(block).flatMap((visual, sourceIndex) => {
+      if (visual.kind === 'scene' && !LESSON_SCENE_DIAGRAM_TYPES.has(visual.scene.type)) return [];
+      if (visual.kind === 'markdown' && block.spans.some(span => span.math === visual.markdown))
+        return [];
+      if (!availableVisuals([visual]).length) return [];
+      const originalScene = playbackVisualScene(visual, availableGeneratedVisuals);
+      if (
+        originalScene &&
+        visualCandidates.some(candidate => candidate.replacedScene === originalScene)
+      )
+        return [];
+      // Source occurrences remain stable when another asset becomes unavailable.
+      return [{ visual, sourceIndex }];
+    });
+  }, [block, sources, availableVisuals, availableGeneratedVisuals, visualCandidates]);
   const needsVisual = visualCandidates.length === 0;
   const { projectId, activeSectionId: sectionId } = content;
   useEffect(() => {
@@ -915,12 +921,14 @@ function PlaybackPassage({
       mounted = false;
     };
   }, [needsVisual, projectId, sectionId, block, lessonKey]);
-  const visualProjection = JSON.stringify(visualCandidates, (_key, value: unknown) =>
-    value && typeof value === 'object' && !Array.isArray(value)
-      ? Object.fromEntries(
-          Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
-        )
-      : value
+  const visualProjection = JSON.stringify(
+    visualCandidates.map(({ replacedScene: _replacedScene, ...visual }) => visual),
+    (_key, value: unknown) =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? Object.fromEntries(
+            Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+          )
+        : value
   );
   const visuals = useMemo(
     () => JSON.parse(visualProjection) as readonly StageVisual[],

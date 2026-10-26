@@ -22,6 +22,7 @@ import type { LessonSceneOutcome } from './lessonSceneGeneration.js';
 export interface FormulaPreparationSource {
   readonly formula: string;
   readonly dictatedRanges?: readonly PlaybackRange[];
+  readonly scene?: LessonScene & FormulaSpotlightData;
 }
 interface FormulaPreparationInput {
   readonly config: GlobalModelConfig;
@@ -42,6 +43,10 @@ const wordSelectionSchema = z.object({
   last: z.string().regex(/^w\d+$/u),
 });
 const voiceShape = { mentions: z.array(wordSelectionSchema) };
+const existingDraftSchema = z.object({
+  mentioned: z.boolean(),
+  symbols: z.array(z.object({ id: symbolShape.id, ...voiceShape })),
+});
 const sourceDraftSchema = z.object({
   mentioned: z.boolean(),
   title: symbolShape.name,
@@ -139,6 +144,7 @@ async function requestFormulaDraft<T extends z.ZodType>(
       dictatedWords: source.dictatedRanges?.map(range =>
         words.filter(word => word.start < range.end && word.end > range.start)
       ),
+      existingSymbols: source.scene?.symbols,
       requiredCorrection: input.retryFeedback,
     }),
   }).catch(error => {
@@ -148,6 +154,67 @@ async function requestFormulaDraft<T extends z.ZodType>(
   });
   input.signal.throwIfAborted();
   return { parsed: schema.safeParse(response), response };
+}
+
+/** Reuse only links with the original symbol identities and grouping, including resumed drafts. */
+export function retainFormulaPresentation(
+  original: (LessonScene & FormulaSpotlightData) | undefined,
+  prepared: LessonScene
+): LessonScene | undefined {
+  if (!original) return prepared;
+  if (prepared.type !== 'formula-spotlight') return undefined;
+  const formula = prepared as LessonScene & FormulaSpotlightData;
+  const symbols = new Map(formula.symbols.map(symbol => [symbol.id, symbol]));
+  if (
+    original.formula !== formula.formula ||
+    symbols.size !== formula.symbols.length ||
+    symbols.size !== original.symbols.length ||
+    original.symbols.some(symbol => symbols.get(symbol.id)?.latex !== symbol.latex)
+  )
+    return undefined;
+  return {
+    ...original,
+    symbols: original.symbols.map(symbol => {
+      const links = symbols.get(symbol.id) as FormulaSpotlightData['symbols'][number];
+      return {
+        ...symbol,
+        anchor: links.anchor,
+        anchorOccurrence: links.anchorOccurrence,
+        additionalAnchors: links.additionalAnchors,
+      };
+    }),
+  };
+}
+
+async function prepareExistingFormula(
+  input: FormulaPreparationInput,
+  original: LessonScene & FormulaSpotlightData
+) {
+  const schema = input.source.dictatedRanges?.length
+    ? existingDraftSchema.extend({ mentioned: z.literal(true) })
+    : existingDraftSchema;
+  const { parsed, response } = await requestFormulaDraft(
+    schema,
+    input,
+    'The existingSymbols define immutable authored targets. Return every original symbol ID exactly once, with only its narration mentions. Retain their meanings and grouping; select no source ranges and create no new targets. For mentioned:false return every ID with mentions:[].'
+  );
+  if (!parsed.success)
+    return invalidFormulaDraft(['Follow the existing-symbol response schema.'], response);
+  const selections = new Map(parsed.data.symbols.map(symbol => [symbol.id, symbol.mentions]));
+  if (
+    selections.size !== parsed.data.symbols.length ||
+    selections.size !== original.symbols.length ||
+    original.symbols.some(symbol => !selections.has(symbol.id))
+  )
+    return invalidFormulaDraft(['Select every original symbol ID exactly once.'], parsed.data);
+  const scene = {
+    ...original,
+    symbols: original.symbols.map(symbol => ({
+      ...symbol,
+      ...heardLinks(selections.get(symbol.id) as readonly TokenSelection[], input.narration),
+    })),
+  };
+  return validatePreparedFormula(input, scene, parsed.data.mentioned, parsed.data);
 }
 
 function invalidFormulaDraft(
@@ -290,6 +357,7 @@ export async function generateSourceBoundFormula(
 ): Promise<LessonSceneOutcome> {
   let selectedDraft: unknown;
   try {
+    if (input.source.scene) return await prepareExistingFormula(input, input.source.scene);
     const schema = input.source.dictatedRanges?.length
       ? sourceDraftSchema.extend({ mentioned: z.literal(true) })
       : sourceDraftSchema;

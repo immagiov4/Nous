@@ -17,6 +17,7 @@ import * as z from 'zod';
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
 import { failPermanently } from '../../workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../workflows/types.js';
+import { retainFormulaPresentation } from '../lessonScenes/formulaSpotlightPreparation.js';
 import {
   generateLessonScene,
   type LessonSceneOutcome,
@@ -81,7 +82,9 @@ export async function preparePlaybackFormulaSpotlights(input: {
       });
       continue;
     }
-    const saved = input.block.prepared?.formulaSpotlights?.[index];
+    const cached = input.block.prepared?.formulaSpotlights?.[index];
+    const savedScene = cached && retainFormulaPresentation(entry.scene, cached.scene);
+    const saved = savedScene && cached && { ...cached, scene: savedScene };
     if (
       saved?.formula === entry.formula &&
       saved.sourceFormula === entry.sourceFormula &&
@@ -101,6 +104,7 @@ export async function preparePlaybackFormulaSpotlights(input: {
           formulaSource: {
             formula: entry.formula,
             dictatedRanges: entry.dictatedRanges,
+            scene: entry.scene,
           },
           sectionTitle: '',
           sectionDescription: '',
@@ -131,9 +135,18 @@ export async function preparePlaybackFormulaSpotlights(input: {
           operation,
         })
       : await operation();
+    const preparedScene = retainFormulaPresentation(entry.scene, scene);
+    if (
+      !preparedScene ||
+      !isPreparedPlaybackFormula(preparedScene, narration.speech, entry.dictatedRanges)
+    )
+      throw failPermanently({
+        code: 'lesson_playback_formula_spotlight_invalid',
+        message: 'Formula highlighting preparation failed validation.',
+      });
     result.push({
       formula: entry.formula,
-      scene,
+      scene: preparedScene,
       ...(entry.sourceFormula ? { sourceFormula: entry.sourceFormula } : {}),
     });
   }

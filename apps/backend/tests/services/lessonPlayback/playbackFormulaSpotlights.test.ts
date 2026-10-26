@@ -408,7 +408,9 @@ test('keeps separate cache slots for repeated unlinked presentations of the same
   }));
   for (const scene of scenes) generate.mockResolvedValueOnce({ kind: 'scene', scene });
   const formulaSpotlights = await preparePlaybackFormulaSpotlights({ ...request(), block: source });
-  expect(formulaSpotlights.map(entry => entry.scene)).toEqual(scenes);
+  expect(formulaSpotlights.map(entry => entry.scene)).toEqual(
+    scenes.map(scene => ({ ...scene, title: unlinked.title }))
+  );
   expect(
     needsPlaybackFormulaSpotlights({
       ...source,

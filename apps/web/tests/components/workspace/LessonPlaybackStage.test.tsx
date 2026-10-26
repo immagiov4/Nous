@@ -3749,3 +3749,98 @@ test('leaves the list panel empty while a saved summary lacks its list preparati
   expect(container.querySelector('.scene-host')?.textContent).not.toContain(controllerScene.title);
   expect(container.querySelector('.scene-host blockquote')).toBeNull();
 });
+
+test('renders one linked stored formula beside prepared list sections', () => {
+  let heardTime = 1.5;
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const style = document.createElement('p').style;
+  style.setProperty('--caption-feather', '0px');
+  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
+  const sources = [
+    { type: 'generated-visual' as const, visualId: 'stored-formula' },
+    { type: 'markdown' as const, markdown: '- Prima $x+y$\n- Poi $x+y$' },
+  ];
+  const authored = {
+    ...dictatedFormulaSpotlight,
+    title: 'Authored widget',
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
+  };
+  const linked = {
+    ...dictatedFormulaSpotlight,
+    title: 'Linked widget',
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({
+      ...symbol,
+      anchorOccurrence: 0,
+      additionalAnchors: [{ anchor: symbol.anchor, anchorOccurrence: 1 }],
+    })),
+  };
+  const raw = segmentLessonPlayback(sources)[0];
+  const source = {
+    ...raw,
+    prepared: {
+      motion: [],
+      spokenMath: [
+        { formula: '$x+y$', spoken: 'ics più ipsilon' },
+        { formula: '$x+y$', spoken: 'ics più ipsilon' },
+      ],
+      formulaSpotlights: [
+        { formula: '$${x}{+}{y}$$', sourceFormula: authored.formula, scene: linked },
+      ],
+    },
+  };
+  const sectionScene: LessonScene = {
+    ...controllerScene,
+    type: 'parts',
+    title: 'List',
+    items: controllerScene.items.slice(0, 2),
+  };
+  const sections = playbackVisualSections(source, sources).map(section => ({
+    ...section,
+    scene: sectionScene,
+  }));
+  const { container } = render(
+    <LessonPlaybackStage
+      block={{ ...source, prepared: { ...source.prepared, sections } }}
+      content={
+        {
+          isDarkMode: false,
+          sectionContentBlocks: sources,
+          activeSectionGeneratedVisualsById: {
+            'stored-formula': {
+              id: 'stored-formula',
+              slotId: 'formula',
+              createdAt: '',
+              render: { kind: 'scene', scene: authored },
+            },
+          },
+        } as unknown as WorkspaceReaderContentModel
+      }
+      duration={8}
+      time={0}
+      readTime={() => heardTime}
+      alignment={{ status: 'aligned', onsets: [0, 1, 2, 3, 4, 5, 6, 7] }}
+    />
+  );
+  for (const time of [1.5, 5.5]) {
+    heardTime = time;
+    for (let step = 0; step < 3; step++)
+      act(() => {
+        const pending = [...frames.values()];
+        frames.clear();
+        for (const callback of pending) callback(0);
+      });
+    expect(
+      container.querySelectorAll('.scene-host .spotlight-symbols [data-active="true"]').length
+    ).toBeGreaterThan(0);
+    expect(container.querySelectorAll('.scene-host .formula-spotlight')).toHaveLength(1);
+  }
+});

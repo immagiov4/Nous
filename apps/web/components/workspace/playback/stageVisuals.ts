@@ -22,6 +22,7 @@ export type StageVisual = PlaybackVisual & {
   referenceFormula?: boolean;
   referenceOnly?: boolean;
   staticFormula?: boolean;
+  replacedScene?: LessonScene;
 };
 
 export function playbackVisualScene(
@@ -150,6 +151,7 @@ export function projectStageFormulaVisuals({
                 readingRanges,
                 referenceFormula: true,
                 referenceOnly: true,
+                replacedScene: target.scene,
               },
             ]
           : [];

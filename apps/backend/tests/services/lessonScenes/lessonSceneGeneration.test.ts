@@ -6,9 +6,12 @@ import {
 } from '@shared/formulaSpotlight';
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
-import { isLessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
+import { isLessonScene, type LessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
-import { unlinkedIndexedFormulaSpotlight } from '../../helpers/formulaSpotlight';
+import {
+  dictatedFormulaSpotlight,
+  unlinkedIndexedFormulaSpotlight,
+} from '../../helpers/formulaSpotlight';
 
 const { chooseIconsMock, generateStructuredOutputMock } = vi.hoisted(() => ({
   chooseIconsMock: vi.fn(async ({ scene }) => scene),
@@ -947,6 +950,125 @@ const sourceBoundInput = (formula = '$x+y$', narration = 'ics poi ipsilon') => (
   formulaSource: { formula },
 });
 
+test.each([
+  true,
+  false,
+])('binds original widget IDs while retaining all authored metadata (mentioned: %s)', async mentioned => {
+  const authored = {
+    ...dictatedFormulaSpotlight,
+    title: 'Vetted authored explanation',
+    body: 'Authored context',
+    note: 'Authored note',
+    autoplay: false,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({
+      ...symbol,
+      name: `Vetted ${symbol.id}`,
+      meaning: `Vetted meaning ${symbol.id}`,
+      anchor: '',
+    })),
+  };
+  const source = {
+    ...segmentLessonPlayback([
+      { type: 'markdown', markdown: mentioned ? '$x+y$' : 'Una relazione di richiamo.' },
+    ])[0],
+    visuals: [{ kind: 'scene' as const, scene: authored }],
+    prepared: {
+      motion: [],
+      spokenMath: mentioned ? [{ formula: '$x+y$', spoken: 'ics più ipsilon' }] : [],
+    },
+  };
+  const original = structuredClone(source);
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    title: 'Generated replacement',
+    summary: 'Generated summary',
+    mentioned,
+    symbols: [...authored.symbols].reverse().map(symbol => ({
+      id: symbol.id,
+      name: 'Generated name',
+      meaning: 'Generated meaning',
+      ranges: [
+        {
+          first: `t${1 + ['x', 'plus', 'y'].indexOf(symbol.id) * 3}`,
+          last: `t${1 + ['x', 'plus', 'y'].indexOf(symbol.id) * 3}`,
+          needsGroup: false,
+        },
+      ],
+      mentions: mentioned
+        ? [
+            {
+              first: `w${['x', 'plus', 'y'].indexOf(symbol.id)}`,
+              last: `w${['x', 'plus', 'y'].indexOf(symbol.id)}`,
+            },
+          ]
+        : [],
+    })),
+  });
+  const formulaSpotlights = await preparePlaybackFormulaSpotlights({
+    config: getGlobalModelConfig(),
+    signal: new AbortController().signal,
+    block: source,
+  });
+  const withoutLinks = (scene: LessonScene & FormulaSpotlightData) => ({
+    ...scene,
+    symbols: scene.symbols.map(
+      ({
+        anchor: _anchor,
+        anchorOccurrence: _occurrence,
+        additionalAnchors: _additional,
+        ...symbol
+      }) => symbol
+    ),
+  });
+  expect(withoutLinks(formulaSpotlights[0].scene as typeof authored)).toEqual(
+    withoutLinks(authored)
+  );
+  expect(
+    resolveFormulaReferences(
+      formulaSpotlights[0].scene as FormulaSpotlightData,
+      mentioned ? 'ics più ipsilon' : source.speech
+    )
+  ).toHaveLength(mentioned ? 3 : 0);
+  expect(source).toEqual(original);
+  generateStructuredOutputMock.mockClear();
+  const cached = formulaSpotlights.map(entry => ({
+    ...entry,
+    scene: {
+      ...entry.scene,
+      title: 'Stale generated title',
+      symbols: (entry.scene as FormulaSpotlightData).symbols.map(symbol => ({
+        ...symbol,
+        name: 'Stale name',
+        meaning: 'Stale meaning',
+      })),
+    },
+  }));
+  expect(
+    await preparePlaybackFormulaSpotlights({
+      config: getGlobalModelConfig(),
+      signal: new AbortController().signal,
+      block: { ...source, prepared: { ...source.prepared, formulaSpotlights: cached } },
+    })
+  ).toEqual(formulaSpotlights);
+  expect(generateStructuredOutputMock).not.toHaveBeenCalled();
+});
+
+test.each([
+  'unknown',
+  'duplicate',
+  'missing',
+])('rejects %s authored symbol IDs before saving links', async defect => {
+  const symbols = dictatedFormulaSpotlight.symbols.map(symbol => ({ id: symbol.id, mentions: [] }));
+  if (defect === 'unknown') symbols[0].id = 'invented';
+  if (defect === 'duplicate') symbols[0].id = symbols[1].id;
+  if (defect === 'missing') symbols.pop();
+  generateStructuredOutputMock.mockResolvedValueOnce({ mentioned: false, symbols });
+  const outcome = await generateLessonScene({
+    ...sourceBoundInput(),
+    formulaSource: { formula: '$x+y$', scene: dictatedFormulaSpotlight },
+  });
+  expect(outcome.kind).toBe('invalid');
+});
+
 test('returns exact reference-selection diagnostics privately to formula preparation', async () => {
   const draft = {
     ...sourceBoundDraft(),
@@ -1216,17 +1338,24 @@ test('supplies the exact words of this reading separately from repeated referenc
   ]);
 });
 
-test('rebuilds unlinked shared bases as independently heard indexed quantities', async () => {
+test('retains authored shared-base grouping while linking each heard index', async () => {
   const original = unlinkedIndexedFormulaSpotlight;
   const block = {
     ...segmentLessonPlayback([{ type: 'markdown' as const, markdown: 'delta i poi delta k' }])[0],
     prepared: { motion: [], scene: original },
   };
   generateStructuredOutputMock.mockResolvedValueOnce({
-    ...sourceBoundDraft(),
+    mentioned: true,
     symbols: [
-      boundSourceSymbol({ id: 'di', first: 0, last: 8, word: 0, lastWord: 1 }),
-      boundSourceSymbol({ id: 'dk', first: 10, last: 18, word: 3, lastWord: 4 }),
+      {
+        id: 'd',
+        mentions: [
+          { first: 'w0', last: 'w0' },
+          { first: 'w3', last: 'w3' },
+        ],
+      },
+      { id: 'i', mentions: [{ first: 'w1', last: 'w1' }] },
+      { id: 'k', mentions: [{ first: 'w4', last: 'w4' }] },
     ],
   });
   const result = await preparePlaybackFormulaSpotlights({
@@ -1237,7 +1366,8 @@ test('rebuilds unlinked shared bases as independently heard indexed quantities',
   const scene = result[0].scene as FormulaSpotlightData;
   expect(result[0].sourceFormula).toBe(original.formula);
   expect(formulaSpotlightCovers(scene, ['$D_i+D_k$'])).toBe(true);
-  expect(scene.symbols.map(symbol => symbol.id)).toEqual(['di', 'dk']);
+  expect(scene.formula).toBe(original.formula);
+  expect(scene.symbols.map(symbol => symbol.id)).toEqual(['d', 'i', 'k']);
   expect(
     resolveFormulaReferences(scene, block.speech).map(({ index, start, end }) => ({
       index,
@@ -1245,8 +1375,10 @@ test('rebuilds unlinked shared bases as independently heard indexed quantities',
       end,
     }))
   ).toEqual([
-    { index: 0, start: 0, end: 7 },
-    { index: 1, start: 12, end: 19 },
+    { index: 0, start: 0, end: 5 },
+    { index: 1, start: 6, end: 7 },
+    { index: 0, start: 12, end: 17 },
+    { index: 2, start: 18, end: 19 },
   ]);
 });
 
