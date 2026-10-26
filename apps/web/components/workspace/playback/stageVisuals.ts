@@ -59,10 +59,29 @@ export function projectStageFormulaVisuals({
   storedById: WorkspaceReaderContentModel['activeSectionGeneratedVisualsById'];
 }>): readonly StageVisual[] {
   const spotlights = block.prepared?.formulaSpotlights;
+  const targets = playbackFormulaTargets(
+    {
+      ...block,
+      visuals: block.visuals.map(visual => {
+        const scene = playbackVisualScene(visual, storedById);
+        return scene ? { kind: 'scene' as const, scene } : visual;
+      }),
+    },
+    [],
+    sources
+  );
+  const sourceScenes = targets.flatMap(target => (target.scene ? [target.scene] : []));
+  const sourceOccurrences = new Set<number>();
   const normal: readonly StageVisual[] = normalVisualCandidates.map(visual => {
     const scene = playbackVisualScene(visual, storedById);
     if (scene?.type !== 'formula-spotlight') return visual;
-    const readingRanges = playbackFormulaReadingRanges(block, scene as FormulaSpotlightData);
+    let sourceIndex = sourceScenes.findIndex(
+      (source, index) => source === scene && !sourceOccurrences.has(index)
+    );
+    if (sourceIndex < 0)
+      sourceIndex = sourceScenes.indexOf(scene as LessonScene & FormulaSpotlightData);
+    if (sourceIndex >= 0) sourceOccurrences.add(sourceIndex);
+    const readingRanges = targets[sourceIndex]?.readingRanges ?? [];
     if (
       hasCompletePlaybackFormulaReferences(
         scene as FormulaSpotlightData,
@@ -75,18 +94,6 @@ export function projectStageFormulaVisuals({
   });
   if (!spotlights?.length) return normal;
   if (spotlights.some(entry => entry.sourceFormula)) {
-    const targets = playbackFormulaTargets(
-      {
-        ...block,
-        visuals: block.visuals.map(visual => {
-          const scene = playbackVisualScene(visual, storedById);
-          return scene ? { kind: 'scene' as const, scene } : visual;
-        }),
-      },
-      [],
-      sources
-    );
-    const sourceScenes = targets.flatMap(target => (target.scene ? [target.scene] : []));
     const matched = new Set<number>();
     const original = normal.map(visual => {
       const scene = playbackVisualScene(visual, storedById);
@@ -119,7 +126,11 @@ export function projectStageFormulaVisuals({
             readingRanges,
             referenceFormula: true,
           }
-        : { kind: 'markdown' as const, markdown: entry.formula, staticFormula: true };
+        : {
+            kind: 'markdown' as const,
+            markdown: entry.formula,
+            staticFormula: true,
+          };
     });
     return [
       ...original,

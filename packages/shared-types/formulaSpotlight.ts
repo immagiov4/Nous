@@ -23,7 +23,10 @@ export const FormulaSpotlightDataSchema = z.object({
         anchorOccurrence: z.number().int().nonnegative().optional(),
         additionalAnchors: z
           .array(
-            z.object({ anchor: text, anchorOccurrence: z.number().int().nonnegative().optional() })
+            z.object({
+              anchor: text,
+              anchorOccurrence: z.number().int().nonnegative().optional(),
+            })
           )
           .optional(),
       })
@@ -350,6 +353,30 @@ export function resolveFormulaReferences(
 
 /** Compare mathematical structure, including scripts, rather than visible glyph strings. */
 export function formulaSpotlightCovers(scene: FormulaSpotlightData, formulas: readonly string[]) {
+  try {
+    return renderedFormulaCovers(highlightedFormula(scene, 'mathml').html, formulas);
+  } catch {
+    return false;
+  }
+}
+
+/** Test authored formula containment using mathematical structure, without inferring spoken links. */
+export function formulaContainsMath(formula: string, formulas: readonly string[]) {
+  try {
+    return renderedFormulaCovers(
+      katex.renderToString(formulaLatexSource(formula), {
+        ...SPOTLIGHT_MATH_OPTIONS,
+        output: 'mathml',
+        displayMode: true,
+      }),
+      formulas
+    );
+  } catch {
+    return false;
+  }
+}
+
+function renderedFormulaCovers(rendered: string, formulas: readonly string[]) {
   type MathStructure =
     | string
     | {
@@ -405,7 +432,7 @@ export function formulaSpotlightCovers(scene: FormulaSpotlightData, formulas: re
     );
   };
   try {
-    const rendered = parse(highlightedFormula(scene, 'mathml').html);
+    const renderedStructure = parse(rendered);
     return formulas.every(formula => {
       const html = katex.renderToString(formulaLatexSource(formula), {
         ...SPOTLIGHT_MATH_OPTIONS,
@@ -413,7 +440,7 @@ export function formulaSpotlightCovers(scene: FormulaSpotlightData, formulas: re
         output: 'mathml',
         trust: false,
       });
-      return contains(rendered, parse(html));
+      return contains(renderedStructure, parse(html));
     });
   } catch {
     return false;

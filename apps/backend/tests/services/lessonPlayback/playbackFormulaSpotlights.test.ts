@@ -1,4 +1,8 @@
-import { needsPlaybackFormulaSpotlights, segmentLessonPlayback } from '@shared/lessonPlayback';
+import {
+  needsPlaybackFormulaSpotlights,
+  playbackFormulaTargets,
+  segmentLessonPlayback,
+} from '@shared/lessonPlayback';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const { generate } = vi.hoisted(() => ({ generate: vi.fn() }));
@@ -42,6 +46,76 @@ beforeEach(() => {
         ? repeatedScene
         : dictatedFormulaSpotlight,
   }));
+});
+
+test('reuses distinct authored widgets for their own repeated dictated occurrences', async () => {
+  const input = request();
+  const scenes = [0, 1].map(anchorOccurrence => ({
+    ...dictatedFormulaSpotlight,
+    title: `Occorrenza ${anchorOccurrence + 1}`,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({
+      ...symbol,
+      anchorOccurrence,
+    })),
+  }));
+  const source = {
+    ...input.block,
+    visuals: scenes.map(scene => ({ kind: 'scene' as const, scene })),
+  };
+  const targets = playbackFormulaTargets(source);
+  expect(targets.map(target => target.readingRanges)).toEqual([
+    [{ start: 6, end: 21 }],
+    [{ start: 26, end: 41 }],
+  ]);
+  expect(needsPlaybackFormulaSpotlights(source)).toBe(false);
+  const prepared = await preparePlaybackFormulaSpotlights({
+    ...input,
+    block: source,
+  });
+  expect(prepared.map(entry => entry.scene)).toEqual(scenes);
+  expect(generate).not.toHaveBeenCalled();
+});
+
+test('prepares the retained complete equation when inline mathematics names one of its parts', async () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: '## Relazione\n\n$$x+y$$' },
+    { type: 'markdown' as const, markdown: 'Il termine $x$ compare.' },
+  ];
+  const raw = segmentLessonPlayback([sources[1]])[0];
+  const source = {
+    ...raw,
+    spans: raw.spans.map(span => ({ ...span, sourceBlockIndex: 1 })),
+    prepared: { motion: [], spokenMath: [{ formula: '$x$', spoken: 'ics' }] },
+  };
+  const complete = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({
+      ...symbol,
+      anchor: symbol.id === 'x' ? 'ics' : '',
+    })),
+  };
+  generate.mockResolvedValue({ kind: 'scene', scene: complete });
+  const original = structuredClone(source);
+  const targets = playbackFormulaTargets(source, [], sources);
+  expect(targets.map(target => target.formula)).toEqual(['$$x+y$$']);
+  const prepared = await preparePlaybackFormulaSpotlights({
+    ...request(),
+    block: source,
+    sources,
+  });
+  expect(generate).toHaveBeenCalledOnce();
+  expect(prepared[0].scene).toEqual(complete);
+  expect(source).toEqual(original);
+  expect(
+    needsPlaybackFormulaSpotlights(
+      {
+        ...source,
+        prepared: { ...source.prepared, formulaSpotlights: prepared },
+      },
+      [],
+      sources
+    )
+  ).toBe(false);
 });
 
 test('repairs an existing spotlight that omits a later dictated reading', async () => {

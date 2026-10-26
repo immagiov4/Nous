@@ -2984,9 +2984,13 @@ test('uses repaired source links during a later dictated reading', () => {
 });
 
 test.each([
-  false,
-  true,
-])('returns to a source formula for later explanatory references (already linked: %s)', alreadyLinked => {
+  { alreadyLinked: false, stored: false },
+  { alreadyLinked: true, stored: false },
+  { alreadyLinked: true, stored: true },
+])('returns to a source formula for later explanatory references ($alreadyLinked, stored: $stored)', ({
+  alreadyLinked,
+  stored,
+}) => {
   const frames = new Map<number, FrameRequestCallback>();
   let frameId = 0;
   vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
@@ -3002,7 +3006,10 @@ test.each([
   ];
   const unlinked = {
     ...dictatedFormulaSpotlight,
-    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({
+      ...symbol,
+      anchor: '',
+    })),
   };
   const linked = {
     ...dictatedFormulaSpotlight,
@@ -3028,13 +3035,22 @@ test.each([
   const block = {
     ...segmentLessonPlayback(sources)[0],
     visuals: [
-      { kind: 'scene' as const, scene: alreadyLinked ? linked : unlinked },
+      stored
+        ? { kind: 'generated-visual' as const, visualId: 'stored-formula' }
+        : {
+            kind: 'scene' as const,
+            scene: alreadyLinked ? linked : unlinked,
+          },
       { kind: 'scene' as const, scene: normal },
     ],
     prepared: {
       motion: [],
       formulaSpotlights: [
-        { formula: '$${x}{+}{y}$$', sourceFormula: unlinked.formula, scene: linked },
+        {
+          formula: '$${x}{+}{y}$$',
+          sourceFormula: unlinked.formula,
+          scene: linked,
+        },
       ],
     },
   };
@@ -3042,7 +3058,23 @@ test.each([
   const { container } = render(
     <LessonPlaybackStage
       block={block}
-      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      content={
+        {
+          isDarkMode: false,
+          sectionContentBlocks: sources,
+          activeSectionGeneratedVisualsById: stored
+            ? {
+                'stored-formula': {
+                  id: 'stored-formula',
+                  slotId: 'formula',
+                  title: '',
+                  createdAt: '',
+                  render: { kind: 'scene', scene: linked },
+                },
+              }
+            : undefined,
+        } as WorkspaceReaderContentModel
+      }
       duration={9}
       time={0}
       readTime={() => time}
@@ -3159,64 +3191,176 @@ test('keeps one existing widget and uses prepared links for its unlinked neighbo
   expect(container.querySelectorAll('.formula-spotlight')).toHaveLength(1);
 });
 
-test('renders each repeated source occurrence with its own prepared definitions and heard links', () => {
+test.each([
+  false,
+  true,
+])('replaces a summary and follows all five heard ranges (on demand: %s)', async onDemand => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
   const frames = new Map<number, FrameRequestCallback>();
   let frameId = 0;
   vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
     frames.set(++frameId, callback);
     return frameId;
   });
-  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => frames.delete(id));
-  const sources = [{ type: 'markdown' as const, markdown: 'ics più ipsilon poi ics più ipsilon' }];
-  const unlinked = {
-    ...dictatedFormulaSpotlight,
-    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchor: '' })),
-  };
-  const scenes = [0, 1].map(anchorOccurrence => ({
-    ...dictatedFormulaSpotlight,
-    title: `Occorrenza ${anchorOccurrence + 1}`,
-    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({ ...symbol, anchorOccurrence })),
-  }));
-  const block = {
-    ...segmentLessonPlayback(sources)[0],
-    visuals: [
-      { kind: 'scene' as const, scene: unlinked },
-      { kind: 'scene' as const, scene: unlinked },
-    ],
-    prepared: {
-      motion: [],
-      formulaSpotlights: scenes.map(scene => ({
-        formula: '$${x}{+}{y}$$',
-        sourceFormula: unlinked.formula,
-        scene,
-      })),
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        'Prima sintesi.\n1. Primo punto.\n2. Secondo punto.\n3. Terzo punto.\n4. Quarto punto.\n5. Quinto punto.',
     },
+  ];
+  const [intro, list] = segmentLessonPlayback(sources);
+  const offset = intro.speech.length + 1;
+  const block = {
+    ...intro,
+    speech: `${intro.speech}\n${list.speech}`,
+    spans: [
+      ...intro.spans,
+      ...list.spans.map(span => ({
+        ...span,
+        speech: {
+          start: span.speech.start + offset,
+          end: span.speech.end + offset,
+        },
+      })),
+    ],
   };
+  const summary: LessonScene = {
+    type: 'parts',
+    title: 'Sintesi precedente',
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: [{ label: 'Sintesi', detail: '', icon: '' }],
+  };
+  const listScene: LessonScene = {
+    ...summary,
+    title: 'Cinque decisioni',
+    items: ['Primo', 'Secondo', 'Terzo', 'Quarto', 'Quinto'].map(label => ({
+      label,
+      detail: '',
+      icon: '',
+    })),
+  };
+  const sections = playbackVisualSections(block, sources).map(section => ({
+    ...section,
+    scene: section.items ? listScene : summary,
+  }));
+  vi.mocked(prepareLessonPlaybackVisual).mockResolvedValueOnce({
+    scene: summary,
+    motion: [],
+    sections,
+  });
   let heard = 1.5;
   const { container } = render(
     <LessonPlaybackStage
-      block={block}
-      duration={7}
+      block={{
+        ...block,
+        visuals: [{ kind: 'scene', scene: summary }],
+        prepared: {
+          scene: summary,
+          motion: [],
+          ...(onDemand ? {} : { sections }),
+        },
+      }}
+      content={
+        {
+          isDarkMode: false,
+          sectionContentBlocks: sources,
+          ...(onDemand ? { projectId: 'project', activeSectionId: 'section' } : {}),
+        } as WorkspaceReaderContentModel
+      }
+      duration={37}
+      alignment={{
+        status: 'aligned',
+        onsets: [0, 1, 2, 3, 9, 10, 16, 17, 23, 24, 30, 31],
+      }}
       time={0}
       readTime={() => heard}
-      alignment={{ status: 'aligned', onsets: [0, 1, 2, 3, 4, 5, 6] }}
+    />
+  );
+  if (onDemand) {
+    expect(container.querySelector('.scene-host h2')).toBeNull();
+    await waitFor(() =>
+      expect(container.querySelector('.scene-host h2')?.textContent).toBe('Sintesi precedente')
+    );
+    expect(prepareLessonPlaybackVisual).toHaveBeenCalledOnce();
+  }
+  const flush = () => {
+    for (let step = 0; step < 4; step++)
+      act(() => {
+        const pending = [...frames.values()];
+        frames.clear();
+        for (const callback of pending) callback(0);
+      });
+  };
+  flush();
+  expect(container.querySelector('.scene-host h2')?.textContent).toBe('Sintesi precedente');
+  for (let index = 0; index < 5; index++) {
+    heard = 2 + index * 7 + 0.1;
+    flush();
+    expect(container.querySelector('.scene-host h2')?.textContent).toBe('Cinque decisioni');
+    expect(
+      container.querySelector(`[data-motion-id="item:${index}"]`)?.getAttribute('style')
+    ).toContain('--motion-emphasis: 1');
+    expect(container.querySelector('.scene-host')?.textContent).not.toContain('Sintesi precedente');
+    heard += 5;
+    flush();
+    expect(
+      container.querySelector(`[data-motion-id="item:${index}"]`)?.getAttribute('style')
+    ).toContain('--motion-emphasis: 1');
+  }
+  heard = 2.1;
+  flush();
+  expect(container.querySelector('[data-motion-id="item:0"]')?.getAttribute('style')).toContain(
+    '--motion-emphasis: 1'
+  );
+});
+
+test('highlights a retained complete equation when its inline symbol is pronounced', () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: '## Relazione\n\n$$x+y$$' },
+    { type: 'markdown' as const, markdown: 'Il termine $x$ compare.' },
+  ];
+  const raw = segmentLessonPlayback([sources[1]])[0];
+  const scene = {
+    ...dictatedFormulaSpotlight,
+    symbols: dictatedFormulaSpotlight.symbols.map(symbol => ({
+      ...symbol,
+      anchor: symbol.id === 'x' ? 'ics' : '',
+    })),
+  };
+  const block = {
+    ...raw,
+    spans: raw.spans.map(span => ({ ...span, sourceBlockIndex: 1 })),
+    prepared: {
+      motion: [],
+      spokenMath: [{ formula: '$x$', spoken: 'ics' }],
+      formulaSpotlights: [{ formula: '$$x+y$$', sourceFormula: '$$x+y$$', scene }],
+    },
+  };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      duration={4}
+      time={2.5}
+      alignment={{ status: 'aligned', onsets: [0, 1, 2, 3] }}
       content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
     />
   );
-  expect(container.querySelector('.scene-host h2')?.textContent).toBe('Occorrenza 1');
-  heard = 5.5;
-  for (let flush = 0; flush < 2; flush++)
-    act(() => {
-      const pending = [...frames.values()];
-      frames.clear();
-      for (const callback of pending) callback(0);
-    });
-  expect(container.querySelector('.scene-host h2')?.textContent).toBe('Occorrenza 2');
+  expect(container.querySelector('.spotlight-formula annotation')?.textContent).toContain('+');
   expect(
     container
       .querySelector('.spotlight-symbols [data-active="true"]')
       ?.getAttribute('data-formula-symbol')
-  ).toBe('plus');
+  ).toBe('x');
 });
 
 test('highlights a compact prepared formula using global ordinals after an earlier spoken mention', () => {

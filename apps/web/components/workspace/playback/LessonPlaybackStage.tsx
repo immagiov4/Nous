@@ -991,12 +991,10 @@ function PlaybackPassage({
           const previousReferenceCues = referenceCues;
           const previousReadingSpans = readingSpans;
           referenceCues = visuals.map((visual, index) => {
-            if (!visual.referenceFormula || visual.kind !== 'scene') return undefined;
-            const next = formulaCueTiming(
-              visual.scene as FormulaSpotlightData,
-              block.speech,
-              current
-            );
+            if (!visual.referenceFormula) return undefined;
+            const scene = playbackVisualScene(visual, content.activeSectionGeneratedVisualsById);
+            if (scene?.type !== 'formula-spotlight') return undefined;
+            const next = formulaCueTiming(scene as FormulaSpotlightData, block.speech, current);
             if (!canRetainPresentedCues(current, previousClock)) return next;
             const heardMs = current.read().blockTime * 1000;
             return {
@@ -1091,7 +1089,16 @@ function PlaybackPassage({
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, [visualReferences, block.id, block.speech, duration, visuals, visualRanges]);
+  }, [
+    visualReferences,
+    block.id,
+    block.speech,
+    duration,
+    visuals,
+    visualRanges,
+    content.activeSectionGeneratedVisualsById,
+  ]);
+
   const visualIndex = selection?.blockId === block.id ? selection.index : 0;
   const visual = visuals[visualIndex];
   const selectedStored =

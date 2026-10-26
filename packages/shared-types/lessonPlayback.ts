@@ -3,6 +3,7 @@ import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import {
   type FormulaSpotlightData,
+  formulaContainsMath,
   formulaReferencesCoverReadings,
   formulaSpotlightCovers,
   getFormulaSpotlightLatex,
@@ -189,37 +190,53 @@ export function playbackFormulaTargets(
   sources: readonly PlaybackContentBlock[] = []
 ): readonly PlaybackFormulaTarget[] {
   const scenes = playbackFormulaSpotlightScenes(block, storedVisuals, sources);
-  const targets: PlaybackFormulaTarget[] = scenes.map(scene => ({
+  const narration = resolvePlaybackNarration(block);
+  const references = scenes.map((scene, index) => {
+    if (hasUsableFormulaSpotlightReferences(scene, narration.speech)) return scene;
+    const saved = block.prepared?.formulaSpotlights?.[index];
+    return saved && preparedFormulaSpotlightMatchesScene(saved, scene)
+      ? (saved.scene as FormulaSpotlightData)
+      : scene;
+  });
+  const targets: PlaybackFormulaTarget[] = scenes.map((scene, index) => ({
     formula: `$$${getFormulaSpotlightLatex(scene)}$$`,
     sourceFormula: scene.formula,
-    readingRanges: playbackFormulaReadingRanges(block, scene),
+    readingRanges: playbackFormulaReadingRanges(
+      block,
+      references[index],
+      references.filter((_, peer) => peer !== index)
+    ),
     scene,
   }));
-  const narration = resolvePlaybackNarration(block);
   const spoken = narration.prepared?.spokenMath;
-  if (spoken?.length) {
-    const ranges = narration.spans.filter(span => span.math);
-    return [
-      ...targets,
-      ...spoken.flatMap((math, index) =>
-        scenes.some(scene => formulaSpotlightCovers(scene, [math.formula]))
-          ? []
-          : [
-              {
-                formula: math.formula,
-                sourceFormula: math.formula,
-                readingRanges: [ranges[index].speech],
-              },
-            ]
+  const ranges = narration.spans.filter(span => span.math);
+  const inherited = getPlaybackFormulaSources(block, sources).filter(
+    formula =>
+      !spoken?.some(math => math.formula === formula) &&
+      !scenes.some(scene => formulaSpotlightCovers(scene, [formula]))
+  );
+  return [
+    ...targets,
+    ...(spoken ?? []).flatMap((math, index) =>
+      scenes.some(scene => formulaSpotlightCovers(scene, [math.formula])) ||
+      inherited.some(formula => formulaContainsMath(formula, [math.formula]))
+        ? []
+        : [
+            {
+              formula: math.formula,
+              sourceFormula: math.formula,
+              readingRanges: [ranges[index].speech],
+            },
+          ]
+    ),
+    ...inherited.map(formula => ({
+      formula,
+      sourceFormula: formula,
+      readingRanges: (spoken ?? []).flatMap((math, index) =>
+        formulaContainsMath(formula, [math.formula]) ? [ranges[index].speech] : []
       ),
-    ];
-  }
-  if (targets.length) return targets;
-  return getPlaybackFormulaSources(block, sources).map(formula => ({
-    formula,
-    sourceFormula: formula,
-    readingRanges: [],
-  }));
+    })),
+  ];
 }
 
 /** Static decisions are valid only without a dictated reading; references use canonical speech. */
@@ -249,12 +266,21 @@ export function hasCompletePlaybackFormulaReferences(
 /** Explicit saved readings of mathematics contained in this displayed formula. */
 export function playbackFormulaReadingRanges(
   block: LessonPlaybackBlock,
-  scene: FormulaSpotlightData
+  scene: FormulaSpotlightData,
+  peers: readonly FormulaSpotlightData[] = []
 ): readonly PlaybackRange[] {
   const narration = resolvePlaybackNarration(block);
   const spans = narration.spans.filter(span => span.math);
   return (narration.prepared?.spokenMath ?? []).flatMap((math, index) =>
-    formulaSpotlightCovers(scene, [math.formula]) ? [spans[index].speech] : []
+    formulaSpotlightCovers(scene, [math.formula]) &&
+    (formulaReferencesCoverReadings(scene, narration.speech, [spans[index].speech]) ||
+      !peers.some(
+        peer =>
+          formulaSpotlightCovers(peer, [math.formula]) &&
+          formulaReferencesCoverReadings(peer, narration.speech, [spans[index].speech])
+      ))
+      ? [spans[index].speech]
+      : []
   );
 }
 
