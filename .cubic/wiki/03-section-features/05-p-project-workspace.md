@@ -24,3 +24,7 @@ An export has the same consistency problem over a longer period. It reads projec
 Preparing a whole library can also outlive a server process. The export records completed project archives as it goes, so a restart can resume that attempt instead of discarding its preparation. Those checkpoints preserve progress, while the revision checks preserve the consistency of the result.
 
 For the files an archive must carry and how restoration reconnects them, continue with [asset adoption and cleanup](../04-section-data/02-p-asset-management.md). [Deployment backups](../08-section-deployment/01-p-self-hosted.md#back-up-and-restore) cover recovery of the installation rather than a portable set of projects.
+
+## Observability
+
+The [project routes](../../../apps/backend/src/routes/projects.ts) report revision conflicts as HTTP 409 with an error code. [Library export](../../../apps/backend/src/projects/libraryExport.ts) exposes persisted progress and logs checkpoints, completion and failure with the export run, phase and elapsed time. The [database contract tests](../../../apps/backend/tests/projects/libraryExportRunStore.integration.test.ts) cover restart persistence and rejection of stale completion. These signals locate a rejected save or interrupted export; they do not explain the semantic differences between competing project edits.

@@ -3,3 +3,6 @@
 
 # Preserve the exact bytes of the synchronized writing skill.
 .agents/skills/writing-for-humans/** -text whitespace=cr-at-eol
+
+# Keep installed Geppetto gate bytes consistent with the package manifest.
+.geppetto/bin/** -text whitespace=cr-at-eol

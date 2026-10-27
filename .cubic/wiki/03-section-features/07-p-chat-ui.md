@@ -24,3 +24,7 @@ A proposed note needs a concrete text anchor. Validation checks that the suggest
 Some tools execute on the server, while a workspace action such as creating a note requires the browser to complete it. [OpenRouter and Codex](../07-section-ai/01-p-ai-providers.md) expose different streaming protocols, but both must preserve these application contracts. Model output requests an action; the owning application boundary validates and authorizes the change.
 
 The [chat route](../06-section-backend/01-p-api-routes.md) locates request handling, and [reader composition](../05-section-frontend/01-p-reader-shell.md) locates selection and navigation state. A change spanning them needs to verify that the response remains attached to the same passage across navigation.
+
+## Observability
+
+The [context route](../../../apps/backend/src/routes/contextChat.ts) logs caught request errors. Its [route tests](../../../apps/backend/tests/routes/chat.test.ts) inspect the playback snapshot delivered to the provider and exercise scoped archive retrieval and safe tool failures. [Response-control tests](../../../apps/web/tests/hooks/chat/useChatResponseControl.test.tsx) cover stale tool calls after Stop, a newer response or unmount. These checks provide reproducible boundary evidence; the error log alone cannot reconstruct a successful conversation's context or prove that an answer is grounded in the intended passage.

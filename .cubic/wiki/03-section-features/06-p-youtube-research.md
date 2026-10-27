@@ -26,3 +26,7 @@ Source assembly retains selected discoveries alongside original and existing sou
 ## Locate the decision that removed a video
 
 The Research Lab's [retrieval diagnostics](../../../apps/backend/src/routes/youtube.ts) show discovery, transcript status, timings and admission to model context. They can explain a budget exclusion, but the later model decision belongs in the lesson research dossier, which retains candidate classifications and reasons. Follow [administrative access](../05-section-frontend/03-p-admin-ui.md) for the lab boundary and [content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content) to inspect the resulting lesson and its captured evidence.
+
+## Observability
+
+The [research diagnostic builder](../../../apps/backend/src/services/youtubeResearch.ts) records transcript lookup time, attempts, cache use and admission decisions such as `no-transcript`, `transcript-budget` and `context-included`. The authenticated administrator lab route linked above returns these diagnostics for retrieval inspection. Admission establishes only which evidence reached selection: it does not prove that the selected video supports the objective. Inspect the later candidate classifications and resulting lesson to assess that distinction.

@@ -32,3 +32,7 @@ Once the plan is accepted, source finalization establishes the references its le
 ## Evidence stays attributable
 
 Uploaded documents and research results retain distinct identities. Topic-based lessons use sources returned by research; a generated source title alone cannot establish retrieved evidence. [Video research](06-p-youtube-research.md) adds selected resources with selection reasoning, while [ingestion](03-p-doc-processing.md) provides document and file context. [Lesson generation](02-p-lesson-gen.md) explains how the saved plan constrains the next stage.
+
+## Observability
+
+The authenticated [workflow state API](../../../apps/backend/src/routes/workflows.ts) exposes planning node status, attempt counts and failure codes. [Workflow logs](../../../apps/backend/src/workflows/workflowObservability.ts) connect run and attempt events through `runId`, with node definitions and retry outcomes identifying where planning stopped. These lifecycle signals establish execution, not factual coverage or prerequisite quality; inspect the saved research, verification and refinement outputs through [content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content) for those judgments.
