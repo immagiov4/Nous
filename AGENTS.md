@@ -48,7 +48,7 @@ Load a row when its condition applies. Skill names resolve through the harness's
 
 ## Project context
 
-Nous is an ADHD-friendly learning application. Use Italian in maintainer conversations and English in repository artifacts. Preserve the existing quality workflow, model selection, standard service tier, verification and publication rules in `PROJECT_RULES.md`. Memory uses the existing machine repository and the nous project bucket.
+Nous is an ADHD-friendly learning application. Use English in repository artifacts. Preserve the existing quality workflow, model selection, standard service tier, verification and publication rules in `PROJECT_RULES.md`. Memory uses the existing machine repository and the nous project bucket.
 
 Keep project context to durable orientation and pointers. Resolve unfamiliar facts from their owners before changing code.
 

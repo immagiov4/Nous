@@ -47,8 +47,9 @@ export function checkSections(text, required, file = '<stdin>') {
       const end = sections.find(h => h.line > heading.line && h.level <= heading.level)?.line ?? lines.length;
       const childHeadings = new Set(sections.filter(h => h.line > heading.line && h.line < end).flatMap(h => Array.from({ length: h.start - h.line }, (_, index) => h.line + index)));
       const body = contentLines.slice(heading.start, end).filter((line, index) => !childHeadings.has(index + heading.start) && !/^ {0,3}(?:`{3,}|~{3,})[^\n]*$/.test(line)).join('\n').trim();
-      if (!body.replace(/[\s*_`#>\-]/g, '')) errors.push(`${file}:${heading.line + 1}: Empty section: ${title}`);
-      else if (/^not applicable\b[\s.,:;!\-–—]*$/i.test(body)) errors.push(`${file}:${heading.line + 1}: Not applicable needs a reason: ${title}`);
+      const plain = body.replace(/[*_`#>]/g, '').trim();
+      if (!/[\p{L}\p{N}]/u.test(plain)) errors.push(`${file}:${heading.line + 1}: Empty section: ${title}`);
+      else if (/^(?:not applicable(?:[\s\p{P}]+because)?|n\/a|tbd|none)\b[\s\p{P}]*$/iu.test(plain)) errors.push(`${file}:${heading.line + 1}: Not applicable needs a reason: ${title}`);
     }
   }
   return errors;

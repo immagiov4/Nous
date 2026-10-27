@@ -1,13 +1,14 @@
 name: PR sections
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, edited, synchronize, reopened]
   workflow_call:
 permissions:
   contents: read
+  pull-requests: read
 jobs:
   sections:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,3 +50,9 @@ jobs:
         env:
           GATE_SCRIPT: ${{ steps.gate.outputs.script }}
         run: node "$GATE_SCRIPT"
+      - name: Check changed feature documents
+        shell: bash
+        env:
+          GATE_SCRIPT: ${{ steps.gate.outputs.script }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node "$GATE_SCRIPT" --docs
