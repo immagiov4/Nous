@@ -1,8 +1,8 @@
 {
   "version": 1,
   "docs": {
-    "root": ".cubic/wiki",
-    "style": "existing Cubic governance; developer checks in docs/TESTING.md",
+    "root": ".cubic/wiki/03-section-features",
+    "style": "existing Cubic feature pages; architecture remains in .cubic/wiki",
     "referenceRepo": null
   },
   "sections": {
@@ -27,20 +27,48 @@
       "enabled": true,
       "benchmark": null,
       "minToolCalls": 20,
-      "minDurationMs": 300000
+      "minDurationMs": 300000,
+      "measurement": {
+        "improves": "Useful recurring-friction signals captured after reminders",
+        "mayWorsen": "Handler latency, injected context bytes and irrelevant reminders",
+        "owner": "geppetto-measure-it",
+        "evidence": ".geppetto/hook-events.jsonl",
+        "status": "baseline/treatment comparison pending; not an activation threshold"
+      }
     },
     "signalLearning": {
       "enabled": true,
       "benchmark": null,
-      "writeApproval": false
+      "writeApproval": false,
+      "measurement": {
+        "improves": "Verified reusable improvements retained per completed signal-learning run",
+        "mayWorsen": "Subscription execution time, tokens and rejected or failed changes",
+        "owner": "geppetto-measure-it",
+        "evidence": ".geppetto/hook-events.jsonl",
+        "status": "baseline/treatment comparison pending; not an activation threshold"
+      }
     },
     "memoryClassifier": {
       "enabled": true,
-      "benchmark": null
+      "benchmark": null,
+      "measurement": {
+        "improves": "Relevant page suggestions yielding supported facts used in the task",
+        "mayWorsen": "OpenRouter latency and cost, irrelevant suggestions and injected context bytes",
+        "owner": "geppetto-measure-it",
+        "evidence": ".geppetto/hook-events.jsonl",
+        "status": "baseline/treatment comparison pending; not an activation threshold"
+      }
     },
     "skillSelector": {
       "enabled": true,
-      "benchmark": null
+      "benchmark": null,
+      "measurement": {
+        "improves": "Relevant procedures loaded when the task requires them",
+        "mayWorsen": "OpenRouter latency and cost, irrelevant suggestions and injected context bytes",
+        "owner": "geppetto-measure-it",
+        "evidence": ".geppetto/hook-events.jsonl",
+        "status": "baseline/treatment comparison pending; not an activation threshold"
+      }
     }
   },
   "memory": {
