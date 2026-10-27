@@ -52,3 +52,7 @@ Factual review can accept evident transcription corrections supported by retaine
 Markdown headings give a selected section its place in the document. Code archives use a file index instead: generation or chat can search that index and retrieve particular indexed text files, retaining their paths and source version. This avoids flattening unrelated files into one passage and gives [contextual chat](07-p-chat-ui.md) a bounded retrieval target.
 
 Start changes at [source text services](../../../apps/backend/src/services/projectSourceText.ts), [PDF text extraction](../../../apps/backend/src/services/pdfTextExtractor.ts) or [PDF image extraction](../../../apps/backend/src/services/pdfImageExtractor.ts), according to the lost context. Once preparation succeeds, [lesson generation](02-p-lesson-gen.md) selects and reviews how the evidence is used.
+
+## Observability
+
+The [preparation operation](../../../apps/backend/src/projects/projectImportChunks.ts) retains per-step progress, terminal status and failures for authenticated status polling. [Prepared source descriptors](../../../apps/backend/src/projects/sourceIngestion.ts) retain failed and blank page identities, allowing partial recovery to be distinguished from usable text. This operation is process-local rather than a durable generation trace. Successful extraction and valid mathematical syntax cannot establish transcription fidelity; compare recovered text with the original pages when assessing lost symbols or meaning.

@@ -28,3 +28,7 @@ The reader settings ask for inline confirmation before requesting regeneration. 
 The last saved lesson stays available while replacement work runs. Successful regeneration replaces its content and clears content-dependent answers and annotations; failed generation preserves saved content and progress. [Exercise state](08-p-interactive-exercises.md) explains this identity relationship.
 
 For a change to drafting or review, use [content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content) to read the saved replacement against its objective and evidence. This reaches the explanation the learner receives, including gaps a successful schema check cannot identify.
+
+## Observability
+
+[Workflow state](../../../apps/backend/src/routes/workflows.ts) exposes the lesson run's node statuses and failures; [attempt logs](../../../apps/backend/src/workflows/workflowObservability.ts) distinguish retries, checkpoint replay and completion by run and node. The [persistence tests](../../../apps/backend/tests/workflows/lessonGenerationPersistence.test.ts) cover atomic adoption, replacement of learner state and compensation. A completed run proves that content was committed, while the explanation's factual and teaching quality still requires the content evaluation described above.
