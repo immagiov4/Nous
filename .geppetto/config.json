@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "docs": {
+    "root": ".cubic/wiki",
+    "style": "existing Cubic governance; developer checks in docs/TESTING.md",
+    "referenceRepo": null
+  },
+  "sections": {
+    "pr": [
+      "Observability"
+    ],
+    "featureDocs": [
+      "Observability"
+    ],
+    "optional": [
+      "Verification"
+    ]
+  },
+  "review": {
+    "engine": "code-review"
+  },
+  "unitCoverage": "behaviour",
+  "packs": [],
+  "pillars": {},
+  "hooks": {
+    "learnNudge": {
+      "enabled": true,
+      "benchmark": null,
+      "minToolCalls": 20,
+      "minDurationMs": 300000
+    },
+    "signalLearning": {
+      "enabled": true,
+      "benchmark": null,
+      "writeApproval": false
+    },
+    "memoryClassifier": {
+      "enabled": true,
+      "benchmark": null
+    },
+    "skillSelector": {
+      "enabled": true,
+      "benchmark": null
+    }
+  },
+  "memory": {
+    "buckets": [
+      "nous"
+    ]
+  },
+  "hostChecks": {
+    "changed": [
+      "bun",
+      "run",
+      "check:changed"
+    ]
+  },
+  "projectRules": "PROJECT_RULES.md"
+}

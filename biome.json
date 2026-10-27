@@ -19,7 +19,8 @@
       "!!**/services/tts-server/qwen_tts.egg-info",
       "!!**/services/tts-server/__pycache__",
       "!!**/services/tts-server/api/__pycache__",
-      "!!**/services/tts-server/qwen_tts/__pycache__"
+      "!!**/services/tts-server/qwen_tts/__pycache__",
+      "!!**/.geppetto"
     ]
   },
   "formatter": {

@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "installations": {
+    "codex": {
+      "files": {
+        ".geppetto/bin/common.mjs": "4b34f1306a45fd7fa18e6c348103db4136264f178950372fec16874d5476a90f",
+        ".geppetto/bin/gate-agents.mjs": "2edc2188cfe5fb5c6e17e1667d8e0beb12acc2be6cf2ce3b4c622eb77fdfb916",
+        ".geppetto/bin/gate-sections.mjs": "1d417c5c4581a495adff283f1faed552009e59242db0ca5fab45f6064603cde7",
+        ".geppetto/bin/pr-event.mjs": "6587a9cdc388f7387e3b26c6bd80f1a844440878e629bbbae3d4dbce1e892256",
+        ".geppetto/config.json": "9f0e3e2e78c81c1e2cc9fbbeb41244cf30eefe167a3bff97db85bfa600bbe31b",
+        "AGENTS.md": "12426b8d6ed4892937aa9cbaca0bc6e0f5e6a99a7bdb00b454d1b872c6daec04",
+        "CLAUDE.md": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",
+        ".github/workflows/pr-gate.yml": "375c9f3ea47cee53d6856bf2486669e69181c3586cf88e45af47f01db13a4992"
+      },
+      "generated": [
+        ".geppetto/config.json",
+        ".github/workflows/pr-gate.yml",
+        "AGENTS.md",
+        "CLAUDE.md"
+      ],
+      "plugin": true
+    },
+    "claude": {
+      "files": {
+        ".geppetto/bin/common.mjs": "4b34f1306a45fd7fa18e6c348103db4136264f178950372fec16874d5476a90f",
+        ".geppetto/bin/gate-agents.mjs": "2edc2188cfe5fb5c6e17e1667d8e0beb12acc2be6cf2ce3b4c622eb77fdfb916",
+        ".geppetto/bin/gate-sections.mjs": "1d417c5c4581a495adff283f1faed552009e59242db0ca5fab45f6064603cde7",
+        ".geppetto/bin/pr-event.mjs": "6587a9cdc388f7387e3b26c6bd80f1a844440878e629bbbae3d4dbce1e892256"
+      },
+      "generated": [],
+      "plugin": true
+    }
+  },
+  "source": {
+    "path": "D:\\DevData\\Codex\\plugins\\cache\\geppetto\\geppetto\\0.1.0",
+    "version": "0.1.0"
+  }
+}
