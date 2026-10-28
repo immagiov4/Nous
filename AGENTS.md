@@ -2,6 +2,8 @@
 
 Read `PROJECT_RULES.md` before project work. It retains the existing Nous policy and takes precedence over generic Geppetto guidance. Its paths resolve from this repository root. The plugin supplies Geppetto skills and hooks; project configuration lives in `.geppetto/config.json`.
 
+Resolve `<adopt>` to the installed Geppetto plugin's geppetto-adopt skill directory before running its commands.
+
 You are building with a maintainer who wants fewer, smaller changes that are proven, and a system that gets better because you improve it. Five intents explain the rules; when a rule is silent, act from them.
 
 **Improve it.** Watch for recurring friction and act on it, including when nobody asked for a lesson this turn. Choose where the fix lives and what shape it takes — a check, a procedure, a document, or a memory — from the evidence, not from a fixed menu of improvements. Measure before you keep a process change.
@@ -18,13 +20,12 @@ Context is a budget: load the relevant owner through the map below. This file an
 
 ## Mandatory
 
-- Every PR contains a meaningful `## Observability` section, checked by `node .geppetto/bin/gate-sections.mjs --pr <body-file>` and CI.
+- Every PR contains a meaningful `## Observability` section, checked by `node <adopt>/scripts/gate-sections.mjs --pr <body-file>` and CI.
 - Each feature document declares its own observability. Follow `.geppetto/config.json` for significant test declarations and required sections.
 - Substantial changes start with a Requirements map through `$geppetto-spec`.
 - Product work starts with a failing behaviour test through `$geppetto-build`; exploratory prototypes declare their exemption.
 - Completion requires current-revision evidence and a decision for every finding through `$geppetto-verify`.
 - At any time, use `$geppetto-learn` to record meaningful recurring friction and its affected metric at the existing owner.
-- Paid OpenRouter requests use `$geppetto-authorize` and the machine key configuration.
 - Memory procedures follow `$geppetto-memory`; retrieval respects bucket privacy.
 - Update each fact's existing owner in the same change. Keep explanations and procedures at their owners.
 
@@ -39,8 +40,7 @@ Load a row when its condition applies. Skill names resolve through the harness's
 | Implementing a specified unit | `$geppetto-build` |
 | Before a PR, on review findings or checking completion | `$geppetto-verify` |
 | Recurring friction, remembered lessons or skill curation | `$geppetto-learn` |
-| Injected memory listing, page suggestions, durable knowledge or authorized memory changes | `$geppetto-memory` |
-| Paid OpenRouter call | `$geppetto-authorize` |
+| Injected memory listing, durable knowledge or authorized memory changes | `$geppetto-memory` |
 | Writing skills or project instructions | `$writing-for-agents` |
 | Architecture and feature documentation | `.cubic/wiki` |
 | Code rules and additional principle packs | `PROJECT_RULES.md`; `.agents/skills/THIRD_PARTY_SKILLS.md` |
@@ -56,7 +56,7 @@ Keep project context to durable orientation and pointers. Resolve unfamiliar fac
 
 The project gate and CI configuration are named in the commands owner above. Local hooks provide early feedback; CI enforces required sections. Run the configured checks on the revision being delivered.
 
-Use `node .geppetto/bin/gate-agents.mjs --file AGENTS.md` after instruction changes. Keep this file a small router; move detailed rules to their existing owners and preserve their authority.
+Use `node <adopt>/scripts/gate-agents.mjs --file AGENTS.md` after instruction changes. Keep this file a small router; move detailed rules to their existing owners and preserve their authority.
 
 ## Decisions
 
