@@ -14,45 +14,23 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.base.sha }}
+          path: project
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
-      # Only base code or the owner's immutable bootstrap artifact may execute.
-      - name: Select trusted gate
-        id: gate
-        shell: bash
-        env:
-          BOOTSTRAP_REPOSITORY: ${{ vars.GEPPETTO_BOOTSTRAP_REPOSITORY }}
-          BOOTSTRAP_SHA: ${{ vars.GEPPETTO_BOOTSTRAP_SHA }}
-        run: |
-          if [ -f .geppetto/bin/pr-event.mjs ]; then
-            printf 'script=.geppetto/bin/pr-event.mjs\nbootstrap=false\n' >> "$GITHUB_OUTPUT"
-          elif [ -f skills/geppetto-adopt/scripts/pr-event.mjs ]; then
-            printf 'script=skills/geppetto-adopt/scripts/pr-event.mjs\nbootstrap=false\n' >> "$GITHUB_OUTPUT"
-          else
-            if [[ ! "$BOOTSTRAP_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ || ! "$BOOTSTRAP_SHA" =~ ^[a-fA-F0-9]{40}$ ]]; then
-              echo 'First adoption requires owner-set GEPPETTO_BOOTSTRAP_REPOSITORY and GEPPETTO_BOOTSTRAP_SHA (full immutable commit SHA).' >&2
-              exit 1
-            fi
-            printf 'script=.geppetto-bootstrap/skills/geppetto-adopt/scripts/pr-event.mjs\nbootstrap=true\n' >> "$GITHUB_OUTPUT"
-          fi
-      - name: Fetch owner-pinned bootstrap
-        if: steps.gate.outputs.bootstrap == 'true'
+      - name: Fetch pinned Geppetto package
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: ${{ vars.GEPPETTO_BOOTSTRAP_REPOSITORY }}
-          ref: ${{ vars.GEPPETTO_BOOTSTRAP_SHA }}
-          path: .geppetto-bootstrap
+          repository: immagiov4/Geppetto
+          ref: e5ea49922844f31a74dcd2d4ba05978bf8ad3d58
+          path: geppetto
           persist-credentials: false
       - name: Check required sections
-        shell: bash
-        env:
-          GATE_SCRIPT: ${{ steps.gate.outputs.script }}
-        run: node "$GATE_SCRIPT"
+        working-directory: project
+        run: node ../geppetto/skills/geppetto-adopt/scripts/pr-event.mjs
       - name: Check changed feature documents
-        shell: bash
+        working-directory: project
         env:
-          GATE_SCRIPT: ${{ steps.gate.outputs.script }}
           GITHUB_TOKEN: ${{ github.token }}
-        run: node "$GATE_SCRIPT" --docs
+        run: node ../geppetto/skills/geppetto-adopt/scripts/pr-event.mjs --docs

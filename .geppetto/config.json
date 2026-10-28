@@ -47,28 +47,6 @@
         "evidence": ".geppetto/hook-events.jsonl",
         "status": "baseline/treatment comparison pending; not an activation threshold"
       }
-    },
-    "memoryClassifier": {
-      "enabled": true,
-      "benchmark": null,
-      "measurement": {
-        "improves": "Relevant page suggestions yielding supported facts used in the task",
-        "mayWorsen": "OpenRouter latency and cost, irrelevant suggestions and injected context bytes",
-        "owner": "geppetto-measure-it",
-        "evidence": ".geppetto/hook-events.jsonl",
-        "status": "baseline/treatment comparison pending; not an activation threshold"
-      }
-    },
-    "skillSelector": {
-      "enabled": true,
-      "benchmark": null,
-      "measurement": {
-        "improves": "Relevant procedures loaded when the task requires them",
-        "mayWorsen": "OpenRouter latency and cost, irrelevant suggestions and injected context bytes",
-        "owner": "geppetto-measure-it",
-        "evidence": ".geppetto/hook-events.jsonl",
-        "status": "baseline/treatment comparison pending; not an activation threshold"
-      }
     }
   },
   "memory": {
