@@ -29,9 +29,10 @@ import {
 } from '../../utils/reader/lessonPlaybackBuffer.ts';
 import { loadSceneIconNodes } from '../../utils/visuals/sceneIconNodes.ts';
 
-// A player can close before its owned server cancellation settles.
+// Maintainer decision for #455 (2026-10-29): wait at most 10 s, then show an error with Riprova.
 const PLAYBACK_CANCELLATION_WAIT_MS = 10_000;
 type OwnedCancellation = { pending: Promise<void>; controller: AbortController };
+// A player can close before its owned server cancellation settles.
 const playbackCancellations = new Map<string, OwnedCancellation>();
 
 type Playback = { lessonKey: string; blocks: readonly LessonPlaybackBlock[] };
@@ -106,11 +107,12 @@ function trackCancellation(
 ) {
   const previous = cancellations.get(key);
   const controller = previous?.controller ?? new AbortController();
-  // A joined creation may be cancelled while another player still owns this block.
+  // Start independently, but retain ownership even if an earlier cancellation fails.
   const cancellation = {
-    pending: previous
-      ? previous.pending.finally(() => cancel(controller.signal))
-      : cancel(controller.signal),
+    pending: Promise.allSettled([previous?.pending, cancel(controller.signal)]).then(results => {
+      const failure = results.find(result => result.status === 'rejected');
+      if (failure) throw failure.reason;
+    }),
     controller,
   };
   cancellations.set(key, cancellation);

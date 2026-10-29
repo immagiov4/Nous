@@ -1452,3 +1452,98 @@ test('a cancelled joined creation cannot release another player owned cancellati
   await act(async () => cancelled.resolve());
   await waitFor(() => expect(second.result.current.playing).toBe(true));
 });
+
+test.each([
+  'joined',
+  'rejected',
+] as const)('a stalled %s creation does not delay another player cancellation POST or release shared ownership', async outcome => {
+  const client = await vi.importActual<
+    typeof import('../../../services/openrouter/lessonPlaybackClient.ts')
+  >('../../../services/openrouter/lessonPlaybackClient.ts');
+  vi.mocked(getLessonPlayback).mockResolvedValue({
+    lessonKey: 'a'.repeat(64),
+    blocks: [blocks[0]],
+  });
+  const creation = deferred<Awaited<ReturnType<typeof prepareLessonPlayback>>>();
+  const status = deferred<Response>();
+  const cancelledState = () =>
+    new Response(
+      JSON.stringify({
+        success: true,
+        state: {
+          run: {
+            id: 'known',
+            projectId: target.projectId,
+            workflowId: 'prepare-lesson-playback-block',
+            status: 'cancelled',
+            cleanupStatus: 'completed',
+          },
+        },
+      })
+    );
+  const fetch = vi
+    .spyOn(playbackAuth, 'fetchWithSupabaseAuth')
+    .mockResolvedValueOnce(new Response('{}'))
+    .mockReturnValueOnce(status.promise);
+  vi.mocked(prepareLessonPlayback)
+    .mockReturnValueOnce(creation.promise)
+    .mockResolvedValueOnce({ runId: 'known', blockId: '0', voice: 'Kore', created: true });
+  vi.mocked(waitForLessonPlayback).mockImplementationOnce((_, __, signal) =>
+    pendingUntilAbort(new Promise<void>(() => {}), signal)
+  );
+  vi.mocked(cancelLessonPlaybackPreparation).mockImplementationOnce(
+    client.cancelLessonPlaybackPreparation
+  );
+  const first = renderHook(() => useLessonPlayback(target));
+  const second = renderHook(() => useLessonPlayback(target));
+  act(() => {
+    void first.result.current.play();
+  });
+  await waitFor(() => expect(prepareLessonPlayback).toHaveBeenCalledTimes(1));
+  act(() => {
+    void second.result.current.play();
+  });
+  await waitFor(() => expect(waitForLessonPlayback).toHaveBeenCalled());
+  try {
+    act(() => first.result.current.pause());
+    act(() => second.result.current.pause());
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/runs/known/cancellation'),
+        expect.objectContaining({ method: 'POST' })
+      )
+    );
+    const signal = vi.mocked(cancelLessonPlaybackPreparation).mock.calls[0][2];
+    await act(async () => {
+      if (outcome === 'joined') status.resolve(cancelledState());
+      else creation.reject(new Error('Preparation response unavailable'));
+    });
+    expect(signal?.aborted).toBe(false);
+    act(() => {
+      void second.result.current.play();
+    });
+    await act(async () => {});
+    expect(prepareLessonPlayback).toHaveBeenCalledTimes(2);
+    expect(second.result.current.loading).toBe(true);
+    await act(async () => {
+      if (outcome === 'joined')
+        creation.resolve({ runId: 'known', blockId: '0', voice: 'Kore', created: false });
+      else status.resolve(cancelledState());
+    });
+    expect(signal?.aborted).toBe(true);
+    if (outcome === 'rejected') {
+      await waitFor(() => expect(second.result.current.failed).toBe(true));
+      expect(prepareLessonPlayback).toHaveBeenCalledTimes(2);
+      act(() => {
+        void second.result.current.play();
+      });
+    }
+    await waitFor(() => expect(second.result.current.playing).toBe(true));
+  } finally {
+    await act(async () => {
+      creation.resolve({ runId: 'known', blockId: '0', voice: 'Kore', created: false });
+      status.resolve(cancelledState());
+    });
+    fetch.mockRestore();
+  }
+});
