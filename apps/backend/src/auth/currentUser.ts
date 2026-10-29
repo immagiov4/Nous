@@ -16,6 +16,7 @@ const AUTH_REQUIRED_MESSAGE = 'Accesso richiesto.';
 const INVALID_AUTH_MESSAGE = 'Sessione non valida. Accedi di nuovo.';
 const PASSWORD_SETUP_REQUIRED_MESSAGE = 'Completa la configurazione della password.';
 const JWKS_CACHE_MS = 5 * 60 * 1000;
+const JWKS_REFRESH_COOLDOWN_MS = 30 * 1000;
 const SUPABASE_ACCESS_TOKEN_AUDIENCE = 'authenticated';
 
 type AuthMode = typeof LOCAL_AUTH_MODE | typeof SUPABASE_AUTH_MODE;
@@ -40,6 +41,11 @@ interface CachedJwks {
 }
 
 let cachedJwks: CachedJwks | null = null;
+let jwksRefresh: {
+  pending: Promise<Record<string, unknown>[]> | null;
+  retryAfter: number;
+  url: string;
+} | null = null;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -120,13 +126,7 @@ const getSupabaseJwksUrl = (): string => {
   return `${supabaseUrl.replace(/\/$/, '')}/auth/v1/.well-known/jwks.json`;
 };
 
-const loadSupabaseJwks = async (forceRefresh = false): Promise<Record<string, unknown>[]> => {
-  const url = getSupabaseJwksUrl();
-  const now = Date.now();
-  if (!forceRefresh && cachedJwks?.url === url && cachedJwks.expiresAt > now) {
-    return cachedJwks.keys;
-  }
-
+const fetchSupabaseJwks = async (url: string): Promise<Record<string, unknown>[]> => {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to load Supabase JWKS: ${response.status}`);
@@ -139,11 +139,43 @@ const loadSupabaseJwks = async (forceRefresh = false): Promise<Record<string, un
   }
 
   cachedJwks = {
-    expiresAt: now + JWKS_CACHE_MS,
+    expiresAt: Date.now() + JWKS_CACHE_MS,
     keys,
     url,
   };
   return keys;
+};
+
+const loadSupabaseJwks = async (forceRefresh = false): Promise<Record<string, unknown>[]> => {
+  const url = getSupabaseJwksUrl();
+  const now = Date.now();
+  if (!forceRefresh && cachedJwks?.url === url && cachedJwks.expiresAt > now) {
+    return cachedJwks.keys;
+  }
+
+  if (jwksRefresh?.url === url) {
+    if (jwksRefresh.pending) return jwksRefresh.pending;
+    if (cachedJwks?.url === url && jwksRefresh.retryAfter > now) {
+      if (cachedJwks.expiresAt <= now) {
+        throw new Error('Supabase JWKS refresh is cooling down.');
+      }
+      return cachedJwks.keys;
+    }
+  }
+
+  const pending = fetchSupabaseJwks(url);
+  const refresh: NonNullable<typeof jwksRefresh> = {
+    pending,
+    // Failed refreshes retain the cooldown even after the cached keys expire.
+    retryAfter: cachedJwks?.url === url ? now + JWKS_REFRESH_COOLDOWN_MS : 0,
+    url,
+  };
+  jwksRefresh = refresh;
+  try {
+    return await pending;
+  } finally {
+    refresh.pending = null;
+  }
 };
 
 const verifyEs256Signature = async ({
