@@ -34,7 +34,7 @@ bun run lint:types  # When types or interfaces changed
 
 Changed-file checks run without the shared heavy-run lock. CI owns full quality, tests, coverage and SonarCloud. Browser suites and other heavy package scripts queue automatically across worktrees. Use `bun scripts/heavy-run.mjs status` to inspect the queue and wrap additional browser or Docker proofs with `bun scripts/heavy-run.mjs --label "who/what" -- <command...>`.
 
-`bun run test:interview-recovery` checks source upload, rejected interview startup and retry from the library after a page reload. Set `NOUS_E2E_DATA` to an external evidence directory. The full frontend uses real project routes with the existing in-memory store and deterministic workflow responses; external AI calls are intercepted. CI runs this Chromium proof and uploads its screenshots and result as the `interview-recovery` artifact.
+`bun run test:interview-recovery` checks source upload, rejected interview startup and retry from the library after a page reload. Set `NOUS_E2E_DATA` to an external evidence directory. The deterministic browser profile in `e2e/nous/stack.ts` owns startup, authentication and teardown. The full frontend uses real project routes with the existing in-memory store and deterministic workflow responses; external AI calls are intercepted. CI runs this Chromium proof and uploads its screenshots and result as the `interview-recovery` artifact.
 
 ### Heavy command leases
 

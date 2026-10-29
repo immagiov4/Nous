@@ -1,10 +1,15 @@
 import { closeSync, openSync } from 'node:fs';
 import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer as createHttpServer } from 'node:http';
 import { createServer } from 'node:net';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import type { Browser, Page } from 'playwright';
+import type { ViteDevServer } from 'vite';
 import * as z from 'zod';
+import type { CreateAppOptions } from '../../apps/backend/src/index';
+import type { InMemoryProjectStore } from '../../apps/backend/tests/helpers/inMemoryProjectStore';
 import { recordDiagnostic } from '../../packages/playtest/src/diagnostics';
 import {
   ensureSharedSupabase,
@@ -438,6 +443,91 @@ export async function stopStack(
   await stopAppServers(options);
   if (options.stopSupabase) await options.stopSupabase();
   else await releaseSharedSupabase();
+}
+
+/** Deterministic full-app browser profile; run each proof in its own process. */
+export async function withMemoryProjectBrowserStack<T>(
+  options: { userId: string; appOptions: CreateAppOptions },
+  scenario: (context: { page: Page; store: InMemoryProjectStore; url: string }) => Promise<T>
+): Promise<T> {
+  const authMode = 'local-bypass' as const;
+  const previousEnvironment = {
+    NODE_ENV: process.env.NODE_ENV,
+    AUTH_MODE: process.env.AUTH_MODE,
+    LOCAL_USER_ID: process.env.LOCAL_USER_ID,
+    CORS_ALLOWED_ORIGINS: process.env.CORS_ALLOWED_ORIGINS,
+  };
+  Object.assign(process.env, {
+    NODE_ENV: 'test',
+    AUTH_MODE: authMode,
+    LOCAL_USER_ID: options.userId,
+  });
+  const { chromium } = await import('playwright');
+  const { createServer } = await import('vite');
+  const { withMutedAudio } = await import('../../scripts/browser-audio');
+  const { createApp } = await import('../../apps/backend/src/index');
+  const { InMemoryProjectStore } = await import(
+    '../../apps/backend/tests/helpers/inMemoryProjectStore'
+  );
+  const { setProjectStoreForTesting } = await import(
+    '../../apps/backend/src/projects/projectStore'
+  );
+  const store = new InMemoryProjectStore();
+  setProjectStoreForTesting(store);
+  const backend = createHttpServer();
+  let frontend: ViteDevServer | undefined;
+  let browser: Browser | undefined;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      backend.once('error', reject);
+      backend.listen(0, '127.0.0.1', resolve);
+    });
+    const address = backend.address();
+    if (!address || typeof address === 'string')
+      throw new Error('Browser proof backend has no port.');
+    frontend = await createServer({
+      configFile: join(REPO_ROOT, 'apps/web/vite.config.ts'),
+      mode: 'test',
+      server: {
+        host: '127.0.0.1',
+        port: 0,
+        strictPort: false,
+        proxy: {
+          '/api': { target: `http://127.0.0.1:${address.port}`, changeOrigin: true },
+        },
+      },
+    });
+    await frontend.listen();
+    const url = frontend.resolvedUrls?.local[0]?.replace(/\/$/, '');
+    if (!url) throw new Error('Browser proof frontend has no URL.');
+    process.env.CORS_ALLOWED_ORIGINS = url;
+    backend.on('request', createApp(options.appOptions));
+    browser = await chromium.launch(withMutedAudio({ headless: true }));
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    // Provider calls belong to real-provider proofs, not this deterministic profile.
+    await page.route('**/api/openrouter/**', route => route.fulfill({ status: 503, body: '{}' }));
+    await page.route('**/api/images/**', route => route.fulfill({ status: 503, body: '{}' }));
+    await page.addInitScript(
+      config => {
+        Object.assign(globalThis, { __NOUS_RUNTIME_CONFIG__: config });
+      },
+      { authMode, backendUrl: url }
+    );
+    return await scenario({ page, store, url });
+  } finally {
+    await browser?.close();
+    await frontend?.close();
+    if (backend.listening) {
+      await new Promise<void>((resolve, reject) =>
+        backend.close(error => (error ? reject(error) : resolve()))
+      );
+    }
+    setProjectStoreForTesting(null);
+    for (const [name, value] of Object.entries(previousEnvironment)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
 }
 
 if (import.meta.main) {
