@@ -144,6 +144,39 @@ describe('new home favorites', () => {
 });
 
 describe('new home source library', () => {
+  test('drops previous source files when the first refreshed batch fails after source replacement', async () => {
+    const project = buildProject(1);
+    const snapshot = {
+      id: project.id,
+      source: {
+        kind: 'archive',
+        name: 'original.zip',
+        file: { data: 'emlw', name: 'original.zip', mimeType: 'application/zip' },
+      },
+    };
+    let failReload!: (error: Error) => void;
+    const loadProjectsById = vi
+      .fn()
+      .mockResolvedValueOnce([snapshot])
+      .mockReturnValueOnce(
+        new Promise((_, reject) => {
+          failReload = reject;
+        })
+      );
+    const { result, rerender } = renderHook(
+      ({ projects }) => useSourceLibrary({ enabled: true, loadProjectsById, projects }),
+      { initialProps: { projects: [project] } }
+    );
+    await waitFor(() => expect(result.current.items[0]?.file.name).toBe('original.zip'));
+    rerender({ projects: [{ ...project, revision: 2, coverLabel: 'replacement.zip' }] });
+    await waitFor(() => expect(result.current.isLoading).toBe(true));
+    expect(result.current.items[0]?.file.name).toBe('original.zip');
+    await act(async () => failReload(new Error('snapshot unavailable')));
+    await waitFor(() => expect(result.current.hasLoadError).toBe(true));
+    expect(result.current.items).toEqual([]);
+    expect(result.current.isLoading).toBe(false);
+  });
+
   test.each([
     false,
     true,
@@ -171,7 +204,7 @@ describe('new home source library', () => {
     expect(result.current.hasLoadError).toBe(false);
   });
 
-  test('removes deleted courses from retained sources when a reload fails', async () => {
+  test('removes deleted courses before reload and drops unverified sources after failure', async () => {
     const projects = [buildProject(1), buildProject(2)];
     const snapshots = projects.map(project => ({
       id: project.id,
@@ -202,7 +235,7 @@ describe('new home source library', () => {
     await act(async () => failReload(new Error('snapshot unavailable')));
     await waitFor(() => expect(result.current.hasLoadError).toBe(true));
     expect(result.current.isLoading).toBe(false);
-    expect(result.current.items.map(item => item.projectId)).toEqual(['project-2']);
+    expect(result.current.items).toEqual([]);
   });
 
   test('retains a successful batch and exposes failure when the next batch rejects', async () => {

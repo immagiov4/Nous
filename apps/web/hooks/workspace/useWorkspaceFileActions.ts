@@ -1,6 +1,7 @@
 import type { ChangeEvent } from 'react';
 import { useCallback, useId, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { ProjectStorageError } from '../../services/projects/projectRepository.ts';
 import { inspectSourceSelection } from '../../services/projects/sourceFileSelection.ts';
 import { formatSourceWarningSummary } from '../../services/projects/sourceWarningSummary.ts';
 import type { ProjectSourceWarning, SavedProjectMeta } from '../../types.ts';
@@ -146,7 +147,12 @@ export const useWorkspaceFileActions = ({
 
       try {
         await deleteProject(projectId);
-      } catch {
+      } catch (error) {
+        const storageError = error instanceof ProjectStorageError ? error : undefined;
+        console.error('[Nous][Delete] Course deletion could not be confirmed.', {
+          code: storageError?.code ?? 'unknown',
+          httpStatus: storageError?.httpStatus,
+        });
         notify(t('Eliminazione del corso non confermata. Ricarica la pagina.'));
       }
     },

@@ -144,9 +144,9 @@ export const useSourceLibrary = ({
       };
     }
     void (async () => {
+      const collectedItems: SourceLibraryItem[] = [];
       try {
         const projectById = new Map(projects.map(project => [project.id, project]));
-        const collectedItems: SourceLibraryItem[] = [];
         for (let index = 0; index < projectIds.length; index += SOURCE_LIBRARY_BATCH_SIZE) {
           const snapshots = await loadProjectsById(
             projectIds.slice(index, index + SOURCE_LIBRARY_BATCH_SIZE)
@@ -204,6 +204,7 @@ export const useSourceLibrary = ({
         }
       } catch {
         if (isCurrent) {
+          setItems([...collectedItems]);
           setHasLoadError(true);
         }
       } finally {
