@@ -76,6 +76,7 @@ describe('workflow PostgreSQL CI contract', () => {
       'bun run test:caption-rows',
       'bun apps/web/tests/components/workspace/PlaybackFocus.browser.ts',
       'bun run gate:ci',
+      'bun run test:interview-recovery',
     ]);
     expect(await probePackageScripts(['gate:ci'])).toEqual([
       'quality:ci',
