@@ -8,6 +8,7 @@ import type {
 } from '../../types.ts';
 import type {
   ChatArtifactActionRequest,
+  ChatArtifactActionResult,
   ChatArtifactRegenerateRequest,
   ChatArtifactReplaceRequest,
 } from '../shared/ChatArtifactRenderer.tsx';
@@ -80,7 +81,9 @@ interface HomeChatPanelProps {
   readonly onLibraryArtifactRegenerate?: (
     request: ChatArtifactRegenerateRequest
   ) => Promise<boolean> | boolean;
-  readonly onLibraryArtifactReplace?: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
+  readonly onLibraryArtifactReplace?: (
+    request: ChatArtifactReplaceRequest
+  ) => Promise<ChatArtifactActionResult> | Promise<void> | void;
   readonly onLibraryWebSearchChange: (value: boolean) => void;
   readonly onLibraryGenerateArtifactsChange: (value: boolean) => void;
   readonly onSendAssessmentMessage: (message: string) => Promise<void>;
