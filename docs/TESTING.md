@@ -4,6 +4,16 @@ Run fast checks on changed files and targeted tests while editing, then push for
 
 Browser tests are always muted; audio is verified inside the page or from files.
 
+## Cloud Codex environment
+
+After dependencies are installed, run `bun run setup:codex` in the cloud setup command. It installs Geppetto at the commit already pinned by the PR gate, and My Codex Skills and Ponytail at reviewed commits, through Codex's native plugin manager. Pin changes replace only clean native marketplaces from those repositories; custom sources, sparse configurations and local edits stop setup for preservation. It reuses the machine's memory choice, otherwise links the existing Nous memory repository, adopts the project, approves only the two installed hook packs, and checks their skills through the native discovery API. Geppetto reuses the maintenance jobs already registered on another machine.
+
+Start a fresh Codex session after setup. Invoke `$my-codex-skills:engineering-workflow`, `$ponytail:ponytail` and the explicit `$my-codex-skills:principle-<name>` skills. Plugin installation and trusted hashes establish configuration; actual session IDs in `.geppetto/hook-events.jsonl` establish execution. Verify startup, a tool call and completion in that fresh session. The active chat may have started before setup and does not gain hook evidence retroactively.
+
+Codex CLI authentication belongs to the cloud environment. If a real turn reports an expired login, run `codex login --device-auth` and complete the device flow; never commit authentication files. The setup command does not change credentials or run a model. Learning uses the configured model and the existing Geppetto lifecycle. Keep runtime evidence outside Git.
+
+Run `bun run gate:cloud` for the complete gate in this Linux cloud image. It uses a sibling directory for disk-backed temporary staging, a Git discovery ceiling to isolate temporary repositories from enclosing checkouts, and the image's existing `docker-init` as a subreaper. This covers the image's tmpfs `/tmp` and non-reaping PID 1 without changing application checks or timeouts. The four signal-cleanup cases that timed out on the unchanged base pass under this command's process supervisor.
+
 ## Local checks
 
 After installing dependencies with `bun run deps:install`, install Chromium for browser tests:
