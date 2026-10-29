@@ -1086,6 +1086,8 @@ export class PostgresProjectStore implements ProjectStore {
       snapshot = await this.detachUnchangedEmbeddedSource(userId, snapshot, existingSnapshot);
     }
 
+    sourcePreparation?.signal.throwIfAborted();
+
     if (
       expectedRevision === undefined &&
       existingSnapshot &&
@@ -1096,18 +1098,24 @@ export class PostgresProjectStore implements ProjectStore {
       });
       return {
         meta: mergeProjectMetaRow(
-          await writeProjectMetaRevision(this.sql, {
-            isNewProject: false,
-            meta,
-            projectId: meta.id,
-            userId,
-          })
+          await this.withMeasuredConnection(sql =>
+            this.runReservedTransaction(
+              sql,
+              transaction =>
+                writeProjectMetaRevision(transaction, {
+                  isNewProject: false,
+                  meta,
+                  projectId: meta.id,
+                  userId,
+                }),
+              sourcePreparation?.signal
+            )
+          )
         ),
         snapshot: existingSnapshot,
       };
     }
 
-    sourcePreparation?.signal.throwIfAborted();
     const sourceWrite = sourceFiles
       ? await this.prepareProjectSourceFiles(userId, snapshot, sourceFiles, existingSnapshot)
       : await this.prepareProjectSourceWrite(userId, snapshot, sourceFile);
@@ -1228,7 +1236,7 @@ export class PostgresProjectStore implements ProjectStore {
             sourcePreparation?.signal
           )
         : await this.withMeasuredConnection(sql =>
-            this.runReservedTransaction(sql, persistProject)
+            this.runReservedTransaction(sql, persistProject, sourcePreparation?.signal)
           );
       replacedObjectPaths = transactionResult.replacedObjectPaths;
       savedMeta = transactionResult.meta;
