@@ -1068,7 +1068,7 @@ describe('NewHomeView library interactions', () => {
         )
       ).not.toBeInTheDocument();
       await user.clear(search);
-      await user.click(screen.getByRole('button', { name: 'PDF', exact: true }));
+      await user.click(screen.getByRole('button', { name: 'PDF' }));
       expect(screen.getByText('Nessuna fonte corrisponde a questa ricerca.')).toBeInTheDocument();
       expect(
         screen.queryByText(
