@@ -256,7 +256,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         }
 
         domain.setLearningPlan(result.plan);
-        void projectLibrary.patchCurrentProject(
+        const persistedProject = await projectLibrary.patchCurrentProject(
           {
             learningPlan: result.plan,
             activeSectionId: domain.activeSectionId,
@@ -264,6 +264,12 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           },
           projectId
         );
+        if (!persistedProject) {
+          throw new Error(
+            t('Non sono riuscito a salvare la pianificazione degli esercizi. Riprova.')
+          );
+        }
+        if (!state.isWorkflowCurrent('generateExercise', requestId)) return { outcome: 'noop' };
         state.succeedWorkflow('generateExercise', requestId);
         return { outcome: 'repaired' };
       } catch (error) {
