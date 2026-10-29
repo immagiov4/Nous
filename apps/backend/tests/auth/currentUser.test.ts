@@ -306,6 +306,112 @@ describe('resolveCurrentUser', () => {
   });
 
   test.each([
+    200, 503,
+  ])('bounds repeated unknown-key refreshes after a %s response and accepts rotation after cooldown', async refreshStatus => {
+    process.env.AUTH_MODE = 'supabase';
+    process.env.SUPABASE_URL = `http://cooldown-${refreshStatus}.test`;
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    let keyPair = await webcrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
+      'sign',
+      'verify',
+    ]);
+    let publicJwk = await webcrypto.subtle.exportKey('jwk', keyPair.publicKey);
+    let publishedKeyId = 'old-key';
+    const fetchMock = vi.fn(async () => {
+      const status = fetchMock.mock.calls.length === 2 ? refreshStatus : 200;
+      return new Response(JSON.stringify({ keys: [{ ...publicJwk, kid: publishedKeyId }] }), {
+        status,
+      });
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    const app = createPrivateApp();
+    const authenticate = async (keyId: string) => {
+      const token = await signEs256Jwt(
+        keyPair,
+        keyId,
+        createAccessTokenPayload({ iss: `${process.env.SUPABASE_URL}/auth/v1` })
+      );
+      return request(app).get('/private').set('Authorization', `Bearer ${token}`);
+    };
+
+    expect((await authenticate('old-key')).status).toBe(200);
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect((await authenticate(`unknown-${attempt}`)).status).toBe(401);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((await authenticate('old-key')).status).toBe(200);
+
+    publishedKeyId = 'rotated-key';
+    keyPair = await webcrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
+      'sign',
+      'verify',
+    ]);
+    publicJwk = await webcrypto.subtle.exportKey('jwk', keyPair.publicKey);
+    now += 29_999;
+    expect((await authenticate('rotated-key')).status).toBe(401);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    now += 1;
+    expect((await authenticate('rotated-key')).status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  test('shares one in-flight JWKS refresh across concurrent unknown keys', async () => {
+    process.env.AUTH_MODE = 'supabase';
+    process.env.SUPABASE_URL = 'http://concurrent-jwks.test';
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const keyPair = await webcrypto.subtle.generateKey(
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      true,
+      ['sign', 'verify']
+    );
+    const publicJwk = await webcrypto.subtle.exportKey('jwk', keyPair.publicKey);
+    let releaseRefresh!: () => void;
+    const refreshBlocked = new Promise<void>(resolve => {
+      releaseRefresh = resolve;
+    });
+    const fetchMock = vi.fn(async () => {
+      if (fetchMock.mock.calls.length > 1) await refreshBlocked;
+      return new Response(JSON.stringify({ keys: [{ ...publicJwk, kid: 'known-key' }] }));
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    const app = createPrivateApp();
+    const knownToken = await signEs256Jwt(
+      keyPair,
+      'known-key',
+      createAccessTokenPayload({ iss: `${process.env.SUPABASE_URL}/auth/v1` })
+    );
+    expect(
+      (await request(app).get('/private').set('Authorization', `Bearer ${knownToken}`)).status
+    ).toBe(200);
+    const tokens = await Promise.all(
+      Array.from({ length: 5 }, (_, index) =>
+        signEs256Jwt(
+          keyPair,
+          `unknown-${index}`,
+          createAccessTokenPayload({ iss: `${process.env.SUPABASE_URL}/auth/v1` })
+        )
+      )
+    );
+    const responses = Promise.all(
+      tokens.map(token => request(app).get('/private').set('Authorization', `Bearer ${token}`))
+    );
+    try {
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      // A known key still authenticates while the refresh is blocked.
+      expect(
+        (await request(app).get('/private').set('Authorization', `Bearer ${knownToken}`)).status
+      ).toBe(200);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      releaseRefresh();
+    }
+    expect((await responses).map(response => response.status)).toEqual(Array(5).fill(401));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test.each([
     ['without expiration', { exp: undefined }],
     ['from a different issuer', { iss: 'https://attacker.example/auth/v1' }],
     ['for a different audience', { aud: 'anon' }],
