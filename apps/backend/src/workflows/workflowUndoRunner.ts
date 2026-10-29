@@ -12,6 +12,7 @@ import {
   isTransientPostgresCheckpointError,
 } from './workflowCheckpointRetry.js';
 import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
+import { emitWorkflowHeartbeatFailure } from './workflowObservability.js';
 import {
   DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS,
   DEFAULT_WORKFLOW_LEASE_MS,
@@ -191,12 +192,17 @@ const recordFailure = async (
 
 const stopForUndoInterruption = async (
   monitor: WorkflowAttemptMonitor,
+  claim: WorkflowUndoClaim,
   error?: unknown
 ): Promise<WorkflowUndoRunnerResult | null> => {
   const interruption = await monitor.stop();
   if (!interruption)
     return error instanceof WorkflowUndoLeaseLostError ? { status: 'lease-lost' } : null;
-  return typeof interruption === 'object' ? interruption : { status: 'lease-lost' };
+  if (typeof interruption === 'object') {
+    emitWorkflowHeartbeatFailure(claim, 'undo', interruption.diagnostic);
+    return interruption;
+  }
+  return { status: 'lease-lost' };
 };
 export const workflowUndoIdempotencyKey = (claim: WorkflowUndoClaim): string =>
   workflowOperationIdempotencyKey('undo', claim.runId, claim.nodeInstanceId);
@@ -250,7 +256,7 @@ export const runWorkflowUndoClaim = async <Services>(
   clearTimeout(timeout);
 
   if (undoResult.status !== 'succeeded' || timedOut || monitor.interruption()) {
-    const interruption = await stopForUndoInterruption(monitor);
+    const interruption = await stopForUndoInterruption(monitor, input.claim);
     if (interruption) return interruption;
     const failureCause =
       undoResult.status === 'failed' ? undoResult.error : controller.signal.reason;
@@ -269,7 +275,7 @@ export const runWorkflowUndoClaim = async <Services>(
     await monitor.stop();
     return result;
   } catch (error) {
-    const interruption = await stopForUndoInterruption(monitor, error);
+    const interruption = await stopForUndoInterruption(monitor, input.claim, error);
     if (interruption) return interruption;
     if (isTransientPostgresCheckpointError(error)) {
       throw new Error('Transient undo completion retry ended without losing the lease.', {

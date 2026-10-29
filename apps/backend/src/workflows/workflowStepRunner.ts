@@ -1,6 +1,5 @@
 import type { TransactionSql } from 'postgres';
 import * as z from 'zod';
-
 import {
   firstSanitizedZodIssue,
   formatValidationPath,
@@ -30,6 +29,7 @@ import {
 import { executeWorkflowCheckpointWithRetry } from './workflowCheckpointRetry.js';
 import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
 import { WorkflowCancellationRequestedError, WorkflowLeaseLostError } from './workflowErrors.js';
+import { emitWorkflowHeartbeatFailure } from './workflowObservability.js';
 import {
   type AbortableOperationResult,
   DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS,
@@ -142,7 +142,10 @@ async function finishInterruptedClaim(
   claim: WorkflowStepClaim,
   interruption: Exclude<WorkflowAttemptInterruption, null>
 ): Promise<WorkflowStepRunnerResult> {
-  if (typeof interruption === 'object') return interruption;
+  if (typeof interruption === 'object') {
+    emitWorkflowHeartbeatFailure(claim, 'step', interruption.diagnostic);
+    return interruption;
+  }
   if (interruption === 'lost') return { status: 'lease-lost' };
   try {
     await store.cancellation.releaseClaim(claim);
