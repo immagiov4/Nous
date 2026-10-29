@@ -24,6 +24,7 @@ import type {
   WorkflowNode,
 } from '../../src/workflows/types.js';
 import { indexWorkflowNodes } from '../../src/workflows/workflowNodeIndex.js';
+import { checkpointCourseStage } from './workflowStageTestHarness.js';
 
 const config: CourseGenerationWorkflowConfig = {
   maxAttempts: 3,
@@ -805,4 +806,34 @@ describe('course generation research', () => {
     expect(plannerStep.outputSchema.parse(fallbackPlan)).toEqual(fallbackPlan);
     expect(generateObject).toHaveBeenCalledTimes(2);
   });
+});
+
+test.each([
+  429, 503,
+])('checkpoints the final YouTube planning diagnostic for HTTP %s alongside the fallback', async status => {
+  const services = createCourseResearchServices({
+    generateObject: vi.fn().mockRejectedValue(
+      new CourseModelProviderError(
+        Object.assign(new Error('private prompt password=hidden'), {
+          statusCode: status,
+          responseBody: 'private provider content',
+        })
+      )
+    ),
+    readSourceMaterials: vi.fn(),
+  });
+  const { output, providerOutput } = await checkpointCourseStage(
+    'plan-course-youtube-queries',
+    { branch: 'youtube', state: prepared },
+    config,
+    services
+  );
+  expect(output).toMatchObject({
+    queries: [prepared.context.topic],
+    planningDiagnostic: { type: 'CourseModelProviderError', cause: { type: 'Error', status } },
+  });
+  expect(providerOutput).toEqual(output);
+  expect(JSON.stringify(output)).not.toContain('private prompt');
+  expect(JSON.stringify(output)).not.toContain('hidden');
+  expect(JSON.stringify(output)).not.toContain('private provider content');
 });

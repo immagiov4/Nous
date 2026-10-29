@@ -1,5 +1,4 @@
 import * as z from 'zod';
-
 import { generateCourseObject } from './courseGenerationModel.js';
 import type { CourseGenerationWorkflowServices } from './courseGenerationWorkflow.js';
 import {
@@ -9,6 +8,7 @@ import {
   type CourseSourcesFinalizedState,
 } from './courseGenerationWorkflowContract.js';
 import { WorkflowStepError } from './retryPolicy.js';
+import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
 
 const MAX_ASSESSED_OBJECTIVE_CHARS = 280;
 
@@ -234,6 +234,10 @@ export const createCourseExercisePlanningStage =
       if (context.attemptNumber < context.config.maxAttempts) throw error;
       return CourseExercisesStateSchema.parse({
         ...context.input,
+        exercisePlanningDiagnostic: {
+          ...toWorkflowErrorDiagnostic(error, { includeContent: false }),
+          ...(error instanceof WorkflowStepError ? { code: error.failure.code } : {}),
+        },
         plan: markCourseExercisePlanningFailed(context.input.plan, context.attemptNumber, now()),
         stage: 'exercises',
       });

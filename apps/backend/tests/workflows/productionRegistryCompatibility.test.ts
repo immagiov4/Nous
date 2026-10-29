@@ -21,6 +21,7 @@ test('preserves every production registry output and durable fingerprint byte fo
   );
   expect({
     ...current,
+    'course-generation': fixture.current['course-generation'],
     'prepare-lesson-playback-block': fixture.current['prepare-lesson-playback-block'],
   }).toEqual(fixture.current);
   const added = registry
@@ -30,7 +31,8 @@ test('preserves every production registry output and durable fingerprint byte fo
         !fixture.definitions.some(previous => previous.definitionHash === boundary.definitionHash)
     );
   expect(added.length).toBeGreaterThan(0);
-  for (const boundary of added) expect(boundary.workflowId).toBe('prepare-lesson-playback-block');
+  for (const boundary of added)
+    expect(['prepare-lesson-playback-block', 'course-generation']).toContain(boundary.workflowId);
   expect(
     fixture.definitions.map(
       ({ manifestSha256: _manifest, defaultsSha256: _defaults, ...boundary }) => {
@@ -85,4 +87,13 @@ test('retains structural playback checkpoints predating visual-only requests', (
     model: 'tts-model',
   };
   expect(historical?.inputSchema.parse({ ...input, visualOnly: true })).toEqual(input);
+});
+
+test('retains the old course boundary while promoting the diagnostic result contract', () => {
+  expect(registry.current('course-generation')?.definitionHash).not.toBe(
+    fixture.current['course-generation']
+  );
+  expect(
+    registry.resolve('course-generation', fixture.current['course-generation'])
+  ).not.toBeNull();
 });
