@@ -4,6 +4,13 @@ import { isRecord } from '../utils/validation.js';
 const OPENROUTER_MODEL_URL = 'https://openrouter.ai/api/v1/model';
 const imageSupportByModel = new Map<string, boolean>();
 
+class OpenRouterCapabilityLookupError extends Error {
+  constructor(readonly status: number) {
+    super('OpenRouter model capability lookup failed.');
+    this.name = 'OpenRouterCapabilityLookupError';
+  }
+}
+
 export const openRouterModelSupportsImages = async (model: string): Promise<boolean> => {
   const cachedSupport = imageSupportByModel.get(model);
   if (cachedSupport !== undefined) return cachedSupport;
@@ -12,7 +19,7 @@ export const openRouterModelSupportsImages = async (model: string): Promise<bool
     const response = await fetch(`${OPENROUTER_MODEL_URL}/${model}`, {
       headers: { Authorization: `Bearer ${requireOpenRouterApiKey()}` },
     });
-    if (!response.ok) return false;
+    if (!response.ok) throw new OpenRouterCapabilityLookupError(response.status);
 
     const payload = (await response.json()) as unknown;
     const data = isRecord(payload) && isRecord(payload.data) ? payload.data : null;
@@ -23,8 +30,11 @@ export const openRouterModelSupportsImages = async (model: string): Promise<bool
     return supportsImages;
   } catch (error) {
     console.warn('[Nous][OpenRouter] Model capabilities unavailable; using text-only fallback.', {
-      error,
-      model,
+      diagnostic: {
+        code: 'model-capability-lookup-failed',
+        ...(error instanceof OpenRouterCapabilityLookupError ? { status: error.status } : {}),
+        type: error instanceof OpenRouterCapabilityLookupError ? error.name : 'Error',
+      },
     });
     return false;
   }
