@@ -1058,6 +1058,25 @@ describe('NewHomeView library interactions', () => {
     expect(
       screen.queryByText('Nessuna fonte corrisponde a questa ricerca.')
     ).not.toBeInTheDocument();
+    if (partial) {
+      const search = screen.getByPlaceholderText('Cerca nella Libreria...');
+      await user.type(search, 'missing-source');
+      expect(screen.getByText('Nessuna fonte corrisponde a questa ricerca.')).toBeInTheDocument();
+      expect(
+        screen.queryByText(
+          'Caricamento delle fonti non riuscito. Alcune fonti potrebbero mancare. Ricarica la pagina.'
+        )
+      ).not.toBeInTheDocument();
+      await user.clear(search);
+      await user.click(screen.getByRole('button', { name: 'PDF', exact: true }));
+      expect(screen.getByText('Nessuna fonte corrisponde a questa ricerca.')).toBeInTheDocument();
+      expect(
+        screen.queryByText(
+          'Caricamento delle fonti non riuscito. Alcune fonti potrebbero mancare. Ricarica la pagina.'
+        )
+      ).not.toBeInTheDocument();
+      expect(onNotifyError).toHaveBeenCalledTimes(1);
+    }
   });
 
   test.each([

@@ -1924,7 +1924,7 @@ const SourceLibraryPage = ({
         ) : filteredItems.length === 0 ? (
           <p className="px-6 py-12 text-center text-sm text-stone-500 dark:text-stone-400">
             {t(
-              hasLoadError
+              hasLoadError && items.length === 0
                 ? SOURCE_LIBRARY_LOAD_ERROR_MESSAGE
                 : 'Nessuna fonte corrisponde a questa ricerca.'
             )}
