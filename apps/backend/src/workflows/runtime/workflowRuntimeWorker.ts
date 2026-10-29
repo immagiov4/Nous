@@ -115,7 +115,7 @@ export interface WorkflowRuntimeRegistry extends WorkflowDefinitionResolver {
 
 export interface WorkflowRuntimeWorkerInput<Services> {
   assetCleanup: WorkflowRuntimeAssetCleanup;
-  deliverNotification(claim: WorkflowOutboxClaim): Promise<void>;
+  deliverNotification(claim: WorkflowOutboxClaim, signal: AbortSignal): Promise<void>;
   logger?: WorkflowLogger;
   onLoopError(error: WorkflowRuntimeLoopError): void;
   pollIntervalMs: number;
@@ -358,11 +358,28 @@ class WorkflowRuntimeWorker<Services> {
       interruptionError: () => new WorkflowOutboxLeaseLostError(),
       leaseMs: DEFAULT_WORKFLOW_LEASE_MS,
     });
-    // Inbox delivery can commit after lease loss; its notification ID deduplicates retries.
-    const delivery = await raceOperationWithAbort(
-      () => this.input.deliverNotification(claim),
-      controller.signal
-    );
+    const delivery = await raceOperationWithAbort(async () => {
+      try {
+        await this.input.deliverNotification(claim, controller.signal);
+        if (controller.signal.aborted) {
+          emitWorkflowLog(this.input.logger ?? consoleWorkflowLogger, {
+            action: 'late-delivery-succeeded',
+            claim,
+            entity: 'notification',
+          });
+        }
+      } catch (error) {
+        if (controller.signal.aborted) {
+          emitWorkflowLog(this.input.logger ?? consoleWorkflowLogger, {
+            action: 'late-delivery-failed',
+            claim,
+            entity: 'notification',
+            failureDiagnostic: toWorkflowErrorDiagnostic(error),
+          });
+        }
+        throw error;
+      }
+    }, controller.signal);
     if (await monitor.stop()) return false;
 
     if (delivery.status === 'failed') {

@@ -340,7 +340,7 @@ describe('workflow runtime worker', () => {
     await worker.start();
     await vi.waitFor(() => expect(store.outbox.markDelivered).toHaveBeenCalledWith(outboxClaim));
 
-    expect(deliverNotification).toHaveBeenCalledWith(outboxClaim);
+    expect(deliverNotification).toHaveBeenCalledWith(outboxClaim, expect.any(AbortSignal));
     expect(deliverNotification.mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(store.outbox.markDelivered).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
     );
@@ -394,7 +394,7 @@ describe('workflow runtime worker', () => {
       .mockResolvedValue(null);
     vi.mocked(store.outbox.heartbeat).mockResolvedValueOnce({ status: 'lost' });
     const deliverNotification = vi
-      .fn(async () => undefined)
+      .fn<WorkflowRuntimeWorkerInput<object>['deliverNotification']>(async () => undefined)
       .mockImplementationOnce(() => new Promise<void>(() => undefined));
     const onLoopError = vi.fn();
     const worker = createWorkflowRuntimeWorker({
@@ -417,7 +417,8 @@ describe('workflow runtime worker', () => {
     await vi.advanceTimersByTimeAsync(DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS);
 
     expect(deliverNotification).toHaveBeenCalledTimes(2);
-    expect(deliverNotification).toHaveBeenLastCalledWith(retryClaim);
+    expect(deliverNotification).toHaveBeenLastCalledWith(retryClaim, expect.any(AbortSignal));
+    expect(deliverNotification.mock.calls[0]?.[1]?.aborted).toBe(true);
     expect(store.outbox.markDelivered).toHaveBeenCalledExactlyOnceWith(retryClaim);
     expect(store.outbox.recordFailure).not.toHaveBeenCalled();
     expect(onLoopError).not.toHaveBeenCalled();
@@ -437,10 +438,14 @@ describe('workflow runtime worker', () => {
     let finishDelivery = (): void => undefined;
     const delivery = new Promise<void>((resolve, reject) => {
       finishDelivery =
-        settlement === 'resolve' ? resolve : () => reject(new Error('late delivery failure'));
+        settlement === 'resolve'
+          ? resolve
+          : () => reject(new Error('delivery token=private-token'));
     });
+    const logEvents: WorkflowLogEvent[] = [];
     const worker = createWorkflowRuntimeWorker({
       deliverNotification: vi.fn(() => delivery),
+      logger: { log: event => logEvents.push(event) },
       onLoopError: vi.fn(),
       pollIntervalMs: POLL_INTERVAL_MS,
       reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
@@ -461,6 +466,19 @@ describe('workflow runtime worker', () => {
 
     expect(store.outbox.markDelivered).not.toHaveBeenCalled();
     expect(store.outbox.recordFailure).not.toHaveBeenCalled();
+    expect(logEvents).toEqual([
+      expect.objectContaining({
+        action: settlement === 'resolve' ? 'late-delivery-succeeded' : 'late-delivery-failed',
+        event: 'workflow.notification',
+        notificationId: outboxClaim.id,
+        runId: outboxClaim.runId,
+        fencingToken: outboxClaim.fencingToken,
+        ...(settlement === 'reject'
+          ? { failureDiagnostic: { originalMessage: 'delivery token=[REDACTED]', type: 'Error' } }
+          : {}),
+      }),
+    ]);
+    expect(JSON.stringify(logEvents)).not.toContain('private-token');
   });
 
   test('reschedules a failed durable notification without persisting private error text', async () => {

@@ -208,15 +208,16 @@ describe('workflow runtime production composition', () => {
       workerId: 'worker-1',
     };
 
-    await deliver(baseClaim);
+    const controller = new AbortController();
+    await deliver(baseClaim, controller.signal);
     await deliver({ ...baseClaim, eventType: 'lesson.project-revision', id: 'notification-2' });
 
-    expect(receiveNotification).toHaveBeenNthCalledWith(1, baseClaim);
-    expect(receiveNotification).toHaveBeenNthCalledWith(2, {
-      ...baseClaim,
-      eventType: 'lesson.project-revision',
-      id: 'notification-2',
-    });
+    expect(receiveNotification).toHaveBeenNthCalledWith(1, baseClaim, controller.signal);
+    expect(receiveNotification).toHaveBeenNthCalledWith(
+      2,
+      { ...baseClaim, eventType: 'lesson.project-revision', id: 'notification-2' },
+      undefined
+    );
   });
 
   test.each([
