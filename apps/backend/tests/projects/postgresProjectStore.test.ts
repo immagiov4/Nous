@@ -1830,6 +1830,58 @@ describe('PostgresProjectStore', () => {
     }
   });
 
+  test.each([
+    'metadata',
+    'snapshot',
+  ] as const)('cancellation during the %s read prevents stale-backup metadata writes', async cancelledRead => {
+    const controller = new AbortController();
+    const cancellation = new Error('Import cancelled before persistence');
+    const existingSnapshot: ProjectSnapshot = {
+      id: PROJECT_META.id,
+      version: '4.1',
+      sourceKind: 'document',
+      learningPlan: { title: 'Reti', sections: [] },
+      createdAt: PROJECT_META.createdAt,
+      updatedAt: '2026-07-07T11:00:00.000Z',
+      lastOpenedAt: PROJECT_META.lastOpenedAt,
+    };
+    const sql = Object.assign(
+      vi.fn(async (strings: TemplateStringsArray) => {
+        const statement = strings.join('?');
+        if (statement.includes('select meta') && cancelledRead === 'metadata') {
+          controller.abort(cancellation);
+        }
+        return [{ meta: PROJECT_META, revision: 2 }];
+      }),
+      { begin: vi.fn(), json: vi.fn((value: unknown) => value) }
+    );
+    const store = createPostgresProjectStore(sql);
+    vi.spyOn(store, 'loadProject').mockImplementation(async () => {
+      if (cancelledRead === 'snapshot') controller.abort(cancellation);
+      return existingSnapshot;
+    });
+
+    await expect(
+      store.saveProject(
+        'user-1',
+        {
+          ...existingSnapshot,
+          updatedAt: PROJECT_META.updatedAt,
+        },
+        {
+          sourcePreparation: {
+            signal: controller.signal,
+            reportProgress: () => {},
+          },
+        }
+      )
+    ).rejects.toBe(cancellation);
+    expect(
+      sql.mock.calls.some(([strings]) => strings.join('?').includes('update public.projects'))
+    ).toBe(false);
+    expect(sql.begin).not.toHaveBeenCalled();
+  });
+
   test('cancellation during source publication removes uncommitted originals and never creates a project', async () => {
     const controller = new AbortController();
     const transactionSql = Object.assign(

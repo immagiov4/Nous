@@ -1086,6 +1086,8 @@ export class PostgresProjectStore implements ProjectStore {
       snapshot = await this.detachUnchangedEmbeddedSource(userId, snapshot, existingSnapshot);
     }
 
+    sourcePreparation?.signal.throwIfAborted();
+
     if (
       expectedRevision === undefined &&
       existingSnapshot &&
@@ -1107,7 +1109,6 @@ export class PostgresProjectStore implements ProjectStore {
       };
     }
 
-    sourcePreparation?.signal.throwIfAborted();
     const sourceWrite = sourceFiles
       ? await this.prepareProjectSourceFiles(userId, snapshot, sourceFiles, existingSnapshot)
       : await this.prepareProjectSourceWrite(userId, snapshot, sourceFile);
