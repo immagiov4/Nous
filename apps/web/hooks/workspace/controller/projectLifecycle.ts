@@ -510,8 +510,10 @@ export const createProjectLifecycleCommands = (
     try {
       if (projectLibrary.getCurrentProjectId() !== projectId) {
         state.invalidateWorkflows([...PROJECT_NAVIGATION_WORKFLOWS_TO_INVALIDATE]);
-        // Stop owns its pending cleanup until navigation adopts another project.
-        if (!session.activeAssessmentCancellationPromise) state.invalidateWorkflows(['assessment']);
+      }
+      // Only startup becomes obsolete before validation; Stop retains its cleanup ownership.
+      if (session.activeHomeChatStartPromise && !session.activeAssessmentCancellationPromise) {
+        state.invalidateWorkflows(['assessment']);
       }
       await beginHomeChatWorkspaceOpen(projectId, requestId);
       state.setOpeningProjectId(projectId);

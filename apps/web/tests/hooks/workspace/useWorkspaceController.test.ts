@@ -4976,7 +4976,10 @@ test.each([
   );
 });
 
-test('navigation suppresses interview rejection while public project validation is pending', async () => {
+test.each([
+  'same',
+  'other',
+] as const)('navigation to %s project suppresses interview rejection while validation is pending', async target => {
   const started = createDeferred();
   const validating = createDeferred();
   const validation = createDeferred();
@@ -4984,6 +4987,7 @@ test('navigation suppresses interview rejection while public project validation 
   const pendingStart = new Promise<CourseInterviewSnapshot>((_resolve, reject) => {
     rejectStart = reject;
   });
+  let firstStart = true;
   const other = createProjectSnapshot({
     id: 'other-project',
     state: AppState.READING,
@@ -4994,6 +4998,8 @@ test('navigation suppresses interview rejection while public project validation 
       getActiveCourseInterview: async () => null,
       startCourseInterview: async () => {
         started.resolve();
+        if (!firstStart) return createInterviewSnapshot({ projectId: other.id });
+        firstStart = false;
         return pendingStart;
       },
     },
@@ -5008,6 +5014,13 @@ test('navigation suppresses interview rejection while public project validation 
   });
   const starting = controller.startHomeChat({ input: 'Learn databases' });
   await started.promise;
+  if (target === 'same') {
+    assert(projectLibrary.adapter.currentProjectId);
+    other.id = projectLibrary.adapter.currentProjectId;
+    other.learningPlan = null;
+    other.isLearnMode = true;
+    other.state = AppState.ASSESSMENT;
+  }
   const opening = controller.openProject(other.id);
   await validating.promise;
   rejectStart(new Error('obsolete startup error'));
@@ -5016,7 +5029,7 @@ test('navigation suppresses interview rejection while public project validation 
   expect(await opening).toEqual({ outcome: 'opened' });
   expect(result).toEqual({ outcome: 'abandoned' });
   expect(projectLibrary.adapter.currentProjectId).toBe(other.id);
-  expect(state.internalState.screenState).toBe(AppState.READING);
+  if (target === 'other') expect(state.internalState.screenState).toBe(AppState.READING);
   expect(projectLibrary.deletedProjectIds).toEqual([]);
 });
 
@@ -5528,6 +5541,37 @@ test('submitAssessment sends the durable user-answer signal and applies the prop
     feedbackDiagnostics.clearFeedbackDiagnostics();
     vi.unstubAllGlobals();
   }
+});
+
+test.each([
+  'missing',
+  'failed',
+] as const)('a %s project open preserves an in-flight interview answer', async outcome => {
+  const answering = createDeferred();
+  const answer = createDeferred<CourseInterviewSnapshot>();
+  const { controller, projectLibrary, state } = createControllerHarness({
+    projectLibrary: {
+      currentProjectId: 'learn-project',
+      validateStoredProjectForOpen: async () => {
+        if (outcome === 'failed') throw new Error('stored project unavailable');
+        return null;
+      },
+    },
+    openRouter: {
+      getActiveCourseInterview: async () => createInterviewSnapshot({ projectId: 'learn-project' }),
+      sendCourseInterviewAnswer: async () => {
+        answering.resolve();
+        return answer.promise;
+      },
+    },
+  });
+  const submitting = controller.submitAssessment('Focus on TypeScript');
+  await answering.promise;
+  expect((await controller.openProject('unavailable-project')).outcome).toBe(outcome);
+  answer.resolve(createProposalSnapshot('learn-project'));
+  expect((await submitting).outcome).toBe('assessment-complete');
+  expect(state.internalState.courseProposal?.topic).toBe('TypeScript');
+  expect(projectLibrary.adapter.currentProjectId).toBe('learn-project');
 });
 
 test('submitAssessment sends add-details when the durable proposal awaits a decision', async () => {
