@@ -477,6 +477,8 @@ export async function withMemoryProjectBrowserStack<T>(
   const backend = createHttpServer();
   let frontend: ViteDevServer | undefined;
   let browser: Browser | undefined;
+  const failures: unknown[] = [];
+  let result!: T;
   try {
     await new Promise<void>((resolve, reject) => {
       backend.once('error', reject);
@@ -516,30 +518,41 @@ export async function withMemoryProjectBrowserStack<T>(
       },
       { authMode, backendUrl: url }
     );
-    return await scenario({ page, store, url });
+    result = await scenario({ page, store, url });
+  } catch (error) {
+    failures.push(error);
   } finally {
-    try {
-      await browser?.close();
-    } finally {
-      try {
-        await frontend?.close();
-      } finally {
-        try {
-          if (backend.listening) {
-            await new Promise<void>((resolve, reject) =>
-              backend.close(error => (error ? reject(error) : resolve()))
-            );
-          }
-        } finally {
-          setProjectStoreForTesting(null);
-          for (const [name, value] of Object.entries(previousEnvironment)) {
-            if (value === undefined) delete process.env[name];
-            else process.env[name] = value;
-          }
+    const cleanup = [
+      () => browser?.close(),
+      () => frontend?.close(),
+      async () => {
+        if (backend.listening) {
+          await new Promise<void>((resolve, reject) =>
+            backend.close(error => (error ? reject(error) : resolve()))
+          );
         }
+      },
+      () => setProjectStoreForTesting(null),
+      () => {
+        for (const [name, value] of Object.entries(previousEnvironment)) {
+          if (value === undefined) delete process.env[name];
+          else process.env[name] = value;
+        }
+      },
+    ];
+    for (const dispose of cleanup) {
+      try {
+        await Promise.resolve(dispose());
+      } catch (error) {
+        failures.push(error);
       }
     }
   }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'Browser proof or cleanup failed.', { cause: failures[0] });
+  }
+  return result;
 }
 
 if (import.meta.main) {

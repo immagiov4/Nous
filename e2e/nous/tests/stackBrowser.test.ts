@@ -77,3 +77,88 @@ it.each([
     }
   }
 });
+
+it.each([
+  false,
+  true,
+])('retains simultaneous cleanup failures (scenario failed: %s)', async scenarioFails => {
+  const previous = Object.fromEntries(
+    ['NODE_ENV', 'AUTH_MODE', 'LOCAL_USER_ID', 'CORS_ALLOWED_ORIGINS'].map(name => [
+      name,
+      process.env[name],
+    ])
+  );
+  const scenarioError = new Error('Scenario assertion failed');
+  const browserError = new Error('Browser close failed');
+  const frontendError = new Error('Frontend close failed');
+  const backendError = new Error('Backend close failed');
+  const storeError = new Error('Store restore failed');
+  resources.browserClose.mockRejectedValue(browserError);
+  resources.frontendClose.mockRejectedValue(frontendError);
+  resources.setStore.mockImplementation(store => {
+    if (store === null) throw storeError;
+  });
+  const close = Server.prototype.close;
+  const backendClose = vi.spyOn(Server.prototype, 'close').mockImplementationOnce(function (
+    this: Server,
+    callback
+  ) {
+    return close.call(this, () => callback?.(backendError));
+  });
+  try {
+    const error = await withMemoryProjectBrowserStack(
+      { userId: 'cleanup-test', appOptions: {} },
+      async () => {
+        if (scenarioFails) throw scenarioError;
+        return 'scenario result';
+      }
+    ).then(
+      () => {
+        throw new Error('Expected aggregate failure');
+      },
+      error => error
+    );
+    expect(error).toBeInstanceOf(AggregateError);
+    const failures = [
+      ...(scenarioFails ? [scenarioError] : []),
+      browserError,
+      frontendError,
+      backendError,
+      storeError,
+    ];
+    expect(error.errors).toEqual(failures);
+    expect(error.cause).toBe(failures[0]);
+    expect(resources.browserClose).toHaveBeenCalledOnce();
+    expect(resources.frontendClose).toHaveBeenCalledOnce();
+    expect(backendClose).toHaveBeenCalledOnce();
+    expect(resources.setStore).toHaveBeenLastCalledWith(null);
+    for (const [name, value] of Object.entries(previous)) expect(process.env[name]).toBe(value);
+  } finally {
+    for (const server of backendClose.mock.contexts)
+      if (server instanceof Server && server.listening)
+        await new Promise<void>(resolve => close.call(server, () => resolve()));
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
+it.each([
+  false,
+  true,
+])('preserves scenario outcome when cleanup succeeds (failed: %s)', async fails => {
+  const failure = new Error('Scenario assertion failed');
+  const pending = withMemoryProjectBrowserStack(
+    { userId: 'cleanup-test', appOptions: {} },
+    async () => {
+      if (fails) throw failure;
+      return 'scenario result';
+    }
+  );
+  if (fails) await expect(pending).rejects.toBe(failure);
+  else await expect(pending).resolves.toBe('scenario result');
+  expect(resources.browserClose).toHaveBeenCalledOnce();
+  expect(resources.frontendClose).toHaveBeenCalledOnce();
+  expect(resources.setStore).toHaveBeenLastCalledWith(null);
+});
