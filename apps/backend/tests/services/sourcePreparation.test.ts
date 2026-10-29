@@ -84,6 +84,7 @@ describe('asynchronous source preparation', () => {
   });
 
   test('signals cancellation to active preparation and cleans up after it stops', async () => {
+    const diagnostic = vi.spyOn(console, 'info').mockImplementation(() => {});
     const identity = await upload();
     let signal!: AbortSignal;
     let entered!: () => void;
@@ -107,6 +108,11 @@ describe('asynchronous source preparation', () => {
     await expect
       .poll(() => getProjectImportUploadStatus(identity.userId, identity.uploadId))
       .toMatchObject({ status: 'failed' });
+    expect(diagnostic).toHaveBeenCalledWith('[Projects] Import cancellation settled.', {
+      uploadId: identity.uploadId,
+      outcome: 'succeeded',
+    });
+    diagnostic.mockRestore();
   });
 });
 

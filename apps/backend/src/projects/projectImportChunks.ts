@@ -708,10 +708,12 @@ export const completeProjectImportUpload = async ({
           assembleAndImport(session, { userId, uploadId, importData, importBinary, importFile }),
         session.controller.signal
       );
-      session.controller.signal.throwIfAborted();
+      // Persistence owns cancellation before commit; a successful callback is authoritative.
       session.completed = completed;
       session.status = 'completed';
       session.updatedAt = Date.now();
+      if (session.controller.signal.aborted)
+        console.info('[Projects] Import cancellation settled.', { uploadId, outcome: 'committed' });
       await safelyRemove(session.directory);
       return completed;
     } catch (error) {
@@ -720,6 +722,8 @@ export const completeProjectImportUpload = async ({
         : error;
       session.status = 'failed';
       session.updatedAt = Date.now();
+      if (session.controller.signal.aborted)
+        console.info('[Projects] Import cancellation settled.', { uploadId, outcome: 'succeeded' });
       await safelyRemove(session.directory);
       throw error;
     }
