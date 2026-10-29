@@ -1098,12 +1098,19 @@ export class PostgresProjectStore implements ProjectStore {
       });
       return {
         meta: mergeProjectMetaRow(
-          await writeProjectMetaRevision(this.sql, {
-            isNewProject: false,
-            meta,
-            projectId: meta.id,
-            userId,
-          })
+          await this.withMeasuredConnection(sql =>
+            this.runReservedTransaction(
+              sql,
+              transaction =>
+                writeProjectMetaRevision(transaction, {
+                  isNewProject: false,
+                  meta,
+                  projectId: meta.id,
+                  userId,
+                }),
+              sourcePreparation?.signal
+            )
+          )
         ),
         snapshot: existingSnapshot,
       };

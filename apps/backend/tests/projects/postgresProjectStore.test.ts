@@ -1833,7 +1833,8 @@ describe('PostgresProjectStore', () => {
   test.each([
     'metadata',
     'snapshot',
-  ] as const)('cancellation during the %s read prevents stale-backup metadata writes', async cancelledRead => {
+    'write',
+  ] as const)('cancellation during the %s phase prevents stale-backup metadata commits', async cancelledRead => {
     const controller = new AbortController();
     const cancellation = new Error('Import cancelled before persistence');
     const existingSnapshot: ProjectSnapshot = {
@@ -1848,7 +1849,10 @@ describe('PostgresProjectStore', () => {
     const sql = Object.assign(
       vi.fn(async (strings: TemplateStringsArray) => {
         const statement = strings.join('?');
-        if (statement.includes('select meta') && cancelledRead === 'metadata') {
+        if (
+          (statement.includes('select meta') && cancelledRead === 'metadata') ||
+          (statement.includes('update public.projects') && cancelledRead === 'write')
+        ) {
           controller.abort(cancellation);
         }
         return [{ meta: PROJECT_META, revision: 2 }];
@@ -1878,8 +1882,16 @@ describe('PostgresProjectStore', () => {
     ).rejects.toBe(cancellation);
     expect(
       sql.mock.calls.some(([strings]) => strings.join('?').includes('update public.projects'))
-    ).toBe(false);
-    expect(sql.begin).not.toHaveBeenCalled();
+    ).toBe(cancelledRead === 'write');
+    if (cancelledRead === 'write') {
+      const reserved = await sql.reserve.mock.results[0].value;
+      expect(reserved.unsafe.mock.calls.map(([statement]) => statement)).toEqual([
+        'begin',
+        'rollback',
+      ]);
+    } else {
+      expect(sql.begin).not.toHaveBeenCalled();
+    }
   });
 
   test('cancellation during source publication removes uncommitted originals and never creates a project', async () => {
