@@ -18,6 +18,9 @@ export const ANNOTATION_PROJECTION_ERROR_MESSAGE =
 export const IMPORT_REFRESH_WARNING =
   'I corsi sono stati importati. Ricarica la libreria per visualizzarli.';
 
+export const SOURCE_LIBRARY_LOAD_ERROR_MESSAGE =
+  'Caricamento delle fonti non riuscito. Alcune fonti potrebbero mancare. Ricarica la pagina.';
+
 export const SURFACE_ERROR_MESSAGES = {
   chat: 'La chat non è disponibile. Ricarica la pagina.',
   reader: 'La lezione non è disponibile. Ricarica la pagina.',
@@ -49,6 +52,11 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 
 const ENGLISH_UI_MESSAGES = {
   [IMPORT_REFRESH_WARNING]: 'Your courses were imported. Reload the library to see them.',
+  [SOURCE_LIBRARY_LOAD_ERROR_MESSAGE]:
+    'Sources could not be loaded. Some sources may be missing. Reload the page.',
+  'Eliminazione del corso non confermata. Ricarica la pagina.':
+    'Course deletion could not be confirmed. Reload the page.',
+  'Modifica dei preferiti non riuscita. Riprova.': 'Could not update favorites. Try again.',
   [PDF_SCANNED_PAGE_LIMIT_MESSAGE]:
     'There is too much scanned material for one course. Select only the parts you need.',
   'Pagine {from}–{to} trascritte in qualità ridotta.':
