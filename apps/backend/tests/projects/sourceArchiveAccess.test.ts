@@ -256,7 +256,7 @@ describe('SourceArchiveAccess', () => {
     });
 
     const firstPage = await access.readTextPage('bom.txt');
-    expect(firstPage.text.length).toBe(firstPageText.length);
+    expect(firstPage.text).toHaveLength(firstPageText.length);
     expect(firstPage.text).toBe(firstPageText);
     expect(firstPage.nextCursorBytes).toBe(SOURCE_ARCHIVE_READ_PAGE_MAX_BYTES);
     const secondPage = await access.readTextPage('bom.txt', firstPage.nextCursorBytes as number);

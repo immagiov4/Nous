@@ -348,12 +348,18 @@ test('pages literal search work and preserves exact locations across files', asy
   expect(loadProjectSourceArchiveEntry).not.toHaveBeenCalled();
 });
 
-test('finds a literal match spanning bounded search pages', async () => {
-  const matchBytesBeforePageEnd = 3;
+test.each([
+  { matchBytesBeforePageEnd: 3, matchPrefix: '' },
+  { matchBytesBeforePageEnd: 0, matchPrefix: '\uFEFF' },
+])('finds a literal match across bounded search pages with %j', async ({
+  matchBytesBeforePageEnd,
+  matchPrefix,
+}) => {
+  const encoder = new TextEncoder();
   const firstSearchPageBytes = firstArchiveSearchPageByteLimit();
   const linePrefixLength =
-    firstSearchPageBytes - new TextEncoder().encode('first\n').byteLength - matchBytesBeforePageEnd;
-  const archiveBytes = new TextEncoder().encode(`first\n${'a'.repeat(linePrefixLength)}needle`);
+    firstSearchPageBytes - encoder.encode('first\n').byteLength - matchBytesBeforePageEnd;
+  const archiveBytes = encoder.encode(`first\n${'a'.repeat(linePrefixLength)}${matchPrefix}needle`);
   const loadProjectSourceArchiveEntryRange = vi.fn(
     async (
       _userId: string,
@@ -410,8 +416,9 @@ test('finds a literal match spanning bounded search pages', async () => {
   ).resolves.toMatchObject({
     matches: [
       {
-        column: linePrefixLength + 1,
-        cursorBytes: firstSearchPageBytes - matchBytesBeforePageEnd,
+        column: linePrefixLength + matchPrefix.length + 1,
+        cursorBytes:
+          firstSearchPageBytes - matchBytesBeforePageEnd + encoder.encode(matchPrefix).byteLength,
         line: 2,
         path: 'large.txt',
       },
@@ -598,9 +605,13 @@ test('keeps a maximum-length cross-page query continuation inside the result bud
 });
 
 test.each([
-  '',
-  '\uFEFF',
-])('resumes before a search match with a UTF-8 prefix %j that did not fit the previous result', async prefix => {
+  { prefix: '', firstColumn: 1 },
+  { prefix: '\uFEFF', firstColumn: 1 },
+  { prefix: 'x\uFEFF', firstColumn: 3 },
+])('resumes before a search match with a UTF-8 prefix %j that did not fit the previous result', async ({
+  prefix,
+  firstColumn,
+}) => {
   const path = `${'p'.repeat(7_000)}-matches.txt`;
   const encoder = new TextEncoder();
   const archiveText = `${prefix}ééé`;
@@ -636,8 +647,8 @@ test.each([
     {} as never
   );
   expect(firstResult).toMatchObject({
-    matches: [{ cursorBytes: prefixBytes, path }],
-    citations: [{ cursorBytes: prefixBytes, path }],
+    matches: [{ column: firstColumn, cursorBytes: prefixBytes, line: 1, path }],
+    citations: [{ column: firstColumn, cursorBytes: prefixBytes, line: 1, path }],
     nextSearchCursor: expect.any(String),
     status: 'ok',
   });
@@ -652,7 +663,14 @@ test.each([
       {} as never
     )
   ).resolves.toMatchObject({
-    matches: [{ cursorBytes: prefixBytes + encoder.encode('é').byteLength, path }],
+    matches: [
+      {
+        column: firstColumn + 1,
+        cursorBytes: prefixBytes + encoder.encode('é').byteLength,
+        line: 1,
+        path,
+      },
+    ],
     status: 'ok',
   });
 
