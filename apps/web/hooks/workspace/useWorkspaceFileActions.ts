@@ -150,6 +150,7 @@ export const useWorkspaceFileActions = ({
       } catch (error) {
         const storageError = error instanceof ProjectStorageError ? error : undefined;
         console.error('[Nous][Delete] Course deletion could not be confirmed.', {
+          errorType: error instanceof Error ? error.name : typeof error,
           code: storageError?.code ?? 'unknown',
           httpStatus: storageError?.httpStatus,
         });

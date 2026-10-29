@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { ensureProjectCover } from '../../services/projects/courseCover.ts';
 import { getCourseSourceDescriptors } from '../../services/projects/courseSources.ts';
@@ -27,6 +27,7 @@ export const useFavoriteProjectIds = (
   setProjectFavorite?: (projectId: string, isFavorite: boolean) => Promise<unknown>,
   notifyError?: (message: string) => void
 ) => {
+  const pendingFavoriteWrites = useRef(new Set<string>());
   const favoriteIds = useMemo(
     () => projects.filter(project => project.isFavorite).map(project => project.id),
     [projects]
@@ -35,18 +36,21 @@ export const useFavoriteProjectIds = (
   const toggleFavoriteProject = useCallback(
     (projectId: string) => {
       const project = projects.find(candidate => candidate.id === projectId);
-      if (!project || !setProjectFavorite) return;
-      void setProjectFavorite(projectId, !project.isFavorite).catch(error => {
-        // Remote deletion already has an app-level notification.
-        if (error instanceof ProjectStorageError && error.code === 'project-deleted') return;
-        console.error('[Nous][Library] Favorite update failed.', {
-          errorType: error instanceof Error ? error.name : typeof error,
-          ...(error instanceof ProjectStorageError
-            ? { errorCode: error.code, httpStatus: error.httpStatus }
-            : {}),
-        });
-        notifyError?.(t('Modifica dei preferiti non riuscita. Riprova.'));
-      });
+      if (!project || !setProjectFavorite || pendingFavoriteWrites.current.has(projectId)) return;
+      pendingFavoriteWrites.current.add(projectId);
+      void setProjectFavorite(projectId, !project.isFavorite)
+        .catch(error => {
+          console.error('[Nous][Library] Favorite update failed.', {
+            errorType: error instanceof Error ? error.name : typeof error,
+            ...(error instanceof ProjectStorageError
+              ? { errorCode: error.code, httpStatus: error.httpStatus }
+              : {}),
+          });
+          // Remote deletion already has an app-level notification.
+          if (error instanceof ProjectStorageError && error.code === 'project-deleted') return;
+          notifyError?.(t('Modifica dei preferiti non riuscita. Riprova.'));
+        })
+        .finally(() => pendingFavoriteWrites.current.delete(projectId));
     },
     [notifyError, projects, setProjectFavorite]
   );

@@ -148,7 +148,43 @@ describe('new home favorites', () => {
     }
   });
 
+  test.each([
+    'success',
+    'failure',
+  ] as const)('coalesces pending favorite clicks and permits retry after %s', async outcome => {
+    let resolveWrite!: () => void;
+    let rejectWrite!: (error: Error) => void;
+    const pending = new Promise<void>((resolve, reject) => {
+      resolveWrite = resolve;
+      rejectWrite = reject;
+    });
+    const setProjectFavorite = vi.fn().mockReturnValueOnce(pending).mockResolvedValue(undefined);
+    const notify = vi.fn();
+    const projects = [buildProject(1), buildProject(2)];
+    const { result, rerender } = renderHook(
+      ({ projects }) => useFavoriteProjectIds(projects, setProjectFavorite, notify),
+      { initialProps: { projects } }
+    );
+    act(() => {
+      result.current.toggleFavoriteProject('project-1');
+      result.current.toggleFavoriteProject('project-1');
+    });
+    rerender({ projects: [...projects] });
+    act(() => result.current.toggleFavoriteProject('project-1'));
+    expect(setProjectFavorite).toHaveBeenCalledTimes(1);
+    await act(async () => result.current.toggleFavoriteProject('project-2'));
+    expect(setProjectFavorite).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      if (outcome === 'success') resolveWrite();
+      else rejectWrite(new TypeError('private network detail'));
+    });
+    expect(notify).toHaveBeenCalledTimes(outcome === 'success' ? 0 : 1);
+    await act(async () => result.current.toggleFavoriteProject('project-1'));
+    expect(setProjectFavorite).toHaveBeenCalledTimes(3);
+  });
+
   test('leaves remote-deletion feedback to the existing app notification', async () => {
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => {});
     const projects = [buildProject(1)];
     const notify = vi.fn();
     const setProjectFavorite = vi
@@ -159,6 +195,12 @@ describe('new home favorites', () => {
     );
     await act(async () => result.current.toggleFavoriteProject('project-1'));
     expect(notify).not.toHaveBeenCalled();
+    expect(diagnostic).toHaveBeenCalledExactlyOnceWith('[Nous][Library] Favorite update failed.', {
+      errorType: 'ProjectStorageError',
+      errorCode: 'project-deleted',
+      httpStatus: undefined,
+    });
+    diagnostic.mockRestore();
     expect(result.current.favoriteIds).toEqual([]);
   });
 

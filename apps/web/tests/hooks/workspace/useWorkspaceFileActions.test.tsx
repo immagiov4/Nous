@@ -188,6 +188,7 @@ test('keeps the requested reattachment mode while overlapping ZIP inspections fi
 });
 
 test('handles confirmed deletion failure with action-specific feedback', async () => {
+  const diagnostic = vi.spyOn(console, 'error');
   const notify = vi.fn();
   const deleteProject = vi.fn().mockRejectedValue(new Error('private deletion detail'));
   const { result } = renderHook(() =>
@@ -199,6 +200,10 @@ test('handles confirmed deletion failure with action-specific feedback', async (
   expect(deleteProject).toHaveBeenCalledWith('project-1');
   expect(notify).toHaveBeenCalledExactlyOnceWith(
     'Eliminazione del corso non confermata. Ricarica la pagina.'
+  );
+  expect(diagnostic).toHaveBeenCalledWith(
+    '[Nous][Delete] Course deletion could not be confirmed.',
+    { errorType: 'Error', code: 'unknown', httpStatus: undefined }
   );
 });
 
@@ -240,6 +245,7 @@ test('records sanitized storage diagnostics before notifying about uncertain del
   expect(diagnostic).toHaveBeenCalledExactlyOnceWith(
     '[Nous][Delete] Course deletion could not be confirmed.',
     {
+      errorType: 'ProjectStorageError',
       code: 'persistence-failed',
       httpStatus: 503,
     }
