@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import type { SavedProjectMeta } from '../../../types.ts';
 
 const ensureProjectCoverMock = vi.hoisted(() => vi.fn());
@@ -94,6 +95,36 @@ describe('new home course covers', () => {
 });
 
 describe('new home favorites', () => {
+  test.each([
+    false,
+    true,
+  ])('reports failed favorite writes and keeps persisted state (%s)', async isFavorite => {
+    const projects = [{ ...buildProject(1), isFavorite }];
+    const notify = vi.fn();
+    const setProjectFavorite = vi.fn().mockRejectedValue(new Error('private storage detail'));
+    const { result } = renderHook(() =>
+      useFavoriteProjectIds(projects, setProjectFavorite, notify)
+    );
+    await act(async () => result.current.toggleFavoriteProject('project-1'));
+    expect(setProjectFavorite).toHaveBeenCalledWith('project-1', !isFavorite);
+    expect(result.current.favoriteIds).toEqual(isFavorite ? ['project-1'] : []);
+    expect(notify).toHaveBeenCalledExactlyOnceWith('Modifica dei preferiti non riuscita. Riprova.');
+  });
+
+  test('leaves remote-deletion feedback to the existing app notification', async () => {
+    const projects = [buildProject(1)];
+    const notify = vi.fn();
+    const setProjectFavorite = vi
+      .fn()
+      .mockRejectedValue(new ProjectStorageError('deleted', 'project-deleted'));
+    const { result } = renderHook(() =>
+      useFavoriteProjectIds(projects, setProjectFavorite, notify)
+    );
+    await act(async () => result.current.toggleFavoriteProject('project-1'));
+    expect(notify).not.toHaveBeenCalled();
+    expect(result.current.favoriteIds).toEqual([]);
+  });
+
   test('uses backend metadata as the source of truth and persists toggles', async () => {
     const setProjectFavorite = vi.fn().mockResolvedValue({});
     const project = { ...buildProject(1), isFavorite: true };
@@ -113,6 +144,131 @@ describe('new home favorites', () => {
 });
 
 describe('new home source library', () => {
+  test('drops previous source files when the first refreshed batch fails after source replacement', async () => {
+    const project = buildProject(1);
+    const snapshot = {
+      id: project.id,
+      source: {
+        kind: 'archive',
+        name: 'original.zip',
+        file: { data: 'emlw', name: 'original.zip', mimeType: 'application/zip' },
+      },
+    };
+    let failReload!: (error: Error) => void;
+    const loadProjectsById = vi
+      .fn()
+      .mockResolvedValueOnce([snapshot])
+      .mockReturnValueOnce(
+        new Promise((_, reject) => {
+          failReload = reject;
+        })
+      );
+    const { result, rerender } = renderHook(
+      ({ projects }) => useSourceLibrary({ enabled: true, loadProjectsById, projects }),
+      { initialProps: { projects: [project] } }
+    );
+    await waitFor(() => expect(result.current.items[0]?.file.name).toBe('original.zip'));
+    rerender({ projects: [{ ...project, revision: 2, coverLabel: 'replacement.zip' }] });
+    await waitFor(() => expect(result.current.isLoading).toBe(true));
+    expect(result.current.items[0]?.file.name).toBe('original.zip');
+    await act(async () => failReload(new Error('snapshot unavailable')));
+    await waitFor(() => expect(result.current.hasLoadError).toBe(true));
+    expect(result.current.items).toEqual([]);
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  test.each([
+    false,
+    true,
+  ])('clears failed source loads while inactive (empty library: %s)', async emptyLibrary => {
+    const projects = [buildProject(1)];
+    const loadProjectsById = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('snapshot unavailable'))
+      .mockResolvedValueOnce([]);
+    const { result, rerender } = renderHook(
+      ({ enabled, projects }) => useSourceLibrary({ enabled, loadProjectsById, projects }),
+      { initialProps: { enabled: true, projects } }
+    );
+    await waitFor(() => expect(result.current.hasLoadError).toBe(true));
+    rerender({ enabled: false, projects: emptyLibrary ? [] : projects });
+    await act(async () => {});
+    expect(result.current.hasLoadError).toBe(false);
+    const newProjects = [buildProject(2)];
+    rerender({ enabled: false, projects: newProjects });
+    expect(result.current.hasLoadError).toBe(false);
+    expect(loadProjectsById).toHaveBeenCalledTimes(1);
+    rerender({ enabled: true, projects: newProjects });
+    await waitFor(() => expect(loadProjectsById).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.hasLoadError).toBe(false);
+  });
+
+  test('removes deleted courses before reload and drops unverified sources after failure', async () => {
+    const projects = [buildProject(1), buildProject(2)];
+    const snapshots = projects.map(project => ({
+      id: project.id,
+      source: {
+        kind: 'archive',
+        name: `${project.id}.zip`,
+        file: { data: 'emlw', name: `${project.id}.zip`, mimeType: 'application/zip' },
+      },
+    }));
+    let failReload!: (error: Error) => void;
+    const loadProjectsById = vi
+      .fn()
+      .mockResolvedValueOnce(snapshots)
+      .mockReturnValueOnce(
+        new Promise((_, reject) => {
+          failReload = reject;
+        })
+      );
+    const { result, rerender } = renderHook(
+      ({ enabled, projects }) => useSourceLibrary({ enabled, loadProjectsById, projects }),
+      { initialProps: { enabled: true, projects } }
+    );
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+    rerender({ enabled: false, projects: [projects[1]] });
+    expect(result.current.items.map(item => item.projectId)).toEqual(['project-2']);
+    rerender({ enabled: true, projects: [projects[1]] });
+    await waitFor(() => expect(result.current.isLoading).toBe(true));
+    await act(async () => failReload(new Error('snapshot unavailable')));
+    await waitFor(() => expect(result.current.hasLoadError).toBe(true));
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.items).toEqual([]);
+  });
+
+  test('retains a successful batch and exposes failure when the next batch rejects', async () => {
+    const projects = Array.from({ length: 5 }, (_, index) => buildProject(index));
+    let failBatch!: (error: Error) => void;
+    const loadProjectsById = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          id: projects[0].id,
+          source: {
+            kind: 'archive',
+            name: 'src.zip',
+            file: { data: 'emlw', name: 'src.zip', mimeType: 'application/zip' },
+          },
+        },
+      ])
+      .mockReturnValueOnce(
+        new Promise((_, reject) => {
+          failBatch = reject;
+        })
+      );
+    const { result } = renderHook(() =>
+      useSourceLibrary({ enabled: true, loadProjectsById, projects })
+    );
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+    expect(result.current.isLoading).toBe(true);
+    await act(async () => failBatch(new Error('private snapshot detail')));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.items[0]?.file.name).toBe('src.zip');
+    expect(result.current.hasLoadError).toBe(true);
+  });
+
   test('includes the original ZIP for existing codebase courses', async () => {
     const project = { ...buildProject(1), sourceKind: 'codebase' as const };
     const loadProjectsById = vi.fn().mockResolvedValue([

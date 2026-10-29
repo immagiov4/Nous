@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react';
 import type { ChangeEvent } from 'react';
 import { expect, test, vi } from 'vitest';
 import { useWorkspaceFileActions } from '../../../hooks/workspace/useWorkspaceFileActions.ts';
+import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import * as sourceSelection from '../../../services/projects/sourceFileSelection.ts';
 
 type HookArgs = Parameters<typeof useWorkspaceFileActions>[0];
@@ -184,4 +185,67 @@ test('keeps the requested reattachment mode while overlapping ZIP inspections fi
   } finally {
     inspection.mockRestore();
   }
+});
+
+test('handles confirmed deletion failure with action-specific feedback', async () => {
+  const notify = vi.fn();
+  const deleteProject = vi.fn().mockRejectedValue(new Error('private deletion detail'));
+  const { result } = renderHook(() =>
+    useWorkspaceFileActions(buildHookArgs({ deleteProject, notify }))
+  );
+  await act(async () => {
+    await expect(result.current.handleDeleteProject('project-1')).resolves.toBeUndefined();
+  });
+  expect(deleteProject).toHaveBeenCalledWith('project-1');
+  expect(notify).toHaveBeenCalledExactlyOnceWith(
+    'Eliminazione del corso non confermata. Ricarica la pagina.'
+  );
+});
+
+test('reports uncertainty when a delete succeeds but refreshing the library fails', async () => {
+  const persistedProjectIds = new Set(['project-1']);
+  const refreshLibrary = vi.fn().mockRejectedValue(new Error('list folders failed'));
+  const deleteProject = vi.fn(async (projectId: string) => {
+    persistedProjectIds.delete(projectId);
+    await refreshLibrary();
+  });
+  const notify = vi.fn();
+  const { result } = renderHook(() =>
+    useWorkspaceFileActions(buildHookArgs({ deleteProject, notify }))
+  );
+  await act(async () => {
+    await expect(result.current.handleDeleteProject('project-1')).resolves.toBeUndefined();
+  });
+  expect(persistedProjectIds.has('project-1')).toBe(false);
+  expect(deleteProject).toHaveBeenCalledTimes(1);
+  expect(refreshLibrary).toHaveBeenCalledTimes(1);
+  expect(notify).toHaveBeenCalledExactlyOnceWith(
+    'Eliminazione del corso non confermata. Ricarica la pagina.'
+  );
+});
+
+test('records sanitized storage diagnostics before notifying about uncertain deletion', async () => {
+  const failure = new ProjectStorageError('private user content and token', 'persistence-failed', {
+    status: 503,
+  });
+  const deleteProject = vi.fn().mockRejectedValue(failure);
+  const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const notify = vi.fn();
+  const { result } = renderHook(() =>
+    useWorkspaceFileActions(buildHookArgs({ deleteProject, notify }))
+  );
+  await act(async () => {
+    await result.current.handleDeleteProject('project-1');
+  });
+  expect(diagnostic).toHaveBeenCalledExactlyOnceWith(
+    '[Nous][Delete] Course deletion could not be confirmed.',
+    {
+      code: 'persistence-failed',
+      httpStatus: 503,
+    }
+  );
+  expect(diagnostic.mock.invocationCallOrder[0]).toBeLessThan(notify.mock.invocationCallOrder[0]);
+  expect(notify).toHaveBeenCalledExactlyOnceWith(
+    'Eliminazione del corso non confermata. Ricarica la pagina.'
+  );
 });

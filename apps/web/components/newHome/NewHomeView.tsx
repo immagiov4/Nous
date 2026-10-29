@@ -31,7 +31,11 @@ import logoUrl from '@/assets/logo.svg';
 import logoDarkModeUrl from '@/assets/logo_darkmode.svg';
 import { useLearningActivity } from '../../hooks/library/useLearningActivity.ts';
 import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
-import { getAppLocale, translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import {
+  getAppLocale,
+  SOURCE_LIBRARY_LOAD_ERROR_MESSAGE,
+  translateUiMessage as t,
+} from '../../i18n/uiMessages.ts';
 import type { LibraryBackupImportResult } from '../../services/projects/libraryArchiveImport.ts';
 import type { LibraryExportProgressListener } from '../../services/projects/projectRepository.ts';
 import { createFileObjectUrl } from '../../services/projects/projectSource.ts';
@@ -120,6 +124,7 @@ interface NewHomeViewProps {
   readonly onExportProject?: (projectId: string) => Promise<void>;
   readonly onImportLibraryBackup?: (file: File) => Promise<LibraryBackupImportResult>;
   readonly onImportProjectFile?: (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly onNotifyError?: (message: string) => void;
   readonly onOpenProject: (projectId: string) => void;
   readonly onPageChange?: (page: NewHomePage) => void;
   readonly openingProjectId: string | null;
@@ -1830,6 +1835,7 @@ const SourceViewer = ({
 };
 
 const SourceLibraryPage = ({
+  hasLoadError,
   isDarkMode,
   isLoading,
   items,
@@ -1837,6 +1843,7 @@ const SourceLibraryPage = ({
 }: {
   isDarkMode: boolean;
   isLoading: boolean;
+  hasLoadError: boolean;
   items: SourceLibraryItem[];
   loadProjectSource: (projectId: string) => Promise<FileData | null>;
 }) => {
@@ -1917,7 +1924,11 @@ const SourceLibraryPage = ({
           </p>
         ) : filteredItems.length === 0 ? (
           <p className="px-6 py-12 text-center text-sm text-stone-500 dark:text-stone-400">
-            {t('Nessuna fonte corrisponde a questa ricerca.')}
+            {t(
+              hasLoadError && items.length === 0
+                ? SOURCE_LIBRARY_LOAD_ERROR_MESSAGE
+                : 'Nessuna fonte corrisponde a questa ricerca.'
+            )}
           </p>
         ) : (
           sourceGroups.map(group => {
@@ -2045,6 +2056,7 @@ export const NewHomeView = ({
   onExportProject,
   onImportLibraryBackup,
   onImportProjectFile,
+  onNotifyError,
   onOpenProject,
   onPageChange,
   openingProjectId,
@@ -2089,7 +2101,8 @@ export const NewHomeView = ({
   const { streakDays, studyTimeLabel } = useLearningActivity();
   const { favoriteIds, toggleFavoriteProject } = useFavoriteProjectIds(
     projects,
-    onSetProjectFavorite
+    onSetProjectFavorite,
+    onNotifyError
   );
   const coverImages = useCourseCoverImages({
     loadProjectCover,
@@ -2101,6 +2114,11 @@ export const NewHomeView = ({
     loadProjectsById,
     projects,
   });
+  useEffect(() => {
+    if (sourceLibrary.hasLoadError && sourceLibrary.items.length > 0) {
+      onNotifyError?.(t(SOURCE_LIBRARY_LOAD_ERROR_MESSAGE));
+    }
+  }, [onNotifyError, sourceLibrary.hasLoadError, sourceLibrary.items.length]);
   const averageCompletion = useMemo(() => {
     const completableProjects = projects.filter(project => project.lessonCount > 0);
     if (completableProjects.length === 0) {
@@ -2137,6 +2155,7 @@ export const NewHomeView = ({
         <div className="mx-auto max-w-[76rem]">
           {activePage === 'library' ? (
             <SourceLibraryPage
+              hasLoadError={sourceLibrary.hasLoadError}
               isDarkMode={isDarkMode}
               isLoading={sourceLibrary.isLoading}
               items={sourceLibrary.items}

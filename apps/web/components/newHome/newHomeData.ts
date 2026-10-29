@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { ensureProjectCover } from '../../services/projects/courseCover.ts';
 import { getCourseSourceDescriptors } from '../../services/projects/courseSources.ts';
+import { ProjectStorageError } from '../../services/projects/projectRepository.ts';
 import type {
   CourseSourceDescriptor,
   FileData,
@@ -22,7 +24,8 @@ export interface SourceLibraryItem {
 
 export const useFavoriteProjectIds = (
   projects: SavedProjectMeta[],
-  setProjectFavorite?: (projectId: string, isFavorite: boolean) => Promise<unknown>
+  setProjectFavorite?: (projectId: string, isFavorite: boolean) => Promise<unknown>,
+  notifyError?: (message: string) => void
 ) => {
   const favoriteIds = useMemo(
     () => projects.filter(project => project.isFavorite).map(project => project.id),
@@ -33,9 +36,13 @@ export const useFavoriteProjectIds = (
     (projectId: string) => {
       const project = projects.find(candidate => candidate.id === projectId);
       if (!project || !setProjectFavorite) return;
-      void setProjectFavorite(projectId, !project.isFavorite).catch(() => undefined);
+      void setProjectFavorite(projectId, !project.isFavorite).catch(error => {
+        // Remote deletion already has an app-level notification.
+        if (error instanceof ProjectStorageError && error.code === 'project-deleted') return;
+        notifyError?.(t('Modifica dei preferiti non riuscita. Riprova.'));
+      });
     },
-    [projects, setProjectFavorite]
+    [notifyError, projects, setProjectFavorite]
   );
 
   return { favoriteIds, toggleFavoriteProject };
@@ -119,26 +126,27 @@ export const useSourceLibrary = ({
 }) => {
   const [items, setItems] = useState<SourceLibraryItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [hasLoadError, setHasLoadError] = useState(false);
   const projectIds = useMemo(() => projects.map(project => project.id), [projects]);
 
   useEffect(() => {
-    if (!enabled) {
-      return;
-    }
-    if (projectIds.length === 0) {
-      return;
-    }
-
     let isCurrent = true;
+    const shouldLoad = enabled && projectIds.length > 0;
     queueMicrotask(() => {
       if (isCurrent) {
-        setIsLoading(true);
+        setIsLoading(shouldLoad);
+        setHasLoadError(false);
       }
     });
+    if (!shouldLoad) {
+      return () => {
+        isCurrent = false;
+      };
+    }
     void (async () => {
+      const collectedItems: SourceLibraryItem[] = [];
       try {
         const projectById = new Map(projects.map(project => [project.id, project]));
-        const collectedItems: SourceLibraryItem[] = [];
         for (let index = 0; index < projectIds.length; index += SOURCE_LIBRARY_BATCH_SIZE) {
           const snapshots = await loadProjectsById(
             projectIds.slice(index, index + SOURCE_LIBRARY_BATCH_SIZE)
@@ -196,7 +204,8 @@ export const useSourceLibrary = ({
         }
       } catch {
         if (isCurrent) {
-          setItems([]);
+          setItems([...collectedItems]);
+          setHasLoadError(true);
         }
       } finally {
         if (isCurrent) {
@@ -210,7 +219,16 @@ export const useSourceLibrary = ({
     };
   }, [enabled, loadProjectsById, projectIds, projects]);
 
-  return { isLoading, items: projectIds.length === 0 ? [] : items };
+  const availableItems = useMemo(() => {
+    const currentProjectIds = new Set(projectIds);
+    return items.filter(item => currentProjectIds.has(item.projectId));
+  }, [items, projectIds]);
+
+  return {
+    hasLoadError: enabled && projectIds.length > 0 && hasLoadError,
+    isLoading,
+    items: availableItems,
+  };
 };
 
 export const resolveSourceLibraryItemFile = async (

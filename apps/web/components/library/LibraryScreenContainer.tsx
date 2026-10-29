@@ -455,6 +455,7 @@ export const LibraryScreenContainer = ({
         openingProjectId={openingProjectId}
         onRenameFolder={projectLibrary.renameFolder}
         onRenameProject={handleRenameProject}
+        onNotifyError={notify}
         onSetProjectFavorite={projectLibrary.setProjectFavorite}
         onToggleDarkMode={() =>
           readerState.readerChrome.setIsDarkMode(!readerState.readerChrome.isDarkMode)
