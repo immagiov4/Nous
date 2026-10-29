@@ -32,6 +32,7 @@ import logoDarkModeUrl from '@/assets/logo_darkmode.svg';
 import { useLearningActivity } from '../../hooks/library/useLearningActivity.ts';
 import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
 import { getAppLocale, translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import type { LibraryBackupImportResult } from '../../services/projects/libraryArchiveImport.ts';
 import type { LibraryExportProgressListener } from '../../services/projects/projectRepository.ts';
 import { createFileObjectUrl } from '../../services/projects/projectSource.ts';
 import type {
@@ -117,7 +118,7 @@ interface NewHomeViewProps {
   readonly onDeleteProject?: (projectId: string) => void | Promise<void>;
   readonly onExportLibraryBackup?: (onProgress?: LibraryExportProgressListener) => Promise<number>;
   readonly onExportProject?: (projectId: string) => Promise<void>;
-  readonly onImportLibraryBackup?: (file: File) => Promise<number>;
+  readonly onImportLibraryBackup?: (file: File) => Promise<LibraryBackupImportResult>;
   readonly onImportProjectFile?: (event: ChangeEvent<HTMLInputElement>) => void;
   readonly onOpenProject: (projectId: string) => void;
   readonly onPageChange?: (page: NewHomePage) => void;
@@ -246,7 +247,7 @@ const NewHomeSidebar = ({
   averageCompletion: number;
   isDarkMode: boolean;
   onExportLibraryBackup?: (onProgress?: LibraryExportProgressListener) => Promise<number>;
-  onImportLibraryBackup?: (file: File) => Promise<number>;
+  onImportLibraryBackup?: (file: File) => Promise<LibraryBackupImportResult>;
   onNavigate: (page: NewHomePage, hash?: string) => void;
   onToggleDarkMode: () => void;
   streakDays: number;
@@ -331,7 +332,7 @@ const MobileHeader = ({
   activePage: NewHomePage;
   isDarkMode: boolean;
   onExportLibraryBackup?: (onProgress?: LibraryExportProgressListener) => Promise<number>;
-  onImportLibraryBackup?: (file: File) => Promise<number>;
+  onImportLibraryBackup?: (file: File) => Promise<LibraryBackupImportResult>;
   onNavigate: (page: NewHomePage) => void;
   onToggleDarkMode: () => void;
 }) => (
