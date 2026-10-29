@@ -535,7 +535,10 @@ const checkpointStepOutput = async <Services>(input: {
       checkpoint,
       input.attempt.controller.signal
     );
-    await input.attempt.monitor.stop();
+    const interruption = await input.attempt.monitor.stop();
+    if (interruption && typeof interruption === 'object') {
+      emitWorkflowHeartbeatFailure(input.claim, 'step', interruption.diagnostic);
+    }
     return result;
   } catch (error) {
     const interrupted = await stopForInterruption(input.store, input.claim, input.attempt.monitor);

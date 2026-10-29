@@ -288,7 +288,8 @@ export const runWorkflowUndoClaim = async <Services>(
       () => input.store.complete(input.claim),
       controller.signal
     );
-    await monitor.stop();
+    // Completion is authoritative; stopping still reports a late heartbeat failure.
+    await stopForUndoInterruption(monitor, input.claim);
     return result;
   } catch (error) {
     const interruption = await stopForUndoInterruption(monitor, input.claim, error);
