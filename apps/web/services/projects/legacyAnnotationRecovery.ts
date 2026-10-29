@@ -24,12 +24,6 @@ const LEGACY_MARK_OPEN_REGEX = /^<mark\b[^>]*>/iu;
 const LEGACY_MARK_PRESENT_REGEX = /<mark\b/iu;
 const LEGACY_ANNOTATION_ID_REGEX = /\bdata-(?:nous|lumina)-annotation-id=(["'])([^"']+)\1/iu;
 
-const compareArtifactIdsByCodeUnit = (left: string, right: string): number => {
-  if (left < right) return -1;
-  if (left > right) return 1;
-  return 0;
-};
-
 type LegacySectionAnnotation = Omit<SectionAnnotation, 'anchor'> & {
   anchor?: SectionAnnotation['anchor'] | { kind: 'selection' };
 };
@@ -68,6 +62,7 @@ export interface SectionAnnotationRecoveryPatch {
 }
 
 export interface LegacyAnnotationRecoveryPlan {
+  acknowledgedAnnotations: { sectionId: string; ids: string[] }[];
   patches: SectionAnnotationRecoveryPatch[];
   unresolvedAnnotationCount: number;
 }
@@ -239,30 +234,6 @@ const normalizeLegacyAnnotation = ({
   };
 };
 
-const getSelectionAnchorKey = (annotation: SectionAnnotation): string | null => {
-  if (!isTextSelector(annotation.anchor)) {
-    return null;
-  }
-
-  const { exact, prefix, suffix } = annotation.anchor.selector;
-  return JSON.stringify(['selection', exact, prefix, suffix]);
-};
-
-const getLessonAnnotationKey = (annotation: SectionAnnotation): string | null => {
-  if (annotation.anchor?.kind !== 'lesson') {
-    return null;
-  }
-
-  const note = annotation.note.trim();
-  const artifactIds = (annotation.artifactRefs || [])
-    .map(reference => reference.artifactId)
-    .sort(compareArtifactIdsByCodeUnit);
-  return JSON.stringify(['lesson', note, note ? [] : artifactIds]);
-};
-
-const getAnchorKey = (annotation: SectionAnnotation) =>
-  getSelectionAnchorKey(annotation) || getLessonAnnotationKey(annotation);
-
 const mergeSectionAnnotations = (
   currentAnnotations: SectionAnnotation[],
   legacyAnnotations: SectionAnnotation[]
@@ -272,14 +243,10 @@ const mergeSectionAnnotations = (
     mergedAnnotations.map((annotation, index) => [annotation.id, index])
   );
   const knownIds = new Set(currentAnnotations.map(annotation => annotation.id));
-  const knownAnchors = new Set(
-    currentAnnotations.map(getAnchorKey).filter((key): key is string => key !== null)
-  );
   const missingAnnotations: SectionAnnotation[] = [];
   let normalizedCount = 0;
 
   for (const legacyAnnotation of legacyAnnotations) {
-    const anchorKey = getAnchorKey(legacyAnnotation);
     const currentIndex = currentIndexById.get(legacyAnnotation.id);
     if (currentIndex !== undefined) {
       const currentAnnotation = mergedAnnotations[currentIndex];
@@ -294,7 +261,6 @@ const mergeSectionAnnotations = (
           anchor: legacyAnnotation.anchor,
         };
         mergedAnnotations[currentIndex] = enrichedAnnotation;
-        knownAnchors.add(getSelectionAnchorKey(enrichedAnnotation) as string);
         normalizedCount += 1;
       }
       continue;
@@ -302,15 +268,8 @@ const mergeSectionAnnotations = (
     if (knownIds.has(legacyAnnotation.id)) {
       continue;
     }
-    if (anchorKey && knownAnchors.has(anchorKey)) {
-      continue;
-    }
-
     missingAnnotations.push(legacyAnnotation);
     knownIds.add(legacyAnnotation.id);
-    if (anchorKey) {
-      knownAnchors.add(anchorKey);
-    }
   }
 
   if (missingAnnotations.length === 0) {
@@ -328,21 +287,27 @@ const mergeSectionAnnotations = (
 
 export const buildLegacyAnnotationRecoveryPlan = (
   currentSnapshot: ProjectSnapshot,
-  legacySnapshot: ProjectSnapshot
+  legacySnapshot: ProjectSnapshot,
+  recoveredIdsBySection: ReadonlyMap<string, ReadonlySet<string>> = new Map()
 ): LegacyAnnotationRecoveryPlan => {
   const currentLessonsById = new Map(
     flattenLessons(currentSnapshot.learningPlan?.modules).map(lesson => [lesson.id, lesson])
   );
   const patches: SectionAnnotationRecoveryPatch[] = [];
+  const acknowledgedAnnotations: LegacyAnnotationRecoveryPlan['acknowledgedAnnotations'] = [];
   let unresolvedAnnotationCount = 0;
 
   for (const legacyLesson of flattenLessons(legacySnapshot.learningPlan?.modules)) {
+    const recoveredIds = recoveredIdsBySection.get(legacyLesson.id);
+    const pendingAnnotations = (legacyLesson.annotations || []).filter(
+      annotation => !isLegacyAnnotation(annotation) || !recoveredIds?.has(annotation.id)
+    );
     const currentLesson = currentLessonsById.get(legacyLesson.id);
-    if (!legacyLesson.annotations?.length) {
+    if (pendingAnnotations.length === 0) {
       continue;
     }
     if (!currentLesson) {
-      unresolvedAnnotationCount += legacyLesson.annotations.length;
+      unresolvedAnnotationCount += pendingAnnotations.length;
       continue;
     }
 
@@ -356,7 +321,7 @@ export const buildLegacyAnnotationRecoveryPlan = (
           })
         : { annotation: undefined, changed: false, understood: false }
     );
-    const parsedLegacyAnnotations = legacyLesson.annotations.map(annotation =>
+    const parsedLegacyAnnotations = pendingAnnotations.map(annotation =>
       isLegacyAnnotation(annotation)
         ? normalizeLegacyAnnotation({
             annotation,
@@ -374,6 +339,7 @@ export const buildLegacyAnnotationRecoveryPlan = (
       .map(result => result.annotation)
       .filter((annotation): annotation is SectionAnnotation => Boolean(annotation));
     if (normalizedCurrentAnnotations.length !== (currentLesson.annotations || []).length) {
+      unresolvedAnnotationCount += pendingAnnotations.length;
       continue;
     }
 
@@ -408,9 +374,15 @@ export const buildLegacyAnnotationRecoveryPlan = (
         sectionId: currentLesson.id,
       });
     }
+    acknowledgedAnnotations.push({
+      sectionId: currentLesson.id,
+      ids: parsedLegacyAnnotations.flatMap(result =>
+        result.understood && result.annotation ? [result.annotation.id] : []
+      ),
+    });
   }
 
-  return { patches, unresolvedAnnotationCount };
+  return { acknowledgedAnnotations, patches, unresolvedAnnotationCount };
 };
 
 export const buildLegacyAnnotationRecoveryPatches = (
@@ -468,24 +440,53 @@ export const recoverLegacyAnnotationsFromStore = async ({
       continue;
     }
 
-    const recoveryPlan = buildLegacyAnnotationRecoveryPlan(currentSnapshot, legacySnapshot);
+    const recoveredIdsBySection = new Map<string, Set<string>>();
+    const sectionStorageKey = (sectionId: string) =>
+      `${storageKey}:ids:${JSON.stringify([projectMeta.id, sectionId])}`;
+    for (const lesson of legacyLessons) {
+      const storedIds = migrationStorage?.getItem(sectionStorageKey(lesson.id));
+      const ids: unknown = storedIds ? JSON.parse(storedIds) : [];
+      if (!Array.isArray(ids) || !ids.every(id => typeof id === 'string')) {
+        throw new Error('Invalid legacy annotation recovery progress.');
+      }
+      recoveredIdsBySection.set(lesson.id, new Set(ids));
+    }
+    const recoveryPlan = buildLegacyAnnotationRecoveryPlan(
+      currentSnapshot,
+      legacySnapshot,
+      recoveredIdsBySection
+    );
     unresolvedAnnotationCount += recoveryPlan.unresolvedAnnotationCount;
     let expectedRevision = projectMeta.revision;
-    for (const sectionPatch of recoveryPlan.patches) {
+    for (const acknowledged of recoveryPlan.acknowledgedAnnotations) {
       assertUserStillActive(isUserActive);
-      const updatedMeta = await repository.patchProject(
-        projectMeta.id,
-        {
-          section: {
-            annotations: sectionPatch.annotations,
-            sectionId: sectionPatch.sectionId,
-          },
-          updatedAt: timestampIso(),
-        },
-        { expectedRevision }
+      const sectionPatch = recoveryPlan.patches.find(
+        patch => patch.sectionId === acknowledged.sectionId
       );
-      expectedRevision = updatedMeta.revision;
-      changedAnnotationCount += sectionPatch.recoveredCount + sectionPatch.normalizedCount;
+      if (sectionPatch) {
+        const updatedMeta = await repository.patchProject(
+          projectMeta.id,
+          {
+            section: {
+              annotations: sectionPatch.annotations,
+              sectionId: sectionPatch.sectionId,
+            },
+            updatedAt: timestampIso(),
+          },
+          { expectedRevision }
+        );
+        expectedRevision = updatedMeta.revision;
+        changedAnnotationCount += sectionPatch.recoveredCount + sectionPatch.normalizedCount;
+      }
+      if (acknowledged.ids.length > 0) {
+        const ids = new Set(recoveredIdsBySection.get(acknowledged.sectionId));
+        for (const id of acknowledged.ids) ids.add(id);
+        // Persist each successful section before another section can fail or the user can delete it.
+        migrationStorage?.setItem(
+          sectionStorageKey(acknowledged.sectionId),
+          JSON.stringify([...ids])
+        );
+      }
     }
   }
 

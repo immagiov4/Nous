@@ -12,6 +12,7 @@ import {
   type ProjectWriteOptions,
   type SectionAnnotation,
 } from '../../../types.ts';
+import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
 import {
   buildTestLearningPlan,
   buildTestLesson,
@@ -87,7 +88,7 @@ const createMigrationStorage = () => {
   };
 };
 
-test('legacy annotation merge is additive and current annotations win ID and anchor conflicts', () => {
+test('legacy annotation merge preserves distinct IDs and current notes win ID conflicts', () => {
   const currentSnapshot = buildSnapshot([
     buildTestLesson({
       content: 'hello, world',
@@ -120,17 +121,106 @@ test('legacy annotation merge is additive and current annotations win ID and anc
   const patches = buildLegacyAnnotationRecoveryPatches(currentSnapshot, legacySnapshot);
 
   expect(patches).toHaveLength(1);
-  expect(patches[0]?.recoveredCount).toBe(2);
+  expect(patches[0]?.recoveredCount).toBe(4);
   expect(patches[0]?.annotations.map(annotation => annotation.id)).toEqual([
     'same-id',
     'current-anchor',
     'current-lesson-note',
+    'legacy-anchor',
+    'legacy-duplicate-note',
     'missing-highlight',
     'missing-note',
   ]);
   expect(patches[0]?.annotations.find(annotation => annotation.id === 'same-id')?.note).toBe(
     'Current note'
   );
+});
+
+test('recovery writes distinct notes on the same selection before marking completion', async () => {
+  const currentNote = selectionAnnotation({
+    end: 5,
+    exact: 'hello',
+    id: 'current',
+    note: 'First note',
+    start: 0,
+  });
+  const legacyNote = { ...currentNote, id: 'legacy', note: 'Another note' };
+  const currentSnapshot = buildSnapshot([
+    buildTestLesson({ content: 'hello', annotations: [currentNote] }),
+  ]);
+  const legacySnapshot = buildSnapshot([
+    buildTestLesson({ content: 'hello', annotations: [legacyNote] }),
+  ]);
+  const { storage, values } = createMigrationStorage();
+  const patchProject = vi.fn(async () => buildTestProjectMeta({ revision: 2 }));
+
+  await expect(
+    recoverLegacyAnnotationsFromStore({
+      legacyStore: { close: vi.fn(), loadProject: async () => legacySnapshot },
+      migrationStorage: storage,
+      projectMetas: [buildTestProjectMeta({ revision: 1 })],
+      repository: { loadProject: async () => currentSnapshot, patchProject },
+      userId: 'user-1',
+    })
+  ).resolves.toBe(1);
+
+  expect(patchProject.mock.calls[0]).toBeDefined();
+  expect(patchProject).toHaveBeenCalledWith(
+    'project-1',
+    expect.objectContaining({
+      section: { sectionId: 'lesson-1', annotations: [currentNote, legacyNote] },
+    }),
+    { expectedRevision: 1 }
+  );
+  expect(values.get('nous:legacy-annotation-recovery:v3:user-1')).toBe('complete');
+});
+
+test('partial recovery remembers recovered and existing IDs after deletion across retries', async () => {
+  const existingNote = lessonAnnotation('existing-note', 'Already present');
+  const recoveredNote = lessonAnnotation('recovered-note', 'Recover once');
+  const pendingNote = lessonAnnotation('pending-note', 'Recover later');
+  let currentSnapshot = buildSnapshot([buildTestLesson({ annotations: [existingNote] })]);
+  const legacySnapshot = buildSnapshot([
+    buildTestLesson({ annotations: [existingNote, recoveredNote] }),
+    buildTestLesson({ id: 'lesson-2', annotations: [pendingNote] }),
+  ]);
+  const { storage, values } = createMigrationStorage();
+  let revision = 1;
+  const patchProject = vi.fn(async (_id: string, patch: ProjectPatch) => {
+    const lesson = flattenLessons(currentSnapshot.learningPlan?.modules).find(
+      candidate => candidate.id === patch.section?.sectionId
+    );
+    if (lesson && patch.section?.annotations) {
+      lesson.annotations = patch.section.annotations as SectionAnnotation[];
+    }
+    return buildTestProjectMeta({ revision: ++revision });
+  });
+  const args = {
+    legacyStore: { close: vi.fn(), loadProject: async () => legacySnapshot },
+    migrationStorage: storage,
+    projectMetas: [buildTestProjectMeta({ revision })],
+    repository: { loadProject: async () => currentSnapshot, patchProject },
+    userId: 'user-1',
+  };
+
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(1);
+  expect(values.get('nous:legacy-annotation-recovery:v3:user-1')).toBeUndefined();
+  currentSnapshot = buildSnapshot([buildTestLesson({ annotations: [] })]);
+  args.projectMetas = [buildTestProjectMeta({ revision })];
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(0);
+  expect(patchProject).toHaveBeenCalledTimes(1);
+  expect(values.get('nous:legacy-annotation-recovery:v3:user-1')).toBeUndefined();
+
+  currentSnapshot = buildSnapshot([
+    buildTestLesson({ annotations: [] }),
+    buildTestLesson({ id: 'lesson-2', annotations: [] }),
+  ]);
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(1);
+  expect(patchProject).toHaveBeenCalledTimes(2);
+  expect(
+    flattenLessons(currentSnapshot.learningPlan?.modules).map(lesson => lesson.annotations)
+  ).toEqual([[], [pendingNote]]);
+  expect(values.get('nous:legacy-annotation-recovery:v3:user-1')).toBe('complete');
 });
 
 test('legacy recovery patches only matching sections, advances revisions, and completes once', async () => {
@@ -198,7 +288,7 @@ test('legacy recovery patches only matching sections, advances revisions, and co
     },
   });
   expect(patchProject.mock.calls[1]?.[2]).toEqual({ expectedRevision: 8 });
-  expect(values.size).toBe(3);
+  expect(values.get('nous:legacy-annotation-recovery:v3:user-1')).toBe('complete');
 
   await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(0);
   expect(loadLegacyProject).toHaveBeenCalledTimes(1);
@@ -226,6 +316,48 @@ test('legacy recovery is retryable when a server patch fails', async () => {
     })
   ).rejects.toThrow('backend unavailable');
   expect(values.size).toBe(0);
+});
+
+test('a later patch failure retains progress without recording the failed note', async () => {
+  const firstNote = lessonAnnotation('note-1', 'Recover once');
+  const secondNote = lessonAnnotation('note-2', 'Retry this note');
+  const legacySnapshot = buildSnapshot([
+    buildTestLesson({ annotations: [firstNote] }),
+    buildTestLesson({ id: 'lesson-2', annotations: [secondNote] }),
+  ]);
+  const emptySnapshot = buildSnapshot([
+    buildTestLesson({ annotations: [] }),
+    buildTestLesson({ id: 'lesson-2', annotations: [] }),
+  ]);
+  const { storage, values } = createMigrationStorage();
+  const patchProject = vi.fn(async (_id: string, patch: ProjectPatch) => {
+    if (patch.section?.sectionId === 'lesson-2') throw new Error('backend unavailable');
+    return buildTestProjectMeta({ revision: 2 });
+  });
+  const args = {
+    legacyStore: { close: vi.fn(), loadProject: async () => legacySnapshot },
+    migrationStorage: storage,
+    projectMetas: [buildTestProjectMeta({ revision: 1 })],
+    repository: { loadProject: async () => emptySnapshot, patchProject },
+    userId: 'user-1',
+  };
+  await expect(recoverLegacyAnnotationsFromStore(args)).rejects.toThrow('backend unavailable');
+  expect(values.get('nous:legacy-annotation-recovery:v3:user-1')).toBeUndefined();
+
+  // The first note was deleted after its successful write, before retrying the failed section.
+  patchProject.mockImplementation(async () => buildTestProjectMeta({ revision: 3 }));
+  patchProject.mockClear();
+  args.projectMetas = [buildTestProjectMeta({ revision: 2 })];
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(1);
+  expect(patchProject).toHaveBeenCalledTimes(1);
+  expect(patchProject).toHaveBeenCalledWith(
+    'project-1',
+    expect.objectContaining({
+      section: { sectionId: 'lesson-2', annotations: [secondNote] },
+    }),
+    { expectedRevision: 2 }
+  );
+  expect(values.get('nous:legacy-annotation-recovery:v3:user-1')).toBe('complete');
 });
 
 test('legacy markup enriches an existing current annotation without replacing its note', () => {
