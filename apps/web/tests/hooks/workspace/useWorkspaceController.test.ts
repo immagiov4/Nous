@@ -3063,6 +3063,36 @@ test('handleSourceUpload imports Nous backup zips instead of treating them as co
   assert.deepEqual(state.internalState.assessmentMessages, []);
 });
 
+test('importProjectFile preserves a committed course when library refresh fails', async () => {
+  const archived = createProjectSnapshot({
+    id: 'backup-project',
+    learningPlan: buildPlan(),
+    state: AppState.READING,
+  });
+  const archive = await createProjectArchiveBlob(archived);
+  const stored = new Map<string, ProjectSnapshot>();
+  const { controller, projectLibrary } = createControllerHarness({
+    projectLibrary: {
+      importProjectArchive: async (_file, targetId) => {
+        const snapshot = { ...archived, id: targetId };
+        stored.set(targetId, snapshot);
+        return { meta: buildMeta(targetId), snapshot };
+      },
+      deleteStoredProject: async id => {
+        stored.delete(id);
+      },
+      refreshLibraryState: async () => {
+        throw new Error('refresh failed');
+      },
+    },
+  });
+  const result = await controller.importProjectFile(
+    new File([await archive.arrayBuffer()], 'course.nous.zip')
+  );
+  expect(result).toEqual({ outcome: 'imported' });
+  expect([...stored.keys()]).toEqual([projectLibrary.adapter.currentProjectId]);
+});
+
 test('handleSourceUpload removes a restored project when post-import hydration fails', async () => {
   const previousSnapshot = createProjectSnapshot({
     id: 'previous-project',
