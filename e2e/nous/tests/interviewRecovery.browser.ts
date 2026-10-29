@@ -8,10 +8,12 @@ import { withMutedAudio } from '../../../scripts/browser-audio';
 import { dataRoot } from '../stack';
 
 const startedAt = performance.now();
+const USER_ID = 'interview-recovery-user';
 
 // Use the product's local test authentication and real project HTTP routes.
 process.env.NODE_ENV = 'test';
 process.env.AUTH_MODE = 'local-bypass';
+process.env.LOCAL_USER_ID = USER_ID;
 const { createApp } = await import('../../../apps/backend/src/index');
 const { InMemoryProjectStore } = await import(
   '../../../apps/backend/tests/helpers/inMemoryProjectStore'
@@ -109,9 +111,9 @@ try {
   await page.screenshot({ path: join(evidence, 'failed-start.png'), fullPage: true });
   assert.equal(starts.length, 1);
   const draftId = starts[0];
-  const draft = await store.loadProject('local-user', draftId);
+  const draft = await store.loadProject(USER_ID, draftId);
   assert(draft?.source);
-  const sources = await store.loadProjectSources('local-user', draftId);
+  const sources = await store.loadProjectSources(USER_ID, draftId);
   assert.equal(sources.length, 2);
   assert(sources.every(source => source.file.data.length > 0));
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -127,8 +129,8 @@ try {
   });
   assert.equal(retryResponse.status(), 404);
   assert.deepEqual(starts, [draftId, draftId]);
-  assert.deepEqual((await store.loadProject('local-user', draftId))?.source, draft.source);
-  assert.deepEqual(await store.loadProjectSources('local-user', draftId), sources);
+  assert.deepEqual((await store.loadProject(USER_ID, draftId))?.source, draft.source);
+  assert.deepEqual(await store.loadProjectSources(USER_ID, draftId), sources);
   await page
     .getByText('L’intervista per il corso non è riuscita. Riprova.', { exact: true })
     .waitFor();
