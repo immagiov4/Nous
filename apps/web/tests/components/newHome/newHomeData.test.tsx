@@ -144,6 +144,33 @@ describe('new home favorites', () => {
 });
 
 describe('new home source library', () => {
+  test.each([
+    false,
+    true,
+  ])('clears failed source loads while inactive (empty library: %s)', async emptyLibrary => {
+    const projects = [buildProject(1)];
+    const loadProjectsById = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('snapshot unavailable'))
+      .mockResolvedValueOnce([]);
+    const { result, rerender } = renderHook(
+      ({ enabled, projects }) => useSourceLibrary({ enabled, loadProjectsById, projects }),
+      { initialProps: { enabled: true, projects } }
+    );
+    await waitFor(() => expect(result.current.hasLoadError).toBe(true));
+    rerender({ enabled: false, projects: emptyLibrary ? [] : projects });
+    await act(async () => {});
+    expect(result.current.hasLoadError).toBe(false);
+    const newProjects = [buildProject(2)];
+    rerender({ enabled: false, projects: newProjects });
+    expect(result.current.hasLoadError).toBe(false);
+    expect(loadProjectsById).toHaveBeenCalledTimes(1);
+    rerender({ enabled: true, projects: newProjects });
+    await waitFor(() => expect(loadProjectsById).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.hasLoadError).toBe(false);
+  });
+
   test('removes deleted courses from retained sources when a reload fails', async () => {
     const projects = [buildProject(1), buildProject(2)];
     const snapshots = projects.map(project => ({

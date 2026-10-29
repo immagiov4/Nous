@@ -130,20 +130,19 @@ export const useSourceLibrary = ({
   const projectIds = useMemo(() => projects.map(project => project.id), [projects]);
 
   useEffect(() => {
-    if (!enabled) {
-      return;
-    }
-    if (projectIds.length === 0) {
-      return;
-    }
-
     let isCurrent = true;
+    const shouldLoad = enabled && projectIds.length > 0;
     queueMicrotask(() => {
       if (isCurrent) {
-        setIsLoading(true);
+        setIsLoading(shouldLoad);
         setHasLoadError(false);
       }
     });
+    if (!shouldLoad) {
+      return () => {
+        isCurrent = false;
+      };
+    }
     void (async () => {
       try {
         const projectById = new Map(projects.map(project => [project.id, project]));
@@ -225,7 +224,7 @@ export const useSourceLibrary = ({
   }, [items, projectIds]);
 
   return {
-    hasLoadError: projectIds.length > 0 && hasLoadError,
+    hasLoadError: enabled && projectIds.length > 0 && hasLoadError,
     isLoading,
     items: availableItems,
   };

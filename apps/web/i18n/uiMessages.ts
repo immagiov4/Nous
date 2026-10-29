@@ -50,7 +50,8 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 const ENGLISH_UI_MESSAGES = {
   [SOURCE_LIBRARY_LOAD_ERROR_MESSAGE]:
     'Sources could not be loaded. Some sources may be missing. Reload the page.',
-  'Eliminazione del corso non riuscita. Riprova.': 'Course deletion failed. Try again.',
+  'Eliminazione del corso non confermata. Ricarica la pagina.':
+    'Course deletion could not be confirmed. Reload the page.',
   'Modifica dei preferiti non riuscita. Riprova.': 'Could not update favorites. Try again.',
   [PDF_SCANNED_PAGE_LIMIT_MESSAGE]:
     'There is too much scanned material for one course. Select only the parts you need.',

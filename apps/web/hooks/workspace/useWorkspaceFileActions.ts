@@ -147,7 +147,7 @@ export const useWorkspaceFileActions = ({
       try {
         await deleteProject(projectId);
       } catch {
-        notify(t('Eliminazione del corso non riuscita. Riprova.'));
+        notify(t('Eliminazione del corso non confermata. Ricarica la pagina.'));
       }
     },
     [confirmProjectDelete, deleteProject, notify, savedProjects]

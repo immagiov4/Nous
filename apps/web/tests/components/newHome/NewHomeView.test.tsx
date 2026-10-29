@@ -1039,23 +1039,25 @@ describe('NewHomeView library interactions', () => {
         saveProjectCover={vi.fn(async () => {})}
       />
     );
-    await waitFor(() => expect(onNotifyError).toHaveBeenCalledTimes(1));
-    expect(onNotifyError).toHaveBeenCalledWith(
-      'Caricamento delle fonti non riuscito. Alcune fonti potrebbero mancare. Ricarica la pagina.'
-    );
-    expect(
-      screen.queryByText('Nessuna fonte corrisponde a questa ricerca.')
-    ).not.toBeInTheDocument();
     if (partial) {
+      await waitFor(() =>
+        expect(onNotifyError).toHaveBeenCalledExactlyOnceWith(
+          'Caricamento delle fonti non riuscito. Alcune fonti potrebbero mancare. Ricarica la pagina.'
+        )
+      );
       await user.click(screen.getByRole('button', { name: /Corso Mobile/ }));
       expect(screen.getByRole('button', { name: /src.zip/ })).toBeInTheDocument();
     } else {
       expect(
-        screen.getByText(
+        await screen.findByText(
           'Caricamento delle fonti non riuscito. Alcune fonti potrebbero mancare. Ricarica la pagina.'
         )
       ).toBeInTheDocument();
+      expect(onNotifyError).not.toHaveBeenCalled();
     }
+    expect(
+      screen.queryByText('Nessuna fonte corrisponde a questa ricerca.')
+    ).not.toBeInTheDocument();
   });
 
   test.each([
@@ -1112,7 +1114,7 @@ describe('NewHomeView library interactions', () => {
       await user.click(screen.getByRole('button', { name: 'Elimina' }));
       await waitFor(() =>
         expect(notify).toHaveBeenCalledExactlyOnceWith(
-          'Eliminazione del corso non riuscita. Riprova.'
+          'Eliminazione del corso non confermata. Ricarica la pagina.'
         )
       );
       expect(confirmProjectDelete).toHaveBeenCalledWith(project.title);

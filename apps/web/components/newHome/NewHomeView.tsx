@@ -2114,8 +2114,10 @@ export const NewHomeView = ({
     projects,
   });
   useEffect(() => {
-    if (sourceLibrary.hasLoadError) onNotifyError?.(t(SOURCE_LIBRARY_LOAD_ERROR_MESSAGE));
-  }, [onNotifyError, sourceLibrary.hasLoadError]);
+    if (sourceLibrary.hasLoadError && sourceLibrary.items.length > 0) {
+      onNotifyError?.(t(SOURCE_LIBRARY_LOAD_ERROR_MESSAGE));
+    }
+  }, [onNotifyError, sourceLibrary.hasLoadError, sourceLibrary.items.length]);
   const averageCompletion = useMemo(() => {
     const completableProjects = projects.filter(project => project.lessonCount > 0);
     if (completableProjects.length === 0) {

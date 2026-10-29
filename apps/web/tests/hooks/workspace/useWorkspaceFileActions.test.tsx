@@ -196,5 +196,29 @@ test('handles confirmed deletion failure with action-specific feedback', async (
     await expect(result.current.handleDeleteProject('project-1')).resolves.toBeUndefined();
   });
   expect(deleteProject).toHaveBeenCalledWith('project-1');
-  expect(notify).toHaveBeenCalledExactlyOnceWith('Eliminazione del corso non riuscita. Riprova.');
+  expect(notify).toHaveBeenCalledExactlyOnceWith(
+    'Eliminazione del corso non confermata. Ricarica la pagina.'
+  );
+});
+
+test('reports uncertainty when a delete succeeds but refreshing the library fails', async () => {
+  const persistedProjectIds = new Set(['project-1']);
+  const refreshLibrary = vi.fn().mockRejectedValue(new Error('list folders failed'));
+  const deleteProject = vi.fn(async (projectId: string) => {
+    persistedProjectIds.delete(projectId);
+    await refreshLibrary();
+  });
+  const notify = vi.fn();
+  const { result } = renderHook(() =>
+    useWorkspaceFileActions(buildHookArgs({ deleteProject, notify }))
+  );
+  await act(async () => {
+    await expect(result.current.handleDeleteProject('project-1')).resolves.toBeUndefined();
+  });
+  expect(persistedProjectIds.has('project-1')).toBe(false);
+  expect(deleteProject).toHaveBeenCalledTimes(1);
+  expect(refreshLibrary).toHaveBeenCalledTimes(1);
+  expect(notify).toHaveBeenCalledExactlyOnceWith(
+    'Eliminazione del corso non confermata. Ricarica la pagina.'
+  );
 });
