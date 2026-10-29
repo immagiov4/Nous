@@ -176,7 +176,11 @@ export class PostgresProjectAssetStore implements ProjectAssetReader, ProjectAss
       await this.validateUploadedObject(input, descriptor);
     } catch (error) {
       if (error instanceof ProjectAssetStoreError && error.code === 'scope-invalid') {
-        await this.storage.delete(descriptor.objectPath);
+        try {
+          await this.storage.delete(descriptor.objectPath);
+        } catch (cleanupError) {
+          error.cause = cleanupError;
+        }
       }
       throw error;
     }

@@ -3,16 +3,19 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import * as z from 'zod';
+import { ProjectSourceStorageError } from '../../src/projects/projectSourceStorage.js';
 import { ttsClient } from '../../src/services/ttsClient.js';
 import { WorkflowExecutionDefaultsSchema } from '../../src/workflows/config.js';
 import { createWorkflowRegistry, fanOut, step, workflow } from '../../src/workflows/definition.js';
 import { materializeWorkflowStart } from '../../src/workflows/materialization.js';
+import { PostgresWorkflowStore } from '../../src/workflows/persistence/postgresWorkflowStore.js';
 import { PostgresProjectRevisionInbox } from '../../src/workflows/postgresProjectRevisionInbox.js';
 import { COURSE_PROJECT_REVISION_EVENT } from '../../src/workflows/projectRevisionNotifications.js';
 import {
   failPermanently,
   retryCorrective,
   retryOperational,
+  runWorkflowStage,
   toStepFailure,
 } from '../../src/workflows/retryPolicy.js';
 import {
@@ -71,6 +74,80 @@ const createListenClient = () => {
 describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration', () => {
   beforeAll(() => setupPostgresWorkflowIntegrationContext(context));
   afterAll(() => teardownPostgresWorkflowIntegrationContext(context));
+
+  test('persists scope validation as primary and cleanup failure as its sanitized cause', async () => {
+    if (!sql) throw new Error('Workflow integration database is required.');
+    const runId = randomUUID();
+    const store = new PostgresWorkflowStore({
+      enforceCurrentDefinitions: false,
+      sqlClient: sql,
+      projectAssetStorage: {
+        upload: async () => {
+          await sql`delete from public.project_assets where workflow_run_id = ${runId}`;
+        },
+        download: vi.fn(),
+        delete: async () => {
+          throw new ProjectSourceStorageError('delete-failed', 503, {
+            cause: new Error('token=private-cleanup-token'),
+          });
+        },
+      },
+    });
+    const definition = registeredStepWorkflow('asset-scope-diagnostics', 'generate');
+    const input = { content: 'Synthetic visual.' };
+    await store.createRun({
+      config: definition.executionDefaults,
+      definitionHash: definition.definitionHash,
+      definitionHashVersion: definition.definitionHashVersion,
+      id: runId,
+      input,
+      materialization: materializeWorkflowStart(definition, input, {
+        resolvedConfig: definition.executionDefaults,
+      }),
+      projectId,
+      requestKey: randomUUID(),
+      userId,
+      workflowId: definition.id,
+    });
+    try {
+      const claim = await claimNextStep(store, definition, 'asset-worker');
+      if (!claim) throw new Error('Expected the asset claim.');
+      const signal = new AbortController().signal;
+      const error = await runWorkflowStage({
+        failure: { code: 'asset_stage_failed', message: 'Asset staging failed.' },
+        operation: () =>
+          store.projectAssets.stage({
+            bytes: new TextEncoder().encode(input.content),
+            idempotencyKey: 'image',
+            mediaType: 'image/png',
+            nodeInstanceId: claim.nodeInstanceId,
+            projectId,
+            runId,
+            signal,
+            userId,
+          }),
+        signal,
+      }).catch((caught: unknown) => caught);
+      await store.steps.recordFailure({ claim, definition, failure: toStepFailure(error) });
+      const [node] = await sql`select error from public.workflow_node_runs where run_id = ${runId}`;
+      const [attempt] =
+        await sql`select error from public.workflow_node_attempts where run_id = ${runId}`;
+      for (const record of [node, attempt]) {
+        expect(record?.error).toMatchObject({
+          details: {
+            diagnostic: {
+              code: 'scope-invalid',
+              type: 'ProjectAssetStoreError',
+              cause: { code: 'delete-failed', status: 503, type: 'ProjectSourceStorageError' },
+            },
+          },
+        });
+        expect(JSON.stringify(record?.error)).not.toContain('private-cleanup-token');
+      }
+    } finally {
+      await sql`delete from public.workflow_runs where id = ${runId}`;
+    }
+  });
 
   test('lets only one worker claim a step and records its fencing token', async () => {
     if (!sql) throw new Error('Workflow integration database is required.');
