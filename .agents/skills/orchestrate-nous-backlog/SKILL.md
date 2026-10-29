@@ -41,7 +41,8 @@ the action described by the target skill.
 | review finding triage | `$receiving-pr-reviews` | PR reviews, local reviewing agents, or self-review produce findings |
 | user decision notification | `$agent-question-notifications` | a long-running task needs an answer in its original conversation |
 | primary-source research | `$research` | docs, APIs, or external facts must be investigated |
-| durable technical prose or user-facing writing | `$docs-doc`, `$unslop` | documentation or human-facing prose is produced |
+| test-first build and completion evidence | `$geppetto-build`, `$geppetto-verify` | a delegated unit implements or verifies product behaviour (required by `AGENTS.md`) |
+| durable technical prose or user-facing writing | `$writing-for-humans` | documentation or human-facing prose is produced |
 | long unattended decision trail or handoff | `$show-me-your-work`, `$handoff` | the run needs an auditable log or another task must resume it |
 
 ## Execution authority
@@ -113,7 +114,12 @@ fit.
    inspection when no fetch is authorized; use `git fetch` only when authorized, and use
    `git pull --ff-only` only when the worktree and branch make it safe and the user has authorized
    the pull. Never stash, discard, rebase, merge, or otherwise rewrite user work merely to obtain a
-   pull.
+   pull. When the user asks to align local `main` and it carries uncommitted work, preserve it
+   first: clear the flag on skip-worktree files (`git ls-files -v` shows `S`;
+   `git update-index --no-skip-worktree <file>`) so their hidden edits are included, write
+   `git diff HEAD` to a patch in the run folder, commit it on a local `backup/<topic>-<date>`
+   branch, and move conflicting untracked files into the run folder. Then `git switch main`
+   and `git merge --ff-only origin/main`; confirm `git rev-parse main origin/main` match. Delegated work always branches from a fresh `origin/main`.
 5. Before a new task or non-trivial change, read the relevant `.cubic/wiki` pages and form a
    proportional semantic map: product concepts, systems, contracts, analogous mechanisms, and
    likely cross-cutting effects. Use code search or Graphify afterwards to verify concrete call
@@ -150,11 +156,31 @@ dependencies, authority, and verified risk. Do not invent a project-specific sco
 filter, fallback, or semantic heuristic. If a selection requires such a rule, stop under the exact
 heading `EURISTICA PROPOSTA`, state the decision rule and failure modes, and ask the user.
 
-Present the classification briefly. Begin autonomous work immediately; handle interactive and
-brainstorm items with the user in a separate, sequential question stream. Write newly opened
+Present the classification briefly. Begin autonomous work immediately. Ask every pending
+`interactive` and `brainstorm` decision in one batch, each with its consequence and a recommended
+option, and send the desktop notice in the same turn; autonomous lanes keep running meanwhile. Write newly opened
 GitHub issues in English unless the user requests another language. If documentation review
 exposes a real product bug or missing capability rather than stale prose, open a separate
 evidence-backed issue instead of hiding it in a documentation patch.
+
+## Run ledger
+
+The ledger is the orchestrator's memory of the batch. Create it before the first dispatch as
+`<run>/ledger.md`, where `<run>` is the batch folder under the host's agent work root
+(`C:/Users/giovb/nous-work/` on the maintainer's machine; a temporary directory outside the
+checkout elsewhere). Keep one row per work item:
+
+| Item | Issues | Lane | Owner | Branch | PR | State | Next action | Updated |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+- **Owner** is the task ID or thread link; **State** is one of `queued`, `running`, `pr-open`,
+  `merge-ready`, `merged`, `closed-noop`, `needs-user`, `blocked`.
+- **Next action** names the executable step, or the exact decision or external change awaited.
+
+Read the ledger before acting after a wake-up, compaction, or handoff. Update the row at every
+event: dispatch, task notification, PR opened, CI or review result, merge, user answer. A batch is
+complete when every row is terminal: `merged`, `closed-noop`, `needs-user` with the question
+already sent, `blocked` with its named resume condition, or, under `$full-stop`, `merge-ready`. Build the completion report from it.
 
 ## 3. Delegate bounded work in parallel
 
@@ -162,6 +188,20 @@ For implementation, use separate user-visible Codex tasks with isolated worktree
 subagents. Use a local subagent only for a short, read-only verification that supports the current
 chat; never use one to implement, publish, or own a backlog issue. Keep roughly 8-10 tasks or fewer
 active and queue excess work.
+
+Dispatch route in T3 Code:
+
+- Write the batch-wide rules once (base on fresh `origin/main`, skills, test scope, PR format,
+  merge authority, waiting loop, final status line) to `<run>/common-brief.md`. Each task brief
+  points to it and adds its own issues and Requirements map.
+- Begin every Codex brief with: `Do NOT spawn sub-agents or nested tasks; do all work yourself.
+  Never change model or service tier.` A PreToolUse hook rejects briefs without it.
+- `delegate_task` with `isolation: "worktree"` needs this thread to belong to the T3 project whose
+  remote is `immagiov4/Nous` (its legacy title may read `Lumina-Reader`; verify the remote, not the
+  title). From a thread outside it, `delegate_task` fails with `Unable to resolve the parent
+  checkout commit` and rejects `target.projectId`. Then launch top-level Codex threads in the Nous
+  project with a worktree workspace strategy; a full-send or full-stop request authorizes them.
+- Record each task ID or thread link in the ledger at dispatch.
 
 1. Group overlapping issues by subsystem before creating tasks. Use `gpt-6.1-sol` on the standard (`default`) service tier for all tasks; never pick
    another model (such as `gpt-6-astra`) or the fast/priority tier, and never let a task spawn
@@ -199,8 +239,8 @@ agent do not duplicate the post-it. Closing it is not an answer or authorization
 At least every 20 minutes during an active batch, and again whenever the queue appears idle,
 perform a short orchestration audit before declaring a task blocked or waiting:
 
-1. List active, queued, and paused tasks; count heavy local work, active reviews, CI runs, and
-   shared-service lanes.
+1. Reconcile the ledger with live task, PR, and CI state; count heavy local work, active reviews,
+   CI runs, and shared-service lanes.
 2. For every paused task, name its exact dependency and verify that it is real on the current
    head. Do not preserve a dependency merely because it was once prudent.
 3. Ask whether another safe path can advance now: focused tests, CI/review, rebase, a different
@@ -312,7 +352,7 @@ Before publication, re-check remote state and the complete worktree.
   references where appropriate (for example, `Closes #123`). Before completion, verify that every
   resolved issue was actually closed; never leave a completed issue orphaned/open without an
   explicit remaining manual-verification reason.
-- For Nous PR bodies, follow the repository `scripts/github-body.mjs` contract: **Problem:**, **Approach:**, **Result:** and `## Testing`, with CI and SonarCloud status on one Testing line. Validate before publication and verify the remote body afterward.
+- For Nous PR bodies, follow the repository `scripts/github-body.mjs` contract: **Problem:**, **Approach:**, **Result:**, a meaningful `## Observability` section (checked by `node <adopt>/scripts/gate-sections.mjs --pr <body-file>`) and `## Testing`, with CI and SonarCloud status on one Testing line. Validate before publication and verify the remote body afterward.
 - For a documentation-only PR, keep Markdown valid: headings, blank lines, lists, and closing
   references must render correctly. Correct documentation findings manually on the same PR; do not
   regenerate Cubic merely to answer a review.
@@ -321,7 +361,8 @@ Before publication, re-check remote state and the complete worktree.
 
 ## 8. High-throughput PR checklist
 
-Use this only after the user has approved the loop.
+Use this only after the user has approved the loop. `$full-send` approves it with merge authority;
+`$full-stop` approves it up to `merge-ready`, leaving the merge to the user.
 
 1. Classify and separate overlapping files before parallelizing. Cap active heavy validation to
    avoid CPU/RAM starvation; parallel agents may implement and run focused checks while only one
