@@ -75,15 +75,22 @@ export const generateLessonResearchSummary = async ({
       });
     }
   }
+  const webSourceCount = normalizeResearchedWebSources(summary).length;
+  const selectedVideoCount = selectLessonSources({
+    discoveredYoutubeSources: youtubeOutcome?.videoCandidates ?? [],
+    existingSources: [],
+    originalSources: [],
+    researchSummary: summary,
+  }).length;
   assertRequiredWebEvidence(
     generationInput.researchRouting,
     summary.factualSummary,
-    summary.sources.length
+    webSourceCount
   );
   assertRequiredResearchEvidence(generationInput.researchRouting, {
     factualContent: summary.factualSummary,
-    sourceCount: summary.sources.length,
-    youtubeCandidateCount: youtubeOutcome?.videoCandidates.length ?? 0,
+    sourceCount: webSourceCount,
+    youtubeCandidateCount: selectedVideoCount,
   });
   return summary;
 };
