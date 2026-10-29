@@ -129,7 +129,12 @@ export const importProjectBackupFile = async (
     context.persistHydratedSnapshot(preparedSnapshot);
     didHydrateImportedSnapshot = true;
     await context.projectLibrary.touchStoredProject(preparedSnapshot.id);
-    await context.projectLibrary.refreshLibraryState();
+    try {
+      await context.projectLibrary.refreshLibraryState({ afterImport: true });
+    } catch {
+      // The import is committed; a failed library read must never undo it.
+      console.warn('[Projects] Library reload failed after committed import.');
+    }
 
     return preparedSnapshot;
   } catch (error) {

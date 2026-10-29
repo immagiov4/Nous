@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import JSZip from 'jszip';
 import { useState } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { ProjectRevisionConflictError } from '../../../../backend/src/projects/projectRevision.ts';
 import type { ProjectSnapshot as StoredProjectSnapshot } from '../../../../backend/src/projects/types.ts';
 import { InMemoryProjectStore } from '../../../../backend/tests/helpers/inMemoryProjectStore.ts';
+import AccountSettingsDialog from '../../../components/account/AccountSettingsDialog.tsx';
 import { useWorkspaceDomain } from '../../../hooks/workspace/useWorkspaceDomain';
 import { loadDocumentText } from '../../../services/projects/documentText';
 import { createLibraryArchiveBlob } from '../../../services/projects/libraryArchive.ts';
@@ -665,11 +666,65 @@ describe('useProjectLibrary', () => {
     await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
     repositoryMocks.listProjects.mockRejectedValueOnce(new Error('refresh failed'));
 
-    await expect(result.current.importLibraryBackup(file)).rejects.toThrow('refresh failed');
-    expect(result.current.projectSyncState).toEqual({ kind: 'import', phase: 'pending' });
+    render(
+      <AccountSettingsDialog
+        account={{ id: 'account' }}
+        initialSection="data"
+        onAccountChange={vi.fn()}
+        onClose={vi.fn()}
+        onImportLibraryBackup={result.current.importLibraryBackup}
+      />
+    );
+    fireEvent.change(screen.getByLabelText('Seleziona backup completo Nous'), {
+      target: { files: [file] },
+    });
+    expect(await screen.findByText('2 corsi importati.')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'I corsi sono stati importati. Ricarica la libreria per visualizzarli.'
+    );
+    expect(result.current.projectSyncState).toMatchObject({ kind: 'load', phase: 'failed' });
+    await act(async () => result.current.refreshLibraryState());
+    expect(result.current.projectSyncState).toEqual({ kind: 'idle' });
 
     expect(repositoryMocks.importProjectArchive).toHaveBeenCalledTimes(2);
     expect(repositoryMocks.deleteProject).not.toHaveBeenCalled();
+  });
+
+  test('rejects a mismatched response and deletes only the allocated import target', async () => {
+    const existing = buildSnapshot('existing-user-course');
+    const stored = new Map([[existing.id, existing]]);
+    repositoryMocks.importProjectArchive.mockImplementationOnce(async (_archive, targetId) => {
+      stored.set(targetId, buildSnapshot(targetId));
+      return { meta: buildMeta(existing.id, existing.updatedAt), snapshot: existing };
+    });
+    repositoryMocks.deleteProject.mockImplementation(async id => {
+      stored.delete(id);
+    });
+    const archive = await createLibraryArchiveBlob([buildSnapshot('course-one')], {
+      folders: [],
+      placements: [
+        { projectId: 'course-one', folderId: null, order: 0, updatedAt: existing.updatedAt },
+      ],
+    });
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    await expect(
+      result.current.importLibraryBackup(new File([archive], 'library.zip'))
+    ).rejects.toMatchObject({
+      result: {
+        importedProjects: [],
+        rejectedProjects: [expect.objectContaining({ id: 'course-one', stage: 'project-import' })],
+      },
+    });
+    expect(repositoryMocks.deleteProject.mock.calls).toEqual([
+      [repositoryMocks.importProjectArchive.mock.calls[0]?.[1]],
+    ]);
+    expect([...stored.values()]).toEqual([existing]);
   });
 
   test('keeps successful courses when a later server import fails and cleans only its target', async () => {
@@ -734,42 +789,6 @@ describe('useProjectLibrary', () => {
       null,
       0
     );
-  });
-
-  test('cleans the project id returned by the server when it differs from the requested id', async () => {
-    const archive = await createLibraryArchiveBlob([buildSnapshot('course-one')], {
-      folders: [],
-      placements: [
-        {
-          projectId: 'course-one',
-          folderId: null,
-          order: 0,
-          updatedAt: '2026-04-02T10:00:00.000Z',
-        },
-      ],
-    });
-    const returnedProjectId = 'server-created-course';
-    repositoryMocks.importProjectArchive.mockResolvedValueOnce({
-      meta: buildMeta(returnedProjectId, '2026-04-02T10:00:00.000Z'),
-      snapshot: buildSnapshot(returnedProjectId),
-    });
-    const file = new File([archive], 'library.nous-library.zip');
-    const { result } = renderHook(() =>
-      useProjectLibrary({
-        domainState: createEmptyWorkspaceDomainState(),
-        hydrateSnapshot: vi.fn(),
-      })
-    );
-    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
-
-    await expect(result.current.importLibraryBackup(file)).rejects.toMatchObject({
-      code: 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
-      projectCount: 1,
-      projectIndex: 1,
-    });
-
-    expect(repositoryMocks.deleteProject).toHaveBeenCalledOnce();
-    expect(repositoryMocks.deleteProject).toHaveBeenCalledWith(returnedProjectId);
   });
 
   test('reports later courses as not attempted when a failed target cannot be cleaned up', async () => {

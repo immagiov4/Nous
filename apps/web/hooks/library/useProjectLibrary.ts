@@ -1,7 +1,7 @@
 import type { ProjectWriteOptions, SectionPatch } from '@shared/projectContract';
 import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { IMPORT_REFRESH_WARNING, translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { readSupabaseSession } from '../../services/auth/supabaseAuth.ts';
 import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
@@ -12,7 +12,10 @@ import {
   HttpProjectRepository,
 } from '../../services/projects/httpProjectRepository.ts';
 import { recoverLegacyAnnotations } from '../../services/projects/legacyAnnotationRecovery.ts';
-import { importLibraryArchive } from '../../services/projects/libraryArchiveImport.ts';
+import {
+  importLibraryArchive,
+  type LibraryBackupImportResult,
+} from '../../services/projects/libraryArchiveImport.ts';
 import { buildAutosaveSignature } from '../../services/projects/persistenceSignature';
 import {
   createProjectArchiveBlob,
@@ -284,9 +287,24 @@ export const useProjectLibrary = ({
     setLibraryPlacements(placements);
   }, []);
 
-  const refreshLibraryState = useCallback(async () => {
-    await Promise.all([refreshSavedProjects(), refreshLibraryOrganization()]);
-  }, [refreshLibraryOrganization, refreshSavedProjects]);
+  const refreshLibraryState = useCallback(
+    async (options?: { afterImport?: boolean }) => {
+      try {
+        await Promise.all([refreshSavedProjects(), refreshLibraryOrganization()]);
+        setProjectSyncState(current =>
+          current.kind === 'load' && current.phase === 'failed' ? { kind: 'idle' } : current
+        );
+      } catch (error) {
+        if (options?.afterImport) {
+          const message = t(IMPORT_REFRESH_WARNING);
+          setStorageError(message);
+          setProjectSyncState({ kind: 'load', message, phase: 'failed' });
+        }
+        throw error;
+      }
+    },
+    [refreshLibraryOrganization, refreshSavedProjects]
+  );
 
   const syncProjectMeta = useCallback(
     (meta: SavedProjectMeta) => {
@@ -1237,22 +1255,23 @@ export const useProjectLibrary = ({
   );
 
   const importLibraryBackup = useCallback(
-    async (file: File): Promise<number> => {
+    async (file: File): Promise<LibraryBackupImportResult> => {
       setProjectSyncState({ kind: 'import', phase: 'pending' });
       let outcome: Awaited<ReturnType<typeof importLibraryArchive>>;
       try {
         outcome = await importLibraryArchive({
           file,
-          refreshLibraryState,
+          refreshLibraryState: () => refreshLibraryState({ afterImport: true }),
           repository: projectRepositoryRef.current,
         });
       } catch (error) {
         setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
         throw error;
       }
-      if (outcome.kind === 'refresh-failed') throw outcome.error;
-      setProjectSyncState({ kind: 'idle' });
-      return outcome.importedProjectCount;
+      const refreshFailed = outcome.kind === 'refresh-failed';
+      if (refreshFailed) console.warn('[Nous] Library reload failed after committed import.');
+      else setProjectSyncState({ kind: 'idle' });
+      return { importedProjectCount: outcome.importedProjectCount, refreshFailed };
     },
     [refreshLibraryState]
   );
