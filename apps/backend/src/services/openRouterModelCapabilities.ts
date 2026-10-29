@@ -35,6 +35,7 @@ export const openRouterModelSupportsImages = async (model: string): Promise<bool
         ...toWorkflowErrorDiagnostic(error),
         code: 'model-capability-lookup-failed',
       },
+      model,
     });
     return false;
   }

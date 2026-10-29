@@ -107,6 +107,7 @@ describe('/api/openrouter proxy', () => {
     ]);
     if (status === 503) {
       expect(warning).toHaveBeenCalledWith(expect.any(String), {
+        model: `server/capability-http-${status}`,
         diagnostic: expect.objectContaining({
           code: 'model-capability-lookup-failed',
           status: 503,
@@ -174,6 +175,7 @@ describe('/api/openrouter proxy', () => {
       { role: 'user', content: [{ type: 'text', text: 'PRIVATE_PROMPT' }] },
     ]);
     expect(warning).toHaveBeenCalledWith(expect.any(String), {
+      model: `server/capability-${failureKind}-failure`,
       diagnostic: expect.objectContaining({
         code: 'model-capability-lookup-failed',
         type: failureKind === 'transport' ? 'TypeError' : 'SyntaxError',
