@@ -366,7 +366,18 @@ class WorkflowRuntimeWorker<Services> {
       deliveryError = error;
       deliveryFailed = true;
     }
-    if (await monitor.stop()) return false;
+    const interruption = await monitor.stop();
+    if (interruption) {
+      if (typeof interruption === 'object') {
+        emitWorkflowLog(this.input.logger ?? consoleWorkflowLogger, {
+          action: 'heartbeat-failed',
+          claim,
+          entity: 'notification',
+          failureDiagnostic: interruption.diagnostic,
+        });
+      }
+      return false;
+    }
 
     if (deliveryFailed) {
       await this.input.store.outbox.recordFailure({
@@ -391,6 +402,7 @@ class WorkflowRuntimeWorker<Services> {
   private async runStep(claim: WorkflowStepClaim): Promise<void> {
     const result = await runWorkflowStepClaim({
       claim,
+      logger: this.input.logger,
       registry: this.input.registry,
       services: this.input.services,
       store: this.input.store,
@@ -476,6 +488,7 @@ class WorkflowRuntimeWorker<Services> {
     if (!claim) return false;
     await runWorkflowUndoClaim({
       claim,
+      logger: this.input.logger,
       registry: this.input.registry,
       services: this.input.services,
       store: this.input.store.undo,
