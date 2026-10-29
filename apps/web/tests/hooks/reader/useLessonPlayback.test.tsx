@@ -6,6 +6,7 @@ import { act, render, renderHook, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { useLessonPlayback } from '../../../hooks/reader/useLessonPlayback.ts';
+import * as playbackAuth from '../../../services/auth/supabaseAuth.ts';
 import {
   cancelLessonPlaybackPreparation,
   getLessonPlayback,
@@ -662,7 +663,11 @@ test.each([
   await waitFor(() => expect(waitForLessonPlayback).toHaveBeenCalled());
   act(() => result.current.pause());
   if (created)
-    expect(cancelLessonPlaybackPreparation).toHaveBeenCalledWith('run', target.projectId);
+    expect(cancelLessonPlaybackPreparation).toHaveBeenCalledWith(
+      'run',
+      target.projectId,
+      expect.any(AbortSignal)
+    );
   else expect(cancelLessonPlaybackPreparation).not.toHaveBeenCalled();
   await act(async () => pending.resolve(undefined));
 });
@@ -823,7 +828,11 @@ test.each([
   );
   if (created) {
     await waitFor(() =>
-      expect(cancelLessonPlaybackPreparation).toHaveBeenCalledWith('in-transit', target.projectId)
+      expect(cancelLessonPlaybackPreparation).toHaveBeenCalledWith(
+        'in-transit',
+        target.projectId,
+        expect.any(AbortSignal)
+      )
     );
     expect(
       vi.mocked(prepareLessonPlayback).mock.calls.filter(([request]) => request.blockId === '0')
@@ -1047,7 +1056,11 @@ test('reopening a player waits for the previous instance to finish owned cancell
     await act(async () =>
       creation.resolve({ runId: 'closing', blockId: '0', voice: 'Kore', created: true })
     );
-    expect(cancelLessonPlaybackPreparation).toHaveBeenCalledWith('closing', target.projectId);
+    expect(cancelLessonPlaybackPreparation).toHaveBeenCalledWith(
+      'closing',
+      target.projectId,
+      expect.any(AbortSignal)
+    );
     expect(
       vi.mocked(prepareLessonPlayback).mock.calls.filter(([request]) => request.blockId === '0')
     ).toHaveLength(1);
@@ -1312,4 +1325,130 @@ test('keeps a preparation failure visible without an authoritative recording, th
   expect(
     vi.mocked(prepareLessonPlayback).mock.calls.filter(([request]) => request.blockId === '0')
   ).toHaveLength(2);
+});
+
+test('bounds cancellation waiting, reuses ownership across retries and recovers after an outage', async () => {
+  const client = await vi.importActual<
+    typeof import('../../../services/openrouter/lessonPlaybackClient.ts')
+  >('../../../services/openrouter/lessonPlaybackClient.ts');
+  const fetch = vi
+    .spyOn(playbackAuth, 'fetchWithSupabaseAuth')
+    .mockRejectedValue(new TypeError('Offline'));
+  const running = deferred<void>();
+  vi.mocked(prepareLessonPlayback).mockResolvedValueOnce({
+    runId: 'outage',
+    blockId: '0',
+    voice: 'Kore',
+    created: true,
+  });
+  vi.mocked(waitForLessonPlayback).mockImplementationOnce((_, __, signal) =>
+    pendingUntilAbort(running.promise, signal)
+  );
+  vi.mocked(cancelLessonPlaybackPreparation).mockImplementationOnce(
+    client.cancelLessonPlaybackPreparation
+  );
+  const { result } = renderHook(() => useLessonPlayback(target));
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(waitForLessonPlayback).toHaveBeenCalled());
+  vi.useFakeTimers();
+  act(() => result.current.pause());
+  await act(async () => {});
+  try {
+    act(() => {
+      void result.current.play();
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(9_999));
+    expect(result.current.loading).toBe(true);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(result.current.loading).toBe(false);
+    expect(result.current.failed).toBe(true);
+    expect(
+      vi.mocked(prepareLessonPlayback).mock.calls.filter(([request]) => request.blockId === '0')
+    ).toHaveLength(1);
+    act(() => {
+      void result.current.play();
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    act(() => result.current.pause());
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(result.current.loading).toBe(false);
+    expect(result.current.failed).toBe(false);
+    expect(cancelLessonPlaybackPreparation).toHaveBeenCalledTimes(1);
+    const cancellationSignal = vi.mocked(cancelLessonPlaybackPreparation).mock.calls[0][2];
+    expect(cancellationSignal?.aborted).toBe(false);
+    expect(fetch.mock.calls.length).toBeGreaterThan(2);
+    expect(
+      vi.mocked(prepareLessonPlayback).mock.calls.filter(([request]) => request.blockId === '0')
+    ).toHaveLength(1);
+    act(() => {
+      void result.current.play();
+    });
+    fetch.mockImplementation(
+      async url =>
+        new Response(
+          JSON.stringify(
+            String(url).endsWith('/cancellation')
+              ? {}
+              : {
+                  success: true,
+                  state: {
+                    run: {
+                      id: 'outage',
+                      projectId: target.projectId,
+                      workflowId: 'prepare-lesson-playback-block',
+                      status: 'cancelled',
+                      cleanupStatus: 'completed',
+                    },
+                  },
+                }
+          )
+        )
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(result.current.playing).toBe(true);
+    expect(cancellationSignal?.aborted).toBe(true);
+    expect(result.current.failed).toBe(false);
+  } finally {
+    fetch.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+test('a cancelled joined creation cannot release another player owned cancellation', async () => {
+  vi.mocked(getLessonPlayback).mockResolvedValue({
+    lessonKey: 'a'.repeat(64),
+    blocks: [blocks[0]],
+  });
+  const owned = deferred<Awaited<ReturnType<typeof prepareLessonPlayback>>>();
+  const joined = deferred<Awaited<ReturnType<typeof prepareLessonPlayback>>>();
+  const cancelled = deferred<void>();
+  vi.mocked(prepareLessonPlayback)
+    .mockReturnValueOnce(owned.promise)
+    .mockReturnValueOnce(joined.promise);
+  vi.mocked(cancelLessonPlaybackPreparation).mockReturnValueOnce(cancelled.promise);
+  const first = renderHook(() => useLessonPlayback(target));
+  const second = renderHook(() => useLessonPlayback(target));
+  act(() => {
+    void first.result.current.play();
+    void second.result.current.play();
+  });
+  await waitFor(() => expect(prepareLessonPlayback).toHaveBeenCalledTimes(2));
+  act(() => first.result.current.pause());
+  act(() => second.result.current.pause());
+  await act(async () => {
+    owned.resolve({ runId: 'shared', blockId: '0', voice: 'Kore', created: true });
+    joined.resolve({ runId: 'shared', blockId: '0', voice: 'Kore', created: false });
+  });
+  act(() => {
+    void second.result.current.play();
+  });
+  await act(async () => {});
+  expect(
+    vi.mocked(prepareLessonPlayback).mock.calls.filter(([request]) => request.blockId === '0')
+  ).toHaveLength(2);
+  expect(second.result.current.playing).toBe(false);
+  await act(async () => cancelled.resolve());
+  await waitFor(() => expect(second.result.current.playing).toBe(true));
 });

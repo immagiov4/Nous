@@ -30,7 +30,9 @@ import {
 import { loadSceneIconNodes } from '../../utils/visuals/sceneIconNodes.ts';
 
 // A player can close before its owned server cancellation settles.
-const playbackCancellations = new Map<string, Promise<void>>();
+const PLAYBACK_CANCELLATION_WAIT_MS = 10_000;
+type OwnedCancellation = { pending: Promise<void>; controller: AbortController };
+const playbackCancellations = new Map<string, OwnedCancellation>();
 
 type Playback = { lessonKey: string; blocks: readonly LessonPlaybackBlock[] };
 type RecordedPlaybackResult = Extract<
@@ -72,17 +74,18 @@ async function requestPreparation({
 }: {
   target: Parameters<typeof prepareLessonPlayback>[0];
   signal: AbortSignal;
-  cancellations: Map<string, Promise<void>>;
+  cancellations: Map<string, OwnedCancellation>;
   key: string;
   projectId: string;
 }) {
   const pending = prepareLessonPlayback(target);
   const cancel = () => {
-    const cancellation = pending.then(async result => {
-      if ('runId' in result && result.created)
-        await cancelLessonPlaybackPreparation(result.runId, projectId);
-    });
-    trackCancellation(cancellations, key, cancellation);
+    trackCancellation(cancellations, key, cancellationSignal =>
+      pending.then(async result => {
+        if ('runId' in result && result.created)
+          await cancelLessonPlaybackPreparation(result.runId, projectId, cancellationSignal);
+      })
+    );
   };
   signal.addEventListener('abort', cancel, { once: true });
   try {
@@ -97,14 +100,26 @@ async function requestPreparation({
 }
 
 function trackCancellation(
-  cancellations: Map<string, Promise<void>>,
+  cancellations: Map<string, OwnedCancellation>,
   key: string,
-  cancellation: Promise<void>
+  cancel: (signal: AbortSignal) => Promise<void>
 ) {
+  const previous = cancellations.get(key);
+  const controller = previous?.controller ?? new AbortController();
+  // A joined creation may be cancelled while another player still owns this block.
+  const cancellation = {
+    pending: previous
+      ? previous.pending.finally(() => cancel(controller.signal))
+      : cancel(controller.signal),
+    controller,
+  };
   cancellations.set(key, cancellation);
-  void cancellation
+  void cancellation.pending
     .finally(() => {
-      if (cancellations.get(key) === cancellation) cancellations.delete(key);
+      if (cancellations.get(key) === cancellation) {
+        controller.abort();
+        cancellations.delete(key);
+      }
     })
     .catch(error => console.error('Lesson playback cancellation failed', error));
 }
@@ -126,12 +141,13 @@ async function waitForPreparation({
   signal: AbortSignal;
   created?: boolean;
   visualOnly?: boolean;
-  cancellations: Map<string, Promise<void>>;
+  cancellations: Map<string, OwnedCancellation>;
   key: string;
 }) {
   const cancel = () => {
-    const cancellation = cancelLessonPlaybackPreparation(runId, projectId);
-    trackCancellation(cancellations, key, cancellation);
+    trackCancellation(cancellations, key, cancellationSignal =>
+      cancelLessonPlaybackPreparation(runId, projectId, cancellationSignal)
+    );
   };
   if (created) signal.addEventListener('abort', cancel, { once: true });
   try {
@@ -320,7 +336,11 @@ export function useLessonPlayback({
           !playbackRef.current || playbackRef.current.lessonKey === playback.lessonKey;
         const preparationKey = () =>
           `${projectId}:${sectionId}:${playback.lessonKey}:${blockIndex}`;
-        await waitForPlaybackCancellation(playbackCancellations.get(preparationKey()), signal);
+        await waitForPlaybackCancellation(
+          playbackCancellations.get(preparationKey())?.pending,
+          signal,
+          PLAYBACK_CANCELLATION_WAIT_MS
+        );
         signal.throwIfAborted();
         const cached = ready.current.get(cacheKey());
         if (cached) return cached;
