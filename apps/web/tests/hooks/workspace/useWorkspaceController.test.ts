@@ -9516,3 +9516,43 @@ test.each([
   expect((await uploading).outcome).toBe('failed');
   expect(state.internalState.workflowState.attachSource.status).not.toBe('pending');
 });
+
+test('exercise repair fails when project persistence fails', async () => {
+  const plan = buildPlan();
+  const { controller, state } = createControllerHarness({
+    domain: { learningPlan: plan },
+    projectLibrary: { currentProjectId: 'project-1', patchCurrentProject: async () => null },
+    openRouter: { generateApplicationExercisePlacements: async () => ({ plan, placedCount: 0 }) },
+  });
+  await assert.rejects(controller.repairApplicationExercises());
+  assert.equal(state.internalState.workflowState.generateExercise.status, 'failed');
+});
+
+test('exercise repair waits for successful persistence before completing', async () => {
+  const plan = buildPlan();
+  let finishWrite!: (value: ReturnType<typeof buildMeta>) => void;
+  const write = new Promise<ReturnType<typeof buildMeta>>(resolve => {
+    finishWrite = resolve;
+  });
+  let writeStarted!: () => void;
+  const started = new Promise<void>(resolve => {
+    writeStarted = resolve;
+  });
+  const { controller, state } = createControllerHarness({
+    domain: { learningPlan: plan },
+    projectLibrary: {
+      currentProjectId: 'project-1',
+      patchCurrentProject: async () => {
+        writeStarted();
+        return write;
+      },
+    },
+    openRouter: { generateApplicationExercisePlacements: async () => ({ plan, placedCount: 0 }) },
+  });
+  const repair = controller.repairApplicationExercises();
+  await started;
+  assert.equal(state.internalState.workflowState.generateExercise.status, 'pending');
+  finishWrite(buildMeta('project-1'));
+  assert.deepEqual(await repair, { outcome: 'repaired' });
+  assert.equal(state.internalState.workflowState.generateExercise.status, 'succeeded');
+});

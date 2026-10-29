@@ -1353,6 +1353,8 @@ const ENGLISH_UI_MESSAGES = {
   'La sezione attiva non è disponibile.': 'The active section is unavailable.',
   'La lezione rigenerata non è stata salvata. Riprova.':
     'The regenerated lesson was not saved. Try again.',
+  'Non sono riuscito a salvare la pianificazione degli esercizi. Riprova.':
+    'I could not save the exercise plan. Try again.',
   'Non sono riuscito a salvare la lezione da generare. Riprova.':
     'I could not save the lesson to generate. Try again.',
   "Non ho trovato l'artefatto da sostituire.": 'I could not find the artifact to replace.',

@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import CodexConnectionSettings from '../../../components/admin/CodexConnectionSettings.tsx';
@@ -93,4 +93,41 @@ describe('CodexConnectionSettings', () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Collega Codex' })).toBeNull();
   });
+});
+
+test('ignores a delayed poll after canceling login', async () => {
+  codexApiMocks.loadCodexProviderStatus.mockResolvedValue({
+    account: null,
+    enabled: true,
+    models: [],
+  });
+  codexApiMocks.startCodexDeviceLogin.mockResolvedValue({ loginId: 'old', userCode: 'OLD' });
+  codexApiMocks.cancelCodexDeviceLogin.mockResolvedValue(undefined);
+  render(<CodexConnectionSettings />);
+  const connect = await screen.findByRole('button', { name: 'Collega Codex' });
+  await waitFor(() => expect(connect).toBeEnabled());
+  fireEvent.click(connect);
+  await screen.findByText('OLD');
+  let resolvePoll!: (status: unknown) => void;
+  codexApiMocks.loadCodexProviderStatus.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        resolvePoll = resolve;
+      })
+  );
+  await waitFor(() => expect(resolvePoll).toBeDefined(), { timeout: 4000 });
+  fireEvent.click(screen.getByRole('button', { name: 'Annulla' }));
+  const reconnect = await screen.findByRole('button', { name: 'Collega Codex' });
+  codexApiMocks.startCodexDeviceLogin.mockResolvedValue({ loginId: 'new', userCode: 'NEW' });
+  fireEvent.click(reconnect);
+  await screen.findByText('NEW');
+  await act(async () =>
+    resolvePoll({
+      account: { type: 'chatgpt', email: 'stale@example.test' },
+      enabled: true,
+      models: [],
+    })
+  );
+  expect(screen.queryByText('stale@example.test')).toBeNull();
+  expect(screen.getByText('NEW')).toBeVisible();
 });

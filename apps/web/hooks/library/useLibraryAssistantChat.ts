@@ -7,6 +7,7 @@ import {
 import { useCallback, useMemo, useState } from 'react';
 import type {
   ChatArtifactActionRequest,
+  ChatArtifactActionResult,
   ChatArtifactRegenerateRequest,
   ChatArtifactReplaceRequest,
 } from '../../components/shared/ChatArtifactRenderer.tsx';
@@ -588,11 +589,11 @@ export const useLibraryAssistantChat = ({
   const replaceLearningArtifact = async ({
     artifactId,
     replacementOfArtifactId,
-  }: ChatArtifactReplaceRequest) => {
+  }: ChatArtifactReplaceRequest): Promise<ChatArtifactActionResult> => {
     const payload = artifactPayloadsById.get(artifactId);
     const visual = generatedVisualsByArtifactId[artifactId];
     if (!payload || !('visual' in payload) || !visual || !replaceLessonGeneratedVisual) {
-      return;
+      return { succeeded: false };
     }
 
     const result = await replaceLessonGeneratedVisual({
@@ -604,6 +605,7 @@ export const useLibraryAssistantChat = ({
     if (result.replaced) {
       discardLearningArtifact({ artifactId });
     }
+    return { succeeded: result.replaced, error: result.error };
   };
 
   return {

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { act, renderHook } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import type { UIMessage } from 'ai';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import ChatArtifactRenderer from '../../../components/shared/ChatArtifactRenderer.tsx';
 
 const useChatMock = vi.fn();
 const addToolOutputMock = vi.fn();
@@ -839,8 +840,12 @@ describe('useLibraryAssistantChat', () => {
       },
     };
     const loadProjectsById = vi.fn(async () => [snapshot as never]);
+    const replaceLessonGeneratedVisual = vi
+      .fn()
+      .mockResolvedValue({ replaced: false, error: 'Replacement failed' });
     const { result } = renderHook(() =>
       useLibraryAssistantChat({
+        replaceLessonGeneratedVisual,
         folders: [folder],
         loadProjectsById,
         projects: [project],
@@ -881,9 +886,56 @@ describe('useLibraryAssistantChat', () => {
       });
     });
 
+    await act(async () => {
+      expect(
+        await result.current.replaceLearningArtifact({
+          artifactId: replacementArtifact.summary.id,
+          replacementOfArtifactId: sourceArtifact.summary.id,
+        })
+      ).toEqual({ succeeded: false, error: 'Replacement failed' });
+    });
+    expect(
+      result.current.replacementDraftPayloads.some(
+        payload => payload.summary.id === replacementArtifact.summary.id
+      )
+    ).toBe(true);
+    replaceLessonGeneratedVisual.mockResolvedValue({ replaced: true });
+    await act(async () => {
+      expect(
+        await result.current.replaceLearningArtifact({
+          artifactId: replacementArtifact.summary.id,
+          replacementOfArtifactId: sourceArtifact.summary.id,
+        })
+      ).toEqual({ succeeded: true });
+    });
+    expect(result.current.replacementDraftPayloads).toHaveLength(0);
+    replaceLessonGeneratedVisual.mockResolvedValue({
+      replaced: false,
+      error: 'Replacement failed',
+    });
+    // Regenerate a recoverable draft before exercising the renderer boundary.
+    await act(async () => {
+      await result.current.regenerateLearningArtifact({
+        artifactId: sourceArtifact.summary.id,
+        instructions: 'Riprova.',
+      });
+    });
+    render(
+      <ChatArtifactRenderer
+        artifacts={[replacementArtifact]}
+        isDarkMode={false}
+        onReplaceArtifact={result.current.replaceLearningArtifact}
+        openArtifactIdOverride={replacementArtifact.summary.id}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Sostituisci artefatto/i }));
+    expect(await screen.findByText('Replacement failed')).toBeInTheDocument();
+    expect(screen.queryByText('Artefatto sostituito.')).toBeNull();
+
     expect(
       generateLessonArtifactDraftMock.mock.calls.slice(1).map(([input]) => input.requestKey)
     ).toEqual([
+      `library-replacement-${sourceArtifact.summary.id}`,
       `library-replacement-${sourceArtifact.summary.id}`,
       `library-replacement-${sourceArtifact.summary.id}`,
     ]);
