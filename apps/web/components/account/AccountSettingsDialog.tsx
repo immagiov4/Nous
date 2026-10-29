@@ -1,7 +1,7 @@
 import { Database, Download, Languages, ShieldCheck, Upload, X } from 'lucide-react';
 import { type ChangeEvent, type SubmitEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { IMPORT_REFRESH_WARNING, translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
   isPasswordAccount,
   requestSupabaseEmailChange,
@@ -9,8 +9,12 @@ import {
   sendPasswordRecovery,
   updateSupabasePassword,
 } from '../../services/auth/supabaseAuth.ts';
-import { LibraryArchiveError } from '../../services/projects/libraryArchive.ts';
+import {
+  LibraryArchiveError,
+  LibraryArchivePartialImportError,
+} from '../../services/projects/libraryArchive.ts';
 import { reportLibraryArchiveImportFailure } from '../../services/projects/libraryArchiveDiagnostics.ts';
+import type { LibraryBackupImportResult } from '../../services/projects/libraryArchiveImport.ts';
 import type { LibraryExportProgressListener } from '../../services/projects/projectRepository.ts';
 import PreferencesPanel from './PreferencesPanel.tsx';
 
@@ -28,7 +32,7 @@ interface AccountPanelProps {
   readonly onAccountChange: (account: SupabaseAccount) => void;
   readonly onClose: () => void;
   readonly onExportLibraryBackup?: (onProgress?: LibraryExportProgressListener) => Promise<number>;
-  readonly onImportLibraryBackup?: (file: File) => Promise<number>;
+  readonly onImportLibraryBackup?: (file: File) => Promise<LibraryBackupImportResult>;
 }
 
 const fieldClassName =
@@ -206,7 +210,9 @@ export default function AccountSettingsDialog({
 
     beginAction('backup-import');
     try {
-      const courseCount = await onImportLibraryBackup(file);
+      const { importedProjectCount: courseCount, refreshFailed } =
+        await onImportLibraryBackup(file);
+      if (refreshFailed) setErrorMessage(t(IMPORT_REFRESH_WARNING));
       setSuccessMessage(
         courseCount === 1
           ? t('1 corso importato.')
@@ -219,10 +225,16 @@ export default function AccountSettingsDialog({
         error instanceof LibraryArchiveError
           ? error.message
           : t('Importazione del backup completo non riuscita. Controlla il file e riprova.');
+      const importMessage =
+        error instanceof LibraryArchivePartialImportError &&
+        error.refreshFailed &&
+        error.result.importedProjects.length > 0
+          ? `${message} ${t(IMPORT_REFRESH_WARNING)}`
+          : message;
       setErrorMessage(
         correlationId
-          ? `${message} ${t('Codice assistenza: {correlationId}.', { correlationId })}`
-          : message
+          ? `${importMessage} ${t('Codice assistenza: {correlationId}.', { correlationId })}`
+          : importMessage
       );
     } finally {
       setPendingAction(null);

@@ -10,6 +10,7 @@ import {
   readLibraryArchive,
   restoreLibraryArchiveOrganization,
 } from './libraryArchive.ts';
+import { warnImportRefreshFailed } from './libraryArchiveDiagnostics.ts';
 import type { ProjectRepository } from './projectRepository';
 import { createProjectId } from './projectSnapshot';
 
@@ -50,10 +51,8 @@ const importLibraryArchiveProject = async (
   project: LibraryArchiveProject
 ): Promise<LibraryArchiveProjectImportOutcome> => {
   const importedProjectId = createProjectId();
-  let cleanupProjectId = importedProjectId;
   try {
     const imported = await repository.importProjectArchive(project.archive, importedProjectId);
-    cleanupProjectId = imported.snapshot.id;
     if (imported.snapshot.id !== importedProjectId) {
       throw new Error('Il server ha restituito un identificatore corso inatteso.');
     }
@@ -82,12 +81,12 @@ const importLibraryArchiveProject = async (
       title: project.title,
     };
     try {
-      await repository.deleteProject(cleanupProjectId);
+      await repository.deleteProject(importedProjectId);
       return { cleanupFailed: false, kind: 'rejected', rejectedProject };
     } catch (cleanupError) {
       warnLibraryArchiveProjectRollbackFailed({
         error: cleanupError,
-        importedProjectId: cleanupProjectId,
+        importedProjectId,
         projectId: project.id,
         projectIndex: project.projectIndex,
       });
@@ -265,7 +264,11 @@ const restoreLibraryOrganizationOrRollbackProjects = async ({
  */
 export type LibraryArchiveImportOutcome =
   | { readonly importedProjectCount: number; readonly kind: 'imported' }
-  | { readonly error: unknown; readonly kind: 'refresh-failed' };
+  | {
+      readonly error: unknown;
+      readonly importedProjectCount: number;
+      readonly kind: 'refresh-failed';
+    };
 
 /**
  * Imports every course of a library archive, restores its folder organization and
@@ -280,7 +283,7 @@ export const importLibraryArchive = async ({
   repository,
 }: {
   file: File;
-  refreshLibraryState: () => Promise<void>;
+  refreshLibraryState: (hasImportedProjects?: boolean) => Promise<void>;
   repository: ProjectRepository;
 }): Promise<LibraryArchiveImportOutcome> => {
   const archive = await readLibraryArchive(file);
@@ -304,11 +307,23 @@ export const importLibraryArchive = async ({
         )
       : null;
   try {
-    await refreshLibraryState();
+    await refreshLibraryState(importedProjects.length > 0);
   } catch (refreshError) {
-    if (!partialImportError) return { error: refreshError, kind: 'refresh-failed' };
-    console.warn('[Nous] Failed to refresh the library after a partial import.', refreshError);
+    if (!partialImportError)
+      return {
+        error: refreshError,
+        importedProjectCount: importedProjects.length,
+        kind: 'refresh-failed',
+      };
+    warnImportRefreshFailed(refreshError);
+    throw new LibraryArchivePartialImportError(partialImportError.result, true);
   }
   if (partialImportError) throw partialImportError;
   return { importedProjectCount: importedProjects.length, kind: 'imported' };
 };
+
+/** Committed import count and whether the library still needs to be reloaded. */
+export interface LibraryBackupImportResult {
+  readonly importedProjectCount: number;
+  readonly refreshFailed: boolean;
+}
