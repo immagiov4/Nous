@@ -155,7 +155,8 @@ export const waitForLessonPlayback = async (
 /** Cancels only a run created by this playback attempt; joined preparations retain their owner. */
 export const cancelLessonPlaybackPreparation = async (
   runId: string,
-  projectId: string
+  projectId: string,
+  signal?: AbortSignal
 ): Promise<void> => {
   const url = `${getBackendUrl()}/api/workflows/runs/${encodeURIComponent(runId)}`;
   await retryTransientWorkflowRequest(async () => {
@@ -163,11 +164,12 @@ export const cancelLessonPlaybackPreparation = async (
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: '{}',
+      signal,
     });
     assertWorkflowPollResponse(response, PLAYBACK_ERROR);
-  });
+  }, signal);
   const readState = async () => {
-    const response = await fetchWithSupabaseAuth(url, { cache: 'no-store' });
+    const response = await fetchWithSupabaseAuth(url, { cache: 'no-store', signal });
     assertWorkflowPollResponse(response, PLAYBACK_ERROR);
     const {
       state: { run },
@@ -176,7 +178,8 @@ export const cancelLessonPlaybackPreparation = async (
     return run;
   };
   await pollWorkflow({
-    initialState: await retryTransientWorkflowRequest(readState),
+    initialState: await retryTransientWorkflowRequest(readState, signal),
+    signal,
     readState,
     isTerminal: run =>
       !['queued', 'running', 'waiting'].includes(run.status) &&
