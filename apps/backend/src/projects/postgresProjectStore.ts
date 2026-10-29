@@ -1228,7 +1228,7 @@ export class PostgresProjectStore implements ProjectStore {
             sourcePreparation?.signal
           )
         : await this.withMeasuredConnection(sql =>
-            this.runReservedTransaction(sql, persistProject)
+            this.runReservedTransaction(sql, persistProject, sourcePreparation?.signal)
           );
       replacedObjectPaths = transactionResult.replacedObjectPaths;
       savedMeta = transactionResult.meta;

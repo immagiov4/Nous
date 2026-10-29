@@ -722,6 +722,8 @@ export const completeProjectImportUpload = async ({
         : error;
       session.status = 'failed';
       session.updatedAt = Date.now();
+      if (session.controller.signal.aborted)
+        console.info('[Projects] Import cancellation settled.', { uploadId, outcome: 'succeeded' });
       await safelyRemove(session.directory);
       throw error;
     }

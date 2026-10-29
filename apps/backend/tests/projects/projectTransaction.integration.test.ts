@@ -92,6 +92,52 @@ const projectSnapshot: ProjectSnapshot = {
 };
 
 describe.skipIf(!shouldRun)('transactional project patch integration', () => {
+  test('cancellation during a source-less PostgreSQL import rolls back before commit', async () => {
+    if (!sql) throw new Error('Workflow integration database is required.');
+    const uploadId = randomUUID();
+    const id = `cancelled-import-${randomUUID()}`;
+    let cancellation: Promise<void> | undefined;
+    const client = postgres(databaseUrl, {
+      max: 1,
+      debug: (_connection, statement) => {
+        if (!cancellation && statement.includes('insert into public.project_snapshots'))
+          cancellation = cancelProjectImportUpload(userId, uploadId);
+      },
+    });
+    const store = new PostgresProjectStore(undefined, client);
+    await storeProjectImportChunk({
+      userId,
+      uploadId,
+      chunk: JSON.stringify({ ...projectSnapshot, id, source: null }),
+      chunkCount: 1,
+      chunkIndex: 0,
+    });
+    try {
+      await expect(
+        completeProjectImportUpload({
+          userId,
+          uploadId,
+          importData: async (data, context) => ({
+            ...(await store.importProject(userId, data, context)),
+            projectId: id,
+          }),
+        })
+      ).rejects.toThrow();
+      expect(cancellation).toBeDefined();
+      await cancellation;
+      expect(getProjectImportUploadStatus(userId, uploadId)?.status).toBe('failed');
+      const rows =
+        await sql`select id from public.projects where user_id = ${userId} and id = ${id}`;
+      expect(rows).toHaveLength(0);
+      const snapshots =
+        await sql`select id from public.project_snapshots where user_id = ${userId} and id = ${id}`;
+      expect(snapshots).toHaveLength(0);
+    } finally {
+      await store.deleteProject(userId, id);
+      await client.end();
+    }
+  });
+
   test('a committed PostgreSQL import wins over cancellation before its callback returns', async () => {
     if (!sql) throw new Error('Workflow integration database is required.');
     const store = new PostgresProjectStore(undefined, sql);
