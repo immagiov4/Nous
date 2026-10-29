@@ -214,20 +214,21 @@ export const useProjectLibrary = ({
   const hydrateSnapshotRef = useRef(hydrateSnapshot);
   const setSourceRef = useRef(setSource);
   const savedProjectsRef = useRef<SavedProjectMeta[]>([]);
-  const explicitProjectTitlesRef = useRef(new Map<string, string>());
+  const projectMetadataRef = useRef(
+    new Map<string, Pick<ProjectSnapshot, 'title' | 'extensions'>>()
+  );
   const loadedProjectRevisionRef = useRef<{ projectId: string | null; revision?: number }>({
     projectId: null,
   });
   const currentProjectIdRef = useRef<string | null>(null);
   useEffect(() => () => releaseDocumentText(currentProjectIdRef.current), []);
 
-  const rememberExplicitProjectTitle = useCallback(
-    (project: Pick<ProjectSnapshot, 'id' | 'title'>) => {
-      if (project.title) {
-        explicitProjectTitlesRef.current.set(project.id, project.title);
-      } else {
-        explicitProjectTitlesRef.current.delete(project.id);
-      }
+  const rememberProjectMetadata = useCallback(
+    (project: Pick<ProjectSnapshot, 'id' | 'title' | 'extensions'>) => {
+      projectMetadataRef.current.set(project.id, {
+        title: project.title,
+        extensions: project.extensions,
+      });
     },
     []
   );
@@ -406,7 +407,7 @@ export const useProjectLibrary = ({
         isProjectHydratedRef.current = false;
         pendingRemoteRevisionRef.current = null;
       }
-      explicitProjectTitlesRef.current.delete(projectId);
+      projectMetadataRef.current.delete(projectId);
       storeSavedProjects(savedProjectsRef.current.filter(project => project.id !== projectId));
       setLibraryPlacements(placements =>
         placements.filter(placement => placement.projectId !== projectId)
@@ -494,7 +495,7 @@ export const useProjectLibrary = ({
 
         const hydrateStarted = performance.now();
         const hydratedSnapshot = prepareSnapshotForHydration(persisted.snapshot);
-        rememberExplicitProjectTitle(hydratedSnapshot);
+        rememberProjectMetadata(hydratedSnapshot);
         if (
           currentMeta &&
           (currentMeta.revision === undefined || persisted.revision > currentMeta.revision)
@@ -519,12 +520,7 @@ export const useProjectLibrary = ({
       };
       return adopt(0);
     },
-    [
-      getProjectWriteState,
-      invalidateRemoteDeletedProject,
-      rememberExplicitProjectTitle,
-      syncProjectMeta,
-    ]
+    [getProjectWriteState, invalidateRemoteDeletedProject, rememberProjectMetadata, syncProjectMeta]
   );
 
   const reconcileRebasedProjectWrites = useCallback(
@@ -683,9 +679,14 @@ export const useProjectLibrary = ({
         return null;
       }
 
+      const extensions = projectMetadataRef.current.get(projectId)?.extensions;
       return createProjectSnapshot({
         id: projectId,
-        title: overrides?.title ?? explicitProjectTitlesRef.current.get(projectId),
+        title: overrides?.title ?? projectMetadataRef.current.get(projectId)?.title,
+        extensions:
+          extensions || overrides?.extensions
+            ? { ...extensions, ...overrides?.extensions }
+            : undefined,
         version: overrides?.version,
         sourceKind: overrides?.sourceKind || currentProjectMeta?.sourceKind || undefined,
         state: overrides?.state || resolvePersistedAppState(domainState),
@@ -780,6 +781,7 @@ export const useProjectLibrary = ({
           false
         );
         if (!meta) return null;
+        rememberProjectMetadata(detachedSnapshot || snapshot);
         if (currentProjectIdRef.current === snapshot.id) {
           adoptSavedSnapshotBaseline(snapshot, detachedSnapshot);
         }
@@ -813,6 +815,7 @@ export const useProjectLibrary = ({
     },
     [
       adoptSavedSnapshotBaseline,
+      rememberProjectMetadata,
       getExpectedRevision,
       requestPersistentStorage,
       runTrackedProjectWrite,
@@ -1352,7 +1355,7 @@ export const useProjectLibrary = ({
       if (persisted.revision < latestPendingEvent.revision) {
         return;
       }
-      rememberExplicitProjectTitle(persisted.snapshot);
+      rememberProjectMetadata(persisted.snapshot);
       const hydrateStarted = performance.now();
       const hydratedSnapshot = prepareSnapshotForHydration(persisted.snapshot);
       pendingRemoteRevisionRef.current = null;
@@ -1374,7 +1377,7 @@ export const useProjectLibrary = ({
     } finally {
       isApplyingRemoteRevisionRef.current = false;
     }
-  }, [getProjectWriteState, invalidateRemoteDeletedProject, rememberExplicitProjectTitle]);
+  }, [getProjectWriteState, invalidateRemoteDeletedProject, rememberProjectMetadata]);
 
   useEffect(() => {
     processPendingRemoteRevisionRef.current = processPendingRemoteRevision;
@@ -1517,11 +1520,11 @@ export const useProjectLibrary = ({
     async (ids: string[]) => {
       const projects = await projectRepositoryRef.current.loadProjectsById(ids);
       for (const project of projects) {
-        rememberExplicitProjectTitle(project);
+        rememberProjectMetadata(project);
       }
       return projects;
     },
-    [rememberExplicitProjectTitle]
+    [rememberProjectMetadata]
   );
   const loadStoredProject = useCallback(
     async (
@@ -1541,11 +1544,11 @@ export const useProjectLibrary = ({
           requestId: getProjectRequestId(project),
           queueWaitMs,
         });
-        rememberExplicitProjectTitle(project);
+        rememberProjectMetadata(project);
       }
       return project;
     },
-    [getProjectWriteState, rememberExplicitProjectTitle]
+    [getProjectWriteState, rememberProjectMetadata]
   );
   const loadStoredProjectWithRevision = useCallback(
     async (projectId: string) => {
@@ -1558,11 +1561,11 @@ export const useProjectLibrary = ({
           requestId: getProjectRequestId(project.snapshot),
           queueWaitMs,
         });
-        rememberExplicitProjectTitle(project.snapshot);
+        rememberProjectMetadata(project.snapshot);
       }
       return project;
     },
-    [getProjectWriteState, rememberExplicitProjectTitle]
+    [getProjectWriteState, rememberProjectMetadata]
   );
   const validateStoredProjectForOpen = useCallback(
     async (
@@ -1599,11 +1602,11 @@ export const useProjectLibrary = ({
           invalidateRemoteDeletedProject(projectId);
           return null;
         }
-        rememberExplicitProjectTitle(project.snapshot);
+        rememberProjectMetadata(project.snapshot);
         return project;
       }
     },
-    [getProjectWriteState, invalidateRemoteDeletedProject, rememberExplicitProjectTitle]
+    [getProjectWriteState, invalidateRemoteDeletedProject, rememberProjectMetadata]
   );
   const loadStoredProjectCover = useCallback(
     (projectId: string) => projectRepositoryRef.current.loadProjectCover(projectId),
@@ -1637,7 +1640,10 @@ export const useProjectLibrary = ({
       if (!meta) {
         throw new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted');
       }
-      explicitProjectTitlesRef.current.set(projectId, title);
+      projectMetadataRef.current.set(projectId, {
+        ...projectMetadataRef.current.get(projectId),
+        title,
+      });
       return meta;
     },
     [getExpectedRevision, runTrackedProjectWrite]

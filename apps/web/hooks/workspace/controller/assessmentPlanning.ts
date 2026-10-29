@@ -62,6 +62,7 @@ interface HomeChatStartArgs {
 
 interface HomeChatStartState {
   draftProjectId: string | null;
+  initialMessage: string;
   sourceWarnings: ProjectSourceWarning[];
 }
 
@@ -198,7 +199,8 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
   const ensureInterviewProject = async (
     mode: 'document' | 'learn',
     source: ProjectSource | null = domain.source,
-    onProjectSelected?: (projectId: string) => void
+    onProjectSelected?: (projectId: string) => void,
+    initialMessage?: string
   ): Promise<string> => {
     const existingProjectId = projectLibrary.getCurrentProjectId();
     if (existingProjectId) {
@@ -209,6 +211,9 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
           isLearnMode: mode === 'learn',
           source,
           state: AppState.ASSESSMENT,
+          ...(initialMessage
+            ? { extensions: { courseInterviewInitialMessage: initialMessage } }
+            : {}),
         },
         { throwOnError: true }
       );
@@ -230,6 +235,9 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
         researchDossiersBySectionId: domain.researchDossiersBySectionId,
         source,
         state: AppState.ASSESSMENT,
+        ...(initialMessage
+          ? { extensions: { courseInterviewInitialMessage: initialMessage } }
+          : {}),
         syllabus: domain.syllabus,
       }),
       { throwOnError: true }
@@ -340,6 +348,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
 
   async function startAssessment({
     file,
+    initialMessage,
     source = domain.source,
     sources,
     textSource,
@@ -375,8 +384,9 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
                 throw new Error('Missing source input for assessment');
               })();
       if (!state.isWorkflowCurrent('assessment', requestId)) return;
-      const projectId = await ensureInterviewProject('document', source);
+      const projectId = await ensureInterviewProject('document', source, undefined, initialMessage);
       await startTrackedAssessmentInterview({
+        initialMessage,
         hasReliableSourceContext: assessmentContext.hasReliableSourceContext,
         isRequestCurrent: () => state.isWorkflowCurrent('assessment', requestId),
         mode: 'document',
@@ -397,13 +407,19 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     }
   }
 
-  async function startLearnAssessment(): Promise<void> {
+  async function startLearnAssessment(initialMessage?: string): Promise<void> {
     const requestId = state.beginWorkflow('assessment', t('Avvio Profilazione...'));
     state.setScreenState(AppState.LIBRARY);
 
     try {
-      const projectId = await ensureInterviewProject('learn');
+      const projectId = await ensureInterviewProject(
+        'learn',
+        domain.source,
+        undefined,
+        initialMessage
+      );
       await startTrackedAssessmentInterview({
+        initialMessage,
         hasReliableSourceContext: false,
         isRequestCurrent: () => state.isWorkflowCurrent('assessment', requestId),
         mode: 'learn',
@@ -867,7 +883,12 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     workspaceOwnership.draftProjectId = projectId;
     projectLibrary.setCurrentProjectId(projectId);
     const saved = await projectLibrary.persistSnapshot(
-      createProjectSnapshot({ id: projectId, state: AppState.ASSESSMENT, source }),
+      createProjectSnapshot({
+        id: projectId,
+        state: AppState.ASSESSMENT,
+        source,
+        extensions: { courseInterviewInitialMessage: startState.initialMessage },
+      }),
       {
         archiveFile,
         ...(sourceFiles ? { sourceFiles } : {}),
@@ -1049,7 +1070,11 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     );
     workspaceOwnership.sourcePreparationController = new AbortController();
     session.activeHomeChatWorkspaceOwnership = workspaceOwnership;
-    const startState: HomeChatStartState = { draftProjectId: null, sourceWarnings: [] };
+    const startState: HomeChatStartState = {
+      draftProjectId: null,
+      initialMessage: trimmedInput,
+      sourceWarnings: [],
+    };
     const isRequestCurrent = () => state.isWorkflowCurrent('assessment', requestId);
     const abandonCancelledStart = () =>
       abandonCancelledHomeChatStart({ requestToken, startState, workspaceOwnership });
@@ -1071,10 +1096,15 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
       if (preparation.kind === 'completed') return preparation.result;
       if (!isRequestCurrent()) return abandonCancelledStart();
       const { hasReliableSourceContext, mode, preparedSource, sourceContext } = preparation.value;
-      const projectId = await ensureInterviewProject(mode, preparedSource, selectedProjectId => {
-        startState.draftProjectId = selectedProjectId;
-        workspaceOwnership.draftProjectId = selectedProjectId;
-      });
+      const projectId = await ensureInterviewProject(
+        mode,
+        preparedSource,
+        selectedProjectId => {
+          startState.draftProjectId = selectedProjectId;
+          workspaceOwnership.draftProjectId = selectedProjectId;
+        },
+        trimmedInput
+      );
       if (!isRequestCurrent()) return abandonCancelledStart();
       const outcome = await startTrackedAssessmentInterview({
         hasReliableSourceContext,

@@ -60,7 +60,7 @@ interface ProjectLifecycleDependencies {
   resumeRetainedSublesson: (parentSection: LessonNode) => Promise<unknown>;
   resumePlanGeneration: (projectId: string) => Promise<'not-found' | 'resumed'>;
   startAssessment: (input: AssessmentSourceInput) => Promise<void>;
-  startLearnAssessment: () => Promise<void>;
+  startLearnAssessment: (initialMessage?: string) => Promise<void>;
   settleHomeChatWorkspaceOpen: (
     projectId: string,
     openProjectRequestId: number,
@@ -508,10 +508,12 @@ export const createProjectLifecycleCommands = (
     let didSettleOpenWorkflow = false;
 
     try {
-      await beginHomeChatWorkspaceOpen(projectId, requestId);
       if (projectLibrary.getCurrentProjectId() !== projectId) {
         state.invalidateWorkflows([...PROJECT_NAVIGATION_WORKFLOWS_TO_INVALIDATE]);
+        // Stop owns its pending cleanup until navigation adopts another project.
+        if (!session.activeAssessmentCancellationPromise) state.invalidateWorkflows(['assessment']);
       }
+      await beginHomeChatWorkspaceOpen(projectId, requestId);
       state.setOpeningProjectId(projectId);
       pushNousDebugTrace('open-project:start', { projectId, requestId });
 
@@ -679,12 +681,19 @@ export const createProjectLifecycleCommands = (
       }
 
       if (!preparedSnapshot.learningPlan) {
+        const savedInitialMessage = preparedSnapshot.extensions?.courseInterviewInitialMessage;
+        const initialMessage =
+          typeof savedInitialMessage === 'string' ? savedInitialMessage : undefined;
         const assessmentSources = getCourseSourceDescriptors(preparedSnapshot.source);
         if (
           assessmentSources.length > 1 ||
           assessmentSources.some(source => source.documentIndex?.chunks.length)
         ) {
-          await startAssessment({ sources: assessmentSources, source: preparedSnapshot.source });
+          await startAssessment({
+            sources: assessmentSources,
+            source: preparedSnapshot.source,
+            initialMessage,
+          });
         } else if (preparedSnapshot.source?.kind === 'archive') {
           pushNousDebugTrace('open-project:start-text-assessment', {
             projectId,
@@ -692,6 +701,7 @@ export const createProjectLifecycleCommands = (
             archiveEntryCount: preparedSnapshot.source.index.entries.length,
           });
           await startAssessment({
+            initialMessage,
             source: preparedSnapshot.source,
             textSource: {
               name: preparedSnapshot.source.name,
@@ -708,6 +718,7 @@ export const createProjectLifecycleCommands = (
             throw new Error('La sorgente documento non è disponibile.');
           }
           await startAssessment({
+            initialMessage,
             source: preparedSnapshot.source,
             textSource: {
               name: sourceFile.name,
@@ -723,9 +734,13 @@ export const createProjectLifecycleCommands = (
           const assessmentFile =
             getProjectSourceFile(preparedSnapshot.source) ??
             (await projectLibrary.loadStoredProjectSource(projectId));
-          await startAssessment({ file: assessmentFile, source: preparedSnapshot.source });
+          await startAssessment({
+            file: assessmentFile,
+            source: preparedSnapshot.source,
+            initialMessage,
+          });
         } else if (preparedSnapshot.isLearnMode) {
-          await startLearnAssessment();
+          await startLearnAssessment(initialMessage);
         }
       } else if (preparedSnapshot.learningPlan) {
         const requestedSection = requestedPathNode?.kind === 'lesson' ? requestedPathNode : null;

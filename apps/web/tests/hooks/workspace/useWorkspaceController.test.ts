@@ -4946,6 +4946,80 @@ test('startHomeChat preserves prepared sources for retry after interview startup
   expect(startCourseInterview.mock.calls[1]?.[0].projectId).toBe(draft.id);
 });
 
+test.each([
+  false,
+  true,
+])('saved draft retries the original objective after reload (sources: %s)', async withSources => {
+  const startCourseInterview = vi.fn().mockRejectedValue(new Error('404'));
+  const { controller, projectLibrary } = createControllerHarness({
+    openRouter: { getActiveCourseInterview: async () => null, startCourseInterview },
+  });
+  await controller.startHomeChat({
+    input: '  Teach query optimization  ',
+    ...(withSources
+      ? { selectedFiles: [new File(['# Prepared notes'], 'notes.md', { type: 'text/markdown' })] }
+      : {}),
+  });
+  const persisted = projectLibrary.persistedSnapshots.at(-1);
+  assert(persisted);
+  const draft = createProjectSnapshot({ ...persisted, ...projectLibrary.savedOverrides.at(-1) });
+  if (withSources) assert(draft.source?.sources?.length);
+  // A fresh controller has no in-memory interview or Home-chat message.
+  const reloaded = createControllerHarness({
+    loadedSnapshot: draft,
+    openRouter: { getActiveCourseInterview: async () => null, startCourseInterview },
+  });
+  await reloaded.controller.openProject(draft.id);
+  expect(startCourseInterview).toHaveBeenCalledTimes(2);
+  expect(startCourseInterview.mock.calls[1]?.[0]).toEqual(
+    expect.objectContaining({ projectId: draft.id, initialMessage: 'Teach query optimization' })
+  );
+});
+
+test('navigation suppresses interview rejection while public project validation is pending', async () => {
+  const started = createDeferred();
+  const validating = createDeferred();
+  const validation = createDeferred();
+  let rejectStart!: (error: Error) => void;
+  const pendingStart = new Promise<CourseInterviewSnapshot>((_resolve, reject) => {
+    rejectStart = reject;
+  });
+  const other = createProjectSnapshot({
+    id: 'other-project',
+    state: AppState.READING,
+    learningPlan: buildPlan(),
+  });
+  const { controller, projectLibrary, state } = createControllerHarness({
+    openRouter: {
+      getActiveCourseInterview: async () => null,
+      startCourseInterview: async () => {
+        started.resolve();
+        return pendingStart;
+      },
+    },
+    projectLibrary: {
+      loadStoredProject: async () => other,
+      validateStoredProjectForOpen: async () => {
+        validating.resolve();
+        await validation.promise;
+        return { snapshot: other, revision: 1 };
+      },
+    },
+  });
+  const starting = controller.startHomeChat({ input: 'Learn databases' });
+  await started.promise;
+  const opening = controller.openProject(other.id);
+  await validating.promise;
+  rejectStart(new Error('obsolete startup error'));
+  const result = await starting;
+  validation.resolve();
+  expect(await opening).toEqual({ outcome: 'opened' });
+  expect(result).toEqual({ outcome: 'abandoned' });
+  expect(projectLibrary.adapter.currentProjectId).toBe(other.id);
+  expect(state.internalState.screenState).toBe(AppState.READING);
+  expect(projectLibrary.deletedProjectIds).toEqual([]);
+});
+
 test('openProject retries with hydrated context while saving only deferred source indexes', async () => {
   const hydrated = preparedSourceSet([
     { path: 'notes.pdf', contentKind: 'text', preview: 'Original notes' },
