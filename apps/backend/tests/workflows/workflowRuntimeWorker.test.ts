@@ -1019,11 +1019,14 @@ describe('workflow runtime worker', () => {
 });
 
 test.each([
-  'step',
-  'undo',
-] as const)('exposes a %s heartbeat exception through production structured logs', async operation => {
+  ['step', 'scheduled'],
+  ['undo', 'scheduled'],
+  ['step', 'initial'],
+  ['undo', 'initial'],
+] as const)('exposes a %s %s heartbeat exception through production structured logs', async (operation, timing) => {
   vi.useFakeTimers();
   const output = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  const execute = vi.fn(async () => new Promise<never>(() => {}));
   const registry = createWorkflowRegistry();
   const definition = registry.register({
     current: workflow({
@@ -1037,19 +1040,23 @@ test.each([
         id: 'work',
         inputSchema: Text,
         outputSchema: Text,
-        run: async () => new Promise<never>(() => {}),
-        undo: async () => new Promise<never>(() => {}),
+        run: execute,
+        undo: execute,
       }),
     }),
   }).current;
   const claim = makeClaim(definition, 'worker-1');
   const store = makeStore();
   const heartbeat = operation === 'step' ? store.steps.heartbeat : store.undo.heartbeat;
-  vi.mocked(heartbeat)
-    .mockResolvedValueOnce({ status: 'renewed', leaseExpiresAt: claim.leaseExpiresAt })
-    .mockRejectedValue(
-      Object.assign(new Error('private prompt password=hidden'), { code: 'ECONNRESET' })
-    );
+  if (timing === 'scheduled') {
+    vi.mocked(heartbeat).mockResolvedValueOnce({
+      status: 'renewed',
+      leaseExpiresAt: claim.leaseExpiresAt,
+    });
+  }
+  vi.mocked(heartbeat).mockRejectedValue(
+    Object.assign(new Error('private prompt password=hidden'), { code: 'ECONNRESET' })
+  );
   if (operation === 'step') vi.mocked(store.steps.claimNext).mockResolvedValueOnce(claim);
   else
     vi.mocked(store.undo.claimNext).mockResolvedValueOnce({
@@ -1096,6 +1103,7 @@ test.each([
     expect(store.undo.complete).not.toHaveBeenCalled();
     expect(store.undo.recordFailure).not.toHaveBeenCalled();
     expect(onLoopError).not.toHaveBeenCalled();
+    expect(execute).toHaveBeenCalledTimes(timing === 'initial' ? 0 : 1);
   } finally {
     await worker.stop();
     output.mockRestore();

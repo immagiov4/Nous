@@ -32,6 +32,7 @@ import { WorkflowCancellationRequestedError, WorkflowLeaseLostError } from './wo
 import { emitWorkflowHeartbeatFailure } from './workflowObservability.js';
 import {
   type AbortableOperationResult,
+  checkWorkflowHeartbeat,
   DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS,
   DEFAULT_WORKFLOW_LEASE_MS,
   raceOperationWithAbort,
@@ -560,9 +561,15 @@ export const runWorkflowStepClaim = async <Services>(
 
   const leaseMs = input.leaseMs ?? DEFAULT_WORKFLOW_LEASE_MS;
   const heartbeatIntervalMs = input.heartbeatIntervalMs ?? DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS;
-  const initialHeartbeat = await input.store.steps.heartbeat({ claim: input.claim, leaseMs });
+  const initialHeartbeat = await checkWorkflowHeartbeat(() =>
+    input.store.steps.heartbeat({ claim: input.claim, leaseMs })
+  );
   if (initialHeartbeat.status !== 'renewed') {
-    return finishInterruptedClaim(input.store, input.claim, initialHeartbeat.status);
+    return finishInterruptedClaim(
+      input.store,
+      input.claim,
+      initialHeartbeat.status === 'heartbeat-failed' ? initialHeartbeat : initialHeartbeat.status
+    );
   }
   const attempt = await executeStepCallback({
     claim: input.claim,

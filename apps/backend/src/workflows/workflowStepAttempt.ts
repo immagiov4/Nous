@@ -47,6 +47,22 @@ const assertRunnerTimings = (leaseMs: number, heartbeatIntervalMs: number): void
   }
 };
 
+/** Classifies both initial and scheduled checks without retaining database messages or content. */
+export const checkWorkflowHeartbeat = async <
+  Result extends { status: 'cancelled' | 'lost' | 'renewed' },
+>(
+  heartbeat: () => Promise<Result>
+): Promise<Result | WorkflowHeartbeatFailure> => {
+  try {
+    return await heartbeat();
+  } catch (error) {
+    return {
+      status: 'heartbeat-failed',
+      diagnostic: toWorkflowErrorDiagnostic(error, { includeContent: false }),
+    };
+  }
+};
+
 export const startWorkflowAttemptMonitor = (input: {
   controller: AbortController;
   heartbeat: () => Promise<{ status: 'cancelled' | 'lost' | 'renewed' }>;
@@ -67,17 +83,16 @@ export const startWorkflowAttemptMonitor = (input: {
   const schedule = (): void => {
     if (stopped || currentInterruption) return;
     timer = setTimeout(() => {
-      heartbeat = input
-        .heartbeat()
+      heartbeat = checkWorkflowHeartbeat(input.heartbeat)
         .then(result => {
-          if (result.status !== 'renewed') interrupt(result.status);
-        })
-        .catch(error => {
-          const diagnostic = toWorkflowErrorDiagnostic(error, { includeContent: false });
-          currentInterruption ??= { status: 'heartbeat-failed', diagnostic };
-          input.controller.abort(
-            new Error('The workflow heartbeat check failed.', { cause: diagnostic })
-          );
+          if (result.status === 'heartbeat-failed') {
+            currentInterruption ??= result;
+            input.controller.abort(
+              new Error('The workflow heartbeat check failed.', { cause: result.diagnostic })
+            );
+          } else if (result.status !== 'renewed') {
+            interrupt(result.status);
+          }
         })
         .finally(() => {
           heartbeat = null;

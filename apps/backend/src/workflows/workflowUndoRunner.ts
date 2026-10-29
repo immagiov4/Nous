@@ -14,6 +14,7 @@ import {
 import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
 import { emitWorkflowHeartbeatFailure } from './workflowObservability.js';
 import {
+  checkWorkflowHeartbeat,
   DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS,
   DEFAULT_WORKFLOW_LEASE_MS,
   raceOperationWithAbort,
@@ -204,6 +205,21 @@ const stopForUndoInterruption = async (
   }
   return { status: 'lease-lost' };
 };
+
+const checkInitialUndoHeartbeat = async (
+  input: Pick<WorkflowUndoRunnerInput<unknown>, 'claim' | 'store'>,
+  leaseMs: number
+): Promise<WorkflowUndoRunnerResult | null> => {
+  const heartbeat = await checkWorkflowHeartbeat(() =>
+    input.store.heartbeat({ claim: input.claim, leaseMs })
+  );
+  if (heartbeat.status === 'heartbeat-failed') {
+    emitWorkflowHeartbeatFailure(input.claim, 'undo', heartbeat.diagnostic);
+    return heartbeat;
+  }
+  return heartbeat.status === 'lost' ? { status: 'lease-lost' } : null;
+};
+
 export const workflowUndoIdempotencyKey = (claim: WorkflowUndoClaim): string =>
   workflowOperationIdempotencyKey('undo', claim.runId, claim.nodeInstanceId);
 
@@ -217,8 +233,8 @@ export const runWorkflowUndoClaim = async <Services>(
 
   const leaseMs = input.leaseMs ?? DEFAULT_WORKFLOW_LEASE_MS;
   const heartbeatIntervalMs = input.heartbeatIntervalMs ?? DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS;
-  const initialHeartbeat = await input.store.heartbeat({ claim: input.claim, leaseMs });
-  if (initialHeartbeat.status === 'lost') return { status: 'lease-lost' };
+  const initialInterruption = await checkInitialUndoHeartbeat(input, leaseMs);
+  if (initialInterruption) return initialInterruption;
   const controller = new AbortController();
   const monitor = startWorkflowAttemptMonitor({
     controller,
