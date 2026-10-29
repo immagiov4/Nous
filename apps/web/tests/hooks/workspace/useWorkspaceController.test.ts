@@ -4973,8 +4973,15 @@ test('startHomeChat preserves prepared sources when opening another project inva
     const draft = projectLibrary.persistedSnapshots.at(-1);
     assert(draft?.source?.sources?.length);
     expect((await controller.openProject(otherProject.id)).outcome).toBe('opened');
-    rejectStart(new ProjectStorageError('Private source detail', 'persistence-failed'));
-    expect((await start).outcome).toBe('abandoned');
+    rejectStart(
+      new ProjectStorageError('Private source detail', 'persistence-failed', {
+        sourceWarnings: [
+          { name: 'private.pdf', reason: 'no-usable-text', message: 'Private warning' },
+        ],
+      })
+    );
+    const result = await start;
+    expect(result).toEqual({ outcome: 'abandoned' });
     expect(projectLibrary.deletedProjectIds).toEqual([]);
     expect(projectLibrary.adapter.currentProjectId).toBe(otherProject.id);
     expect(trace).toHaveBeenCalledWith('assessment:startup-failed', {

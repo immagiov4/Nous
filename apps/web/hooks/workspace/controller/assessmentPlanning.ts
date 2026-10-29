@@ -1019,14 +1019,11 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
       ...(error instanceof ProjectStorageError ? { errorCode: error.code } : {}),
       projectId: startState.draftProjectId,
     });
-    if (isCurrent && projectLibrary.getCurrentProjectId() === startState.draftProjectId) {
+    if (!isCurrent) return { outcome: 'abandoned' };
+    if (projectLibrary.getCurrentProjectId() === startState.draftProjectId) {
       resetInterviewClientState();
     }
-    return {
-      outcome: isCurrent ? 'failed' : 'abandoned',
-      errorMessage,
-      sourceWarnings: startState.sourceWarnings,
-    };
+    return { outcome: 'failed', errorMessage, sourceWarnings: startState.sourceWarnings };
   };
 
   async function runHomeChatStart(args: HomeChatStartArgs): Promise<HomeChatStartResult> {
