@@ -9,7 +9,10 @@ import {
   sendPasswordRecovery,
   updateSupabasePassword,
 } from '../../services/auth/supabaseAuth.ts';
-import { LibraryArchiveError } from '../../services/projects/libraryArchive.ts';
+import {
+  LibraryArchiveError,
+  LibraryArchivePartialImportError,
+} from '../../services/projects/libraryArchive.ts';
 import { reportLibraryArchiveImportFailure } from '../../services/projects/libraryArchiveDiagnostics.ts';
 import type { LibraryBackupImportResult } from '../../services/projects/libraryArchiveImport.ts';
 import type { LibraryExportProgressListener } from '../../services/projects/projectRepository.ts';
@@ -222,10 +225,14 @@ export default function AccountSettingsDialog({
         error instanceof LibraryArchiveError
           ? error.message
           : t('Importazione del backup completo non riuscita. Controlla il file e riprova.');
+      const importMessage =
+        error instanceof LibraryArchivePartialImportError && error.refreshFailed
+          ? `${message} ${t(IMPORT_REFRESH_WARNING)}`
+          : message;
       setErrorMessage(
         correlationId
-          ? `${message} ${t('Codice assistenza: {correlationId}.', { correlationId })}`
-          : message
+          ? `${importMessage} ${t('Codice assistenza: {correlationId}.', { correlationId })}`
+          : importMessage
       );
     } finally {
       setPendingAction(null);

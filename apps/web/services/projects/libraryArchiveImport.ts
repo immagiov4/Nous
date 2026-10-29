@@ -10,6 +10,7 @@ import {
   readLibraryArchive,
   restoreLibraryArchiveOrganization,
 } from './libraryArchive.ts';
+import { warnImportRefreshFailed } from './libraryArchiveDiagnostics.ts';
 import type { ProjectRepository } from './projectRepository';
 import { createProjectId } from './projectSnapshot';
 
@@ -314,7 +315,8 @@ export const importLibraryArchive = async ({
         importedProjectCount: importedProjects.length,
         kind: 'refresh-failed',
       };
-    console.warn('[Nous] Failed to refresh the library after a partial import.', refreshError);
+    warnImportRefreshFailed(refreshError);
+    throw new LibraryArchivePartialImportError(partialImportError.result, true);
   }
   if (partialImportError) throw partialImportError;
   return { importedProjectCount: importedProjects.length, kind: 'imported' };

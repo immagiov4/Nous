@@ -12,6 +12,7 @@ import {
   HttpProjectRepository,
 } from '../../services/projects/httpProjectRepository.ts';
 import { recoverLegacyAnnotations } from '../../services/projects/legacyAnnotationRecovery.ts';
+import { LibraryArchivePartialImportError } from '../../services/projects/libraryArchive.ts';
 import { warnImportRefreshFailed } from '../../services/projects/libraryArchiveDiagnostics.ts';
 import {
   importLibraryArchive,
@@ -189,6 +190,7 @@ export const useProjectLibrary = ({
   const [savedProjects, setSavedProjects] = useState<SavedProjectMeta[]>([]);
   const [isLibraryLoading, setIsLibraryLoading] = useState(true);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [importRefreshWarning, setImportRefreshWarning] = useState<string | null>(null);
   const [projectSyncState, setProjectSyncState] = useState<ProjectSyncState>({
     kind: 'load',
     phase: 'pending',
@@ -297,13 +299,14 @@ export const useProjectLibrary = ({
         ]);
         const failedRead = reads.find(read => read.status === 'rejected');
         if (failedRead) throw failedRead.reason;
+        setImportRefreshWarning(null);
         setProjectSyncState(current =>
           current.kind === 'load' && current.phase === 'failed' ? { kind: 'idle' } : current
         );
       } catch (error) {
         if (options?.afterImport) {
           const message = t(IMPORT_REFRESH_WARNING);
-          setStorageError(message);
+          setImportRefreshWarning(message);
           setProjectSyncState({ kind: 'load', message, phase: 'failed' });
         }
         throw error;
@@ -1271,7 +1274,9 @@ export const useProjectLibrary = ({
           repository: projectRepositoryRef.current,
         });
       } catch (error) {
-        setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
+        if (!(error instanceof LibraryArchivePartialImportError && error.refreshFailed)) {
+          setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
+        }
         throw error;
       }
       const refreshFailed = outcome.kind === 'refresh-failed';
@@ -1865,7 +1870,7 @@ export const useProjectLibrary = ({
         void processPendingRemoteRevisionRef.current();
       }
     },
-    storageError,
+    storageError: importRefreshWarning ?? storageError,
     touchStoredProject: (projectId: string) =>
       runDeletionAwareProjectAction(projectId, () =>
         projectRepositoryRef.current.touchProject(projectId)
