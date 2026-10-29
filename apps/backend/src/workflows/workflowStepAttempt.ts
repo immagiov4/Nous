@@ -1,3 +1,8 @@
+import {
+  toWorkflowErrorDiagnostic,
+  type WorkflowErrorDiagnostic,
+} from './workflowErrorDiagnostics.js';
+
 export const DEFAULT_WORKFLOW_LEASE_MS = 60_000;
 export const DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS = 20_000;
 
@@ -12,7 +17,12 @@ export const workflowOperationIdempotencyKey = (
 ): string =>
   `workflow:${role}:run:${encodeIdempotencyComponent(runId)}:node:${encodeIdempotencyComponent(nodeInstanceId)}`;
 
-export type WorkflowAttemptInterruption = 'cancelled' | 'lost' | null;
+export type WorkflowHeartbeatFailure = {
+  status: 'heartbeat-failed';
+  diagnostic: WorkflowErrorDiagnostic;
+};
+
+export type WorkflowAttemptInterruption = 'cancelled' | 'lost' | WorkflowHeartbeatFailure | null;
 
 export interface WorkflowAttemptMonitor {
   interruption(): WorkflowAttemptInterruption;
@@ -37,11 +47,27 @@ const assertRunnerTimings = (leaseMs: number, heartbeatIntervalMs: number): void
   }
 };
 
+/** Classifies both initial and scheduled checks without retaining database messages or content. */
+export const checkWorkflowHeartbeat = async <
+  Result extends { status: 'cancelled' | 'lost' | 'renewed' },
+>(
+  heartbeat: () => Promise<Result>
+): Promise<Result | WorkflowHeartbeatFailure> => {
+  try {
+    return await heartbeat();
+  } catch (error) {
+    return {
+      status: 'heartbeat-failed',
+      diagnostic: toWorkflowErrorDiagnostic(error, { includeContent: false }),
+    };
+  }
+};
+
 export const startWorkflowAttemptMonitor = (input: {
   controller: AbortController;
-  heartbeat: () => Promise<{ status: Exclude<WorkflowAttemptInterruption, null> | 'renewed' }>;
+  heartbeat: () => Promise<{ status: 'cancelled' | 'lost' | 'renewed' }>;
   heartbeatIntervalMs: number;
-  interruptionError: (interruption: Exclude<WorkflowAttemptInterruption, null>) => unknown;
+  interruptionError: (interruption: 'cancelled' | 'lost') => unknown;
   leaseMs: number;
 }): WorkflowAttemptMonitor => {
   assertRunnerTimings(input.leaseMs, input.heartbeatIntervalMs);
@@ -50,19 +76,24 @@ export const startWorkflowAttemptMonitor = (input: {
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  const interrupt = (status: Exclude<WorkflowAttemptInterruption, null>): void => {
+  const interrupt = (status: 'cancelled' | 'lost'): void => {
     currentInterruption ??= status;
     input.controller.abort(input.interruptionError(status));
   };
   const schedule = (): void => {
     if (stopped || currentInterruption) return;
     timer = setTimeout(() => {
-      heartbeat = input
-        .heartbeat()
+      heartbeat = checkWorkflowHeartbeat(input.heartbeat)
         .then(result => {
-          if (result.status !== 'renewed') interrupt(result.status);
+          if (result.status === 'heartbeat-failed') {
+            currentInterruption ??= result;
+            input.controller.abort(
+              new Error('The workflow heartbeat check failed.', { cause: result.diagnostic })
+            );
+          } else if (result.status !== 'renewed') {
+            interrupt(result.status);
+          }
         })
-        .catch(() => interrupt('lost'))
         .finally(() => {
           heartbeat = null;
           schedule();
