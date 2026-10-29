@@ -152,6 +152,48 @@ const lessonSourcesState = (keyConcepts: string[] = ['concetto']) =>
   });
 
 describe('lesson generation production stages', () => {
+  test.each([
+    'not-a-url',
+    'https://example.org/reference',
+  ])('checks normalized evidence before completing required research: %s', async url => {
+    const services = createLessonGenerationStageServices(
+      dependencies({
+        generateResearch: vi.fn().mockResolvedValue({
+          avoidOversimplifying: [],
+          controversies: [],
+          difficultSteps: [],
+          factualSummary: '',
+          keyExamples: [],
+          recentDevelopments: [],
+          sources: [{ url, title: 'Reference', note: 'Verified evidence' }],
+          youtubeCandidateDecisions: [],
+        }),
+      })
+    );
+    const state = LessonYouTubeStateSchema.parse({
+      ...lessonSourcesState(),
+      discoveredYoutubeSources: [],
+      research: { context: '', youtube: null },
+      researchRouting: {
+        suppliedSourcesSufficient: false,
+        rationale: 'Required evidence',
+        channels: [{ type: 'web', selected: true, rationale: 'Facts' }],
+      },
+      stage: 'youtube',
+    });
+    const result = services.researchLesson({ ...stageContext(state), selectEvidence: true });
+    if (url === 'not-a-url') {
+      await expect(result).rejects.toMatchObject({
+        failure: { kind: 'corrective', code: 'research_web_evidence_missing' },
+      });
+    } else {
+      await expect(result).resolves.toMatchObject({
+        stage: 'research',
+        lessonSources: [{ url, title: 'Reference', note: 'Verified evidence' }],
+      });
+    }
+  });
+
   test('carries fresh web research notes and identities into selected evidence and drafting', async () => {
     const webSource = {
       title: 'Source documentation',
