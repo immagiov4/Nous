@@ -29,6 +29,8 @@ import { AppState, type ProjectSnapshot } from '../../../types.ts';
 import { createDeferred } from '../../helpers/deferred.ts';
 
 const fetchMock = vi.fn();
+const { pushNousDebugTrace } = vi.hoisted(() => ({ pushNousDebugTrace: vi.fn() }));
+vi.mock('../../../services/core/debugTrace.ts', () => ({ pushNousDebugTrace }));
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -1319,8 +1321,13 @@ test.each([
   expect(parts).toBe(1);
   expect(deletes).toBe(1);
   try {
-    if (status === 204) expect(warning).not.toHaveBeenCalled();
-    else
+    if (status === 204) {
+      expect(warning).not.toHaveBeenCalled();
+      expect(pushNousDebugTrace).toHaveBeenCalledWith(
+        'project:request',
+        expect.objectContaining({ status: 204, responseBytes: 0, bodyMs: expect.any(Number) })
+      );
+    } else
       expect(warning).toHaveBeenCalledWith(
         '[Nous] Failed to cancel an incomplete project import.',
         expect.any(ProjectStorageError)
