@@ -11,6 +11,7 @@ import {
   type ProjectSnapshot,
   type ProjectWriteOptions,
   type SectionAnnotation,
+  type SectionAnnotationTextSelector,
 } from '../../../types.ts';
 import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
 import {
@@ -33,7 +34,9 @@ const selectionAnnotation = ({
   id: string;
   note: string;
   start: number;
-}): SectionAnnotation => ({
+}): SectionAnnotation & {
+  anchor: { kind: 'selection'; selector: SectionAnnotationTextSelector };
+} => ({
   anchor: {
     kind: 'selection',
     selector: { end, exact, prefix: '', start, suffix: '' },
@@ -172,7 +175,7 @@ test('recovery writes distinct notes on the same selection before marking comple
     }),
     { expectedRevision: 1 }
   );
-  expect(values.get('nous:legacy-annotation-recovery:v3:user-1')).toBe('complete');
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBe('complete');
 });
 
 test('partial recovery remembers recovered and existing IDs after deletion across retries', async () => {
@@ -204,12 +207,12 @@ test('partial recovery remembers recovered and existing IDs after deletion acros
   };
 
   await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(1);
-  expect(values.get('nous:legacy-annotation-recovery:v3:user-1')).toBeUndefined();
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBeUndefined();
   currentSnapshot = buildSnapshot([buildTestLesson({ annotations: [] })]);
   args.projectMetas = [buildTestProjectMeta({ revision })];
   await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(0);
   expect(patchProject).toHaveBeenCalledTimes(1);
-  expect(values.get('nous:legacy-annotation-recovery:v3:user-1')).toBeUndefined();
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBeUndefined();
 
   currentSnapshot = buildSnapshot([
     buildTestLesson({ annotations: [] }),
@@ -220,7 +223,7 @@ test('partial recovery remembers recovered and existing IDs after deletion acros
   expect(
     flattenLessons(currentSnapshot.learningPlan?.modules).map(lesson => lesson.annotations)
   ).toEqual([[], [pendingNote]]);
-  expect(values.get('nous:legacy-annotation-recovery:v3:user-1')).toBe('complete');
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBe('complete');
 });
 
 test('legacy recovery patches only matching sections, advances revisions, and completes once', async () => {
@@ -288,7 +291,7 @@ test('legacy recovery patches only matching sections, advances revisions, and co
     },
   });
   expect(patchProject.mock.calls[1]?.[2]).toEqual({ expectedRevision: 8 });
-  expect(values.get('nous:legacy-annotation-recovery:v3:user-1')).toBe('complete');
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBe('complete');
 
   await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(0);
   expect(loadLegacyProject).toHaveBeenCalledTimes(1);
@@ -342,7 +345,7 @@ test('a later patch failure retains progress without recording the failed note',
     userId: 'user-1',
   };
   await expect(recoverLegacyAnnotationsFromStore(args)).rejects.toThrow('backend unavailable');
-  expect(values.get('nous:legacy-annotation-recovery:v3:user-1')).toBeUndefined();
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBeUndefined();
 
   // The first note was deleted after its successful write, before retrying the failed section.
   patchProject.mockImplementation(async () => buildTestProjectMeta({ revision: 3 }));
@@ -357,7 +360,7 @@ test('a later patch failure retains progress without recording the failed note',
     }),
     { expectedRevision: 2 }
   );
-  expect(values.get('nous:legacy-annotation-recovery:v3:user-1')).toBe('complete');
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBe('complete');
 });
 
 test('legacy markup enriches an existing current annotation without replacing its note', () => {
@@ -441,4 +444,205 @@ test('legacy recovery does not complete when an annotated lesson no longer exist
 
   expect(patchProject).not.toHaveBeenCalled();
   expect(values.size).toBe(0);
+});
+
+test('retries keep checking unresolved current notes after all legacy IDs are acknowledged', async () => {
+  const unresolved = legacySelectionAnnotation('unresolved-current', 'Keep trying');
+  const restored = lessonAnnotation('legacy-note', 'Recovered');
+  let currentSnapshot = buildSnapshot([buildTestLesson({ annotations: [unresolved] })]);
+  const legacySnapshot = buildSnapshot([buildTestLesson({ annotations: [restored] })]);
+  const { storage, values } = createMigrationStorage();
+  const patchProject = vi.fn(async (_id: string, patch: ProjectPatch) => {
+    currentSnapshot = buildSnapshot([
+      buildTestLesson({ annotations: patch.section?.annotations as SectionAnnotation[] }),
+    ]);
+    return buildTestProjectMeta({ revision: 2 });
+  });
+  const args = {
+    legacyStore: { close: vi.fn(), loadProject: async () => legacySnapshot },
+    migrationStorage: storage,
+    projectMetas: [buildTestProjectMeta({ revision: 1 })],
+    repository: { loadProject: async () => currentSnapshot, patchProject },
+    userId: 'user-1',
+  };
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(1);
+  args.projectMetas = [buildTestProjectMeta({ revision: 2 })];
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(0);
+  expect(values.get('nous:legacy-annotation-recovery:v3:user-1')).toBeUndefined();
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBeUndefined();
+  expect(patchProject).toHaveBeenCalledTimes(1);
+  currentSnapshot = buildSnapshot([buildTestLesson({ annotations: [restored] })]);
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(0);
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBe('complete');
+});
+
+test.each([
+  'selector',
+  'markup',
+])('completed v3 upgrades only old selection conflicts (%s)', async format => {
+  const currentNote = selectionAnnotation({
+    end: 5,
+    exact: 'hello',
+    id: 'current',
+    note: 'Current note',
+    start: 0,
+  });
+  const skippedNote = { ...currentNote, id: 'skipped', note: 'Previously skipped note' };
+  if (format === 'markup') currentNote.anchor.selector.suffix = 'world';
+  const otherSelection = selectionAnnotation({
+    end: 11,
+    exact: 'world',
+    id: 'deleted-selection',
+    note: 'Leave deleted',
+    start: 6,
+  });
+  const otherContext = {
+    ...skippedNote,
+    id: 'different-context',
+    anchor: {
+      ...currentNote.anchor,
+      selector: { ...currentNote.anchor.selector, suffix: ' world' },
+    },
+  };
+  const currentSnapshot = buildSnapshot([
+    buildTestLesson({ content: 'hello world', annotations: [currentNote] }),
+  ]);
+  const legacySnapshot = buildSnapshot([
+    buildTestLesson({
+      content:
+        format === 'markup'
+          ? '<mark data-nous-annotation-id="skipped">hello</mark> world'
+          : 'hello world',
+      annotations: [
+        format === 'markup' ? legacySelectionAnnotation('skipped', skippedNote.note) : skippedNote,
+        otherSelection,
+        otherContext,
+        lessonAnnotation('deleted-note', 'Leave deleted'),
+      ],
+    }),
+    buildTestLesson({
+      id: 'removed-lesson',
+      annotations: [lessonAnnotation('orphan', 'Leave deleted')],
+    }),
+  ]);
+  const { storage, values } = createMigrationStorage();
+  values.set('nous:legacy-annotation-recovery:v3:user-1', 'complete');
+  const patchProject = vi.fn(async () => buildTestProjectMeta({ revision: 2 }));
+  const args = {
+    legacyStore: { close: vi.fn(), loadProject: async () => legacySnapshot },
+    migrationStorage: storage,
+    projectMetas: [buildTestProjectMeta({ revision: 1 })],
+    repository: { loadProject: async () => currentSnapshot, patchProject },
+    userId: 'user-1',
+  };
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(1);
+  expect(patchProject).toHaveBeenCalledWith(
+    'project-1',
+    expect.objectContaining({
+      section: {
+        sectionId: 'lesson-1',
+        annotations: [
+          currentNote,
+          expect.objectContaining({ id: 'skipped', note: skippedNote.note }),
+        ],
+      },
+    }),
+    { expectedRevision: 1 }
+  );
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBe('complete');
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(0);
+  expect(patchProject).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  false,
+  true,
+])('a current ID acknowledges an obsolete legacy anchor (partial: %s)', async partial => {
+  const legacyNote = selectionAnnotation({
+    end: 5,
+    exact: 'hello',
+    id: 'shared-id',
+    note: 'Old note',
+    start: 0,
+  });
+  const currentNote = selectionAnnotation({
+    end: 7,
+    exact: 'updated',
+    id: 'shared-id',
+    note: 'Current note',
+    start: 0,
+  });
+  const legacySnapshot = buildSnapshot([
+    buildTestLesson({ content: 'hello', annotations: [legacyNote] }),
+    ...(partial
+      ? [
+          buildTestLesson({
+            id: 'missing-lesson',
+            annotations: [lessonAnnotation('pending', 'Retry')],
+          }),
+        ]
+      : []),
+  ]);
+  let currentSnapshot = buildSnapshot([
+    buildTestLesson({ content: 'updated', annotations: [currentNote] }),
+  ]);
+  const { storage, values } = createMigrationStorage();
+  const patchProject = vi.fn(async () => buildTestProjectMeta({ revision: 2 }));
+  const args = {
+    legacyStore: { close: vi.fn(), loadProject: async () => legacySnapshot },
+    migrationStorage: storage,
+    projectMetas: [buildTestProjectMeta()],
+    repository: { loadProject: async () => currentSnapshot, patchProject },
+    userId: 'user-1',
+  };
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(0);
+  currentSnapshot = buildSnapshot([buildTestLesson({ content: 'hello', annotations: [] })]);
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(0);
+  expect(patchProject).not.toHaveBeenCalled();
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBe(
+    partial ? undefined : 'complete'
+  );
+});
+
+test('v3 upgrade remembers repaired IDs while an unresolved current note prevents completion', async () => {
+  const currentNote = selectionAnnotation({
+    end: 5,
+    exact: 'hello',
+    id: 'current',
+    note: 'Current',
+    start: 0,
+  });
+  const skippedNote = { ...currentNote, id: 'skipped', note: 'Repair once' };
+  const unresolved = legacySelectionAnnotation('unresolved-current', 'Resolve later');
+  const legacySnapshot = buildSnapshot([
+    buildTestLesson({ content: 'hello', annotations: [skippedNote] }),
+  ]);
+  let currentSnapshot = buildSnapshot([
+    buildTestLesson({ content: 'hello', annotations: [currentNote, unresolved] }),
+  ]);
+  const { storage, values } = createMigrationStorage();
+  values.set('nous:legacy-annotation-recovery:v3:user-1', 'complete');
+  const patchProject = vi.fn(async () => buildTestProjectMeta({ revision: 2 }));
+  const args = {
+    legacyStore: { close: vi.fn(), loadProject: async () => legacySnapshot },
+    migrationStorage: storage,
+    projectMetas: [buildTestProjectMeta({ revision: 1 })],
+    repository: { loadProject: async () => currentSnapshot, patchProject },
+    userId: 'user-1',
+  };
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(1);
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBeUndefined();
+  // The repaired note was deleted; its matching current note remains.
+  currentSnapshot = buildSnapshot([
+    buildTestLesson({ content: 'hello', annotations: [currentNote, unresolved] }),
+  ]);
+  args.projectMetas = [buildTestProjectMeta({ revision: 2 })];
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(0);
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBeUndefined();
+  expect(patchProject).toHaveBeenCalledTimes(1);
+  currentSnapshot = buildSnapshot([
+    buildTestLesson({ content: 'hello', annotations: [currentNote] }),
+  ]);
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(0);
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBe('complete');
 });

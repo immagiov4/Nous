@@ -17,7 +17,8 @@ import { normalizeStoredProject } from './projectSnapshot.ts';
 
 const LEGACY_DATABASE_NAME = 'lumina-reader-projects';
 const LEGACY_SNAPSHOT_STORE = 'project-snapshots';
-const RECOVERY_VERSION = 'v3';
+const RECOVERY_VERSION = 'v4';
+const PREVIOUS_RECOVERY_VERSION = 'v3';
 const RECOVERY_COMPLETE_VALUE = 'complete';
 const LEGACY_MARK_CLOSE = '</mark>';
 const LEGACY_MARK_OPEN_REGEX = /^<mark\b[^>]*>/iu;
@@ -67,8 +68,8 @@ export interface LegacyAnnotationRecoveryPlan {
   unresolvedAnnotationCount: number;
 }
 
-const getRecoveryStorageKey = (userId: string) =>
-  `nous:legacy-annotation-recovery:${RECOVERY_VERSION}:${userId}`;
+const getRecoveryStorageKey = (userId: string, version = RECOVERY_VERSION) =>
+  `nous:legacy-annotation-recovery:${version}:${userId}`;
 
 const isTextSelector = (
   value: unknown
@@ -285,16 +286,33 @@ const mergeSectionAnnotations = (
   };
 };
 
+const getSelectionAnchorKey = (annotation: SectionAnnotation): string | undefined => {
+  if (!isTextSelector(annotation.anchor)) return undefined;
+  const { exact, prefix, suffix } = annotation.anchor.selector;
+  return JSON.stringify([exact, prefix, suffix]);
+};
+
 export const buildLegacyAnnotationRecoveryPlan = (
   currentSnapshot: ProjectSnapshot,
   legacySnapshot: ProjectSnapshot,
-  recoveredIdsBySection: ReadonlyMap<string, ReadonlySet<string>> = new Map()
+  {
+    recoveredIdsBySection = new Map(),
+    onlySelectionConflicts = false,
+  }: {
+    recoveredIdsBySection?: ReadonlyMap<string, ReadonlySet<string>>;
+    onlySelectionConflicts?: boolean;
+  } = {}
 ): LegacyAnnotationRecoveryPlan => {
   const currentLessonsById = new Map(
     flattenLessons(currentSnapshot.learningPlan?.modules).map(lesson => [lesson.id, lesson])
   );
   const patches: SectionAnnotationRecoveryPatch[] = [];
   const acknowledgedAnnotations: LegacyAnnotationRecoveryPlan['acknowledgedAnnotations'] = [];
+  const currentIds = new Set(
+    [...currentLessonsById.values()].flatMap(lesson =>
+      (lesson.annotations || []).filter(isLegacyAnnotation).map(annotation => annotation.id)
+    )
+  );
   let unresolvedAnnotationCount = 0;
 
   for (const legacyLesson of flattenLessons(legacySnapshot.learningPlan?.modules)) {
@@ -303,11 +321,8 @@ export const buildLegacyAnnotationRecoveryPlan = (
       annotation => !isLegacyAnnotation(annotation) || !recoveredIds?.has(annotation.id)
     );
     const currentLesson = currentLessonsById.get(legacyLesson.id);
-    if (pendingAnnotations.length === 0) {
-      continue;
-    }
     if (!currentLesson) {
-      unresolvedAnnotationCount += pendingAnnotations.length;
+      if (!onlySelectionConflicts) unresolvedAnnotationCount += pendingAnnotations.length;
       continue;
     }
 
@@ -321,16 +336,43 @@ export const buildLegacyAnnotationRecoveryPlan = (
           })
         : { annotation: undefined, changed: false, understood: false }
     );
-    const parsedLegacyAnnotations = pendingAnnotations.map(annotation =>
-      isLegacyAnnotation(annotation)
-        ? normalizeLegacyAnnotation({
-            annotation,
-            preserveCurrentSelector: false,
-            sourceContent: legacyLesson.content || '',
-            targetContent: currentLesson.content || '',
-          })
-        : { annotation: undefined, changed: false, understood: false }
+    const currentAnnotationsById = new Map(
+      parsedCurrentAnnotations.flatMap(result =>
+        result.annotation ? [[result.annotation.id, result.annotation] as const] : []
+      )
     );
+    const currentSelectionKeys = new Set(
+      [...currentAnnotationsById.values()].map(getSelectionAnchorKey).filter(Boolean)
+    );
+    const parsedLegacyAnnotations = pendingAnnotations
+      .map(annotation => {
+        if (!isLegacyAnnotation(annotation)) {
+          return { annotation: undefined, changed: false, understood: false };
+        }
+        const currentAnnotation = currentAnnotationsById.get(annotation.id);
+        const legacyResult = normalizeLegacyAnnotation({
+          annotation,
+          preserveCurrentSelector: false,
+          sourceContent: legacyLesson.content || '',
+          targetContent: currentLesson.content || '',
+        });
+        if (
+          currentAnnotation &&
+          (isTextSelector(currentAnnotation.anchor) ||
+            currentAnnotation.anchor?.kind === 'lesson' ||
+            !legacyResult.understood)
+        ) {
+          return { annotation: currentAnnotation, changed: false, understood: true };
+        }
+        return legacyResult;
+      })
+      .filter(result => {
+        if (!onlySelectionConflicts) return true;
+        if (!result.annotation || currentIds.has(result.annotation.id)) return false;
+        const key = getSelectionAnchorKey(result.annotation);
+        // v3 may also have copied notes that were later deleted; only repair its exact selection skip.
+        return key !== undefined && currentSelectionKeys.has(key);
+      });
     unresolvedAnnotationCount += parsedLegacyAnnotations.filter(
       result => !result.understood
     ).length;
@@ -339,7 +381,10 @@ export const buildLegacyAnnotationRecoveryPlan = (
       .map(result => result.annotation)
       .filter((annotation): annotation is SectionAnnotation => Boolean(annotation));
     if (normalizedCurrentAnnotations.length !== (currentLesson.annotations || []).length) {
-      unresolvedAnnotationCount += pendingAnnotations.length;
+      unresolvedAnnotationCount += parsedCurrentAnnotations.filter(
+        result => !result.annotation
+      ).length;
+      unresolvedAnnotationCount += parsedLegacyAnnotations.length;
       continue;
     }
 
@@ -406,6 +451,9 @@ export const recoverLegacyAnnotationsFromStore = async ({
   userId,
 }: LegacyAnnotationStoreRecoveryArgs): Promise<number> => {
   const storageKey = getRecoveryStorageKey(userId);
+  const previousStorageKey = getRecoveryStorageKey(userId, PREVIOUS_RECOVERY_VERSION);
+  const onlySelectionConflicts =
+    migrationStorage?.getItem(previousStorageKey) === RECOVERY_COMPLETE_VALUE;
   if (migrationStorage?.getItem(storageKey) === RECOVERY_COMPLETE_VALUE) {
     return 0;
   }
@@ -441,8 +489,9 @@ export const recoverLegacyAnnotationsFromStore = async ({
     }
 
     const recoveredIdsBySection = new Map<string, Set<string>>();
+    // Keep the existing ID ledger so incomplete recoveries retain their acknowledged deletions.
     const sectionStorageKey = (sectionId: string) =>
-      `${storageKey}:ids:${JSON.stringify([projectMeta.id, sectionId])}`;
+      `${previousStorageKey}:ids:${JSON.stringify([projectMeta.id, sectionId])}`;
     for (const lesson of legacyLessons) {
       const storedIds = migrationStorage?.getItem(sectionStorageKey(lesson.id));
       const ids: unknown = storedIds ? JSON.parse(storedIds) : [];
@@ -451,11 +500,10 @@ export const recoverLegacyAnnotationsFromStore = async ({
       }
       recoveredIdsBySection.set(lesson.id, new Set(ids));
     }
-    const recoveryPlan = buildLegacyAnnotationRecoveryPlan(
-      currentSnapshot,
-      legacySnapshot,
-      recoveredIdsBySection
-    );
+    const recoveryPlan = buildLegacyAnnotationRecoveryPlan(currentSnapshot, legacySnapshot, {
+      recoveredIdsBySection,
+      onlySelectionConflicts,
+    });
     unresolvedAnnotationCount += recoveryPlan.unresolvedAnnotationCount;
     let expectedRevision = projectMeta.revision;
     for (const acknowledged of recoveryPlan.acknowledgedAnnotations) {
