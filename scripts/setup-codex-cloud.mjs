@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { parse as parseToml } from 'smol-toml';
 import { parse } from 'yaml';
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -12,6 +13,7 @@ const PACKS = [
   {
     name: 'my-codex-skills',
     repository: 'immagiov4/my-codex-skills',
+    ref: '56439c4acd74242136d4573190e7b9ece59223be',
     required: [
       'engineering-workflow',
       'principle-boundary-discipline',
@@ -31,7 +33,12 @@ const PACKS = [
       'principle-test-behavior-not-implementation',
     ],
   },
-  { name: 'ponytail', repository: 'DietrichGebert/ponytail', required: ['ponytail'] },
+  {
+    name: 'ponytail',
+    repository: 'DietrichGebert/ponytail',
+    ref: '96608e078b2d5ea607c5c3b8b5a54d1c1fba6846',
+    required: ['ponytail'],
+  },
 ];
 
 function runCommand(command, args) {
@@ -60,6 +67,65 @@ function repositoryIdentity(repository) {
   } catch {
     return null;
   }
+}
+
+function reconcileMarketplace(pack, ref, marketplaces, configured, execute) {
+  const existing = marketplaces.find(item => item.name === pack.name);
+  if (!existing) return;
+  const expected = repositoryIdentity(`https://github.com/${pack.repository}.git`);
+  if (
+    existing.marketplaceSource?.sourceType !== 'git' ||
+    repositoryIdentity(existing.marketplaceSource.source) !== expected
+  )
+    throw new Error(`Preserve the existing ${pack.name} marketplace: its source is user-managed.`);
+  const source = configured[pack.name];
+  if (
+    source?.source_type !== 'git' ||
+    repositoryIdentity(source.source) !== expected ||
+    source.sparse_paths?.length
+  )
+    throw new Error(
+      `Preserve the existing ${pack.name} marketplace: its source configuration differs.`
+    );
+  const sparse = execute('git', [
+    '-C',
+    existing.root,
+    'config',
+    '--type=bool',
+    '--default=false',
+    '--get',
+    'core.sparseCheckout',
+  ]).trim();
+  if (sparse === 'true')
+    throw new Error(`Preserve the Git sparse checkout in the ${pack.name} marketplace.`);
+  const changes = execute('git', [
+    '-C',
+    existing.root,
+    'status',
+    '--ignored=matching',
+    '--porcelain',
+    '--untracked-files=all',
+  ])
+    .split(/\r?\n/)
+    .filter(
+      line =>
+        line &&
+        !['?? .codex-marketplace-install.json', '!! .codex-marketplace-install.json'].includes(line)
+    );
+  const revision = execute('git', ['-C', existing.root, 'rev-parse', 'HEAD']).trim();
+  const unpublished = execute('git', [
+    '-C',
+    existing.root,
+    'rev-list',
+    '--count',
+    '--all',
+    '--not',
+    '--remotes',
+  ]).trim();
+  if (changes.length || unpublished !== '0')
+    throw new Error(`Preserve local changes in the ${pack.name} marketplace before updating it.`);
+  if (source.ref !== ref || revision !== ref)
+    execute('codex', ['plugin', 'marketplace', 'remove', pack.name, '--json']);
 }
 
 function prepareMemory(project, home, execute) {
@@ -138,6 +204,7 @@ async function verifySkills(project, installed, adopt) {
 export async function setupCodexCloud({
   project = PROJECT_ROOT,
   home = homedir(),
+  codexHome = process.env.CODEX_HOME || resolve(home, '.codex'),
   execute = runCommand,
 } = {}) {
   const workflow = parse(readFileSync(resolve(project, '.github/workflows/pr-gate.yml'), 'utf8'));
@@ -147,16 +214,19 @@ export async function setupCodexCloud({
   const pin = gate?.with?.ref;
   if (!/^[a-f\d]{40}$/i.test(pin ?? ''))
     throw new Error('The Geppetto CI gate needs an immutable commit before cloud setup.');
+  const { marketplaces } = JSON.parse(
+    execute('codex', ['plugin', 'marketplace', 'list', '--json'])
+  );
+  const configPath = resolve(codexHome, 'config.toml');
+  const configured = existsSync(configPath)
+    ? (parseToml(readFileSync(configPath, 'utf8')).marketplaces ?? {})
+    : {};
   const installed = new Map();
-  for (const { name, repository } of PACKS) {
-    execute('codex', [
-      'plugin',
-      'marketplace',
-      'add',
-      repository,
-      ...(name === 'geppetto' ? ['--ref', pin] : []),
-      '--json',
-    ]);
+  for (const pack of PACKS) {
+    const { name, repository } = pack;
+    const ref = name === 'geppetto' ? pin : pack.ref;
+    reconcileMarketplace(pack, ref, marketplaces, configured, execute);
+    execute('codex', ['plugin', 'marketplace', 'add', repository, '--ref', ref, '--json']);
     const result = JSON.parse(execute('codex', ['plugin', 'add', `${name}@${name}`, '--json']));
     if (!result.installedPath)
       throw new Error(`Codex did not report an installed path for ${name}.`);

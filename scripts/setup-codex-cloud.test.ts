@@ -68,6 +68,12 @@ function fixture() {
     `export function connectCodex() { return { initialize: async () => {}, request: async () => (${JSON.stringify(inventory)}), close: async () => {} }; }`
   );
   const run = (command: string, args: string[]) => {
+    if (command === 'codex' && args[1] === 'marketplace' && args[2] === 'list')
+      return JSON.stringify({ marketplaces: [] });
+    if (command === 'git' && args.includes('rev-list')) return '0\n';
+    if (command === 'git' && args.includes('rev-parse'))
+      return JSON.parse(readFileSync(join(args[1], '.codex-marketplace-install.json'), 'utf8'))
+        .revision;
     if (command === 'git' && args.includes('get-url'))
       return 'https://github.com/immagiov4/llm-memories.git\n';
     if (command === 'codex' && args[1] === 'add')
@@ -80,7 +86,7 @@ function fixture() {
 
 test('installs the requested packs and scopes trust to their installed hook files', async () => {
   const { project, home, execute, root } = fixture();
-  await setupCodexCloud({ project, home, execute });
+  await setupCodexCloud({ project, home, codexHome: join(home, '.codex'), execute });
   const calls = execute.mock.calls;
   expect(calls).toContainEqual([
     'codex',
@@ -97,6 +103,14 @@ test('installs the requested packs and scopes trust to their installed hook file
   for (const name of ['geppetto', 'my-codex-skills', 'ponytail']) {
     expect(calls).toContainEqual(['codex', ['plugin', 'add', `${name}@${name}`, '--json']]);
   }
+  for (const [repository, ref] of [
+    ['immagiov4/my-codex-skills', '56439c4acd74242136d4573190e7b9ece59223be'],
+    ['DietrichGebert/ponytail', '96608e078b2d5ea607c5c3b8b5a54d1c1fba6846'],
+  ])
+    expect(calls).toContainEqual([
+      'codex',
+      ['plugin', 'marketplace', 'add', repository, '--ref', ref, '--json'],
+    ]);
   const trust = calls.filter(([, args]) => args.includes('--approve'));
   expect(trust).toHaveLength(2);
   expect(trust.every(([, args]) => args.includes('--plugin'))).toBe(true);
@@ -118,7 +132,7 @@ test('preserves an existing machine memory choice and unrelated configuration', 
   mkdirSync(join(home, '.geppetto'));
   const original = { memory: { choice: 'native' }, existing: { owner: 'user' } };
   writeFileSync(join(home, '.geppetto/config.json'), JSON.stringify(original));
-  await setupCodexCloud({ project, home, execute });
+  await setupCodexCloud({ project, home, codexHome: join(home, '.codex'), execute });
   expect(JSON.parse(readFileSync(join(home, '.geppetto/config.json'), 'utf8'))).toEqual(original);
   expect(execute.mock.calls.some(([command]) => command === 'git')).toBe(false);
 });
@@ -128,9 +142,9 @@ test('stops installation before approving hooks when a marketplace fails', async
   execute.mockImplementation(() => {
     throw new Error('marketplace unavailable');
   });
-  await expect(setupCodexCloud({ project, home, execute })).rejects.toThrow(
-    'marketplace unavailable'
-  );
+  await expect(
+    setupCodexCloud({ project, home, codexHome: join(home, '.codex'), execute })
+  ).rejects.toThrow('marketplace unavailable');
   expect(execute).toHaveBeenCalledTimes(1);
 });
 
@@ -140,9 +154,9 @@ test('rejects installed packs when their skills are absent from native discovery
     server,
     `export function connectCodex() { return { initialize: async () => {}, request: async () => ({ data: [{ cwd: ${JSON.stringify(project)}, skills: [], errors: [] }] }), close: async () => {} }; }`
   );
-  await expect(setupCodexCloud({ project, home, execute })).rejects.toThrow(
-    'Installed skill is not invocable'
-  );
+  await expect(
+    setupCodexCloud({ project, home, codexHome: join(home, '.codex'), execute })
+  ).rejects.toThrow('Installed skill is not invocable');
 });
 
 test('retries sparse preparation after clone succeeds but bucket checkout fails', async () => {
@@ -157,9 +171,11 @@ test('retries sparse preparation after clone succeeds but bucket checkout fails'
     }
     return run(command, args);
   });
-  await expect(setupCodexCloud({ project, home, execute })).rejects.toThrow('interrupted checkout');
+  await expect(
+    setupCodexCloud({ project, home, codexHome: join(home, '.codex'), execute })
+  ).rejects.toThrow('interrupted checkout');
   expect(existsSync(join(home, '.geppetto/config.json'))).toBe(false);
-  await setupCodexCloud({ project, home, execute });
+  await setupCodexCloud({ project, home, codexHome: join(home, '.codex'), execute });
   expect(
     execute.mock.calls.filter(([command, args]) => command === 'git' && args[0] === 'clone')
   ).toHaveLength(1);
@@ -181,7 +197,9 @@ test('rejects an unrelated existing checkout before changing user configuration'
       ? 'https://github.com/example/unrelated.git\n'
       : run(command, args)
   );
-  await expect(setupCodexCloud({ project, home, execute })).rejects.toThrow('memory repository');
+  await expect(
+    setupCodexCloud({ project, home, codexHome: join(home, '.codex'), execute })
+  ).rejects.toThrow('memory repository');
   expect(readFileSync(join(home, '.geppetto/config.json'), 'utf8')).toBe(original);
   expect(execute.mock.calls.some(([, args]) => args.includes('sparse-checkout'))).toBe(false);
 });
@@ -230,7 +248,7 @@ test('reuses the existing GitHub memory transport instead of mistaking SSH for a
   execute.mockImplementation((command, args) =>
     command === 'git' && args.includes('get-url') ? repository : run(command, args)
   );
-  await setupCodexCloud({ project, home, execute });
+  await setupCodexCloud({ project, home, codexHome: join(home, '.codex'), execute });
   expect(JSON.parse(readFileSync(join(home, '.geppetto/config.json'), 'utf8')).memory.repo).toBe(
     repository
   );
@@ -244,7 +262,149 @@ test.each([
 ])('rejects a pack missing the required %s:%s source', async (pack, skill) => {
   const { root, project, home, execute } = fixture();
   rmSync(join(root, pack, 'skills', skill), { recursive: true });
-  await expect(setupCodexCloud({ project, home, execute })).rejects.toThrow(
-    `Required skill is missing: ${pack}:${skill}`
+  await expect(
+    setupCodexCloud({ project, home, codexHome: join(home, '.codex'), execute })
+  ).rejects.toThrow(`Required skill is missing: ${pack}:${skill}`);
+});
+
+function existingMarketplace(root: string, ref: string) {
+  const checkout = join(root, 'existing-geppetto');
+  mkdirSync(checkout);
+  mkdirSync(join(root, 'home/.codex'));
+  writeFileSync(
+    join(root, 'home/.codex/config.toml'),
+    `[marketplaces.geppetto]\nsource_type = "git"\nsource = "https://github.com/immagiov4/Geppetto.git"\nref = "${ref}"\n`
   );
+  writeFileSync(
+    join(checkout, '.codex-marketplace-install.json'),
+    JSON.stringify({
+      source_type: 'git',
+      source: 'https://github.com/immagiov4/Geppetto.git',
+      ref_name: ref,
+      revision: ref,
+    })
+  );
+  return {
+    name: 'geppetto',
+    root: checkout,
+    marketplaceSource: {
+      sourceType: 'git',
+      source: 'https://github.com/immagiov4/Geppetto.git',
+    },
+  };
+}
+
+test('replaces a clean owned marketplace when the reviewed pin changes', async () => {
+  const { root, project, home, execute, run } = fixture();
+  const existing = existingMarketplace(root, 'a'.repeat(40));
+  let removed = false;
+  execute.mockImplementation((command, args) => {
+    if (command === 'codex' && args[2] === 'list')
+      return JSON.stringify({ marketplaces: [existing] });
+    if (command === 'git' && args.includes('status')) return '?? .codex-marketplace-install.json\n';
+    if (command === 'codex' && args[2] === 'remove') removed = true;
+    if (command === 'codex' && args[2] === 'add' && args[3] === 'immagiov4/Geppetto' && !removed)
+      throw new Error('marketplace source conflict');
+    return run(command, args);
+  });
+  await setupCodexCloud({ project, home, codexHome: join(home, '.codex'), execute });
+  expect(execute.mock.calls).toContainEqual([
+    'codex',
+    ['plugin', 'marketplace', 'remove', 'geppetto', '--json'],
+  ]);
+});
+
+test('reuses a clean marketplace already at the reviewed pin', async () => {
+  const { root, project, home, execute, run } = fixture();
+  const existing = existingMarketplace(root, '0123456789abcdef0123456789abcdef01234567');
+  rmSync(join(existing.root, '.codex-marketplace-install.json'));
+  execute.mockImplementation((command, args) => {
+    if (command === 'codex' && args[2] === 'list')
+      return JSON.stringify({ marketplaces: [existing] });
+    if (command === 'git' && args.includes('rev-parse'))
+      return '0123456789abcdef0123456789abcdef01234567';
+    if (command === 'git' && args.includes('status')) return '?? .codex-marketplace-install.json\n';
+    return run(command, args);
+  });
+  await setupCodexCloud({ project, home, codexHome: join(home, '.codex'), execute });
+  expect(execute.mock.calls.some(([, args]) => args[2] === 'remove')).toBe(false);
+});
+
+test.each([
+  'foreign source',
+  'local edits',
+  'local commits',
+  'sparse configuration',
+])('preserves an occupied marketplace with %s', async state => {
+  const { root, project, home, execute, run } = fixture();
+  const existing = existingMarketplace(root, 'a'.repeat(40));
+  if (state === 'foreign source')
+    existing.marketplaceSource.source = 'https://github.com/other/Geppetto.git';
+  if (state === 'sparse configuration') {
+    const config = join(home, '.codex/config.toml');
+    writeFileSync(
+      config,
+      `${readFileSync(config, 'utf8')}sparse_paths = ["skills/geppetto-build"]\n`
+    );
+  }
+  execute.mockImplementation((command, args) => {
+    if (command === 'codex' && args[2] === 'list')
+      return JSON.stringify({ marketplaces: [existing] });
+    if (command === 'git' && args.includes('status'))
+      return state === 'local edits' ? ' M skills/geppetto-build/SKILL.md\n' : '';
+    if (command === 'git' && args.includes('rev-list'))
+      return state === 'local commits' ? '1\n' : '0\n';
+    return run(command, args);
+  });
+  await expect(
+    setupCodexCloud({ project, home, codexHome: join(home, '.codex'), execute })
+  ).rejects.toThrow(/preserve|local changes/i);
+  expect(
+    execute.mock.calls.some(([, args]) => args[2] === 'remove' || args.includes('--approve'))
+  ).toBe(false);
+});
+
+test.each([
+  'unpublished branch',
+  'ignored file',
+  'Git sparse checkout',
+])('preserves a real checkout containing %s', async state => {
+  const { root, project, home, execute, run } = fixture();
+  const existing = existingMarketplace(root, 'a'.repeat(40));
+  const git = (...args: string[]) => {
+    const result = spawnSync('git', ['-C', existing.root, ...args], { encoding: 'utf8' });
+    expect(result.status, result.stderr).toBe(0);
+    return result.stdout;
+  };
+  git('init', '--initial-branch=main');
+  git('config', 'user.name', 'Fixture');
+  git('config', 'user.email', 'fixture@example.invalid');
+  writeFileSync(join(existing.root, '.gitignore'), '.env\n');
+  git('add', '.gitignore');
+  git('commit', '-m', 'baseline');
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  if (state === 'unpublished branch') {
+    git('checkout', '-b', 'local-work');
+    git('commit', '--allow-empty', '-m', 'unpublished work');
+    git('checkout', 'main');
+  } else if (state === 'ignored file') {
+    writeFileSync(join(existing.root, '.env'), 'SYNTHETIC_FIXTURE=keep\n');
+  } else {
+    git('config', 'core.sparseCheckout', 'true');
+  }
+  const before = git('show-ref');
+  execute.mockImplementation((command, args) => {
+    if (command === 'codex' && args[2] === 'list')
+      return JSON.stringify({ marketplaces: [existing] });
+    if (command === 'git' && args[0] === '-C' && args[1] === existing.root)
+      return git(...args.slice(2));
+    return run(command, args);
+  });
+  await expect(
+    setupCodexCloud({ project, home, codexHome: join(home, '.codex'), execute })
+  ).rejects.toThrow(/preserve/i);
+  expect(execute.mock.calls.some(([, args]) => args[2] === 'remove')).toBe(false);
+  expect(git('show-ref')).toBe(before);
+  if (state === 'ignored file')
+    expect(readFileSync(join(existing.root, '.env'), 'utf8')).toBe('SYNTHETIC_FIXTURE=keep\n');
 });
