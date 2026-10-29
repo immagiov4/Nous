@@ -69,6 +69,13 @@ export class ProjectStorageError extends Error {
   }
 }
 
+/** Content-free metadata for project-operation failure logs. */
+export const getProjectStorageErrorDiagnostic = (error: unknown) => ({
+  errorType: error instanceof Error ? error.name : typeof error,
+  code: error instanceof ProjectStorageError ? error.code : 'unknown',
+  httpStatus: error instanceof ProjectStorageError ? error.httpStatus : undefined,
+});
+
 export interface ProjectSaveResult {
   meta: SavedProjectMeta;
   snapshot: ProjectSnapshot;
