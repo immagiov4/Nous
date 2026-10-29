@@ -117,10 +117,7 @@ export const createCourseInterviewApi = (
     if (project?.state !== 'ASSESSMENT' || project.learningPlan) {
       let reason = 'project-unavailable';
       if (project) {
-        reason =
-          project.state !== 'ASSESSMENT'
-            ? 'project-not-in-assessment'
-            : 'project-has-learning-plan';
+        reason = project.learningPlan ? 'project-has-learning-plan' : 'project-not-in-assessment';
       }
       console.warn('[Course interview] Startup rejected.', { projectId: input.projectId, reason });
       throw new CourseInterviewTargetNotFoundError();

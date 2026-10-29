@@ -48,6 +48,7 @@ describe('course interview API', () => {
       { state: 'ASSESSMENT', learningPlan: { title: 'Private title' } },
       'project-has-learning-plan',
     ],
+    [{ state: 'READING', learningPlan: { title: 'Private title' } }, 'project-has-learning-plan'],
   ])('diagnoses rejected startup without logging project content (%s)', async (project, reason) => {
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
