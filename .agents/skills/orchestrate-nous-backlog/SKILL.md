@@ -117,8 +117,8 @@ fit.
    pull. When the user asks to align local `main` and it carries uncommitted work, preserve it
    first: write `git diff HEAD` to a patch in the run folder, commit it on a local
    `backup/<topic>-<date>` branch, move conflicting untracked files into the run folder, and check
-   `git ls-files -v` for skip-worktree (`S`) files that hide local edits. Then
-   `git merge --ff-only origin/main`. Delegated work always branches from a fresh `origin/main`.
+   `git ls-files -v` for skip-worktree (`S`) files that hide local edits. Then `git switch main`
+   and `git merge --ff-only origin/main`; confirm `git rev-parse main origin/main` match. Delegated work always branches from a fresh `origin/main`.
 5. Before a new task or non-trivial change, read the relevant `.cubic/wiki` pages and form a
    proportional semantic map: product concepts, systems, contracts, analogous mechanisms, and
    likely cross-cutting effects. Use code search or Graphify afterwards to verify concrete call
@@ -177,7 +177,7 @@ The ledger is the orchestrator's memory of the batch. Create it before the first
 Read the ledger before acting after a wake-up, compaction, or handoff. Update the row at every
 event: dispatch, task notification, PR opened, CI or review result, merge, user answer. A batch is
 complete when every row is terminal: `merged`, `closed-noop`, `needs-user` with the question
-already sent, or `blocked` with its named resume condition. Build the completion report from it.
+already sent, `blocked` with its named resume condition, or, under `$full-stop`, `merge-ready`. Build the completion report from it.
 
 ## 3. Delegate bounded work in parallel
 
