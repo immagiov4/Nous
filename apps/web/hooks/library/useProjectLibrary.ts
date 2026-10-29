@@ -290,7 +290,12 @@ export const useProjectLibrary = ({
   const refreshLibraryState = useCallback(
     async (options?: { afterImport?: boolean }) => {
       try {
-        await Promise.all([refreshSavedProjects(), refreshLibraryOrganization()]);
+        const reads = await Promise.allSettled([
+          refreshSavedProjects(),
+          refreshLibraryOrganization(),
+        ]);
+        const failedRead = reads.find(read => read.status === 'rejected');
+        if (failedRead) throw failedRead.reason;
         setProjectSyncState(current =>
           current.kind === 'load' && current.phase === 'failed' ? { kind: 'idle' } : current
         );

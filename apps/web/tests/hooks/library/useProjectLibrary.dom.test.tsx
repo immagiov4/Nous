@@ -690,6 +690,39 @@ describe('useProjectLibrary', () => {
     expect(repositoryMocks.deleteProject).not.toHaveBeenCalled();
   });
 
+  test('retains the import refresh warning when projects load after organization fails', async () => {
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    let finishProjectRead!: () => void;
+    repositoryMocks.listProjects.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          finishProjectRead = () => resolve([]);
+        })
+    );
+    repositoryMocks.listFolders.mockRejectedValueOnce(new Error('organization unavailable'));
+    let reload!: Promise<void>;
+    await act(async () => {
+      reload = result.current.refreshLibraryState({ afterImport: true }).catch(() => undefined);
+    });
+    await act(async () => {
+      finishProjectRead();
+      await reload;
+    });
+    expect(result.current.storageError).toBe(
+      'I corsi sono stati importati. Ricarica la libreria per visualizzarli.'
+    );
+    expect(result.current.projectSyncState).toMatchObject({ kind: 'load', phase: 'failed' });
+    await act(async () => result.current.refreshLibraryState());
+    expect(result.current.storageError).toBeNull();
+    expect(result.current.projectSyncState).toEqual({ kind: 'idle' });
+  });
+
   test('rejects a mismatched response and deletes only the allocated import target', async () => {
     const existing = buildSnapshot('existing-user-course');
     const stored = new Map([[existing.id, existing]]);
