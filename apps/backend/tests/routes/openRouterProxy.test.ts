@@ -107,11 +107,11 @@ describe('/api/openrouter proxy', () => {
     ]);
     if (status === 503) {
       expect(warning).toHaveBeenCalledWith(expect.any(String), {
-        diagnostic: {
+        diagnostic: expect.objectContaining({
           code: 'model-capability-lookup-failed',
           status: 503,
           type: 'OpenRouterCapabilityLookupError',
-        },
+        }),
       });
       expect(JSON.stringify(warning.mock.calls)).not.toMatch(
         /PRIVATE_|private-token|test-openrouter-key/
@@ -128,6 +128,70 @@ describe('/api/openrouter proxy', () => {
       status !== 200
     );
     expect(fetchMock).toHaveBeenCalledTimes(status === 200 ? 2 : 3);
+  });
+
+  test.each([
+    'transport',
+    'json',
+  ])('retains sanitized %s capability failure details through text fallback', async failureKind => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error =
+      failureKind === 'transport'
+        ? new TypeError('fetch failed token=private-token', {
+            cause: Object.assign(new Error('DNS lookup failed api_key=private-key'), {
+              code: 'ENOTFOUND',
+            }),
+          })
+        : new SyntaxError('Invalid model metadata token=private-token');
+    patchGlobalModelConfig({ artifactModel: `server/capability-${failureKind}-failure` });
+    if (failureKind === 'transport') fetchMock.mockRejectedValueOnce(error);
+    else
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => {
+          throw error;
+        },
+      });
+
+    const response = await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'artifact')
+      .set('X-Nous-Allow-Text-Only-Image-Fallback', 'true')
+      .send({
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: 'data:image/png;base64,PRIVATE_IMAGE' } },
+              { type: 'text', text: 'PRIVATE_PROMPT' },
+            ],
+          },
+        ],
+      });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string).messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'PRIVATE_PROMPT' }] },
+    ]);
+    expect(warning).toHaveBeenCalledWith(expect.any(String), {
+      diagnostic: expect.objectContaining({
+        code: 'model-capability-lookup-failed',
+        type: failureKind === 'transport' ? 'TypeError' : 'SyntaxError',
+        originalMessage: expect.stringContaining('token=[REDACTED]'),
+        ...(failureKind === 'transport'
+          ? {
+              cause: {
+                code: 'ENOTFOUND',
+                type: 'Error',
+                originalMessage: 'DNS lookup failed api_key=[REDACTED]',
+              },
+            }
+          : {}),
+      }),
+    });
+    expect(JSON.stringify(warning.mock.calls)).not.toMatch(
+      /PRIVATE_|private-token|private-key|test-openrouter-key/
+    );
   });
 
   test('overrides client-provided models with the backend global slot model', async () => {

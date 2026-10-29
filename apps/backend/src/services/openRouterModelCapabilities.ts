@@ -1,5 +1,6 @@
 import { requireOpenRouterApiKey } from '../config/chatConfig.js';
 import { isRecord } from '../utils/validation.js';
+import { toWorkflowErrorDiagnostic } from '../workflows/workflowErrorDiagnostics.js';
 
 const OPENROUTER_MODEL_URL = 'https://openrouter.ai/api/v1/model';
 const imageSupportByModel = new Map<string, boolean>();
@@ -31,9 +32,8 @@ export const openRouterModelSupportsImages = async (model: string): Promise<bool
   } catch (error) {
     console.warn('[Nous][OpenRouter] Model capabilities unavailable; using text-only fallback.', {
       diagnostic: {
+        ...toWorkflowErrorDiagnostic(error),
         code: 'model-capability-lookup-failed',
-        ...(error instanceof OpenRouterCapabilityLookupError ? { status: error.status } : {}),
-        type: error instanceof OpenRouterCapabilityLookupError ? error.name : 'Error',
       },
     });
     return false;
