@@ -4873,6 +4873,24 @@ test('startHomeChat preserves a new draft when interview creation is definitivel
   assert.equal(state.internalState.screenState, AppState.LIBRARY);
 });
 
+test('startHomeChat resets its unsaved selection when the first draft save fails', async () => {
+  const startCourseInterview = vi.fn();
+  const { controller, projectLibrary, state } = createControllerHarness({
+    openRouter: { startCourseInterview },
+    projectLibrary: {
+      persistSnapshot: async () => {
+        throw new Error('storage unavailable');
+      },
+    },
+  });
+  const result = await controller.startHomeChat({ input: 'Learn databases' });
+  expect(result.outcome).toBe('failed');
+  expect(projectLibrary.adapter.currentProjectId).toBeNull();
+  expect(projectLibrary.deletedProjectIds).toEqual([]);
+  expect(state.internalState.screenState).toBe(AppState.LIBRARY);
+  expect(startCourseInterview).not.toHaveBeenCalled();
+});
+
 test('startHomeChat preserves prepared sources for retry after interview startup fails', async () => {
   const startCourseInterview = vi
     .fn()
@@ -4921,6 +4939,41 @@ test('startHomeChat failure never deletes the project selected while startup is 
   expect(projectLibrary.deletedProjectIds).toEqual([]);
   expect(projectLibrary.persistedSnapshots.some(snapshot => snapshot.id === draftId)).toBe(true);
   expect(projectLibrary.adapter.currentProjectId).toBe('other-project');
+});
+
+test('startHomeChat preserves prepared sources when opening another project invalidates startup', async () => {
+  let rejectStart!: (error: Error) => void;
+  const pendingStart = new Promise<CourseInterviewSnapshot>((_resolve, reject) => {
+    rejectStart = reject;
+  });
+  const started = createDeferred();
+  const otherProject = createProjectSnapshot({
+    id: 'other-project',
+    state: AppState.READING,
+    learningPlan: buildPlan(),
+  });
+  const { controller, projectLibrary } = createControllerHarness({
+    openRouter: {
+      getActiveCourseInterview: async () => null,
+      startCourseInterview: async () => {
+        started.resolve();
+        return pendingStart;
+      },
+    },
+    projectLibrary: { loadStoredProject: async () => otherProject },
+  });
+  const start = controller.startHomeChat({
+    input: 'Use these sources',
+    selectedFiles: [new File(['# Prepared notes'], 'notes.md', { type: 'text/markdown' })],
+  });
+  await started.promise;
+  const draft = projectLibrary.persistedSnapshots.at(-1);
+  assert(draft?.source?.sources?.length);
+  expect((await controller.openProject(otherProject.id)).outcome).toBe('opened');
+  rejectStart(new Error('404'));
+  expect((await start).outcome).toBe('abandoned');
+  expect(projectLibrary.deletedProjectIds).toEqual([]);
+  expect(projectLibrary.adapter.currentProjectId).toBe(otherProject.id);
 });
 
 test('startHomeChat preserves a recoverable draft when interview ownership is uncertain', async () => {

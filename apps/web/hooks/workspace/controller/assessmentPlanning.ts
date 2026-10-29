@@ -197,10 +197,12 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
 
   const ensureInterviewProject = async (
     mode: 'document' | 'learn',
-    source: ProjectSource | null = domain.source
+    source: ProjectSource | null = domain.source,
+    onProjectSelected?: (projectId: string) => void
   ): Promise<string> => {
     const existingProjectId = projectLibrary.getCurrentProjectId();
     if (existingProjectId) {
+      onProjectSelected?.(existingProjectId);
       const saved = await projectLibrary.saveCurrentProject(
         {
           id: existingProjectId,
@@ -215,6 +217,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     }
 
     const projectId = createProjectId();
+    onProjectSelected?.(projectId);
     projectLibrary.setCurrentProjectId(projectId);
     projectLibrary.setProjectHydrated(false);
     const saved = await projectLibrary.persistSnapshot(
@@ -999,21 +1002,29 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
         });
         return { outcome: 'failed', sourceWarnings: startState.sourceWarnings };
       }
-      return abandonCancelledStart();
+      if (workspaceOwnership.sourcePreparationController?.signal.aborted) {
+        return abandonCancelledStart();
+      }
     }
     if (error instanceof ProjectStorageError && error.sourceWarnings?.length) {
       startState.sourceWarnings = error.sourceWarnings;
     }
     const errorMessage = getErrorMessage(error);
-    state.failWorkflow('assessment', requestId, errorMessage);
+    const isCurrent = isRequestCurrent();
+    if (isCurrent) state.failWorkflow('assessment', requestId, errorMessage);
     // Startup failure preserves prepared sources for retry; cancellation owns draft cleanup.
-    pushNousDebugTrace('assessment:startup-failed-draft-preserved', {
+    pushNousDebugTrace('assessment:startup-failed', {
+      draftCleanup: 'skipped',
       projectId: startState.draftProjectId,
     });
-    if (projectLibrary.getCurrentProjectId() === startState.draftProjectId) {
+    if (isCurrent && projectLibrary.getCurrentProjectId() === startState.draftProjectId) {
       resetInterviewClientState();
     }
-    return { outcome: 'failed', errorMessage, sourceWarnings: startState.sourceWarnings };
+    return {
+      outcome: isCurrent ? 'failed' : 'abandoned',
+      errorMessage,
+      sourceWarnings: startState.sourceWarnings,
+    };
   };
 
   async function runHomeChatStart(args: HomeChatStartArgs): Promise<HomeChatStartResult> {
@@ -1060,9 +1071,10 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
       if (preparation.kind === 'completed') return preparation.result;
       if (!isRequestCurrent()) return abandonCancelledStart();
       const { hasReliableSourceContext, mode, preparedSource, sourceContext } = preparation.value;
-      const projectId = await ensureInterviewProject(mode, preparedSource);
-      startState.draftProjectId = projectId;
-      workspaceOwnership.draftProjectId = projectId;
+      const projectId = await ensureInterviewProject(mode, preparedSource, selectedProjectId => {
+        startState.draftProjectId = selectedProjectId;
+        workspaceOwnership.draftProjectId = selectedProjectId;
+      });
       if (!isRequestCurrent()) return abandonCancelledStart();
       const outcome = await startTrackedAssessmentInterview({
         hasReliableSourceContext,
