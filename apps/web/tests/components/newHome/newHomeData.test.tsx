@@ -144,6 +144,40 @@ describe('new home favorites', () => {
 });
 
 describe('new home source library', () => {
+  test('removes deleted courses from retained sources when a reload fails', async () => {
+    const projects = [buildProject(1), buildProject(2)];
+    const snapshots = projects.map(project => ({
+      id: project.id,
+      source: {
+        kind: 'archive',
+        name: `${project.id}.zip`,
+        file: { data: 'emlw', name: `${project.id}.zip`, mimeType: 'application/zip' },
+      },
+    }));
+    let failReload!: (error: Error) => void;
+    const loadProjectsById = vi
+      .fn()
+      .mockResolvedValueOnce(snapshots)
+      .mockReturnValueOnce(
+        new Promise((_, reject) => {
+          failReload = reject;
+        })
+      );
+    const { result, rerender } = renderHook(
+      ({ enabled, projects }) => useSourceLibrary({ enabled, loadProjectsById, projects }),
+      { initialProps: { enabled: true, projects } }
+    );
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+    rerender({ enabled: false, projects: [projects[1]] });
+    expect(result.current.items.map(item => item.projectId)).toEqual(['project-2']);
+    rerender({ enabled: true, projects: [projects[1]] });
+    await waitFor(() => expect(result.current.isLoading).toBe(true));
+    await act(async () => failReload(new Error('snapshot unavailable')));
+    await waitFor(() => expect(result.current.hasLoadError).toBe(true));
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.items.map(item => item.projectId)).toEqual(['project-2']);
+  });
+
   test('retains a successful batch and exposes failure when the next batch rejects', async () => {
     const projects = Array.from({ length: 5 }, (_, index) => buildProject(index));
     let failBatch!: (error: Error) => void;

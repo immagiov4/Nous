@@ -219,10 +219,15 @@ export const useSourceLibrary = ({
     };
   }, [enabled, loadProjectsById, projectIds, projects]);
 
+  const availableItems = useMemo(() => {
+    const currentProjectIds = new Set(projectIds);
+    return items.filter(item => currentProjectIds.has(item.projectId));
+  }, [items, projectIds]);
+
   return {
     hasLoadError: projectIds.length > 0 && hasLoadError,
     isLoading,
-    items: projectIds.length === 0 ? [] : items,
+    items: availableItems,
   };
 };
 
