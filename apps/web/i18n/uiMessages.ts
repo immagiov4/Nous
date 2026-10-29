@@ -15,6 +15,9 @@ export type AppLocale = (typeof SUPPORTED_APP_LOCALES)[number];
 export const ANNOTATION_PROJECTION_ERROR_MESSAGE =
   'Alcune evidenziazioni salvate non sono visibili in questo testo. Le note sono conservate.';
 
+export const IMPORT_REFRESH_WARNING =
+  'I corsi sono stati importati. Ricarica la libreria per visualizzarli.';
+
 export const SURFACE_ERROR_MESSAGES = {
   chat: 'La chat non è disponibile. Ricarica la pagina.',
   reader: 'La lezione non è disponibile. Ricarica la pagina.',
@@ -45,6 +48,7 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 };
 
 const ENGLISH_UI_MESSAGES = {
+  [IMPORT_REFRESH_WARNING]: 'Your courses were imported. Reload the library to see them.',
   [PDF_SCANNED_PAGE_LIMIT_MESSAGE]:
     'There is too much scanned material for one course. Select only the parts you need.',
   'Pagine {from}–{to} trascritte in qualità ridotta.':

@@ -19,7 +19,7 @@ test.each([
   ['en', 2, '2 courses imported.', 'Download request for the backup of 2 courses sent.'],
 ] as const)('reports %s backup counts for %i', async (locale, count, imported, exported) => {
   setAccountLocale(locale);
-  const onImport = vi.fn(async () => count);
+  const onImport = vi.fn(async () => ({ importedProjectCount: count, refreshFailed: false }));
   const onExport = vi.fn(async () => count);
   render(
     <AccountSettingsDialog
@@ -47,4 +47,25 @@ test.each([
   expect(await screen.findByText(imported)).toBeInTheDocument();
   expect(onExport).toHaveBeenCalledOnce();
   expect(onImport).toHaveBeenCalledWith(file);
+});
+
+test('reports committed courses with a refresh warning instead of inviting another import', async () => {
+  setAccountLocale('en');
+  render(
+    <AccountSettingsDialog
+      account={{ id: 'account' }}
+      initialSection="data"
+      onAccountChange={vi.fn()}
+      onClose={vi.fn()}
+      onImportLibraryBackup={vi.fn(async () => ({ importedProjectCount: 2, refreshFailed: true }))}
+    />
+  );
+  fireEvent.change(screen.getByLabelText('Select a complete Nous backup'), {
+    target: { files: [new File(['archive'], 'courses.zip')] },
+  });
+  expect(await screen.findByText('2 courses imported.')).toBeInTheDocument();
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Your courses were imported. Reload the library to see them.'
+  );
+  expect(screen.queryByText(/Check the file and try again/)).toBeNull();
 });
