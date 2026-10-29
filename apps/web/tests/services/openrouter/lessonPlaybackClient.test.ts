@@ -246,3 +246,28 @@ test('aborts the reader wait immediately while a durable preparation is retrying
   await vi.advanceTimersByTimeAsync(30_000);
   expect(fetchMock).toHaveBeenCalledOnce();
 });
+
+test.each([
+  'post',
+  'read',
+  'poll',
+])('aborts cancellation during persistent transient %s failures', async phase => {
+  const running = await completed().json();
+  running.state.run.status = 'running';
+  fetchMock.mockRejectedValue(new TypeError('Offline'));
+  if (phase !== 'post') fetchMock.mockResolvedValueOnce(new Response('{}'));
+  if (phase === 'poll') fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(running)));
+  const controller = new AbortController();
+  const pending = cancelLessonPlaybackPreparation('run', 'project', controller.signal);
+  const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  await vi.advanceTimersByTimeAsync(2_000);
+  const attempts = fetchMock.mock.calls.length;
+  controller.abort();
+  await rejected;
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(fetchMock).toHaveBeenCalledTimes(attempts);
+  expect(fetchMock.mock.calls.every(([, options]) => options.signal === controller.signal)).toBe(
+    true
+  );
+  expect(vi.getTimerCount()).toBe(0);
+});
