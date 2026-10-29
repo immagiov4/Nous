@@ -64,6 +64,25 @@ const { useLibraryAssistantChat } = await import(
 
 describe('useLibraryAssistantChat', () => {
   afterEach(() => vi.restoreAllMocks());
+  test('rejects replacement when no draft exists without calling persistence', async () => {
+    const replaceLessonGeneratedVisual = vi.fn();
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        projects: [],
+        tree: emptyTree,
+        loadProjectsById: vi.fn(async () => []),
+        replaceLessonGeneratedVisual,
+      })
+    );
+    expect(
+      await result.current.replaceLearningArtifact({
+        artifactId: 'missing',
+        replacementOfArtifactId: 'source',
+      })
+    ).toEqual({ succeeded: false });
+    expect(replaceLessonGeneratedVisual).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     useChatMock.mockReset();
     addToolOutputMock.mockReset();

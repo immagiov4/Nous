@@ -9528,7 +9528,10 @@ test('exercise repair fails when project persistence fails', async () => {
   assert.equal(state.internalState.workflowState.generateExercise.status, 'failed');
 });
 
-test('exercise repair waits for successful persistence before completing', async () => {
+test.each([
+  false,
+  true,
+])('exercise repair waits for persistence and ignores superseded requests: %s', async superseded => {
   const plan = buildPlan();
   let finishWrite!: (value: ReturnType<typeof buildMeta>) => void;
   const write = new Promise<ReturnType<typeof buildMeta>>(resolve => {
@@ -9552,7 +9555,11 @@ test('exercise repair waits for successful persistence before completing', async
   const repair = controller.repairApplicationExercises();
   await started;
   assert.equal(state.internalState.workflowState.generateExercise.status, 'pending');
+  if (superseded) state.adapter.invalidateWorkflows(['generateExercise']);
   finishWrite(buildMeta('project-1'));
-  assert.deepEqual(await repair, { outcome: 'repaired' });
-  assert.equal(state.internalState.workflowState.generateExercise.status, 'succeeded');
+  assert.deepEqual(await repair, { outcome: superseded ? 'noop' : 'repaired' });
+  assert.equal(
+    state.internalState.workflowState.generateExercise.status,
+    superseded ? 'idle' : 'succeeded'
+  );
 });

@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import CodexConnectionSettings from '../../../components/admin/CodexConnectionSettings.tsx';
@@ -130,4 +131,116 @@ test('ignores a delayed poll after canceling login', async () => {
   );
   expect(screen.queryByText('stale@example.test')).toBeNull();
   expect(screen.getByText('NEW')).toBeVisible();
+});
+
+describe('Codex login recovery', () => {
+  beforeEach(() => {
+    for (const mock of Object.values(codexApiMocks)) mock.mockReset();
+    codexApiMocks.loadCodexProviderStatus.mockResolvedValue({
+      account: null,
+      enabled: true,
+      models: [],
+    });
+    codexApiMocks.startCodexDeviceLogin.mockResolvedValue({
+      loginId: 'attempt',
+      userCode: 'RETRY',
+    });
+  });
+
+  test.each([403, 500])('reports initial status failure %s safely', async status => {
+    codexApiMocks.loadCodexProviderStatus.mockRejectedValue(
+      Object.assign(new Error('private diagnostic'), { status })
+    );
+    render(<CodexConnectionSettings />);
+    if (status === 403) {
+      expect(
+        await screen.findByText(
+          'Codex è disponibile solo quando il backend locale abilita app-server.'
+        )
+      ).toBeVisible();
+    } else {
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Stato del provider AI non disponibile. Riprova.'
+      );
+    }
+    expect(screen.queryByText('private diagnostic')).toBeNull();
+  });
+
+  test.each([
+    'resolve',
+    'reject',
+  ])('preserves the current account when an earlier effect settles: %s', async outcome => {
+    let resolve!: (value: unknown) => void;
+    let reject!: (error: Error) => void;
+    codexApiMocks.loadCodexProviderStatus.mockImplementationOnce(
+      () =>
+        new Promise((yes, no) => {
+          resolve = yes;
+          reject = no;
+        })
+    );
+    codexApiMocks.loadCodexProviderStatus.mockResolvedValue({
+      account: { type: 'chatgpt', email: 'current@example.test' },
+      enabled: true,
+      models: [],
+    });
+    render(
+      <StrictMode>
+        <CodexConnectionSettings />
+      </StrictMode>
+    );
+    await screen.findByText('current@example.test');
+    await act(async () => {
+      if (outcome === 'resolve')
+        resolve({
+          account: { type: 'chatgpt', email: 'old@example.test' },
+          enabled: true,
+          models: [],
+        });
+      else reject(new Error('obsolete status failure'));
+    });
+    expect(screen.getByText('current@example.test')).toBeVisible();
+    expect(screen.queryByText('old@example.test')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  test('resumes polling after cancellation fails and ignores an old poll after disconnect', async () => {
+    const view = render(<CodexConnectionSettings />);
+    const connect = await screen.findByRole('button', { name: 'Collega Codex' });
+    await waitFor(() => expect(connect).toBeEnabled());
+    fireEvent.click(connect);
+    await screen.findByText('RETRY');
+    codexApiMocks.cancelCodexDeviceLogin.mockRejectedValueOnce(new Error('cancel failed'));
+    fireEvent.click(screen.getByRole('button', { name: 'Annulla' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Annullamento della connessione non riuscito. Riprova.'
+    );
+    let resolveLate!: (value: unknown) => void;
+    codexApiMocks.loadCodexProviderStatus.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveLate = resolve;
+        })
+    );
+    codexApiMocks.loadCodexProviderStatus.mockResolvedValue({
+      account: { type: 'chatgpt', email: 'current@example.test' },
+      enabled: true,
+      models: [],
+    });
+    await waitFor(() => expect(resolveLate).toBeDefined(), { timeout: 4000 });
+    expect(await screen.findByText('current@example.test', {}, { timeout: 4000 })).toBeVisible();
+    codexApiMocks.logoutCodexProvider.mockResolvedValue(undefined);
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnetti Codex' }));
+    await screen.findByRole('button', { name: 'Collega Codex' });
+    await act(async () =>
+      resolveLate({
+        account: { type: 'chatgpt', email: 'old@example.test' },
+        enabled: true,
+        models: [],
+      })
+    );
+    expect(screen.queryByText('old@example.test')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Collega Codex' })).toBeEnabled();
+    view.unmount();
+  });
 });
