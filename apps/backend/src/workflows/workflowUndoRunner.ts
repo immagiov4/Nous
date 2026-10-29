@@ -17,6 +17,8 @@ import {
   DEFAULT_WORKFLOW_LEASE_MS,
   raceOperationWithAbort,
   startWorkflowAttemptMonitor,
+  type WorkflowAttemptMonitor,
+  type WorkflowHeartbeatFailure,
   workflowOperationIdempotencyKey,
 } from './workflowStepAttempt.js';
 import {
@@ -46,6 +48,7 @@ export interface WorkflowUndoRunnerInput<Services> {
 
 export type WorkflowUndoRunnerResult =
   | WorkflowUndoCompletionResult
+  | WorkflowHeartbeatFailure
   | { failure: StepFailure; status: 'failure-recorded' }
   | { status: 'lease-lost' };
 
@@ -96,7 +99,13 @@ const mapUndoClaimFailure = (
   resolution: WorkflowClaimResolutionFailure
 ): WorkflowUndoResolution => {
   const [code, message] = UNDO_CLAIM_FAILURES[resolution.reason];
-  return { failure: permanentFailure(code, message), resolved: false };
+  return {
+    failure: {
+      ...permanentFailure(code, message),
+      ...(resolution.details && { details: resolution.details }),
+    },
+    resolved: false,
+  };
 };
 
 const resolveWorkflowUndoClaim = (
@@ -180,6 +189,15 @@ const recordFailure = async (
   }
 };
 
+const stopForUndoInterruption = async (
+  monitor: WorkflowAttemptMonitor,
+  error?: unknown
+): Promise<WorkflowUndoRunnerResult | null> => {
+  const interruption = await monitor.stop();
+  if (!interruption)
+    return error instanceof WorkflowUndoLeaseLostError ? { status: 'lease-lost' } : null;
+  return typeof interruption === 'object' ? interruption : { status: 'lease-lost' };
+};
 export const workflowUndoIdempotencyKey = (claim: WorkflowUndoClaim): string =>
   workflowOperationIdempotencyKey('undo', claim.runId, claim.nodeInstanceId);
 
@@ -232,7 +250,8 @@ export const runWorkflowUndoClaim = async <Services>(
   clearTimeout(timeout);
 
   if (undoResult.status !== 'succeeded' || timedOut || monitor.interruption()) {
-    if (await monitor.stop()) return { status: 'lease-lost' };
+    const interruption = await stopForUndoInterruption(monitor);
+    if (interruption) return interruption;
     const failureCause =
       undoResult.status === 'failed' ? undoResult.error : controller.signal.reason;
     return recordFailure(
@@ -250,9 +269,8 @@ export const runWorkflowUndoClaim = async <Services>(
     await monitor.stop();
     return result;
   } catch (error) {
-    if ((await monitor.stop()) || error instanceof WorkflowUndoLeaseLostError) {
-      return { status: 'lease-lost' };
-    }
+    const interruption = await stopForUndoInterruption(monitor, error);
+    if (interruption) return interruption;
     if (isTransientPostgresCheckpointError(error)) {
       throw new Error('Transient undo completion retry ended without losing the lease.', {
         cause: error,

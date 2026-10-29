@@ -1,3 +1,5 @@
+import * as z from 'zod';
+import { firstSanitizedZodIssue } from '../utils/zodDiagnostics.js';
 import { snapshotImmutableJson } from './jsonSnapshot.js';
 import type {
   ErasedRegisteredWorkflow,
@@ -27,6 +29,7 @@ export type WorkflowStepResolution =
   | { resolved: true; value: ResolvedWorkflowStep };
 
 export type WorkflowClaimResolutionFailure = {
+  details?: StepFailure['details'];
   definition: ErasedRegisteredWorkflow | null;
   reason:
     | 'config-incompatible'
@@ -149,10 +152,21 @@ export const resolveClaimedWorkflowStepPolicy = (
     if (config.maxAttempts !== policy.maxAttempts || config.timeoutMs !== policy.timeoutMs) {
       throw new Error('Step policy configuration mismatch.');
     }
-  } catch {
+  } catch (error) {
+    const issue = error instanceof z.ZodError ? firstSanitizedZodIssue(error) : undefined;
     return {
       definition,
       reason: 'config-incompatible',
+      ...(issue
+        ? {
+            details: {
+              validationIssue: {
+                code: issue.code,
+                path: [...issue.path],
+              },
+            },
+          }
+        : {}),
       resolved: false,
     };
   }
@@ -164,7 +178,10 @@ const mapClaimResolutionFailure = (
 ): WorkflowStepResolution => {
   const [code, message] = STEP_CLAIM_FAILURES[resolution.reason];
   return {
-    failure: permanentFailure(code, message),
+    failure: {
+      ...permanentFailure(code, message),
+      ...(resolution.details && { details: resolution.details }),
+    },
     registeredDefinition: resolution.definition,
     resolved: false,
   };

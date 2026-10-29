@@ -40,6 +40,7 @@ import {
   CourseYoutubeQueryPlanSchema,
   CourseYoutubeResearchSchema,
   courseGenerationStateSchemas,
+  PreFailureDiagnosticsCourseYoutubeQueryPlanSchema,
 } from './courseGenerationWorkflowContract.js';
 import { fanOut, routeBy, sequence, step } from './definition.js';
 import { YouTubeResearchOutcomeSchema } from './lessonGenerationWorkflowSchemas.js';
@@ -227,7 +228,13 @@ export const createCourseResearchServices = ({
       ) {
         throw error;
       }
-      return { queries: [buildYoutubeQueryFallback(context.input)] };
+      return {
+        queries: [buildYoutubeQueryFallback(context.input)],
+        planningDiagnostic: {
+          ...toWorkflowErrorDiagnostic(error, { includeContent: false }),
+          ...(error instanceof WorkflowStepError ? { code: error.failure.code } : {}),
+        },
+      };
     }
   },
   researchCourseWeb: async context => {
@@ -287,7 +294,11 @@ export const createCourseResearchNode = <
       ? CoursePreparationStateSchema.extend({ routing: ResearchSourceRoutingSchema.optional() })
       : CoursePreparationStateSchema,
   });
-  const CourseYoutubeQueryPlanStateSchema = CourseYoutubeQueryPlanSchema.extend({
+  const queryPlanSchema =
+    schemas === courseGenerationStateSchemas
+      ? CourseYoutubeQueryPlanSchema
+      : PreFailureDiagnosticsCourseYoutubeQueryPlanSchema;
+  const CourseYoutubeQueryPlanStateSchema = queryPlanSchema.extend({
     state: CoursePreparationStateSchema,
   });
   const CourseYoutubeCollectionStateSchema = z.object({

@@ -453,3 +453,67 @@ describe('single workflow undo runner', () => {
     expect(recordFailure).not.toHaveBeenCalled();
   });
 });
+
+test.each([
+  'maxAttempts',
+  'timeoutMs',
+] as const)('records invalid %s configuration path for undo', async field => {
+  const undo = vi.fn(async () => undefined);
+  const { registered, registry } = registerUndoWorkflow(undo);
+  const store = makeStore();
+  const result = await runWorkflowUndoClaim({
+    claim: makeClaim(registered, {
+      stepPolicies: {
+        'child/work': {
+          config: { maxAttempts: 3, timeoutMs: 60_000, [field]: 'private config value' },
+          maxAttempts: 3,
+          timeoutMs: 60_000,
+        },
+      },
+    }),
+    registry,
+    services: {},
+    store,
+  });
+  expect(result).toMatchObject({
+    status: 'failure-recorded',
+    failure: {
+      code: 'workflow_undo_config_incompatible',
+      details: { validationIssue: { code: 'invalid_type', path: [field] } },
+    },
+  });
+  if (result.status !== 'failure-recorded') throw new Error('Expected recorded failure.');
+  expect(store.recordFailure).toHaveBeenCalledWith(
+    expect.objectContaining({ failure: result.failure })
+  );
+  expect(JSON.stringify(result)).not.toContain('private config value');
+  expect(undo).not.toHaveBeenCalled();
+});
+
+test('returns a sanitized heartbeat failure without completing or failing the undo claim', async () => {
+  vi.useFakeTimers();
+  const { registered, registry } = registerUndoWorkflow(async () => new Promise<never>(() => {}));
+  const store = makeStore({
+    heartbeat: vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'renewed', leaseExpiresAt: '2026-10-29T12:01:00.000Z' })
+      .mockRejectedValue(
+        Object.assign(new Error('private prompt password=hidden'), { code: 'ECONNRESET' })
+      ),
+  });
+  const execution = runWorkflowUndoClaim({
+    claim: makeClaim(registered),
+    heartbeatIntervalMs: 20,
+    leaseMs: 60,
+    registry,
+    services: {},
+    store,
+  });
+  await vi.advanceTimersByTimeAsync(20);
+  await expect(execution).resolves.toEqual({
+    status: 'heartbeat-failed',
+    diagnostic: { type: 'Error', code: 'ECONNRESET' },
+  });
+  expect(store.complete).not.toHaveBeenCalled();
+  expect(store.recordFailure).not.toHaveBeenCalled();
+});

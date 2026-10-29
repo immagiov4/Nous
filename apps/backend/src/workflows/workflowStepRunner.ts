@@ -38,6 +38,7 @@ import {
   startWorkflowAttemptMonitor,
   type WorkflowAttemptInterruption,
   type WorkflowAttemptMonitor,
+  type WorkflowHeartbeatFailure,
 } from './workflowStepAttempt.js';
 import {
   type ResolvedWorkflowStep,
@@ -98,6 +99,7 @@ export interface WorkflowStepRunnerInput<Services> {
 
 export type WorkflowStepRunnerResult =
   | WorkflowCheckpointResult
+  | WorkflowHeartbeatFailure
   | {
       failure: StepFailure;
       status: 'failure-recorded';
@@ -140,6 +142,7 @@ async function finishInterruptedClaim(
   claim: WorkflowStepClaim,
   interruption: Exclude<WorkflowAttemptInterruption, null>
 ): Promise<WorkflowStepRunnerResult> {
+  if (typeof interruption === 'object') return interruption;
   if (interruption === 'lost') return { status: 'lease-lost' };
   try {
     await store.cancellation.releaseClaim(claim);
