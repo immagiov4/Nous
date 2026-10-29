@@ -4855,7 +4855,7 @@ test('startHomeChat resumes the authoritative active interview instead of starti
   assert.equal(startCourseInterview.mock.calls.length, 0);
 });
 
-test('startHomeChat removes a new draft when interview creation is definitively rejected', async () => {
+test('startHomeChat preserves a new draft when interview creation is definitively rejected', async () => {
   const { controller, projectLibrary, state } = createControllerHarness({
     openRouter: {
       getActiveCourseInterview: async () => null,
@@ -4868,9 +4868,59 @@ test('startHomeChat removes a new draft when interview creation is definitively 
   const result = await controller.startHomeChat({ input: 'Voglio imparare crittografia' });
 
   assert.equal(result.outcome, 'failed');
-  assert.equal(projectLibrary.deletedProjectIds.length, 1);
+  assert.equal(projectLibrary.deletedProjectIds.length, 0);
   assert.equal(projectLibrary.adapter.currentProjectId, null);
   assert.equal(state.internalState.screenState, AppState.LIBRARY);
+});
+
+test('startHomeChat preserves prepared sources for retry after interview startup fails', async () => {
+  const startCourseInterview = vi
+    .fn()
+    .mockRejectedValueOnce(new Error('404'))
+    .mockImplementation(async input => createInterviewSnapshot({ projectId: input.projectId }));
+  const { controller, projectLibrary } = createControllerHarness({
+    openRouter: { getActiveCourseInterview: async () => null, startCourseInterview },
+  });
+  const result = await controller.startHomeChat({
+    input: 'Use these sources',
+    selectedFiles: [new File(['# Prepared notes'], 'notes.md', { type: 'text/markdown' })],
+  });
+  const draft = projectLibrary.persistedSnapshots.at(-1);
+  assert(draft?.source?.sources?.length);
+  expect(result.outcome).toBe('failed');
+  expect(projectLibrary.deletedProjectIds).toEqual([]);
+  // Opening the saved draft is the existing retry path.
+  projectLibrary.adapter.loadStoredProject = async () => draft;
+  await controller.openProject(draft.id);
+  expect(startCourseInterview).toHaveBeenCalledTimes(2);
+  expect(startCourseInterview.mock.calls[1]?.[0].projectId).toBe(draft.id);
+});
+
+test('startHomeChat failure never deletes the project selected while startup is pending', async () => {
+  let rejectStart!: (error: Error) => void;
+  const pendingStart = new Promise<CourseInterviewSnapshot>((_resolve, reject) => {
+    rejectStart = reject;
+  });
+  const started = createDeferred();
+  const { controller, projectLibrary } = createControllerHarness({
+    openRouter: {
+      getActiveCourseInterview: async () => null,
+      startCourseInterview: async () => {
+        started.resolve();
+        return pendingStart;
+      },
+    },
+  });
+  const start = controller.startHomeChat({ input: 'Learn databases' });
+  await started.promise;
+  const draftId = projectLibrary.adapter.currentProjectId;
+  assert(draftId);
+  projectLibrary.adapter.setCurrentProjectId('other-project');
+  rejectStart(new Error('404'));
+  expect((await start).outcome).toBe('failed');
+  expect(projectLibrary.deletedProjectIds).toEqual([]);
+  expect(projectLibrary.persistedSnapshots.some(snapshot => snapshot.id === draftId)).toBe(true);
+  expect(projectLibrary.adapter.currentProjectId).toBe('other-project');
 });
 
 test('startHomeChat preserves a recoverable draft when interview ownership is uncertain', async () => {
@@ -5116,11 +5166,11 @@ test('startHomeChat rejects a ZIP when every PDF entry is unusable', async () =>
   expect(result.errorMessage).toBe('L’archivio non contiene alcun testo utilizzabile.');
   expect(result.sourceWarnings).toEqual(sourceWarnings);
   expect(buildAssessmentContext).not.toHaveBeenCalled();
-  expect(projectLibrary.deletedProjectIds).toHaveLength(1);
+  expect(projectLibrary.deletedProjectIds).toEqual([]);
   expect(projectLibrary.adapter.currentProjectId).toBeNull();
 });
 
-test('startHomeChat removes a new draft when ZIP preparation capacity is busy', async () => {
+test('startHomeChat preserves its draft when ZIP preparation capacity is busy', async () => {
   const buildAssessmentContext = vi.fn();
   const { controller, domain, projectLibrary } = createControllerHarness({
     openRouter: {
@@ -5146,7 +5196,7 @@ test('startHomeChat removes a new draft when ZIP preparation capacity is busy', 
     'È già in corso la preparazione di un archivio ZIP. Riprova tra poco.'
   );
   expect(buildAssessmentContext).not.toHaveBeenCalled();
-  expect(projectLibrary.deletedProjectIds).toHaveLength(1);
+  expect(projectLibrary.deletedProjectIds).toEqual([]);
   expect(projectLibrary.adapter.currentProjectId).toBeNull();
   expect(domain.source).toBeNull();
 });

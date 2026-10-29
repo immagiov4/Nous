@@ -115,6 +115,14 @@ export const createCourseInterviewApi = (
   async start(input) {
     const project = await dependencies.projectReader.loadProject(input.userId, input.projectId);
     if (project?.state !== 'ASSESSMENT' || project.learningPlan) {
+      let reason = 'project-unavailable';
+      if (project) {
+        reason =
+          project.state !== 'ASSESSMENT'
+            ? 'project-not-in-assessment'
+            : 'project-has-learning-plan';
+      }
+      console.warn('[Course interview] Startup rejected.', { projectId: input.projectId, reason });
       throw new CourseInterviewTargetNotFoundError();
     }
     const started = await dependencies.starter.start(input);

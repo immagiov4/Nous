@@ -1006,19 +1006,13 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     }
     const errorMessage = getErrorMessage(error);
     state.failWorkflow('assessment', requestId, errorMessage);
-    const failedDraftProjectId = projectLibrary.getCurrentProjectId();
-    if (failedDraftProjectId) {
-      try {
-        const activeInterview = await openRouter.getActiveCourseInterview(failedDraftProjectId);
-        if (!activeInterview) await projectLibrary.deleteStoredProject(failedDraftProjectId);
-      } catch (cleanupError) {
-        pushNousDebugTrace('assessment:draft-cleanup-failed', {
-          errorMessage: getErrorMessage(cleanupError),
-          projectId: failedDraftProjectId,
-        });
-      }
+    // Startup failure preserves prepared sources for retry; cancellation owns draft cleanup.
+    pushNousDebugTrace('assessment:startup-failed-draft-preserved', {
+      projectId: startState.draftProjectId,
+    });
+    if (projectLibrary.getCurrentProjectId() === startState.draftProjectId) {
+      resetInterviewClientState();
     }
-    resetInterviewClientState();
     return { outcome: 'failed', errorMessage, sourceWarnings: startState.sourceWarnings };
   };
 
