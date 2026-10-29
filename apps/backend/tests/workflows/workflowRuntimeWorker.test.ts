@@ -481,6 +481,91 @@ describe('workflow runtime worker', () => {
     expect(JSON.stringify(logEvents)).not.toContain('private-token');
   });
 
+  describe.each([
+    'lost',
+    'error',
+    'renewed',
+  ] as const)('delivery settles before an in-flight heartbeat reports %s', heartbeatOutcome => {
+    test.each([
+      { settlement: 'resolve', flush: true },
+      { settlement: 'reject', flush: true },
+      { settlement: 'resolve', flush: false },
+      { settlement: 'reject', flush: false },
+    ])('accounts once for $settlement (flush settlement: $flush)', async ({
+      settlement,
+      flush,
+    }) => {
+      vi.useFakeTimers();
+      const { registry } = registerStepWorkflow(async text => text);
+      const store = makeStore();
+      vi.mocked(store.outbox.claimNext).mockResolvedValueOnce(outboxClaim).mockResolvedValue(null);
+      const heartbeat = Promise.withResolvers<Awaited<ReturnType<typeof store.outbox.heartbeat>>>();
+      vi.mocked(store.outbox.heartbeat).mockReturnValueOnce(heartbeat.promise);
+      const delivery = Promise.withResolvers<void>();
+      const logEvents: WorkflowLogEvent[] = [];
+      const worker = createWorkflowRuntimeWorker({
+        deliverNotification: vi.fn(() => delivery.promise),
+        logger: { log: event => logEvents.push(event) },
+        onLoopError: vi.fn(),
+        pollIntervalMs: POLL_INTERVAL_MS,
+        reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
+        registry,
+        services: {},
+        store,
+        wakeSource: new FakeWakeSource(),
+        workerId: 'worker-1',
+      });
+
+      await worker.start();
+      await vi.advanceTimersByTimeAsync(DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS);
+      expect(store.outbox.heartbeat).toHaveBeenCalledOnce();
+      if (settlement === 'resolve') delivery.resolve();
+      else delivery.reject(new Error('delivery token=private-token'));
+      if (flush) await vi.advanceTimersByTimeAsync(0);
+      expect(store.outbox.markDelivered).not.toHaveBeenCalled();
+      expect(store.outbox.recordFailure).not.toHaveBeenCalled();
+      if (heartbeatOutcome === 'error') heartbeat.reject(new Error('heartbeat failed'));
+      else if (heartbeatOutcome === 'lost') heartbeat.resolve({ status: 'lost' });
+      else heartbeat.resolve({ status: 'renewed', leaseExpiresAt: outboxClaim.leaseExpiresAt });
+      await vi.advanceTimersByTimeAsync(0);
+      await worker.stop();
+
+      if (heartbeatOutcome === 'renewed') {
+        expect(logEvents).toEqual([]);
+        if (settlement === 'resolve') {
+          expect(store.outbox.markDelivered).toHaveBeenCalledExactlyOnceWith(outboxClaim);
+          expect(store.outbox.recordFailure).not.toHaveBeenCalled();
+        } else {
+          expect(store.outbox.recordFailure).toHaveBeenCalledOnce();
+          expect(store.outbox.markDelivered).not.toHaveBeenCalled();
+        }
+      } else {
+        expect(store.outbox.markDelivered).not.toHaveBeenCalled();
+        expect(store.outbox.recordFailure).not.toHaveBeenCalled();
+        expect(logEvents).toEqual([
+          expect.objectContaining({
+            action: settlement === 'resolve' ? 'late-delivery-succeeded' : 'late-delivery-failed',
+            correlationId: outboxClaim.correlationId,
+            event: 'workflow.notification',
+            notificationId: outboxClaim.id,
+            runId: outboxClaim.runId,
+            fencingToken: outboxClaim.fencingToken,
+            ...(settlement === 'reject'
+              ? {
+                  failureDiagnostic: {
+                    originalMessage: 'delivery token=[REDACTED]',
+                    type: 'Error',
+                  },
+                }
+              : {}),
+          }),
+        ]);
+      }
+      expect(JSON.stringify(logEvents)).not.toContain('private-token');
+      expect(vi.getTimerCount()).toBe(0);
+    });
+  });
+
   test('reschedules a failed durable notification without persisting private error text', async () => {
     const { registry } = registerStepWorkflow(async text => text);
     const store = makeStore();

@@ -358,29 +358,37 @@ class WorkflowRuntimeWorker<Services> {
       interruptionError: () => new WorkflowOutboxLeaseLostError(),
       leaseMs: DEFAULT_WORKFLOW_LEASE_MS,
     });
+    let settlement: PromiseSettledResult<void> | undefined;
+    let settlementLogged = false;
+    const logLateSettlement = (): void => {
+      if (!settlement || settlementLogged) return;
+      settlementLogged = true;
+      emitWorkflowLog(this.input.logger ?? consoleWorkflowLogger, {
+        action:
+          settlement.status === 'fulfilled' ? 'late-delivery-succeeded' : 'late-delivery-failed',
+        claim,
+        entity: 'notification',
+        ...(settlement.status === 'rejected'
+          ? { failureDiagnostic: toWorkflowErrorDiagnostic(settlement.reason) }
+          : {}),
+      });
+    };
     const delivery = await raceOperationWithAbort(async () => {
       try {
         await this.input.deliverNotification(claim, controller.signal);
-        if (controller.signal.aborted) {
-          emitWorkflowLog(this.input.logger ?? consoleWorkflowLogger, {
-            action: 'late-delivery-succeeded',
-            claim,
-            entity: 'notification',
-          });
-        }
+        settlement = { status: 'fulfilled', value: undefined };
       } catch (error) {
-        if (controller.signal.aborted) {
-          emitWorkflowLog(this.input.logger ?? consoleWorkflowLogger, {
-            action: 'late-delivery-failed',
-            claim,
-            entity: 'notification',
-            failureDiagnostic: toWorkflowErrorDiagnostic(error),
-          });
-        }
+        settlement = { status: 'rejected', reason: error };
         throw error;
+      } finally {
+        if (controller.signal.aborted) logLateSettlement();
       }
     }, controller.signal);
-    if (await monitor.stop()) return false;
+    if (await monitor.stop()) {
+      // An in-flight heartbeat can report lease loss after delivery has settled.
+      logLateSettlement();
+      return false;
+    }
 
     if (delivery.status === 'failed') {
       await this.input.store.outbox.recordFailure({
