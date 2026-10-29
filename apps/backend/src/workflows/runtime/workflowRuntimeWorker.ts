@@ -391,6 +391,7 @@ class WorkflowRuntimeWorker<Services> {
   private async runStep(claim: WorkflowStepClaim): Promise<void> {
     const result = await runWorkflowStepClaim({
       claim,
+      logger: this.input.logger,
       registry: this.input.registry,
       services: this.input.services,
       store: this.input.store,
@@ -476,6 +477,7 @@ class WorkflowRuntimeWorker<Services> {
     if (!claim) return false;
     await runWorkflowUndoClaim({
       claim,
+      logger: this.input.logger,
       registry: this.input.registry,
       services: this.input.services,
       store: this.input.store.undo,

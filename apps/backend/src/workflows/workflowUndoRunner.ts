@@ -12,7 +12,7 @@ import {
   isTransientPostgresCheckpointError,
 } from './workflowCheckpointRetry.js';
 import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
-import { emitWorkflowHeartbeatFailure } from './workflowObservability.js';
+import { emitWorkflowHeartbeatFailure, type WorkflowLogger } from './workflowObservability.js';
 import {
   checkWorkflowHeartbeat,
   DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS,
@@ -42,6 +42,7 @@ export interface WorkflowUndoRunnerStore {
 export interface WorkflowUndoRunnerInput<Services> {
   claim: WorkflowUndoClaim;
   heartbeatIntervalMs?: number;
+  logger?: WorkflowLogger;
   leaseMs?: number;
   registry: WorkflowDefinitionResolver;
   services: Services;
@@ -194,27 +195,28 @@ const recordFailure = async (
 const stopForUndoInterruption = async (
   monitor: WorkflowAttemptMonitor,
   claim: WorkflowUndoClaim,
-  error?: unknown
+  error?: unknown,
+  logger?: WorkflowLogger
 ): Promise<WorkflowUndoRunnerResult | null> => {
   const interruption = await monitor.stop();
   if (!interruption)
     return error instanceof WorkflowUndoLeaseLostError ? { status: 'lease-lost' } : null;
   if (typeof interruption === 'object') {
-    emitWorkflowHeartbeatFailure(claim, 'undo', interruption.diagnostic);
+    emitWorkflowHeartbeatFailure(claim, 'undo', interruption.diagnostic, logger);
     return interruption;
   }
   return { status: 'lease-lost' };
 };
 
 const checkInitialUndoHeartbeat = async (
-  input: Pick<WorkflowUndoRunnerInput<unknown>, 'claim' | 'store'>,
+  input: Pick<WorkflowUndoRunnerInput<unknown>, 'claim' | 'store' | 'logger'>,
   leaseMs: number
 ): Promise<WorkflowUndoRunnerResult | null> => {
   const heartbeat = await checkWorkflowHeartbeat(() =>
     input.store.heartbeat({ claim: input.claim, leaseMs })
   );
   if (heartbeat.status === 'heartbeat-failed') {
-    emitWorkflowHeartbeatFailure(input.claim, 'undo', heartbeat.diagnostic);
+    emitWorkflowHeartbeatFailure(input.claim, 'undo', heartbeat.diagnostic, input.logger);
     return heartbeat;
   }
   return heartbeat.status === 'lost' ? { status: 'lease-lost' } : null;
@@ -272,7 +274,12 @@ export const runWorkflowUndoClaim = async <Services>(
   clearTimeout(timeout);
 
   if (undoResult.status !== 'succeeded' || timedOut || monitor.interruption()) {
-    const interruption = await stopForUndoInterruption(monitor, input.claim);
+    const interruption = await stopForUndoInterruption(
+      monitor,
+      input.claim,
+      undefined,
+      input.logger
+    );
     if (interruption) return interruption;
     const failureCause =
       undoResult.status === 'failed' ? undoResult.error : controller.signal.reason;
@@ -289,10 +296,10 @@ export const runWorkflowUndoClaim = async <Services>(
       controller.signal
     );
     // Completion is authoritative; stopping still reports a late heartbeat failure.
-    await stopForUndoInterruption(monitor, input.claim);
+    await stopForUndoInterruption(monitor, input.claim, undefined, input.logger);
     return result;
   } catch (error) {
-    const interruption = await stopForUndoInterruption(monitor, input.claim, error);
+    const interruption = await stopForUndoInterruption(monitor, input.claim, error, input.logger);
     if (interruption) return interruption;
     if (isTransientPostgresCheckpointError(error)) {
       throw new Error('Transient undo completion retry ended without losing the lease.', {

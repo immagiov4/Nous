@@ -1019,13 +1019,26 @@ describe('workflow runtime worker', () => {
 });
 
 test.each([
-  ['step', 'scheduled'],
-  ['undo', 'scheduled'],
-  ['step', 'initial'],
-  ['undo', 'initial'],
-] as const)('exposes a %s %s heartbeat exception through production structured logs', async (operation, timing) => {
+  ['step', 'scheduled', 'console'],
+  ['undo', 'scheduled', 'console'],
+  ['step', 'initial', 'console'],
+  ['undo', 'initial', 'console'],
+  ['step', 'scheduled', 'configured'],
+  ['undo', 'scheduled', 'configured'],
+  ['step', 'initial', 'configured'],
+  ['undo', 'initial', 'configured'],
+] as const)('exposes a %s %s heartbeat exception through the %s logger', async (operation, timing, collector) => {
   vi.useFakeTimers();
   const output = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  const collected: WorkflowLogEvent[] = [];
+  const logger =
+    collector === 'configured'
+      ? {
+          log: (event: WorkflowLogEvent) => {
+            collected.push(event);
+          },
+        }
+      : undefined;
   const execute = vi.fn(async () => new Promise<never>(() => {}));
   const registry = createWorkflowRegistry();
   const definition = registry.register({
@@ -1073,13 +1086,18 @@ test.each([
     store,
     wakeSource: new FakeWakeSource(),
     workerId: claim.workerId,
+    logger,
   });
   try {
     await worker.start();
     await vi.advanceTimersByTimeAsync(DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS);
     await worker.stop();
-    expect(output).toHaveBeenCalledOnce();
-    const event = JSON.parse(output.mock.calls[0]?.[0] as string);
+    expect(output).toHaveBeenCalledTimes(logger ? 0 : 1);
+    const events = logger
+      ? collected
+      : output.mock.calls.map(([message]) => JSON.parse(message as string));
+    expect(events).toHaveLength(1);
+    const [event] = events;
     expect(event).toMatchObject({
       action: 'heartbeat-failed',
       event: 'workflow.attempt',
@@ -1111,11 +1129,22 @@ test.each([
 });
 
 test.each([
-  'step',
-  'undo',
-] as const)('logs a late %s heartbeat exception after authoritative completion', async operation => {
+  ['step', 'console'],
+  ['undo', 'console'],
+  ['step', 'configured'],
+  ['undo', 'configured'],
+] as const)('logs a late %s heartbeat exception through the %s logger', async (operation, collector) => {
   vi.useFakeTimers();
   const output = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  const collected: WorkflowLogEvent[] = [];
+  const logger =
+    collector === 'configured'
+      ? {
+          log: (event: WorkflowLogEvent) => {
+            collected.push(event);
+          },
+        }
+      : undefined;
   let complete!: () => void;
   const completion = new Promise<void>(resolve => {
     complete = resolve;
@@ -1168,6 +1197,7 @@ test.each([
     store,
     wakeSource: new FakeWakeSource(),
     workerId: claim.workerId,
+    logger,
   });
   try {
     await worker.start();
@@ -1179,8 +1209,12 @@ test.each([
     );
     await vi.advanceTimersByTimeAsync(0);
     await worker.stop();
-    expect(output).toHaveBeenCalledOnce();
-    const event = JSON.parse(output.mock.calls[0]?.[0] as string);
+    expect(output).toHaveBeenCalledTimes(logger ? 0 : 1);
+    const events = logger
+      ? collected
+      : output.mock.calls.map(([message]) => JSON.parse(message as string));
+    expect(events).toHaveLength(1);
+    const [event] = events;
     expect(event).toMatchObject({
       action: 'heartbeat-failed',
       event: 'workflow.attempt',

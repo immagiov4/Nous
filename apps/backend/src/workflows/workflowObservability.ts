@@ -643,9 +643,10 @@ export const emitWorkflowLog = (logger: WorkflowLogger, source: WorkflowLogSourc
 export const emitWorkflowHeartbeatFailure = (
   claim: WorkflowAttemptLogIdentity,
   operation: WorkflowAttemptOperation,
-  diagnostic: WorkflowErrorDiagnostic
+  diagnostic: WorkflowErrorDiagnostic,
+  logger: WorkflowLogger = consoleWorkflowLogger
 ): void =>
-  emitWorkflowLog(consoleWorkflowLogger, {
+  emitWorkflowLog(logger, {
     action: 'heartbeat-failed',
     claim,
     entity: 'attempt',
