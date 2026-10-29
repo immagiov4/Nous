@@ -597,9 +597,15 @@ test('keeps a maximum-length cross-page query continuation inside the result bud
   });
 });
 
-test('resumes before a search match that did not fit the previous result', async () => {
+test.each([
+  '',
+  '\uFEFF',
+])('resumes before a search match with a UTF-8 prefix %j that did not fit the previous result', async prefix => {
   const path = `${'p'.repeat(7_000)}-matches.txt`;
-  const archiveBytes = new TextEncoder().encode('aaa');
+  const encoder = new TextEncoder();
+  const archiveText = `${prefix}ééé`;
+  const archiveBytes = encoder.encode(archiveText);
+  const prefixBytes = encoder.encode(prefix).byteLength;
   const store = {
     loadProjectSourceArchiveEntry: vi.fn(),
     loadProjectSourceArchiveEntryRange: vi.fn(
@@ -626,11 +632,12 @@ test('resumes before a search match that did not fit the previous result', async
     });
 
   const firstResult = await createArchiveTool().execute?.(
-    { operation: 'search-text', query: 'a' },
+    { operation: 'search-text', query: 'é' },
     {} as never
   );
   expect(firstResult).toMatchObject({
-    matches: [{ cursorBytes: 0, path }],
+    matches: [{ cursorBytes: prefixBytes, path }],
+    citations: [{ cursorBytes: prefixBytes, path }],
     nextSearchCursor: expect.any(String),
     status: 'ok',
   });
@@ -639,13 +646,20 @@ test('resumes before a search match that did not fit the previous result', async
     createArchiveTool().execute?.(
       {
         operation: 'search-text',
-        query: 'a',
+        query: 'é',
         searchCursor: firstResult.nextSearchCursor,
       },
       {} as never
     )
   ).resolves.toMatchObject({
-    matches: [{ cursorBytes: 1, path }],
+    matches: [{ cursorBytes: prefixBytes + encoder.encode('é').byteLength, path }],
+    status: 'ok',
+  });
+
+  await expect(
+    createArchiveTool().execute?.({ operation: 'read-file', path }, {} as never)
+  ).resolves.toMatchObject({
+    page: { text: archiveText, endByteExclusive: archiveBytes.byteLength, nextCursorBytes: null },
     status: 'ok',
   });
 });

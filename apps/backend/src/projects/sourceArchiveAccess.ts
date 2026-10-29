@@ -384,9 +384,12 @@ export class SourceArchiveAccess {
     for (let trailingBytes = 0; trailingBytes <= maximumTrim; trailingBytes += 1) {
       const byteLength = bytes.byteLength - trailingBytes;
       try {
+        // Preserve U+FEFF so re-encoding page text retains the original byte offsets.
         return {
           byteLength,
-          text: new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, byteLength)),
+          text: new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
+            bytes.subarray(0, byteLength)
+          ),
         };
       } catch {
         // A valid UTF-8 code point may straddle only the final four bytes of a page.
