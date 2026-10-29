@@ -543,6 +543,18 @@ describe('workflow runtime worker', () => {
         expect(store.outbox.markDelivered).not.toHaveBeenCalled();
         expect(store.outbox.recordFailure).not.toHaveBeenCalled();
         expect(logEvents).toEqual([
+          ...(heartbeatOutcome === 'error'
+            ? [
+                expect.objectContaining({
+                  action: 'heartbeat-failed',
+                  event: 'workflow.notification',
+                  failureDiagnostic: { type: 'Error' },
+                  notificationId: outboxClaim.id,
+                  runId: outboxClaim.runId,
+                  fencingToken: outboxClaim.fencingToken,
+                }),
+              ]
+            : []),
           expect.objectContaining({
             action: settlement === 'resolve' ? 'late-delivery-succeeded' : 'late-delivery-failed',
             correlationId: outboxClaim.correlationId,
@@ -564,6 +576,70 @@ describe('workflow runtime worker', () => {
       expect(JSON.stringify(logEvents)).not.toContain('private-token');
       expect(vi.getTimerCount()).toBe(0);
     });
+  });
+
+  test.each([
+    false,
+    true,
+  ])('reports outbox heartbeat exceptions (configured logger: %s)', async configured => {
+    vi.useFakeTimers();
+    const output = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const events: WorkflowLogEvent[] = [];
+    const { registry } = registerStepWorkflow(async text => text);
+    const store = makeStore();
+    vi.mocked(store.outbox.claimNext).mockResolvedValueOnce(outboxClaim).mockResolvedValue(null);
+    vi.mocked(store.outbox.heartbeat).mockRejectedValueOnce(
+      Object.assign(new Error('private notification heartbeat token=secret'), {
+        code: 'ECONNRESET',
+      })
+    );
+    const delivery = Promise.withResolvers<void>();
+    const worker = createWorkflowRuntimeWorker({
+      deliverNotification: vi.fn(() => delivery.promise),
+      logger: configured ? { log: event => events.push(event) } : undefined,
+      onLoopError: vi.fn(),
+      pollIntervalMs: POLL_INTERVAL_MS,
+      reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
+      registry,
+      services: {},
+      store,
+      wakeSource: new FakeWakeSource(),
+      workerId: 'worker-1',
+    });
+    await worker.start();
+    await settleDrains();
+    await vi.advanceTimersByTimeAsync(DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS);
+    delivery.resolve();
+    await settleDrains();
+    await worker.stop();
+    const reported = configured ? events : output.mock.calls.map(([event]) => JSON.parse(event));
+    expect(reported).toEqual([
+      expect.objectContaining({
+        action: 'heartbeat-failed',
+        correlationId: outboxClaim.correlationId,
+        event: 'workflow.notification',
+        failureDiagnostic: { code: 'ECONNRESET', type: 'Error' },
+        fencingToken: outboxClaim.fencingToken,
+        notificationId: outboxClaim.id,
+        runId: outboxClaim.runId,
+      }),
+      ...(configured
+        ? [
+            expect.objectContaining({
+              action: 'late-delivery-succeeded',
+              event: 'workflow.notification',
+              notificationId: outboxClaim.id,
+              runId: outboxClaim.runId,
+            }),
+          ]
+        : []),
+    ]);
+    if (configured) expect(output).not.toHaveBeenCalled();
+    expect(JSON.stringify(reported)).not.toContain('secret');
+    expect(JSON.stringify(reported)).not.toContain('private notification');
+    expect(store.outbox.markDelivered).not.toHaveBeenCalled();
+    expect(store.outbox.recordFailure).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   test('reschedules a failed durable notification without persisting private error text', async () => {
@@ -1166,4 +1242,223 @@ describe('workflow runtime worker', () => {
 
     expect(unsubscribe).toHaveBeenCalledTimes(2);
   });
+});
+
+test.each([
+  ['step', 'scheduled', 'console'],
+  ['undo', 'scheduled', 'console'],
+  ['step', 'initial', 'console'],
+  ['undo', 'initial', 'console'],
+  ['step', 'scheduled', 'configured'],
+  ['undo', 'scheduled', 'configured'],
+  ['step', 'initial', 'configured'],
+  ['undo', 'initial', 'configured'],
+] as const)('exposes a %s %s heartbeat exception through the %s logger', async (operation, timing, collector) => {
+  vi.useFakeTimers();
+  const output = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  const collected: WorkflowLogEvent[] = [];
+  const logger =
+    collector === 'configured'
+      ? {
+          log: (event: WorkflowLogEvent) => {
+            collected.push(event);
+          },
+        }
+      : undefined;
+  const execute = vi.fn(async () => new Promise<never>(() => {}));
+  const registry = createWorkflowRegistry();
+  const definition = registry.register({
+    current: workflow({
+      compatibilityId: 'test-v1',
+      configSchema: WorkflowExecutionDefaultsSchema,
+      executionDefaults: { maxAttempts: 3, timeoutMs: DEFAULT_WORKFLOW_LEASE_MS },
+      id: 'heartbeat-diagnostics',
+      inputSchema: Text,
+      outputSchema: Text,
+      root: step({
+        id: 'work',
+        inputSchema: Text,
+        outputSchema: Text,
+        run: execute,
+        undo: execute,
+      }),
+    }),
+  }).current;
+  const claim = makeClaim(definition, 'worker-1');
+  const store = makeStore();
+  const heartbeat = operation === 'step' ? store.steps.heartbeat : store.undo.heartbeat;
+  if (timing === 'scheduled') {
+    vi.mocked(heartbeat).mockResolvedValueOnce({
+      status: 'renewed',
+      leaseExpiresAt: claim.leaseExpiresAt,
+    });
+  }
+  vi.mocked(heartbeat).mockRejectedValue(
+    Object.assign(new Error('private prompt password=hidden'), { code: 'ECONNRESET' })
+  );
+  if (operation === 'step') vi.mocked(store.steps.claimNext).mockResolvedValueOnce(claim);
+  else
+    vi.mocked(store.undo.claimNext).mockResolvedValueOnce({
+      ...claim,
+      output: { text: 'private output' },
+    });
+  const onLoopError = vi.fn();
+  const worker = createWorkflowRuntimeWorker({
+    onLoopError,
+    pollIntervalMs: DEFAULT_WORKFLOW_LEASE_MS,
+    reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
+    registry,
+    services: {},
+    store,
+    wakeSource: new FakeWakeSource(),
+    workerId: claim.workerId,
+    logger,
+  });
+  try {
+    await worker.start();
+    await vi.advanceTimersByTimeAsync(DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS);
+    await worker.stop();
+    expect(output).toHaveBeenCalledTimes(logger ? 0 : 1);
+    const events = logger
+      ? collected
+      : output.mock.calls.map(([message]) => JSON.parse(message as string));
+    expect(events).toHaveLength(1);
+    const [event] = events;
+    expect(event).toMatchObject({
+      action: 'heartbeat-failed',
+      event: 'workflow.attempt',
+      level: 'error',
+      failureCode: 'workflow_heartbeat_failed',
+      failureKind: 'operational',
+      failureDiagnostic: { type: 'Error', code: 'ECONNRESET' },
+      operation,
+      runId: claim.runId,
+      workflowId: definition.id,
+      attemptNumber: claim.attemptNumber,
+      fencingToken: claim.fencingToken,
+      nodeInstanceIdDigest: expect.stringMatching(/^sha256:/u),
+      workerIdDigest: expect.stringMatching(/^sha256:/u),
+    });
+    expect(JSON.stringify(event)).not.toContain('private');
+    expect(JSON.stringify(event)).not.toContain('hidden');
+    expect(store.checkpointStep).not.toHaveBeenCalled();
+    expect(store.steps.recordFailure).not.toHaveBeenCalled();
+    expect(store.cancellation.releaseClaim).not.toHaveBeenCalled();
+    expect(store.undo.complete).not.toHaveBeenCalled();
+    expect(store.undo.recordFailure).not.toHaveBeenCalled();
+    expect(onLoopError).not.toHaveBeenCalled();
+    expect(execute).toHaveBeenCalledTimes(timing === 'initial' ? 0 : 1);
+  } finally {
+    await worker.stop();
+    output.mockRestore();
+  }
+});
+
+test.each([
+  ['step', 'console'],
+  ['undo', 'console'],
+  ['step', 'configured'],
+  ['undo', 'configured'],
+] as const)('logs a late %s heartbeat exception through the %s logger', async (operation, collector) => {
+  vi.useFakeTimers();
+  const output = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  const collected: WorkflowLogEvent[] = [];
+  const logger =
+    collector === 'configured'
+      ? {
+          log: (event: WorkflowLogEvent) => {
+            collected.push(event);
+          },
+        }
+      : undefined;
+  let complete!: () => void;
+  const completion = new Promise<void>(resolve => {
+    complete = resolve;
+  });
+  let rejectHeartbeat!: (error: Error) => void;
+  const heartbeat = new Promise<never>((_resolve, reject) => {
+    rejectHeartbeat = reject;
+  });
+  const registry = createWorkflowRegistry();
+  const definition = registry.register({
+    current: workflow({
+      compatibilityId: 'test-v1',
+      configSchema: WorkflowExecutionDefaultsSchema,
+      executionDefaults: { maxAttempts: 3, timeoutMs: DEFAULT_WORKFLOW_LEASE_MS },
+      id: 'heartbeat-completion',
+      inputSchema: Text,
+      outputSchema: Text,
+      root: step({
+        id: 'work',
+        inputSchema: Text,
+        outputSchema: Text,
+        run: async ({ input }) => input,
+        undo: async () => undefined,
+      }),
+    }),
+  }).current;
+  const claim = makeClaim(definition, 'worker-1');
+  const store = makeStore();
+  const check = operation === 'step' ? store.steps.heartbeat : store.undo.heartbeat;
+  vi.mocked(check)
+    .mockResolvedValueOnce({ status: 'renewed', leaseExpiresAt: claim.leaseExpiresAt })
+    .mockImplementationOnce(() => heartbeat);
+  vi.mocked(store.checkpointStep).mockImplementation(async () => {
+    await completion;
+    return { status: 'checkpointed', transientEvents: [] };
+  });
+  vi.mocked(store.undo.complete).mockImplementation(async () => {
+    await completion;
+    return { cleanupStatus: 'completed' };
+  });
+  if (operation === 'step') vi.mocked(store.steps.claimNext).mockResolvedValueOnce(claim);
+  else vi.mocked(store.undo.claimNext).mockResolvedValueOnce({ ...claim, output: claim.input });
+  const onLoopError = vi.fn();
+  const worker = createWorkflowRuntimeWorker({
+    onLoopError,
+    pollIntervalMs: DEFAULT_WORKFLOW_LEASE_MS,
+    reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
+    registry,
+    services: {},
+    store,
+    wakeSource: new FakeWakeSource(),
+    workerId: claim.workerId,
+    logger,
+  });
+  try {
+    await worker.start();
+    await vi.advanceTimersByTimeAsync(DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS);
+    complete();
+    await vi.advanceTimersByTimeAsync(0);
+    rejectHeartbeat(
+      Object.assign(new Error('private prompt password=hidden'), { code: 'ECONNRESET' })
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    await worker.stop();
+    expect(output).toHaveBeenCalledTimes(logger ? 0 : 1);
+    const events = logger
+      ? collected
+      : output.mock.calls.map(([message]) => JSON.parse(message as string));
+    expect(events).toHaveLength(1);
+    const [event] = events;
+    expect(event).toMatchObject({
+      action: 'heartbeat-failed',
+      event: 'workflow.attempt',
+      operation,
+      failureDiagnostic: { type: 'Error', code: 'ECONNRESET' },
+      runId: claim.runId,
+    });
+    expect(JSON.stringify(event)).not.toContain('private');
+    expect(JSON.stringify(event)).not.toContain('hidden');
+    expect(
+      operation === 'step' ? store.checkpointStep : store.undo.complete
+    ).toHaveBeenCalledOnce();
+    expect(store.steps.recordFailure).not.toHaveBeenCalled();
+    expect(store.undo.recordFailure).not.toHaveBeenCalled();
+    expect(store.cancellation.releaseClaim).not.toHaveBeenCalled();
+    expect(onLoopError).not.toHaveBeenCalled();
+  } finally {
+    await worker.stop();
+    output.mockRestore();
+  }
 });

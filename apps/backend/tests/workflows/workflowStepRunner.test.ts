@@ -443,7 +443,10 @@ describe('single workflow step runner', () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  test('distinguishes an incompatible durable configuration from invalid input', async () => {
+  test.each([
+    'maxAttempts',
+    'timeoutMs',
+  ] as const)('retains invalid %s configuration path at the failure boundary', async field => {
     const run = vi.fn(async () => ({ text: 'unused' }));
     const work = step({ id: 'work', inputSchema: Text, outputSchema: Text, run });
     const registry = createWorkflowRegistry();
@@ -465,7 +468,7 @@ describe('single workflow step runner', () => {
         nodeInstanceId: 'work',
         stepPolicies: {
           work: {
-            config: { maxAttempts: 'three', timeoutMs: 60_000 },
+            config: { maxAttempts: 3, timeoutMs: 60_000, [field]: 'private config value' },
             maxAttempts: 3,
             timeoutMs: 60_000,
           },
@@ -478,6 +481,7 @@ describe('single workflow step runner', () => {
 
     expect(recordFailure.mock.calls[0]?.[0].failure).toMatchObject({
       code: 'workflow_step_config_incompatible',
+      details: { validationIssue: { code: 'invalid_type', path: [field] } },
       kind: 'permanent',
     });
     expect(run).not.toHaveBeenCalled();
@@ -1543,4 +1547,50 @@ describe('single workflow step runner', () => {
     expect(DEFAULT_WORKFLOW_LEASE_MS).toBe(60_000);
     expect(DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS).toBe(20_000);
   });
+});
+
+test('returns a sanitized heartbeat failure without checkpointing or releasing the forward claim', async () => {
+  vi.useFakeTimers();
+  const work = step({
+    id: 'work',
+    inputSchema: Text,
+    outputSchema: Text,
+    run: async () => new Promise<never>(() => {}),
+  });
+  const registry = createWorkflowRegistry();
+  const registered = registry.register({
+    current: workflow({
+      compatibilityId: 'test-v1',
+      configSchema: WorkflowExecutionDefaultsSchema,
+      executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+      id: 'heartbeat-exception',
+      inputSchema: Text,
+      outputSchema: Text,
+      root: work,
+    }),
+  }).current;
+  const store = makeStore({
+    heartbeat: vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'renewed', leaseExpiresAt: '2026-10-29T12:01:00.000Z' })
+      .mockRejectedValue(
+        Object.assign(new Error('private prompt password=hidden'), { code: 'ECONNRESET' })
+      ),
+  });
+  const execution = runWorkflowStepClaim({
+    claim: makeClaim(registered),
+    heartbeatIntervalMs: 20,
+    leaseMs: 60,
+    registry,
+    services: {},
+    store,
+  });
+  await vi.advanceTimersByTimeAsync(20);
+  await expect(execution).resolves.toEqual({
+    status: 'heartbeat-failed',
+    diagnostic: { type: 'Error', code: 'ECONNRESET' },
+  });
+  expect(store.checkpointStep).not.toHaveBeenCalled();
+  expect(store.steps.recordFailure).not.toHaveBeenCalled();
+  expect(store.cancellation.releaseClaim).not.toHaveBeenCalled();
 });

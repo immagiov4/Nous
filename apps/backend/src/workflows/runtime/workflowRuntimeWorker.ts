@@ -384,7 +384,16 @@ class WorkflowRuntimeWorker<Services> {
         if (controller.signal.aborted) logLateSettlement();
       }
     }, controller.signal);
-    if (await monitor.stop()) {
+    const interruption = await monitor.stop();
+    if (interruption) {
+      if (typeof interruption === 'object') {
+        emitWorkflowLog(this.input.logger ?? consoleWorkflowLogger, {
+          action: 'heartbeat-failed',
+          claim,
+          entity: 'notification',
+          failureDiagnostic: interruption.diagnostic,
+        });
+      }
       // An in-flight heartbeat can report lease loss after delivery has settled.
       logLateSettlement();
       return false;
@@ -413,6 +422,7 @@ class WorkflowRuntimeWorker<Services> {
   private async runStep(claim: WorkflowStepClaim): Promise<void> {
     const result = await runWorkflowStepClaim({
       claim,
+      logger: this.input.logger,
       registry: this.input.registry,
       services: this.input.services,
       store: this.input.store,
@@ -498,6 +508,7 @@ class WorkflowRuntimeWorker<Services> {
     if (!claim) return false;
     await runWorkflowUndoClaim({
       claim,
+      logger: this.input.logger,
       registry: this.input.registry,
       services: this.input.services,
       store: this.input.store.undo,
