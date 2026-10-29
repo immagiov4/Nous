@@ -383,15 +383,61 @@ describe('workflow runtime worker', () => {
     await worker.stop();
   });
 
-  test('does not acknowledge or reschedule after notification lease ownership is lost', async () => {
+  test('retries notification work after lease loss even when the old delivery never settles', async () => {
+    vi.useFakeTimers();
+    const { registry } = registerStepWorkflow(async text => text);
+    const store = makeStore();
+    const retryClaim = { ...outboxClaim, attemptNumber: 2, fencingToken: '2' };
+    vi.mocked(store.outbox.claimNext)
+      .mockResolvedValueOnce(outboxClaim)
+      .mockResolvedValueOnce(retryClaim)
+      .mockResolvedValue(null);
+    vi.mocked(store.outbox.heartbeat).mockResolvedValueOnce({ status: 'lost' });
+    const deliverNotification = vi
+      .fn(async () => undefined)
+      .mockImplementationOnce(() => new Promise<void>(() => undefined));
+    const onLoopError = vi.fn();
+    const worker = createWorkflowRuntimeWorker({
+      deliverNotification,
+      onLoopError,
+      pollIntervalMs: POLL_INTERVAL_MS,
+      reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
+      registry,
+      services: {},
+      store,
+      wakeSource: new FakeWakeSource(),
+      workerId: 'worker-1',
+    });
+
+    await worker.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(deliverNotification).toHaveBeenCalledOnce();
+    expect(store.outbox.markDelivered).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS);
+
+    expect(deliverNotification).toHaveBeenCalledTimes(2);
+    expect(deliverNotification).toHaveBeenLastCalledWith(retryClaim);
+    expect(store.outbox.markDelivered).toHaveBeenCalledExactlyOnceWith(retryClaim);
+    expect(store.outbox.recordFailure).not.toHaveBeenCalled();
+    expect(onLoopError).not.toHaveBeenCalled();
+    await worker.stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test.each([
+    'resolve',
+    'reject',
+  ] as const)('ignores late notification delivery settlement after lease loss (%s)', async settlement => {
     vi.useFakeTimers();
     const { registry } = registerStepWorkflow(async text => text);
     const store = makeStore();
     vi.mocked(store.outbox.claimNext).mockResolvedValueOnce(outboxClaim).mockResolvedValue(null);
     vi.mocked(store.outbox.heartbeat).mockResolvedValueOnce({ status: 'lost' });
     let finishDelivery = (): void => undefined;
-    const delivery = new Promise<void>(resolve => {
-      finishDelivery = resolve;
+    const delivery = new Promise<void>((resolve, reject) => {
+      finishDelivery =
+        settlement === 'resolve' ? resolve : () => reject(new Error('late delivery failure'));
     });
     const worker = createWorkflowRuntimeWorker({
       deliverNotification: vi.fn(() => delivery),
@@ -408,12 +454,13 @@ describe('workflow runtime worker', () => {
     await worker.start();
     await settleDrains();
     await vi.advanceTimersByTimeAsync(DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS);
+    await worker.stop();
+    expect(vi.getTimerCount()).toBe(0);
     finishDelivery();
-    await settleDrains();
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(store.outbox.markDelivered).not.toHaveBeenCalled();
     expect(store.outbox.recordFailure).not.toHaveBeenCalled();
-    await worker.stop();
   });
 
   test('reschedules a failed durable notification without persisting private error text', async () => {

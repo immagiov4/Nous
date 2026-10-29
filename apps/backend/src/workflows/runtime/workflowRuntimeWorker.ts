@@ -24,7 +24,7 @@ import {
   type WorkflowRuntimeLoop,
   type WorkflowTransientEventPublisher,
 } from '../workflowObservability.js';
-import { startWorkflowAttemptMonitor } from '../workflowStepAttempt.js';
+import { raceOperationWithAbort, startWorkflowAttemptMonitor } from '../workflowStepAttempt.js';
 import type { WorkflowDefinitionResolver } from '../workflowStepResolution.js';
 import {
   DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS,
@@ -358,25 +358,22 @@ class WorkflowRuntimeWorker<Services> {
       interruptionError: () => new WorkflowOutboxLeaseLostError(),
       leaseMs: DEFAULT_WORKFLOW_LEASE_MS,
     });
-    let deliveryError: unknown;
-    let deliveryFailed = false;
-    try {
-      await this.input.deliverNotification(claim);
-    } catch (error) {
-      deliveryError = error;
-      deliveryFailed = true;
-    }
+    // Inbox delivery can commit after lease loss; its notification ID deduplicates retries.
+    const delivery = await raceOperationWithAbort(
+      () => this.input.deliverNotification(claim),
+      controller.signal
+    );
     if (await monitor.stop()) return false;
 
-    if (deliveryFailed) {
+    if (delivery.status === 'failed') {
       await this.input.store.outbox.recordFailure({
         claim,
         failure:
-          deliveryError instanceof WorkflowStepError
-            ? deliveryError.failure
+          delivery.error instanceof WorkflowStepError
+            ? delivery.error.failure
             : {
                 code: 'notification_delivery_failed',
-                details: { diagnostic: toWorkflowErrorDiagnostic(deliveryError) },
+                details: { diagnostic: toWorkflowErrorDiagnostic(delivery.error) },
                 kind: 'operational',
                 message: 'The durable notification could not be delivered.',
               },
