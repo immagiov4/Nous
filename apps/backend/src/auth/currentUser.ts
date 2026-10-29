@@ -155,7 +155,10 @@ const loadSupabaseJwks = async (forceRefresh = false): Promise<Record<string, un
 
   if (jwksRefresh?.url === url) {
     if (jwksRefresh.pending) return jwksRefresh.pending;
-    if (forceRefresh && cachedJwks?.url === url && jwksRefresh.retryAfter > now) {
+    if (cachedJwks?.url === url && jwksRefresh.retryAfter > now) {
+      if (cachedJwks.expiresAt <= now) {
+        throw new Error('Supabase JWKS refresh is cooling down.');
+      }
       return cachedJwks.keys;
     }
   }
@@ -163,8 +166,8 @@ const loadSupabaseJwks = async (forceRefresh = false): Promise<Record<string, un
   const pending = fetchSupabaseJwks(url);
   const refresh: NonNullable<typeof jwksRefresh> = {
     pending,
-    // Failed unknown-key refreshes also consume the cooldown.
-    retryAfter: forceRefresh ? now + JWKS_REFRESH_COOLDOWN_MS : 0,
+    // Failed refreshes retain the cooldown even after the cached keys expire.
+    retryAfter: cachedJwks?.url === url ? now + JWKS_REFRESH_COOLDOWN_MS : 0,
     url,
   };
   jwksRefresh = refresh;
