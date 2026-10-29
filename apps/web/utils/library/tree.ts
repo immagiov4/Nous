@@ -166,6 +166,26 @@ export const buildLibraryTree = ({
   };
 };
 
+export const getAttachedContextProjectIds = (
+  attachedContextRefs: LibraryContextRef[],
+  libraryTree: LibraryTree
+) => {
+  const projectIds = new Set<string>();
+
+  attachedContextRefs.forEach(reference => {
+    if (reference.kind === 'project') {
+      projectIds.add(reference.id);
+      return;
+    }
+
+    libraryTree.descendantProjectIdsByFolderId[reference.id]?.forEach(projectId => {
+      projectIds.add(projectId);
+    });
+  });
+
+  return projectIds;
+};
+
 export const resolveScopedProjectIds = ({
   attachedContextRefs,
   tree,
@@ -179,18 +199,7 @@ export const resolveScopedProjectIds = ({
     return allProjectIds;
   }
 
-  const scopedProjectIds = new Set<ProjectId>();
-
-  attachedContextRefs.forEach(reference => {
-    if (reference.kind === 'project') {
-      scopedProjectIds.add(reference.id);
-      return;
-    }
-
-    (tree.descendantProjectIdsByFolderId[reference.id] || []).forEach(projectId => {
-      scopedProjectIds.add(projectId);
-    });
-  });
+  const scopedProjectIds = getAttachedContextProjectIds(attachedContextRefs, tree);
 
   return allProjectIds.filter(projectId => scopedProjectIds.has(projectId));
 };

@@ -36,6 +36,7 @@ import type {
 } from '../../types.ts';
 import { flattenLessons } from '../../utils/learning/pathNodes.ts';
 import { buildLibraryScopeSummary } from '../../utils/library/assistant.ts';
+import { getAttachedContextProjectIds } from '../../utils/library/tree.ts';
 import { hasOnlySuccessfulToolOutputs } from '../../utils/uiChat.ts';
 import {
   getStoredLessonVisualKind,
@@ -699,6 +700,15 @@ export const useLibraryAssistantChat = ({
     status,
     toggleAttachedContextRef: (reference: LibraryContextRef) => {
       setSelectedContextRefs(currentRefs => {
+        if (
+          reference.kind === 'project' &&
+          getAttachedContextProjectIds(
+            currentRefs.filter(currentReference => currentReference.kind === 'folder'),
+            tree
+          ).has(reference.id)
+        ) {
+          return currentRefs;
+        }
         const existingRef = currentRefs.find(
           currentReference =>
             currentReference.id === reference.id && currentReference.kind === reference.kind
