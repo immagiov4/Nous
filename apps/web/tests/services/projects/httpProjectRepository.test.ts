@@ -29,6 +29,8 @@ import { AppState, type ProjectSnapshot } from '../../../types.ts';
 import { createDeferred } from '../../helpers/deferred.ts';
 
 const fetchMock = vi.fn();
+const { pushNousDebugTrace } = vi.hoisted(() => ({ pushNousDebugTrace: vi.fn() }));
+vi.mock('../../../services/core/debugTrace.ts', () => ({ pushNousDebugTrace }));
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -1276,7 +1278,10 @@ test('source preparation reports interruption after an accepted job disappears o
   });
 });
 
-test('cancellation stops further source upload parts and deletes the receiving session', async () => {
+test.each([
+  204, 500,
+])('cancellation handles HTTP %s while stopping further source upload parts', async status => {
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
   const controller = new AbortController();
   let parts = 0;
   let deletes = 0;
@@ -1298,7 +1303,7 @@ test('cancellation stops further source upload parts and deletes the receiving s
       );
     if (init?.method === 'DELETE') {
       deletes++;
-      return new Response(JSON.stringify({ success: true }));
+      return new Response(null, { status });
     }
     if (init?.method === 'PUT') {
       parts++;
@@ -1315,6 +1320,21 @@ test('cancellation stops further source upload parts and deletes the receiving s
   ).rejects.toBeDefined();
   expect(parts).toBe(1);
   expect(deletes).toBe(1);
+  try {
+    if (status === 204) {
+      expect(warning).not.toHaveBeenCalled();
+      expect(pushNousDebugTrace).toHaveBeenCalledWith(
+        'project:request',
+        expect.objectContaining({ status: 204, responseBytes: 0, bodyMs: expect.any(Number) })
+      );
+    } else
+      expect(warning).toHaveBeenCalledWith(
+        '[Nous] Failed to cancel an incomplete project import.',
+        expect.any(ProjectStorageError)
+      );
+  } finally {
+    warning.mockRestore();
+  }
 });
 
 test('cancellation waits for accepted source work to settle before returning to draft cleanup', async () => {
