@@ -1792,6 +1792,7 @@ export const useProjectLibrary = ({
           archive,
           targetProjectId
         );
+        rememberProjectMetadata(imported.snapshot);
         setProjectSyncState({ kind: 'idle' });
         return imported;
       } catch (error) {
@@ -1812,6 +1813,7 @@ export const useProjectLibrary = ({
           () => undefined
         );
         const imported = await importOperation;
+        rememberProjectMetadata(imported.snapshot);
         deletedProjectIdsRef.current.delete(imported.snapshot.id);
         try {
           await refreshLibraryState({ afterImport: true });

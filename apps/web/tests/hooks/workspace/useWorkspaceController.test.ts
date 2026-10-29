@@ -5033,6 +5033,158 @@ test.each([
   expect(projectLibrary.deletedProjectIds).toEqual([]);
 });
 
+test.each(
+  [false, true].flatMap(withSources =>
+    (['same', 'other'] as const).flatMap(target =>
+      (['opened', 'missing', 'failed'] as const).flatMap(outcome =>
+        [false, true].map(pollAfterOpen => ({ withSources, target, outcome, pollAfterOpen }))
+      )
+    )
+  )
+)('navigation preserves a pending draft ($target, $outcome, sources: $withSources, late poll: $pollAfterOpen)', async ({
+  withSources,
+  target,
+  outcome,
+  pollAfterOpen,
+}) => {
+  const started = createDeferred();
+  const finishStart = createDeferred();
+  const validating = createDeferred();
+  const finishValidation = createDeferred();
+  let draft!: ProjectSnapshot;
+  let active: CourseInterviewSnapshot | null = null;
+  const cancelCourseInterview = vi.fn(async () => {
+    active = null;
+  });
+  const startCourseInterview = vi.fn(async (input, options) => {
+    active = createInterviewSnapshot({ projectId: input.projectId });
+    options?.onRunStarted?.(active.runId);
+    started.resolve();
+    await finishStart.promise;
+    return createInterviewSnapshot({ projectId: input.projectId });
+  });
+  const other = createProjectSnapshot({
+    id: 'other-course',
+    learningPlan: buildPlan(),
+    state: AppState.READING,
+  });
+  const { controller, projectLibrary, state } = createControllerHarness({
+    projectLibrary: {
+      validateStoredProjectForOpen: async () => {
+        validating.resolve();
+        await finishValidation.promise;
+        if (outcome === 'failed') throw new Error('Synthetic validation failure');
+        return outcome === 'missing'
+          ? null
+          : { snapshot: target === 'same' ? draft : other, revision: 1 };
+      },
+      loadStoredProject: async () => (target === 'same' ? draft : other),
+    },
+    openRouter: {
+      getActiveCourseInterview: async () => active,
+      cancelCourseInterview,
+      startCourseInterview,
+      sendCourseInterviewAnswer: async () => createProposalSnapshot(draft.id),
+    },
+  });
+  const starting = controller.startHomeChat({
+    input: 'Teach query optimization',
+    ...(withSources
+      ? {
+          selectedFiles: [
+            new File(['Prepared query notes'], 'notes.md', { type: 'text/markdown' }),
+          ],
+        }
+      : {}),
+  });
+  await started.promise;
+  const persisted = projectLibrary.persistedSnapshots.at(-1);
+  assert(persisted);
+  draft = createProjectSnapshot({ ...persisted, ...projectLibrary.savedOverrides.at(-1) });
+  if (withSources) assert(draft.source?.sources?.length);
+  const opening = controller.openProject(target === 'same' ? draft.id : other.id);
+  await validating.promise;
+  if (!pollAfterOpen) finishStart.resolve();
+  finishValidation.resolve();
+  expect((await opening).outcome).toBe(outcome);
+  finishStart.resolve();
+  expect((await starting).outcome).toBe('abandoned');
+  expect(projectLibrary.deletedProjectIds).toEqual([]);
+  expect(projectLibrary.adapter.currentProjectId).toBe(
+    outcome === 'opened' && target === 'other' ? other.id : draft.id
+  );
+  expect(draft.source).toEqual(persisted.source);
+  if (outcome === 'opened' && target === 'same') {
+    expect(cancelCourseInterview).not.toHaveBeenCalled();
+    expect(startCourseInterview).toHaveBeenCalledOnce();
+    expect((await controller.submitAssessment('Focus on indexes')).outcome).toBe(
+      'assessment-complete'
+    );
+    expect(state.internalState.courseProposal?.topic).toBe('TypeScript');
+  } else {
+    expect(cancelCourseInterview).toHaveBeenCalledWith({
+      projectId: draft.id,
+      runId: 'interview-run',
+    });
+    if (outcome === 'opened') expect(state.internalState.screenState).toBe(AppState.READING);
+    projectLibrary.adapter.validateStoredProjectForOpen = async () => ({
+      snapshot: draft,
+      revision: 1,
+    });
+    projectLibrary.adapter.loadStoredProject = async () => draft;
+    expect((await controller.openProject(draft.id)).outcome).toBe('opened');
+    expect(startCourseInterview).toHaveBeenCalledTimes(2);
+    expect(startCourseInterview.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        projectId: draft.id,
+        initialMessage: 'Teach query optimization',
+        hasReliableSourceContext: withSources,
+      })
+    );
+  }
+});
+
+test('a failed navigation cancellation never turns the next Home start into draft deletion', async () => {
+  const started = createDeferred();
+  const finish = createDeferred();
+  let firstStart = true;
+  const cancelCourseInterview = vi
+    .fn()
+    .mockRejectedValueOnce(new Error('Synthetic cancellation failure'))
+    .mockResolvedValue(undefined);
+  const { controller, projectLibrary } = createControllerHarness({
+    projectLibrary: { validateStoredProjectForOpen: async () => null },
+    openRouter: {
+      cancelCourseInterview,
+      getActiveCourseInterview: async () => null,
+      startCourseInterview: async (input, options) => {
+        options?.onRunStarted?.('interview-run');
+        if (firstStart) {
+          firstStart = false;
+          started.resolve();
+          await finish.promise;
+        }
+        return createInterviewSnapshot({ projectId: input.projectId });
+      },
+    },
+  });
+  const starting = controller.startHomeChat({
+    input: 'Keep prepared query notes',
+    selectedFile: new File(['Prepared notes'], 'notes.md', { type: 'text/markdown' }),
+  });
+  await started.promise;
+  const draft = projectLibrary.persistedSnapshots.at(-1);
+  assert(draft?.source?.sources?.length);
+  expect((await controller.openProject('missing-course')).outcome).toBe('missing');
+  finish.resolve();
+  expect((await starting).outcome).toBe('failed');
+  expect((await controller.startHomeChat({ input: 'Learn another topic' })).outcome).toBe(
+    'continued'
+  );
+  expect(cancelCourseInterview).toHaveBeenCalledOnce();
+  expect(projectLibrary.deletedProjectIds).toEqual([]);
+});
+
 test('openProject retries with hydrated context while saving only deferred source indexes', async () => {
   const hydrated = preparedSourceSet([
     { path: 'notes.pdf', contentKind: 'text', preview: 'Original notes' },
@@ -5548,7 +5700,10 @@ test.each([
   'failed',
 ] as const)('a %s project open preserves an in-flight interview answer', async outcome => {
   const answering = createDeferred();
-  const answer = createDeferred<CourseInterviewSnapshot>();
+  let resolveAnswer!: (snapshot: CourseInterviewSnapshot) => void;
+  const answer = new Promise<CourseInterviewSnapshot>(resolve => {
+    resolveAnswer = resolve;
+  });
   const { controller, projectLibrary, state } = createControllerHarness({
     projectLibrary: {
       currentProjectId: 'learn-project',
@@ -5561,14 +5716,14 @@ test.each([
       getActiveCourseInterview: async () => createInterviewSnapshot({ projectId: 'learn-project' }),
       sendCourseInterviewAnswer: async () => {
         answering.resolve();
-        return answer.promise;
+        return answer;
       },
     },
   });
   const submitting = controller.submitAssessment('Focus on TypeScript');
   await answering.promise;
   expect((await controller.openProject('unavailable-project')).outcome).toBe(outcome);
-  answer.resolve(createProposalSnapshot('learn-project'));
+  resolveAnswer(createProposalSnapshot('learn-project'));
   expect((await submitting).outcome).toBe('assessment-complete');
   expect(state.internalState.courseProposal?.topic).toBe('TypeScript');
   expect(projectLibrary.adapter.currentProjectId).toBe('learn-project');

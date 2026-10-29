@@ -89,6 +89,7 @@ type FileSourcePreparation =
   | { kind: 'ready'; value: PreparedFileSource };
 
 interface StartOrResumeInterviewInput {
+  workspaceOwnership?: AssessmentWorkspaceOwnership;
   hasReliableSourceContext: boolean;
   initialMessage?: string;
   isRequestCurrent?: () => boolean;
@@ -282,7 +283,10 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
         }
       ));
     if (input.isRequestCurrent && !input.isRequestCurrent()) {
-      await cancelLateCourseInterview(snapshot);
+      await waitForPendingWorkspaceOpen(input.workspaceOwnership ?? null);
+      if (!input.workspaceOwnership?.adoptedProjectIds.has(snapshot.projectId)) {
+        await cancelLateCourseInterview(snapshot);
+      }
       return 'abandoned';
     }
     return applyInterviewSnapshot(snapshot);
@@ -651,6 +655,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
       );
     };
     session.latestHomeChatRequestToken = null;
+    if (homeChatWorkspaceOwnership) homeChatWorkspaceOwnership.cancellationRequested = true;
     homeChatWorkspaceOwnership?.sourcePreparationController?.abort();
     session.activeSourceAttachmentOwnership?.sourcePreparationController?.abort();
     const cancellationRequestId = state.beginWorkflow('assessment', t('Caricamento...'));
@@ -737,6 +742,9 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     workspaceOwnership: AssessmentWorkspaceOwnership;
   }): Promise<HomeChatStartResult> => {
     await waitForPendingWorkspaceOpen(workspaceOwnership);
+    if (!workspaceOwnership.cancellationRequested) {
+      return { outcome: 'abandoned', sourceWarnings: startState.sourceWarnings };
+    }
     const currentProjectId = projectLibrary.getCurrentProjectId();
     const draftProjectId = startState.draftProjectId;
     const hasBeenAdoptedByOpenProject =
@@ -1017,7 +1025,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
   }): Promise<HomeChatStartResult> => {
     if (!isRequestCurrent()) {
       if (error instanceof LateCourseInterviewCancellationError) {
-        workspaceOwnership.requiresCancellationRetry = true;
+        workspaceOwnership.requiresCancellationRetry = workspaceOwnership.cancellationRequested;
         pushNousDebugTrace('assessment:late-cancellation-failed', {
           errorMessage: getErrorMessage(error.cause),
           projectId: startState.draftProjectId,
@@ -1112,6 +1120,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
         isRequestCurrent,
         mode,
         projectId,
+        workspaceOwnership,
         ...(sourceContext ? { sourceContext } : {}),
       });
       if (!isRequestCurrent()) return abandonCancelledStart();

@@ -28,6 +28,7 @@ export interface PendingWorkspaceOpen {
 
 export interface AssessmentWorkspaceOwnership {
   readonly adoptedProjectIds: Set<string>;
+  cancellationRequested: boolean;
   sourcePreparationController?: AbortController;
   draftCleanupPromise: Promise<void> | null;
   draftProjectId: string | null;
@@ -81,6 +82,7 @@ export const createAssessmentWorkspaceOwnership = (
 ): AssessmentWorkspaceOwnership => {
   const ownership: AssessmentWorkspaceOwnership = {
     adoptedProjectIds: new Set(),
+    cancellationRequested: false,
     draftCleanupPromise: null,
     draftProjectId: null,
     pendingOpenProjects: new Map(),
