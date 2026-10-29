@@ -8,7 +8,7 @@ These skills are vendored under their original MIT licences; each folder keeps i
 | `codebase-design`, `improve-codebase-architecture` (adapted for this environment), `domain-modeling`, `grilling` | [mattpocock/skills](https://github.com/mattpocock/skills) by Matt Pocock | MIT |
 | `elegant-code` | [OleksandrKucherenko/e-bash](https://github.com/OleksandrKucherenko/e-bash/tree/master/.claude/skills/elegant-code) by Oleksandr Kucherenko | MIT |
 
-Local adaptations: `principle-sequence-verifiable-units` replaces its automatic rebase with a read-only freshness check, because AGENTS.md forbids unapproved state-changing Git commands. The upstream `disable-model-invocation: true` frontmatter is removed because the Codex skill validator rejects it; those skills carry `agents/openai.yaml` with `allow_implicit_invocation: false` so Codex keeps the explicit-invocation policy. `show-me-your-work` mentions the pstack `unslop` writing-style skill as optional advice; it is not vendored.
+Local adaptations: `principle-sequence-verifiable-units` replaces its automatic rebase with a read-only freshness check, because AGENTS.md forbids unapproved state-changing Git commands. The upstream `disable-model-invocation: true` frontmatter is removed because the Codex skill validator rejects it; the `principle-*` skills use `agents/openai.yaml` with `allow_implicit_invocation: true` for automatic selection when relevant. Other adapted skills retain their own invocation policies. `show-me-your-work` mentions the pstack `unslop` writing-style skill as optional advice; it is not vendored.
 
 ## Precedence in this repository
 
