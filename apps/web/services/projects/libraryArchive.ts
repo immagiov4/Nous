@@ -108,7 +108,10 @@ export class LibraryArchiveRollbackError extends LibraryArchiveError {
 }
 
 export class LibraryArchivePartialImportError extends LibraryArchiveError {
-  constructor(readonly result: LibraryArchiveImportResult) {
+  constructor(
+    readonly result: LibraryArchiveImportResult,
+    readonly refreshFailed = false
+  ) {
     const firstRejectedProject = result.rejectedProjects[0];
     const importedCount = result.importedProjects.length;
     const rejectedCount = result.rejectedProjects.length;

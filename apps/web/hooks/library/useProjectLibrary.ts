@@ -1,7 +1,7 @@
 import type { ProjectWriteOptions, SectionPatch } from '@shared/projectContract';
 import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { IMPORT_REFRESH_WARNING, translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { readSupabaseSession } from '../../services/auth/supabaseAuth.ts';
 import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
@@ -12,7 +12,12 @@ import {
   HttpProjectRepository,
 } from '../../services/projects/httpProjectRepository.ts';
 import { recoverLegacyAnnotations } from '../../services/projects/legacyAnnotationRecovery.ts';
-import { importLibraryArchive } from '../../services/projects/libraryArchiveImport.ts';
+import { LibraryArchivePartialImportError } from '../../services/projects/libraryArchive.ts';
+import { warnImportRefreshFailed } from '../../services/projects/libraryArchiveDiagnostics.ts';
+import {
+  importLibraryArchive,
+  type LibraryBackupImportResult,
+} from '../../services/projects/libraryArchiveImport.ts';
 import { buildAutosaveSignature } from '../../services/projects/persistenceSignature';
 import {
   createProjectArchiveBlob,
@@ -185,6 +190,7 @@ export const useProjectLibrary = ({
   const [savedProjects, setSavedProjects] = useState<SavedProjectMeta[]>([]);
   const [isLibraryLoading, setIsLibraryLoading] = useState(true);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [importRefreshWarning, setImportRefreshWarning] = useState<string | null>(null);
   const [projectSyncState, setProjectSyncState] = useState<ProjectSyncState>({
     kind: 'load',
     phase: 'pending',
@@ -284,9 +290,30 @@ export const useProjectLibrary = ({
     setLibraryPlacements(placements);
   }, []);
 
-  const refreshLibraryState = useCallback(async () => {
-    await Promise.all([refreshSavedProjects(), refreshLibraryOrganization()]);
-  }, [refreshLibraryOrganization, refreshSavedProjects]);
+  const refreshLibraryState = useCallback(
+    async (options?: { afterImport?: boolean }) => {
+      try {
+        const reads = await Promise.allSettled([
+          refreshSavedProjects(),
+          refreshLibraryOrganization(),
+        ]);
+        const failedRead = reads.find(read => read.status === 'rejected');
+        if (failedRead) throw failedRead.reason;
+        setImportRefreshWarning(null);
+        setProjectSyncState(current =>
+          current.kind === 'load' && current.phase === 'failed' ? { kind: 'idle' } : current
+        );
+      } catch (error) {
+        if (options?.afterImport) {
+          const message = t(IMPORT_REFRESH_WARNING);
+          setImportRefreshWarning(message);
+          setProjectSyncState({ kind: 'load', message, phase: 'failed' });
+        }
+        throw error;
+      }
+    },
+    [refreshLibraryOrganization, refreshSavedProjects]
+  );
 
   const syncProjectMeta = useCallback(
     (meta: SavedProjectMeta) => {
@@ -1237,22 +1264,32 @@ export const useProjectLibrary = ({
   );
 
   const importLibraryBackup = useCallback(
-    async (file: File): Promise<number> => {
+    async (file: File): Promise<LibraryBackupImportResult> => {
       setProjectSyncState({ kind: 'import', phase: 'pending' });
       let outcome: Awaited<ReturnType<typeof importLibraryArchive>>;
       try {
         outcome = await importLibraryArchive({
           file,
-          refreshLibraryState,
+          refreshLibraryState: (hasImportedProjects = true) =>
+            refreshLibraryState({ afterImport: hasImportedProjects }),
           repository: projectRepositoryRef.current,
         });
       } catch (error) {
-        setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
+        if (
+          !(
+            error instanceof LibraryArchivePartialImportError &&
+            error.refreshFailed &&
+            error.result.importedProjects.length > 0
+          )
+        ) {
+          setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
+        }
         throw error;
       }
-      if (outcome.kind === 'refresh-failed') throw outcome.error;
-      setProjectSyncState({ kind: 'idle' });
-      return outcome.importedProjectCount;
+      const refreshFailed = outcome.kind === 'refresh-failed';
+      if (outcome.kind === 'refresh-failed') warnImportRefreshFailed(outcome.error);
+      else setProjectSyncState({ kind: 'idle' });
+      return { importedProjectCount: outcome.importedProjectCount, refreshFailed };
     },
     [refreshLibraryState]
   );
@@ -1770,8 +1807,12 @@ export const useProjectLibrary = ({
         );
         const imported = await importOperation;
         deletedProjectIdsRef.current.delete(imported.snapshot.id);
-        await refreshLibraryState();
-        setProjectSyncState({ kind: 'idle' });
+        try {
+          await refreshLibraryState({ afterImport: true });
+          setProjectSyncState({ kind: 'idle' });
+        } catch (refreshError) {
+          warnImportRefreshFailed(refreshError);
+        }
         return imported;
       } catch (error) {
         setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
@@ -1836,7 +1877,7 @@ export const useProjectLibrary = ({
         void processPendingRemoteRevisionRef.current();
       }
     },
-    storageError,
+    storageError: storageError ?? importRefreshWarning,
     touchStoredProject: (projectId: string) =>
       runDeletionAwareProjectAction(projectId, () =>
         projectRepositoryRef.current.touchProject(projectId)
