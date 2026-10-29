@@ -29,7 +29,7 @@ import {
 } from '../../utils/reader/lessonPlaybackBuffer.ts';
 import { loadSceneIconNodes } from '../../utils/visuals/sceneIconNodes.ts';
 
-// Maintainer decision for #455 (2026-10-29): wait at most 10 s, then show an error with Riprova.
+// Approved product limit: a retry waits this long for an owned cancellation, then offers Riprova.
 const PLAYBACK_CANCELLATION_WAIT_MS = 10_000;
 type OwnedCancellation = { pending: Promise<void>; controller: AbortController };
 // A player can close before its owned server cancellation settles.
