@@ -7,11 +7,13 @@ import {
 import { useCallback, useMemo, useState } from 'react';
 import type {
   ChatArtifactActionRequest,
+  ChatArtifactActionResult,
   ChatArtifactRegenerateRequest,
   ChatArtifactReplaceRequest,
 } from '../../components/shared/ChatArtifactRenderer.tsx';
 import { getAppLocale, translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { fetchWithSupabaseAuth } from '../../services/auth/supabaseAuth.ts';
+import { sanitizeFeedbackDiagnosticText } from '../../services/feedback/browserDiagnostics.ts';
 import {
   executeLibraryAssistantTool,
   LIBRARY_ASSISTANT_TOOL_NAMES,
@@ -589,11 +591,11 @@ export const useLibraryAssistantChat = ({
   const replaceLearningArtifact = async ({
     artifactId,
     replacementOfArtifactId,
-  }: ChatArtifactReplaceRequest) => {
+  }: ChatArtifactReplaceRequest): Promise<ChatArtifactActionResult> => {
     const payload = artifactPayloadsById.get(artifactId);
     const visual = generatedVisualsByArtifactId[artifactId];
     if (!payload || !('visual' in payload) || !visual || !replaceLessonGeneratedVisual) {
-      return;
+      return { succeeded: false };
     }
 
     const result = await replaceLessonGeneratedVisual({
@@ -604,7 +606,15 @@ export const useLibraryAssistantChat = ({
     });
     if (result.replaced) {
       discardLearningArtifact({ artifactId });
+    } else {
+      console.warn(
+        '[Nous][Library] Artifact replacement failed.',
+        sanitizeFeedbackDiagnosticText(result.error || 'No replacement diagnostic available.')
+      );
     }
+    return result.replaced
+      ? { succeeded: true }
+      : { succeeded: false, error: t("Non sono riuscito a sostituire l'artefatto.") };
   };
 
   return {
