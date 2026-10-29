@@ -684,7 +684,7 @@ export const createProjectLifecycleCommands = (
           assessmentSources.length > 1 ||
           assessmentSources.some(source => source.documentIndex?.chunks.length)
         ) {
-          await startAssessment({ sources: assessmentSources });
+          await startAssessment({ sources: assessmentSources, source: preparedSnapshot.source });
         } else if (preparedSnapshot.source?.kind === 'archive') {
           pushNousDebugTrace('open-project:start-text-assessment', {
             projectId,
@@ -692,6 +692,7 @@ export const createProjectLifecycleCommands = (
             archiveEntryCount: preparedSnapshot.source.index.entries.length,
           });
           await startAssessment({
+            source: preparedSnapshot.source,
             textSource: {
               name: preparedSnapshot.source.name,
               text: formatSourceArchiveIndex(preparedSnapshot.source.index, {
@@ -707,6 +708,7 @@ export const createProjectLifecycleCommands = (
             throw new Error('La sorgente documento non è disponibile.');
           }
           await startAssessment({
+            source: preparedSnapshot.source,
             textSource: {
               name: sourceFile.name,
               text: decodeTextBase64(sourceFile.data),
@@ -721,7 +723,7 @@ export const createProjectLifecycleCommands = (
           const assessmentFile =
             getProjectSourceFile(preparedSnapshot.source) ??
             (await projectLibrary.loadStoredProjectSource(projectId));
-          await startAssessment({ file: assessmentFile });
+          await startAssessment({ file: assessmentFile, source: preparedSnapshot.source });
         } else if (preparedSnapshot.isLearnMode) {
           await startLearnAssessment();
         }

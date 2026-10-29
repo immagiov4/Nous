@@ -340,6 +340,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
 
   async function startAssessment({
     file,
+    source = domain.source,
     sources,
     textSource,
   }: AssessmentSourceInput): Promise<void> {
@@ -357,9 +358,10 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     try {
       if (sources?.some(source => source.documentIndex?.textDeferred)) {
         const loaded = await loadDocumentText(projectLibrary.getCurrentProjectId(), {
-          documentIndex: domain.documentIndex,
-          source: domain.source,
+          documentIndex: null,
+          source,
         });
+        source = loaded.source;
         sources = loaded.source?.sources;
       }
       const assessmentContext = sources?.length
@@ -374,7 +376,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
                 throw new Error('Missing source input for assessment');
               })();
       if (!state.isWorkflowCurrent('assessment', requestId)) return;
-      const projectId = await ensureInterviewProject('document');
+      const projectId = await ensureInterviewProject('document', source);
       await startTrackedAssessmentInterview({
         hasReliableSourceContext: assessmentContext.hasReliableSourceContext,
         isRequestCurrent: () => state.isWorkflowCurrent('assessment', requestId),
