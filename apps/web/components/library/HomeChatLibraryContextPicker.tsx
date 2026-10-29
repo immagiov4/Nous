@@ -4,6 +4,7 @@ import { useId, useMemo } from 'react';
 import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { LibraryContextRef, LibraryTree, LibraryTreeNode } from '../../types.ts';
+import { getAttachedContextProjectIds } from '../../utils/library/tree.ts';
 
 type MenuAlign = 'start' | 'end';
 type MenuVerticalPlacement = 'above' | 'below';
@@ -31,26 +32,6 @@ interface LibraryContextTreeNodeProps {
   readonly onToggleContextRef: (reference: LibraryContextRef) => void;
   readonly toggleFolderExpansion: (folderId: string) => void;
 }
-
-export const getAttachedContextProjectIds = (
-  attachedContextRefs: LibraryContextRef[],
-  libraryTree: LibraryTree
-) => {
-  const projectIds = new Set<string>();
-
-  attachedContextRefs.forEach(reference => {
-    if (reference.kind === 'project') {
-      projectIds.add(reference.id);
-      return;
-    }
-
-    libraryTree.descendantProjectIdsByFolderId[reference.id]?.forEach(projectId => {
-      projectIds.add(projectId);
-    });
-  });
-
-  return projectIds;
-};
 
 const LibraryContextTreeNode = ({
   attachedContextRefs,
