@@ -11,6 +11,7 @@ import * as z from 'zod';
 import type { CreateAppOptions } from '../../apps/backend/src/index';
 import type { InMemoryProjectStore } from '../../apps/backend/tests/helpers/inMemoryProjectStore';
 import { recordDiagnostic } from '../../packages/playtest/src/diagnostics';
+import { withMutedAudio } from '../../scripts/browser-audio';
 import {
   ensureSharedSupabase,
   releaseSharedSupabase,
@@ -464,7 +465,6 @@ export async function withMemoryProjectBrowserStack<T>(
   });
   const { chromium } = await import('playwright');
   const { createServer } = await import('vite');
-  const { withMutedAudio } = await import('../../scripts/browser-audio');
   const { createApp } = await import('../../apps/backend/src/index');
   const { InMemoryProjectStore } = await import(
     '../../apps/backend/tests/helpers/inMemoryProjectStore'
