@@ -30,6 +30,7 @@ import {
   createProjectSourceFromDescriptors,
   formatCourseSourceSetContext,
 } from '../../../services/projects/courseSources';
+import * as documentText from '../../../services/projects/documentText.ts';
 import { createProjectArchiveBlob } from '../../../services/projects/projectArchive.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import { createProjectSnapshot } from '../../../services/projects/projectSnapshot.ts';
@@ -4943,6 +4944,57 @@ test('startHomeChat preserves prepared sources for retry after interview startup
   await controller.openProject(draft.id);
   expect(startCourseInterview).toHaveBeenCalledTimes(2);
   expect(startCourseInterview.mock.calls[1]?.[0].projectId).toBe(draft.id);
+});
+
+test('openProject retries with hydrated context while saving only deferred source indexes', async () => {
+  const hydrated = preparedSourceSet([
+    { path: 'notes.pdf', contentKind: 'text', preview: 'Original notes' },
+    { path: 'exercises.pdf', contentKind: 'text', preview: 'Original exercises' },
+  ]);
+  const deferred = structuredClone(hydrated);
+  for (const source of deferred.sources ?? []) {
+    assert(source.documentIndex);
+    source.documentIndex.textDeferred = true;
+    for (const chunk of source.documentIndex.chunks) chunk.text = '';
+  }
+  const snapshot = createProjectSnapshot({
+    id: 'deferred-retry',
+    source: deferred,
+    state: AppState.ASSESSMENT,
+  });
+  const load = vi
+    .spyOn(documentText, 'loadDocumentText')
+    .mockResolvedValue({ documentIndex: null, source: hydrated });
+  const startCourseInterview = vi.fn(async input =>
+    createInterviewSnapshot({ projectId: input.projectId })
+  );
+  try {
+    const { controller, projectLibrary } = createControllerHarness({
+      loadedSnapshot: snapshot,
+      openRouter: {
+        getActiveCourseInterview: async () => null,
+        buildAssessmentDocumentContextFromSourceSet: sources => ({
+          content: sources
+            .flatMap(source => source.documentIndex?.chunks.map(chunk => chunk.text) ?? [])
+            .join('\n'),
+          hasReliableSourceContext: true,
+        }),
+        startCourseInterview,
+      },
+    });
+    await controller.openProject(snapshot.id);
+    expect(load).toHaveBeenCalledWith(snapshot.id, { documentIndex: null, source: deferred });
+    expect(startCourseInterview.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        projectId: snapshot.id,
+        sourceContext: 'Original exercises\nOriginal notes',
+        hasReliableSourceContext: true,
+      })
+    );
+    expect(projectLibrary.savedOverrides.at(-1)?.source).toEqual(deferred);
+  } finally {
+    load.mockRestore();
+  }
 });
 
 test('startHomeChat failure never deletes the project selected while startup is pending', async () => {

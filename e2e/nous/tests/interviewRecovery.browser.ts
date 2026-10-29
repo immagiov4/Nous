@@ -2,12 +2,19 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { unavailableCourseGenerationApi } from '../../../apps/backend/src/workflows/courseGenerationApi';
-import { CourseInterviewTargetNotFoundError } from '../../../apps/backend/src/workflows/courseInterviewApi';
+import {
+  type CourseInterviewApi,
+  CourseInterviewTargetNotFoundError,
+} from '../../../apps/backend/src/workflows/courseInterviewApi';
 import { dataRoot, withMemoryProjectBrowserStack } from '../stack';
 
 const startedAt = performance.now();
 const USER_ID = 'interview-recovery-user';
-const starts: string[] = [];
+const originalSources = [
+  { name: 'recovery-notes.md', text: '# Recovery source\nPrepared learning material.' },
+  { name: 'recovery-exercises.md', text: '# Exercises\nPractice using the prepared material.' },
+];
+const starts: Parameters<CourseInterviewApi['start']>[0][] = [];
 await withMemoryProjectBrowserStack(
   {
     userId: USER_ID,
@@ -16,7 +23,7 @@ await withMemoryProjectBrowserStack(
       courseInterviewApi: {
         getActive: async () => null,
         start: async input => {
-          starts.push(input.projectId);
+          starts.push(input);
           throw new CourseInterviewTargetNotFoundError();
         },
       },
@@ -29,21 +36,35 @@ await withMemoryProjectBrowserStack(
     page.on('pageerror', error => pageErrors.push(error.message));
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.locator('input[data-home-chat-target=objective]').waitFor();
+    await writeFile(
+      join(evidence, 'initial.json'),
+      JSON.stringify(
+        {
+          browser: await page.evaluate(() => ({
+            language: navigator.language,
+            languages: navigator.languages,
+            renderedLanguage: document.documentElement.lang,
+            authMode: Reflect.get(globalThis, '__NOUS_RUNTIME_CONFIG__')?.authMode,
+          })),
+          buttons: await page.getByRole('button').allTextContents(),
+          projectsStatus: (await page.request.get(`${url}/api/projects/projects`)).status(),
+          profile: 'memory-project/local-bypass',
+        },
+        null,
+        2
+      )
+    );
+    await page.screenshot({ path: join(evidence, 'initial.png'), fullPage: true });
     await page.getByRole('button', { name: 'Impara un nuovo argomento', exact: true }).click();
     const chooser = page.waitForEvent('filechooser');
     await page.locator('[data-home-chat-target=attachment]').click();
-    await (await chooser).setFiles([
-      {
-        name: 'recovery-notes.md',
+    await (await chooser).setFiles(
+      originalSources.map(source => ({
+        name: source.name,
         mimeType: 'text/markdown',
-        buffer: Buffer.from('# Recovery source\nPrepared learning material.'),
-      },
-      {
-        name: 'recovery-exercises.md',
-        mimeType: 'text/markdown',
-        buffer: Buffer.from('# Exercises\nPractice using the prepared material.'),
-      },
-    ]);
+        buffer: Buffer.from(source.text),
+      }))
+    );
     const objective = page.locator('input[data-home-chat-target=objective]');
     await objective.fill('Create a course from these notes');
     const rejected = page.waitForResponse(
@@ -57,7 +78,7 @@ await withMemoryProjectBrowserStack(
       .waitFor();
     await page.screenshot({ path: join(evidence, 'failed-start.png'), fullPage: true });
     assert.equal(starts.length, 1);
-    const draftId = starts[0];
+    const draftId = starts[0].projectId;
     const draft = await store.loadProject(USER_ID, draftId);
     assert(draft?.source);
     const sources = await store.loadProjectSources(USER_ID, draftId);
@@ -78,7 +99,14 @@ await withMemoryProjectBrowserStack(
       throw error;
     });
     assert.equal(retryResponse.status(), 404);
-    assert.deepEqual(starts, [draftId, draftId]);
+    assert.deepEqual(
+      starts.map(input => input.projectId),
+      [draftId, draftId]
+    );
+    assert.equal(starts[1].hasReliableSourceContext, true);
+    for (const source of originalSources) {
+      assert(starts[1].sourceContext?.includes(JSON.stringify(source.text).slice(1, -1)));
+    }
     assert.deepEqual((await store.loadProject(USER_ID, draftId))?.source, draft.source);
     assert.deepEqual(await store.loadProjectSources(USER_ID, draftId), sources);
     await page

@@ -361,7 +361,6 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
           documentIndex: null,
           source,
         });
-        source = loaded.source;
         sources = loaded.source?.sources;
       }
       const assessmentContext = sources?.length

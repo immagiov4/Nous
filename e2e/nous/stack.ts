@@ -503,7 +503,10 @@ export async function withMemoryProjectBrowserStack<T>(
     process.env.CORS_ALLOWED_ORIGINS = url;
     backend.on('request', createApp(options.appOptions));
     browser = await chromium.launch(withMutedAudio({ headless: true }));
-    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    const page = await browser.newPage({
+      locale: 'it-IT',
+      viewport: { width: 1440, height: 1000 },
+    });
     // Provider calls belong to real-provider proofs, not this deterministic profile.
     await page.route('**/api/openrouter/**', route => route.fulfill({ status: 503, body: '{}' }));
     await page.route('**/api/images/**', route => route.fulfill({ status: 503, body: '{}' }));
@@ -515,17 +518,26 @@ export async function withMemoryProjectBrowserStack<T>(
     );
     return await scenario({ page, store, url });
   } finally {
-    await browser?.close();
-    await frontend?.close();
-    if (backend.listening) {
-      await new Promise<void>((resolve, reject) =>
-        backend.close(error => (error ? reject(error) : resolve()))
-      );
-    }
-    setProjectStoreForTesting(null);
-    for (const [name, value] of Object.entries(previousEnvironment)) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
+    try {
+      await browser?.close();
+    } finally {
+      try {
+        await frontend?.close();
+      } finally {
+        try {
+          if (backend.listening) {
+            await new Promise<void>((resolve, reject) =>
+              backend.close(error => (error ? reject(error) : resolve()))
+            );
+          }
+        } finally {
+          setProjectStoreForTesting(null);
+          for (const [name, value] of Object.entries(previousEnvironment)) {
+            if (value === undefined) delete process.env[name];
+            else process.env[name] = value;
+          }
+        }
+      }
     }
   }
 }
