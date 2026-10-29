@@ -21,6 +21,7 @@ import { sortSourceFiles } from '../../../services/projects/courseSources.ts';
 import { loadDocumentText } from '../../../services/projects/documentText';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import {
+  COURSE_INTERVIEW_INITIAL_MESSAGE_KEY,
   createProjectId,
   createProjectSnapshot,
 } from '../../../services/projects/projectSnapshot.ts';
@@ -213,7 +214,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
           source,
           state: AppState.ASSESSMENT,
           ...(initialMessage
-            ? { extensions: { courseInterviewInitialMessage: initialMessage } }
+            ? { extensions: { [COURSE_INTERVIEW_INITIAL_MESSAGE_KEY]: initialMessage } }
             : {}),
         },
         { throwOnError: true }
@@ -237,7 +238,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
         source,
         state: AppState.ASSESSMENT,
         ...(initialMessage
-          ? { extensions: { courseInterviewInitialMessage: initialMessage } }
+          ? { extensions: { [COURSE_INTERVIEW_INITIAL_MESSAGE_KEY]: initialMessage } }
           : {}),
         syllabus: domain.syllabus,
       }),
@@ -895,7 +896,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
         id: projectId,
         state: AppState.ASSESSMENT,
         source,
-        extensions: { courseInterviewInitialMessage: startState.initialMessage },
+        extensions: { [COURSE_INTERVIEW_INITIAL_MESSAGE_KEY]: startState.initialMessage },
       }),
       {
         archiveFile,

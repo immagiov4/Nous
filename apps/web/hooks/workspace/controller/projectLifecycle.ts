@@ -9,6 +9,7 @@ import {
 } from '../../../services/projects/courseSources.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import {
+  COURSE_INTERVIEW_INITIAL_MESSAGE_KEY,
   createProjectId,
   createProjectSnapshot,
 } from '../../../services/projects/projectSnapshot.ts';
@@ -683,7 +684,8 @@ export const createProjectLifecycleCommands = (
       }
 
       if (!preparedSnapshot.learningPlan) {
-        const savedInitialMessage = preparedSnapshot.extensions?.courseInterviewInitialMessage;
+        const savedInitialMessage =
+          preparedSnapshot.extensions?.[COURSE_INTERVIEW_INITIAL_MESSAGE_KEY];
         const initialMessage =
           typeof savedInitialMessage === 'string' ? savedInitialMessage : undefined;
         const assessmentSources = getCourseSourceDescriptors(preparedSnapshot.source);

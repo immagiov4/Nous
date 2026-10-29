@@ -4963,6 +4963,7 @@ test.each([
   const persisted = projectLibrary.persistedSnapshots.at(-1);
   assert(persisted);
   const draft = createProjectSnapshot({ ...persisted, ...projectLibrary.savedOverrides.at(-1) });
+  expect(draft.extensions).toEqual({ courseInterviewInitialMessage: 'Teach query optimization' });
   if (withSources) assert(draft.source?.sources?.length);
   // A fresh controller has no in-memory interview or Home-chat message.
   const reloaded = createControllerHarness({
