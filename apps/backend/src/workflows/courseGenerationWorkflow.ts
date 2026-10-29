@@ -27,6 +27,7 @@ import {
   courseGenerationStateSchemas,
   preControlsCourseGenerationStateSchemas,
   preDiagnosticCourseGenerationStateSchemas,
+  preFailureDiagnosticsCourseGenerationStateSchemas,
   preRoutingCourseGenerationStateSchemas,
   preVerificationCriteriaCourseGenerationStateSchemas,
   previousCourseGenerationStateSchemas,
@@ -199,6 +200,7 @@ const createCourseGenerationWorkflowDefinition = <
   const courseResearch = createCourseResearchNode<Config, Services>(
     schemas,
     schemas === courseGenerationStateSchemas ||
+      schemas === preFailureDiagnosticsCourseGenerationStateSchemas ||
       schemas === preVerificationCriteriaCourseGenerationStateSchemas
   );
 
@@ -618,4 +620,15 @@ export const createPreviousVerificationCriteriaCourseGenerationWorkflow = (
     executionDefaults,
     configSchema,
     preVerificationCriteriaCourseGenerationStateSchemas
+  );
+
+/** Retains the schemas deployed before final-failure diagnostics were checkpointed. */
+export const createPreviousFailureDiagnosticsCourseGenerationWorkflow = (
+  executionDefaults: CourseGenerationWorkflowConfig,
+  configSchema = CourseGenerationWorkflowConfigSchema
+) =>
+  createCourseGenerationWorkflow(
+    executionDefaults,
+    configSchema,
+    preFailureDiagnosticsCourseGenerationStateSchemas
   );

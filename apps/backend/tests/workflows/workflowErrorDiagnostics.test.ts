@@ -88,6 +88,21 @@ describe('workflow error diagnostics', () => {
       originalMessage: 'private outer message',
       type: 'Error',
     });
+    expect(
+      toWorkflowErrorDiagnostic(new Error('private outer message', { cause: providerError }), {
+        includeContent: false,
+      })
+    ).toEqual({
+      cause: {
+        code: 400,
+        parameter: 'reasoning',
+        providerCode: 'reasoning_required',
+        providerErrorType: 'invalid_request',
+        status: 400,
+        type: 'AI_APICallError',
+      },
+      type: 'Error',
+    });
     const serialized = JSON.stringify(toWorkflowErrorDiagnostic(providerError));
     expect(serialized).not.toContain('private lesson prompt');
     expect(serialized).toContain('upstream rejected request');
