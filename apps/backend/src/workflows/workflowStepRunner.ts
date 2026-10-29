@@ -1,6 +1,5 @@
 import type { TransactionSql } from 'postgres';
 import * as z from 'zod';
-
 import {
   firstSanitizedZodIssue,
   formatValidationPath,
@@ -30,14 +29,17 @@ import {
 import { executeWorkflowCheckpointWithRetry } from './workflowCheckpointRetry.js';
 import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
 import { WorkflowCancellationRequestedError, WorkflowLeaseLostError } from './workflowErrors.js';
+import { emitWorkflowHeartbeatFailure, type WorkflowLogger } from './workflowObservability.js';
 import {
   type AbortableOperationResult,
+  checkWorkflowHeartbeat,
   DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS,
   DEFAULT_WORKFLOW_LEASE_MS,
   raceOperationWithAbort,
   startWorkflowAttemptMonitor,
   type WorkflowAttemptInterruption,
   type WorkflowAttemptMonitor,
+  type WorkflowHeartbeatFailure,
 } from './workflowStepAttempt.js';
 import {
   type ResolvedWorkflowStep,
@@ -90,6 +92,7 @@ export interface WorkflowStepRunnerStore {
 export interface WorkflowStepRunnerInput<Services> {
   claim: WorkflowStepClaim;
   heartbeatIntervalMs?: number;
+  logger?: WorkflowLogger;
   leaseMs?: number;
   registry: WorkflowDefinitionResolver;
   services: Services;
@@ -98,6 +101,7 @@ export interface WorkflowStepRunnerInput<Services> {
 
 export type WorkflowStepRunnerResult =
   | WorkflowCheckpointResult
+  | WorkflowHeartbeatFailure
   | {
       failure: StepFailure;
       status: 'failure-recorded';
@@ -138,8 +142,13 @@ const checkpointFailure = (error: unknown): StepFailure => ({
 async function finishInterruptedClaim(
   store: WorkflowStepRunnerStore,
   claim: WorkflowStepClaim,
-  interruption: Exclude<WorkflowAttemptInterruption, null>
+  interruption: Exclude<WorkflowAttemptInterruption, null>,
+  logger?: WorkflowLogger
 ): Promise<WorkflowStepRunnerResult> {
+  if (typeof interruption === 'object') {
+    emitWorkflowHeartbeatFailure(claim, 'step', interruption.diagnostic, logger);
+    return interruption;
+  }
   if (interruption === 'lost') return { status: 'lease-lost' };
   try {
     await store.cancellation.releaseClaim(claim);
@@ -198,10 +207,11 @@ const recordUnavailableDefinition = async (
 const stopForInterruption = async (
   store: WorkflowStepRunnerStore,
   claim: WorkflowStepClaim,
-  monitor: WorkflowAttemptMonitor
+  monitor: WorkflowAttemptMonitor,
+  logger?: WorkflowLogger
 ): Promise<WorkflowStepRunnerResult | null> => {
   const interruption = await monitor.stop();
-  return interruption ? finishInterruptedClaim(store, claim, interruption) : null;
+  return interruption ? finishInterruptedClaim(store, claim, interruption, logger) : null;
 };
 
 const recordResolutionFailure = (
@@ -467,12 +477,18 @@ const executeStepCallback = async <Services>(input: {
 };
 
 const finishFailedStepAttempt = async (input: {
+  logger?: WorkflowLogger;
   attempt: WorkflowStepAttemptResult;
   claim: WorkflowStepClaim;
   definition: ErasedRegisteredWorkflow;
   store: WorkflowStepRunnerStore;
 }): Promise<WorkflowStepRunnerResult> => {
-  const interrupted = await stopForInterruption(input.store, input.claim, input.attempt.monitor);
+  const interrupted = await stopForInterruption(
+    input.store,
+    input.claim,
+    input.attempt.monitor,
+    input.logger
+  );
   if (interrupted) return interrupted;
   const failureCause =
     input.attempt.runResult.status === 'failed'
@@ -488,6 +504,7 @@ const finishFailedStepAttempt = async (input: {
 };
 
 const checkpointStepOutput = async <Services>(input: {
+  logger?: WorkflowLogger;
   attempt: WorkflowStepAttemptResult;
   claim: WorkflowStepClaim;
   output: unknown;
@@ -528,10 +545,18 @@ const checkpointStepOutput = async <Services>(input: {
       checkpoint,
       input.attempt.controller.signal
     );
-    await input.attempt.monitor.stop();
+    const interruption = await input.attempt.monitor.stop();
+    if (interruption && typeof interruption === 'object') {
+      emitWorkflowHeartbeatFailure(input.claim, 'step', interruption.diagnostic, input.logger);
+    }
     return result;
   } catch (error) {
-    const interrupted = await stopForInterruption(input.store, input.claim, input.attempt.monitor);
+    const interrupted = await stopForInterruption(
+      input.store,
+      input.claim,
+      input.attempt.monitor,
+      input.logger
+    );
     if (interrupted) return interrupted;
     if (error instanceof WorkflowCancellationRequestedError) {
       return finishInterruptedClaim(input.store, input.claim, 'cancelled');
@@ -554,9 +579,16 @@ export const runWorkflowStepClaim = async <Services>(
 
   const leaseMs = input.leaseMs ?? DEFAULT_WORKFLOW_LEASE_MS;
   const heartbeatIntervalMs = input.heartbeatIntervalMs ?? DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS;
-  const initialHeartbeat = await input.store.steps.heartbeat({ claim: input.claim, leaseMs });
+  const initialHeartbeat = await checkWorkflowHeartbeat(() =>
+    input.store.steps.heartbeat({ claim: input.claim, leaseMs })
+  );
   if (initialHeartbeat.status !== 'renewed') {
-    return finishInterruptedClaim(input.store, input.claim, initialHeartbeat.status);
+    return finishInterruptedClaim(
+      input.store,
+      input.claim,
+      initialHeartbeat.status === 'heartbeat-failed' ? initialHeartbeat : initialHeartbeat.status,
+      input.logger
+    );
   }
   const attempt = await executeStepCallback({
     claim: input.claim,
@@ -572,6 +604,7 @@ export const runWorkflowStepClaim = async <Services>(
     attempt.monitor.interruption()
   ) {
     return finishFailedStepAttempt({
+      logger: input.logger,
       attempt,
       claim: input.claim,
       definition: resolution.value.definition,
@@ -581,7 +614,12 @@ export const runWorkflowStepClaim = async <Services>(
 
   const parsedOutput = parseStepOutput(resolution.value, attempt.runResult.value);
   if (!parsedOutput.valid) {
-    const interrupted = await stopForInterruption(input.store, input.claim, attempt.monitor);
+    const interrupted = await stopForInterruption(
+      input.store,
+      input.claim,
+      attempt.monitor,
+      input.logger
+    );
     if (interrupted) return interrupted;
     return recordFailure({
       claim: input.claim,
@@ -592,6 +630,7 @@ export const runWorkflowStepClaim = async <Services>(
   }
 
   return checkpointStepOutput({
+    logger: input.logger,
     attempt,
     claim: input.claim,
     output: parsedOutput.output,

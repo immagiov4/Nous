@@ -23,6 +23,7 @@ import type {
   WorkflowProviderEffectExecutor,
   WorkflowStepExecutionIdentity,
 } from './types.js';
+import { WorkflowTechnicalDiagnosticSchema } from './workflowErrorDiagnostics.js';
 
 export const CourseGenerationWorkflowConfigSchema = WorkflowExecutionDefaultsSchema.extend({
   models: GlobalModelConfigSchema,
@@ -186,9 +187,14 @@ export const CourseYoutubeResearchSchema = z.object({
   status: z.enum(['completed', 'unavailable']),
 });
 
-export const CourseYoutubeQueryPlanSchema = z.object({
+export const PreFailureDiagnosticsCourseYoutubeQueryPlanSchema = z.object({
   queries: z.array(z.string().min(1).max(COURSE_YOUTUBE_QUERY_MAX_CHARS)).min(1).max(3),
 });
+
+export const CourseYoutubeQueryPlanSchema =
+  PreFailureDiagnosticsCourseYoutubeQueryPlanSchema.extend({
+    planningDiagnostic: WorkflowTechnicalDiagnosticSchema.optional(),
+  });
 
 export const CourseYoutubeQueryInputSchema = z.object({
   language: z.string().min(1),
@@ -370,7 +376,8 @@ const createCourseGenerationStateSchemas = (
   profileSchema: z.ZodType<z.infer<typeof CourseProfileSchema>>,
   diagnostic = false,
   routing = false,
-  verificationCriteria = false
+  verificationCriteria = false,
+  failureDiagnostics = false
 ) => {
   const inputSchema = diagnostic
     ? CourseGenerationWorkflowInputSchema
@@ -484,6 +491,9 @@ const createCourseGenerationStateSchemas = (
   const CourseExercisesStateSchema = CourseSourcesFinalizedStateSchema.omit({
     stage: true,
   }).extend({
+    ...(failureDiagnostics
+      ? { exercisePlanningDiagnostic: WorkflowTechnicalDiagnosticSchema.optional() }
+      : {}),
     stage: z.literal('exercises'),
   });
 
@@ -502,6 +512,13 @@ const createCourseGenerationStateSchemas = (
 };
 
 export const courseGenerationStateSchemas = createCourseGenerationStateSchemas(
+  CourseProfileSchema,
+  true,
+  true,
+  true,
+  true
+);
+export const preFailureDiagnosticsCourseGenerationStateSchemas = createCourseGenerationStateSchemas(
   CourseProfileSchema,
   true,
   true,

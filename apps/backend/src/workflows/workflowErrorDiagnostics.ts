@@ -1,4 +1,5 @@
 import { APICallError } from 'ai';
+import * as z from 'zod';
 import {
   type GlobalModelConfig,
   isAiProvider,
@@ -25,6 +26,24 @@ const MODEL_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/u;
 
 export type WorkflowErrorDiagnostic = Readonly<Record<string, JsonValue>>;
 export type WorkflowModelDiagnostic = Readonly<Record<string, JsonValue>>;
+const TechnicalDiagnosticFieldsSchema = z.object({
+  code: z.union([z.number(), z.string()]).optional(),
+  parameter: z.string().optional(),
+  providerCode: z.union([z.number(), z.string()]).optional(),
+  providerErrorType: z.string().optional(),
+  status: z.number().optional(),
+  type: z.string(),
+});
+
+// Mirror the projection's bounded cause depth without lazy schemas in durable definitions.
+let technicalDiagnosticSchema = TechnicalDiagnosticFieldsSchema;
+for (let depth = 1; depth < MAX_ERROR_CAUSE_DEPTH; depth += 1) {
+  technicalDiagnosticSchema = TechnicalDiagnosticFieldsSchema.extend({
+    cause: technicalDiagnosticSchema.optional(),
+  });
+}
+export const WorkflowTechnicalDiagnosticSchema: z.ZodType<WorkflowErrorDiagnostic> =
+  technicalDiagnosticSchema;
 type DiagnosticCode = number | string;
 
 const readTechnicalIdentifier = (value: unknown): string | undefined =>
@@ -227,9 +246,15 @@ const createDiagnostic = (
 /** Projects a thrown value onto a bounded allowlist suitable for durable private diagnostics. */
 export const toWorkflowErrorDiagnostic = (
   error: unknown,
-  options: { trustedMessage?: string } = {}
-): WorkflowErrorDiagnostic =>
-  createDiagnostic(error, 1, false, options.trustedMessage) ?? { type: 'UnknownError' };
+  options: { trustedMessage?: string; includeContent?: boolean } = {}
+): WorkflowErrorDiagnostic => {
+  const diagnostic = createDiagnostic(error, 1, false, options.trustedMessage) ?? {
+    type: 'UnknownError',
+  };
+  return options.includeContent === false
+    ? WorkflowTechnicalDiagnosticSchema.parse(diagnostic)
+    : diagnostic;
+};
 
 /** Revalidates stored diagnostics before they cross into structured operational logs. */
 export const readWorkflowErrorDiagnostic = (value: unknown): WorkflowErrorDiagnostic | undefined =>
