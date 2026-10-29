@@ -214,7 +214,9 @@ describe('AccountMenu', () => {
           finishExport = () => resolve(2);
         })
     );
-    const onImportLibraryBackup = vi.fn().mockResolvedValue(2);
+    const onImportLibraryBackup = vi
+      .fn()
+      .mockResolvedValue({ importedProjectCount: 2, refreshFailed: false });
     saveAccountSession(['email']);
     fetchMock.mockResolvedValueOnce(accountResponse('email'));
 
