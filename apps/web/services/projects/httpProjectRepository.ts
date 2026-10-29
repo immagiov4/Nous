@@ -375,6 +375,10 @@ const readApiResponse = async <T>(
   onProgress?: () => void,
   onBody?: (bytes: number) => void
 ): Promise<ApiResponse & T> => {
+  if (response.status === 204) {
+    onBody?.(0);
+    return { success: true } as ApiResponse & T;
+  }
   try {
     // Keep native JSON handling for adapters without a readable body.
     if (!response.body) return (await response.json()) as ApiResponse & T;
