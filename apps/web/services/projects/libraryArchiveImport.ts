@@ -283,7 +283,7 @@ export const importLibraryArchive = async ({
   repository,
 }: {
   file: File;
-  refreshLibraryState: () => Promise<void>;
+  refreshLibraryState: (hasImportedProjects?: boolean) => Promise<void>;
   repository: ProjectRepository;
 }): Promise<LibraryArchiveImportOutcome> => {
   const archive = await readLibraryArchive(file);
@@ -307,7 +307,7 @@ export const importLibraryArchive = async ({
         )
       : null;
   try {
-    await refreshLibraryState();
+    await refreshLibraryState(importedProjects.length > 0);
   } catch (refreshError) {
     if (!partialImportError)
       return {

@@ -226,7 +226,9 @@ export default function AccountSettingsDialog({
           ? error.message
           : t('Importazione del backup completo non riuscita. Controlla il file e riprova.');
       const importMessage =
-        error instanceof LibraryArchivePartialImportError && error.refreshFailed
+        error instanceof LibraryArchivePartialImportError &&
+        error.refreshFailed &&
+        error.result.importedProjects.length > 0
           ? `${message} ${t(IMPORT_REFRESH_WARNING)}`
           : message;
       setErrorMessage(

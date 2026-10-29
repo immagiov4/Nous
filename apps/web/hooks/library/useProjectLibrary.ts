@@ -1270,11 +1270,18 @@ export const useProjectLibrary = ({
       try {
         outcome = await importLibraryArchive({
           file,
-          refreshLibraryState: () => refreshLibraryState({ afterImport: true }),
+          refreshLibraryState: (hasImportedProjects = true) =>
+            refreshLibraryState({ afterImport: hasImportedProjects }),
           repository: projectRepositoryRef.current,
         });
       } catch (error) {
-        if (!(error instanceof LibraryArchivePartialImportError && error.refreshFailed)) {
+        if (
+          !(
+            error instanceof LibraryArchivePartialImportError &&
+            error.refreshFailed &&
+            error.result.importedProjects.length > 0
+          )
+        ) {
           setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
         }
         throw error;
@@ -1870,7 +1877,7 @@ export const useProjectLibrary = ({
         void processPendingRemoteRevisionRef.current();
       }
     },
-    storageError: importRefreshWarning ?? storageError,
+    storageError: storageError ?? importRefreshWarning,
     touchStoredProject: (projectId: string) =>
       runDeletionAwareProjectAction(projectId, () =>
         projectRepositoryRef.current.touchProject(projectId)

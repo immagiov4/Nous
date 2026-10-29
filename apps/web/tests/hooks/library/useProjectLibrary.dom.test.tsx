@@ -674,6 +674,75 @@ describe('useProjectLibrary', () => {
     expect(repositoryMocks.deleteProject).not.toHaveBeenCalled();
   });
 
+  test('does not claim committed courses when every course is rejected and reload fails', async () => {
+    const snapshot = buildSnapshot('course-one');
+    const archive = await createLibraryArchiveBlob([snapshot], {
+      folders: [],
+      placements: [
+        { projectId: snapshot.id, folderId: null, order: 0, updatedAt: snapshot.updatedAt },
+      ],
+    });
+    const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+    zip.file('projects/001-course-one.nous.zip', new Uint8Array([0x6e, 0x6f, 0x75, 0x73]));
+    const file = new File(
+      [new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))],
+      'invalid-library.zip'
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    repositoryMocks.listProjects.mockRejectedValueOnce(new Error('reload failed'));
+    render(
+      <AccountSettingsDialog
+        account={{ id: 'account' }}
+        initialSection="data"
+        onAccountChange={vi.fn()}
+        onClose={vi.fn()}
+        onImportLibraryBackup={result.current.importLibraryBackup}
+      />
+    );
+    fireEvent.change(screen.getByLabelText('Seleziona backup completo Nous'), {
+      target: { files: [file] },
+    });
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('0 corsi importati. 1 corso rifiutato');
+    expect(alert).not.toHaveTextContent('I corsi sono stati importati.');
+    expect(result.current.storageError).toBeNull();
+    expect(repositoryMocks.importProjectArchive).not.toHaveBeenCalled();
+  });
+
+  test('shows a later persistence failure ahead of the retained import reload warning', async () => {
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    repositoryMocks.listFolders.mockRejectedValueOnce(new Error('organization unavailable'));
+    await act(async () => {
+      await result.current.importProjectData(buildSnapshot('committed-course'));
+    });
+    act(() => result.current.setCurrentProjectId('committed-course'));
+    repositoryMocks.patchProject.mockRejectedValueOnce(
+      new ProjectStorageError('Edits were not saved', 'persistence-failed')
+    );
+    await act(async () => {
+      await result.current.patchCurrentProject({ activeSectionId: 'lesson-one' });
+    });
+    expect(result.current.storageError).toBe('Edits were not saved');
+    await act(async () => result.current.refreshSavedProjects());
+    expect(result.current.storageError).toBe(
+      'I corsi sono stati importati. Ricarica la libreria per visualizzarli.'
+    );
+    await act(async () => result.current.refreshLibraryState());
+    expect(result.current.storageError).toBeNull();
+  });
+
   test('keeps an import reload warning across a later project-only refresh', async () => {
     const { result } = renderHook(() =>
       useProjectLibrary({
