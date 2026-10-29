@@ -689,6 +689,16 @@ export const useLibraryAssistantChat = ({
     status,
     toggleAttachedContextRef: (reference: LibraryContextRef) => {
       setSelectedContextRefs(currentRefs => {
+        if (
+          reference.kind === 'project' &&
+          currentRefs.some(
+            currentReference =>
+              currentReference.kind === 'folder' &&
+              tree.descendantProjectIdsByFolderId[currentReference.id]?.includes(reference.id)
+          )
+        ) {
+          return currentRefs;
+        }
         const existingRef = currentRefs.find(
           currentReference =>
             currentReference.id === reference.id && currentReference.kind === reference.kind

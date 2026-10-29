@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
-import { act, renderHook } from '@testing-library/react';
+import '@testing-library/jest-dom/vitest';
+import { act, render, renderHook, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { UIMessage } from 'ai';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import HomeChatLibraryContextPicker from '../../../components/library/HomeChatLibraryContextPicker.tsx';
+import { setAccountLocale } from '../../../i18n/uiMessages.ts';
+import type { LibraryTree } from '../../../types.ts';
 
 const useChatMock = vi.fn();
 const addToolOutputMock = vi.fn();
@@ -600,6 +605,107 @@ describe('useLibraryAssistantChat', () => {
     });
 
     expect(result.current.attachedContextRefs).toEqual([]);
+  });
+
+  test.each([
+    'it',
+    'en',
+  ] as const)('keeps %s inherited picker state and submitted scope consistent', async locale => {
+    setAccountLocale(locale);
+    const user = userEvent.setup();
+    const tree: LibraryTree = {
+      ...loadedTree,
+      rootNodes: [
+        {
+          id: folder.id,
+          kind: 'folder',
+          order: 1,
+          folder,
+          descendantProjectIds: [project.id],
+          children: [{ id: project.id, kind: 'project', order: 1, project }],
+        },
+      ],
+    };
+    let chat!: ReturnType<typeof useLibraryAssistantChat>;
+    function Picker() {
+      chat = useLibraryAssistantChat({
+        folders: [folder],
+        projects: [project, secondProject],
+        tree,
+        loadProjectsById: async () => [],
+      });
+      return (
+        <HomeChatLibraryContextPicker
+          attachedContextRefs={chat.attachedContextRefs}
+          close={() => {}}
+          isLibraryLoading={false}
+          isMobileViewport={false}
+          libraryTree={tree}
+          menuAlign="start"
+          menuRef={{ current: null }}
+          menuVerticalPlacement="below"
+          onToggleContextRef={chat.toggleAttachedContextRef}
+          onUploadSourceClick={() => {}}
+        />
+      );
+    }
+    const view = render(<Picker />);
+    const transport = useChatMock.mock.calls.at(-1)?.[0].transport;
+    const assertSubmittedScope = async (ids: string[], wholeLibrary = false) => {
+      const request = await transport.prepareSendMessagesRequest({ id: 'scope', messages: [] });
+      expect(request.body.attachedContextRefs).toEqual(chat.attachedContextRefs);
+      expect(request.body.toolPreferences.attachedContextRefs).toEqual(chat.attachedContextRefs);
+      expect(request.body.resolvedScopeSummary).toMatchObject({
+        scopeProjectIds: ids,
+        isWholeLibraryScope: wholeLibrary,
+      });
+    };
+    try {
+      const parent = screen.getByRole('checkbox', { name: folder.name });
+      const child = screen.getByRole('checkbox', { name: project.title });
+      await user.click(parent);
+      expect(child).toBeChecked();
+      expect(child).toBeDisabled();
+      expect(child).toHaveAccessibleDescription(
+        locale === 'it'
+          ? 'Incluso dalla cartella. Deseleziona la cartella per escluderlo.'
+          : 'Included by folder. Deselect the folder to exclude it.'
+      );
+      await assertSubmittedScope([project.id]);
+      const inheritedRefs = chat.attachedContextRefs;
+      await user.click(child);
+      act(() =>
+        chat.toggleAttachedContextRef({ id: project.id, kind: 'project', label: project.title })
+      );
+      expect(chat.attachedContextRefs).toBe(inheritedRefs);
+      await assertSubmittedScope([project.id]);
+      await user.click(parent);
+      expect(child).not.toBeChecked();
+      expect(child).toBeEnabled();
+      // With no attachments, the existing contract uses the whole library.
+      await assertSubmittedScope([project.id, secondProject.id], true);
+      await user.click(child);
+      expect(child).toBeChecked();
+      expect(child).toBeEnabled();
+      await assertSubmittedScope([project.id]);
+      // A child explicitly selected first becomes inherited when its folder is attached.
+      act(() =>
+        chat.toggleAttachedContextRef({ id: folder.id, kind: 'folder', label: folder.name })
+      );
+      expect(child).toBeChecked();
+      expect(child).toBeDisabled();
+      expect(chat.attachedContextRefs).toEqual([
+        { id: folder.id, kind: 'folder', label: folder.name },
+      ]);
+      await assertSubmittedScope([project.id]);
+      await user.click(parent);
+      expect(child).not.toBeChecked();
+      expect(child).toBeEnabled();
+      await assertSubmittedScope([project.id, secondProject.id], true);
+    } finally {
+      view.unmount();
+      setAccountLocale(null);
+    }
   });
 
   test('exposes a semantic new-course handoff requested by the library model', async () => {

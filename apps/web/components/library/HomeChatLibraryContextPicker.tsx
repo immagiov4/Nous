@@ -1,6 +1,6 @@
 import { Check, ChevronDown, ChevronRight, FileUp, Folder, FolderOpen, X } from 'lucide-react';
 import type { RefObject } from 'react';
-import { useMemo } from 'react';
+import { useId, useMemo } from 'react';
 import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { LibraryContextRef, LibraryTree, LibraryTreeNode } from '../../types.ts';
@@ -24,6 +24,7 @@ interface HomeChatLibraryContextPickerProps {
 interface LibraryContextTreeNodeProps {
   readonly attachedContextRefs: LibraryContextRef[];
   readonly attachedProjectIds: ReadonlySet<string>;
+  readonly inheritedProjectIds: ReadonlySet<string>;
   readonly depth?: number;
   readonly expandedFolderIds: ReadonlySet<string>;
   readonly node: LibraryTreeNode;
@@ -54,30 +55,35 @@ export const getAttachedContextProjectIds = (
 const LibraryContextTreeNode = ({
   attachedContextRefs,
   attachedProjectIds,
+  inheritedProjectIds,
   depth = 0,
   expandedFolderIds,
   node,
   onToggleContextRef,
   toggleFolderExpansion,
 }: LibraryContextTreeNodeProps) => {
+  const inheritedHintId = useId();
   const paddingLeft = 12 + depth * 18;
 
   if (node.kind === 'project') {
     const isSelected = attachedProjectIds.has(node.id);
+    const isInherited = inheritedProjectIds.has(node.id);
     return (
       <label
-        className="flex cursor-pointer items-start gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-gray-100/80 dark:hover:bg-stone-700/70"
+        className="flex cursor-pointer items-start gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-gray-100/80 has-[:disabled]:cursor-default dark:hover:bg-stone-700/70"
         style={{ paddingLeft }}
       >
         <span className="relative mt-0.5 h-5 w-5 shrink-0 rounded-md has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-orange-400">
           <input
             type="checkbox"
             checked={isSelected}
+            disabled={isInherited}
             aria-label={node.project.title}
+            aria-describedby={isInherited ? inheritedHintId : undefined}
             onChange={() =>
               onToggleContextRef({ id: node.id, kind: 'project', label: node.project.title })
             }
-            className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 focus-visible:outline-none"
+            className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 focus-visible:outline-none disabled:cursor-default"
           />
           <span
             aria-hidden="true"
@@ -104,6 +110,13 @@ const LibraryContextTreeNode = ({
                 total: node.project.lessonCount,
               }
             )}
+          </span>
+          <span
+            id={inheritedHintId}
+            hidden={!isInherited}
+            className="text-xs leading-5 text-gray-500 dark:text-zinc-400"
+          >
+            {t('Incluso dalla cartella. Deseleziona la cartella per escluderlo.')}
           </span>
         </span>
       </label>
@@ -178,6 +191,7 @@ const LibraryContextTreeNode = ({
               key={`${childNode.kind}-${childNode.id}`}
               attachedContextRefs={attachedContextRefs}
               attachedProjectIds={attachedProjectIds}
+              inheritedProjectIds={inheritedProjectIds}
               depth={depth + 1}
               expandedFolderIds={expandedFolderIds}
               node={childNode}
@@ -193,6 +207,7 @@ const LibraryContextTreeNode = ({
 const LibraryContextTree = ({
   attachedContextRefs,
   attachedProjectIds,
+  inheritedProjectIds,
   expandedFolderIds,
   isLibraryLoading,
   libraryTree,
@@ -215,6 +230,7 @@ const LibraryContextTree = ({
             key={`${node.kind}-${node.id}`}
             attachedContextRefs={attachedContextRefs}
             attachedProjectIds={attachedProjectIds}
+            inheritedProjectIds={inheritedProjectIds}
             expandedFolderIds={expandedFolderIds}
             node={node}
             onToggleContextRef={onToggleContextRef}
@@ -251,6 +267,14 @@ export default function HomeChatLibraryContextPicker({
     () => getAttachedContextProjectIds(attachedContextRefs, libraryTree),
     [attachedContextRefs, libraryTree]
   );
+  const inheritedProjectIds = useMemo(
+    () =>
+      getAttachedContextProjectIds(
+        attachedContextRefs.filter(reference => reference.kind === 'folder'),
+        libraryTree
+      ),
+    [attachedContextRefs, libraryTree]
+  );
 
   const uploadAction = (
     <button
@@ -280,6 +304,7 @@ export default function HomeChatLibraryContextPicker({
     <LibraryContextTree
       attachedContextRefs={attachedContextRefs}
       attachedProjectIds={attachedProjectIds}
+      inheritedProjectIds={inheritedProjectIds}
       expandedFolderIds={expandedFolderIds}
       isLibraryLoading={isLibraryLoading}
       libraryTree={libraryTree}
