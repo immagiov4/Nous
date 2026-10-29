@@ -16,6 +16,7 @@ import {
   type WorkspaceProjectLibraryAdapter,
 } from '../../../hooks/workspace/useWorkspaceController.ts';
 import { setRenderingLocaleOverride, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import * as debugTrace from '../../../services/core/debugTrace.ts';
 import * as feedbackDiagnostics from '../../../services/feedback/browserDiagnostics.ts';
 import type { CourseInterviewSnapshot } from '../../../services/openrouter/courseInterviewClient.ts';
 import {
@@ -4942,38 +4943,49 @@ test('startHomeChat failure never deletes the project selected while startup is 
 });
 
 test('startHomeChat preserves prepared sources when opening another project invalidates startup', async () => {
-  let rejectStart!: (error: Error) => void;
-  const pendingStart = new Promise<CourseInterviewSnapshot>((_resolve, reject) => {
-    rejectStart = reject;
-  });
-  const started = createDeferred();
-  const otherProject = createProjectSnapshot({
-    id: 'other-project',
-    state: AppState.READING,
-    learningPlan: buildPlan(),
-  });
-  const { controller, projectLibrary } = createControllerHarness({
-    openRouter: {
-      getActiveCourseInterview: async () => null,
-      startCourseInterview: async () => {
-        started.resolve();
-        return pendingStart;
+  const trace = vi.spyOn(debugTrace, 'pushNousDebugTrace');
+  try {
+    let rejectStart!: (error: Error) => void;
+    const pendingStart = new Promise<CourseInterviewSnapshot>((_resolve, reject) => {
+      rejectStart = reject;
+    });
+    const started = createDeferred();
+    const otherProject = createProjectSnapshot({
+      id: 'other-project',
+      state: AppState.READING,
+      learningPlan: buildPlan(),
+    });
+    const { controller, projectLibrary } = createControllerHarness({
+      openRouter: {
+        getActiveCourseInterview: async () => null,
+        startCourseInterview: async () => {
+          started.resolve();
+          return pendingStart;
+        },
       },
-    },
-    projectLibrary: { loadStoredProject: async () => otherProject },
-  });
-  const start = controller.startHomeChat({
-    input: 'Use these sources',
-    selectedFiles: [new File(['# Prepared notes'], 'notes.md', { type: 'text/markdown' })],
-  });
-  await started.promise;
-  const draft = projectLibrary.persistedSnapshots.at(-1);
-  assert(draft?.source?.sources?.length);
-  expect((await controller.openProject(otherProject.id)).outcome).toBe('opened');
-  rejectStart(new Error('404'));
-  expect((await start).outcome).toBe('abandoned');
-  expect(projectLibrary.deletedProjectIds).toEqual([]);
-  expect(projectLibrary.adapter.currentProjectId).toBe(otherProject.id);
+      projectLibrary: { loadStoredProject: async () => otherProject },
+    });
+    const start = controller.startHomeChat({
+      input: 'Use these sources',
+      selectedFiles: [new File(['# Prepared notes'], 'notes.md', { type: 'text/markdown' })],
+    });
+    await started.promise;
+    const draft = projectLibrary.persistedSnapshots.at(-1);
+    assert(draft?.source?.sources?.length);
+    expect((await controller.openProject(otherProject.id)).outcome).toBe('opened');
+    rejectStart(new ProjectStorageError('Private source detail', 'persistence-failed'));
+    expect((await start).outcome).toBe('abandoned');
+    expect(projectLibrary.deletedProjectIds).toEqual([]);
+    expect(projectLibrary.adapter.currentProjectId).toBe(otherProject.id);
+    expect(trace).toHaveBeenCalledWith('assessment:startup-failed', {
+      draftCleanup: 'skipped',
+      errorType: 'ProjectStorageError',
+      errorCode: 'persistence-failed',
+      projectId: draft.id,
+    });
+  } finally {
+    trace.mockRestore();
+  }
 });
 
 test('startHomeChat preserves a recoverable draft when interview ownership is uncertain', async () => {

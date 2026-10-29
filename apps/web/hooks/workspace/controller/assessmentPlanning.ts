@@ -1015,6 +1015,8 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     // Startup failure preserves prepared sources for retry; cancellation owns draft cleanup.
     pushNousDebugTrace('assessment:startup-failed', {
       draftCleanup: 'skipped',
+      errorType: error instanceof Error ? error.constructor.name : typeof error,
+      ...(error instanceof ProjectStorageError ? { errorCode: error.code } : {}),
       projectId: startState.draftProjectId,
     });
     if (isCurrent && projectLibrary.getCurrentProjectId() === startState.draftProjectId) {
