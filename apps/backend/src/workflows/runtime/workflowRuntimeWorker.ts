@@ -366,7 +366,18 @@ class WorkflowRuntimeWorker<Services> {
       deliveryError = error;
       deliveryFailed = true;
     }
-    if (await monitor.stop()) return false;
+    const interruption = await monitor.stop();
+    if (interruption) {
+      if (typeof interruption === 'object') {
+        emitWorkflowLog(this.input.logger ?? consoleWorkflowLogger, {
+          action: 'heartbeat-failed',
+          claim,
+          entity: 'notification',
+          failureDiagnostic: interruption.diagnostic,
+        });
+      }
+      return false;
+    }
 
     if (deliveryFailed) {
       await this.input.store.outbox.recordFailure({

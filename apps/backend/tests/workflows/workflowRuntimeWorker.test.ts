@@ -416,6 +416,60 @@ describe('workflow runtime worker', () => {
     await worker.stop();
   });
 
+  test.each([
+    false,
+    true,
+  ])('reports outbox heartbeat exceptions (configured logger: %s)', async configured => {
+    vi.useFakeTimers();
+    const output = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const events: WorkflowLogEvent[] = [];
+    const { registry } = registerStepWorkflow(async text => text);
+    const store = makeStore();
+    vi.mocked(store.outbox.claimNext).mockResolvedValueOnce(outboxClaim).mockResolvedValue(null);
+    vi.mocked(store.outbox.heartbeat).mockRejectedValueOnce(
+      Object.assign(new Error('private notification heartbeat token=secret'), {
+        code: 'ECONNRESET',
+      })
+    );
+    const delivery = Promise.withResolvers<void>();
+    const worker = createWorkflowRuntimeWorker({
+      deliverNotification: vi.fn(() => delivery.promise),
+      logger: configured ? { log: event => events.push(event) } : undefined,
+      onLoopError: vi.fn(),
+      pollIntervalMs: POLL_INTERVAL_MS,
+      reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
+      registry,
+      services: {},
+      store,
+      wakeSource: new FakeWakeSource(),
+      workerId: 'worker-1',
+    });
+    await worker.start();
+    await settleDrains();
+    await vi.advanceTimersByTimeAsync(DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS);
+    delivery.resolve();
+    await settleDrains();
+    await worker.stop();
+    const reported = configured ? events : output.mock.calls.map(([event]) => JSON.parse(event));
+    expect(reported).toEqual([
+      expect.objectContaining({
+        action: 'heartbeat-failed',
+        correlationId: outboxClaim.correlationId,
+        event: 'workflow.notification',
+        failureDiagnostic: { code: 'ECONNRESET', type: 'Error' },
+        fencingToken: outboxClaim.fencingToken,
+        notificationId: outboxClaim.id,
+        runId: outboxClaim.runId,
+      }),
+    ]);
+    if (configured) expect(output).not.toHaveBeenCalled();
+    expect(JSON.stringify(reported)).not.toContain('secret');
+    expect(JSON.stringify(reported)).not.toContain('private notification');
+    expect(store.outbox.markDelivered).not.toHaveBeenCalled();
+    expect(store.outbox.recordFailure).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   test('reschedules a failed durable notification without persisting private error text', async () => {
     const { registry } = registerStepWorkflow(async text => text);
     const store = makeStore();

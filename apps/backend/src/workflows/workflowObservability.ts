@@ -166,6 +166,7 @@ interface WorkflowNotificationLogEvent {
     | 'claimed'
     | 'dead-lettered'
     | 'delivered'
+    | 'heartbeat-failed'
     | 'lease-lost'
     | 'requeued'
     | 'retry-scheduled';
@@ -175,6 +176,7 @@ interface WorkflowNotificationLogEvent {
   readonly event: 'workflow.notification';
   readonly eventType: string;
   readonly failureCode?: string;
+  readonly failureDiagnostic?: WorkflowErrorDiagnostic;
   readonly failureKind?: StepFailure['kind'];
   readonly fencingToken: string;
   readonly level: WorkflowLogLevel;
@@ -321,6 +323,7 @@ interface WorkflowNotificationLogSource {
   readonly claim: WorkflowNotificationLogIdentity;
   readonly entity: 'notification';
   readonly failure?: StepFailure;
+  readonly failureDiagnostic?: WorkflowErrorDiagnostic;
   readonly retryDelayMs?: number;
 }
 
@@ -400,6 +403,7 @@ const NOTIFICATION_LEVEL_BY_ACTION = {
   claimed: 'info',
   'dead-lettered': 'error',
   delivered: 'info',
+  'heartbeat-failed': 'error',
   'lease-lost': 'error',
   requeued: 'warn',
   'retry-scheduled': 'warn',
@@ -567,6 +571,9 @@ const projectNotificationLogEvent = (
   event: 'workflow.notification',
   eventType: source.claim.eventType,
   ...failureFields(source.failure),
+  ...(source.failureDiagnostic
+    ? { failureDiagnostic: readWorkflowErrorDiagnostic(source.failureDiagnostic) }
+    : {}),
   fencingToken: source.claim.fencingToken,
   level: NOTIFICATION_LEVEL_BY_ACTION[source.action],
   notificationId: source.claim.id,
