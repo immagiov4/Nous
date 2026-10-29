@@ -1099,6 +1099,10 @@ router.delete('/import/chunks/:uploadId', async (req: Request, res: Response) =>
       res.status(202).json({ success: true, uploadStatus: status.status });
       return;
     }
+    console.info('[Projects] Import cancellation settled.', {
+      uploadId,
+      outcome: status?.status === 'completed' ? 'committed' : 'succeeded',
+    });
     res.status(204).end();
   } catch (error) {
     sendErrorResponse(
