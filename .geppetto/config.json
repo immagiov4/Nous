@@ -46,7 +46,9 @@
         "owner": "geppetto-measure-it",
         "evidence": ".geppetto/hook-events.jsonl",
         "status": "baseline/treatment comparison pending; not an activation threshold"
-      }
+      },
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": "medium"
     }
   },
   "memory": {
@@ -61,5 +63,9 @@
       "check:changed"
     ]
   },
-  "projectRules": "PROJECT_RULES.md"
+  "projectRules": "PROJECT_RULES.md",
+  "foundations": {
+    "documentation": "Existing Cubic feature pages under .cubic/wiki/03-section-features; command contracts in docs/TESTING.md.",
+    "observability": "PR Observability and ignored Geppetto hook-events, turns and review records; current-revision test and runtime evidence."
+  }
 }

@@ -31,6 +31,8 @@ Context is a budget: load the relevant owner through the map below. This file an
 
 ## Where to look
 
+For a fresh cloud environment, follow `docs/TESTING.md#cloud-codex-environment` before implementation. Use installed plugin skills: `$my-codex-skills:engineering-workflow` for execution and `$ponytail:ponytail` for the smallest complete change. Pstack principles remain explicitly invocable as `$my-codex-skills:principle-<name>`. In Codex, Geppetto skills use the `$geppetto:<skill-name>` namespace.
+
 Load a row when its condition applies. Skill names resolve through the harness's installed skill discovery; project paths below are rendered during adoption.
 
 | When | Where |
