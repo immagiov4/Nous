@@ -3,9 +3,16 @@ import { PostgresProjectAssetStore } from '../../src/projects/postgresProjectAss
 import {
   buildProjectAssetDescriptor,
   type ProjectAssetObjectStorage,
+  ProjectAssetStoreError,
 } from '../../src/projects/projectAsset.js';
 import { reconcileProjectAssets } from '../../src/projects/projectAssetReconciliation.js';
+import { ProjectSourceStorageError } from '../../src/projects/projectSourceStorage.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
+import {
+  parseStepFailure,
+  runWorkflowStage,
+  toStepFailure,
+} from '../../src/workflows/retryPolicy.js';
 
 const ASSET_ID = 'a'.repeat(64);
 const assetRef = {
@@ -122,6 +129,89 @@ describe('project asset reconciliation', () => {
 });
 
 describe('project asset staging', () => {
+  test.each([
+    false,
+    true,
+  ])('keeps scope-invalid primary when cleanup failure is %s', async cleanupFails => {
+    const input = {
+      bytes: new TextEncoder().encode('generated image'),
+      idempotencyKey: 'visual-image',
+      mediaType: 'image/png',
+      nodeInstanceId: 'root/render-visual',
+      projectId: 'project-1',
+      runId: 'run-1',
+      signal: new AbortController().signal,
+      userId: 'user-1',
+    };
+    const descriptor = buildProjectAssetDescriptor(input);
+    const transaction = vi.fn().mockResolvedValue([{ found: 1 }]);
+    const sql = {
+      begin: vi
+        .fn()
+        .mockImplementationOnce(async callback => {
+          transaction
+            .mockResolvedValueOnce([{ found: 1 }])
+            .mockResolvedValueOnce([{ found: 1 }])
+            .mockResolvedValueOnce([{ found: 1 }])
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([
+              {
+                byte_size: descriptor.byteSize,
+                content_hash: descriptor.hash,
+                id: descriptor.id,
+                idempotency_key: descriptor.idempotencyKey,
+                media_type: descriptor.mediaType,
+                node_instance_id: input.nodeInstanceId,
+                object_path: descriptor.objectPath,
+                origin_kind: 'workflow',
+                project_id: input.projectId,
+                state: 'staged',
+                user_id: input.userId,
+                workflow_run_id: input.runId,
+              },
+            ]);
+          return callback(transaction);
+        })
+        .mockImplementationOnce(async callback => callback(vi.fn().mockResolvedValue([]))),
+    };
+    const cleanupError = new ProjectSourceStorageError('delete-failed', 503, {
+      cause: new Error('token=private-token'),
+    });
+    const storage: ProjectAssetObjectStorage = {
+      upload: vi.fn().mockResolvedValue(undefined),
+      download: vi.fn(),
+      delete: cleanupFails
+        ? vi.fn().mockRejectedValue(cleanupError)
+        : vi.fn().mockResolvedValue(undefined),
+    };
+    const store = new PostgresProjectAssetStore(sql as never, storage);
+    const error = await store.stage(input).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ProjectAssetStoreError);
+    expect(error).toMatchObject({ code: 'scope-invalid' });
+    expect(storage.delete).toHaveBeenCalledWith(descriptor.objectPath);
+    expect(storage.upload).toHaveBeenCalledOnce();
+    if (cleanupFails) expect(error).toHaveProperty('cause', cleanupError);
+
+    const stageError = await runWorkflowStage({
+      failure: { code: 'asset_stage_failed', message: 'Asset staging failed.' },
+      operation: async () => {
+        throw error;
+      },
+      signal: input.signal,
+    }).catch((caught: unknown) => caught);
+    const failure = parseStepFailure(JSON.parse(JSON.stringify(toStepFailure(stageError))));
+    expect(failure).toMatchObject({
+      kind: 'operational',
+      details: { diagnostic: { code: 'scope-invalid', type: 'ProjectAssetStoreError' } },
+    });
+    if (cleanupFails) {
+      expect(failure.details?.diagnostic).toMatchObject({
+        cause: { code: 'delete-failed', status: 503, type: 'ProjectSourceStorageError' },
+      });
+      expect(JSON.stringify(failure)).not.toContain('private-token');
+    }
+  });
+
   test('commits recoverable metadata before upload while keeping project-run-asset lock order', async () => {
     const events: string[] = [];
     let transactionNumber = 0;
