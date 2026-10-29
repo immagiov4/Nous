@@ -115,9 +115,10 @@ fit.
    `git pull --ff-only` only when the worktree and branch make it safe and the user has authorized
    the pull. Never stash, discard, rebase, merge, or otherwise rewrite user work merely to obtain a
    pull. When the user asks to align local `main` and it carries uncommitted work, preserve it
-   first: write `git diff HEAD` to a patch in the run folder, commit it on a local
-   `backup/<topic>-<date>` branch, move conflicting untracked files into the run folder, and check
-   `git ls-files -v` for skip-worktree (`S`) files that hide local edits. Then `git switch main`
+   first: clear the flag on skip-worktree files (`git ls-files -v` shows `S`;
+   `git update-index --no-skip-worktree <file>`) so their hidden edits are included, write
+   `git diff HEAD` to a patch in the run folder, commit it on a local `backup/<topic>-<date>`
+   branch, and move conflicting untracked files into the run folder. Then `git switch main`
    and `git merge --ff-only origin/main`; confirm `git rev-parse main origin/main` match. Delegated work always branches from a fresh `origin/main`.
 5. Before a new task or non-trivial change, read the relevant `.cubic/wiki` pages and form a
    proportional semantic map: product concepts, systems, contracts, analogous mechanisms, and

@@ -17,12 +17,13 @@ orchestrate-nous-backlog; this file adds the authority and the finish line.
 2. **Ledger.** Create the run ledger with one row per work item (grouped by subsystem). Done when
    the file exists with every item and its lane.
 3. **Ask once.** Send every `interactive` and `brainstorm` decision in one batch with a recommended
-   option each, plus the desktop notice. Mark those rows `needs-user`.
+   option each, plus the desktop notice. Mark those rows `needs-user`, and mark `blocked` rows
+   with their named resume condition.
 4. **Dispatch.** Write the common brief, then start one Codex task per `autonomous` or
    `verification` group through the section 3 dispatch route, each with its Requirements map. A
    verification task proves the issue on current `main` and closes it with evidence
-   (`closed-noop`), or fixes it through the same PR loop. Done when every such row has an owner and
-   state `running`.
+   (`closed-noop`), or fixes it through the same PR loop. Done when every such row is `running` with an
+   owner, or `queued` behind the active-task limit.
 5. **Loop.** At every task notification, CI or review result, or user answer: read the ledger,
    handle the event (review the diff or PR, revive a stalled task, dispatch answered or queued items
    into freed capacity), and update the row. Run the orchestration health check at least every 20
