@@ -892,7 +892,7 @@ describe('useLibraryAssistantChat', () => {
           artifactId: replacementArtifact.summary.id,
           replacementOfArtifactId: sourceArtifact.summary.id,
         })
-      ).toEqual({ succeeded: false, error: 'Replacement failed' });
+      ).toEqual({ succeeded: false, error: "Non sono riuscito a sostituire l'artefatto." });
     });
     expect(
       result.current.replacementDraftPayloads.some(
@@ -929,7 +929,10 @@ describe('useLibraryAssistantChat', () => {
       />
     );
     fireEvent.click(screen.getByRole('button', { name: /Sostituisci artefatto/i }));
-    expect(await screen.findByText('Replacement failed')).toBeInTheDocument();
+    expect(
+      await screen.findByText("Non sono riuscito a sostituire l'artefatto.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Replacement failed')).toBeNull();
     expect(screen.queryByText('Artefatto sostituito.')).toBeNull();
 
     expect(

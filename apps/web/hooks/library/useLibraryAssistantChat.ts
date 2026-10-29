@@ -605,7 +605,9 @@ export const useLibraryAssistantChat = ({
     if (result.replaced) {
       discardLearningArtifact({ artifactId });
     }
-    return { succeeded: result.replaced, error: result.error };
+    return result.replaced
+      ? { succeeded: true }
+      : { succeeded: false, error: t("Non sono riuscito a sostituire l'artefatto.") };
   };
 
   return {
