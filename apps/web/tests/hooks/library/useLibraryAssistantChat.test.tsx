@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import type { UIMessage } from 'ai';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import ChatArtifactRenderer from '../../../components/shared/ChatArtifactRenderer.tsx';
 
 const useChatMock = vi.fn();
@@ -63,6 +63,7 @@ const { useLibraryAssistantChat } = await import(
 );
 
 describe('useLibraryAssistantChat', () => {
+  afterEach(() => vi.restoreAllMocks());
   beforeEach(() => {
     useChatMock.mockReset();
     addToolOutputMock.mockReset();
@@ -909,9 +910,10 @@ describe('useLibraryAssistantChat', () => {
       ).toEqual({ succeeded: true });
     });
     expect(result.current.replacementDraftPayloads).toHaveLength(0);
+    const diagnosticLog = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     replaceLessonGeneratedVisual.mockResolvedValue({
       replaced: false,
-      error: 'Replacement failed',
+      error: 'Replacement failed; secret=private-token user@example.test',
     });
     // Regenerate a recoverable draft before exercising the renderer boundary.
     await act(async () => {
@@ -933,6 +935,12 @@ describe('useLibraryAssistantChat', () => {
       await screen.findByText("Non sono riuscito a sostituire l'artefatto.")
     ).toBeInTheDocument();
     expect(screen.queryByText('Replacement failed')).toBeNull();
+    expect(diagnosticLog).toHaveBeenCalledWith(
+      '[Nous][Library] Artifact replacement failed.',
+      'Replacement failed; secret=[RIMOSSO] [EMAIL RIMOSSA]'
+    );
+    expect(JSON.stringify(diagnosticLog.mock.calls)).not.toContain('private-token');
+    expect(JSON.stringify(diagnosticLog.mock.calls)).not.toContain('user@example.test');
     expect(screen.queryByText('Artefatto sostituito.')).toBeNull();
 
     expect(

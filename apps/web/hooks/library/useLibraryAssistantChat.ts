@@ -13,6 +13,7 @@ import type {
 } from '../../components/shared/ChatArtifactRenderer.tsx';
 import { getAppLocale, translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { fetchWithSupabaseAuth } from '../../services/auth/supabaseAuth.ts';
+import { sanitizeFeedbackDiagnosticText } from '../../services/feedback/browserDiagnostics.ts';
 import {
   executeLibraryAssistantTool,
   LIBRARY_ASSISTANT_TOOL_NAMES,
@@ -604,6 +605,11 @@ export const useLibraryAssistantChat = ({
     });
     if (result.replaced) {
       discardLearningArtifact({ artifactId });
+    } else {
+      console.warn(
+        '[Nous][Library] Artifact replacement failed.',
+        sanitizeFeedbackDiagnosticText(result.error || 'No replacement diagnostic available.')
+      );
     }
     return result.replaced
       ? { succeeded: true }
