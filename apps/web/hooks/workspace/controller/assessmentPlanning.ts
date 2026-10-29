@@ -743,7 +743,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
   }): Promise<HomeChatStartResult> => {
     await waitForPendingWorkspaceOpen(workspaceOwnership);
     if (!workspaceOwnership.cancellationRequested) {
-      return { outcome: 'abandoned', sourceWarnings: startState.sourceWarnings };
+      return { outcome: 'abandoned' };
     }
     const currentProjectId = projectLibrary.getCurrentProjectId();
     const draftProjectId = startState.draftProjectId;

@@ -5316,6 +5316,47 @@ test('startHomeChat preserves prepared sources when opening another project inva
   }
 });
 
+test('navigation-abandoned startup suppresses prepared source warnings', async () => {
+  const started = createDeferred();
+  const finishStart = createDeferred();
+  const other = createProjectSnapshot({
+    id: 'other-course',
+    state: AppState.READING,
+    learningPlan: buildPlan(),
+  });
+  const prepared = preparedSourceSet([
+    { path: 'notes.txt', contentKind: 'text', preview: 'Usable notes' },
+    { path: 'scanned.pdf', contentKind: 'binary' },
+  ]);
+  const { controller, projectLibrary } = createControllerHarness({
+    projectLibrary: {
+      loadStoredProject: async () => other,
+      persistSnapshot: async snapshot => ({
+        meta: buildMeta(snapshot.id),
+        snapshot: { ...snapshot, source: prepared },
+      }),
+    },
+    openRouter: {
+      getActiveCourseInterview: async () => null,
+      startCourseInterview: async input => {
+        started.resolve();
+        await finishStart.promise;
+        return createInterviewSnapshot({ projectId: input.projectId });
+      },
+    },
+  });
+  const starting = controller.startHomeChat({
+    input: 'Teach these materials',
+    selectedFile: new File(['archive'], 'materials.zip', { type: 'application/zip' }),
+  });
+  await started.promise;
+  expect((await controller.openProject(other.id)).outcome).toBe('opened');
+  finishStart.resolve();
+  expect(await starting).toEqual({ outcome: 'abandoned' });
+  expect(projectLibrary.deletedProjectIds).toEqual([]);
+  expect(projectLibrary.adapter.currentProjectId).toBe(other.id);
+});
+
 test('startHomeChat preserves a recoverable draft when interview ownership is uncertain', async () => {
   let activeLookupCount = 0;
   const { controller, projectLibrary } = createControllerHarness({
