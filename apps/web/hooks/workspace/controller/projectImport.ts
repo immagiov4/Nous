@@ -1,3 +1,4 @@
+import { warnImportRefreshFailed } from '../../../services/projects/libraryArchiveDiagnostics.ts';
 import {
   hasZipFileSignature,
   inspectProjectArchiveData,
@@ -129,7 +130,12 @@ export const importProjectBackupFile = async (
     context.persistHydratedSnapshot(preparedSnapshot);
     didHydrateImportedSnapshot = true;
     await context.projectLibrary.touchStoredProject(preparedSnapshot.id);
-    await context.projectLibrary.refreshLibraryState();
+    try {
+      await context.projectLibrary.refreshLibraryState({ afterImport: true });
+    } catch (refreshError) {
+      // The import is committed; a failed library read must never undo it.
+      warnImportRefreshFailed(refreshError);
+    }
 
     return preparedSnapshot;
   } catch (error) {
