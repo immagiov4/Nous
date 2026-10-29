@@ -144,9 +144,13 @@ export const useWorkspaceFileActions = ({
         return;
       }
 
-      await deleteProject(projectId);
+      try {
+        await deleteProject(projectId);
+      } catch {
+        notify(t('Eliminazione del corso non riuscita. Riprova.'));
+      }
     },
-    [confirmProjectDelete, deleteProject, savedProjects]
+    [confirmProjectDelete, deleteProject, notify, savedProjects]
   );
 
   const handleAttachSourceFile = useCallback(() => {

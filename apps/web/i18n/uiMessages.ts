@@ -15,6 +15,9 @@ export type AppLocale = (typeof SUPPORTED_APP_LOCALES)[number];
 export const ANNOTATION_PROJECTION_ERROR_MESSAGE =
   'Alcune evidenziazioni salvate non sono visibili in questo testo. Le note sono conservate.';
 
+export const SOURCE_LIBRARY_LOAD_ERROR_MESSAGE =
+  'Caricamento delle fonti non riuscito. Alcune fonti potrebbero mancare. Ricarica la pagina.';
+
 export const SURFACE_ERROR_MESSAGES = {
   chat: 'La chat non è disponibile. Ricarica la pagina.',
   reader: 'La lezione non è disponibile. Ricarica la pagina.',
@@ -45,6 +48,10 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 };
 
 const ENGLISH_UI_MESSAGES = {
+  [SOURCE_LIBRARY_LOAD_ERROR_MESSAGE]:
+    'Sources could not be loaded. Some sources may be missing. Reload the page.',
+  'Eliminazione del corso non riuscita. Riprova.': 'Course deletion failed. Try again.',
+  'Modifica dei preferiti non riuscita. Riprova.': 'Could not update favorites. Try again.',
   [PDF_SCANNED_PAGE_LIMIT_MESSAGE]:
     'There is too much scanned material for one course. Select only the parts you need.',
   'Pagine {from}–{to} trascritte in qualità ridotta.':

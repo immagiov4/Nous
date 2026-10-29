@@ -185,3 +185,16 @@ test('keeps the requested reattachment mode while overlapping ZIP inspections fi
     inspection.mockRestore();
   }
 });
+
+test('handles confirmed deletion failure with action-specific feedback', async () => {
+  const notify = vi.fn();
+  const deleteProject = vi.fn().mockRejectedValue(new Error('private deletion detail'));
+  const { result } = renderHook(() =>
+    useWorkspaceFileActions(buildHookArgs({ deleteProject, notify }))
+  );
+  await act(async () => {
+    await expect(result.current.handleDeleteProject('project-1')).resolves.toBeUndefined();
+  });
+  expect(deleteProject).toHaveBeenCalledWith('project-1');
+  expect(notify).toHaveBeenCalledExactlyOnceWith('Eliminazione del corso non riuscita. Riprova.');
+});
