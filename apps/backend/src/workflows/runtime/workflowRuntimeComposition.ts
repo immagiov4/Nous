@@ -40,6 +40,7 @@ import {
   createPreviousControlsCourseGenerationWorkflow,
   createPreviousCourseGenerationWorkflow,
   createPreviousDiagnosticCourseGenerationWorkflow,
+  createPreviousFailureDiagnosticsCourseGenerationWorkflow,
   createPreviousPreferencesCourseGenerationWorkflow,
   createPreviousRoutingCourseGenerationWorkflow,
   createPreviousVerificationCriteriaCourseGenerationWorkflow,
@@ -169,7 +170,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 7;
+export const WORKFLOW_SET_VERSION = 8;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -539,6 +540,15 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: courseWorkflow,
     previous: [
+      createPreviousFailureDiagnosticsCourseGenerationWorkflow({
+        maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+        models,
+        timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+      }),
+      createPreviousFailureDiagnosticsCourseGenerationWorkflow(
+        historicalGenerationDefaults,
+        historicalModelConfigSchema
+      ),
       createPreviousVerificationCriteriaCourseGenerationWorkflow({
         maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
         models,
