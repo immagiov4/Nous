@@ -5,6 +5,8 @@ import { CodexAppServerError } from '../../src/services/codexAppServer.js';
 import {
   buildResearchDossier,
   generateLessonResearchSummary,
+  normalizeResearchedWebSources,
+  selectLessonSources,
   shouldGenerateLessonResearch,
 } from '../../src/services/lessonGenerationResearch.js';
 import type { LessonGenerationInput } from '../../src/services/lessonGenerationTypes.js';
@@ -53,6 +55,87 @@ const youtubeOutcome = {
 };
 
 describe('lesson research routing', () => {
+  test.each([
+    { urls: ['not-a-url'], factualSummary: '', usable: 0 },
+    { urls: ['ftp://example.com/reference'], factualSummary: ' \n ', usable: 0 },
+    { urls: ['https://example.com/reference'], factualSummary: '', usable: 1 },
+    { urls: ['not-a-url', 'https://example.com/reference'], factualSummary: '', usable: 1 },
+    { urls: ['not-a-url'], factualSummary: 'Verified facts', usable: 0 },
+  ])('requires evidence surviving web normalization: $urls / $factualSummary', async scenario => {
+    const summary = {
+      ...researchSummary,
+      factualSummary: scenario.factualSummary,
+      sources: scenario.urls.map(url => ({ url, title: 'Reference', note: 'Evidence' })),
+    };
+    const input = generationInput({
+      researchRouting: {
+        suppliedSourcesSufficient: false,
+        rationale: 'Required facts',
+        channels: [{ type: 'web', selected: true, rationale: 'Facts' }],
+      },
+    });
+    const args = {
+      existingDossier: null,
+      generationInput: input,
+      research: vi.fn().mockResolvedValue(summary),
+      youtubeOutcome: null,
+    };
+    expect(normalizeResearchedWebSources(summary)).toHaveLength(scenario.usable);
+    if (scenario.usable === 0 && !scenario.factualSummary.trim()) {
+      await expect(generateLessonResearchSummary(args)).rejects.toMatchObject({
+        failure: { kind: 'corrective', code: 'research_web_evidence_missing' },
+      });
+    } else {
+      await expect(generateLessonResearchSummary(args)).resolves.toBe(summary);
+    }
+    if (!input.researchRouting) throw new Error('Missing test routing');
+    input.researchRouting.suppliedSourcesSufficient = true;
+    await expect(generateLessonResearchSummary(args)).resolves.toBe(summary);
+  });
+
+  test.each([
+    'rejected',
+    'selected-source',
+  ] as const)('counts only selected video evidence: %s', async decision => {
+    const summary = {
+      ...researchSummary,
+      factualSummary: '',
+      sources: [{ url: 'not-a-url', title: 'Invalid citation', note: '' }],
+      youtubeCandidateDecisions: [
+        { decision, reason: 'Classification', url: youtubeOutcome.videoCandidates[0].url },
+      ],
+    };
+    const selected = selectLessonSources({
+      discoveredYoutubeSources: youtubeOutcome.videoCandidates,
+      existingSources: [],
+      originalSources: [],
+      researchSummary: summary,
+    });
+    expect(selected).toHaveLength(decision === 'selected-source' ? 1 : 0);
+    const result = generateLessonResearchSummary({
+      existingDossier: null,
+      generationInput: generationInput({
+        researchRouting: {
+          suppliedSourcesSufficient: false,
+          rationale: 'Required evidence',
+          channels: [
+            { type: 'web', selected: true, rationale: 'Facts' },
+            { type: 'youtube', selected: true, rationale: 'Demonstration' },
+          ],
+        },
+      }),
+      research: vi.fn().mockResolvedValue(summary),
+      youtubeOutcome,
+    });
+    if (decision === 'rejected') {
+      await expect(result).rejects.toMatchObject({
+        failure: { kind: 'permanent', code: 'research_evidence_missing' },
+      });
+    } else {
+      await expect(result).resolves.toBe(summary);
+    }
+  });
+
   test.each([
     'empty',
     'web',
