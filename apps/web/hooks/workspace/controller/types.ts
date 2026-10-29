@@ -148,7 +148,7 @@ export interface WorkspaceProjectLibraryAdapter {
     options?: ProjectPersistenceOptions
   ) => Promise<ProjectSaveResult | null>;
   refreshLibraryOrganization: () => Promise<void>;
-  refreshLibraryState: () => Promise<void>;
+  refreshLibraryState: (options?: { afterImport?: boolean }) => Promise<void>;
   refreshSavedProjects: () => Promise<void>;
   renameFolder: (folderId: string, name: string) => Promise<LibraryFolder | null>;
   saveCurrentProject: (
