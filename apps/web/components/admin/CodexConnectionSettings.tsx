@@ -1,5 +1,5 @@
 import { ExternalLink, Link2, Unplug } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
@@ -20,30 +20,37 @@ export default function CodexConnectionSettings() {
   const [codexStatus, setCodexStatus] = useState<CodexProviderStatus | null>(null);
   const [login, setLogin] = useState<CodexDeviceLogin | null>(null);
   const [isPending, setIsPending] = useState(false);
+  const statusGeneration = useRef(0);
   const [errorMessage, setErrorMessage] = useState('');
 
   const applyCodexStatus = useCallback((status: CodexProviderStatus) => {
     setCodexStatus(status);
     if (status.account?.type) {
+      statusGeneration.current += 1;
       setLogin(null);
     }
   }, []);
 
-  const refreshCodexStatus = useCallback(async () => {
-    applyCodexStatus(await loadCodexProviderStatus());
-  }, [applyCodexStatus]);
+  const refreshCodexStatus = useCallback(
+    async (generation: number) => {
+      const status = await loadCodexProviderStatus();
+      if (generation === statusGeneration.current) applyCodexStatus(status);
+    },
+    [applyCodexStatus]
+  );
 
   useEffect(() => {
     let isActive = true;
+    const generation = statusGeneration.current;
     void loadCodexProviderStatus()
       .then(status => {
-        if (isActive) {
+        if (isActive && generation === statusGeneration.current) {
           applyCodexStatus(status);
         }
       })
       .catch(error => {
         console.error('[Nous][Codex] Provider status failed.', error);
-        if (isActive) {
+        if (isActive && generation === statusGeneration.current) {
           if (isCodexAccessDenied(error)) {
             applyCodexStatus({ account: null, enabled: false, models: [] });
           } else {
@@ -53,6 +60,7 @@ export default function CodexConnectionSettings() {
       });
     return () => {
       isActive = false;
+      statusGeneration.current += 1;
     };
   }, [applyCodexStatus]);
 
@@ -60,8 +68,9 @@ export default function CodexConnectionSettings() {
     if (!login) {
       return;
     }
+    const generation = statusGeneration.current;
     const interval = globalThis.window.setInterval(() => {
-      void refreshCodexStatus().catch(error =>
+      void refreshCodexStatus(generation).catch(error =>
         console.error('[Nous][Codex] Login status refresh failed.', error)
       );
     }, CODEX_STATUS_POLL_MS);
@@ -69,6 +78,7 @@ export default function CodexConnectionSettings() {
   }, [login, refreshCodexStatus]);
 
   const handleConnect = async () => {
+    statusGeneration.current += 1;
     setIsPending(true);
     setErrorMessage('');
     try {
@@ -82,6 +92,7 @@ export default function CodexConnectionSettings() {
   };
 
   const handleCancel = async () => {
+    statusGeneration.current += 1;
     if (!login?.loginId) {
       setLogin(null);
       return;
@@ -93,6 +104,7 @@ export default function CodexConnectionSettings() {
       setLogin(null);
     } catch (error) {
       console.error('[Nous][Codex] Login cancellation failed.', error);
+      setLogin({ ...login });
       setErrorMessage(t('Annullamento della connessione non riuscito. Riprova.'));
     } finally {
       setIsPending(false);
@@ -100,6 +112,7 @@ export default function CodexConnectionSettings() {
   };
 
   const handleDisconnect = async () => {
+    statusGeneration.current += 1;
     setIsPending(true);
     setErrorMessage('');
     try {
