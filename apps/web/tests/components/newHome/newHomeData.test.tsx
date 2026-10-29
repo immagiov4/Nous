@@ -112,14 +112,17 @@ describe('new home favorites', () => {
   });
 
   test.each([
-    { error: new TypeError('private network detail'), diagnostic: { errorType: 'TypeError' } },
+    {
+      error: new TypeError('private network detail'),
+      diagnostic: { errorType: 'TypeError', code: 'unknown', httpStatus: undefined },
+    },
     {
       error: new ProjectStorageError('private repository detail', 'persistence-failed', {
         status: 503,
       }),
       diagnostic: {
         errorType: 'ProjectStorageError',
-        errorCode: 'persistence-failed',
+        code: 'persistence-failed',
         httpStatus: 503,
       },
     },
@@ -197,7 +200,7 @@ describe('new home favorites', () => {
     expect(notify).not.toHaveBeenCalled();
     expect(diagnostic).toHaveBeenCalledExactlyOnceWith('[Nous][Library] Favorite update failed.', {
       errorType: 'ProjectStorageError',
-      errorCode: 'project-deleted',
+      code: 'project-deleted',
       httpStatus: undefined,
     });
     diagnostic.mockRestore();
@@ -223,6 +226,39 @@ describe('new home favorites', () => {
 });
 
 describe('new home source library', () => {
+  test.each([
+    {
+      error: new TypeError('private network detail'),
+      diagnostic: { errorType: 'TypeError', code: 'unknown', httpStatus: undefined },
+    },
+    {
+      error: new ProjectStorageError('private storage detail', 'persistence-failed', {
+        status: 503,
+      }),
+      diagnostic: { errorType: 'ProjectStorageError', code: 'persistence-failed', httpStatus: 503 },
+    },
+  ])('records sanitized source-load diagnostics ($diagnostic.errorType)', async ({
+    error,
+    diagnostic,
+  }) => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const projects = [buildProject(1)];
+    const loadProjectsById = vi.fn().mockRejectedValue(error);
+    try {
+      const { result } = renderHook(() =>
+        useSourceLibrary({ enabled: true, projects, loadProjectsById })
+      );
+      await waitFor(() => expect(result.current.hasLoadError).toBe(true));
+      expect(log).toHaveBeenCalledExactlyOnceWith(
+        '[Nous][Library] Source load failed.',
+        diagnostic
+      );
+      expect(JSON.stringify(log.mock.calls)).not.toContain('private');
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   test('drops previous source files when the first refreshed batch fails after source replacement', async () => {
     const project = buildProject(1);
     const snapshot = {

@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { ensureProjectCover } from '../../services/projects/courseCover.ts';
 import { getCourseSourceDescriptors } from '../../services/projects/courseSources.ts';
-import { ProjectStorageError } from '../../services/projects/projectRepository.ts';
+import {
+  getProjectStorageErrorDiagnostic,
+  ProjectStorageError,
+} from '../../services/projects/projectRepository.ts';
 import type {
   CourseSourceDescriptor,
   FileData,
@@ -40,12 +43,10 @@ export const useFavoriteProjectIds = (
       pendingFavoriteWrites.current.add(projectId);
       void setProjectFavorite(projectId, !project.isFavorite)
         .catch(error => {
-          console.error('[Nous][Library] Favorite update failed.', {
-            errorType: error instanceof Error ? error.name : typeof error,
-            ...(error instanceof ProjectStorageError
-              ? { errorCode: error.code, httpStatus: error.httpStatus }
-              : {}),
-          });
+          console.error(
+            '[Nous][Library] Favorite update failed.',
+            getProjectStorageErrorDiagnostic(error)
+          );
           // Remote deletion already has an app-level notification.
           if (error instanceof ProjectStorageError && error.code === 'project-deleted') return;
           notifyError?.(t('Modifica dei preferiti non riuscita. Riprova.'));
@@ -212,8 +213,12 @@ export const useSourceLibrary = ({
           );
           setItems([...collectedItems]);
         }
-      } catch {
+      } catch (error) {
         if (isCurrent) {
+          console.error(
+            '[Nous][Library] Source load failed.',
+            getProjectStorageErrorDiagnostic(error)
+          );
           setItems([...collectedItems]);
           setHasLoadError(true);
         }
