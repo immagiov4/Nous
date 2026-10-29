@@ -111,6 +111,43 @@ describe('new home favorites', () => {
     expect(notify).toHaveBeenCalledExactlyOnceWith('Modifica dei preferiti non riuscita. Riprova.');
   });
 
+  test.each([
+    { error: new TypeError('private network detail'), diagnostic: { errorType: 'TypeError' } },
+    {
+      error: new ProjectStorageError('private repository detail', 'persistence-failed', {
+        status: 503,
+      }),
+      diagnostic: {
+        errorType: 'ProjectStorageError',
+        errorCode: 'persistence-failed',
+        httpStatus: 503,
+      },
+    },
+  ])('retains sanitized favorite-write diagnostics ($diagnostic.errorType)', async ({
+    error,
+    diagnostic,
+  }) => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const notify = vi.fn();
+    const setProjectFavorite = vi.fn().mockRejectedValue(error);
+    try {
+      const { result } = renderHook(() =>
+        useFavoriteProjectIds([buildProject(1)], setProjectFavorite, notify)
+      );
+      await act(async () => result.current.toggleFavoriteProject('project-1'));
+      expect(log).toHaveBeenCalledExactlyOnceWith(
+        '[Nous][Library] Favorite update failed.',
+        diagnostic
+      );
+      expect(notify).toHaveBeenCalledExactlyOnceWith(
+        'Modifica dei preferiti non riuscita. Riprova.'
+      );
+      expect(JSON.stringify(log.mock.calls)).not.toContain('private');
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   test('leaves remote-deletion feedback to the existing app notification', async () => {
     const projects = [buildProject(1)];
     const notify = vi.fn();

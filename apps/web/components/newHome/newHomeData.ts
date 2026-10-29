@@ -39,6 +39,12 @@ export const useFavoriteProjectIds = (
       void setProjectFavorite(projectId, !project.isFavorite).catch(error => {
         // Remote deletion already has an app-level notification.
         if (error instanceof ProjectStorageError && error.code === 'project-deleted') return;
+        console.error('[Nous][Library] Favorite update failed.', {
+          errorType: error instanceof Error ? error.name : typeof error,
+          ...(error instanceof ProjectStorageError
+            ? { errorCode: error.code, httpStatus: error.httpStatus }
+            : {}),
+        });
         notifyError?.(t('Modifica dei preferiti non riuscita. Riprova.'));
       });
     },
