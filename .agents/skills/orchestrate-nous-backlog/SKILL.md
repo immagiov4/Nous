@@ -164,8 +164,10 @@ evidence-backed issue instead of hiding it in a documentation patch.
 
 ## Run ledger
 
-The ledger is the orchestrator's memory of the batch. Create it before the first dispatch at
-`C:/Users/giovb/nous-work/<run>/ledger.md`, one row per work item:
+The ledger is the orchestrator's memory of the batch. Create it before the first dispatch as
+`<run>/ledger.md`, where `<run>` is the batch folder under the host's agent work root
+(`C:/Users/giovb/nous-work/` on the maintainer's machine; a temporary directory outside the
+checkout elsewhere). Keep one row per work item:
 
 | Item | Issues | Lane | Owner | Branch | PR | State | Next action | Updated |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |

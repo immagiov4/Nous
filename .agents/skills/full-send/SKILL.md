@@ -12,15 +12,17 @@ open non-draft PRs, fix genuine review findings, and merge once that skill's mer
 orchestrate-nous-backlog; this file adds the authority and the finish line.
 
 1. **Scope.** Take the issues the user named, or the newest batch they referred to. Run
-   orchestrate-nous-backlog sections 1-2: current state, local `main` aligned with `origin/main`,
-   issue map, lanes. Done when every selected issue has a lane.
+   orchestrate-nous-backlog sections 1-2: current state, fresh `origin/main` (local `main` is
+   aligned only when the user asks), issue map, lanes. Done when every selected issue has a lane.
 2. **Ledger.** Create the run ledger with one row per work item (grouped by subsystem). Done when
    the file exists with every item and its lane.
 3. **Ask once.** Send every `interactive` and `brainstorm` decision in one batch with a recommended
    option each, plus the desktop notice. Mark those rows `needs-user`.
-4. **Dispatch.** Write the common brief, then start one Codex task per autonomous group through the
-   section 3 dispatch route, each with its Requirements map. Done when every autonomous row has an
-   owner and state `running`.
+4. **Dispatch.** Write the common brief, then start one Codex task per `autonomous` or
+   `verification` group through the section 3 dispatch route, each with its Requirements map. A
+   verification task proves the issue on current `main` and closes it with evidence
+   (`closed-noop`), or fixes it through the same PR loop. Done when every such row has an owner and
+   state `running`.
 5. **Loop.** At every task notification, CI or review result, or user answer: read the ledger,
    handle the event (review the diff or PR, revive a stalled task, dispatch answered or queued items
    into freed capacity), and update the row. Run the orchestration health check at least every 20
