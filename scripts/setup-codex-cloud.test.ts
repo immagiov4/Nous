@@ -104,7 +104,7 @@ test('installs the requested packs and scopes trust to their installed hook file
     expect(calls).toContainEqual(['codex', ['plugin', 'add', `${name}@${name}`, '--json']]);
   }
   for (const [repository, ref] of [
-    ['immagiov4/my-codex-skills', '56439c4acd74242136d4573190e7b9ece59223be'],
+    ['immagiov4/my-codex-skills', 'ba2d9376617439437db32982c58b4db8a8fbfdce'],
     ['DietrichGebert/ponytail', '96608e078b2d5ea607c5c3b8b5a54d1c1fba6846'],
   ])
     expect(calls).toContainEqual([
