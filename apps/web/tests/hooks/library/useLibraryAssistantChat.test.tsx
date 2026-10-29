@@ -682,11 +682,13 @@ describe('useLibraryAssistantChat', () => {
       await user.click(parent);
       expect(child).not.toBeChecked();
       expect(child).toBeEnabled();
+      expect(child).not.toHaveAccessibleDescription();
       // With no attachments, the existing contract uses the whole library.
       await assertSubmittedScope([project.id, secondProject.id], true);
       await user.click(child);
       expect(child).toBeChecked();
       expect(child).toBeEnabled();
+      expect(child).not.toHaveAccessibleDescription();
       await assertSubmittedScope([project.id]);
       // A child explicitly selected first becomes inherited when its folder is attached.
       act(() =>
@@ -694,6 +696,11 @@ describe('useLibraryAssistantChat', () => {
       );
       expect(child).toBeChecked();
       expect(child).toBeDisabled();
+      expect(child).toHaveAccessibleDescription(
+        locale === 'it'
+          ? 'Incluso dalla cartella. Deseleziona la cartella per escluderlo.'
+          : 'Included by folder. Deselect the folder to exclude it.'
+      );
       expect(chat.attachedContextRefs).toEqual([
         { id: folder.id, kind: 'folder', label: folder.name },
       ]);

@@ -70,7 +70,7 @@ const LibraryContextTreeNode = ({
     const isInherited = inheritedProjectIds.has(node.id);
     return (
       <label
-        className="flex cursor-pointer items-start gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-gray-100/80 has-[:disabled]:cursor-default dark:hover:bg-stone-700/70"
+        className="flex cursor-pointer items-start gap-3 rounded-2xl px-3 py-2 transition-colors has-[:disabled]:cursor-not-allowed has-[:enabled]:hover:bg-gray-100/80 dark:has-[:enabled]:hover:bg-stone-700/70"
         style={{ paddingLeft }}
       >
         <span className="relative mt-0.5 h-5 w-5 shrink-0 rounded-md has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-orange-400">
@@ -83,11 +83,11 @@ const LibraryContextTreeNode = ({
             onChange={() =>
               onToggleContextRef({ id: node.id, kind: 'project', label: node.project.title })
             }
-            className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 focus-visible:outline-none disabled:cursor-default"
+            className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 focus-visible:outline-none disabled:cursor-not-allowed"
           />
           <span
             aria-hidden="true"
-            className={`flex h-full w-full items-center justify-center rounded-md border transition-colors ${
+            className={`flex h-full w-full items-center justify-center rounded-md border transition-colors peer-disabled:border-stone-300 peer-disabled:bg-stone-200 peer-disabled:text-stone-400 dark:peer-disabled:border-zinc-600 dark:peer-disabled:bg-zinc-700 dark:peer-disabled:text-zinc-500 ${
               isSelected
                 ? 'border-[#b45c28] bg-[#b45c28] text-white dark:border-[#e4a477] dark:bg-[#e4a477] dark:text-stone-950'
                 : 'border-stone-300 bg-white text-transparent dark:border-zinc-500 dark:bg-stone-800'
@@ -111,11 +111,7 @@ const LibraryContextTreeNode = ({
               }
             )}
           </span>
-          <span
-            id={inheritedHintId}
-            hidden={!isInherited}
-            className="text-xs leading-5 text-gray-500 dark:text-zinc-400"
-          >
+          <span id={inheritedHintId} className="sr-only">
             {t('Incluso dalla cartella. Deseleziona la cartella per escluderlo.')}
           </span>
         </span>
