@@ -690,6 +690,41 @@ describe('useProjectLibrary', () => {
     expect(repositoryMocks.deleteProject).not.toHaveBeenCalled();
   });
 
+  test('returns a committed legacy import when its own library reload fails', async () => {
+    const snapshot = buildSnapshot('legacy-committed');
+    const stored = new Map<string, ProjectSnapshot>();
+    repositoryMocks.importProject.mockImplementationOnce(async () => {
+      stored.set(snapshot.id, snapshot);
+      return { snapshot, meta: buildMeta(snapshot.id, snapshot.updatedAt) };
+    });
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    repositoryMocks.listProjects.mockRejectedValueOnce(
+      new ProjectStorageError('private response body', 'persistence-failed', { status: 401 })
+    );
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await act(async () => {
+        await expect(result.current.importProjectData(snapshot)).resolves.toMatchObject({
+          snapshot: { id: snapshot.id },
+        });
+      });
+      expect([...stored.keys()]).toEqual([snapshot.id]);
+      expect(result.current.projectSyncState).toMatchObject({ kind: 'load', phase: 'failed' });
+      expect(warning).toHaveBeenCalledWith(
+        '[Projects] Library reload failed after committed import.',
+        { code: 'persistence-failed', httpStatus: 401 }
+      );
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
   test('retains the import refresh warning when projects load after organization fails', async () => {
     const { result } = renderHook(() =>
       useProjectLibrary({

@@ -12,6 +12,7 @@ import {
   HttpProjectRepository,
 } from '../../services/projects/httpProjectRepository.ts';
 import { recoverLegacyAnnotations } from '../../services/projects/legacyAnnotationRecovery.ts';
+import { warnImportRefreshFailed } from '../../services/projects/libraryArchiveDiagnostics.ts';
 import {
   importLibraryArchive,
   type LibraryBackupImportResult,
@@ -1274,7 +1275,7 @@ export const useProjectLibrary = ({
         throw error;
       }
       const refreshFailed = outcome.kind === 'refresh-failed';
-      if (refreshFailed) console.warn('[Nous] Library reload failed after committed import.');
+      if (outcome.kind === 'refresh-failed') warnImportRefreshFailed(outcome.error);
       else setProjectSyncState({ kind: 'idle' });
       return { importedProjectCount: outcome.importedProjectCount, refreshFailed };
     },
@@ -1794,8 +1795,12 @@ export const useProjectLibrary = ({
         );
         const imported = await importOperation;
         deletedProjectIdsRef.current.delete(imported.snapshot.id);
-        await refreshLibraryState();
-        setProjectSyncState({ kind: 'idle' });
+        try {
+          await refreshLibraryState({ afterImport: true });
+          setProjectSyncState({ kind: 'idle' });
+        } catch (refreshError) {
+          warnImportRefreshFailed(refreshError);
+        }
         return imported;
       } catch (error) {
         setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
