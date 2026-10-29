@@ -646,3 +646,114 @@ test('v3 upgrade remembers repaired IDs while an unresolved current note prevent
   await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(0);
   expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBe('complete');
 });
+
+test('v3 upgrade acknowledges surviving legacy IDs before a later deletion', async () => {
+  const survivor = selectionAnnotation({
+    end: 5,
+    exact: 'hello',
+    id: 'survivor',
+    note: 'Original',
+    start: 0,
+  });
+  const skipped = { ...survivor, id: 'skipped', note: 'Repair' };
+  const unresolved = legacySelectionAnnotation('unresolved', 'Retry');
+  const legacySnapshot = buildSnapshot([
+    buildTestLesson({ content: 'hello', annotations: [survivor, skipped] }),
+  ]);
+  let currentSnapshot = buildSnapshot([
+    buildTestLesson({ content: 'hello', annotations: [survivor, unresolved] }),
+  ]);
+  const { storage, values } = createMigrationStorage();
+  values.set('nous:legacy-annotation-recovery:v3:user-1', 'complete');
+  const patchProject = vi.fn(async () => buildTestProjectMeta({ revision: 2 }));
+  const args = {
+    legacyStore: { close: vi.fn(), loadProject: async () => legacySnapshot },
+    migrationStorage: storage,
+    projectMetas: [buildTestProjectMeta({ revision: 1 })],
+    repository: { loadProject: async () => currentSnapshot, patchProject },
+    userId: 'user-1',
+  };
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(1);
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBeUndefined();
+  currentSnapshot = buildSnapshot([
+    buildTestLesson({ content: 'hello', annotations: [skipped, unresolved] }),
+  ]);
+  args.projectMetas = [buildTestProjectMeta({ revision: 2 })];
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(0);
+  expect(patchProject).toHaveBeenCalledTimes(1);
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBeUndefined();
+  currentSnapshot = buildSnapshot([buildTestLesson({ content: 'hello', annotations: [skipped] })]);
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(0);
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBe('complete');
+});
+
+test.each([
+  false,
+  true,
+])('v3 upgrade follows a surviving ID only to an unambiguous current anchor (divergent: %s)', async divergent => {
+  const original = selectionAnnotation({
+    end: 5,
+    exact: 'hello',
+    id: 'survivor',
+    note: 'Old note',
+    start: 0,
+  });
+  const skipped = { ...original, id: 'skipped', note: 'Distinct note' };
+  const current = selectionAnnotation({
+    end: 7,
+    exact: 'updated',
+    id: 'survivor',
+    note: 'Edited note',
+    start: 0,
+  });
+  const unrelated = lessonAnnotation('deleted-unrelated', 'Leave absent');
+  const anotherSurvivor = selectionAnnotation({
+    end: 13,
+    exact: 'other',
+    id: 'another-survivor',
+    note: 'Another survivor',
+    start: 8,
+  });
+  const legacySnapshot = buildSnapshot([
+    buildTestLesson({
+      content: 'hello',
+      annotations: [
+        original,
+        skipped,
+        unrelated,
+        ...(divergent ? [{ ...original, id: anotherSurvivor.id }] : []),
+      ],
+    }),
+  ]);
+  const currentSnapshot = buildSnapshot([
+    buildTestLesson({
+      content: divergent ? 'updated other' : 'updated',
+      annotations: [current, ...(divergent ? [anotherSurvivor] : [])],
+    }),
+  ]);
+  const { storage, values } = createMigrationStorage();
+  values.set('nous:legacy-annotation-recovery:v3:user-1', 'complete');
+  const patchProject = vi.fn(async () => buildTestProjectMeta({ revision: 2 }));
+  const args = {
+    legacyStore: { close: vi.fn(), loadProject: async () => legacySnapshot },
+    migrationStorage: storage,
+    projectMetas: [buildTestProjectMeta({ revision: 1 })],
+    repository: { loadProject: async () => currentSnapshot, patchProject },
+    userId: 'user-1',
+  };
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(divergent ? 0 : 1);
+  if (!divergent)
+    expect(patchProject).toHaveBeenCalledWith(
+      'project-1',
+      expect.objectContaining({
+        section: {
+          sectionId: 'lesson-1',
+          annotations: [current, { ...skipped, anchor: current.anchor }],
+        },
+      }),
+      { expectedRevision: 1 }
+    );
+  expect(values.get('nous:legacy-annotation-recovery:v4:user-1')).toBe('complete');
+  await expect(recoverLegacyAnnotationsFromStore(args)).resolves.toBe(0);
+  expect(patchProject).toHaveBeenCalledTimes(divergent ? 0 : 1);
+});

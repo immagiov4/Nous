@@ -292,6 +292,44 @@ const getSelectionAnchorKey = (annotation: SectionAnnotation): string | undefine
   return JSON.stringify([exact, prefix, suffix]);
 };
 
+const getLegacySelectionKey = (annotation: LegacySectionAnnotation, content: string) => {
+  const normalized = normalizeLegacyAnnotation({
+    annotation,
+    preserveCurrentSelector: true,
+    sourceContent: content,
+    targetContent: content,
+  }).annotation;
+  return normalized && getSelectionAnchorKey(normalized);
+};
+
+const buildV3RepairAnchors = (
+  legacyAnnotations: SectionAnnotation[],
+  legacyContent: string,
+  currentAnnotationsById: ReadonlyMap<string, SectionAnnotation>
+) => {
+  const anchors = new Map<string, SectionAnnotation['anchor'] | null>();
+  const addAnchor = (key: string | undefined, annotation: SectionAnnotation) => {
+    if (key === undefined || !isTextSelector(annotation.anchor)) return;
+    const previous = anchors.get(key);
+    // A conflict group with divergent surviving anchors has no unambiguous repair destination.
+    anchors.set(
+      key,
+      anchors.has(key) && JSON.stringify(previous) !== JSON.stringify(annotation.anchor)
+        ? null
+        : annotation.anchor
+    );
+  };
+  for (const current of currentAnnotationsById.values()) {
+    addAnchor(getSelectionAnchorKey(current), current);
+  }
+  for (const legacy of legacyAnnotations) {
+    if (!isLegacyAnnotation(legacy)) continue;
+    const current = currentAnnotationsById.get(legacy.id);
+    if (current) addAnchor(getLegacySelectionKey(legacy, legacyContent), current);
+  }
+  return anchors;
+};
+
 export const buildLegacyAnnotationRecoveryPlan = (
   currentSnapshot: ProjectSnapshot,
   legacySnapshot: ProjectSnapshot,
@@ -341,15 +379,28 @@ export const buildLegacyAnnotationRecoveryPlan = (
         result.annotation ? [[result.annotation.id, result.annotation] as const] : []
       )
     );
-    const currentSelectionKeys = new Set(
-      [...currentAnnotationsById.values()].map(getSelectionAnchorKey).filter(Boolean)
-    );
+    const repairAnchors = onlySelectionConflicts
+      ? buildV3RepairAnchors(
+          legacyLesson.annotations || [],
+          legacyLesson.content || '',
+          currentAnnotationsById
+        )
+      : new Map<string, SectionAnnotation['anchor'] | null>();
     const parsedLegacyAnnotations = pendingAnnotations
       .map(annotation => {
         if (!isLegacyAnnotation(annotation)) {
           return { annotation: undefined, changed: false, understood: false };
         }
         const currentAnnotation = currentAnnotationsById.get(annotation.id);
+        if (onlySelectionConflicts && !currentAnnotation) {
+          const key = getLegacySelectionKey(annotation, legacyLesson.content || '');
+          const anchor = key === undefined ? undefined : repairAnchors.get(key);
+          return {
+            annotation: anchor ? { ...annotation, anchor } : undefined,
+            changed: Boolean(anchor),
+            understood: Boolean(anchor),
+          };
+        }
         const legacyResult = normalizeLegacyAnnotation({
           annotation,
           preserveCurrentSelector: false,
@@ -369,9 +420,7 @@ export const buildLegacyAnnotationRecoveryPlan = (
       .filter(result => {
         if (!onlySelectionConflicts) return true;
         if (!result.annotation || currentIds.has(result.annotation.id)) return false;
-        const key = getSelectionAnchorKey(result.annotation);
-        // v3 may also have copied notes that were later deleted; only repair its exact selection skip.
-        return key !== undefined && currentSelectionKeys.has(key);
+        return true;
       });
     unresolvedAnnotationCount += parsedLegacyAnnotations.filter(
       result => !result.understood
@@ -421,9 +470,17 @@ export const buildLegacyAnnotationRecoveryPlan = (
     }
     acknowledgedAnnotations.push({
       sectionId: currentLesson.id,
-      ids: parsedLegacyAnnotations.flatMap(result =>
-        result.understood && result.annotation ? [result.annotation.id] : []
-      ),
+      ids: [
+        ...new Set([
+          ...pendingAnnotations
+            .filter(isLegacyAnnotation)
+            .filter(annotation => currentAnnotationsById.has(annotation.id))
+            .map(annotation => annotation.id),
+          ...parsedLegacyAnnotations.flatMap(result =>
+            result.understood && result.annotation ? [result.annotation.id] : []
+          ),
+        ]),
+      ],
     });
   }
 
