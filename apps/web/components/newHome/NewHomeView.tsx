@@ -2114,8 +2114,11 @@ export const NewHomeView = ({
     loadProjectsById,
     projects,
   });
+  const hadSourceLibraryLoadError = useRef(false);
   useEffect(() => {
-    if (sourceLibrary.hasLoadError && sourceLibrary.items.length > 0) {
+    const isNewLoadError = sourceLibrary.hasLoadError && !hadSourceLibraryLoadError.current;
+    hadSourceLibraryLoadError.current = sourceLibrary.hasLoadError;
+    if (isNewLoadError && sourceLibrary.items.length > 0) {
       onNotifyError?.(t(SOURCE_LIBRARY_LOAD_ERROR_MESSAGE));
     }
   }, [onNotifyError, sourceLibrary.hasLoadError, sourceLibrary.items.length]);

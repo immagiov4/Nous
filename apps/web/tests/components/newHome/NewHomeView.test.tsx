@@ -1007,19 +1007,19 @@ describe('NewHomeView library interactions', () => {
     }));
     const loadProjectsById = vi.fn();
     if (partial)
-      loadProjectsById.mockResolvedValueOnce([
-        {
-          id: projects[0].id,
+      loadProjectsById.mockResolvedValueOnce(
+        [0, 1].map(index => ({
+          id: projects[index].id,
           source: {
             kind: 'archive',
             name: 'src.zip',
             file: { data: 'emlw', name: 'src.zip', mimeType: 'application/zip' },
           },
-        },
-      ]);
+        }))
+      );
     loadProjectsById.mockRejectedValue(new Error('private snapshot detail'));
     const onNotifyError = vi.fn();
-    render(
+    const renderHome = (currentProjects: SavedProjectMeta[]) => (
       <NewHomeView
         chatProps={chatProps}
         isDarkMode={false}
@@ -1035,18 +1035,19 @@ describe('NewHomeView library interactions', () => {
         onNotifyError={onNotifyError}
         onToggleDarkMode={vi.fn()}
         openingProjectId={null}
-        projects={projects}
+        projects={currentProjects}
         saveProjectCover={vi.fn(async () => {})}
       />
     );
+    const view = render(renderHome(projects));
     if (partial) {
       await waitFor(() =>
         expect(onNotifyError).toHaveBeenCalledExactlyOnceWith(
           'Caricamento delle fonti non riuscito. Alcune fonti potrebbero mancare. Ricarica la pagina.'
         )
       );
-      await user.click(screen.getByRole('button', { name: /Corso Mobile/ }));
-      expect(screen.getByRole('button', { name: /src.zip/ })).toBeInTheDocument();
+      await user.click(screen.getAllByRole('button', { name: /Corso Mobile/ })[0]);
+      expect(screen.getAllByRole('button', { name: /src.zip/ })[0]).toBeInTheDocument();
     } else {
       expect(
         await screen.findByText(
@@ -1075,6 +1076,10 @@ describe('NewHomeView library interactions', () => {
           'Caricamento delle fonti non riuscito. Alcune fonti potrebbero mancare. Ricarica la pagina.'
         )
       ).not.toBeInTheDocument();
+      expect(onNotifyError).toHaveBeenCalledTimes(1);
+      loadProjectsById.mockImplementation(() => new Promise(() => {}));
+      view.rerender(renderHome(projects.filter(candidate => candidate.id !== projects[1].id)));
+      await waitFor(() => expect(loadProjectsById).toHaveBeenCalledTimes(3));
       expect(onNotifyError).toHaveBeenCalledTimes(1);
     }
   });
