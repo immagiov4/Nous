@@ -92,9 +92,11 @@ const LibraryContextTreeNode = ({
               }
             )}
           </span>
-          <span id={inheritedHintId} className="sr-only">
-            {t('Incluso dalla cartella. Deseleziona la cartella per escluderlo.')}
-          </span>
+          {isInherited && (
+            <span id={inheritedHintId} className="sr-only">
+              {t('Incluso dalla cartella. Deseleziona la cartella per escluderlo.')}
+            </span>
+          )}
         </span>
       </label>
     );

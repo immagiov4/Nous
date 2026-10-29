@@ -670,6 +670,10 @@ describe('useLibraryAssistantChat', () => {
         />
       );
     }
+    const inheritedHint =
+      locale === 'it'
+        ? 'Incluso dalla cartella. Deseleziona la cartella per escluderlo.'
+        : 'Included by folder. Deselect the folder to exclude it.';
     const view = render(<Picker />);
     const transport = useChatMock.mock.calls.at(-1)?.[0].transport;
     const assertSubmittedScope = async (ids: string[], wholeLibrary = false) => {
@@ -684,14 +688,12 @@ describe('useLibraryAssistantChat', () => {
     try {
       const parent = screen.getByRole('checkbox', { name: folder.name });
       const child = screen.getByRole('checkbox', { name: project.title });
+      expect(screen.queryByText(inheritedHint)).not.toBeInTheDocument();
       await user.click(parent);
       expect(child).toBeChecked();
       expect(child).toBeDisabled();
-      expect(child).toHaveAccessibleDescription(
-        locale === 'it'
-          ? 'Incluso dalla cartella. Deseleziona la cartella per escluderlo.'
-          : 'Included by folder. Deselect the folder to exclude it.'
-      );
+      expect(screen.getByText(inheritedHint)).toBeInTheDocument();
+      expect(child).toHaveAccessibleDescription(inheritedHint);
       await assertSubmittedScope([project.id]);
       const inheritedRefs = chat.attachedContextRefs;
       await user.click(child);
@@ -704,12 +706,14 @@ describe('useLibraryAssistantChat', () => {
       expect(child).not.toBeChecked();
       expect(child).toBeEnabled();
       expect(child).not.toHaveAccessibleDescription();
+      expect(screen.queryByText(inheritedHint)).not.toBeInTheDocument();
       // With no attachments, the existing contract uses the whole library.
       await assertSubmittedScope([project.id, secondProject.id], true);
       await user.click(child);
       expect(child).toBeChecked();
       expect(child).toBeEnabled();
       expect(child).not.toHaveAccessibleDescription();
+      expect(screen.queryByText(inheritedHint)).not.toBeInTheDocument();
       await assertSubmittedScope([project.id]);
       // A child explicitly selected first becomes inherited when its folder is attached.
       act(() =>
@@ -717,11 +721,8 @@ describe('useLibraryAssistantChat', () => {
       );
       expect(child).toBeChecked();
       expect(child).toBeDisabled();
-      expect(child).toHaveAccessibleDescription(
-        locale === 'it'
-          ? 'Incluso dalla cartella. Deseleziona la cartella per escluderlo.'
-          : 'Included by folder. Deselect the folder to exclude it.'
-      );
+      expect(screen.getByText(inheritedHint)).toBeInTheDocument();
+      expect(child).toHaveAccessibleDescription(inheritedHint);
       expect(chat.attachedContextRefs).toEqual([
         { id: folder.id, kind: 'folder', label: folder.name },
       ]);
