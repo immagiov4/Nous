@@ -340,7 +340,7 @@ describe('workflow runtime worker', () => {
     await worker.start();
     await vi.waitFor(() => expect(store.outbox.markDelivered).toHaveBeenCalledWith(outboxClaim));
 
-    expect(deliverNotification).toHaveBeenCalledWith(outboxClaim);
+    expect(deliverNotification).toHaveBeenCalledWith(outboxClaim, expect.any(AbortSignal));
     expect(deliverNotification.mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(store.outbox.markDelivered).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
     );
@@ -383,18 +383,69 @@ describe('workflow runtime worker', () => {
     await worker.stop();
   });
 
-  test('does not acknowledge or reschedule after notification lease ownership is lost', async () => {
+  test('retries notification work after lease loss even when the old delivery never settles', async () => {
+    vi.useFakeTimers();
+    const { registry } = registerStepWorkflow(async text => text);
+    const store = makeStore();
+    const retryClaim = { ...outboxClaim, attemptNumber: 2, fencingToken: '2' };
+    vi.mocked(store.outbox.claimNext)
+      .mockResolvedValueOnce(outboxClaim)
+      .mockResolvedValueOnce(retryClaim)
+      .mockResolvedValue(null);
+    vi.mocked(store.outbox.heartbeat).mockResolvedValueOnce({ status: 'lost' });
+    const deliverNotification = vi
+      .fn<WorkflowRuntimeWorkerInput<object>['deliverNotification']>(async () => undefined)
+      .mockImplementationOnce(() => new Promise<void>(() => undefined));
+    const onLoopError = vi.fn();
+    const worker = createWorkflowRuntimeWorker({
+      deliverNotification,
+      onLoopError,
+      pollIntervalMs: POLL_INTERVAL_MS,
+      reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
+      registry,
+      services: {},
+      store,
+      wakeSource: new FakeWakeSource(),
+      workerId: 'worker-1',
+    });
+
+    await worker.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(deliverNotification).toHaveBeenCalledOnce();
+    expect(store.outbox.markDelivered).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS);
+
+    expect(deliverNotification).toHaveBeenCalledTimes(2);
+    expect(deliverNotification).toHaveBeenLastCalledWith(retryClaim, expect.any(AbortSignal));
+    expect(deliverNotification.mock.calls[0]?.[1]?.aborted).toBe(true);
+    expect(store.outbox.markDelivered).toHaveBeenCalledExactlyOnceWith(retryClaim);
+    expect(store.outbox.recordFailure).not.toHaveBeenCalled();
+    expect(onLoopError).not.toHaveBeenCalled();
+    await worker.stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test.each([
+    'resolve',
+    'reject',
+  ] as const)('ignores late notification delivery settlement after lease loss (%s)', async settlement => {
     vi.useFakeTimers();
     const { registry } = registerStepWorkflow(async text => text);
     const store = makeStore();
     vi.mocked(store.outbox.claimNext).mockResolvedValueOnce(outboxClaim).mockResolvedValue(null);
     vi.mocked(store.outbox.heartbeat).mockResolvedValueOnce({ status: 'lost' });
     let finishDelivery = (): void => undefined;
-    const delivery = new Promise<void>(resolve => {
-      finishDelivery = resolve;
+    const delivery = new Promise<void>((resolve, reject) => {
+      finishDelivery =
+        settlement === 'resolve'
+          ? resolve
+          : () => reject(new Error('delivery token=private-token'));
     });
+    const logEvents: WorkflowLogEvent[] = [];
     const worker = createWorkflowRuntimeWorker({
       deliverNotification: vi.fn(() => delivery),
+      logger: { log: event => logEvents.push(event) },
       onLoopError: vi.fn(),
       pollIntervalMs: POLL_INTERVAL_MS,
       reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
@@ -408,12 +459,123 @@ describe('workflow runtime worker', () => {
     await worker.start();
     await settleDrains();
     await vi.advanceTimersByTimeAsync(DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS);
+    await worker.stop();
+    expect(vi.getTimerCount()).toBe(0);
     finishDelivery();
-    await settleDrains();
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(store.outbox.markDelivered).not.toHaveBeenCalled();
     expect(store.outbox.recordFailure).not.toHaveBeenCalled();
-    await worker.stop();
+    expect(logEvents).toEqual([
+      expect.objectContaining({
+        action: settlement === 'resolve' ? 'late-delivery-succeeded' : 'late-delivery-failed',
+        event: 'workflow.notification',
+        notificationId: outboxClaim.id,
+        runId: outboxClaim.runId,
+        fencingToken: outboxClaim.fencingToken,
+        ...(settlement === 'reject'
+          ? { failureDiagnostic: { originalMessage: 'delivery token=[REDACTED]', type: 'Error' } }
+          : {}),
+      }),
+    ]);
+    expect(JSON.stringify(logEvents)).not.toContain('private-token');
+  });
+
+  describe.each([
+    'lost',
+    'error',
+    'renewed',
+  ] as const)('delivery settles before an in-flight heartbeat reports %s', heartbeatOutcome => {
+    test.each([
+      { settlement: 'resolve', flush: true },
+      { settlement: 'reject', flush: true },
+      { settlement: 'resolve', flush: false },
+      { settlement: 'reject', flush: false },
+    ])('accounts once for $settlement (flush settlement: $flush)', async ({
+      settlement,
+      flush,
+    }) => {
+      vi.useFakeTimers();
+      const { registry } = registerStepWorkflow(async text => text);
+      const store = makeStore();
+      vi.mocked(store.outbox.claimNext).mockResolvedValueOnce(outboxClaim).mockResolvedValue(null);
+      const heartbeat = Promise.withResolvers<Awaited<ReturnType<typeof store.outbox.heartbeat>>>();
+      vi.mocked(store.outbox.heartbeat).mockReturnValueOnce(heartbeat.promise);
+      const delivery = Promise.withResolvers<void>();
+      const logEvents: WorkflowLogEvent[] = [];
+      const worker = createWorkflowRuntimeWorker({
+        deliverNotification: vi.fn(() => delivery.promise),
+        logger: { log: event => logEvents.push(event) },
+        onLoopError: vi.fn(),
+        pollIntervalMs: POLL_INTERVAL_MS,
+        reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
+        registry,
+        services: {},
+        store,
+        wakeSource: new FakeWakeSource(),
+        workerId: 'worker-1',
+      });
+
+      await worker.start();
+      await vi.advanceTimersByTimeAsync(DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS);
+      expect(store.outbox.heartbeat).toHaveBeenCalledOnce();
+      if (settlement === 'resolve') delivery.resolve();
+      else delivery.reject(new Error('delivery token=private-token'));
+      if (flush) await vi.advanceTimersByTimeAsync(0);
+      expect(store.outbox.markDelivered).not.toHaveBeenCalled();
+      expect(store.outbox.recordFailure).not.toHaveBeenCalled();
+      if (heartbeatOutcome === 'error') heartbeat.reject(new Error('heartbeat failed'));
+      else if (heartbeatOutcome === 'lost') heartbeat.resolve({ status: 'lost' });
+      else heartbeat.resolve({ status: 'renewed', leaseExpiresAt: outboxClaim.leaseExpiresAt });
+      await vi.advanceTimersByTimeAsync(0);
+      await worker.stop();
+
+      if (heartbeatOutcome === 'renewed') {
+        expect(logEvents).toEqual([]);
+        if (settlement === 'resolve') {
+          expect(store.outbox.markDelivered).toHaveBeenCalledExactlyOnceWith(outboxClaim);
+          expect(store.outbox.recordFailure).not.toHaveBeenCalled();
+        } else {
+          expect(store.outbox.recordFailure).toHaveBeenCalledOnce();
+          expect(store.outbox.markDelivered).not.toHaveBeenCalled();
+        }
+      } else {
+        expect(store.outbox.markDelivered).not.toHaveBeenCalled();
+        expect(store.outbox.recordFailure).not.toHaveBeenCalled();
+        expect(logEvents).toEqual([
+          ...(heartbeatOutcome === 'error'
+            ? [
+                expect.objectContaining({
+                  action: 'heartbeat-failed',
+                  event: 'workflow.notification',
+                  failureDiagnostic: { type: 'Error' },
+                  notificationId: outboxClaim.id,
+                  runId: outboxClaim.runId,
+                  fencingToken: outboxClaim.fencingToken,
+                }),
+              ]
+            : []),
+          expect.objectContaining({
+            action: settlement === 'resolve' ? 'late-delivery-succeeded' : 'late-delivery-failed',
+            correlationId: outboxClaim.correlationId,
+            event: 'workflow.notification',
+            notificationId: outboxClaim.id,
+            runId: outboxClaim.runId,
+            fencingToken: outboxClaim.fencingToken,
+            ...(settlement === 'reject'
+              ? {
+                  failureDiagnostic: {
+                    originalMessage: 'delivery token=[REDACTED]',
+                    type: 'Error',
+                  },
+                }
+              : {}),
+          }),
+        ]);
+      }
+      expect(JSON.stringify(logEvents)).not.toContain('private-token');
+      expect(vi.getTimerCount()).toBe(0);
+    });
   });
 
   test.each([
@@ -461,6 +623,16 @@ describe('workflow runtime worker', () => {
         notificationId: outboxClaim.id,
         runId: outboxClaim.runId,
       }),
+      ...(configured
+        ? [
+            expect.objectContaining({
+              action: 'late-delivery-succeeded',
+              event: 'workflow.notification',
+              notificationId: outboxClaim.id,
+              runId: outboxClaim.runId,
+            }),
+          ]
+        : []),
     ]);
     if (configured) expect(output).not.toHaveBeenCalled();
     expect(JSON.stringify(reported)).not.toContain('secret');
