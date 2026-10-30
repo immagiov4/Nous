@@ -4979,6 +4979,71 @@ test.each([
 });
 
 test.each([
+  false,
+  true,
+])('reopening a draft during its open-triggered retry keeps the interview answerable (sources: %s)', async withSources => {
+  const retryStarted = createDeferred();
+  const finishRetry = createDeferred();
+  let active: CourseInterviewSnapshot | null = null;
+  let failInitialStart = true;
+  const cancelCourseInterview = vi.fn(async () => {
+    active = null;
+  });
+  const { assessmentSession, controller, projectLibrary } = createControllerHarness({
+    openRouter: {
+      cancelCourseInterview,
+      getActiveCourseInterview: async () => active,
+      startCourseInterview: async (input, options) => {
+        if (failInitialStart) {
+          failInitialStart = false;
+          throw new Error('Synthetic startup failure');
+        }
+        const snapshot = createInterviewSnapshot({ projectId: input.projectId });
+        active = snapshot;
+        options?.onRunStarted?.(snapshot.runId);
+        retryStarted.resolve();
+        await finishRetry.promise;
+        return snapshot;
+      },
+      sendCourseInterviewAnswer: async input => {
+        if (!active) throw new Error('Interview was cancelled');
+        return createProposalSnapshot(input.projectId);
+      },
+    },
+  });
+  expect(
+    (
+      await controller.startHomeChat({
+        input: 'Teach query optimization',
+        ...(withSources
+          ? { selectedFile: new File(['Prepared notes'], 'notes.md', { type: 'text/markdown' }) }
+          : {}),
+      })
+    ).outcome
+  ).toBe('failed');
+  const draft = projectLibrary.persistedSnapshots.at(-1);
+  assert(draft);
+  projectLibrary.adapter.loadStoredProject = async () => draft;
+  const firstOpen = controller.openProject(draft.id);
+  await retryStarted.promise;
+  try {
+    expect((await controller.openProject(draft.id)).outcome).toBe('opened');
+    finishRetry.resolve();
+    await firstOpen;
+    expect((await controller.submitAssessment('Focus on indexes')).outcome).toBe(
+      'assessment-complete'
+    );
+    expect(cancelCourseInterview).not.toHaveBeenCalled();
+    expect(projectLibrary.deletedProjectIds).toEqual([]);
+  } finally {
+    finishRetry.resolve();
+    await firstOpen;
+  }
+  expect(assessmentSession.unsettledWorkspaceOwnerships.size).toBe(0);
+  expect(assessmentSession.workspaceOwnershipByOpenProjectRequestId.size).toBe(0);
+});
+
+test.each([
   'same',
   'other',
 ] as const)('navigation to %s project suppresses interview rejection while validation is pending', async target => {

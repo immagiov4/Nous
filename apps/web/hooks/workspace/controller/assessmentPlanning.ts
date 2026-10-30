@@ -337,14 +337,24 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
       resolveRunId(startedId);
     };
 
+    const workspaceOwnership =
+      input.workspaceOwnership ??
+      createAssessmentWorkspaceOwnership(
+        session,
+        Symbol('assessment-interview'),
+        state.getWorkflowState().openProject.requestId
+      );
     try {
       return await startOrResumeInterview({
         ...input,
+        workspaceOwnership,
         onRunStarted: reportRunStarted,
         pollingSignal: pollingAbortController.signal,
         startSignal: startRequestAbortController.signal,
       });
     } finally {
+      if (!input.workspaceOwnership)
+        releaseAssessmentWorkspaceOwnership(session, workspaceOwnership);
       if (!hasResolvedRunId) resolveRunId(null);
       if (startedRunId) session.assessmentRunCancellationPromises.delete(startedRunId);
       if (session.pendingAssessmentInterviewRun === pendingRun)
