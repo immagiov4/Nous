@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import HomeChatLibraryContextPicker from '../../../components/library/HomeChatLibraryContextPicker.tsx';
 import { NewHomeView } from '../../../components/newHome/NewHomeView.tsx';
+import { useWorkspaceFileActions } from '../../../hooks/workspace/useWorkspaceFileActions.ts';
 import { setAccountLocale } from '../../../i18n/uiMessages.ts';
 import type { LibraryTree, ProjectSnapshot, SavedProjectMeta } from '../../../types.ts';
 
@@ -992,6 +993,169 @@ describe('NewHomeView library interactions', () => {
     expect(
       screen.getByRole('textbox', { name: /Rinomina cartella|Rename folder/ })
     ).toBeInTheDocument();
+  });
+
+  test.each([
+    false,
+    true,
+  ])('shows load failure and preserves available sources (partial: %s)', async partial => {
+    globalThis.history.replaceState({}, '', '/library');
+    const user = userEvent.setup();
+    const projects = Array.from({ length: 5 }, (_, index) => ({
+      ...project,
+      id: `project-${index}`,
+    }));
+    const loadProjectsById = vi.fn();
+    if (partial)
+      loadProjectsById.mockResolvedValueOnce(
+        [0, 1].map(index => ({
+          id: projects[index].id,
+          source: {
+            kind: 'archive',
+            name: 'src.zip',
+            file: { data: 'emlw', name: 'src.zip', mimeType: 'application/zip' },
+          },
+        }))
+      );
+    loadProjectsById.mockRejectedValue(new Error('private snapshot detail'));
+    const onNotifyError = vi.fn();
+    const renderHome = (currentProjects: SavedProjectMeta[]) => (
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isExportingProject={false}
+        isLibraryLoading={false}
+        libraryFolders={[]}
+        libraryTree={tree}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => null)}
+        loadProjectsById={loadProjectsById}
+        onCreateFolder={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onNotifyError={onNotifyError}
+        onToggleDarkMode={vi.fn()}
+        openingProjectId={null}
+        projects={currentProjects}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+    const view = render(renderHome(projects));
+    if (partial) {
+      await waitFor(() =>
+        expect(onNotifyError).toHaveBeenCalledExactlyOnceWith(
+          'Caricamento delle fonti non riuscito. Alcune fonti potrebbero mancare. Ricarica la pagina.'
+        )
+      );
+      await user.click(screen.getAllByRole('button', { name: /Corso Mobile/ })[0]);
+      expect(screen.getAllByRole('button', { name: /src.zip/ })[0]).toBeInTheDocument();
+    } else {
+      expect(
+        await screen.findByText(
+          'Caricamento delle fonti non riuscito. Alcune fonti potrebbero mancare. Ricarica la pagina.'
+        )
+      ).toBeInTheDocument();
+      expect(onNotifyError).not.toHaveBeenCalled();
+    }
+    expect(
+      screen.queryByText('Nessuna fonte corrisponde a questa ricerca.')
+    ).not.toBeInTheDocument();
+    if (partial) {
+      const search = screen.getByPlaceholderText('Cerca nella Libreria...');
+      await user.type(search, 'missing-source');
+      expect(screen.getByText('Nessuna fonte corrisponde a questa ricerca.')).toBeInTheDocument();
+      expect(
+        screen.queryByText(
+          'Caricamento delle fonti non riuscito. Alcune fonti potrebbero mancare. Ricarica la pagina.'
+        )
+      ).not.toBeInTheDocument();
+      await user.clear(search);
+      await user.click(screen.getByRole('button', { name: 'PDF' }));
+      expect(screen.getByText('Nessuna fonte corrisponde a questa ricerca.')).toBeInTheDocument();
+      expect(
+        screen.queryByText(
+          'Caricamento delle fonti non riuscito. Alcune fonti potrebbero mancare. Ricarica la pagina.'
+        )
+      ).not.toBeInTheDocument();
+      expect(onNotifyError).toHaveBeenCalledTimes(1);
+      loadProjectsById.mockImplementation(() => new Promise(() => {}));
+      view.rerender(renderHome(projects.filter(candidate => candidate.id !== projects[1].id)));
+      await waitFor(() => expect(loadProjectsById).toHaveBeenCalledTimes(3));
+      expect(onNotifyError).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  test.each([
+    'delete',
+    'favorite',
+  ] as const)('handles %s failure through Home actions', async action => {
+    const user = userEvent.setup();
+    const notify = vi.fn();
+    const deleteProject = vi.fn().mockRejectedValue(new Error('private deletion detail'));
+    const setProjectFavorite = vi.fn().mockRejectedValue(new Error('private favorite detail'));
+    const confirmProjectDelete = vi.fn(async () => true);
+    const Harness = () => {
+      const fileActions = useWorkspaceFileActions({
+        confirmProjectDelete,
+        deleteProject,
+        exportProject: vi.fn(async () => {}),
+        handleSourceUpload: vi.fn(async () => ({})),
+        importProjectFile: vi.fn(async () => ({})),
+        notify,
+        savedProjects: [project],
+      });
+      return (
+        <NewHomeView
+          chatProps={chatProps}
+          isDarkMode={false}
+          isExportingProject={false}
+          isLibraryLoading={false}
+          libraryFolders={[]}
+          libraryTree={{
+            descendantProjectIdsByFolderId: {},
+            folderById: {},
+            placementByProjectId: {},
+            rootNodes: [],
+          }}
+          loadProjectCover={vi.fn(async () => null)}
+          loadProjectSource={vi.fn(async () => null)}
+          loadProjectsById={vi.fn(async () => [])}
+          onCreateFolder={vi.fn(async () => {})}
+          onOpenProject={vi.fn()}
+          onToggleDarkMode={vi.fn()}
+          onNotifyError={notify}
+          onSetProjectFavorite={setProjectFavorite}
+          onDeleteProject={fileActions.handleDeleteProject}
+          openingProjectId={null}
+          projects={[project]}
+          saveProjectCover={vi.fn(async () => {})}
+        />
+      );
+    };
+    const { container } = render(<Harness />);
+    const courses = within(container.querySelector('#courses') as HTMLElement);
+    if (action === 'delete') {
+      await user.click(courses.getByRole('button', { name: /Azioni per Corso Mobile/ }));
+      await user.click(screen.getByRole('button', { name: 'Elimina' }));
+      await waitFor(() =>
+        expect(notify).toHaveBeenCalledExactlyOnceWith(
+          'Eliminazione del corso non confermata. Ricarica la pagina.'
+        )
+      );
+      expect(confirmProjectDelete).toHaveBeenCalledWith(project.title);
+      expect(deleteProject).toHaveBeenCalledWith(project.id);
+    } else {
+      await user.click(courses.getByRole('button', { name: 'Aggiungi Corso Mobile ai preferiti' }));
+      await waitFor(() =>
+        expect(notify).toHaveBeenCalledExactlyOnceWith(
+          'Modifica dei preferiti non riuscita. Riprova.'
+        )
+      );
+      expect(setProjectFavorite).toHaveBeenCalledWith(project.id, true);
+      expect(
+        courses.getByRole('button', { name: 'Aggiungi Corso Mobile ai preferiti' })
+      ).toBeInTheDocument();
+    }
+    expect(screen.getAllByText(project.title).length).toBeGreaterThan(0);
   });
 
   test('groups course sources in a collapsed folder', async () => {
