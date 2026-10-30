@@ -50,6 +50,7 @@ import {
   prepareLessonPlaybackVisuals,
 } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { MAX_TTS_TEXT_CHARS } from '../../../src/services/ttsClient.js';
+import { toStepFailure } from '../../../src/workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../../src/workflows/types.js';
 import { guidedPathScene, proportionalScene } from '../../helpers/animatedLessonScenes';
 
@@ -169,6 +170,47 @@ test('rejects a replacement visual that omits an authored list item', async () =
     })
   ).rejects.toThrow('The list visual did not cover every authored item.');
   expect(audio).not.toHaveBeenCalled();
+});
+
+test.each([
+  'invalid',
+  'incomplete',
+  'without-diagnostic',
+])('retains the last rejected section diagnostic after %s outcomes', async outcome => {
+  const sources = [{ type: 'markdown' as const, markdown: '- First.\n- Second.\n- Third.' }];
+  const diagnostic = {
+    type: 'Error',
+    originalMessage: JSON.stringify({
+      outputPath: 'direct',
+      stage: 'domain',
+      supportComparison: { outcome: 'absent', evidenceChars: 7 },
+    }),
+  };
+  const invalid = {
+    kind: 'invalid',
+    problems: ['evidence must be an exact quotation from the lesson.'],
+    diagnostic,
+  };
+  sceneGeneration.mockResolvedValue(
+    outcome === 'incomplete'
+      ? { kind: 'scene', scene }
+      : outcome === 'without-diagnostic'
+        ? { ...invalid, diagnostic: undefined }
+        : invalid
+  );
+  sceneGeneration.mockResolvedValueOnce(invalid);
+  const error = await prepareLessonPlaybackVisuals({
+    ...input(),
+    block: segmentLessonPlayback(sources)[0],
+    lesson: { title: 'Plan', sources },
+  }).catch(error => error);
+  expect(error.message).toBe('The list visual did not cover every authored item.');
+  const failure = toStepFailure(error);
+  expect(failure.kind).toBe('operational');
+  expect(failure.details?.diagnostic).toMatchObject({
+    cause: { originalMessage: JSON.stringify(diagnostic) },
+  });
+  expect(sceneGeneration).toHaveBeenCalledTimes(3);
 });
 
 test('retains the existing visual for an individually recorded list item', async () => {
@@ -642,7 +684,7 @@ test('keeps source visuals and bounded diagnostics after scene validation failur
   const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
   sceneGeneration.mockResolvedValue({
     kind: 'invalid',
-    problems: ['Malformed scene.'],
+    problems: ['The connection "PRIVATE_MODEL_LABEL" needs source evidence.'],
     diagnostic,
   });
   await expect(prepareLessonPlaybackBlock(input())).resolves.toMatchObject({
@@ -651,8 +693,34 @@ test('keeps source visuals and bounded diagnostics after scene validation failur
   expect(sceneGeneration).toHaveBeenCalledTimes(3);
   expect(warning).toHaveBeenCalledWith(expect.any(String), {
     diagnostic,
-    retryFeedback: 'Malformed scene.',
   });
+  expect(JSON.stringify(warning.mock.calls)).not.toContain('PRIVATE_MODEL_LABEL');
+});
+
+test('records a safe reason when generated scenes omit authored mathematics', async () => {
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const sources = [
+    { type: 'markdown' as const, markdown: '$$x+y$$\n\nThe sum combines the inputs.' },
+  ];
+  const mathBlock = segmentLessonPlayback(sources).at(-1);
+  if (!mathBlock) throw new Error('Expected a formula passage.');
+  structured.mockResolvedValue({ spokenMath: [{ formula: '$$x+y$$', spoken: 'x plus y' }] });
+  sceneGeneration.mockResolvedValue({ kind: 'scene', scene: formulaSpotlight });
+  const result = await prepareLessonPlaybackBlock({
+    ...input(),
+    block: mathBlock,
+    lesson: { title: '', sources },
+  });
+  expect(result.prepared.scene).toBeUndefined();
+  expect(result.audio.bytes).toEqual(preparedAudio.bytes);
+  expect(sceneGeneration).toHaveBeenCalledTimes(3);
+  expect(warning).toHaveBeenCalledWith(expect.any(String), {
+    diagnostic: {
+      type: 'Error',
+      originalMessage: 'Generated scene did not retain authored mathematics.',
+    },
+  });
+  expect(JSON.stringify(warning.mock.calls)).not.toContain('x+y');
 });
 
 import { getPlaybackFormulaMarkdown, getPlaybackMathMarkdown } from '@shared/lessonPlayback';

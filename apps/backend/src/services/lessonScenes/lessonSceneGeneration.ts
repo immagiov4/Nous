@@ -392,6 +392,24 @@ const iconEntries = (draft: SceneDraft): SceneIconEntry[] => [
 // Support quotations carry no offsets; source line wrapping does not change their words.
 const supportQuotationText = (text: string): string => text.replaceAll(/\s+/gu, ' ').trim();
 
+// Describe literal support only: absent support cannot establish paraphrase or fabrication.
+const compareSupportQuotation = (evidence: string, lesson: string, excerpt: string) => {
+  const normalizedEvidence = supportQuotationText(evidence);
+  const normalizedExcerpt = supportQuotationText(excerpt);
+  let outcome = 'absent';
+  if (!normalizedEvidence) outcome = 'empty';
+  else if (normalizedExcerpt.includes(normalizedEvidence)) outcome = 'matched';
+  else if (supportQuotationText(lesson).includes(normalizedEvidence)) outcome = 'outside-excerpt';
+  return {
+    outcome,
+    sourceChars: lesson.length,
+    excerptChars: excerpt.length,
+    normalizedExcerptChars: normalizedExcerpt.length,
+    evidenceChars: evidence.length,
+    normalizedEvidenceChars: normalizedEvidence.length,
+  };
+};
+
 const findDraftProblems = (
   draft: SceneDraft,
   scene: LessonScene,
@@ -449,8 +467,27 @@ export async function generateLessonScene(
   // Malformed output surfaces either as an error or as JSON of the wrong shape; both become
   // corrective feedback for the next attempt.
   let outputPath: 'direct' | 'json-envelope' | 'unavailable' = 'unavailable';
-  const diagnostic = (stage: 'schema' | 'domain', problems: unknown) =>
-    toWorkflowErrorDiagnostic(new Error(JSON.stringify({ outputPath, stage, problems })));
+  const excerpt = input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS);
+  const diagnostic = (
+    stage: 'schema' | 'domain',
+    problems: unknown,
+    evidence?: string,
+    source = excerpt
+  ) =>
+    toWorkflowErrorDiagnostic(
+      new Error(
+        JSON.stringify({
+          outputPath,
+          stage,
+          ...(evidence === undefined
+            ? {}
+            : {
+                supportComparison: compareSupportQuotation(evidence, input.lessonMarkdown, source),
+              }),
+          problems,
+        })
+      )
+    );
   const response = await generateStructuredOutput<unknown>({
     sourceAware: Boolean(input.sourceProvenance),
     onOutputPath: path => {
@@ -479,21 +516,23 @@ export async function generateLessonScene(
     };
   }
   if (parsed.data.type === 'text') {
-    return parsed.data.evidence.trim() &&
+    if (
+      parsed.data.evidence.trim() &&
       supportQuotationText(input.lessonMarkdown).includes(
         supportQuotationText(parsed.data.evidence)
       )
-      ? { kind: 'text' }
-      : { kind: 'invalid', problems: ['Text fallback needs exact source evidence.'] };
+    )
+      return { kind: 'text' };
+    const problems = ['Text fallback needs exact source evidence.'];
+    return {
+      kind: 'invalid',
+      problems,
+      diagnostic: diagnostic('domain', problems, parsed.data.evidence, input.lessonMarkdown),
+    };
   }
   const draft = { ...parsed.data, type: parsed.data.type };
   const scene = toScene(draft);
-  const problems = findDraftProblems(
-    draft,
-    scene,
-    input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS),
-    input.narration
-  );
+  const problems = findDraftProblems(draft, scene, excerpt, input.narration);
   if (problems.length)
     return {
       kind: 'invalid',
@@ -509,7 +548,8 @@ export async function generateLessonScene(
           if (problem.startsWith('Quantitative values must appear in the lesson:'))
             return 'Quantitative values must appear in the lesson.';
           return problem;
-        })
+        }),
+        draft.evidence
       ),
     };
   input.onValidatedScene?.(scene);
