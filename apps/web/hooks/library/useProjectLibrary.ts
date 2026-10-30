@@ -309,7 +309,8 @@ export const useProjectLibrary = ({
         if (refreshVersion !== libraryRefreshVersionRef.current) return;
         setImportRefreshWarning(null);
         setProjectSyncState(current =>
-          current.kind === 'load' || (options?.afterImport && current.kind === 'import')
+          current.kind === 'load' ||
+          (options?.afterImport !== undefined && current.kind === 'import')
             ? { kind: 'idle' }
             : current
         );
@@ -1300,7 +1301,6 @@ export const useProjectLibrary = ({
       }
       const refreshFailed = outcome.kind === 'refresh-failed';
       if (outcome.kind === 'refresh-failed') warnImportRefreshFailed(outcome.error);
-      else setProjectSyncState({ kind: 'idle' });
       return { importedProjectCount: outcome.importedProjectCount, refreshFailed };
     },
     [refreshLibraryState]

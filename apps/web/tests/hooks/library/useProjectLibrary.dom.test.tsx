@@ -1009,6 +1009,56 @@ describe('useProjectLibrary', () => {
     expect(result.current.projectSyncState).toEqual({ kind: 'idle' });
   });
 
+  test('keeps a newer import warning state when an older library backup refresh completes', async () => {
+    const backup = new File(
+      [
+        await createLibraryArchiveBlob([buildSnapshot('first-import')], {
+          folders: [],
+          placements: [
+            {
+              projectId: 'first-import',
+              folderId: null,
+              order: 0,
+              updatedAt: '2026-04-02T10:00:00.000Z',
+            },
+          ],
+        }),
+      ],
+      'library.nous-library.zip'
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    let finishOldRead!: (projects: SavedProjectMeta[]) => void;
+    repositoryMocks.listProjects.mockReturnValueOnce(
+      new Promise(resolve => {
+        finishOldRead = resolve;
+      })
+    );
+    let firstImport!: ReturnType<typeof result.current.importLibraryBackup>;
+    act(() => {
+      firstImport = result.current.importLibraryBackup(backup);
+    });
+    await waitFor(() => expect(repositoryMocks.listProjects).toHaveBeenCalledTimes(2));
+    repositoryMocks.listProjects.mockRejectedValueOnce(new Error('new import reload failed'));
+    await act(async () => {
+      await result.current.importProjectData(buildSnapshot('second-import'));
+    });
+    expect(result.current.projectSyncState).toMatchObject({ kind: 'load', phase: 'failed' });
+    await act(async () => {
+      finishOldRead([]);
+      await firstImport;
+    });
+    expect(result.current.storageError).toBe(
+      'I corsi sono stati importati. Ricarica la libreria per visualizzarli.'
+    );
+    expect(result.current.projectSyncState).toMatchObject({ kind: 'load', phase: 'failed' });
+  });
+
   test('shows a later persistence failure ahead of the retained import reload warning', async () => {
     const { result } = renderHook(() =>
       useProjectLibrary({
