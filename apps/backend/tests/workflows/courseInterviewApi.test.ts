@@ -41,6 +41,38 @@ const createInput = () => ({
 });
 
 describe('course interview API', () => {
+  test.each([
+    [null, 'project-unavailable'],
+    [{ state: 'READING', learningPlan: null }, 'project-not-in-assessment'],
+    [
+      { state: 'ASSESSMENT', learningPlan: { title: 'Private title' } },
+      'project-has-learning-plan',
+    ],
+    [{ state: 'READING', learningPlan: { title: 'Private title' } }, 'project-has-learning-plan'],
+  ])('diagnoses rejected startup without logging project content (%s)', async (project, reason) => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const input = createInput();
+      input.projectReader.loadProject.mockResolvedValue(project);
+      await expect(
+        createCourseInterviewApi(input).start({
+          hasReliableSourceContext: false,
+          mode: 'learn',
+          projectId: 'project-1',
+          requestKey: 'request-1',
+          userId: 'user-1',
+        })
+      ).rejects.toBeInstanceOf(CourseInterviewTargetNotFoundError);
+      expect(input.starter.start).not.toHaveBeenCalled();
+      expect(warning).toHaveBeenCalledWith('[Course interview] Startup rejected.', {
+        projectId: 'project-1',
+        reason,
+      });
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
   test('starts only for an owned project and maps one public run envelope', async () => {
     const input = createInput();
     const api = createCourseInterviewApi(input);

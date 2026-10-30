@@ -46,7 +46,9 @@ export interface TextSourceInput {
 }
 
 export interface AssessmentSourceInput {
+  initialMessage?: string;
   file?: FileData | null;
+  source?: ProjectSource | null;
   sources?: CourseSourceDescriptor[];
   textSource?: TextSourceInput | null;
 }

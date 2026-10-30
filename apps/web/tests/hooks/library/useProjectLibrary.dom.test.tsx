@@ -363,6 +363,95 @@ describe('useProjectLibrary', () => {
     });
   });
 
+  test('retains draft extensions across explicit saves and subsequent domain saves', async () => {
+    const initial = {
+      ...buildSnapshot('draft'),
+      source: null,
+      learningPlan: null,
+      extensions: { integration: 'existing' },
+    };
+    repositoryMocks.loadProject.mockResolvedValue(initial);
+    repositoryMocks.saveProject.mockImplementation(async snapshot => ({
+      meta: { ...buildMeta('draft', initial.lastOpenedAt), hasSourceFile: false },
+      snapshot,
+    }));
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    await act(async () => {
+      await result.current.loadStoredProject('draft');
+    });
+    act(() => result.current.setCurrentProjectId('draft'));
+    await act(async () => {
+      await result.current.saveCurrentProject({
+        extensions: { courseInterviewInitialMessage: 'Query optimization' },
+      });
+    });
+    await act(async () => {
+      await result.current.saveCurrentProject();
+    });
+    expect(repositoryMocks.saveProject.mock.calls.at(-1)?.[0].extensions).toEqual({
+      integration: 'existing',
+      courseInterviewInitialMessage: 'Query optimization',
+    });
+  });
+
+  test.each(
+    [true, false].flatMap(withExtensions =>
+      (['legacy', 'archive'] as const).map(kind => ({ withExtensions, kind }))
+    )
+  )('imports replace cached metadata before autosave ($kind, extensions: $withExtensions)', async ({
+    withExtensions,
+    kind,
+  }) => {
+    const previous = buildSnapshot('draft', {
+      title: 'Previous title',
+      extensions: { courseInterviewInitialMessage: 'Previous objective', obsolete: true },
+    });
+    const imported = buildSnapshot(kind === 'legacy' ? 'draft' : 'archive-draft', {
+      title: 'Imported title',
+      ...(withExtensions
+        ? { extensions: { courseInterviewInitialMessage: 'Imported objective', imported: true } }
+        : {}),
+    });
+    repositoryMocks.loadProject.mockResolvedValue(previous);
+    repositoryMocks.importProject.mockResolvedValue({
+      meta: buildMeta(imported.id, imported.lastOpenedAt),
+      snapshot: imported,
+    });
+    repositoryMocks.importProjectArchive.mockResolvedValue({
+      meta: buildMeta(imported.id, imported.lastOpenedAt),
+      snapshot: imported,
+    });
+    repositoryMocks.saveProject.mockImplementation(async snapshot => ({
+      meta: buildMeta(snapshot.id, snapshot.lastOpenedAt),
+      snapshot,
+    }));
+    const { result } = renderHook(useSession);
+    await waitFor(() => expect(result.current.library.isLibraryLoading).toBe(false));
+    await act(async () => {
+      await result.current.library.loadStoredProject('draft');
+    });
+    await act(async () => {
+      const committed =
+        kind === 'legacy'
+          ? await result.current.library.importProjectData(imported)
+          : await result.current.library.importProjectArchive(new Blob(['archive']), imported.id);
+      result.current.library.setCurrentProjectId(committed.snapshot.id);
+      result.current.domain.hydrateSnapshot(committed.snapshot);
+    });
+    act(() => result.current.library.setProjectHydrated(true));
+    act(() => result.current.domain.setIsLearnMode(true));
+    await waitFor(() => expect(repositoryMocks.saveProject).toHaveBeenCalled());
+    const saved = repositoryMocks.saveProject.mock.calls.at(-1)?.[0];
+    expect(saved.title).toBe('Imported title');
+    expect(saved.extensions).toEqual(imported.extensions);
+  });
+
   test('serializes favorite writes and immediately syncs returned server metadata', async () => {
     const originalMeta = buildMeta('course', '2026-04-02T10:00:00.000Z', 4);
     repositoryMocks.listProjects.mockResolvedValue([originalMeta]);

@@ -41,6 +41,7 @@ import { normalizeCourseSourceOrder } from './courseSources.ts';
 import { getProjectSourceName, isDocumentProjectSource, isPdfFileData } from './projectSource.ts';
 
 const CURRENT_PROJECT_VERSION = '4.1';
+export const COURSE_INTERVIEW_INITIAL_MESSAGE_KEY = 'courseInterviewInitialMessage';
 
 const isString = (value: unknown): value is string => typeof value === 'string';
 
