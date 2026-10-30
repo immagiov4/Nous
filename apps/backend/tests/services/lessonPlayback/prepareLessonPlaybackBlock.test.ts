@@ -172,7 +172,11 @@ test('rejects a replacement visual that omits an authored list item', async () =
   expect(audio).not.toHaveBeenCalled();
 });
 
-test('retains the last rejected section diagnostic in its existing operational failure', async () => {
+test.each([
+  'invalid',
+  'incomplete',
+  'without-diagnostic',
+])('retains the last rejected section diagnostic after %s outcomes', async outcome => {
   const sources = [{ type: 'markdown' as const, markdown: '- First.\n- Second.\n- Third.' }];
   const diagnostic = {
     type: 'Error',
@@ -182,11 +186,19 @@ test('retains the last rejected section diagnostic in its existing operational f
       supportComparison: { outcome: 'absent', evidenceChars: 7 },
     }),
   };
-  sceneGeneration.mockResolvedValue({
+  const invalid = {
     kind: 'invalid',
     problems: ['evidence must be an exact quotation from the lesson.'],
     diagnostic,
-  });
+  };
+  sceneGeneration.mockResolvedValue(
+    outcome === 'incomplete'
+      ? { kind: 'scene', scene }
+      : outcome === 'without-diagnostic'
+        ? { ...invalid, diagnostic: undefined }
+        : invalid
+  );
+  sceneGeneration.mockResolvedValueOnce(invalid);
   const error = await prepareLessonPlaybackVisuals({
     ...input(),
     block: segmentLessonPlayback(sources)[0],
@@ -683,6 +695,32 @@ test('keeps source visuals and bounded diagnostics after scene validation failur
     diagnostic,
   });
   expect(JSON.stringify(warning.mock.calls)).not.toContain('PRIVATE_MODEL_LABEL');
+});
+
+test('records a safe reason when generated scenes omit authored mathematics', async () => {
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const sources = [
+    { type: 'markdown' as const, markdown: '$$x+y$$\n\nThe sum combines the inputs.' },
+  ];
+  const mathBlock = segmentLessonPlayback(sources).at(-1);
+  if (!mathBlock) throw new Error('Expected a formula passage.');
+  structured.mockResolvedValue({ spokenMath: [{ formula: '$$x+y$$', spoken: 'x plus y' }] });
+  sceneGeneration.mockResolvedValue({ kind: 'scene', scene: formulaSpotlight });
+  const result = await prepareLessonPlaybackBlock({
+    ...input(),
+    block: mathBlock,
+    lesson: { title: '', sources },
+  });
+  expect(result.prepared.scene).toBeUndefined();
+  expect(result.audio.bytes).toEqual(preparedAudio.bytes);
+  expect(sceneGeneration).toHaveBeenCalledTimes(3);
+  expect(warning).toHaveBeenCalledWith(expect.any(String), {
+    diagnostic: {
+      type: 'Error',
+      originalMessage: 'Generated scene did not retain authored mathematics.',
+    },
+  });
+  expect(JSON.stringify(warning.mock.calls)).not.toContain('x+y');
 });
 
 import { getPlaybackFormulaMarkdown, getPlaybackMathMarkdown } from '@shared/lessonPlayback';

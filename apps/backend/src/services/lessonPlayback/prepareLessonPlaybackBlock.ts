@@ -211,13 +211,17 @@ const prepareScene = async (
         )
       )
         return outcome.scene;
+      diagnostic = {
+        type: 'Error',
+        originalMessage: 'Generated scene did not retain authored mathematics.',
+      };
       retryFeedback =
         'The spotlight must retain every complete authored expression, including scripts, conditions and operators. Return the complete equations or choose text for the sourced-formula presentation.';
       continue;
     }
     if (outcome.kind === 'text') return undefined;
     retryFeedback = outcome.problems.join('\n');
-    diagnostic = outcome.diagnostic;
+    diagnostic = outcome.diagnostic ?? diagnostic;
   }
   console.warn('[lesson-playback] Scene did not validate; retaining source visuals.', {
     diagnostic,
@@ -395,7 +399,7 @@ const generateSectionScene = async (
       (outcome.kind === 'invalid'
         ? outcome.problems.join('\n')
         : 'The previous scene omitted authored list items.');
-    diagnostic = outcome.kind === 'invalid' ? outcome.diagnostic : undefined;
+    if (outcome.kind === 'invalid') diagnostic = outcome.diagnostic ?? diagnostic;
   }
   throw new Error('The list visual did not cover every authored item.', {
     cause: diagnostic ? new Error(JSON.stringify(diagnostic)) : undefined,
