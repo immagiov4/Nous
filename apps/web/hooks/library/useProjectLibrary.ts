@@ -1417,10 +1417,7 @@ export const useProjectLibrary = ({
   const reconcileProjectRevisions = useCallback(async (): Promise<void> => {
     const refreshVersion = libraryRefreshVersionRef.current;
     const projects = await projectRepositoryRef.current.listProjects();
-    if (refreshVersion !== libraryRefreshVersionRef.current) {
-      revisionCatchUpRequestedRef.current ||= pendingRemoteRevisionRef.current !== null;
-      return;
-    }
+    if (refreshVersion !== libraryRefreshVersionRef.current) return;
     storeSavedProjects(projects);
     const projectId = currentProjectIdRef.current;
     if (!projectId) {
@@ -1470,6 +1467,13 @@ export const useProjectLibrary = ({
           console.warn('[Nous] Project revision catch-up failed', error);
           if (refreshVersion === libraryRefreshVersionRef.current)
             setProjectSyncState({ kind: 'realtimeDegraded' });
+        } finally {
+          if (
+            refreshVersion !== libraryRefreshVersionRef.current &&
+            pendingRemoteRevisionRef.current
+          ) {
+            revisionCatchUpRequestedRef.current = true;
+          }
         }
       }
       isRevisionCatchUpActiveRef.current = false;

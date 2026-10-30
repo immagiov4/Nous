@@ -871,9 +871,14 @@ describe('useProjectLibrary', () => {
   });
 
   test.each([
-    false,
-    true,
-  ])('requeues a revision event whose metadata read is superseded (import: %s)', async importing => {
+    { importing: false, fails: false },
+    { importing: true, fails: false },
+    { importing: false, fails: true },
+    { importing: true, fails: true },
+  ])('requeues a superseded revision metadata read (import: $importing, failed: $fails)', async ({
+    importing,
+    fails,
+  }) => {
     const hydrateSnapshot = vi.fn();
     repositoryMocks.listProjects.mockResolvedValue([
       buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
@@ -887,8 +892,10 @@ describe('useProjectLibrary', () => {
       result.current.setProjectHydrated(true);
     });
     let complete!: (value: SavedProjectMeta[]) => void;
-    const oldRead = new Promise<SavedProjectMeta[]>(resolve => {
+    let reject!: (error: Error) => void;
+    const oldRead = new Promise<SavedProjectMeta[]>((resolve, fail) => {
       complete = resolve;
+      reject = fail;
     });
     repositoryMocks.listProjects.mockReturnValueOnce(oldRead);
     act(() => {
@@ -900,15 +907,20 @@ describe('useProjectLibrary', () => {
     ]);
     repositoryMocks.loadProjectWithRevision.mockResolvedValue({
       revision: 2,
-      snapshot: buildSnapshot('project-1'),
+      snapshot: buildSnapshot('project-1', { title: 'Current remote course' }),
     });
     await act(async () => {
       if (importing) await result.current.importProjectData(buildSnapshot('unrelated-course'));
       else await result.current.refreshLibraryState();
-      complete([]);
-      await oldRead;
+      if (fails) reject(new Error('superseded metadata read failed'));
+      else complete([]);
+      await oldRead.catch(() => undefined);
     });
     await waitFor(() => expect(hydrateSnapshot).toHaveBeenCalledOnce());
+    expect(hydrateSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'project-1', title: 'Current remote course' })
+    );
+    expect(result.current.currentProjectId).toBe('project-1');
   });
 
   test.each([
