@@ -315,6 +315,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
   const startTrackedAssessmentInterview = async (
     input: Omit<StartOrResumeInterviewInput, 'onRunStarted' | 'pollingSignal' | 'startSignal'>
   ): Promise<CourseInterviewOutcome> => {
+    if (input.isRequestCurrent && !input.isRequestCurrent()) return 'abandoned';
     let resolveRunId: (runId: string | null) => void = () => {};
     let hasResolvedRunId = false;
     let startedRunId: string | null = null;

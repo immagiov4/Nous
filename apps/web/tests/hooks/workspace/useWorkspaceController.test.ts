@@ -5044,7 +5044,7 @@ test.each([
 });
 
 test.each(
-  (['resume', 'snapshot'] as const).flatMap(boundary =>
+  (['resume', 'snapshot', 'save'] as const).flatMap(boundary =>
     [false, true].map(withSources => ({ boundary, withSources }))
   )
 )('a superseded open paused at $boundary cannot replace the newer interview retry (sources: $withSources)', async ({
@@ -5105,6 +5105,14 @@ test.each(
       await releaseOpen.promise;
     }
     return draft;
+  };
+  const saveCurrentProject = projectLibrary.adapter.saveCurrentProject;
+  projectLibrary.adapter.saveCurrentProject = async (...args) => {
+    if (boundary === 'save' && state.internalState.workflowState.openProject.requestId === 1) {
+      paused.resolve();
+      await releaseOpen.promise;
+    }
+    return saveCurrentProject(...args);
   };
   const firstOpen = controller.openProject(draft.id);
   await paused.promise;
