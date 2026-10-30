@@ -221,7 +221,6 @@ const prepareScene = async (
   }
   console.warn('[lesson-playback] Scene did not validate; retaining source visuals.', {
     diagnostic,
-    retryFeedback,
   });
   return undefined;
 };
@@ -372,6 +371,7 @@ const generateSectionScene = async (
     ? `Use parts, one item per authored list item, in source order. Include every one of the ${section.items.length} items. Summarize each item faithfully; do not reduce the list to an earlier summary.`
     : '';
   let feedback = listRule;
+  let diagnostic: WorkflowErrorDiagnostic | undefined;
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt++) {
     const outcome = await generateLessonScene({
       config: resolveLessonVisualModelConfig(input.config),
@@ -395,8 +395,11 @@ const generateSectionScene = async (
       (outcome.kind === 'invalid'
         ? outcome.problems.join('\n')
         : 'The previous scene omitted authored list items.');
+    diagnostic = outcome.kind === 'invalid' ? outcome.diagnostic : undefined;
   }
-  throw new Error('The list visual did not cover every authored item.');
+  throw new Error('The list visual did not cover every authored item.', {
+    cause: diagnostic ? new Error(JSON.stringify(diagnostic)) : undefined,
+  });
 };
 
 /** Prepare and cache structural visuals separately from paid narration. */

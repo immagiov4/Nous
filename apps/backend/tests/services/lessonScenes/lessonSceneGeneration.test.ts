@@ -759,6 +759,67 @@ test('reports schema paths and transport without retaining unknown model fields'
   expect(JSON.stringify(outcome.diagnostic)).not.toContain('private');
 });
 
+test.each([
+  { name: 'empty', source: 'A client sends a request.', evidence: '  ', outcome: 'empty' },
+  {
+    name: 'controlled paraphrase',
+    source: 'A client sends a request.',
+    evidence: 'The client issues a request.',
+    outcome: 'absent',
+  },
+  {
+    name: 'controlled Markdown representation mismatch',
+    source: 'A **client** sends a request.',
+    evidence: 'A client sends a request.',
+    outcome: 'absent',
+  },
+  {
+    name: 'outside the supplied excerpt',
+    source: `${'x'.repeat(MAX_VISUAL_LESSON_CHARS)}A client sends a request.`,
+    evidence: 'A client sends a request.',
+    outcome: 'outside-excerpt',
+  },
+])('retains text-free comparison evidence for $name', async ({ source, evidence, outcome }) => {
+  generateStructuredOutputMock.mockImplementation(async request => {
+    request.onOutputPath?.('direct');
+    return { ...sceneDraft(''), evidence };
+  });
+  const result = await generateLessonScene(unplannedInput(source));
+  expect(result.kind).toBe('invalid');
+  if (result.kind !== 'invalid') throw new Error('Expected invalid scene');
+  expect(JSON.parse(String(result.diagnostic?.originalMessage))).toMatchObject({
+    outputPath: 'direct',
+    stage: 'domain',
+    supportComparison: {
+      outcome,
+      sourceChars: source.length,
+      excerptChars: Math.min(source.length, MAX_VISUAL_LESSON_CHARS),
+      evidenceChars: evidence.length,
+      normalizedEvidenceChars: evidence.trim().length,
+    },
+  });
+  expect(JSON.stringify(result.diagnostic)).not.toContain('client');
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+});
+
+test('text fallback rejection retains the same comparison diagnostic', async () => {
+  generateStructuredOutputMock.mockResolvedValue({
+    ...sceneDraft(''),
+    type: 'text',
+    evidence: 'A different sentence.',
+  });
+  const result = await generateLessonScene({
+    ...unplannedInput('Source sentence.'),
+    allowTextFallback: true,
+  });
+  expect(result.kind).toBe('invalid');
+  if (result.kind !== 'invalid') throw new Error('Expected invalid scene');
+  expect(JSON.parse(String(result.diagnostic?.originalMessage))).toMatchObject({
+    stage: 'domain',
+    supportComparison: { outcome: 'absent' },
+  });
+});
+
 import {
   FORMULA_SPOTLIGHT_MARKDOWN,
   FORMULA_SPOTLIGHT_SPEECH,

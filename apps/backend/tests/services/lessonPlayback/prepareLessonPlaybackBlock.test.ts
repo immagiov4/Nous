@@ -50,6 +50,7 @@ import {
   prepareLessonPlaybackVisuals,
 } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { MAX_TTS_TEXT_CHARS } from '../../../src/services/ttsClient.js';
+import { toStepFailure } from '../../../src/workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../../src/workflows/types.js';
 import { guidedPathScene, proportionalScene } from '../../helpers/animatedLessonScenes';
 
@@ -169,6 +170,35 @@ test('rejects a replacement visual that omits an authored list item', async () =
     })
   ).rejects.toThrow('The list visual did not cover every authored item.');
   expect(audio).not.toHaveBeenCalled();
+});
+
+test('retains the last rejected section diagnostic in its existing operational failure', async () => {
+  const sources = [{ type: 'markdown' as const, markdown: '- First.\n- Second.\n- Third.' }];
+  const diagnostic = {
+    type: 'Error',
+    originalMessage: JSON.stringify({
+      outputPath: 'direct',
+      stage: 'domain',
+      supportComparison: { outcome: 'absent', evidenceChars: 7 },
+    }),
+  };
+  sceneGeneration.mockResolvedValue({
+    kind: 'invalid',
+    problems: ['evidence must be an exact quotation from the lesson.'],
+    diagnostic,
+  });
+  const error = await prepareLessonPlaybackVisuals({
+    ...input(),
+    block: segmentLessonPlayback(sources)[0],
+    lesson: { title: 'Plan', sources },
+  }).catch(error => error);
+  expect(error.message).toBe('The list visual did not cover every authored item.');
+  const failure = toStepFailure(error);
+  expect(failure.kind).toBe('operational');
+  expect(failure.details?.diagnostic).toMatchObject({
+    cause: { originalMessage: JSON.stringify(diagnostic) },
+  });
+  expect(sceneGeneration).toHaveBeenCalledTimes(3);
 });
 
 test('retains the existing visual for an individually recorded list item', async () => {
@@ -642,7 +672,7 @@ test('keeps source visuals and bounded diagnostics after scene validation failur
   const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
   sceneGeneration.mockResolvedValue({
     kind: 'invalid',
-    problems: ['Malformed scene.'],
+    problems: ['The connection "PRIVATE_MODEL_LABEL" needs source evidence.'],
     diagnostic,
   });
   await expect(prepareLessonPlaybackBlock(input())).resolves.toMatchObject({
@@ -651,8 +681,8 @@ test('keeps source visuals and bounded diagnostics after scene validation failur
   expect(sceneGeneration).toHaveBeenCalledTimes(3);
   expect(warning).toHaveBeenCalledWith(expect.any(String), {
     diagnostic,
-    retryFeedback: 'Malformed scene.',
   });
+  expect(JSON.stringify(warning.mock.calls)).not.toContain('PRIVATE_MODEL_LABEL');
 });
 
 import { getPlaybackFormulaMarkdown, getPlaybackMathMarkdown } from '@shared/lessonPlayback';
