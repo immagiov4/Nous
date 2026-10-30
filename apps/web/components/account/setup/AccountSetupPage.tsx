@@ -55,13 +55,10 @@ function SetupStatusGate({ children }: Readonly<{ children: ReactNode }>) {
   }, [status]);
   if (status === 'ready') return children;
   if (status === 'pending') return <AccountSetupPage />;
+  if (status === 'loading') return <main className="setup-page" />;
   return (
     <main className="setup-page flex flex-col items-center justify-center gap-6">
-      <output role={status === 'error' ? 'alert' : undefined}>
-        {t(
-          status === 'error' ? 'Preferenze non disponibili. Riprova.' : 'Caricamento preferenze...'
-        )}
-      </output>
+      <output role="alert">{t('Preferenze non disponibili. Riprova.')}</output>
       {status === 'error' && (
         <>
           <button onClick={() => setStatus('loading')} type="button">

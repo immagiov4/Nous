@@ -21,6 +21,24 @@ describe('initial account setup', () => {
     finish: vi.fn(async () => {}),
   });
   const advance = () => fireEvent.click(screen.getByRole('button', { name: 'Continua' }));
+  it('keeps only the background until initial preferences can be rendered', async () => {
+    const adapter = createAdapter();
+    let complete!: (preferences: typeof EMPTY_ACCOUNT_PREFERENCES) => void;
+    vi.mocked(adapter.load).mockImplementation(
+      () =>
+        new Promise(resolve => {
+          complete = resolve;
+        })
+    );
+    const { container } = render(<AccountSetupFlow adapter={adapter} onExit={vi.fn()} />);
+    expect(container.textContent).toBe('');
+    expect(container.querySelector('.setup-page')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    await act(async () => complete({ ...EMPTY_ACCOUNT_PREFERENCES }));
+    expect(screen.getByLabelText('Lingua interfaccia')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+  });
+
   it('previews browser language separately from the saved account language', async () => {
     setRenderingLocaleOverride('en');
     const adapter = createAdapter();
