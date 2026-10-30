@@ -540,13 +540,13 @@ export async function withMemoryProjectBrowserStack<T>(
         }
       },
     ];
-    for (const dispose of cleanup) {
-      try {
-        await Promise.resolve(dispose());
-      } catch (error) {
-        failures.push(error);
-      }
-    }
+    await cleanup.reduce(
+      (previous, dispose) =>
+        previous.then(dispose).catch(error => {
+          failures.push(error);
+        }),
+      Promise.resolve()
+    );
   }
   if (failures.length === 1) throw failures[0];
   if (failures.length > 1) {

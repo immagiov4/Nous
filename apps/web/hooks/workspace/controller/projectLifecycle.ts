@@ -513,7 +513,10 @@ export const createProjectLifecycleCommands = (
         state.invalidateWorkflows([...PROJECT_NAVIGATION_WORKFLOWS_TO_INVALIDATE]);
       }
       // Only startup becomes obsolete before validation; Stop retains its cleanup ownership.
-      if (session.activeHomeChatStartPromise && !session.activeAssessmentCancellationPromise) {
+      if (
+        session.activeHomeChatStartPromise !== null &&
+        session.activeAssessmentCancellationPromise === null
+      ) {
         state.invalidateWorkflows(['assessment']);
       }
       await beginHomeChatWorkspaceOpen(projectId, requestId);
