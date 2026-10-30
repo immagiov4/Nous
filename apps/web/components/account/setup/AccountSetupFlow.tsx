@@ -91,6 +91,7 @@ export default function AccountSetupFlow({
   const heading = useRef<HTMLHeadingElement>(null);
   const busy = state.phase === 'saving';
   const nextLabel = state.step === 'preferences' ? t('Entra in Nous') : t('Continua');
+  const initiallyLoading = state.phase === 'loading';
   const finished = state.phase === 'completed' || state.phase === 'skipped';
   useEffect(() => {
     if (finished) onExit();
@@ -98,7 +99,7 @@ export default function AccountSetupFlow({
   // biome-ignore lint/correctness/useExhaustiveDependencies: Each new step must announce its heading without focusing the text input.
   useEffect(() => {
     heading.current?.focus();
-  }, [state.step, finished, state.hasLoaded]);
+  }, [state.step, finished, initiallyLoading, state.hasLoaded]);
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDarkMode);
   }, [isDarkMode]);
@@ -116,7 +117,12 @@ export default function AccountSetupFlow({
   };
   const logo = isDarkMode ? logoDarkUrl : logoUrl;
   if (finished) return null;
-  if (state.phase === 'loading') return <div className="setup-page" lang={locale} />;
+  if (initiallyLoading)
+    return (
+      <div className="setup-page" lang={locale}>
+        <output className="sr-only">{t('Caricamento preferenze...')}</output>
+      </div>
+    );
   return (
     <div className="setup-page" lang={locale}>
       <header className="setup-header">
@@ -164,12 +170,18 @@ export default function AccountSetupFlow({
         <p className="setup-subtitle">
           {t('Puoi aggiungere o cambiare queste indicazioni nelle impostazioni, anche più avanti.')}
         </p>
-        {(state.phase === 'load-error' || state.phase === 'save-error') && (
+        {state.phase === 'reloading' && (
+          <output className="sr-only">{t('Caricamento preferenze...')}</output>
+        )}
+        {(state.phase === 'load-error' ||
+          state.phase === 'save-error' ||
+          state.phase === 'reloading') && (
           <p role="alert" className="mt-6 text-sm text-red-700 dark:text-red-300">
             {t('Preferenze non disponibili. Riprova.')}
             {!state.hasLoaded && (
               <button
                 className="ml-2 underline"
+                disabled={state.phase === 'reloading'}
                 type="button"
                 onClick={() => dispatch({ type: 'reload' })}
               >

@@ -37,9 +37,11 @@ export default function AccountSetupPage() {
 }
 
 function SetupStatusGate({ children }: Readonly<{ children: ReactNode }>) {
-  const [status, setStatus] = useState<'loading' | 'pending' | 'ready' | 'error'>('loading');
+  const [status, setStatus] = useState<'loading' | 'retrying' | 'pending' | 'ready' | 'error'>(
+    'loading'
+  );
   useEffect(() => {
-    if (status !== 'loading') return;
+    if (status !== 'loading' && status !== 'retrying') return;
     let active = true;
     void loadAccountSetupStatus()
       .then(result => {
@@ -55,13 +57,25 @@ function SetupStatusGate({ children }: Readonly<{ children: ReactNode }>) {
   }, [status]);
   if (status === 'ready') return children;
   if (status === 'pending') return <AccountSetupPage />;
-  if (status === 'loading') return <main className="setup-page" />;
+  if (status === 'loading')
+    return (
+      <main className="setup-page">
+        <output className="sr-only">{t('Caricamento preferenze...')}</output>
+      </main>
+    );
   return (
     <main className="setup-page flex flex-col items-center justify-center gap-6">
       <output role="alert">{t('Preferenze non disponibili. Riprova.')}</output>
-      {status === 'error' && (
+      {status === 'retrying' && (
+        <output className="sr-only">{t('Caricamento preferenze...')}</output>
+      )}
+      {(status === 'error' || status === 'retrying') && (
         <>
-          <button onClick={() => setStatus('loading')} type="button">
+          <button
+            disabled={status === 'retrying'}
+            onClick={() => setStatus('retrying')}
+            type="button"
+          >
             {t('Riprova')}
           </button>
           <button onClick={() => setStatus('ready')} type="button">
