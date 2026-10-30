@@ -21,6 +21,59 @@ describe('initial account setup', () => {
     finish: vi.fn(async () => {}),
   });
   const advance = () => fireEvent.click(screen.getByRole('button', { name: 'Continua' }));
+  it('keeps only the background until initial preferences can be rendered', async () => {
+    const adapter = createAdapter();
+    let complete!: (preferences: typeof EMPTY_ACCOUNT_PREFERENCES) => void;
+    vi.mocked(adapter.load).mockImplementation(
+      () =>
+        new Promise(resolve => {
+          complete = resolve;
+        })
+    );
+    const { container } = render(<AccountSetupFlow adapter={adapter} onExit={vi.fn()} />);
+    expect(screen.getByRole('status')).toHaveClass('sr-only');
+    expect(container.querySelector('.setup-page')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    await act(async () => complete({ ...EMPTY_ACCOUNT_PREFERENCES }));
+    expect(screen.getByLabelText('Lingua interfaccia')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus());
+  });
+
+  it('focuses the heading after initial preference loading fails', async () => {
+    const adapter = createAdapter();
+    vi.mocked(adapter.load).mockRejectedValueOnce(new Error('Unavailable'));
+    render(<AccountSetupFlow adapter={adapter} onExit={vi.fn()} />);
+    await screen.findByRole('alert');
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus());
+    const retry = screen.getByRole('button', { name: 'Riprova' });
+    retry.focus();
+    fireEvent.click(retry);
+    await screen.findByLabelText('Lingua interfaccia');
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus());
+  });
+
+  it('keeps skipping available while retrying failed preferences', async () => {
+    const adapter = createAdapter();
+    let complete!: (preferences: typeof EMPTY_ACCOUNT_PREFERENCES) => void;
+    vi.mocked(adapter.load)
+      .mockRejectedValueOnce(new Error('Unavailable'))
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            complete = resolve;
+          })
+      );
+    const onExit = vi.fn();
+    render(<AccountSetupFlow adapter={adapter} onExit={onExit} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Riprova' }));
+    expect(screen.getByRole('button', { name: 'Riprova' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Salta per ora' }));
+    await waitFor(() => expect(onExit).toHaveBeenCalledOnce());
+    await act(async () => complete({ ...EMPTY_ACCOUNT_PREFERENCES }));
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+    expect(adapter.finish).toHaveBeenCalledExactlyOnceWith({ status: 'skipped' });
+  });
+
   it('previews browser language separately from the saved account language', async () => {
     setRenderingLocaleOverride('en');
     const adapter = createAdapter();
@@ -40,7 +93,7 @@ describe('initial account setup', () => {
     await screen.findByLabelText('Lingua interfaccia');
     advance();
     expect(screen.getByRole('textbox', { name: 'Preferenze didattiche' })).toHaveValue('');
-    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus());
     fireEvent.click(screen.getByRole('button', { name: 'Entra in Nous' }));
     await waitFor(() => expect(screen.queryByRole('heading')).not.toBeInTheDocument());
     expect(adapter.finish).toHaveBeenCalledExactlyOnceWith({
