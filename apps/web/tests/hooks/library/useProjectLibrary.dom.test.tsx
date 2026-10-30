@@ -870,7 +870,10 @@ describe('useProjectLibrary', () => {
     expect(result.current.projectSyncState).toMatchObject({ kind: 'load', phase: 'failed' });
   });
 
-  test('requeues a revision event whose metadata read crosses an ordinary refresh', async () => {
+  test.each([
+    false,
+    true,
+  ])('requeues a revision event whose metadata read is superseded (import: %s)', async importing => {
     const hydrateSnapshot = vi.fn();
     repositoryMocks.listProjects.mockResolvedValue([
       buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
@@ -900,7 +903,8 @@ describe('useProjectLibrary', () => {
       snapshot: buildSnapshot('project-1'),
     });
     await act(async () => {
-      await result.current.refreshLibraryState();
+      if (importing) await result.current.importProjectData(buildSnapshot('unrelated-course'));
+      else await result.current.refreshLibraryState();
       complete([]);
       await oldRead;
     });

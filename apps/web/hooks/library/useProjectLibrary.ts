@@ -1398,10 +1398,9 @@ export const useProjectLibrary = ({
 
   const reconcileProjectRevisions = useCallback(async (): Promise<void> => {
     const refreshVersion = libraryRefreshVersionRef.current;
-    const importVersion = committedImportVersionRef.current;
     const projects = await projectRepositoryRef.current.listProjects();
     if (refreshVersion !== libraryRefreshVersionRef.current) {
-      revisionCatchUpRequestedRef.current ||= importVersion === committedImportVersionRef.current;
+      revisionCatchUpRequestedRef.current ||= pendingRemoteRevisionRef.current !== null;
       return;
     }
     storeSavedProjects(projects);
