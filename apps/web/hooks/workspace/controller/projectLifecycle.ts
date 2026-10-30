@@ -40,7 +40,10 @@ import {
   getPdfProjectHydrationState,
   needsPdfProjectHydration,
 } from '../../../utils/pdf/projectHydration.ts';
-import { createAssessmentWorkspaceOwnership } from './assessmentSession.ts';
+import {
+  createAssessmentWorkspaceOwnership,
+  releaseAssessmentWorkspaceOwnership,
+} from './assessmentSession.ts';
 import {
   formatSourcePreparationProgress,
   getProjectSourceWarnings,
@@ -188,6 +191,8 @@ export const createProjectLifecycleCommands = (
       : [selectedFilesInput];
     const selectedFile = selectedFiles[0];
     if (!selectedFile) {
+      releaseAssessmentWorkspaceOwnership(session, ownership);
+      session.activeSourceAttachmentOwnership = null;
       return {
         outcome: options?.mode === 'reattach-source' ? 'failed' : 'started-assessment',
         errorMessage: 'Nessuna fonte selezionata.',
@@ -473,6 +478,7 @@ export const createProjectLifecycleCommands = (
         sourceWarnings,
       };
     } finally {
+      releaseAssessmentWorkspaceOwnership(session, ownership);
       if (
         preparationController.signal.aborted &&
         state.isWorkflowCurrent('attachSource', requestId)

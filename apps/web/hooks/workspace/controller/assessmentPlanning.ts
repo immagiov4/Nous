@@ -43,6 +43,7 @@ import {
   createAssessmentWorkspaceOwnership,
   type HomeChatStartResult,
   type PendingAssessmentInterviewRun,
+  releaseAssessmentWorkspaceOwnership,
 } from './assessmentSession.ts';
 import {
   formatSourcePreparationProgress,
@@ -1031,7 +1032,9 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
           errorMessage: getErrorMessage(error.cause),
           projectId: startState.draftProjectId,
         });
-        return { outcome: 'failed', sourceWarnings: startState.sourceWarnings };
+        return workspaceOwnership.cancellationRequested
+          ? { outcome: 'failed', sourceWarnings: startState.sourceWarnings }
+          : { outcome: 'abandoned' };
       }
       if (workspaceOwnership.sourcePreparationController?.signal.aborted) {
         return abandonCancelledStart();
@@ -1103,7 +1106,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
         workspaceOwnership,
       });
       if (preparation.kind === 'completed') return preparation.result;
-      if (!isRequestCurrent()) return abandonCancelledStart();
+      if (!isRequestCurrent()) return await abandonCancelledStart();
       const { hasReliableSourceContext, mode, preparedSource, sourceContext } = preparation.value;
       const projectId = await ensureInterviewProject(
         mode,
@@ -1114,7 +1117,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
         },
         trimmedInput
       );
-      if (!isRequestCurrent()) return abandonCancelledStart();
+      if (!isRequestCurrent()) return await abandonCancelledStart();
       const outcome = await startTrackedAssessmentInterview({
         hasReliableSourceContext,
         initialMessage: trimmedInput,
@@ -1124,7 +1127,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
         workspaceOwnership,
         ...(sourceContext ? { sourceContext } : {}),
       });
-      if (!isRequestCurrent()) return abandonCancelledStart();
+      if (!isRequestCurrent()) return await abandonCancelledStart();
       state.succeedWorkflow('assessment', requestId);
       if (outcome === 'abandoned') {
         await projectLibrary.refreshLibraryState();
@@ -1132,7 +1135,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
       }
       return { outcome, sourceWarnings: startState.sourceWarnings };
     } catch (error) {
-      return handleHomeChatStartFailure({
+      return await handleHomeChatStartFailure({
         abandonCancelledStart,
         error,
         isRequestCurrent,
@@ -1140,6 +1143,8 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
         startState,
         workspaceOwnership,
       });
+    } finally {
+      releaseAssessmentWorkspaceOwnership(session, workspaceOwnership);
     }
   }
 
@@ -1200,6 +1205,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     const owners =
       session.workspaceOwnershipByOpenProjectRequestId.get(openProjectRequestId) ?? new Set();
     for (const activeOwnership of [
+      ...session.unsettledWorkspaceOwnerships,
       session.activeHomeChatWorkspaceOwnership,
       session.activeSourceAttachmentOwnership,
     ]) {
@@ -1258,11 +1264,12 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     const requestId = state.beginWorkflow('assessment', t('Valutazione risposta...'));
     const requestToken = Symbol('home-chat-follow-up');
     session.latestHomeChatRequestToken = requestToken;
-    session.activeHomeChatWorkspaceOwnership = createAssessmentWorkspaceOwnership(
+    const workspaceOwnership = createAssessmentWorkspaceOwnership(
       session,
       requestToken,
       state.getWorkflowState().openProject.requestId
     );
+    session.activeHomeChatWorkspaceOwnership = workspaceOwnership;
 
     let resolveRunId: (runId: string | null) => void = () => {};
     let hasResolvedRunId = false;
@@ -1331,6 +1338,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
       state.failWorkflow('assessment', requestId, errorMessage);
       return { outcome: 'failed', errorMessage };
     } finally {
+      releaseAssessmentWorkspaceOwnership(session, workspaceOwnership);
       if (!hasResolvedRunId) resolveRunId(null);
       if (startedRunId) session.assessmentRunCancellationPromises.delete(startedRunId);
       if (session.pendingAssessmentInterviewRun === pendingRun)

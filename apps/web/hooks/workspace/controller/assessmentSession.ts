@@ -58,6 +58,7 @@ export interface AssessmentSessionState {
   readonly openProjectAttempts: Map<number, PendingWorkspaceOpen>;
   pendingAssessmentInterviewRun: PendingAssessmentInterviewRun | null;
   pendingCancelledDraftCleanup: PendingCancelledDraftCleanup | null;
+  readonly unsettledWorkspaceOwnerships: Set<AssessmentWorkspaceOwnership>;
   readonly workspaceOwnershipByOpenProjectRequestId: Map<number, Set<AssessmentWorkspaceOwnership>>;
 }
 
@@ -72,6 +73,7 @@ export const createAssessmentSessionState = (): AssessmentSessionState => ({
   openProjectAttempts: new Map(),
   pendingAssessmentInterviewRun: null,
   pendingCancelledDraftCleanup: null,
+  unsettledWorkspaceOwnerships: new Set(),
   workspaceOwnershipByOpenProjectRequestId: new Map(),
 });
 
@@ -89,6 +91,7 @@ export const createAssessmentWorkspaceOwnership = (
     requestToken,
     requiresCancellationRetry: false,
   };
+  session.unsettledWorkspaceOwnerships.add(ownership);
   const pendingOpenProject = session.openProjectAttempts.get(openProjectRequestId);
   if (pendingOpenProject) {
     ownership.pendingOpenProjects.set(openProjectRequestId, pendingOpenProject);
@@ -98,4 +101,17 @@ export const createAssessmentWorkspaceOwnership = (
     session.workspaceOwnershipByOpenProjectRequestId.set(openProjectRequestId, owners);
   }
   return ownership;
+};
+
+export const releaseAssessmentWorkspaceOwnership = (
+  session: AssessmentSessionState,
+  ownership: AssessmentWorkspaceOwnership
+): void => {
+  session.unsettledWorkspaceOwnerships.delete(ownership);
+  for (const requestId of ownership.pendingOpenProjects.keys()) {
+    const owners = session.workspaceOwnershipByOpenProjectRequestId.get(requestId);
+    owners?.delete(ownership);
+    if (owners?.size === 0) session.workspaceOwnershipByOpenProjectRequestId.delete(requestId);
+  }
+  ownership.pendingOpenProjects.clear();
 };

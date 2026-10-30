@@ -1074,6 +1074,7 @@ const createControllerHarness = (args?: {
   const controller = recreateController();
 
   return {
+    assessmentSession,
     controller,
     domain,
     projectLibrary,
@@ -5178,12 +5179,132 @@ test('a failed navigation cancellation never turns the next Home start into draf
   assert(draft?.source?.sources?.length);
   expect((await controller.openProject('missing-course')).outcome).toBe('missing');
   finish.resolve();
-  expect((await starting).outcome).toBe('failed');
+  expect(await starting).toEqual({ outcome: 'abandoned' });
   expect((await controller.startHomeChat({ input: 'Learn another topic' })).outcome).toBe(
     'continued'
   );
   expect(cancelCourseInterview).toHaveBeenCalledOnce();
   expect(projectLibrary.deletedProjectIds).toEqual([]);
+});
+
+test.each(
+  [false, true].flatMap(withSources =>
+    [false, true].map(secondSettled => ({ withSources, secondSettled }))
+  )
+)('opening an older overlapping Home draft keeps its recovered interview answerable (sources: $withSources, second settled: $secondSettled)', async ({
+  withSources,
+  secondSettled,
+}) => {
+  const firstStarted = createDeferred();
+  const secondStarted = createDeferred();
+  const finishFirst = createDeferred();
+  const finishSecond = createDeferred();
+  const active = new Map<string, CourseInterviewSnapshot>();
+  let starts = 0;
+  const cancelCourseInterview = vi.fn(async ({ projectId }) => {
+    active.delete(projectId);
+  });
+  const { assessmentSession, controller, projectLibrary, state } = createControllerHarness({
+    openRouter: {
+      cancelCourseInterview,
+      getActiveCourseInterview: async projectId => active.get(projectId) ?? null,
+      startCourseInterview: async (input, options) => {
+        const snapshot = createInterviewSnapshot({
+          projectId: input.projectId,
+          runId: `overlapping-run-${++starts}`,
+        });
+        active.set(input.projectId, snapshot);
+        options?.onRunStarted?.(snapshot.runId);
+        const first = starts === 1;
+        (first ? firstStarted : secondStarted).resolve();
+        await (first ? finishFirst : finishSecond).promise;
+        return snapshot;
+      },
+      sendCourseInterviewAnswer: async input => {
+        if (!active.has(input.projectId)) throw new Error('Interview was cancelled');
+        return createProposalSnapshot(input.projectId);
+      },
+    },
+  });
+  const first = controller.startHomeChat({
+    input: 'Teach query optimization',
+    ...(withSources
+      ? { selectedFile: new File(['Prepared notes'], 'notes.md', { type: 'text/markdown' }) }
+      : {}),
+  });
+  await firstStarted.promise;
+  const draft = projectLibrary.persistedSnapshots.at(-1);
+  assert(draft);
+  projectLibrary.adapter.loadStoredProject = async () => draft;
+  const second = controller.startHomeChat({ input: 'Teach another topic' });
+  await secondStarted.promise;
+  if (secondSettled) {
+    finishSecond.resolve();
+    expect((await second).outcome).toBe('continued');
+  }
+  try {
+    expect((await controller.openProject(draft.id)).outcome).toBe('opened');
+    finishFirst.resolve();
+    expect(await first).toEqual({ outcome: 'abandoned' });
+    expect((await controller.submitAssessment('Focus on indexes')).outcome).toBe(
+      'assessment-complete'
+    );
+    expect(state.internalState.courseProposal?.topic).toBe('TypeScript');
+    expect(cancelCourseInterview).not.toHaveBeenCalledWith({
+      projectId: draft.id,
+      runId: 'overlapping-run-1',
+    });
+    expect(projectLibrary.deletedProjectIds).toEqual([]);
+  } finally {
+    finishFirst.resolve();
+    finishSecond.resolve();
+    await Promise.allSettled([first, second]);
+  }
+  expect(assessmentSession.unsettledWorkspaceOwnerships.size).toBe(0);
+  expect(assessmentSession.workspaceOwnershipByOpenProjectRequestId.size).toBe(0);
+});
+
+test('opening an older overlapping attachment preserves its adopted saved draft', async () => {
+  const published = createDeferred();
+  const finishFirst = createDeferred();
+  let firstDraft: ProjectSnapshot | null = null;
+  const { assessmentSession, controller, projectLibrary } = createControllerHarness({
+    projectLibrary: {
+      persistSnapshot: async snapshot => {
+        if (!firstDraft) {
+          firstDraft = snapshot;
+          published.resolve();
+          await finishFirst.promise;
+        }
+        return { meta: buildMeta(snapshot.id), snapshot };
+      },
+    },
+  });
+  const first = controller.handleSourceUpload(
+    new File(['Old notes'], 'old.md', { type: 'text/markdown' })
+  );
+  await published.promise;
+  const draft = firstDraft as ProjectSnapshot | null;
+  assert(draft);
+  await controller.handleSourceUpload(new File(['New notes'], 'new.md', { type: 'text/markdown' }));
+  projectLibrary.adapter.loadStoredProject = async () =>
+    createProjectSnapshot({
+      ...draft,
+      learningPlan: buildPlan(),
+      state: AppState.READING,
+    });
+  try {
+    expect((await controller.openProject(draft.id)).outcome).toBe('opened');
+    finishFirst.resolve();
+    await first;
+    expect(projectLibrary.deletedProjectIds).not.toContain(draft.id);
+    expect(projectLibrary.adapter.currentProjectId).toBe(draft.id);
+  } finally {
+    finishFirst.resolve();
+    await first;
+  }
+  expect(assessmentSession.unsettledWorkspaceOwnerships.size).toBe(0);
+  expect(assessmentSession.workspaceOwnershipByOpenProjectRequestId.size).toBe(0);
 });
 
 test('openProject retries with hydrated context while saving only deferred source indexes', async () => {
@@ -5317,7 +5438,10 @@ test('startHomeChat preserves prepared sources when opening another project inva
   }
 });
 
-test('navigation-abandoned startup suppresses prepared source warnings', async () => {
+test.each([
+  false,
+  true,
+])('navigation-abandoned startup suppresses prepared source warnings (cancellation fails: %s)', async cancellationFails => {
   const started = createDeferred();
   const finishStart = createDeferred();
   const other = createProjectSnapshot({
@@ -5338,6 +5462,9 @@ test('navigation-abandoned startup suppresses prepared source warnings', async (
       }),
     },
     openRouter: {
+      cancelCourseInterview: async () => {
+        if (cancellationFails) throw new Error('Synthetic late cancellation failure');
+      },
       getActiveCourseInterview: async () => null,
       startCourseInterview: async input => {
         started.resolve();
