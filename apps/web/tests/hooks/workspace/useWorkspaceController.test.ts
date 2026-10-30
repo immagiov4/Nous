@@ -3074,7 +3074,7 @@ test('importProjectFile preserves a committed course when library refresh fails'
   });
   const archive = await createProjectArchiveBlob(archived);
   const stored = new Map<string, ProjectSnapshot>();
-  const { controller, projectLibrary } = createControllerHarness({
+  const { controller, domain, projectLibrary, state } = createControllerHarness({
     projectLibrary: {
       importProjectArchive: async (_file, targetId) => {
         const snapshot = { ...archived, id: targetId };
@@ -3094,6 +3094,8 @@ test('importProjectFile preserves a committed course when library refresh fails'
   );
   expect(result).toEqual({ outcome: 'imported' });
   expect([...stored.keys()]).toEqual([projectLibrary.adapter.currentProjectId]);
+  expect(state.internalState.screenState).toBe(AppState.READING);
+  expect(domain.learningPlan).toEqual(archived.learningPlan);
 });
 
 test('handleSourceUpload removes a restored project when post-import hydration fails', async () => {

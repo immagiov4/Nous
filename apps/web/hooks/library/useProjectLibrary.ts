@@ -202,6 +202,7 @@ export const useProjectLibrary = ({
   const isProjectHydratedRef = useRef(false);
   const persistentStorageRequestedRef = useRef(false);
   const didLoadInitialStateRef = useRef(false);
+  const libraryRefreshVersionRef = useRef(0);
   const lastPersistedSignatureRef = useRef<string>('');
   const projectWritesRef = useRef(new Map<string, ProjectWriteState>());
   const deletedProjectIdsRef = useRef(new Set<string>());
@@ -277,22 +278,27 @@ export const useProjectLibrary = ({
   );
 
   const refreshSavedProjects = useCallback(async () => {
+    const refreshVersion = libraryRefreshVersionRef.current;
     const projects = await projectRepositoryRef.current.listProjects();
+    if (refreshVersion !== libraryRefreshVersionRef.current) return;
     storeSavedProjects(projects);
     setStorageError(null);
   }, [storeSavedProjects]);
 
   const refreshLibraryOrganization = useCallback(async () => {
+    const refreshVersion = libraryRefreshVersionRef.current;
     const [folders, placements] = await Promise.all([
       projectRepositoryRef.current.listFolders(),
       projectRepositoryRef.current.listPlacements(),
     ]);
+    if (refreshVersion !== libraryRefreshVersionRef.current) return;
     setLibraryFolders(folders);
     setLibraryPlacements(placements);
   }, []);
 
   const refreshLibraryState = useCallback(
     async (options?: { afterImport?: boolean }) => {
+      const refreshVersion = ++libraryRefreshVersionRef.current;
       try {
         const reads = await Promise.allSettled([
           refreshSavedProjects(),
@@ -300,12 +306,15 @@ export const useProjectLibrary = ({
         ]);
         const failedRead = reads.find(read => read.status === 'rejected');
         if (failedRead) throw failedRead.reason;
+        if (refreshVersion !== libraryRefreshVersionRef.current) return;
         setImportRefreshWarning(null);
         setProjectSyncState(current =>
-          current.kind === 'load' && current.phase === 'failed' ? { kind: 'idle' } : current
+          current.kind === 'load' || (options?.afterImport && current.kind === 'import')
+            ? { kind: 'idle' }
+            : current
         );
       } catch (error) {
-        if (options?.afterImport) {
+        if (options?.afterImport && refreshVersion === libraryRefreshVersionRef.current) {
           const message = t(IMPORT_REFRESH_WARNING);
           setImportRefreshWarning(message);
           setProjectSyncState({ kind: 'load', message, phase: 'failed' });
@@ -1476,14 +1485,15 @@ export const useProjectLibrary = ({
     didLoadInitialStateRef.current = true;
 
     const loadInitialState = async () => {
+      const refreshVersion = libraryRefreshVersionRef.current + 1;
       try {
         await refreshLibraryState();
-        setStorageError(null);
-        setProjectSyncState({ kind: 'idle' });
       } catch (error) {
-        const message = getErrorMessage(error);
-        setStorageError(message);
-        setProjectSyncState({ kind: 'load', message, phase: 'failed' });
+        if (refreshVersion === libraryRefreshVersionRef.current) {
+          const message = getErrorMessage(error);
+          setStorageError(message);
+          setProjectSyncState({ kind: 'load', message, phase: 'failed' });
+        }
       } finally {
         setIsLibraryLoading(false);
       }
@@ -1792,6 +1802,7 @@ export const useProjectLibrary = ({
           archive,
           targetProjectId
         );
+        libraryRefreshVersionRef.current += 1;
         rememberProjectMetadata(imported.snapshot);
         setProjectSyncState({ kind: 'idle' });
         return imported;
@@ -1813,11 +1824,11 @@ export const useProjectLibrary = ({
           () => undefined
         );
         const imported = await importOperation;
+        libraryRefreshVersionRef.current += 1;
         rememberProjectMetadata(imported.snapshot);
         deletedProjectIdsRef.current.delete(imported.snapshot.id);
         try {
           await refreshLibraryState({ afterImport: true });
-          setProjectSyncState({ kind: 'idle' });
         } catch (refreshError) {
           warnImportRefreshFailed(refreshError);
         }
