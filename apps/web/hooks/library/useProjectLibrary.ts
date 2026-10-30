@@ -217,6 +217,7 @@ export const useProjectLibrary = ({
   const isApplyingRemoteRevisionRef = useRef(false);
   const isRevisionCatchUpActiveRef = useRef(false);
   const revisionCatchUpRequestedRef = useRef(false);
+  const requestRevisionCatchUpRef = useRef<() => void>(() => {});
   const processPendingRemoteRevisionRef = useRef<() => Promise<void>>(async () => {});
   const domainStateRef = useRef<WorkspaceDomainState>(domainState);
   const hydrateSnapshotRef = useRef(hydrateSnapshot);
@@ -310,6 +311,17 @@ export const useProjectLibrary = ({
         setStorageError(null);
         setImportRefreshWarning(t(IMPORT_REFRESH_WARNING));
       }
+      if (options?.afterImport !== undefined) {
+        setProjectSyncState(current =>
+          current.kind === 'import'
+            ? {
+                kind: 'load',
+                phase: 'pending',
+                message: options.afterImport ? t(IMPORT_REFRESH_WARNING) : undefined,
+              }
+            : current
+        );
+      }
       try {
         const reads = await Promise.allSettled([
           refreshSavedProjects(),
@@ -319,18 +331,20 @@ export const useProjectLibrary = ({
         if (failedRead) throw failedRead.reason;
         if (refreshVersion !== libraryRefreshVersionRef.current) return;
         setImportRefreshWarning(null);
-        setProjectSyncState(current =>
-          current.kind === 'load' ||
-          (options?.afterImport !== undefined && current.kind === 'import')
-            ? { kind: 'idle' }
-            : current
-        );
+        setProjectSyncState(current => (current.kind === 'load' ? { kind: 'idle' } : current));
       } catch (error) {
         if (refreshVersion !== libraryRefreshVersionRef.current) return;
         if (options?.afterImport) {
           const message = t(IMPORT_REFRESH_WARNING);
           setImportRefreshWarning(message);
           setProjectSyncState({ kind: 'load', message, phase: 'failed' });
+        } else {
+          const message = getStorageErrorMessage(error);
+          setProjectSyncState(current =>
+            current.kind === 'load' && current.phase === 'pending'
+              ? { ...current, message: current.message ?? message, phase: 'failed' }
+              : current
+          );
         }
         throw error;
       }
@@ -1385,10 +1399,14 @@ export const useProjectLibrary = ({
       setProjectSyncState({ kind: 'idle' });
     } catch (error) {
       console.warn('[Nous] Remote project revision could not be applied', error);
-      if (importVersion === committedImportVersionRef.current)
-        setProjectSyncState({ kind: 'realtimeDegraded' });
+      setProjectSyncState(current =>
+        importVersion === committedImportVersionRef.current ? { kind: 'realtimeDegraded' } : current
+      );
     } finally {
       isApplyingRemoteRevisionRef.current = false;
+      if (importVersion !== committedImportVersionRef.current && pendingRemoteRevisionRef.current) {
+        requestRevisionCatchUpRef.current();
+      }
     }
   }, [getProjectWriteState, invalidateRemoteDeletedProject, rememberProjectMetadata]);
 
@@ -1457,6 +1475,10 @@ export const useProjectLibrary = ({
       isRevisionCatchUpActiveRef.current = false;
     })();
   }, [reconcileProjectRevisions]);
+
+  useEffect(() => {
+    requestRevisionCatchUpRef.current = requestRevisionCatchUp;
+  }, [requestRevisionCatchUp]);
 
   useEffect(() => {
     const unsubscribe = projectRepository.subscribeToProjectRevisions(event => {
