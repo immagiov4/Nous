@@ -103,6 +103,7 @@ const buildCoursePromptTemplate = (prefix: string, suffix: string): ChatDraftTem
 };
 
 interface NewHomeViewProps {
+  readonly storageError?: string | null;
   readonly chatProps: ChatProps;
   readonly isDarkMode: boolean;
   readonly isExportingProject: boolean;
@@ -2038,6 +2039,7 @@ const SourceLibraryPage = ({
 };
 
 export const NewHomeView = ({
+  storageError,
   chatProps,
   isDarkMode,
   isExportingProject,
@@ -2156,6 +2158,14 @@ export const NewHomeView = ({
       />
       <main className="px-4 pb-20 pt-3 sm:px-6 sm:pt-5 md:ml-[13.25rem] md:px-8 md:pt-6 lg:px-12">
         <div className="mx-auto max-w-[76rem]">
+          {storageError ? (
+            <div
+              role="alert"
+              className="mb-4 rounded-2xl border border-red-200 bg-red-50/80 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300"
+            >
+              {storageError}
+            </div>
+          ) : null}
           {activePage === 'library' ? (
             <SourceLibraryPage
               hasLoadError={sourceLibrary.hasLoadError}

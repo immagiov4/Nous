@@ -348,6 +348,7 @@ export const LibraryScreenContainer = ({
         }}
       />
       <NewHomeView
+        storageError={projectLibrary.storageError}
         chatProps={{
           coursePreferences:
             controller.courseProposal && controller.supportsCoursePreferences ? (

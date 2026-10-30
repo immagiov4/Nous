@@ -17,6 +17,7 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
   NewHomeView: ({
     chatProps,
     onPageChange,
+    storageError,
   }: {
     chatProps: {
       assessmentComplete: boolean;
@@ -30,8 +31,10 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       pendingFileWarnings?: string[];
     };
     onPageChange: (page: 'home' | 'library') => void;
+    storageError?: string | null;
   }) => (
     <>
+      {storageError ? <div role="alert">{storageError}</div> : null}
       <div data-testid="new-home-surface">
         {chatProps.homeChatMode}:{String(chatProps.assessmentComplete)}:
         {chatProps.pendingFileNames?.join(',')}
@@ -109,6 +112,16 @@ afterEach(() => {
 });
 
 describe('LibraryScreenContainer route fallback', () => {
+  test('passes storage warnings to the library destination and clears recovered warnings', () => {
+    const props = buildProps();
+    props.projectLibrary.storageError =
+      'I corsi sono stati importati. Ricarica la libreria per visualizzarli.';
+    const view = render(<LibraryScreenContainer {...props} />);
+    expect(screen.getByRole('alert')).toHaveTextContent(props.projectLibrary.storageError);
+    props.projectLibrary.storageError = null;
+    view.rerender(<LibraryScreenContainer {...props} />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
   test('sends one approval while a confirmation is pending', async () => {
     let complete!: () => void;
     const pending = new Promise<void>(resolve => {
