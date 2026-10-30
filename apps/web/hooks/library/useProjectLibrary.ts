@@ -306,6 +306,10 @@ export const useProjectLibrary = ({
   const refreshLibraryState = useCallback(
     async (options?: { afterImport?: boolean }) => {
       const refreshVersion = ++libraryRefreshVersionRef.current;
+      if (options?.afterImport) {
+        setStorageError(null);
+        setImportRefreshWarning(t(IMPORT_REFRESH_WARNING));
+      }
       try {
         const reads = await Promise.allSettled([
           refreshSavedProjects(),
@@ -1394,8 +1398,12 @@ export const useProjectLibrary = ({
 
   const reconcileProjectRevisions = useCallback(async (): Promise<void> => {
     const refreshVersion = libraryRefreshVersionRef.current;
+    const importVersion = committedImportVersionRef.current;
     const projects = await projectRepositoryRef.current.listProjects();
-    if (refreshVersion !== libraryRefreshVersionRef.current) return;
+    if (refreshVersion !== libraryRefreshVersionRef.current) {
+      revisionCatchUpRequestedRef.current ||= importVersion === committedImportVersionRef.current;
+      return;
+    }
     storeSavedProjects(projects);
     const projectId = currentProjectIdRef.current;
     if (!projectId) {

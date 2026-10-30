@@ -870,6 +870,84 @@ describe('useProjectLibrary', () => {
     expect(result.current.projectSyncState).toMatchObject({ kind: 'load', phase: 'failed' });
   });
 
+  test('requeues a revision event whose metadata read crosses an ordinary refresh', async () => {
+    const hydrateSnapshot = vi.fn();
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
+    ]);
+    const { result } = renderHook(() =>
+      useProjectLibrary({ domainState: createEmptyWorkspaceDomainState(), hydrateSnapshot })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+    let complete!: (value: SavedProjectMeta[]) => void;
+    const oldRead = new Promise<SavedProjectMeta[]>(resolve => {
+      complete = resolve;
+    });
+    repositoryMocks.listProjects.mockReturnValueOnce(oldRead);
+    act(() => {
+      revisionListener?.({ projectId: 'project-1', revision: 2 });
+    });
+    await waitFor(() => expect(repositoryMocks.listProjects).toHaveBeenCalledTimes(2));
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2),
+    ]);
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue({
+      revision: 2,
+      snapshot: buildSnapshot('project-1'),
+    });
+    await act(async () => {
+      await result.current.refreshLibraryState();
+      complete([]);
+      await oldRead;
+    });
+    await waitFor(() => expect(hydrateSnapshot).toHaveBeenCalledOnce());
+  });
+
+  test.each([
+    false,
+    true,
+  ])('retains committed-import guidance across failed reads with an older error: %s', async superseded => {
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    repositoryMocks.saveProject.mockRejectedValueOnce(new Error('earlier storage failure'));
+    await act(async () => {
+      await result.current.persistSnapshot(buildSnapshot('old-project'));
+    });
+    expect(result.current.storageError).not.toBeNull();
+    let reject!: (reason: Error) => void;
+    const oldRead = new Promise<SavedProjectMeta[]>((_, fail) => {
+      reject = fail;
+    });
+    repositoryMocks.listProjects.mockReturnValueOnce(oldRead);
+    let importing!: Promise<unknown>;
+    act(() => {
+      importing = result.current.importProjectData(buildSnapshot('committed-course'));
+    });
+    await waitFor(() => expect(repositoryMocks.listProjects).toHaveBeenCalledTimes(2));
+    if (superseded) {
+      repositoryMocks.listProjects.mockRejectedValueOnce(new Error('new refresh failure'));
+      await act(async () => {
+        await result.current.refreshLibraryState().catch(() => undefined);
+      });
+    }
+    await act(async () => {
+      reject(new Error('post-import failure'));
+      await importing;
+    });
+    expect(result.current.storageError).toBe(
+      'I corsi sono stati importati. Ricarica la libreria per visualizzarli.'
+    );
+  });
+
   test('applies a pending remote snapshot after an ordinary full library refresh', async () => {
     const hydrateSnapshot = vi.fn();
     repositoryMocks.listProjects.mockResolvedValue([
