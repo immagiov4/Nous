@@ -680,12 +680,14 @@ export const createProjectLifecycleCommands = (
 
       if (!preparedSnapshot.learningPlan) {
         const resumeOutcome = await resumePlanGeneration(projectId);
+        if (!state.isWorkflowCurrent('openProject', requestId)) return { outcome: 'stale' };
         if (resumeOutcome === 'resumed') {
           pushNousDebugTrace('open-project:course-generation-resumed', { projectId, requestId });
           return { outcome: 'opened' };
         }
 
         const latestSnapshot = await projectLibrary.loadStoredProject(projectId);
+        if (!state.isWorkflowCurrent('openProject', requestId)) return { outcome: 'stale' };
         if (latestSnapshot) {
           preparedSnapshot = prepareSnapshotForHydrationResult(latestSnapshot).snapshot;
           persistHydratedSnapshot(preparedSnapshot);
@@ -727,6 +729,7 @@ export const createProjectLifecycleCommands = (
           const sourceFile =
             getProjectSourceFile(preparedSnapshot.source) ??
             (await projectLibrary.loadStoredProjectSource(projectId));
+          if (!state.isWorkflowCurrent('openProject', requestId)) return { outcome: 'stale' };
           if (!sourceFile) {
             throw new Error('La sorgente documento non è disponibile.');
           }
@@ -747,6 +750,7 @@ export const createProjectLifecycleCommands = (
           const assessmentFile =
             getProjectSourceFile(preparedSnapshot.source) ??
             (await projectLibrary.loadStoredProjectSource(projectId));
+          if (!state.isWorkflowCurrent('openProject', requestId)) return { outcome: 'stale' };
           await startAssessment({
             file: assessmentFile,
             source: preparedSnapshot.source,

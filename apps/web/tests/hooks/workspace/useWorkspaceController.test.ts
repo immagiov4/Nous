@@ -5043,6 +5043,90 @@ test.each([
   expect(assessmentSession.workspaceOwnershipByOpenProjectRequestId.size).toBe(0);
 });
 
+test.each(
+  (['resume', 'snapshot'] as const).flatMap(boundary =>
+    [false, true].map(withSources => ({ boundary, withSources }))
+  )
+)('a superseded open paused at $boundary cannot replace the newer interview retry (sources: $withSources)', async ({
+  boundary,
+  withSources,
+}) => {
+  const paused = createDeferred();
+  const releaseOpen = createDeferred();
+  const retryStarted = createDeferred();
+  const finishRetry = createDeferred();
+  let active: CourseInterviewSnapshot | null = null;
+  let failInitialStart = true;
+  let resumeCalls = 0;
+  const cancelCourseInterview = vi.fn(async () => {
+    active = null;
+  });
+  const { controller, projectLibrary, state } = createControllerHarness({
+    openRouter: {
+      cancelCourseInterview,
+      resumeActiveDurableCourse: async () => {
+        if (boundary === 'resume' && ++resumeCalls === 1) {
+          paused.resolve();
+          await releaseOpen.promise;
+        }
+        return null;
+      },
+      getActiveCourseInterview: async () => active,
+      startCourseInterview: async (input, options) => {
+        if (failInitialStart) {
+          failInitialStart = false;
+          throw new Error('Synthetic startup failure');
+        }
+        const snapshot = createInterviewSnapshot({ projectId: input.projectId });
+        active = snapshot;
+        options?.onRunStarted?.(snapshot.runId);
+        retryStarted.resolve();
+        await finishRetry.promise;
+        return snapshot;
+      },
+      sendCourseInterviewAnswer: async input => {
+        if (!active) throw new Error('Interview was cancelled');
+        return createProposalSnapshot(input.projectId);
+      },
+    },
+  });
+  await controller.startHomeChat({
+    input: 'Teach query optimization',
+    ...(withSources
+      ? { selectedFile: new File(['Prepared notes'], 'notes.md', { type: 'text/markdown' }) }
+      : {}),
+  });
+  const draft = projectLibrary.persistedSnapshots.at(-1);
+  assert(draft);
+  projectLibrary.adapter.loadStoredProject = async () => {
+    const opening = state.internalState.workflowState.openProject;
+    if (boundary === 'snapshot' && opening.requestId === 1 && opening.status === 'succeeded') {
+      paused.resolve();
+      await releaseOpen.promise;
+    }
+    return draft;
+  };
+  const firstOpen = controller.openProject(draft.id);
+  await paused.promise;
+  const secondOpen = controller.openProject(draft.id);
+  await retryStarted.promise;
+  try {
+    releaseOpen.resolve();
+    await firstOpen;
+    finishRetry.resolve();
+    expect((await secondOpen).outcome).toBe('opened');
+    expect((await controller.submitAssessment('Focus on indexes')).outcome).toBe(
+      'assessment-complete'
+    );
+    expect(cancelCourseInterview).not.toHaveBeenCalled();
+    expect(projectLibrary.deletedProjectIds).toEqual([]);
+  } finally {
+    releaseOpen.resolve();
+    finishRetry.resolve();
+    await Promise.allSettled([firstOpen, secondOpen]);
+  }
+});
+
 test.each([
   'same',
   'other',
