@@ -5,6 +5,7 @@ import type {
 } from '../projects/sourceArchiveAccess.js';
 
 interface SearchPosition {
+  atFileStart: boolean;
   column: number;
   line: number;
   previousWasCarriageReturn: boolean;
@@ -56,9 +57,14 @@ const advancePosition = (
   end: number,
   initial: SearchPosition
 ): SearchPosition => {
-  let { column, line, previousWasCarriageReturn } = initial;
+  let { atFileStart, column, line, previousWasCarriageReturn } = initial;
   for (let index = start; index < end; index += 1) {
     const character = text[index];
+    if (atFileStart) {
+      atFileStart = false;
+      // The file signature occupies bytes, but not a logical source column.
+      if (character === '\uFEFF') continue;
+    }
     if (character === '\r') {
       line += 1;
       column = 1;
@@ -74,7 +80,7 @@ const advancePosition = (
     column += 1;
     previousWasCarriageReturn = false;
   }
-  return { column, line, previousWasCarriageReturn };
+  return { atFileStart, column, line, previousWasCarriageReturn };
 };
 
 const getTextFiles = (access: SourceArchiveAccess): SourceArchiveIndexedFile[] =>
@@ -258,13 +264,16 @@ export const searchContextSourceArchivePage = async ({
   const carryText = carryPage?.text || '';
   const page = await access.readTextPage(file.path, currentState.cursorBytes, maxPageBytes);
   const combinedText = carryText + page.text;
+  const atFileStart = currentState.cursorBytes === currentState.carryByteLength;
   const startPosition = carryText
     ? {
+        atFileStart,
         column: currentState.carryColumn,
         line: currentState.carryLine,
         previousWasCarriageReturn: false,
       }
     : {
+        atFileStart,
         column: currentState.column,
         line: currentState.line,
         previousWasCarriageReturn: currentState.previousWasCarriageReturn,
