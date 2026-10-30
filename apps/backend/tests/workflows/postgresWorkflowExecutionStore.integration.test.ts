@@ -22,6 +22,7 @@ import {
   WorkflowLeaseLostError,
   WorkflowOutboxLeaseLostError,
 } from '../../src/workflows/workflowErrors.js';
+import { DEFAULT_WORKFLOW_LEASE_MS } from '../../src/workflows/workflowStepAttempt.js';
 import {
   claimNextStep,
   createPostgresWorkflowIntegrationContext,
@@ -1091,6 +1092,93 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
       await sql`delete from public.workflow_runs where id = ${created.run.id}`;
     });
   });
+
+  test(
+    'bounds an abandoned inbox transaction so a concurrent retry can commit',
+    async () => {
+      if (!sql) throw new Error('Workflow integration database is required.');
+      const abandonedSql = createListenClient();
+      const retrySql = createListenClient();
+      const gate = await sql.reserve();
+      const triggerName = `inbox_block_${randomUUID().replaceAll('-', '')}`;
+      const gateKey = randomUUID();
+      const store = createStore(sql);
+      const created = await createRevisionNotificationRun(store, 9);
+      const claim = await store.outbox.claimNext({
+        leaseMs: DEFAULT_WORKFLOW_LEASE_MS,
+        workerId: gateKey,
+      });
+      if (!claim) throw new Error('Expected a notification claim.');
+      const controller = new AbortController();
+      let delivery: Promise<unknown> | undefined;
+      let retry: Promise<void> | undefined;
+      let deliverySettled = false;
+      try {
+        const [{ pid: abandonedPid }] = await abandonedSql<
+          Array<{ pid: number }>
+        >`select pg_backend_pid() as pid`;
+        const [{ pid: retryPid }] = await retrySql<
+          Array<{ pid: number }>
+        >`select pg_backend_pid() as pid`;
+        await gate`select pg_advisory_lock(hashtextextended(${gateKey}, 0))`;
+        // AFTER INSERT holds the unique index entry while waiting for this session-only gate.
+        await sql.unsafe(`
+        create function public.${triggerName}() returns trigger language plpgsql as $$
+        begin
+          if pg_backend_pid() = ${abandonedPid} then
+            perform pg_advisory_xact_lock(hashtextextended('${gateKey}', 0));
+          end if;
+          return new;
+        end $$;
+        create trigger ${triggerName} after insert on public.project_revision_notification_inbox
+          for each row execute function public.${triggerName}();
+      `);
+        const inbox = new PostgresProjectRevisionInbox({ createListenClient, sql: abandonedSql });
+        delivery = inbox
+          .deliver(claim, controller.signal)
+          .catch(error => error)
+          .finally(() => {
+            deliverySettled = true;
+          });
+        await vi.waitFor(async () => {
+          const [activity] =
+            await sql`select wait_event from pg_stat_activity where pid = ${abandonedPid}`;
+          expect(activity.wait_event).toBe('advisory');
+        });
+        controller.abort(new WorkflowOutboxLeaseLostError());
+        retry = new PostgresProjectRevisionInbox({ createListenClient, sql: retrySql }).deliver({
+          ...claim,
+          attemptNumber: 2,
+          fencingToken: '2',
+        });
+        await vi.waitFor(async () => {
+          const [activity] =
+            await sql`select wait_event from pg_stat_activity where pid = ${retryPid}`;
+          expect(activity.wait_event).toBe('transactionid');
+        });
+        await vi.waitFor(() => expect(deliverySettled).toBe(true), {
+          timeout: DEFAULT_WORKFLOW_LEASE_MS + 5_000,
+        });
+        await expect(delivery).resolves.toMatchObject({ code: '57014' });
+        await retry;
+        expect(
+          await sql`select count(*)::integer as count from public.project_revision_notification_inbox where notification_id = ${claim.id}`
+        ).toEqual([{ count: 1 }]);
+        expect(await abandonedSql`show statement_timeout`).toEqual([{ statement_timeout: '0' }]);
+        expect(await abandonedSql`select 1 as reusable`).toEqual([{ reusable: 1 }]);
+      } finally {
+        await gate`select pg_advisory_unlock(hashtextextended(${gateKey}, 0))`;
+        gate.release();
+        await Promise.allSettled([delivery, retry]);
+        await sql.unsafe(
+          `drop trigger if exists ${triggerName} on public.project_revision_notification_inbox; drop function if exists public.${triggerName}()`
+        );
+        await sql`delete from public.workflow_runs where id = ${created.run.id}`;
+        await Promise.all([abandonedSql.end(), retrySql.end()]);
+      }
+    },
+    DEFAULT_WORKFLOW_LEASE_MS * 2
+  );
 
   test('wakes every replica and fans out the stored revision through the local SSE boundary', async () => {
     if (!sql) throw new Error('Workflow integration database is required.');

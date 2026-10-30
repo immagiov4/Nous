@@ -167,6 +167,8 @@ interface WorkflowNotificationLogEvent {
     | 'dead-lettered'
     | 'delivered'
     | 'heartbeat-failed'
+    | 'late-delivery-failed'
+    | 'late-delivery-succeeded'
     | 'lease-lost'
     | 'requeued'
     | 'retry-scheduled';
@@ -404,6 +406,8 @@ const NOTIFICATION_LEVEL_BY_ACTION = {
   'dead-lettered': 'error',
   delivered: 'info',
   'heartbeat-failed': 'error',
+  'late-delivery-failed': 'error',
+  'late-delivery-succeeded': 'warn',
   'lease-lost': 'error',
   requeued: 'warn',
   'retry-scheduled': 'warn',
