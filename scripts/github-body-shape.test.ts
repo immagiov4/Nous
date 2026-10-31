@@ -15,21 +15,34 @@ describe('change report shape', () => {
     expect(codes(`<!-- instructions -->\n\n${pr}`)).toEqual([]);
     expect(codes(`\`\`\`md\n${pr}\`\`\``)).toContain('opening');
   });
-  test('requires evidence inside Result', () => {
-    expect(
-      codes(
-        pr.replace('Not measured.', '[Screenshot][shot]') +
-          '\n[shot]: https://example.com/result.png'
-      )
-    ).toEqual([]);
-    const table = '| Before | After |\n| --- | --- |\n| 2 reads | 1 read |';
+  test('accepts concise results and optional comparison evidence', () => {
+    expect(codes(pr.replace('Not measured.', 'The duplicate request is removed.'))).toEqual([]);
+    const table = '| Before | → After |\n| --- | --- |\n| 2 reads | 1 read |';
     expect(codes(pr.replace('Not measured.', `\n\n${table}`))).toEqual([]);
     expect(
       codes(pr.replace('Not measured.', '[Screenshot](https://example.com/result.png)'))
     ).toEqual([]);
-    expect(codes(pr.replace('Not measured.', 'Done.'))).toContain('result-evidence');
-    expect(codes(`${pr.replace('Not measured.', 'Done.')}\n${table}`)).toContain('result-evidence');
-    expect(codes(pr.replace('Not measured.', '`Not measured`'))).toContain('result-evidence');
+    expect(codes(pr.replace('Not measured.', ''))).toContain('result-empty');
+    expect(codes(pr.replace('Not measured.', '<!-- add result -->'))).toContain('result-empty');
+    expect(
+      codes(`${pr.replace('Not measured.', '')}\n<details>\n\nHidden result\n\n</details>`)
+    ).toContain('result-empty');
+  });
+  test('accepts reference screenshots and counts their visible alt text', () => {
+    const screenshot = pr.replace('Not measured.', '![Updated layout][shot]');
+    const definition = '\n[shot]: https://example.com/result.png';
+    expect(codes(screenshot + definition)).toEqual([]);
+    expect(codes(screenshot.replace('Updated layout', 'word '.repeat(200)) + definition)).toContain(
+      'visible-word-limit'
+    );
+  });
+  test('accepts emoji headings and a final impact section', () => {
+    const decorated = pr.replace('## Testing', '## 🧪 Testing');
+    expect(codes(decorated)).toEqual([]);
+    expect(codes(decorated.replace('Focused checks passed.', ''))).toContain('testing');
+    expect(
+      codes(`${decorated}\n## ⚠️ Merge impact\n\nRestore the database snapshot before reverting.`)
+    ).toEqual([]);
   });
   test('omits nested details and comments from the visible-word count', () => {
     expect(

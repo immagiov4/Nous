@@ -13,6 +13,7 @@ State the chosen level and its reason before starting work. Use the maintainer's
 
 | Level | Required work |
 | --- | --- |
+| Documentation or skills only | Inspect the affected instructions and links; validate representative real PR bodies when the PR procedure changes. Run focused applicable validators. Application tests, provider runs and UI stages apply only when their behaviour changes. |
 | Local fix | Behaviour tests (a), meaningful performance measurements (b), and focused changed-file checks. Apply UI stages (e–f) when the fix affects UI. |
 | Medium feature | Local-fix checks plus real-flow integration (c), X-ray (d), and agentic playtest (e). Apply visual hand-off (f) for UI-affecting work. |
 | Large or visual feature | Medium-feature checks; for UI-affecting work, also the functioning mockup and stages e–f. |
@@ -101,7 +102,7 @@ Follow [docs/TESTING.md](../../../docs/TESTING.md): CI owns full quality, tests,
 
 Use `bun run gate:full` only to diagnose Windows-specific failures; stop the local service afterward with `bun run sonar:stop`.
 
-Write PR bodies using the contract enforced by `scripts/github-body.mjs`: **Problem:**, **Approach:**, **Result:** and `## Testing`, with CI and SonarCloud status together on one Testing line. Validate before publication and verify the remote body afterward.
+Use [write-pr](../write-pr/SKILL.md) to draft or revise PR bodies, select reviewable evidence and validate the local and published body.
 
 ## Completion evidence
 
