@@ -1,52 +1,135 @@
----
-title: "Testing and merge evidence"
-wiki_page_id: "p-testing-quality"
----
+<details>
+<summary>Relevant source files</summary>
 
-[Up one level](01-p-local-setup.md)
+The following files were used as context for generating this wiki page:
 
-# Testing and merge evidence
+- [scripts/run-full-quality-gate.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/run-full-quality-gate.ts)
+- [scripts/run-sonar-scan.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/run-sonar-scan.ts)
+- [.agents/skills/quality-workflow/SKILL.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/.agents/skills/quality-workflow/SKILL.md)
+- [config/docker-compose.sonarqube.yml](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/config/docker-compose.sonarqube.yml)
+- [PROJECT_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT_RULES.md)
+- [package.json](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/package.json)
+- [apps/web/tests/scripts/workflowPostgresCi.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/scripts/workflowPostgresCi.test.ts)
+- [scripts/github-body-workflow.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/github-body-workflow.test.ts)
+- [scripts/github-body.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/github-body.test.ts)
+</details>
 
-Verification starts at the changed behavior and expands to the service boundaries it crosses. Focused deterministic tests establish repeatable contracts; database, provider and browser checks establish integrations their test doubles cannot cover. The required merge evidence is green CI on the exact PR head, including SonarCloud and applicable contract checks.
+# Quality & CI/CD Workflow
 
-Browser tests are always muted; audio is verified inside the page or from files.
+The Quality and CI/CD workflow in Nous Reader ensures the stability, security, and maintainability of the codebase through a multi-layered verification system. This system integrates static analysis, automated testing, and strict Pull Request (PR) validation into a continuous pipeline that spans from local development to GitHub Actions.
 
-The playback layout and audio-signal suites share one fixture build and preview server, prepared once before their workers start, as the caption and focus contracts do. Compilation completes before browser navigation; individual hooks and tests retain their existing deadlines.
+The workflow prioritizes "Context Before Code," requiring developers to understand surrounding architectures and helpers before implementation to prevent logic duplication. Every change must be proven through observable evidence, such as behavior tests or traces, before merging into the main branch.
+Sources: [PROJECT_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT_RULES.md), [AGENTS.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/AGENTS.md)
 
-The production audio contract runs Chromium and Firefox against the built frontend. Linux CI supplies a PulseAudio null sink so Firefox can start its real audio clock without a physical output device. The test step owns that audio server and stops it on exit.
+## Core Validation Layers
 
-## During development
+The project organizes verification into a hierarchy of commands that increase in depth and resource usage. Developers use fast, local checks during development and heavy gate commands before pushing changes.
 
-Local checks stay on changed files: run `bun run check:changed` and the targeted behavior tests for the code changed. The command applies Biome and both ESLint configurations to existing changed files against the merge base with `origin/main`, including staged, unstaged and untracked work. Run `bun run lint:types` when types or interfaces change. These fast checks run directly; CI owns full-repository quality, tests, coverage and SonarCloud. The [quality workflow](../../../.agents/skills/quality-workflow/SKILL.md) describes verification depth for integrations and visual changes, while this page defines the local/CI split and merge requirement.
+### Local Development Commands
+Developers run focused checks to catch early regressions:
+*   `bun run check:changed`: Performs Biome linting and ESLint checks only on files modified relative to `origin/main`.
+*   `bun run quality`: Executes complete TypeScript type checks, Biome linting, React Hooks rules, and Sonar-style checks across the entire project.
+*   `bun run fix`: Automatically applies Biome linting and formatting fixes.
+Sources: [PROJECT_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT_RULES.md), [package.json](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/package.json)
 
-Route tests can use controlled stores and identities. Real Supabase checks exercise authentication, row-level security and PostgreSQL persistence with the local stack; `bun run test:supabase-local` runs the corresponding integration set. Workflow PostgreSQL contracts exercise durable execution and recovery. The [testing guide](../../../docs/TESTING.md) owns detailed prerequisites and specialized commands.
+### Gate Commands
+Gates provide a unified entry point for comprehensive verification:
+*   `gate:ci`: The standard CI gate running quality checks, Fallow regression analysis, and Node.js tests with LCOV coverage.
+*   `gate:full`: A sequential gate designed to diagnose environment-specific failures. It runs quality checks, followed by Node.js coverage and a local Sonar scan.
+Sources: [scripts/run-full-quality-gate.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/run-full-quality-gate.ts), [package.json](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/package.json)
 
-## Shared local execution
+| Command | Purpose | Tools Included |
+| :--- | :--- | :--- |
+| `check:changed` | Fast iteration | Biome, ESLint |
+| `quality` | Full local audit | TS, Biome, React Hooks, Sonar Rules |
+| `gate:ci` | Merge readiness | Quality, Fallow, Vitest, Coverage |
+| `gate:full` | Deep diagnosis | Quality, Coverage, Local SonarQube |
 
-Local real-app proofs reuse one Supabase stack across worktrees and evidence directories. `bun run playtest` checks the shared stack automatically; custom authenticated proofs use `bun run proof bun <proof-script>`. The shared manager selects the existing `nous-reader` database, or adopts `nous-playtest` when that is the existing stack. Auth, REST and Storage health checks precede admission. An absent stack starts as `nous-reader`; an existing unhealthy stack requires explicit diagnosis.
+## CI/CD Pipeline Architecture
 
-The shared schema follows the `origin/main` remote-tracking revision available at admission. Fetch origin before a proof when that reference needs updating. The manager freezes that revision, compares migration filenames and SHA-256 hashes with the proof checkout, and reads the database's applied versions under the lifecycle reservation. Shared startup supplies an empty application migration directory so retained volumes also reach this comparison before application SQL runs. Missing main migrations run sequentially, with each SQL file and its history entry in one transaction. A checkout with extra, changed or missing main migrations, or a database containing versions outside main, selects a dedicated local Supabase project instead. Dedicated projects use OS-selected ports; the selected configuration reaches the proof and its app processes. Release verifies the dedicated container identity, stops that project and retains its database volume and configuration. When `NOUS_E2E_DATA` identifies a proof, its dedicated ownership record also supports `bun run e2e/nous/stack.ts --stop` from the original worktree in a separate process. Shared adoption preserves the existing shutdown owner.
+The Continuous Integration (CI) pipeline runs on GitHub Actions, triggered by pushes to `main` and pull request updates. It enforces deterministic contracts for database migrations and cross-module dependencies.
 
-Each scenario uses the confirmed disposable account and project created by `e2e/nous/prepare.ts`, then runs its cleanup. Custom proofs follow the same preparation contract. Cleanup stops only the run's identity-verified app processes and releases its activity record. The shared database stays available. Activity records and the last-run stamp live in `~/.cache/nous-supabase`, with `NOUS_SHARED_SUPABASE_DATA` available for isolated manager tests. A shared lifecycle reservation serializes stack startup, admission, release and shutdown independently of host CPU slots. A hidden watcher queues a shutdown after 20 idle minutes, checks live run processes and verifies the database container identity. Only a stack started by this manager is eligible; adopted services retain their existing owner's shutdown policy.
+### Workflow Process Flow
+The following diagram illustrates the path from a local code change to a successful merge.
 
-`bun run deps:install` uses Bun's cache with hardlinks and a separate dependency tree per worktree. A matching installed tree takes Bun's incremental path; changed lockfiles install their own resolved dependencies. Run this command after creating a worktree or changing its lockfile.
+```mermaid
+flowchart TD
+    Change[Code Change] --> Local[bun run check:changed]
+    Local --> Push[Git Push to Branch]
+    Push --> CI_Trigger[GitHub Action Triggered]
+    subgraph CI_Pipeline[CI Pipeline]
+        Install[bun install --frozen-lockfile] --> Quality[bun run quality:ci]
+        Quality --> Tests[bun run test:coverage]
+        Tests --> DB_Contract[Supabase/Postgres Contract]
+        DB_Contract --> Body[PR Body Validation]
+    end
+    CI_Pipeline --> Review[SonarCloud & Peer Review]
+    Review --> Merge[Merge to Main]
+```
+The diagram shows the sequence of automated checks required for code to transition from a local environment to the production branch.
+Sources: [apps/web/tests/scripts/workflowPostgresCi.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/scripts/workflowPostgresCi.test.ts), [PROJECT_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT_RULES.md)
 
-Heavy commands share FIFO leases across worktrees, with four concurrent slots by default. Set `HEAVY_RUN_SLOTS` to choose capacity and use `--weight 2` for a command needing two slots. The first waiting command enters when its full weight fits; later tickets wait behind it. Package scripts acquire leases automatically, and nested commands reuse their parent's lease. Prepare inputs and wait for external signals before acquisition; manual reservations are unsupported. `bun scripts/heavy-run.mjs status` lists IDs, owners, commands, times and weights; `release <id>` stops a held command before freeing capacity or cancels a waiting ticket. Additional heavy proofs use `bun scripts/heavy-run.mjs --label "who/what" --weight 2 -- <command...>`. The [queue wrapper](../../../scripts/heavy-run.mjs) owns admission and recovery; CI bypasses local coordination. The [testing guide](../../../docs/TESTING.md#heavy-command-leases) describes expiry and its measurement.
+### PostgreSQL and Supabase Contracts
+The CI pipeline executes specific jobs to verify database integrity:
+*   **Supabase Contract:** Runs `bun run test:supabase-contract` to verify Authentication and Row Level Security (RLS) rules.
+*   **Workflow PostgreSQL Contract:** Detects if changes affect the workflow runtime or migrations. If changed, it runs `bun run test:workflow-postgres:critical` (for PRs) or the full suite (for main branch).
+Sources: [apps/web/tests/scripts/workflowPostgresCi.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/scripts/workflowPostgresCi.test.ts), [scripts/select-workflow-postgres-contract.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/select-workflow-postgres-contract.test.ts)
 
-## Final candidate
+## Static Analysis and Sonar Integration
 
-CI runs `gate:ci`: full `quality:ci` checks, dependency boundaries and the Fallow regression check, then one complete Node suite producing coverage. SonarQube Cloud analyzes that commit with its coverage report. Merge only when `test`, `SonarCloud Code Analysis` and applicable contract and PR-body checks are green on the proposed head. A new commit needs its own evidence. Resolve new Sonar findings with an owner-visible disposition before merging.
+Nous Reader leverages SonarQube (local) and SonarCloud (CI) for deep static analysis, focusing on cognitive complexity and security vulnerabilities.
 
-Fork PRs need trusted analysis on the proposed head because untrusted CI withholds the scanner secret. A passing test job without the required analysis does not satisfy that requirement.
+### Local Sonar Infrastructure
+For local deep analysis, the project provides a Docker-based SonarQube environment.
+*   **Configuration:** Defined in `config/docker-compose.sonarqube.yml`, using a PostgreSQL 15 backend.
+*   **Execution:** `bun run sonar:up` starts the service, and `scripts/run-sonar-scan.ts` handles the analysis, excluding directories like `node_modules`, `dist`, and `e2e` to ensure performance.
+Sources: [config/docker-compose.sonarqube.yml](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/config/docker-compose.sonarqube.yml), [scripts/run-sonar-scan.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/run-sonar-scan.ts)
 
-## Diagnose Windows-specific failures
+### Rules and Complexity
+*   **Cognitive Complexity:** The project targets a maximum cognitive complexity of 15 per function.
+*   **Check ESLint Sonar:** A cached rule set (`config/eslint.sonar.config.mjs`) checks TS/TSX files against a baseline of suppressions tracked in `config/eslint-suppressions.json`.
+Sources: [PROJECT_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT_RULES.md)
 
-Use `bun run gate:full` for Windows diagnosis. It sequences checks, Node coverage and local Sonar. Keep heavy execution serialized and release the local service afterward with `bun run sonar:stop`. The [diagnostic guide](../../../docs/TESTING.md#diagnose-windows-specific-failures) owns setup and troubleshooting.
+## Pull Request Governance
 
-## Evaluate generated content
+Every Pull Request must follow a strict structural contract to maintain a clear project history.
 
-Provider-backed evaluations need a configured, authenticated provider and `NOUS_E2E_DATA` outside the repository. They incur provider usage and can capture full model exchanges, so keep manifests, source material and generated lessons in private evidence. Compare representative outputs and known failures across the providers supported by the changed flow.
+### Body Validation
+The `scripts/github-body.mjs` utility validates that PR descriptions include specific sections: **Problem**, **Approach**, and **Result**. 
+*   **Testing Section:** A mandatory `## Testing` section must summarize CI and SonarCloud status.
+*   **Format Rules:** The script rejects single-line bodies, empty bodies, and improper spacing around headings or lists.
+Sources: [scripts/github-body.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/github-body.test.ts), [scripts/github-body-workflow.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/github-body-workflow.test.ts)
 
-Browser playtests use disposable accounts on the shared local stack and recorded scenarios. Inspect intermediate states and artifacts as well as the final result: navigation, reload and persisted state can reveal failures a static rendering test misses. Generated explanations also require content review against their objectives and evidence. Deterministic schema success establishes structure; the actual explanation establishes its reasoning.
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant GH as GitHub API
+    participant script as github-body.mjs
+    Dev->>GH: Open/Update PR
+    GH->>script: Trigger Validation
+    script->>GH: Fetch Remote Body
+    script->>script: Parse Markdown AST
+    alt Missing Required Sections
+        script--x GH: Fail Workflow
+    else Structurally Correct
+        script->>GH: Assert Rendered Blocks
+        script-->>GH: Success
+    end
+```
+The sequence diagram details the interaction between the GitHub environment and the validation script to ensure PR documentation standards.
+Sources: [scripts/github-body.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/github-body.test.ts), [scripts/github-body-workflow.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/github-body-workflow.test.ts)
 
-Test directories include suites and their helper fixtures. The Vitest runner configuration is also test infrastructure; the application Vite configuration remains production source. The playback atlas capture page, fixtures, command and standalone browser contract are also Sonar test code. Their unit and headless contracts verify the harness; production archive readers retain source analysis and application coverage. `config/sonar-project.properties` owns this classification for both SonarCloud and local ESLint.
+## Testing Standards
+
+The testing suite uses Vitest for unit and integration tests and Playwright for browser-based end-to-end (E2E) testing.
+
+*   **Behavior Tests:** Product work starts with a failing behavior test.
+*   **Audio Production:** Specific browser tests verify production audio in Chromium and Firefox.
+*   **Heavy Command Leases:** Heavy analysis processes (like Sonar or full gates) acquire shared FIFO leases to manage system load.
+*   **Coverage:** CI requires Node.js coverage with LCOV output, prepared via `bun run prepare:coverage`.
+Sources: [PROJECT_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT_RULES.md), [package.json](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/package.json), [apps/web/tests/scripts/workflowPostgresCi.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/scripts/workflowPostgresCi.test.ts)
+
+## Summary
+
+The Quality & CI/CD workflow establishes a high-trust environment by combining rapid local feedback with rigorous cloud-based verification. By enforcing architectural principles via static analysis and validating documentation structure alongside code, the system ensures that every merge contributes to a stable and well-documented ADHD-friendly learning platform.
+Sources: [PROJECT_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT_RULES.md), [AGENTS.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/AGENTS.md)

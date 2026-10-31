@@ -1,86 +1,167 @@
----
-title: "Narration and synchronized playback"
-wiki_page_id: "p-multimedia"
----
+<details>
+<summary>Relevant source files</summary>
 
-[Up one level](../05-section-frontend/01-p-reader-shell.md)
+The following files were used as context for generating this wiki page:
 
-# Narration and synchronized playback
+- [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts)
+- [apps/web/components/workspace/playback/LessonPlayer.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/components/workspace/playback/LessonPlayer.tsx)
+- [apps/backend/src/projects/lessonPlayback.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/projects/lessonPlayback.ts)
+- [packages/shared-types/lessonPlaybackSchema.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlaybackSchema.ts)
+- [apps/backend/tests/projects/lessonPlayback.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/projects/lessonPlayback.test.ts)
+- [apps/backend/src/services/lessonScenes/lessonSceneGeneration.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/lessonScenes/lessonSceneGeneration.ts)
 
-Narration and a rendered lesson do not use identical text. A formula is displayed as symbols but spoken as words; the player needs a connection between those representations to highlight what the voice is explaining. Nous prepares each saved lesson block with audio, visual references and timing cues, then lets the browser play that prepared result.
+</details>
 
-## Project authored content into spoken blocks
+# Interactive Lesson Playback
 
-Imported content can embed stored visual references in prose, annotation wrappers, tables or formula cards. The shared projection attaches the referenced visual to its spoken passage and includes that visual content in playback identity, while leaving the authored source and text offsets intact. Reference syntax inside authored code stays literal. Explicit Mermaid code blocks become diagram visuals; generated lesson prose uses the scene pipeline.
+Interactive Lesson Playback turns authored course documents into synchronized, narrated learning experiences. It integrates text-to-speech (TTS), visual reasoning through diagrams and scenes, and interactive conversation to help students understand complex subjects through a coherent sequence of explanations.
 
-A text-labelled or unlabelled fence can contain either an explanation or code. Structured narration preparation classifies every eligible occurrence before audio work, so explanatory prose receives narration and a wrapping card while logs, diagrams and code retain fenced visuals. Exact occurrence coverage is validated, and saved decisions are reused across voices; audio lacking a required decision needs preparation again. The [shared projection](../../../packages/shared-types/lessonPlayback.ts) and [narration preparation](../../../apps/backend/src/services/lessonPlayback/playbackSpokenMath.ts) own that distinction. Lesson writing and code-structure review require mathematical explanations outside code fences and reject incomplete classifications or remaining prose for correction.
+The system segments lesson content into discrete playback blocks, mapping spoken text to specific source markdown ranges. It ensures visual elements like LaTeX formulas and Mermaid diagrams appear exactly when the narration refers to them.
 
-## Prepare the explanation being spoken
+## System Architecture
 
-The [speech preparation module](../../../apps/backend/src/services/speechPreparation.ts) owns narration for the standard reader and synchronized playback. Both consumers submit the same source-mapped blocks, including inline and display mathematics. A model supplies pronunciation with the shared narration instructions, and exact ordered occurrence validation precedes synthesis. Captions and annotation anchors resolve those same saved pronunciations.
+The playback system operates across the web workspace and the backend. The `LessonPlayer` component manages the UI state, audio playback, and visual transitions, while shared types define the contracts for content segmentation and synchronization.
 
-Paid narration is stored in an owner-scoped PostgreSQL cache keyed by source, the preparation contract and the configured preparation model/provider. Concurrent requests in one process serialize preparation while retaining each consumer’s cancellation signal. Database queries complete before the provider call. Independent workers use conflict-safe insertion and return the stored winner, retaining identical narration even when concurrent cold requests both generate a result. Workflow provider-effect checkpoints record cache hits as well as newly generated narration, retaining one pronunciation across retries. Saved prepared blocks and recordings remain authoritative for their existing narration; requesting another voice reuses their pronunciation. The speech client receives the same whitespace normalization, voice/model resolution and speed shape from both readers.
+```mermaid
+graph TD
+    A[Markdown Content] --> B[projectLessonPlayback]
+    B --> C[LessonPlaybackBlock]
+    C --> D[LessonPlayer Component]
+    D --> E[Audio Service]
+    D --> F[Visual Stage]
+    D --> G[Interactive Assistant]
+    C -.-> H[Cache Fingerprint]
+```
+This diagram shows the flow from raw markdown to the interactive player interface. Sources: [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts), [apps/web/components/workspace/playback/LessonPlayer.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/components/workspace/playback/LessonPlayer.tsx)
 
-The standard reader retains source notation until backend preparation. Its rendered DOM supplies selection geometry, while the source-mapped blocks determine speech. Audio chunks follow those blocks, so formulas and ambiguous fences stay intact through preparation. Oversized prepared narration is synthesized in bounded requests and joined in the shared mono MP3 format. The renderer projection supplies text-selection labels, including decoded prose entities and literal inline-code content.
+### Key Architecture Components
 
-The [block preparation service](../../../apps/backend/src/services/lessonPlayback/prepareLessonPlaybackBlock.ts) validates speech and scene compatibility and prepares spoken mathematics where needed. Formula spans connect the resulting speech to the symbols displayed in the lesson, as shown in the README illustration.
+| Component | Responsibility |
+| :--- | :--- |
+| `projectLessonPlayback` | Segments markdown and generated artifacts into narrated blocks. |
+| `LessonPlayer` | Orchestrates audio, visual stage, and student follow-up questions. |
+| `LessonPlaybackBlock` | Contains the speech text, visual metadata, and timing offsets for a segment. |
+| `lessonPlaybackKey` | Generates a SHA-256 hash to invalidate stale audio when content changes. |
 
-Visual preparation uses the block's existing scene references or requests a scene targeted at that block's speech. New generation excludes quote and definition cards; distinct stored definition layouts remain readable. Captioned generation keeps body and note empty, placing necessary conditions in visual labels, groups or data. Basic concept lists use role labels instead of glossary descriptions. Its enclosing authored heading supplies context for referred details, such as the flow following an introductory sentence; general lesson metadata is not source evidence. Mathematical passages retain their sourced formula group. Motion cues connect explanation points to scene elements; when several scenes would make a motion target ambiguous, the scenes remain visible without that target.
+Sources: [packages/shared-types/lessonPlayback.ts:80-100](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts#L80-L100), [apps/backend/src/projects/lessonPlayback.ts:57-73](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/projects/lessonPlayback.ts#L57-L73)
 
-At display time, PDF references resolve against the lesson’s available images. Missing references and images whose bytes cannot load yield another authored or prepared scene of that passage. With no usable visual, the stage requests a real scene grounded in the passage through the existing durable block-preparation service. Stored quote cards follow the same path. The right panel stays invisible while preparation is pending. Scene matrix cells and labels display authored mathematical notation. Phone charts retain readable category labels.
+## Content Segmentation and Projection
 
-Audio and visual preparation run concurrently. Both operations settle before a failure propagates, so an attempted retry does not overlap unfinished paid work from that attempt. The [playback workflow](../../../apps/backend/src/workflows/lessonPlaybackWorkflow.ts) keeps this provider preparation separate from persistence.
+The system processes `PlaybackContentBlock` arrays to produce a `LessonPlayback`. This process involves identifying headings, extracting spoken text while omitting markdown syntax, and associating visual elements with the correct narrative context.
 
-## Follow a formula through its explanation
+### Segmentation Logic
+1.  **Markdown Analysis**: `analyzeMarkdown` scans text for headings, math ranges, and visual references.
+2.  **Chunking**: `markdownChunks` groups text into heading, speech, or visual chunks based on structural boundaries.
+3.  **Speech Projection**: `spokenText` removes markdown markers (like `**` or `_`) to create clean text for TTS, while `PlaybackTextSpan` objects maintain links back to the original UTF-16 source offsets.
+4.  **Visual Attachment**: Standalone visuals ( Mermaid, tables, or generated images) attach to the narrated block that introduces them.
 
-A block without visuals, or with mathematical Markdown cards only, asks the model for a scene grounded in the complete passage. Preparation supplies the authored passage for mathematical facts and quantities, and canonical narration for spoken anchors. Blocks with imported diagrams preserve those authored visuals; existing prepared scenes keep their saved choice under the content cache contract.
+Sources: [packages/shared-types/lessonPlayback.ts:133-250](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts#L133-L250), [packages/shared-types/lessonPlayback.ts:400-450](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts#L400-L450)
 
-When the model chooses formula spotlight, the complete formula and symbol names remain visible. A symbol is emphasized only during its exact narration quotation; an empty anchor keeps an unmentioned symbol static. Bases, subscripts, superscripts and operators have separate targets whenever the explanation distinguishes them. The [scene contract](../../../packages/shared-types/formulaSpotlight.ts) requires a formula with explicit symbol references and exact, unique, ordered anchors for the symbols that are mentioned. Validation checks rendered KaTeX targets, including macro expansions, and rejects authored HTML and URL commands. Formula validation, display and legend notation share a maximum explicit KaTeX dimension of 2 em; macro expansion uses the library default. Mathematical faithfulness remains part of scene generation and its provider verification. A structural MathML comparison retains sourced equations when a spotlight omits or changes an authored expression.
+```mermaid
+sequenceDiagram
+    participant P as Processor
+    participant M as Markdown
+    participant B as PlaybackBlock
+    P->>M: analyzeMarkdown()
+    M-->>P: identified headings & math
+    P->>P: projectLessonPlayback()
+    P->>B: Create Spoken Spans
+    P->>B: Attach Visuals
+    B-->>P: LessonPlayback object
+```
+The sequence depicts the transformation of raw content into structured playback blocks. Sources: [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts)
 
-Quote cards are retired: generation excludes them from the provider’s schema and catalog, while historical storage contracts remain readable. The renderer omits retired forms. On-demand visual preparation saves the replacement scene and its motion cues independently of audio; existing recordings and pronunciations remain reusable. Completed scenes survive reload. Preparation failures leave the visual panel empty instead of repeating captions.
+## Visual Synchronization
 
-Markdown lists contained in a listening passage receive dedicated source-mapped visual sections: each authored item has one scene item and its own spoken range. Lists exceeding the existing catalog capacity continue in another scene. Individually recorded list items retain the existing passage preparation. The preceding summary is replaced at the first list item, and item emphasis follows the full heard range rather than a fixed hold. Desktop caption and visual columns center independently, retaining caption position when visual height changes. Authored code, tables and media remain alongside list scenes.
+Playback supports multiple visual kinds, including standard markdown, Mermaid diagrams, and complex "Lesson Scenes."
 
-Historical recordings request missing structural coverage on demand through the playback workflow; only visual preparation runs, its result is cached, and existing recordings, pronunciation and alignment remain authoritative. New structural sections use catalog visuals rather than excerpt cards. Saved recordings remain playable after failed visual preparation, and missing coverage remains eligible for later preparation. Unprepared lists show authored non-prose visuals or an empty panel.
-Scene copy accepts escaped literal dollars alongside authored mathematics, and bar charts retain complete category labels without overlap at the supported item count.
+### Visual Types
+- **Markdown**: Renders formatted text or LaTeX.
+- **Mermaid**: Renders sequence diagrams or flowcharts using the `MermaidRenderCache`.
+- **Generated Visuals**: Pre-computed images or HTML artifacts.
+- **Lesson Scenes**: Abstract structures like comparisons, checklists, and hierarchies defined in the `LESSON_SCENE_CATALOG`.
 
-Scene copy, lesson Markdown, chat and playback source projection share the [Pandoc `tex_math_dollars` contract](https://pandoc.org/MANUAL.html#extension-tex_math_dollars). Inline dollar math opens before a non-space and closes after a non-space when the following character is not a digit; double dollars delimit display math, and an escaped dollar is literal. New lesson and scene prose uses `\(...\)` and `\[...\]` for mathematical notation. Existing stored content continues to accept dollar delimiters under the shared rule.
+Sources: [packages/shared-types/lessonPlayback.ts:32-37](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts#L32-L37), [apps/web/components/workspace/playback/LessonPlayer.tsx:78-100](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/components/workspace/playback/LessonPlayer.tsx#L78-L100)
 
-The [shared reference resolver](../../../packages/shared-types/formulaSpotlight.ts) produces bounded source spans from canonical narration. The [shared word timing module](../../../packages/shared-types/playbackWordTiming.ts) maps their start and end onto stored acoustic onsets when available. Formula emphasis, visual motion, scene selection and seek annotations consume those ordered word occurrences on the heard-audio clock. Caption reveal retains its typographic progression, fading and lookahead independently of acoustic alignment. Animated playback scenes resolve semantic steps to exact narration citations during preparation. Complete citations follow the stored word onsets; scenes without complete citations retain their automatic progression on the voice clock. Timing that arrives during playback applies to future cues while already presented cues retain their timing. Pending, failed or unusable alignment retains the existing estimates. Spoken pronunciations and audio use the same canonical narration while source spans retain their original Markdown ranges. [Formula rendering](../../../apps/web/components/shared/lessonScene/FormulaSpotlight.tsx) uses the scene's explicit symbol bindings; resize measurements are coalesced into animation frames and cancelled on unmount.
+### Spoken Math and Fenced Code
+To ensure accurate narration of technical content:
+- **Math**: The system Omits LaTeX formulas from initial projection until the model supplies a `spokenMath` pronunciation (e.g., "x squared" for `$x^2$`).
+- **Fenced Code**: For ambiguous code blocks (marked `text` or `plaintext`), the system requires a decision to either treat it as "prose" for narration or "code" for display only.
 
-## Adopt results only for the matching content
+Sources: [packages/shared-types/lessonPlayback.ts:795-815](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts#L795-L815), [packages/shared-types/lessonPlaybackSchema.ts:168-180](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlaybackSchema.ts#L168-L180)
 
-Preparation identifies the project incarnation, section, lesson content key, block, voice and speech model. These identities let persistence attach the audio and cues to the content that requested them. Otherwise, a changed lesson could receive a valid audio file that narrates its earlier version. [Asset adoption](../04-section-data/02-p-asset-management.md) owns the stored file references.
+## Synchronization and Motion
 
-Preparation requests for different blocks run independently. Voices of the same block share an active run, preserving one canonical narration and classification. The accepted response identifies whether this request created that run; the browser cancels only work it owns and waits for cancellation to settle before requesting the same block again. Creation responses remain observable after a seek or pause so late ownership can still be released.
+The `LessonPlaybackBlock` contains a `prepared` field that defines `motion` events. These events trigger visual highlights or reveals synchronized with the narration.
 
-Speech synthesis uses the backend's [OpenRouter speech client](../../../apps/backend/src/services/ttsClient.ts), which resolves model-specific voices and normalizes supported responses. A Codex text connection therefore still needs OpenRouter for narration.
+```mermaid
+classDiagram
+    class LessonPlaybackBlock {
+        +string speech
+        +PlaybackTextSpan[] spans
+        +PlaybackVisual[] visuals
+        +PlaybackAudio[] audio
+        +PreparedData prepared
+    }
+    class PreparedData {
+        +PlaybackMotionEvent[] motion
+        +LessonScene scene
+        +SpokenMath[] spokenMath
+    }
+    class PlaybackMotionEvent {
+        +string effect
+        +string[] targets
+        +string quote
+    }
+    LessonPlaybackBlock --> PreparedData
+    PreparedData --> PlaybackMotionEvent
+```
+The class diagram illustrates how motion events are nested within the playback block structure. Sources: [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts), [packages/shared-types/lessonPlaybackSchema.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlaybackSchema.ts)
 
-## Keep narration ready for the next passage
+### Motion Events
+- **Focus**: Highlights specific elements within a scene or diagram.
+- **Reveal**: Gradually shows items as the narrator mentions them.
+- **Targets**: Elements are targeted by stable IDs such as `node:id`, `edge:index`, or `group:index`.
 
-On desktop, opening playback focuses the player surface without scrolling or showing an outline. Space immediately starts the existing voice question and pauses narration. Dismissing playback menus, answers and artifact previews returns focus to the player, while selecting a text field keeps focus there for typing. Tab navigation retains the controls' normal visible focus. Mobile retains its existing focus behavior.
+Sources: [packages/shared-types/lessonPlayback.ts:44-75](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts#L44-L75), [packages/shared-types/lessonPlaybackSchema.ts:50-70](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlaybackSchema.ts#L50-L70)
 
-The [playback hook](../../../apps/web/hooks/reader/useLessonPlayback.ts) requests at least thirty seconds of upcoming audio with two concurrent block preparations. Playback speed scales that horizon. Starting, resuming, seeking and changing voice wait only for the recording at the selected position. The upcoming horizon fills in the background; each completion appends the contiguous ready prefix. If narration reaches an unprepared passage, the player shows its loading state and resumes that passage when its existing preparation completes. A project revision notification wakes the availability check; periodic checks recover missed notifications.
+## Persistence and Reconciliation
 
-The stage can read the playback clock in its child layout effects before the parent mounts the audio session. That read reports zero until a position exists; transport operations still require the mounted session. The real hook-and-stage integration tests cover this initial mount and subsequent playback, including React StrictMode.
+The backend maintains the relationship between lesson content and generated playback data. Because TTS audio generation is expensive, the system uses a fingerprinting mechanism to reuse existing audio whenever possible.
 
-The browser downloads and decodes recordings during preparation. The [audio transport](../../../apps/web/utils/reader/lessonPlaybackAudio.ts) schedules contiguous native buffer sources at 1x, preserving the decoded samples. Other speeds use one Signalsmith Stretch stream with independent playback rate and pitch, followed by a stereo-linked lookahead limiter that bounds reconstructed sample peaks. Speed changes crossfade between the routes on the same context clock, compensating the limiter's delay; captions, visuals and notes retain their recording positions. The pinned library carries the upstream [multi-buffer read correction](https://github.com/Signalsmith-Audio/signalsmith-stretch/pull/30), with a regression that compares its real WASM output against a single-buffer stream. The context is created and resumed in the opening gesture, and playback is scheduled once the ready buffer is available. Seeking and changing voice rebuild the selected stream; pausing and closing cancel obsolete preparation. Closing releases the context and decoded recording cache.
+### Cache Invalidation
+The `lessonPlaybackKey` acts as a unique fingerprint. The system invalidates this key and drops the `playback` data if any of the following change:
+- Main content blocks or lesson title/description.
+- Projected speech text (affected by annotation changes).
+- Hashes of referenced generated visuals.
+- The `lastGenerationRunId`.
 
-Signalsmith's complete module is a versioned Vite asset loaded into the worklet scope. Constructor and WASM initialization exceptions return an explicit failure message. Initialization, processor and context failures reject pending audio operations and expose the player's retry state; an explicit retry creates a fresh audio session. CI builds the production frontend and exercises real AudioWorklets with a fixed local WAV in muted Chromium and Firefox, including failed initialization and retry. The installed-source streaming test separately checks sample equivalence across buffer boundaries, idle processing and restart.
+Sources: [apps/backend/src/projects/lessonPlayback.ts:57-75](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/projects/lessonPlayback.ts#L57-L75), [apps/backend/tests/projects/lessonPlayback.test.ts:110-125](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/projects/lessonPlayback.test.ts#L110-L125)
 
-With those results ready, the [reader](../05-section-frontend/01-p-reader-shell.md) owns seeking, speed and presentation. Reduced-motion preferences retain the visual while suppressing motion, leaving the explanation available under a different presentation preference.
+### Data Reconciliation
+`reconcileLessonPlayback` ensures that client-side saves do not overwrite server-prepared playback data. The server remains the authority for preparing and storing narration blocks.
 
-Playback causal scenes use an ordered grid with numbered cards: two columns on desktop and one at the existing narrow scene-host query. Connectors use unscaled card positions to follow authored order across the row gap. The stage retains its caption and visual columns and fits the complete scene into the available area. The [causal grid](../../../apps/web/components/shared/lessonScene/CausalGrid.tsx) owns these cards and connectors.
+Sources: [apps/backend/src/projects/lessonPlayback.ts:111-135](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/projects/lessonPlayback.ts#L111-L135)
 
-During lesson playback, captions show complete text rows at the reading-zone edges while text appears progressively and spoken words fade. Seeking preserves visible text.
+## Playback Data Model
 
-Playback scenes can be saved into the lesson's existing artifacts. Hovering, focusing or tapping the visual exposes the save action; a saved scene exposes removal instead. The saved artifact retains the scene data and an annotation linking its source passage. Both actions use the reader's existing course persistence, so the saved state survives reloads while narration keeps playing.
+### LessonPlayback Schema
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `version` | `1` | Schema version indicator. |
+| `lessonKey` | `string(64)` | SHA-256 fingerprint of the lesson state. |
+| `blocks` | `LessonPlaybackBlock[]` | Ordered segments of the lesson. |
 
-## Keep the mathematical source available
+### LessonPlaybackBlock Schema
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `string` | Stable block identifier. |
+| `heading` | `string` | The active heading text for the block. |
+| `speech` | `string` | The full text to be spoken by TTS. |
+| `audio` | `PlaybackAudio[]` | Reference to MP3 assets and word-level onsets. |
+| `visuals` | `PlaybackVisual[]` | Visual elements visible during this block. |
 
-The shared playback projection keeps each whitespace-separated formula group together. When the next passage explains that group, its equations remain available within the same authored heading. Scene preparation receives this source together with the current narration. The right panel presents a chosen visual with its sourced mathematics, or the sourced equations alone when no useful scene exists. With neither, on-demand preparation supplies a real visual; narration remains in captions while the visual panel is pending. Authored code, tables, diagrams and images retain their visual representation, including images embedded in mathematical prose.
-
-Saved recordings and pronunciations remain reusable. Each newly adopted recording queues a separate durable [alignment workflow](../../../apps/backend/src/workflows/recordingAlignment.ts); requesting cached audio lazily queues the same attempt when timing is absent. Request identity includes the owner, project incarnation, lesson, block and recording. The workflow reads the authorized stored audio, selects aeneas phonetics from the course narration language and runs its unmodified command-line program in a child process. Hierarchical phrase-to-word alignment and local audio-energy analysis keep leading silence out of saved word onsets. The workflow saves these onsets beside that recording. It performs no synthesis. Completion checks the lesson, canonical narration and asset identity before updating the project; a failure records its estimated-timing fallback. Project revision notifications let an open player adopt timing while retaining its decoded audio and mounted content. Playback preparation and cached-audio responses remain independent of the acoustic computation.
+Sources: [packages/shared-types/lessonPlaybackSchema.ts:127-160](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlaybackSchema.ts#L127-L160)
 
 ## Observability
 

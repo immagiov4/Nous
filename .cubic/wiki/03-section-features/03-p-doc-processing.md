@@ -1,57 +1,135 @@
----
-title: "Source ingestion"
-wiki_page_id: "p-doc-processing"
----
+<details>
+<summary>Relevant source files</summary>
 
-[Up one level](../01-section-overview/01-p-overview.md)
+The following files were used as context for generating this wiki page:
 
-# Source ingestion
+- [apps/backend/src/projects/sourceIngestion.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/projects/sourceIngestion.ts)
+- [apps/backend/src/services/lessonGenerationSources.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/lessonGenerationSources.ts)
+- [apps/backend/src/projects/postgresProjectStore.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/projects/postgresProjectStore.ts)
+- [apps/backend/src/projects/sourceArchive.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/projects/sourceArchive.ts)
+- [apps/backend/src/services/pdfTextExtractor.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/pdfTextExtractor.ts)
+- [apps/backend/src/services/youtubeResearch.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/youtubeResearch.ts)
 
-Generation needs the passage that supports a lesson objective, together with enough context to interpret it. Sending an entire PDF or code archive would spend context on unrelated material and obscure where a claim came from. Ingestion instead prepares retrievable text while retaining its page, heading or file location and the references to associated files.
+</details>
 
-## Prepare files before publishing their source set
+# Source Ingestion & Processing
 
-New-course creation, source attachment and saves containing embedded originals use the same [browser ingestion module](../../../apps/web/services/projects/sourceIngestion.ts). It expands ZIP members one at a time and sends each member through the same chunked transport as a separate file. Keeping the ZIP container in the browser lets the backend prepare and store originals individually instead of holding an entire archive in memory.
+Source Ingestion & Processing manages the lifecycle of transforming raw user uploads—such as PDFs, text files, and web links—into structured, searchable data for lesson generation. The system handles file extraction, text normalization, and metadata indexing to ensure that pedagogical content remains grounded in verified source material.
+
+The pipeline ensures high availability and consistency by using asynchronous preparation for large files, collision-resistant storage, and transactional metadata updates. It supports various source kinds, including standalone documents, YouTube transcripts, and codebase archives.
+
+Sources: [apps/backend/src/projects/sourceIngestion.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/projects/sourceIngestion.ts), [apps/backend/src/services/lessonGenerationSources.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/lessonGenerationSources.ts)
+
+## System Architecture
+
+The architecture separates raw file storage from structured metadata. The `PostgresProjectStore` coordinates the persistence of source metadata in a relational database, while the underlying bytes are stored as immutable objects.
+
+### Data Flow Overview
+
+The following diagram illustrates the flow from a user upload to a prepared project snapshot.
 
 ```mermaid
-flowchart LR
-    I[Files or ZIP] --> E[Browser expands members]
-    E --> T[Chunked file transport]
-    T --> J[Accepted preparation job]
-    J --> P[Sequential extraction and indexing]
-    P --> S[Per-file stored originals]
-    S --> C[Atomic source-set publication]
+flowchart TD
+    Upload[User Upload] --> Ingestion[Source Ingestion Service]
+    Ingestion --> Extraction{Extraction Type}
+    Extraction -- PDF/Text --> TextExt[PDF/Text Extractor]
+    Extraction -- ZIP --> ArchExt[Archive Indexer]
+    Extraction -- YouTube --> YTRes[YouTube Research Service]
+    
+    TextExt --> Prep[Preparation Stage]
+    ArchExt --> Prep
+    YTRes --> Prep
+    
+    Prep --> DB[(Postgres Metadata)]
+    Prep --> ObjectStorage[Immutable Object Storage]
 ```
 
-Completion accepts preparation with HTTP 202. Source saves, JSON imports and backup imports share the [operation lifetime](../../../apps/backend/src/projects/projectImportChunks.ts); their HTTP requests finish before preparation. The client follows the authenticated import status route for per-file and per-step progress, then applies the saved snapshot. A retry for the same authenticated project and content identity receives its running operation before upload-capacity admission. The browser computes that identity from bounded content hashes; different simultaneous source selections receive an explicit conflict instead of confirming unrelated work. Project reads expose that operation, and library metadata keeps an initial project discoverable with a preparation label before its first publication. Reopening follows the same status route. Terminal failures remain discoverable in the library and project metadata; an existing published project remains readable after a failed source update. A disconnected status request leaves preparation running; explicit cancellation, project deletion or removal of a source being prepared aborts the work and releases its slot, including while queued. Publication checks ownership and revision, retains existing source references during partial replacement and returns usable sources alongside named failures. A server restart interrupts the process-local preparation job explicitly, allowing the client to report the failure rather than poll forever; this job has a different recovery boundary from durable generation workflows.
+This flow ensures that large-scale processing, such as OCR or deep archive indexing, does not block the primary application database.
 
-ZIP members are checked against declared size and CRC, and duplicate paths reject the selection. Browser-private filesystem streams provide staging where available; a bounded Blob path supports browsers without writable filesystem streams. Browsers missing the required decompression or streaming APIs require separately extracted files. The [server module](../../../apps/backend/src/projects/sourceIngestion.ts) and [shared transfer contract](../../../packages/shared-types/sourceTransfer.ts) own admission and transport limits, while [staging](../../../apps/backend/src/projects/sourceStaging.ts) enforces disk-backed temporary storage. Saved archive projects and backup restoration retain their own readers.
+Sources: [apps/backend/src/projects/postgresProjectStore.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/projects/postgresProjectStore.ts), [apps/backend/src/projects/sourceIngestion.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/projects/sourceIngestion.ts)
 
-Source preparation runs page inspection and raster rendering in disposable Node.js child processes through one shared task runner. The HTTP process owns the existing inspection and render deadlines, terminates the child on cancellation or expiry, and waits for its exit before releasing the operation. CPU-heavy PDF.js work and parser cleanup therefore leave project saves and progress polling available. Transcription requests retain their course pool, provider budget and progress contract.
+## Source Ingestion Pipeline
 
-## Keep a PDF passage with its evidence
+The ingestion pipeline validates and prepares collections of sources for a project. It uses the `prepareSourceCollection` function to process multiple files, identifying unusable content and generating a `documentIndex`.
 
-PDF extraction attempts to preserve layout and reading order, so selected text can still be understood as a passage. Figures keep their page and nearby text for the same reason: an image without its surrounding explanation may be the wrong evidence for an objective. Filtering removes likely decorative marks, while optional captions help retrieval identify informational candidates without replacing the source image. Figure extraction and captioning run in the backend lesson document stage, after the figure bytes are stored; an optional caption failure leaves the stored figure available.
+### Key Functions and Components
 
-A figure reference must resolve against the source version that supplied this context. If a PDF is replaced, retaining an earlier caption or placement could attach the new file to an old interpretation. [Asset lifecycle](../04-section-data/02-p-asset-management.md) explains how replacement refreshes those references.
+| Component | Responsibility |
+| :--- | :--- |
+| `prepareSourceCollection` | Orchestrates the extraction of text from uploaded files and updates the project snapshot. |
+| `SourcePreparationUnusableError` | Reports failures when files contain no usable text or the parser fails. |
+| `documentIndex` | A structured map of chunks, sequences, and heading paths used for retrieval. |
+| `sourceHash` | Ensures that a prepared source is only reprocessed if the underlying bytes change. |
 
-Extraction also determines what downstream research can claim to cover. An isolated fallback parser can attempt the work when the primary path fails or is unavailable, and its result can carry a quality warning. Its memory budget derives from the individual input and output budgets, and its UTF-8 JSON protocol preserves mathematical Unicode across Bun and Node. Resource limits fail explicitly rather than presenting a truncated document as complete. Scanned or damaged PDFs may still yield too little usable text; [planning](01-p-course-gen.md#research-routing) separately decides whether the prepared evidence is sufficient.
+Sources: [apps/backend/src/projects/sourceIngestion.ts:24-150](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/projects/sourceIngestion.ts#L24-L150), [apps/backend/tests/services/sourceIngestion.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/services/sourceIngestion.test.ts)
 
-## Recover scanned pages before publication
+### Processing Logic
 
-The PDF step behind the shared ingestion gateway inspects every physical page after native extraction. Empty text, missing or unmapped mathematical glyphs, invisible scanner text and a full-page raster require recovery even if a footer remains selectable. A second native parser can recover symbols lost by the first; only pages still requiring recovery are rendered for vision transcription. Structural inspection has a 15-second deadline, including parser cleanup, combined with job cancellation. It runs in a disposable child process; the parent can terminate synchronous CPU work and cleanup at the deadline.
+1. **Extraction**: The system reads raw bytes from the temporary upload path.
+2. **Indexing**: For each file, the system creates a `documentIndex` containing text chunks.
+3. **Collision Handling**: It assigns collision-free identities to sources with the same name.
+4. **Failure Reporting**: If every file in a collection is unusable, the system throws a `SourcePreparationUnusableError` with specific reasons (e.g., `no-usable-text`, `parser-failed`).
 
-The transcription result contains complete Markdown with KaTeX mathematics, or an explicit blank/unreadable status. Validation preserves source symbols and checks mathematical syntax. Each page permits at most two upstream calls and 150 seconds per attempt; rendering has a separate 75-second deadline. A bounded shared pool reserves image slots before 1800-pixel rendering. Local reads and renders advance sequentially while network completions overlap. Publication waits for every outcome, reporting progress and named failed pages through the accepted job's authenticated status route. Failed pages retain their physical numbers and blank pages do not count as recovered content. [Provider boundaries](../07-section-ai/01-p-ai-providers.md#scanned-page-transcription) specifies routing and course allowances.
+Sources: [apps/backend/src/projects/sourceIngestion.ts:160-200](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/projects/sourceIngestion.ts#L160-L200), [apps/web/tests/services/projects/courseSources.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/services/projects/courseSources.test.ts)
 
-Prepared text retains source-hash-bound page provenance, failed/blank identities and a machine-transcription marker. Page-aware chunks and selected evidence preserve the affected page identities for later course, lesson and playback stages. Retained ingestion descriptors and ordinary saves restore prepared text from authoritative stored identities and hashes, after stored references are reconstructed; only server-prepared uploads contribute new text. Source reattachment verifies the uploaded bytes against the authoritative stored hash and reuses their prepared result, including page provenance and blank/failed identities, without another extraction or transcription call. A server-prepared checkpoint retains each completed file until the upload expires when a later file or publication fails, so a retry can publish it using the same hash verification. Reused pages retain their course allowance accounting. The direct PDF extraction route and saved archive readers perform native extraction.
+## Document Extraction
 
-Factual review can accept evident transcription corrections supported by retained evidence. Exact-copy quotations, playback anchors and formula copies preserve their supplied text. Ready audio reuse precedes optional evidence recovery; unreadable historical evidence omits optional provenance with a safe diagnostic. Three distinct outcomes remain observable: recovered text, blank pages and named failures. KaTeX acceptance establishes syntax, while fidelity and mathematical meaning require comparison with the source image.
+The system utilizes specialized extractors for PDFs and text documents. PDF processing includes vision-based transcription for scanned pages to ensure high-fidelity text recovery.
 
-## Preserve navigation for structured sources
+### PDF Extraction Sequence
 
-Markdown headings give a selected section its place in the document. Code archives use a file index instead: generation or chat can search that index and retrieve particular indexed text files, retaining their paths and source version. This avoids flattening unrelated files into one passage and gives [contextual chat](07-p-chat-ui.md) a bounded retrieval target.
+This sequence shows how the system handles PDF text extraction with a fallback mechanism for scanned documents.
 
-Start changes at [source text services](../../../apps/backend/src/services/projectSourceText.ts), [PDF text extraction](../../../apps/backend/src/services/pdfTextExtractor.ts) or [PDF image extraction](../../../apps/backend/src/services/pdfImageExtractor.ts), according to the lost context. Once preparation succeeds, [lesson generation](02-p-lesson-gen.md) selects and reviews how the evidence is used.
+```mermaid
+sequenceDiagram
+    participant S as Source Ingestion
+    participant P as PDF Text Extractor
+    participant V as Vision Provider
+    
+    S->>P: extractPdfText(bytes)
+    P->>P: Attempt standard parsing
+    alt Standard fails / Scanned
+        P->>V: Request Vision Transcription
+        V-->>P: Transcribed Text + Provenance
+    else Success
+        P-->>P: Extract Outline & Text
+    end
+    P-->>S: PreparedPdfText Object
+```
+
+PDF extraction enforces a soft timeout (default 90 seconds) to prevent resource exhaustion during long-running OCR tasks.
+
+Sources: [apps/backend/src/services/pdfTextExtractor.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/pdfTextExtractor.ts), [apps/backend/tests/services/lessonGenerationSources.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/services/lessonGenerationSources.test.ts)
+
+## Archive and Codebase Processing
+
+Archives (ZIP files) are treated as codebase sources. The `indexSourceArchive` function builds a lexicographic tree of the archive's contents while enforcing safety and size limits.
+
+### Archive Constraints
+
+* **Path Validation**: Rejects traversal (e.g., `../`), absolute, or duplicate paths.
+* **Size Limits**: Enforces limits on entry count, per-file bytes, and total expanded bytes.
+* **Metadata**: Generates a `representationHash` for the prepared index independently of the original ZIP hash.
+
+Sources: [apps/backend/src/projects/sourceArchive.ts:50-250](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/projects/sourceArchive.ts#L50-L250), [apps/backend/tests/projects/sourceArchive.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/projects/sourceArchive.test.ts)
+
+## Storage and Persistence
+
+The `PostgresProjectStore` manages the atomic transition of project states. It stores source bytes in immutable object storage and links them via `object_path` references in the database.
+
+### Transactional Integrity
+
+When a project is saved, the store uses a single transaction to:
+1. Create or update the `projects` row.
+2. Insert source metadata into `project_sources`.
+3. Save the `project_snapshots`.
+4. Queue orphaned source objects for deletion if the transaction fails or if they are replaced.
+
+Sources: [apps/backend/src/projects/postgresProjectStore.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/projects/postgresProjectStore.ts), [apps/backend/tests/projects/postgresProjectStore.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/projects/postgresProjectStore.test.ts)
+
+## Summary
+
+Source Ingestion & Processing provides a robust framework for converting heterogeneous data into a unified format for pedagogical use. By combining vision-transcription fallbacks for PDFs, strict path validation for archives, and transactional persistence in Postgres, the system ensures that lesson generation is supported by reliable and traceable source material.
 
 ## Observability
 

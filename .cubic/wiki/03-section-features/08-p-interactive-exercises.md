@@ -1,27 +1,133 @@
----
-title: "Exercise and answer state"
-wiki_page_id: "p-interactive-exercises"
----
+<details>
+<summary>Relevant source files</summary>
 
-[Up one level](../03-section-features/02-p-lesson-gen.md)
+The following files were used as context for generating this wiki page:
 
-# Exercise and answer state
+- [apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts)
+- [apps/backend/src/workflows/priorKnowledgeDiagnosticState.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticState.ts)
+- [apps/backend/src/workflows/priorKnowledgeDiagnosticSnapshot.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticSnapshot.ts)
+- [apps/backend/tests/workflows/courseDiagnostic.integration.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/workflows/courseDiagnostic.integration.test.ts)
+- [apps/backend/src/workflows/courseGenerationPreparation.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/courseGenerationPreparation.ts)
+- [apps/backend/src/workflows/priorKnowledgeDiagnosticState.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticState.ts)
+</details>
 
-A saved answer refers to a particular quiz in a particular lesson. Regenerating the lesson can change the question or its choices, making the old answer meaningless. Nous therefore ties inline answers to committed lesson content: they survive navigation and reopening, but a successful content replacement clears them along with the old annotations.
+# Knowledge Diagnostics & Assessments
 
-## Reset at replacement, not when work starts
+Knowledge Diagnostics and Assessments collect evidence regarding a learner's starting point before generating a course. The system evaluates a learner's prior knowledge through self-assessment and interactive rounds of tasks. This diagnostic protocol ensures that the generated course content aligns with the learner's existing proficiency and addresses specific knowledge gaps.
 
-The saved lesson stays available while regeneration runs. Its answers remain valid against that saved content, so a pending replacement must not clear them. A failed attempt preserves both the previous lesson and its progress; only the successful commit establishes the new content identities. [Lesson generation](02-p-lesson-gen.md) owns this boundary, and [project revisions](05-p-project-workspace.md) protect saved progress against concurrent writers.
+The diagnostic process is iterative and non-linear. It begins with a topic tree for self-reporting and evolves into verification rounds only when different responses could materially change the starting point of the course. The system preserves unresolved doubts as limitations rather than making forced assumptions about mastery.
 
-## Inline quiz content and validation
+Sources: [apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts), [apps/backend/src/workflows/courseGenerationPreparation.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/courseGenerationPreparation.ts)
 
-Inline quizzes are generated and reviewed with the explanation they assess. They ask for application, prediction, diagnosis or sequencing, with plausible mistaken answers and feedback explaining the intended distinction. The accepted shape allows up to three quizzes with four choices each. That shape can be checked deterministically; whether the alternatives test the objective needs [content evaluation](../09-section-tools/02-p-testing-quality.md#evaluate-generated-content).
+## Diagnostic Workflow Architecture
 
-## Keep practical activity progress with its own task
+The diagnostic system operates as a state machine that transitions between an initial self-assessment and multiple rounds of active tasks. The backend workflow manages a `DiagnosticCollection`, which acts as the single source of truth for the entire interview session.
 
-Practical exercises are separately planned activities with briefs, responses and AI feedback. Their briefs can finish generating while another lesson is already readable, so readiness does not follow the active reader page. Responses can include supported attachments and are assessed against that activity's task context.
+### Core Components
 
-This work persists with the project rather than living only in a browser component. Follow the [shared activity and answer contracts](../../../packages/shared-types/) when changing persistence, and [instruction composition](../07-section-ai/02-p-prompt-engineering.md) when changing what drafting and feedback ask of the learner.
+| Component | Responsibility |
+| :--- | :--- |
+| **Diagnostic Model** | Generates the topic tree, selects tasks for rounds, and evaluates collected evidence. |
+| **Diagnostic Collection** | Stores nodes, passes (rounds), submissions, and the cumulative evaluations. |
+| **Diagnostic Snapshot** | Provides an immutable record of a completed diagnostic for course planning. |
+| **Verification Logic** | Compares learner attempts against criteria defined by the model for specific tasks. |
+
+Sources: [apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts), [apps/backend/src/workflows/priorKnowledgeDiagnosticState.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticState.ts)
+
+### Diagnostic Lifecycle Flow
+
+This diagram shows the iterative cycle between the model generating assessment stages and the learner providing evidence.
+
+```mermaid
+flowchart TD
+    Start[Start Diagnostic] --> InitModel[Create Topic Tree]
+    InitModel --> SelfReport[Self-Assessment Pass]
+    SelfReport --> SubmitAnswer[Learner Submission]
+    SubmitAnswer --> ModelEval[Model Evaluation]
+    ModelEval --> Decision{More Evidence Needed?}
+    Decision -- Yes --> NewRound[Verification Round]
+    NewRound --> SubmitAnswer
+    Decision -- No --> Complete[Diagnostic Complete]
+    Complete --> Snapshot[Save Diagnostic Snapshot]
+```
+
+Sources: [apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts), [apps/backend/tests/workflows/courseDiagnostic.integration.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/workflows/courseDiagnostic.integration.test.ts)
+
+## Data Models and State
+
+The diagnostic state is preserved in the `DiagnosticCollection` structure. This collection tracks the progression of the interview across different "passes."
+
+### Diagnostic Nodes and Topics
+The system represents the subject matter as a tree of nodes. Nodes express containment rather than prerequisites.
+- **Node IDs**: Stable identities allocated to model outputs, independent of topic titles.
+- **Scope**: Each topic defines a clear scope for assessment.
+
+### Evaluation and Interpretations
+The model generates an evaluation after each submitted pass. Evaluations are cumulative and reflect the complete current state of evidence.
+- **Interpretations**: Observations derived from actual submitted attempts against specific criteria.
+- **Missing Information**: Records gaps where knowledge remains unobserved or self-reports are uncertain.
+- **Conflicts**: Identifies where self-reports and observed performance results contradict each other.
+
+Sources: [apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts:80-100](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts#L80-L100), [apps/backend/src/workflows/priorKnowledgeDiagnosticState.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticState.ts)
+
+## Implementation of Verification Rounds
+
+Verification rounds consist of one or more `DiagnosticTask` objects. Unlike the initial self-assessment, these tasks require the learner to demonstrate knowledge through specific response formats.
+
+### Task Structure
+Each task includes:
+- **Claim**: A statement describing the specific knowledge being tested.
+- **Criteria**: Observable evidence expected in the response to support the claim.
+- **Response Format**: Defines if the task is a multiple-choice question or a text-based prompt.
+- **Selection Reason**: Internal justification for why this task is necessary to determine the course starting point.
+
+Sources: [apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts:25-35](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts#L25-L35)
+
+### Task State Transitions
+The system tracks the transition from a task definition to a learner's attempt and the subsequent evaluation.
+
+```mermaid
+sequenceDiagram
+    participant M as Diagnostic Model
+    participant S as State Store
+    participant L as Learner UI
+    M->>S: advance(collection)
+    S->>L: DiagnosticStage (Round)
+    L->>S: Submission (Answers)
+    S->>M: advance(collection + submission)
+    Note over M: Interpret attempt vs criteria
+    M->>S: Evaluation + Next Stage
+```
+
+Sources: [apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts:160-200](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts#L160-L200), [apps/backend/tests/workflows/courseDiagnostic.integration.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/workflows/courseDiagnostic.integration.test.ts)
+
+## Persistence and Course Integration
+
+Completed diagnostics are persisted as `DiagnosticSnapshot` objects. These snapshots are immutable and are used by the course planning system to determine curriculum depth and content selection.
+
+### Integration with Course Generation
+During `courseGenerationPreparation`, the workflow loads the approved diagnostic evidence.
+1. The system resolves the `diagnosticRef` from the project.
+2. It projects the snapshot into `priorKnowledge` and `diagnosticEvidence`.
+3. If no diagnostic was approved, it defaults to a `not-collected` state.
+
+Sources: [apps/backend/src/workflows/courseGenerationPreparation.ts:80-105](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/courseGenerationPreparation.ts#L80-L105), [apps/backend/src/workflows/priorKnowledgeDiagnosticSnapshot.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticSnapshot.ts)
+
+### Database Schema for Snapshots
+Snapshots are stored in the `prior_knowledge_diagnostic_snapshots` table, keyed by `user_id` and a unique reference containing the `projectId` and `incarnationId`.
+
+Sources: [apps/backend/tests/workflows/courseDiagnostic.integration.test.ts:310-330](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/workflows/courseDiagnostic.integration.test.ts#L310-L330)
+
+## Diagnostic Rules and Constraints
+
+The system follows a strict set of instructional rules to maintain diagnostic integrity:
+- **No Propagation**: Knowledge is not propagated between parent and child nodes in the tree.
+- **Untrusted Self-Reports**: Self-reports (e.g., "basics", "independent") do not certify observed knowledge and are eligible for verification.
+- **cumulative Interpretation**: Attempts are interpreted cumulativeley; earlier revisions are retained for audit.
+- **No Grade**: Feedback on completion identifies what to revisit without assigning a numerical grade or mastery threshold.
+- **Unresolved Doubts**: The model must preserve uncertainty as limitations rather than resolving them via heuristics.
+
+Sources: [apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts:55-80](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts#L55-L80)
 
 ## Observability
 

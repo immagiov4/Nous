@@ -1,34 +1,149 @@
----
-title: "AI and speech provider boundaries"
-wiki_page_id: "p-ai-providers"
----
+<details>
+<summary>Relevant source files</summary>
 
-[Up one level](../02-section-architecture/01-p-architecture.md)
+The following files were used as context for generating this wiki page:
 
-# AI and speech provider boundaries
+- [apps/backend/src/routes/openRouterProxy.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/routes/openRouterProxy.ts)
+- [apps/backend/src/services/aiSdkTextModel.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/aiSdkTextModel.ts)
+- [apps/web/services/openrouter/client.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/services/openrouter/client.ts)
+- [scripts/real-workflow-provider-config.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/real-workflow-provider-config.ts)
+- [apps/backend/src/routes/chatPrompts.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/routes/chatPrompts.ts)
+- [apps/backend/tests/routes/openRouterProxy.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/routes/openRouterProxy.test.ts)
+- [apps/web/tests/components/admin/AdminPanel.test.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/components/admin/AdminPanel.test.tsx)
+</details>
 
-The backend routes text tasks through OpenRouter or the installation's private Codex connection. Task-specific model choices let context preparation, planning, writing and research use different supported capabilities. Speech synthesis has a separate OpenRouter client, so a text provider assignment does not determine every external call in a lesson's lifecycle.
+# OpenRouter & AI Provider Configuration
 
-## Capabilities are checked at the request boundary
+The OpenRouter and AI Provider Configuration system manages the routing, authentication, and execution of Large Language Model (LLM) requests across the Nous platform. It supports a dual-provider architecture: **OpenRouter**, which serves as an aggregator for various third-party models (OpenAI, Google, Anthropic, etc.), and **Codex**, an internal application server for specialized tasks.
 
-Credentials remain on the server. Model configuration and account assignments select the permitted provider, while the request still needs the capabilities required by its task. Images, structured output and research search depend on the model and provider. Requests requiring a capability fail when it is unavailable.
+The system uses a "slot-based" configuration, where specific pedagogical functions—such as lesson generation, artifact creation, or research—are mapped to specific models, providers, and reasoning efforts. This ensures that the most appropriate model is used for each task while maintaining centralized control over API keys and costs.
 
-Some paths explicitly permit text-only work without an optional image: artifact correction can omit an unsupported preview, and the proxy can remove image input when the caller authorizes that fallback. Those exceptions belong to [visual generation](../../../apps/backend/src/services/lessonGenerationVisuals.ts) and the [provider proxy](../../../apps/backend/src/routes/openRouterProxy.ts), preserving each task's required inputs.
+Sources: [apps/backend/src/routes/openRouterProxy.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/routes/openRouterProxy.ts), [apps/backend/src/services/aiSdkTextModel.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/aiSdkTextModel.ts)
 
-The [Codex adapter](../06-section-backend/03-p-codex-server.md) translates its private process protocol and application tools. OpenRouter uses its server API path. Both feed domain services that expect the same task meaning, supported by [shared generation instructions](02-p-prompt-engineering.md). Provider differences belong at these adapters rather than in duplicated course rules.
+## Architecture Overview
 
-## Structured output has two representations
+The backend acts as a secure proxy between the client and the AI providers. When the web interface requests a completion, the backend intercepts the request, identifies the functional slot, resolves the configured model and provider, and injects the necessary authentication headers.
 
-Domain schemas describe the application's accepted data. A provider can require a stricter schema representation, so the [strict-output adapter](../../../apps/backend/src/services/strictStructuredOutput.ts) translates the request schema and normalizes the returned payload before domain validation. For example, optional non-null properties can be represented as required nullable fields at the provider boundary, then restored to omitted values on return.
+### AI Request Flow
+The following sequence diagram illustrates the flow of an AI request from the User Interface through the Backend Proxy to the final Provider.
 
-Normalization restores representation; the caller still validates against its original domain contract. This keeps a provider's schema restrictions from becoming product semantics or weakening validation for every other caller.
+```mermaid
+sequenceDiagram
+    participant UI as Web Interface
+    participant Proxy as Backend AI Proxy
+    participant Config as Model Configuration
+    participant OR as OpenRouter API
+    participant Codex as Codex App Server
 
-## Scanned-page transcription
+    UI->>Proxy: POST /api/openrouter/chat/completions
+    Note over UI,Proxy: Includes X-Nous-Model-Slot header
+    Proxy->>Config: resolveProxyConfig(slot)
+    Config-->>Proxy: { provider, model, reasoningEffort }
+    
+    alt Provider is OpenRouter
+        Proxy->>OR: Forward Request with API Key
+        OR-->>Proxy: Stream/JSON Response
+    else Provider is Codex
+        Proxy->>Codex: runCodexAppServerTurn()
+        Codex-->>Proxy: Text/Tool Result
+    end
+    
+    Proxy-->>UI: Sanitized Response
+```
+Sources: [apps/backend/src/routes/openRouterProxy.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/routes/openRouterProxy.ts), [apps/web/services/openrouter/client.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/services/openrouter/client.ts)
 
-Scanned pages use OpenRouter with only OpenAI admitted and provider fallbacks disabled, independently of the account's text provider. Course scanned pages 1–150 use `openai/gpt-6-luna` with xhigh reasoning; pages 151–300 use Luna medium. Usable native-text pages consume no allowance, and file boundaries do not reset it. Admission above 300 returns a plain Italian instruction to narrow the material. Retained authoritative provenance seeds the count, excluding replaced files. The source job shares 32 request slots, with at most two calls per page; successful responses report usage and provider cost when available. [Source ingestion](../03-section-features/03-p-doc-processing.md#recover-scanned-pages-before-publication) describes preparation, deadlines and failure reporting.
+## Functional Model Slots
 
-Course and factual-review prompts receive the shared transcription-provenance rule. Structured generation opts into that interpretation explicitly for semantic scene generation with transcribed provenance; exact-copy playback calls preserve supplied text. The factual reviewer uses its evidence-reference validator when accepting a justified correction.
+Nous categorizes AI tasks into specific "slots." Each slot has its own configuration for the model name and the level of reasoning effort required.
 
-## Audio is a separate external effect
+| Slot | Description | Key Config Elements |
+| :--- | :--- | :--- |
+| `lesson` | Generates core pedagogical content and prose. | `lessonModel`, `lessonReasoningEffort` |
+| `artifact` | Creates visual and static diagrams (SVG, Mermaid). | `artifactModel`, `artifactReasoningEffort` |
+| `artifactInteractive` | Generates interactive HTML/JS labs and simulations. | `artifactInteractiveModel`, `artifactInteractiveReasoningEffort` |
+| `research` | Performs web searches and supplementary research. | `researchModel`, `researchReasoningEffort` |
+| `course` | Handles high-level course planning and syllabus creation. | `courseModel`, `courseReasoningEffort` |
+| `assessment` | Conducts student interviews and knowledge checks. | `assessmentModel`, `assessmentReasoningEffort` |
+| `progress` | Summarizes learning advancement and history. | `progressModel`, `progressReasoningEffort` |
+| `playbackPreparation` | Prepares content for audio playback. | `playbackPreparationModel`, `playbackPreparationReasoningEffort` |
 
-The [speech client](../../../apps/backend/src/services/ttsClient.ts) sends narration to OpenRouter, resolves voice compatibility and validates supported audio responses. [Playback preparation](../03-section-features/04-p-multimedia.md) consumes that audio alongside scene cues.
+Sources: [apps/backend/src/routes/openRouterProxy.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/routes/openRouterProxy.ts), [apps/web/tests/components/admin/AdminPanel.test.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/components/admin/AdminPanel.test.tsx)
+
+## Provider Resolution Logic
+
+The system determines the AI provider based on a hierarchy of settings. It first checks for specific user-level overrides, then falls back to global slot-based overrides, and finally uses the default global provider.
+
+```mermaid
+flowchart TD
+    Start[AI Request Received] --> Slot[Read X-Nous-Model-Slot]
+    Slot --> UserCheck{User Override Exists?}
+    UserCheck -- Yes --> Final[Use Specified Provider]
+    UserCheck -- No --> SlotCheck{Slot Override Exists?}
+    SlotCheck -- Yes --> Final
+    SlotCheck -- No --> Global[Use Global Default Provider]
+    Global --> Final
+```
+
+### Configuration Enforcement
+The proxy enforces several rules during resolution:
+1.  **Header Injection**: The proxy adds `X-Title: Nous Reader` and `HTTP-Referer` to OpenRouter requests for identification.
+2.  **Service Tiers**: For OpenAI models routed through OpenRouter, the proxy automatically requests the `flex` economy service tier.
+3.  **Image Fallback**: If a request contains images but the resolved model is text-only, the proxy strips the image inputs to prevent upstream errors, provided the `X-Nous-Allow-Text-Only-Image-Fallback` header is set to `true`.
+
+Sources: [apps/backend/src/routes/openRouterProxy.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/routes/openRouterProxy.ts), [apps/backend/tests/routes/openRouterProxy.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/routes/openRouterProxy.test.ts)
+
+## Reasoning and Effort Mapping
+
+Reasoning effort is a specific configuration that controls how much processing time a model dedicates to "thinking" before generating a response. This is primarily used for models that support explicit reasoning phases (e.g., OpenAI o1-style models).
+
+### Configuration Options
+The `ReasoningEffort` type supports the following levels:
+*   `none`: Reasoning is disabled or not requested.
+*   `minimal`: Lowest priority/cost reasoning.
+*   `low`: Basic reasoning for simple logic tasks.
+*   `medium`: Default for most interactive tasks.
+*   `high`: Maximum effort for complex planning or coding.
+
+When configuring OpenRouter through the AI SDK, the provider options are mapped as follows:
+```typescript
+export const resolveOpenRouterProviderOptions = (
+  reasoningEffort: ResolvedTextModelRequest['reasoningEffort']
+): Record<string, Record<string, JSONValue>> =>
+  reasoningEffort === 'none'
+    ? {}
+    : {
+        openrouter: { reasoning: { enabled: true, effort: reasoningEffort } },
+      };
+```
+Sources: [apps/backend/src/services/aiSdkTextModel.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/aiSdkTextModel.ts), [apps/backend/src/routes/openRouterProxy.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/routes/openRouterProxy.ts)
+
+## Client-Side Implementation
+
+The web interface interacts with the proxy using the `callOpenRouter` service. This client handles streaming responses, reasoning updates, and tool calls.
+
+### Streaming and Reasoning Extraction
+The client decodes Server-Sent Events (SSE) from the proxy. It distinguishes between standard content deltas and reasoning deltas. Reasoning chunks are accumulated and preserved, maintaining paragraph breaks between distinct reasoning sections.
+
+```mermaid
+flowchart TD
+    Chunk[Receive SSE Chunk] --> JSON[Parse JSON Payload]
+    JSON --> Content{Has Content?}
+    Content -- Yes --> AppendContent[Append to UI Stream]
+    Content -- No --> Reasoning{Has Reasoning?}
+    Reasoning -- Yes --> ProcessReasoning[Extract and Normalize Text]
+    ProcessReasoning --> UpdateUI[Trigger onReasoningUpdate Callback]
+```
+
+### Web Search Integration
+For the `research` slot, the system integrates OpenRouter's web search tool. The client collects `url_citation` annotations from the model response and appends a "FONTI WEB RESTITUITE DAL PROVIDER" (Web Sources Returned by Provider) appendix to the generated text.
+
+Sources: [apps/web/services/openrouter/client.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/services/openrouter/client.ts), [apps/backend/src/routes/chatPrompts.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/routes/chatPrompts.ts)
+
+## Tool Calling and Context Limits
+
+The system supports multi-round tool calling. The client can execute tools requested by the model and feed the results back for a final answer. To prevent excessive cost and context window exhaustion, the system enforces a strict byte limit on cumulative tool results.
+
+*   **Max Tool Rounds**: 6 steps.
+*   **Context Limit**: Defined by `SOURCE_ARCHIVE_TOOL_CONTEXT_MAX_BYTES`. If the cumulative results of tool calls exceed this limit, the request is aborted with an error: "Il modello ha superato il limite cumulativo di consultazione della sorgente."
+
+Sources: [apps/web/services/openrouter/client.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/services/openrouter/client.ts)
