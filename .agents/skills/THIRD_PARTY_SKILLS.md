@@ -5,6 +5,7 @@ These skills are vendored under their original MIT licences; each folder keeps i
 | Skills | Source | Licence |
 | --- | --- | --- |
 | `architect` (adapted for this environment), `benchmark-checklist`, `how`, `show-me-your-work`, `why`, `principle-*` | [cursor/plugins `pstack`](https://github.com/cursor/plugins/tree/main/pstack) by Lauren Tan | MIT |
+| `write-pr` (adapted; upstream credits Dex Horthy / Humanlayer show-me) | [mattpocock/skills pr](https://github.com/mattpocock/skills/tree/main/skills/engineering/pr) by Matt Pocock | MIT |
 | `codebase-design`, `improve-codebase-architecture` (adapted for this environment), `domain-modeling`, `grilling` | [mattpocock/skills](https://github.com/mattpocock/skills) by Matt Pocock | MIT |
 | `elegant-code` | [OleksandrKucherenko/e-bash](https://github.com/OleksandrKucherenko/e-bash/tree/master/.claude/skills/elegant-code) by Oleksandr Kucherenko | MIT |
 

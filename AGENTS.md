@@ -20,7 +20,7 @@ Context is a budget: load the relevant owner through the map below. This file an
 
 ## Mandatory
 
-- Every PR contains a meaningful `## Observability` section, checked by `node <adopt>/scripts/gate-sections.mjs --pr <body-file>` and CI.
+- Every PR contains a meaningful `## 👁️ Observability` section, checked by `node <adopt>/scripts/gate-sections.mjs --pr <body-file>` and CI.
 - Each feature document declares its own observability. Follow `.geppetto/config.json` for significant test declarations and required sections.
 - Substantial changes start with a Requirements map through `$geppetto-spec`.
 - Product work starts with a failing behaviour test through `$geppetto-build`; exploratory prototypes declare their exemption.

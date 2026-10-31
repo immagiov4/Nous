@@ -196,35 +196,6 @@ export const countVisibleWords = body =>
     /[\p{L}\p{N}]+(?:['’_-][\p{L}\p{N}]+)*/gu
   )?.length ?? 0;
 
-const hasResultEvidence = (nodes, root) => {
-  const definitions = new Map(
-    root.children
-      .filter(node => node.type === 'definition')
-      .map(node => [node.identifier, node.url])
-  );
-  let found = false;
-  walkAst({ children: nodes }, node => {
-    if (node.type === 'text' && /\bNot measured\b/u.test(node.value)) found = true;
-    if (node.type === 'table') {
-      const headings = node.children[0]?.children.map(cell =>
-        reportText(cell).trim().toLowerCase()
-      );
-      if (headings?.includes('before') && headings.includes('after') && node.children.length > 1)
-        found = true;
-    }
-    const url = node.url ?? definitions.get(node.identifier) ?? '';
-    if (
-      node.type === 'image' ||
-      node.type === 'imageReference' ||
-      (['link', 'linkReference'].includes(node.type) &&
-        (/screenshot/iu.test(reportText(node)) ||
-          /\.(?:png|jpe?g|webp|gif)(?:[?#]|$)|\/user-attachments\/assets\//iu.test(url)))
-    )
-      found = true;
-  });
-  return found;
-};
-
 /** Enforce the explicit public report contract; prose meaning remains a review responsibility. */
 export const validateChangeReport = body => {
   const visible = expandedReport(normalizeLineEndings(body));
@@ -252,7 +223,10 @@ export const validateChangeReport = body => {
       ];
   {
     const testingIndex = blocks.findIndex(
-      node => node.type === 'heading' && node.depth === 2 && reportText(node) === 'Testing'
+      node =>
+        node.type === 'heading' &&
+        node.depth === 2 &&
+        ['Testing', '🧪 Testing'].includes(reportText(node))
     );
     if (
       testingIndex < 0 ||
@@ -260,17 +234,12 @@ export const validateChangeReport = body => {
       blocks[testingIndex + 1].type === 'heading'
     )
       issues.push(
-        issue('testing', 1, 'Include a visible ## Testing section with test and CI status.')
+        issue('testing', 1, 'Include a visible ## 🧪 Testing section with test and CI status.')
       );
     const end = blocks.findIndex((node, index) => index > 2 && node.type === 'heading');
-    if (!validOpening || !hasResultEvidence(blocks.slice(2, end < 0 ? undefined : end), root))
-      issues.push(
-        issue(
-          'result-evidence',
-          1,
-          'Result must contain a Before/After table, a screenshot link, or "Not measured".'
-        )
-      );
+    const resultText = reportText({ children: blocks.slice(2, end < 0 ? undefined : end) });
+    if (validOpening && !resultText.slice(labels[2].length).trim())
+      issues.push(issue('result-empty', 1, 'Describe the visible result in Result.'));
   }
   if (blocks.some(node => node.type === 'heading' && reportText(node) === 'Sonar merge decision'))
     issues.push(
