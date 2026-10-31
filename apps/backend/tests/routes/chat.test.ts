@@ -976,6 +976,49 @@ describe('POST /api/chat/context', () => {
     expect(response.status).toBe(401);
   });
 
+  test.each([
+    { phase: 'proposal', outcome: 'accepted', code: 'anchor_mismatch', candidateOutcomes: [] },
+    { phase: 'proposal', outcome: 'validation_error', candidateOutcomes: [] },
+    { phase: 'save', outcome: 'saved', code: 'save_failed' },
+    { phase: 'save', outcome: 'save_error' },
+  ])('rejects contradictory note outcomes: %j', async event => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const response = await request(createApp())
+      .post('/api/chat/context/note-events')
+      .send({
+        operationId: 'c27e152a-c40b-4b24-a695-454f5d5d088a',
+        contextScope: 'selection',
+        durationMs: 0,
+        ...event,
+      });
+    expect(response.status).toBe(400);
+    expect(log).not.toHaveBeenCalledWith(expect.stringContaining('"event":"context_note"'));
+  });
+
+  test.each([
+    { phase: 'proposal', outcome: 'accepted', candidateOutcomes: ['anchorable'] },
+    {
+      phase: 'proposal',
+      outcome: 'validation_error',
+      code: 'invalid_input',
+      candidateOutcomes: [],
+    },
+    { phase: 'save', outcome: 'saved' },
+    { phase: 'save', outcome: 'save_error', code: 'save_failed' },
+  ])('collects consistent note outcomes: %j', async event => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const response = await request(createApp())
+      .post('/api/chat/context/note-events')
+      .send({
+        operationId: 'c27e152a-c40b-4b24-a695-454f5d5d088a',
+        contextScope: 'lesson',
+        durationMs: 0,
+        ...event,
+      });
+    expect(response.status).toBe(204);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(`"outcome":"${event.outcome}"`));
+  });
+
   test('validates that selected text is present', async () => {
     const response = await request(createApp())
       .post('/api/chat/context')

@@ -15,11 +15,13 @@ export const ContextNoteResultSchema = z.discriminatedUnion('status', [
     annotationId: z.string().optional(),
   }),
   z.object({ status: z.literal('declined') }),
-  z.object({
-    status: z.literal('validation_error'),
-    code: ContextNoteValidationCodeSchema,
-    recovery: z.literal('choose_passage'),
-  }),
+  z
+    .object({
+      status: z.literal('validation_error'),
+      code: ContextNoteValidationCodeSchema,
+      recovery: z.enum(['choose_passage', 'rebuild_input']),
+    })
+    .refine(result => (result.code === 'invalid_input') === (result.recovery === 'rebuild_input')),
   z.object({
     status: z.literal('save_error'),
     mode: ContextNoteModeSchema,
@@ -78,7 +80,8 @@ export const ContextNoteEventSchema = z.discriminatedUnion('phase', [
       // Ordered as the proposed candidate, then the captured selection when different.
       candidateOutcomes: candidateOutcomesSchema,
     })
-    .strict(),
+    .strict()
+    .refine(event => (event.outcome === 'validation_error') === (event.code !== undefined)),
   eventBase
     .extend({ phase: z.literal('decision'), outcome: z.enum(['approved', 'declined']) })
     .strict(),
@@ -88,7 +91,8 @@ export const ContextNoteEventSchema = z.discriminatedUnion('phase', [
       outcome: z.enum(['saved', 'save_error']),
       code: z.enum(['save_failed', 'artifact_unavailable']).optional(),
     })
-    .strict(),
+    .strict()
+    .refine(event => (event.outcome === 'save_error') === (event.code !== undefined)),
   eventBase.extend({ phase: z.literal('cancel'), outcome: z.literal('cancelled') }).strict(),
 ]);
 export type ContextNoteEvent = z.infer<typeof ContextNoteEventSchema>;

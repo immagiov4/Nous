@@ -1613,7 +1613,7 @@ function ContextAnswerPanelSession({
         addToolOutput({
           tool: 'requestAddToNotes',
           toolCallId: id,
-          output: { status: 'validation_error', code: 'invalid_input', recovery: 'choose_passage' },
+          output: { status: 'validation_error', code: 'invalid_input', recovery: 'rebuild_input' },
         });
       }
 

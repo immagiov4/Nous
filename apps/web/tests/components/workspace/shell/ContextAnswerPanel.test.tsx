@@ -2706,7 +2706,7 @@ describe('ContextAnswerPanel', () => {
     ],
     [
       'validation_error',
-      { code: 'invalid_input', recovery: 'choose_passage' },
+      { code: 'invalid_input', recovery: 'rebuild_input' },
       /proposta di nota non è completa/,
     ],
     ['save_error', { code: 'save_failed', mode: 'new' }, /Non sono riuscito a salvare la nota/],
@@ -3923,7 +3923,17 @@ describe('ContextAnswerPanel', () => {
     vi.useRealTimers();
   });
 
-  test('auto-rejects stuck requestAddToNotes after hard timeout', async () => {
+  test.each([
+    undefined,
+    { rationale: 'Keep it.', selectedTextDraft: 'Lesson passage.' },
+    { noteDraft: 'A useful note.', selectedTextDraft: 'Lesson passage.' },
+    {
+      noteDraft: 'A useful note.',
+      rationale: 'Keep it.',
+      selectedTextDraft: 'Lesson passage.',
+      artifactIds: [1],
+    },
+  ])('settles malformed note input with actionable input recovery: %j', async input => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date('2026-05-04T00:00:00Z'));
 
@@ -3939,7 +3949,7 @@ describe('ContextAnswerPanel', () => {
               type: 'tool-requestAddToNotes',
               toolCallId: 'tool-stuck-2',
               state: 'input-available',
-              input: undefined,
+              input,
             },
           ],
         },
@@ -3956,7 +3966,7 @@ describe('ContextAnswerPanel', () => {
     expect(addToolOutputMock).toHaveBeenCalledWith({
       tool: 'requestAddToNotes',
       toolCallId: 'tool-stuck-2',
-      output: { status: 'validation_error', code: 'invalid_input', recovery: 'choose_passage' },
+      output: { status: 'validation_error', code: 'invalid_input', recovery: 'rebuild_input' },
     });
 
     vi.useRealTimers();
