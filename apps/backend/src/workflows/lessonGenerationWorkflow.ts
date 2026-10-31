@@ -102,6 +102,7 @@ export type LessonGenerationWorkflowConfig = z.infer<
 };
 
 export interface LessonGenerationStageContext<Input> {
+  readonly diagnostics?: import('./workflowSubstageDiagnostics.js').WorkflowSubstageDiagnostics;
   readonly attemptNumber: number;
   readonly config: DeepReadonly<LessonGenerationWorkflowConfig>;
   readonly execution: WorkflowStepExecutionIdentity;

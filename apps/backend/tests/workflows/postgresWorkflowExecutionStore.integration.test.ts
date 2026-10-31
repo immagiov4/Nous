@@ -23,6 +23,7 @@ import {
   WorkflowOutboxLeaseLostError,
 } from '../../src/workflows/workflowErrors.js';
 import { DEFAULT_WORKFLOW_LEASE_MS } from '../../src/workflows/workflowStepAttempt.js';
+import { runWorkflowStepClaim } from '../../src/workflows/workflowStepRunner.js';
 import {
   claimNextStep,
   createPostgresWorkflowIntegrationContext,
@@ -75,6 +76,84 @@ const createListenClient = () => {
 describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration', () => {
   beforeAll(() => setupPostgresWorkflowIntegrationContext(context));
   afterAll(() => teardownPostgresWorkflowIntegrationContext(context));
+
+  test('persists document substage diagnostics on the failed attempt, node and run', async () => {
+    if (!sql) throw new Error('Workflow integration database is required.');
+    const store = createStore(sql);
+    const schema = z.object({ text: z.string() });
+    const registry = createWorkflowRegistry();
+    const definition = registry.register({
+      current: workflow({
+        compatibilityId: 'test-v1',
+        configSchema: WorkflowExecutionDefaultsSchema,
+        executionDefaults: { maxAttempts: 1, timeoutMs: 60_000 },
+        id: 'document-substage-diagnostics',
+        inputSchema: schema,
+        outputSchema: schema,
+        root: step({
+          id: 'stage-document-sources',
+          inputSchema: schema,
+          outputSchema: schema,
+          run: async ({ diagnostics }) => {
+            if (!diagnostics) throw new Error('Expected attempt diagnostics.');
+            await diagnostics.run('load-project', async () => undefined);
+            return diagnostics.run('extract-pdf-images', async () => {
+              throw failPermanently({
+                code: 'synthetic_extraction_failed',
+                message: 'Synthetic extraction failed.',
+              });
+            });
+          },
+        }),
+      }),
+    }).current;
+    const runId = randomUUID();
+    const input = { text: 'Synthetic source' };
+    await store.createRun({
+      config: definition.executionDefaults,
+      definitionHash: definition.definitionHash,
+      definitionHashVersion: definition.definitionHashVersion,
+      id: runId,
+      input,
+      materialization: materializeWorkflowStart(definition, input, {
+        resolvedConfig: definition.executionDefaults,
+      }),
+      projectId,
+      requestKey: randomUUID(),
+      userId,
+      workflowId: definition.id,
+    });
+    try {
+      const claim = await claimNextStep(store, definition, 'document-worker');
+      if (!claim) throw new Error('Expected document stage claim.');
+      await expect(
+        runWorkflowStepClaim({ claim, registry, services: {}, store })
+      ).resolves.toMatchObject({ status: 'failure-recorded' });
+      const [run] = await sql`select error from public.workflow_runs where id = ${runId}`;
+      const [node] = await sql`select error from public.workflow_node_runs where run_id = ${runId}`;
+      const [attempt] =
+        await sql`select error from public.workflow_node_attempts where run_id = ${runId}`;
+      for (const record of [run, node, attempt]) {
+        expect(record?.error).toMatchObject({
+          code: 'synthetic_extraction_failed',
+          details: {
+            substages: [
+              { durationMs: expect.any(Number), name: 'load-project', outcome: 'succeeded' },
+              {
+                diagnostic: { type: 'WorkflowStepError' },
+                durationMs: expect.any(Number),
+                name: 'extract-pdf-images',
+                outcome: 'failed',
+              },
+            ],
+          },
+        });
+        expect(JSON.stringify(record?.error)).not.toContain('Synthetic source');
+      }
+    } finally {
+      await sql`delete from public.workflow_runs where id = ${runId}`;
+    }
+  });
 
   test('persists scope validation as primary and cleanup failure as its sanitized cause', async () => {
     if (!sql) throw new Error('Workflow integration database is required.');

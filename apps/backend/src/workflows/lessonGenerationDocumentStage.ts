@@ -29,6 +29,11 @@ import {
   Sha256HexSchema,
 } from './lessonGenerationWorkflowSchemas.js';
 import { failPermanently } from './retryPolicy.js';
+import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
+import {
+  createWorkflowSubstageDiagnostics,
+  type WorkflowSubstageDiagnostics,
+} from './workflowSubstageDiagnostics.js';
 
 interface LessonDocumentSourceStageDependencies {
   readonly assets: Pick<ProjectAssetWriter, 'stage'>;
@@ -100,6 +105,7 @@ const buildPdfImageVersionedAssociationKey = (
 ): string => JSON.stringify([contentHash, mediaType, sourceId ?? null, sourceHash ?? null]);
 
 interface PdfImageStageState {
+  readonly diagnostics: WorkflowSubstageDiagnostics;
   readonly context: LessonGenerationStageContext<LessonCoverageState>;
   readonly dependencies: Pick<LessonDocumentSourceStageDependencies, 'assets' | 'captionImage'>;
   readonly metadataByAssociation: Map<string, LessonPdfImageMetadata>;
@@ -196,16 +202,33 @@ const captionStagedPdfImage = async (
   staged: StagedExtractedPdfImage,
   state: PdfImageStageState
 ): Promise<LessonPdfImageMetadata> => {
+  const providerEffect = state.context.providerEffect;
+  if (!providerEffect) throw new Error('Provider effect persistence is required.');
   let caption: string | null = null;
+  // Only the caption operation is optional; checkpoint failures must reach the attempt runner.
+  let captionOperationFailed = false;
   try {
-    caption = await state.dependencies.captionImage({
-      context: state.context,
-      image: staged.image,
+    const result = await providerEffect.run({
+      key: JSON.stringify(['pdf-image-caption-v1', staged.image.id, staged.asset.hash]),
+      operation: async () => {
+        try {
+          return {
+            caption: await state.diagnostics.run('caption-image', () =>
+              state.dependencies.captionImage({ context: state.context, image: staged.image })
+            ),
+          };
+        } catch (error) {
+          captionOperationFailed = true;
+          throw error;
+        }
+      },
+      outputSchema: z.object({ caption: z.string().nullable() }),
     });
+    caption = result.caption;
   } catch (error) {
-    if (state.context.signal.aborted) throw error;
+    if (state.context.signal.aborted || !captionOperationFailed) throw error;
     console.warn('[Lesson workflow] Optional PDF image caption failed.', {
-      error,
+      diagnostic: toWorkflowErrorDiagnostic(error, { includeContent: false }),
       pageNumber: staged.image.pageNumber,
       projectId: state.context.input.request.projectId,
     });
@@ -223,19 +246,24 @@ const stageExtractedPdfImages = async (
     sourceImages.push(image);
     imagesBySource.set(image.sourceId, sourceImages);
   }
-  const stagedBySource: StagedExtractedPdfImage[][] = [];
-  for (const sourceImages of imagesBySource.values()) {
-    stagedBySource.push(
-      await Promise.all(sourceImages.map(image => stageExtractedPdfImageBytes(image, state)))
-    );
-  }
-  const metadata: LessonPdfImageMetadata[] = [];
-  for (const sourceImages of stagedBySource) {
-    metadata.push(
-      ...(await Promise.all(sourceImages.map(image => captionStagedPdfImage(image, state))))
-    );
-  }
-  return metadata;
+  const stagedBySource = await state.diagnostics.run('stage-assets', async () => {
+    const staged: StagedExtractedPdfImage[][] = [];
+    for (const sourceImages of imagesBySource.values()) {
+      staged.push(
+        await Promise.all(sourceImages.map(image => stageExtractedPdfImageBytes(image, state)))
+      );
+    }
+    return staged;
+  });
+  return state.diagnostics.run('caption-images', async () => {
+    const metadata: LessonPdfImageMetadata[] = [];
+    for (const sourceImages of stagedBySource) {
+      metadata.push(
+        ...(await Promise.all(sourceImages.map(image => captionStagedPdfImage(image, state))))
+      );
+    }
+    return metadata;
+  });
 };
 
 const toImageCandidate = (
@@ -318,7 +346,10 @@ export const createLessonDocumentSourceStage =
     context: LessonGenerationStageContext<LessonCoverageState>
   ): Promise<LessonSourcesState> => {
     const { projectId, sectionId, userId } = context.input.request;
-    const project = await dependencies.loadProject(userId, projectId);
+    const diagnostics = context.diagnostics ?? createWorkflowSubstageDiagnostics(context.signal);
+    const project = await diagnostics.run('load-project', () =>
+      dependencies.loadProject(userId, projectId)
+    );
     if (!project) {
       throw failPermanently({
         code: 'lesson_project_missing',
@@ -354,7 +385,9 @@ export const createLessonDocumentSourceStage =
       key: 'extract-images-assets-v2',
       operation: async () => {
         const transient = LessonPdfImageExtractionOutcomeSchema.parse(
-          await dependencies.extractImages({ context, project, section })
+          await diagnostics.run('extract-pdf-images', () =>
+            dependencies.extractImages({ context, project, section })
+          )
         );
         const reusableAssetsByByteKey = new Map(
           durable.map(
@@ -377,15 +410,19 @@ export const createLessonDocumentSourceStage =
           )
         );
         const stageState: PdfImageStageState = {
+          diagnostics,
           context,
           dependencies,
           metadataByAssociation,
           reusableAssetsByByteKey,
         };
         const stagedLegacy: LessonPdfImageMetadata[] = [];
-        for (const image of legacy) {
-          stagedLegacy.push(await stageLegacyPdfImage(image, stageState));
-        }
+        if (legacy.length)
+          await diagnostics.run('stage-assets', async () => {
+            for (const image of legacy) {
+              stagedLegacy.push(await stageLegacyPdfImage(image, stageState));
+            }
+          });
         const stagedExtracted = await stageExtractedPdfImages(transient.assets, stageState);
         return {
           assets: [...stagedLegacy, ...stagedExtracted],

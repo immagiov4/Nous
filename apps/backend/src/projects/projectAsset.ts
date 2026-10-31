@@ -135,7 +135,11 @@ export const ensureProjectAssetUploaded = async (
     if (signal) await storage.upload(descriptor.objectPath, bytes, descriptor.mediaType, signal);
     else await storage.upload(descriptor.objectPath, bytes, descriptor.mediaType);
   } catch (error) {
-    if (!(error instanceof ProjectSourceStorageError) || error.status !== 409) throw error;
+    if (
+      !(error instanceof ProjectSourceStorageError) ||
+      (error.status !== 409 && error.storageStatus !== 409)
+    )
+      throw error;
     const expected = {
       byteSize: descriptor.byteSize,
       hash: descriptor.hash,

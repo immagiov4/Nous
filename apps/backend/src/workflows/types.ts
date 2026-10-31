@@ -97,6 +97,7 @@ export interface WorkflowProviderEffectExecutor {
 }
 
 export interface StepExecutionContext<Input, Config, Services> {
+  readonly diagnostics?: import('./workflowSubstageDiagnostics.js').WorkflowSubstageDiagnostics;
   attemptNumber: number;
   config: DeepReadonly<Config>;
   readonly execution: WorkflowStepExecutionIdentity;

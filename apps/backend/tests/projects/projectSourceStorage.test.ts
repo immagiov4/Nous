@@ -219,6 +219,31 @@ describe('SupabaseProjectSourceStorage', () => {
     expect(failure.cause.message).not.toContain('private-key');
   });
 
+  test.each([
+    '409',
+    409,
+  ])('preserves structured upload conflict %s when Storage returns HTTP 400', async statusCode => {
+    const storage = createStorage(
+      createFetchMock(
+        new Response(
+          JSON.stringify({
+            statusCode,
+            error: 'Duplicate',
+            message: 'The resource already exists',
+          }),
+          { status: 400 }
+        )
+      )
+    );
+    await expect(
+      storage.upload('user-1/project-1/hash', new Uint8Array([1]), 'image/png')
+    ).rejects.toMatchObject({
+      code: 'upload-failed',
+      status: 400,
+      storageStatus: 409,
+    });
+  });
+
   test('bounds stored HTTP failure diagnostics', async () => {
     const storage = createStorage(
       createFetchMock(new Response('x'.repeat(10_000), { status: 503 }))

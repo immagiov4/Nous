@@ -113,7 +113,13 @@ describe('project asset Storage', () => {
     );
   });
 
-  test('accepts a 409 only after the existing object passes integrity verification', async () => {
+  test.each([
+    { status: 409, storageStatus: undefined },
+    { status: 400, storageStatus: 409 },
+  ])('accepts conflict $status/$storageStatus only after integrity verification', async ({
+    status,
+    storageStatus,
+  }) => {
     const bytes = new TextEncoder().encode('same image');
     const descriptor = buildProjectAssetDescriptor({
       bytes,
@@ -128,7 +134,7 @@ describe('project asset Storage', () => {
       delete: vi.fn(),
       download: vi.fn(async () => bytes),
       upload: vi.fn(async () => {
-        throw new ProjectSourceStorageError('upload-failed', 409);
+        throw new ProjectSourceStorageError('upload-failed', status, { storageStatus });
       }),
     };
 

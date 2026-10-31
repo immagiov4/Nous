@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { readDiagnosticResponseText } from '../utils/sanitizeDiagnosticText.js';
+import { isRecord } from '../utils/validation.js';
 
 export const PROJECT_SOURCE_BUCKET = 'project-sources';
 const MAX_SOURCE_OBJECT_BYTES = 200 * 1024 * 1024;
@@ -29,15 +30,29 @@ const ERROR_MESSAGES: Record<ProjectSourceStorageErrorCode, string> = {
 };
 
 export class ProjectSourceStorageError extends Error {
+  readonly storageStatus?: number;
   constructor(
     public readonly code: ProjectSourceStorageErrorCode,
     public readonly status?: number,
-    options?: ErrorOptions
+    options?: ErrorOptions & { storageStatus?: number }
   ) {
     super(ERROR_MESSAGES[code], options);
     this.name = 'ProjectSourceStorageError';
+    this.storageStatus = options?.storageStatus;
   }
 }
+
+const readStorageConflictStatus = (message: string | undefined): number | undefined => {
+  if (!message) return undefined;
+  try {
+    const payload: unknown = JSON.parse(message);
+    return isRecord(payload) && (payload.statusCode === '409' || payload.statusCode === 409)
+      ? 409
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 export interface ProjectSourceDiskFile {
   path: string;
@@ -284,6 +299,9 @@ export class SupabaseProjectSourceStorage {
       const message = await readDiagnosticResponseText(response);
       throw new ProjectSourceStorageError(errorCode, response.status, {
         ...(message ? { cause: new Error(message) } : {}),
+        ...(errorCode === 'upload-failed' && response.status === 400
+          ? { storageStatus: readStorageConflictStatus(message) }
+          : {}),
       });
     }
     return response;
