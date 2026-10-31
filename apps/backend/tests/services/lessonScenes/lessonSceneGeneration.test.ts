@@ -771,7 +771,13 @@ test.each([
     name: 'controlled Markdown representation mismatch',
     source: 'A **client** sends a request.',
     evidence: 'A client sends a request.',
-    outcome: 'absent',
+    outcome: 'representation-mismatch',
+  },
+  {
+    name: 'controlled math delimiter mismatch',
+    source: 'The value is $x=1$.',
+    evidence: 'The value is x=1.',
+    outcome: 'representation-mismatch',
   },
   {
     name: 'outside the supplied excerpt',
