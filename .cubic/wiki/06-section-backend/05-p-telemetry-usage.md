@@ -21,7 +21,7 @@ Observability and Telemetry in Nous provide visibility into the system's runtime
 The backend implements a correlation system to trace requests through the service architecture. Each request receives a unique `correlationId` (UUID), which the system propagates across internal execution paths.
 
 ### Lifecycle Logging
-The server records the lifecycle of every HTTP request, capturing timing information, response status, and potential failures. It excludes quiet paths like `/api/status` from successful request logs to reduce noise.
+The server records the lifecycle of every HTTP request, capturing timing information, response status, and potential failures. It excludes successful polls of quiet paths like `/api/status` to reduce noise. Completion and early-close events record elapsed milliseconds and body bytes handed to Node; an early-close count does not prove delivery to the client. HEAD, 204 and 304 responses have zero body bytes.
 
 ```mermaid
 sequenceDiagram
@@ -61,7 +61,7 @@ The system emits workflow logs through a centralized `emitWorkflowLog` function.
 | `correlationId` | String | Unique ID linking related logs. |
 | `operation` | String | The specific task being performed (e.g., `http_request`). |
 | `timings` | Object | Map of phase names to durations in milliseconds. |
-| `responseBytes` | Number | Size of the response payload. |
+| `responseBytes` | Number | Body bytes handed to Node, excluding HTTP framing and downstream compression. |
 
 Sources: [apps/backend/src/index.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/index.ts), [apps/backend/src/workflows/workflowObservability.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/workflowObservability.ts)
 

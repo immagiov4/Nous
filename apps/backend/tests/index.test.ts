@@ -1,7 +1,10 @@
 import { once } from 'node:events';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createApp, isPrivateNetworkFrontendOrigin } from '../src/index.js';
+import { PostgresProjectStore } from '../src/projects/postgresProjectStore.js';
+import { setProjectStoreForTesting } from '../src/projects/projectStore.js';
 import type { LessonGenerationApi } from '../src/workflows/lessonGenerationApi.js';
+import { createSupabaseTestToken } from './helpers/auth.js';
 
 describe('private-network frontend origins', () => {
   test('allows the local Vite app from a private LAN address', () => {
@@ -19,6 +22,172 @@ describe('private-network frontend origins', () => {
 
 describe('request lifecycle observability', () => {
   afterEach(() => vi.restoreAllMocks());
+
+  test('keeps successful status polls out of the request log', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const server = createApp().listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Expected TCP address');
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/status`);
+      await response.text();
+      expect(response.ok).toBe(true);
+      expect(info).not.toHaveBeenCalledWith(expect.stringContaining('"operation":"http_request"'));
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
+  test.each([
+    '/telemetry-stream',
+    '/telemetry-empty',
+    '/telemetry-head',
+    '/telemetry-unmodified',
+  ])('counts bytes and duration for %s', async path => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const app = createApp();
+    app.get('/telemetry-stream', (_req, res) => {
+      res.write('caffè');
+      res.end(Buffer.from(' finale'));
+    });
+    app.get('/telemetry-empty', (_req, res) => res.status(204).end());
+    app.head('/telemetry-head', (_req, res) => res.send('body omitted'));
+    app.get('/telemetry-unmodified', (_req, res) => res.status(304).end());
+    const server = app.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Expected TCP address');
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}${path}`, {
+        method: path === '/telemetry-head' ? 'HEAD' : 'GET',
+      });
+      const body = await response.text();
+      const event = info.mock.calls
+        .flat()
+        .filter(entry => typeof entry === 'string')
+        .map(entry => {
+          try {
+            return JSON.parse(entry);
+          } catch {
+            return null;
+          }
+        })
+        .find(
+          entry =>
+            entry?.operation === 'http_request' &&
+            entry?.correlationId === response.headers.get('x-request-id')
+        );
+      expect(event).toBeDefined();
+      expect(event.responseBytes).toBe(Buffer.byteLength(body));
+      expect(event.durationMs).toBeGreaterThanOrEqual(0);
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
+  test('records bytes already written when the client closes a stream', async () => {
+    const info = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const app = createApp();
+    app.get('/telemetry-interrupt', (_req, res) => res.write('caffè'));
+    const server = app.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Expected TCP address');
+    try {
+      const controller = new AbortController();
+      const response = await fetch(`http://127.0.0.1:${address.port}/telemetry-interrupt`, {
+        signal: controller.signal,
+      });
+      if (!response.body) throw new Error('Expected response stream');
+      await response.body.getReader().read();
+      controller.abort();
+      await vi.waitFor(() =>
+        expect(info).toHaveBeenCalledWith(expect.stringContaining('"action":"disconnected"'))
+      );
+      const event = info.mock.calls
+        .flat()
+        .filter(entry => typeof entry === 'string')
+        .map(entry => {
+          try {
+            return JSON.parse(entry);
+          } catch {
+            return null;
+          }
+        })
+        .find(entry => entry?.action === 'disconnected');
+      expect(event.responseBytes).toBe(Buffer.byteLength('caffè'));
+      expect(event.durationMs).toBeGreaterThanOrEqual(0);
+      expect(JSON.stringify(event)).not.toContain('caffè');
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
+  test('exposes project-load phases and measures a synthetic large course', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const snapshot = {
+      id: 'private-synthetic-course',
+      version: '4.1',
+      sourceKind: 'document',
+      state: 'READING',
+      source: null,
+      isLearnMode: false,
+      userProfile: null,
+      syllabus: [],
+      activeSectionId: null,
+      learningPlan: {
+        title: 'Synthetic course',
+        summary: 'synthetic content '.repeat(200_000),
+        sections: [],
+      },
+    };
+    const reserved = Object.assign(
+      vi.fn(async () => [
+        { snapshot, document_index: null, revision: 1, incarnation_id: 'synthetic' },
+      ]),
+      { release: vi.fn() }
+    );
+    const sql = Object.assign(vi.fn(), { reserve: vi.fn(async () => reserved) });
+    setProjectStoreForTesting(new PostgresProjectStore(undefined, sql as never));
+    const server = createApp().listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Expected TCP address');
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${address.port}/api/projects/projects/${snapshot.id}`,
+        { headers: { authorization: `Bearer ${createSupabaseTestToken()}` } }
+      );
+      const body = await response.text();
+      expect(response.status).toBe(200);
+      expect(JSON.parse(body).project.id).toBe(snapshot.id);
+      for (const phase of ['poolWait', 'query', 'normalization', 'serialization']) {
+        expect(response.headers.get('server-timing')).toContain(`${phase};dur=`);
+      }
+      const event = info.mock.calls
+        .flat()
+        .filter(entry => typeof entry === 'string')
+        .map(entry => {
+          try {
+            return JSON.parse(entry);
+          } catch {
+            return null;
+          }
+        })
+        .find(entry => entry?.operation === 'http_request');
+      expect(event.responseBytes).toBe(Buffer.byteLength(body));
+      expect(event.durationMs).toBeGreaterThanOrEqual(event.timings.serialization);
+      expect(JSON.stringify(event)).not.toContain(snapshot.id);
+      expect(JSON.stringify(event)).not.toContain('synthetic content');
+      process.stdout.write(`Synthetic project load (mock PostgreSQL): ${JSON.stringify(event)}\n`);
+      expect(reserved.release).toHaveBeenCalledOnce();
+    } finally {
+      setProjectStoreForTesting(null);
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
 
   test('assigns correlation before a CORS rejection reaches error handling', async () => {
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
