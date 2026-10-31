@@ -205,17 +205,28 @@ const captionStagedPdfImage = async (
   const providerEffect = state.context.providerEffect;
   if (!providerEffect) throw new Error('Provider effect persistence is required.');
   let caption: string | null = null;
+  // Only the caption operation is optional; checkpoint failures must reach the attempt runner.
+  let captionOperationFailed = false;
   try {
-    caption = await state.diagnostics.run('caption-image', () =>
-      providerEffect.run({
-        key: JSON.stringify(['pdf-image-caption-v1', staged.image.id, staged.asset.hash]),
-        operation: () =>
-          state.dependencies.captionImage({ context: state.context, image: staged.image }),
-        outputSchema: z.string().nullable(),
-      })
-    );
+    const result = await providerEffect.run({
+      key: JSON.stringify(['pdf-image-caption-v1', staged.image.id, staged.asset.hash]),
+      operation: async () => {
+        try {
+          return {
+            caption: await state.diagnostics.run('caption-image', () =>
+              state.dependencies.captionImage({ context: state.context, image: staged.image })
+            ),
+          };
+        } catch (error) {
+          captionOperationFailed = true;
+          throw error;
+        }
+      },
+      outputSchema: z.object({ caption: z.string().nullable() }),
+    });
+    caption = result.caption;
   } catch (error) {
-    if (state.context.signal.aborted) throw error;
+    if (state.context.signal.aborted || !captionOperationFailed) throw error;
     console.warn('[Lesson workflow] Optional PDF image caption failed.', {
       diagnostic: toWorkflowErrorDiagnostic(error, { includeContent: false }),
       pageNumber: staged.image.pageNumber,

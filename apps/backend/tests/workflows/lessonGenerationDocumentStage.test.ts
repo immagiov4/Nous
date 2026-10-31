@@ -155,6 +155,8 @@ const createMemoryProviderEffect = () => {
       const existing = results.get(key);
       if (existing !== undefined) return outputSchema.parse(existing);
       const output = snapshotImmutableJson(outputSchema.parse(await operation()));
+      if (output === null)
+        throw new Error('Null provider output is reserved for finalized effects.');
       results.set(key, output);
       return outputSchema.parse(output);
     },
@@ -1332,6 +1334,139 @@ describe('durable lesson document stage', () => {
       'Caption pdf-img-2',
     ]);
     expect(captionImage).toHaveBeenCalledTimes(3);
+  });
+
+  test.each([
+    'read',
+    'acknowledgement',
+  ])('retries a caption checkpoint %s failure without accepting an incomplete aggregate', async failurePoint => {
+    const providerEffect = createMemoryProviderEffect();
+    const persistedRun = providerEffect.executor.run;
+    let failCheckpoint = true;
+    providerEffect.executor.run = async options => {
+      if (options.key === 'extract-images-assets-v2' || !failCheckpoint)
+        return persistedRun(options);
+      if (failurePoint === 'acknowledgement') await persistedRun(options);
+      failCheckpoint = false;
+      throw new Error('Caption checkpoint unavailable');
+    };
+    const captionImage = vi.fn().mockResolvedValue('Completed caption');
+    const run = createLessonDocumentSourceStage({
+      assets: { stage: vi.fn().mockResolvedValue(storedAsset) },
+      captionImage,
+      extractImages: vi.fn().mockResolvedValue({ assets: [extractedImage], warnings: [] }),
+      loadProject: vi.fn().mockResolvedValue(project),
+    });
+    const context = {
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'stage', runId: 'run-1' },
+      idempotencyKey: 'caption-checkpoint-failure',
+      input,
+      providerEffect: providerEffect.executor,
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    };
+    await expect(run(context)).rejects.toThrow('Caption checkpoint unavailable');
+    expect(providerEffect.results.has('extract-images-assets-v2')).toBe(false);
+    const output = await run({ ...context, attemptNumber: 2 });
+    expect(output.pdfImages[0]?.caption).toBe('Completed caption');
+    expect(captionImage).toHaveBeenCalledOnce();
+  });
+
+  test('reuses a completed decorative classification after a sibling caption deadline', async () => {
+    const providerEffect = createMemoryProviderEffect();
+    const controller = new AbortController();
+    const secondImage = { ...extractedImage, id: 'pdf-img-2', sourceOrder: 2 };
+    const captionImage = vi.fn(async ({ context, image }) => {
+      if (image.id === extractedImage.id) return null;
+      if (context.attemptNumber === 1)
+        return new Promise<string>((_resolve, reject) => {
+          context.signal.addEventListener('abort', () => reject(context.signal.reason), {
+            once: true,
+          });
+        });
+      return 'Completed caption';
+    });
+    const run = createLessonDocumentSourceStage({
+      assets: { stage: vi.fn().mockResolvedValue(storedAsset) },
+      captionImage,
+      extractImages: vi
+        .fn()
+        .mockResolvedValue({ assets: [extractedImage, secondImage], warnings: [] }),
+      loadProject: vi.fn().mockResolvedValue(project),
+    });
+    const context = {
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'stage', runId: 'run-1' },
+      idempotencyKey: 'decorative-caption-retry',
+      input,
+      providerEffect: providerEffect.executor,
+      retryFeedback: '',
+      signal: controller.signal,
+    };
+    const rejected = expect(run(context)).rejects.toThrow('Deadline');
+    await vi.waitFor(() => expect(captionImage).toHaveBeenCalledTimes(2));
+    controller.abort(new Error('Deadline'));
+    await rejected;
+    const output = await run({
+      ...context,
+      attemptNumber: 2,
+      signal: new AbortController().signal,
+    });
+    expect(output.pdfImages).toHaveLength(2);
+    expect(output.pdfImages.map(image => image.caption)).toEqual([undefined, 'Completed caption']);
+    expect(captionImage).toHaveBeenCalledTimes(3);
+  });
+
+  test('retries an optional caption failure rather than caching it as a decorative classification', async () => {
+    const providerEffect = createMemoryProviderEffect();
+    const controller = new AbortController();
+    const secondImage = { ...extractedImage, id: 'pdf-img-2', sourceOrder: 2 };
+    const captionImage = vi.fn(async ({ context, image }) => {
+      if (context.attemptNumber === 1) {
+        if (image.id === extractedImage.id) throw new Error('Temporary caption provider failure');
+        return new Promise<string>((_resolve, reject) => {
+          context.signal.addEventListener('abort', () => reject(context.signal.reason), {
+            once: true,
+          });
+        });
+      }
+      return 'Recovered caption';
+    });
+    const run = createLessonDocumentSourceStage({
+      assets: { stage: vi.fn().mockResolvedValue(storedAsset) },
+      captionImage,
+      extractImages: vi
+        .fn()
+        .mockResolvedValue({ assets: [extractedImage, secondImage], warnings: [] }),
+      loadProject: vi.fn().mockResolvedValue(project),
+    });
+    const context = {
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'stage', runId: 'run-1' },
+      idempotencyKey: 'failed-caption-retry',
+      input,
+      providerEffect: providerEffect.executor,
+      retryFeedback: '',
+      signal: controller.signal,
+    };
+    const rejected = expect(run(context)).rejects.toThrow('Deadline');
+    await vi.waitFor(() => expect(captionImage).toHaveBeenCalledTimes(2));
+    controller.abort(new Error('Deadline'));
+    await rejected;
+    const output = await run({
+      ...context,
+      attemptNumber: 2,
+      signal: new AbortController().signal,
+    });
+    expect(output.pdfImages.map(image => image.caption)).toEqual([
+      'Recovered caption',
+      'Recovered caption',
+    ]);
+    expect(captionImage).toHaveBeenCalledTimes(4);
   });
 
   test('completes across attempt deadlines when sequential source captions exceed one stage budget', async () => {
