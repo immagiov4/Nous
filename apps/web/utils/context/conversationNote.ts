@@ -1,3 +1,4 @@
+import type { ContextNoteCandidateOutcome } from '@shared/contextNote';
 import type {
   ConversationSelectionAnchor,
   SaveConversationNoteInput,
@@ -31,23 +32,30 @@ const areAnchorsEqual = (left: ConversationSelectionAnchor, right: ConversationS
   normalizeSelectedTextStart(left.selectedTextStart) ===
     normalizeSelectedTextStart(right.selectedTextStart);
 
-export const hasAnchorableConversationNoteCandidate = (
+export const evaluateConversationNoteCandidate = (
   content: string,
   candidate: ConversationSelectionAnchor &
     Partial<Pick<SaveConversationNoteInput, 'fallbackSelection'>>
-): boolean => {
+): ContextNoteCandidateOutcome => {
+  if (!candidate.selectedText.trim()) return 'empty_selection';
   const segments = resolveSelectedSegments({
     content,
     ...candidate,
     preferredSelection: candidate.fallbackSelection,
   });
   const selector = createSectionAnnotationSelector(content, segments);
-  return (
-    selector !== null &&
-    normalizeSectionAnnotationSelectionText(selector.exact) ===
-      normalizeSectionAnnotationSelectionText(candidate.selectedText)
-  );
+  if (!selector) return 'no_segments';
+  return normalizeSectionAnnotationSelectionText(selector.exact) ===
+    normalizeSectionAnnotationSelectionText(candidate.selectedText)
+    ? 'anchorable'
+    : 'text_mismatch';
 };
+
+export const hasAnchorableConversationNoteCandidate = (
+  content: string,
+  candidate: ConversationSelectionAnchor &
+    Partial<Pick<SaveConversationNoteInput, 'fallbackSelection'>>
+): boolean => evaluateConversationNoteCandidate(content, candidate) === 'anchorable';
 
 export const buildConversationNoteSaveCandidates = ({
   anchor,
