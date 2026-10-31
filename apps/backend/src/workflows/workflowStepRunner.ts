@@ -48,6 +48,7 @@ import {
   type WorkflowStepResolution,
   workflowStepIdempotencyKey,
 } from './workflowStepResolution.js';
+import { createWorkflowSubstageDiagnostics } from './workflowSubstageDiagnostics.js';
 
 export {
   DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS,
@@ -229,6 +230,7 @@ const recordResolutionFailure = (
     : recordUnavailableDefinition(store, claim, resolution.failure);
 
 interface WorkflowStepAttemptResult {
+  diagnostics: ReturnType<typeof createWorkflowSubstageDiagnostics>;
   controller: AbortController;
   monitor: WorkflowAttemptMonitor;
   pendingAiUsage: WorkflowAiUsageRecord[];
@@ -296,6 +298,7 @@ const readProviderResult = async (input: {
 };
 
 const createProviderEffectExecutor = (input: {
+  diagnostics: ReturnType<typeof createWorkflowSubstageDiagnostics>;
   claim: WorkflowStepClaim;
   leaseMs: number;
   pendingAiUsage: WorkflowAiUsageRecord[];
@@ -306,21 +309,27 @@ const createProviderEffectExecutor = (input: {
     const idempotencyKey = `${workflowStepIdempotencyKey(input.claim)}:provider:${key}`;
     const persisted = await readProviderResult({ ...input, idempotencyKey });
     if (persisted !== undefined) return outputSchema.parse(persisted);
-    const usageStart = input.pendingAiUsage.length;
+    const previousUsageIds = new Set(input.pendingAiUsage.map(usage => usage.id));
     const output = snapshotImmutableJson(outputSchema.parse(await operation())) as JsonValue;
-    const aiUsage = input.pendingAiUsage.slice(usageStart);
-    const authoritative = await executeWorkflowCheckpointWithRetry(
-      () =>
-        input.store.providerEffects.recordResult({
-          aiUsage,
-          idempotencyKey,
-          nodeInstanceId: input.claim.nodeInstanceId,
-          output,
-          runId: input.claim.runId,
-        }),
-      AbortSignal.timeout(input.leaseMs)
+    const aiUsage = input.pendingAiUsage.filter(usage => !previousUsageIds.has(usage.id));
+    const authoritative = await input.diagnostics.run('persist-provider-effect', () =>
+      executeWorkflowCheckpointWithRetry(
+        () =>
+          input.store.providerEffects.recordResult({
+            aiUsage,
+            idempotencyKey,
+            nodeInstanceId: input.claim.nodeInstanceId,
+            output,
+            runId: input.claim.runId,
+          }),
+        AbortSignal.timeout(input.leaseMs)
+      )
     );
-    input.pendingAiUsage.splice(usageStart, aiUsage.length);
+    const persistedUsageIds = new Set(aiUsage.map(usage => usage.id));
+    for (let index = input.pendingAiUsage.length - 1; index >= 0; index -= 1) {
+      if (persistedUsageIds.has(input.pendingAiUsage[index].id))
+        input.pendingAiUsage.splice(index, 1);
+    }
     return outputSchema.parse(authoritative);
   },
 });
@@ -353,6 +362,7 @@ const executeStepCallback = async <Services>(input: {
   store: WorkflowStepRunnerStore;
 }): Promise<WorkflowStepAttemptResult> => {
   const controller = new AbortController();
+  const diagnostics = createWorkflowSubstageDiagnostics(controller.signal);
   const monitor = startWorkflowAttemptMonitor({
     controller,
     heartbeat: () => input.store.steps.heartbeat({ claim: input.claim, leaseMs: input.leaseMs }),
@@ -384,7 +394,14 @@ const executeStepCallback = async <Services>(input: {
         controller.signal
       );
       if (persistedResult.status !== 'succeeded' || persistedResult.value !== undefined) {
-        return { controller, monitor, pendingAiUsage, runResult: persistedResult, timedOut };
+        return {
+          controller,
+          diagnostics,
+          monitor,
+          pendingAiUsage,
+          runResult: persistedResult,
+          timedOut,
+        };
       }
     }
     const runResult = await raceOperationWithAbort(
@@ -403,6 +420,7 @@ const executeStepCallback = async <Services>(input: {
           },
           async () => {
             const value = await run({
+              diagnostics,
               attemptNumber: input.claim.attemptNumber,
               config: input.resolved.config,
               execution: Object.freeze({
@@ -423,6 +441,7 @@ const executeStepCallback = async <Services>(input: {
               ...(input.resolved.step.externalEffect === 'provider-with-postprocessing'
                 ? {
                     providerEffect: createProviderEffectExecutor({
+                      diagnostics,
                       claim: input.claim,
                       leaseMs: input.leaseMs,
                       pendingAiUsage,
@@ -470,7 +489,7 @@ const executeStepCallback = async <Services>(input: {
         ),
       controller.signal
     );
-    return { controller, monitor, pendingAiUsage, runResult, timedOut };
+    return { controller, diagnostics, monitor, pendingAiUsage, runResult, timedOut };
   } finally {
     clearTimeout(timeout);
   }
@@ -494,11 +513,17 @@ const finishFailedStepAttempt = async (input: {
     input.attempt.runResult.status === 'failed'
       ? input.attempt.runResult.error
       : input.attempt.controller.signal.reason;
+  const failure = input.attempt.timedOut
+    ? timeoutFailure(failureCause)
+    : toStepFailure(failureCause);
+  const substages = input.attempt.diagnostics.snapshot();
   return recordFailure({
     aiUsage: input.attempt.pendingAiUsage,
     claim: input.claim,
     definition: input.definition,
-    failure: input.attempt.timedOut ? timeoutFailure(failureCause) : toStepFailure(failureCause),
+    failure: substages.length
+      ? { ...failure, details: { ...failure.details, substages } }
+      : failure,
     store: input.store,
   });
 };

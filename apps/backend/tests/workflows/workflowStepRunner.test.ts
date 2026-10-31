@@ -524,7 +524,12 @@ describe('single workflow step runner', () => {
       id: 'work',
       inputSchema: Text,
       outputSchema: Text,
-      run: async () => new Promise<never>(() => {}),
+      run: async context => {
+        await context.diagnostics?.run('load-project', async () => undefined);
+        return context.diagnostics
+          ? context.diagnostics.run('extract-pdf-images', () => new Promise<never>(() => {}))
+          : new Promise<never>(() => {});
+      },
     });
     const registry = createWorkflowRegistry();
     const registered = registry.register({
@@ -567,6 +572,10 @@ describe('single workflow step runner', () => {
       details: { diagnostic: { originalMessage: 'Workflow step timed out.' } },
       kind: 'operational',
     });
+    expect(recordFailure.mock.calls[0]?.[0].failure.details?.substages).toEqual([
+      { durationMs: 0, name: 'load-project', outcome: 'succeeded' },
+      { durationMs: 1_000, name: 'extract-pdf-images', outcome: 'interrupted' },
+    ]);
   });
 
   test('deduplicates a provider result that completes after timeout alongside its retry', async () => {
@@ -822,6 +831,87 @@ describe('single workflow step runner', () => {
       expect.stringContaining(':provider:generate'),
       expect.stringContaining(':provider:verify'),
     ]);
+  });
+
+  test('retains every usage record when parallel caption effects persist out of order', async () => {
+    const firstSaved = Promise.withResolvers<void>();
+    const firstStarted = Promise.withResolvers<void>();
+    const secondSaved = Promise.withResolvers<void>();
+    const secondStarted = Promise.withResolvers<void>();
+    const storedUsage: string[] = [];
+    const work = step({
+      externalEffect: 'provider-with-postprocessing',
+      id: 'work',
+      inputSchema: Text,
+      outputSchema: Text,
+      run: async ({ providerEffect }) => {
+        if (!providerEffect) throw new Error('Expected provider effects.');
+        const effect = (key: string, operation: () => Promise<void>) =>
+          providerEffect.run({
+            key,
+            outputSchema: Text,
+            operation: async () => {
+              await operation();
+              await recordWorkflowAiUsage({ model: key, provider: 'test-provider' });
+              return { text: key };
+            },
+          });
+        const first = effect('first', async () => undefined);
+        await firstStarted.promise;
+        const second = effect('second', async () => undefined);
+        await secondStarted.promise;
+        const finishThird = Promise.withResolvers<void>();
+        const third = effect('third', () => finishThird.promise);
+        await Promise.resolve();
+        firstSaved.resolve();
+        await first;
+        finishThird.resolve();
+        await third;
+        secondSaved.resolve();
+        await second;
+        return { text: 'done' };
+      },
+    });
+    const registry = createWorkflowRegistry();
+    const registered = registry.register({
+      current: workflow({
+        compatibilityId: 'test-v1',
+        configSchema: WorkflowExecutionDefaultsSchema,
+        executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+        id: 'parallel-caption-usage',
+        inputSchema: Text,
+        outputSchema: Text,
+        root: work,
+      }),
+    }).current;
+    const store = makeStore({
+      recordProviderResult: async input => {
+        if (input.output && typeof input.output === 'object' && 'text' in input.output) {
+          if (input.output.text === 'first') {
+            firstStarted.resolve();
+            await firstSaved.promise;
+          }
+          if (input.output.text === 'second') {
+            secondStarted.resolve();
+            await secondSaved.promise;
+          }
+        }
+        storedUsage.push(...(input.aiUsage ?? []).map(usage => usage.model));
+        return input.output;
+      },
+      recordAiUsage: async usage => {
+        storedUsage.push(usage.model);
+      },
+    });
+    await expect(
+      runWorkflowStepClaim({
+        claim: makeClaim(registered, { nodeInstanceId: 'work' }),
+        registry,
+        services: {},
+        store,
+      })
+    ).resolves.toMatchObject({ status: 'checkpointed' });
+    expect(new Set(storedUsage)).toEqual(new Set(['first', 'second', 'third']));
   });
 
   test('does not repeat a provider after usage persistence fails', async () => {
