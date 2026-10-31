@@ -255,7 +255,7 @@ export const validateChangeReport = body => {
       issue(
         'visible-word-limit',
         1,
-        `${count} visible words; maximum ${REPORT_WORD_LIMIT}. Move investigation notes into <details>.`
+        `${count} visible words; maximum ${REPORT_WORD_LIMIT}. Cut words, or move supporting evidence (not process notes) into <details>.`
       )
     );
   return issues;
