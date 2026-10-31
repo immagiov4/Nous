@@ -1,26 +1,111 @@
----
-title: "Reader composition and state"
-wiki_page_id: "p-reader-shell"
----
+<details>
+<summary>Relevant source files</summary>
 
-[Up one level](../02-section-architecture/01-p-architecture.md)
+The following files were used as context for generating this wiki page:
 
-# Reader composition and state
+- [apps/web/components/workspace/shell/WorkspaceReaderShell.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/components/workspace/shell/WorkspaceReaderShell.tsx)
+- [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/components/workspace/shell/WorkspaceReaderContent.tsx)
+- [apps/web/components/workspace/shell/WorkspaceReaderSidebar.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/components/workspace/shell/WorkspaceReaderSidebar.tsx)
+- [apps/web/hooks/reader/useReaderContext.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/hooks/reader/useReaderContext.ts)
+- [apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx)
+- [apps/web/tests/components/workspace/shell/LessonDocumentSources.test.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/components/workspace/shell/LessonDocumentSources.test.tsx)
+</details>
 
-The reader must keep a saved lesson usable while its replacement is still generating. It therefore represents committed project content and pending work alongside one another instead of clearing the lesson when generation starts. A successful commit replaces the content and resets dependent study state; failure leaves the saved lesson and progress intact.
+# Workspace Reader Shell
 
-## Separate content lifetime from interaction lifetime
+The Workspace Reader Shell is the primary application container for the Nous learning environment. It orchestrates the layout, scrolling behavior, and lifecycle of the reading interface, ensuring a focused and responsive experience across mobile and desktop viewports. The shell coordinates several critical sub-systems, including the lesson content renderer, navigation sidebars, and interactive overlays for annotations and learning aids.
 
-Server project state supplies accepted lesson content and progress. The browser owns the current selection, open panels and playback controls, which can change without a project save. The [application composition](../../../apps/web/app/) joins these lifetimes: it passes the active target and its state into the content renderer, navigation and dialogs.
+Sources: [apps/web/components/workspace/shell/WorkspaceReaderShell.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/components/workspace/shell/WorkspaceReaderShell.tsx), [apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx)
 
-Navigation can change that target while other interactions are unfinished. A selected passage needs a stable mapping to saved lesson text so an annotation can retain its anchor. A streaming [chat response](../03-section-features/07-p-chat-ui.md) must retain the lesson where it began rather than adopt the page active when it arrives. These are identity requirements across interactions, not just rendering concerns.
+## Core Architecture and Layout
 
-## Present independent work without changing the target
+The Shell manages a multi-layered interface that adjusts dynamically based on the display mode (standard or embedded) and the device's viewport. It locks the document-level scrolling to provide a custom scrolling container for lesson content, which allows for precise control over UI effects like top-fade transparency in mobile views.
 
-The sidebar reflects the course structure and activity readiness. A practical exercise brief can finish while a different lesson is open; its activity view is separate from narrated lesson playback. Likewise, failure elsewhere in the course can be reported without redirecting the active reader.
+### Layout Components
 
-Recovery depends on what failed. A source reference needing repair takes precedence when the content cannot resolve its files, while generation failures can remain attached to the work that produced them. [Lesson generation](../03-section-features/02-p-lesson-gen.md) defines when a replacement becomes accepted content.
+| Component | Responsibility |
+| :--- | :--- |
+| **WorkspaceReaderHeader** | Manages the top navigation, settings, TTS controls, and learning aids. |
+| **WorkspaceReaderSidebar** | Provides the learning plan navigation, module toggles, and exercise access. |
+| **WorkspaceReaderContent** | Renders the active lesson markdown, generated visuals, and quizzes. |
+| **WorkspaceReaderOverlays** | Handles floating context menus, AI assistant answers, and note-taking interfaces. |
+| **WorkspaceReaderBanners** | Displays system-level alerts, such as storage errors or source file requirements. |
 
-## Render the prepared playback contract
+Sources: [apps/web/components/workspace/shell/WorkspaceReaderShell.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/components/workspace/shell/WorkspaceReaderShell.tsx), [apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx)
 
-The [player](../03-section-features/04-p-multimedia.md) consumes prepared audio, scene cues and highlighted spans for that lesson version. Seeking and speed are browser state; narration and cue generation belong to backend preparation. [Playback projection](../03-section-features/04-p-multimedia.md#project-authored-content-into-spoken-blocks) preserves imported visual references and original text anchors, while narration preparation classifies ambiguous fences before audio work. The reader can therefore render explanatory prose as wrapping content without rewriting the saved lesson. Verify rendering changes with navigation, pending work and reload as well as the final frame, using the isolated scenarios described in [testing](../09-section-tools/02-p-testing-quality.md).
+### Visual Composition Hierarchy
+
+The following diagram illustrates how the Shell organizes its internal layers to ensure that overlays and headers maintain correct stacking order.
+
+```mermaid
+graph TD
+    Shell[Workspace Reader Shell] --> Banners[Banners Layer]
+    Shell --> MainGrid[Main Layout Grid]
+    MainGrid --> Header[Workspace Reader Header]
+    MainGrid --> Sidebar[Workspace Reader Sidebar]
+    MainGrid --> ContentLayer[Content Layer]
+    ContentLayer --> Content[Workspace Reader Content]
+    ContentLayer --> Overlays[Workspace Reader Overlays]
+```
+
+The Shell confines overlays to a specific content layer situated below the header. This ensures that floating elements like context menus or AI response panels do not overlap the primary navigation controls.
+
+Sources: [apps/web/components/workspace/shell/WorkspaceReaderShell.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/components/workspace/shell/WorkspaceReaderShell.tsx), [apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx)
+
+## Viewport and Scroll Management
+
+The Shell uses the visual viewport height to calculate its application shell dimensions, preventing layout shifts on mobile devices when browser toolbars appear or disappear.
+
+*   **Document Lock:** Upon mounting, the Shell sets `overflow: hidden` and `overscroll-behavior: none` on the `document.documentElement` and `document.body`. It restores original values when unmounted.
+*   **Scroll Reset:** The component resets both the window scroll and the internal content container scroll to `(0, 0)` on mount to ensure a consistent starting point for the reader.
+*   **Mobile Top Fade:** In mobile viewports, the Shell calculates a `--reader-mobile-top-fade-alpha` variable based on the scroll position. The alpha value reduces from `1.000` to `0.000` over the first 50 pixels of scrolling. If a banner is active, this fade is cleared to avoid visual conflicts with layout-reserving alerts.
+
+Sources: [apps/web/components/workspace/shell/WorkspaceReaderShell.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/components/workspace/shell/WorkspaceReaderShell.tsx), [apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx)
+
+## Context and State Flow
+
+The Shell acts as a bridge between the reader's state (managed via hooks) and the visual components. It utilizes `useReaderContext` to access global learning data and propagates this through dedicated props to child components.
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant S as WorkspaceReaderShell
+    participant C as WorkspaceReaderContent
+    participant P as AudioPlayer / TTS
+    
+    U->>S: Scroll Content
+    S->>S: Update mobile-top-fade-alpha
+    U->>C: Highlight Text
+    C->>S: onContentClick / onContentContextMenu
+    S->>S: Trigger WorkspaceReaderOverlays
+    U->>S: Click Play Lesson
+    S->>P: Unlock Audio Session
+    P-->>S: Start Playback
+```
+
+Sources: [apps/web/hooks/reader/useReaderContext.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/hooks/reader/useReaderContext.ts), [apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx)
+
+### Playback Integration
+The Shell manages the lifecycle of lesson playback. When a user initiates playback from either the header or sidebar, the shell:
+1.  Unlocks the `LessonPlaybackAudio` session.
+2.  Opens the `LessonPlayer` dialog.
+3.  Ensures any existing TTS generation or playback is stopped before starting the new session.
+
+Sources: [apps/web/components/workspace/shell/WorkspaceReaderShell.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/components/workspace/shell/WorkspaceReaderShell.tsx), [apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx)
+
+## Source Material Display
+The Reader Shell supports viewing original source documents (like PDFs or archives) through the `LessonDocumentSources` component. This system allows students to:
+*   Open cited pages in original PDFs via blob URLs.
+*   Load detached source files on demand from storage.
+*   View exact code paths or file selectors used by the AI to generate the lesson content.
+
+The system specifically sanitizes these views to hide internal technical identifiers (like `chunkIds` or `sourceIds`), presenting only user-friendly file names and page ranges.
+
+Sources: [apps/web/tests/components/workspace/shell/LessonDocumentSources.test.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/components/workspace/shell/LessonDocumentSources.test.tsx)
+
+## Display Modes
+The Shell supports two primary display modes:
+1.  **Standard:** The full application experience with document scroll locking and fixed height management.
+2.  **Embedded:** Used when the reader is hosted within another container. In this mode, document scrolling is not locked, and the shell applies an `overflow-visible` class to allow the host to manage the viewport.
+
+Sources: [apps/web/components/workspace/shell/WorkspaceReaderShell.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/components/workspace/shell/WorkspaceReaderShell.tsx), [apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx)

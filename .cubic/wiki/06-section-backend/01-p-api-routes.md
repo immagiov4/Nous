@@ -1,30 +1,119 @@
----
-title: "HTTP and workflow boundaries"
-wiki_page_id: "p-api-routes"
----
+<details>
+<summary>Relevant source files</summary>
 
-[Up one level](../02-section-architecture/01-p-architecture.md)
+The following files were used as context for generating this wiki page:
 
-# HTTP and workflow boundaries
+- [apps/backend/src/index.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/index.ts)
+- [apps/backend/tests/routes/courseWorkflows.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/routes/courseWorkflows.test.ts)
+- [apps/backend/tests/routes/authProtection.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/routes/authProtection.test.ts)
+- [scripts/feature-map.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/feature-map.ts)
+- [apps/web/tests/scripts/productionDeployment.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/scripts/productionDeployment.test.ts)
+</details>
 
-Backend routes translate HTTP input into authenticated service operations. Private routes require a verified account, and administrative routes additionally require its role. Request validation, authorization and domain execution are separate responsibilities: a valid body alone cannot establish ownership of the project it names.
+# Backend API Routes
 
-| Route family | Responsibility |
-| --- | --- |
-| `/api/projects` | Project state, source files and library exports. |
-| `/api/course-workflows` | Course generation requests and progress. |
-| `/api/lesson-workflows` | Lesson generation requests and progress. |
-| `/api/chat/context` | Model conversations with selected lesson context. |
-| `/api/feedback` | Saved product reports. |
-| `/api/admin` | Privileged account, model and report operations. |
-| `/api/status` | Deployment and support status. |
+The Backend API provides the core services for the Nous learning platform, including project management, AI-driven content generation, and workflow orchestration. It uses an Express-based architecture to handle requests, enforce authentication, and manage complex long-running tasks through a durable workflow system.
 
-## Short mutations and durable requests return different evidence
+Sources: [apps/backend/src/index.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/index.ts), [scripts/feature-map.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/feature-map.ts)
 
-A project mutation checks the supplied revision before committing its change. A stale save returns a conflict, allowing the client to reconcile against authoritative state. Long generation work instead starts or reconnects to a durable run and exposes its progress separately from final project content. A successful start response establishes acceptance, while the saved workflow outcome establishes completion.
+## Request Lifecycle and Middleware
 
-The backend returns a request identifier for correlation with diagnostics. A run retains that correlation through its lifecycle, including failures delivered through a successful progress response. User-facing errors use stable messages; technical details belong in server diagnostics. [Observability](05-p-telemetry-usage.md) explains what those records retain.
+The application processes requests through a centralized pipeline that handles observability, security, and data parsing. Every request receives a unique `x-request-id` correlation ID to trace operations across logs and performance timings.
 
-## Trace at the service owner
+### Security and Authentication
+Most API routes require authentication. The system uses `resolveCurrentUser` and `resolveCurrentUserForPasswordSetup` middleware to identify users before they access protected resources. Public routes like `/health` and `/api/status` remain open for deployment probes.
 
-Use [route handlers](../../../apps/backend/src/routes/) for exact methods and payload validation rather than treating this family map as an exhaustive endpoint specification. From a handler, follow [authentication](02-p-auth.md), the project service and then the [workflow runtime](../02-section-architecture/02-p-workflow-engine.md) where applicable. File access additionally needs the [asset boundary](../04-section-data/02-p-asset-management.md).
+Sources: [apps/backend/src/index.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/index.ts), [apps/backend/tests/routes/authProtection.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/routes/authProtection.test.ts)
+
+### Payload Management
+The backend enforces specific body size limits based on the route to prevent resource exhaustion.
+
+| Route Group | Body Limit |
+| :--- | :--- |
+| `/api/openrouter` | 80mb |
+| `/api/pdf` | 160mb |
+| `/api/projects` | 300mb |
+| `/api/stt` | 20mb |
+| `/api/feedback` | 2mb |
+| Default | 50mb |
+
+Sources: [apps/backend/src/index.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/index.ts)
+
+### Flow Diagram: Request Processing
+The following diagram shows how a request moves from the entry point to a specific route handler.
+
+```mermaid
+flowchart TD
+    Req[Incoming Request] --> Corr[Assign Correlation ID]
+    Corr --> CORS[CORS Validation]
+    CORS --> Auth{Requires Auth?}
+    Auth -- Yes --> ResolveUser[Resolve Current User]
+    Auth -- No --> Router[API Router]
+    ResolveUser --> Router
+    Router --> Handler[Specific Route Handler]
+    Handler --> Log[Emit Workflow Log]
+    Log --> Res[Send Response]
+```
+
+## Functional API Modules
+
+API routes are organized into logical modules that handle specific domains of the application.
+
+### Workflow Orchestration
+The workflow routes manage long-running AI processes like course and lesson generation. These routes provide endpoints to start a run, poll for status, and retrieve results without exposing internal implementation details.
+
+*   **Course Workflows:** `/api/course-workflows/courses` (POST) starts a durable course generation.
+*   **Polling:** `/api/course-workflows/runs/:runId` (GET) retrieves a snapshot of the run status.
+*   **Active Runs:** `/api/course-workflows/courses/:projectId/active` (GET) helps reconnect a project to its ongoing planning phase.
+
+Sources: [apps/backend/src/index.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/index.ts), [apps/backend/tests/routes/courseWorkflows.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/routes/courseWorkflows.test.ts)
+
+### Project and Asset Management
+These routes handle the core data of the application, including project snapshots and media assets.
+*   **Imports:** Supports chunked uploads via `/api/projects/import/chunks/:uploadId/:chunkIndex`.
+*   **Assets:** Manages images and other project-specific files through `createProjectAssetRouter`.
+*   **Exports:** Provides library export downloads via `createLibraryExportDownloadRouter`.
+
+Sources: [apps/backend/src/index.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/index.ts)
+
+### AI and Multimodal Services
+The backend proxies and processes various AI services:
+*   **Chat:** `/api/chat` handles conversational context.
+*   **Speech:** `/api/stt` (Speech-to-Text) and `/api/tts` (Text-to-Speech) manage audio processing.
+*   **Visuals:** `/api/images` handles image generation, while `/api/youtube` provides research context from video transcripts.
+
+Sources: [apps/backend/src/index.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/index.ts), [apps/backend/tests/routes/authProtection.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/routes/authProtection.test.ts)
+
+## Error Handling
+
+The backend implements a unified error handling strategy. It converts standard Errors into `BackendErrorDiagnostic` objects and returns structured JSON responses.
+
+*   **413 Payload Too Large:** Returned when a request exceeds the configured limit.
+*   **401 Unauthorized:** Returned when an unauthenticated user accesses a protected route.
+*   **409 Conflict:** Returned for workflow key conflicts (e.g., repeating a request key).
+*   **500 Internal Server Error:** A catch-all for unhandled exceptions, logging a sanitized stack trace and correlation ID.
+
+Sources: [apps/backend/src/index.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/index.ts), [apps/backend/tests/routes/courseWorkflows.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/routes/courseWorkflows.test.ts)
+
+## Production Considerations
+
+In production environments, the backend enforces strict CORS configurations and serves health endpoints for monitoring.
+
+```mermaid
+sequenceDiagram
+    participant LB as Load Balancer
+    participant FE as Frontend
+    participant BE as Backend API
+    participant DB as Database
+    LB->>BE: GET /health
+    BE-->>LB: 200 OK
+    FE->>BE: POST /api/course-workflows/courses
+    BE->>DB: Check for existing RequestKey
+    DB-->>BE: No Conflict
+    BE->>DB: Insert Workflow Run
+    BE-->>FE: 202 Accepted (Job Created)
+```
+
+Sources: [apps/web/tests/scripts/productionDeployment.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/scripts/productionDeployment.test.ts), [apps/backend/tests/routes/courseWorkflows.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/routes/courseWorkflows.test.ts)
+
+The Backend API Routes architecture ensures that expensive AI operations are handled asynchronously via workflows while providing a consistent, secure, and observable interface for the frontend application.

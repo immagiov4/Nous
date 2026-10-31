@@ -1,38 +1,126 @@
----
-title: "Local development setup"
-wiki_page_id: "p-local-setup"
----
+<details>
+<summary>Relevant source files</summary>
 
-[Up one level](../index.md)
+The following files were used as context for generating this wiki page:
 
-# Local development setup
+- [scripts/ensure-local-dev-services.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/ensure-local-dev-services.ts)
+- [package.json](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/package.json)
+- [scripts/doctor.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/doctor.ts)
+- [PROJECT_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT_RULES.md)
+- [scripts/setup-codex-cloud.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/setup-codex-cloud.test.ts)
+</details>
 
-Local development runs the React frontend and backend against PostgreSQL, Supabase Auth and Storage. The startup command coordinates local infrastructure when the configured URLs identify local services; a remote-only configuration connects to its existing services. Project persistence remains on the backend in both cases.
+# Local Development Setup
 
-## Start the development processes
+The Local Development Setup provides a containerized and automated environment for developing the Nous Reader application. It orchestrates the frontend, backend, and persistent storage layers to ensure developers can run the full learning platform locally with minimal manual configuration.
 
-1. Use the Bun version declared in [package metadata](../../../package.json), then run `bun run deps:install` from the repository root.
-2. Copy [`.env.example`](../../../.env.example) to `.env.local`. Set the database connection, backend Supabase URL and service-role key, frontend public URL and publishable/anonymous key, and server-side `OPENROUTER_API_KEY` for provider work.
-3. Run `bun run dev`. The frontend serves at `http://localhost:5173` and the backend at `http://localhost:3301`.
+The environment relies on [Docker](https://www.docker.com/) for infrastructure and [Bun](https://bun.sh/) for task execution and dependency management. The setup process automates the availability of local Supabase services, applies database migrations, and verifies the health of required API endpoints before starting the development servers.
 
-For local service URLs, startup verifies Docker, starts Docker Desktop where supported, starts Supabase, checks Auth readiness and applies pending migrations before launching the app. A failed prerequisite exits startup instead of leaving a frontend disconnected from its backend. Use [environment diagnostics](03-p-cli-tools.md) to identify missing prerequisites. Node 26, pinned in `.node-version`, is required for the coverage path.
+Sources: [scripts/ensure-local-dev-services.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/ensure-local-dev-services.ts), [package.json](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/package.json), [PROJECT_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT_RULES.md)
 
-Tool and backend file settings live in `config/`; commands and loaders select their paths explicitly. The backend reads `config/server.config.json`, with `BACKEND_HOST` and `BACKEND_PORT` environment variables taking precedence.
+## Core Service Initialization
 
-## Local authentication
+The project uses a dedicated initialization script to prepare the local infrastructure. When you execute the development command, the system identifies local loopback URLs in your environment variables to determine if a local stack is required.
 
-The normal frontend mode is `VITE_AUTH_MODE=supabase`. HS256 installations set `SUPABASE_JWT_SECRET`; asymmetric installations use key discovery or `SUPABASE_JWKS_URL`. Set `SUPABASE_JWT_ISSUER` when the token issuer differs from the backend's internal service URL. [Authentication](../06-section-backend/02-p-auth.md) explains claim verification.
+### Service Orchestration Flow
 
-Tests can use controlled identity. An interactive local bypass requires `AUTH_MODE=local-bypass`, `LOCAL_DEV_PROFILE=true` and `LOCAL_AUTH_BYPASS=true`; it still persists projects through the server. Keep that backend within a trusted development environment. The backend accepts HTTP private-network origins on Vite port 5173 in every environment; an explicit `CORS_ALLOWED_ORIGINS` list does not disable that convenience. List public and other trusted origins explicitly when exposing the backend beyond loopback, and retain authentication for untrusted networks.
+The following diagram illustrates the automated sequence performed by `ensure-local-dev-services.ts` to prepare the development environment.
 
-## Optional Codex text provider
+```mermaid
+flowchart TD
+    Start[Start predev script] --> CheckURLs{Local URLs found?}
+    CheckURLs -- No --> Exit[Skip setup]
+    CheckURLs -- Yes --> CheckDocker{Docker Running?}
+    CheckDocker -- No --> StartDocker[Start Docker Desktop]
+    StartDocker --> CheckDocker
+    CheckDocker -- Yes --> CheckSupa{Supabase Active?}
+    CheckSupa -- No --> StartSupa[Start Local Supabase]
+    StartSupa --> Migrations[Apply migrations]
+    CheckSupa -- Yes --> Migrations
+    Migrations --> HealthCheck{Check Auth Health}
+    HealthCheck -- Fail --> Error[Throw Error]
+    HealthCheck -- Pass --> Ready[Local Services Ready]
+```
+The orchestration script ensures that Docker is active and the Supabase container stack is healthy before allowing application code to run.
 
-Install and authenticate Codex CLI on the host and set `CODEX_APP_SERVER_ENABLED=true`. Nous uses one internal app-server account through its authenticated API for administrators and assigned users. Keep that process private to the backend. [The Codex adapter](../06-section-backend/03-p-codex-server.md) describes its execution restrictions; speech still needs OpenRouter.
+Sources: [scripts/ensure-local-dev-services.ts:107-133](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/ensure-local-dev-services.ts#L107-L133)
 
-With the stack ready, follow [verification](02-p-testing-quality.md) for fast checks on changed files, targeted tests and the CI integration contracts. [Deployment](../08-section-deployment/01-p-self-hosted.md) owns production service setup.
+### Infrastructure Requirements
+The setup script specifically monitors the following environment variables to trigger local service initialization:
 
-## Repository agent skill
+| Variable | Usage | Expected Host |
+| :--- | :--- | :--- |
+| `SUPABASE_URL` | Backend Supabase API connection | `localhost` or `127.0.0.1` |
+| `VITE_SUPABASE_URL` | Frontend Supabase API connection | `localhost` or `127.0.0.1` |
+| `DATABASE_URL` | Direct PostgreSQL connection string | `localhost` or `127.0.0.1` |
 
-The repository carries `requirements-blast-radius` in `.agents/skills/`, which Codex discovers directly. Claude's `.claude/skills/requirements-blast-radius/SKILL.md` points to the same canonical copy. Both clients declare a `UserPromptSubmit` hook in their committed repository settings; an installed global hook yields to that client's repository declaration. Bun runs the hook locally.
+Sources: [scripts/ensure-local-dev-services.ts:7-9](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/ensure-local-dev-services.ts#L7-L9)
 
-Follow the skill's [installation instructions](../../../.agents/skills/requirements-blast-radius/references/screen.md#install-and-check) to update the vendored files. Keep backups outside the repository and commit the generated skill and client settings together. For the optional semantic screen, export `OPENROUTER_API_KEY` into the invoking process through your shell or secret manager; provider modes report a skipped screen when the variable is absent. The screen reads credentials only from the environment.
+## Environment Diagnostics
+
+The `doctor.ts` utility provides a comprehensive diagnostic suite to verify that your local machine meets the project's technical requirements. It checks for runtime versions, workspace binaries, and service connectivity.
+
+### Diagnostic Profiles
+You can run the doctor script with specific profiles using `bun run doctor -- --profile <name>`.
+
+| Profile | Scope of Verification |
+| :--- | :--- |
+| `checks` | Verifies Bun version, workspace binaries, and Fallow dead-code baselines. |
+| `gate` | Probes the local SonarQube service and its permission provisioner. |
+| `local` | Probes local Supabase services (Auth, Rest, Storage, Realtime) and migration parity. |
+| `all` | Runs all environment and service probes sequentially. |
+
+Sources: [scripts/doctor.ts:60-78](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/doctor.ts#L60-L78)
+
+### Supabase Health Endpoints
+When using the `local` profile, the system probes specific paths on the local Supabase origin to ensure the stack is operational.
+
+```mermaid
+sequenceDiagram
+    participant Doc as Doctor Script
+    participant Auth as Supabase Auth
+    participant Rest as Supabase Data API
+    participant Stor as Supabase Storage
+    Doc->>Auth: GET /auth/v1/health
+    Auth-->>Doc: 200 OK
+    Doc->>Rest: GET /rest/v1/
+    Rest-->>Doc: 200 OK
+    Doc->>Stor: GET /storage/v1/status
+    Stor-->>Doc: 200 OK
+```
+Sources: [scripts/doctor.ts:25-33](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/doctor.ts#L25-L33), [scripts/doctor.ts:279-299](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/doctor.ts#L279-L299)
+
+## Development Workflow Commands
+
+Common development tasks are managed through `package.json` scripts. The primary entry point for daily work is `bun run dev`, which triggers the service check before launching the application components.
+
+### Primary Commands
+
+*   **`bun run dev`**: Starts the local development environment. It runs `predev` to ensure services are ready, then starts the backend and frontend.
+*   **`bun run doctor`**: Runs environment diagnostics to identify missing dependencies or runtime mismatches.
+*   **`bun run deps:install`**: Installs workspace dependencies using Bun with a frozen lockfile and hardlink backend.
+*   **`bun run quality`**: Executes a full suite of checks including TypeScript compilation, Biome linting, and Sonar-style rules.
+*   **`bun run fix`**: Automatically applies Biome lint and format fixes across the repository.
+
+Sources: [package.json:10-38](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/package.json#L10-L38), [PROJECT_RULES.md:156-180](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT_RULES.md#L156-L180)
+
+### Runtime Version Enforcement
+The project strictly pins the Bun version. The `doctor` script validates that the locally installed Bun runtime matches the version specified in the `packageManager` field of `package.json`.
+
+Sources: [scripts/doctor.ts:98-115](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/doctor.ts#L98-L115), [package.json:5](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/package.json#L5)
+
+## AI and Codex Configuration
+
+For features involving AI-driven learning and playback, the repository integrates with [Codex](https://github.com/immagiov4/Geppetto). 
+
+### Codex Cloud Setup
+The `setup:codex` command (`scripts/setup-codex-cloud.mjs`) prepares the environment for agentic work. It performs the following actions:
+1.  Installs required Geppetto plugins and skill packs.
+2.  Configures memory buckets for the project (e.g., the `nous` bucket).
+3.  Approves necessary plugin hooks for automated workflows.
+
+Sources: [scripts/setup-codex-cloud.test.ts:34-80](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/setup-codex-cloud.test.ts#L34-L80), [package.json:96](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/package.json#L96)
+
+## Summary
+
+Setting up the local environment requires Docker for service containerization and Bun for script execution. By running `bun run dev`, you trigger an automated lifecycle that starts Supabase, applies database migrations, and launches the application services. Diagnostics via `bun run doctor` ensure the environment remains consistent with the project's strictly pinned runtime and quality standards.

@@ -1,51 +1,162 @@
----
-title: "Development diagnostics and publishing checks"
-wiki_page_id: "p-cli-tools"
----
+<details>
+<summary>Relevant source files</summary>
 
-[Up one level](01-p-local-setup.md)
+The following files were used as context for generating this wiki page:
 
-# Development diagnostics and publishing checks
+- [PROJECT\_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT_RULES.md)
+- [AGENTS.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/AGENTS.md)
+- [apps/backend/src/workflows/validation.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/validation.ts)
+- [apps/backend/src/routes/chatPrompts.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/routes/chatPrompts.ts)
+- [apps/backend/tests/workflows/courseGenerationWorkflow.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/workflows/courseGenerationWorkflow.test.ts)
+- [apps/backend/src/services/lessonScenes/lessonSceneGeneration.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/lessonScenes/lessonSceneGeneration.ts)
+</details>
 
-The diagnostic commands inspect environment prerequisites separately from starting the application or running tests. This makes them useful when setup stops before the frontend and backend are ready. The report identifies missing runtime, tool or service requirements so the next action can target that boundary.
+# Developer Workflows & Agent Skills
 
-| Command | Inspection scope |
-| --- | --- |
-| `bun run doctor` | Runtime, installed tools and the Fallow baseline. |
-| `bun run doctor -- --profile gate` | Local SonarQube readiness for Windows diagnosis. |
-| `bun run doctor -- --profile local` | Local Supabase services and migration parity. |
-| `bun run doctor -- --profile all` | Default checks and both service profiles. |
+Developer workflows and agent skills define the operational framework for building and maintaining the Nous Reader codebase. This system coordinates human developers, automated CI/CD processes, and AI-driven agents (Codex/Geppetto) to ensure code quality, architectural consistency, and verified functionality.
 
-[scripts/doctor.ts](../../../scripts/doctor.ts) owns these checks. The diagnostic itself does not start services, change configuration or execute tests. Return to [local setup](01-p-local-setup.md) for service startup or [testing](02-p-testing-quality.md) for behavior evidence after resolving the reported prerequisite.
+The workflow prioritizes "Context Before Code," requiring agents and developers to understand existing helpers, constants, and module boundaries before implementing changes. Verification is central to the process; every PR must contain observable evidence of work, such as behavior tests or render atlases, to prove the effectiveness of a change.
 
-## Review bodies are rendered artifacts
+## Agent System Architecture
 
-The repository's GitHub-body helper validates a Markdown file before publication, then compares the published raw body with the reviewed file and checks GitHub-rendered HTML. This catches flattened Markdown or a remote body that differs from the reviewed file. Keep the body in a file so shell quoting does not become part of its formatting.
+The agent system operates through a set of specialized "skills" and automated hooks that integrate into the developer's environment. Agents use the Geppetto plugin and Codex tasks to execute implementation, review, and documentation work.
 
-```bash
-bun scripts/github-body.mjs validate --kind pr --body-file body.md
-bun scripts/github-body.mjs preview --repo immagiov4/Nous --body-file body.md
-bun scripts/github-body.mjs update --kind pr --repo immagiov4/Nous --number 123 --body-file body.md
-bun scripts/github-body.mjs verify --kind pr --repo immagiov4/Nous --number 123 --body-file body.md
+### Core Intentions
+The system operates based on five main intents:
+1.  **Improve it**: Agents watch for recurring friction and proactively suggest or implement fixes.
+2.  **See inside**: Features must be built with observability, preserving error causes and trace durations.
+3.  **Prove it**: Claims must be backed by measurements, behavior tests, or traces.
+4.  **Keep it small**: Units of work must be small enough to verify together.
+5.  **Reuse before inventing**: Existing skills, scripts, and hooks take precedence over new parallel paths.
+
+Sources: [AGENTS.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/AGENTS.md), [PROJECT\_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT%5C_RULES.md)
+
+### Skill Discovery and Application
+Skills are modular units of capability categorized by their role in the development lifecycle.
+
+| When | Skill Category | Description |
+| :--- | :--- | :--- |
+| Planning | `$geppetto-spec` | Maps requirements and defines behavior changes. |
+| Implementing | `$geppetto-build` | Executes the specified unit of work. |
+| Verification | `$geppetto-verify` | Checks completion and addresses review findings. |
+| Learning | `$geppetto-learn` | Records recurring friction and curates skills. |
+| Engineering | `$engineering-workflow` | General execution of engineering tasks. |
+
+Sources: [AGENTS.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/AGENTS.md)
+
+## Development Lifecycle & PR Requirements
+
+The development process follows a strict sequence of requirement mapping, implementation, and rigorous verification before a pull request (PR) can be merged.
+
+### PR Selection and Body Contract
+PR bodies must follow a specific structure to ensure clarity and provide a durable record of the change. This is enforced by `scripts/github-body.mjs`.
+
+- **Problem**: Defines the issue or requirement.
+- **Approach**: Explains the technical solution and architectural choices.
+- **Result**: Provides a Before/After comparison or a "Not measured" statement.
+- **Observability**: Describes how the change is monitored or traced.
+- **Testing**: Summarizes CI status and SonarCloud results.
+
+Sources: [PROJECT\_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT%5C_RULES.md), [AGENTS.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/AGENTS.md), [scripts/github-body.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/github-body.test.ts)
+
+### Verification and Evidence
+Developers and agents must provide observable evidence for every change.
+- **UI Changes**: Require screenshots, videos, or render atlases.
+- **Backend Changes**: Require behavior tests and integration evidence.
+- **End-to-End**: High-level flows must be proven with Playwright actions.
+
+```mermaid
+flowchart TD
+    A[Start Task] --> B[Requirements Map]
+    B --> C[Failing Behavior Test]
+    C --> D[Implementation]
+    D --> E[Verification Evidence]
+    E --> F{CI Green?}
+    F -- No --> D
+    F -- Yes --> G[PR Review]
+    G --> H{Findings?}
+    H -- Yes --> D
+    H -- No --> I[Merge]
 ```
+The diagram shows the standard flow from task initiation to merge, emphasizing the requirement for failing tests before implementation.
+Sources: [PROJECT\_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT%5C_RULES.md), [AGENTS.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/AGENTS.md)
 
-PRs open with **Problem:**, **Approach:** and **Result:**, followed by `## Testing`. Result includes a Before/After table, screenshot link, or "Not measured". The visible-word limit is 200; `<details>` holds supporting notes. Repository Claude and Codex shell hooks validate literal PR publication bodies before execution; unreadable shell expansions require a literal body file. CI and SonarCloud status share one Testing line.
+## Durable Workflow Engine
 
-`verify` reads the published artifact; `update` publishes the file and performs the same verification. Use `--kind issue` for an issue. The helper's check proves body identity and rendering, while [CI and review](02-p-testing-quality.md) establish the change's merge evidence.
+The backend utilizes a durable workflow engine to manage long-running or complex processes, such as course generation. These workflows are composed of nodes and steps with strictly validated schemas.
 
-## Capture the production playback stage
+### Workflow Validation
+Workflows are validated against a manifest to ensure compatibility and durability. The system uses SHA-256 hashing of canonical JSON manifests to detect changes that might break resumed executions.
 
-The playback atlas renders normalized lessons through the isolated production stage in headless Chromium, sampling each spoken block at its start, middle and end. The requested viewport is the stage’s available box; application playtests cover the player header, controls and audio interactions. Separate visual sheets cover authored figures that those positions could miss. The default input is a deterministic pairwise matrix over content, visual and scene types and Markdown syntax; a short synthetic course gives a smaller first run.
+- **Step**: An atomic unit of work with `run`, `commit`, and `undo` callbacks.
+- **Sequence**: A series of nodes where the output of one must match the input of the next.
+- **FanOut**: Parallel execution across multiple items with a `worker` node.
+- **Repeat**: Iterative execution until a condition is met or `maxIterations` is reached.
 
-```bash
-bun run atlas:playback -- --synthetic synthetic-short
-bun run atlas:playback -- --fixture path/to/project.nous.zip
-bun run atlas:playback -- --library "$NOUS_E2E_LIBRARY"
-bun run atlas:playback -- --scenario path/to/playback-scenario.json
+Sources: [apps/backend/src/workflows/validation.ts:167-330](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/validation.ts#L167-L330)
+
+### Course Generation Workflow
+The course generation process is a prime example of a durable workflow, routing through stages of research, planning, and source finalization.
+
+```mermaid
+graph TD
+    subgraph Planning_Stage
+        DP[draft-course-plan] --> VP[verify-course-plan]
+        VP --> RP[refine-course-plan]
+        RP --> VCP[validate-course-plan]
+    end
+    
+    subgraph Finalization_Stage
+        VCP --> PFS[prepare-course-source-finalization]
+        PFS --> CFS[complete-course-source-finalization]
+    end
+    
+    CFS --> PC[persist-course]
+    PC --> PR[publish-course-project-revision]
 ```
+This diagram illustrates the planning and finalization phases of the course generation workflow.
+Sources: [apps/backend/tests/workflows/courseGenerationWorkflow.test.ts:315-345](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/workflows/courseGenerationWorkflow.test.ts#L315-L345)
 
-Each sample starts in an isolated browser context with a fixed clock and seeded randomness, including embedded visual documents. Font and image readiness precede capture; archived PDF figures use the application's asset readers. A parent process terminates a renderer that exceeds the measured execution bound, records incomplete evidence and opens a fresh renderer for the next sample. `--render-timeout-ms` overrides that bound. `--course` and `--lesson` select exact IDs; `--source-root` selects another installed source checkout for a version comparison.
+## Agent Chat & Tooling
 
-The local `index.html` links labelled sheets to original PNGs and a structured report with source revisions, preparation fingerprints, geometry, execution durations and findings. Empty content, clipping, missing spoken math, caption boundaries and render errors are structural checks; mathematical meaning and visual quality require artifact review. Sparse content, fitted font size and canvas occupancy remain measurements rather than quality cutoffs. Findings make the command exit unsuccessfully, while failed or missing captures remain explicitly incomplete.
+Agents interact with the library and lessons through a specialized chat interface that utilizes tools for search, annotation, and artifact generation.
 
-Evidence contains lesson content and stays outside Git. POSIX output uses owner-only directories and files; Windows output must resolve inside the user's profile and inherit its permissions. Private library input is refused in CI, and the browser blocks outbound requests. The [atlas command](../../../e2e/nous/playbackAtlas.ts) owns capture and evidence; `bun run test:atlas:browser` checks repeatability, scripted visuals, termination, archived images and clipping with synthetic fixtures.
+### Tool Selection Logic
+Agent behavior is governed by active user preferences and explicit instructions.
+- **SearchWeb**: Used when external facts or verification improve the answer. Explicit user search requests take priority over preferences.
+- **RequestAddToNotes**: Proposes saving clarifications or rephrasings when they add value to the lesson.
+- **GenerateCurrentLessonArtifact**: Creates visual aids like charts or diagrams proactively if the preference is active.
+
+Sources: [apps/backend/src/routes/chatPrompts.ts:400-550](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/routes/chatPrompts.ts#L400-L550)
+
+### Context Awareness
+Agents are provided with truncated context blocks to stay within token budgets while maintaining accuracy.
+
+| Context Type | Field | Description |
+| :--- | :--- | :--- |
+| Lesson | `lessonContent` | The full text of the current lesson. |
+| Selection | `selectedText` | The specific passage the user is highlighting. |
+| Source | `sourceMaterial` | Aggregate text from original source documents. |
+| Metadata | `sourceReferences` | Untrusted JSON data describing source provenance. |
+
+Sources: [apps/backend/src/routes/chatPrompts.ts:440-490](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/routes/chatPrompts.ts#L440-L490)
+
+## Code Quality Standards
+
+Workflows must adhere to the project's core philosophy: "Write code that is easy to understand, easy to change, and difficult to misuse."
+
+### Implementation Rules
+- **Guard Clauses**: Use instead of nested conditionals to reduce cognitive complexity.
+- **Naming**: Variables and functions must be semantically decodable at a glance.
+- **Single Source of Truth**: Constants and logic must be centralized to avoid hidden coupling.
+- **Magic Numbers**: All literals (colors, timeouts, thresholds) must be replaced with named constants.
+
+Sources: [PROJECT\_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT%5C_RULES.md)
+
+### Error Handling Methodology
+1.  **Identify root cause**: Determine the underlying pattern causing the bug.
+2.  **Broad Search**: Look for similar patterns in the same file and related modules.
+3.  **Systemic Fix**: Fix all occurrences consistently rather than applying a local patch.
+4.  **Verification**: Add regression coverage to protect the contract.
+
+Sources: [PROJECT\_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT%5C_RULES.md)
