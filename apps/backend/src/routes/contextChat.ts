@@ -1,5 +1,6 @@
 // Handles context-aware chat requests for the backend API.
 
+import { ContextNoteEventSchema, ContextNoteResultSchema } from '@shared/contextNote';
 import type {
   ContextSourceArchiveSelector,
   ContextSourceArchiveVersion,
@@ -38,6 +39,7 @@ import {
 import { createCodexChatStream, SAFE_AI_STREAM_ERROR } from '../services/codexChatStream.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
 import { isRecord, readOptionalString } from '../utils/validation.js';
+import { getCorrelationId } from '../workflows/requestObservability.js';
 
 import {
   buildContextSystemPrompt,
@@ -323,39 +325,7 @@ const contextChatTools = {
       },
       required: ['noteDraft', 'rationale', 'selectedTextDraft'],
     }),
-    outputSchema: jsonSchema<{
-      approved: boolean;
-      mode: 'new' | 'update' | 'none';
-      saved: boolean;
-      annotationId?: string;
-      error?: string;
-    }>({
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        approved: {
-          type: 'boolean',
-          description: 'True when the user confirms saving or updating the note.',
-        },
-        mode: {
-          type: 'string',
-          enum: ['new', 'update', 'none'],
-          description:
-            "Effective mode applied by the UI: 'new' when the note was created, 'update' when it was updated, and 'none' when the user declined.",
-        },
-        saved: {
-          type: 'boolean',
-          description: 'True when the save or update was actually persisted.',
-        },
-        annotationId: {
-          type: 'string',
-        },
-        error: {
-          type: 'string',
-        },
-      },
-      required: ['approved', 'mode', 'saved'],
-    }),
+    outputSchema: ContextNoteResultSchema,
   }),
 } as const;
 
@@ -586,6 +556,18 @@ const readContextScope = (value: unknown): ContextChatScope | null => {
 };
 
 export const contextChatRouter = Router();
+
+contextChatRouter.post('/context/note-events', (req: Request, res: Response) => {
+  const parsed = ContextNoteEventSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: 'Invalid note diagnostic event.' });
+    return;
+  }
+  console.info(
+    JSON.stringify({ event: 'context_note', correlationId: getCorrelationId(), ...parsed.data })
+  );
+  res.sendStatus(204);
+});
 
 contextChatRouter.post('/context', async (req: Request, res: Response) => {
   try {

@@ -1,4 +1,5 @@
 import { useChat } from '@ai-sdk/react';
+import { type ContextNoteResult, readContextNoteResult } from '@shared/contextNote';
 import type { ContextSourceReference } from '@shared/lessonSourceContext';
 import { sanitizeContextSourceDisplayName } from '@shared/lessonSourceContext';
 import {
@@ -38,8 +39,9 @@ import {
   useLatestValue,
 } from '../../../hooks/chat/useChatResponseControl.ts';
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
-import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import { CONTEXT_NOTE_MESSAGES, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { fetchWithSupabaseAuth } from '../../../services/auth/supabaseAuth.ts';
+import { createContextNoteDiagnostics } from '../../../services/context/contextNoteDiagnostics.ts';
 import {
   executeLibraryAssistantTool,
   isLibraryAssistantToolName,
@@ -56,7 +58,7 @@ import type {
 } from '../../../types.ts';
 import {
   buildConversationNoteSaveCandidates,
-  hasAnchorableConversationNoteCandidate,
+  evaluateConversationNoteCandidate,
 } from '../../../utils/context/conversationNote.ts';
 import {
   buildGeneratedVisualLearningArtifactPayload,
@@ -109,18 +111,8 @@ interface RequestAddToNotesInput {
   selectedTextDraft: string;
 }
 
-type RequestAddToNotesMode = 'new' | 'update' | 'none';
-
 const CONTEXT_ANSWER_INPUT_TARGET = 'context-answer-input';
 const CONTEXT_ANSWER_SUBMIT_TARGET = 'context-answer-submit';
-
-interface RequestAddToNotesOutput {
-  approved: boolean;
-  mode: RequestAddToNotesMode;
-  saved: boolean;
-  annotationId?: string;
-  error?: string;
-}
 
 const resolveRequestedNoteArtifactIds = (
   requestedArtifactIds: string[] | undefined,
@@ -164,14 +156,6 @@ const isRequestAddToNotesInput = (value: unknown): value is RequestAddToNotesInp
   );
 };
 
-const isRequestAddToNotesOutput = (value: unknown): value is RequestAddToNotesOutput => {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-
-  return typeof (value as Partial<RequestAddToNotesOutput>).approved === 'boolean';
-};
-
 const hasPendingAddToNotesRequest = (messages: ContextChatMessage[]): boolean =>
   messages.some(message =>
     message.parts.some(
@@ -189,12 +173,13 @@ const shouldContinueContextResponse = (messages: ContextChatMessage[]): boolean 
     -1
   );
   const lastStepParts = lastMessage?.parts.slice((lastStepStart ?? -1) + 1) ?? [];
-  const hasSavedNote = lastStepParts.some(
+  const hasTerminalNote = lastStepParts.some(
     part =>
       part.type === 'tool-requestAddToNotes' &&
       part.state === 'output-available' &&
-      isRequestAddToNotesOutput(part.output) &&
-      part.output.saved === true
+      ['saved', 'validation_error', 'save_error', 'cancelled'].includes(
+        readContextNoteResult(part.output)?.status ?? ''
+      )
   );
   const isReplacementStep = lastStepParts.some(
     part =>
@@ -205,7 +190,7 @@ const shouldContinueContextResponse = (messages: ContextChatMessage[]): boolean 
   const completionMessages =
     isReplacementStep && lastMessage ? [{ ...lastMessage, parts: lastStepParts }] : messages;
   return (
-    !hasSavedNote &&
+    !hasTerminalNote &&
     !hasOnlySuccessfulToolOutputs(completionMessages, 'tool-generateCurrentLessonArtifact') &&
     lastAssistantMessageIsCompleteWithToolCalls({ messages })
   );
@@ -442,7 +427,7 @@ interface ContextChatTools {
   };
   requestAddToNotes: {
     input: RequestAddToNotesInput;
-    output: RequestAddToNotesOutput;
+    output: ContextNoteResult;
   };
   getCurrentLessonArtifacts: {
     input: unknown;
@@ -850,6 +835,8 @@ function ContextAnswerPanelSession({
     [originLessonArtifactPayloads]
   );
 
+  const [noteDiagnostics] = useState(createContextNoteDiagnostics);
+
   const contextChat = useChat<ContextChatMessage>({
     id: contextAnswer.id,
     transport,
@@ -864,6 +851,20 @@ function ContextAnswerPanelSession({
       const shouldContinueToolCall = toolCallGuard.isCurrent;
       const awaitTrackedToolCall = toolCallGuard.track;
       if (!shouldContinueToolCall()) {
+        if (toolCall.toolName === 'requestAddToNotes') {
+          void noteDiagnostics.report(toolCall.toolCallId, {
+            phase: 'cancel',
+            outcome: 'cancelled',
+            contextScope: readContextRequestState().contextScope ?? 'selection',
+            durationMs: 0,
+          });
+          void addToolOutput({
+            tool: 'requestAddToNotes',
+            toolCallId: toolCall.toolCallId,
+            output: { status: 'cancelled' },
+          });
+          return;
+        }
         void addToolOutput({
           tool: toolCall.toolName,
           toolCallId: toolCall.toolCallId,
@@ -873,6 +874,7 @@ function ContextAnswerPanelSession({
         return;
       }
       if (toolCall.toolName === 'requestAddToNotes') {
+        const finishProposal = noteDiagnostics.measure(toolCall.toolCallId);
         const noteInput = isRequestAddToNotesInput(toolCall.input) ? toolCall.input : null;
         const currentState = readContextRequestState();
         const candidates = noteInput
@@ -885,16 +887,28 @@ function ContextAnswerPanelSession({
             })
           : [];
 
-        const hasAnchorableProposal = candidates.some(candidate =>
-          hasAnchorableConversationNoteCandidate(currentState.lessonContent || '', candidate)
+        const candidateOutcomes = candidates.map(candidate =>
+          evaluateConversationNoteCandidate(currentState.lessonContent || '', candidate)
         );
-
-        if (noteInput && !hasAnchorableProposal) {
-          void addToolOutput({
-            tool: 'requestAddToNotes',
-            toolCallId: toolCall.toolCallId,
-            output: { approved: false, mode: 'none', saved: false },
+        if (noteInput) {
+          const accepted = candidateOutcomes.includes('anchorable');
+          const code = candidateOutcomes.includes('text_mismatch')
+            ? 'anchor_mismatch'
+            : 'target_not_annotatable';
+          void finishProposal({
+            phase: 'proposal',
+            outcome: accepted ? 'accepted' : 'validation_error',
+            ...(accepted ? {} : { code }),
+            candidateOutcomes,
+            contextScope: currentState.contextScope ?? 'selection',
           });
+          if (!accepted) {
+            void addToolOutput({
+              tool: 'requestAddToNotes',
+              toolCallId: toolCall.toolCallId,
+              output: { status: 'validation_error', code, recovery: 'choose_passage' },
+            });
+          }
         }
         return;
       }
@@ -1156,10 +1170,16 @@ function ContextAnswerPanelSession({
   }, [isToolMenuOpen, onOverlayClose]);
 
   const handleRejectNoteRequest = (toolCallId: string) => {
+    void noteDiagnostics.report(toolCallId, {
+      phase: 'decision',
+      outcome: 'declined',
+      contextScope: readContextRequestState().contextScope ?? 'selection',
+      durationMs: 0,
+    });
     void addToolOutput({
       tool: 'requestAddToNotes',
       toolCallId,
-      output: { approved: false, mode: 'none', saved: false },
+      output: { status: 'declined' },
     });
   };
 
@@ -1171,7 +1191,15 @@ function ContextAnswerPanelSession({
       return;
     }
 
+    const finishSave = noteDiagnostics.measure(toolCallId);
     const currentState = readContextRequestState();
+    const contextScope = currentState.contextScope ?? 'selection';
+    void noteDiagnostics.report(toolCallId, {
+      phase: 'decision',
+      outcome: 'approved',
+      contextScope,
+      durationMs: 0,
+    });
     const hasExistingNote = Boolean(currentState?.attachedAnnotationNote?.trim());
     const mode: 'new' | 'update' = hasExistingNote ? 'update' : 'new';
     const runMutation = mode === 'update' ? onUpdateConversationNote : onSaveConversationNote;
@@ -1183,8 +1211,6 @@ function ContextAnswerPanelSession({
     });
 
     try {
-      let lastResult: SaveConversationNoteResult | null = null;
-
       const noteArtifactIds = resolveRequestedNoteArtifactIds(
         inputValue.artifactIds,
         latestGeneratedArtifactIdRef.current
@@ -1199,15 +1225,16 @@ function ContextAnswerPanelSession({
         );
       });
       if (hasUnsavableArtifact) {
+        void finishSave({
+          phase: 'save',
+          outcome: 'save_error',
+          code: 'artifact_unavailable',
+          contextScope,
+        });
         void addToolOutput({
           tool: 'requestAddToNotes',
           toolCallId,
-          output: {
-            approved: true,
-            mode,
-            saved: false,
-            error: t('Non sono riuscito a salvare la nota.'),
-          },
+          output: { status: 'save_error', mode, code: 'artifact_unavailable' },
         });
         return;
       }
@@ -1248,7 +1275,6 @@ function ContextAnswerPanelSession({
           saveRequest.then(result => result.saved)
         );
         const result = await saveRequest;
-        lastResult = result;
         if (result.saved) {
           const originLesson = buildContextDraftLesson(contextAnswer, currentState);
           const originProjectId = contextAnswer.projectId;
@@ -1270,13 +1296,17 @@ function ContextAnswerPanelSession({
               )
             );
           }
+          void finishSave({
+            phase: 'save',
+            outcome: 'saved',
+            contextScope,
+          });
           void addToolOutput({
             tool: 'requestAddToNotes',
             toolCallId,
             output: {
-              approved: true,
+              status: 'saved',
               mode,
-              saved: true,
               annotationId: result.annotationId,
             },
           });
@@ -1284,19 +1314,28 @@ function ContextAnswerPanelSession({
         }
       }
 
+      void finishSave({
+        phase: 'save',
+        outcome: 'save_error',
+        code: 'save_failed',
+        contextScope,
+      });
       void addToolOutput({
         tool: 'requestAddToNotes',
         toolCallId,
-        output: {
-          approved: true,
-          mode,
-          saved: false,
-          error:
-            lastResult?.error ||
-            (mode === 'update'
-              ? t('Non sono riuscito ad aggiornare la nota.')
-              : t('Non sono riuscito a salvare la nota.')),
-        },
+        output: { status: 'save_error', mode, code: 'save_failed' },
+      });
+    } catch {
+      void finishSave({
+        phase: 'save',
+        outcome: 'save_error',
+        code: 'save_failed',
+        contextScope,
+      });
+      void addToolOutput({
+        tool: 'requestAddToNotes',
+        toolCallId,
+        output: { status: 'save_error', mode, code: 'save_failed' },
       });
     } finally {
       setProcessingNoteToolCallIds(previous => {
@@ -1559,13 +1598,22 @@ function ContextAnswerPanelSession({
         }
       }
 
-      // Hard timeout: auto-reject
+      // Incomplete tool input is an automatic validation failure, never a learner refusal.
       for (const id of hardIds) {
+        const stuckSince = stuckTimestamps.get(id) ?? now;
         stuckTimestamps.delete(id);
+        void noteDiagnostics.report(id, {
+          phase: 'proposal',
+          outcome: 'validation_error',
+          code: 'invalid_input',
+          contextScope: readContextRequestState().contextScope ?? 'selection',
+          durationMs: now - stuckSince,
+          candidateOutcomes: [],
+        });
         addToolOutput({
           tool: 'requestAddToNotes',
           toolCallId: id,
-          output: { approved: false, mode: 'none', saved: false },
+          output: { status: 'validation_error', code: 'invalid_input', recovery: 'rebuild_input' },
         });
       }
 
@@ -1586,7 +1634,7 @@ function ContextAnswerPanelSession({
     }, 1_000);
 
     return () => clearInterval(intervalId);
-  }, [messages, addToolOutput]);
+  }, [messages, addToolOutput, noteDiagnostics, readContextRequestState]);
 
   const isLoading = status === 'submitted' || status === 'streaming';
   const isStoppingResponse = isLoading && hasRequestedResponseStop;
@@ -1661,7 +1709,23 @@ function ContextAnswerPanelSession({
       parts: messages.flatMap(message => message.parts),
     });
     void stop();
-    for (const call of cancelledToolCalls) void addToolOutput(cancelledToolOutput(call));
+    for (const call of cancelledToolCalls) {
+      if (call.tool === 'requestAddToNotes') {
+        void noteDiagnostics.report(call.toolCallId, {
+          phase: 'cancel',
+          outcome: 'cancelled',
+          contextScope: readContextRequestState().contextScope ?? 'selection',
+          durationMs: 0,
+        });
+        void addToolOutput({
+          tool: 'requestAddToNotes',
+          toolCallId: call.toolCallId,
+          output: { status: 'cancelled' },
+        });
+      } else {
+        void addToolOutput(cancelledToolOutput(call));
+      }
+    }
   };
 
   const handleSpeechTranscription = (transcription: string) => {
@@ -1694,7 +1758,7 @@ function ContextAnswerPanelSession({
 
     if (part.type === 'tool-requestAddToNotes') {
       const inputValue = isRequestAddToNotesInput(part.input) ? part.input : null;
-      const outputValue = isRequestAddToNotesOutput(part.output) ? part.output : undefined;
+      const outputValue = readContextNoteResult(part.output);
       const isProcessing = processingNoteToolCallIds.has(part.toolCallId);
       const hasExistingNote = Boolean(contextAnswer.attachedAnnotationNote?.trim());
       const noteArtifactPayloads =
@@ -1702,9 +1766,11 @@ function ContextAnswerPanelSession({
           const payload = artifactPayloadsById.get(artifactId);
           return payload ? [payload] : [];
         }) || [];
-      const cardTitle = t(
+      let cardTitle = t(
         hasExistingNote ? 'Vuoi aggiornare la nota collegata?' : 'Vuoi aggiungerlo alle note?'
       );
+      if (outputValue?.status === 'validation_error')
+        cardTitle = t(CONTEXT_NOTE_MESSAGES.unavailable);
       const approveLabel = t(hasExistingNote ? 'Aggiorna nota' : 'Aggiungi alle note');
 
       const renderResultPill = () => {
@@ -1712,7 +1778,7 @@ function ContextAnswerPanelSession({
           return null;
         }
 
-        if (!outputValue.approved) {
+        if (outputValue.status === 'declined') {
           return (
             <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
               <Check className="h-3.5 w-3.5" />
@@ -1721,7 +1787,7 @@ function ContextAnswerPanelSession({
           );
         }
 
-        if (outputValue.saved) {
+        if (outputValue.status === 'saved') {
           return (
             <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
               <Check className="h-3.5 w-3.5" />
@@ -1730,13 +1796,25 @@ function ContextAnswerPanelSession({
           );
         }
 
+        let message: string;
+        if (outputValue.status === 'cancelled') message = t('Annullato');
+        else if (outputValue.status === 'validation_error') {
+          message = t(
+            outputValue.code === 'invalid_input'
+              ? CONTEXT_NOTE_MESSAGES.invalidInput
+              : CONTEXT_NOTE_MESSAGES.invalidAnchor
+          );
+        } else {
+          message = t(
+            outputValue.mode === 'update'
+              ? 'Non sono riuscito ad aggiornare la nota.'
+              : 'Non sono riuscito a salvare la nota.'
+          );
+        }
         return (
-          <div className="mt-3 rounded-full bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:bg-red-950/30 dark:text-red-200">
-            {outputValue.error ||
-              (outputValue.mode === 'update'
-                ? t('Non sono riuscito ad aggiornare la nota.')
-                : t('Non sono riuscito a salvare la nota.'))}
-          </div>
+          <output className="mt-3 block rounded-2xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:bg-red-950/30 dark:text-red-200">
+            {message}
+          </output>
         );
       };
 
@@ -1802,7 +1880,7 @@ function ContextAnswerPanelSession({
         if (part.state === 'output-error') {
           return (
             <div className="mt-3 rounded-full bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:bg-red-950/30 dark:text-red-200">
-              {part.errorText}
+              {t('Non sono riuscito a salvare la nota.')}
             </div>
           );
         }
@@ -1816,9 +1894,11 @@ function ContextAnswerPanelSession({
             <span>{cardTitle}</span>
           </div>
 
-          <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
-            {inputValue?.rationale || t('Sto preparando il suggerimento da salvare nelle note.')}
-          </p>
+          {!outputValue || inputValue?.rationale ? (
+            <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
+              {inputValue?.rationale || t('Sto preparando il suggerimento da salvare nelle note.')}
+            </p>
+          ) : null}
 
           {inputValue ? (
             <div className="mt-3 space-y-2 rounded-[1rem] bg-white/70 px-3 py-2 dark:bg-stone-800/50">

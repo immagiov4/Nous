@@ -9,7 +9,8 @@ import ContextAnswerPanel from '../../../../components/workspace/shell/ContextAn
 
 const requests = vi.hoisted(() => [] as Array<{ messages: UIMessage[] }>);
 vi.mock('../../../../services/auth/supabaseAuth.ts', () => ({
-  fetchWithSupabaseAuth: async (_url: string, init: RequestInit) => {
+  fetchWithSupabaseAuth: async (url: string, init: RequestInit) => {
+    if (url.endsWith('/note-events')) return new Response(null, { status: 204 });
     const request = JSON.parse(init.body as string);
     requests.push(request);
     return createUIMessageStreamResponse({
@@ -42,20 +43,25 @@ vi.mock('../../../../services/auth/supabaseAuth.ts', () => ({
 }));
 
 test.each([
-  'new',
-  'update',
-] as const)('saving a %s note waits for the next user message before requesting another response', async mode => {
+  { mode: 'new', outcome: 'saved' },
+  { mode: 'update', outcome: 'saved' },
+  { mode: 'new', outcome: 'failed' },
+  { mode: 'update', outcome: 'failed' },
+  { mode: 'new', outcome: 'thrown' },
+] as const)('a $mode note with outcome $outcome waits for the next user message', async ({
+  mode,
+  outcome,
+}) => {
   requests.length = 0;
   const user = userEvent.setup();
-  const save = vi.fn(async () => ({
-    saved: true,
-    annotationId: 'saved-note',
-    merged: mode === 'update',
-  }));
+  const save = vi.fn(async () => {
+    if (outcome === 'thrown') throw new Error('PRIVATE_CALLBACK_ERROR');
+    return { saved: outcome === 'saved', annotationId: 'saved-note', merged: mode === 'update' };
+  });
   render(
     <ContextAnswerPanel
       contextAnswer={{
-        id: `save-${mode}`,
+        id: `save-${mode}-${outcome}`,
         initialQuestion: 'Salva una nota.',
         selectedText: 'Il Sole scalda l’acqua.',
         lessonContent: 'Il Sole scalda l’acqua.',
@@ -95,6 +101,16 @@ test.each([
     })
   );
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  await screen.findByText(
+    outcome === 'saved'
+      ? mode === 'update'
+        ? 'Nota aggiornata.'
+        : 'Nota salvata.'
+      : mode === 'update'
+        ? 'Non sono riuscito ad aggiornare la nota.'
+        : 'Non sono riuscito a salvare la nota.'
+  );
+  expect(screen.queryByText('PRIVATE_CALLBACK_ERROR')).not.toBeInTheDocument();
   // Drain the real SDK's queued tool-output submission, including its network response.
   await act(async () => {
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -112,7 +128,11 @@ test.each([
     expect.objectContaining({
       type: 'tool-requestAddToNotes',
       state: 'output-available',
-      output: expect.objectContaining({ saved: true, annotationId: 'saved-note' }),
+      output: expect.objectContaining(
+        outcome === 'saved'
+          ? { status: 'saved', annotationId: 'saved-note' }
+          : { status: 'save_error', code: 'save_failed' }
+      ),
     })
   );
 });

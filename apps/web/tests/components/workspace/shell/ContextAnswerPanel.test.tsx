@@ -34,6 +34,14 @@ const setMessagesMock = vi.fn();
 const stopMock = vi.fn();
 const addToolOutputMock = vi.fn();
 const useChatMock = vi.fn();
+const reportNoteEventMock = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+vi.mock('../../../../services/context/contextNoteDiagnostics.ts', () => ({
+  createContextNoteDiagnostics: () => ({
+    report: reportNoteEventMock,
+    measure: (id: string) => (event: object) =>
+      reportNoteEventMock(id, { ...event, durationMs: 0 }),
+  }),
+}));
 const lastAssistantMessageIsCompleteWithToolCallsMock = vi.fn<
   (options: { messages: Array<{ parts: Array<{ type: string }> }> }) => boolean
 >(() => false);
@@ -631,7 +639,7 @@ describe('ContextAnswerPanel', () => {
 
   test.each([
     { saved: true, laterStep: false, shouldContinue: false },
-    { saved: false, laterStep: false, shouldContinue: true },
+    { saved: false, laterStep: false, shouldContinue: false },
     { saved: true, laterStep: true, shouldContinue: true },
   ])('continues after note output only when appropriate: %j', ({
     saved,
@@ -2478,7 +2486,7 @@ describe('ContextAnswerPanel', () => {
     expect(addToolOutputMock).toHaveBeenCalledWith({
       tool: 'requestAddToNotes',
       toolCallId: 'tool-save-missing-artifact',
-      output: expect.objectContaining({ saved: true }),
+      output: expect.objectContaining({ status: 'saved' }),
     });
   });
 
@@ -2535,7 +2543,7 @@ describe('ContextAnswerPanel', () => {
     expect(addToolOutputMock).toHaveBeenCalledWith({
       tool: 'requestAddToNotes',
       toolCallId: 'tool-save-metadata-artifact',
-      output: expect.objectContaining({ approved: true, saved: false }),
+      output: expect.objectContaining({ status: 'save_error' }),
     });
   });
 
@@ -2581,7 +2589,7 @@ describe('ContextAnswerPanel', () => {
     expect(addToolOutputMock).toHaveBeenCalledWith({
       tool: 'requestAddToNotes',
       toolCallId: 'tool-save-other-lesson-pdf',
-      output: expect.objectContaining({ saved: false }),
+      output: expect.objectContaining({ status: 'save_error' }),
     });
   });
 
@@ -2673,8 +2681,137 @@ describe('ContextAnswerPanel', () => {
     expect(addToolOutputMock).toHaveBeenCalledWith({
       tool: 'requestAddToNotes',
       toolCallId: 'tool-unanchorable-note',
-      output: { approved: false, mode: 'none', saved: false },
+      output: {
+        status: 'validation_error',
+        code: 'target_not_annotatable',
+        recovery: 'choose_passage',
+      },
     });
+    expect(reportNoteEventMock).toHaveBeenCalledWith(
+      'tool-unanchorable-note',
+      expect.objectContaining({
+        phase: 'proposal',
+        outcome: 'validation_error',
+        code: 'target_not_annotatable',
+        candidateOutcomes: ['no_segments', 'no_segments'],
+      })
+    );
+  });
+
+  test.each([
+    [
+      'validation_error',
+      { code: 'target_not_annotatable', recovery: 'choose_passage' },
+      /collegare la nota/,
+    ],
+    [
+      'validation_error',
+      { code: 'invalid_input', recovery: 'rebuild_input' },
+      /proposta di nota non è completa/,
+    ],
+    ['save_error', { code: 'save_failed', mode: 'new' }, /Non sono riuscito a salvare la nota/],
+    ['cancelled', {}, /Annullato/],
+  ])('renders an honest %s note state without a declined status', (status, fields, message) => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      messages: [
+        {
+          id: 'failed-note',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'failed-note',
+              state: 'output-available',
+              input: {
+                noteDraft: 'Draft kept for the learner.',
+                rationale: 'Useful.',
+                selectedTextDraft: 'Missing.',
+              },
+              output: { status, ...fields },
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    render(<ContextAnswerPanel {...buildProps()} />);
+    expect(screen.getByText(message as RegExp)).toBeInTheDocument();
+    expect(screen.getByText('Draft kept for the learner.')).toBeInTheDocument();
+    expect(screen.queryByText(/Richiesta rifiutata/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Aggiungi alle note' })).not.toBeInTheDocument();
+    expect(chatTextComposerProps.at(-1)?.disabled).toBe(false);
+  });
+
+  test('only an explicit learner decline emits the declined result', async () => {
+    const user = userEvent.setup();
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      messages: [
+        {
+          id: 'note',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'note',
+              state: 'input-available',
+              input: {
+                noteDraft: 'Useful note.',
+                rationale: 'Clarifies the passage.',
+                selectedTextDraft: 'Contenuto',
+              },
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    render(<ContextAnswerPanel {...buildProps()} />);
+    await user.click(screen.getByRole('button', { name: 'No grazie' }));
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'requestAddToNotes',
+      toolCallId: 'note',
+      output: { status: 'declined' },
+    });
+    expect(reportNoteEventMock).toHaveBeenCalledWith(
+      'note',
+      expect.objectContaining({ phase: 'decision', outcome: 'declined' })
+    );
+  });
+
+  test('a note arriving after Stop settles as cancelled, not declined', async () => {
+    const user = userEvent.setup();
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'streaming',
+      stop: stopMock,
+    });
+    render(<ContextAnswerPanel {...buildProps()} />);
+    await user.click(screen.getByRole('button', { name: /^(Cancel|Annulla)$/i }));
+    await act(async () =>
+      useChatMock.mock.lastCall?.[0].onToolCall({
+        toolCall: {
+          dynamic: false,
+          toolName: 'requestAddToNotes',
+          toolCallId: 'late-note',
+          input: { noteDraft: 'Draft.', rationale: 'Useful.', selectedTextDraft: 'Contenuto' },
+        },
+      })
+    );
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'requestAddToNotes',
+      toolCallId: 'late-note',
+      output: { status: 'cancelled' },
+    });
+    expect(reportNoteEventMock).toHaveBeenCalledWith(
+      'late-note',
+      expect.objectContaining({ phase: 'cancel', outcome: 'cancelled' })
+    );
   });
 
   test('shows that an approved note is being saved until the save settles', async () => {
@@ -2800,7 +2937,7 @@ describe('ContextAnswerPanel', () => {
     expect(addToolOutputMock).toHaveBeenCalledWith({
       tool: 'requestAddToNotes',
       toolCallId,
-      output: { approved: true, mode: 'new', saved: true, annotationId: 'player-annotation' },
+      output: { status: 'saved', mode: 'new', annotationId: 'player-annotation' },
     });
   });
 
@@ -3786,7 +3923,17 @@ describe('ContextAnswerPanel', () => {
     vi.useRealTimers();
   });
 
-  test('auto-rejects stuck requestAddToNotes after hard timeout', async () => {
+  test.each([
+    undefined,
+    { rationale: 'Keep it.', selectedTextDraft: 'Lesson passage.' },
+    { noteDraft: 'A useful note.', selectedTextDraft: 'Lesson passage.' },
+    {
+      noteDraft: 'A useful note.',
+      rationale: 'Keep it.',
+      selectedTextDraft: 'Lesson passage.',
+      artifactIds: [1],
+    },
+  ])('settles malformed note input with actionable input recovery: %j', async input => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date('2026-05-04T00:00:00Z'));
 
@@ -3802,7 +3949,7 @@ describe('ContextAnswerPanel', () => {
               type: 'tool-requestAddToNotes',
               toolCallId: 'tool-stuck-2',
               state: 'input-available',
-              input: undefined,
+              input,
             },
           ],
         },
@@ -3819,7 +3966,7 @@ describe('ContextAnswerPanel', () => {
     expect(addToolOutputMock).toHaveBeenCalledWith({
       tool: 'requestAddToNotes',
       toolCallId: 'tool-stuck-2',
-      output: { approved: false, mode: 'none', saved: false },
+      output: { status: 'validation_error', code: 'invalid_input', recovery: 'rebuild_input' },
     });
 
     vi.useRealTimers();

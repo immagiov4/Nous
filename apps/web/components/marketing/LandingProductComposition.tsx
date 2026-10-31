@@ -1,3 +1,4 @@
+import type { ContextNoteResult } from '@shared/contextNote';
 import type { UIMessage } from 'ai';
 import { MotionConfig } from 'framer-motion';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -1371,11 +1372,10 @@ export const LandingProductVideoFrame = ({
                           ...(frame >= LESSON_NOTE_SAVED_FRAME
                             ? {
                                 output: {
-                                  approved: true,
-                                  mode: 'create',
-                                  saved: true,
+                                  status: 'saved',
+                                  mode: 'new',
                                   annotationId: DEMO_ANNOTATION_ID,
-                                },
+                                } satisfies ContextNoteResult,
                               }
                             : {}),
                         }),
@@ -1476,11 +1476,10 @@ export const LandingProductVideoFrame = ({
                           ...(artifactAttached
                             ? {
                                 output: {
-                                  approved: true,
+                                  status: 'saved',
                                   mode: 'update',
-                                  saved: true,
                                   annotationId: DEMO_ANNOTATION_ID,
-                                },
+                                } satisfies ContextNoteResult,
                               }
                             : {}),
                         }),

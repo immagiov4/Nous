@@ -928,6 +928,97 @@ describe('POST /api/chat/context', () => {
     );
   });
 
+  test('collects allowlisted note diagnostics without invoking a provider', async () => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const event = {
+      operationId: 'c27e152a-c40b-4b24-a695-454f5d5d088a',
+      phase: 'proposal',
+      outcome: 'validation_error',
+      code: 'target_not_annotatable',
+      contextScope: 'selection',
+      durationMs: 2,
+      candidateOutcomes: ['no_segments'],
+    };
+    const response = await request(createApp()).post('/api/chat/context/note-events').send(event);
+    expect(response.status).toBe(204);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(event.operationId));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('target_not_annotatable'));
+    expect(aiMocks.streamText).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    { note: 'PRIVATE_NOTE_TEXT' },
+    { operationId: 'PRIVATE_LESSON_TITLE' },
+    { code: 'PRIVATE_ERROR_MESSAGE' },
+    { durationMs: -1 },
+    { candidateOutcomes: ['no_segments', 'no_segments', 'no_segments'] },
+  ])('rejects invalid note diagnostics without logging their content: %j', async change => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const response = await request(createApp())
+      .post('/api/chat/context/note-events')
+      .send({
+        operationId: 'c27e152a-c40b-4b24-a695-454f5d5d088a',
+        phase: 'proposal',
+        outcome: 'accepted',
+        contextScope: 'selection',
+        durationMs: 0,
+        candidateOutcomes: [],
+        ...change,
+      });
+    expect(response.status).toBe(400);
+    expect(JSON.stringify(log.mock.calls)).not.toContain('PRIVATE_');
+    expect(JSON.stringify(response.body)).not.toContain('PRIVATE_');
+  });
+
+  test('note diagnostic collection requires authentication', async () => {
+    process.env.AUTH_MODE = 'supabase';
+    const response = await request(createApp()).post('/api/chat/context/note-events').send({});
+    expect(response.status).toBe(401);
+  });
+
+  test.each([
+    { phase: 'proposal', outcome: 'accepted', code: 'anchor_mismatch', candidateOutcomes: [] },
+    { phase: 'proposal', outcome: 'validation_error', candidateOutcomes: [] },
+    { phase: 'save', outcome: 'saved', code: 'save_failed' },
+    { phase: 'save', outcome: 'save_error' },
+  ])('rejects contradictory note outcomes: %j', async event => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const response = await request(createApp())
+      .post('/api/chat/context/note-events')
+      .send({
+        operationId: 'c27e152a-c40b-4b24-a695-454f5d5d088a',
+        contextScope: 'selection',
+        durationMs: 0,
+        ...event,
+      });
+    expect(response.status).toBe(400);
+    expect(log).not.toHaveBeenCalledWith(expect.stringContaining('"event":"context_note"'));
+  });
+
+  test.each([
+    { phase: 'proposal', outcome: 'accepted', candidateOutcomes: ['anchorable'] },
+    {
+      phase: 'proposal',
+      outcome: 'validation_error',
+      code: 'invalid_input',
+      candidateOutcomes: [],
+    },
+    { phase: 'save', outcome: 'saved' },
+    { phase: 'save', outcome: 'save_error', code: 'save_failed' },
+  ])('collects consistent note outcomes: %j', async event => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const response = await request(createApp())
+      .post('/api/chat/context/note-events')
+      .send({
+        operationId: 'c27e152a-c40b-4b24-a695-454f5d5d088a',
+        contextScope: 'lesson',
+        durationMs: 0,
+        ...event,
+      });
+    expect(response.status).toBe(204);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(`"outcome":"${event.outcome}"`));
+  });
+
   test('validates that selected text is present', async () => {
     const response = await request(createApp())
       .post('/api/chat/context')
