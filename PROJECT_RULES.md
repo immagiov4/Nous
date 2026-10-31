@@ -409,7 +409,7 @@ Write every GitHub issue and pull-request title and description in English.
 
 Before writing any human-facing text, read and follow `.agents/skills/writing-for-humans/SKILL.md`. This covers PR and issue bodies, commit messages, documentation, wiki pages, and comments intended for people.
 
-PR bodies must open with **Problem:**, **Approach:** and **Result:** in that order. Result contains a Before/After table, screenshot link, or "Not measured". Include `## Testing`; keep CI and SonarCloud status on one Testing line. Keep at most 200 visible words outside `<details>`; supporting notes belong in `<details>`. Read `.agents/skills/writing-for-humans/references/change-reports.md` before drafting. `scripts/github-body.mjs validate --kind pr --body-file <path>` enforces this contract; repository shell hooks check publication commands before execution.
+Read `.agents/skills/write-pr/SKILL.md` before drafting or revising a PR body. It owns the Nous format and evidence procedure; `scripts/github-body.mjs` enforces the body contract and repository shell hooks check publication commands before execution.
 
 When creating or rewriting any GitHub issue, or preparing one for autonomous work, read
 `.agents/skills/problem-to-github-issue/SKILL.md` and follow its evidence and lifecycle contract.

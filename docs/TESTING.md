@@ -1,6 +1,6 @@
 # Testing and quality gates
 
-Run fast checks on changed files and targeted tests while editing, then push for full CI verification. Merge only when CI is green on the exact pull-request head, including `test`, `SonarCloud Code Analysis`, and the applicable contract and pull-request-body checks. Each new commit needs its own passing checks. Record CI and SonarCloud status together on one line in the PR body's `## Testing` section; `scripts/github-body.mjs` owns the body contract.
+Run fast checks on changed files and targeted tests while editing, then push for full CI verification. Merge only when CI is green on the exact pull-request head, including `test`, `SonarCloud Code Analysis`, and the applicable contract and pull-request-body checks. Each new commit needs its own passing checks. Record CI and SonarCloud status together on one line in the PR body's `## 🧪 Testing` section; `scripts/github-body.mjs` owns the body contract.
 
 Browser tests are always muted; audio is verified inside the page or from files.
 

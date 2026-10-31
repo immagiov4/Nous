@@ -352,7 +352,7 @@ Before publication, re-check remote state and the complete worktree.
   references where appropriate (for example, `Closes #123`). Before completion, verify that every
   resolved issue was actually closed; never leave a completed issue orphaned/open without an
   explicit remaining manual-verification reason.
-- For Nous PR bodies, follow the repository `scripts/github-body.mjs` contract: **Problem:**, **Approach:**, **Result:**, a meaningful `## Observability` section (checked by `node <adopt>/scripts/gate-sections.mjs --pr <body-file>`) and `## Testing`, with CI and SonarCloud status on one Testing line. Validate before publication and verify the remote body afterward.
+- For Nous PR bodies, use [write-pr](../write-pr/SKILL.md) for format, evidence selection and validation.
 - For a documentation-only PR, keep Markdown valid: headings, blank lines, lists, and closing
   references must render correctly. Correct documentation findings manually on the same PR; do not
   regenerate Cubic merely to answer a review.

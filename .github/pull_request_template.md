@@ -1,15 +1,17 @@
-<!-- Apply AGENTS.md Cubic Wiki Governance to documentation changes; omit documentation commentary when no page needs updating. Read .agents/skills/writing-for-humans/SKILL.md and .agents/skills/writing-for-humans/references/change-reports.md before writing. Keep the visible description under about 200 words; put supporting detail in a collapsed Details block. -->
+<!-- Follow .agents/skills/write-pr/SKILL.md for format, evidence and validation. -->
 
 **Problem:** <!-- Describe the issue in user-visible terms; preserve issue references. -->
 
-**Approach:** <!-- Explain the change and why it fits, in a few lines. -->
+**Approach:** <!-- Explain the change and why it fits. -->
 
-**Result:** <!-- Include a Before/After table or screenshot link with verified results. If unmeasured, say "Not measured" in one line. -->
+**Result:** <!-- State the actual result. Add evidence or a Before | → After comparison when useful. -->
 
-## Testing
+## 👁️ Observability
 
-<!-- Name relevant suites and results. Keep CI and SonarCloud status together on one line for the exact PR head, following docs/TESTING.md. Validate and verify with scripts/github-body.mjs. -->
+<!-- State the logs, traces or checks that expose the changed behavior and any material blind spot. -->
 
-## Observability
+## 🧪 Testing
 
-<!-- State the logs, traces or checks that expose the changed behavior; explain when not applicable. -->
+<!-- Name relevant suites and results. Keep CI and SonarCloud status together on one line for the exact PR head. -->
+
+<!-- Put supporting notes in a collapsed Details block. When material, add Merge impact as the final section: explain reversibility and affected scope. Prefix its title with ⚠️ only when difficult to reverse. -->
