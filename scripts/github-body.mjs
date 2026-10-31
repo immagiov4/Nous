@@ -186,7 +186,7 @@ const reportText = root => {
   const words = [];
   walkAst(root, node => {
     if (['text', 'inlineCode', 'code'].includes(node.type)) words.push(node.value);
-    if (node.type === 'image') words.push(node.alt ?? '');
+    if (['image', 'imageReference'].includes(node.type)) words.push(node.alt ?? '');
     if (node.type === 'html') words.push(node.value.replace(/<[^>]*>/gu, ' '));
   });
   return words.join(' ');

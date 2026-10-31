@@ -28,6 +28,14 @@ describe('change report shape', () => {
       codes(`${pr.replace('Not measured.', '')}\n<details>\n\nHidden result\n\n</details>`)
     ).toContain('result-empty');
   });
+  test('accepts reference screenshots and counts their visible alt text', () => {
+    const screenshot = pr.replace('Not measured.', '![Updated layout][shot]');
+    const definition = '\n[shot]: https://example.com/result.png';
+    expect(codes(screenshot + definition)).toEqual([]);
+    expect(codes(screenshot.replace('Updated layout', 'word '.repeat(200)) + definition)).toContain(
+      'visible-word-limit'
+    );
+  });
   test('accepts emoji headings and a final impact section', () => {
     const decorated = pr.replace('## Testing', '## 🧪 Testing');
     expect(codes(decorated)).toEqual([]);
