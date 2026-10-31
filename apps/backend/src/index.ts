@@ -135,13 +135,8 @@ export const isPrivateNetworkFrontendOrigin = (origin: string): boolean => {
   }
 };
 
-const shouldLogRequest = (method: string, path: string, statusCode: number): boolean => {
-  if (method === 'GET' && statusCode < 400 && QUIET_SUCCESS_GET_PATHS.has(path)) {
-    return false;
-  }
-
-  return true;
-};
+const shouldLogRequest = (method: string, path: string, statusCode: number): boolean =>
+  !(method === 'GET' && statusCode < 400 && QUIET_SUCCESS_GET_PATHS.has(path));
 
 const getRequestPath = (req: express.Request): string => req.originalUrl.split('?')[0] || req.path;
 
@@ -219,7 +214,29 @@ export const createApp = (options: CreateAppOptions = {}) => {
         : createCorrelationId();
     const started = performance.now();
     let timings: Record<string, number> | undefined;
-    let responseBytes: number | undefined;
+    let responseBytes = 0;
+    const countResponseChunk = (chunk: unknown, encoding: unknown): void => {
+      // Count body bytes handed to Node, excluding bodyless HTTP responses.
+      if (req.method === 'HEAD' || res.statusCode === 204 || res.statusCode === 304) return;
+      if (typeof chunk === 'string') {
+        responseBytes += Buffer.byteLength(
+          chunk,
+          typeof encoding === 'string' ? (encoding as BufferEncoding) : undefined
+        );
+      } else if (chunk instanceof Uint8Array) {
+        responseBytes += chunk.byteLength;
+      }
+    };
+    const write = res.write;
+    res.write = function (...args: unknown[]) {
+      countResponseChunk(args[0], args[1]);
+      return Reflect.apply(write, this, args);
+    };
+    const end = res.end;
+    res.end = function (...args: unknown[]) {
+      countResponseChunk(args[0], args[1]);
+      return Reflect.apply(end, this, args);
+    };
     res.setHeader('x-request-id', correlationId);
     const json = res.json;
     const send = res.send;
@@ -235,7 +252,6 @@ export const createApp = (options: CreateAppOptions = {}) => {
     res.send = function (body) {
       if (serializationStarted !== undefined && typeof body === 'string') {
         recordRequestTiming('serialization', performance.now() - serializationStarted);
-        responseBytes = Buffer.byteLength(body);
         const phases = Object.entries(timings ?? {}).map(
           ([phase, duration]) => `${phase};dur=${duration.toFixed(2)}`
         );
@@ -244,23 +260,23 @@ export const createApp = (options: CreateAppOptions = {}) => {
       return send.call(this, body);
     };
     res.on('finish', () => {
-      const requestPath = getRequestPath(req);
-      if (shouldLogRequest(req.method, requestPath, res.statusCode)) {
-        const failure = res.locals[REQUEST_FAILURE_LOCAL] as StepFailure | undefined;
-        emitWorkflowLog(consoleWorkflowLogger, {
-          action: res.statusCode >= 400 ? 'failed' : 'completed',
-          correlationId,
-          entity: 'lifecycle',
-          ...(failure ? { failure } : {}),
-          method: req.method,
-          operation: 'http_request',
-          durationMs: performance.now() - started,
-          timings,
-          responseBytes,
-          path: getRequestLogPath(req),
-          statusCode: res.statusCode,
-        });
+      if (!shouldLogRequest(req.method, getRequestPath(req), res.statusCode)) {
+        return;
       }
+      const failure = res.locals[REQUEST_FAILURE_LOCAL] as StepFailure | undefined;
+      emitWorkflowLog(consoleWorkflowLogger, {
+        action: res.statusCode >= 400 ? 'failed' : 'completed',
+        correlationId,
+        entity: 'lifecycle',
+        ...(failure ? { failure } : {}),
+        method: req.method,
+        operation: 'http_request',
+        durationMs: performance.now() - started,
+        timings,
+        responseBytes,
+        path: getRequestLogPath(req),
+        statusCode: res.statusCode,
+      });
     });
     res.on('close', () => {
       if (!res.writableFinished) {
