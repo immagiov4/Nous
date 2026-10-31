@@ -315,6 +315,7 @@ interface MarkdownAstNode {
 }
 
 export interface MarkdownAnalysis {
+  noteBlocks: Array<MarkdownRange & { kind: 'paragraph' | 'heading' | 'tableCell' }>;
   annotationOnlyRanges: MarkdownRange[];
   codeRanges: MarkdownRange[];
   escapedFenceOpenerRanges: MarkdownRange[];
@@ -900,6 +901,9 @@ const collectPrimaryNodeRanges = (
 ): void => {
   const { analysis, content, sourceOffsets } = context;
   collectCodeAndMathRanges(node, range, context, 'append');
+  if (node.type === 'paragraph' || node.type === 'heading' || node.type === 'tableCell') {
+    analysis.noteBlocks.push({ ...range, kind: node.type });
+  }
   collectTableSyntaxRanges(node, range, context);
   analysis.structuralRanges.push(
     ...getStructuralRangesForNode(content, node, range, sourceOffsets)
@@ -942,6 +946,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
   const fencedCodePlan = planMarkdownFencedCode(content);
   const fencedCodeRanges = [...fencedCodePlan.closedRanges, ...fencedCodePlan.unclosedRanges];
   const analysis: MarkdownAnalysis = {
+    noteBlocks: [],
     annotationOnlyRanges: [],
     codeRanges: [],
     escapedFenceOpenerRanges: [],

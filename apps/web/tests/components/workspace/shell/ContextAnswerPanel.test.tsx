@@ -258,7 +258,7 @@ const buildProps = (contextAnswerOverrides: Partial<ContextAnswerState> = {}) =>
     id: 'context-1',
     initialQuestion: 'spiega meglio',
     selectedText: 'G-buffer',
-    lessonContent: 'Contenuto',
+    lessonContent: 'Contenuto G-buffer',
     lessonDescription: 'Descrizione',
     lessonId: 'lesson-1',
     lessonTitle: 'Titolo',
@@ -321,6 +321,186 @@ const renderPlaybackComposer = (
 );
 
 describe('ContextAnswerPanel', () => {
+  test.each([
+    'lesson',
+    'selection',
+    'annotation',
+  ] as const)('uses an advertised ID and app-owned quotation in %s scope', async contextScope => {
+    const user = userEvent.setup();
+    const props = buildProps({
+      contextScope,
+      lessonContent: 'First sentence. Second sentence.',
+      selectedText: contextScope === 'lesson' ? '' : 'First sentence.',
+    });
+    const save = vi.fn().mockResolvedValue({ saved: true, merged: false, annotationId: 'id-note' });
+    const chat = {
+      addToolOutput: addToolOutputMock,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    };
+    useChatMock.mockReturnValue(chat);
+    const view = render(<ContextAnswerPanel {...props} onSaveConversationNote={save} />);
+    const options = useChatMock.mock.lastCall?.[0];
+    const transport = options.transport as unknown as {
+      prepareSendMessagesRequest: (args: unknown) => {
+        body: { noteCatalog: { records: Array<{ id?: string; text: string }> } };
+      };
+    };
+    const body = transport.prepareSendMessagesRequest({
+      id: 'test',
+      messages: [],
+      headers: {},
+    }).body;
+    const id = body.noteCatalog.records.find(entry => entry.text === 'Second sentence.')?.id;
+    expect(id).toBeTruthy();
+    const input = {
+      passageId: id,
+      selectedTextDraft: 'Forged quote.',
+      noteDraft: 'Useful extra clarification.',
+      rationale: 'Explains why.',
+    };
+    await act(async () =>
+      options.onToolCall({
+        toolCall: {
+          dynamic: false,
+          toolName: 'requestAddToNotes',
+          toolCallId: 'id-proposal',
+          input,
+        },
+      })
+    );
+    expect(addToolOutputMock).not.toHaveBeenCalled();
+    useChatMock.mockReturnValue({
+      ...chat,
+      messages: [
+        {
+          id: 'assistant',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'id-proposal',
+              state: 'input-available',
+              input,
+            },
+          ],
+        },
+      ],
+    });
+    view.rerender(<ContextAnswerPanel {...props} onSaveConversationNote={save} />);
+    expect(screen.getByText('"Second sentence."')).toBeInTheDocument();
+    expect(screen.queryByText('"Forged quote."')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Aggiungi alle note' }));
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save.mock.calls[0][1]).toMatchObject({
+      selectedText: 'Second sentence.',
+      selectedTextStart: 16,
+    });
+  });
+
+  test('rejects an old request ID after the lesson source changes and asks for a fresh view', async () => {
+    const chat = {
+      addToolOutput: addToolOutputMock,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    };
+    useChatMock.mockReturnValue(chat);
+    const props = buildProps({ lessonContent: 'Original sentence.', selectedText: '' });
+    const view = render(<ContextAnswerPanel {...props} />);
+    const options = useChatMock.mock.lastCall?.[0];
+    const transport = options.transport as unknown as {
+      prepareSendMessagesRequest: (args: unknown) => {
+        body: { noteCatalog: { records: Array<{ id?: string }> } };
+      };
+    };
+    const id = transport.prepareSendMessagesRequest({ id: 'test', messages: [], headers: {} }).body
+      .noteCatalog.records[0].id;
+    view.rerender(
+      <ContextAnswerPanel
+        {...props}
+        contextAnswer={{ ...props.contextAnswer, lessonContent: 'Changed sentence.' }}
+      />
+    );
+    await act(async () =>
+      useChatMock.mock.lastCall?.[0].onToolCall({
+        toolCall: {
+          dynamic: false,
+          toolName: 'requestAddToNotes',
+          toolCallId: 'stale',
+          input: { passageId: id, noteDraft: 'A draft.', rationale: 'Useful.' },
+        },
+      })
+    );
+    expect(addToolOutputMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        output: {
+          status: 'validation_error',
+          code: 'stale_context',
+          recovery: 'refresh_context',
+          availablePassageIds: [],
+        },
+      })
+    );
+    expect(props.onSaveConversationNote).not.toHaveBeenCalled();
+  });
+
+  test('makes note unavailability explicit and disables its preference for a code-only lesson', async () => {
+    const user = userEvent.setup();
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    render(
+      <ContextAnswerPanel
+        {...buildProps({ lessonContent: '```js\nconst x=1;\n```', selectedText: '' })}
+      />
+    );
+    await user.click(screen.getByRole('button', { name: 'Apri strumenti conversazione' }));
+    expect(screen.getByRole('menuitemcheckbox', { name: /Annota/ })).toBeDisabled();
+    expect(
+      screen.getByText('La lezione non contiene passaggi a cui collegare una nota.')
+    ).toBeInTheDocument();
+  });
+
+  test('rejects an invented passage ID with current actionable IDs and no fallback', async () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    const props = buildProps({
+      lessonContent: 'A valid source sentence.',
+      selectedText: 'A valid source sentence.',
+    });
+    render(<ContextAnswerPanel {...props} />);
+    await act(async () =>
+      useChatMock.mock.lastCall?.[0].onToolCall({
+        toolCall: {
+          dynamic: false,
+          toolName: 'requestAddToNotes',
+          toolCallId: 'bad-id',
+          input: { passageId: 'invented', noteDraft: 'Keep this.', rationale: 'Useful.' },
+        },
+      })
+    );
+    expect(addToolOutputMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        output: expect.objectContaining({
+          status: 'validation_error',
+          code: 'unknown_passage',
+          recovery: 'choose_passage',
+          availablePassageIds: [expect.any(String), expect.any(String)],
+        }),
+      })
+    );
+    expect(props.onSaveConversationNote).not.toHaveBeenCalled();
+  });
+
   test.each([
     '',
     undefined,
@@ -389,7 +569,11 @@ describe('ContextAnswerPanel', () => {
         playbackContext: playbackQuestion,
         mode: 'new',
         userRequest: question,
-        lesson: expect.objectContaining({ id: 'lesson-1', title: 'Titolo', content: 'Contenuto' }),
+        lesson: expect.objectContaining({
+          id: 'lesson-1',
+          title: 'Titolo',
+          content: 'Contenuto G-buffer',
+        }),
       })
     );
     const followUp = 'Rigenera la mappa dei sei passi visibili.';
@@ -1420,7 +1604,7 @@ describe('ContextAnswerPanel', () => {
     render(<ContextAnswerPanel {...buildProps()} />);
 
     expect(preparedBody?.selectedText).toBe('G-buffer');
-    expect(preparedBody?.lessonContent).toBe('Contenuto');
+    expect(preparedBody?.lessonContent).toBe('Contenuto G-buffer');
   });
 
   test('sends lesson context scope with context chat requests', () => {
@@ -1833,7 +2017,6 @@ describe('ContextAnswerPanel', () => {
   test.each([
     'artifact',
     'note',
-    'note-retry',
   ])('waits for a pending %s save before persisting replacement approval', async saveKind => {
     const user = userEvent.setup();
     let finishSave!: (result: {
@@ -1882,7 +2065,7 @@ describe('ContextAnswerPanel', () => {
                 artifactIds: [generatedDraftArtifact.summary.id],
                 noteDraft: 'Lo schema chiarisce il G-buffer.',
                 rationale: 'Conserva lo schema.',
-                selectedTextDraft: saveKind === 'note-retry' ? 'buffer' : 'G-buffer',
+                selectedTextDraft: 'G-buffer',
               },
             },
           ]
@@ -1894,12 +2077,7 @@ describe('ContextAnswerPanel', () => {
       status: 'ready',
       messages: [{ id: 'assistant', role: 'assistant', parts }],
     });
-    let failFirstSave!: () => void;
-    const firstSaveRequest = new Promise<{ saved: false; merged: false }>(resolve => {
-      failFirstSave = () => resolve({ saved: false, merged: false });
-    });
     const saveNote = vi.fn().mockImplementation(() => saveRequest);
-    if (saveKind === 'note-retry') saveNote.mockImplementationOnce(() => firstSaveRequest);
     const replace = vi.fn(async () => ({ succeeded: true }));
     render(
       <ContextAnswerPanel
@@ -1946,13 +2124,6 @@ describe('ContextAnswerPanel', () => {
     await user.click(screen.getByRole('button', { name: /Apri mappa concettuale rivista/i }));
     await user.click(screen.getByRole('button', { name: /Sostituisci artefatto/i }));
     expect(replace).not.toHaveBeenCalled();
-    if (saveKind === 'note-retry') {
-      await act(async () => {
-        failFirstSave();
-      });
-      expect(saveNote).toHaveBeenCalledTimes(2);
-      expect(replace).not.toHaveBeenCalled();
-    }
     await act(async () => {
       finishSave({ succeeded: true, saved: true, annotationId: 'saved-note', merged: false });
     });
@@ -2683,8 +2854,9 @@ describe('ContextAnswerPanel', () => {
       toolCallId: 'tool-unanchorable-note',
       output: {
         status: 'validation_error',
-        code: 'target_not_annotatable',
+        code: 'unknown_passage',
         recovery: 'choose_passage',
+        availablePassageIds: expect.any(Array),
       },
     });
     expect(reportNoteEventMock).toHaveBeenCalledWith(
@@ -2692,8 +2864,8 @@ describe('ContextAnswerPanel', () => {
       expect.objectContaining({
         phase: 'proposal',
         outcome: 'validation_error',
-        code: 'target_not_annotatable',
-        candidateOutcomes: ['no_segments', 'no_segments'],
+        code: 'unknown_passage',
+        candidateOutcomes: [],
       })
     );
   });
@@ -2866,7 +3038,7 @@ describe('ContextAnswerPanel', () => {
     expect(screen.queryByText('Salvataggio…')).not.toBeInTheDocument();
   });
 
-  test('offers a player note with an unanchorable draft and saves its original passage after approval', async () => {
+  test('converts an exact historical player proposal and saves the same passage once', async () => {
     const user = userEvent.setup();
     // First passage of the local lesson "La mente ha una scrivania piccola".
     const source = [
@@ -2888,7 +3060,7 @@ describe('ContextAnswerPanel', () => {
     const input = {
       noteDraft: 'La struttura della consegna influisce sulle risorse disponibili.',
       rationale: 'Conserva il chiarimento.',
-      selectedTextDraft: 'La memoria di lavoro è una scrivania piccola.',
+      selectedTextDraft: anchor.selectedText,
     };
     const candidates = buildConversationNoteSaveCandidates({
       anchor,
@@ -2896,7 +3068,7 @@ describe('ContextAnswerPanel', () => {
     });
     expect(
       candidates.map(candidate => hasAnchorableConversationNoteCandidate(lessonContent, candidate))
-    ).toEqual([false, true]);
+    ).toEqual([true]);
     const toolCallId = 'player-note';
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
@@ -2932,8 +3104,8 @@ describe('ContextAnswerPanel', () => {
     expect(addToolOutputMock).not.toHaveBeenCalled();
     expect(save).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Aggiungi alle note' }));
-    expect(save).toHaveBeenCalledTimes(2);
-    expect(save.mock.calls[1][1]).toMatchObject(candidates[1]);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save.mock.calls[0][1]).toMatchObject(candidates[0]);
     expect(addToolOutputMock).toHaveBeenCalledWith({
       tool: 'requestAddToNotes',
       toolCallId,
@@ -2941,7 +3113,7 @@ describe('ContextAnswerPanel', () => {
     });
   });
 
-  test('uses the original selection when the proposed note anchor is blank', async () => {
+  test('rejects a blank historical anchor without substituting the original selection', async () => {
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
       error: undefined,
@@ -2983,7 +3155,11 @@ describe('ContextAnswerPanel', () => {
       });
     });
 
-    expect(addToolOutputMock).not.toHaveBeenCalled();
+    expect(addToolOutputMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        output: expect.objectContaining({ status: 'validation_error', code: 'unknown_passage' }),
+      })
+    );
   });
 
   test('accepts a refined anchor without applying the original selection context', async () => {
@@ -3260,7 +3436,7 @@ describe('ContextAnswerPanel', () => {
       status: 'ready',
     });
 
-    render(<ContextAnswerPanel {...buildProps()} />);
+    render(<ContextAnswerPanel {...buildProps({ lessonContent: 'Routing' })} />);
 
     expect(screen.getByRole('button', { name: 'Aggiungi alle note' })).toBeInTheDocument();
     expect(screen.queryByTestId('library-tool-references')).toBeNull();

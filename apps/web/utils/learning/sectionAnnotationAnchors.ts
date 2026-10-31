@@ -65,29 +65,27 @@ export const isSelectionAnnotation = (
   anchor: { kind: 'selection'; selector: SectionAnnotationTextSelector };
 } => annotation.anchor?.kind === 'selection';
 
+const findProjectionBoundary = (offsets: number[], offset: number, inclusive: boolean) => {
+  let low = 0;
+  let high = offsets.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (inclusive ? offsets[middle] >= offset : offsets[middle] > offset) high = middle;
+    else low = middle + 1;
+  }
+  return low;
+};
+
 const getProjectionRange = (
   projection: VisibleProjection,
   range: MarkdownRange
 ): { end: number; start: number; text: string } | null => {
-  const includedIndexes = projection.sourceIndexes
-    .map((sourceIndex, projectionIndex) => ({
-      projectionIndex,
-      sourceEnd: projection.sourceEnds[projectionIndex] ?? sourceIndex + 1,
-      sourceIndex,
-    }))
-    .filter(
-      ({ sourceEnd, sourceIndex }) =>
-        sourceEnd > sourceIndex && sourceIndex < range.end && sourceEnd > range.start
-    )
-    .map(({ projectionIndex }) => projectionIndex);
-
-  const start = includedIndexes[0];
-  const lastIndex = includedIndexes.at(-1);
-  if (start === undefined || lastIndex === undefined) {
-    return null;
-  }
-
-  const end = lastIndex + 1;
+  // Projection positions follow source order, including expanded entities and inserted boundaries.
+  let start = findProjectionBoundary(projection.sourceEnds, range.start, false);
+  let end = findProjectionBoundary(projection.sourceIndexes, range.end, true);
+  while (start < end && projection.sourceEnds[start] <= projection.sourceIndexes[start]) start++;
+  while (end > start && projection.sourceEnds[end - 1] <= projection.sourceIndexes[end - 1]) end--;
+  if (start >= end) return null;
   return { end, start, text: projection.text.slice(start, end) };
 };
 
