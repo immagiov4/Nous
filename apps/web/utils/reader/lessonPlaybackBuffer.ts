@@ -61,20 +61,35 @@ export function playbackBufferIndexes(
 /** Stops waiting for obsolete cancellation without interrupting cancellation of the old provider run. */
 export async function waitForPlaybackCancellation(
   pending: Promise<void> | undefined,
-  signal: AbortSignal
+  signal: AbortSignal,
+  timeoutMs?: number
 ): Promise<void> {
   if (pending === undefined) return;
   signal.throwIfAborted();
   await new Promise<void>((resolve, reject) => {
-    const abort = () => reject(signal.reason);
+    const clean = () => {
+      signal.removeEventListener('abort', abort);
+      globalThis.clearTimeout(timer);
+    };
+    const abort = () => {
+      clean();
+      reject(signal.reason);
+    };
+    const timer =
+      timeoutMs === undefined
+        ? undefined
+        : globalThis.setTimeout(() => {
+            clean();
+            reject(new Error('Playback cancellation wait timed out'));
+          }, timeoutMs);
     signal.addEventListener('abort', abort, { once: true });
     void pending.then(
       () => {
-        signal.removeEventListener('abort', abort);
+        clean();
         resolve();
       },
       error => {
-        signal.removeEventListener('abort', abort);
+        clean();
         reject(error);
       }
     );

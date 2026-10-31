@@ -1008,6 +1008,50 @@ describe('/api/projects', () => {
     );
   });
 
+  test('cancellation after persistence preserves the committed import outcome', async () => {
+    const app = createApp();
+    const uploadId = crypto.randomUUID();
+    const snapshot = createSnapshot('committed-import', 'Committed import');
+    const committed = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<void>();
+    const importProject = store.importProject.bind(store);
+    const importing = vi.spyOn(store, 'importProject').mockImplementation(async (userId, data) => {
+      const result = await importProject(userId, data);
+      committed.resolve();
+      await finish.promise;
+      return result;
+    });
+    try {
+      await request(app)
+        .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1`)
+        .set('Content-Type', 'text/plain')
+        .send(JSON.stringify(snapshot))
+        .expect(202);
+      const accepted = await request(app)
+        .post(`/api/projects/import/chunks/${uploadId}/complete`)
+        .send({});
+      await committed.promise;
+      expect(await store.loadProject('local-user', snapshot.id)).toMatchObject({ id: snapshot.id });
+      const cancellation = await request(app).delete(`/api/projects/import/chunks/${uploadId}`);
+      expect(cancellation.status).toBe(202);
+      expect(cancellation.body).toMatchObject({ success: true, uploadStatus: 'finalizing' });
+      finish.resolve();
+      const outcome = await completedImport(app, accepted);
+      expect(outcome.status).toBe(200);
+      expect(outcome.body).toMatchObject({
+        success: true,
+        complete: true,
+        uploadStatus: 'completed',
+      });
+      expect(importing).toHaveBeenCalledOnce();
+      await request(app).delete(`/api/projects/import/chunks/${uploadId}`).expect(204);
+      expect(getProjectImportUploadStatus('local-user', uploadId)?.status).toBe('completed');
+    } finally {
+      finish.resolve();
+      importing.mockRestore();
+    }
+  });
+
   test('rejects legacy ZIP source completion instead of starting a second ingestion pipeline', async () => {
     const app = createApp();
     const arrayBufferSpy = vi.spyOn(globalThis.Request.prototype, 'arrayBuffer');

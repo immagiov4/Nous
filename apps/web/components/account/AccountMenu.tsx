@@ -9,6 +9,7 @@ import {
   signOutSupabase,
   subscribeToSupabaseSession,
 } from '../../services/auth/supabaseAuth.ts';
+import type { LibraryBackupImportResult } from '../../services/projects/libraryArchiveImport.ts';
 import type { LibraryExportProgressListener } from '../../services/projects/projectRepository.ts';
 import FeedbackDialog from '../feedback/FeedbackDialog.tsx';
 import AccountSettingsDialog, { type AccountSection } from './AccountSettingsDialog.tsx';
@@ -16,7 +17,7 @@ import AccountUsage from './AccountUsage.tsx';
 
 interface AccountMenuProps {
   readonly onExportLibraryBackup?: (onProgress?: LibraryExportProgressListener) => Promise<number>;
-  readonly onImportLibraryBackup?: (file: File) => Promise<number>;
+  readonly onImportLibraryBackup?: (file: File) => Promise<LibraryBackupImportResult>;
   readonly themeToggle?: {
     readonly isDarkMode: boolean;
     readonly onToggle: () => void;

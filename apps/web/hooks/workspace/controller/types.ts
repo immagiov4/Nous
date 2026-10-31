@@ -46,7 +46,9 @@ export interface TextSourceInput {
 }
 
 export interface AssessmentSourceInput {
+  initialMessage?: string;
   file?: FileData | null;
+  source?: ProjectSource | null;
   sources?: CourseSourceDescriptor[];
   textSource?: TextSourceInput | null;
 }
@@ -148,7 +150,7 @@ export interface WorkspaceProjectLibraryAdapter {
     options?: ProjectPersistenceOptions
   ) => Promise<ProjectSaveResult | null>;
   refreshLibraryOrganization: () => Promise<void>;
-  refreshLibraryState: () => Promise<void>;
+  refreshLibraryState: (options?: { afterImport?: boolean }) => Promise<void>;
   refreshSavedProjects: () => Promise<void>;
   renameFolder: (folderId: string, name: string) => Promise<LibraryFolder | null>;
   saveCurrentProject: (

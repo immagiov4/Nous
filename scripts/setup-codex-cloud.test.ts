@@ -38,6 +38,7 @@ function fixture() {
   const skills = [
     ['geppetto', 'geppetto-build'],
     ['my-codex-skills', 'engineering-workflow'],
+    ['my-codex-skills', 'write-pr'],
     ['my-codex-skills', 'principle-boundary-discipline'],
     ['my-codex-skills', 'principle-build-the-lever'],
     ['my-codex-skills', 'principle-encode-lessons-in-structure'],
@@ -104,7 +105,7 @@ test('installs the requested packs and scopes trust to their installed hook file
     expect(calls).toContainEqual(['codex', ['plugin', 'add', `${name}@${name}`, '--json']]);
   }
   for (const [repository, ref] of [
-    ['immagiov4/my-codex-skills', '56439c4acd74242136d4573190e7b9ece59223be'],
+    ['immagiov4/my-codex-skills', '4ce5ba501e90429e8f39dd19049f1dd7ac1d6893'],
     ['DietrichGebert/ponytail', '96608e078b2d5ea607c5c3b8b5a54d1c1fba6846'],
   ])
     expect(calls).toContainEqual([
@@ -257,6 +258,7 @@ test('reuses the existing GitHub memory transport instead of mistaking SSH for a
 
 test.each([
   ['my-codex-skills', 'engineering-workflow'],
+  ['my-codex-skills', 'write-pr'],
   ['my-codex-skills', 'principle-test-behavior-not-implementation'],
   ['ponytail', 'ponytail'],
 ])('rejects a pack missing the required %s:%s source', async (pack, skill) => {

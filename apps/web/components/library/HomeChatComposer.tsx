@@ -3,10 +3,9 @@ import type { RefObject, SyntheticEvent } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { HomeChatMode, LibraryContextRef, LibraryTree, Message } from '../../types.ts';
+import { getAttachedContextProjectIds } from '../../utils/library/tree.ts';
 import SpeechInputButton, { appendSpeechTranscription } from '../shared/SpeechInputButton.tsx';
-import HomeChatLibraryContextPicker, {
-  getAttachedContextProjectIds,
-} from './HomeChatLibraryContextPicker.tsx';
+import HomeChatLibraryContextPicker from './HomeChatLibraryContextPicker.tsx';
 
 export type HomeChatSurfaceState = null | 'attachment-menu' | 'tool-menu';
 export type StopGenerationHandler = () => boolean | undefined | Promise<boolean | undefined>;

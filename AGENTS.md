@@ -20,7 +20,7 @@ Context is a budget: load the relevant owner through the map below. This file an
 
 ## Mandatory
 
-- Every PR contains a meaningful `## Observability` section, checked by `node <adopt>/scripts/gate-sections.mjs --pr <body-file>` and CI.
+- Every PR contains a meaningful `## 👁️ Observability` section, checked by `node <adopt>/scripts/gate-sections.mjs --pr <body-file>` and CI.
 - Each feature document declares its own observability. Follow `.geppetto/config.json` for significant test declarations and required sections.
 - Substantial changes start with a Requirements map through `$geppetto-spec`.
 - Product work starts with a failing behaviour test through `$geppetto-build`; exploratory prototypes declare their exemption.
@@ -31,7 +31,7 @@ Context is a budget: load the relevant owner through the map below. This file an
 
 ## Where to look
 
-For a fresh cloud environment, follow `docs/TESTING.md#cloud-codex-environment` before implementation. Use installed plugin skills: `$my-codex-skills:engineering-workflow` for execution and `$ponytail:ponytail` for the smallest complete change. Pstack principles remain explicitly invocable as `$my-codex-skills:principle-<name>`. In Codex, Geppetto skills use the `$geppetto:<skill-name>` namespace.
+For a fresh cloud environment, follow `docs/TESTING.md#cloud-codex-environment` before implementation. Use installed plugin skills: `$my-codex-skills:engineering-workflow` for execution and `$ponytail:ponytail` for the smallest complete change. Apply relevant Pstack principles automatically through `$my-codex-skills:principle-<name>` when their task conditions apply; evaluate selection and context cost through `.agents/skills/THIRD_PARTY_SKILLS.md#automatic-principle-selection`. In Codex, Geppetto skills use the `$geppetto:<skill-name>` namespace.
 
 Load a row when its condition applies. Skill names resolve through the harness's installed skill discovery; project paths below are rendered during adoption.
 

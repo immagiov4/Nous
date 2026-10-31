@@ -1,7 +1,7 @@
 import type { ProjectWriteOptions, SectionPatch } from '@shared/projectContract';
 import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { IMPORT_REFRESH_WARNING, translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { readSupabaseSession } from '../../services/auth/supabaseAuth.ts';
 import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
@@ -12,7 +12,12 @@ import {
   HttpProjectRepository,
 } from '../../services/projects/httpProjectRepository.ts';
 import { recoverLegacyAnnotations } from '../../services/projects/legacyAnnotationRecovery.ts';
-import { importLibraryArchive } from '../../services/projects/libraryArchiveImport.ts';
+import { LibraryArchivePartialImportError } from '../../services/projects/libraryArchive.ts';
+import { warnImportRefreshFailed } from '../../services/projects/libraryArchiveDiagnostics.ts';
+import {
+  importLibraryArchive,
+  type LibraryBackupImportResult,
+} from '../../services/projects/libraryArchiveImport.ts';
 import { buildAutosaveSignature } from '../../services/projects/persistenceSignature';
 import {
   createProjectArchiveBlob,
@@ -75,6 +80,12 @@ interface UseProjectLibraryArgs {
   hydrateSnapshot: (snapshot: ProjectSnapshot) => void;
   setSource: (source: ProjectSource | null) => void;
 }
+
+const getStorageErrorMessage = (error: unknown): string => {
+  if (error instanceof ProjectStorageError) return error.message;
+  console.warn('[Nous] Project storage operation failed', error);
+  return t('Operazione non riuscita. Riprova.');
+};
 
 const isNavigationOnlyProjectOverride = (overrides: Partial<ProjectSnapshot>): boolean =>
   overrides.activeSectionId !== undefined &&
@@ -185,6 +196,7 @@ export const useProjectLibrary = ({
   const [savedProjects, setSavedProjects] = useState<SavedProjectMeta[]>([]);
   const [isLibraryLoading, setIsLibraryLoading] = useState(true);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [importRefreshWarning, setImportRefreshWarning] = useState<string | null>(null);
   const [projectSyncState, setProjectSyncState] = useState<ProjectSyncState>({
     kind: 'load',
     phase: 'pending',
@@ -196,6 +208,8 @@ export const useProjectLibrary = ({
   const isProjectHydratedRef = useRef(false);
   const persistentStorageRequestedRef = useRef(false);
   const didLoadInitialStateRef = useRef(false);
+  const libraryRefreshVersionRef = useRef(0);
+  const committedImportVersionRef = useRef(0);
   const lastPersistedSignatureRef = useRef<string>('');
   const projectWritesRef = useRef(new Map<string, ProjectWriteState>());
   const deletedProjectIdsRef = useRef(new Set<string>());
@@ -203,25 +217,27 @@ export const useProjectLibrary = ({
   const isApplyingRemoteRevisionRef = useRef(false);
   const isRevisionCatchUpActiveRef = useRef(false);
   const revisionCatchUpRequestedRef = useRef(false);
+  const requestRevisionCatchUpRef = useRef<() => void>(() => {});
   const processPendingRemoteRevisionRef = useRef<() => Promise<void>>(async () => {});
   const domainStateRef = useRef<WorkspaceDomainState>(domainState);
   const hydrateSnapshotRef = useRef(hydrateSnapshot);
   const setSourceRef = useRef(setSource);
   const savedProjectsRef = useRef<SavedProjectMeta[]>([]);
-  const explicitProjectTitlesRef = useRef(new Map<string, string>());
+  const projectMetadataRef = useRef(
+    new Map<string, Pick<ProjectSnapshot, 'title' | 'extensions'>>()
+  );
   const loadedProjectRevisionRef = useRef<{ projectId: string | null; revision?: number }>({
     projectId: null,
   });
   const currentProjectIdRef = useRef<string | null>(null);
   useEffect(() => () => releaseDocumentText(currentProjectIdRef.current), []);
 
-  const rememberExplicitProjectTitle = useCallback(
-    (project: Pick<ProjectSnapshot, 'id' | 'title'>) => {
-      if (project.title) {
-        explicitProjectTitlesRef.current.set(project.id, project.title);
-      } else {
-        explicitProjectTitlesRef.current.delete(project.id);
-      }
+  const rememberProjectMetadata = useCallback(
+    (project: Pick<ProjectSnapshot, 'id' | 'title' | 'extensions'>) => {
+      projectMetadataRef.current.set(project.id, {
+        title: project.title,
+        extensions: project.extensions,
+      });
     },
     []
   );
@@ -270,23 +286,71 @@ export const useProjectLibrary = ({
   );
 
   const refreshSavedProjects = useCallback(async () => {
+    const refreshVersion = libraryRefreshVersionRef.current;
     const projects = await projectRepositoryRef.current.listProjects();
+    if (refreshVersion !== libraryRefreshVersionRef.current) return;
     storeSavedProjects(projects);
     setStorageError(null);
   }, [storeSavedProjects]);
 
   const refreshLibraryOrganization = useCallback(async () => {
+    const refreshVersion = libraryRefreshVersionRef.current;
     const [folders, placements] = await Promise.all([
       projectRepositoryRef.current.listFolders(),
       projectRepositoryRef.current.listPlacements(),
     ]);
+    if (refreshVersion !== libraryRefreshVersionRef.current) return;
     setLibraryFolders(folders);
     setLibraryPlacements(placements);
   }, []);
 
-  const refreshLibraryState = useCallback(async () => {
-    await Promise.all([refreshSavedProjects(), refreshLibraryOrganization()]);
-  }, [refreshLibraryOrganization, refreshSavedProjects]);
+  const refreshLibraryState = useCallback(
+    async (options?: { afterImport?: boolean }) => {
+      const refreshVersion = ++libraryRefreshVersionRef.current;
+      if (options?.afterImport) {
+        setStorageError(null);
+        setImportRefreshWarning(t(IMPORT_REFRESH_WARNING));
+      }
+      if (options?.afterImport !== undefined) {
+        setProjectSyncState(current =>
+          current.kind === 'import'
+            ? {
+                kind: 'load',
+                phase: 'pending',
+                message: options.afterImport ? t(IMPORT_REFRESH_WARNING) : undefined,
+              }
+            : current
+        );
+      }
+      try {
+        const reads = await Promise.allSettled([
+          refreshSavedProjects(),
+          refreshLibraryOrganization(),
+        ]);
+        const failedRead = reads.find(read => read.status === 'rejected');
+        if (failedRead) throw failedRead.reason;
+        if (refreshVersion !== libraryRefreshVersionRef.current) return;
+        setImportRefreshWarning(null);
+        setProjectSyncState(current => (current.kind === 'load' ? { kind: 'idle' } : current));
+      } catch (error) {
+        if (refreshVersion !== libraryRefreshVersionRef.current) return;
+        if (options?.afterImport) {
+          const message = t(IMPORT_REFRESH_WARNING);
+          setImportRefreshWarning(message);
+          setProjectSyncState({ kind: 'load', message, phase: 'failed' });
+        } else {
+          const message = getStorageErrorMessage(error);
+          setProjectSyncState(current =>
+            current.kind === 'load' && current.phase === 'pending'
+              ? { ...current, message: current.message ?? message, phase: 'failed' }
+              : current
+          );
+        }
+        throw error;
+      }
+    },
+    [refreshLibraryOrganization, refreshSavedProjects]
+  );
 
   const syncProjectMeta = useCallback(
     (meta: SavedProjectMeta) => {
@@ -379,7 +443,7 @@ export const useProjectLibrary = ({
         isProjectHydratedRef.current = false;
         pendingRemoteRevisionRef.current = null;
       }
-      explicitProjectTitlesRef.current.delete(projectId);
+      projectMetadataRef.current.delete(projectId);
       storeSavedProjects(savedProjectsRef.current.filter(project => project.id !== projectId));
       setLibraryPlacements(placements =>
         placements.filter(placement => placement.projectId !== projectId)
@@ -467,7 +531,7 @@ export const useProjectLibrary = ({
 
         const hydrateStarted = performance.now();
         const hydratedSnapshot = prepareSnapshotForHydration(persisted.snapshot);
-        rememberExplicitProjectTitle(hydratedSnapshot);
+        rememberProjectMetadata(hydratedSnapshot);
         if (
           currentMeta &&
           (currentMeta.revision === undefined || persisted.revision > currentMeta.revision)
@@ -492,12 +556,7 @@ export const useProjectLibrary = ({
       };
       return adopt(0);
     },
-    [
-      getProjectWriteState,
-      invalidateRemoteDeletedProject,
-      rememberExplicitProjectTitle,
-      syncProjectMeta,
-    ]
+    [getProjectWriteState, invalidateRemoteDeletedProject, rememberProjectMetadata, syncProjectMeta]
   );
 
   const reconcileRebasedProjectWrites = useCallback(
@@ -576,8 +635,7 @@ export const useProjectLibrary = ({
           if (retryFullSnapshotOnFailure) {
             writeState.batchNeedsAutosave = true;
           }
-          const message =
-            error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+          const message = getStorageErrorMessage(error);
           setProjectSyncState(
             error instanceof ProjectStorageError && error.code === 'revision-conflict'
               ? { kind: 'conflict', message }
@@ -656,9 +714,14 @@ export const useProjectLibrary = ({
         return null;
       }
 
+      const extensions = projectMetadataRef.current.get(projectId)?.extensions;
       return createProjectSnapshot({
         id: projectId,
-        title: overrides?.title ?? explicitProjectTitlesRef.current.get(projectId),
+        title: overrides?.title ?? projectMetadataRef.current.get(projectId)?.title,
+        extensions:
+          extensions || overrides?.extensions
+            ? { ...extensions, ...overrides?.extensions }
+            : undefined,
         version: overrides?.version,
         sourceKind: overrides?.sourceKind || currentProjectMeta?.sourceKind || undefined,
         state: overrides?.state || resolvePersistedAppState(domainState),
@@ -753,6 +816,7 @@ export const useProjectLibrary = ({
           false
         );
         if (!meta) return null;
+        rememberProjectMetadata(detachedSnapshot || snapshot);
         if (currentProjectIdRef.current === snapshot.id) {
           adoptSavedSnapshotBaseline(snapshot, detachedSnapshot);
         }
@@ -773,8 +837,7 @@ export const useProjectLibrary = ({
         } satisfies ProjectSaveResult;
       } catch (error) {
         if (!isSupersededBySelection()) {
-          const message =
-            error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+          const message = getStorageErrorMessage(error);
           setStorageError(message);
           markSyncError();
         }
@@ -786,6 +849,7 @@ export const useProjectLibrary = ({
     },
     [
       adoptSavedSnapshotBaseline,
+      rememberProjectMetadata,
       getExpectedRevision,
       requestPersistentStorage,
       runTrackedProjectWrite,
@@ -890,8 +954,7 @@ export const useProjectLibrary = ({
         return meta;
       } catch (error) {
         if (currentProjectIdRef.current === selectedProjectId) {
-          const message =
-            error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+          const message = getStorageErrorMessage(error);
           setStorageError(message);
         }
         return null;
@@ -960,8 +1023,7 @@ export const useProjectLibrary = ({
         return true;
       } catch (error) {
         if (currentProjectIdRef.current === selectedProjectId) {
-          const message =
-            error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+          const message = getStorageErrorMessage(error);
           setStorageError(message);
           markSyncError();
         }
@@ -1041,8 +1103,7 @@ export const useProjectLibrary = ({
         return true;
       } catch (error) {
         if (currentProjectIdRef.current === selectedProjectId) {
-          const message =
-            error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+          const message = getStorageErrorMessage(error);
           setStorageError(message);
         }
         return false;
@@ -1237,22 +1298,33 @@ export const useProjectLibrary = ({
   );
 
   const importLibraryBackup = useCallback(
-    async (file: File): Promise<number> => {
+    async (file: File): Promise<LibraryBackupImportResult> => {
       setProjectSyncState({ kind: 'import', phase: 'pending' });
       let outcome: Awaited<ReturnType<typeof importLibraryArchive>>;
       try {
         outcome = await importLibraryArchive({
           file,
-          refreshLibraryState,
+          refreshLibraryState: (hasImportedProjects = true) => {
+            if (hasImportedProjects) committedImportVersionRef.current += 1;
+            return refreshLibraryState({ afterImport: hasImportedProjects });
+          },
           repository: projectRepositoryRef.current,
         });
       } catch (error) {
-        setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
+        if (
+          !(
+            error instanceof LibraryArchivePartialImportError &&
+            error.refreshFailed &&
+            error.result.importedProjects.length > 0
+          )
+        ) {
+          setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
+        }
         throw error;
       }
-      if (outcome.kind === 'refresh-failed') throw outcome.error;
-      setProjectSyncState({ kind: 'idle' });
-      return outcome.importedProjectCount;
+      const refreshFailed = outcome.kind === 'refresh-failed';
+      if (outcome.kind === 'refresh-failed') warnImportRefreshFailed(outcome.error);
+      return { importedProjectCount: outcome.importedProjectCount, refreshFailed };
     },
     [refreshLibraryState]
   );
@@ -1285,37 +1357,31 @@ export const useProjectLibrary = ({
       autosaveTimeoutRef.current !== null ||
       (isProjectHydratedRef.current &&
         buildAutosaveSignature(domainStateRef.current) !== lastPersistedSignatureRef.current);
-    if (!isProjectHydratedRef.current || hasLocalChanges) {
-      return;
-    }
-    if (isApplyingRemoteRevisionRef.current) {
+    if (!isProjectHydratedRef.current || hasLocalChanges || isApplyingRemoteRevisionRef.current) {
       return;
     }
 
     isApplyingRemoteRevisionRef.current = true;
+    const importVersion = committedImportVersionRef.current;
     try {
       const persisted = await projectRepositoryRef.current.loadProjectWithRevision(
         pendingEvent.projectId
       );
+      if (importVersion !== committedImportVersionRef.current) return;
       if (!persisted) {
         invalidateRemoteDeletedProject(pendingEvent.projectId);
         return;
       }
-      if (writeState.pendingCount > 0) {
-        return;
-      }
-      if (buildAutosaveSignature(domainStateRef.current) !== lastPersistedSignatureRef.current) {
-        return;
-      }
-
       const latestPendingEvent = pendingRemoteRevisionRef.current;
-      if (latestPendingEvent?.projectId !== pendingEvent.projectId) {
+      if (
+        writeState.pendingCount > 0 ||
+        buildAutosaveSignature(domainStateRef.current) !== lastPersistedSignatureRef.current ||
+        latestPendingEvent?.projectId !== pendingEvent.projectId ||
+        persisted.revision < latestPendingEvent.revision
+      ) {
         return;
       }
-      if (persisted.revision < latestPendingEvent.revision) {
-        return;
-      }
-      rememberExplicitProjectTitle(persisted.snapshot);
+      rememberProjectMetadata(persisted.snapshot);
       const hydrateStarted = performance.now();
       const hydratedSnapshot = prepareSnapshotForHydration(persisted.snapshot);
       pendingRemoteRevisionRef.current = null;
@@ -1333,18 +1399,25 @@ export const useProjectLibrary = ({
       setProjectSyncState({ kind: 'idle' });
     } catch (error) {
       console.warn('[Nous] Remote project revision could not be applied', error);
-      setProjectSyncState({ kind: 'realtimeDegraded' });
+      setProjectSyncState(current =>
+        importVersion === committedImportVersionRef.current ? { kind: 'realtimeDegraded' } : current
+      );
     } finally {
       isApplyingRemoteRevisionRef.current = false;
+      if (importVersion !== committedImportVersionRef.current && pendingRemoteRevisionRef.current) {
+        requestRevisionCatchUpRef.current();
+      }
     }
-  }, [getProjectWriteState, invalidateRemoteDeletedProject, rememberExplicitProjectTitle]);
+  }, [getProjectWriteState, invalidateRemoteDeletedProject, rememberProjectMetadata]);
 
   useEffect(() => {
     processPendingRemoteRevisionRef.current = processPendingRemoteRevision;
   }, [processPendingRemoteRevision]);
 
   const reconcileProjectRevisions = useCallback(async (): Promise<void> => {
+    const refreshVersion = libraryRefreshVersionRef.current;
     const projects = await projectRepositoryRef.current.listProjects();
+    if (refreshVersion !== libraryRefreshVersionRef.current) return;
     storeSavedProjects(projects);
     const projectId = currentProjectIdRef.current;
     if (!projectId) {
@@ -1387,16 +1460,29 @@ export const useProjectLibrary = ({
     void (async () => {
       while (revisionCatchUpRequestedRef.current) {
         revisionCatchUpRequestedRef.current = false;
+        const refreshVersion = libraryRefreshVersionRef.current;
         try {
           await reconcileProjectRevisions();
         } catch (error) {
           console.warn('[Nous] Project revision catch-up failed', error);
-          setProjectSyncState({ kind: 'realtimeDegraded' });
+          if (refreshVersion === libraryRefreshVersionRef.current)
+            setProjectSyncState({ kind: 'realtimeDegraded' });
+        } finally {
+          if (
+            refreshVersion !== libraryRefreshVersionRef.current &&
+            pendingRemoteRevisionRef.current
+          ) {
+            revisionCatchUpRequestedRef.current = true;
+          }
         }
       }
       isRevisionCatchUpActiveRef.current = false;
     })();
   }, [reconcileProjectRevisions]);
+
+  useEffect(() => {
+    requestRevisionCatchUpRef.current = requestRevisionCatchUp;
+  }, [requestRevisionCatchUp]);
 
   useEffect(() => {
     const unsubscribe = projectRepository.subscribeToProjectRevisions(event => {
@@ -1436,14 +1522,15 @@ export const useProjectLibrary = ({
     didLoadInitialStateRef.current = true;
 
     const loadInitialState = async () => {
+      const refreshVersion = libraryRefreshVersionRef.current + 1;
       try {
         await refreshLibraryState();
-        setStorageError(null);
-        setProjectSyncState({ kind: 'idle' });
       } catch (error) {
-        const message = getErrorMessage(error);
-        setStorageError(message);
-        setProjectSyncState({ kind: 'load', message, phase: 'failed' });
+        if (refreshVersion === libraryRefreshVersionRef.current) {
+          const message = getStorageErrorMessage(error);
+          setStorageError(message);
+          setProjectSyncState({ kind: 'load', message, phase: 'failed' });
+        }
       } finally {
         setIsLibraryLoading(false);
       }
@@ -1480,11 +1567,11 @@ export const useProjectLibrary = ({
     async (ids: string[]) => {
       const projects = await projectRepositoryRef.current.loadProjectsById(ids);
       for (const project of projects) {
-        rememberExplicitProjectTitle(project);
+        rememberProjectMetadata(project);
       }
       return projects;
     },
-    [rememberExplicitProjectTitle]
+    [rememberProjectMetadata]
   );
   const loadStoredProject = useCallback(
     async (
@@ -1504,11 +1591,11 @@ export const useProjectLibrary = ({
           requestId: getProjectRequestId(project),
           queueWaitMs,
         });
-        rememberExplicitProjectTitle(project);
+        rememberProjectMetadata(project);
       }
       return project;
     },
-    [getProjectWriteState, rememberExplicitProjectTitle]
+    [getProjectWriteState, rememberProjectMetadata]
   );
   const loadStoredProjectWithRevision = useCallback(
     async (projectId: string) => {
@@ -1521,11 +1608,11 @@ export const useProjectLibrary = ({
           requestId: getProjectRequestId(project.snapshot),
           queueWaitMs,
         });
-        rememberExplicitProjectTitle(project.snapshot);
+        rememberProjectMetadata(project.snapshot);
       }
       return project;
     },
-    [getProjectWriteState, rememberExplicitProjectTitle]
+    [getProjectWriteState, rememberProjectMetadata]
   );
   const validateStoredProjectForOpen = useCallback(
     async (
@@ -1562,11 +1649,11 @@ export const useProjectLibrary = ({
           invalidateRemoteDeletedProject(projectId);
           return null;
         }
-        rememberExplicitProjectTitle(project.snapshot);
+        rememberProjectMetadata(project.snapshot);
         return project;
       }
     },
-    [getProjectWriteState, invalidateRemoteDeletedProject, rememberExplicitProjectTitle]
+    [getProjectWriteState, invalidateRemoteDeletedProject, rememberProjectMetadata]
   );
   const loadStoredProjectCover = useCallback(
     (projectId: string) => projectRepositoryRef.current.loadProjectCover(projectId),
@@ -1600,7 +1687,10 @@ export const useProjectLibrary = ({
       if (!meta) {
         throw new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted');
       }
-      explicitProjectTitlesRef.current.set(projectId, title);
+      projectMetadataRef.current.set(projectId, {
+        ...projectMetadataRef.current.get(projectId),
+        title,
+      });
       return meta;
     },
     [getExpectedRevision, runTrackedProjectWrite]
@@ -1749,6 +1839,9 @@ export const useProjectLibrary = ({
           archive,
           targetProjectId
         );
+        libraryRefreshVersionRef.current += 1;
+        committedImportVersionRef.current += 1;
+        rememberProjectMetadata(imported.snapshot);
         setProjectSyncState({ kind: 'idle' });
         return imported;
       } catch (error) {
@@ -1769,9 +1862,15 @@ export const useProjectLibrary = ({
           () => undefined
         );
         const imported = await importOperation;
+        libraryRefreshVersionRef.current += 1;
+        committedImportVersionRef.current += 1;
+        rememberProjectMetadata(imported.snapshot);
         deletedProjectIdsRef.current.delete(imported.snapshot.id);
-        await refreshLibraryState();
-        setProjectSyncState({ kind: 'idle' });
+        try {
+          await refreshLibraryState({ afterImport: true });
+        } catch (refreshError) {
+          warnImportRefreshFailed(refreshError);
+        }
         return imported;
       } catch (error) {
         setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
@@ -1836,7 +1935,7 @@ export const useProjectLibrary = ({
         void processPendingRemoteRevisionRef.current();
       }
     },
-    storageError,
+    storageError: storageError ?? importRefreshWarning,
     touchStoredProject: (projectId: string) =>
       runDeletionAwareProjectAction(projectId, () =>
         projectRepositoryRef.current.touchProject(projectId)

@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
-import { act, renderHook } from '@testing-library/react';
+import '@testing-library/jest-dom/vitest';
+import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { UIMessage } from 'ai';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import HomeChatLibraryContextPicker from '../../../components/library/HomeChatLibraryContextPicker.tsx';
+import ChatArtifactRenderer from '../../../components/shared/ChatArtifactRenderer.tsx';
+import { setAccountLocale } from '../../../i18n/uiMessages.ts';
+import type { LibraryTree } from '../../../types.ts';
 
 const useChatMock = vi.fn();
 const addToolOutputMock = vi.fn();
@@ -62,6 +68,26 @@ const { useLibraryAssistantChat } = await import(
 );
 
 describe('useLibraryAssistantChat', () => {
+  afterEach(() => vi.restoreAllMocks());
+  test('rejects replacement when no draft exists without calling persistence', async () => {
+    const replaceLessonGeneratedVisual = vi.fn();
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        projects: [],
+        tree: emptyTree,
+        loadProjectsById: vi.fn(async () => []),
+        replaceLessonGeneratedVisual,
+      })
+    );
+    expect(
+      await result.current.replaceLearningArtifact({
+        artifactId: 'missing',
+        replacementOfArtifactId: 'source',
+      })
+    ).toEqual({ succeeded: false });
+    expect(replaceLessonGeneratedVisual).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     useChatMock.mockReset();
     addToolOutputMock.mockReset();
@@ -602,6 +628,115 @@ describe('useLibraryAssistantChat', () => {
     expect(result.current.attachedContextRefs).toEqual([]);
   });
 
+  test.each([
+    'it',
+    'en',
+  ] as const)('keeps %s inherited picker state and submitted scope consistent', async locale => {
+    setAccountLocale(locale);
+    const user = userEvent.setup();
+    const tree: LibraryTree = {
+      ...loadedTree,
+      rootNodes: [
+        {
+          id: folder.id,
+          kind: 'folder',
+          order: 1,
+          folder,
+          descendantProjectIds: [project.id],
+          children: [{ id: project.id, kind: 'project', order: 1, project }],
+        },
+      ],
+    };
+    let chat!: ReturnType<typeof useLibraryAssistantChat>;
+    function Picker() {
+      chat = useLibraryAssistantChat({
+        folders: [folder],
+        projects: [project, secondProject],
+        tree,
+        loadProjectsById: async () => [],
+      });
+      return (
+        <HomeChatLibraryContextPicker
+          attachedContextRefs={chat.attachedContextRefs}
+          close={() => {}}
+          isLibraryLoading={false}
+          isMobileViewport={false}
+          libraryTree={tree}
+          menuAlign="start"
+          menuRef={{ current: null }}
+          menuVerticalPlacement="below"
+          onToggleContextRef={chat.toggleAttachedContextRef}
+          onUploadSourceClick={() => {}}
+        />
+      );
+    }
+    const inheritedHint =
+      locale === 'it'
+        ? 'Incluso dalla cartella. Deseleziona la cartella per escluderlo.'
+        : 'Included by folder. Deselect the folder to exclude it.';
+    const view = render(<Picker />);
+    const transport = useChatMock.mock.calls.at(-1)?.[0].transport;
+    const assertSubmittedScope = async (ids: string[], wholeLibrary = false) => {
+      const request = await transport.prepareSendMessagesRequest({ id: 'scope', messages: [] });
+      expect(request.body.attachedContextRefs).toEqual(chat.attachedContextRefs);
+      expect(request.body.toolPreferences.attachedContextRefs).toEqual(chat.attachedContextRefs);
+      expect(request.body.resolvedScopeSummary).toMatchObject({
+        scopeProjectIds: ids,
+        isWholeLibraryScope: wholeLibrary,
+      });
+    };
+    try {
+      const parent = screen.getByRole('checkbox', { name: folder.name });
+      const child = screen.getByRole('checkbox', { name: project.title });
+      expect(screen.queryByText(inheritedHint)).not.toBeInTheDocument();
+      await user.click(parent);
+      expect(child).toBeChecked();
+      expect(child).toBeDisabled();
+      expect(screen.getByText(inheritedHint)).toBeInTheDocument();
+      expect(child).toHaveAccessibleDescription(inheritedHint);
+      await assertSubmittedScope([project.id]);
+      const inheritedRefs = chat.attachedContextRefs;
+      await user.click(child);
+      act(() =>
+        chat.toggleAttachedContextRef({ id: project.id, kind: 'project', label: project.title })
+      );
+      expect(chat.attachedContextRefs).toBe(inheritedRefs);
+      await assertSubmittedScope([project.id]);
+      await user.click(parent);
+      expect(child).not.toBeChecked();
+      expect(child).toBeEnabled();
+      expect(child).not.toHaveAccessibleDescription();
+      expect(screen.queryByText(inheritedHint)).not.toBeInTheDocument();
+      // With no attachments, the existing contract uses the whole library.
+      await assertSubmittedScope([project.id, secondProject.id], true);
+      await user.click(child);
+      expect(child).toBeChecked();
+      expect(child).toBeEnabled();
+      expect(child).not.toHaveAccessibleDescription();
+      expect(screen.queryByText(inheritedHint)).not.toBeInTheDocument();
+      await assertSubmittedScope([project.id]);
+      // A child explicitly selected first becomes inherited when its folder is attached.
+      act(() =>
+        chat.toggleAttachedContextRef({ id: folder.id, kind: 'folder', label: folder.name })
+      );
+      expect(child).toBeChecked();
+      expect(child).toBeDisabled();
+      expect(screen.getByText(inheritedHint)).toBeInTheDocument();
+      expect(child).toHaveAccessibleDescription(inheritedHint);
+      expect(chat.attachedContextRefs).toEqual([
+        { id: folder.id, kind: 'folder', label: folder.name },
+      ]);
+      await assertSubmittedScope([project.id]);
+      await user.click(parent);
+      expect(child).not.toBeChecked();
+      expect(child).toBeEnabled();
+      await assertSubmittedScope([project.id, secondProject.id], true);
+    } finally {
+      view.unmount();
+      setAccountLocale(null);
+    }
+  });
+
   test('exposes a semantic new-course handoff requested by the library model', async () => {
     lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(true);
     const { result } = renderHook(() =>
@@ -839,8 +974,12 @@ describe('useLibraryAssistantChat', () => {
       },
     };
     const loadProjectsById = vi.fn(async () => [snapshot as never]);
+    const replaceLessonGeneratedVisual = vi
+      .fn()
+      .mockResolvedValue({ replaced: false, error: 'Replacement failed' });
     const { result } = renderHook(() =>
       useLibraryAssistantChat({
+        replaceLessonGeneratedVisual,
         folders: [folder],
         loadProjectsById,
         projects: [project],
@@ -881,9 +1020,66 @@ describe('useLibraryAssistantChat', () => {
       });
     });
 
+    await act(async () => {
+      expect(
+        await result.current.replaceLearningArtifact({
+          artifactId: replacementArtifact.summary.id,
+          replacementOfArtifactId: sourceArtifact.summary.id,
+        })
+      ).toEqual({ succeeded: false, error: "Non sono riuscito a sostituire l'artefatto." });
+    });
+    expect(
+      result.current.replacementDraftPayloads.some(
+        payload => payload.summary.id === replacementArtifact.summary.id
+      )
+    ).toBe(true);
+    replaceLessonGeneratedVisual.mockResolvedValue({ replaced: true });
+    await act(async () => {
+      expect(
+        await result.current.replaceLearningArtifact({
+          artifactId: replacementArtifact.summary.id,
+          replacementOfArtifactId: sourceArtifact.summary.id,
+        })
+      ).toEqual({ succeeded: true });
+    });
+    expect(result.current.replacementDraftPayloads).toHaveLength(0);
+    const diagnosticLog = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    replaceLessonGeneratedVisual.mockResolvedValue({
+      replaced: false,
+      error: 'Replacement failed; secret=private-token user@example.test',
+    });
+    // Regenerate a recoverable draft before exercising the renderer boundary.
+    await act(async () => {
+      await result.current.regenerateLearningArtifact({
+        artifactId: sourceArtifact.summary.id,
+        instructions: 'Riprova.',
+      });
+    });
+    render(
+      <ChatArtifactRenderer
+        artifacts={[replacementArtifact]}
+        isDarkMode={false}
+        onReplaceArtifact={result.current.replaceLearningArtifact}
+        openArtifactIdOverride={replacementArtifact.summary.id}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Sostituisci artefatto/i }));
+    expect(
+      await screen.findByText("Non sono riuscito a sostituire l'artefatto.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Replacement failed')).toBeNull();
+    expect(diagnosticLog).toHaveBeenCalledWith(
+      '[Nous][Library] Artifact replacement failed.',
+      'Replacement failed; secret=[RIMOSSO] [EMAIL RIMOSSA]'
+    );
+    expect(JSON.stringify(diagnosticLog.mock.calls)).not.toContain('private-token');
+    expect(JSON.stringify(diagnosticLog.mock.calls)).not.toContain('user@example.test');
+    expect(screen.queryByText('Artefatto sostituito.')).toBeNull();
+
     expect(
       generateLessonArtifactDraftMock.mock.calls.slice(1).map(([input]) => input.requestKey)
     ).toEqual([
+      `library-replacement-${sourceArtifact.summary.id}`,
       `library-replacement-${sourceArtifact.summary.id}`,
       `library-replacement-${sourceArtifact.summary.id}`,
     ]);

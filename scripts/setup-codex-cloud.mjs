@@ -13,9 +13,10 @@ const PACKS = [
   {
     name: 'my-codex-skills',
     repository: 'immagiov4/my-codex-skills',
-    ref: '56439c4acd74242136d4573190e7b9ece59223be',
+    ref: '4ce5ba501e90429e8f39dd19049f1dd7ac1d6893',
     required: [
       'engineering-workflow',
+      'write-pr',
       'principle-boundary-discipline',
       'principle-build-the-lever',
       'principle-encode-lessons-in-structure',

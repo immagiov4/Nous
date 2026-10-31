@@ -239,6 +239,33 @@ describe('SourceArchiveAccess', () => {
     );
   });
 
+  test('preserves BOM bytes at the start of a file and a later page', async () => {
+    const bomByteLength = encoder.encode('\uFEFF').byteLength;
+    const firstPageText = `\uFEFF${'a'.repeat(SOURCE_ARCHIVE_READ_PAGE_MAX_BYTES - bomByteLength)}`;
+    const text = `${firstPageText}\uFEFFé target`;
+    const bytes = encoder.encode(text);
+    const access = new SourceArchiveAccess({
+      index: {
+        entries: [
+          { byteSize: bytes.byteLength, contentKind: 'text', kind: 'file', path: 'bom.txt' },
+        ],
+      },
+      maxContextBytes: bytes.byteLength,
+      readByteRange: async (_path, start, endExclusive) => bytes.slice(start, endExclusive),
+      readBytes: async () => bytes,
+    });
+
+    const firstPage = await access.readTextPage('bom.txt');
+    expect(firstPage.text).toHaveLength(firstPageText.length);
+    expect(firstPage.text).toBe(firstPageText);
+    expect(firstPage.nextCursorBytes).toBe(SOURCE_ARCHIVE_READ_PAGE_MAX_BYTES);
+    const secondPage = await access.readTextPage('bom.txt', firstPage.nextCursorBytes as number);
+    expect(secondPage.text).toBe('\uFEFFé target');
+    expect(secondPage.endByteExclusive).toBe(bytes.byteLength);
+    expect(secondPage.nextCursorBytes).toBeNull();
+    expect(encoder.encode(firstPage.text + secondPage.text)).toEqual(bytes);
+  });
+
   test('rejects invalid cursors without clamping or reading', async () => {
     const { access, readByteRange } = createAccess();
 
