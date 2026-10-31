@@ -135,6 +135,9 @@ export const isPrivateNetworkFrontendOrigin = (origin: string): boolean => {
   }
 };
 
+const shouldLogRequest = (method: string, path: string, statusCode: number): boolean =>
+  !(method === 'GET' && statusCode < 400 && QUIET_SUCCESS_GET_PATHS.has(path));
+
 const getRequestPath = (req: express.Request): string => req.originalUrl.split('?')[0] || req.path;
 
 const getRequestLogPath = (req: express.Request): string => {
@@ -257,6 +260,9 @@ export const createApp = (options: CreateAppOptions = {}) => {
       return send.call(this, body);
     };
     res.on('finish', () => {
+      if (!shouldLogRequest(req.method, getRequestPath(req), res.statusCode)) {
+        return;
+      }
       const failure = res.locals[REQUEST_FAILURE_LOCAL] as StepFailure | undefined;
       emitWorkflowLog(consoleWorkflowLogger, {
         action: res.statusCode >= 400 ? 'failed' : 'completed',

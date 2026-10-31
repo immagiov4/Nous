@@ -21,7 +21,7 @@ Observability and Telemetry in Nous provide visibility into the system's runtime
 The backend implements a correlation system to trace requests through the service architecture. Each request receives a unique `correlationId` (UUID), which the system propagates across internal execution paths.
 
 ### Lifecycle Logging
-The server records the lifecycle of every HTTP request, capturing timing information, response status, and potential failures. Successful requests include polling paths such as `/api/status`. Completion and early-close events record elapsed milliseconds and body bytes handed to Node; an early-close count does not prove delivery to the client. HEAD, 204 and 304 responses have zero body bytes.
+The server records the lifecycle of every HTTP request, capturing timing information, response status, and potential failures. It excludes successful polls of quiet paths like `/api/status` to reduce noise. Completion and early-close events record elapsed milliseconds and body bytes handed to Node; an early-close count does not prove delivery to the client. HEAD, 204 and 304 responses have zero body bytes.
 
 ```mermaid
 sequenceDiagram

@@ -23,8 +23,23 @@ describe('private-network frontend origins', () => {
 describe('request lifecycle observability', () => {
   afterEach(() => vi.restoreAllMocks());
 
+  test('keeps successful status polls out of the request log', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const server = createApp().listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Expected TCP address');
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/status`);
+      await response.text();
+      expect(response.ok).toBe(true);
+      expect(info).not.toHaveBeenCalledWith(expect.stringContaining('"operation":"http_request"'));
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
   test.each([
-    '/api/status',
     '/telemetry-stream',
     '/telemetry-empty',
     '/telemetry-head',
