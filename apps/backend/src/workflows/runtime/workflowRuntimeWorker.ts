@@ -24,7 +24,7 @@ import {
   type WorkflowRuntimeLoop,
   type WorkflowTransientEventPublisher,
 } from '../workflowObservability.js';
-import { startWorkflowAttemptMonitor } from '../workflowStepAttempt.js';
+import { raceOperationWithAbort, startWorkflowAttemptMonitor } from '../workflowStepAttempt.js';
 import type { WorkflowDefinitionResolver } from '../workflowStepResolution.js';
 import {
   DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS,
@@ -115,7 +115,7 @@ export interface WorkflowRuntimeRegistry extends WorkflowDefinitionResolver {
 
 export interface WorkflowRuntimeWorkerInput<Services> {
   assetCleanup: WorkflowRuntimeAssetCleanup;
-  deliverNotification(claim: WorkflowOutboxClaim): Promise<void>;
+  deliverNotification(claim: WorkflowOutboxClaim, signal: AbortSignal): Promise<void>;
   logger?: WorkflowLogger;
   onLoopError(error: WorkflowRuntimeLoopError): void;
   pollIntervalMs: number;
@@ -358,25 +358,56 @@ class WorkflowRuntimeWorker<Services> {
       interruptionError: () => new WorkflowOutboxLeaseLostError(),
       leaseMs: DEFAULT_WORKFLOW_LEASE_MS,
     });
-    let deliveryError: unknown;
-    let deliveryFailed = false;
-    try {
-      await this.input.deliverNotification(claim);
-    } catch (error) {
-      deliveryError = error;
-      deliveryFailed = true;
+    let settlement: PromiseSettledResult<void> | undefined;
+    let settlementLogged = false;
+    const logLateSettlement = (): void => {
+      if (!settlement || settlementLogged) return;
+      settlementLogged = true;
+      emitWorkflowLog(this.input.logger ?? consoleWorkflowLogger, {
+        action:
+          settlement.status === 'fulfilled' ? 'late-delivery-succeeded' : 'late-delivery-failed',
+        claim,
+        entity: 'notification',
+        ...(settlement.status === 'rejected'
+          ? { failureDiagnostic: toWorkflowErrorDiagnostic(settlement.reason) }
+          : {}),
+      });
+    };
+    const delivery = await raceOperationWithAbort(async () => {
+      try {
+        await this.input.deliverNotification(claim, controller.signal);
+        settlement = { status: 'fulfilled', value: undefined };
+      } catch (error) {
+        settlement = { status: 'rejected', reason: error };
+        throw error;
+      } finally {
+        if (controller.signal.aborted) logLateSettlement();
+      }
+    }, controller.signal);
+    const interruption = await monitor.stop();
+    if (interruption) {
+      if (typeof interruption === 'object') {
+        emitWorkflowLog(this.input.logger ?? consoleWorkflowLogger, {
+          action: 'heartbeat-failed',
+          claim,
+          entity: 'notification',
+          failureDiagnostic: interruption.diagnostic,
+        });
+      }
+      // An in-flight heartbeat can report lease loss after delivery has settled.
+      logLateSettlement();
+      return false;
     }
-    if (await monitor.stop()) return false;
 
-    if (deliveryFailed) {
+    if (delivery.status === 'failed') {
       await this.input.store.outbox.recordFailure({
         claim,
         failure:
-          deliveryError instanceof WorkflowStepError
-            ? deliveryError.failure
+          delivery.error instanceof WorkflowStepError
+            ? delivery.error.failure
             : {
                 code: 'notification_delivery_failed',
-                details: { diagnostic: toWorkflowErrorDiagnostic(deliveryError) },
+                details: { diagnostic: toWorkflowErrorDiagnostic(delivery.error) },
                 kind: 'operational',
                 message: 'The durable notification could not be delivered.',
               },
@@ -391,6 +422,7 @@ class WorkflowRuntimeWorker<Services> {
   private async runStep(claim: WorkflowStepClaim): Promise<void> {
     const result = await runWorkflowStepClaim({
       claim,
+      logger: this.input.logger,
       registry: this.input.registry,
       services: this.input.services,
       store: this.input.store,
@@ -476,6 +508,7 @@ class WorkflowRuntimeWorker<Services> {
     if (!claim) return false;
     await runWorkflowUndoClaim({
       claim,
+      logger: this.input.logger,
       registry: this.input.registry,
       services: this.input.services,
       store: this.input.store.undo,

@@ -31,6 +31,46 @@ describe('account enrollment gate', () => {
     history.replaceState({}, '', '/');
   });
   afterEach(cleanup);
+  test('keeps only the background while initial account status is pending', async () => {
+    let complete!: (status: string) => void;
+    api.load.mockImplementation(
+      () =>
+        new Promise<string>(resolve => {
+          complete = resolve;
+        })
+    );
+    const { container } = render(
+      <AccountSetupGate>
+        <p>Main app</p>
+      </AccountSetupGate>
+    );
+    expect(screen.getByRole('status')).toHaveClass('sr-only');
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(container.querySelector('.setup-page')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    await act(async () => complete('not-required'));
+    expect(screen.getByText('Main app')).toBeInTheDocument();
+  });
+  test('allows entry while a failed status request is retrying and ignores its late result', async () => {
+    let complete!: (status: string) => void;
+    api.load.mockRejectedValueOnce(new Error('Unavailable')).mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          complete = resolve;
+        })
+    );
+    render(
+      <AccountSetupGate>
+        <p>Main app</p>
+      </AccountSetupGate>
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /Riprova|Retry/ }));
+    expect(screen.getByRole('button', { name: /Riprova|Retry/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /Entra in Nous|Enter Nous/ }));
+    expect(screen.getByText('Main app')).toBeInTheDocument();
+    await act(async () => complete('pending'));
+    expect(screen.getByText('Main app')).toBeInTheDocument();
+  });
   test.each([
     'not-required',
     'completed',

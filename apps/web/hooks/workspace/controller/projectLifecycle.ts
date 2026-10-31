@@ -9,6 +9,7 @@ import {
 } from '../../../services/projects/courseSources.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import {
+  COURSE_INTERVIEW_INITIAL_MESSAGE_KEY,
   createProjectId,
   createProjectSnapshot,
 } from '../../../services/projects/projectSnapshot.ts';
@@ -39,7 +40,10 @@ import {
   getPdfProjectHydrationState,
   needsPdfProjectHydration,
 } from '../../../utils/pdf/projectHydration.ts';
-import { createAssessmentWorkspaceOwnership } from './assessmentSession.ts';
+import {
+  createAssessmentWorkspaceOwnership,
+  releaseAssessmentWorkspaceOwnership,
+} from './assessmentSession.ts';
 import {
   formatSourcePreparationProgress,
   getProjectSourceWarnings,
@@ -60,7 +64,7 @@ interface ProjectLifecycleDependencies {
   resumeRetainedSublesson: (parentSection: LessonNode) => Promise<unknown>;
   resumePlanGeneration: (projectId: string) => Promise<'not-found' | 'resumed'>;
   startAssessment: (input: AssessmentSourceInput) => Promise<void>;
-  startLearnAssessment: () => Promise<void>;
+  startLearnAssessment: (initialMessage?: string) => Promise<void>;
   settleHomeChatWorkspaceOpen: (
     projectId: string,
     openProjectRequestId: number,
@@ -187,6 +191,8 @@ export const createProjectLifecycleCommands = (
       : [selectedFilesInput];
     const selectedFile = selectedFiles[0];
     if (!selectedFile) {
+      releaseAssessmentWorkspaceOwnership(session, ownership);
+      session.activeSourceAttachmentOwnership = null;
       return {
         outcome: options?.mode === 'reattach-source' ? 'failed' : 'started-assessment',
         errorMessage: 'Nessuna fonte selezionata.',
@@ -472,6 +478,7 @@ export const createProjectLifecycleCommands = (
         sourceWarnings,
       };
     } finally {
+      releaseAssessmentWorkspaceOwnership(session, ownership);
       if (
         preparationController.signal.aborted &&
         state.isWorkflowCurrent('attachSource', requestId)
@@ -508,10 +515,17 @@ export const createProjectLifecycleCommands = (
     let didSettleOpenWorkflow = false;
 
     try {
-      await beginHomeChatWorkspaceOpen(projectId, requestId);
       if (projectLibrary.getCurrentProjectId() !== projectId) {
         state.invalidateWorkflows([...PROJECT_NAVIGATION_WORKFLOWS_TO_INVALIDATE]);
       }
+      // Only startup becomes obsolete before validation; Stop retains its cleanup ownership.
+      if (
+        session.activeHomeChatStartPromise !== null &&
+        session.activeAssessmentCancellationPromise === null
+      ) {
+        state.invalidateWorkflows(['assessment']);
+      }
+      await beginHomeChatWorkspaceOpen(projectId, requestId);
       state.setOpeningProjectId(projectId);
       pushNousDebugTrace('open-project:start', { projectId, requestId });
 
@@ -666,12 +680,14 @@ export const createProjectLifecycleCommands = (
 
       if (!preparedSnapshot.learningPlan) {
         const resumeOutcome = await resumePlanGeneration(projectId);
+        if (!state.isWorkflowCurrent('openProject', requestId)) return { outcome: 'stale' };
         if (resumeOutcome === 'resumed') {
           pushNousDebugTrace('open-project:course-generation-resumed', { projectId, requestId });
           return { outcome: 'opened' };
         }
 
         const latestSnapshot = await projectLibrary.loadStoredProject(projectId);
+        if (!state.isWorkflowCurrent('openProject', requestId)) return { outcome: 'stale' };
         if (latestSnapshot) {
           preparedSnapshot = prepareSnapshotForHydrationResult(latestSnapshot).snapshot;
           persistHydratedSnapshot(preparedSnapshot);
@@ -679,12 +695,20 @@ export const createProjectLifecycleCommands = (
       }
 
       if (!preparedSnapshot.learningPlan) {
+        const savedInitialMessage =
+          preparedSnapshot.extensions?.[COURSE_INTERVIEW_INITIAL_MESSAGE_KEY];
+        const initialMessage =
+          typeof savedInitialMessage === 'string' ? savedInitialMessage : undefined;
         const assessmentSources = getCourseSourceDescriptors(preparedSnapshot.source);
         if (
           assessmentSources.length > 1 ||
           assessmentSources.some(source => source.documentIndex?.chunks.length)
         ) {
-          await startAssessment({ sources: assessmentSources });
+          await startAssessment({
+            sources: assessmentSources,
+            source: preparedSnapshot.source,
+            initialMessage,
+          });
         } else if (preparedSnapshot.source?.kind === 'archive') {
           pushNousDebugTrace('open-project:start-text-assessment', {
             projectId,
@@ -692,6 +716,8 @@ export const createProjectLifecycleCommands = (
             archiveEntryCount: preparedSnapshot.source.index.entries.length,
           });
           await startAssessment({
+            initialMessage,
+            source: preparedSnapshot.source,
             textSource: {
               name: preparedSnapshot.source.name,
               text: formatSourceArchiveIndex(preparedSnapshot.source.index, {
@@ -703,10 +729,13 @@ export const createProjectLifecycleCommands = (
           const sourceFile =
             getProjectSourceFile(preparedSnapshot.source) ??
             (await projectLibrary.loadStoredProjectSource(projectId));
+          if (!state.isWorkflowCurrent('openProject', requestId)) return { outcome: 'stale' };
           if (!sourceFile) {
             throw new Error('La sorgente documento non è disponibile.');
           }
           await startAssessment({
+            initialMessage,
+            source: preparedSnapshot.source,
             textSource: {
               name: sourceFile.name,
               text: decodeTextBase64(sourceFile.data),
@@ -721,9 +750,14 @@ export const createProjectLifecycleCommands = (
           const assessmentFile =
             getProjectSourceFile(preparedSnapshot.source) ??
             (await projectLibrary.loadStoredProjectSource(projectId));
-          await startAssessment({ file: assessmentFile });
+          if (!state.isWorkflowCurrent('openProject', requestId)) return { outcome: 'stale' };
+          await startAssessment({
+            file: assessmentFile,
+            source: preparedSnapshot.source,
+            initialMessage,
+          });
         } else if (preparedSnapshot.isLearnMode) {
-          await startLearnAssessment();
+          await startLearnAssessment(initialMessage);
         }
       } else if (preparedSnapshot.learningPlan) {
         const requestedSection = requestedPathNode?.kind === 'lesson' ? requestedPathNode : null;

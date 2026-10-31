@@ -19,7 +19,7 @@ export function useSetup(adapter: SetupAdapter) {
     };
   }, []);
   useEffect(() => {
-    if (state.phase !== 'loading') return;
+    if (state.phase !== 'loading' && state.phase !== 'reloading') return;
     let disposed = false;
     void adapter
       .load()

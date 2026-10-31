@@ -21,6 +21,7 @@ import {
   remapProjectAssetReferences,
 } from '@shared/projectBackupAssets';
 import { resolveAvailableFolderName } from '../../src/projects/folderNames.js';
+import { restoreProjectDocumentText } from '../../src/projects/projectDocumentText.js';
 import { buildProjectMeta, normalizeProjectSnapshot } from '../../src/projects/projectMeta.js';
 import { applyProjectPatch, assertRebasedProjectPatch } from '../../src/projects/projectPatch.js';
 import {
@@ -441,6 +442,7 @@ export class InMemoryProjectStore implements ProjectStore {
     });
     if (existing) {
       snapshot = preserveStoredProjectSource(snapshot, existing.snapshot);
+      snapshot = restoreProjectDocumentText(snapshot, existing.snapshot);
     }
     await this.restoreUploadedSourceFiles(snapshot, sourceFiles);
     snapshot = await this.storeSnapshotSources(userId, snapshot, sourceFile);

@@ -37,7 +37,10 @@ export const lessonProjectRevisionEventProjector = createProjectRevisionEventPro
   LESSON_PROJECT_REVISION_EVENT
 );
 
-export type ProjectRevisionNotificationReceiver = (claim: WorkflowOutboxClaim) => Promise<void>;
+export type ProjectRevisionNotificationReceiver = (
+  claim: WorkflowOutboxClaim,
+  signal?: AbortSignal
+) => Promise<void>;
 
 export type ProjectRevisionEventType =
   | typeof COURSE_PROJECT_REVISION_EVENT
@@ -73,7 +76,7 @@ export const createProjectRevisionNotificationDelivery =
     eventTypes: ReadonlySet<string>;
     receiveNotification: ProjectRevisionNotificationReceiver;
   }) =>
-  async (claim: WorkflowOutboxClaim): Promise<void> => {
+  async (claim: WorkflowOutboxClaim, signal?: AbortSignal): Promise<void> => {
     if (
       !eventTypes.has(claim.eventType) ||
       claim.schemaVersion !== PROJECT_REVISION_EVENT_SCHEMA_VERSION
@@ -90,5 +93,5 @@ export const createProjectRevisionNotificationDelivery =
         message: 'The durable workflow notification payload is invalid.',
       });
     }
-    await receiveNotification(claim);
+    await receiveNotification(claim, signal);
   };

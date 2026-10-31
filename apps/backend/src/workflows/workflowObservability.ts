@@ -126,6 +126,7 @@ interface WorkflowAttemptLogEvent {
     | 'claimed'
     | 'completed'
     | 'failed'
+    | 'heartbeat-failed'
     | 'lease-lost'
     | 'recovered'
     | 'retry-scheduled';
@@ -165,6 +166,9 @@ interface WorkflowNotificationLogEvent {
     | 'claimed'
     | 'dead-lettered'
     | 'delivered'
+    | 'heartbeat-failed'
+    | 'late-delivery-failed'
+    | 'late-delivery-succeeded'
     | 'lease-lost'
     | 'requeued'
     | 'retry-scheduled';
@@ -174,6 +178,7 @@ interface WorkflowNotificationLogEvent {
   readonly event: 'workflow.notification';
   readonly eventType: string;
   readonly failureCode?: string;
+  readonly failureDiagnostic?: WorkflowErrorDiagnostic;
   readonly failureKind?: StepFailure['kind'];
   readonly fencingToken: string;
   readonly level: WorkflowLogLevel;
@@ -320,6 +325,7 @@ interface WorkflowNotificationLogSource {
   readonly claim: WorkflowNotificationLogIdentity;
   readonly entity: 'notification';
   readonly failure?: StepFailure;
+  readonly failureDiagnostic?: WorkflowErrorDiagnostic;
   readonly retryDelayMs?: number;
 }
 
@@ -381,6 +387,7 @@ const ATTEMPT_LEVEL_BY_ACTION = {
   claimed: 'info',
   completed: 'info',
   failed: 'error',
+  'heartbeat-failed': 'error',
   'lease-lost': 'error',
   recovered: 'warn',
   'retry-scheduled': 'warn',
@@ -398,6 +405,9 @@ const NOTIFICATION_LEVEL_BY_ACTION = {
   claimed: 'info',
   'dead-lettered': 'error',
   delivered: 'info',
+  'heartbeat-failed': 'error',
+  'late-delivery-failed': 'error',
+  'late-delivery-succeeded': 'warn',
   'lease-lost': 'error',
   requeued: 'warn',
   'retry-scheduled': 'warn',
@@ -565,6 +575,9 @@ const projectNotificationLogEvent = (
   event: 'workflow.notification',
   eventType: source.claim.eventType,
   ...failureFields(source.failure),
+  ...(source.failureDiagnostic
+    ? { failureDiagnostic: readWorkflowErrorDiagnostic(source.failureDiagnostic) }
+    : {}),
   fencingToken: source.claim.fencingToken,
   level: NOTIFICATION_LEVEL_BY_ACTION[source.action],
   notificationId: source.claim.id,
@@ -636,3 +649,23 @@ export const emitWorkflowLog = (logger: WorkflowLogger, source: WorkflowLogSourc
     // The durable database state remains the source of truth if logging is unavailable.
   }
 };
+
+/** Reports an uncertain lease without requiring another write to the failing database. */
+export const emitWorkflowHeartbeatFailure = (
+  claim: WorkflowAttemptLogIdentity,
+  operation: WorkflowAttemptOperation,
+  diagnostic: WorkflowErrorDiagnostic,
+  logger: WorkflowLogger = consoleWorkflowLogger
+): void =>
+  emitWorkflowLog(logger, {
+    action: 'heartbeat-failed',
+    claim,
+    entity: 'attempt',
+    failure: {
+      code: 'workflow_heartbeat_failed',
+      details: { diagnostic },
+      kind: 'operational',
+      message: 'The workflow attempt stopped because its heartbeat check failed.',
+    },
+    operation,
+  });

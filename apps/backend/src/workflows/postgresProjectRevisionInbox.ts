@@ -18,6 +18,7 @@ import {
   ProjectRevisionEventSchema,
 } from './projectRevisionNotifications.js';
 import { failPermanently } from './retryPolicy.js';
+import { DEFAULT_WORKFLOW_LEASE_MS } from './workflowStepAttempt.js';
 
 const PROJECT_REVISION_NOTIFICATION_CHANNEL = 'project_revision_notification_ready';
 
@@ -74,8 +75,13 @@ export class PostgresProjectRevisionInbox {
     }
   ) {}
 
-  readonly deliver = async (claim: WorkflowOutboxClaim): Promise<void> => {
+  readonly deliver = async (claim: WorkflowOutboxClaim, signal?: AbortSignal): Promise<void> => {
+    signal?.throwIfAborted();
     await this.options.sql.begin(async transaction => {
+      signal?.throwIfAborted();
+      // Bound blocked statements even after the worker stops awaiting this transaction.
+      await transaction`select set_config('statement_timeout', ${String(DEFAULT_WORKFLOW_LEASE_MS)}, true)`;
+      signal?.throwIfAborted();
       const inserted = await transaction<{ notification_id: string }[]>`
         insert into public.project_revision_notification_inbox (
           notification_id, run_id, user_id, event_type, schema_version, sequence, payload
@@ -87,6 +93,7 @@ export class PostgresProjectRevisionInbox {
         on conflict (notification_id) do nothing
         returning notification_id
       `;
+      signal?.throwIfAborted();
       const rows = await transaction<MatchingProjectRevisionNotificationRow[]>`
         select
           notification_id, run_id, user_id, event_type, schema_version,
@@ -95,10 +102,12 @@ export class PostgresProjectRevisionInbox {
         from public.project_revision_notification_inbox
         where notification_id = ${claim.id}
       `;
+      signal?.throwIfAborted();
       assertMatchingNotification(claim, rows[0]);
       if (inserted.length === 1) {
         await transaction`select pg_notify(${PROJECT_REVISION_NOTIFICATION_CHANNEL}, ${claim.id})`;
       }
+      signal?.throwIfAborted();
     });
   };
 

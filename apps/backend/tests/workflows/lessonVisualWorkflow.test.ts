@@ -2,6 +2,7 @@ import type { ProjectAssetRef } from '@shared/projectAsset';
 import type { TransactionSql } from 'postgres';
 import { describe, expect, test, vi } from 'vitest';
 
+import { createArtifactDraftWorkflow } from '../../src/workflows/artifactDraftWorkflow.js';
 import { createWorkflowRegistry } from '../../src/workflows/definition.js';
 import { buildLessonVisualContextFingerprint } from '../../src/workflows/lessonVisualContext.js';
 import {
@@ -11,7 +12,17 @@ import {
   type LessonVisualWorkflowResult,
   type LessonVisualWorkflowServices,
 } from '../../src/workflows/lessonVisualWorkflow.js';
-import type { WorkflowProviderEffectExecutor } from '../../src/workflows/types.js';
+import { parseStepFailure } from '../../src/workflows/retryPolicy.js';
+import type {
+  WorkflowProviderEffectExecutor,
+  WorkflowStepClaim,
+} from '../../src/workflows/types.js';
+import { readWorkflowErrorDiagnostic } from '../../src/workflows/workflowErrorDiagnostics.js';
+import { indexWorkflowNodes } from '../../src/workflows/workflowNodeIndex.js';
+import {
+  runWorkflowStepClaim,
+  type WorkflowStepRunnerStore,
+} from '../../src/workflows/workflowStepRunner.js';
 
 const FIRST_ASSET_ID = 'a'.repeat(64);
 const SECOND_ASSET_ID = 'b'.repeat(64);
@@ -137,6 +148,103 @@ const getArtifactNodes = (workflowConfig = config) => {
 };
 
 describe('lesson visual workflows', () => {
+  test('retains contextual-artifact scene diagnostics through the public runner failure checkpoint', async () => {
+    const registry = createWorkflowRegistry();
+    const definition = registry.register({
+      current: createArtifactDraftWorkflow(config),
+    }).current;
+    const entry = [...indexWorkflowNodes(definition)].find(
+      ([, entry]) => entry.node.id === 'render-scene'
+    );
+    if (!entry) throw new Error('Expected the scene node.');
+    const [nodeDefinitionId] = entry;
+    const generateScene = vi.fn();
+    const recordFailure = vi.fn<WorkflowStepRunnerStore['steps']['recordFailure']>(async () => ({
+      status: 'failed',
+      transientEvents: [],
+    }));
+    const store: WorkflowStepRunnerStore = {
+      checkpointStep: vi.fn(),
+      cancellation: { releaseClaim: vi.fn() },
+      recordAiUsage: vi.fn(),
+      providerEffects: { getResult: vi.fn(), recordResult: vi.fn() },
+      steps: {
+        heartbeat: vi.fn(async () => ({
+          status: 'renewed',
+          leaseExpiresAt: '2026-10-30T12:00:00.000Z',
+        })),
+        recordDefinitionUnavailable: vi.fn(),
+        recordFailure,
+      },
+    };
+    for (let attemptNumber = 1; attemptNumber <= config.maxAttempts; attemptNumber++) {
+      const diagnostic = {
+        type: 'Error',
+        originalMessage: JSON.stringify({
+          outputPath: attemptNumber === 1 ? 'direct' : 'json-envelope',
+          stage: 'domain',
+          problems: ['evidence must be an exact quotation from the lesson.'],
+          supportComparison: { outcome: 'absent', evidenceChars: attemptNumber },
+        }),
+      };
+      generateScene.mockResolvedValueOnce({
+        kind: 'invalid',
+        problems: ['evidence must be an exact quotation from the lesson.'],
+        diagnostic,
+      });
+      const claim: WorkflowStepClaim = {
+        attemptNumber,
+        definitionHash: definition.definitionHash,
+        definitionHashVersion: definition.definitionHashVersion,
+        fencingToken: String(attemptNumber),
+        input: { ...input, plan: { ...input.plan, visualType: 'lesson_scene' } },
+        kind: 'step',
+        leaseExpiresAt: '2026-10-30T12:00:00.000Z',
+        maxAttempts: config.maxAttempts,
+        nodeDefinitionId,
+        nodeInstanceId: nodeDefinitionId,
+        retryFeedback: '',
+        runId: RUN_ID,
+        stepPolicies: {
+          [nodeDefinitionId]: {
+            config,
+            maxAttempts: config.maxAttempts,
+            timeoutMs: config.timeoutMs,
+          },
+        },
+        stepPoliciesVersion: 1,
+        timeoutMs: config.timeoutMs,
+        userId: input.userId,
+        workerId: 'worker-1',
+        workflowId: definition.id,
+      };
+      expect(
+        (
+          await runWorkflowStepClaim({
+            claim,
+            registry,
+            services: makeServices({ generateScene }),
+            store,
+          })
+        ).status
+      ).toBe('failure-recorded');
+      // The PostgreSQL store applies this parser before serializing the attempt error.
+      const saved = JSON.parse(
+        JSON.stringify(parseStepFailure(recordFailure.mock.calls.at(-1)?.[0].failure))
+      );
+      expect(saved).toMatchObject({
+        code: 'lesson_visual_generation_incomplete',
+        kind: 'corrective',
+        message: 'The lesson visual could not be completed.',
+        details: { diagnostic },
+      });
+      expect(readWorkflowErrorDiagnostic(saved.details.diagnostic)).toEqual(diagnostic);
+      expect(saved.feedback).not.toContain('supportComparison');
+    }
+    expect(recordFailure).toHaveBeenCalledTimes(config.maxAttempts);
+    expect(store.checkpointStep).not.toHaveBeenCalled();
+  });
+
   test('declares real raster and artifact composition boundaries', () => {
     const route = getRenderRoute();
     const raster = route.cases.raster;

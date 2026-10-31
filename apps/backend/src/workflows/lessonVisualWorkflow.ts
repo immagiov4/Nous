@@ -538,6 +538,7 @@ export const createLessonVisualWorkflows = <
       if (outcome.kind === 'invalid') {
         throw retryCorrective({
           code: 'lesson_visual_generation_incomplete',
+          ...(outcome.diagnostic ? { details: { diagnostic: outcome.diagnostic } } : {}),
           feedback: `The previous scene did not follow the catalog contract:\n- ${outcome.problems.join('\n- ')}`,
           message: 'The lesson visual could not be completed.',
         });

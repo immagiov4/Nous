@@ -8,7 +8,7 @@ Browser tests are always muted; audio is verified inside the page or from files.
 
 After dependencies are installed, run `bun run setup:codex` in the cloud setup command. It installs Geppetto at the commit already pinned by the PR gate, and My Codex Skills and Ponytail at reviewed commits, through Codex's native plugin manager. Pin changes replace only clean native marketplaces from those repositories; custom sources, sparse configurations and local edits stop setup for preservation. It reuses the machine's memory choice, otherwise links the existing Nous memory repository, adopts the project, approves only the two installed hook packs, and checks their skills through the native discovery API. Geppetto reuses the maintenance jobs already registered on another machine.
 
-Start a fresh Codex session after setup. Invoke `$my-codex-skills:engineering-workflow`, `$ponytail:ponytail` and the explicit `$my-codex-skills:principle-<name>` skills. Plugin installation and trusted hashes establish configuration; actual session IDs in `.geppetto/hook-events.jsonl` establish execution. Verify startup, a tool call and completion in that fresh session. The active chat may have started before setup and does not gain hook evidence retroactively.
+Start a fresh Codex session after setup. Use `$my-codex-skills:engineering-workflow` and `$ponytail:ponytail`; apply relevant `$my-codex-skills:principle-<name>` skills automatically when their task conditions apply. These installed skills own automatic selection; vendored copies remain explicit. See `.agents/skills/THIRD_PARTY_SKILLS.md#automatic-principle-selection` for selection and context-cost metrics. Plugin installation and trusted hashes establish configuration; actual session IDs in `.geppetto/hook-events.jsonl` establish execution. Verify startup, a tool call and completion in that fresh session. The active chat may have started before setup and does not gain hook evidence retroactively.
 
 Codex CLI authentication belongs to the cloud environment. If a real turn reports an expired login, run `codex login --device-auth` and complete the device flow; never commit authentication files. The setup command does not change credentials or run a model. Learning uses the configured model and the existing Geppetto lifecycle. Keep runtime evidence outside Git.
 
@@ -33,6 +33,8 @@ bun run lint:types  # When types or interfaces changed
 `bun run doctor` checks the local environment. Add `-- --profile local` for Supabase and migration parity, `-- --profile gate` for the existing local Sonar service, or `-- --profile all` for both. All profiles are read-only.
 
 Changed-file checks run without the shared heavy-run lock. CI owns full quality, tests, coverage and SonarCloud. Browser suites and other heavy package scripts queue automatically across worktrees. Use `bun scripts/heavy-run.mjs status` to inspect the queue and wrap additional browser or Docker proofs with `bun scripts/heavy-run.mjs --label "who/what" -- <command...>`.
+
+`bun run test:interview-recovery` checks source upload, rejected interview startup and retry from the library after a page reload. Set `NOUS_E2E_DATA` to an external evidence directory. The deterministic browser profile in `e2e/nous/stack.ts` owns startup, authentication and teardown. The full frontend uses real project routes with the existing in-memory store and deterministic workflow responses; external AI calls are intercepted. CI runs this Chromium proof and uploads its screenshots and result as the `interview-recovery` artifact.
 
 ### Heavy command leases
 

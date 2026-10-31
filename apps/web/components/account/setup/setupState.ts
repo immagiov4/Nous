@@ -9,7 +9,15 @@ export type SetupStep = (typeof SETUP_STEPS)[number];
 export interface SetupState {
   hasLoaded: boolean;
   step: SetupStep;
-  phase: 'loading' | 'load-error' | 'editing' | 'saving' | 'save-error' | 'completed' | 'skipped';
+  phase:
+    | 'loading'
+    | 'reloading'
+    | 'load-error'
+    | 'editing'
+    | 'saving'
+    | 'save-error'
+    | 'completed'
+    | 'skipped';
   draft: AccountPreferences;
 }
 export const initialSetupState: SetupState = {
@@ -30,7 +38,7 @@ export function setupReducer(state: SetupState, event: SetupEvent): SetupState {
     case 'loaded':
       return { ...state, phase: 'editing', draft: event.preferences, hasLoaded: true };
     case 'reload':
-      return { ...state, phase: 'loading' };
+      return { ...state, phase: 'reloading' };
     case 'load-failed':
       return { ...state, phase: 'load-error' };
     case 'save-failed':

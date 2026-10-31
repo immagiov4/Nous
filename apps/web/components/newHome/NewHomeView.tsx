@@ -31,7 +31,12 @@ import logoUrl from '@/assets/logo.svg';
 import logoDarkModeUrl from '@/assets/logo_darkmode.svg';
 import { useLearningActivity } from '../../hooks/library/useLearningActivity.ts';
 import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
-import { getAppLocale, translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import {
+  getAppLocale,
+  SOURCE_LIBRARY_LOAD_ERROR_MESSAGE,
+  translateUiMessage as t,
+} from '../../i18n/uiMessages.ts';
+import type { LibraryBackupImportResult } from '../../services/projects/libraryArchiveImport.ts';
 import type { LibraryExportProgressListener } from '../../services/projects/projectRepository.ts';
 import { createFileObjectUrl } from '../../services/projects/projectSource.ts';
 import type {
@@ -98,6 +103,7 @@ const buildCoursePromptTemplate = (prefix: string, suffix: string): ChatDraftTem
 };
 
 interface NewHomeViewProps {
+  readonly storageError?: string | null;
   readonly chatProps: ChatProps;
   readonly isDarkMode: boolean;
   readonly isExportingProject: boolean;
@@ -117,8 +123,9 @@ interface NewHomeViewProps {
   readonly onDeleteProject?: (projectId: string) => void | Promise<void>;
   readonly onExportLibraryBackup?: (onProgress?: LibraryExportProgressListener) => Promise<number>;
   readonly onExportProject?: (projectId: string) => Promise<void>;
-  readonly onImportLibraryBackup?: (file: File) => Promise<number>;
+  readonly onImportLibraryBackup?: (file: File) => Promise<LibraryBackupImportResult>;
   readonly onImportProjectFile?: (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly onNotifyError?: (message: string) => void;
   readonly onOpenProject: (projectId: string) => void;
   readonly onPageChange?: (page: NewHomePage) => void;
   readonly openingProjectId: string | null;
@@ -246,7 +253,7 @@ const NewHomeSidebar = ({
   averageCompletion: number;
   isDarkMode: boolean;
   onExportLibraryBackup?: (onProgress?: LibraryExportProgressListener) => Promise<number>;
-  onImportLibraryBackup?: (file: File) => Promise<number>;
+  onImportLibraryBackup?: (file: File) => Promise<LibraryBackupImportResult>;
   onNavigate: (page: NewHomePage, hash?: string) => void;
   onToggleDarkMode: () => void;
   streakDays: number;
@@ -331,7 +338,7 @@ const MobileHeader = ({
   activePage: NewHomePage;
   isDarkMode: boolean;
   onExportLibraryBackup?: (onProgress?: LibraryExportProgressListener) => Promise<number>;
-  onImportLibraryBackup?: (file: File) => Promise<number>;
+  onImportLibraryBackup?: (file: File) => Promise<LibraryBackupImportResult>;
   onNavigate: (page: NewHomePage) => void;
   onToggleDarkMode: () => void;
 }) => (
@@ -1829,6 +1836,7 @@ const SourceViewer = ({
 };
 
 const SourceLibraryPage = ({
+  hasLoadError,
   isDarkMode,
   isLoading,
   items,
@@ -1836,6 +1844,7 @@ const SourceLibraryPage = ({
 }: {
   isDarkMode: boolean;
   isLoading: boolean;
+  hasLoadError: boolean;
   items: SourceLibraryItem[];
   loadProjectSource: (projectId: string) => Promise<FileData | null>;
 }) => {
@@ -1916,7 +1925,11 @@ const SourceLibraryPage = ({
           </p>
         ) : filteredItems.length === 0 ? (
           <p className="px-6 py-12 text-center text-sm text-stone-500 dark:text-stone-400">
-            {t('Nessuna fonte corrisponde a questa ricerca.')}
+            {t(
+              hasLoadError && items.length === 0
+                ? SOURCE_LIBRARY_LOAD_ERROR_MESSAGE
+                : 'Nessuna fonte corrisponde a questa ricerca.'
+            )}
           </p>
         ) : (
           sourceGroups.map(group => {
@@ -2026,6 +2039,7 @@ const SourceLibraryPage = ({
 };
 
 export const NewHomeView = ({
+  storageError,
   chatProps,
   isDarkMode,
   isExportingProject,
@@ -2044,6 +2058,7 @@ export const NewHomeView = ({
   onExportProject,
   onImportLibraryBackup,
   onImportProjectFile,
+  onNotifyError,
   onOpenProject,
   onPageChange,
   openingProjectId,
@@ -2088,7 +2103,8 @@ export const NewHomeView = ({
   const { streakDays, studyTimeLabel } = useLearningActivity();
   const { favoriteIds, toggleFavoriteProject } = useFavoriteProjectIds(
     projects,
-    onSetProjectFavorite
+    onSetProjectFavorite,
+    onNotifyError
   );
   const coverImages = useCourseCoverImages({
     loadProjectCover,
@@ -2100,6 +2116,14 @@ export const NewHomeView = ({
     loadProjectsById,
     projects,
   });
+  const hadSourceLibraryLoadError = useRef(false);
+  useEffect(() => {
+    const isNewLoadError = sourceLibrary.hasLoadError && !hadSourceLibraryLoadError.current;
+    hadSourceLibraryLoadError.current = sourceLibrary.hasLoadError;
+    if (isNewLoadError && sourceLibrary.items.length > 0) {
+      onNotifyError?.(t(SOURCE_LIBRARY_LOAD_ERROR_MESSAGE));
+    }
+  }, [onNotifyError, sourceLibrary.hasLoadError, sourceLibrary.items.length]);
   const averageCompletion = useMemo(() => {
     const completableProjects = projects.filter(project => project.lessonCount > 0);
     if (completableProjects.length === 0) {
@@ -2134,8 +2158,17 @@ export const NewHomeView = ({
       />
       <main className="px-4 pb-20 pt-3 sm:px-6 sm:pt-5 md:ml-[13.25rem] md:px-8 md:pt-6 lg:px-12">
         <div className="mx-auto max-w-[76rem]">
+          {storageError ? (
+            <div
+              role="alert"
+              className="mb-4 rounded-2xl border border-red-200 bg-red-50/80 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300"
+            >
+              {storageError}
+            </div>
+          ) : null}
           {activePage === 'library' ? (
             <SourceLibraryPage
+              hasLoadError={sourceLibrary.hasLoadError}
               isDarkMode={isDarkMode}
               isLoading={sourceLibrary.isLoading}
               items={sourceLibrary.items}

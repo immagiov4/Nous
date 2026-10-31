@@ -1,15 +1,17 @@
 import { describe, expect, test, vi } from 'vitest';
-
+import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import {
   applyCourseExercisePlacements,
   createCourseExercisePlanningStage,
   markCourseExercisePlanningFailed,
 } from '../../src/workflows/courseExercisePlanning.js';
+import { CourseModelProviderError } from '../../src/workflows/courseGenerationModel.js';
 import {
   CourseLearningPlanSchema,
   CourseSourcesFinalizedStateSchema,
 } from '../../src/workflows/courseGenerationWorkflowContract.js';
 import { failPermanently, retryCorrective } from '../../src/workflows/retryPolicy.js';
+import { checkpointCourseStage } from './workflowStageTestHarness.js';
 
 const plan = CourseLearningPlanSchema.parse({
   applicationExercisePlanningStatus: 'not-run',
@@ -263,4 +265,37 @@ describe('course exercise planning', () => {
       name: 'AbortError',
     });
   });
+});
+
+test.each([
+  429, 503,
+])('checkpoints the final exercise planning diagnostic for HTTP %s without content', async status => {
+  const failure = new CourseModelProviderError(
+    Object.assign(new Error('private prompt password=hidden'), {
+      statusCode: status,
+      prompt: 'private prompt',
+      responseBody: 'private provider content',
+    })
+  );
+  const stage = createCourseExercisePlanningStage({
+    generateObject: vi.fn().mockRejectedValue(failure),
+  });
+  const { output, providerOutput } = await checkpointCourseStage(
+    'place-application-exercises',
+    sourceState,
+    { ...stageContext().config, models: getGlobalModelConfig() },
+    { placeApplicationExercises: stage }
+  );
+  expect(output).toMatchObject({
+    stage: 'exercises',
+    plan: { applicationExercisePlanningStatus: 'failed' },
+    exercisePlanningDiagnostic: {
+      type: 'CourseModelProviderError',
+      cause: { type: 'Error', status },
+    },
+  });
+  expect(providerOutput).toEqual(output);
+  expect(JSON.stringify(output)).not.toContain('private prompt');
+  expect(JSON.stringify(output)).not.toContain('hidden');
+  expect(JSON.stringify(output)).not.toContain('private provider content');
 });

@@ -9,7 +9,7 @@ These skills are vendored under their original MIT licences; each folder keeps i
 | `codebase-design`, `improve-codebase-architecture` (adapted for this environment), `domain-modeling`, `grilling` | [mattpocock/skills](https://github.com/mattpocock/skills) by Matt Pocock | MIT |
 | `elegant-code` | [OleksandrKucherenko/e-bash](https://github.com/OleksandrKucherenko/e-bash/tree/master/.claude/skills/elegant-code) by Oleksandr Kucherenko | MIT |
 
-Local adaptations: `principle-sequence-verifiable-units` replaces its automatic rebase with a read-only freshness check, because AGENTS.md forbids unapproved state-changing Git commands. The upstream `disable-model-invocation: true` frontmatter is removed because the Codex skill validator rejects it; those skills carry `agents/openai.yaml` with `allow_implicit_invocation: false` so Codex keeps the explicit-invocation policy. `show-me-your-work` mentions the pstack `unslop` writing-style skill as optional advice; it is not vendored.
+Local adaptations: `principle-sequence-verifiable-units` replaces its automatic rebase with a read-only freshness check, because AGENTS.md forbids unapproved state-changing Git commands. The upstream `disable-model-invocation: true` frontmatter is removed because the Codex skill validator rejects it; the vendored `principle-*` copies use `agents/openai.yaml` with `allow_implicit_invocation: false` and remain explicitly invocable. The installed `my-codex-skills:principle-*` skills own automatic selection, so cloud setup exposes one automatic copy per principle. Other adapted skills retain their own invocation policies. `show-me-your-work` mentions the pstack `unslop` writing-style skill as optional advice; it is not vendored.
 
 ## Precedence in this repository
 
@@ -24,3 +24,7 @@ Vendored skills are guidance written for other environments. Where one conflicts
 - **Work logs:** decision logs and other run artifacts that are not meant to be committed go to the OS temporary directory, never inside the repository tree.
 - **Missing inputs:** when a vendored step needs an artifact the environment does not expose (for example agent transcripts), use the closest available evidence and say what was unavailable.
 - **Testing:** the testing rules in AGENTS.md and `quality-workflow` govern; an assertion such as an empty result is valid when it is the precise observable contract.
+
+## Automatic principle selection
+
+Apply the installed principle when its task condition matches. Evaluate the benefit as applicable tasks completed without a maintainer reminder to invoke a principle, using task transcripts to identify missed selections. The counter-metrics are irrelevant or duplicate invocations per task and context bytes consumed by selected principles. Compare these against explicit-only sessions before claiming a workflow improvement; behavioral comparison remains pending. The setup pin and invocation metadata prove eligibility and a single automatic owner, not selection quality.

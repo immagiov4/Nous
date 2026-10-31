@@ -66,6 +66,7 @@ describe('PostgreSQL project revision inbox', () => {
   test('classifies a conflicting persisted notification as a permanent contract failure', async () => {
     const responses = [
       [],
+      [],
       [
         {
           event_type: 'course.project-revision',
@@ -121,7 +122,7 @@ describe('PostgreSQL project revision inbox', () => {
       sequence: '1',
       user_id: 'user-1',
     };
-    const responses = [[], [storedNotification]];
+    const responses = [[], [], [storedNotification]];
     const queries: string[] = [];
     const transaction = Object.assign(
       async (strings: TemplateStringsArray) => {
@@ -152,7 +153,7 @@ describe('PostgreSQL project revision inbox', () => {
       workerId: 'worker-2',
     });
 
-    expect(queries).toHaveLength(2);
+    expect(queries).toHaveLength(3);
     expect(queries.some(query => query.includes('pg_notify'))).toBe(false);
   });
 });
