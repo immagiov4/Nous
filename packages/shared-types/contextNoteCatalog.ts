@@ -12,8 +12,10 @@ const ContextSchema = z.object({ kind: z.literal('context'), text: z.string() })
 export type ContextNoteRecord = z.infer<typeof PassageSchema> | z.infer<typeof ContextSchema>;
 export const getContextNotePassageIds = (records: ContextNoteRecord[] = []) =>
   records.flatMap(record => (record.kind === 'context' ? [] : [record.id]));
+const serializeNoteRecord = (record: ContextNoteRecord) =>
+  record.kind === 'context' ? record.text : JSON.stringify(record);
 export const serializeContextNoteView = (records: ContextNoteRecord[]) =>
-  records.map(record => JSON.stringify(record)).join('\n');
+  records.map(serializeNoteRecord).join('');
 export const ContextNoteCatalogSchema = z
   .object({
     records: z.array(z.union([PassageSchema, ContextSchema])),
@@ -27,31 +29,18 @@ export const ContextNoteCatalogSchema = z
     );
   });
 
-/** Keep complete JSON records within the existing lesson-field budget. A clipped tail is context only. */
+/** Keep complete passage records within the existing lesson-field budget. A clipped tail is context only. */
 export const fitContextNoteView = (records: ContextNoteRecord[]): ContextNoteRecord[] => {
   const included: ContextNoteRecord[] = [];
   let remaining = MAX_CONTEXT_CHAT_FIELD_CHARS;
   for (const record of records) {
-    const separatorSize = included.length ? 1 : 0;
-    const size = JSON.stringify(record).length + separatorSize;
+    const size = serializeNoteRecord(record).length;
     if (size <= remaining) {
       included.push(record);
       remaining -= size;
       continue;
     }
-    let low = 0;
-    let high = record.text.length;
-    while (low < high) {
-      const middle = Math.ceil((low + high) / 2);
-      if (
-        JSON.stringify({ kind: 'context', text: record.text.slice(0, middle) }).length +
-          separatorSize <=
-        remaining
-      )
-        low = middle;
-      else high = middle - 1;
-    }
-    if (low) included.push({ kind: 'context', text: record.text.slice(0, low) });
+    if (remaining) included.push({ kind: 'context', text: record.text.slice(0, remaining) });
     break;
   }
   return included;

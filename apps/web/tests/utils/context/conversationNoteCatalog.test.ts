@@ -122,6 +122,7 @@ test('retains math, code and table relationships as non-citable explanation cont
     .join('');
   expect(context).toContain('$x+y$');
   expect(context).toContain('return x+y;');
+  expect(serializeContextNoteView(catalog.records)).toContain('```js\nreturn x+y;\n```');
   expect(catalog.entries.filter(e => e.kind === 'tableCell').map(e => e.text)).toEqual([
     'Term',
     'Value',
