@@ -307,7 +307,9 @@ const createProviderEffectExecutor = (input: {
 }): WorkflowProviderEffectExecutor => ({
   async run({ key, operation, outputSchema }) {
     const idempotencyKey = `${workflowStepIdempotencyKey(input.claim)}:provider:${key}`;
-    const persisted = await readProviderResult({ ...input, idempotencyKey });
+    const persisted = await input.diagnostics.run('read-provider-effect', () =>
+      readProviderResult({ ...input, idempotencyKey })
+    );
     if (persisted !== undefined) return outputSchema.parse(persisted);
     const previousUsageIds = new Set(input.pendingAiUsage.map(usage => usage.id));
     const output = snapshotImmutableJson(outputSchema.parse(await operation())) as JsonValue;

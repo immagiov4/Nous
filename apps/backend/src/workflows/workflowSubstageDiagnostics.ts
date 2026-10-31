@@ -7,6 +7,7 @@ export type WorkflowSubstageName =
   | 'stage-assets'
   | 'caption-images'
   | 'caption-image'
+  | 'read-provider-effect'
   | 'persist-provider-effect';
 
 export interface WorkflowSubstageDiagnostics {

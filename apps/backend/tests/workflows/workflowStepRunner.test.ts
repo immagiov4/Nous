@@ -578,6 +578,65 @@ describe('single workflow step runner', () => {
     ]);
   });
 
+  test('reports a stalled provider-result read as its own substage', async () => {
+    vi.useFakeTimers();
+    const work = step({
+      externalEffect: 'provider-with-postprocessing',
+      id: 'work',
+      inputSchema: Text,
+      outputSchema: Text,
+      run: async ({ providerEffect }) => {
+        if (!providerEffect) throw new Error('Expected provider effect persistence.');
+        return providerEffect.run({
+          key: 'generate',
+          operation: async () => ({ text: 'unused' }),
+          outputSchema: Text,
+        });
+      },
+    });
+    const registry = createWorkflowRegistry();
+    const registered = registry.register({
+      current: workflow({
+        compatibilityId: 'test-v1',
+        configSchema: WorkflowExecutionDefaultsSchema,
+        executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+        id: 'stalled-provider-read',
+        inputSchema: Text,
+        outputSchema: Text,
+        root: work,
+      }),
+    }).current;
+    const recordFailure = vi.fn(async () => ({ status: 'failed' as const, transientEvents: [] }));
+    const execution = runWorkflowStepClaim({
+      claim: makeClaim(registered, {
+        nodeInstanceId: 'work',
+        stepPolicies: {
+          work: { config: { maxAttempts: 3, timeoutMs: 1_000 }, maxAttempts: 3, timeoutMs: 1_000 },
+        },
+        timeoutMs: 1_000,
+      }),
+      registry,
+      services: {},
+      store: makeStore({
+        getProviderResult: vi.fn(async ({ idempotencyKey }) =>
+          idempotencyKey.includes(':provider:') ? new Promise<never>(() => {}) : undefined
+        ),
+        recordFailure,
+      }),
+    });
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(execution).resolves.toMatchObject({ status: 'failure-recorded' });
+    expect(recordFailure.mock.calls[0]?.[0].failure.details?.substages).toEqual([
+      {
+        diagnostic: { type: 'Error' },
+        durationMs: 1_000,
+        name: 'read-provider-effect',
+        outcome: 'interrupted',
+      },
+    ]);
+  });
+
   test('deduplicates a provider result that completes after timeout alongside its retry', async () => {
     vi.useFakeTimers();
     const finishProvider: Array<(output: { text: string }) => void> = [];
