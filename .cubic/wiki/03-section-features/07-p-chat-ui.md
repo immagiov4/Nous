@@ -120,3 +120,7 @@ Sources: [packages/shared-types/lessonVisualContracts.ts](https://github.com/imm
 ## Summary
 
 The Chat & Assistant UI in Nous transforms the learning experience from passive reading to active dialogue. By utilizing scoped contexts and specialized tools, the assistant provides grounded explanations and visual aids that align with the project's ADHD-friendly manifesto. The separation between Context Chat and Library Chat ensures that the assistant remains relevant whether the user is deep-diving into a single passage or managing their overall learning path.
+
+## Observability
+
+The [context route](../../../apps/backend/src/routes/contextChat.ts) logs caught request errors. Its [route tests](../../../apps/backend/tests/routes/chat.test.ts) inspect the playback snapshot delivered to the provider and exercise scoped archive retrieval and safe tool failures. [Response-control tests](../../../apps/web/tests/hooks/chat/useChatResponseControl.test.tsx) cover stale tool calls after Stop, a newer response or unmount. These checks provide reproducible boundary evidence; the error log alone cannot reconstruct a successful conversation's context or prove that an answer is grounded in the intended passage.

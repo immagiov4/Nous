@@ -130,3 +130,7 @@ Sources: [apps/backend/src/projects/postgresProjectStore.ts](https://github.com/
 ## Summary
 
 Source Ingestion & Processing provides a robust framework for converting heterogeneous data into a unified format for pedagogical use. By combining vision-transcription fallbacks for PDFs, strict path validation for archives, and transactional persistence in Postgres, the system ensures that lesson generation is supported by reliable and traceable source material.
+
+## Observability
+
+The [preparation operation](../../../apps/backend/src/projects/projectImportChunks.ts) retains per-step progress, terminal status and failures for authenticated status polling. [Prepared source descriptors](../../../apps/backend/src/projects/sourceIngestion.ts) retain failed and blank page identities, allowing partial recovery to be distinguished from usable text. This operation is process-local rather than a durable generation trace. Successful extraction and valid mathematical syntax cannot establish transcription fidelity; compare recovered text with the original pages when assessing lost symbols or meaning.

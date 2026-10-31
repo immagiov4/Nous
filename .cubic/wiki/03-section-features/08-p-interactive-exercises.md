@@ -128,3 +128,7 @@ The system follows a strict set of instructional rules to maintain diagnostic in
 - **Unresolved Doubts**: The model must preserve uncertainty as limitations rather than resolving them via heuristics.
 
 Sources: [apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts:55-80](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts#L55-L80)
+
+## Observability
+
+The [lesson persistence tests](../../../apps/backend/tests/workflows/lessonGenerationPersistence.test.ts) inspect quiz answers before replacement, after commit and after compensation. For practical activities, the [feedback evaluator](../../../apps/web/services/openrouter/exercises/evaluation.ts) returns a score, summary, caveats and evaluation time; its [tests](../../../apps/web/tests/services/openrouter/exercises.evaluation.test.ts) cover normalization and invalid results. These are inspectable state and contract checks, not a measure of assessment accuracy: pedagogical validity and the justification for a model's score require reading the task, submission and feedback together.

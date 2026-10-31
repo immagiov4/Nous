@@ -112,3 +112,7 @@ The final stage commits the course to the database via `persist-course`. This no
 *   Capturing a fingerprint of the committed course for state management.
 
 Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/courseGenerationWorkflowContract.ts), [apps/backend/tests/workflows/courseGenerationWorkflow.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/workflows/courseGenerationWorkflow.test.ts)
+
+## Observability
+
+The authenticated [workflow state API](../../../apps/backend/src/routes/workflows.ts) exposes planning node status, attempt counts and failure codes. [Workflow logs](../../../apps/backend/src/workflows/workflowObservability.ts) connect run and attempt events through `runId`, with node definitions and retry outcomes identifying where planning stopped. These lifecycle signals establish execution, not factual coverage or prerequisite quality; inspect the saved research, verification and refinement outputs through [content evaluation](../09-section-tools/02-p-testing-quality.md) for those judgments.

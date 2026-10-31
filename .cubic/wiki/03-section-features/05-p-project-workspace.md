@@ -123,3 +123,7 @@ Sources: [apps/backend/src/routes/chatPrompts.ts](https://github.com/immagiov4/N
 ## Summary
 
 The Library & Workspace Export system provides a robust, background-processed pipeline for generating full library backups. It prioritizes data consistency through project-level checkpointing and file-system atomicity, while managing server resources through global execution limits and automated cleanup of expired or downloaded archives.
+
+## Observability
+
+The [project routes](../../../apps/backend/src/routes/projects.ts) report revision conflicts as HTTP 409 with an error code. [Library export](../../../apps/backend/src/projects/libraryExport.ts) exposes persisted progress and logs checkpoints, completion and failure with the export run, phase and elapsed time. The [database contract tests](../../../apps/backend/tests/projects/libraryExportRunStore.integration.test.ts) cover restart persistence and rejection of stale completion. These signals locate a rejected save or interrupted export; they do not explain the semantic differences between competing project edits.

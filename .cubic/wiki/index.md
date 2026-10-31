@@ -18,11 +18,7 @@
 
 - [Course & Lesson Generation](03-section-features/02-p-lesson-gen.md)
 
-## Data Models
-
 - [Interactive Lesson Playback](03-section-features/04-p-multimedia.md)
-
-## Playback Data Model
 
 - [Knowledge Diagnostics & Assessments](03-section-features/08-p-interactive-exercises.md)
 - [Source Ingestion & Processing](03-section-features/03-p-doc-processing.md)
