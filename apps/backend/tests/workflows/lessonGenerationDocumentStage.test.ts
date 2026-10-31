@@ -186,6 +186,30 @@ describe('durable lesson document stage', () => {
     }
   });
 
+  test('keeps one bounded entry per repeated substage however many images are captioned', async () => {
+    const diagnostics = createWorkflowSubstageDiagnostics(new AbortController().signal);
+    for (let index = 0; index < 300; index += 1) {
+      await diagnostics
+        .run('caption-image', async () => {
+          if (index === 7) throw Object.assign(new Error('private caption'), { code: 'ETIMEDOUT' });
+        })
+        .catch(() => undefined);
+    }
+    const snapshot = diagnostics.snapshot();
+    expect(snapshot).toEqual([
+      {
+        count: 300,
+        diagnostic: { code: 'ETIMEDOUT', type: 'Error' },
+        durationMs: expect.any(Number),
+        name: 'caption-image',
+        outcome: 'failed',
+        outcomes: { failed: 1, succeeded: 299 },
+        totalDurationMs: expect.any(Number),
+      },
+    ]);
+    expect(JSON.stringify(snapshot)).not.toContain('private');
+  });
+
   test('identifies the failing document substage without retaining source or error content', async () => {
     const signal = new AbortController().signal;
     const diagnostics = createWorkflowSubstageDiagnostics(signal);
