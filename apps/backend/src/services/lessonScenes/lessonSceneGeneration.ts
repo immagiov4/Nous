@@ -23,6 +23,9 @@ import {
   LESSON_SCENE_INDEPENDENT_CONTENT_RULE,
 } from '@shared/lessonVisualContracts';
 import { LESSON_MATH_DELIMITERS_RULE } from '@shared/lessonWritingContract';
+import remarkMath from '@shared/remarkPandocMath';
+import remarkParse from 'remark-parse';
+import { unified } from 'unified';
 import * as z from 'zod';
 import { getResolvedModelConfigForProvider } from '../../config/modelConfig.js';
 import {
@@ -392,7 +395,24 @@ const iconEntries = (draft: SceneDraft): SceneIconEntry[] => [
 // Support quotations carry no offsets; source line wrapping does not change their words.
 const supportQuotationText = (text: string): string => text.replaceAll(/\s+/gu, ' ').trim();
 
-// Describe literal support only: absent support cannot establish paraphrase or fabrication.
+const supportMarkdownParser = unified().use(remarkParse).use(remarkMath);
+
+interface SupportMarkdownNode {
+  type: string;
+  value?: string;
+  children?: SupportMarkdownNode[];
+}
+
+// Diagnostic projection only; grounding continues to require an exact source quotation.
+const supportRepresentation = (markdown: string): string => {
+  const text = (node: SupportMarkdownNode): string => {
+    const content = node.value ?? node.children?.map(text).join('') ?? '';
+    return node.type === 'paragraph' || node.type === 'heading' ? `${content}\n` : content;
+  };
+  return supportQuotationText(text(supportMarkdownParser.parse(markdown) as SupportMarkdownNode));
+};
+
+// Absent literal support cannot establish paraphrase or fabrication.
 const compareSupportQuotation = (evidence: string, lesson: string, excerpt: string) => {
   const normalizedEvidence = supportQuotationText(evidence);
   const normalizedExcerpt = supportQuotationText(excerpt);
@@ -400,8 +420,15 @@ const compareSupportQuotation = (evidence: string, lesson: string, excerpt: stri
   if (!normalizedEvidence) outcome = 'empty';
   else if (normalizedExcerpt.includes(normalizedEvidence)) outcome = 'matched';
   else if (supportQuotationText(lesson).includes(normalizedEvidence)) outcome = 'outside-excerpt';
+  if (outcome === 'absent') {
+    const representedEvidence = supportRepresentation(evidence);
+    if (representedEvidence && supportRepresentation(excerpt).includes(representedEvidence))
+      outcome = 'representation-mismatch';
+  }
   return {
     outcome,
+    literalOffset: evidence ? excerpt.indexOf(evidence) : -1,
+    normalizedOffset: normalizedEvidence ? normalizedExcerpt.indexOf(normalizedEvidence) : -1,
     sourceChars: lesson.length,
     excerptChars: excerpt.length,
     normalizedExcerptChars: normalizedExcerpt.length,
