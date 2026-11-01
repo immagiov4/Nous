@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { UIMessage } from 'ai';
 import { useState } from 'react';
@@ -675,7 +675,10 @@ describe('HomeChatPanel', () => {
     rerender(<HomeChatPanel {...props} pendingFileName="Solo_appunti.pdf" />);
     expect(screen.getByRole('listitem', { name: 'Solo_appunti.pdf' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Rimuovi allegato' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole('region', { name: 'Le tue fonti' })).queryByRole('status')
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Obiettivo');
   });
 
   test('renders the course setup surface in the browser language', () => {
