@@ -56,7 +56,9 @@ Four concurrent real layout-browser proofs at the default four-slot capacity als
 
 ## CI and merge readiness
 
-The CI `test` job runs `bun run gate:ci`: full `quality:ci` checks, dependency boundaries, the Fallow regression check, and one complete Node test suite with coverage. It then runs SonarQube Cloud analysis and waits for its quality-gate result. CI checks out the pull-request head and reports Sonar analysis against that same commit.
+The CI `quality-coverage` job runs `bun run gate:ci`: full `quality:ci` checks, dependency boundaries, the Fallow regression check, and one complete Node test suite with coverage. It uploads LCOV and, on pushes to `main` and same-repository pull requests, runs SonarQube Cloud analysis and waits for its quality-gate result. CI checks out the pull-request head and reports Sonar analysis against that same commit.
+
+The independent `browser-proofs` job verifies production audio, caption rows, keyboard focus and interview recovery, retaining the recovery evidence. The required `test` check logs both worker results and passes only when both succeed; a failed, cancelled or skipped worker makes it fail. Diagnose failures in the corresponding worker's logs.
 
 Wait for all applicable CI checks and review before merging. Fix or explicitly resolve every new Sonar finding with an owner-visible disposition. A missing or failed SonarCloud result blocks merging; diagnose it in the CI logs and SonarCloud report.
 
