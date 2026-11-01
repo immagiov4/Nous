@@ -14,6 +14,8 @@ import {
 import { toWorkflowErrorDiagnostic } from '../workflows/workflowErrorDiagnostics.js';
 
 const CODEX_REQUEST_TIMEOUT_MS = 30_000;
+const CODEX_PARSER_REJECTION = 'Failed to deserialize JSONRPCMessage';
+const CODEX_PARSER_DIAGNOSTIC = `ERROR codex_app_server_transport::transport: ${CODEX_PARSER_REJECTION}:`;
 export const CODEX_TURN_TIMEOUT_MS = 10 * 60_000;
 const CODEX_BASE_INSTRUCTIONS =
   'You are the Nous Reader text engine. Use only capabilities explicitly supplied by Nous. Never inspect the host filesystem, environment, applications, or browser. If a dynamic tool returns status "awaiting_client_result", end the turn immediately without inventing its result.';
@@ -199,10 +201,52 @@ const makeProtocolError = (message: unknown): CodexAppServerError => {
 export class CodexJsonRpcClient {
   readonly #lineReader: ReadLineInterface;
   readonly #notificationListeners = new Set<(method: string, params: unknown) => void>();
+  readonly #failureListeners = new Set<(error: unknown) => void>();
   readonly #pendingRequests = new Map<string, PendingRequest>();
   #closed = false;
+  #closedReason: unknown;
   #nextRequestId = 1;
   #serverRequestHandler?: (request: JsonRpcRequest) => Promise<unknown>;
+  #stderrPrefix = '';
+  #stderrPhase: 'timestamp' | 'diagnostic' | 'ignore' = 'timestamp';
+  readonly #onStderr = (chunk: Buffer | string): void => {
+    if (this.#closed) return;
+    for (const character of String(chunk)) {
+      if (!this.#matchesParserDiagnostic(character)) continue;
+      // Project an explicit transport diagnostic; stderr may also contain request contents.
+      const cause = Object.assign(new Error(`${CODEX_PARSER_REJECTION}.`), {
+        code: 'jsonrpc_deserialization_failed',
+      });
+      this.close(
+        new CodexAppServerError('Codex app-server rejected a JSON-RPC message.', 'protocol', {
+          cause,
+        })
+      );
+      return;
+    }
+  };
+
+  #matchesParserDiagnostic(character: string): boolean {
+    if (character === '\n') {
+      this.#stderrPrefix = '';
+      this.#stderrPhase = 'timestamp';
+      return false;
+    }
+    if (this.#stderrPhase === 'ignore') return false;
+    if (this.#stderrPhase === 'timestamp') {
+      // Codex's default stderr renderer prefixes each record with an RFC 3339 timestamp.
+      if (character === ' ') this.#stderrPhase = 'diagnostic';
+      else if (!/[\dT:.+Z-]/u.test(character)) this.#stderrPhase = 'ignore';
+      return false;
+    }
+    if (character !== CODEX_PARSER_DIAGNOSTIC[this.#stderrPrefix.length]) {
+      this.#stderrPrefix = '';
+      this.#stderrPhase = 'ignore';
+      return false;
+    }
+    this.#stderrPrefix += character;
+    return this.#stderrPrefix === CODEX_PARSER_DIAGNOSTIC;
+  }
 
   constructor(
     readonly process: CodexProcess,
@@ -210,13 +254,13 @@ export class CodexJsonRpcClient {
   ) {
     this.#lineReader = createInterface({ input: process.stdout });
     this.#lineReader.on('line', line => this.#handleLine(line));
-    process.stderr.on('data', () => undefined);
+    process.stderr.on('data', this.#onStderr);
     process.once('error', error =>
-      this.#failPending(error instanceof Error ? error : new Error(String(error)))
+      this.close(error instanceof Error ? error : new Error(String(error)))
     );
     process.once('exit', code => {
       if (!this.#closed) {
-        this.#failPending(
+        this.close(
           new CodexAppServerError(
             `Codex app-server exited with code ${code ?? 'unknown'}.`,
             'process'
@@ -233,7 +277,7 @@ export class CodexJsonRpcClient {
   ): Promise<unknown> {
     options.signal?.throwIfAborted();
     if (this.#closed) {
-      throw new CodexAppServerError('Codex app-server connection is closed.', 'process');
+      throw this.#closedReason;
     }
 
     const id = this.#nextRequestId++;
@@ -241,8 +285,7 @@ export class CodexJsonRpcClient {
     const onAbort = () => {
       // Drain a response already buffered on stdout so a started turn can be interrupted.
       abortImmediate = setImmediate(() => {
-        this.#failPending(options.signal?.reason);
-        this.close();
+        this.close(options.signal?.reason);
       });
     };
     const cleanup = () => {
@@ -273,19 +316,29 @@ export class CodexJsonRpcClient {
     return () => this.#notificationListeners.delete(listener);
   }
 
+  onFailure(listener: (error: unknown) => void): () => void {
+    this.#failureListeners.add(listener);
+    return () => this.#failureListeners.delete(listener);
+  }
+
   handleServerRequests(handler: (request: JsonRpcRequest) => Promise<unknown>): void {
     this.#serverRequestHandler = handler;
   }
 
-  close(): void {
+  close(
+    reason: unknown = new CodexAppServerError('Codex app-server connection closed.', 'process')
+  ): void {
     if (this.#closed) {
       return;
     }
     this.#closed = true;
+    this.#closedReason = reason;
+    this.#stderrPrefix = '';
+    this.process.stderr.off('data', this.#onStderr);
     this.#lineReader.close();
     this.process.stdin.end();
     this.process.kill();
-    this.#failPending(new CodexAppServerError('Codex app-server connection closed.', 'process'));
+    this.#failPending(reason);
   }
 
   #write(message: JsonObject): void {
@@ -361,12 +414,14 @@ export class CodexJsonRpcClient {
         throw new Error(`Unsupported server request: ${request.method}`);
       }
       const result = await this.#serverRequestHandler(request);
+      if (this.#closed) return;
       this.#write({ id: request.id, result });
     } catch (error) {
       console.error('[Codex app-server] Client tool request failed.', {
         diagnostic: toWorkflowErrorDiagnostic(error),
         method: request.method,
       });
+      if (this.#closed) return;
       this.#write({
         id: request.id,
         error: { code: -32_603, message: 'Operazione non riuscita.' },
@@ -381,6 +436,7 @@ export class CodexJsonRpcClient {
       pending.reject(error);
     }
     this.#pendingRequests.clear();
+    for (const listener of this.#failureListeners) listener(error);
   }
 }
 
@@ -1000,8 +1056,10 @@ const executeCodexAppServerTurn = async (
       }
       resolveTurnCompleted(completedText || streamedText);
     });
+    const unsubscribeFailure = client.onFailure(rejectTurnCompleted);
     cleanupTurnListener = () => {
       unsubscribe();
+      unsubscribeFailure();
       cleanupCancellation();
     };
   });
@@ -1105,6 +1163,8 @@ const executeCodexAppServerTurn = async (
     return { result, settled };
   } catch (error) {
     cleanupTurnListener();
+    rejectTurnCompleted(error);
+    await turnCompleted.catch(() => undefined);
     throw error;
   }
 };
