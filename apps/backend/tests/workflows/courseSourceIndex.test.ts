@@ -1,6 +1,30 @@
+import { PDF_TEXT_SOURCE_CHUNK_CHARS } from '@shared/pdfDocumentPolicy';
 import { describe, expect, test } from 'vitest';
-
 import { buildCourseDocumentIndex } from '../../src/workflows/courseSourceIndex.js';
+
+test('text source indexing preserves boundary symbols and contiguous original offsets', () => {
+  const text = `${'a'.repeat(PDF_TEXT_SOURCE_CHUNK_CHARS - 1)}𝑋${'z'.repeat(PDF_TEXT_SOURCE_CHUNK_CHARS)}`;
+  const index = buildCourseDocumentIndex(
+    [
+      {
+        descriptor: {
+          hash: 'a'.repeat(64),
+          id: 'text',
+          kind: 'text',
+          mimeType: 'text/plain',
+          name: 'symbols.txt',
+        },
+        text,
+      },
+    ],
+    () => '2026-11-01T00:00:00.000Z'
+  );
+  expect(index?.chunks.map(chunk => chunk.text).join('')).toBe(text);
+  expect(index?.chunks.every(chunk => !/[\uD800-\uDFFF]/u.test(chunk.text))).toBe(true);
+  for (const chunk of index?.chunks || []) {
+    expect(text.slice(chunk.startOffset, chunk.endOffset)).toBe(chunk.text);
+  }
+});
 
 describe('course source index', () => {
   test('builds exact PDF page spans with the frozen source identity', () => {

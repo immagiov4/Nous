@@ -1,3 +1,4 @@
+import { sliceSourceText } from '@shared/sourceTextSlice';
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import type { ProjectStore } from '../projects/types.js';
 import {
@@ -33,15 +34,15 @@ const sampleSourceText = (text: string, maxChars: number): string => {
   if (maxChars <= 0) return '';
   if (text.length <= maxChars) return text;
   const separator = '\n\n[…]\n\n';
-  if (maxChars <= separator.length * 2 + 3) return text.slice(0, maxChars);
+  if (maxChars <= separator.length * 2 + 3) return sliceSourceText(text, 0, maxChars);
   const availableChars = maxChars - separator.length * 2;
   const partChars = Math.floor(availableChars / 3);
   const finalPartChars = availableChars - partChars * 2;
   const middleStart = Math.floor((text.length - partChars) / 2);
   return [
-    text.slice(0, partChars),
-    text.slice(middleStart, middleStart + partChars),
-    text.slice(-finalPartChars),
+    sliceSourceText(text, 0, partChars),
+    sliceSourceText(text, middleStart, middleStart + partChars),
+    sliceSourceText(text, text.length - finalPartChars),
   ].join(separator);
 };
 
