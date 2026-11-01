@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { UIMessage } from 'ai';
 import { useState } from 'react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import logoDarkModeUrl from '@/assets/logo_darkmode.svg';
 import HomeChatPanel from '../../../components/library/HomeChatPanel.tsx';
 import type {
@@ -205,7 +205,57 @@ const buildProps = () => ({
 });
 
 describe('HomeChatPanel', () => {
+  test('omits the abandon control when a demo supplies no cancellation action', () => {
+    render(<HomeChatPanel {...buildProps()} onCancelNewCourse={undefined} />);
+    expect(screen.getByRole('heading', { name: 'Prepariamo il tuo corso' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Annulla creazione corso' })
+    ).not.toBeInTheDocument();
+  });
+  test('announces phases, preserves loading conversation and reuses abandon from the stage back arrow', async () => {
+    const props = buildProps();
+    const { container, rerender } = render(<HomeChatPanel {...props} sourceCount={2} />);
+    expect(screen.getByRole('heading', { name: 'Prepariamo il tuo corso' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('list', { name: 'Fasi di preparazione del corso' })
+    ).toBeInTheDocument();
+    expect(container.querySelector('[aria-current="step"]')).toHaveAccessibleName('Obiettivo');
+    expect(container.querySelector('[data-setup-phase="sources"]')).toHaveAttribute(
+      'data-state',
+      'done'
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Annulla creazione corso' }));
+    expect(props.onCancelNewCourse).toHaveBeenCalledOnce();
+    rerender(
+      <HomeChatPanel
+        {...props}
+        sourceCount={0}
+        assessmentComplete
+        coursePreferences={<div>Preferences</div>}
+      />
+    );
+    expect(container.querySelector('[aria-current="step"]')).toHaveAccessibleName('Preferenze');
+    expect(container.querySelector('[data-setup-phase="sources"]')).toBeNull();
+    rerender(
+      <HomeChatPanel
+        {...props}
+        isNewCourseLoading
+        newCourseLoadingStatus="Valutazione risposta..."
+      />
+    );
+    expect(screen.getByText('Valutazione risposta...')).toBeInTheDocument();
+    expect(screen.getByRole('textbox')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Annulla creazione corso' })).toBeDisabled();
+  });
+  afterEach(() => vi.unstubAllGlobals());
   beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+      }
+    );
     HTMLElement.prototype.scrollIntoView = vi.fn();
     setViewportWidth(1280);
     setViewportHeight(800);
@@ -309,6 +359,104 @@ describe('HomeChatPanel', () => {
     );
 
     expect(props.onCancelNewCourse).toHaveBeenCalledOnce();
+  });
+
+  test.each([
+    undefined,
+    0.75,
+  ])('keeps setup navigation outside scrolling messages at progress %s', progress => {
+    const { container } = render(
+      <HomeChatPanel {...buildProps()} scrollProgressOverride={progress} />
+    );
+    const viewport = container.querySelector('.home-chat-scrollbar') as HTMLDivElement;
+    expect(
+      viewport.contains(screen.getByRole('heading', { name: 'Prepariamo il tuo corso' }))
+    ).toBe(false);
+    expect(
+      viewport.contains(screen.getByRole('list', { name: 'Fasi di preparazione del corso' }))
+    ).toBe(false);
+  });
+
+  test('opens the diagnostic at its start after preferences were confirmed', () => {
+    const props = {
+      ...buildProps(),
+      assessmentComplete: true,
+      coursePreferences: <div>Preferences</div>,
+    };
+    const { container, rerender } = render(<HomeChatPanel {...props} />);
+    const viewport = container.querySelector('.home-chat-scrollbar') as HTMLDivElement;
+    Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 1200 });
+    viewport.scrollTop = 0;
+    const bounds = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: HTMLElement) {
+        return { top: this === viewport ? 100 : 280 } as DOMRect;
+      });
+    try {
+      rerender(
+        <HomeChatPanel
+          {...props}
+          diagnosticAdapter={{
+            collectionId: 'long-assessment',
+            initial: {
+              kind: 'self-assessment',
+              id: 'self',
+              title: 'Initial knowledge',
+              topics: [{ id: 'topic', children: [], title: 'Topic' }],
+            },
+            submit: vi.fn(),
+          }}
+        />
+      );
+      expect(screen.queryByText('Preferences')).not.toBeInTheDocument();
+      expect(viewport.scrollTop).toBe(180);
+    } finally {
+      bounds.mockRestore();
+    }
+  });
+
+  test('retains the completed preferences phase after its card is cleared', () => {
+    const props = { ...buildProps(), supportsCoursePreferences: true };
+    const { container, rerender } = render(
+      <HomeChatPanel {...props} assessmentComplete coursePreferences={<div>Preferences</div>} />
+    );
+    rerender(
+      <HomeChatPanel
+        {...props}
+        diagnosticAdapter={{
+          collectionId: 'assessment',
+          initial: {
+            kind: 'self-assessment',
+            id: 'self',
+            title: 'Knowledge',
+            topics: [{ id: 'topic', children: [], title: 'Topic' }],
+          },
+          submit: vi.fn(),
+        }}
+      />
+    );
+    expect(container.querySelector('[data-setup-phase="preferences"]')).toHaveAttribute(
+      'data-state',
+      'done'
+    );
+    expect(container.querySelector('[aria-current="step"]')).toHaveAccessibleName('Conoscenze');
+  });
+
+  test('omits optional phases for a resumed compatibility interview', () => {
+    const { container } = render(<HomeChatPanel {...buildProps()} assessmentComplete />);
+    expect(container.querySelector('[aria-current="step"]')).toHaveAccessibleName('Piano');
+    expect(container.querySelector('[data-setup-phase="preferences"]')).toBeNull();
+    expect(container.querySelector('[data-setup-phase="knowledge"]')).toBeNull();
+  });
+
+  test('reveals newly arrived preferences even when completion and messages are unchanged', () => {
+    const props = { ...buildProps(), assessmentComplete: true };
+    const { container, rerender } = render(<HomeChatPanel {...props} />);
+    const viewport = container.querySelector('.home-chat-scrollbar') as HTMLDivElement;
+    Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 720 });
+    viewport.scrollTop = 0;
+    rerender(<HomeChatPanel {...props} coursePreferences={<div>Preferences</div>} />);
+    expect(viewport.scrollTop).toBe(720);
   });
 
   test('follows streaming growth inside the messages viewport without scrolling the page', () => {
@@ -445,6 +593,17 @@ describe('HomeChatPanel', () => {
   });
 
   test('maps scroll progress to the actual overflow for short, medium, and long chats', () => {
+    let notifyResize = () => {};
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          notifyResize = callback;
+        }
+        observe() {}
+        disconnect() {}
+      }
+    );
     const props = buildProps();
     const { container, rerender } = render(<HomeChatPanel {...props} />);
     const scrollContainer = container.querySelector('.home-chat-scrollbar');
@@ -452,27 +611,31 @@ describe('HomeChatPanel', () => {
     if (!(scrollContainer instanceof HTMLDivElement)) {
       throw new Error('Expected the home chat scroll container.');
     }
-    const messagesContent = scrollContainer.firstElementChild;
+    const messagesContent = scrollContainer.lastElementChild;
     if (!(messagesContent instanceof HTMLDivElement)) {
       throw new Error('Expected the home chat messages content.');
     }
 
     Object.defineProperties(scrollContainer, {
       clientHeight: { configurable: true, value: 200 },
-      scrollHeight: { configurable: true, value: 440 },
     });
+    Object.defineProperty(messagesContent, 'scrollHeight', { configurable: true, value: 440 });
     rerender(<HomeChatPanel {...props} scrollProgressOverride={0.5} />);
 
     expect(scrollContainer.scrollTop).toBe(0);
     expect(messagesContent).toHaveStyle({ transform: 'translateY(-120px)' });
 
-    Object.defineProperty(scrollContainer, 'scrollHeight', { configurable: true, value: 1200 });
+    Object.defineProperty(messagesContent, 'scrollHeight', { configurable: true, value: 1200 });
     rerender(<HomeChatPanel {...props} scrollProgressOverride={1} />);
     expect(messagesContent).toHaveStyle({ transform: 'translateY(-1000px)' });
 
-    Object.defineProperty(scrollContainer, 'scrollHeight', { configurable: true, value: 120 });
+    Object.defineProperty(messagesContent, 'scrollHeight', { configurable: true, value: 120 });
     rerender(<HomeChatPanel {...props} scrollProgressOverride={0.75} />);
     expect(messagesContent).toHaveStyle({ transform: 'translateY(-0px)' });
+    Object.defineProperty(messagesContent, 'scrollHeight', { configurable: true, value: 600 });
+    act(() => notifyResize());
+    expect(messagesContent).toHaveStyle({ transform: 'translateY(-300px)' });
+    vi.unstubAllGlobals();
   });
 
   test('shows 49 numbered PDFs as distinct sources', () => {
@@ -528,22 +691,13 @@ describe('HomeChatPanel', () => {
     expect(screen.getByText('What would you like to learn?')).toBeInTheDocument();
   });
 
-  test('switches between preserved new-course and library threads', async () => {
+  test('preserves new-course and library threads when changing the active surface', async () => {
     const user = userEvent.setup();
     const props = buildProps();
     const { rerender } = render(<HomeChatPanel {...props} />);
-
-    expect(screen.getByTestId('home-chat-mode-copy')).toHaveClass(
-      'min-h-[6rem]',
-      'sm:min-h-[4.5rem]'
-    );
-
+    expect(screen.getByRole('heading', { name: 'Prepariamo il tuo corso' })).toBeInTheDocument();
     expect(screen.getByText('Messaggio assessment')).toBeInTheDocument();
     expect(screen.queryByText('Riassunto libreria')).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('tab', { name: /Consulta libreria/i }));
-
-    expect(props.onHomeChatModeChange).toHaveBeenCalledWith('library-query');
 
     rerender(<HomeChatPanel {...props} homeChatMode="library-query" />);
 

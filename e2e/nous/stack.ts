@@ -448,7 +448,11 @@ export async function stopStack(
 
 /** Deterministic full-app browser profile; run each proof in its own process. */
 export async function withMemoryProjectBrowserStack<T>(
-  options: { userId: string; appOptions: CreateAppOptions },
+  options: {
+    userId: string;
+    appOptions: CreateAppOptions;
+    recordVideo?: { dir: string; size: { width: number; height: number } };
+  },
   scenario: (context: { page: Page; store: InMemoryProjectStore; url: string }) => Promise<T>
 ): Promise<T> {
   const authMode = 'local-bypass' as const;
@@ -507,6 +511,7 @@ export async function withMemoryProjectBrowserStack<T>(
     browser = await chromium.launch(withMutedAudio({ headless: true }));
     const page = await browser.newPage({
       locale: 'it-IT',
+      recordVideo: options.recordVideo,
       viewport: { width: 1440, height: 1000 },
     });
     // Provider calls belong to real-provider proofs, not this deterministic profile.

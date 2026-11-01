@@ -1,4 +1,18 @@
 export const COURSE_PLANNING_MESSAGES = {
+  'Prepariamo il tuo corso': "Let's prepare your course",
+  'Ti faccio alcune domande per creare un percorso su misura per te.':
+    "I'll ask a few questions to create a learning path tailored to you.",
+  'Fasi di preparazione del corso': 'Course setup phases',
+  Fonti: 'Sources',
+  Obiettivo: 'Goal',
+  Conoscenze: 'Knowledge',
+  Piano: 'Plan',
+  'Quanto vuoi andare nel dettaglio?': 'How much detail would you like?',
+  'Quanto piccoli vuoi che siano gli argomenti?': 'How small would you like each topic to be?',
+  Essenziale: 'Essential',
+  Approfondito: 'In depth',
+  'Lezioni corpose': 'Fuller lessons',
+  'Passi piccoli': 'Small steps',
   Approfondimento: 'Depth',
   Granularità: 'Lesson size',
   'Molto più essenziale': 'Much more concise',

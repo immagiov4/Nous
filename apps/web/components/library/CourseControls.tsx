@@ -3,9 +3,26 @@ import {
   type CourseControlPosition,
   type CoursePlanningControls,
 } from '@shared/coursePlanningControls';
+import { BookOpen, ListTree } from 'lucide-react';
 import { useId } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { MarkedSlider } from '../shared/MarkedSlider.tsx';
+
+const getControlPresentation = () =>
+  ({
+    depth: {
+      icon: BookOpen,
+      question: t('Quanto vuoi andare nel dettaglio?'),
+      start: t('Essenziale'),
+      end: t('Approfondito'),
+    },
+    granularity: {
+      icon: ListTree,
+      question: t('Quanto piccoli vuoi che siano gli argomenti?'),
+      start: t('Lezioni corpose'),
+      end: t('Passi piccoli'),
+    },
+  }) as const;
 
 const CONTROL_LABELS = {
   depth: 'Approfondimento',
@@ -52,9 +69,15 @@ export function CourseControls({
   const id = useId();
   const descriptions = getControlDescriptions();
   return (
-    <div className="grid w-full gap-7 rounded-3xl border border-gray-200 bg-white p-5 dark:border-zinc-700 dark:bg-stone-800">
+    <div className="w-full divide-y divide-stone-200/70 rounded-3xl border border-gray-200 bg-white p-5 dark:border-zinc-700 dark:bg-stone-800 dark:divide-white/10">
       {(['depth', 'granularity'] as const).map(control => {
-        const position = COURSE_CONTROL_POSITIONS.indexOf(value[control]);
+        const orderedPositions =
+          control === 'granularity'
+            ? [...COURSE_CONTROL_POSITIONS].reverse()
+            : COURSE_CONTROL_POSITIONS;
+        const position = orderedPositions.indexOf(value[control]);
+        const presentation = getControlPresentation()[control];
+        const Icon = presentation.icon;
         const baseline = hasReferenceMaterial ? t('Come il materiale') : t('Bilanciato');
         const relative = hasReferenceMaterial
           ? t('Rispetto al materiale')
@@ -65,33 +88,52 @@ export function CourseControls({
             : `${descriptions[control][value[control]]} · ${relative}`;
         const inputId = `${id}-${control}`;
         const updatePosition = (nextPosition: number) => {
-          const nextValue = COURSE_CONTROL_POSITIONS[nextPosition];
+          const nextValue = orderedPositions[nextPosition];
           if (nextValue && nextValue !== value[control])
             onChange({ ...value, [control]: nextValue });
         };
         return (
-          <div key={control} className="grid gap-3">
-            <label
-              htmlFor={inputId}
-              className="text-sm font-medium text-gray-800 dark:text-zinc-100"
-            >
-              {t(CONTROL_LABELS[control])}
-            </label>
-            <MarkedSlider
-              id={inputId}
-              aria-describedby={`${inputId}-description`}
-              aria-valuetext={description}
-              min={0}
-              max={COURSE_CONTROL_POSITIONS.length - 1}
-              step={1}
-              value={position}
-              markerCount={COURSE_CONTROL_POSITIONS.length}
-              disabled={disabled}
-              onChange={event => updatePosition(Number.parseInt(event.currentTarget.value, 10))}
-            />
-            <p id={`${inputId}-description`} className="text-sm text-gray-600 dark:text-zinc-400">
-              {description}
-            </p>
+          <div key={control} className="flex gap-3 py-5 first:pt-0 last:pb-0 sm:gap-4">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-orange-50 text-orange-700 sm:h-12 sm:w-12 dark:bg-orange-400/10 dark:text-orange-300">
+              <Icon className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <div className="grid min-w-0 flex-1 gap-3">
+              <label
+                htmlFor={inputId}
+                className="font-serif text-lg font-semibold text-gray-800 dark:text-zinc-100"
+              >
+                {t(CONTROL_LABELS[control])}
+              </label>
+              <p
+                id={`${inputId}-question`}
+                className="-mt-2 text-sm text-gray-500 dark:text-zinc-400"
+              >
+                {presentation.question}
+              </p>
+              <MarkedSlider
+                id={inputId}
+                aria-describedby={`${inputId}-question ${inputId}-description`}
+                aria-valuetext={description}
+                min={0}
+                max={COURSE_CONTROL_POSITIONS.length - 1}
+                step={1}
+                value={position}
+                markerCount={COURSE_CONTROL_POSITIONS.length}
+                disabled={disabled}
+                onChange={event => updatePosition(Number.parseInt(event.currentTarget.value, 10))}
+              />
+              <div
+                aria-hidden="true"
+                className="grid grid-cols-3 gap-2 text-xs leading-5 text-gray-500 dark:text-zinc-400"
+              >
+                <span>{presentation.start}</span>
+                <span className="text-center">{baseline}</span>
+                <span className="text-right">{presentation.end}</span>
+              </div>
+              <p id={`${inputId}-description`} className="sr-only">
+                {description}
+              </p>
+            </div>
           </div>
         );
       })}

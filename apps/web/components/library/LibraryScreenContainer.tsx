@@ -131,6 +131,10 @@ export const LibraryScreenContainer = ({
     startHomeChat,
     submitAssessment,
   } = controller;
+  const source = controller.source;
+  let sourceCount = pendingHomeSourceFiles.length;
+  if (source && pendingHomeSourceFiles.length === 0)
+    sourceCount = 'sources' in source && source.sources ? source.sources.length : 1;
   const assessmentComplete = Boolean(controller.courseProposal) && !isAddingAssessmentDetails;
   const isNewCourseLoading =
     controller.workflowState.assessment.status === 'pending' || isConfirmingCourse;
@@ -350,9 +354,10 @@ export const LibraryScreenContainer = ({
       <NewHomeView
         storageError={projectLibrary.storageError}
         chatProps={{
+          supportsCoursePreferences: controller.supportsCoursePreferences,
           coursePreferences:
             controller.courseProposal && controller.supportsCoursePreferences ? (
-              <div className="max-w-xl space-y-4">
+              <div className="w-full space-y-4">
                 <CourseControls
                   value={
                     coursePreferences.coursePlanningControls ?? DEFAULT_COURSE_PLANNING_CONTROLS
@@ -371,6 +376,7 @@ export const LibraryScreenContainer = ({
                 />
               </div>
             ) : undefined,
+          sourceCount,
           diagnosticAdapter: controller.diagnosticAdapter,
           assessmentComplete,
           assessmentMessages:

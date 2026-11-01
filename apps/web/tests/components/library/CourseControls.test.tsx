@@ -9,6 +9,32 @@ import { describe, expect, test, vi } from 'vitest';
 import { CourseControls } from '../../../components/library/CourseControls';
 
 describe('course controls', () => {
+  test('keeps small-step values at the small-step end and broad values at the broad end', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <CourseControls
+        value={DEFAULT_COURSE_PLANNING_CONTROLS}
+        hasReferenceMaterial
+        onChange={onChange}
+      />
+    );
+    const slider = screen.getByRole('slider', { name: 'Granularità' });
+    fireEvent.change(slider, { target: { value: '4' } });
+    expect(onChange).toHaveBeenLastCalledWith({ depth: 'auto', granularity: 'much-less' });
+    rerender(
+      <CourseControls
+        value={{ depth: 'more', granularity: 'much-less' }}
+        hasReferenceMaterial
+        onChange={onChange}
+      />
+    );
+    expect(slider).toHaveValue('4');
+    expect(slider).toHaveAccessibleDescription(
+      'Quanto piccoli vuoi che siano gli argomenti? Passaggi molto più piccoli · Rispetto al materiale'
+    );
+    fireEvent.change(slider, { target: { value: '0' } });
+    expect(onChange).toHaveBeenLastCalledWith({ depth: 'more', granularity: 'much-more' });
+  });
   test('changes depth independently and returns to Auto', () => {
     const changed = vi.fn();
     function Harness() {
@@ -36,18 +62,20 @@ describe('course controls', () => {
     expect(granularity).toHaveValue('2');
     fireEvent.change(depth, { target: { value: '2' } });
     expect(changed).toHaveBeenLastCalledWith(DEFAULT_COURSE_PLANNING_CONTROLS);
-    expect(depth).toHaveAccessibleDescription('Auto · Come il materiale');
+    expect(depth).toHaveAccessibleDescription(
+      'Quanto vuoi andare nel dettaglio? Auto · Come il materiale'
+    );
   });
 
   test('changes the reference description when source availability changes', () => {
     const props = { value: DEFAULT_COURSE_PLANNING_CONTROLS, onChange: vi.fn() };
     const { rerender } = render(<CourseControls {...props} hasReferenceMaterial={false} />);
     expect(screen.getByRole('slider', { name: 'Approfondimento' })).toHaveAccessibleDescription(
-      'Auto · Bilanciato'
+      'Quanto vuoi andare nel dettaglio? Auto · Bilanciato'
     );
     rerender(<CourseControls {...props} hasReferenceMaterial />);
     expect(screen.getByRole('slider', { name: 'Approfondimento' })).toHaveAccessibleDescription(
-      'Auto · Come il materiale'
+      'Quanto vuoi andare nel dettaglio? Auto · Come il materiale'
     );
     expect(props.onChange).not.toHaveBeenCalled();
   });

@@ -404,6 +404,7 @@ const ENGLISH_UI_MESSAGES = {
   'Voglio che tu crei un corso su': 'I want you to create a course about',
   '1 fonte': '1 source',
   '{courseCount} corsi': '{courseCount} courses',
+  '{sourceCount} fonte': '{sourceCount} source',
   '{sourceCount} fonti': '{sourceCount} sources',
   '{lessonCount} lezioni · {lastOpenedDate}': '{lessonCount} lessons · {lastOpenedDate}',
   '{streakDays} giorni': '{streakDays} days',

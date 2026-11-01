@@ -28,6 +28,7 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       onHomeChatModeChange: (mode: 'library-query' | 'new-course') => void;
       onSendAssessmentMessage: (message: string) => Promise<void>;
       pendingFileNames?: string[];
+      sourceCount?: number;
       pendingFileWarnings?: string[];
     };
     onPageChange: (page: 'home' | 'library') => void;
@@ -43,6 +44,7 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       <div data-testid="confirmation-messages">
         {chatProps.assessmentMessages.map(message => message.text).join('\n')}
       </div>
+      <output aria-label="Source count">{chatProps.sourceCount}</output>
       <button type="button" onClick={() => void chatProps.onConfirmGenerate()}>
         Conferma scelte
       </button>
@@ -202,6 +204,31 @@ describe('LibraryScreenContainer route fallback', () => {
     });
 
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:false:source.md');
+  });
+
+  test('shows pending file count instead of the previous course source count', async () => {
+    const props = buildProps();
+    props.controller.source = {
+      kind: 'document',
+      file: { name: 'old.md', mimeType: 'text/markdown', data: '' },
+    };
+    const { container } = render(<LibraryScreenContainer {...props} />);
+    expect(screen.getByLabelText('Source count')).toHaveTextContent('1');
+    const input = container.querySelector<HTMLInputElement>('#library-source-file');
+    if (!input) throw new Error('Missing source input');
+    await act(async () =>
+      fireEvent.change(input, {
+        target: {
+          files: [
+            new File(['first'], 'first.md', { type: 'text/markdown' }),
+            new File(['second'], 'second.md', { type: 'text/markdown' }),
+          ],
+        },
+      })
+    );
+    expect(screen.getByLabelText('Source count')).toHaveTextContent('2');
+    await act(async () => fireEvent.change(input, { target: { files: [] } }));
+    expect(screen.getByLabelText('Source count')).toHaveTextContent('1');
   });
 
   test('retains the latest selection when an earlier archive inspection finishes later', async () => {

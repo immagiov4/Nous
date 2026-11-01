@@ -75,6 +75,7 @@
     "atlas:playback": "bun run e2e/nous/playbackAtlas.ts",
     "test:atlas:browser": "bun run e2e/nous/tests/playbackAtlas.browser.ts",
     "test:audio-production": "bun scripts/test-production-audio.browser.ts",
+    "test:course-setup-stage": "bun scripts/heavy-run.mjs --label course-setup-stage -- bun e2e/nous/tests/courseSetupStage.browser.ts",
     "test:interview-recovery": "bun scripts/heavy-run.mjs --label interview-recovery -- bun e2e/nous/tests/interviewRecovery.browser.ts",
     "test:source-shelf": "bun scripts/heavy-run.mjs --label source-shelf -- bun e2e/nous/tests/sourceShelf.browser.ts",
     "setup:codex": "node scripts/setup-codex-cloud.mjs",
