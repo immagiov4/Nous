@@ -76,6 +76,9 @@ const respond = (process: FakeCodexProcess, request: WireMessage, result: unknow
   process.send({ id: request.id, result });
 };
 
+const PARSER_DIAGNOSTIC =
+  '2026-11-01T20:12:04.223259Z ERROR codex_app_server_transport::transport: Failed to deserialize JSONRPCMessage:';
+
 const sendInterruptedTurnCompletion = (
   process: FakeCodexProcess,
   ids: { threadId: string; turnId: string },
@@ -120,14 +123,14 @@ describe('Codex app-server protocol client', () => {
   });
 
   test('recognizes parser rejection at every stderr chunk boundary and cleans up immediately', async () => {
-    const marker = 'Failed to deserialize JSONRPCMessage';
+    const marker = PARSER_DIAGNOSTIC;
     vi.useFakeTimers();
     for (let split = 0; split <= marker.length; split += 1) {
       const process = new FakeCodexProcess(() => undefined);
       const client = new CodexJsonRpcClient(process);
       try {
         const pending = client.request('turn/start');
-        process.stderr.write('PRIVATE_SOURCE'.repeat(marker.length));
+        process.stderr.write(`${'PRIVATE_SOURCE'.repeat(marker.length)}\n`);
         process.stderr.write(marker.slice(0, split));
         process.stderr.write(`${marker.slice(split)}: PRIVATE_SECRET\n`);
         await expect(pending).rejects.toMatchObject({
@@ -143,6 +146,33 @@ describe('Codex app-server protocol client', () => {
     }
   });
 
+  test('ignores marker text inside unrelated diagnostics and request echoes across chunks', async () => {
+    const messages = [
+      '2026-11-01T20:12:04.987128Z TRACE codex_app_server::message_processor: app-server request: Failed to deserialize JSONRPCMessage connection_id=ConnectionId(0) request_id=Integer(1)',
+      `2026-11-01T20:12:04.987128Z ERROR other_module: PRIVATE_SOURCE ${PARSER_DIAGNOSTIC}`,
+      `PRIVATE_PROMPT ${PARSER_DIAGNOSTIC}`,
+      'Failed to deserialize JSONRPCMessage: PRIVATE_SECRET',
+    ];
+    vi.useFakeTimers();
+    for (const message of messages) {
+      for (let split = 0; split <= message.length; split += 1) {
+        const process = new FakeCodexProcess(() => undefined);
+        const client = new CodexJsonRpcClient(process);
+        try {
+          const pending = client.request('test/ping');
+          process.stderr.write(message.slice(0, split));
+          process.stderr.write(`${message.slice(split)}\n`);
+          process.send({ id: process.received[0].id, result: 'healthy' });
+          await expect(pending).resolves.toBe('healthy');
+          expect(process.kill).not.toHaveBeenCalled();
+        } finally {
+          client.close();
+        }
+      }
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   test('handles a parser rejection delivered by a real subprocess stderr pipe', async () => {
     const child = spawn(
       process.execPath,
@@ -150,7 +180,7 @@ describe('Codex app-server protocol client', () => {
         '-e',
         `
       process.stdin.once('data', () => {
-        process.stderr.write('Failed to deserialize JSONRPCMessage: PRIVATE_SOURCE\\n');
+        process.stderr.write('${PARSER_DIAGNOSTIC} PRIVATE_SOURCE\\n');
       });
     `,
       ],
@@ -175,7 +205,7 @@ describe('Codex app-server protocol client', () => {
     vi.useFakeTimers();
     const fakeProcess = new FakeCodexProcess(message => {
       if (message.method === rejectedMessage || message.id === rejectedMessage) {
-        fakeProcess.stderr.write('Failed to deserialize JSONRPCMessage: PRIVATE_SOURCE\n');
+        fakeProcess.stderr.write(`${PARSER_DIAGNOSTIC} PRIVATE_SOURCE\n`);
       } else if (message.method === 'account/read') {
         respond(fakeProcess, message, { account: { type: 'chatgpt' } });
       } else if (message.method === 'thread/start') {
@@ -254,7 +284,7 @@ describe('Codex app-server protocol client', () => {
       fakeProcess.send({ id: 'slow-source', method: 'item/tool/call', params: {} });
       await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
       const pending = client.request('test/ping');
-      if (closure === 'parser') fakeProcess.stderr.write('Failed to deserialize JSONRPCMessage\n');
+      if (closure === 'parser') fakeProcess.stderr.write(`${PARSER_DIAGNOSTIC}\n`);
       else if (closure === 'exit') fakeProcess.emit('exit', 1);
       else fakeProcess.emit('error', new Error('Transport failed.'));
       await expect(pending).rejects.toMatchObject({
@@ -292,7 +322,7 @@ describe('Codex app-server protocol client', () => {
         respond(fakeProcess, message, { thread: { id: 'thread-gap' } });
         if (closure === 'exit') fakeProcess.emit('exit', 7);
         else if (closure === 'error') fakeProcess.emit('error', new Error('Transport failed.'));
-        else fakeProcess.stderr.write('Failed to deserialize JSONRPCMessage: PRIVATE_SOURCE\n');
+        else fakeProcess.stderr.write(`${PARSER_DIAGNOSTIC} PRIVATE_SOURCE\n`);
       }
     });
     const client = new CodexJsonRpcClient(fakeProcess);

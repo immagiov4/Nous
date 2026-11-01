@@ -187,7 +187,9 @@ describe('single workflow step runner', () => {
       child.stderr.write(
         'prompt=PRIVATE_PROMPT source=PRIVATE_SOURCE model=PRIVATE_MODEL token=PRIVATE_SECRET\n'
       );
-      child.stderr.write('ERROR codex_app_server: Failed to deserialize JSON');
+      child.stderr.write(
+        '2026-11-01T20:12:04.223259Z ERROR codex_app_server_transport::transport: Failed to deserialize JSON'
+      );
       child.stderr.write('RPCMessage: unexpected end of hex escape PRIVATE_SOURCE\n');
     } else if (scenario === 'exit') {
       child.emit('exit', 1);

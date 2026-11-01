@@ -15,6 +15,7 @@ import { toWorkflowErrorDiagnostic } from '../workflows/workflowErrorDiagnostics
 
 const CODEX_REQUEST_TIMEOUT_MS = 30_000;
 const CODEX_PARSER_REJECTION = 'Failed to deserialize JSONRPCMessage';
+const CODEX_PARSER_DIAGNOSTIC = `ERROR codex_app_server_transport::transport: ${CODEX_PARSER_REJECTION}:`;
 export const CODEX_TURN_TIMEOUT_MS = 10 * 60_000;
 const CODEX_BASE_INSTRUCTIONS =
   'You are the Nous Reader text engine. Use only capabilities explicitly supplied by Nous. Never inspect the host filesystem, environment, applications, or browser. If a dynamic tool returns status "awaiting_client_result", end the turn immediately without inventing its result.';
@@ -207,11 +208,11 @@ export class CodexJsonRpcClient {
   #nextRequestId = 1;
   #serverRequestHandler?: (request: JsonRpcRequest) => Promise<unknown>;
   #stderrPrefix = '';
+  #stderrPhase: 'timestamp' | 'diagnostic' | 'ignore' = 'timestamp';
   readonly #onStderr = (chunk: Buffer | string): void => {
     if (this.#closed) return;
-    const text = this.#stderrPrefix + String(chunk);
-    this.#stderrPrefix = '';
-    if (text.includes(CODEX_PARSER_REJECTION)) {
+    for (const character of String(chunk)) {
+      if (!this.#matchesParserDiagnostic(character)) continue;
       // Project an explicit transport diagnostic; stderr may also contain request contents.
       const cause = Object.assign(new Error(`${CODEX_PARSER_REJECTION}.`), {
         code: 'jsonrpc_deserialization_failed',
@@ -223,15 +224,29 @@ export class CodexJsonRpcClient {
       );
       return;
     }
-    // Retain only a possible marker prefix, bounded by the marker's own length.
-    for (let length = CODEX_PARSER_REJECTION.length - 1; length > 0; length -= 1) {
-      const prefix = CODEX_PARSER_REJECTION.slice(0, length);
-      if (text.endsWith(prefix)) {
-        this.#stderrPrefix = prefix;
-        break;
-      }
-    }
   };
+
+  #matchesParserDiagnostic(character: string): boolean {
+    if (character === '\n') {
+      this.#stderrPrefix = '';
+      this.#stderrPhase = 'timestamp';
+      return false;
+    }
+    if (this.#stderrPhase === 'ignore') return false;
+    if (this.#stderrPhase === 'timestamp') {
+      // Codex's default stderr renderer prefixes each record with an RFC 3339 timestamp.
+      if (character === ' ') this.#stderrPhase = 'diagnostic';
+      else if (!/[\dT:.+Z-]/u.test(character)) this.#stderrPhase = 'ignore';
+      return false;
+    }
+    if (character !== CODEX_PARSER_DIAGNOSTIC[this.#stderrPrefix.length]) {
+      this.#stderrPrefix = '';
+      this.#stderrPhase = 'ignore';
+      return false;
+    }
+    this.#stderrPrefix += character;
+    return this.#stderrPrefix === CODEX_PARSER_DIAGNOSTIC;
+  }
 
   constructor(
     readonly process: CodexProcess,
