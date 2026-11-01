@@ -9,7 +9,12 @@ import type {
   DiagnosticStage,
   DiagnosticSubmission,
 } from '../../../components/library/diagnostic/diagnosticFlow.ts';
-import { DiagnosticStoppedError } from '../../../components/library/diagnostic/diagnosticFlow.ts';
+import {
+  buildDiagnosticSubmission,
+  DiagnosticStoppedError,
+  diagnosticReducer,
+  initialDiagnosticState,
+} from '../../../components/library/diagnostic/diagnosticFlow.ts';
 
 const round: DiagnosticStage = {
   kind: 'round',
@@ -305,5 +310,162 @@ describe('diagnostic collection interface', () => {
       'aria-hidden',
       'false'
     );
+  });
+});
+
+describe('self-assessment cascade decisions', () => {
+  const stage = createDiagnosticDemoAdapter().initial;
+  const rate = (
+    state: ReturnType<typeof initialDiagnosticState>,
+    itemId: string,
+    value: 'unfamiliar' | 'basics' | 'uncertain' | 'independent'
+  ) => diagnosticReducer(state, { type: 'answer', itemId, answer: { kind: 'self-report', value } });
+
+  test('changing an unknown parent reopens its branch so cleared subtopics stay visible', () => {
+    const collapsed = rate(initialDiagnosticState(stage), 'marketing', 'unfamiliar');
+    expect(collapsed.collapsedTopics.marketing).toBe(true);
+    const reopened = rate(collapsed, 'marketing', 'basics');
+    expect(reopened.collapsedTopics.marketing).toBe(false);
+  });
+  test('unknown parent marks all its subtopics unknown and submits one self-report per topic', () => {
+    const state = rate(initialDiagnosticState(stage), 'marketing', 'unfamiliar');
+    const submission = buildDiagnosticSubmission(state, 'collection', 'request');
+    expect(submission.answers).toHaveLength(6);
+    for (const answer of submission.answers) {
+      expect(answer.response).toEqual({ kind: 'self-report', value: 'unfamiliar' });
+    }
+  });
+
+  test.each([
+    'basics',
+    'independent',
+    'uncertain',
+  ] as const)('only unknown propagates: %s leaves subtopics unanswered', value => {
+    const state = rate(initialDiagnosticState(stage), 'marketing', value);
+    expect(Object.keys(state.answers)).toEqual(['marketing']);
+  });
+
+  test('parent change clears cascaded answers and keeps an explicit subtopic answer', () => {
+    let state = rate(initialDiagnosticState(stage), 'marketing', 'unfamiliar');
+    state = rate(state, 'needs', 'basics');
+    state = rate(state, 'marketing', 'independent');
+    expect(state.answers).toEqual({
+      marketing: { kind: 'self-report', value: 'independent' },
+      needs: { kind: 'self-report', value: 'basics' },
+    });
+  });
+
+  test('explicit unknown subtopic answer survives parent change and later cascade', () => {
+    let state = rate(initialDiagnosticState(stage), 'marketing', 'unfamiliar');
+    state = rate(state, 'needs', 'unfamiliar');
+    state = rate(state, 'segmentation', 'basics');
+    state = rate(state, 'marketing', 'independent');
+    expect(state.answers.needs).toEqual({ kind: 'self-report', value: 'unfamiliar' });
+    state = rate(state, 'marketing', 'unfamiliar');
+    expect(state.answers.segmentation).toEqual({ kind: 'self-report', value: 'basics' });
+  });
+
+  test('changing an inferred parent clears its cascaded descendants and keeps sibling answers', () => {
+    let state = rate(initialDiagnosticState(stage), 'marketing', 'unfamiliar');
+    state = rate(state, 'audience', 'basics');
+    expect(state.answers.needs).toBeUndefined();
+    expect(state.answers.segmentation).toBeUndefined();
+    expect(state.answers.positioning).toEqual({ kind: 'self-report', value: 'unfamiliar' });
+  });
+
+  test('nested explicit unknown parent retains its own cascade when its ancestor changes', () => {
+    let state = rate(initialDiagnosticState(stage), 'marketing', 'unfamiliar');
+    state = rate(state, 'audience', 'unfamiliar');
+    state = rate(state, 'marketing', 'independent');
+    expect(state.answers.needs).toEqual({ kind: 'self-report', value: 'unfamiliar' });
+    state = rate(state, 'audience', 'basics');
+    expect(state.answers.needs).toBeUndefined();
+  });
+
+  test('reselecting unknown refills cleared descendants, preserves explicit answers and collapses', () => {
+    let state = rate(initialDiagnosticState(stage), 'marketing', 'unfamiliar');
+    state = diagnosticReducer(state, { type: 'toggle-topic', itemId: 'marketing' });
+    state = rate(state, 'audience', 'basics');
+    expect(state.answers.needs).toBeUndefined();
+    expect(state.answers.segmentation).toBeUndefined();
+    state = rate(state, 'marketing', 'unfamiliar');
+    expect(state.collapsedTopics.marketing).toBe(true);
+    expect(buildDiagnosticSubmission(state, 'collection', 'request').answers).toEqual(
+      ['marketing', 'audience', 'needs', 'segmentation', 'positioning', 'communication'].map(
+        itemId => ({
+          itemId,
+          response: { kind: 'self-report', value: itemId === 'audience' ? 'basics' : 'unfamiliar' },
+        })
+      )
+    );
+  });
+
+  test('automatic and manual collapse keep the parent slider and current label accessible and focused', async () => {
+    const user = userEvent.setup();
+    render(<DiagnosticFlow adapter={createDiagnosticDemoAdapter()} />);
+    const parent = screen.getByRole('slider', { name: 'Marketing' });
+    parent.focus();
+    await user.keyboard('{Home}');
+    expect(screen.getByRole('slider', { name: 'Marketing' })).toBe(parent);
+    expect(parent).toHaveFocus();
+    expect(parent.closest('[inert], [aria-hidden="true"]')).toBeNull();
+    expect(parent.closest('fieldset')?.querySelector('.diagnostic-selection')).toHaveAttribute(
+      'aria-hidden',
+      'false'
+    );
+    expect(parent).toHaveAttribute('aria-valuetext', 'Non lo conosco');
+    expect(screen.queryByRole('slider', { name: 'Pubblico' })).not.toBeInTheDocument();
+    const disclosure = screen.getByRole('button', { name: /^Marketing/ });
+    await user.click(disclosure);
+    expect(screen.getByRole('slider', { name: 'Pubblico' })).toBeInTheDocument();
+    await user.click(disclosure);
+    expect(screen.getByRole('slider', { name: 'Marketing' })).toBe(parent);
+    expect(parent.closest('[inert], [aria-hidden="true"]')).toBeNull();
+    expect(screen.queryByRole('slider', { name: 'Pubblico' })).not.toBeInTheDocument();
+  });
+
+  test('unknown parent collapses its subtree and can be reopened to explicitly change a subtopic', async () => {
+    const user = userEvent.setup();
+    const submit = vi.fn<DiagnosticAdapter['submit']>().mockResolvedValue(complete);
+    render(<DiagnosticFlow adapter={{ collectionId: 'cascade', initial: stage, submit }} />);
+    const parent = screen.getByRole('slider', { name: 'Marketing' });
+    fireEvent.keyDown(parent, { key: 'Home' });
+    expect(screen.getByRole('button', { name: /^Marketing/ })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+    expect(screen.queryByRole('slider', { name: 'Pubblico' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Marketing/ }));
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Bisogni' }), { key: 'End' });
+    await user.click(screen.getByRole('button', { name: 'Continua' }));
+    await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    expect(
+      submit.mock.calls[0][0].answers.find(answer => answer.itemId === 'needs')?.response
+    ).toEqual({ kind: 'self-report', value: 'independent' });
+  });
+  test('topic header only toggles a branch whose subtopics can be shown', async () => {
+    const user = userEvent.setup();
+    render(
+      <DiagnosticFlow adapter={{ collectionId: 'cascade', initial: stage, submit: vi.fn() }} />
+    );
+    const header = screen.getByRole('button', { name: /^Marketing/ });
+    expect(header).toBeDisabled();
+    await user.tab();
+    expect(screen.getByRole('slider', { name: 'Marketing' })).toHaveFocus();
+    expect(header).not.toHaveAttribute('aria-expanded');
+    await user.click(header);
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Marketing' }), { key: 'End' });
+    expect(screen.getByRole('button', { name: /^Marketing/ })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
+    expect(screen.getByRole('slider', { name: 'Pubblico' })).toBeInTheDocument();
+    expect(header).toBeEnabled();
+    const leaf = screen.getByRole('button', { name: /^Posizionamento/ });
+    expect(leaf).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Posizionamento' }), { key: 'End' });
+    expect(leaf).toBeDisabled();
+    await user.click(header);
+    expect(header).toHaveAttribute('aria-expanded', 'false');
   });
 });

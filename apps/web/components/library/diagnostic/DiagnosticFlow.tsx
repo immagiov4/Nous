@@ -68,7 +68,12 @@ export default function DiagnosticFlow({ adapter, isDarkMode }: DiagnosticFlowPr
   if (stage.kind === 'self-assessment') nextLabel = t('Continua');
   else if (stage.kind === 'round' && position < items.length - 1) nextLabel = t('Successiva');
   return (
-    <section className="diagnostic-flow" aria-label={t('Conoscenze iniziali')} aria-busy={busy}>
+    <section
+      data-stage={stage.kind}
+      className="diagnostic-flow"
+      aria-label={t('Conoscenze iniziali')}
+      aria-busy={busy}
+    >
       <h2 ref={titleRef} tabIndex={-1} className="mb-6 text-xl font-semibold outline-none">
         {stage.title}
         {stage.kind === 'round' && (
@@ -114,6 +119,8 @@ export default function DiagnosticFlow({ adapter, isDarkMode }: DiagnosticFlowPr
               <DiagnosticTree
                 topics={stage.topics}
                 answers={state.answers}
+                collapsedTopics={state.collapsedTopics}
+                onToggle={itemId => dispatch({ type: 'toggle-topic', itemId })}
                 onAnswer={(id, value) => answer(id, { kind: 'self-report', value })}
               />
             ) : (
