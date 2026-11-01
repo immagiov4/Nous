@@ -26,7 +26,7 @@ test.each([
   }
 });
 
-test('archive previews respect their quota and assessment excerpts retain whole boundary symbols', () => {
+test('archive previews and assessment excerpts respect quotas with complete boundary characters', () => {
   const text = 'abcdefghi𝑋tail';
   const preview = formatSourceArchiveIndex(
     {
@@ -45,5 +45,5 @@ test('archive previews respect their quota and assessment excerpts retain whole 
   expect(preview).not.toMatch(/[\uD800-\uDFFF]/u);
   expect(preview.split('\n').at(-1)).toBe('abcdefghi');
   expect(clipped).not.toMatch(/[\uD800-\uDFFF]/u);
-  expect(clipped).toBe('abcdefghi𝑋\n\n[truncated]');
+  expect(clipped).toBe('abcdefghi\n\n[truncated]');
 });

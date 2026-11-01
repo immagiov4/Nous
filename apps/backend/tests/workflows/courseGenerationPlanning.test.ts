@@ -353,12 +353,13 @@ describe('course generation planning', () => {
     };
     const other = { ...descriptor, id: 'source-2', name: 'second.txt' };
     // The existing 8,000-unit source sample cuts its middle window at offset 6,333.
-    const text = `${'a'.repeat(6_332)}𝑋${'b'.repeat(3_670)}`;
+    const text = `𝑋${'a'.repeat(6_330)}𝑋${'b'.repeat(3_670)}`;
     const generateObject = vi.fn(async (request: { prompt: string }) => {
       const serialized = JSON.stringify({ input: [{ type: 'text', text: request.prompt }] });
       const providerInput = JSON.parse(serialized).input[0].text;
       expect(!/[\uD800-\uDFFF]/u.test(providerInput)).toBe(true);
       expect(providerInput).toContain('𝑋');
+      expect(providerInput.split('𝑋')).toHaveLength(2);
       return rawPlan([]);
     });
     const stages = createCoursePlanningStages({

@@ -14,9 +14,8 @@ export const sourceTextStartOffset = (text: string, offset: number): number => {
   return end > offset ? offset - 1 : end;
 };
 
-/** Sample non-negative UTF-16 offsets, including the whole character at either cut. */
+/** Sample non-negative UTF-16 ranges without extending either boundary. */
 export const sliceSourceText = (text: string, start: number, end = text.length): string => {
   if (end <= start) return '';
-  const alignedStart = sourceTextEndOffset(text, start);
-  return text.slice(alignedStart > start ? start - 1 : start, sourceTextEndOffset(text, end));
+  return text.slice(sourceTextEndOffset(text, start), sourceTextStartOffset(text, end));
 };

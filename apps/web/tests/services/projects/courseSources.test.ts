@@ -31,7 +31,8 @@ test('source chunks and their assessment sample retain whole boundary characters
   }
   const sample = JSON.parse(formatCourseSourceSetContext(sources)).sampledContent;
   assert.ok(!/[\uD800-\uDFFF]/u.test(sample));
-  assert.ok(sample.includes('𝑋'));
+  assert.equal(sample, 'a'.repeat(7_999));
+  assert.ok(sample.length <= 8_000);
 });
 
 test('course sources use a stable alphabetical order without merging their content', () => {

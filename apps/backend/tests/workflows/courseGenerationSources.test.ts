@@ -47,20 +47,41 @@ test.each([
   ['middle start', 44, 44],
   ['middle end', 44, 54],
   ['ending start', 44, 89],
-] as const)('source sampling preserves the character crossing %s', (_boundary, budget, offset) => {
+] as const)('source sampling keeps complete characters within the quota at %s', (_boundary, budget, offset) => {
   const text = `${'a'.repeat(offset)}𝑋${'z'.repeat(100 - offset - 2)}`;
   const material = { descriptor: preparedState.context.sources[0], text };
   const formatted = formatCourseSourceMaterials([material], budget);
   const excerpt = formatted.split('<excerpt>\n')[1].split('\n</excerpt>')[0];
   expect(!/[\uD800-\uDFFF]/u.test(excerpt)).toBe(true);
-  expect(excerpt).toContain('𝑋');
-  expect(excerpt.length).toBe(budget + 1);
+  expect(excerpt).not.toContain('𝑋');
+  expect(excerpt.length).toBe(budget - 1);
   expect(excerpt.split('\n\n[…]\n\n')).toHaveLength(budget === 10 ? 1 : 3);
   expect(excerpt).not.toContain('�');
   expect(JSON.stringify({ input: [{ type: 'text', text: formatted }] })).not.toMatch(
     /\\u[dD][89a-fA-F][0-9a-fA-F]{2}/u
   );
   expect(material.text).toBe(text);
+});
+
+test('multiple source-window cuts share the unchanged aggregate text budget', () => {
+  const text = `${'a'.repeat(9)}𝑋${'a'.repeat(33)}𝑋${'a'.repeat(8)}𝑋${'a'.repeat(33)}𝑋${'a'.repeat(9)}`;
+  const descriptor = preparedState.context.sources[0];
+  const formatted = formatCourseSourceMaterials(
+    [
+      { descriptor, text },
+      { descriptor: { ...descriptor, id: 'second', name: 'second.md' }, text },
+    ],
+    88
+  );
+  const excerpts = [...formatted.matchAll(/<excerpt>\n([\s\S]*?)\n<\/excerpt>/gu)].map(
+    match => match[1]
+  );
+  expect(excerpts).toHaveLength(2);
+  expect(excerpts.reduce((length, excerpt) => length + excerpt.length, 0)).toBeLessThanOrEqual(88);
+  for (const excerpt of excerpts) {
+    expect(excerpt).toBe(['a'.repeat(9), 'a'.repeat(8), 'a'.repeat(9)].join('\n\n[…]\n\n'));
+    expect(excerpt).not.toMatch(/[\uD800-\uDFFF]/u);
+  }
 });
 
 test('source sampling keeps the existing three windows for BMP text and full short sources', () => {

@@ -22,7 +22,7 @@ import { readLessonPrimarySources } from '../../src/services/lessonPrimarySource
 test.each([
   'source',
   'combined',
-] as const)('lesson %s context retains a symbol crossing its excerpt limit', async boundary => {
+] as const)('lesson %s context keeps complete characters within its excerpt limit', async boundary => {
   const name = 'symbols.txt';
   const prefix = `ORIGINAL SOURCE: ${name}\n`;
   const firstText = 'a'.repeat(MAX_LESSON_SOURCE_CONTEXT_CHARS);
@@ -53,14 +53,13 @@ test.each([
   });
   const parts = readLessonPrimarySources(context);
   expect(parts?.every(part => !/[\uD800-\uDFFF]/u.test(part.text))).toBe(true);
-  expect(parts?.at(-1)?.text).toContain('𝑋');
-  expect(parts?.at(-1)?.text).toMatch(/𝑋\n\[truncated source excerpt\]$/u);
+  expect(parts?.at(-1)?.text).toBe(`${prefix}${'b'.repeat(offset)}\n[truncated source excerpt]`);
   const cap =
     boundary === 'source'
       ? prefix.length + MAX_LESSON_SOURCE_CONTEXT_CHARS
       : MAX_LESSON_COMBINED_SOURCE_CONTEXT_CHARS;
   expect(parts?.reduce((length, part) => length + part.text.length, 0)).toBeLessThanOrEqual(
-    cap + 1 + '\n[truncated source excerpt]'.length
+    cap + '\n[truncated source excerpt]'.length
   );
 });
 

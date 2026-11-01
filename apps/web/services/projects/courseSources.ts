@@ -292,7 +292,17 @@ const sampleSourceChunks = (source: CourseSourceDescriptor): string => {
   const indexes = new Set([0, Math.floor(chunks.length / 2), chunks.length - 1]);
   const text = [...indexes]
     .sort((left, right) => left - right)
-    .map(index => chunks[index]?.text || '')
+    .map(index => {
+      const text = chunks[index]?.text || '';
+      // Historical indices may split a pair; recover its source boundary before adding separators.
+      const before = chunks[index - 1]?.text.slice(-1) || '';
+      const after = chunks[index + 1]?.text.slice(0, 1) || '';
+      return sliceSourceText(
+        `${before}${text}${after}`,
+        before.length,
+        before.length + text.length
+      );
+    })
     .filter(Boolean)
     .join('\n\n');
   return sliceSourceText(text, 0, MAX_SOURCE_CONTEXT_CHARS);
