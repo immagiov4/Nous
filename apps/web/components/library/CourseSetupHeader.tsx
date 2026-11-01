@@ -35,16 +35,18 @@ export default function CourseSetupHeader({
   const currentIndex = phases.indexOf(phase);
   return (
     <header className="flex shrink-0 flex-wrap items-start gap-3 border-b border-stone-200/60 px-4 py-5 sm:gap-4 sm:px-6 dark:border-white/10">
-      <button
-        type="button"
-        onClick={onAbandon}
-        disabled={isLoading}
-        aria-label={t('Annulla creazione corso')}
-        title={t('Annulla creazione corso')}
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-stone-700 transition-colors hover:bg-stone-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:opacity-50 dark:text-stone-200 dark:hover:bg-white/10"
-      >
-        <ArrowLeft className="h-5 w-5" aria-hidden="true" />
-      </button>
+      {onAbandon && (
+        <button
+          type="button"
+          onClick={onAbandon}
+          disabled={isLoading}
+          aria-label={t('Annulla creazione corso')}
+          title={t('Annulla creazione corso')}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-stone-700 transition-colors hover:bg-stone-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:opacity-50 dark:text-stone-200 dark:hover:bg-white/10"
+        >
+          <ArrowLeft className="h-5 w-5" aria-hidden="true" />
+        </button>
+      )}
       <div className="min-w-0 flex-1">
         <h2 className="font-serif text-2xl tracking-tight text-stone-950 sm:text-3xl dark:text-stone-50">
           {t('Prepariamo il tuo corso')}

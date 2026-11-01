@@ -205,6 +205,13 @@ const buildProps = () => ({
 });
 
 describe('HomeChatPanel', () => {
+  test('omits the abandon control when a demo supplies no cancellation action', () => {
+    render(<HomeChatPanel {...buildProps()} onCancelNewCourse={undefined} />);
+    expect(screen.getByRole('heading', { name: 'Prepariamo il tuo corso' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Annulla creazione corso' })
+    ).not.toBeInTheDocument();
+  });
   test('announces phases, preserves loading conversation and reuses abandon from the stage back arrow', async () => {
     const props = buildProps();
     const { container, rerender } = render(<HomeChatPanel {...props} sourceCount={2} />);
