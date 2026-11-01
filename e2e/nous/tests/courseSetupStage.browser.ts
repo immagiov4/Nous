@@ -23,7 +23,8 @@ await withMemoryProjectBrowserStack(
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     const results: unknown[] = [];
-    for (const mobile of [Boolean(process.env.SETUP_MOBILE)]) {
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    for (const mobile of process.env.SETUP_MOBILE ? [true] : [false, true]) {
       for (const dark of [false, true]) {
         const started = performance.now();
         const scene = `${mobile ? 'mobile' : 'desktop'}-${dark ? 'dark' : 'light'}`;
@@ -34,7 +35,7 @@ await withMemoryProjectBrowserStack(
           colorScheme: dark ? 'dark' : 'light',
           reducedMotion: mobile ? 'reduce' : 'no-preference',
         });
-        await page.addInitScript(
+        await page.evaluate(
           isDark =>
             localStorage.setItem('nous-ui-preferences', JSON.stringify({ isDarkMode: isDark })),
           dark
@@ -137,7 +138,14 @@ await withMemoryProjectBrowserStack(
                           kind: 'self-assessment',
                           id: 'self',
                           title: 'Le tue conoscenze iniziali',
-                          topics: [{ id: 'probability', parentId: null, title: 'Probabilità' }],
+                          topics: [
+                            { id: 'probability', parentId: null, title: 'Probabilità' },
+                            ...Array.from({ length: 5 }, (_, index) => ({
+                              id: `topic-${index}`,
+                              parentId: null,
+                              title: `Statistica ${index + 1}`,
+                            })),
+                          ],
                         }
                       : {
                           kind: 'complete',
@@ -290,15 +298,42 @@ await withMemoryProjectBrowserStack(
           coursePlanningControls: { depth: 'more', granularity: 'much-less' },
         });
         await page.waitForTimeout(500);
-        await page.locator('.home-chat-scrollbar').evaluate(element => {
-          element.scrollTop = 0;
-        });
+        const diagnosticStart = await page
+          .getByRole('heading', { name: 'Le tue conoscenze iniziali', exact: true })
+          .boundingBox();
+        const scrollBounds = await page.locator('.home-chat-scrollbar').boundingBox();
+        const headerBounds = await page
+          .getByRole('heading', { name: 'Prepariamo il tuo corso' })
+          .boundingBox();
+        assert(
+          diagnosticStart &&
+            scrollBounds &&
+            diagnosticStart.y >= scrollBounds.y &&
+            diagnosticStart.y < scrollBounds.y + scrollBounds.height,
+          'Long diagnostic opens at its start without manual scrolling'
+        );
+        assert(
+          headerBounds && scrollBounds && headerBounds.y + headerBounds.height <= scrollBounds.y,
+          'Phase header stays above scrolling content'
+        );
         assert.equal(
           await page.locator('[aria-current=step]').getAttribute('aria-label'),
           'Conoscenze'
         );
         await page.screenshot({ path: join(evidence, `${scene}-knowledge.png`), fullPage: false });
         await page.waitForTimeout(1500);
+        await page.getByRole('slider', { name: 'Probabilità' }).focus();
+        await page.getByRole('slider', { name: 'Probabilità' }).press('Home');
+        for (let index = 1; index <= 5; index++) {
+          await page.getByRole('slider', { name: `Statistica ${index}`, exact: true }).focus();
+          await page
+            .getByRole('slider', { name: `Statistica ${index}`, exact: true })
+            .press('Home');
+        }
+        await page.getByRole('button', { name: 'Continua', exact: true }).click();
+        await page.locator('[data-course-setup-phase=plan]').waitFor();
+        assert.equal(await page.locator('[aria-current=step]').getAttribute('aria-label'), 'Piano');
+        await page.waitForTimeout(700);
         results.push({
           scene,
           clipDurationMs: performance.now() - clipStart,
@@ -306,11 +341,6 @@ await withMemoryProjectBrowserStack(
           clipEndMs: performance.now() - recordingStarted,
           video: await page.video()?.path(),
         });
-        await page.getByRole('slider', { name: 'Probabilità' }).focus();
-        await page.getByRole('slider', { name: 'Probabilità' }).press('Home');
-        await page.getByRole('button', { name: 'Continua', exact: true }).click();
-        await page.locator('[data-course-setup-phase=plan]').waitFor();
-        assert.equal(await page.locator('[aria-current=step]').getAttribute('aria-label'), 'Piano');
         await page.getByRole('button', { name: 'Annulla creazione corso' }).click();
         await stage.waitFor({ state: 'detached' });
         await page.getByRole('heading', { name: 'Cosa vuoi imparare oggi?' }).waitFor();

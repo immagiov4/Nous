@@ -25,3 +25,21 @@ export function deriveCourseSetupPhase({
   if (isLoading) return sourceCount > 0 ? 'sources' : 'goal';
   return null;
 }
+
+/** Only expose optional steps supported by this interview's proposal or diagnostic. */
+export function getCourseSetupPhases({
+  sourceCount,
+  hasPreferences,
+  hasDiagnostic,
+}: {
+  sourceCount: number;
+  hasPreferences: boolean;
+  hasDiagnostic: boolean;
+}): readonly CourseSetupPhase[] {
+  return COURSE_SETUP_PHASES.filter(phase => {
+    if (phase === 'sources') return sourceCount > 0;
+    if (phase === 'preferences') return hasPreferences;
+    if (phase === 'knowledge') return hasPreferences || hasDiagnostic;
+    return true;
+  });
+}

@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'vitest';
-import { deriveCourseSetupPhase } from '../../../components/library/courseSetupPhase';
+import {
+  deriveCourseSetupPhase,
+  getCourseSetupPhases,
+} from '../../../components/library/courseSetupPhase';
 
 describe('setup phases from existing interview state', () => {
   const interview = {
@@ -37,4 +40,16 @@ describe('setup phases from existing interview state', () => {
     }
     expect(deriveCourseSetupPhase({ ...interview, diagnosticKind: 'complete' })).toBe('plan');
   });
+});
+
+test('lists only supported optional interview phases', () => {
+  expect(
+    getCourseSetupPhases({ sourceCount: 0, hasPreferences: false, hasDiagnostic: false })
+  ).toEqual(['goal', 'plan']);
+  expect(
+    getCourseSetupPhases({ sourceCount: 2, hasPreferences: true, hasDiagnostic: false })
+  ).toEqual(['sources', 'goal', 'preferences', 'knowledge', 'plan']);
+  expect(
+    getCourseSetupPhases({ sourceCount: 0, hasPreferences: false, hasDiagnostic: true })
+  ).toEqual(['goal', 'knowledge', 'plan']);
 });

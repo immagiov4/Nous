@@ -3,7 +3,7 @@ import { ArrowLeft, BookOpen } from 'lucide-react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { useShouldAnimate } from '../../utils/motion/index.ts';
 import { SPRING_TAP } from '../../utils/motion/tokens.ts';
-import { COURSE_SETUP_PHASES, type CourseSetupPhase } from './courseSetupPhase.ts';
+import { type CourseSetupPhase, getCourseSetupPhases } from './courseSetupPhase.ts';
 import type { StopGenerationHandler } from './HomeChatComposer.tsx';
 
 const phaseLabel = (phase: CourseSetupPhase): string =>
@@ -18,18 +18,20 @@ const phaseLabel = (phase: CourseSetupPhase): string =>
 export default function CourseSetupHeader({
   phase,
   sourceCount,
+  hasPreferences,
+  hasDiagnostic,
   isLoading,
   onAbandon,
 }: {
   readonly phase: CourseSetupPhase;
   readonly sourceCount: number;
+  readonly hasPreferences: boolean;
+  readonly hasDiagnostic: boolean;
   readonly isLoading: boolean;
   readonly onAbandon?: StopGenerationHandler;
 }) {
   const shouldAnimate = useShouldAnimate();
-  const phases = COURSE_SETUP_PHASES.filter(
-    candidate => candidate !== 'sources' || sourceCount > 0
-  );
+  const phases = getCourseSetupPhases({ sourceCount, hasPreferences, hasDiagnostic });
   const currentIndex = phases.indexOf(phase);
   return (
     <header className="flex shrink-0 flex-wrap items-start gap-3 border-b border-stone-200/60 px-4 py-5 sm:gap-4 sm:px-6 dark:border-white/10">

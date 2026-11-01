@@ -27,7 +27,6 @@ import type { DiagnosticAdapter } from './diagnostic/diagnosticFlow.ts';
 type LibraryToolPart = Extract<UIMessage['parts'][number], { type: `tool-${string}` }>;
 
 interface HomeChatConversationProps {
-  readonly setupHeader?: ReactNode;
   readonly coursePreferences?: ReactNode;
   readonly diagnosticAdapter?: DiagnosticAdapter;
   readonly assessmentComplete: boolean;
@@ -573,7 +572,6 @@ const getConversationContentLength = (
     : libraryMessages.reduce((total, message) => total + getUiMessageText(message).length, 0);
 
 export default function HomeChatConversation({
-  setupHeader,
   coursePreferences,
   diagnosticAdapter,
   assessmentComplete,
@@ -605,6 +603,7 @@ export default function HomeChatConversation({
 }: HomeChatConversationProps) {
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const diagnosticRef = useRef<HTMLDivElement>(null);
+  const messagesContentRef = useRef<HTMLDivElement>(null);
   const visibleDiagnostic = homeChatMode === 'new-course' ? diagnosticAdapter : undefined;
   const [scrollOffsetOverride, setScrollOffsetOverride] = useState(0);
   const assessmentMessageKeys = useMemo(
@@ -617,7 +616,7 @@ export default function HomeChatConversation({
   );
   const activeMessages =
     homeChatMode === 'new-course' ? assessmentMessages : visibleLibraryMessages;
-  const hasPreferences = Boolean(coursePreferences);
+  const hasPreferences = Boolean(coursePreferences) && !visibleDiagnostic;
   const diagnosticKind = visibleDiagnostic?.initial.kind;
   const hasMessages = activeMessages.length > 0 || Boolean(visibleDiagnostic);
   const activeContentLength = getConversationContentLength(
@@ -637,12 +636,21 @@ export default function HomeChatConversation({
     ) {
       return;
     }
-    const maxScrollTop = Math.max(
-      0,
-      messagesScrollRef.current.scrollHeight - messagesScrollRef.current.clientHeight
-    );
-    const nextOffset = Math.round(maxScrollTop * Math.min(1, Math.max(0, scrollProgressOverride)));
-    setScrollOffsetOverride(current => (current === nextOffset ? current : nextOffset));
+    const viewport = messagesScrollRef.current;
+    const content = messagesContentRef.current;
+    if (!content) return;
+    const measureOverflow = () => {
+      const maxScrollTop = Math.max(0, content.scrollHeight - viewport.clientHeight);
+      const nextOffset = Math.round(
+        maxScrollTop * Math.min(1, Math.max(0, scrollProgressOverride))
+      );
+      setScrollOffsetOverride(current => (current === nextOffset ? current : nextOffset));
+    };
+    measureOverflow();
+    const observer = new ResizeObserver(measureOverflow);
+    observer.observe(viewport);
+    observer.observe(content);
+    return () => observer.disconnect();
   }, [scrollMeasurementKey, scrollProgressOverride]);
 
   useLayoutEffect(() => {
@@ -650,9 +658,7 @@ export default function HomeChatConversation({
     if (!activeMessages.at(-1) && !assessmentComplete && !isLoading) return;
     const messagesScroll = messagesScrollRef.current;
     if (!messagesScroll) return;
-    const diagnostic =
-      diagnosticRef.current ??
-      messagesScroll.querySelector<HTMLElement>('[data-course-preferences]');
+    const diagnostic = diagnosticRef.current;
     if (diagnostic && !hasPreferences && diagnosticKind) {
       messagesScroll.scrollTop +=
         diagnostic.getBoundingClientRect().top - messagesScroll.getBoundingClientRect().top;
@@ -674,11 +680,11 @@ export default function HomeChatConversation({
         hasMessages,
         isLoading,
         reserveClearButtonSpace
-      )} ${visibleDiagnostic ? 'md:!h-[75dvh]' : ''}`}
+      )}`}
       style={scrollProgressOverride === undefined ? undefined : { overflowY: 'hidden' }}
     >
-      {setupHeader}
       <div
+        ref={messagesContentRef}
         className={`space-y-3.5 ${scrollProgressOverride === undefined ? '' : 'pb-20'}`}
         style={
           scrollProgressOverride === undefined

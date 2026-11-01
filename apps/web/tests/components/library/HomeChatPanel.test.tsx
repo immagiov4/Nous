@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { UIMessage } from 'ai';
 import { useState } from 'react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import logoDarkModeUrl from '@/assets/logo_darkmode.svg';
 import HomeChatPanel from '../../../components/library/HomeChatPanel.tsx';
 import type {
@@ -240,7 +240,15 @@ describe('HomeChatPanel', () => {
     expect(screen.getByRole('textbox')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Annulla creazione corso' })).toBeDisabled();
   });
+  afterEach(() => vi.unstubAllGlobals());
   beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+      }
+    );
     HTMLElement.prototype.scrollIntoView = vi.fn();
     setViewportWidth(1280);
     setViewportHeight(800);
@@ -344,6 +352,67 @@ describe('HomeChatPanel', () => {
     );
 
     expect(props.onCancelNewCourse).toHaveBeenCalledOnce();
+  });
+
+  test.each([
+    undefined,
+    0.75,
+  ])('keeps setup navigation outside scrolling messages at progress %s', progress => {
+    const { container } = render(
+      <HomeChatPanel {...buildProps()} scrollProgressOverride={progress} />
+    );
+    const viewport = container.querySelector('.home-chat-scrollbar') as HTMLDivElement;
+    expect(
+      viewport.contains(screen.getByRole('heading', { name: 'Prepariamo il tuo corso' }))
+    ).toBe(false);
+    expect(
+      viewport.contains(screen.getByRole('list', { name: 'Fasi di preparazione del corso' }))
+    ).toBe(false);
+  });
+
+  test('opens the diagnostic at its start after preferences were confirmed', () => {
+    const props = {
+      ...buildProps(),
+      assessmentComplete: true,
+      coursePreferences: <div>Preferences</div>,
+    };
+    const { container, rerender } = render(<HomeChatPanel {...props} />);
+    const viewport = container.querySelector('.home-chat-scrollbar') as HTMLDivElement;
+    Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 1200 });
+    viewport.scrollTop = 0;
+    const bounds = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: HTMLElement) {
+        return { top: this === viewport ? 100 : 280 } as DOMRect;
+      });
+    try {
+      rerender(
+        <HomeChatPanel
+          {...props}
+          diagnosticAdapter={{
+            collectionId: 'long-assessment',
+            initial: {
+              kind: 'self-assessment',
+              id: 'self',
+              title: 'Initial knowledge',
+              topics: [{ id: 'topic', children: [], title: 'Topic' }],
+            },
+            submit: vi.fn(),
+          }}
+        />
+      );
+      expect(screen.queryByText('Preferences')).not.toBeInTheDocument();
+      expect(viewport.scrollTop).toBe(180);
+    } finally {
+      bounds.mockRestore();
+    }
+  });
+
+  test('omits optional phases for a resumed compatibility interview', () => {
+    const { container } = render(<HomeChatPanel {...buildProps()} assessmentComplete />);
+    expect(container.querySelector('[aria-current="step"]')).toHaveAccessibleName('Piano');
+    expect(container.querySelector('[data-setup-phase="preferences"]')).toBeNull();
+    expect(container.querySelector('[data-setup-phase="knowledge"]')).toBeNull();
   });
 
   test('reveals newly arrived preferences even when completion and messages are unchanged', () => {
@@ -490,6 +559,17 @@ describe('HomeChatPanel', () => {
   });
 
   test('maps scroll progress to the actual overflow for short, medium, and long chats', () => {
+    let notifyResize = () => {};
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          notifyResize = callback;
+        }
+        observe() {}
+        disconnect() {}
+      }
+    );
     const props = buildProps();
     const { container, rerender } = render(<HomeChatPanel {...props} />);
     const scrollContainer = container.querySelector('.home-chat-scrollbar');
@@ -504,20 +584,24 @@ describe('HomeChatPanel', () => {
 
     Object.defineProperties(scrollContainer, {
       clientHeight: { configurable: true, value: 200 },
-      scrollHeight: { configurable: true, value: 440 },
     });
+    Object.defineProperty(messagesContent, 'scrollHeight', { configurable: true, value: 440 });
     rerender(<HomeChatPanel {...props} scrollProgressOverride={0.5} />);
 
     expect(scrollContainer.scrollTop).toBe(0);
     expect(messagesContent).toHaveStyle({ transform: 'translateY(-120px)' });
 
-    Object.defineProperty(scrollContainer, 'scrollHeight', { configurable: true, value: 1200 });
+    Object.defineProperty(messagesContent, 'scrollHeight', { configurable: true, value: 1200 });
     rerender(<HomeChatPanel {...props} scrollProgressOverride={1} />);
     expect(messagesContent).toHaveStyle({ transform: 'translateY(-1000px)' });
 
-    Object.defineProperty(scrollContainer, 'scrollHeight', { configurable: true, value: 120 });
+    Object.defineProperty(messagesContent, 'scrollHeight', { configurable: true, value: 120 });
     rerender(<HomeChatPanel {...props} scrollProgressOverride={0.75} />);
     expect(messagesContent).toHaveStyle({ transform: 'translateY(-0px)' });
+    Object.defineProperty(messagesContent, 'scrollHeight', { configurable: true, value: 600 });
+    act(() => notifyResize());
+    expect(messagesContent).toHaveStyle({ transform: 'translateY(-300px)' });
+    vi.unstubAllGlobals();
   });
 
   test('shows 49 numbered PDFs as distinct sources', () => {

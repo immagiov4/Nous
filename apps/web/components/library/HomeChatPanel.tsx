@@ -204,17 +204,17 @@ export default function HomeChatPanel({
       showClearChat={showClearChat}
       viewportHeight={viewportHeight}
     >
+      {setupPhase && (
+        <CourseSetupHeader
+          phase={setupPhase}
+          sourceCount={sourceCount}
+          hasPreferences={Boolean(coursePreferences)}
+          hasDiagnostic={Boolean(diagnosticAdapter)}
+          isLoading={isLoading}
+          onAbandon={onCancelNewCourse}
+        />
+      )}
       <HomeChatConversation
-        setupHeader={
-          setupPhase ? (
-            <CourseSetupHeader
-              phase={setupPhase}
-              sourceCount={sourceCount}
-              isLoading={isLoading}
-              onAbandon={onCancelNewCourse}
-            />
-          ) : undefined
-        }
         coursePreferences={coursePreferences}
         diagnosticAdapter={diagnosticAdapter}
         assessmentComplete={assessmentComplete}
