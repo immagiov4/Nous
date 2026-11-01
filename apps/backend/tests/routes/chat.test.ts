@@ -997,6 +997,39 @@ describe('POST /api/chat/context', () => {
     expect(JSON.stringify(log.mock.calls)).not.toContain('PRIVATE_LESSON');
   });
 
+  test('collects an opaque correction link and rejects private or nonactionable recovery fields', async () => {
+    const event = {
+      operationId: 'c27e152a-c40b-4b24-a695-454f5d5d088a',
+      parentOperationId: '62a8a730-3c87-4ddf-9215-abd1d61b2109',
+      phase: 'correction',
+      outcome: 'requested',
+      recovery: 'refresh_context',
+      contextScope: 'lesson',
+      durationMs: 2,
+    };
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+    expect(
+      (await request(createApp()).post('/api/chat/context/note-events').send(event)).status
+    ).toBe(204);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(event.parentOperationId));
+    for (const change of [
+      { parentOperationId: 'PRIVATE_PROVIDER_ID' },
+      { note: 'PRIVATE_DRAFT' },
+      { recovery: 'unavailable' },
+    ]) {
+      log.mockClear();
+      expect(
+        (
+          await request(createApp())
+            .post('/api/chat/context/note-events')
+            .send({ ...event, ...change })
+        ).status
+      ).toBe(400);
+      expect(JSON.stringify(log.mock.calls)).not.toContain('PRIVATE_');
+    }
+    expect(aiMocks.streamText).not.toHaveBeenCalled();
+  });
+
   test('note diagnostic collection requires authentication', async () => {
     process.env.AUTH_MODE = 'supabase';
     const response = await request(createApp()).post('/api/chat/context/note-events').send({});

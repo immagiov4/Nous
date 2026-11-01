@@ -8,7 +8,6 @@ import { serializeContextNoteView } from '@shared/contextNoteCatalog';
 import type { ContextSourceReference } from '@shared/lessonSourceContext';
 import { sanitizeContextSourceDisplayName } from '@shared/lessonSourceContext';
 import {
-  DefaultChatTransport,
   isTextUIPart,
   isToolUIPart,
   lastAssistantMessageIsCompleteWithToolCalls,
@@ -39,6 +38,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  type ChatToolCallGuard,
   cancelledToolOutput,
   useChatResponseControl,
   useLatestValue,
@@ -65,6 +65,13 @@ import type {
   LessonGeneratedVisualKind,
   StoredLessonVisual,
 } from '../../../types.ts';
+import {
+  ContextNoteChatTransport,
+  preserveContextNoteInput,
+  readContextNoteCorrection,
+  readContextNoteDraft,
+  refreshContextNoteMessages,
+} from '../../../utils/context/contextNoteCorrection.ts';
 import {
   buildConversationNoteCatalog,
   restoreConversationNotePassage,
@@ -176,7 +183,10 @@ const hasPendingAddToNotesRequest = (messages: ContextChatMessage[]): boolean =>
     )
   );
 
-const shouldContinueContextResponse = (messages: ContextChatMessage[]): boolean => {
+const shouldContinueContextResponse = (
+  messages: ContextChatMessage[],
+  correctingNote = false
+): boolean => {
   const lastMessage = messages.at(-1);
   const lastStepStart = lastMessage?.parts.reduce(
     (lastIndex, part, index) => (part.type === 'step-start' ? index : lastIndex),
@@ -187,9 +197,12 @@ const shouldContinueContextResponse = (messages: ContextChatMessage[]): boolean 
     part =>
       part.type === 'tool-requestAddToNotes' &&
       part.state === 'output-available' &&
-      ['saved', 'validation_error', 'save_error', 'cancelled'].includes(
-        readContextNoteResult(part.output)?.status ?? ''
-      )
+      [
+        'saved',
+        ...(correctingNote ? [] : ['validation_error']),
+        'save_error',
+        'cancelled',
+      ].includes(readContextNoteResult(part.output)?.status ?? '')
   );
   const isReplacementStep = lastStepParts.some(
     part =>
@@ -528,6 +541,8 @@ interface ContextAnswerPanelProps {
     stopResponse?: () => void,
     tools?: ReactNode
   ) => ReactNode;
+  /** Appends a recovered draft to the externally controlled composer. */
+  readonly onReuseDraft?: (text: string) => void;
   readonly artifactActionFeedbackOverride?: 'saved';
   readonly artifactPreviewIdOverride?: string | null;
   readonly artifactPortalContainer?: HTMLElement | null;
@@ -604,6 +619,7 @@ function ContextAnswerPanelSession({
   docked = false,
   composerPortal,
   renderComposer,
+  onReuseDraft,
   artifactActionFeedbackOverride,
   artifactPreviewIdOverride,
   artifactPortalContainer,
@@ -649,6 +665,9 @@ function ContextAnswerPanelSession({
     projectId: contextAnswer.projectId,
   };
   const displayedInput = inputValueOverride ?? input;
+  const hasExternalComposer = Boolean(
+    composerPortal && renderComposer && (docked || !isMobileViewport)
+  );
   const [isToolMenuOpen, setIsToolMenuOpen] = useState(false);
   const [, setIsChatScrolled] = useState(false);
   const [isChatNotAtBottom, setIsChatNotAtBottom] = useState(false);
@@ -679,6 +698,29 @@ function ContextAnswerPanelSession({
   );
   const hasSubmittedInitialQuestionRef = useRef(false);
   const responseControl = useChatResponseControl();
+  const [pendingNoteCorrection] = useState(() => {
+    type Correction = NonNullable<ReturnType<typeof readContextNoteCorrection>> & {
+      guard: ChatToolCallGuard;
+      snapshotId: Promise<string>;
+    };
+    let pending: Correction | undefined;
+    let active: Correction | undefined;
+    return {
+      activate: (correction: Correction | undefined) => {
+        active = correction;
+      },
+      read: () => active,
+      capture: (correction: Correction) => {
+        pending = correction;
+        active = correction;
+      },
+      take: () => {
+        const correction = pending;
+        pending = undefined;
+        return correction;
+      },
+    };
+  });
   const contextStopButtonRef = useRef<HTMLButtonElement>(null);
   const [focusStopAfterSubmit, setFocusStopAfterSubmit] = useState(false);
   const toolMenuRef = useRef<HTMLDivElement>(null);
@@ -783,6 +825,7 @@ function ContextAnswerPanelSession({
   const [noteTargets, setNoteTargets] = useState<
     Record<string, ReturnType<typeof validateConversationNotePassage>['target']>
   >({});
+  const [recoveredNoteToolCallIds, setRecoveredNoteToolCallIds] = useState<Set<string>>(new Set());
   const [noteDiagnostics] = useState(createContextNoteDiagnostics);
   const currentContextRequestState = useMemo<ContextRequestState>(
     () => ({
@@ -831,18 +874,46 @@ function ContextAnswerPanelSession({
 
   const transport = useMemo(
     () =>
-      new DefaultChatTransport<ContextChatMessage>({
+      new ContextNoteChatTransport<ContextChatMessage>({
         api: `${getBackendUrl()}/api/chat/context`,
         fetch: fetchWithSupabaseAuth,
+        normalizeNoteInput: input => {
+          const correction = pendingNoteCorrection.read();
+          return correction?.guard.isCurrent()
+            ? preserveContextNoteInput(input, correction.input, correction.recovery)
+            : input;
+        },
         // `useChat` keeps the initial transport instance, so request data comes from its stable store.
         prepareSendMessagesRequest: async ({ headers, id, messages }) => {
+          const correction = pendingNoteCorrection.take();
+          const finishCorrection =
+            correction && noteDiagnostics.measureCorrection(correction.toolCallId);
           const currentRequestState = readContextRequestState();
-          noteCatalogSnapshot.capture(currentRequestState.noteCatalog);
-          const catalog = currentRequestState.noteCatalog;
+          const snapshotChanged =
+            correction &&
+            (await correction.snapshotId) !== (await currentRequestState.noteCatalog.snapshotId);
+          if (snapshotChanged) correction.recovery = 'refresh_context';
+          const catalog =
+            correction?.recovery === 'refresh_context'
+              ? buildConversationNoteCatalog(currentRequestState.noteCatalog)
+              : currentRequestState.noteCatalog;
           let outcome: 'complete' | 'clipped' | 'unavailable' = 'complete';
           if (catalog.entries.length < catalog.totalEntries) outcome = 'clipped';
           if (!catalog.entries.length) outcome = 'unavailable';
           const snapshotId = await catalog.snapshotId;
+          if (correction && !correction.guard.isCurrent()) {
+            throw new DOMException('Response superseded', 'AbortError');
+          }
+          noteCatalogSnapshot.capture(catalog);
+          pendingNoteCorrection.activate(correction);
+          if (correction) {
+            void finishCorrection?.({
+              phase: 'correction',
+              recovery: correction.recovery,
+              outcome: 'requested',
+              contextScope: currentRequestState.contextScope ?? 'selection',
+            });
+          }
           void noteDiagnostics.report(snapshotId, {
             phase: 'catalog',
             contextScope: currentRequestState.contextScope ?? 'selection',
@@ -857,7 +928,9 @@ function ContextAnswerPanelSession({
             headers,
             body: {
               id,
-              messages,
+              messages: snapshotChanged
+                ? refreshContextNoteMessages(messages, correction.toolCallId)
+                : messages,
               contextAfter: currentRequestState.contextAfter,
               contextBefore: currentRequestState.contextBefore,
               contextScope: currentRequestState.contextScope || 'selection',
@@ -884,7 +957,13 @@ function ContextAnswerPanelSession({
           };
         },
       }),
-    [noteCatalogSnapshot, noteDiagnostics, readContextRequestState, readRequestPlaybackContext]
+    [
+      noteCatalogSnapshot,
+      noteDiagnostics,
+      pendingNoteCorrection,
+      readContextRequestState,
+      readRequestPlaybackContext,
+    ]
   );
 
   const artifactPayloadsById = useMemo(() => {
@@ -906,8 +985,23 @@ function ContextAnswerPanelSession({
     id: contextAnswer.id,
     transport,
     experimental_throttle: 96,
-    sendAutomaticallyWhen: ({ messages }) =>
-      responseControl.canContinue() && shouldContinueContextResponse(messages),
+    sendAutomaticallyWhen: ({ messages }) => {
+      if (!responseControl.canContinue()) return false;
+      const correction = readContextNoteCorrection(messages);
+      if (
+        correction &&
+        shouldContinueContextResponse(messages, true) &&
+        responseControl.claimCorrection()
+      ) {
+        pendingNoteCorrection.capture({
+          ...correction,
+          snapshotId: noteCatalogSnapshot.read().snapshotId,
+          guard: responseControl.guardToolCall({ ...correction, toolName: 'requestAddToNotes' }),
+        });
+        return true;
+      }
+      return shouldContinueContextResponse(messages);
+    },
     onToolCall: async ({ toolCall }) => {
       if (toolCall.dynamic) {
         return;
@@ -950,6 +1044,14 @@ function ContextAnswerPanelSession({
             current: currentState,
           });
           const accepted = !error;
+          const correction = pendingNoteCorrection.read();
+          if (accepted && correction?.guard.isCurrent()) {
+            setRecoveredNoteToolCallIds(previous =>
+              previous.has(correction.toolCallId)
+                ? previous
+                : new Set(previous).add(correction.toolCallId)
+            );
+          }
           void finishProposal({
             phase: 'proposal',
             outcome: accepted ? 'accepted' : 'validation_error',
@@ -1200,8 +1302,15 @@ function ContextAnswerPanelSession({
 
     hasSubmittedInitialQuestionRef.current = true;
     autoSubmittedInitialQuestionIds.add(contextAnswer.id);
+    responseControl.begin();
     void sendMessage({ text: initialQuestion });
-  }, [contextAnswer.id, contextAnswer.initialQuestion, messages.length, sendMessage]);
+  }, [
+    contextAnswer.id,
+    contextAnswer.initialQuestion,
+    messages.length,
+    sendMessage,
+    responseControl,
+  ]);
 
   useEffect(() => {
     if (!isToolMenuOpen) {
@@ -1887,11 +1996,18 @@ function ContextAnswerPanelSession({
 
     if (part.type === 'tool-requestAddToNotes') {
       const inputValue = isRequestAddToNotesInput(part.input) ? part.input : null;
+      const noteDraft = readContextNoteDraft(part.input);
       const target = noteTargets[part.toolCallId];
       const passageText =
         target?.text ??
         (inputValue?.passageId === undefined ? inputValue?.selectedTextDraft : undefined);
       const outputValue = readContextNoteResult(part.output);
+      const isRecoveredNote = recoveredNoteToolCallIds.has(part.toolCallId);
+      const correction = pendingNoteCorrection.read();
+      const isCorrectingNote =
+        (isLoading || isWaitingForNoteDecision) &&
+        correction?.toolCallId === part.toolCallId &&
+        correction.guard.isCurrent();
       const isProcessing = processingNoteToolCallIds.has(part.toolCallId);
       const hasExistingNote =
         target?.hasExistingNote ?? Boolean(contextAnswer.attachedAnnotationNote?.trim());
@@ -1904,11 +2020,11 @@ function ContextAnswerPanelSession({
         hasExistingNote ? 'Vuoi aggiornare la nota collegata?' : 'Vuoi aggiungerlo alle note?'
       );
       if (outputValue?.status === 'validation_error')
-        cardTitle = t(CONTEXT_NOTE_MESSAGES.unavailable);
+        cardTitle = t(isRecoveredNote ? 'Nota proposta' : CONTEXT_NOTE_MESSAGES.unavailable);
       const approveLabel = t(hasExistingNote ? 'Aggiorna nota' : 'Aggiungi alle note');
 
       const renderResultPill = () => {
-        if (!outputValue) {
+        if (!outputValue || isRecoveredNote) {
           return null;
         }
 
@@ -2034,7 +2150,7 @@ function ContextAnswerPanelSession({
             </p>
           ) : null}
 
-          {inputValue ? (
+          {noteDraft !== undefined ? (
             <div className="mt-3 space-y-2 rounded-[1rem] bg-white/70 px-3 py-2 dark:bg-stone-800/50">
               {passageText ? (
                 <>
@@ -2050,7 +2166,7 @@ function ContextAnswerPanelSession({
                 {t(hasExistingNote ? 'Nuova versione della nota' : 'Nota proposta')}
               </p>
               <p className="whitespace-pre-wrap text-sm leading-6 text-stone-700 dark:text-stone-200">
-                {inputValue.noteDraft}
+                {noteDraft}
               </p>
               {noteArtifactPayloads.length > 0 ? (
                 <div className="pt-1">
@@ -2066,6 +2182,30 @@ function ContextAnswerPanelSession({
           ) : null}
 
           {renderNoteDecision()}
+          {outputValue?.status === 'validation_error' &&
+          noteDraft !== undefined &&
+          !isCorrectingNote &&
+          !isRecoveredNote ? (
+            <button
+              type="button"
+              disabled={isComposerDisabled}
+              onClick={() => {
+                if (hasExternalComposer && onReuseDraft) onReuseDraft(noteDraft);
+                else setInput(current => appendSpeechTranscription(current, noteDraft));
+                const input =
+                  composerPortal?.querySelector<HTMLElement>(
+                    '[data-context-menu-target="input"]'
+                  ) ??
+                  document.querySelector<HTMLElement>(
+                    `[data-chat-composer-target="${CONTEXT_ANSWER_INPUT_TARGET}"]`
+                  );
+                input?.focus();
+              }}
+              className="mt-3 rounded-full px-3 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-200/70 disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-600"
+            >
+              {t('Riprendi bozza')}
+            </button>
+          ) : null}
         </div>
       );
     }
@@ -2304,9 +2444,6 @@ function ContextAnswerPanelSession({
     panelPlacementClassName = 'rounded-2xl';
   }
   const stopComposerResponse = isLoading ? handleStopResponse : undefined;
-  const hasExternalComposer = Boolean(
-    composerPortal && renderComposer && (docked || !isMobileViewport)
-  );
   const answerPanel = (
     <motion.div
       ref={contextAnswerPanelRef}

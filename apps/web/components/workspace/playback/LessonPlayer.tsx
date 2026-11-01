@@ -782,6 +782,7 @@ export default function LessonPlayer({
                   isMobileViewport={mobile}
                   docked
                   composerPortal={composerPortal}
+                  onReuseDraft={text => changeDraft(appendSpeechTranscription(draft, text))}
                   renderComposer={(send, disabled, stopResponse, tools) =>
                     renderComposer({ send, disabled, conversation: true, stopResponse, tools })
                   }

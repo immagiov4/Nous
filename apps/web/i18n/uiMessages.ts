@@ -32,7 +32,7 @@ export const CONTEXT_NOTE_MESSAGES = {
   noPassages: 'La lezione non contiene passaggi a cui collegare una nota.',
   unavailable: 'Proposta di nota non disponibile.',
   invalidAnchor:
-    'Non riesco a collegare la nota a un passaggio della lezione. La bozza è conservata.',
+    'Non riesco a collegare la nota a un passaggio della lezione. Puoi riprendere la bozza in un messaggio.',
   invalidInput: 'La proposta di nota non è completa. Puoi continuare la conversazione.',
 } as const;
 
@@ -62,7 +62,8 @@ const ENGLISH_UI_MESSAGES = {
   [CONTEXT_NOTE_MESSAGES.noPassages]: 'This lesson has no passages to attach a note to.',
   [CONTEXT_NOTE_MESSAGES.unavailable]: 'Note proposal unavailable.',
   [CONTEXT_NOTE_MESSAGES.invalidAnchor]:
-    'I could not link the note to a lesson passage. Your draft is kept.',
+    'I could not link the note to a lesson passage. You can reuse the draft in a message.',
+  'Riprendi bozza': 'Reuse draft',
   [CONTEXT_NOTE_MESSAGES.invalidInput]:
     'The note proposal is incomplete. You can continue the conversation.',
   [IMPORT_REFRESH_WARNING]: 'Your courses were imported. Reload the library to see them.',

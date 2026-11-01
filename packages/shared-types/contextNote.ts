@@ -123,6 +123,14 @@ export const ContextNoteEventSchema = z.discriminatedUnion('phase', [
     .strict()
     .refine(event => (event.outcome === 'validation_error') === (event.code !== undefined)),
   eventBase
+    .extend({
+      phase: z.literal('correction'),
+      parentOperationId: z.uuid(),
+      recovery: z.enum(['choose_passage', 'refresh_context', 'rebuild_input']),
+      outcome: z.literal('requested'),
+    })
+    .strict(),
+  eventBase
     .extend({ phase: z.literal('decision'), outcome: z.enum(['approved', 'declined']) })
     .strict(),
   eventBase

@@ -11,6 +11,21 @@ import {
 const toolPart = (toolCallId: string, state: string) =>
   ({ input: {}, state, toolCallId, type: 'tool-search' }) as UIMessage['parts'][number];
 
+test('automatic correction is claimed once per learner response and cannot survive Stop or unmount', () => {
+  const { result, unmount } = renderHook(() => useChatResponseControl());
+  const control = result.current;
+  control.begin();
+  expect(control.claimCorrection()).toBe(true);
+  expect(control.claimCorrection()).toBe(false);
+  control.begin();
+  expect(control.claimCorrection()).toBe(true);
+  control.halt({ parts: [] });
+  expect(control.claimCorrection()).toBe(false);
+  control.begin();
+  unmount();
+  expect(control.claimCorrection()).toBe(false);
+});
+
 test('a tool call becomes stale after Stop, a newer response or unmount', () => {
   const { result, unmount } = renderHook(() => useChatResponseControl());
   const control = result.current;

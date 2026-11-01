@@ -37,6 +37,8 @@ vi.mock('../../../../services/context/contextNoteDiagnostics.ts', () => ({
     report: reportNoteEventMock,
     measure: (id: string) => (event: object) =>
       reportNoteEventMock(id, { ...event, durationMs: 0 }),
+    measureCorrection: (id: string) => (event: object) =>
+      reportNoteEventMock(id, { ...event, durationMs: 0 }),
   }),
 }));
 const lastAssistantMessageIsCompleteWithToolCallsMock = vi.fn<
@@ -2950,6 +2952,79 @@ describe('ContextAnswerPanel', () => {
     );
   });
 
+  test('catalog drift after choose_passage becomes refresh_context before dispatch', async () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    const props = buildProps({
+      initialQuestion: '',
+      contextScope: 'lesson',
+      selectedText: '',
+      lessonContent: 'Prima frase.',
+    });
+    const view = render(<ContextAnswerPanel {...props} />);
+    const prepare = defaultChatTransportInstances[0].prepareSendMessagesRequest;
+    if (!prepare) throw new Error('Missing request preparation');
+    const initial = (await prepare({ id: 'drift', messages: [] })) as {
+      body: { noteCatalog: { snapshotId: string } };
+    };
+    const messages = [
+      { id: 'user', role: 'user', parts: [{ type: 'text', text: 'Una nota.' }] },
+      {
+        id: 'assistant',
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool-requestAddToNotes',
+            toolCallId: 'invalid',
+            state: 'output-available',
+            input: { passageId: 'invented', noteDraft: 'Bozza.', rationale: 'Motivo.' },
+            output: {
+              status: 'validation_error',
+              code: 'unknown_passage',
+              recovery: 'choose_passage',
+              availablePassageIds: ['p0'],
+            },
+          },
+        ],
+      },
+    ] as UIMessage[];
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(true);
+    const options = useChatMock.mock.calls.at(-1)?.[0] as {
+      sendAutomaticallyWhen: (input: { messages: UIMessage[] }) => boolean;
+    };
+    expect(options.sendAutomaticallyWhen({ messages })).toBe(true);
+    view.rerender(
+      <ContextAnswerPanel
+        {...props}
+        contextAnswer={{ ...props.contextAnswer, lessonContent: 'Frase diversa.' }}
+      />
+    );
+    const request = (await prepare({ id: 'drift', messages })) as {
+      body: { noteCatalog: { snapshotId: string }; messages: UIMessage[] };
+    };
+    expect(request.body.noteCatalog.snapshotId).not.toBe(initial.body.noteCatalog.snapshotId);
+    expect(request.body.messages.flatMap(message => message.parts)).toContainEqual(
+      expect.objectContaining({
+        toolCallId: 'invalid',
+        output: {
+          status: 'validation_error',
+          code: 'stale_context',
+          recovery: 'refresh_context',
+          availablePassageIds: [],
+        },
+      })
+    );
+    expect(messages[1].parts[0]).toMatchObject({ output: { recovery: 'choose_passage' } });
+    expect(reportNoteEventMock).toHaveBeenCalledWith(
+      'invalid',
+      expect.objectContaining({ phase: 'correction', recovery: 'refresh_context' })
+    );
+  });
+
   test.each([
     [
       'validation_error',
@@ -2994,6 +3069,106 @@ describe('ContextAnswerPanel', () => {
     expect(screen.queryByText(/Richiesta rifiutata/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Aggiungi alle note' })).not.toBeInTheDocument();
     expect(chatTextComposerProps.at(-1)?.disabled).toBe(false);
+  });
+
+  test.each([
+    { noteDraft: 'Bozza incompleta.' },
+    { noteDraft: 'Bozza incompleta.', passageId: 'p0', artifactIds: [1] },
+  ])('retains and reuses draft text independently of malformed proposal fields: %j', async input => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      messages: [
+        {
+          id: 'malformed',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'malformed',
+              state: 'output-available',
+              input,
+              output: {
+                status: 'validation_error',
+                code: 'invalid_input',
+                recovery: 'rebuild_input',
+              },
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    render(<ContextAnswerPanel {...buildProps()} />);
+    expect(screen.getByText(input.noteDraft)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Riprendi bozza' }));
+    expect(chatTextComposerProps.at(-1)?.value).toBe(input.noteDraft);
+    expect(chatTextComposerProps.at(-1)?.disabled).toBe(false);
+  });
+
+  test('reuse appends to and submits the visible controlled playback composer', async () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      sendMessage: sendMessageMock,
+      status: 'ready',
+      messages: [
+        {
+          id: 'failed',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'failed',
+              state: 'output-available',
+              input: { noteDraft: 'Bozza recuperata.' },
+              output: {
+                status: 'validation_error',
+                code: 'invalid_input',
+                recovery: 'rebuild_input',
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const portal = document.createElement('div');
+    document.body.append(portal);
+    const user = userEvent.setup();
+    function PlaybackComposer() {
+      const [draft, setDraft] = useState('Testo preparato.');
+      return (
+        <ContextAnswerPanel
+          {...buildProps()}
+          docked
+          composerPortal={portal}
+          onReuseDraft={text => setDraft(current => `${current} ${text}`)}
+          renderComposer={(send, disabled) => (
+            <>
+              <input
+                aria-label="Composer visibile"
+                data-context-menu-target="input"
+                value={draft}
+                onChange={event => setDraft(event.target.value)}
+              />
+              <button type="button" disabled={disabled} onClick={() => send(draft)}>
+                Invia bozza
+              </button>
+            </>
+          )}
+        />
+      );
+    }
+    const view = render(<PlaybackComposer />);
+    try {
+      await user.click(screen.getByRole('button', { name: 'Riprendi bozza' }));
+      expect(screen.getByRole('textbox')).toHaveValue('Testo preparato. Bozza recuperata.');
+      expect(screen.getByRole('textbox')).toHaveFocus();
+      await user.click(screen.getByRole('button', { name: 'Invia bozza' }));
+      expect(sendMessageMock).toHaveBeenCalledWith({ text: 'Testo preparato. Bozza recuperata.' });
+    } finally {
+      view.unmount();
+      portal.remove();
+    }
   });
 
   test('only an explicit learner decline emits the declined result', async () => {

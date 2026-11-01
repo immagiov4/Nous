@@ -246,6 +246,20 @@ beforeEach(() => {
   save.mockResolvedValue({ saved: true, merged: false, annotationId: 'annotation' });
 });
 
+test('reusing a contextual-note draft appends to the player composer and submits that visible text', async () => {
+  const user = userEvent.setup();
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  await user.type(screen.getByRole('textbox'), 'Una domanda.');
+  await user.click(screen.getByRole('button', { name: 'Invia domanda' }));
+  await user.type(screen.getByRole('textbox'), 'Testo preparato.');
+  await act(async () => {
+    answerPanelProps.mock.lastCall?.[0].onReuseDraft?.('Bozza recuperata.');
+  });
+  expect(screen.getByRole('textbox')).toHaveValue('Testo preparato. Bozza recuperata.');
+  await user.click(screen.getByRole('button', { name: 'Invia domanda' }));
+  expect(sendInConversation).toHaveBeenLastCalledWith('Testo preparato. Bozza recuperata.');
+});
+
 test('opening desktop playback focuses its surface so Space records without a click', async () => {
   render(<LessonPlayer {...props} autoPlay={false} />);
   const dialog = screen.getByRole('dialog', { name: 'Riproduci lezione' });
