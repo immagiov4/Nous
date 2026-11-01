@@ -6,6 +6,7 @@ import {
   buildCourseSourceDescriptors,
   createProjectSourceFromDescriptors,
   detachStoredSources,
+  formatCourseSourceSetContext,
   getCourseSourceDescriptors,
   mergeCourseSourceDescriptors,
   parseMarkdownOutline,
@@ -17,6 +18,20 @@ const textFile = (name: string, text: string, mimeType = 'text/plain'): FileData
   data: encodeTextBase64(text),
   mimeType,
   name,
+});
+
+test('source chunks and their assessment sample retain whole boundary characters', () => {
+  const text = `${'a'.repeat(7_999)}𝑋${'z'.repeat(8_000)}`;
+  const sources = buildCourseSourceDescriptors([textFile('symbols.txt', text)]);
+  const chunks = sources[0].documentIndex?.chunks || [];
+  assert.equal(chunks.map(chunk => chunk.text).join(''), text);
+  assert.ok(chunks.every(chunk => !/[\uD800-\uDFFF]/u.test(chunk.text)));
+  for (const chunk of chunks) {
+    assert.equal(text.slice(chunk.startOffset, chunk.endOffset), chunk.text);
+  }
+  const sample = JSON.parse(formatCourseSourceSetContext(sources)).sampledContent;
+  assert.ok(!/[\uD800-\uDFFF]/u.test(sample));
+  assert.ok(sample.includes('𝑋'));
 });
 
 test('course sources use a stable alphabetical order without merging their content', () => {

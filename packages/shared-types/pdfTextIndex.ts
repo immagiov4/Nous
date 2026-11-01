@@ -14,6 +14,7 @@ import {
   resolveChunkPageSpanFromLayout,
 } from './pdfTextLayout';
 import { formatPdfTranscriptionMarker } from './pdfTranscription';
+import { sliceSourceText } from './sourceTextSlice';
 
 export type { PdfTextPage } from './pdfTextLayout';
 
@@ -236,7 +237,7 @@ export const buildCompactSnippet = (text: string, maxChars: number): string => {
   const separator = ' ... ';
   const headChars = Math.max(24, Math.floor(maxChars * 0.65));
   const tailChars = Math.max(16, maxChars - headChars - separator.length);
-  return `${normalized.slice(0, headChars).trimEnd()}${separator}${normalized.slice(-tailChars).trimStart()}`;
+  return `${sliceSourceText(normalized, 0, headChars).trimEnd()}${separator}${sliceSourceText(normalized, Math.max(0, normalized.length - tailChars)).trimStart()}`;
 };
 
 const splitLargeSection = (

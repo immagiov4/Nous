@@ -9,6 +9,7 @@ export { parseMarkdownOutline } from '@shared/courseSourceText';
 
 import { combineCourseSourceIndexes } from '@shared/courseSourceIndex';
 import { buildStableProjectSourceHash } from '@shared/projectSnapshotWire';
+import { sliceSourceText } from '@shared/sourceTextSlice';
 import type {
   CourseSourceDescriptor,
   FileData,
@@ -289,12 +290,12 @@ const sampleSourceChunks = (source: CourseSourceDescriptor): string => {
     return '';
   }
   const indexes = new Set([0, Math.floor(chunks.length / 2), chunks.length - 1]);
-  return [...indexes]
+  const text = [...indexes]
     .sort((left, right) => left - right)
     .map(index => chunks[index]?.text || '')
     .filter(Boolean)
-    .join('\n\n')
-    .slice(0, MAX_SOURCE_CONTEXT_CHARS);
+    .join('\n\n');
+  return sliceSourceText(text, 0, MAX_SOURCE_CONTEXT_CHARS);
 };
 
 export const formatCourseSourceSetContext = (sources: readonly CourseSourceDescriptor[]): string =>

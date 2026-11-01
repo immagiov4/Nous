@@ -1,3 +1,7 @@
+import {
+  MAX_LESSON_COMBINED_SOURCE_CONTEXT_CHARS,
+  MAX_LESSON_SOURCE_CONTEXT_CHARS,
+} from '@shared/lessonSourceContext';
 import { expect, test, vi } from 'vitest';
 import type { ProjectStore } from '../../src/projects/types.js';
 import { resolveLessonSourceMaterials } from '../../src/services/lessonGenerationPreparation.js';
@@ -14,6 +18,43 @@ import {
   withPdfAssetSoftTimeout,
 } from '../../src/services/lessonGenerationSources.js';
 import { readLessonPrimarySources } from '../../src/services/lessonPrimarySourceContext.js';
+
+test.each([
+  'source',
+  'combined',
+] as const)('lesson %s context retains a symbol crossing its excerpt limit', async boundary => {
+  const name = 'symbols.txt';
+  const prefix = `ORIGINAL SOURCE: ${name}\n`;
+  const firstText = 'a'.repeat(MAX_LESSON_SOURCE_CONTEXT_CHARS);
+  const offset =
+    boundary === 'source'
+      ? MAX_LESSON_SOURCE_CONTEXT_CHARS - 1
+      : MAX_LESSON_COMBINED_SOURCE_CONTEXT_CHARS -
+        2 * (prefix.length + firstText.length + '\n\n---\n\n'.length) -
+        prefix.length -
+        1;
+  const text = `${'b'.repeat(offset)}𝑋${'z'.repeat(100)}`;
+  const contents = boundary === 'source' ? [text] : [firstText, firstText, text];
+  const store = {
+    loadProjectSources: vi.fn().mockResolvedValue(
+      contents.map((content, index) => ({
+        file: { name, mimeType: 'text/plain', data: Buffer.from(content).toString('base64') },
+        ref: { id: `source-${index}`, hash: 'a'.repeat(64) },
+      }))
+    ),
+  } as unknown as ProjectStore;
+  const context = await buildStoredDocumentSourceContext({
+    store,
+    userId: 'user',
+    projectId: 'project',
+    section: {},
+    signal: new AbortController().signal,
+    primarySourceId: '',
+  });
+  const parts = readLessonPrimarySources(context);
+  expect(parts?.every(part => !/[\uD800-\uDFFF]/u.test(part.text))).toBe(true);
+  expect(parts?.at(-1)?.text).toContain('𝑋');
+});
 
 const extraction = vi.hoisted(() => ({ extractPdfText: vi.fn() }));
 vi.mock('../../src/services/pdfTextExtractor.js', async original => ({

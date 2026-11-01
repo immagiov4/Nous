@@ -41,6 +41,36 @@ const storedSource = (id: string, hash: string, data: string) => ({
   },
 });
 
+test.each([
+  ['short prefix', 10, 9],
+  ['beginning end', 44, 9],
+  ['middle start', 44, 44],
+  ['middle end', 44, 54],
+  ['ending start', 44, 89],
+] as const)('source sampling preserves the character crossing %s', (_boundary, budget, offset) => {
+  const text = `${'a'.repeat(offset)}𝑋${'z'.repeat(100 - offset - 2)}`;
+  const material = { descriptor: preparedState.context.sources[0], text };
+  const formatted = formatCourseSourceMaterials([material], budget);
+  const excerpt = formatted.split('<excerpt>\n')[1].split('\n</excerpt>')[0];
+  expect(!/[\uD800-\uDFFF]/u.test(excerpt)).toBe(true);
+  expect(excerpt).toContain('𝑋');
+  expect(excerpt).not.toContain('�');
+  expect(
+    JSON.parse(JSON.stringify({ input: [{ type: 'text', text: formatted }] })).input[0].text
+  ).toBe(formatted);
+  expect(material.text).toBe(text);
+});
+
+test('source sampling keeps the existing three windows for BMP text and full short sources', () => {
+  const descriptor = preparedState.context.sources[0];
+  const text = 'abcdefghijklmnopqrstuvwxyz'.repeat(4);
+  const formatted = formatCourseSourceMaterials([{ descriptor, text }], 44);
+  expect(formatted.split('<excerpt>\n')[1].split('\n</excerpt>')[0]).toBe(
+    [text.slice(0, 10), text.slice(47, 57), text.slice(-10)].join('\n\n[…]\n\n')
+  );
+  expect(formatCourseSourceMaterials([{ descriptor, text: '𝑋' }], 2)).toContain('\n𝑋\n');
+});
+
 describe('course generation source material reader', () => {
   test('loads only the frozen source identities in their prepared order', async () => {
     const readSourceMaterial = vi.fn().mockResolvedValue({ text: 'contenuto valido' });

@@ -343,6 +343,50 @@ describe('course generation planning', () => {
     expect(prompt).toContain('FIRST_END');
   });
 
+  test('draft generation receives serializable complete Unicode from sampled sources', async () => {
+    const descriptor = {
+      hash: 'a'.repeat(64),
+      id: 'source-1',
+      kind: 'text',
+      mimeType: 'text/plain',
+      name: 'symbols.txt',
+    };
+    const other = { ...descriptor, id: 'source-2', name: 'second.txt' };
+    // The existing 8,000-unit source sample cuts its middle window at offset 6,333.
+    const text = `${'a'.repeat(6_332)}𝑋${'b'.repeat(3_670)}`;
+    const generateObject = vi.fn(async (request: { prompt: string }) => {
+      const serialized = JSON.stringify({ input: [{ type: 'text', text: request.prompt }] });
+      const providerInput = JSON.parse(serialized).input[0].text;
+      expect(!/[\uD800-\uDFFF]/u.test(providerInput)).toBe(true);
+      expect(providerInput).toContain('𝑋');
+      return rawPlan([]);
+    });
+    const stages = createCoursePlanningStages({
+      generateObject: generateObject as never,
+      readSourceMaterials: async () => [
+        { descriptor, text },
+        { descriptor: other, text: 'Second source.' },
+      ],
+      verifyRefinedPlan: vi.fn(async () => verification),
+    });
+    const result = await stages.draftCoursePlan({
+      attemptNumber: 1,
+      config: { models: {} as never } as never,
+      execution: { nodeInstanceId: 'draft-course-plan', runId: 'run-unicode' },
+      idempotencyKey: 'unicode-plan',
+      input: {
+        ...researchState,
+        context: { ...researchState.context, sources: [descriptor, other] },
+        request: { ...researchState.request, mode: 'document' },
+        strategy: 'source-set',
+      },
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    });
+    expect(result.rawDraftPlan).toEqual(rawPlan([]));
+    expect(generateObject).toHaveBeenCalledOnce();
+  });
+
   test.each(
     COURSE_CONTROL_POSITIONS
   )('preserves %s controls and the original draft through refinement', async granularity => {

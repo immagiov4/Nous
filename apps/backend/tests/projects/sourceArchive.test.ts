@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {
+  ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
+  formatSourceArchiveIndex,
+} from '@shared/sourceArchiveIndex';
 import { SOURCE_ARCHIVE_PREVIEW_MAX_CHARS } from '@shared/sourceArchivePreview';
 import JSZip from 'jszip';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -469,6 +473,26 @@ describe('indexSourceArchive', () => {
     expect(file?.kind === 'file' ? file.text : undefined).toBe(content);
     expect(file?.kind === 'file' ? file.content : undefined).toEqual(textEncoder.encode(content));
     expect(file).not.toHaveProperty('aggregatedText');
+  });
+
+  test('keeps complete Unicode in ZIP previews and the provider-facing index', async () => {
+    const prefix = 'a'.repeat(SOURCE_ARCHIVE_PREVIEW_MAX_CHARS - 1);
+    const content = `${prefix}𝑋tail`;
+    const archive = await createArchive([{ content, path: 'symbols.txt', type: 'file' }]);
+    const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
+    const file = result.entries[0];
+    expect(file?.kind).toBe('file');
+    if (file?.kind !== 'file') throw new Error('Expected indexed text file');
+    expect(file.text).toBe(content);
+    expect(file.preview).toBe(`${prefix}𝑋`);
+    const formatted = formatSourceArchiveIndex(
+      { entries: [{ ...file, contentKind: 'text' }] },
+      {
+        previewBudgetChars: ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
+      }
+    );
+    expect(formatted).toContain(`${prefix}𝑋`);
+    expect(formatted).not.toMatch(/[\uD800-\uDFFF]/u);
   });
 
   test('caps a minified single-line preview without truncating the indexed source', async () => {
