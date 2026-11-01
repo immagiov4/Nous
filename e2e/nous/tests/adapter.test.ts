@@ -820,16 +820,22 @@ describe('Nous adapter', () => {
     ).rejects.toThrow('explicit fixture course and lesson ID');
   });
 
-  it('passes only the family matrix to the inspector', async () => {
+  it('uses the public taxonomy independently of private complaint data', async () => {
     temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-taxonomy-'));
     vi.stubEnv('NOUS_E2E_DATA', temporaryRoot);
     await mkdir(join(temporaryRoot, 'complaint-mining'));
     await writeFile(
       join(temporaryRoot, 'complaint-mining/TAXONOMY.md'),
-      '# Taxonomy\n\n## Family matrix for the checker prompt\n\n| Family | Classes |\n| F01 | D01 |\n\n## Class table\n\nPrivate complaint excerpt\n'
+      '# Taxonomy\n\n## Family matrix for the checker prompt\n\n| Family | Classes |\n| F01 | D01 |\n\n## Class table\n\nSynthetic confidential complaint: hidden fixture details\n'
     );
-    expect(adapter.taxonomy()).toBe('| Family | Classes |\n| F01 | D01 |');
-    expect(adapter.taxonomyClasses()).toEqual(['D01']);
+    expect(adapter.taxonomy()).not.toContain(
+      'Synthetic confidential complaint: hidden fixture details'
+    );
+    expect(adapter.taxonomyClasses()).toEqual(
+      Array.from({ length: 40 }, (_, index) => `D${String(index + 1).padStart(2, '0')}`)
+    );
+    vi.stubEnv('NOUS_E2E_DATA', '');
+    expect(adapter.taxonomyClasses()).toHaveLength(40);
     expect(adapter.locale()).toBe('it-IT');
   });
 
