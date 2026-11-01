@@ -475,8 +475,12 @@ describe('indexSourceArchive', () => {
     expect(file).not.toHaveProperty('aggregatedText');
   });
 
-  test('keeps complete Unicode in ZIP previews and the provider-facing index', async () => {
-    const prefix = 'a'.repeat(SOURCE_ARCHIVE_PREVIEW_MAX_CHARS - 1);
+  test.each([
+    SOURCE_ARCHIVE_PREVIEW_MAX_CHARS - 2,
+    SOURCE_ARCHIVE_PREVIEW_MAX_CHARS - 1,
+    SOURCE_ARCHIVE_PREVIEW_MAX_CHARS,
+  ])('keeps complete Unicode within ZIP preview and provider-index limits at offset %s', async offset => {
+    const prefix = 'a'.repeat(offset);
     const content = `${prefix}𝑋tail`;
     const archive = await createArchive([{ content, path: 'symbols.txt', type: 'file' }]);
     const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
@@ -484,14 +488,16 @@ describe('indexSourceArchive', () => {
     expect(file?.kind).toBe('file');
     if (file?.kind !== 'file') throw new Error('Expected indexed text file');
     expect(file.text).toBe(content);
-    expect(file.preview).toBe(`${prefix}𝑋`);
+    const expected = offset === SOURCE_ARCHIVE_PREVIEW_MAX_CHARS - 2 ? `${prefix}𝑋` : prefix;
+    expect(file.preview).toBe(expected);
+    expect(file.preview?.length).toBeLessThanOrEqual(SOURCE_ARCHIVE_PREVIEW_MAX_CHARS);
     const formatted = formatSourceArchiveIndex(
       { entries: [{ ...file, contentKind: 'text' }] },
       {
         previewBudgetChars: ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
       }
     );
-    expect(formatted).toContain(`${prefix}𝑋`);
+    expect(formatted).toContain(expected);
     expect(formatted).not.toMatch(/[\uD800-\uDFFF]/u);
   });
 

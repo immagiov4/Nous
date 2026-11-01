@@ -45,5 +45,5 @@ test('archive previews respect their quota and assessment excerpts retain whole 
   expect(preview).not.toMatch(/[\uD800-\uDFFF]/u);
   expect(preview.split('\n').at(-1)).toBe('abcdefghi');
   expect(clipped).not.toMatch(/[\uD800-\uDFFF]/u);
-  expect(clipped).toContain('abcdefghi𝑋');
+  expect(clipped).toBe('abcdefghi𝑋\n\n[truncated]');
 });

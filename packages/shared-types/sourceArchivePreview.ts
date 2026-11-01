@@ -22,6 +22,8 @@ export const createSourceArchivePreview = (text: string): string => {
       character = '\n';
     }
 
+    if (preview.length + character.length > SOURCE_ARCHIVE_PREVIEW_MAX_CHARS) break;
+
     if (character === '\n') {
       if (lineCount >= SOURCE_ARCHIVE_PREVIEW_MAX_LINES) {
         break;

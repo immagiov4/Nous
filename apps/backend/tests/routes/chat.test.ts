@@ -1286,18 +1286,28 @@ describe('POST /api/chat/context', () => {
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('legacy source.pdf');
   });
 
-  test('contextual chat clips source material without sending a lone surrogate to the provider', async () => {
+  test.each([
+    'openrouter',
+    'codex',
+  ] as const)('contextual chat clips source material within its Unicode-safe field quota through %s', async provider => {
+    const token = authenticateProvider(provider);
     const response = await request(createApp())
       .post('/api/chat/context')
+      .set('Authorization', `Bearer ${token}`)
       .send({
         messages: [{ id: '1', role: 'user', content: 'Spiega il simbolo' }],
         selectedText: 'Simbolo matematico',
         sourceMaterial: `${'a'.repeat(MAX_CONTEXT_CHARS - 1)}𝑋${'z'.repeat(100)}`,
       });
     expect(response.status).toBe(200);
-    const prompt = aiMocks.streamText.mock.calls[0][0].system;
+    const options =
+      provider === 'codex'
+        ? codexStreamMocks.createCodexChatStream.mock.lastCall?.[0]
+        : aiMocks.streamText.mock.lastCall?.[0];
+    const prompt = options.system;
     expect(prompt).not.toMatch(/[\uD800-\uDFFF]/u);
-    expect(prompt).toContain(`${'a'.repeat(MAX_CONTEXT_CHARS - 1)}𝑋\n\n[context truncated]`);
+    expect(prompt).toContain(`${'a'.repeat(MAX_CONTEXT_CHARS - 1)}\n\n[context truncated]`);
+    expect(prompt).not.toContain('a'.repeat(MAX_CONTEXT_CHARS));
     expect(prompt).not.toContain('z'.repeat(100));
     expect(JSON.stringify({ input: [{ type: 'text', text: prompt }] })).not.toMatch(
       /\\u[dD][89a-fA-F][0-9a-fA-F]{2}/u
