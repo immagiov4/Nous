@@ -1,5 +1,5 @@
 import { Check, ChevronRight } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import type { ReactNode } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { DiagnosticAnswer, DiagnosticTopic, SelfAssessment } from './diagnosticFlow.ts';
 import SelfAssessmentControl from './SelfAssessmentControl.tsx';
@@ -8,6 +8,8 @@ import { useDiagnosticSelectionAnchor } from './useDiagnosticSelectionAnchor.ts'
 interface Props {
   readonly topics: readonly DiagnosticTopic[];
   readonly answers: Readonly<Record<string, DiagnosticAnswer>>;
+  readonly collapsedTopics: Readonly<Record<string, boolean>>;
+  readonly onToggle: (id: string) => void;
   readonly onAnswer: (id: string, value: SelfAssessment) => void;
 }
 interface Selection {
@@ -52,11 +54,13 @@ function Topic({
   topic,
   answers,
   onAnswer,
+  collapsedTopics,
+  onToggle,
   activeId,
   activate,
 }: Omit<Props, 'topics'> & Selection & { readonly topic: DiagnosticTopic }) {
   const complete = isBranchAnswered(topic, answers);
-  const [open, setOpen] = useState(true);
+  const open = !collapsedTopics[topic.id];
   const answer = answers[topic.id];
   const value = answer?.kind === 'self-report' ? answer.value : undefined;
   const answerStatus = value ? t('Risposta presente') : t('Nessuna risposta');
@@ -66,7 +70,7 @@ function Topic({
         type="button"
         className="diagnostic-topic"
         aria-expanded={open}
-        onClick={() => setOpen(current => !current)}
+        onClick={() => onToggle(topic.id)}
       >
         <ChevronRight size={18} className="diagnostic-chevron" />
         <span
@@ -94,6 +98,8 @@ function Topic({
               <TopicList
                 topics={topic.children}
                 answers={answers}
+                collapsedTopics={collapsedTopics}
+                onToggle={onToggle}
                 onAnswer={onAnswer}
                 activeId={activeId}
                 activate={activate}

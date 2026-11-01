@@ -1,3 +1,9 @@
+/* The self-assessment belongs to the home panel, rather than a chat bubble. */
+div:has(> .diagnostic-flow[data-stage="self-assessment"]) {
+  max-width: none;
+  border-color: transparent;
+  background: transparent;
+}
 .diagnostic-flow {
   --diagnostic-blue: #2563eb;
   --diagnostic-thumb: 2.5rem;
@@ -76,6 +82,9 @@
   padding: 0 0 1rem 1rem;
 }
 .diagnostic-dot {
+  transition:
+    background-color var(--diagnostic-disclosure-motion),
+    border-color var(--diagnostic-disclosure-motion);
   flex-shrink: 0;
   display: inline-block;
   width: 1rem;
@@ -129,13 +138,6 @@
   min-height: 0;
   overflow: hidden;
 }
-@media (prefers-reduced-motion: reduce) {
-  .diagnostic-selection,
-  .diagnostic-disclosure,
-  .diagnostic-chevron {
-    transition: none;
-  }
-}
 .diagnostic-track {
   position: relative;
   flex: 1;
@@ -145,6 +147,9 @@
   border-radius: 999px;
 }
 .diagnostic-track-fill {
+  transition:
+    width var(--diagnostic-disclosure-motion),
+    opacity var(--diagnostic-disclosure-motion);
   position: absolute;
   inset: 0 auto 0 0;
   border-radius: inherit;
@@ -176,6 +181,7 @@
 }
 .diagnostic-track input::-webkit-slider-thumb {
   appearance: none;
+  transition: opacity var(--diagnostic-disclosure-motion);
   width: var(--diagnostic-thumb);
   height: var(--diagnostic-thumb);
   border-radius: 50%;
@@ -184,6 +190,7 @@
   box-shadow: 0 2px 4px var(--border-strong);
 }
 .diagnostic-track input::-moz-range-thumb {
+  transition: opacity var(--diagnostic-disclosure-motion);
   width: var(--diagnostic-thumb);
   height: var(--diagnostic-thumb);
   border-radius: 50%;
@@ -244,5 +251,21 @@
   }
   .diagnostic-uncertain {
     border: 1px solid ButtonText;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .diagnostic-track input::-webkit-slider-thumb {
+    transition: none;
+  }
+  .diagnostic-track input::-moz-range-thumb {
+    transition: none;
+  }
+  .diagnostic-track-fill,
+  .diagnostic-dot,
+  .diagnostic-selection,
+  .diagnostic-disclosure,
+  .diagnostic-chevron {
+    transition: none;
   }
 }

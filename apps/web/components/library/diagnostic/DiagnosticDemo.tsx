@@ -34,7 +34,7 @@ export default function DiagnosticDemo() {
     document.documentElement.classList.toggle('dark', dark);
   }, [dark]);
   return (
-    <main className="mx-auto max-w-6xl p-3 sm:p-8">
+    <main className="mx-auto w-full max-w-6xl p-3 sm:p-8">
       <h1 className="my-6 text-center font-serif text-3xl sm:text-5xl">
         Cosa vuoi <span className="text-[var(--accent)]">imparare</span> oggi?
       </h1>

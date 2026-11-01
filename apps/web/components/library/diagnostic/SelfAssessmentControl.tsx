@@ -28,7 +28,7 @@ export default function SelfAssessmentControl({
   const label = uncertain ? t('Non so valutarmi') : selectedLabel;
   return (
     <fieldset
-      className="min-w-0 max-w-sm"
+      className="min-w-0"
       aria-label={title}
       onFocus={event => onActivate(event.currentTarget)}
       onPointerDown={event => onActivate(event.currentTarget)}
