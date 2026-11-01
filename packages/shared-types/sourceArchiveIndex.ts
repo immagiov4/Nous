@@ -1,4 +1,4 @@
-import { sliceSourceText } from './sourceTextSlice';
+import { sourceTextStartOffset } from './sourceTextSlice';
 
 export const ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS = 20_000;
 export const SOURCE_ARCHIVE_TOOL_STEP_LIMIT = 12;
@@ -49,7 +49,11 @@ export const formatSourceArchiveIndex = (
       textFileIndex += 1;
       return entry.preview === undefined
         ? [description]
-        : [description, `PREVIEW ${entry.path}`, sliceSourceText(entry.preview, 0, previewQuota)];
+        : [
+            description,
+            `PREVIEW ${entry.path}`,
+            entry.preview.slice(0, sourceTextStartOffset(entry.preview, previewQuota)),
+          ];
     })
     .join('\n');
 };

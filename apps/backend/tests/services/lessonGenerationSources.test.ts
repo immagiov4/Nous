@@ -54,6 +54,14 @@ test.each([
   const parts = readLessonPrimarySources(context);
   expect(parts?.every(part => !/[\uD800-\uDFFF]/u.test(part.text))).toBe(true);
   expect(parts?.at(-1)?.text).toContain('𝑋');
+  expect(parts?.at(-1)?.text).toMatch(/𝑋\n\[truncated source excerpt\]$/u);
+  const cap =
+    boundary === 'source'
+      ? prefix.length + MAX_LESSON_SOURCE_CONTEXT_CHARS
+      : MAX_LESSON_COMBINED_SOURCE_CONTEXT_CHARS;
+  expect(parts?.reduce((length, part) => length + part.text.length, 0)).toBeLessThanOrEqual(
+    cap + 1 + '\n[truncated source excerpt]'.length
+  );
 });
 
 const extraction = vi.hoisted(() => ({ extractPdfText: vi.fn() }));

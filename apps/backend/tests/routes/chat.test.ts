@@ -1285,6 +1285,24 @@ describe('POST /api/chat/context', () => {
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('legacy source.pdf');
   });
 
+  test('contextual chat clips source material without sending a lone surrogate to the provider', async () => {
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .send({
+        messages: [{ id: '1', role: 'user', content: 'Spiega il simbolo' }],
+        selectedText: 'Simbolo matematico',
+        sourceMaterial: `${'a'.repeat(MAX_CONTEXT_CHARS - 1)}𝑋${'z'.repeat(100)}`,
+      });
+    expect(response.status).toBe(200);
+    const prompt = aiMocks.streamText.mock.calls[0][0].system;
+    expect(prompt).not.toMatch(/[\uD800-\uDFFF]/u);
+    expect(prompt).toContain(`${'a'.repeat(MAX_CONTEXT_CHARS - 1)}𝑋\n\n[context truncated]`);
+    expect(prompt).not.toContain('z'.repeat(100));
+    expect(JSON.stringify({ input: [{ type: 'text', text: prompt }] })).not.toMatch(
+      /\\u[dD][89a-fA-F][0-9a-fA-F]{2}/u
+    );
+  });
+
   test('retains provenance when aggregate source text exceeds the final prompt budget', async () => {
     const response = await request(createApp())
       .post('/api/chat/context')

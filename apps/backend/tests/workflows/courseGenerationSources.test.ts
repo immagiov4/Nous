@@ -54,10 +54,12 @@ test.each([
   const excerpt = formatted.split('<excerpt>\n')[1].split('\n</excerpt>')[0];
   expect(!/[\uD800-\uDFFF]/u.test(excerpt)).toBe(true);
   expect(excerpt).toContain('𝑋');
+  expect(excerpt.length).toBe(budget + 1);
+  expect(excerpt.split('\n\n[…]\n\n')).toHaveLength(budget === 10 ? 1 : 3);
   expect(excerpt).not.toContain('�');
-  expect(
-    JSON.parse(JSON.stringify({ input: [{ type: 'text', text: formatted }] })).input[0].text
-  ).toBe(formatted);
+  expect(JSON.stringify({ input: [{ type: 'text', text: formatted }] })).not.toMatch(
+    /\\u[dD][89a-fA-F][0-9a-fA-F]{2}/u
+  );
   expect(material.text).toBe(text);
 });
 

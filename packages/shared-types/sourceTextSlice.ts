@@ -8,6 +8,12 @@ export const sourceTextEndOffset = (text: string, offset: number): number => {
     : end;
 };
 
+/** Move a non-negative UTF-16 cut back when a whole character would exceed a hard budget. */
+export const sourceTextStartOffset = (text: string, offset: number): number => {
+  const end = sourceTextEndOffset(text, offset);
+  return end > offset ? offset - 1 : end;
+};
+
 /** Sample non-negative UTF-16 offsets, including the whole character at either cut. */
 export const sliceSourceText = (text: string, start: number, end = text.length): string => {
   if (end <= start) return '';

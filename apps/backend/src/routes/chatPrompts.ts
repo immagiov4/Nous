@@ -12,6 +12,7 @@ import {
   formatPlaybackQuestionContext,
   type PlaybackQuestionContext,
 } from '@shared/playbackQuestionContext';
+import { sliceSourceText } from '@shared/sourceTextSlice';
 import { jsonSchema, tool } from 'ai';
 
 import { requireOpenRouterApiKey } from '../config/chatConfig.js';
@@ -183,7 +184,7 @@ const clip = (value: string | undefined, maxChars = MAX_CONTEXT_CHARS) => {
   }
 
   return value.length > maxChars
-    ? `${value.slice(0, maxChars).trim()}${CONTEXT_TRUNCATION_SUFFIX}`
+    ? `${sliceSourceText(value, 0, maxChars).trim()}${CONTEXT_TRUNCATION_SUFFIX}`
     : value;
 };
 
