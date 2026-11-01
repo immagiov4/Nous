@@ -2,6 +2,8 @@
 
 This public matrix is the shared source for manual artifact inspection and the playtest inspector. Private complaint excerpts remain outside the repository.
 
+Class-by-class inspection aims to reduce visual defects found after an artifact is declared inspected; it may increase inspection time per PR. Track both in PR verification evidence before revising the rule. The effect of this rule has not been measured.
+
 | Family | Classes | In-page script focus | Model / external evidence |
 |---|---|---|---|
 | F01 — Layout and legibility | D01, D02, D03, D04, D05, D06 | Measure clipping, occlusion, approved layout/style contracts, contrast, and UI-label invariants. | Judge visual hierarchy, crowding, masking, readability, and consistency against the approved UI reference. |
