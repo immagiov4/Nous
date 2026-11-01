@@ -89,7 +89,7 @@ describe('GenerationProgress', () => {
     expect(screen.getByText(/1:12$/)).toBeInTheDocument();
   });
 
-  test('shows an authoritative retry without presenting a recoverable attempt as an error', () => {
+  test('hides automatic workflow retries from the learner', () => {
     render(
       <GenerationProgress
         elapsedSecondsOverride={65}
@@ -108,8 +108,8 @@ describe('GenerationProgress', () => {
     );
 
     expect(
-      screen.getByText(/(Nuovo tentativo in corso|Starting another attempt)/i)
-    ).toHaveTextContent(/(?:Tentativo|Attempt) 2/);
+      screen.queryByText(/(Nuovo tentativo|Starting another attempt|Tentativo|Attempt)/i)
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByText(/(non è riuscito|failed|Riprovo automaticamente|Retrying automatically)/i)
     ).not.toBeInTheDocument();
