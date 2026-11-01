@@ -435,8 +435,6 @@ const ENGLISH_UI_MESSAGES = {
   Struttura: 'Structure',
   'Tempo trascorso': 'Elapsed time',
   'Elaborazione in corso': 'Working',
-  'Nuovo tentativo in corso.': 'Starting another attempt.',
-  Tentativo: 'Attempt',
   'Un passaggio non è riuscito. Riprovo automaticamente.': 'A step failed. Retrying automatically.',
   Verifica: 'Review',
   'Apri progetto': 'Open project',
