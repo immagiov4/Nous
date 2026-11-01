@@ -1889,7 +1889,8 @@ function ContextAnswerPanelSession({
         (inputValue?.passageId === undefined ? inputValue?.selectedTextDraft : undefined);
       const outputValue = readContextNoteResult(part.output);
       const isProcessing = processingNoteToolCallIds.has(part.toolCallId);
-      const hasExistingNote = Boolean(contextAnswer.attachedAnnotationNote?.trim());
+      const hasExistingNote =
+        target?.hasExistingNote ?? Boolean(contextAnswer.attachedAnnotationNote?.trim());
       const noteArtifactPayloads =
         inputValue?.artifactIds?.flatMap(artifactId => {
           const payload = artifactPayloadsById.get(artifactId);

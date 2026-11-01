@@ -3100,17 +3100,25 @@ describe('ContextAnswerPanel', () => {
           finishSave = resolve;
         })
     );
-    render(
+    const props = buildProps({
+      selectedText: input.selectedTextDraft,
+      selectedTextStart: 0,
+      lessonContent,
+      contextScope: 'selection',
+    });
+    const view = render(<ContextAnswerPanel {...props} onSaveConversationNote={save} />);
+    view.rerender(
       <ContextAnswerPanel
-        {...buildProps({
-          selectedText: input.selectedTextDraft,
-          selectedTextStart: 0,
-          lessonContent,
-          contextScope: 'selection',
-        })}
+        {...props}
+        contextAnswer={{
+          ...props.contextAnswer,
+          attachedAnnotationNote: 'Concurrent note',
+          attachedAnnotationId: 'replacement',
+        }}
         onSaveConversationNote={save}
       />
     );
+    expect(screen.getByText('Vuoi aggiungerlo alle note?')).toBeInTheDocument();
     const approve = screen.getByRole('button', { name: 'Aggiungi alle note' });
     act(() => {
       fireEvent.click(approve);
