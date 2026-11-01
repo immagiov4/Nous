@@ -22,6 +22,18 @@ afterEach(() => {
 });
 
 describe('SourceShelf', () => {
+  test('reuses the closed 3D source model before preparation without playing any video', () => {
+    const { container } = render(<SourceShelf sources={sources} />);
+    const books = screen.getAllByRole('listitem');
+    expect(books.map(book => book.querySelector('img')?.getAttribute('src'))).toEqual([
+      '/source-shelf/preparation-blue-closed.webp',
+      '/source-shelf/preparation-copper-closed.webp',
+      '/source-shelf/preparation-sage-closed.webp',
+    ]);
+    expect(container.querySelector('video')).toBeNull();
+    for (const book of books) expect(book.querySelector('.source-book-caption')).toBeVisible();
+  });
+
   test('shows one large source, distinct ordered covers and keeps its player through progress updates', () => {
     const progress = { step: 'extraction' as const, completed: 1, total: 3 };
     const preparing = sources.map((source, index) => ({
@@ -202,16 +214,15 @@ describe('SourceShelf', () => {
     list.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200);
     books[2].getBoundingClientRect = () => new DOMRect(500, 0, 150, 200);
     const reveal = vi.fn();
-    books[2].scrollIntoView = reveal;
+    list.scrollBy = reveal;
+    books[2].scrollIntoView = vi.fn();
     act(() => books[0].focus());
     const reading = sources.map((source, index) => ({
       ...source,
       state: index === 2 ? ('reading' as const) : ('idle' as const),
     }));
     rerender(<SourceShelf sources={reading} />);
-    expect(reveal).toHaveBeenCalledWith(
-      expect.objectContaining({ block: 'nearest', inline: 'nearest' })
-    );
+    expect(reveal).toHaveBeenCalledWith(expect.objectContaining({ left: 350 }));
     expect(books[0]).toHaveFocus();
     rerender(
       <SourceShelf sources={reading.map(source => ({ ...source }))} preparationStatus="next page" />
@@ -377,7 +388,7 @@ describe('SourceShelf', () => {
         books[index - 1].getAttribute('data-palette')
       );
     }
-    expect(new Set(books.map(book => book.getAttribute('data-palette'))).size).toBe(6);
+    expect(new Set(books.map(book => book.getAttribute('data-palette'))).size).toBe(3);
   });
 
   test('preserves remove, pending and warnings and removes the action when interview starts', async () => {

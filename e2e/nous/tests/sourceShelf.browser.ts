@@ -106,22 +106,11 @@ await withMemoryProjectBrowserStack(
           });
           assert(geometry.pageWidth <= geometry.viewportWidth, `Page overflow: ${label}`);
           const key = `${viewport.width}-${dark}`;
-          if (heights.has(key)) assert.equal(geometry.height, heights.get(key));
-          else heights.set(key, geometry.height);
+          if (heights.has(key)) assert.equal(Math.round(geometry.height), heights.get(key));
+          else heights.set(key, Math.round(geometry.height));
           if (count === 32) {
             assert(geometry.scrollWidth > geometry.width);
-            const coverContrasts = await books.evaluateAll(async nodes => {
-              const image = await createImageBitmap(
-                await (await fetch('/source-shelf/book-neutral.webp')).blob()
-              );
-              const canvas = document.createElement('canvas');
-              canvas.width = image.width;
-              canvas.height = image.height;
-              const context = canvas.getContext('2d');
-              if (!context) throw new Error('Missing cover sample context');
-              context.drawImage(image, 0, 0);
-              const pixels = context.getImageData(65, 60, 175, 240).data;
-              image.close();
+            const coverContrasts = await books.evaluateAll(nodes => {
               const rgb = (colour: string) =>
                 (colour.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
               const luminance = (channels: number[]) =>
@@ -133,18 +122,21 @@ await withMemoryProjectBrowserStack(
                       [0.2126, 0.7152, 0.0722][index]
                   );
                 }, 0);
-              return nodes.slice(0, 6).map(node => {
-                const tint = node.querySelector('.source-book-tint');
-                const cover = node.querySelector('.source-book-cover');
-                if (!tint || !cover) throw new Error('Missing book layers');
-                const colour = rgb(getComputedStyle(tint).backgroundColor);
-                const ink = luminance(rgb(getComputedStyle(cover).color));
-                let minimum = Number.POSITIVE_INFINITY;
-                for (let i = 0; i < pixels.length; i += 4) {
-                  const background = colour.map((channel, c) => (channel * pixels[i + c]) / 255);
-                  minimum = Math.min(minimum, (luminance(background) + 0.05) / (ink + 0.05));
-                }
-                return { palette: node.getAttribute('data-palette'), ratio: minimum };
+              return nodes.slice(0, 3).map(node => {
+                const caption = node.querySelector('.source-book-caption');
+                const shelf = node.closest('.source-shelf');
+                const image = node.querySelector('img');
+                if (!caption || !shelf || !image || !image.complete || image.naturalWidth !== 512)
+                  throw new Error('Missing decoded 3D book or filename');
+                const background = luminance(rgb(getComputedStyle(shelf).backgroundColor));
+                const ink = luminance(rgb(getComputedStyle(caption).color));
+                const ratio =
+                  (Math.max(background, ink) + 0.05) / (Math.min(background, ink) + 0.05);
+                return {
+                  palette: node.getAttribute('data-palette'),
+                  ratio,
+                  image: image.getAttribute('src'),
+                };
               });
             });
             assert(

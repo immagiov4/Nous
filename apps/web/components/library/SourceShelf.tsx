@@ -24,7 +24,6 @@ interface SourceShelfProps {
   readonly preparationStatus?: string;
 }
 
-const COVER_PALETTE = ['cream', 'terracotta', 'sage', 'blue', 'brown', 'mauve'] as const;
 const SOURCE_STATE_DESCRIPTION: Partial<
   Record<NonNullable<ShelfSource['state']>, Parameters<typeof t>[0]>
 > = {
@@ -49,9 +48,11 @@ function useReadingBookReveal(sources: readonly ShelfSource[]) {
       const book = list.children[index];
       const bounds = book.getBoundingClientRect();
       if (bounds.left < listBounds.left || bounds.right > listBounds.right)
-        book.scrollIntoView({
-          block: 'nearest',
-          inline: 'nearest',
+        list.scrollBy({
+          left:
+            bounds.left < listBounds.left
+              ? bounds.left - listBounds.left
+              : bounds.right - listBounds.right,
           behavior: shouldAnimate ? 'smooth' : 'auto',
         });
     }
@@ -73,12 +74,6 @@ const sourceTitle = (name: string) =>
     .replace(/\.[^.]+$/, '')
     .replaceAll(/[_-]+/g, ' ')
     .trim() || name;
-
-const titleSize = (title: string) => {
-  if (title.length > 70) return 'long';
-  if (title.length > 36) return 'medium';
-  return 'short';
-};
 
 function navigateBooks(event: KeyboardEvent<HTMLLIElement>) {
   const book = event.currentTarget;
@@ -237,53 +232,30 @@ export default function SourceShelf({
                   aria-label={source.name}
                   aria-current={source.state === 'reading' ? 'true' : undefined}
                   aria-description={description ? t(description) : undefined}
-                  data-palette={
-                    preparationProgress
-                      ? PREPARATION_PALETTE[index % PREPARATION_PALETTE.length]
-                      : COVER_PALETTE[index % COVER_PALETTE.length]
-                  }
+                  data-palette={PREPARATION_PALETTE[index % PREPARATION_PALETTE.length]}
                   data-state={source.state ?? 'idle'}
                 >
                   <div className="source-book" aria-hidden="true">
-                    {preparationProgress ? (
-                      <div className="source-book-preparation">
-                        <img
-                          src={sourcePreparationPoster(
-                            source.state === 'reading' ? 'idle' : (source.state ?? 'idle'),
-                            PREPARATION_PALETTE[index % PREPARATION_PALETTE.length]
-                          )}
-                          alt=""
-                        />
-                      </div>
-                    ) : (
-                      <>
-                        <div className="source-book-art">
-                          <div className="source-book-tint" />
-                        </div>
-                        <div className="source-book-cover" lang="it">
-                          <span className="source-book-index">
-                            {String(index + 1).padStart(2, '0')}
-                          </span>
-                          <span
-                            className="source-book-title"
-                            data-length={titleSize(sourceTitle(source.name))}
-                          >
-                            {sourceTitle(source.name)}
-                          </span>
-                          <span className="source-book-rule" />
-                          <span className="source-book-type">
-                            {source.name.match(/\.([^.]+)$/)?.[1]}
-                          </span>
-                        </div>
-                      </>
-                    )}
+                    <div className="source-book-preparation">
+                      <img
+                        src={sourcePreparationPoster(
+                          source.state === 'reading' ? 'idle' : (source.state ?? 'idle'),
+                          PREPARATION_PALETTE[index % PREPARATION_PALETTE.length]
+                        )}
+                        alt=""
+                      />
+                    </div>
                     <SourceBookStatus state={source.state} />
                   </div>
-                  {preparationProgress ? (
-                    <span className="source-book-caption">
-                      <span className="source-book-title">{sourceTitle(source.name)}</span>
-                    </span>
-                  ) : null}
+                  <div className="source-book-caption" aria-hidden="true">
+                    {!preparationProgress ? (
+                      <span className="source-book-meta">
+                        <span>{String(index + 1).padStart(2, '0')}</span>
+                        <span>{source.name.match(/\.([^.]+)$/)?.[1]}</span>
+                      </span>
+                    ) : null}
+                    <span className="source-book-title">{sourceTitle(source.name)}</span>
+                  </div>
                 </li>
               );
             })}

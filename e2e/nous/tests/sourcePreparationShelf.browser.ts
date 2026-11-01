@@ -22,7 +22,7 @@ const sourceNames = [
   '01_Concetti.md',
   '02_Probabilità/Note.md',
   '03_Statistica/Note.md',
-  ...Array.from({ length: 4 }, (_, index) => `${index + 4}_Approfondimento.md`),
+  ...Array.from({ length: 5 }, (_, index) => `${index + 4}_Approfondimento.md`),
   `8_${'Fondamenti di probabilità e statistica applicata '.repeat(3)}.md`,
 ];
 for (const name of sourceNames)
@@ -247,8 +247,11 @@ for (const scene of scenes) {
       const frame = await page.locator('.course-setup-stage').boundingBox();
       const stop = await page.getByRole('button', { name: 'Annulla', exact: true }).boundingBox();
       assert(
-        frame && stop && stop.y + stop.height <= frame.y + frame.height,
-        'Stop is clipped by the setup frame'
+        frame &&
+          stop &&
+          stop.y + stop.height <= frame.y + frame.height &&
+          stop.y + stop.height <= scene.height,
+        `Stop is clipped by the setup frame: ${JSON.stringify({ frame, stop })}`
       );
       const motion = await books.nth(1).evaluate(element => ({
         animation: getComputedStyle(element).animationName,
@@ -375,6 +378,15 @@ for (const scene of scenes) {
       phase = 'transcription';
       await shelf.getByText(/165\/200/).waitFor();
       assert(await shelf.getByText(/Pagine 151–200 trascritte in qualità ridotta/).isVisible());
+      const detailBounds = await shelf.getByText(/165\/200/).boundingBox();
+      const shelfBounds = await shelf.boundingBox();
+      assert(
+        detailBounds &&
+          shelfBounds &&
+          detailBounds.y >= shelfBounds.y &&
+          detailBounds.y + detailBounds.height <= shelfBounds.y + shelfBounds.height,
+        'PDF disclosure scrolled outside the source card'
+      );
       assert.match(
         (await shelf.getByRole('status').textContent()) ?? '',
         new RegExp(`Lettura fonti 2 di ${sourceNames.length}`)
@@ -388,8 +400,9 @@ for (const scene of scenes) {
         transcriptionFrame &&
           transcriptionStop &&
           transcriptionStop.y + transcriptionStop.height <=
-            transcriptionFrame.y + transcriptionFrame.height,
-        'PDF detail clips Stop'
+            transcriptionFrame.y + transcriptionFrame.height &&
+          transcriptionStop.y + transcriptionStop.height <= scene.height,
+        `PDF detail clips Stop: ${JSON.stringify({ transcriptionFrame, transcriptionStop })}`
       );
       await page.waitForFunction(() => {
         const book = document.querySelector('.source-shelf-item[aria-current=true]');

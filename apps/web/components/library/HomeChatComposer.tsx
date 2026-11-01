@@ -621,6 +621,7 @@ export default function HomeChatComposer({
   return (
     <div
       ref={surfaceRootRef}
+      data-source-preparing={Boolean(sourcePreparationProgress)}
       className={`shrink-0 ${
         compactSurface
           ? 'border-0 p-0'
@@ -638,7 +639,7 @@ export default function HomeChatComposer({
         />
       ) : null}
 
-      <div className="relative">
+      <div className="relative shrink-0">
         <form
           onSubmit={submit}
           className="relative flex items-center gap-1.5 rounded-2xl border border-gray-300 bg-white px-2 py-1.5 transition-colors focus-within:border-gray-400 dark:border-zinc-600/60 dark:bg-stone-700/60 dark:focus-within:border-zinc-500 dark:focus-within:bg-stone-700"
