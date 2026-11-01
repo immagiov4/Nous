@@ -154,6 +154,11 @@ function answerItem(
   if (!diagnosticItems(state.stage).some(item => item.id === action.itemId)) return state;
   if (
     !state.inferredFrom[action.itemId] &&
+    !(
+      state.stage.kind === 'self-assessment' &&
+      action.answer.kind === 'self-report' &&
+      action.answer.value === 'unfamiliar'
+    ) &&
     JSON.stringify(state.answers[action.itemId]) === JSON.stringify(action.answer)
   )
     return state;

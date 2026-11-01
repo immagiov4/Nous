@@ -376,6 +376,48 @@ describe('self-assessment cascade decisions', () => {
     expect(state.answers.needs).toBeUndefined();
   });
 
+  test('reselecting unknown refills cleared descendants, preserves explicit answers and collapses', () => {
+    let state = rate(initialDiagnosticState(stage), 'marketing', 'unfamiliar');
+    state = diagnosticReducer(state, { type: 'toggle-topic', itemId: 'marketing' });
+    state = rate(state, 'audience', 'basics');
+    expect(state.answers.needs).toBeUndefined();
+    expect(state.answers.segmentation).toBeUndefined();
+    state = rate(state, 'marketing', 'unfamiliar');
+    expect(state.collapsedTopics.marketing).toBe(true);
+    expect(buildDiagnosticSubmission(state, 'collection', 'request').answers).toEqual(
+      ['marketing', 'audience', 'needs', 'segmentation', 'positioning', 'communication'].map(
+        itemId => ({
+          itemId,
+          response: { kind: 'self-report', value: itemId === 'audience' ? 'basics' : 'unfamiliar' },
+        })
+      )
+    );
+  });
+
+  test('automatic and manual collapse keep the parent slider and current label accessible and focused', async () => {
+    const user = userEvent.setup();
+    render(<DiagnosticFlow adapter={createDiagnosticDemoAdapter()} />);
+    const parent = screen.getByRole('slider', { name: 'Marketing' });
+    parent.focus();
+    await user.keyboard('{Home}');
+    expect(screen.getByRole('slider', { name: 'Marketing' })).toBe(parent);
+    expect(parent).toHaveFocus();
+    expect(parent.closest('[inert], [aria-hidden="true"]')).toBeNull();
+    expect(parent.closest('fieldset')?.querySelector('.diagnostic-selection')).toHaveAttribute(
+      'aria-hidden',
+      'false'
+    );
+    expect(parent).toHaveAttribute('aria-valuetext', 'Non lo conosco');
+    expect(screen.queryByRole('slider', { name: 'Pubblico' })).not.toBeInTheDocument();
+    const disclosure = screen.getByRole('button', { name: /^Marketing/ });
+    await user.click(disclosure);
+    expect(screen.getByRole('slider', { name: 'Pubblico' })).toBeInTheDocument();
+    await user.click(disclosure);
+    expect(screen.getByRole('slider', { name: 'Marketing' })).toBe(parent);
+    expect(parent.closest('[inert], [aria-hidden="true"]')).toBeNull();
+    expect(screen.queryByRole('slider', { name: 'Pubblico' })).not.toBeInTheDocument();
+  });
+
   test('unknown parent collapses its subtree and can be reopened to explicitly change a subtopic', async () => {
     const user = userEvent.setup();
     const submit = vi.fn<DiagnosticAdapter['submit']>().mockResolvedValue(complete);

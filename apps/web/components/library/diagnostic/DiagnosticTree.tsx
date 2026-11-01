@@ -84,30 +84,28 @@ function Topic({
         <span className="min-w-0 break-words font-semibold">{topic.title}</span>
         <span className="sr-only"> {complete ? t('Completato') : answerStatus}</span>
       </button>
-      <BranchContents open={open}>
-        <div className="diagnostic-topic-content">
-          <SelfAssessmentControl
-            title={topic.title}
-            value={value}
-            active={activeId === topic.id}
-            onActivate={control => activate(topic.id, control)}
-            onChange={next => onAnswer(topic.id, next)}
-          />
-          {topic.children.length > 0 && (
-            <BranchContents open={Boolean(value)}>
-              <TopicList
-                topics={topic.children}
-                answers={answers}
-                collapsedTopics={collapsedTopics}
-                onToggle={onToggle}
-                onAnswer={onAnswer}
-                activeId={activeId}
-                activate={activate}
-              />
-            </BranchContents>
-          )}
-        </div>
-      </BranchContents>
+      <div className="diagnostic-topic-content">
+        <SelfAssessmentControl
+          title={topic.title}
+          value={value}
+          active={activeId === topic.id}
+          onActivate={control => activate(topic.id, control)}
+          onChange={next => onAnswer(topic.id, next)}
+        />
+        {topic.children.length > 0 && (
+          <BranchContents open={open && Boolean(value)}>
+            <TopicList
+              topics={topic.children}
+              answers={answers}
+              collapsedTopics={collapsedTopics}
+              onToggle={onToggle}
+              onAnswer={onAnswer}
+              activeId={activeId}
+              activate={activate}
+            />
+          </BranchContents>
+        )}
+      </div>
     </li>
   );
 }

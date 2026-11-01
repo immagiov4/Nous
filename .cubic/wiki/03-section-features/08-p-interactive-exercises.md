@@ -125,7 +125,7 @@ Sources: [apps/backend/tests/workflows/courseDiagnostic.integration.test.ts:310-
 ## Diagnostic Rules and Constraints
 
 The system follows a strict set of instructional rules to maintain diagnostic integrity:
-- **No Propagation**: Knowledge is not propagated between parent and child nodes in the tree.
+- **No Propagation**: The diagnostic model does not propagate knowledge inferences between parent and child nodes; the UI pre-fills learner-visible, editable self-reports when the learner rates a parent “Non lo conosco”.
 - **Untrusted Self-Reports**: Self-reports (e.g., "basics", "independent") do not certify observed knowledge and are eligible for verification.
 - **cumulative Interpretation**: Attempts are interpreted cumulativeley; earlier revisions are retained for audit.
 - **No Grade**: Feedback on completion identifies what to revisit without assigning a numerical grade or mastery threshold.
