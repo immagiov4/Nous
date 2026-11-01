@@ -13,11 +13,13 @@ const MOBILE_ACTIVE_CHAT_VIEWPORT_RATIO = 0.75;
 const getMobileChatStyle = (
   isMobileViewport: boolean,
   viewportHeight: number | null,
-  hasActiveChat: boolean
+  hasActiveChat: boolean,
+  isSourcePreparing: boolean
 ) => {
   if (!isMobileViewport || viewportHeight == null) return undefined;
   if (hasActiveChat) {
-    return { height: `${Math.floor(viewportHeight * MOBILE_ACTIVE_CHAT_VIEWPORT_RATIO)}px` };
+    const height = `${Math.floor(viewportHeight * MOBILE_ACTIVE_CHAT_VIEWPORT_RATIO)}px`;
+    return { height: isSourcePreparing ? `var(--source-setup-height, ${height})` : height };
   }
   return { maxHeight: `${viewportHeight}px` };
 };
@@ -156,6 +158,7 @@ interface HomeChatPanelFrameProps {
   readonly setupPhase: CourseSetupPhase | null;
   readonly children: ReactNode;
   readonly hasActiveChat: boolean;
+  readonly isSourcePreparing: boolean;
   readonly hideHeaderCopy: boolean;
   readonly hideModeSelector: boolean;
   readonly homeChatMode: HomeChatMode;
@@ -174,6 +177,7 @@ export default function HomeChatPanelFrame({
   setupPhase,
   children,
   hasActiveChat,
+  isSourcePreparing,
   hideHeaderCopy,
   hideModeSelector,
   homeChatMode,
@@ -198,7 +202,7 @@ export default function HomeChatPanelFrame({
           ? 'rounded-none bg-transparent shadow-none dark:bg-transparent dark:shadow-none'
           : 'rounded-[2rem] bg-[rgba(248,245,240,0.96)] shadow-[inset_0_1px_3px_rgba(24,24,27,0.05),inset_0_0_0_1px_rgba(88,64,32,0.04)] dark:bg-[rgba(46,40,36,0.94)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
       } ${hasActiveChat ? 'max-md:h-[75dvh] max-md:overflow-hidden' : ''} ${setupPhase ? 'course-setup-stage [&>.home-chat-scrollbar]:!p-0 [&>.home-chat-scrollbar>div]:px-4 [&>.home-chat-scrollbar>div]:py-4 sm:[&>.home-chat-scrollbar>div]:px-5 flex h-[75dvh] min-h-min flex-col overflow-hidden [&>.home-chat-scrollbar]:min-h-0 [&>.home-chat-scrollbar]:flex-1 [&>.home-chat-scrollbar]:!h-auto' : ''}`}
-      style={getMobileChatStyle(isMobileViewport, viewportHeight, hasActiveChat)}
+      style={getMobileChatStyle(isMobileViewport, viewportHeight, hasActiveChat, isSourcePreparing)}
     >
       {showClearChat && !setupPhase ? (
         <HomeChatClearButton

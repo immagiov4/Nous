@@ -196,6 +196,7 @@ export default function HomeChatPanel({
     <HomeChatPanelFrame
       setupPhase={setupPhase}
       hasActiveChat={hasActiveChat || Boolean(setupPhase)}
+      isSourcePreparing={Boolean(sourcePreparationProgress)}
       hideHeaderCopy={hideHeaderCopy}
       hideModeSelector={hideModeSelector}
       homeChatMode={homeChatMode}

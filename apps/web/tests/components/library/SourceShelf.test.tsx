@@ -34,7 +34,7 @@ describe('SourceShelf', () => {
     for (const book of books) expect(book.querySelector('.source-book-caption')).toBeVisible();
   });
 
-  test('shows one large source, distinct ordered covers and keeps its player through progress updates', () => {
+  test('keeps each source in one carousel while the previous source closes', () => {
     const progress = { step: 'extraction' as const, completed: 1, total: 3 };
     const preparing = sources.map((source, index) => ({
       ...source,
@@ -44,22 +44,14 @@ describe('SourceShelf', () => {
     const { container, rerender } = render(
       <SourceShelf sources={preparing} preparationProgress={progress} />
     );
-    const stage = container.querySelector('.source-preparation-stage');
-    expect(stage).toHaveTextContent('Il teorema di Bayes.v2');
-    const video = stage?.querySelector('video');
-    expect(video).toHaveAttribute('src', '/source-shelf/preparation-copper-reading.webm');
     const books = screen.getAllByRole('listitem');
+    expect(container.querySelector('.source-preparation-stage')).toBeNull();
     expect(books.map(book => book.getAttribute('aria-label'))).toEqual(
       sources.map(source => source.name)
     );
-    expect(books.map(book => book.querySelector('img')?.getAttribute('src'))).toEqual([
-      '/source-shelf/preparation-blue-complete.webp',
-      '/source-shelf/preparation-copper-closed.webp',
-      '/source-shelf/preparation-sage-closed.webp',
-    ]);
-    expect(books.every(book => !book.querySelector('video'))).toBe(true);
-    expect(books[0].querySelector('.source-book-done')).toBeVisible();
-    if (!video) throw new Error('Missing large player');
+    const video = books[1].querySelector('video');
+    expect(video).toHaveAttribute('src', '/source-shelf/preparation-copper-reading.webm');
+    if (!video) throw new Error('Missing player');
     fireEvent.playing(video);
     rerender(
       <SourceShelf
@@ -67,11 +59,9 @@ describe('SourceShelf', () => {
         preparationProgress={{ ...progress, documentName: 'updated page' }}
       />
     );
-    expect(stage?.querySelector('video')).toBe(video);
+    expect(books[1].querySelector('video')).toBe(video);
     fireEvent.ended(video);
-    expect(stage?.querySelector('video')).toBe(video);
     expect(video).toHaveAttribute('loop');
-    expect(video).toHaveAttribute('src', '/source-shelf/preparation-copper-search.webm');
     rerender(
       <SourceShelf
         sources={preparing.map((source, index) => ({
@@ -81,14 +71,80 @@ describe('SourceShelf', () => {
         preparationProgress={{ ...progress, completed: 2 }}
       />
     );
-    expect(stage).toHaveTextContent('Appunti');
-    expect(stage?.querySelector('video')).not.toBe(video);
-    expect(stage?.querySelector('video')).toHaveAttribute(
+    expect(books[1].querySelector('video')).toBe(video);
+    expect(video).toHaveAttribute('src', '/source-shelf/preparation-copper-complete.webm');
+    expect(video).not.toHaveAttribute('loop');
+    expect(books[2].querySelector('video')).toHaveAttribute(
       'src',
       '/source-shelf/preparation-sage-reading.webm'
     );
-    expect(books[0].querySelector('.source-book-done')).toBeVisible();
+    fireEvent.ended(video);
+    expect(books[1].querySelector('video')).toBeNull();
     expect(books[1].querySelector('.source-book-done')).toBeVisible();
+  });
+
+  test('shows only the first concurrently reading source, then advances without losing real states', () => {
+    const progress = { step: 'extraction' as const, completed: 0, total: 2 };
+    const reading = [
+      { ...sources[0], state: 'reading' as const },
+      { ...sources[1], state: 'reading' as const },
+    ];
+    const { rerender } = render(<SourceShelf sources={reading} preparationProgress={progress} />);
+    const first = screen.getByRole('listitem', { name: sources[0].name });
+    const second = screen.getByRole('listitem', { name: sources[1].name });
+    const video = first.querySelector('video');
+    if (!video) throw new Error('Missing selected source player');
+    expect(first).toHaveAttribute('aria-current', 'true');
+    expect(second).not.toHaveAttribute('aria-current');
+    expect(second).toHaveAttribute('data-state', 'reading');
+    expect(second.querySelector('video')).toBeNull();
+    fireEvent.playing(video);
+    fireEvent.ended(video);
+    rerender(
+      <SourceShelf
+        sources={[{ ...reading[0], state: 'done' }, reading[1]]}
+        preparationProgress={{ ...progress, completed: 1 }}
+      />
+    );
+    expect(first.querySelector('video')).toBe(video);
+    expect(video).toHaveAttribute('data-phase', 'complete');
+    expect(video).not.toHaveAttribute('loop');
+    expect(second).toHaveAttribute('aria-current', 'true');
+    expect(second.querySelector('video')).toHaveAttribute('data-phase', 'reading');
+  });
+
+  test('finishes opening before closing a source that completed during the opening', () => {
+    const progress = { step: 'extraction' as const, completed: 0, total: 2 };
+    const { rerender } = render(
+      <SourceShelf
+        sources={[
+          { ...sources[0], state: 'reading' },
+          { ...sources[1], state: 'idle' },
+        ]}
+        preparationProgress={progress}
+      />
+    );
+    const first = screen.getByRole('listitem', { name: sources[0].name });
+    const video = first.querySelector('video');
+    if (!video) throw new Error('Missing player');
+    fireEvent.playing(video);
+    rerender(
+      <SourceShelf
+        sources={[
+          { ...sources[0], state: 'done' },
+          { ...sources[1], state: 'reading' },
+        ]}
+        preparationProgress={{ ...progress, completed: 1 }}
+      />
+    );
+    expect(first.querySelector('video')).toBe(video);
+    expect(video).toHaveAttribute('src', '/source-shelf/preparation-blue-reading.webm');
+    expect(video).not.toHaveAttribute('loop');
+    fireEvent.ended(video);
+    expect(video).toHaveAttribute('src', '/source-shelf/preparation-blue-complete.webm');
+    expect(video).not.toHaveAttribute('loop');
+    fireEvent.ended(video);
+    expect(first.querySelector('video')).toBeNull();
   });
 
   test('plays the approved reading artwork only for the actual reading source and settles without delaying it', async () => {
@@ -103,7 +159,7 @@ describe('SourceShelf', () => {
       <SourceShelf sources={preparing} preparationProgress={progress} />
     );
     const active = screen.getByRole('listitem', { name: sources[1].name });
-    const video = document.querySelector('.source-preparation-stage video');
+    const video = document.querySelector('.source-shelf-item[aria-current=true] video');
     expect(video).toBeInTheDocument();
     if (!video) throw new Error('Missing reading animation');
     expect(
@@ -111,7 +167,7 @@ describe('SourceShelf', () => {
     ).toBeNull();
     fireEvent.playing(video);
     fireEvent.ended(video);
-    const loop = document.querySelector('.source-preparation-stage video');
+    const loop = document.querySelector('.source-shelf-item[aria-current=true] video');
     expect(loop).toHaveAttribute('loop');
     expect(active).toHaveAttribute('data-state', 'reading');
     expect(active).not.toHaveAccessibleDescription('Fonte letta');
@@ -122,7 +178,7 @@ describe('SourceShelf', () => {
       />
     );
     expect(active).toHaveAccessibleDescription('Fonte letta');
-    expect(document.querySelector('.source-preparation-stage video')).not.toHaveAttribute('loop');
+    expect(active.querySelector('video')).not.toHaveAttribute('loop');
     expect(
       screen.getByRole('listitem', { name: sources[0].name }).querySelector('video')
     ).toBeNull();
@@ -146,8 +202,10 @@ describe('SourceShelf', () => {
         />
       );
       const book = screen.getByRole('listitem', { name });
-      expect(document.querySelector('.source-preparation-stage video')).toBeNull();
-      expect(document.querySelector('.source-preparation-stage img')).toBeInTheDocument();
+      expect(document.querySelector('.source-shelf-item[aria-current=true] video')).toBeNull();
+      expect(
+        document.querySelector('.source-shelf-item[aria-current=true] img')
+      ).toBeInTheDocument();
       expect(book).toHaveAttribute('title', name);
       expect(book).toHaveAttribute('aria-current', 'true');
     } finally {
@@ -168,8 +226,8 @@ describe('SourceShelf', () => {
     );
     const book = screen.getByRole('listitem', { name: sources[0].name });
     await act(async () => {});
-    expect(document.querySelector('.source-preparation-stage video')).toBeNull();
-    expect(document.querySelector('.source-preparation-stage img')).toBeInTheDocument();
+    expect(document.querySelector('.source-shelf-item[aria-current=true] video')).toBeNull();
+    expect(document.querySelector('.source-shelf-item[aria-current=true] img')).toBeInTheDocument();
     rerender(
       <SourceShelf
         sources={[{ ...sources[0], state: 'error' }]}
@@ -222,7 +280,7 @@ describe('SourceShelf', () => {
       state: index === 2 ? ('reading' as const) : ('idle' as const),
     }));
     rerender(<SourceShelf sources={reading} />);
-    expect(reveal).toHaveBeenCalledWith(expect.objectContaining({ left: 350 }));
+    expect(reveal).toHaveBeenCalledWith(expect.objectContaining({ left: 425 }));
     expect(books[0]).toHaveFocus();
     rerender(
       <SourceShelf sources={reading.map(source => ({ ...source }))} preparationStatus="next page" />
@@ -237,7 +295,7 @@ describe('SourceShelf', () => {
     const { rerender, unmount } = render(
       <SourceShelf sources={[{ ...sources[0], state: 'reading' }]} preparationProgress={progress} />
     );
-    const video = document.querySelector('.source-preparation-stage video');
+    const video = document.querySelector('.source-shelf-item[aria-current=true] video');
     if (!video) throw new Error('Missing reading animation');
     fireEvent.playing(video);
     fireEvent.ended(video);
@@ -254,8 +312,29 @@ describe('SourceShelf', () => {
       <SourceShelf sources={[{ ...sources[1], state: 'reading' }]} preparationProgress={progress} />
     );
     expect(pause.mock.calls.length).toBeGreaterThan(beforeReplace);
-    expect(document.querySelector('.source-preparation-stage video')).not.toHaveAttribute('loop');
+    expect(
+      document.querySelector('.source-shelf-item[aria-current=true] video')
+    ).not.toHaveAttribute('loop');
     unmount();
+  });
+
+  test('resumes playback when a new transparent clip loads on the same player', () => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage: vi.fn(),
+      getImageData: () => ({ data: new Uint8ClampedArray([0, 0, 0, 0]) }),
+    } as unknown as CanvasRenderingContext2D);
+    render(
+      <SourceShelf
+        sources={[{ ...sources[0], state: 'reading' }]}
+        preparationProgress={{ step: 'extraction', completed: 0, total: 1 }}
+      />
+    );
+    const video = screen.getByRole('listitem', { name: sources[0].name }).querySelector('video');
+    if (!video) throw new Error('Missing player');
+    const before = play.mock.calls.length;
+    fireEvent.loadedData(video);
+    expect(play.mock.calls.length).toBe(before + 1);
   });
 
   test('uses the transparent poster if the browser decodes an opaque video frame', () => {
@@ -272,11 +351,11 @@ describe('SourceShelf', () => {
       />
     );
     const book = screen.getByRole('listitem', { name: sources[0].name });
-    const video = document.querySelector('.source-preparation-stage video');
+    const video = document.querySelector('.source-shelf-item[aria-current=true] video');
     if (!video) throw new Error('Missing reading animation');
     fireEvent.loadedData(video);
-    expect(document.querySelector('.source-preparation-stage video')).toBeNull();
-    expect(document.querySelector('.source-preparation-stage img')).toBeInTheDocument();
+    expect(document.querySelector('.source-shelf-item[aria-current=true] video')).toBeNull();
+    expect(document.querySelector('.source-shelf-item[aria-current=true] img')).toBeInTheDocument();
     expect(book).toHaveAttribute('data-state', 'reading');
   });
 

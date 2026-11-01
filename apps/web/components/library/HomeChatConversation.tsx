@@ -483,11 +483,13 @@ const UserAvatar = ({ show }: { show: boolean }) => {
 const EmptyConversationState = ({
   hasMessages,
   homeChatMode,
+  showLoadingStatus,
 }: {
   hasMessages: boolean;
   homeChatMode: HomeChatMode;
+  showLoadingStatus: boolean;
 }) => {
-  if (hasMessages) return null;
+  if (hasMessages || (homeChatMode === 'new-course' && !showLoadingStatus)) return null;
   const isNewCourse = homeChatMode === 'new-course';
   const title = isNewCourse ? t('Cosa vorresti imparare?') : t('Interroga la tua libreria');
   const description = isNewCourse
@@ -694,7 +696,11 @@ export default function HomeChatConversation({
             : { transform: `translateY(-${scrollOffsetOverride}px)` }
         }
       >
-        <EmptyConversationState hasMessages={hasMessages} homeChatMode={homeChatMode} />
+        <EmptyConversationState
+          hasMessages={hasMessages}
+          homeChatMode={homeChatMode}
+          showLoadingStatus={showLoadingStatus}
+        />
 
         {homeChatMode === 'new-course' ? (
           <AssessmentConversation

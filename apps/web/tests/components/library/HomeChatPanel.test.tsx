@@ -705,6 +705,7 @@ describe('HomeChatPanel', () => {
         onCancelNewCourse={vi.fn()}
       />
     );
+    expect(screen.queryByText('Cosa vorresti imparare?')).not.toBeInTheDocument();
     const shelf = screen.getByRole('region', { name: 'Preparazione delle fonti' });
     expect(within(shelf).getByRole('status')).toHaveTextContent('Lettura fonti 2 di 3');
     expect(screen.queryByText('Reading duplicate status')).not.toBeInTheDocument();

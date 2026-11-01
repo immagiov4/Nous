@@ -31,32 +31,22 @@ const SOURCE_STATE_DESCRIPTION: Partial<
   error: 'Fonte non utilizzabile',
 };
 
-function useReadingBookReveal(sources: readonly ShelfSource[]) {
+function useReadingBookReveal(sources: readonly ShelfSource[], readingKey: string | undefined) {
   const listRef = useRef<HTMLUListElement>(null);
-  const readingKeys = useRef(new Set<string>());
+  const previousKey = useRef<string | undefined>(undefined);
   const shouldAnimate = useShouldAnimate();
   useEffect(() => {
-    const previous = readingKeys.current;
-    readingKeys.current = new Set(
-      sources.filter(source => source.state === 'reading').map(source => source.key)
-    );
+    const previous = previousKey.current;
+    previousKey.current = readingKey;
+    if (!readingKey || readingKey === previous) return;
     const list = listRef.current;
     if (!list) return;
+    const index = sources.findIndex(source => source.key === readingKey);
+    const bounds = list.children[index].getBoundingClientRect();
     const listBounds = list.getBoundingClientRect();
-    for (const [index, source] of sources.entries()) {
-      if (source.state !== 'reading' || previous.has(source.key)) continue;
-      const book = list.children[index];
-      const bounds = book.getBoundingClientRect();
-      if (bounds.left < listBounds.left || bounds.right > listBounds.right)
-        list.scrollBy({
-          left:
-            bounds.left < listBounds.left
-              ? bounds.left - listBounds.left
-              : bounds.right - listBounds.right,
-          behavior: shouldAnimate ? 'smooth' : 'auto',
-        });
-    }
-  }, [sources, shouldAnimate]);
+    const offset = bounds.left + bounds.width / 2 - (listBounds.left + listBounds.width / 2);
+    if (offset !== 0) list.scrollBy({ left: offset, behavior: shouldAnimate ? 'smooth' : 'auto' });
+  }, [sources, readingKey, shouldAnimate]);
   return listRef;
 }
 
@@ -166,24 +156,6 @@ function SourceShelfHeader({
   );
 }
 
-function SourcePreparationStage({ sources }: { readonly sources: readonly ShelfSource[] }) {
-  const readingKey = sources.find(source => source.state === 'reading')?.key;
-  const [lastReadingKey, setLastReadingKey] = useState(readingKey);
-  if (readingKey && readingKey !== lastReadingKey) setLastReadingKey(readingKey);
-  const source =
-    sources.find(source => source.key === (readingKey ?? lastReadingKey)) ?? sources[0];
-  if (!source) return null;
-  const color = PREPARATION_PALETTE[sources.indexOf(source) % PREPARATION_PALETTE.length];
-  return (
-    <div className="source-preparation-stage" data-source-key={source.key} data-palette={color}>
-      <SourceBookPreparationArt key={source.key} state={source.state ?? 'idle'} color={color} />
-      <span className="source-preparation-name" title={source.name}>
-        {sourceTitle(source.name)}
-      </span>
-    </div>
-  );
-}
-
 /** Presentation only: source selection and preparation remain owned by the caller. */
 export default function SourceShelf({
   sources,
@@ -194,7 +166,8 @@ export default function SourceShelf({
   preparationStatus,
 }: SourceShelfProps) {
   const headingId = useId();
-  const bookListRef = useReadingBookReveal(sources);
+  const readingKey = sources.find(source => source.state === 'reading')?.key;
+  const bookListRef = useReadingBookReveal(sources, readingKey);
   const [focusedKey, setFocusedKey] = useState<string>();
   const activeKey = sources.find(source => source.key === focusedKey)?.key ?? sources[0]?.key;
   const hasContent = sources.length > 0 || warnings.length > 0;
@@ -214,7 +187,6 @@ export default function SourceShelf({
           headingId={headingId}
         />
       ) : null}
-      {preparationProgress ? <SourcePreparationStage sources={sources} /> : null}
       {sources.length > 0 ? (
         <div className="source-shelf-edges">
           <ul ref={bookListRef} className="source-shelf-books" aria-labelledby={headingId}>
@@ -230,21 +202,33 @@ export default function SourceShelf({
                   onKeyDown={navigateBooks}
                   title={source.name}
                   aria-label={source.name}
-                  aria-current={source.state === 'reading' ? 'true' : undefined}
+                  aria-current={source.key === readingKey ? 'true' : undefined}
                   aria-description={description ? t(description) : undefined}
+                  data-source-key={source.key}
                   data-palette={PREPARATION_PALETTE[index % PREPARATION_PALETTE.length]}
                   data-state={source.state ?? 'idle'}
                 >
                   <div className="source-book" aria-hidden="true">
-                    <div className="source-book-preparation">
-                      <img
-                        src={sourcePreparationPoster(
-                          source.state === 'reading' ? 'idle' : (source.state ?? 'idle'),
-                          PREPARATION_PALETTE[index % PREPARATION_PALETTE.length]
-                        )}
-                        alt=""
+                    {preparationProgress ? (
+                      <SourceBookPreparationArt
+                        state={
+                          source.state === 'reading' && source.key !== readingKey
+                            ? 'idle'
+                            : (source.state ?? 'idle')
+                        }
+                        color={PREPARATION_PALETTE[index % PREPARATION_PALETTE.length]}
                       />
-                    </div>
+                    ) : (
+                      <div className="source-book-preparation">
+                        <img
+                          src={sourcePreparationPoster(
+                            'idle',
+                            PREPARATION_PALETTE[index % PREPARATION_PALETTE.length]
+                          )}
+                          alt=""
+                        />
+                      </div>
+                    )}
                     <SourceBookStatus state={source.state} />
                   </div>
                   <div className="source-book-caption" aria-hidden="true">

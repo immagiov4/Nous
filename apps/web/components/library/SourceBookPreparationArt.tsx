@@ -40,7 +40,7 @@ function PreparationVideo({
   const [settled, setSettled] = useState(false);
   const [failed, setFailed] = useState(false);
   const readingClip = searching ? 'search' : 'reading';
-  const clip = completing ? 'complete' : readingClip;
+  const clip = completing && searching ? 'complete' : readingClip;
   const poster = sourcePreparationPoster(completing ? 'done' : 'reading', color);
 
   const bindVideo = useCallback((video: HTMLVideoElement | null) => {
@@ -76,10 +76,20 @@ function PreparationVideo({
       data-phase={clip}
       onPlaying={onPlaying}
       onLoadedData={event => {
-        if (!hasTransparentFrame(event.currentTarget)) setFailed(true);
+        const video = event.currentTarget;
+        if (!hasTransparentFrame(video)) {
+          setFailed(true);
+          return;
+        }
+        if (document.visibilityState === 'hidden') return;
+        const loadedSource = video.currentSrc;
+        void video.play().catch(() => {
+          if (video.isConnected && video.currentSrc === loadedSource && video.src === loadedSource)
+            setFailed(true);
+        });
       }}
       onError={() => setFailed(true)}
-      onEnded={() => (completing ? setSettled(true) : setSearching(true))}
+      onEnded={() => (completing && searching ? setSettled(true) : setSearching(true))}
     />
   );
 }

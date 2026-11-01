@@ -35,6 +35,7 @@ const scenes = [
   { name: 'desktop-dark', width: 1280, height: 800, dark: true, reduced: false },
   { name: 'mobile-light', width: 390, height: 844, dark: false, reduced: false },
   { name: 'mobile-dark', width: 390, height: 844, dark: true, reduced: false },
+  { name: 'mobile-compact', width: 360, height: 640, dark: false, reduced: false },
   { name: 'cancel-retry', width: 390, height: 844, dark: false, reduced: true },
   { name: 'media-failure', width: 390, height: 844, dark: true, reduced: false },
 ] as const;
@@ -104,8 +105,15 @@ for (const scene of scenes) {
         scene.dark
       );
       await page.reload({ waitUntil: 'domcontentloaded' });
-      let phase: 'reading' | 'error' | 'reveal' | 'transcription' | 'saving' | 'release' =
-        'reading';
+      let phase:
+        | 'reading'
+        | 'error'
+        | 'concurrent'
+        | 'next'
+        | 'reveal'
+        | 'transcription'
+        | 'saving'
+        | 'release' = 'reading';
       let heldUploadId = '';
       let cancelledProjectId = '';
       let holdSave = scene.name === 'cancel-retry';
@@ -139,6 +147,12 @@ for (const scene of scenes) {
         const body = await response.json();
         if (!body.complete) return route.fulfill({ response });
         projectId = body.snapshot.id;
+        const activeIndex =
+          phase === 'reveal'
+            ? sourceNames.length - 1
+            : phase === 'next' || phase === 'transcription'
+              ? 2
+              : 1;
         documents = body.snapshot.source.sources.map(
           (source: { id: string; name: string }, index: number) => ({
             id: source.id,
@@ -146,9 +160,9 @@ for (const scene of scenes) {
             state:
               scene.name === 'media-failure' && phase === 'error' && index === 2
                 ? 'error'
-                : phase === 'saving' || index === 0
+                : phase === 'saving' || index < activeIndex
                   ? 'done'
-                  : index === (phase === 'reveal' ? sourceNames.length - 1 : 1)
+                  : index === activeIndex || (phase === 'concurrent' && index === 2)
                     ? 'reading'
                     : 'idle',
           })
@@ -158,7 +172,7 @@ for (const scene of scenes) {
           completed: phase === 'saving' ? 0 : 1,
           total: documents.length,
           documents,
-          documentName: documents[1]?.name,
+          documentName: documents.find(document => document.state === 'reading')?.name,
         };
         if (phase === 'transcription') {
           progress.step = 'pdf-transcription';
@@ -235,9 +249,6 @@ for (const scene of scenes) {
       assert.equal(await books.first().getAttribute('aria-description'), 'Fonte letta');
       assert.equal(await shelf.getByRole('button', { name: 'Rimuovi allegato' }).count(), 0);
       assert(await shelf.getByText(/Ignorato.zip/).isVisible());
-      await books.first().focus();
-      await page.keyboard.press('ArrowRight');
-      assert(await books.nth(1).evaluate(element => element === document.activeElement));
       const geometry = await shelf.evaluate(element => ({
         shelf: element.getBoundingClientRect().toJSON(),
         pageWidth: document.documentElement.scrollWidth,
@@ -265,15 +276,17 @@ for (const scene of scenes) {
         await page.waitForFunction(
           () => document.querySelectorAll('.source-shelf video').length === 0
         );
-        assert(await shelf.locator('.source-preparation-stage img').isVisible());
+        assert(await books.nth(1).locator('img').isVisible());
       } else {
-        await shelf.locator('.source-preparation-stage video[data-phase=search]').waitFor();
+        await books.nth(1).locator('video[data-phase=search]').waitFor();
         await page.waitForFunction(() => {
-          const video = document.querySelector<HTMLVideoElement>('.source-preparation-stage video');
+          const video = document.querySelector<HTMLVideoElement>(
+            '.source-shelf-item[aria-current=true] video'
+          );
           return video && !video.paused && video.readyState >= 2 && video.currentTime > 0;
         });
         const playback = await shelf
-          .locator('.source-preparation-stage video')
+          .locator('.source-shelf-item[aria-current=true] video')
           .evaluate(element => {
             const video = element as HTMLVideoElement;
             const quality = video.getVideoPlaybackQuality();
@@ -292,6 +305,21 @@ for (const scene of scenes) {
         assert.equal(playback.width, 512);
         snapshots.push({ phase: 'actual-native-playback', playback });
       }
+      await page.waitForFunction(() => {
+        const active = document.querySelector<HTMLElement>('.source-shelf-item[aria-current=true]');
+        const list = active?.parentElement;
+        const currentArt = active?.querySelector<HTMLElement>('.source-book');
+        const otherArt = list?.querySelector<HTMLElement>(
+          '.source-shelf-item[data-state=done] .source-book'
+        );
+        if (!active || !list || !currentArt || !otherArt) return false;
+        const book = active.getBoundingClientRect();
+        const viewport = list.getBoundingClientRect();
+        return (
+          Math.abs((book.left + book.right - viewport.left - viewport.right) / 2) <= 2 &&
+          currentArt.getBoundingClientRect().width > otherArt.getBoundingClientRect().width
+        );
+      });
       const ordinal = shelf.getByText(`Lettura fonti 2 di ${sourceNames.length}`, { exact: true });
       assert.equal(await ordinal.getAttribute('class'), 'sr-only');
       await page.screenshot({ path: join(evidence, `${scene.name}-reading.png`), fullPage: false });
@@ -302,15 +330,24 @@ for (const scene of scenes) {
           .getByText(`${sourceNames.length} fonti`, { exact: true })
           .isVisible()
       );
-      const stage = shelf.locator('.source-preparation-stage');
+      const stage = books.nth(1);
       assert.equal(await stage.getAttribute('data-source-key'), documents[1].id);
       assert.equal(await stage.getAttribute('data-palette'), 'copper');
-      assert.equal(
-        await shelf.locator('video').count(),
-        scene.reduced || scene.name === 'media-failure' ? 0 : 1
-      );
+      if (scene.reduced || scene.name === 'media-failure') {
+        assert.equal(await shelf.locator('video').count(), 0);
+      } else {
+        assert.equal(await books.nth(1).locator('video').count(), 1);
+        for (const video of await shelf.locator('video').all()) {
+          const owner = video.locator('xpath=ancestor::li[1]');
+          if ((await owner.getAttribute('data-state')) === 'done')
+            assert.equal(await video.getAttribute('loop'), null, 'Completed book must not loop');
+        }
+      }
       assert.equal(await books.first().getAttribute('data-palette'), 'blue');
       assert.equal(await books.nth(2).getAttribute('data-palette'), 'sage');
+      await books.first().focus();
+      await page.keyboard.press('ArrowRight');
+      assert(await books.nth(1).evaluate(element => element === document.activeElement));
       phase = 'error';
       if (scene.name === 'media-failure') {
         await books.nth(2).locator('.source-book-error').waitFor();
@@ -326,58 +363,51 @@ for (const scene of scenes) {
           'same-source-player',
           'Polling remounted the active player'
         );
-      phase = 'reveal';
-      await books.last().locator('[aria-hidden=true]').first().waitFor();
+      phase = 'concurrent';
       await page.waitForFunction(
         () =>
-          document.querySelector('.source-shelf-item:last-child')?.getAttribute('aria-current') ===
+          document.querySelectorAll('.source-shelf-item')[2]?.getAttribute('data-state') ===
+          'reading'
+      );
+      assert.equal(await books.nth(1).getAttribute('aria-current'), 'true');
+      assert.equal(await books.nth(2).getAttribute('aria-current'), null);
+      assert.equal(await books.nth(2).locator('video').count(), 0);
+      snapshots.push({ phase, documents });
+      phase = 'next';
+      await page.waitForFunction(
+        () =>
+          document.querySelectorAll('.source-shelf-item')[2]?.getAttribute('aria-current') ===
           'true'
       );
-      await page.waitForFunction(() => {
-        const book = document.querySelector('.source-shelf-item:last-child');
-        const list = book?.parentElement;
-        if (!book || !list) return false;
-        const bounds = book.getBoundingClientRect();
-        const viewport = list.getBoundingClientRect();
-        return bounds.left >= viewport.left - 1 && bounds.right <= viewport.right + 1;
-      });
-      const reveal = await books.last().evaluate(element => {
-        const book = element.getBoundingClientRect();
-        const parent = element.parentElement;
-        if (!parent) throw new Error('Book is detached from its shelf');
-        const list = parent.getBoundingClientRect();
-        return {
-          visible: book.left >= list.left - 1 && book.right <= list.right + 1,
-          focused: document.activeElement?.getAttribute('aria-label'),
-        };
-      });
-      assert(reveal.visible, 'Newly reading book remains outside the shelf viewport');
-      assert.equal(reveal.focused, documents[1].name, 'Reading progress moved keyboard focus');
-      await page.screenshot({ path: join(evidence, `${scene.name}-reveal.png`) });
-      const caption = await books
-        .last()
-        .locator('.source-book-title')
-        .evaluate(element => ({
-          width: element.getBoundingClientRect().width,
-          height: element.getBoundingClientRect().height,
-          clamp: getComputedStyle(element).webkitLineClamp,
-          text: element.textContent,
-        }));
-      assert.equal(caption.clamp, '2');
-      assert(caption.height <= 2 * 12 * 1.4 + 1);
-      assert.equal(await books.last().getAttribute('title'), sourceNames.at(-1));
-      assert.equal(await stage.getAttribute('data-source-key'), documents.at(-1)?.id);
-      const heroTitle = await stage.locator('.source-preparation-name').evaluate(element => ({
-        clamp: getComputedStyle(element).webkitLineClamp,
-        width: element.getBoundingClientRect().width,
-        parentWidth: element.parentElement?.getBoundingClientRect().width,
-      }));
-      assert.equal(heroTitle.clamp, '2');
-      assert(heroTitle.parentWidth && heroTitle.width <= heroTitle.parentWidth);
-      snapshots.push({ phase, documents, reveal, caption, heroTitle });
+      if (!scene.reduced && scene.name !== 'media-failure') {
+        const closing = books.nth(1).locator('video[data-phase=complete]');
+        await closing.waitFor();
+        assert.equal(await closing.getAttribute('loop'), null);
+        await page.waitForFunction(() => {
+          const video = document.querySelector<HTMLVideoElement>(
+            '.source-shelf-item[data-state=done] video[data-phase=complete]'
+          );
+          return video && !video.paused && video.currentTime > 0;
+        });
+      }
+      assert(
+        await books.nth(1).evaluate(element => element === document.activeElement),
+        'Reading progress moved keyboard focus'
+      );
+      await page.getByRole('button', { name: 'Annulla', exact: true }).focus();
+      await page.screenshot({ path: join(evidence, `${scene.name}-next.png`) });
+      snapshots.push({ phase, documents });
       phase = 'transcription';
       await shelf.getByText(/165\/200/).waitFor();
       assert(await shelf.getByText(/Pagine 151–200 trascritte in qualità ridotta/).isVisible());
+      const verticalOverflow = await shelf.evaluate(
+        element => element.scrollHeight > element.clientHeight
+      );
+      assert.equal(
+        verticalOverflow,
+        false,
+        'Source card content should fit without vertical scrolling'
+      );
       const detailBounds = await shelf.getByText(/165\/200/).boundingBox();
       const shelfBounds = await shelf.boundingBox();
       assert(
@@ -389,7 +419,7 @@ for (const scene of scenes) {
       );
       assert.match(
         (await shelf.getByRole('status').textContent()) ?? '',
-        new RegExp(`Lettura fonti 2 di ${sourceNames.length}`)
+        new RegExp(`Lettura fonti 3 di ${sourceNames.length}`)
       );
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       const transcriptionFrame = await page.locator('.course-setup-stage').boundingBox();
@@ -410,7 +440,7 @@ for (const scene of scenes) {
         if (!book || !list) return false;
         const bounds = book.getBoundingClientRect();
         const viewport = list.getBoundingClientRect();
-        return bounds.left >= viewport.left - 1 && bounds.right <= viewport.right + 1;
+        return Math.abs((bounds.left + bounds.right - viewport.left - viewport.right) / 2) <= 2;
       });
       await page.screenshot({
         path: join(evidence, `${scene.name}-transcription.png`),
@@ -419,19 +449,96 @@ for (const scene of scenes) {
       snapshots.push({ phase, documents });
       if (!scene.reduced && scene.name !== 'media-failure')
         await page.waitForFunction(() => {
-          const video = document.querySelector<HTMLVideoElement>('.source-preparation-stage video');
+          const video = document.querySelector<HTMLVideoElement>(
+            '.source-shelf-item[aria-current=true] video'
+          );
           return video && !video.paused && video.readyState >= 2;
         });
+      phase = 'reveal';
+      await books.last().locator('[aria-hidden=true]').first().waitFor();
+      await page.waitForFunction(
+        () =>
+          document.querySelector('.source-shelf-item:last-child')?.getAttribute('aria-current') ===
+          'true'
+      );
+      await page.waitForFunction(() => {
+        const book = document.querySelector('.source-shelf-item:last-child');
+        const list = book?.parentElement;
+        if (!book || !list) return false;
+        const bounds = book.getBoundingClientRect();
+        const viewport = list.getBoundingClientRect();
+        return Math.abs((bounds.left + bounds.right - viewport.left - viewport.right) / 2) <= 2;
+      });
+      const reveal = await books.last().evaluate(element => {
+        const book = element.getBoundingClientRect();
+        const parent = element.parentElement;
+        if (!parent) throw new Error('Book is detached from its shelf');
+        const list = parent.getBoundingClientRect();
+        return {
+          visible: Math.abs((book.left + book.right - list.left - list.right) / 2) <= 2,
+          focused: document.activeElement?.getAttribute('data-home-chat-target'),
+        };
+      });
+      assert(reveal.visible, 'Newly reading book remains outside the shelf viewport');
+      assert.equal(reveal.focused, 'submit', 'Reading progress moved keyboard focus');
+      await page.screenshot({ path: join(evidence, `${scene.name}-reveal.png`) });
+      const caption = await books
+        .last()
+        .locator('.source-book-title')
+        .evaluate(element => ({
+          width: element.getBoundingClientRect().width,
+          height: element.getBoundingClientRect().height,
+          clamp: getComputedStyle(element).webkitLineClamp,
+          text: element.textContent,
+        }));
+      assert(caption.height <= 12 * 1.4 + 1);
+      assert.equal(await books.last().getAttribute('title'), sourceNames.at(-1));
+      assert.equal(await books.last().getAttribute('data-source-key'), documents.at(-1)?.id);
+      const clippedTitle = await books
+        .last()
+        .locator('.source-book-title')
+        .evaluate(element => ({
+          whiteSpace: getComputedStyle(element).whiteSpace,
+          overflow: getComputedStyle(element).textOverflow,
+          clipped: element.scrollWidth > element.clientWidth,
+        }));
+      assert.deepEqual(clippedTitle, { whiteSpace: 'nowrap', overflow: 'ellipsis', clipped: true });
+      snapshots.push({ phase, documents, reveal, caption, clippedTitle });
       phase = 'saving';
       await shelf.getByText(/Salvataggio fonti/).waitFor();
+      await page.waitForFunction(() => {
+        const books = [...document.querySelectorAll('.source-shelf-item')];
+        return books.length > 0 && books.every(book => book.getAttribute('data-state') === 'done');
+      });
       assert.deepEqual(
         await books.evaluateAll(nodes => nodes.map(node => node.getAttribute('data-state'))),
         sourceNames.map(() => 'done')
       );
       await page.screenshot({ path: join(evidence, `${scene.name}-saving.png`), fullPage: false });
-      await page.waitForFunction(
-        () => document.querySelectorAll('.source-shelf video').length === 0
-      );
+      try {
+        await page.waitForFunction(
+          () => document.querySelectorAll('.source-shelf video').length === 0
+        );
+      } catch (error) {
+        console.log(
+          'Unsettled players',
+          await shelf.locator('video').evaluateAll(nodes =>
+            nodes.map(element => {
+              const node = element as HTMLVideoElement;
+              return {
+                src: node.currentSrc,
+                time: node.currentTime,
+                paused: node.paused,
+                ended: node.ended,
+                ready: node.readyState,
+                phase: node.dataset.phase,
+                state: node.closest('li')?.dataset.state,
+              };
+            })
+          )
+        );
+        throw error;
+      }
       snapshots.push({ phase, documents });
       phase = 'release';
       await page
