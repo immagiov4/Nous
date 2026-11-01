@@ -39,6 +39,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  type ChatToolCallGuard,
   cancelledToolOutput,
   useChatResponseControl,
   useLatestValue,
@@ -65,6 +66,7 @@ import type {
   LessonGeneratedVisualKind,
   StoredLessonVisual,
 } from '../../../types.ts';
+import { readContextNoteCorrection } from '../../../utils/context/contextNoteCorrection.ts';
 import {
   buildConversationNoteCatalog,
   restoreConversationNotePassage,
@@ -176,7 +178,10 @@ const hasPendingAddToNotesRequest = (messages: ContextChatMessage[]): boolean =>
     )
   );
 
-const shouldContinueContextResponse = (messages: ContextChatMessage[]): boolean => {
+const shouldContinueContextResponse = (
+  messages: ContextChatMessage[],
+  correctingNote = false
+): boolean => {
   const lastMessage = messages.at(-1);
   const lastStepStart = lastMessage?.parts.reduce(
     (lastIndex, part, index) => (part.type === 'step-start' ? index : lastIndex),
@@ -187,9 +192,12 @@ const shouldContinueContextResponse = (messages: ContextChatMessage[]): boolean 
     part =>
       part.type === 'tool-requestAddToNotes' &&
       part.state === 'output-available' &&
-      ['saved', 'validation_error', 'save_error', 'cancelled'].includes(
-        readContextNoteResult(part.output)?.status ?? ''
-      )
+      [
+        'saved',
+        ...(correctingNote ? [] : ['validation_error']),
+        'save_error',
+        'cancelled',
+      ].includes(readContextNoteResult(part.output)?.status ?? '')
   );
   const isReplacementStep = lastStepParts.some(
     part =>
@@ -679,6 +687,22 @@ function ContextAnswerPanelSession({
   );
   const hasSubmittedInitialQuestionRef = useRef(false);
   const responseControl = useChatResponseControl();
+  const [pendingNoteCorrection] = useState(() => {
+    type Correction = NonNullable<ReturnType<typeof readContextNoteCorrection>> & {
+      guard: ChatToolCallGuard;
+    };
+    let pending: Correction | undefined;
+    return {
+      capture: (correction: Correction) => {
+        pending = correction;
+      },
+      take: () => {
+        const correction = pending;
+        pending = undefined;
+        return correction;
+      },
+    };
+  });
   const contextStopButtonRef = useRef<HTMLButtonElement>(null);
   const [focusStopAfterSubmit, setFocusStopAfterSubmit] = useState(false);
   const toolMenuRef = useRef<HTMLDivElement>(null);
@@ -836,13 +860,30 @@ function ContextAnswerPanelSession({
         fetch: fetchWithSupabaseAuth,
         // `useChat` keeps the initial transport instance, so request data comes from its stable store.
         prepareSendMessagesRequest: async ({ headers, id, messages }) => {
+          const correction = pendingNoteCorrection.take();
+          const finishCorrection =
+            correction && noteDiagnostics.measureCorrection(correction.toolCallId);
           const currentRequestState = readContextRequestState();
-          noteCatalogSnapshot.capture(currentRequestState.noteCatalog);
-          const catalog = currentRequestState.noteCatalog;
+          const catalog =
+            correction?.recovery === 'refresh_context'
+              ? buildConversationNoteCatalog(currentRequestState.noteCatalog)
+              : currentRequestState.noteCatalog;
           let outcome: 'complete' | 'clipped' | 'unavailable' = 'complete';
           if (catalog.entries.length < catalog.totalEntries) outcome = 'clipped';
           if (!catalog.entries.length) outcome = 'unavailable';
           const snapshotId = await catalog.snapshotId;
+          if (correction && !correction.guard.isCurrent()) {
+            throw new DOMException('Response superseded', 'AbortError');
+          }
+          noteCatalogSnapshot.capture(catalog);
+          if (correction) {
+            void finishCorrection?.({
+              phase: 'correction',
+              recovery: correction.recovery,
+              outcome: 'requested',
+              contextScope: currentRequestState.contextScope ?? 'selection',
+            });
+          }
           void noteDiagnostics.report(snapshotId, {
             phase: 'catalog',
             contextScope: currentRequestState.contextScope ?? 'selection',
@@ -884,7 +925,13 @@ function ContextAnswerPanelSession({
           };
         },
       }),
-    [noteCatalogSnapshot, noteDiagnostics, readContextRequestState, readRequestPlaybackContext]
+    [
+      noteCatalogSnapshot,
+      noteDiagnostics,
+      pendingNoteCorrection,
+      readContextRequestState,
+      readRequestPlaybackContext,
+    ]
   );
 
   const artifactPayloadsById = useMemo(() => {
@@ -906,8 +953,22 @@ function ContextAnswerPanelSession({
     id: contextAnswer.id,
     transport,
     experimental_throttle: 96,
-    sendAutomaticallyWhen: ({ messages }) =>
-      responseControl.canContinue() && shouldContinueContextResponse(messages),
+    sendAutomaticallyWhen: ({ messages }) => {
+      if (!responseControl.canContinue()) return false;
+      const correction = readContextNoteCorrection(messages);
+      if (
+        correction &&
+        shouldContinueContextResponse(messages, true) &&
+        responseControl.claimCorrection()
+      ) {
+        pendingNoteCorrection.capture({
+          ...correction,
+          guard: responseControl.guardToolCall({ ...correction, toolName: 'requestAddToNotes' }),
+        });
+        return true;
+      }
+      return shouldContinueContextResponse(messages);
+    },
     onToolCall: async ({ toolCall }) => {
       if (toolCall.dynamic) {
         return;
@@ -1200,8 +1261,15 @@ function ContextAnswerPanelSession({
 
     hasSubmittedInitialQuestionRef.current = true;
     autoSubmittedInitialQuestionIds.add(contextAnswer.id);
+    responseControl.begin();
     void sendMessage({ text: initialQuestion });
-  }, [contextAnswer.id, contextAnswer.initialQuestion, messages.length, sendMessage]);
+  }, [
+    contextAnswer.id,
+    contextAnswer.initialQuestion,
+    messages.length,
+    sendMessage,
+    responseControl,
+  ]);
 
   useEffect(() => {
     if (!isToolMenuOpen) {
@@ -2066,6 +2134,26 @@ function ContextAnswerPanelSession({
           ) : null}
 
           {renderNoteDecision()}
+          {outputValue?.status === 'validation_error' && inputValue ? (
+            <button
+              type="button"
+              disabled={isComposerDisabled}
+              onClick={() => {
+                setInput(current => appendSpeechTranscription(current, inputValue.noteDraft));
+                const input =
+                  composerPortal?.querySelector<HTMLElement>(
+                    '[data-context-menu-target="input"]'
+                  ) ??
+                  document.querySelector<HTMLElement>(
+                    `[data-chat-composer-target="${CONTEXT_ANSWER_INPUT_TARGET}"]`
+                  );
+                input?.focus();
+              }}
+              className="mt-3 rounded-full px-3 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-200/70 disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-600"
+            >
+              {t('Riprendi bozza')}
+            </button>
+          ) : null}
         </div>
       );
     }

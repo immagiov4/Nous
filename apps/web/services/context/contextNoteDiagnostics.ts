@@ -20,12 +20,16 @@ export const createContextNoteDiagnostics = () => {
     string,
     { operationId: string; reported: Set<ContextNoteEvent['phase']> }
   >();
-  const report = async (toolCallId: string, event: ContextNoteEventPayload): Promise<void> => {
+  const operationFor = (toolCallId: string) => {
     let operation = operations.get(toolCallId);
     if (!operation) {
       operation = { operationId: uuidv4(), reported: new Set() };
       operations.set(toolCallId, operation);
     }
+    return operation;
+  };
+  const report = async (toolCallId: string, event: ContextNoteEventPayload): Promise<void> => {
+    const operation = operationFor(toolCallId);
     if (operation.reported.has(event.phase)) return;
     const parsed = ContextNoteEventSchema.safeParse({
       ...event,
@@ -55,6 +59,20 @@ export const createContextNoteDiagnostics = () => {
   };
   return {
     report,
+    measureCorrection: (parentToolCallId: string) => {
+      const started = performance.now();
+      return (
+        event: Omit<
+          Extract<ContextNoteEventPayload, { phase: 'correction' }>,
+          'parentOperationId' | 'durationMs'
+        >
+      ) =>
+        report(`correction:${parentToolCallId}`, {
+          ...event,
+          parentOperationId: operationFor(parentToolCallId).operationId,
+          durationMs: performance.now() - started,
+        });
+    },
     measure: (toolCallId: string) => {
       const started = performance.now();
       return (event: TimedNoteEvent) =>

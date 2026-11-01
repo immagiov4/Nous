@@ -17,6 +17,8 @@ export interface ChatResponseControl {
   readonly canContinue: () => boolean;
   /** Starts a new response; tool calls from earlier responses become stale. */
   readonly begin: () => void;
+  /** Claims the single automatic correction allowed until the next learner response begins. */
+  readonly claimCorrection: () => boolean;
   readonly guardToolCall: (toolCall: { toolCallId: string; toolName: string }) => ChatToolCallGuard;
   /** Waits for every earlier `send` to settle, begins a new response and runs `start`. */
   readonly send: (start: () => Promise<void>) => Promise<void>;
@@ -71,15 +73,22 @@ const createChatResponseControl = (): ChatResponseControl & {
 } => {
   let canContinue = true;
   let generation = 0;
+  let correctionClaimed = false;
   let pendingSettlement: Promise<void> | undefined;
   const trackedToolCalls = new Map<string, string>();
   const begin = () => {
     canContinue = true;
     generation += 1;
+    correctionClaimed = false;
   };
   return {
     canContinue: () => canContinue,
     begin,
+    claimCorrection: () => {
+      if (!canContinue || correctionClaimed) return false;
+      correctionClaimed = true;
+      return true;
+    },
     send: start => {
       // Chain on the latest queued send, so each response starts after every earlier one.
       const previous = pendingSettlement;

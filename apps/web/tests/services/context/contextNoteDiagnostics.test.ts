@@ -14,6 +14,38 @@ beforeEach(() => {
   fetchMock.mockReset().mockResolvedValue(new Response(null, { status: 204 }));
 });
 
+test('a correction links to its rejected proposal through opaque UUIDs and is reported once', async () => {
+  const diagnostics = createContextNoteDiagnostics();
+  await diagnostics.report('PRIVATE_PROVIDER_ID', {
+    phase: 'proposal',
+    outcome: 'validation_error',
+    code: 'unknown_passage',
+    contextScope: 'lesson',
+    durationMs: 1,
+    candidateOutcomes: [],
+  });
+  const correction = {
+    phase: 'correction' as const,
+    recovery: 'choose_passage' as const,
+    outcome: 'requested' as const,
+    contextScope: 'lesson' as const,
+    durationMs: 2,
+  };
+  const finishCorrection = diagnostics.measureCorrection('PRIVATE_PROVIDER_ID');
+  await finishCorrection(correction);
+  await finishCorrection(correction);
+  const sent = fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body));
+  expect(sent).toHaveLength(2);
+  expect(sent[1].parentOperationId).toBe(sent[0].operationId);
+  expect(sent[1].operationId).not.toBe(sent[0].operationId);
+  expect(JSON.stringify(sent)).not.toContain('PRIVATE_PROVIDER_ID');
+  await diagnostics.measureCorrection('other')({
+    ...correction,
+    note: 'PRIVATE_DRAFT',
+  } as typeof correction);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
 test('correlates proposal and save, deduplicates rerenders and records no provider or lesson content', async () => {
   const log = vi.spyOn(console, 'info').mockImplementation(() => {});
   const diagnostics = createContextNoteDiagnostics();

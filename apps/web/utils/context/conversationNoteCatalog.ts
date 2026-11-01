@@ -291,6 +291,7 @@ export const buildConversationNoteCatalog = ({
   annotationId?: string;
   annotationSelector?: SectionAnnotationTextSelector;
   annotationTargetMismatch: boolean;
+  selection?: ConversationSelectionAnchor;
   hasExistingNote: boolean;
   origin?: { projectId?: string; lessonId?: string };
   entries: ConversationNotePassage[];
@@ -393,6 +394,7 @@ export const buildConversationNoteCatalog = ({
     annotationId,
     annotationSelector,
     annotationTargetMismatch,
+    selection,
     hasExistingNote,
     locale,
     snapshotId,
