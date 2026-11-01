@@ -529,7 +529,7 @@ function CourseApproval({
     return null;
   return (
     <>
-      {coursePreferences}
+      {coursePreferences ? <div data-course-preferences>{coursePreferences}</div> : null}
       <div className="flex flex-col items-center gap-3 rounded-2xl border border-amber-200/80 bg-amber-50/60 px-5 py-4 dark:border-amber-700/40 dark:bg-amber-950/20">
         <p className="text-center text-sm font-medium text-amber-800 dark:text-amber-200">
           {coursePreferences
@@ -646,7 +646,9 @@ export default function HomeChatConversation({
     if (!activeMessages.at(-1) && !assessmentComplete && !isLoading) return;
     const messagesScroll = messagesScrollRef.current;
     if (!messagesScroll) return;
-    const diagnostic = diagnosticRef.current;
+    const diagnostic =
+      diagnosticRef.current ??
+      messagesScroll.querySelector<HTMLElement>('[data-course-preferences]');
     if (diagnostic) {
       messagesScroll.scrollTop +=
         diagnostic.getBoundingClientRect().top - messagesScroll.getBoundingClientRect().top;
@@ -733,7 +735,7 @@ export default function HomeChatConversation({
         {visibleDiagnostic ? (
           <div ref={diagnosticRef} className="flex min-w-0 items-start gap-2.5">
             {assistantAvatar}
-            <div className="min-w-0 max-w-[82ch] flex-1 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 sm:p-6">
+            <div className="min-w-0 flex-1 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 sm:p-6">
               <DiagnosticFlow
                 key={visibleDiagnostic.collectionId}
                 adapter={visibleDiagnostic}

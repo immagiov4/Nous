@@ -205,6 +205,41 @@ const buildProps = () => ({
 });
 
 describe('HomeChatPanel', () => {
+  test('announces phases, preserves loading conversation and reuses abandon from the stage back arrow', async () => {
+    const props = buildProps();
+    const { container, rerender } = render(<HomeChatPanel {...props} sourceCount={2} />);
+    expect(screen.getByRole('heading', { name: 'Prepariamo il tuo corso' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('list', { name: 'Fasi di preparazione del corso' })
+    ).toBeInTheDocument();
+    expect(container.querySelector('[aria-current="step"]')).toHaveAccessibleName('Obiettivo');
+    expect(container.querySelector('[data-setup-phase="sources"]')).toHaveAttribute(
+      'data-state',
+      'done'
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Annulla creazione corso' }));
+    expect(props.onCancelNewCourse).toHaveBeenCalledOnce();
+    rerender(
+      <HomeChatPanel
+        {...props}
+        sourceCount={0}
+        assessmentComplete
+        coursePreferences={<div>Preferences</div>}
+      />
+    );
+    expect(container.querySelector('[aria-current="step"]')).toHaveAccessibleName('Preferenze');
+    expect(container.querySelector('[data-setup-phase="sources"]')).toBeNull();
+    rerender(
+      <HomeChatPanel
+        {...props}
+        isNewCourseLoading
+        newCourseLoadingStatus="Valutazione risposta..."
+      />
+    );
+    expect(screen.getByText('Valutazione risposta...')).toBeInTheDocument();
+    expect(screen.getByRole('textbox')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Annulla creazione corso' })).toBeDisabled();
+  });
   beforeEach(() => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
     setViewportWidth(1280);
@@ -506,22 +541,13 @@ describe('HomeChatPanel', () => {
     expect(screen.getByText('What would you like to learn?')).toBeInTheDocument();
   });
 
-  test('switches between preserved new-course and library threads', async () => {
+  test('preserves new-course and library threads when changing the active surface', async () => {
     const user = userEvent.setup();
     const props = buildProps();
     const { rerender } = render(<HomeChatPanel {...props} />);
-
-    expect(screen.getByTestId('home-chat-mode-copy')).toHaveClass(
-      'min-h-[6rem]',
-      'sm:min-h-[4.5rem]'
-    );
-
+    expect(screen.getByRole('heading', { name: 'Prepariamo il tuo corso' })).toBeInTheDocument();
     expect(screen.getByText('Messaggio assessment')).toBeInTheDocument();
     expect(screen.queryByText('Riassunto libreria')).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('tab', { name: /Consulta libreria/i }));
-
-    expect(props.onHomeChatModeChange).toHaveBeenCalledWith('library-query');
 
     rerender(<HomeChatPanel {...props} homeChatMode="library-query" />);
 

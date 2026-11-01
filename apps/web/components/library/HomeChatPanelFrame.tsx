@@ -3,6 +3,10 @@ import { BookPlus, Folder, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { HomeChatMode } from '../../types.ts';
+import { useShouldAnimate } from '../../utils/motion/index.ts';
+import { SPRING_TAP } from '../../utils/motion/tokens.ts';
+import CourseSetupHeader from './CourseSetupHeader.tsx';
+import type { CourseSetupPhase } from './courseSetupPhase.ts';
 import type { StopGenerationHandler } from './HomeChatComposer.tsx';
 
 const MOBILE_ACTIVE_CHAT_VIEWPORT_RATIO = 0.75;
@@ -150,6 +154,8 @@ const HomeChatClearButton = ({
 };
 
 interface HomeChatPanelFrameProps {
+  readonly setupPhase: CourseSetupPhase | null;
+  readonly sourceCount: number;
   readonly children: ReactNode;
   readonly hasActiveChat: boolean;
   readonly hideHeaderCopy: boolean;
@@ -167,6 +173,8 @@ interface HomeChatPanelFrameProps {
 }
 
 export default function HomeChatPanelFrame({
+  setupPhase,
+  sourceCount,
   children,
   hasActiveChat,
   hideHeaderCopy,
@@ -182,16 +190,20 @@ export default function HomeChatPanelFrame({
   showClearChat,
   viewportHeight,
 }: HomeChatPanelFrameProps) {
+  const shouldAnimate = useShouldAnimate();
   return (
-    <section
+    <motion.section
+      layout={shouldAnimate ? 'size' : false}
+      transition={shouldAnimate ? SPRING_TAP : { duration: 0 }}
+      data-course-setup-phase={setupPhase ?? undefined}
       className={`relative max-md:flex max-md:flex-col ${
         isCompactSurface
           ? 'rounded-none bg-transparent shadow-none dark:bg-transparent dark:shadow-none'
           : 'rounded-[2rem] bg-[rgba(248,245,240,0.96)] shadow-[inset_0_1px_3px_rgba(24,24,27,0.05),inset_0_0_0_1px_rgba(88,64,32,0.04)] dark:bg-[rgba(46,40,36,0.94)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
-      } ${hasActiveChat ? 'max-md:h-[75dvh] max-md:overflow-hidden' : ''}`}
+      } ${hasActiveChat ? 'max-md:h-[75dvh] max-md:overflow-hidden' : ''} ${setupPhase ? 'course-setup-stage flex h-[75dvh] flex-col overflow-hidden [&>.home-chat-scrollbar]:min-h-0 [&>.home-chat-scrollbar]:flex-1 [&>.home-chat-scrollbar]:!h-auto' : ''}`}
       style={getMobileChatStyle(isMobileViewport, viewportHeight, hasActiveChat)}
     >
-      {showClearChat ? (
+      {showClearChat && !setupPhase ? (
         <HomeChatClearButton
           homeChatMode={homeChatMode}
           isLoading={isLoading}
@@ -200,15 +212,24 @@ export default function HomeChatPanelFrame({
         />
       ) : null}
 
-      <HomeChatHeader
-        disableModeChange={isAnyChatLoading}
-        hideHeaderCopy={hideHeaderCopy}
-        hideModeSelector={hideModeSelector}
-        homeChatMode={homeChatMode}
-        onModeChange={onModeChange}
-      />
+      {setupPhase ? (
+        <CourseSetupHeader
+          phase={setupPhase}
+          sourceCount={sourceCount}
+          isLoading={isLoading}
+          onAbandon={onCancelNewCourse}
+        />
+      ) : (
+        <HomeChatHeader
+          disableModeChange={isAnyChatLoading}
+          hideHeaderCopy={hideHeaderCopy}
+          hideModeSelector={hideModeSelector}
+          homeChatMode={homeChatMode}
+          onModeChange={onModeChange}
+        />
+      )}
 
       {children}
-    </section>
+    </motion.section>
   );
 }

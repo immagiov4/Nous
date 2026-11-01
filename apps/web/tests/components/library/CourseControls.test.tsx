@@ -9,6 +9,32 @@ import { describe, expect, test, vi } from 'vitest';
 import { CourseControls } from '../../../components/library/CourseControls';
 
 describe('course controls', () => {
+  test('keeps small-step values at the small-step end and broad values at the broad end', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <CourseControls
+        value={DEFAULT_COURSE_PLANNING_CONTROLS}
+        hasReferenceMaterial
+        onChange={onChange}
+      />
+    );
+    const slider = screen.getByRole('slider', { name: 'Granularità' });
+    fireEvent.change(slider, { target: { value: '4' } });
+    expect(onChange).toHaveBeenLastCalledWith({ depth: 'auto', granularity: 'much-less' });
+    rerender(
+      <CourseControls
+        value={{ depth: 'more', granularity: 'much-less' }}
+        hasReferenceMaterial
+        onChange={onChange}
+      />
+    );
+    expect(slider).toHaveValue('4');
+    expect(slider).toHaveAccessibleDescription(
+      'Passaggi molto più piccoli · Rispetto al materiale'
+    );
+    fireEvent.change(slider, { target: { value: '0' } });
+    expect(onChange).toHaveBeenLastCalledWith({ depth: 'more', granularity: 'much-more' });
+  });
   test('changes depth independently and returns to Auto', () => {
     const changed = vi.fn();
     function Harness() {

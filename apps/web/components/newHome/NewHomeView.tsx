@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion';
 import {
   BookOpen,
   ChevronDown,
@@ -49,6 +50,7 @@ import type {
 import { subscribeToMediaQuery } from '../../utils/mediaQuery.ts';
 import { Pressable, useShouldAnimate } from '../../utils/motion/index.ts';
 import AccountMenu from '../account/AccountMenu.tsx';
+import { deriveCourseSetupPhase } from '../library/courseSetupPhase.ts';
 import HomeChatPanel from '../library/HomeChatPanel.tsx';
 import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
 import SurfaceErrorBoundary from '../shared/SurfaceErrorBoundary.tsx';
@@ -1572,6 +1574,17 @@ const HomePage = ({
     chatProps.homeChatMode === 'new-course'
       ? chatProps.assessmentMessages.length > 0
       : chatProps.libraryMessages.length > 0;
+  const isSetupStage =
+    chatProps.homeChatMode === 'new-course' &&
+    deriveCourseSetupPhase({
+      assessmentComplete: chatProps.assessmentComplete,
+      diagnosticKind: chatProps.diagnosticAdapter?.initial.kind,
+      hasMessages: chatProps.assessmentMessages.length > 0,
+      hasPreferences: Boolean(chatProps.coursePreferences),
+      isLoading: chatProps.isNewCourseLoading,
+      sourceCount: chatProps.sourceCount ?? 0,
+    }) !== null;
+  const animateSetup = useShouldAnimate();
   const incompleteProjects = projects
     .filter(project => project.lessonCount === 0 || project.completedCount < project.lessonCount)
     .filter(project => matchesSearch(project.title, query))
@@ -1579,17 +1592,30 @@ const HomePage = ({
 
   return (
     <>
-      <section className="mx-auto mt-7 text-center sm:mt-14">
-        <h1 className="scale-x-[0.84] whitespace-nowrap font-serif text-[clamp(1.4rem,6vw,2.25rem)] leading-tight tracking-[-0.045em] text-stone-950 min-[421px]:scale-x-90 sm:text-[clamp(2rem,6vw,3rem)] md:text-[clamp(1.75rem,3.3vw,3rem)] xl:scale-x-100 dark:text-stone-50">
-          {t('Cosa vuoi')}{' '}
-          <span className="text-[#a95828] dark:text-[#f1c6a8]">{t('imparare')}</span> {t('oggi?')}
-        </h1>
-        <p className="mx-auto mt-2 max-w-xl text-sm leading-5 text-stone-500 sm:mt-3 sm:leading-6 dark:text-stone-400">
-          {t(
-            'Crea un nuovo corso o interroga i tuoi corsi per esplorare, chiarire e collegare le tue conoscenze.'
-          )}
-        </p>
-        <div className="new-home-chat mt-5 text-left sm:mt-7">
+      <section
+        className={`mx-auto text-center transition-[margin] motion-reduce:transition-none ${isSetupStage ? 'mt-2 sm:mt-4' : 'mt-7 sm:mt-14'}`}
+      >
+        <div
+          className={`grid transition-[grid-template-rows,opacity] motion-reduce:transition-none ${isSetupStage ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'}`}
+          inert={isSetupStage}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <h1 className="scale-x-[0.84] whitespace-nowrap font-serif text-[clamp(1.4rem,6vw,2.25rem)] leading-tight tracking-[-0.045em] text-stone-950 min-[421px]:scale-x-90 sm:text-[clamp(2rem,6vw,3rem)] md:text-[clamp(1.75rem,3.3vw,3rem)] xl:scale-x-100 dark:text-stone-50">
+              {t('Cosa vuoi')}{' '}
+              <span className="text-[#a95828] dark:text-[#f1c6a8]">{t('imparare')}</span>{' '}
+              {t('oggi?')}
+            </h1>
+            <p className="mx-auto mt-2 max-w-xl text-sm leading-5 text-stone-500 sm:mt-3 sm:leading-6 dark:text-stone-400">
+              {t(
+                'Crea un nuovo corso o interroga i tuoi corsi per esplorare, chiarire e collegare le tue conoscenze.'
+              )}
+            </p>
+          </div>
+        </div>
+        <motion.div
+          layout={animateSetup ? 'size' : false}
+          className={`new-home-chat mx-auto text-left ${isSetupStage ? 'w-full' : 'mt-5 w-full sm:mt-7'}`}
+        >
           <SurfaceErrorBoundary resetKey={draftTemplate?.id} surface="chat">
             <HomeChatPanel
               key={draftTemplate?.id || 'new-home-chat'}
@@ -1602,8 +1628,8 @@ const HomePage = ({
               showChatAvatars
             />
           </SurfaceErrorBoundary>
-        </div>
-        {!hasActiveConversation ? (
+        </motion.div>
+        {!hasActiveConversation && !isSetupStage ? (
           <div className="new-home-filter-scroll -mx-4 mt-3 flex flex-nowrap gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:mt-4 sm:justify-center sm:px-0">
             <button
               type="button"

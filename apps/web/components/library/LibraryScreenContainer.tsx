@@ -131,6 +131,9 @@ export const LibraryScreenContainer = ({
     startHomeChat,
     submitAssessment,
   } = controller;
+  const source = controller.source;
+  let sourceCount = pendingHomeSourceFiles.length;
+  if (source) sourceCount = 'sources' in source && source.sources ? source.sources.length : 1;
   const assessmentComplete = Boolean(controller.courseProposal) && !isAddingAssessmentDetails;
   const isNewCourseLoading =
     controller.workflowState.assessment.status === 'pending' || isConfirmingCourse;
@@ -352,7 +355,7 @@ export const LibraryScreenContainer = ({
         chatProps={{
           coursePreferences:
             controller.courseProposal && controller.supportsCoursePreferences ? (
-              <div className="max-w-xl space-y-4">
+              <div className="w-full space-y-4">
                 <CourseControls
                   value={
                     coursePreferences.coursePlanningControls ?? DEFAULT_COURSE_PLANNING_CONTROLS
@@ -371,6 +374,7 @@ export const LibraryScreenContainer = ({
                 />
               </div>
             ) : undefined,
+          sourceCount,
           diagnosticAdapter: controller.diagnosticAdapter,
           assessmentComplete,
           assessmentMessages:

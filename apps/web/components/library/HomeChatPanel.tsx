@@ -12,6 +12,7 @@ import type {
   ChatArtifactRegenerateRequest,
   ChatArtifactReplaceRequest,
 } from '../shared/ChatArtifactRenderer.tsx';
+import { deriveCourseSetupPhase } from './courseSetupPhase.ts';
 import type { DiagnosticAdapter } from './diagnostic/diagnosticFlow.ts';
 import HomeChatComposer, {
   type LibraryMessageSendHandler,
@@ -22,6 +23,7 @@ import HomeChatPanelFrame from './HomeChatPanelFrame.tsx';
 import { useHomeChatPanelState } from './useHomeChatPanelState.ts';
 
 interface HomeChatPanelProps {
+  readonly sourceCount?: number;
   readonly coursePreferences?: import('react').ReactNode;
   readonly diagnosticAdapter?: DiagnosticAdapter;
   readonly assessmentComplete: boolean;
@@ -92,6 +94,7 @@ interface HomeChatPanelProps {
 }
 
 export default function HomeChatPanel({
+  sourceCount = 0,
   coursePreferences,
   diagnosticAdapter,
   assessmentComplete,
@@ -169,16 +172,30 @@ export default function HomeChatPanel({
     onHomeChatModeChange,
     onLibraryMessageSend,
   });
-  const reserveClearButtonSpace = showClearChat && hideHeaderCopy && hideModeSelector;
+  const setupPhase =
+    homeChatMode === 'new-course'
+      ? deriveCourseSetupPhase({
+          assessmentComplete,
+          diagnosticKind: diagnosticAdapter?.initial.kind,
+          hasMessages: assessmentMessages.length > 0,
+          hasPreferences: Boolean(coursePreferences),
+          isLoading: isNewCourseLoading,
+          sourceCount,
+        })
+      : null;
+  const reserveClearButtonSpace =
+    !setupPhase && showClearChat && hideHeaderCopy && hideModeSelector;
 
   return (
     <HomeChatPanelFrame
-      hasActiveChat={hasActiveChat || (homeChatMode === 'new-course' && Boolean(diagnosticAdapter))}
+      setupPhase={setupPhase}
+      sourceCount={sourceCount}
+      hasActiveChat={hasActiveChat || Boolean(setupPhase)}
       hideHeaderCopy={hideHeaderCopy}
       hideModeSelector={hideModeSelector}
       homeChatMode={homeChatMode}
       isAnyChatLoading={isLibraryModeLoading || isNewCourseLoading}
-      isCompactSurface={isCompactSurface && !(homeChatMode === 'new-course' && diagnosticAdapter)}
+      isCompactSurface={isCompactSurface && !setupPhase}
       isLoading={isLoading}
       isMobileViewport={isMobileViewport}
       onCancelNewCourse={onCancelNewCourse}
