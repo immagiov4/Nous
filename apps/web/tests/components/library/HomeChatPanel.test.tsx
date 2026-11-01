@@ -489,8 +489,30 @@ describe('HomeChatPanel', () => {
     );
 
     expect(screen.getByText(/49 (sources selected|fonti selezionate)/i)).toBeInTheDocument();
-    expect(screen.getByText('01.pdf')).toBeInTheDocument();
-    expect(screen.getByText('049.pdf')).toBeInTheDocument();
+    expect(screen.getByRole('listitem', { name: '01.pdf' })).toBeInTheDocument();
+    expect(screen.getByRole('listitem', { name: '049.pdf' })).toBeInTheDocument();
+  });
+
+  test('preserves source verification and warnings and hides removal once the interview starts', async () => {
+    const props = buildProps();
+    const { rerender } = render(
+      <HomeChatPanel
+        {...props}
+        assessmentMessages={[]}
+        pendingFileName="Solo_appunti.pdf"
+        pendingFileWarnings={['Documento ignorato']}
+        isSourceSelectionPending
+      />
+    );
+    expect(screen.getByRole('listitem', { name: 'Solo_appunti.pdf' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Verifica dei file…');
+    expect(screen.getByText('Documento ignorato')).toBeVisible();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Rimuovi allegato' }));
+    expect(props.onClearPendingFile).toHaveBeenCalledOnce();
+    rerender(<HomeChatPanel {...props} pendingFileName="Solo_appunti.pdf" />);
+    expect(screen.getByRole('listitem', { name: 'Solo_appunti.pdf' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Rimuovi allegato' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   test('renders the course setup surface in the browser language', () => {

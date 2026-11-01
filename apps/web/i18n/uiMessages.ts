@@ -1300,6 +1300,8 @@ const ENGLISH_UI_MESSAGES = {
   '{count} corsi': '{count} courses',
   '{count} corsi inclusi': '{count} courses included',
   '{count} lezioni': '{count} lessons',
+  'Le tue fonti': 'Your sources',
+  '1 fonte selezionata': '1 source selected',
   '{count} fonti selezionate': '{count} sources selected',
   '{completed}/{total} lezioni completate': '{completed}/{total} lessons completed',
   'Aggiunge grounding esterno quando servono confronti, suggerimenti di corsi o dati aggiornati.':

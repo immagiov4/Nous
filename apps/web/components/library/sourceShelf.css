@@ -1,0 +1,287 @@
+.source-shelf {
+  --book-width: 116px;
+  --book-height: 164px;
+  --book-depth: 18px;
+  --shelf-fade: var(--bg-surface);
+  margin-bottom: 0.75rem;
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 1.25rem;
+  background: var(--bg-surface);
+  color: var(--ink-secondary);
+  animation: source-shelf-appear 240ms ease-out;
+}
+
+.source-shelf-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 1rem 1rem 0;
+}
+
+.source-shelf-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex-shrink: 0;
+  margin-top: 0.2rem;
+}
+
+.source-shelf-heading {
+  margin: 0;
+  font: 700 1.1rem / 1.5 var(--font-serif);
+  color: var(--ink-primary);
+}
+
+.source-shelf-count {
+  margin: 0.15rem 0 0;
+  font-size: 0.75rem;
+}
+
+.source-shelf-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  transition: background-color var(--transition-fast);
+}
+
+.source-shelf-clear:hover {
+  background: var(--border-subtle);
+}
+
+.source-shelf-clear:focus-visible,
+.source-shelf-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 5px;
+}
+
+.source-shelf-edges {
+  position: relative;
+  min-width: 0;
+}
+
+.source-shelf-edges::before,
+.source-shelf-edges::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  width: 1rem;
+  pointer-events: none;
+  background: linear-gradient(to right, var(--shelf-fade), transparent);
+}
+
+.source-shelf-edges::before {
+  left: 0;
+  border-bottom-left-radius: 1.25rem;
+}
+
+.source-shelf-edges::after {
+  right: 0;
+  transform: rotate(180deg);
+}
+
+.source-shelf-books {
+  display: flex;
+  gap: 1.5rem;
+  margin: 0;
+  padding: 1.75rem 1.75rem 2rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+  scroll-padding-inline: 1.75rem;
+  overscroll-behavior-x: contain;
+}
+
+.source-shelf-item {
+  --cover: #e9dbc4;
+  flex: 0 0 var(--book-width);
+  height: var(--book-height);
+  perspective: 700px;
+  border-radius: 3px;
+  scroll-margin-inline: 1.75rem;
+  animation: source-shelf-appear 240ms ease-out;
+}
+
+.source-shelf-item[data-palette="terracotta"] {
+  --cover: #ca8666;
+}
+.source-shelf-item[data-palette="sage"] {
+  --cover: #a8b397;
+}
+.source-shelf-item[data-palette="blue"] {
+  --cover: #8faec1;
+}
+.source-shelf-item[data-palette="brown"] {
+  --cover: #b69a81;
+}
+.source-shelf-item[data-palette="mauve"] {
+  --cover: #b6a0b4;
+}
+
+.source-book {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transform: rotateX(6deg) rotateY(-22deg) rotateZ(-2deg);
+  transition: transform 240ms ease;
+}
+
+.source-shelf-item:hover .source-book,
+.source-shelf-item:focus-visible .source-book {
+  transform: translateY(-7px) rotateX(3deg) rotateY(-12deg) rotateZ(0deg);
+}
+
+.source-book-cover,
+.source-book-back {
+  position: absolute;
+  inset: 0;
+  border-radius: 2px 5px 5px 2px;
+  background-color: var(--cover);
+}
+
+.source-book-cover {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 1.2rem 0.85rem 1rem 1rem;
+  color: #21180f;
+  transform: translateZ(calc(var(--book-depth) / 2));
+  box-shadow:
+    inset 4px 0 3px #00000018,
+    inset 6px 0 1px #ffffff50,
+    inset 0 0 0 1px #00000020;
+  font-family: var(--font-serif);
+}
+
+.source-book-cover::before,
+.source-book-spine::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: url("/source-shelf/cloth.webp") repeat;
+  background-size: 128px 128px;
+  mix-blend-mode: multiply;
+  opacity: 0.18;
+  pointer-events: none;
+}
+
+.source-book-cover > span {
+  position: relative;
+}
+
+.source-book-index {
+  margin-bottom: 0.55rem;
+  font-size: 0.7rem;
+}
+
+.source-book-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.source-book-rule {
+  width: 1.8rem;
+  margin-top: auto;
+  border-top: 1px solid currentColor;
+  opacity: 0.45;
+}
+
+.source-book-back {
+  transform: translateZ(calc(var(--book-depth) / -2));
+  box-shadow: 8px 14px 16px #00000026;
+}
+
+.source-book-spine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--book-depth);
+  background: linear-gradient(to right, #00000020, transparent), var(--cover);
+  transform-origin: left;
+  transform: translateZ(calc(var(--book-depth) / -2)) rotateY(-90deg);
+  border-radius: 3px;
+}
+
+.source-book-top {
+  position: absolute;
+  top: 3px;
+  left: 1px;
+  right: 1px;
+  height: var(--book-depth);
+  transform-origin: top;
+  transform: translateZ(calc(var(--book-depth) / 2)) rotateX(-90deg);
+  background: #ede4d3 url("/source-shelf/pages.webp") repeat;
+  background-size: 128px 128px;
+  background-blend-mode: multiply;
+}
+
+.source-book-pages {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  right: 1px;
+  width: var(--book-depth);
+  transform-origin: right;
+  transform: translateZ(calc(var(--book-depth) / 2)) rotateY(90deg);
+  background: #ede4d3 url("/source-shelf/pages.webp") repeat;
+  background-size: 128px 128px;
+  background-blend-mode: multiply;
+  box-shadow: inset 0 0 3px #4b382655;
+}
+
+.source-shelf-warnings {
+  margin: 0;
+  padding: 0.75rem 1rem 1rem;
+  list-style: none;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+@keyframes source-shelf-appear {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 640px) {
+  .source-shelf {
+    --book-width: 104px;
+    --book-height: 152px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .source-shelf,
+  .source-shelf-item {
+    animation: none;
+  }
+  .source-book,
+  .source-shelf-clear {
+    transition: none;
+  }
+  .source-shelf-item:hover .source-book,
+  .source-shelf-item:focus-visible .source-book {
+    transform: rotateX(6deg) rotateY(-22deg) rotateZ(-2deg);
+  }
+}

@@ -1,0 +1,7 @@
+# Shared source-shelf materials
+
+Generated with OpenAI GPT Image through the native `image_gen` tool on 2026-11-01. These neutral shared raster materials contain no source filenames or per-file artwork; CSS owns cover colours, typography and geometry.
+
+Prompt: "Create a flat material texture atlas, square 1024x1024. It consists of TWO equal rectangular swatches stacked vertically, without any dividing line or margin. Top half: neutral light gray tightly woven fine linen bookbinding cloth, subtle tactile grain, perfectly flat diffuse illumination, seamless and tileable in both axes within this half. Bottom half: neutral pale gray book page edges viewed straight-on, very fine closely spaced horizontal paper layers, irregular but subtle, perfectly flat diffuse illumination, seamless and tileable within this half. Pure monochrome texture only. No objects, no books, no text, no lettering, no color casts, no gradients, no shadows, no vignettes. These are shared tiling texture maps for CSS material overlays, not finished art. Fine low contrast texture detail, with enough grain for small thumbnails. Save the generated image in the local filesystem if available and report its file path."
+
+The generated 1254 × 1254 atlas was cropped within each material (cloth: 80,80–592,592; pages: 80,700–592,1212), resized to 128 × 128 and mirrored across both axes to make matching tile edges. The resulting 256 × 256 RGB WebPs use quality 75: `cloth.webp` is 11,522 bytes; `pages.webp` is 9,616 bytes. Both repeat without fetching per-source assets.
