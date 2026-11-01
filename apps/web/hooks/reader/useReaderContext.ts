@@ -338,6 +338,7 @@ export const useReaderContext = ({
 
   const openContextAnswer = useCallback(
     ({
+      attachedAnnotationId,
       attachedAnnotationNote,
       attachedAnnotationText,
       contextAfter,
@@ -359,6 +360,7 @@ export const useReaderContext = ({
       closeContextMenu();
       contextAnswerLessonRetentionRef.current = null;
       setContextAnswer({
+        attachedAnnotationId,
         attachedAnnotationNote,
         attachedAnnotationText,
         contextAfter,

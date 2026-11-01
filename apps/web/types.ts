@@ -728,6 +728,13 @@ export interface SectionAnnotationTextSelector {
   suffix: string;
 }
 
+/** A resolved contextual target; source equality prevents later relocation. */
+export interface ExactSectionAnnotationTarget {
+  content: string;
+  selector: SectionAnnotationTextSelector;
+  segments: Array<{ start: number; end: number }>;
+}
+
 export type SectionAnnotationAnchor =
   | { kind: 'lesson' }
   | { kind: 'selection'; selector: SectionAnnotationTextSelector };

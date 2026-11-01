@@ -23,6 +23,7 @@ import { useLessonPlayback } from '../../../hooks/reader/useLessonPlayback.ts';
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
 import { useSpeechInput } from '../../../hooks/useSpeechInput.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import { resolveSelectedSegments } from '../../../utils/learning/sectionAnnotationProjection.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { playbackSentenceSelector } from '../../../utils/reader/lessonPlayback.ts';
 import type { LessonPlaybackAudio } from '../../../utils/reader/lessonPlaybackAudio.ts';
@@ -229,7 +230,7 @@ export default function LessonPlayer({
   });
   const [noteMode, setNoteMode] = useState(false);
   const [draft, setDraft] = useState('');
-  const anchor = useRef<ReturnType<typeof playbackSentenceSelector>>(null);
+  const anchor = useRef<ReturnType<typeof currentAnchor>>(null);
   const questionContextRef = useRef<(() => PlaybackQuestionContext) | null>(null);
   const [noteStatus, setNoteStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [answer, setAnswer] = useState<ContextAnswerState | null>(null);
@@ -317,13 +318,28 @@ export default function LessonPlayer({
       })
     )
       return null;
-    return playbackSentenceSelector(
+    const selector = playbackSentenceSelector(
       block,
       position.time,
       position.duration,
       sourceBlocks,
       playback.recording?.wordAlignment
     );
+    if (!selector) return null;
+    return {
+      ...selector,
+      exactTarget: {
+        content: content.sectionContent,
+        selector,
+        segments: resolveSelectedSegments({
+          content: content.sectionContent,
+          selectedText: selector.exact,
+          selectedTextStart: selector.selectionStart,
+          contextBefore: selector.prefix,
+          contextAfter: selector.suffix,
+        }),
+      },
+    };
   };
   const changeDraft = (value: string) => {
     if (!draft && value) anchor.current = currentAnchor();
@@ -343,6 +359,7 @@ export default function LessonPlayer({
         { projectId, lessonId: sectionId },
         {
           note: draft,
+          exactTarget: selector.exactTarget,
           selectedText: selector.exact,
           selectedTextStart: selector.selectionStart,
           contextBefore: selector.prefix,

@@ -65,7 +65,6 @@ import type {
   LessonGeneratedVisualKind,
   StoredLessonVisual,
 } from '../../../types.ts';
-import { buildConversationNoteSaveCandidates } from '../../../utils/context/conversationNote.ts';
 import {
   buildConversationNoteCatalog,
   restoreConversationNotePassage,
@@ -728,6 +727,7 @@ function ContextAnswerPanelSession({
     return saved;
   };
   const [expiredGraceTools, setExpiredGraceTools] = useState<Set<string>>(new Set());
+  const pendingNoteSaves = useRef(new Set<string>());
   const [processingNoteToolCallIds, setProcessingNoteToolCallIds] = useState<Set<string>>(
     new Set()
   );
@@ -739,6 +739,8 @@ function ContextAnswerPanelSession({
     () =>
       buildConversationNoteCatalog({
         content: contextAnswer.lessonContent ?? '',
+        annotationId: contextAnswer.attachedAnnotationId,
+        hasExistingNote: Boolean(contextAnswer.attachedAnnotationNote?.trim()),
         origin: { projectId: contextAnswer.projectId, lessonId: contextAnswer.lessonId },
         locale,
         selection:
@@ -753,6 +755,8 @@ function ContextAnswerPanelSession({
       }),
     [
       contextAnswer.lessonContent,
+      contextAnswer.attachedAnnotationId,
+      contextAnswer.attachedAnnotationNote,
       contextAnswer.projectId,
       contextAnswer.lessonId,
       contextAnswer.selectedText,
@@ -1234,7 +1238,7 @@ function ContextAnswerPanelSession({
     toolCallId: string,
     inputValue: RequestAddToNotesInput
   ) => {
-    if (processingNoteToolCallIds.has(toolCallId)) {
+    if (pendingNoteSaves.current.has(toolCallId)) {
       return;
     }
 
@@ -1259,10 +1263,11 @@ function ContextAnswerPanelSession({
       contextScope,
       durationMs: 0,
     });
-    const hasExistingNote = Boolean(currentState?.attachedAnnotationNote?.trim());
+    const hasExistingNote = target.hasExistingNote;
     const mode: 'new' | 'update' = hasExistingNote ? 'update' : 'new';
     const runMutation = mode === 'update' ? onUpdateConversationNote : onSaveConversationNote;
 
+    pendingNoteSaves.current.add(toolCallId);
     setProcessingNoteToolCallIds(previous => {
       const next = new Set(previous);
       next.add(toolCallId);
@@ -1297,92 +1302,93 @@ function ContextAnswerPanelSession({
         });
         return;
       }
-      const candidates = buildConversationNoteSaveCandidates({
-        anchor: target.anchor,
-        toolInput: {
-          artifactRefs: noteArtifactIds.flatMap(artifactId => {
-            const payload = artifactPayloadsById.get(artifactId);
-            return payload
-              ? [
-                  {
-                    artifactId,
-                    kind: payload.summary.kind,
-                    title: payload.summary.title,
-                  },
-                ]
-              : [];
-          }),
-          generatedVisuals: noteArtifactIds.flatMap(artifactId => {
-            const generatedVisual = generatedVisualsByArtifactId[artifactId];
-            if (generatedVisual) return [generatedVisual];
-
-            const retrievedPayload = artifactPayloadsById.get(artifactId);
-            return retrievedPayload?.summary.kind === 'generated-visual' &&
-              'visual' in retrievedPayload
-              ? [retrievedPayload.visual]
-              : [];
-          }),
-          note: inputValue.noteDraft,
-          ...target.anchor,
+      const candidate: SaveConversationNoteInput = {
+        ...target.anchor,
+        exactTarget: {
+          content: target.content,
+          selector: target.selector,
+          segments: target.segments,
         },
-      });
+        annotationId: target.annotationId,
+        artifactRefs: noteArtifactIds.flatMap(artifactId => {
+          const payload = artifactPayloadsById.get(artifactId);
+          return payload
+            ? [
+                {
+                  artifactId,
+                  kind: payload.summary.kind,
+                  title: payload.summary.title,
+                },
+              ]
+            : [];
+        }),
+        generatedVisuals: noteArtifactIds.flatMap(artifactId => {
+          const generatedVisual = generatedVisualsByArtifactId[artifactId];
+          if (generatedVisual) return [generatedVisual];
 
-      for (const candidate of candidates) {
-        const saveRequest = runMutation(mutationTarget, candidate);
-        trackArtifactSave(
-          noteArtifactIds,
-          saveRequest.then(result => result.saved)
-        );
-        const result = await saveRequest;
-        if (result.saved) {
-          const originLesson = buildContextDraftLesson(contextAnswer, currentState);
-          const originProjectId = contextAnswer.projectId;
-          const savedVisuals = candidate.generatedVisuals;
-          if (originLesson && originProjectId && savedVisuals?.length) {
-            setOriginLessonArtifactPayloads(currentPayloads =>
-              savedVisuals.reduce(
-                (nextPayloads, visual) =>
-                  upsertLearningArtifactPayload(
-                    nextPayloads,
-                    buildGeneratedVisualLearningArtifactPayload({
-                      lesson: originLesson,
-                      projectId: originProjectId,
-                      projectTitle: contextAnswer.projectTitle || t('Corso'),
-                      visual,
-                    })
-                  ),
-                currentPayloads
-              )
-            );
-          }
-          void finishSave({
-            phase: 'save',
-            outcome: 'saved',
-            contextScope,
-          });
-          void addToolOutput({
-            tool: 'requestAddToNotes',
-            toolCallId,
-            output: {
-              status: 'saved',
-              mode,
-              annotationId: result.annotationId,
-            },
-          });
-          return;
+          const retrievedPayload = artifactPayloadsById.get(artifactId);
+          return retrievedPayload?.summary.kind === 'generated-visual' &&
+            'visual' in retrievedPayload
+            ? [retrievedPayload.visual]
+            : [];
+        }),
+        note: inputValue.noteDraft,
+      };
+
+      const saveRequest = runMutation(target.origin ?? mutationTarget, candidate);
+      trackArtifactSave(
+        noteArtifactIds,
+        saveRequest.then(result => result.saved)
+      );
+      const result = await saveRequest;
+      if (result.saved) {
+        const originLesson = buildContextDraftLesson(contextAnswer, currentState);
+        const originProjectId = contextAnswer.projectId;
+        const savedVisuals = candidate.generatedVisuals;
+        if (originLesson && originProjectId && savedVisuals?.length) {
+          setOriginLessonArtifactPayloads(currentPayloads =>
+            savedVisuals.reduce(
+              (nextPayloads, visual) =>
+                upsertLearningArtifactPayload(
+                  nextPayloads,
+                  buildGeneratedVisualLearningArtifactPayload({
+                    lesson: originLesson,
+                    projectId: originProjectId,
+                    projectTitle: contextAnswer.projectTitle || t('Corso'),
+                    visual,
+                  })
+                ),
+              currentPayloads
+            )
+          );
         }
+        void finishSave({
+          phase: 'save',
+          outcome: 'saved',
+          contextScope,
+        });
+        void addToolOutput({
+          tool: 'requestAddToNotes',
+          toolCallId,
+          output: {
+            status: 'saved',
+            mode,
+            annotationId: result.annotationId,
+          },
+        });
+        return;
       }
 
       void finishSave({
         phase: 'save',
         outcome: 'save_error',
-        code: 'save_failed',
+        code: result.code ?? 'save_failed',
         contextScope,
       });
       void addToolOutput({
         tool: 'requestAddToNotes',
         toolCallId,
-        output: { status: 'save_error', mode, code: 'save_failed' },
+        output: { status: 'save_error', mode, code: result.code ?? 'save_failed' },
       });
     } catch {
       void finishSave({
@@ -1397,6 +1403,7 @@ function ContextAnswerPanelSession({
         output: { status: 'save_error', mode, code: 'save_failed' },
       });
     } finally {
+      pendingNoteSaves.current.delete(toolCallId);
       setProcessingNoteToolCallIds(previous => {
         if (!previous.has(toolCallId)) {
           return previous;

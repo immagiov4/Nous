@@ -1,5 +1,13 @@
 import * as z from 'zod';
 
+const ContextNoteSaveCodeSchema = z.enum([
+  'save_failed',
+  'artifact_unavailable',
+  'stale_context',
+  'anchor_mismatch',
+  'target_annotation_missing',
+]);
+
 const ContextNoteModeSchema = z.enum(['new', 'update']);
 const ContextNoteValidationCodeSchema = z.enum([
   'invalid_input',
@@ -38,7 +46,7 @@ export const ContextNoteResultSchema = z.discriminatedUnion('status', [
   z.object({
     status: z.literal('save_error'),
     mode: ContextNoteModeSchema,
-    code: z.enum(['save_failed', 'artifact_unavailable']),
+    code: ContextNoteSaveCodeSchema,
   }),
   z.object({ status: z.literal('cancelled') }),
 ]);
@@ -81,7 +89,6 @@ const ContextNoteCandidateOutcomeSchema = z.enum([
   'text_mismatch',
   'anchorable',
 ]);
-export type ContextNoteCandidateOutcome = z.infer<typeof ContextNoteCandidateOutcomeSchema>;
 const candidateRoles = ['proposed', 'original_selection'] as const;
 const candidateOutcomesSchema = z
   .array(ContextNoteCandidateOutcomeSchema)
@@ -122,7 +129,7 @@ export const ContextNoteEventSchema = z.discriminatedUnion('phase', [
     .extend({
       phase: z.literal('save'),
       outcome: z.enum(['saved', 'save_error']),
-      code: z.enum(['save_failed', 'artifact_unavailable']).optional(),
+      code: ContextNoteSaveCodeSchema.optional(),
     })
     .strict()
     .refine(event => (event.outcome === 'save_error') === (event.code !== undefined)),

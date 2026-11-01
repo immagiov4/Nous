@@ -4,6 +4,7 @@ import { expect, test, vi } from 'vitest';
 import {
   buildConversationNoteCatalog,
   resolveConversationNotePassage,
+  restoreConversationNotePassage,
 } from '../../../utils/context/conversationNoteCatalog.ts';
 import { createSectionAnnotationSelector } from '../../../utils/learning/sectionAnnotationAnchors.ts';
 import { resolveSelectedSegments } from '../../../utils/learning/sectionAnnotationProjection.ts';
@@ -204,4 +205,36 @@ test('keeps the captured focus addressable when the preceding lesson body fills 
       .join('').length
   ).toBeLessThanOrEqual(MAX_CONTEXT_CHAT_FIELD_CHARS);
   assertRoundTrip(catalog);
+});
+
+test('historical update provenance includes captured annotation identity', async () => {
+  const input = {
+    content: 'First sentence.',
+    locale: 'en',
+    hasExistingNote: true,
+    annotationId: 'captured',
+  };
+  const first = buildConversationNoteCatalog(input);
+  expect(await buildConversationNoteCatalog(input).snapshotId).toBe(await first.snapshotId);
+  expect(
+    await buildConversationNoteCatalog({ ...input, annotationId: 'replacement' }).snapshotId
+  ).not.toBe(await first.snapshotId);
+});
+
+test('restores a pre-identity-capture pending proposal when no annotation was attached', async () => {
+  const catalog = buildConversationNoteCatalog({
+    content:
+      'Working memory holds a few active items. Grouping related items reduces the number of separate units.',
+    locale: 'it',
+    origin: { projectId: 'synthetic-course', lessonId: 'lesson' },
+  });
+  const result = await restoreConversationNotePassage(
+    catalog,
+    { passageId: 'p0' },
+    {
+      contextNoteSnapshotId: 'a0d7586a3a257bdc9dee125ecab63de07f28b6fa1460489e00f8da4028c5381d',
+    }
+  );
+  expect(result.error).toBeUndefined();
+  expect(result.target?.text).toBe('Working memory holds a few active items.');
 });

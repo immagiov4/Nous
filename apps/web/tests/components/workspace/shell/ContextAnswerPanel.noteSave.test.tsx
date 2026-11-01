@@ -56,7 +56,12 @@ test.each([
   const user = userEvent.setup();
   const save = vi.fn(async () => {
     if (outcome === 'thrown') throw new Error('PRIVATE_CALLBACK_ERROR');
-    return { saved: outcome === 'saved', annotationId: 'saved-note', merged: mode === 'update' };
+    return {
+      saved: outcome === 'saved',
+      annotationId: 'saved-note',
+      merged: mode === 'update',
+      ...(outcome === 'failed' ? { code: 'stale_context' as const } : {}),
+    };
   });
   render(
     <ContextAnswerPanel
@@ -131,7 +136,7 @@ test.each([
       output: expect.objectContaining(
         outcome === 'saved'
           ? { status: 'saved', annotationId: 'saved-note' }
-          : { status: 'save_error', code: 'save_failed' }
+          : { status: 'save_error', code: outcome === 'failed' ? 'stale_context' : 'save_failed' }
       ),
     })
   );

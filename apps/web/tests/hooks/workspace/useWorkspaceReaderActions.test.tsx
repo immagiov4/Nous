@@ -1,4 +1,5 @@
 import * as documentTextService from '../../../services/projects/documentText';
+import { buildConversationNoteCatalog } from '../../../utils/context/conversationNoteCatalog.ts';
 import { createDeferred } from '../../helpers/deferred';
 // @vitest-environment jsdom
 
@@ -223,7 +224,10 @@ test('saves retained-answer notes to their originating lesson after same-course 
 
   const saveResult = await result.current.handleSaveConversationNote(
     { lessonId: 'lesson-origin' },
-    { note: 'Nota dalla conversazione trattenuta', selectedText: 'originario' }
+    {
+      ...exactNoteInput('Contenuto originario della lezione.'),
+      note: 'Nota dalla conversazione trattenuta',
+    }
   );
 
   expect(saveResult?.saved).toBe(true);
@@ -246,9 +250,9 @@ test('restores active-lesson note state and reader scroll when persistence fails
         selector: {
           end: 20,
           exact: 'originario',
-          prefix: 'Contenuto ',
+          prefix: 'Contenuto',
           start: 10,
-          suffix: ' della lezione.',
+          suffix: 'della lezione.',
         },
       },
       createdAt: '2026-05-01T09:00:00.000Z',
@@ -299,6 +303,12 @@ test('restores active-lesson note state and reader scroll when persistence fails
   const input = {
     generatedVisuals: [newVisual],
     note: 'Nota aggiornata',
+    annotationId: 'annotation-existing',
+    exactTarget: {
+      content,
+      selector: originalAnnotations[0].anchor.selector,
+      segments: [{ start: 10, end: 20 }],
+    },
     selectedText: 'originario',
     selectedTextStart: 10,
   };
@@ -500,7 +510,7 @@ test('rejects retained-answer mutations after cross-course navigation', async ()
 
   const saveResult = await result.current.handleSaveConversationNote(
     { lessonId: 'lesson-origin', projectId: 'project-other' },
-    { note: 'Nota', selectedText: 'testo' }
+    { ...exactNoteInput('testo'), note: 'Nota' }
   );
 
   expect(saveResult?.saved).toBe(false);
@@ -588,5 +598,176 @@ test('keeps a pending context question when autosave adopts an equivalent source
   });
   expect(openContextAnswer).toHaveBeenCalledWith(
     expect.objectContaining({ initialQuestion: 'Explain this', lessonId: 'lesson' })
+  );
+});
+
+const exactNoteInput = (content: string, index = 0) => {
+  const passage = buildConversationNoteCatalog({ content, locale: 'en' }).entries[index];
+  return {
+    ...passage.anchor,
+    note: `Note ${index}`,
+    exactTarget: { content, selector: passage.selector, segments: passage.segments },
+  };
+};
+
+test.each([
+  'Formula A/B valida. Another sentence.',
+  'Before. Formula A+B valida. Another sentence.',
+  'Another sentence.',
+  'Formula A+B valida. Formula A+B valida.',
+])('contextual create/update reject changed source without relocation: %s', async content => {
+  const original = 'Formula A+B valida. Another sentence.';
+  const input = { ...exactNoteInput(original), annotationId: 'captured' };
+  const lesson = buildTestLesson({
+    id: 'lesson-1',
+    content,
+    annotations: [
+      {
+        id: 'captured',
+        note: 'Original note',
+        createdAt: '',
+        updatedAt: '',
+        anchor: { kind: 'selection', selector: exactNoteInput(content).exactTarget.selector },
+      },
+    ],
+  });
+  const args = buildHookArgs({ learningPlan: buildTestLearningPlan([lesson]) });
+  const { result } = renderHook(() => useWorkspaceReaderActions(args));
+  for (const mutate of [
+    result.current.handleSaveConversationNote,
+    result.current.handleUpdateConversationNote,
+  ]) {
+    const outcome = await mutate({ lessonId: 'lesson-1', projectId: 'project-1' }, input);
+    expect(outcome).toMatchObject({ saved: false, code: 'stale_context' });
+  }
+  expect(args.patchSectionAnnotations).not.toHaveBeenCalled();
+  expect(args.updateSection).not.toHaveBeenCalled();
+});
+
+test('a deleted captured annotation cannot update an overlapping replacement', async () => {
+  const content = 'First sentence. Second sentence.';
+  const input = { ...exactNoteInput(content), annotationId: 'deleted' };
+  const replacement = {
+    id: 'replacement',
+    note: 'Keep me',
+    createdAt: '',
+    updatedAt: '',
+    anchor: { kind: 'selection' as const, selector: input.exactTarget.selector },
+  };
+  const args = buildHookArgs({
+    learningPlan: buildTestLearningPlan([
+      buildTestLesson({ id: 'lesson-1', content, annotations: [replacement] }),
+    ]),
+  });
+  const { result } = renderHook(() => useWorkspaceReaderActions(args));
+  expect(
+    await result.current.handleUpdateConversationNote(
+      { lessonId: 'lesson-1', projectId: 'project-1' },
+      input
+    )
+  ).toMatchObject({ saved: false, code: 'target_annotation_missing' });
+  expect(args.patchSectionAnnotations).not.toHaveBeenCalled();
+});
+
+test('two contextual notes on different sentences in one paragraph stay distinct after reload', async () => {
+  const content = 'First sentence. Second sentence.';
+  let lesson = buildTestLesson({ id: 'lesson-1', content });
+  const args = buildHookArgs({
+    learningPlan: buildTestLearningPlan([lesson]),
+    updateSection: (_id, update) => {
+      lesson = update(lesson);
+    },
+  });
+  const { result, rerender } = renderHook(() => useWorkspaceReaderActions(args));
+  for (const index of [0, 1]) {
+    expect(
+      (
+        await result.current.handleSaveConversationNote(
+          { lessonId: 'lesson-1', projectId: 'project-1' },
+          exactNoteInput(content, index)
+        )
+      ).saved
+    ).toBe(true);
+    args.learningPlan = buildTestLearningPlan([lesson]);
+    rerender();
+  }
+  const reloaded = JSON.parse(JSON.stringify(lesson));
+  expect(reloaded.annotations).toHaveLength(2);
+  expect(reloaded.annotations.map((a: { note: string }) => a.note)).toEqual(['Note 0', 'Note 1']);
+  expect(
+    reloaded.annotations.map(
+      (a: { anchor: { selector: { exact: string } } }) => a.anchor.selector.exact
+    )
+  ).toEqual(['First sentence.', 'Second sentence.']);
+});
+
+test('updates only the captured annotation at the exact approved passage', async () => {
+  const content = 'First sentence. Second sentence.';
+  const input = { ...exactNoteInput(content), annotationId: 'captured', note: 'Updated' };
+  const captured = {
+    id: 'captured',
+    note: 'Old',
+    createdAt: '',
+    updatedAt: '',
+    anchor: { kind: 'selection' as const, selector: input.exactTarget.selector },
+  };
+  const other = {
+    ...captured,
+    id: 'other',
+    note: 'Keep other',
+    anchor: {
+      kind: 'selection' as const,
+      selector: exactNoteInput(content, 1).exactTarget.selector,
+    },
+  };
+  const args = buildHookArgs({
+    learningPlan: buildTestLearningPlan([
+      buildTestLesson({ id: 'lesson-1', content, annotations: [captured, other] }),
+    ]),
+  });
+  const { result } = renderHook(() => useWorkspaceReaderActions(args));
+  expect(
+    await result.current.handleUpdateConversationNote(
+      { lessonId: 'lesson-1', projectId: 'project-1' },
+      input
+    )
+  ).toMatchObject({ saved: true, annotationId: 'captured', resolvedText: 'First sentence.' });
+  expect(args.patchSectionAnnotations).toHaveBeenCalledWith(
+    'lesson-1',
+    [expect.objectContaining({ id: 'captured', note: 'Updated', anchor: captured.anchor }), other],
+    undefined,
+    undefined
+  );
+});
+
+test('context-question capture carries the clicked annotation ID', async () => {
+  vi.spyOn(documentTextService, 'loadDocumentText').mockResolvedValue({
+    source: null,
+    documentIndex: null,
+  });
+  const content = 'First sentence. Second sentence.';
+  const input = exactNoteInput(content);
+  const annotation = {
+    id: 'clicked',
+    note: 'Existing',
+    createdAt: '',
+    updatedAt: '',
+    anchor: { kind: 'selection' as const, selector: input.exactTarget.selector },
+  };
+  const args = buildHookArgs({
+    activeSectionId: 'lesson-1',
+    contextMenu: {
+      type: 'annotation',
+      annotationId: 'clicked',
+      selectedText: 'First sentence.',
+    } as HookArgs['contextMenu'],
+    learningPlan: buildTestLearningPlan([
+      buildTestLesson({ id: 'lesson-1', content, annotations: [annotation] }),
+    ]),
+  });
+  const { result } = renderHook(() => useWorkspaceReaderActions(args));
+  await result.current.handleContextQuestion('Explain');
+  expect(args.openContextAnswer).toHaveBeenCalledWith(
+    expect.objectContaining({ attachedAnnotationId: 'clicked', attachedAnnotationNote: 'Existing' })
   );
 });

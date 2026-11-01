@@ -1,4 +1,9 @@
-import type { SectionAnnotation, SectionAnnotationArtifactRef } from '../../types.ts';
+import type {
+  ExactSectionAnnotationTarget,
+  SectionAnnotation,
+  SectionAnnotationArtifactRef,
+  SectionAnnotationTextSelector,
+} from '../../types.ts';
 import { createEntityId } from '../ids.ts';
 import { timestampIso } from '../time.ts';
 import {
@@ -21,6 +26,7 @@ import {
 export const NOTE_MERGE_SEPARATOR = '\n\n---\n\n';
 
 interface ApplySectionAnnotationOptions {
+  exactTarget?: ExactSectionAnnotationTarget;
   annotations?: SectionAnnotation[];
   artifactRefs?: SectionAnnotationArtifactRef[];
   content: string;
@@ -171,7 +177,28 @@ export const findSectionAnnotationForSelection = ({
     : null;
 };
 
+export const equalAnnotationSelectors = (
+  left: SectionAnnotationTextSelector,
+  right: SectionAnnotationTextSelector
+) =>
+  left.start === right.start &&
+  left.end === right.end &&
+  left.exact === right.exact &&
+  left.prefix === right.prefix &&
+  left.suffix === right.suffix;
+
+/** Reconstruct only the supplied source ranges; no text search can choose another occurrence. */
+export const resolveExactAnnotationTarget = (
+  content: string,
+  target: ExactSectionAnnotationTarget
+) => {
+  if (content !== target.content) return [];
+  const selector = createSectionAnnotationSelector(content, target.segments);
+  return selector && equalAnnotationSelectors(selector, target.selector) ? target.segments : [];
+};
+
 export const applySectionAnnotation = ({
+  exactTarget,
   annotations,
   artifactRefs,
   content,
@@ -185,14 +212,16 @@ export const applySectionAnnotation = ({
   selectedText,
   selectedTextStart,
 }: ApplySectionAnnotationOptions): ApplySectionAnnotationResult | null => {
-  const selectedSegments = resolveSelectedSegments({
-    content,
-    contextAfter,
-    contextBefore,
-    preferredSelection,
-    selectedText,
-    selectedTextStart,
-  });
+  const selectedSegments = exactTarget
+    ? resolveExactAnnotationTarget(content, exactTarget)
+    : resolveSelectedSegments({
+        content,
+        contextAfter,
+        contextBefore,
+        preferredSelection,
+        selectedText,
+        selectedTextStart,
+      });
   if (selectedSegments.length === 0) {
     return null;
   }
@@ -215,7 +244,7 @@ export const applySectionAnnotation = ({
       ...absorbedAnnotations.flatMap(candidate => candidate.segments),
     ])
   );
-  if (!selector) {
+  if (!selector || (exactTarget && !equalAnnotationSelectors(selector, exactTarget.selector))) {
     return null;
   }
 

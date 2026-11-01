@@ -28,6 +28,10 @@ interface ConversationNotePassage {
   anchor: ConversationSelectionAnchor;
   selector: SectionAnnotationTextSelector;
   segments: MarkdownRange[];
+  content: string;
+  annotationId?: string;
+  origin?: { projectId?: string; lessonId?: string };
+  hasExistingNote: boolean;
 }
 
 /** Historical pending quotes can be converted only when their exact target is unambiguous. */
@@ -45,6 +49,9 @@ export const resolveConversationNotePassage = (
   return buildConversationNoteCatalog({
     content: catalog.content,
     locale: catalog.locale,
+    annotationId: catalog.annotationId,
+    hasExistingNote: catalog.hasExistingNote,
+    origin: catalog.origin,
     selection: { selectedText: quote, selectedTextStart: start },
   }).entries.find(entry => entry.kind === 'selection');
 };
@@ -207,13 +214,19 @@ export const buildConversationNoteCatalog = ({
   locale,
   selection,
   origin,
+  annotationId,
+  hasExistingNote = false,
 }: {
   content: string;
   locale: string;
+  annotationId?: string;
+  hasExistingNote?: boolean;
   selection?: ConversationSelectionAnchor;
   origin?: { projectId?: string; lessonId?: string };
 }): {
   content: string;
+  annotationId?: string;
+  hasExistingNote: boolean;
   origin?: { projectId?: string; lessonId?: string };
   entries: ConversationNotePassage[];
   records: ContextNoteRecord[];
@@ -258,6 +271,10 @@ export const buildConversationNoteCatalog = ({
       anchor,
       selector,
       segments,
+      content,
+      origin,
+      annotationId,
+      hasExistingNote,
     });
   };
   const segmenter = new Intl.Segmenter(locale, { granularity: 'sentence' });
@@ -293,12 +310,15 @@ export const buildConversationNoteCatalog = ({
     origin?.projectId,
     origin?.lessonId,
     included.map(entry => [entry.id, entry.kind, entry.selector.start, entry.selector.end]),
+    ...(hasExistingNote || annotationId ? [{ annotationId, hasExistingNote }] : []),
   ]);
   // Private-network HTTP is supported, where the browser's SubtleCrypto is unavailable.
   const snapshotId = Promise.resolve().then(() => bytesToHex(sha256(snapshotInput)));
   return {
     content,
     origin,
+    annotationId,
+    hasExistingNote,
     locale,
     snapshotId,
     durationMs: performance.now() - started,
