@@ -114,6 +114,43 @@ afterEach(() => {
 });
 
 describe('LibraryScreenContainer route fallback', () => {
+  test('counts expanded preparation documents in the setup header', () => {
+    const props = buildProps();
+    props.controller.workflowState.assessment = {
+      status: 'pending',
+      requestId: 1,
+      sourcePreparation: {
+        step: 'extraction',
+        completed: 1,
+        total: 3,
+        documents: [
+          { id: 'one', name: 'one.md', state: 'done' },
+          { id: 'two', name: 'two.md', state: 'reading' },
+          { id: 'three', name: 'three.md', state: 'idle' },
+        ],
+      },
+    };
+    render(<LibraryScreenContainer {...props} />);
+    expect(screen.getByRole('status', { name: 'Source count' })).toHaveTextContent('3');
+  });
+
+  test('keeps the terminal preparation error and source warnings in one notification', async () => {
+    const props = buildProps();
+    props.controller.startHomeChat = vi.fn().mockResolvedValue({
+      outcome: 'failed',
+      errorMessage: 'Preparation failed. Retry.',
+      sourceWarnings: [{ name: 'bad.pdf', message: 'Unreadable source' }],
+    });
+    render(<LibraryScreenContainer {...props} />);
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Invia nuovo corso' }))
+    );
+    expect(props.notify).toHaveBeenCalledOnce();
+    expect(props.notify).toHaveBeenCalledWith(
+      expect.stringContaining('Preparation failed. Retry.')
+    );
+    expect(props.notify).toHaveBeenCalledWith(expect.stringContaining('bad.pdf'));
+  });
   test('passes storage warnings to the library destination and clears recovered warnings', () => {
     const props = buildProps();
     props.projectLibrary.storageError =

@@ -201,9 +201,17 @@ export const createSourceIngestion = (transport: SourceIngestionTransport) =>
           if (!file) throw new Error('Prepared source is missing');
           return { file, sourceId: descriptor.id };
         });
+      let documents: SourcePreparationProgress['documents'] = files.map(({ file, sourceId }) => ({
+        id: sourceId,
+        name: file.name,
+        state: 'idle',
+      }));
       const result = await transport.publish({ ...destination, snapshot }, files, {
         signal,
-        onProgress,
+        onProgress: progress => {
+          documents = progress.documents ?? documents;
+          onProgress?.({ ...progress, documents });
+        },
       });
       return {
         sourceSet: result.snapshot.source,

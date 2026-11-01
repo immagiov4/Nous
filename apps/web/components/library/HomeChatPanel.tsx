@@ -1,3 +1,4 @@
+import type { SourcePreparationProgress } from '@shared/sourcePreparation';
 import type { UIMessage } from 'ai';
 import type {
   HomeChatMode,
@@ -46,6 +47,7 @@ interface HomeChatPanelProps {
   readonly libraryWebSearch: boolean;
   readonly libraryGenerateArtifacts: boolean;
   readonly newCourseLoadingStatus: string;
+  readonly sourcePreparationProgress?: SourcePreparationProgress;
   readonly pendingFileName: string | null;
   readonly pendingFileNames?: string[];
   readonly pendingFileWarnings?: string[];
@@ -118,6 +120,7 @@ export default function HomeChatPanel({
   libraryWebSearch,
   libraryGenerateArtifacts,
   newCourseLoadingStatus,
+  sourcePreparationProgress,
   pendingFileName,
   pendingFileNames,
   pendingFileWarnings,
@@ -234,6 +237,7 @@ export default function HomeChatPanel({
         libraryErrorMessage={libraryErrorMessage}
         libraryFloatingArtifactPayloads={libraryFloatingArtifactPayloads}
         newCourseLoadingStatus={newCourseLoadingStatus}
+        showLoadingStatus={!sourcePreparationProgress}
         onConfirmGenerate={onConfirmGenerate}
         onContinueAssessment={onContinueAssessment}
         onLibraryArtifactNoteApprove={onLibraryArtifactNoteApprove}
@@ -277,6 +281,8 @@ export default function HomeChatPanel({
           pendingFileName={pendingFileName}
           pendingFileNames={pendingFileNames}
           pendingFileWarnings={pendingFileWarnings}
+          sourcePreparationProgress={sourcePreparationProgress}
+          sourcePreparationStatus={newCourseLoadingStatus}
           isSourceSelectionPending={isSourceSelectionPending}
           viewportHeight={viewportHeight}
         />

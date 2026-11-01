@@ -85,6 +85,18 @@ test('prepares indexes from actual uploaded text and reports an unusable contain
     ],
   });
   expect(progress.at(-1)).toMatchObject({ step: 'extraction', completed: 2, total: 2 });
+  expect(progress[0]).toMatchObject({
+    documents: [
+      { id: 'source-note', name: 'notes/lesson.md', state: 'reading' },
+      { id: 'source-nested', name: 'archive.txt', state: 'idle' },
+    ],
+  });
+  expect(progress.at(-1)).toMatchObject({
+    documents: [
+      { id: 'source-note', state: 'done' },
+      { id: 'source-nested', state: 'error' },
+    ],
+  });
 });
 
 test.each([

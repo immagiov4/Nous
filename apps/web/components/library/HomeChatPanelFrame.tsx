@@ -197,7 +197,7 @@ export default function HomeChatPanelFrame({
         isCompactSurface
           ? 'rounded-none bg-transparent shadow-none dark:bg-transparent dark:shadow-none'
           : 'rounded-[2rem] bg-[rgba(248,245,240,0.96)] shadow-[inset_0_1px_3px_rgba(24,24,27,0.05),inset_0_0_0_1px_rgba(88,64,32,0.04)] dark:bg-[rgba(46,40,36,0.94)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
-      } ${hasActiveChat ? 'max-md:h-[75dvh] max-md:overflow-hidden' : ''} ${setupPhase ? 'course-setup-stage [&>.home-chat-scrollbar]:!p-0 [&>.home-chat-scrollbar>div]:px-4 [&>.home-chat-scrollbar>div]:py-4 sm:[&>.home-chat-scrollbar>div]:px-5 flex h-[75dvh] flex-col overflow-hidden [&>.home-chat-scrollbar]:min-h-0 [&>.home-chat-scrollbar]:flex-1 [&>.home-chat-scrollbar]:!h-auto' : ''}`}
+      } ${hasActiveChat ? 'max-md:h-[75dvh] max-md:overflow-hidden' : ''} ${setupPhase ? 'course-setup-stage [&>.home-chat-scrollbar]:!p-0 [&>.home-chat-scrollbar>div]:px-4 [&>.home-chat-scrollbar>div]:py-4 sm:[&>.home-chat-scrollbar>div]:px-5 flex h-[75dvh] min-h-min flex-col overflow-hidden [&>.home-chat-scrollbar]:min-h-0 [&>.home-chat-scrollbar]:flex-1 [&>.home-chat-scrollbar]:!h-auto' : ''}`}
       style={getMobileChatStyle(isMobileViewport, viewportHeight, hasActiveChat)}
     >
       {showClearChat && !setupPhase ? (

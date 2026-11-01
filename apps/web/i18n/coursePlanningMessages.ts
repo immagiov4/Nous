@@ -1,4 +1,7 @@
 export const COURSE_PLANNING_MESSAGES = {
+  'Preparazione delle fonti': 'Preparing sources',
+  'Lettura fonti {current} di {total}': 'Reading sources {current} of {total}',
+  'Fonte letta': 'Source read',
   'Prepariamo il tuo corso': "Let's prepare your course",
   'Ti faccio alcune domande per creare un percorso su misura per te.':
     "I'll ask a few questions to create a learning path tailored to you.",

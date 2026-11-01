@@ -1,3 +1,4 @@
+import type { SourcePreparationProgress } from '@shared/sourcePreparation';
 import { ArrowUp, Check, Globe, Loader2, Paperclip, Plus, Sparkles, Square, X } from 'lucide-react';
 import type { RefObject, SyntheticEvent } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -53,6 +54,8 @@ interface HomeChatComposerProps {
   readonly pendingFileName: string | null;
   readonly pendingFileNames?: string[];
   readonly pendingFileWarnings?: string[];
+  readonly sourcePreparationProgress?: SourcePreparationProgress;
+  readonly sourcePreparationStatus?: string;
   readonly isSourceSelectionPending?: boolean;
   readonly viewportHeight: number | null;
 }
@@ -434,6 +437,8 @@ export default function HomeChatComposer({
   pendingFileName,
   pendingFileNames,
   pendingFileWarnings,
+  sourcePreparationProgress,
+  sourcePreparationStatus,
   isSourceSelectionPending = false,
   viewportHeight,
 }: HomeChatComposerProps) {
@@ -442,13 +447,18 @@ export default function HomeChatComposer({
     [pendingFileName, pendingFileNames]
   );
   const displayedPendingFiles = useMemo(() => {
+    if (sourcePreparationProgress?.documents)
+      return sourcePreparationProgress.documents.map(document => ({
+        ...document,
+        key: document.id,
+      }));
     const occurrences = new Map<string, number>();
     return displayedPendingFileNames.map(name => {
       const occurrence = (occurrences.get(name) || 0) + 1;
       occurrences.set(name, occurrence);
       return { key: `${name}-${occurrence}`, name };
     });
-  }, [displayedPendingFileNames]);
+  }, [displayedPendingFileNames, sourcePreparationProgress]);
   const [draftByMode, setDraftByMode] = useState<Record<HomeChatMode, string>>({
     'library-query': homeChatMode === 'library-query' ? draftTemplate?.value || '' : '',
     'new-course': homeChatMode === 'new-course' ? draftTemplate?.value || '' : '',
@@ -620,6 +630,8 @@ export default function HomeChatComposer({
       {homeChatMode === 'new-course' ? (
         <SourceShelf
           sources={displayedPendingFiles}
+          preparationProgress={sourcePreparationProgress}
+          preparationStatus={sourcePreparationStatus}
           warnings={pendingFileWarnings}
           pending={isSourceSelectionPending}
           onClear={assessmentMessages.length === 0 ? onClearPendingFile : undefined}

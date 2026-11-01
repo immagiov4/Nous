@@ -1,3 +1,4 @@
+import type { SourcePreparationProgress } from '@shared/sourcePreparation';
 import { Check, Paperclip, X } from 'lucide-react';
 import { type KeyboardEvent, useId, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
@@ -6,7 +7,7 @@ import './sourceShelf.css';
 interface ShelfSource {
   readonly key: string;
   readonly name: string;
-  readonly state?: 'idle' | 'reading' | 'done';
+  readonly state?: 'idle' | 'reading' | 'done' | 'error';
 }
 
 interface SourceShelfProps {
@@ -14,6 +15,8 @@ interface SourceShelfProps {
   readonly onClear?: () => void;
   readonly pending?: boolean;
   readonly warnings?: readonly string[];
+  readonly preparationProgress?: SourcePreparationProgress;
+  readonly preparationStatus?: string;
 }
 
 const COVER_PALETTE = ['cream', 'terracotta', 'sage', 'blue', 'brown', 'mauve'] as const;
@@ -43,12 +46,72 @@ function navigateBooks(event: KeyboardEvent<HTMLLIElement>) {
   (destinations[event.key] as HTMLElement | null | undefined)?.focus();
 }
 
+function SourceShelfHeader({
+  sources,
+  onClear,
+  pending,
+  preparationProgress,
+  preparationStatus,
+  headingId,
+}: Omit<SourceShelfProps, 'warnings'> & { readonly headingId: string }) {
+  const completed = sources.filter(
+    source => source.state === 'done' || source.state === 'error'
+  ).length;
+  const reading = sources.some(source => source.state === 'reading');
+  const isReading =
+    preparationProgress?.step === 'extraction' || preparationProgress?.step === 'pdf-transcription';
+  return (
+    <div className="source-shelf-header">
+      <Paperclip className="source-shelf-icon" aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <h3 id={headingId} className="source-shelf-heading">
+          {t(preparationProgress ? 'Preparazione delle fonti' : 'Le tue fonti')}
+        </h3>
+        {sources.length > 0 ? (
+          <p className="source-shelf-count">
+            {sources.length === 1
+              ? t('1 fonte selezionata')
+              : t('{count} fonti selezionate', { count: sources.length })}
+          </p>
+        ) : null}
+        {pending ? <output className="mt-1 block text-xs">{t('Verifica dei file…')}</output> : null}
+        {preparationProgress ? (
+          <output className="mt-1 block text-xs">
+            {isReading
+              ? t('Lettura fonti {current} di {total}', {
+                  current: completed + (reading ? 1 : 0),
+                  total: sources.length,
+                })
+              : preparationStatus}
+            {preparationProgress.step === 'pdf-transcription' ? (
+              <span className="block">{preparationStatus}</span>
+            ) : null}
+          </output>
+        ) : null}
+      </div>
+      {onClear && !preparationProgress ? (
+        <button
+          type="button"
+          onClick={onClear}
+          className="source-shelf-clear"
+          title={t('Rimuovi allegato')}
+          aria-label={t('Rimuovi allegato')}
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 /** Presentation only: source selection and preparation remain owned by the caller. */
 export default function SourceShelf({
   sources,
   onClear,
   pending = false,
   warnings = [],
+  preparationProgress,
+  preparationStatus,
 }: SourceShelfProps) {
   const headingId = useId();
   const [focusedKey, setFocusedKey] = useState<string>();
@@ -60,35 +123,14 @@ export default function SourceShelf({
       aria-labelledby={hasContent ? headingId : undefined}
     >
       {hasContent ? (
-        <div className="source-shelf-header">
-          <Paperclip className="source-shelf-icon" aria-hidden="true" />
-          <div className="min-w-0 flex-1">
-            <h3 id={headingId} className="source-shelf-heading">
-              {t('Le tue fonti')}
-            </h3>
-            {sources.length > 0 ? (
-              <p className="source-shelf-count">
-                {sources.length === 1
-                  ? t('1 fonte selezionata')
-                  : t('{count} fonti selezionate', { count: sources.length })}
-              </p>
-            ) : null}
-            {pending ? (
-              <output className="mt-1 block text-xs">{t('Verifica dei file…')}</output>
-            ) : null}
-          </div>
-          {onClear ? (
-            <button
-              type="button"
-              onClick={onClear}
-              className="source-shelf-clear"
-              title={t('Rimuovi allegato')}
-              aria-label={t('Rimuovi allegato')}
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </button>
-          ) : null}
-        </div>
+        <SourceShelfHeader
+          sources={sources}
+          onClear={onClear}
+          pending={pending}
+          preparationProgress={preparationProgress}
+          preparationStatus={preparationStatus}
+          headingId={headingId}
+        />
       ) : null}
       {sources.length > 0 ? (
         <div className="source-shelf-edges">
@@ -103,6 +145,8 @@ export default function SourceShelf({
                 onKeyDown={navigateBooks}
                 title={source.name}
                 aria-label={source.name}
+                aria-current={source.state === 'reading' ? 'true' : undefined}
+                aria-description={source.state === 'done' ? t('Fonte letta') : undefined}
                 data-palette={COVER_PALETTE[index % COVER_PALETTE.length]}
                 data-state={source.state ?? 'idle'}
               >

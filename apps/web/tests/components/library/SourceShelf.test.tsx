@@ -3,6 +3,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
 import SourceShelf from '../../../components/library/SourceShelf.tsx';
+import { formatSourcePreparationProgress } from '../../../hooks/workspace/controller/controllerContext.ts';
 import { setRenderingLocaleOverride } from '../../../i18n/uiMessages.ts';
 
 const sources = [
@@ -12,6 +13,38 @@ const sources = [
 ];
 
 describe('SourceShelf', () => {
+  test('keeps PDF page progress and reduced-quality disclosure with the book counter', () => {
+    const progress = {
+      step: 'pdf-transcription' as const,
+      completed: 165,
+      total: 200,
+      documentName: 'scan.pdf',
+      reducedQuality: { from: 151, to: 200 },
+    };
+    const { rerender } = render(
+      <SourceShelf
+        sources={[{ key: 'scan', name: 'scan.pdf', state: 'reading' }]}
+        preparationProgress={progress}
+        preparationStatus={formatSourcePreparationProgress(progress)}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('Lettura fonti 1 di 1');
+    expect(screen.getByRole('status')).toHaveTextContent('165/200');
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Pagine 151–200 trascritte in qualità ridotta.'
+    );
+    const next = { ...progress, completed: 166, reducedQuality: undefined };
+    rerender(
+      <SourceShelf
+        sources={[{ key: 'scan', name: 'scan.pdf', state: 'reading' }]}
+        preparationProgress={next}
+        preparationStatus={formatSourcePreparationProgress(next)}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('166/200');
+    expect(screen.getByRole('status')).not.toHaveTextContent('qualità ridotta');
+  });
+
   test('keeps numeric filename content visible so year-based sources remain distinct', () => {
     const names = ['01_Probabilità.pdf', '2023_report.pdf', '2024_report.pdf'];
     render(<SourceShelf sources={names.map(name => ({ key: name, name }))} />);

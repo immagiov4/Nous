@@ -790,7 +790,7 @@ const createStateAdapter = () => {
     setScreenState: screenState => {
       internalState.screenState = screenState;
     },
-    setWorkflowMessage: (workflowId, requestId, message) => {
+    setWorkflowMessage: (workflowId, requestId, message, sourcePreparation) => {
       if (internalState.workflowState[workflowId].requestId !== requestId) {
         return;
       }
@@ -800,6 +800,7 @@ const createStateAdapter = () => {
         [workflowId]: {
           ...internalState.workflowState[workflowId],
           message,
+          sourcePreparation,
         },
       };
     },
@@ -4924,6 +4925,35 @@ test('startHomeChat resets its unsaved selection when the first draft save fails
   expect(projectLibrary.deletedProjectIds).toEqual([]);
   expect(state.internalState.screenState).toBe(AppState.LIBRARY);
   expect(startCourseInterview).not.toHaveBeenCalled();
+});
+
+test('startHomeChat forwards structured preparation through its existing workflow message', async () => {
+  const started = createDeferred();
+  const finish = createDeferred();
+  const progress = {
+    step: 'extraction' as const,
+    completed: 0,
+    total: 1,
+    documents: [{ id: 'source', name: 'notes.md', state: 'reading' as const }],
+  };
+  const { controller, state } = createControllerHarness({
+    projectLibrary: {
+      persistSnapshot: async (_snapshot, options) => {
+        options?.onSourceProgress?.(progress);
+        started.resolve();
+        await finish.promise;
+        throw new Error('Synthetic save failure');
+      },
+    },
+  });
+  const starting = controller.startHomeChat({
+    input: 'Learn from notes',
+    selectedFile: new File(['Notes'], 'notes.md', { type: 'text/markdown' }),
+  });
+  await started.promise;
+  expect(state.internalState.workflowState.assessment.sourcePreparation).toEqual(progress);
+  finish.resolve();
+  expect((await starting).outcome).toBe('failed');
 });
 
 test('startHomeChat preserves prepared sources for retry after interview startup fails', async () => {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { UIMessage } from 'ai';
 import { useState } from 'react';
@@ -675,7 +675,64 @@ describe('HomeChatPanel', () => {
     rerender(<HomeChatPanel {...props} pendingFileName="Solo_appunti.pdf" />);
     expect(screen.getByRole('listitem', { name: 'Solo_appunti.pdf' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Rimuovi allegato' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole('region', { name: 'Le tue fonti' })).queryByRole('status')
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Obiettivo');
+  });
+
+  test('shows actual preparation books and progress instead of the selected ZIP, preserving warnings and Stop', () => {
+    const props = buildProps();
+    const progress = {
+      step: 'extraction' as const,
+      completed: 1,
+      total: 3,
+      documents: [
+        { id: 'first', name: '01.md', state: 'done' as const },
+        { id: 'second', name: '02.pdf', state: 'reading' as const },
+        { id: 'third', name: '03.md', state: 'idle' as const },
+      ],
+    };
+    const { rerender } = render(
+      <HomeChatPanel
+        {...props}
+        assessmentMessages={[]}
+        isNewCourseLoading
+        pendingFileName="course.zip"
+        pendingFileWarnings={['Documento ignorato']}
+        sourcePreparationProgress={progress}
+        newCourseLoadingStatus="Reading duplicate status"
+        onCancelNewCourse={vi.fn()}
+      />
+    );
+    const shelf = screen.getByRole('region', { name: 'Preparazione delle fonti' });
+    expect(within(shelf).getByRole('status')).toHaveTextContent('Lettura fonti 2 di 3');
+    expect(screen.queryByText('Reading duplicate status')).not.toBeInTheDocument();
+    expect(within(shelf).getByRole('listitem', { name: '01.md' })).toHaveAttribute(
+      'data-state',
+      'done'
+    );
+    expect(within(shelf).getByRole('listitem', { name: '02.pdf' })).toHaveAttribute(
+      'aria-current',
+      'true'
+    );
+    expect(within(shelf).getByRole('listitem', { name: '03.md' })).toHaveAttribute(
+      'data-state',
+      'idle'
+    );
+    expect(within(shelf).queryByRole('listitem', { name: 'course.zip' })).not.toBeInTheDocument();
+    expect(within(shelf).getByText('Documento ignorato')).toBeVisible();
+    expect(
+      within(shelf).queryByRole('button', { name: 'Rimuovi allegato' })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Annulla' })).toBeEnabled();
+    rerender(<HomeChatPanel {...props} assessmentMessages={[]} pendingFileName="course.zip" />);
+    expect(screen.queryByText(/Lettura fonti/)).not.toBeInTheDocument();
+    expect(screen.getByRole('listitem', { name: 'course.zip' })).toHaveAttribute(
+      'data-state',
+      'idle'
+    );
+    expect(screen.getByRole('button', { name: 'Rimuovi allegato' })).toBeEnabled();
   });
 
   test('renders the course setup surface in the browser language', () => {

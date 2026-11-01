@@ -135,6 +135,8 @@ export const LibraryScreenContainer = ({
   let sourceCount = pendingHomeSourceFiles.length;
   if (source && pendingHomeSourceFiles.length === 0)
     sourceCount = 'sources' in source && source.sources ? source.sources.length : 1;
+  sourceCount =
+    controller.workflowState.assessment.sourcePreparation?.documents?.length ?? sourceCount;
   const assessmentComplete = Boolean(controller.courseProposal) && !isAddingAssessmentDetails;
   const isNewCourseLoading =
     controller.workflowState.assessment.status === 'pending' || isConfirmingCourse;
@@ -209,16 +211,13 @@ export const LibraryScreenContainer = ({
         setPendingFileWarnings([]);
       }
 
-      if (result.errorMessage) {
-        notify(result.errorMessage);
-      }
-      if (result.sourceWarnings?.length) {
-        notify(
-          formatSourceWarningSummary(result.sourceWarnings, {
+      const sourceWarningMessage = result.sourceWarnings?.length
+        ? formatSourceWarningSummary(result.sourceWarnings, {
             continues: !result.errorMessage,
           })
-        );
-      }
+        : undefined;
+      if (result.errorMessage || sourceWarningMessage)
+        notify([result.errorMessage, sourceWarningMessage].filter(Boolean).join('\n'));
     },
     [
       assessmentMessages.length,
@@ -399,6 +398,7 @@ export const LibraryScreenContainer = ({
           libraryGenerateArtifacts: libraryAssistantChat.generateArtifacts,
           newCourseLoadingStatus:
             controller.workflowState.assessment.message || t('Caricamento...'),
+          sourcePreparationProgress: controller.workflowState.assessment.sourcePreparation,
           pendingFileName: pendingHomeSourceFiles[0]?.name || null,
           pendingFileNames: pendingHomeSourceFiles.map(file => file.name),
           pendingFileWarnings,

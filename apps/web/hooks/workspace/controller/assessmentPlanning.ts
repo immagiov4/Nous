@@ -919,7 +919,8 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
           state.setWorkflowMessage(
             'assessment',
             requestId,
-            formatSourcePreparationProgress(progress)
+            formatSourcePreparationProgress(progress),
+            progress
           );
         },
       }

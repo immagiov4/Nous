@@ -1,3 +1,4 @@
+import type { SourcePreparationProgress } from '@shared/sourcePreparation';
 import type { GenerationProgressSnapshot } from '../../../services/openrouter/generationProgress.ts';
 import type {
   ProjectPersistenceOptions,
@@ -234,7 +235,12 @@ export interface WorkspaceControllerStateAdapter {
     parentSectionId?: string
   ) => void;
   setProjectMissingSource: (projectId: string, missing: boolean) => void;
-  setWorkflowMessage: (workflowId: WorkspaceWorkflowId, requestId: number, message: string) => void;
+  setWorkflowMessage: (
+    workflowId: WorkspaceWorkflowId,
+    requestId: number,
+    message: string,
+    sourcePreparation?: SourcePreparationProgress
+  ) => void;
   setWorkflowReasoning: (
     workflowId: WorkspaceWorkflowId,
     requestId: number,
