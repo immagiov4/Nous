@@ -6,6 +6,7 @@ import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } 
 import { createRef } from 'react';
 import { expect, test, vi } from 'vitest';
 import ContextAnswerPanel from '../../../../components/workspace/shell/ContextAnswerPanel.tsx';
+import { createSectionAnnotationSelector } from '../../../../utils/learning/sectionAnnotationAnchors.ts';
 
 const requests = vi.hoisted(() => [] as Array<{ messages: UIMessage[] }>);
 vi.mock('../../../../services/auth/supabaseAuth.ts', () => ({
@@ -75,7 +76,16 @@ test.each([
         lessonTitle: 'Acqua',
         projectId: 'science',
         projectTitle: 'Scienze',
-        ...(mode === 'update' ? { attachedAnnotationNote: 'Nota precedente.' } : {}),
+        ...(mode === 'update'
+          ? {
+              attachedAnnotationId: 'saved-note',
+              attachedAnnotationNote: 'Nota precedente.',
+              attachedAnnotationSelector:
+                createSectionAnnotationSelector('Il Sole scalda l’acqua.', [
+                  { start: 0, end: 'Il Sole scalda l’acqua.'.length },
+                ]) ?? undefined,
+            }
+          : {}),
       }}
       contextAnswerPanelRef={createRef<HTMLDivElement>()}
       contextAnswerSize={{ width: 600, height: 500 }}

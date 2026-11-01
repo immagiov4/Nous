@@ -740,7 +740,10 @@ function ContextAnswerPanelSession({
       buildConversationNoteCatalog({
         content: contextAnswer.lessonContent ?? '',
         annotationId: contextAnswer.attachedAnnotationId,
-        hasExistingNote: Boolean(contextAnswer.attachedAnnotationNote?.trim()),
+        annotationSelector: contextAnswer.attachedAnnotationSelector,
+        hasExistingNote: Boolean(
+          contextAnswer.attachedAnnotationId || contextAnswer.attachedAnnotationNote?.trim()
+        ),
         origin: { projectId: contextAnswer.projectId, lessonId: contextAnswer.lessonId },
         locale,
         selection:
@@ -756,6 +759,7 @@ function ContextAnswerPanelSession({
     [
       contextAnswer.lessonContent,
       contextAnswer.attachedAnnotationId,
+      contextAnswer.attachedAnnotationSelector,
       contextAnswer.attachedAnnotationNote,
       contextAnswer.projectId,
       contextAnswer.lessonId,

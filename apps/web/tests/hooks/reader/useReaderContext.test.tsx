@@ -894,3 +894,25 @@ test('mobile annotation taps close the current menu before another annotation ca
   selectionSpy.mockRestore();
   vi.useRealTimers();
 });
+
+test('retains the attached annotation selector separately from the question selection', () => {
+  const selector = { start: 0, end: 10, exact: 'Alpha beta', prefix: '', suffix: 'gamma delta' };
+  const { result } = renderHook(() =>
+    useReaderContext({
+      activeSectionId: 'section-1',
+      contentRef: { current: null },
+      isMobileViewport: false,
+      sectionContent: 'Alpha beta gamma delta',
+    })
+  );
+  act(() =>
+    result.current.openContextAnswer({
+      initialQuestion: 'Explain beta',
+      selectedText: 'beta',
+      attachedAnnotationId: 'attached',
+      attachedAnnotationSelector: selector,
+    })
+  );
+  expect(result.current.contextAnswer?.attachedAnnotationSelector).toEqual(selector);
+  expect(result.current.contextAnswer?.selectedText).toBe('beta');
+});

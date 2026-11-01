@@ -61,6 +61,7 @@ interface UseWorkspaceReaderActionsArgs {
   notify: (message: string) => void;
   openContextAnswer: (args: {
     attachedAnnotationId?: string;
+    attachedAnnotationSelector?: SectionAnnotationTextSelector;
     attachedAnnotationNote?: string;
     attachedAnnotationText?: string;
     contextAfter?: string;
@@ -289,6 +290,7 @@ export const useWorkspaceReaderActions = ({
               annotation => annotation.id === contextMenu.annotationId
             )
           : null;
+      const attachedAnnotation = clickedAnnotation ?? attachedAnnotationMatch?.annotation;
 
       if (isMobileViewport && document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
@@ -304,17 +306,19 @@ export const useWorkspaceReaderActions = ({
         contextScope,
         documentSourceReferences: sourceContext.documentSourceReferences,
         initialQuestion: question,
-        attachedAnnotationId: clickedAnnotation?.id ?? attachedAnnotationMatch?.annotation.id,
-        attachedAnnotationNote:
-          clickedAnnotation?.note || attachedAnnotationMatch?.annotation.note || undefined,
-        attachedAnnotationText:
-          clickedAnnotation && activeSection
-            ? getSectionAnnotationText(
-                activeSection.content || sectionContent,
-                clickedAnnotation.id,
-                activeSection.annotations
-              )
-            : attachedAnnotationMatch?.resolvedText,
+        attachedAnnotationId: attachedAnnotation?.id,
+        attachedAnnotationSelector:
+          attachedAnnotation?.anchor?.kind === 'selection'
+            ? attachedAnnotation.anchor.selector
+            : undefined,
+        attachedAnnotationNote: attachedAnnotation?.note || undefined,
+        attachedAnnotationText: attachedAnnotation
+          ? getSectionAnnotationText(
+              activeSection?.content || sectionContent,
+              attachedAnnotation.id,
+              activeSection?.annotations
+            )
+          : undefined,
         lessonContent: activeSection?.content || sectionContent,
         lessonDescription: activeSection?.description,
         lessonId: activeSection?.id,

@@ -820,3 +820,127 @@ test.each([
       ]);
   } else expect(args.updateSection).not.toHaveBeenCalled();
 });
+
+test('a different sentence creates a new note while the attached annotation stays unchanged', async () => {
+  const content = 'First sentence. Second sentence.';
+  const original = {
+    id: 'attached',
+    note: 'Keep original',
+    createdAt: '',
+    updatedAt: '',
+    anchor: { kind: 'selection' as const, selector: exactNoteInput(content).exactTarget.selector },
+  };
+  const args = buildHookArgs({
+    learningPlan: buildTestLearningPlan([
+      buildTestLesson({ id: 'lesson-1', content, annotations: [original] }),
+    ]),
+  });
+  const { result } = renderHook(() => useWorkspaceReaderActions(args));
+  const catalog = buildConversationNoteCatalog({
+    content,
+    locale: 'en',
+    annotationId: original.id,
+    annotationSelector: original.anchor.selector,
+    hasExistingNote: true,
+    selection: { selectedText: 'First', selectedTextStart: 0 },
+  });
+  const passage = catalog.entries.find(entry => entry.id === 'p1');
+  expect(passage).toBeDefined();
+  if (!passage) throw new Error('Expected second sentence');
+  const mutate = passage.hasExistingNote
+    ? result.current.handleUpdateConversationNote
+    : result.current.handleSaveConversationNote;
+  const outcome = await mutate(
+    { projectId: 'project-1', lessonId: 'lesson-1' },
+    {
+      ...passage.anchor,
+      note: 'New note',
+      annotationId: passage.annotationId,
+      exactTarget: {
+        content: passage.content,
+        selector: passage.selector,
+        segments: passage.segments,
+      },
+    }
+  );
+  expect(outcome.saved).toBe(true);
+  expect(outcome.annotationId).not.toBe(original.id);
+  expect(args.patchSectionAnnotations).toHaveBeenCalledWith(
+    'lesson-1',
+    [
+      original,
+      expect.objectContaining({
+        note: 'New note',
+        anchor: { kind: 'selection', selector: passage.selector },
+      }),
+    ],
+    undefined,
+    undefined
+  );
+});
+
+test('a partial selection captures and updates the attached annotation full exact target', async () => {
+  vi.spyOn(documentTextService, 'loadDocumentText').mockResolvedValue({
+    source: null,
+    documentIndex: null,
+  });
+  const content = 'First sentence. Second sentence.';
+  const selector = exactNoteInput(content).exactTarget.selector;
+  const original = {
+    id: 'attached',
+    note: 'Old note',
+    createdAt: '',
+    updatedAt: '',
+    anchor: { kind: 'selection' as const, selector },
+  };
+  const args = buildHookArgs({
+    activeSectionId: 'lesson-1',
+    contextMenu: {
+      type: 'selection',
+      selectedText: 'First',
+      selectedTextStart: 0,
+    } as HookArgs['contextMenu'],
+    learningPlan: buildTestLearningPlan([
+      buildTestLesson({ id: 'lesson-1', content, annotations: [original] }),
+    ]),
+  });
+  const { result } = renderHook(() => useWorkspaceReaderActions(args));
+  await result.current.handleContextQuestion('Explain this word');
+  const captured = vi.mocked(args.openContextAnswer).mock.calls[0][0];
+  expect(captured.attachedAnnotationSelector).toEqual(selector);
+  const catalog = buildConversationNoteCatalog({
+    content,
+    locale: 'en',
+    annotationId: captured.attachedAnnotationId,
+    annotationSelector: captured.attachedAnnotationSelector,
+    hasExistingNote: true,
+    selection: {
+      selectedText: captured.selectedText,
+      selectedTextStart: captured.selectedTextStart,
+    },
+  });
+  const passage = catalog.entries.find(entry => entry.id === 's');
+  if (!passage) throw new Error('Expected captured annotation target');
+  expect(passage.hasExistingNote).toBe(true);
+  expect(
+    await result.current.handleUpdateConversationNote(
+      { projectId: 'project-1', lessonId: 'lesson-1' },
+      {
+        ...passage.anchor,
+        annotationId: passage.annotationId,
+        note: 'Updated note',
+        exactTarget: {
+          content: passage.content,
+          selector: passage.selector,
+          segments: passage.segments,
+        },
+      }
+    )
+  ).toMatchObject({ saved: true, annotationId: 'attached', resolvedText: 'First sentence.' });
+  expect(args.patchSectionAnnotations).toHaveBeenCalledWith(
+    'lesson-1',
+    [expect.objectContaining({ id: 'attached', note: 'Updated note', anchor: original.anchor })],
+    undefined,
+    undefined
+  );
+});

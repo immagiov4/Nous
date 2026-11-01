@@ -39,6 +39,7 @@ import type { LibraryNavigationTarget } from '../../shared/LibraryToolReferences
 export interface ContextAnswerState {
   playbackContext?: PlaybackQuestionContext;
   attachedAnnotationId?: string;
+  attachedAnnotationSelector?: SectionAnnotationTextSelector;
   attachedAnnotationNote?: string;
   attachedAnnotationText?: string;
   contextAfter?: string;
