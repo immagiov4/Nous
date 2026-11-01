@@ -140,9 +140,10 @@ function answerTopic(
     ...state,
     answers,
     inferredFrom,
+    // Unknown hides the filled branch; any other rating reopens it so cleared subtopics stay visible.
     collapsedTopics:
-      unfamiliar && topic.children.length > 0
-        ? { ...state.collapsedTopics, [topic.id]: true }
+      topic.children.length > 0
+        ? { ...state.collapsedTopics, [topic.id]: unfamiliar }
         : state.collapsedTopics,
   };
 }

@@ -321,6 +321,12 @@ describe('self-assessment cascade decisions', () => {
     value: 'unfamiliar' | 'basics' | 'uncertain' | 'independent'
   ) => diagnosticReducer(state, { type: 'answer', itemId, answer: { kind: 'self-report', value } });
 
+  test('changing an unknown parent reopens its branch so cleared subtopics stay visible', () => {
+    const collapsed = rate(initialDiagnosticState(stage), 'marketing', 'unfamiliar');
+    expect(collapsed.collapsedTopics.marketing).toBe(true);
+    const reopened = rate(collapsed, 'marketing', 'basics');
+    expect(reopened.collapsedTopics.marketing).toBe(false);
+  });
   test('unknown parent marks all its subtopics unknown and submits one self-report per topic', () => {
     const state = rate(initialDiagnosticState(stage), 'marketing', 'unfamiliar');
     const submission = buildDiagnosticSubmission(state, 'collection', 'request');
