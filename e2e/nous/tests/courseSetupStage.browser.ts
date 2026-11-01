@@ -7,25 +7,26 @@ import { dataRoot, withMemoryProjectBrowserStack } from '../stack';
 // Real app, storage and controller; deterministic interview wire responses replace AI only.
 const evidence = join(dataRoot(), 'course-setup-stage');
 await mkdir(evidence, { recursive: true });
-await withMemoryProjectBrowserStack(
-  {
-    userId: 'setup-stage-user',
-    recordVideo: {
-      dir: evidence,
-      size: process.env.SETUP_MOBILE ? { width: 390, height: 844 } : { width: 1280, height: 800 },
-    },
-    appOptions: {
-      courseGenerationApi: { ...unavailableCourseGenerationApi, getActive: async () => null },
-    },
-  },
-  async ({ page, url }) => {
-    const recordingStarted = performance.now();
-    const errors: string[] = [];
-    page.on('pageerror', error => errors.push(error.message));
-    const results: unknown[] = [];
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
-    for (const mobile of process.env.SETUP_MOBILE ? [true] : [false, true]) {
-      for (const dark of [false, true]) {
+const errors: string[] = [];
+const results: unknown[] = [];
+for (const mobile of process.env.SETUP_MOBILE ? [true] : [false, true]) {
+  for (const dark of [false, true]) {
+    await withMemoryProjectBrowserStack(
+      {
+        userId: 'setup-stage-user',
+        recordVideo: {
+          dir: evidence,
+          size: mobile ? { width: 390, height: 844 } : { width: 1280, height: 800 },
+        },
+        appOptions: {
+          courseGenerationApi: { ...unavailableCourseGenerationApi, getActive: async () => null },
+        },
+      },
+      async ({ page, url }) => {
+        const recordingStarted = performance.now();
+        page.on('pageerror', error => errors.push(error.message));
+        assert.deepEqual(await page.context().storageState(), { cookies: [], origins: [] });
+        await page.goto(url, { waitUntil: 'domcontentloaded' });
         const started = performance.now();
         const scene = `${mobile ? 'mobile' : 'desktop'}-${dark ? 'dark' : 'light'}`;
         await page.setViewportSize(
@@ -346,23 +347,22 @@ await withMemoryProjectBrowserStack(
         await page.getByRole('heading', { name: 'Cosa vuoi imparare oggi?' }).waitFor();
         assert.equal(cancellations, 1);
         assert.equal(await stage.count(), 0);
-        await page.unroute('**/api/course-interviews**');
-        await page.unroute('**/api/workflows/runs/setup-run**');
         results.push({ scene, elapsedMs: performance.now() - started, approval, cancellations });
       }
-    }
-    assert.deepEqual(errors, []);
-    await writeFile(
-      join(evidence, 'result.json'),
-      JSON.stringify(
-        {
-          profile: 'fixture-driven interview, real app/controller/storage, headless Chromium',
-          results,
-          errors,
-        },
-        null,
-        2
-      )
     );
   }
+}
+assert.deepEqual(errors, []);
+await writeFile(
+  join(evidence, 'result.json'),
+  JSON.stringify(
+    {
+      profile:
+        'fixture-driven interview, isolated browser contexts, real app/controller/storage, headless Chromium',
+      results,
+      errors,
+    },
+    null,
+    2
+  )
 );
