@@ -12,6 +12,49 @@ const sources = [
 ];
 
 describe('SourceShelf', () => {
+  test('shows a filename title once after removing its numeric ordering prefix', () => {
+    render(
+      <SourceShelf sources={[{ key: 'numbered', name: '01_Probabilità_concetti_di_base.pdf' }]} />
+    );
+    const book = screen.getByRole('listitem', { name: '01_Probabilità_concetti_di_base.pdf' });
+    expect(within(book).getByText('Probabilità concetti di base')).toBeVisible();
+    expect(within(book).getByText('01')).toBeVisible();
+  });
+
+  test('renders pending attachments in English without losing status or removal', () => {
+    setRenderingLocaleOverride('en');
+    try {
+      render(<SourceShelf sources={sources} pending onClear={vi.fn()} />);
+      expect(screen.getByRole('status')).toHaveTextContent('Checking files…');
+      expect(screen.getByRole('button', { name: 'Remove attachment' })).toBeVisible();
+      expect(screen.getAllByRole('listitem')).toHaveLength(sources.length);
+    } finally {
+      setRenderingLocaleOverride(null);
+    }
+  });
+
+  test('keeps the warning announcer mounted before rejected files arrive and groups identical warnings', () => {
+    const { container, rerender } = render(<SourceShelf sources={[]} />);
+    const announcer = container.querySelector('[aria-live="polite"]');
+    expect(announcer).toBeInTheDocument();
+    rerender(<SourceShelf sources={[]} warnings={['Unsupported file', 'Unsupported file']} />);
+    expect(container.querySelector('[aria-live="polite"]')).toBe(announcer);
+    expect(screen.getAllByText('Unsupported file')).toHaveLength(1);
+  });
+
+  test('keeps extension-only names readable and distinguishes matching stems by file type', () => {
+    render(
+      <SourceShelf sources={['.pdf', 'notes.pdf', 'notes.md'].map(name => ({ key: name, name }))} />
+    );
+    expect(within(screen.getByRole('listitem', { name: '.pdf' })).getByText('.pdf')).toBeVisible();
+    expect(
+      within(screen.getByRole('listitem', { name: 'notes.pdf' })).getByText('pdf')
+    ).toBeVisible();
+    expect(
+      within(screen.getByRole('listitem', { name: 'notes.md' })).getByText('md')
+    ).toBeVisible();
+  });
+
   test('renders ordered books with derived titles, indices and accessible full filenames', () => {
     render(<SourceShelf sources={sources} />);
     const books = within(screen.getByRole('list', { name: 'Le tue fonti' })).getAllByRole(
@@ -82,9 +125,16 @@ describe('SourceShelf', () => {
     const user = userEvent.setup();
     await user.tab();
     expect(books[0]).toHaveFocus();
-    await user.tab();
+    await user.keyboard('{ArrowRight}');
     expect(books[1]).toHaveFocus();
     expect(books.map(book => book.dataset.state)).toEqual(['done', 'reading', 'idle']);
+    expect(books.map(book => book.tabIndex)).toEqual([-1, 0, -1]);
+    await user.keyboard('{End}');
+    expect(books[2]).toHaveFocus();
+    await user.keyboard('{Home}');
+    expect(books[0]).toHaveFocus();
+    await user.tab();
+    expect(books).not.toContain(document.activeElement);
   });
 
   test('retains warning-only notices, hides empty shelves and translates new labels', () => {

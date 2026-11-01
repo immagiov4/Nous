@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { Page } from 'playwright';
 import { unavailableCourseGenerationApi } from '../../../apps/backend/src/workflows/courseGenerationApi';
 import { dataRoot, withMemoryProjectBrowserStack } from '../stack';
 
-// Real home upload/remove flow with synthetic files; no provider generation is involved.
-// Run: NOUS_E2E_DATA=<external directory> bun scripts/heavy-run.mjs --label source-shelf -- bun e2e/nous/tests/sourceShelf.browser.ts
+// Synthetic files exercise real home attachment actions; artifacts stay outside Git.
+// NOUS_E2E_DATA=<external> bun scripts/heavy-run.mjs --label source-shelf -- bun e2e/nous/tests/sourceShelf.browser.ts
 const evidence = join(dataRoot(), 'source-shelf');
 await mkdir(evidence, { recursive: true });
 const sourceTitles = [
@@ -17,6 +18,33 @@ const sourceTitles = [
   'Esercizi_e-applicazioni',
 ];
 const results: object[] = [];
+const errors: string[] = [];
+const contrasts: object[] = [];
+
+async function attach(page: Page, count: number, titles = sourceTitles) {
+  const chooser = page.waitForEvent('filechooser');
+  await page.locator('[data-home-chat-target=attachment]').click();
+  await (await chooser).setFiles(
+    Array.from({ length: count }, (_, index) => ({
+      name: `${String(index + 1).padStart(2, '0')}_${titles[index % titles.length]}.md`,
+      mimeType: 'text/markdown',
+      buffer: Buffer.from(
+        `# Source ${index + 1}\nSynthetic probability notes for shelf verification.`
+      ),
+    }))
+  );
+  await page.waitForFunction(
+    expected => document.querySelectorAll('.source-shelf-item').length === expected,
+    count
+  );
+  await page.getByText('Verifica dei file…', { exact: true }).waitFor({ state: 'hidden' });
+  await page.evaluate(() => document.fonts.ready);
+}
+
+async function clear(page: Page) {
+  await page.getByRole('button', { name: 'Rimuovi allegato', exact: true }).click();
+  await page.locator('.source-shelf').waitFor({ state: 'detached' });
+}
 
 await withMemoryProjectBrowserStack(
   {
@@ -26,14 +54,12 @@ await withMemoryProjectBrowserStack(
     },
   },
   async ({ page, url }) => {
-    const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Impara un nuovo argomento', exact: true }).click();
     const heights = new Map<string, number>();
-    const contrasts: object[] = [];
     for (const viewport of [
-      { width: 1440, height: 1000 },
+      { width: 1280, height: 800 },
       { width: 390, height: 844 },
     ]) {
       await page.setViewportSize(viewport);
@@ -45,30 +71,19 @@ await withMemoryProjectBrowserStack(
         );
         for (const count of [1, 5, 32]) {
           const started = performance.now();
-          const files = Array.from({ length: count }, (_, index) => ({
-            name: `${String(index + 1).padStart(2, '0')}_${sourceTitles[index % sourceTitles.length]}.md`,
-            mimeType: 'text/markdown',
-            buffer: Buffer.from(
-              `# Source ${index + 1}\nSynthetic probability notes for shelf verification.`
-            ),
-          }));
-          const chooser = page.waitForEvent('filechooser');
-          await page.locator('[data-home-chat-target=attachment]').click();
-          await (await chooser).setFiles(files);
+          await attach(page, count);
+          const readyMs = performance.now() - started;
           const shelf = page.getByRole('region', { name: 'Le tue fonti', exact: true });
-          await shelf.waitFor();
-          await page.waitForFunction(
-            expected => document.querySelectorAll('.source-shelf-item').length === expected,
-            count
+          const books = shelf.locator('.source-shelf-item');
+          assert.equal(await books.count(), count);
+          assert.equal(
+            await books.first().locator('.source-book-title').textContent(),
+            'Probabilità concetti di base'
           );
-          await page.getByText('Verifica dei file…', { exact: true }).waitFor({ state: 'hidden' });
-          const books = shelf.getByRole('listitem');
-          assert.deepEqual(
-            await books.evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))),
-            files.map(file => file.name)
+          assert.equal(
+            await books.first().getAttribute('aria-label'),
+            '01_Probabilità_concetti-di-base.md'
           );
-          await page.evaluate(() => document.fonts.ready);
-          // Screenshot waits for the appearance transition, then captures the real attachment surface.
           const label = `${viewport.width}-${dark ? 'dark' : 'light'}-${count}`;
           await page.screenshot({
             path: join(evidence, `${label}.png`),
@@ -76,43 +91,41 @@ await withMemoryProjectBrowserStack(
             animations: 'disabled',
           });
           const geometry = await shelf.evaluate(element => {
-            const list = element.querySelector('.source-shelf-books');
+            const list = element.querySelector<HTMLElement>('.source-shelf-books');
             assertElement(list);
             return {
               height: element.getBoundingClientRect().height,
-              rowHeight: list.clientHeight,
               width: list.clientWidth,
               scrollWidth: list.scrollWidth,
               pageWidth: document.documentElement.scrollWidth,
               viewportWidth: innerWidth,
             };
-            function assertElement(value: Element | null): asserts value is HTMLElement {
-              if (!(value instanceof HTMLElement)) throw new Error('Missing shelf list');
+            function assertElement(value: HTMLElement | null): asserts value is HTMLElement {
+              if (!value) throw new Error('Missing shelf list');
             }
           });
           assert(geometry.pageWidth <= geometry.viewportWidth, `Page overflow: ${label}`);
-          const heightKey = `${viewport.width}-${dark}`;
-          if (heights.has(heightKey)) assert.equal(geometry.height, heights.get(heightKey));
-          else heights.set(heightKey, geometry.height);
+          const key = `${viewport.width}-${dark}`;
+          if (heights.has(key)) assert.equal(geometry.height, heights.get(key));
+          else heights.set(key, geometry.height);
           if (count === 32) {
             assert(geometry.scrollWidth > geometry.width);
             const coverContrasts = await books.evaluateAll(async nodes => {
               const image = await createImageBitmap(
-                await (await fetch('/source-shelf/cloth.webp')).blob()
+                await (await fetch('/source-shelf/book-neutral.webp')).blob()
               );
               const canvas = document.createElement('canvas');
               canvas.width = image.width;
               canvas.height = image.height;
               const context = canvas.getContext('2d');
-              if (!context) throw new Error('Missing texture sample context');
+              if (!context) throw new Error('Missing cover sample context');
               context.drawImage(image, 0, 0);
-              const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-              let darkest = 255;
-              for (let index = 0; index < pixels.length; index += 4)
-                darkest = Math.min(darkest, pixels[index], pixels[index + 1], pixels[index + 2]);
+              const pixels = context.getImageData(65, 60, 175, 240).data;
               image.close();
-              const luminance = (rgb: number[]) =>
-                rgb.reduce((sum, channel, index) => {
+              const rgb = (colour: string) =>
+                (colour.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+              const luminance = (channels: number[]) =>
+                channels.reduce((sum, channel, index) => {
                   const s = channel / 255;
                   return (
                     sum +
@@ -120,20 +133,18 @@ await withMemoryProjectBrowserStack(
                       [0.2126, 0.7152, 0.0722][index]
                   );
                 }, 0);
-              const rgb = (colour: string) =>
-                (colour.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
               return nodes.slice(0, 6).map(node => {
+                const tint = node.querySelector('.source-book-tint');
                 const cover = node.querySelector('.source-book-cover');
-                if (!cover) throw new Error('Missing book cover');
-                const style = getComputedStyle(cover);
-                const opacity = Number(getComputedStyle(cover, '::before').opacity);
-                const textured = rgb(style.backgroundColor).map(
-                  channel => channel * (1 - opacity + (opacity * darkest) / 255)
-                );
-                return {
-                  palette: node.getAttribute('data-palette'),
-                  ratio: (luminance(textured) + 0.05) / (luminance(rgb(style.color)) + 0.05),
-                };
+                if (!tint || !cover) throw new Error('Missing book layers');
+                const colour = rgb(getComputedStyle(tint).backgroundColor);
+                const ink = luminance(rgb(getComputedStyle(cover).color));
+                let minimum = Number.POSITIVE_INFINITY;
+                for (let i = 0; i < pixels.length; i += 4) {
+                  const background = colour.map((channel, c) => (channel * pixels[i + c]) / 255);
+                  minimum = Math.min(minimum, (luminance(background) + 0.05) / (ink + 0.05));
+                }
+                return { palette: node.getAttribute('data-palette'), ratio: minimum };
               });
             });
             assert(
@@ -142,62 +153,137 @@ await withMemoryProjectBrowserStack(
             );
             contrasts.push({ label, coverContrasts });
             await books.first().focus();
-            for (let index = 1; index < count; index += 1) await page.keyboard.press('Tab');
-            assert(await books.last().evaluate(element => document.activeElement === element));
+            await page.keyboard.press('ArrowRight');
+            assert(await books.nth(1).evaluate(element => element === document.activeElement));
+            await page.keyboard.press('End');
+            assert(await books.last().evaluate(element => element === document.activeElement));
             assert(
-              await shelf
-                .locator('ul.source-shelf-books')
-                .evaluate(element => element.scrollLeft > 0)
+              await shelf.locator('.source-shelf-books').evaluate(element => element.scrollLeft > 0)
             );
-            const finalBook = await books.last().boundingBox();
-            assert(
-              finalBook && finalBook.x >= 0 && finalBook.x + finalBook.width <= viewport.width
-            );
+            const last = await books.last().boundingBox();
+            assert(last && last.x >= 0 && last.x + last.width <= viewport.width);
             await page.screenshot({
               path: join(evidence, `${label}-keyboard-end.png`),
               fullPage: true,
               animations: 'disabled',
             });
+            await page.keyboard.press('Tab');
+            assert((await page.locator('.source-shelf-item:focus').count()) === 0);
           }
-          results.push({ label, ...geometry, elapsedMs: performance.now() - started });
-          await page.getByRole('button', { name: 'Rimuovi allegato', exact: true }).click();
-          await shelf.waitFor({ state: 'detached' });
+          results.push({ label, ...geometry, readyMs });
+          await clear(page);
         }
       }
     }
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    const chooser = page.waitForEvent('filechooser');
-    await page.locator('[data-home-chat-target=attachment]').click();
-    await (await chooser).setFiles([
-      {
-        name: 'Reduced-motion.md',
-        mimeType: 'text/markdown',
-        buffer: Buffer.from('# Synthetic source'),
-      },
+    await attach(page, 1, [
+      'Probabilità_condizionata_e_indipendenza_degli_eventi_con_applicazioni_alle_variabili_casuali_e_alla_statistica_inferenziale',
     ]);
+    await page.screenshot({
+      path: join(evidence, 'long-title.png'),
+      fullPage: true,
+      animations: 'disabled',
+    });
     const first = page.locator('.source-shelf-item').first();
-    await first.waitFor();
-    const resting = await first
-      .locator('.source-book')
-      .evaluate(element => getComputedStyle(element).transform);
     await first.focus();
     await first.hover();
-    assert.equal(
-      await first.locator('.source-book').evaluate(element => getComputedStyle(element).transform),
-      resting
+    const motion = await first.evaluate(element => {
+      const book = element.querySelector('.source-book');
+      if (!book) throw new Error('Missing book');
+      return {
+        transform: getComputedStyle(book).transform,
+        transition: getComputedStyle(book).transitionDuration,
+        animation: getComputedStyle(element).animationName,
+      };
+    });
+    assert.deepEqual(motion, { transform: 'none', transition: '0s', animation: 'none' });
+    await clear(page);
+
+    // Separate recorded contexts retain the real product, with no foreground browser.
+    const browser = page.context().browser();
+    assert(browser);
+    const videos: object[] = [];
+    for (const scene of [
+      { name: 'light', width: 1280, height: 800, dark: false },
+      { name: 'dark', width: 1280, height: 800, dark: true },
+      { name: 'mobile', width: 390, height: 844, dark: false },
+    ]) {
+      const context = await browser.newContext({
+        locale: 'it-IT',
+        viewport: { width: scene.width, height: scene.height },
+        recordVideo: { dir: evidence, size: { width: scene.width, height: scene.height } },
+        colorScheme: scene.dark ? 'dark' : 'light',
+      });
+      await context.addInitScript(
+        config => Object.assign(globalThis, { __NOUS_RUNTIME_CONFIG__: config }),
+        { authMode: 'local-bypass', backendUrl: url }
+      );
+      const recorded = await context.newPage();
+      recorded.on('pageerror', error => errors.push(error.message));
+      await recorded.goto(url, { waitUntil: 'domcontentloaded' });
+      await recorded
+        .getByRole('button', { name: 'Impara un nuovo argomento', exact: true })
+        .click();
+      await recorded.evaluate(
+        dark => document.documentElement.classList.toggle('dark', dark),
+        scene.dark
+      );
+      const start = Date.now();
+      await recorded.waitForTimeout(450);
+      await attach(recorded, 5);
+      await recorded.waitForTimeout(650);
+      const books = recorded.locator('.source-shelf-item');
+      await books.nth(1).hover();
+      await recorded.waitForTimeout(700);
+      await books.first().focus();
+      await recorded.keyboard.press('ArrowRight');
+      await recorded.waitForTimeout(700);
+      await clear(recorded);
+      await attach(recorded, 32);
+      await recorded.waitForTimeout(650);
+      await recorded.locator('.source-shelf-item').first().focus();
+      for (let index = 0; index < 7; index += 1) {
+        await recorded.keyboard.press('ArrowRight');
+        await recorded.waitForTimeout(200);
+      }
+      await recorded.keyboard.press('End');
+      await recorded.waitForTimeout(800);
+      const video = recorded.video();
+      assert(video);
+      const durationMs = Date.now() - start;
+      await context.close();
+      const path = join(evidence, `${scene.name}.webm`);
+      await video.saveAs(path);
+      videos.push({ scene: scene.name, path, durationMs });
+    }
+    const closeupContext = await browser.newContext({
+      viewport: { width: 1280, height: 800 },
+      deviceScaleFactor: 2,
+      locale: 'it-IT',
+    });
+    await closeupContext.addInitScript(
+      config => Object.assign(globalThis, { __NOUS_RUNTIME_CONFIG__: config }),
+      { authMode: 'local-bypass', backendUrl: url }
     );
-    assert.equal(
-      await first
-        .locator('.source-book')
-        .evaluate(element => getComputedStyle(element).transitionDuration),
-      '0s'
-    );
-    assert.equal(await first.evaluate(element => getComputedStyle(element).animationName), 'none');
+    const closeup = await closeupContext.newPage();
+    await closeup.goto(url);
+    await closeup.getByRole('button', { name: 'Impara un nuovo argomento', exact: true }).click();
+    await attach(closeup, 3);
+    await closeup
+      .locator('.source-shelf')
+      .screenshot({ path: join(evidence, 'three-books-2x.png'), animations: 'disabled' });
+    await closeupContext.close();
     assert.deepEqual(errors, []);
     await writeFile(
       join(evidence, 'result.json'),
-      JSON.stringify({ results, contrasts, reducedMotion: 'passed', pageErrors: errors }, null, 2)
+      JSON.stringify(
+        { results, videos, contrasts, reducedMotion: motion, pageErrors: errors },
+        null,
+        2
+      )
     );
   }
 );
-console.log('Source shelf: 12 upload/remove scenes, keyboard overflow and reduced motion passed.');
+console.log(
+  'Source shelf: 12 scenes, keyboard, reduced motion, 2x close-up and 3 recorded flows passed.'
+);
