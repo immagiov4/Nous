@@ -3,6 +3,7 @@ import {
   MAX_LESSON_SOURCE_CONTEXT_CHARS,
 } from '@shared/lessonSourceContext';
 import { expect, test, vi } from 'vitest';
+import { buildLegacySourceFixture } from '../../../web/tests/helpers/legacySourceIndex.ts';
 import type { ProjectStore } from '../../src/projects/types.js';
 import { resolveLessonSourceMaterials } from '../../src/services/lessonGenerationPreparation.js';
 import {
@@ -203,6 +204,17 @@ const mappedProject = {
     })),
   },
 } as never;
+
+test('mapped lesson sources project saved legacy chunk boundaries without mutating the index', () => {
+  const project = buildLegacySourceFixture(`𝑋${'a'.repeat(7_997)}𝑋${'z'.repeat(7_999)}`);
+  const before = JSON.stringify(project);
+  const context = buildMappedSourceContext(project as never, {});
+  const parts = readLessonPrimarySources(context);
+  expect(parts).toHaveLength(2);
+  expect(parts?.map(part => part.text).join('\n')).not.toMatch(/[\uD800-\uDFFF]/u);
+  expect(parts?.[0].text).toContain('𝑋');
+  expect(JSON.stringify(project)).toBe(before);
+});
 
 test('explicit chunks take priority over neighbors within the context cap', () => {
   const context = buildMappedSourceContext(mappedProject, {

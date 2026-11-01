@@ -3,6 +3,26 @@ import { formatSourceArchiveIndex } from '@shared/sourceArchiveIndex';
 import { expect, test } from 'vitest';
 import { clipText } from '../../utils/text';
 
+test('saved archive previews exclude old partial boundary characters before prompt formatting', () => {
+  const original = `𝑋${'a'.repeat(7_997)}𝑋tail`;
+  const index = {
+    entries: [
+      {
+        kind: 'file' as const,
+        path: 'symbols.txt',
+        contentKind: 'text' as const,
+        byteSize: original.length,
+        preview: original.slice(0, 8_000),
+      },
+    ],
+  };
+  const before = JSON.stringify(index);
+  const formatted = formatSourceArchiveIndex(index, { previewBudgetChars: 8_000 });
+  expect(formatted.split('\n').at(-1)).toBe(`𝑋${'a'.repeat(7_997)}`);
+  expect(formatted).not.toMatch(/[\uD800-\uDFFF]/u);
+  expect(JSON.stringify(index)).toBe(before);
+});
+
 test.each([
   ['head cut', 311, `${'a'.repeat(311)} ... ${'z'.repeat(163)}`],
   ['tail cut', 836, `${'a'.repeat(312)} ... ${'z'.repeat(162)}`],

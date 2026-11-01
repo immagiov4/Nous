@@ -19,3 +19,13 @@ export const sliceSourceText = (text: string, start: number, end = text.length):
   if (end <= start) return '';
   return text.slice(sourceTextEndOffset(text, start), sourceTextStartOffset(text, end));
 };
+
+/** Project historical UTF-16 samples without incomplete boundary characters. */
+export const clipSourceExcerptText = (text: string): string => {
+  const first = text.charCodeAt(0);
+  const last = text.charCodeAt(text.length - 1);
+  return text.slice(
+    first >= 0xdc00 && first <= 0xdfff ? 1 : 0,
+    last >= 0xd800 && last <= 0xdbff ? text.length - 1 : text.length
+  );
+};

@@ -1,10 +1,14 @@
 import type { AccountPreferences } from '@shared/accountPreferences.js';
 import request from 'supertest';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { buildLegacySourceFixture } from '../../../web/tests/helpers/legacySourceIndex.ts';
 import { playbackQuestion } from '../../../web/tests/helpers/playbackQuestion.ts';
 import type { LessonNode, ProjectSource } from '../../../web/types.js';
 import { buildConversationNoteCatalog } from '../../../web/utils/context/conversationNoteCatalog.js';
-import { resolveLessonSourceReferences } from '../../../web/utils/context/sourceMaterial.js';
+import {
+  buildContextSourceMaterial,
+  resolveLessonSourceReferences,
+} from '../../../web/utils/context/sourceMaterial.js';
 import type { ProjectStore } from '../../src/projects/types.js';
 import { createSupabaseTestToken } from '../helpers/auth.js';
 
@@ -1312,6 +1316,88 @@ describe('POST /api/chat/context', () => {
     expect(JSON.stringify({ input: [{ type: 'text', text: prompt }] })).not.toMatch(
       /\\u[dD][89a-fA-F][0-9a-fA-F]{2}/u
     );
+  });
+
+  test.each([
+    ['openrouter', false],
+    ['openrouter', true],
+    ['codex', false],
+    ['codex', true],
+  ] as const)('legacy chunk context remains well formed through %s (outer clipping: %s)', async (provider, clipped) => {
+    const fixture = buildLegacySourceFixture(`𝑋${'a'.repeat(7_997)}𝑋${'z'.repeat(7_999)}`);
+    const before = JSON.stringify(fixture);
+    const built = buildContextSourceMaterial({ activeSection: null, ...fixture });
+    if (!built.sourceMaterial) throw new Error('Missing legacy source material fixture');
+    expect(built.sourceMaterial.length).toBeLessThan(MAX_CONTEXT_CHARS);
+    const token = authenticateProvider(provider);
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        messages: [{ id: 'legacy-source', role: 'user', content: 'Explain this.' }],
+        selectedText: 'Mathematical symbol',
+        sourceMaterial: built.sourceMaterial + (clipped ? 'b'.repeat(MAX_CONTEXT_CHARS) : ''),
+      });
+    expect(response.status).toBe(200);
+    const options =
+      provider === 'codex'
+        ? codexStreamMocks.createCodexChatStream.mock.lastCall?.[0]
+        : aiMocks.streamText.mock.lastCall?.[0];
+    expect(options.system).not.toMatch(/[\uD800-\uDFFF]/u);
+    expect(options.system).toContain('𝑋');
+    expect(options.system).toContain('CHUNK legacy-0');
+    expect(options.system.includes('[context truncated]')).toBe(clipped);
+    const material = options.system
+      .split('AGGREGATE TEXT CONTEXT (unspecified):\n"""\n')[1]
+      .split('\n"""')[0];
+    expect(material).toBe(
+      clipped
+        ? `${built.sourceMaterial}${'b'.repeat(MAX_CONTEXT_CHARS - built.sourceMaterial.length)}\n\n[context truncated]`
+        : built.sourceMaterial
+    );
+    expect(JSON.stringify(fixture)).toBe(before);
+  });
+
+  test.each([
+    'openrouter',
+    'codex',
+  ] as const)('legacy ZIP preview context remains well formed through %s', async provider => {
+    const text = `𝑋${'a'.repeat(7_997)}𝑋tail`;
+    const source: ProjectSource = {
+      kind: 'archive',
+      name: 'legacy.zip',
+      file: { name: 'legacy.zip', mimeType: 'application/zip', data: 'UEs=' },
+      index: {
+        entries: [
+          {
+            kind: 'file',
+            path: 'symbols.txt',
+            contentKind: 'text',
+            byteSize: text.length,
+            preview: text.slice(0, 8_000),
+          },
+        ],
+      },
+    };
+    const before = JSON.stringify(source);
+    const built = buildContextSourceMaterial({ activeSection: null, documentIndex: null, source });
+    const token = authenticateProvider(provider);
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        messages: [{ id: 'legacy-zip', role: 'user', content: 'Explain.' }],
+        selectedText: 'Symbol',
+        sourceMaterial: built.sourceMaterial,
+      });
+    expect(response.status).toBe(200);
+    const options =
+      provider === 'codex'
+        ? codexStreamMocks.createCodexChatStream.mock.lastCall?.[0]
+        : aiMocks.streamText.mock.lastCall?.[0];
+    expect(options.system).not.toMatch(/[\uD800-\uDFFF]/u);
+    expect(options.system).toContain(`preview:\n𝑋${'a'.repeat(7_997)}`);
+    expect(JSON.stringify(source)).toBe(before);
   });
 
   test('retains provenance when aggregate source text exceeds the final prompt budget', async () => {

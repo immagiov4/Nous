@@ -8,6 +8,7 @@ import {
   PDF_MAPPING_TARGET_PROMPT_CHARS,
 } from '@shared/pdfDocumentPolicy';
 import { describe, expect, test, vi } from 'vitest';
+import { buildLegacySourceFixture } from '../../../web/tests/helpers/legacySourceIndex.ts';
 
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import {
@@ -144,6 +145,41 @@ const config: CourseGenerationWorkflowConfig = {
   models: getGlobalModelConfig(),
   timeoutMs: 600_000,
 };
+
+test('mapping a resumed legacy index projects complete source previews without changing saved chunks', async () => {
+  const fixture = buildLegacySourceFixture(`𝑋${'a'.repeat(7_997)}𝑋${'z'.repeat(7_999)}`);
+  const index = JSON.parse(
+    JSON.stringify({ ...documentIndex, chunks: fixture.documentIndex.chunks })
+  );
+  const before = JSON.stringify(index);
+  const batches = buildCourseChunkMappingBatches({
+    index,
+    lessonIds: ['lesson-1'],
+    mode: 'fast',
+    plan: planState('source-set').plan,
+  });
+  const generateObject = vi.fn(async (request: { prompt: string }) => {
+    const input = JSON.parse(request.prompt);
+    expect(input.chunks).toHaveLength(2);
+    expect(
+      input.chunks.every(
+        (chunk: { textPreview: string }) =>
+          !/[\uD800-\uDFFF]/u.test(chunk.textPreview) &&
+          chunk.textPreview.length <= PDF_MAPPING_MAX_CHUNK_PREVIEW_CHARS
+      )
+    ).toBe(true);
+    return { mappings: [{ lessonId: 'lesson-1', chunkIds: [input.chunks[0].id] }] };
+  });
+  const mapper = createCourseLessonChunkBatchMapper(generateObject as never);
+  const result = await mapper({
+    batch: batches[0],
+    config: config.models,
+    retryFeedback: '',
+    signal: new AbortController().signal,
+  });
+  expect(result.mappings[0].lessonId).toBe('lesson-1');
+  expect(JSON.stringify(index)).toBe(before);
+});
 
 const stageContext = <Input>(input: Input, attemptNumber = 1, maxAttempts = 3) => ({
   attemptNumber,

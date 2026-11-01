@@ -12,7 +12,7 @@ import type { LessonWorkflowWarning } from '@shared/lessonWorkflowContract';
 import { LESSON_PDF_IMAGE_EXTRACTION_LIMIT } from '@shared/pdfImagePolicy';
 import { readPdfTranscribedPages } from '@shared/pdfTranscription';
 import { SOURCE_ARCHIVE_LESSON_CONTEXT_MAX_BYTES } from '@shared/sourceArchiveSelectors';
-import { sliceSourceText } from '@shared/sourceTextSlice';
+import { clipSourceExcerptText, sliceSourceText } from '@shared/sourceTextSlice';
 import {
   formatYouTubeTranscript,
   parseYouTubeTranscript,
@@ -255,7 +255,7 @@ export const buildMappedSourceContext = (
       return [
         {
           source,
-          text: `CHUNK ${String(chunk.id)}\nHeading path: ${headingPath.join(' > ') || 'Nessuno'}\n${chunk.text.trim()}`,
+          text: `CHUNK ${String(chunk.id)}\nHeading path: ${headingPath.join(' > ') || 'Nessuno'}\n${clipSourceExcerptText(chunk.text).trim()}`,
         },
       ];
     });
