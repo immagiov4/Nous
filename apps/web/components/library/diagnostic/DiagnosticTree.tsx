@@ -70,6 +70,7 @@ function Topic({
       <button
         type="button"
         className="diagnostic-topic"
+        disabled={!expandable}
         aria-expanded={expandable ? open : undefined}
         onClick={() => {
           if (expandable) onToggle(topic.id);

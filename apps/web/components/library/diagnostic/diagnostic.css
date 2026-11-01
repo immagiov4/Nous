@@ -21,8 +21,10 @@ div:has(> .diagnostic-flow[data-stage="self-assessment"]) {
   outline-offset: 3px;
 }
 .diagnostic-flow button:disabled {
-  opacity: 0.45;
   cursor: default;
+}
+.diagnostic-flow button:disabled:not(.diagnostic-topic) {
+  opacity: 0.45;
 }
 .diagnostic-primary,
 .diagnostic-secondary {

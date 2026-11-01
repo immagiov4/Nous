@@ -449,6 +449,9 @@ describe('self-assessment cascade decisions', () => {
       <DiagnosticFlow adapter={{ collectionId: 'cascade', initial: stage, submit: vi.fn() }} />
     );
     const header = screen.getByRole('button', { name: /^Marketing/ });
+    expect(header).toBeDisabled();
+    await user.tab();
+    expect(screen.getByRole('slider', { name: 'Marketing' })).toHaveFocus();
     expect(header).not.toHaveAttribute('aria-expanded');
     await user.click(header);
     fireEvent.keyDown(screen.getByRole('slider', { name: 'Marketing' }), { key: 'End' });
@@ -457,5 +460,12 @@ describe('self-assessment cascade decisions', () => {
       'true'
     );
     expect(screen.getByRole('slider', { name: 'Pubblico' })).toBeInTheDocument();
+    expect(header).toBeEnabled();
+    const leaf = screen.getByRole('button', { name: /^Posizionamento/ });
+    expect(leaf).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Posizionamento' }), { key: 'End' });
+    expect(leaf).toBeDisabled();
+    await user.click(header);
+    expect(header).toHaveAttribute('aria-expanded', 'false');
   });
 });
