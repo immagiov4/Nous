@@ -2002,6 +2002,7 @@ function ContextAnswerPanelSession({
         target?.text ??
         (inputValue?.passageId === undefined ? inputValue?.selectedTextDraft : undefined);
       const outputValue = readContextNoteResult(part.output);
+      const isRecoveredNote = recoveredNoteToolCallIds.has(part.toolCallId);
       const correction = pendingNoteCorrection.read();
       const isCorrectingNote =
         (isLoading || isWaitingForNoteDecision) &&
@@ -2019,11 +2020,11 @@ function ContextAnswerPanelSession({
         hasExistingNote ? 'Vuoi aggiornare la nota collegata?' : 'Vuoi aggiungerlo alle note?'
       );
       if (outputValue?.status === 'validation_error')
-        cardTitle = t(CONTEXT_NOTE_MESSAGES.unavailable);
+        cardTitle = t(isRecoveredNote ? 'Nota proposta' : CONTEXT_NOTE_MESSAGES.unavailable);
       const approveLabel = t(hasExistingNote ? 'Aggiorna nota' : 'Aggiungi alle note');
 
       const renderResultPill = () => {
-        if (!outputValue) {
+        if (!outputValue || isRecoveredNote) {
           return null;
         }
 
@@ -2184,7 +2185,7 @@ function ContextAnswerPanelSession({
           {outputValue?.status === 'validation_error' &&
           noteDraft !== undefined &&
           !isCorrectingNote &&
-          !recoveredNoteToolCallIds.has(part.toolCallId) ? (
+          !isRecoveredNote ? (
             <button
               type="button"
               disabled={isComposerDisabled}

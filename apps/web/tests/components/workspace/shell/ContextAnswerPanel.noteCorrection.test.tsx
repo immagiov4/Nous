@@ -119,6 +119,7 @@ test('one automatic choose_passage correction preserves the draft and still requ
   render(panel());
   const approve = await screen.findByRole('button', { name: 'Aggiungi alle note' });
   expect(screen.queryByRole('button', { name: 'Riprendi bozza' })).not.toBeInTheDocument();
+  expect(screen.queryByText(/Puoi riprendere la bozza/)).not.toBeInTheDocument();
   expect(flow.requests).toHaveLength(2);
   expect(flow.requests[1].messages.filter(message => message.role === 'user')).toHaveLength(1);
   expect(flow.requests[1].messages.flatMap(message => message.parts)).toContainEqual(
