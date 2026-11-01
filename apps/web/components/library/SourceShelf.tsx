@@ -21,7 +21,6 @@ const COVER_PALETTE = ['cream', 'terracotta', 'sage', 'blue', 'brown', 'mauve'] 
 const sourceTitle = (name: string) =>
   name
     .replace(/\.[^.]+$/, '')
-    .replace(/^\d+[\s_.-]+/, '')
     .replaceAll(/[_-]+/g, ' ')
     .trim() || name;
 

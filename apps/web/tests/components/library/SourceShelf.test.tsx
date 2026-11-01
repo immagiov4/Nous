@@ -12,13 +12,14 @@ const sources = [
 ];
 
 describe('SourceShelf', () => {
-  test('shows a filename title once after removing its numeric ordering prefix', () => {
-    render(
-      <SourceShelf sources={[{ key: 'numbered', name: '01_Probabilità_concetti_di_base.pdf' }]} />
-    );
-    const book = screen.getByRole('listitem', { name: '01_Probabilità_concetti_di_base.pdf' });
-    expect(within(book).getByText('Probabilità concetti di base')).toBeVisible();
-    expect(within(book).getByText('01')).toBeVisible();
+  test('keeps numeric filename content visible so year-based sources remain distinct', () => {
+    const names = ['01_Probabilità.pdf', '2023_report.pdf', '2024_report.pdf'];
+    render(<SourceShelf sources={names.map(name => ({ key: name, name }))} />);
+    for (const [index, title] of ['01 Probabilità', '2023 report', '2024 report'].entries()) {
+      expect(
+        within(screen.getByRole('listitem', { name: names[index] })).getByText(title)
+      ).toBeVisible();
+    }
   });
 
   test('renders pending attachments in English without losing status or removal', () => {

@@ -78,7 +78,7 @@ await withMemoryProjectBrowserStack(
           assert.equal(await books.count(), count);
           assert.equal(
             await books.first().locator('.source-book-title').textContent(),
-            'Probabilità concetti di base'
+            '01 Probabilità concetti di base'
           );
           assert.equal(
             await books.first().getAttribute('aria-label'),
