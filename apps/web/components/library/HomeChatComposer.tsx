@@ -673,7 +673,7 @@ export default function HomeChatComposer({
   return (
     <div
       ref={surfaceRootRef}
-      className={`max-md:shrink-0 ${
+      className={`shrink-0 ${
         compactSurface
           ? 'border-0 p-0'
           : 'border-t border-gray-100 px-4 pb-4 pt-3 dark:border-zinc-700/50 sm:px-5'

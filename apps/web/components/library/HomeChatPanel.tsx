@@ -12,6 +12,7 @@ import type {
   ChatArtifactRegenerateRequest,
   ChatArtifactReplaceRequest,
 } from '../shared/ChatArtifactRenderer.tsx';
+import CourseSetupHeader from './CourseSetupHeader.tsx';
 import { deriveCourseSetupPhase } from './courseSetupPhase.ts';
 import type { DiagnosticAdapter } from './diagnostic/diagnosticFlow.ts';
 import HomeChatComposer, {
@@ -189,7 +190,6 @@ export default function HomeChatPanel({
   return (
     <HomeChatPanelFrame
       setupPhase={setupPhase}
-      sourceCount={sourceCount}
       hasActiveChat={hasActiveChat || Boolean(setupPhase)}
       hideHeaderCopy={hideHeaderCopy}
       hideModeSelector={hideModeSelector}
@@ -205,6 +205,16 @@ export default function HomeChatPanel({
       viewportHeight={viewportHeight}
     >
       <HomeChatConversation
+        setupHeader={
+          setupPhase ? (
+            <CourseSetupHeader
+              phase={setupPhase}
+              sourceCount={sourceCount}
+              isLoading={isLoading}
+              onAbandon={onCancelNewCourse}
+            />
+          ) : undefined
+        }
         coursePreferences={coursePreferences}
         diagnosticAdapter={diagnosticAdapter}
         assessmentComplete={assessmentComplete}

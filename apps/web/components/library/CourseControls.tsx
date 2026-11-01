@@ -12,14 +12,14 @@ const CONTROL_PRESENTATION = {
   depth: {
     icon: BookOpen,
     question: 'Quanto vuoi andare nel dettaglio?',
-    start: 'Più pratico (con esempi e intuizioni)',
-    end: 'Più teorico (con dimostrazioni e formalismi)',
+    start: 'Essenziale (solo il necessario)',
+    end: 'Approfondito (più esempi, casi e collegamenti)',
   },
   granularity: {
     icon: ListTree,
     question: 'Quanto piccoli vuoi che siano gli argomenti?',
-    start: 'Argomenti più ampi (visione e quadro generale)',
-    end: 'Passi piccoli (un tema alla volta)',
+    start: 'Lezioni più corpose (argomenti collegati insieme)',
+    end: 'Passi piccoli (risultati separati in più lezioni)',
   },
 } as const;
 

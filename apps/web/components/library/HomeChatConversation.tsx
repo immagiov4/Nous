@@ -27,6 +27,7 @@ import type { DiagnosticAdapter } from './diagnostic/diagnosticFlow.ts';
 type LibraryToolPart = Extract<UIMessage['parts'][number], { type: `tool-${string}` }>;
 
 interface HomeChatConversationProps {
+  readonly setupHeader?: ReactNode;
   readonly coursePreferences?: ReactNode;
   readonly diagnosticAdapter?: DiagnosticAdapter;
   readonly assessmentComplete: boolean;
@@ -572,6 +573,7 @@ const getConversationContentLength = (
     : libraryMessages.reduce((total, message) => total + getUiMessageText(message).length, 0);
 
 export default function HomeChatConversation({
+  setupHeader,
   coursePreferences,
   diagnosticAdapter,
   assessmentComplete,
@@ -615,6 +617,8 @@ export default function HomeChatConversation({
   );
   const activeMessages =
     homeChatMode === 'new-course' ? assessmentMessages : visibleLibraryMessages;
+  const hasPreferences = Boolean(coursePreferences);
+  const diagnosticKind = visibleDiagnostic?.initial.kind;
   const hasMessages = activeMessages.length > 0 || Boolean(visibleDiagnostic);
   const activeContentLength = getConversationContentLength(
     homeChatMode,
@@ -649,11 +653,18 @@ export default function HomeChatConversation({
     const diagnostic =
       diagnosticRef.current ??
       messagesScroll.querySelector<HTMLElement>('[data-course-preferences]');
-    if (diagnostic) {
+    if (diagnostic && !hasPreferences && diagnosticKind) {
       messagesScroll.scrollTop +=
         diagnostic.getBoundingClientRect().top - messagesScroll.getBoundingClientRect().top;
     } else messagesScroll.scrollTop = messagesScroll.scrollHeight;
-  }, [activeMessages, assessmentComplete, isLoading, scrollProgressOverride]);
+  }, [
+    activeMessages,
+    assessmentComplete,
+    isLoading,
+    scrollProgressOverride,
+    hasPreferences,
+    diagnosticKind,
+  ]);
 
   return (
     <div
@@ -666,6 +677,7 @@ export default function HomeChatConversation({
       )} ${visibleDiagnostic ? 'md:!h-[75dvh]' : ''}`}
       style={scrollProgressOverride === undefined ? undefined : { overflowY: 'hidden' }}
     >
+      {setupHeader}
       <div
         className={`space-y-3.5 ${scrollProgressOverride === undefined ? '' : 'pb-20'}`}
         style={

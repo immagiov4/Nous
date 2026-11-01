@@ -54,7 +54,7 @@ export default function CourseSetupHeader({
         {sourceCount > 0 && (
           <span className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white/80 px-3 py-1 text-xs text-stone-600 dark:border-white/10 dark:bg-white/5 dark:text-stone-300">
             <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
-            {t('{sourceCount} fonti', { sourceCount })}
+            {t(sourceCount === 1 ? '{sourceCount} fonte' : '{sourceCount} fonti', { sourceCount })}
           </span>
         )}
         <motion.ol

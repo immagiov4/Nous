@@ -346,6 +346,16 @@ describe('HomeChatPanel', () => {
     expect(props.onCancelNewCourse).toHaveBeenCalledOnce();
   });
 
+  test('reveals newly arrived preferences even when completion and messages are unchanged', () => {
+    const props = { ...buildProps(), assessmentComplete: true };
+    const { container, rerender } = render(<HomeChatPanel {...props} />);
+    const viewport = container.querySelector('.home-chat-scrollbar') as HTMLDivElement;
+    Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 720 });
+    viewport.scrollTop = 0;
+    rerender(<HomeChatPanel {...props} coursePreferences={<div>Preferences</div>} />);
+    expect(viewport.scrollTop).toBe(720);
+  });
+
   test('follows streaming growth inside the messages viewport without scrolling the page', () => {
     setViewportWidth(390);
     const props = buildProps();
@@ -487,7 +497,7 @@ describe('HomeChatPanel', () => {
     if (!(scrollContainer instanceof HTMLDivElement)) {
       throw new Error('Expected the home chat scroll container.');
     }
-    const messagesContent = scrollContainer.firstElementChild;
+    const messagesContent = scrollContainer.lastElementChild;
     if (!(messagesContent instanceof HTMLDivElement)) {
       throw new Error('Expected the home chat messages content.');
     }

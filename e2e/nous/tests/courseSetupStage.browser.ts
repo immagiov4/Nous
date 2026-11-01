@@ -10,20 +10,25 @@ await mkdir(evidence, { recursive: true });
 await withMemoryProjectBrowserStack(
   {
     userId: 'setup-stage-user',
+    recordVideo: {
+      dir: evidence,
+      size: process.env.SETUP_MOBILE ? { width: 390, height: 844 } : { width: 1280, height: 800 },
+    },
     appOptions: {
       courseGenerationApi: { ...unavailableCourseGenerationApi, getActive: async () => null },
     },
   },
   async ({ page, url }) => {
+    const recordingStarted = performance.now();
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     const results: unknown[] = [];
-    for (const mobile of [false, true]) {
+    for (const mobile of [Boolean(process.env.SETUP_MOBILE)]) {
       for (const dark of [false, true]) {
         const started = performance.now();
         const scene = `${mobile ? 'mobile' : 'desktop'}-${dark ? 'dark' : 'light'}`;
         await page.setViewportSize(
-          mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 }
+          mobile ? { width: 390, height: 844 } : { width: 1280, height: 800 }
         );
         await page.emulateMedia({
           colorScheme: dark ? 'dark' : 'light',
@@ -206,13 +211,49 @@ await withMemoryProjectBrowserStack(
           'Obiettivo'
         );
         assert.equal(await page.locator('[data-setup-phase=sources]').count(), mobile ? 0 : 1);
-        await page.screenshot({ path: join(evidence, `${scene}-interview.png`), fullPage: true });
+        const clipStart = performance.now();
+        await page.screenshot({ path: join(evidence, `${scene}-interview.png`), fullPage: false });
+        if (!mobile) assert(await page.getByText('1 fonte', { exact: true }).isVisible());
+        if (mobile) {
+          await page.setViewportSize({ width: 390, height: 400 });
+          await page.waitForTimeout(500);
+          await input.scrollIntoViewIfNeeded();
+          await input.focus();
+          await input.fill('Risposta con la tastiera aperta');
+          await page.waitForTimeout(500);
+          await input.scrollIntoViewIfNeeded();
+          const bounds = await input.boundingBox();
+          assert(
+            bounds && bounds.y >= 0 && bounds.y + bounds.height <= 400,
+            'Composer must fit the keyboard viewport'
+          );
+          await page.screenshot({ path: join(evidence, `${scene}-keyboard.png`) });
+          await page.waitForTimeout(1500);
+          await page.setViewportSize({ width: 390, height: 844 });
+          await page.waitForTimeout(500);
+          await stage.scrollIntoViewIfNeeded();
+        }
+        await page.waitForTimeout(1000);
         await input.fill('Vorrei capire gli esempi applicati ai dati.');
         await input.press('Enter');
         await page.getByText('Valutazione risposta...', { exact: true }).waitFor();
-        await page.screenshot({ path: join(evidence, `${scene}-evaluating.png`), fullPage: true });
+        await page.screenshot({ path: join(evidence, `${scene}-evaluating.png`), fullPage: false });
+        await page.waitForTimeout(1500);
         releaseAnswer();
         await page.locator('[data-course-setup-phase=preferences]').waitFor();
+        const initialConfirm = await page
+          .locator('[data-home-chat-target=confirm-generate]')
+          .boundingBox();
+        const initialComposer = await input.boundingBox();
+        assert(
+          initialConfirm &&
+            initialComposer &&
+            initialConfirm.y + initialConfirm.height <= initialComposer.y,
+          'New preferences reveal the confirmation automatically'
+        );
+        await page.locator('[data-course-preferences]').scrollIntoViewIfNeeded();
+        await page.waitForTimeout(700);
+        await page.screenshot({ path: join(evidence, `${scene}-controls.png`), fullPage: false });
         const depth = page.getByRole('slider', { name: 'Approfondimento' });
         const size = page.getByRole('slider', { name: 'Granularità' });
         await depth.focus();
@@ -221,13 +262,21 @@ await withMemoryProjectBrowserStack(
         await size.press('End');
         assert.equal(await depth.inputValue(), '3');
         assert.equal(await size.inputValue(), '4');
-        await page.locator('[data-course-preferences]').evaluate(element => {
-          const scroll = element.closest('.home-chat-scrollbar');
-          if (scroll)
-            scroll.scrollTop +=
-              element.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
+        const confirm = page.locator('[data-home-chat-target=confirm-generate]');
+        await confirm.scrollIntoViewIfNeeded();
+        const confirmBounds = await confirm.boundingBox();
+        const composerBounds = await input.boundingBox();
+        assert(
+          confirmBounds &&
+            composerBounds &&
+            confirmBounds.y + confirmBounds.height <= composerBounds.y,
+          'Confirmation must be above composer'
+        );
+        await page.screenshot({
+          path: join(evidence, `${scene}-preferences.png`),
+          fullPage: false,
         });
-        await page.screenshot({ path: join(evidence, `${scene}-preferences.png`), fullPage: true });
+        await page.waitForTimeout(1500);
         assert(
           await stage.evaluate(
             element => element.clientWidth >= (element.parentElement?.clientWidth ?? 0) - 2
@@ -240,7 +289,23 @@ await withMemoryProjectBrowserStack(
           kind: 'approve',
           coursePlanningControls: { depth: 'more', granularity: 'much-less' },
         });
-        await page.screenshot({ path: join(evidence, `${scene}-knowledge.png`), fullPage: true });
+        await page.waitForTimeout(500);
+        await page.locator('.home-chat-scrollbar').evaluate(element => {
+          element.scrollTop = 0;
+        });
+        assert.equal(
+          await page.locator('[aria-current=step]').getAttribute('aria-label'),
+          'Conoscenze'
+        );
+        await page.screenshot({ path: join(evidence, `${scene}-knowledge.png`), fullPage: false });
+        await page.waitForTimeout(1500);
+        results.push({
+          scene,
+          clipDurationMs: performance.now() - clipStart,
+          clipStartMs: clipStart - recordingStarted,
+          clipEndMs: performance.now() - recordingStarted,
+          video: await page.video()?.path(),
+        });
         await page.getByRole('slider', { name: 'Probabilità' }).focus();
         await page.getByRole('slider', { name: 'Probabilità' }).press('Home');
         await page.getByRole('button', { name: 'Continua', exact: true }).click();
