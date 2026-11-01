@@ -8,20 +8,21 @@ import { useId } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { MarkedSlider } from '../shared/MarkedSlider.tsx';
 
-const CONTROL_PRESENTATION = {
-  depth: {
-    icon: BookOpen,
-    question: 'Quanto vuoi andare nel dettaglio?',
-    start: 'Essenziale (solo il necessario)',
-    end: 'Approfondito (più esempi, casi e collegamenti)',
-  },
-  granularity: {
-    icon: ListTree,
-    question: 'Quanto piccoli vuoi che siano gli argomenti?',
-    start: 'Lezioni più corpose (argomenti collegati insieme)',
-    end: 'Passi piccoli (risultati separati in più lezioni)',
-  },
-} as const;
+const getControlPresentation = () =>
+  ({
+    depth: {
+      icon: BookOpen,
+      question: t('Quanto vuoi andare nel dettaglio?'),
+      start: t('Essenziale'),
+      end: t('Approfondito'),
+    },
+    granularity: {
+      icon: ListTree,
+      question: t('Quanto piccoli vuoi che siano gli argomenti?'),
+      start: t('Lezioni corpose'),
+      end: t('Passi piccoli'),
+    },
+  }) as const;
 
 const CONTROL_LABELS = {
   depth: 'Approfondimento',
@@ -75,7 +76,7 @@ export function CourseControls({
             ? [...COURSE_CONTROL_POSITIONS].reverse()
             : COURSE_CONTROL_POSITIONS;
         const position = orderedPositions.indexOf(value[control]);
-        const presentation = CONTROL_PRESENTATION[control];
+        const presentation = getControlPresentation()[control];
         const Icon = presentation.icon;
         const baseline = hasReferenceMaterial ? t('Come il materiale') : t('Bilanciato');
         const relative = hasReferenceMaterial
@@ -104,7 +105,7 @@ export function CourseControls({
                 {t(CONTROL_LABELS[control])}
               </label>
               <p className="-mt-2 text-sm text-gray-500 dark:text-zinc-400">
-                {t(presentation.question)}
+                {presentation.question}
               </p>
               <MarkedSlider
                 id={inputId}
@@ -118,11 +119,15 @@ export function CourseControls({
                 disabled={disabled}
                 onChange={event => updatePosition(Number.parseInt(event.currentTarget.value, 10))}
               />
-              <div className="flex justify-between gap-4 text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                <span className="max-w-[45%]">{t(presentation.start)}</span>
-                <span className="max-w-[45%] text-right">{t(presentation.end)}</span>
+              <div
+                aria-hidden="true"
+                className="grid grid-cols-3 gap-2 text-xs leading-5 text-gray-500 dark:text-zinc-400"
+              >
+                <span>{presentation.start}</span>
+                <span className="text-center">{baseline}</span>
+                <span className="text-right">{presentation.end}</span>
               </div>
-              <p id={`${inputId}-description`} className="text-sm text-gray-600 dark:text-zinc-400">
+              <p id={`${inputId}-description`} className="sr-only">
                 {description}
               </p>
             </div>

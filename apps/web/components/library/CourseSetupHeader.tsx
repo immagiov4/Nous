@@ -6,13 +6,14 @@ import { SPRING_TAP } from '../../utils/motion/tokens.ts';
 import { COURSE_SETUP_PHASES, type CourseSetupPhase } from './courseSetupPhase.ts';
 import type { StopGenerationHandler } from './HomeChatComposer.tsx';
 
-const PHASE_LABELS = {
-  sources: 'Fonti',
-  goal: 'Obiettivo',
-  preferences: 'Preferenze',
-  knowledge: 'Conoscenze',
-  plan: 'Piano',
-} as const;
+const phaseLabel = (phase: CourseSetupPhase): string =>
+  ({
+    sources: t('Fonti'),
+    goal: t('Obiettivo'),
+    preferences: t('Preferenze'),
+    knowledge: t('Conoscenze'),
+    plan: t('Piano'),
+  })[phase];
 
 export default function CourseSetupHeader({
   phase,
@@ -72,11 +73,11 @@ export default function CourseSetupHeader({
             return (
               <li
                 key={candidate}
-                aria-label={t(PHASE_LABELS[candidate])}
+                aria-label={phaseLabel(candidate)}
                 aria-current={candidate === phase ? 'step' : undefined}
                 data-setup-phase={candidate}
                 data-state={state}
-                title={t(PHASE_LABELS[candidate])}
+                title={phaseLabel(candidate)}
                 className="flex items-center"
               >
                 {index > 0 && (
@@ -93,7 +94,7 @@ export default function CourseSetupHeader({
             );
           })}
         </motion.ol>
-        <output className="sr-only">{t(PHASE_LABELS[phase])}</output>
+        <output className="sr-only">{phaseLabel(phase)}</output>
       </div>
     </header>
   );

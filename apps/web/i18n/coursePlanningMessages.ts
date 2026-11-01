@@ -9,12 +9,10 @@ export const COURSE_PLANNING_MESSAGES = {
   Piano: 'Plan',
   'Quanto vuoi andare nel dettaglio?': 'How much detail would you like?',
   'Quanto piccoli vuoi che siano gli argomenti?': 'How small would you like each topic to be?',
-  'Essenziale (solo il necessario)': 'Essential (only what you need)',
-  'Approfondito (più esempi, casi e collegamenti)':
-    'In depth (more examples, cases and connections)',
-  'Lezioni più corpose (argomenti collegati insieme)': 'Fuller lessons (related topics together)',
-  'Passi piccoli (risultati separati in più lezioni)':
-    'Small steps (separate results across more lessons)',
+  Essenziale: 'Essential',
+  Approfondito: 'In depth',
+  'Lezioni corpose': 'Fuller lessons',
+  'Passi piccoli': 'Small steps',
   Approfondimento: 'Depth',
   Granularità: 'Lesson size',
   'Molto più essenziale': 'Much more concise',
