@@ -104,12 +104,15 @@ export function CourseControls({
               >
                 {t(CONTROL_LABELS[control])}
               </label>
-              <p className="-mt-2 text-sm text-gray-500 dark:text-zinc-400">
+              <p
+                id={`${inputId}-question`}
+                className="-mt-2 text-sm text-gray-500 dark:text-zinc-400"
+              >
                 {presentation.question}
               </p>
               <MarkedSlider
                 id={inputId}
-                aria-describedby={`${inputId}-description`}
+                aria-describedby={`${inputId}-question ${inputId}-description`}
                 aria-valuetext={description}
                 min={0}
                 max={COURSE_CONTROL_POSITIONS.length - 1}

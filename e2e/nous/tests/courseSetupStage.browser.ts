@@ -43,7 +43,7 @@ for (const mobile of process.env.SETUP_MOBILE ? [true] : [false, true]) {
         );
         let projectId = '';
         let phase: 'goal' | 'preferences' | 'knowledge' | 'plan' | 'cancelled' = 'goal';
-        let releaseAnswer: () => void = () => {};
+        const answerGate = Promise.withResolvers<void>();
         let approval: unknown;
         let cancellations = 0;
         const timestamp = '2026-11-01T12:00:00.000Z';
@@ -81,9 +81,7 @@ for (const mobile of process.env.SETUP_MOBILE ? [true] : [false, true]) {
           if (request.method() === 'POST') {
             const signal = request.postDataJSON();
             if (signal.signalType === 'user-answer') {
-              await new Promise<void>(resolve => {
-                releaseAnswer = resolve;
-              });
+              await answerGate.promise;
               phase = 'preferences';
             } else if (signal.signalType === 'course-decision') {
               approval = signal.payload;
@@ -248,7 +246,7 @@ for (const mobile of process.env.SETUP_MOBILE ? [true] : [false, true]) {
         await page.getByText('Valutazione risposta...', { exact: true }).waitFor();
         await page.screenshot({ path: join(evidence, `${scene}-evaluating.png`), fullPage: false });
         await page.waitForTimeout(1500);
-        releaseAnswer();
+        answerGate.resolve();
         await page.locator('[data-course-setup-phase=preferences]').waitFor();
         const initialConfirm = await page
           .locator('[data-home-chat-target=confirm-generate]')

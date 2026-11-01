@@ -133,7 +133,8 @@ export const LibraryScreenContainer = ({
   } = controller;
   const source = controller.source;
   let sourceCount = pendingHomeSourceFiles.length;
-  if (source) sourceCount = 'sources' in source && source.sources ? source.sources.length : 1;
+  if (source && pendingHomeSourceFiles.length === 0)
+    sourceCount = 'sources' in source && source.sources ? source.sources.length : 1;
   const assessmentComplete = Boolean(controller.courseProposal) && !isAddingAssessmentDetails;
   const isNewCourseLoading =
     controller.workflowState.assessment.status === 'pending' || isConfirmingCourse;
