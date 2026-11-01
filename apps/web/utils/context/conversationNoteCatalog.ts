@@ -1,5 +1,6 @@
-import type { ContextNoteResult } from '@shared/contextNote';
-import { type ContextNoteRecord, fitContextNoteView } from '@shared/contextNoteCatalog';
+import { type ContextNoteResult, createContextNoteValidationError } from '@shared/contextNote';
+import { type ContextNoteRecord, readContextNoteSnapshotId } from '@shared/contextNoteCatalog';
+import { MAX_CONTEXT_CHAT_FIELD_CHARS } from '@shared/lessonSourceContext';
 import type { ConversationSelectionAnchor } from '../../components/workspace/shell/types.ts';
 import type { SectionAnnotationTextSelector } from '../../types.ts';
 import { createSectionAnnotationSelector } from '../learning/sectionAnnotationAnchors.ts';
@@ -7,6 +8,7 @@ import { resolveSelectedSegments } from '../learning/sectionAnnotationProjection
 import {
   getMarkdownAnnotationProtectedRanges,
   type MarkdownRange,
+  mergeOverlappingMarkdownRanges,
   parseMarkdownAnalysis,
 } from '../markdown/codeRanges.ts';
 import {
@@ -64,47 +66,49 @@ export const validateConversationNotePassage = ({
   )
     return {
       target,
-      error: {
-        status: 'validation_error',
-        code: 'stale_context',
-        recovery: 'refresh_context',
-        availablePassageIds: [],
-      },
+      error: createContextNoteValidationError('stale_context', []),
     };
   if (target) return { target };
   if (!catalog.entries.length)
     return {
-      error: {
-        status: 'validation_error',
-        code: 'no_annotatable_passage',
-        recovery: 'unavailable',
-        availablePassageIds: [],
-      },
+      error: createContextNoteValidationError('no_annotatable_passage', []),
     };
   return {
-    error: {
-      status: 'validation_error',
-      code: 'unknown_passage',
-      recovery: 'choose_passage',
-      availablePassageIds: catalog.entries.map(entry => entry.id),
-    },
+    error: createContextNoteValidationError(
+      'unknown_passage',
+      catalog.entries.map(entry => entry.id)
+    ),
   };
 };
 
-const markableProjectionRuns = (
+const buildProtectedProjectionIndexes = (
   projection: VisibleProjection,
+  ranges: MarkdownRange[]
+) => {
+  const indexes = new Set<number>();
+  let cursor = 0;
+  for (let index = 0; index < projection.text.length; index++) {
+    while (cursor < ranges.length && ranges[cursor].end <= projection.sourceIndexes[index])
+      cursor++;
+    const range = ranges[cursor];
+    if (
+      range &&
+      projection.sourceEnds[index] > range.start &&
+      projection.sourceIndexes[index] < range.end
+    )
+      indexes.add(index);
+  }
+  return indexes;
+};
+
+const markableProjectionRuns = (
   range: MarkdownRange,
-  protectedRanges: MarkdownRange[]
+  protectedIndexes: ReadonlySet<number>
 ): MarkdownRange[] => {
   const runs: MarkdownRange[] = [];
   let start = range.start;
   for (let index = range.start; index < range.end; index++) {
-    if (
-      !protectedRanges.some(
-        r => projection.sourceIndexes[index] < r.end && projection.sourceEnds[index] > r.start
-      )
-    )
-      continue;
+    if (!protectedIndexes.has(index)) continue;
     runs.push({ start, end: index });
     start = index + 1;
   }
@@ -139,21 +143,62 @@ const buildNoteLessonRecords = (
   content: string,
   entries: ConversationNotePassage[]
 ): ContextNoteRecord[] => {
-  // The captured selection retains the existing focused-context priority; the lesson body stays in source order.
-  const records: ContextNoteRecord[] = entries
-    .filter(entry => entry.kind === 'selection')
-    .map(entry => ({ id: entry.id, kind: entry.kind, text: entry.text }));
+  const records: ContextNoteRecord[] = [];
   let sourceCursor = 0;
-  for (const entry of entries.filter(e => e.kind !== 'selection')) {
+  for (const entry of entries) {
+    if (entry.kind === 'selection') continue;
     if (entry.selector.start > sourceCursor)
       records.push({ kind: 'context', text: content.slice(sourceCursor, entry.selector.start) });
-    records.push({ id: entry.id, kind: entry.kind, text: entry.text });
-    sourceCursor = entry.selector.end;
+    records.push({ id: entry.id, kind: entry.kind });
+    sourceCursor = entry.selector.start;
   }
   if (sourceCursor < content.length)
     records.push({ kind: 'context', text: content.slice(sourceCursor) });
   return records;
 };
+
+/** Restore pending IDs only with the source identity carried by their assistant response. */
+export const restoreConversationNotePassage = async (
+  catalog: ReturnType<typeof buildConversationNoteCatalog>,
+  input: { passageId?: string; selectedTextDraft?: string },
+  metadata: unknown
+): Promise<ReturnType<typeof validateConversationNotePassage>> => {
+  if (input.passageId !== undefined) {
+    const issuedSnapshot = readContextNoteSnapshotId(metadata);
+    if (!issuedSnapshot)
+      return {
+        error: createContextNoteValidationError(
+          'unknown_passage',
+          catalog.entries.map(entry => entry.id)
+        ),
+      };
+    if (issuedSnapshot !== (await catalog.snapshotId))
+      return {
+        error: createContextNoteValidationError('stale_context', []),
+      };
+  }
+  return validateConversationNotePassage({
+    catalog,
+    input,
+    current: { lessonContent: catalog.content, ...catalog.origin },
+  });
+};
+
+const getBlockSentenceRanges = (
+  range: MarkdownRange,
+  kind: ConversationNotePassage['kind'],
+  projection: VisibleProjection,
+  segmenter: Intl.Segmenter
+): MarkdownRange[] => {
+  if (kind !== 'paragraph') return [range];
+  return [...segmenter.segment(projection.text.slice(range.start, range.end))].map(sentence => ({
+    start: range.start + sentence.index,
+    end: range.start + sentence.index + sentence.segment.length,
+  }));
+};
+
+const isVisiblePassage = (entry: ConversationNotePassage, prefixLength: number) =>
+  entry.kind === 'selection' || entry.selector.end <= prefixLength;
 
 export const buildConversationNoteCatalog = ({
   content,
@@ -172,17 +217,18 @@ export const buildConversationNoteCatalog = ({
   records: ContextNoteRecord[];
   totalEntries: number;
   locale: string;
-  snapshotId: string;
+  snapshotId: Promise<string>;
+  selectionId?: 's';
   durationMs: number;
 } => {
   const started = performance.now();
-  const snapshotId = crypto.randomUUID();
   const analysis = parseMarkdownAnalysis(content);
   const projection = buildVisibleProjection(content, analysis);
-  const protectedRanges = [
+  const protectedRanges = mergeOverlappingMarkdownRanges([
     ...getMarkdownAnnotationProtectedRanges(content, analysis),
     ...analysis.tableSyntaxRanges,
-  ];
+  ]);
+  const protectedIndexes = buildProtectedProjectionIndexes(projection, protectedRanges);
   const entries: ConversationNotePassage[] = [];
   const addEntry = (start: number, end: number, kind: ConversationNotePassage['kind']) => {
     const text = projection.text.slice(start, end);
@@ -204,7 +250,7 @@ export const buildConversationNoteCatalog = ({
       contextAfter: selector.suffix,
     };
     entries.push({
-      id: `${snapshotId}:${entries.length}`,
+      id: kind === 'selection' ? 's' : `p${entries.length.toString(36)}`,
       kind,
       text: selector.exact,
       anchor,
@@ -221,30 +267,45 @@ export const buildConversationNoteCatalog = ({
     while (cursor < projection.text.length && projection.sourceIndexes[cursor] < block.end)
       cursor++;
     const end = cursor;
-    const sentences =
-      block.kind === 'paragraph'
-        ? [...segmenter.segment(projection.text.slice(start, end))].map(s => ({
-            start: start + s.index,
-            end: start + s.index + s.segment.length,
-          }))
-        : [{ start, end }];
+    const sentences = getBlockSentenceRanges({ start, end }, block.kind, projection, segmenter);
     for (const sentence of sentences) {
-      for (const run of markableProjectionRuns(projection, sentence, protectedRanges))
+      for (const run of markableProjectionRuns(sentence, protectedIndexes))
         addEntry(run.start, run.end, block.kind);
     }
   }
   const selected = capturedSelectionRange(content, projection, selection);
   if (selected) addEntry(selected.start, selected.end, 'selection');
-  const included = fitContextNoteView(buildNoteLessonRecords(content, entries));
-  const ids = new Set(included.flatMap(r => (r.kind === 'context' ? [] : [r.id])));
+  const prefix = content.slice(0, MAX_CONTEXT_CHAT_FIELD_CHARS);
+  const included = entries.filter(entry => isVisiblePassage(entry, prefix.length));
+  const selectionId = included.some(entry => entry.kind === 'selection')
+    ? ('s' as const)
+    : undefined;
+  const records = buildNoteLessonRecords(prefix, included);
+  const snapshotInput = JSON.stringify([
+    content,
+    locale,
+    selection?.selectedText,
+    selection?.selectedTextStart,
+    selection?.contextBefore,
+    selection?.contextAfter,
+    origin?.projectId,
+    origin?.lessonId,
+    included.map(entry => [entry.id, entry.kind, entry.selector.start, entry.selector.end]),
+  ]);
+  const snapshotId = crypto.subtle
+    .digest('SHA-256', new TextEncoder().encode(snapshotInput))
+    .then(bytes =>
+      Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('')
+    );
   return {
     content,
     origin,
     locale,
     snapshotId,
     durationMs: performance.now() - started,
-    entries: entries.filter(e => ids.has(e.id)),
-    records: included,
+    entries: included,
+    records,
+    selectionId,
     totalEntries: entries.length,
   };
 };

@@ -10,6 +10,15 @@ const ContextNoteValidationCodeSchema = z.enum([
   'anchor_mismatch',
 ]);
 
+const validationRecovery = {
+  invalid_input: 'rebuild_input',
+  unknown_passage: 'choose_passage',
+  stale_context: 'refresh_context',
+  no_annotatable_passage: 'unavailable',
+  target_not_annotatable: 'choose_passage',
+  anchor_mismatch: 'choose_passage',
+} as const satisfies Record<z.infer<typeof ContextNoteValidationCodeSchema>, string>;
+
 /** Tool outcomes distinguish a learner's choice from automatic validation and write failures. */
 export const ContextNoteResultSchema = z.discriminatedUnion('status', [
   z.object({
@@ -25,20 +34,7 @@ export const ContextNoteResultSchema = z.discriminatedUnion('status', [
       recovery: z.enum(['choose_passage', 'rebuild_input', 'refresh_context', 'unavailable']),
       availablePassageIds: z.array(z.string()).optional(),
     })
-    .refine(
-      result =>
-        result.recovery ===
-        (
-          {
-            invalid_input: 'rebuild_input',
-            unknown_passage: 'choose_passage',
-            stale_context: 'refresh_context',
-            no_annotatable_passage: 'unavailable',
-            target_not_annotatable: 'choose_passage',
-            anchor_mismatch: 'choose_passage',
-          } as const
-        )[result.code]
-    ),
+    .refine(result => result.recovery === validationRecovery[result.code]),
   z.object({
     status: z.literal('save_error'),
     mode: ContextNoteModeSchema,
@@ -47,6 +43,16 @@ export const ContextNoteResultSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('cancelled') }),
 ]);
 export type ContextNoteResult = z.infer<typeof ContextNoteResultSchema>;
+
+export const createContextNoteValidationError = (
+  code: z.infer<typeof ContextNoteValidationCodeSchema>,
+  availablePassageIds?: string[]
+): Extract<ContextNoteResult, { status: 'validation_error' }> => ({
+  status: 'validation_error',
+  code,
+  recovery: validationRecovery[code],
+  ...(availablePassageIds === undefined ? {} : { availablePassageIds }),
+});
 
 const LegacyContextNoteResultSchema = z.object({
   approved: z.boolean(),

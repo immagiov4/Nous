@@ -4,7 +4,7 @@ import '@testing-library/jest-dom/vitest';
 
 import { deriveLegacyLessonContent } from '@shared/lessonContent';
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { UIMessage } from 'ai';
 import { createRef, type ReactNode, StrictMode, useState } from 'react';
@@ -347,12 +347,14 @@ describe('ContextAnswerPanel', () => {
         body: { noteCatalog: { records: Array<{ id?: string; text: string }> } };
       };
     };
-    const body = transport.prepareSendMessagesRequest({
-      id: 'test',
-      messages: [],
-      headers: {},
-    }).body;
-    const id = body.noteCatalog.records.find(entry => entry.text === 'Second sentence.')?.id;
+    const body = (
+      await transport.prepareSendMessagesRequest({
+        id: 'test',
+        messages: [],
+        headers: {},
+      })
+    ).body;
+    const id = body.noteCatalog.records.find(entry => entry.id === 'p1')?.id;
     expect(id).toBeTruthy();
     const input = {
       passageId: id,
@@ -415,8 +417,9 @@ describe('ContextAnswerPanel', () => {
         body: { noteCatalog: { records: Array<{ id?: string }> } };
       };
     };
-    const id = transport.prepareSendMessagesRequest({ id: 'test', messages: [], headers: {} }).body
-      .noteCatalog.records[0].id;
+    const id = (
+      await transport.prepareSendMessagesRequest({ id: 'test', messages: [], headers: {} })
+    ).body.noteCatalog.records[0].id;
     view.rerender(
       <ContextAnswerPanel
         {...props}
@@ -464,6 +467,86 @@ describe('ContextAnswerPanel', () => {
     expect(
       screen.getByText('La lezione non contiene passaggi a cui collegare una nota.')
     ).toBeInTheDocument();
+  });
+
+  test.each([
+    false,
+    true,
+  ])('restores a pending compact ID after remount and rejects changed source: changed=%s', async changed => {
+    const props = buildProps({
+      contextScope: 'lesson',
+      selectedText: '',
+      lessonContent: 'First sentence. Second sentence.',
+    });
+    const chat = {
+      addToolOutput: addToolOutputMock,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    };
+    useChatMock.mockReturnValue(chat);
+    const first = render(<ContextAnswerPanel {...props} />);
+    const transport = defaultChatTransportInstances.at(-1);
+    const request = (await transport?.prepareSendMessagesRequest?.({
+      id: 'snapshot',
+      messages: [],
+    })) as { body: { noteCatalog: { snapshotId: string } } };
+    first.unmount();
+    useChatMock.mockReturnValue({
+      ...chat,
+      messages: [
+        {
+          id: 'pending-parent',
+          role: 'assistant',
+          metadata: { contextNoteSnapshotId: request.body.noteCatalog.snapshotId },
+          parts: [
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'pending-id',
+              state: 'input-available',
+              input: {
+                passageId: 'p1',
+                noteDraft: 'Useful draft.',
+                rationale: 'Clarifies the lesson.',
+              },
+            },
+          ],
+        },
+      ],
+    });
+    render(
+      <ContextAnswerPanel
+        {...props}
+        contextAnswer={{
+          ...props.contextAnswer,
+          lessonContent: changed
+            ? 'Different first sentence. Different second sentence.'
+            : props.contextAnswer.lessonContent,
+        }}
+      />
+    );
+    if (changed) {
+      await waitFor(() =>
+        expect(addToolOutputMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            output: {
+              status: 'validation_error',
+              code: 'stale_context',
+              recovery: 'refresh_context',
+              availablePassageIds: [],
+            },
+          })
+        )
+      );
+      expect(screen.queryByRole('button', { name: 'Aggiungi alle note' })).not.toBeInTheDocument();
+      expect(screen.queryByText('"Different second sentence."')).not.toBeInTheDocument();
+    } else {
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Aggiungi alle note' })).toBeEnabled()
+      );
+      expect(screen.getByText('"Second sentence."')).toBeInTheDocument();
+      expect(addToolOutputMock).not.toHaveBeenCalled();
+    }
   });
 
   test('rejects an invented passage ID with current actionable IDs and no fallback', async () => {
@@ -541,9 +624,9 @@ describe('ContextAnswerPanel', () => {
         readPlaybackContext={readPlaybackContext}
       />
     );
-    const request = defaultChatTransportInstances
+    const request = (await defaultChatTransportInstances
       .at(-1)
-      ?.prepareSendMessagesRequest?.({ id: 'chat', messages: [] }) as {
+      ?.prepareSendMessagesRequest?.({ id: 'chat', messages: [] })) as {
       body: Record<string, unknown>;
     };
     expect(request.body).toMatchObject({
@@ -590,9 +673,9 @@ describe('ContextAnswerPanel', () => {
     await user.type(screen.getByRole('textbox'), followUp);
     await user.click(screen.getByTestId('chat-text-composer'));
     userMessages.push({ id: 'follow-up', role: 'user', parts: [{ type: 'text', text: followUp }] });
-    const followUpRequest = defaultChatTransportInstances
+    const followUpRequest = (await defaultChatTransportInstances
       .at(-1)
-      ?.prepareSendMessagesRequest?.({ id: 'chat', messages: userMessages }) as {
+      ?.prepareSendMessagesRequest?.({ id: 'chat', messages: userMessages })) as {
       body: Record<string, unknown>;
     };
     expect(followUpRequest.body.playbackContext).toEqual(nextPlayback);
@@ -728,10 +811,10 @@ describe('ContextAnswerPanel', () => {
       }
       await user.click(screen.getByRole('button', { name: 'Invia domanda' }));
       expect(sendMessageMock).toHaveBeenLastCalledWith({ text: 'Un altro esempio?' });
-      const request = defaultChatTransportInstances[0]?.prepareSendMessagesRequest?.({
+      const request = (await defaultChatTransportInstances[0]?.prepareSendMessagesRequest?.({
         id: 'external-composer',
         messages: [{ role: 'user', parts: [{ type: 'text', text: 'Un altro esempio?' }] }],
-      }) as { body?: { toolPreferences?: unknown } };
+      })) as { body?: { toolPreferences?: unknown } };
       expect(request.body?.toolPreferences).toEqual({
         annotate: true,
         generateArtifacts: true,
@@ -1425,7 +1508,7 @@ describe('ContextAnswerPanel', () => {
     expect(screen.getByRole('button', { name: 'Avvia dettatura' })).toBeInTheDocument();
   });
 
-  test('does not send a frontend model override with context chat requests', () => {
+  test('does not send a frontend model override with context chat requests', async () => {
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
       error: undefined,
@@ -1436,20 +1519,20 @@ describe('ContextAnswerPanel', () => {
 
     render(<ContextAnswerPanel {...buildProps()} />);
 
-    const transport = defaultChatTransportInstances[0];
+    const transport = await defaultChatTransportInstances[0];
     expect(transport?.prepareSendMessagesRequest).toBeTypeOf('function');
 
-    const request = transport?.prepareSendMessagesRequest?.({
+    const request = (await transport?.prepareSendMessagesRequest?.({
       headers: { 'X-Existing-Header': 'kept' },
       id: 'chat-1',
       messages: [{ role: 'user', parts: [{ type: 'text', text: 'spiega meglio' }] }],
-    }) as { body?: Record<string, unknown>; headers?: Record<string, string> };
+    })) as { body?: Record<string, unknown>; headers?: Record<string, string> };
 
     expect(request.body?.modelOverride).toBeUndefined();
     expect(request.headers).toEqual({ 'X-Existing-Header': 'kept' });
   });
 
-  test('keeps lesson sources out of the follow-up header and sends provenance without file contents', () => {
+  test('keeps lesson sources out of the follow-up header and sends provenance without file contents', async () => {
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
       error: undefined,
@@ -1492,10 +1575,10 @@ describe('ContextAnswerPanel', () => {
     expect(screen.queryByText(/2 (sources|fonti)/i)).not.toBeInTheDocument();
     expect(screen.queryByTitle('01.pdf, 049.pdf')).not.toBeInTheDocument();
 
-    const request = defaultChatTransportInstances[0]?.prepareSendMessagesRequest?.({
+    const request = (await defaultChatTransportInstances[0]?.prepareSendMessagesRequest?.({
       id: 'chat-sources',
       messages: [{ role: 'user', parts: [{ type: 'text', text: 'cita la fonte finale' }] }],
-    }) as { body?: Record<string, unknown> };
+    })) as { body?: Record<string, unknown> };
 
     expect(request.body?.sourceReferences).toEqual([
       {
@@ -1521,7 +1604,7 @@ describe('ContextAnswerPanel', () => {
     expect(JSON.stringify(request.body)).not.toContain('PDF-DATA-MUST-NOT-BE-SENT');
   });
 
-  test('sends retained archive identity, version, and lesson selectors without archive bytes', () => {
+  test('sends retained archive identity, version, and lesson selectors without archive bytes', async () => {
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
       error: undefined,
@@ -1559,10 +1642,10 @@ describe('ContextAnswerPanel', () => {
       />
     );
 
-    const request = defaultChatTransportInstances[0]?.prepareSendMessagesRequest?.({
+    const request = (await defaultChatTransportInstances[0]?.prepareSendMessagesRequest?.({
       id: 'chat-archive',
       messages: [{ role: 'user', parts: [{ type: 'text', text: 'trova ClientMap' }] }],
-    }) as { body?: Record<string, unknown> };
+    })) as { body?: Record<string, unknown> };
 
     expect(request.body?.sourceReferences).toEqual([
       {
@@ -1578,19 +1661,18 @@ describe('ContextAnswerPanel', () => {
     expect(JSON.stringify(request.body)).not.toContain('ARCHIVE-BYTES-MUST-NOT-BE-SENT');
   });
 
-  test('makes request context available synchronously when the chat session initializes', () => {
-    let preparedBody: Record<string, unknown> | undefined;
+  test('captures request context when the chat session initializes before awaiting the snapshot', async () => {
+    let preparedRequest: unknown;
     useChatMock.mockImplementation(
       ({
         transport,
       }: {
         transport: { prepareSendMessagesRequest: (args: unknown) => unknown };
       }) => {
-        const request = transport.prepareSendMessagesRequest({
+        preparedRequest = transport.prepareSendMessagesRequest({
           id: 'chat-immediate',
           messages: [{ role: 'user', parts: [{ type: 'text', text: 'spiega meglio' }] }],
         }) as { body?: Record<string, unknown> };
-        preparedBody = request.body;
         return {
           addToolOutput: addToolOutputMock,
           error: undefined,
@@ -1603,11 +1685,12 @@ describe('ContextAnswerPanel', () => {
 
     render(<ContextAnswerPanel {...buildProps()} />);
 
+    const { body: preparedBody } = (await preparedRequest) as { body?: Record<string, unknown> };
     expect(preparedBody?.selectedText).toBe('G-buffer');
     expect(preparedBody?.lessonContent).toBe('Contenuto G-buffer');
   });
 
-  test('sends lesson context scope with context chat requests', () => {
+  test('sends lesson context scope with context chat requests', async () => {
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
       error: undefined,
@@ -1625,10 +1708,10 @@ describe('ContextAnswerPanel', () => {
       />
     );
 
-    const request = defaultChatTransportInstances[0]?.prepareSendMessagesRequest?.({
+    const request = (await defaultChatTransportInstances[0]?.prepareSendMessagesRequest?.({
       id: 'chat-lesson',
       messages: [{ role: 'user', parts: [{ type: 'text', text: 'spiega tutto' }] }],
-    }) as { body?: Record<string, unknown> };
+    })) as { body?: Record<string, unknown> };
 
     expect(request.body?.contextScope).toBe('lesson');
     expect(request.body?.selectedText).toBe('Intera lezione: Titolo');

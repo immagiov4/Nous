@@ -34,8 +34,27 @@ test('addresses distinct sentences and repeated text by different snapshot-bound
     'First sentence.',
   ]);
   expect(new Set(catalog.entries.map(e => e.id)).size).toBe(3);
-  expect(build(source).entries[0].id).not.toBe(catalog.entries[0].id);
+  expect(build(source).entries[0].id).toBe(catalog.entries[0].id);
   assertRoundTrip(catalog);
+});
+
+test('keeps the entire pre-PR Markdown prefix in a lesson longer than 22000 characters', () => {
+  const content =
+    'La memoria conserva informazioni. La pratica rende più preciso il richiamo.\n\n'.repeat(300);
+  expect(content.length).toBeGreaterThanOrEqual(22_000);
+  const catalog = build(content, 'it');
+  const view = serializeContextNoteView(catalog.records);
+  expect(view.replace(/⟦p[0-9a-z]+⟧/gu, '')).toBe(content.slice(0, MAX_CONTEXT_CHAT_FIELD_CHARS));
+});
+
+test('rebuilding identical input resolves a previously issued ID and has the same snapshot identity', async () => {
+  const source = 'Prima frase. Seconda frase.';
+  const first = build(source, 'it', { selectedText: 'Seconda frase.', selectedTextStart: 13 });
+  const rebuilt = build(source, 'it', { selectedText: 'Seconda frase.', selectedTextStart: 13 });
+  expect(await rebuilt.snapshotId).toBe(await first.snapshotId);
+  expect(
+    resolveConversationNotePassage(rebuilt, { passageId: first.entries[0].id })?.selector
+  ).toEqual(first.entries[0].selector);
 });
 
 test.each([
@@ -97,15 +116,23 @@ test('maps CRLF, entities and renderer-normalized indentation back to raw source
   assertRoundTrip(catalog);
 });
 
-test('clips only complete records and never advertises a truncated or protected target', () => {
+test('clips only complete targets while preserving the pre-PR source prefix', async () => {
   const catalog = build(
     `Short sentence.\n\n\`\`\`js\n${'const value = 1;\n'.repeat(3000)}\n\`\`\`\n\nLater sentence.`
   );
   expect(catalog.entries.map(entry => entry.text)).toEqual(['Short sentence.']);
-  expect(serializeContextNoteView(catalog.records).length).toBeLessThanOrEqual(
-    MAX_CONTEXT_CHAT_FIELD_CHARS
-  );
-  expect(ContextNoteCatalogSchema.safeParse({ records: catalog.records }).success).toBe(true);
+  expect(
+    catalog.records
+      .filter(r => r.kind === 'context')
+      .map(r => r.text)
+      .join('').length
+  ).toBeLessThanOrEqual(MAX_CONTEXT_CHAT_FIELD_CHARS);
+  expect(
+    ContextNoteCatalogSchema.safeParse({
+      records: catalog.records,
+      snapshotId: await catalog.snapshotId,
+    }).success
+  ).toBe(true);
   expect(catalog.records.filter(r => r.kind !== 'context').map(r => r.id)).toEqual(
     catalog.entries.map(e => e.id)
   );
@@ -151,8 +178,11 @@ test('keeps the captured focus addressable when the preceding lesson body fills 
   expect(
     catalog.entries.some(e => e.kind === 'selection' && e.text === 'Final focus sentence.')
   ).toBe(true);
-  expect(serializeContextNoteView(catalog.records).length).toBeLessThanOrEqual(
-    MAX_CONTEXT_CHAT_FIELD_CHARS
-  );
+  expect(
+    catalog.records
+      .filter(r => r.kind === 'context')
+      .map(r => r.text)
+      .join('').length
+  ).toBeLessThanOrEqual(MAX_CONTEXT_CHAT_FIELD_CHARS);
   assertRoundTrip(catalog);
 });

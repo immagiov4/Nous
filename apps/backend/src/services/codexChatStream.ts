@@ -13,6 +13,7 @@ interface CodexChatStreamInput {
   messages: ModelMessage[];
   model: string;
   originalMessages: UIMessage[];
+  messageMetadata?: unknown;
   reasoningEffort: ReasoningEffort;
   system: string;
   tools: ToolSet;
@@ -111,6 +112,7 @@ export const createCodexChatStream = async ({
   messages,
   model,
   originalMessages,
+  messageMetadata,
   reasoningEffort,
   system,
   tools,
@@ -127,7 +129,7 @@ export const createCodexChatStream = async ({
       let clientToolCalled = false;
       let streamedText = '';
       let succeeded = false;
-      writer.write({ type: 'start' });
+      writer.write({ type: 'start', ...(messageMetadata ? { messageMetadata } : {}) });
       writer.write({ type: 'start-step' });
       writer.write({ type: 'text-start', id: CODEX_TEXT_PART_ID });
 

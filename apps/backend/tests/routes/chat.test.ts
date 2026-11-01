@@ -1049,9 +1049,9 @@ describe('POST /api/chat/context', () => {
   test.each([
     'openrouter',
     'codex',
-  ] as const)('advertises only catalog passage IDs through %s', async provider => {
+  ] as const)('binds compact catalog IDs without repeating an enum through %s', async provider => {
     const token = authenticateProvider(provider);
-    const id = 'c27e152a-c40b-4b24-a695-454f5d5d088a:0';
+    const id = 'p0';
     const response = await request(createApp())
       .post('/api/chat/context')
       .set('Authorization', `Bearer ${token}`)
@@ -1059,8 +1059,10 @@ describe('POST /api/chat/context', () => {
         contextScope: 'lesson',
         lessonContent: 'Canonical sentence.',
         noteCatalog: {
+          snapshotId: 'a'.repeat(64),
           records: [
-            { kind: 'paragraph', id, text: 'Canonical sentence.' },
+            { kind: 'paragraph', id },
+            { kind: 'context', text: 'Canonical sentence.' },
             { kind: 'context', text: '$x+y$' },
           ],
         },
@@ -1072,7 +1074,14 @@ describe('POST /api/chat/context', () => {
         ? codexStreamMocks.createCodexChatStream.mock.lastCall?.[0]
         : aiMocks.streamText.mock.lastCall?.[0];
     const schema = options.tools.requestAddToNotes.inputSchema;
-    expect(schema.properties.passageId.enum).toEqual([id]);
+    expect(schema.properties.passageId.enum).toBeUndefined();
+    expect(schema.properties.passageId.pattern).toBe('^(?:p[0-9a-z]+|s)$');
+    if (provider === 'codex')
+      expect(options.messageMetadata).toEqual({ contextNoteSnapshotId: 'a'.repeat(64) });
+    else
+      expect(
+        aiMocks.toUIMessageStream.mock.lastCall?.[0].messageMetadata({ part: { type: 'start' } })
+      ).toEqual({ contextNoteSnapshotId: 'a'.repeat(64) });
     expect(schema.required).toEqual(['noteDraft', 'rationale', 'passageId']);
     expect(schema.properties.selectedTextDraft).toBeUndefined();
     expect(aiMocks.convertToModelMessages).toHaveBeenCalledWith(expect.any(Array), {
@@ -1085,17 +1094,16 @@ describe('POST /api/chat/context', () => {
     { records: [0] },
     { records: [{ kind: 'context', text: 'a'.repeat(24_001) }] },
     {
-      records: Array(2).fill({
-        kind: 'paragraph',
-        id: 'c27e152a-c40b-4b24-a695-454f5d5d088a:0',
-        text: 'same',
-      }),
+      records: [
+        { kind: 'context', text: 'same source' },
+        ...Array(2).fill({ kind: 'paragraph', id: 'p0' }),
+      ],
     },
   ])('rejects an invalid external catalog before invoking either provider', async noteCatalog => {
     const response = await request(createApp())
       .post('/api/chat/context')
       .send({
-        noteCatalog,
+        noteCatalog: { snapshotId: 'a'.repeat(64), ...noteCatalog },
         selectedText: 'text',
         messages: [{ id: '1', role: 'user', content: 'Explain' }],
       });
@@ -1104,11 +1112,40 @@ describe('POST /api/chat/context', () => {
     expect(codexStreamMocks.createCodexChatStream).not.toHaveBeenCalled();
   });
 
+  test('retains the entire long lesson in the provider view without growing the tool schema', async () => {
+    const paragraphs = Array.from(
+      { length: 470 },
+      (_, index) => `La memoria conserva informazioni nella frase ${index}.\n`
+    );
+    const content = paragraphs.join('');
+    expect(content.length).toBeGreaterThan(22_000);
+    const records = paragraphs.flatMap((text, index) => [
+      { kind: 'paragraph', id: `p${index.toString(36)}` },
+      { kind: 'context', text },
+    ]);
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .send({
+        contextScope: 'lesson',
+        lessonContent: content,
+        noteCatalog: { snapshotId: 'a'.repeat(64), records },
+        messages: [{ id: 'long', role: 'user', content: 'Spiega la parte finale.' }],
+      });
+    expect(response.status).toBe(200);
+    const options = aiMocks.streamText.mock.lastCall?.[0];
+    expect(options.system.replace(/⟦p[0-9a-z]+⟧/gu, '')).toContain(content);
+    expect(options.tools.requestAddToNotes.inputSchema.properties.passageId.enum).toBeUndefined();
+    expect(options.system).not.toContain('a'.repeat(64));
+  });
+
   test('omits the note capability when no addressable passage is supplied', async () => {
     const response = await request(createApp())
       .post('/api/chat/context')
       .send({
-        noteCatalog: { records: [{ kind: 'context', text: 'code only' }] },
+        noteCatalog: {
+          snapshotId: 'a'.repeat(64),
+          records: [{ kind: 'context', text: 'code only' }],
+        },
         selectedText: 'code',
         messages: [{ id: '1', role: 'user', content: 'Explain' }],
       });
@@ -1258,8 +1295,10 @@ describe('POST /api/chat/context', () => {
       .post('/api/chat/context')
       .send({
         noteCatalog: {
+          snapshotId: 'a'.repeat(64),
           records: [
-            { kind: 'paragraph', id: 'c27e152a-c40b-4b24-a695-454f5d5d088a:0', text: 'Puntatore' },
+            { kind: 'paragraph', id: 'p0' },
+            { kind: 'context', text: 'Puntatore' },
           ],
         },
         selectedText: 'Puntatore',
@@ -1723,8 +1762,10 @@ describe('POST /api/chat/context', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({
         noteCatalog: {
+          snapshotId: 'a'.repeat(64),
           records: [
-            { kind: 'paragraph', id: 'c27e152a-c40b-4b24-a695-454f5d5d088a:0', text: 'Puntatore' },
+            { kind: 'paragraph', id: 'p0' },
+            { kind: 'context', text: 'Puntatore' },
           ],
         },
         selectedText: 'Puntatore',

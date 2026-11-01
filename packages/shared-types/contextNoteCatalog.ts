@@ -1,47 +1,44 @@
 import * as z from 'zod';
 import { MAX_CONTEXT_CHAT_FIELD_CHARS } from './lessonSourceContext';
 
+const SnapshotIdSchema = z.string().regex(/^[a-f0-9]{64}$/u);
+const PassageIdSchema = z.string().regex(/^(?:p[0-9a-z]+|s)$/u);
 const PassageSchema = z
-  .object({
-    kind: z.enum(['paragraph', 'heading', 'tableCell', 'selection']),
-    id: z.string().regex(/^[\da-f-]{36}:\d+$/u),
-    text: z.string().min(1),
-  })
+  .object({ kind: z.enum(['paragraph', 'heading', 'tableCell']), id: PassageIdSchema })
   .strict();
 const ContextSchema = z.object({ kind: z.literal('context'), text: z.string() }).strict();
 export type ContextNoteRecord = z.infer<typeof PassageSchema> | z.infer<typeof ContextSchema>;
-export const getContextNotePassageIds = (records: ContextNoteRecord[] = []) =>
-  records.flatMap(record => (record.kind === 'context' ? [] : [record.id]));
-const serializeNoteRecord = (record: ContextNoteRecord) =>
-  record.kind === 'context' ? record.text : JSON.stringify(record);
+export const getContextNotePassageIds = (
+  records: ContextNoteRecord[] = [],
+  selectionId?: string
+) => [
+  ...records.flatMap(record => (record.kind === 'context' ? [] : [record.id])),
+  ...(selectionId ? [selectionId] : []),
+];
 export const serializeContextNoteView = (records: ContextNoteRecord[]) =>
-  records.map(serializeNoteRecord).join('');
+  records.map(record => (record.kind === 'context' ? record.text : `⟦${record.id}⟧`)).join('');
+/** The existing field budget counts original Markdown; marker metadata cannot evict lesson text. */
 export const ContextNoteCatalogSchema = z
   .object({
     records: z.array(z.union([PassageSchema, ContextSchema])),
+    snapshotId: SnapshotIdSchema,
+    selectionId: z.literal('s').optional(),
   })
   .strict()
-  .refine(({ records }) => {
-    const ids = getContextNotePassageIds(records);
+  .refine(({ records, selectionId }) => {
+    const ids = getContextNotePassageIds(records, selectionId);
+    const sourceChars = records.reduce(
+      (sum, record) => sum + (record.kind === 'context' ? record.text.length : 0),
+      0
+    );
     return (
       new Set(ids).size === ids.length &&
-      serializeContextNoteView(records).length <= MAX_CONTEXT_CHAT_FIELD_CHARS
+      sourceChars <= MAX_CONTEXT_CHAT_FIELD_CHARS &&
+      records.filter(record => record.kind !== 'context').length <= sourceChars
     );
   });
 
-/** Keep complete passage records within the existing lesson-field budget. A clipped tail is context only. */
-export const fitContextNoteView = (records: ContextNoteRecord[]): ContextNoteRecord[] => {
-  const included: ContextNoteRecord[] = [];
-  let remaining = MAX_CONTEXT_CHAT_FIELD_CHARS;
-  for (const record of records) {
-    const size = serializeNoteRecord(record).length;
-    if (size <= remaining) {
-      included.push(record);
-      remaining -= size;
-      continue;
-    }
-    if (remaining) included.push({ kind: 'context', text: record.text.slice(0, remaining) });
-    break;
-  }
-  return included;
+export const readContextNoteSnapshotId = (metadata: unknown): string | undefined => {
+  const parsed = z.object({ contextNoteSnapshotId: SnapshotIdSchema }).safeParse(metadata);
+  return parsed.success ? parsed.data.contextNoteSnapshotId : undefined;
 };

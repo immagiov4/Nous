@@ -1,5 +1,9 @@
 import { useChat } from '@ai-sdk/react';
-import { type ContextNoteResult, readContextNoteResult } from '@shared/contextNote';
+import {
+  type ContextNoteResult,
+  createContextNoteValidationError,
+  readContextNoteResult,
+} from '@shared/contextNote';
 import { serializeContextNoteView } from '@shared/contextNoteCatalog';
 import type { ContextSourceReference } from '@shared/lessonSourceContext';
 import { sanitizeContextSourceDisplayName } from '@shared/lessonSourceContext';
@@ -64,7 +68,7 @@ import type {
 import { buildConversationNoteSaveCandidates } from '../../../utils/context/conversationNote.ts';
 import {
   buildConversationNoteCatalog,
-  resolveConversationNotePassage,
+  restoreConversationNotePassage,
   validateConversationNotePassage,
 } from '../../../utils/context/conversationNoteCatalog.ts';
 import {
@@ -769,7 +773,7 @@ function ContextAnswerPanelSession({
     };
   });
   const [noteTargets, setNoteTargets] = useState<
-    Record<string, ReturnType<typeof resolveConversationNotePassage>>
+    Record<string, ReturnType<typeof validateConversationNotePassage>['target']>
   >({});
   const [noteDiagnostics] = useState(createContextNoteDiagnostics);
   const currentContextRequestState = useMemo<ContextRequestState>(
@@ -823,14 +827,15 @@ function ContextAnswerPanelSession({
         api: `${getBackendUrl()}/api/chat/context`,
         fetch: fetchWithSupabaseAuth,
         // `useChat` keeps the initial transport instance, so request data comes from its stable store.
-        prepareSendMessagesRequest: ({ headers, id, messages }) => {
+        prepareSendMessagesRequest: async ({ headers, id, messages }) => {
           const currentRequestState = readContextRequestState();
           noteCatalogSnapshot.capture(currentRequestState.noteCatalog);
           const catalog = currentRequestState.noteCatalog;
           let outcome: 'complete' | 'clipped' | 'unavailable' = 'complete';
           if (catalog.entries.length < catalog.totalEntries) outcome = 'clipped';
           if (!catalog.entries.length) outcome = 'unavailable';
-          void noteDiagnostics.report(catalog.snapshotId, {
+          const snapshotId = await catalog.snapshotId;
+          void noteDiagnostics.report(snapshotId, {
             phase: 'catalog',
             contextScope: currentRequestState.contextScope ?? 'selection',
             durationMs: catalog.durationMs,
@@ -848,7 +853,11 @@ function ContextAnswerPanelSession({
               contextAfter: currentRequestState.contextAfter,
               contextBefore: currentRequestState.contextBefore,
               contextScope: currentRequestState.contextScope || 'selection',
-              noteCatalog: { records: currentRequestState.noteCatalog.records },
+              noteCatalog: {
+                records: catalog.records,
+                snapshotId,
+                selectionId: catalog.selectionId,
+              },
               lessonContent: currentRequestState.lessonContent,
               lessonDescription: currentRequestState.lessonDescription,
               lessonTitle: currentRequestState.lessonTitle,
@@ -1229,19 +1238,15 @@ function ContextAnswerPanelSession({
       return;
     }
 
-    const target =
-      noteTargets[toolCallId] ??
-      resolveConversationNotePassage(readContextRequestState().noteCatalog, inputValue);
+    const target = noteTargets[toolCallId];
     if (!target) {
       void addToolOutput({
         tool: 'requestAddToNotes',
         toolCallId,
-        output: {
-          status: 'validation_error',
-          code: 'unknown_passage',
-          recovery: 'choose_passage',
-          availablePassageIds: readContextRequestState().noteCatalog.entries.map(entry => entry.id),
-        },
+        output: createContextNoteValidationError(
+          'unknown_passage',
+          readContextRequestState().noteCatalog.entries.map(entry => entry.id)
+        ),
       });
       return;
     }
@@ -1584,42 +1589,53 @@ function ContextAnswerPanelSession({
 
   const settledHistoricalNotes = useRef(new Set<string>());
   useEffect(() => {
-    if (!responseControl.canContinue()) return;
-    for (const part of messages.flatMap(message => message.parts)) {
-      if (
-        !isToolUIPart(part) ||
-        part.type !== 'tool-requestAddToNotes' ||
-        part.state !== 'input-available' ||
-        !isRequestAddToNotesInput(part.input)
-      )
-        continue;
-      if (
-        noteTargets[part.toolCallId] ||
-        resolveConversationNotePassage(noteCatalog, part.input) ||
-        settledHistoricalNotes.current.has(part.toolCallId)
-      )
-        continue;
-      settledHistoricalNotes.current.add(part.toolCallId);
-      const code = noteCatalog.entries.length ? 'unknown_passage' : 'no_annotatable_passage';
-      void noteDiagnostics.report(part.toolCallId, {
-        phase: 'proposal',
-        outcome: 'validation_error',
-        code,
-        candidateOutcomes: [],
-        contextScope: contextAnswer.contextScope ?? 'selection',
-        durationMs: 0,
-      });
-      void addToolOutput({
-        tool: 'requestAddToNotes',
-        toolCallId: part.toolCallId,
-        output: {
-          status: 'validation_error',
-          code,
-          recovery: noteCatalog.entries.length ? 'choose_passage' : 'unavailable',
-          availablePassageIds: noteCatalog.entries.map(entry => entry.id),
-        },
-      });
-    }
+    let active = true;
+    const pendingParts = messages.flatMap(message =>
+      message.parts.map(part => ({ part, metadata: message.metadata }))
+    );
+    const restore = async () => {
+      for (const { part, metadata } of pendingParts) {
+        if (
+          !isToolUIPart(part) ||
+          part.type !== 'tool-requestAddToNotes' ||
+          part.state !== 'input-available' ||
+          !isRequestAddToNotesInput(part.input)
+        )
+          continue;
+        if (noteTargets[part.toolCallId] || settledHistoricalNotes.current.has(part.toolCallId))
+          continue;
+        const result =
+          part.input.passageId === undefined
+            ? validateConversationNotePassage({
+                catalog: noteCatalog,
+                input: part.input,
+                current: { lessonContent: noteCatalog.content, ...noteCatalog.origin },
+              })
+            : await restoreConversationNotePassage(noteCatalog, part.input, metadata);
+        if (!active || !responseControl.canContinue()) return;
+        settledHistoricalNotes.current.add(part.toolCallId);
+        if (result.target && !result.error)
+          setNoteTargets(previous => ({ ...previous, [part.toolCallId]: result.target }));
+        if (!result.error) continue;
+        void noteDiagnostics.report(part.toolCallId, {
+          phase: 'proposal',
+          outcome: 'validation_error',
+          code: result.error.code,
+          candidateOutcomes: [],
+          contextScope: contextAnswer.contextScope ?? 'selection',
+          durationMs: 0,
+        });
+        void addToolOutput({
+          tool: 'requestAddToNotes',
+          toolCallId: part.toolCallId,
+          output: result.error,
+        });
+      }
+    };
+    void restore();
+    return () => {
+      active = false;
+    };
   }, [
     messages,
     noteCatalog,
@@ -1715,7 +1731,7 @@ function ContextAnswerPanelSession({
         addToolOutput({
           tool: 'requestAddToNotes',
           toolCallId: id,
-          output: { status: 'validation_error', code: 'invalid_input', recovery: 'rebuild_input' },
+          output: createContextNoteValidationError('invalid_input'),
         });
       }
 
@@ -1860,9 +1876,7 @@ function ContextAnswerPanelSession({
 
     if (part.type === 'tool-requestAddToNotes') {
       const inputValue = isRequestAddToNotesInput(part.input) ? part.input : null;
-      const target = inputValue
-        ? (noteTargets[part.toolCallId] ?? resolveConversationNotePassage(noteCatalog, inputValue))
-        : undefined;
+      const target = noteTargets[part.toolCallId];
       const passageText =
         target?.text ??
         (inputValue?.passageId === undefined ? inputValue?.selectedTextDraft : undefined);

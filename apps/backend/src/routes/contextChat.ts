@@ -294,7 +294,7 @@ const contextChatTools = {
   }),
 } as const;
 
-const createNoteProposalTool = (passageIds: string[]) =>
+const createNoteProposalTool = () =>
   tool({
     description:
       'The only tool for proposing that a study note be saved. The UI automatically decides whether to create a new note or update the one already linked to the passage. Do not choose or distinguish these modes. Saving occurs when the user clicks the confirmation card, and the tool returns the outcome.',
@@ -326,7 +326,7 @@ const createNoteProposalTool = (passageIds: string[]) =>
             'Short explanation of why the note is worth saving, naming the doubt it resolves or the implicit point it makes explicit.',
         },
         passageId: {
-          enum: passageIds,
+          pattern: '^(?:p[0-9a-z]+|s)$',
           type: 'string',
           description:
             'An advertised passage ID from the addressable current lesson. Prefer its captured selection when the note concerns that selection. Never copy or invent a quotation.',
@@ -404,7 +404,7 @@ const buildContextToolSet = ({
       sourceReferences,
     }),
     ...contextChatTools,
-    ...(passageIds.length ? { requestAddToNotes: createNoteProposalTool(passageIds) } : {}),
+    ...(passageIds.length ? { requestAddToNotes: createNoteProposalTool() } : {}),
     ...(archiveTool ? { [CONTEXT_SOURCE_ARCHIVE_TOOL_NAME]: archiveTool } : {}),
     ...libraryRetrievalTools,
   };
@@ -578,8 +578,10 @@ const readCapturedContext = (body: Record<string, unknown>) => {
   if (!catalog.success) return { error: 'Invalid note passage catalog.' } as const;
   return {
     playbackContext: playback.data,
-    passageIds: getContextNotePassageIds(catalog.data?.records),
+    passageIds: getContextNotePassageIds(catalog.data?.records, catalog.data?.selectionId),
     noteLessonView: catalog.data ? serializeContextNoteView(catalog.data.records) : undefined,
+    noteSelectionId: catalog.data?.selectionId,
+    messageMetadata: catalog.data ? { contextNoteSnapshotId: catalog.data.snapshotId } : undefined,
   };
 };
 
@@ -721,6 +723,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       contextScope,
       hasSourceArchiveTool,
       noteLessonView: capturedContext.noteLessonView,
+      noteSelectionId: capturedContext.noteSelectionId,
       selectedText,
       ...contextInput,
     });
@@ -734,6 +737,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
         messages: modelMessages,
         model: contextModelConfig.model,
         originalMessages: messages,
+        messageMetadata: capturedContext.messageMetadata,
         reasoningEffort: contextModelConfig.reasoningEffort,
         system,
         tools: contextTools,
@@ -761,6 +765,8 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       response: res,
       stream: result.toUIMessageStream({
         originalMessages: messages,
+        messageMetadata: ({ part }) =>
+          part.type === 'start' ? capturedContext.messageMetadata : undefined,
         generateMessageId: generateId,
         onError: () => SAFE_AI_STREAM_ERROR,
       }),
