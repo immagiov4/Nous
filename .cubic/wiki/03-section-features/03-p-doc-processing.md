@@ -133,7 +133,7 @@ Source Ingestion & Processing provides a robust framework for converting heterog
 
 ## Preparation feedback
 
-Home course setup keeps structured source-preparation progress in its request-owned assessment workflow. The existing shelf uses the ordered document IDs reported by the preparation collection, including expanded ZIP members; completed and failed files are distinct, and concurrent PDF page transcription never implies document completion. Upload, extraction, page and persistence counters keep their existing units. The shelf announces progress and the active books accessibly, preserves source warnings and Stop, and drops transient progress on failure, success, replacement or navigation. Terminal errors and source warnings share one notification so neither replaces the other.
+Home course setup keeps structured source-preparation progress in its request-owned assessment workflow. The existing shelf uses the ordered document IDs reported by the preparation collection, including expanded ZIP members; completed and failed files are distinct, and concurrent PDF page transcription never implies document completion. Upload, extraction, page and persistence counters keep their existing units. During preparation, shared 3D reading artwork follows actual document states; it loops the search gesture without simulating completion and uses stills for reduced motion or unavailable playback. The shelf announces the source ordinal accessibly while keeping PDF page details and quality warnings visible, preserves source warnings and Stop, and drops transient progress on failure, success, replacement or navigation. Terminal errors and source warnings share one notification so neither replaces the other.
 
 ## Observability
 

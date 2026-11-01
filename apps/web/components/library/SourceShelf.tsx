@@ -3,6 +3,7 @@ import { Check, CircleAlert, Paperclip, X } from 'lucide-react';
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { useShouldAnimate } from '../../utils/motion/index.ts';
+import SourceBookPreparationArt from './SourceBookPreparationArt.tsx';
 import './sourceShelf.css';
 
 interface ShelfSource {
@@ -89,6 +90,38 @@ function navigateBooks(event: KeyboardEvent<HTMLLIElement>) {
   (destinations[event.key] as HTMLElement | null | undefined)?.focus();
 }
 
+function SourcePreparationStatus({
+  sources,
+  preparationProgress,
+  preparationStatus,
+}: {
+  readonly sources: readonly ShelfSource[];
+  readonly preparationProgress: SourcePreparationProgress;
+  readonly preparationStatus?: string;
+}) {
+  const completed = sources.filter(
+    source => source.state === 'done' || source.state === 'error'
+  ).length;
+  const reading = sources.some(source => source.state === 'reading');
+  const isReading =
+    preparationProgress.step === 'extraction' || preparationProgress.step === 'pdf-transcription';
+  return (
+    <output className="mt-1 block text-xs">
+      <span className={isReading ? 'sr-only' : undefined}>
+        {isReading
+          ? t('Lettura fonti {current} di {total}', {
+              current: completed + (reading ? 1 : 0),
+              total: sources.length,
+            })
+          : preparationStatus}
+      </span>
+      {preparationProgress.step === 'pdf-transcription' ? (
+        <span className="block">{preparationStatus}</span>
+      ) : null}
+    </output>
+  );
+}
+
 function SourceShelfHeader({
   sources,
   onClear,
@@ -97,12 +130,6 @@ function SourceShelfHeader({
   preparationStatus,
   headingId,
 }: Omit<SourceShelfProps, 'warnings'> & { readonly headingId: string }) {
-  const completed = sources.filter(
-    source => source.state === 'done' || source.state === 'error'
-  ).length;
-  const reading = sources.some(source => source.state === 'reading');
-  const isReading =
-    preparationProgress?.step === 'extraction' || preparationProgress?.step === 'pdf-transcription';
   return (
     <div className="source-shelf-header">
       <Paperclip className="source-shelf-icon" aria-hidden="true" />
@@ -119,17 +146,11 @@ function SourceShelfHeader({
         ) : null}
         {pending ? <output className="mt-1 block text-xs">{t('Verifica dei file…')}</output> : null}
         {preparationProgress ? (
-          <output className="mt-1 block text-xs">
-            {isReading
-              ? t('Lettura fonti {current} di {total}', {
-                  current: completed + (reading ? 1 : 0),
-                  total: sources.length,
-                })
-              : preparationStatus}
-            {preparationProgress.step === 'pdf-transcription' ? (
-              <span className="block">{preparationStatus}</span>
-            ) : null}
-          </output>
+          <SourcePreparationStatus
+            sources={sources}
+            preparationProgress={preparationProgress}
+            preparationStatus={preparationStatus}
+          />
         ) : null}
       </div>
       {onClear && !preparationProgress ? (
@@ -164,6 +185,7 @@ export default function SourceShelf({
   return (
     <section
       className={hasContent ? 'source-shelf' : undefined}
+      data-preparing={preparationProgress ? 'true' : undefined}
       aria-labelledby={hasContent ? headingId : undefined}
     >
       {hasContent ? (
@@ -197,26 +219,37 @@ export default function SourceShelf({
                   data-state={source.state ?? 'idle'}
                 >
                   <div className="source-book" aria-hidden="true">
-                    <div className="source-book-art">
-                      <div className="source-book-tint" />
-                    </div>
-                    <div className="source-book-cover" lang="it">
-                      <span className="source-book-index">
-                        {String(index + 1).padStart(2, '0')}
-                      </span>
-                      <span
-                        className="source-book-title"
-                        data-length={titleSize(sourceTitle(source.name))}
-                      >
-                        {sourceTitle(source.name)}
-                      </span>
-                      <span className="source-book-rule" />
-                      <span className="source-book-type">
-                        {source.name.match(/\.([^.]+)$/)?.[1]}
-                      </span>
-                    </div>
+                    {preparationProgress ? (
+                      <SourceBookPreparationArt state={source.state ?? 'idle'} />
+                    ) : (
+                      <>
+                        <div className="source-book-art">
+                          <div className="source-book-tint" />
+                        </div>
+                        <div className="source-book-cover" lang="it">
+                          <span className="source-book-index">
+                            {String(index + 1).padStart(2, '0')}
+                          </span>
+                          <span
+                            className="source-book-title"
+                            data-length={titleSize(sourceTitle(source.name))}
+                          >
+                            {sourceTitle(source.name)}
+                          </span>
+                          <span className="source-book-rule" />
+                          <span className="source-book-type">
+                            {source.name.match(/\.([^.]+)$/)?.[1]}
+                          </span>
+                        </div>
+                      </>
+                    )}
                     <SourceBookStatus state={source.state} />
                   </div>
+                  {preparationProgress ? (
+                    <span className="source-book-caption">
+                      <span className="source-book-title">{sourceTitle(source.name)}</span>
+                    </span>
+                  ) : null}
                 </li>
               );
             })}

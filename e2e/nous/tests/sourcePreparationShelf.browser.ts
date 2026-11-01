@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { SourcePreparationProgress } from '@shared/sourcePreparation';
 import JSZip from 'jszip';
 import { getProjectImportUploadStatus } from '../../../apps/backend/src/projects/projectImportChunks';
@@ -11,6 +13,8 @@ import { dataRoot, withMemoryProjectBrowserStack } from '../stack';
 // Real upload/expansion/save and controller. Hold completed status responses to inspect
 // deterministic progress scenes; backend completion ordering has its own regression.
 const evidence = join(dataRoot(), 'source-preparation-shelf');
+const browserName = process.env.SHELF_BROWSER ?? 'chromium';
+assert(browserName === 'chromium' || browserName === 'firefox' || browserName === 'webkit');
 await mkdir(evidence, { recursive: true });
 const results: object[] = [];
 const archive = new JSZip();
@@ -18,25 +22,53 @@ const sourceNames = [
   '01_Concetti.md',
   '02_Probabilità/Note.md',
   '03_Statistica/Note.md',
-  ...Array.from({ length: 5 }, (_, index) => `${index + 4}_Approfondimento.md`),
+  ...Array.from({ length: 4 }, (_, index) => `${index + 4}_Approfondimento.md`),
+  `8_${'Fondamenti di probabilità e statistica applicata '.repeat(3)}.md`,
 ];
 for (const name of sourceNames)
   archive.file(name, `# ${name}\nSynthetic material for source preparation verification.`);
 archive.file('Ignorato.zip', 'Excluded nested archive');
 const buffer = await archive.generateAsync({ type: 'nodebuffer' });
 
-for (const scene of [
-  { name: 'desktop-light', width: 1280, height: 800, dark: false },
-  { name: 'desktop-dark', width: 1280, height: 800, dark: true },
-  { name: 'mobile-light', width: 390, height: 844, dark: false },
-  { name: 'mobile-dark', width: 390, height: 844, dark: true },
-  { name: 'cancel-retry', width: 390, height: 844, dark: false },
-]) {
+const scenes = [
+  { name: 'desktop-light', width: 1280, height: 800, dark: false, reduced: false },
+  { name: 'desktop-dark', width: 1280, height: 800, dark: true, reduced: false },
+  { name: 'mobile-light', width: 390, height: 844, dark: false, reduced: false },
+  { name: 'mobile-dark', width: 390, height: 844, dark: true, reduced: false },
+  { name: 'cancel-retry', width: 390, height: 844, dark: false, reduced: true },
+  { name: 'media-failure', width: 390, height: 844, dark: true, reduced: false },
+] as const;
+
+// Each Vite/Rolldown instance owns its native lifetime. Repeated teardown in one
+// Windows Bun process can panic after the assertions have already passed.
+if (!process.env.SHELF_SCENE) {
+  for (const scene of scenes) {
+    const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], {
+      env: { ...process.env, SHELF_SCENE: scene.name },
+      stdio: 'inherit',
+    });
+    assert.equal(child.status, 0, `Preparation scene failed: ${scene.name}`);
+    const result = JSON.parse(await readFile(join(evidence, `result-${scene.name}.json`), 'utf8'));
+    results.push(...result.results);
+  }
+  await writeFile(
+    join(evidence, 'result.json'),
+    JSON.stringify({ profile: 'isolated real-app source-preparation scenes', results }, null, 2)
+  );
+  console.log(`Preparation shelf: ${results.length} isolated scenes passed.`);
+  process.exit(0);
+}
+assert(
+  scenes.some(scene => scene.name === process.env.SHELF_SCENE),
+  'Unknown preparation scene'
+);
+for (const scene of scenes) {
   if (process.env.SHELF_SCENE && process.env.SHELF_SCENE !== scene.name) continue;
   const userId = `source-preparation-shelf-${scene.name}`;
   await withMemoryProjectBrowserStack(
     {
       userId,
+      browserName,
       recordVideo: {
         dir: join(evidence, scene.name),
         size: { width: scene.width, height: scene.height },
@@ -53,13 +85,19 @@ for (const scene of [
     },
     async ({ page, url, store }) => {
       const errors: string[] = [];
+      const navigations: string[] = [];
+      page.on('framenavigated', frame => {
+        if (frame === page.mainFrame()) navigations.push(frame.url());
+      });
       page.on('pageerror', error => errors.push(error.message));
       await page.context().tracing.start({ screenshots: true, snapshots: true });
       await page.setViewportSize({ width: scene.width, height: scene.height });
       await page.emulateMedia({
         colorScheme: scene.dark ? 'dark' : 'light',
-        reducedMotion: 'reduce',
+        reducedMotion: scene.reduced ? 'reduce' : 'no-preference',
       });
+      if (scene.name === 'media-failure')
+        await page.route('**/source-shelf/*.webm', route => route.abort('failed'));
       await page.goto(url, { waitUntil: 'domcontentloaded' });
       await page.evaluate(
         dark => localStorage.setItem('nous-ui-preferences', JSON.stringify({ isDarkMode: dark })),
@@ -217,7 +255,44 @@ for (const scene of [
         transition: getComputedStyle(element.querySelector('.source-book') as Element)
           .transitionDuration,
       }));
-      assert.deepEqual(motion, { animation: 'none', transition: '0s' });
+      if (scene.reduced) {
+        assert.deepEqual(motion, { animation: 'none', transition: '0s' });
+        assert.equal(await shelf.locator('video').count(), 0);
+      } else if (scene.name === 'media-failure') {
+        await page.waitForFunction(
+          () => document.querySelectorAll('.source-shelf video').length === 0
+        );
+        assert(await books.nth(1).locator('.source-book-preparation img').isVisible());
+      } else {
+        await books.nth(1).locator('video[data-phase=search]').waitFor();
+        await page.waitForFunction(() => {
+          const video = document.querySelector<HTMLVideoElement>(
+            '.source-shelf-item[aria-current=true] video'
+          );
+          return video && !video.paused && video.readyState >= 2 && video.currentTime > 0;
+        });
+        const playback = await books
+          .nth(1)
+          .locator('video')
+          .evaluate(element => {
+            const video = element as HTMLVideoElement;
+            const quality = video.getVideoPlaybackQuality();
+            return {
+              phase: video.dataset.phase,
+              time: video.currentTime,
+              loop: video.loop,
+              width: video.videoWidth,
+              decoded: quality.totalVideoFrames,
+              dropped: quality.droppedVideoFrames,
+            };
+          });
+        assert.equal(playback.loop, true);
+        assert.equal(playback.phase, 'search');
+        assert.equal(playback.width, 512);
+        snapshots.push({ phase: 'actual-native-playback', playback });
+      }
+      const ordinal = shelf.getByText(`Lettura fonti 2 di ${sourceNames.length}`, { exact: true });
+      assert.equal(await ordinal.getAttribute('class'), 'sr-only');
       await page.screenshot({ path: join(evidence, `${scene.name}-reading.png`), fullPage: false });
       snapshots.push({ phase, documents, geometry, motion });
       assert(
@@ -238,6 +313,14 @@ for (const scene of [
           document.querySelector('.source-shelf-item:last-child')?.getAttribute('aria-current') ===
           'true'
       );
+      await page.waitForFunction(() => {
+        const book = document.querySelector('.source-shelf-item:last-child');
+        const list = book?.parentElement;
+        if (!book || !list) return false;
+        const bounds = book.getBoundingClientRect();
+        const viewport = list.getBoundingClientRect();
+        return bounds.left >= viewport.left - 1 && bounds.right <= viewport.right + 1;
+      });
       const reveal = await books.last().evaluate(element => {
         const book = element.getBoundingClientRect();
         const parent = element.parentElement;
@@ -251,12 +334,24 @@ for (const scene of [
       assert(reveal.visible, 'Newly reading book remains outside the shelf viewport');
       assert.equal(reveal.focused, documents[1].name, 'Reading progress moved keyboard focus');
       await page.screenshot({ path: join(evidence, `${scene.name}-reveal.png`) });
-      snapshots.push({ phase, documents, reveal });
+      const caption = await books
+        .last()
+        .locator('.source-book-title')
+        .evaluate(element => ({
+          width: element.getBoundingClientRect().width,
+          height: element.getBoundingClientRect().height,
+          clamp: getComputedStyle(element).webkitLineClamp,
+          text: element.textContent,
+        }));
+      assert.equal(caption.clamp, '2');
+      assert(caption.height <= 2 * 12 * 1.4 + 1);
+      assert.equal(await books.last().getAttribute('title'), sourceNames.at(-1));
+      snapshots.push({ phase, documents, reveal, caption });
       phase = 'transcription';
       await shelf.getByText(/165\/200/).waitFor();
       assert(await shelf.getByText(/Pagine 151–200 trascritte in qualità ridotta/).isVisible());
       assert.match(
-        await shelf.getByRole('status').innerText(),
+        (await shelf.getByRole('status').textContent()) ?? '',
         new RegExp(`Lettura fonti 2 di ${sourceNames.length}`)
       );
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -271,11 +366,26 @@ for (const scene of [
             transcriptionFrame.y + transcriptionFrame.height,
         'PDF detail clips Stop'
       );
+      await page.waitForFunction(() => {
+        const book = document.querySelector('.source-shelf-item[aria-current=true]');
+        const list = book?.parentElement;
+        if (!book || !list) return false;
+        const bounds = book.getBoundingClientRect();
+        const viewport = list.getBoundingClientRect();
+        return bounds.left >= viewport.left - 1 && bounds.right <= viewport.right + 1;
+      });
       await page.screenshot({
         path: join(evidence, `${scene.name}-transcription.png`),
         fullPage: false,
       });
       snapshots.push({ phase, documents });
+      if (!scene.reduced && scene.name !== 'media-failure')
+        await page.waitForFunction(() => {
+          const video = document.querySelector<HTMLVideoElement>(
+            '.source-shelf-item[aria-current=true] video'
+          );
+          return video && !video.paused && video.readyState >= 2;
+        });
       phase = 'saving';
       await shelf.getByText(/Salvataggio fonti/).waitFor();
       assert.deepEqual(
@@ -283,6 +393,9 @@ for (const scene of [
         sourceNames.map(() => 'done')
       );
       await page.screenshot({ path: join(evidence, `${scene.name}-saving.png`), fullPage: false });
+      await page.waitForFunction(
+        () => document.querySelectorAll('.source-shelf video').length === 0
+      );
       snapshots.push({ phase, documents });
       phase = 'release';
       await page
@@ -303,6 +416,7 @@ for (const scene of [
         fullPage: false,
       });
       assert.deepEqual(errors, []);
+      assert.equal(navigations.length, 2, 'Unexpected navigation/reload during the recorded flow');
       await page.context().tracing.stop({ path: join(evidence, `${scene.name}-trace.zip`) });
       const video = page.video();
       if (video) {
@@ -311,6 +425,7 @@ for (const scene of [
       }
       results.push({
         scene,
+        browserName,
         durationMs: performance.now() - startedAt,
         snapshots,
         projectId,

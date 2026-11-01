@@ -279,3 +279,47 @@
     transform: none;
   }
 }
+
+/* Preparation uses the approved fixed-camera 3D exports, with a separate bounded
+   caption so the filename cannot float over a moving cover or page. */
+.source-shelf[data-preparing] .source-shelf-item {
+  height: auto;
+  min-height: var(--book-height);
+  border-radius: 0.75rem;
+}
+.source-shelf[data-preparing] .source-book {
+  height: var(--book-width);
+}
+.source-shelf[data-preparing] .source-shelf-item:hover .source-book,
+.source-shelf[data-preparing] .source-shelf-item:focus-visible .source-book {
+  transform: none;
+}
+.source-book-preparation,
+.source-book-preparation img,
+.source-book-preparation video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.source-book-caption {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.5rem 0.25rem 0;
+  color: var(--ink-primary);
+}
+.source-book-caption .source-book-title {
+  min-width: 0;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+  font: 0.75rem / 1.4 var(--font-sans);
+  text-wrap: pretty;
+}
+
+.source-shelf[data-preparing] .source-shelf-item[data-state="reading"] .source-book-preparation {
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+}

@@ -151,6 +151,28 @@ jobs:
           path: ${{ runner.temp }}/nous-recovery/interview-recovery
           if-no-files-found: ignore
 
+      - name: Verify source-preparation motion and lifecycle
+        env:
+          NOUS_E2E_DATA: ${{ runner.temp }}/nous-source-preparation
+        run: bun run test:source-preparation-shelf
+
+      - name: Verify source-preparation playback in Firefox
+        env:
+          NOUS_E2E_DATA: ${{ runner.temp }}/nous-source-preparation-firefox
+          SHELF_BROWSER: firefox
+          SHELF_SCENE: desktop-light
+        run: bun run test:source-preparation-shelf
+
+      - name: Upload source-preparation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-preparation
+          path: |
+            ${{ runner.temp }}/nous-source-preparation/source-preparation-shelf
+            ${{ runner.temp }}/nous-source-preparation-firefox/source-preparation-shelf
+          if-no-files-found: ignore
+
   supabase-contract:
     runs-on: ubuntu-latest
     permissions:

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { act, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import SourceShelf from '../../../components/library/SourceShelf.tsx';
 import { formatSourcePreparationProgress } from '../../../hooks/workspace/controller/controllerContext.ts';
 import { setRenderingLocaleOverride } from '../../../i18n/uiMessages.ts';
@@ -12,7 +12,107 @@ const sources = [
   { key: 'c', name: 'Appunti' },
 ];
 
+beforeEach(() => {
+  vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+});
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
 describe('SourceShelf', () => {
+  test('plays the approved reading artwork only for the actual reading source and settles without delaying it', async () => {
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    const progress = { step: 'extraction' as const, completed: 0, total: 3 };
+    const preparing = sources.map((source, index) => ({
+      ...source,
+      state: index === 1 ? ('reading' as const) : ('idle' as const),
+    }));
+    const { rerender, unmount } = render(
+      <SourceShelf sources={preparing} preparationProgress={progress} />
+    );
+    const active = screen.getByRole('listitem', { name: sources[1].name });
+    const video = active.querySelector('video');
+    expect(video).toBeInTheDocument();
+    if (!video) throw new Error('Missing reading animation');
+    expect(
+      screen.getByRole('listitem', { name: sources[0].name }).querySelector('video')
+    ).toBeNull();
+    fireEvent.playing(video);
+    fireEvent.ended(video);
+    const loop = active.querySelector('video');
+    expect(loop).toHaveAttribute('loop');
+    expect(active).toHaveAttribute('data-state', 'reading');
+    expect(active).not.toHaveAccessibleDescription('Fonte letta');
+    rerender(
+      <SourceShelf
+        sources={preparing.map(source => ({ ...source, state: 'done' as const }))}
+        preparationProgress={{ ...progress, completed: 3 }}
+      />
+    );
+    expect(active).toHaveAccessibleDescription('Fonte letta');
+    expect(active.querySelector('video')).not.toHaveAttribute('loop');
+    expect(
+      screen.getByRole('listitem', { name: sources[0].name }).querySelector('video')
+    ).toBeNull();
+    unmount();
+    expect(pause).toHaveBeenCalled();
+    play.mockRestore();
+    pause.mockRestore();
+  });
+
+  test('uses a static readable poster when motion is reduced and preserves the full filename', () => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+    );
+    const name = `${'Very_long_source_title_'.repeat(20)}.pdf`;
+    try {
+      render(
+        <SourceShelf
+          sources={[{ key: 'long', name, state: 'reading' }]}
+          preparationProgress={{ step: 'extraction', completed: 0, total: 1 }}
+        />
+      );
+      const book = screen.getByRole('listitem', { name });
+      expect(book.querySelector('video')).toBeNull();
+      expect(book.querySelector('.source-book-preparation img')).toBeInTheDocument();
+      expect(book).toHaveAttribute('title', name);
+      expect(book).toHaveAttribute('aria-current', 'true');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test('retains a poster and actual error state when animation playback is unavailable', async () => {
+    const play = vi
+      .spyOn(HTMLMediaElement.prototype, 'play')
+      .mockRejectedValue(new DOMException('Blocked', 'NotAllowedError'));
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    const { rerender } = render(
+      <SourceShelf
+        sources={[{ ...sources[0], state: 'reading' }]}
+        preparationProgress={{ step: 'extraction', completed: 0, total: 1 }}
+      />
+    );
+    const book = screen.getByRole('listitem', { name: sources[0].name });
+    await act(async () => {});
+    expect(book.querySelector('video')).toBeNull();
+    expect(book.querySelector('.source-book-preparation img')).toBeInTheDocument();
+    rerender(
+      <SourceShelf
+        sources={[{ ...sources[0], state: 'error' }]}
+        preparationProgress={{ step: 'extraction', completed: 1, total: 1 }}
+      />
+    );
+    expect(book).toHaveAccessibleDescription('Fonte non utilizzabile');
+    expect(book.querySelector('.source-book-error')).toBeVisible();
+    play.mockRestore();
+    pause.mockRestore();
+  });
+
   test.each([
     ['it', 'Fonte non utilizzabile'],
     ['en', 'Source unavailable'],
@@ -61,6 +161,59 @@ describe('SourceShelf', () => {
     );
     expect(reveal).toHaveBeenCalledOnce();
   });
+  test('pauses hidden media and restarts a replacement source at its opening instead of the old loop', async () => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    const progress = { step: 'extraction' as const, completed: 0, total: 1 };
+    const { rerender, unmount } = render(
+      <SourceShelf sources={[{ ...sources[0], state: 'reading' }]} preparationProgress={progress} />
+    );
+    const video = screen.getByRole('listitem', { name: sources[0].name }).querySelector('video');
+    if (!video) throw new Error('Missing reading animation');
+    fireEvent.playing(video);
+    fireEvent.ended(video);
+    visibility.mockReturnValue('hidden');
+    const beforeHidden = pause.mock.calls.length;
+    fireEvent(document, new Event('visibilitychange'));
+    expect(pause.mock.calls.length).toBeGreaterThan(beforeHidden);
+    visibility.mockReturnValue('visible');
+    const beforeVisible = play.mock.calls.length;
+    fireEvent(document, new Event('visibilitychange'));
+    expect(play.mock.calls.length).toBeGreaterThan(beforeVisible);
+    const beforeReplace = pause.mock.calls.length;
+    rerender(
+      <SourceShelf sources={[{ ...sources[1], state: 'reading' }]} preparationProgress={progress} />
+    );
+    expect(pause.mock.calls.length).toBeGreaterThan(beforeReplace);
+    expect(
+      screen.getByRole('listitem', { name: sources[1].name }).querySelector('video')
+    ).not.toHaveAttribute('loop');
+    unmount();
+  });
+
+  test('uses the transparent poster if the browser decodes an opaque video frame', () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage: vi.fn(),
+      getImageData: () => ({ data: new Uint8ClampedArray([0, 0, 0, 255]) }),
+    } as unknown as CanvasRenderingContext2D);
+    render(
+      <SourceShelf
+        sources={[{ ...sources[0], state: 'reading' }]}
+        preparationProgress={{ step: 'extraction', completed: 0, total: 1 }}
+      />
+    );
+    const book = screen.getByRole('listitem', { name: sources[0].name });
+    const video = book.querySelector('video');
+    if (!video) throw new Error('Missing reading animation');
+    fireEvent.loadedData(video);
+    expect(book.querySelector('video')).toBeNull();
+    expect(book.querySelector('.source-book-preparation img')).toBeInTheDocument();
+    expect(book).toHaveAttribute('data-state', 'reading');
+  });
+
   test('keeps PDF page progress and reduced-quality disclosure with the book counter', () => {
     const progress = {
       step: 'pdf-transcription' as const,
