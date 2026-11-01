@@ -14,6 +14,7 @@ import {
 import { toWorkflowErrorDiagnostic } from '../workflows/workflowErrorDiagnostics.js';
 
 const CODEX_REQUEST_TIMEOUT_MS = 30_000;
+const CODEX_PARSER_REJECTION = 'Failed to deserialize JSONRPCMessage';
 export const CODEX_TURN_TIMEOUT_MS = 10 * 60_000;
 const CODEX_BASE_INSTRUCTIONS =
   'You are the Nous Reader text engine. Use only capabilities explicitly supplied by Nous. Never inspect the host filesystem, environment, applications, or browser. If a dynamic tool returns status "awaiting_client_result", end the turn immediately without inventing its result.';
@@ -199,10 +200,38 @@ const makeProtocolError = (message: unknown): CodexAppServerError => {
 export class CodexJsonRpcClient {
   readonly #lineReader: ReadLineInterface;
   readonly #notificationListeners = new Set<(method: string, params: unknown) => void>();
+  readonly #failureListeners = new Set<(error: unknown) => void>();
   readonly #pendingRequests = new Map<string, PendingRequest>();
   #closed = false;
   #nextRequestId = 1;
   #serverRequestHandler?: (request: JsonRpcRequest) => Promise<unknown>;
+  #stderrPrefix = '';
+  readonly #onStderr = (chunk: Buffer | string): void => {
+    if (this.#closed) return;
+    const text = this.#stderrPrefix + String(chunk);
+    this.#stderrPrefix = '';
+    if (text.includes(CODEX_PARSER_REJECTION)) {
+      // Project an explicit transport diagnostic; stderr may also contain request contents.
+      const cause = Object.assign(new Error(`${CODEX_PARSER_REJECTION}.`), {
+        code: 'jsonrpc_deserialization_failed',
+      });
+      this.#failPending(
+        new CodexAppServerError('Codex app-server rejected a JSON-RPC message.', 'protocol', {
+          cause,
+        })
+      );
+      this.close();
+      return;
+    }
+    // Retain only a possible marker prefix, bounded by the marker's own length.
+    for (let length = CODEX_PARSER_REJECTION.length - 1; length > 0; length -= 1) {
+      const prefix = CODEX_PARSER_REJECTION.slice(0, length);
+      if (text.endsWith(prefix)) {
+        this.#stderrPrefix = prefix;
+        break;
+      }
+    }
+  };
 
   constructor(
     readonly process: CodexProcess,
@@ -210,7 +239,7 @@ export class CodexJsonRpcClient {
   ) {
     this.#lineReader = createInterface({ input: process.stdout });
     this.#lineReader.on('line', line => this.#handleLine(line));
-    process.stderr.on('data', () => undefined);
+    process.stderr.on('data', this.#onStderr);
     process.once('error', error =>
       this.#failPending(error instanceof Error ? error : new Error(String(error)))
     );
@@ -273,6 +302,11 @@ export class CodexJsonRpcClient {
     return () => this.#notificationListeners.delete(listener);
   }
 
+  onFailure(listener: (error: unknown) => void): () => void {
+    this.#failureListeners.add(listener);
+    return () => this.#failureListeners.delete(listener);
+  }
+
   handleServerRequests(handler: (request: JsonRpcRequest) => Promise<unknown>): void {
     this.#serverRequestHandler = handler;
   }
@@ -282,6 +316,8 @@ export class CodexJsonRpcClient {
       return;
     }
     this.#closed = true;
+    this.#stderrPrefix = '';
+    this.process.stderr.off('data', this.#onStderr);
     this.#lineReader.close();
     this.process.stdin.end();
     this.process.kill();
@@ -361,12 +397,14 @@ export class CodexJsonRpcClient {
         throw new Error(`Unsupported server request: ${request.method}`);
       }
       const result = await this.#serverRequestHandler(request);
+      if (this.#closed) return;
       this.#write({ id: request.id, result });
     } catch (error) {
       console.error('[Codex app-server] Client tool request failed.', {
         diagnostic: toWorkflowErrorDiagnostic(error),
         method: request.method,
       });
+      if (this.#closed) return;
       this.#write({
         id: request.id,
         error: { code: -32_603, message: 'Operazione non riuscita.' },
@@ -381,6 +419,7 @@ export class CodexJsonRpcClient {
       pending.reject(error);
     }
     this.#pendingRequests.clear();
+    for (const listener of this.#failureListeners) listener(error);
   }
 }
 
@@ -1000,8 +1039,10 @@ const executeCodexAppServerTurn = async (
       }
       resolveTurnCompleted(completedText || streamedText);
     });
+    const unsubscribeFailure = client.onFailure(rejectTurnCompleted);
     cleanupTurnListener = () => {
       unsubscribe();
+      unsubscribeFailure();
       cleanupCancellation();
     };
   });
@@ -1105,6 +1146,8 @@ const executeCodexAppServerTurn = async (
     return { result, settled };
   } catch (error) {
     cleanupTurnListener();
+    rejectTurnCompleted(error);
+    await turnCompleted.catch(() => undefined);
     throw error;
   }
 };

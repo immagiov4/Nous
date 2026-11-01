@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -116,6 +117,153 @@ describe('Codex app-server protocol client', () => {
   afterEach(() => {
     vi.useRealTimers();
     delete process.env.CODEX_APP_SERVER_ENABLED;
+  });
+
+  test('recognizes parser rejection at every stderr chunk boundary and cleans up immediately', async () => {
+    const marker = 'Failed to deserialize JSONRPCMessage';
+    vi.useFakeTimers();
+    for (let split = 0; split <= marker.length; split += 1) {
+      const process = new FakeCodexProcess(() => undefined);
+      const client = new CodexJsonRpcClient(process);
+      try {
+        const pending = client.request('turn/start');
+        process.stderr.write('PRIVATE_SOURCE'.repeat(marker.length));
+        process.stderr.write(marker.slice(0, split));
+        process.stderr.write(`${marker.slice(split)}: PRIVATE_SECRET\n`);
+        await expect(pending).rejects.toMatchObject({
+          code: 'protocol',
+          cause: { code: 'jsonrpc_deserialization_failed' },
+        });
+        expect(process.kill).toHaveBeenCalledTimes(1);
+        expect(process.stderr.listenerCount('data')).toBe(0);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        client.close();
+      }
+    }
+  });
+
+  test('handles a parser rejection delivered by a real subprocess stderr pipe', async () => {
+    const child = spawn(
+      process.execPath,
+      [
+        '-e',
+        `
+      process.stdin.once('data', () => {
+        process.stderr.write('Failed to deserialize JSONRPCMessage: PRIVATE_SOURCE\\n');
+      });
+    `,
+      ],
+      { stdio: 'pipe', windowsHide: true }
+    );
+    const client = new CodexJsonRpcClient(child);
+    try {
+      await expect(client.request('turn/start')).rejects.toMatchObject({
+        code: 'protocol',
+        cause: { code: 'jsonrpc_deserialization_failed' },
+      });
+      expect(child.stdin.writableEnded).toBe(true);
+    } finally {
+      client.close();
+    }
+  });
+
+  test.each([
+    'turn/start',
+    'source-reply',
+  ])('settles a turn when the parser rejects %s', async rejectedMessage => {
+    vi.useFakeTimers();
+    const fakeProcess = new FakeCodexProcess(message => {
+      if (message.method === rejectedMessage || message.id === rejectedMessage) {
+        fakeProcess.stderr.write('Failed to deserialize JSONRPCMessage: PRIVATE_SOURCE\n');
+      } else if (message.method === 'account/read') {
+        respond(fakeProcess, message, { account: { type: 'chatgpt' } });
+      } else if (message.method === 'thread/start') {
+        respond(fakeProcess, message, { thread: { id: 'thread-parser' } });
+      } else if (message.method === 'turn/start') {
+        respond(fakeProcess, message, { turn: { id: 'turn-parser' } });
+        queueMicrotask(() =>
+          fakeProcess.send({
+            id: 'source-reply',
+            method: 'item/tool/call',
+            params: {
+              threadId: 'thread-parser',
+              tool: 'read_source_file',
+              callId: 'source-call',
+              arguments: {},
+            },
+          })
+        );
+      }
+    });
+    const client = new CodexJsonRpcClient(fakeProcess);
+    let failure: unknown;
+    const result = runCodexAppServerTurnWithClient(
+      {
+        model: 'test-model',
+        reasoningEffort: 'low',
+        developerInstructions: 'Read source.',
+        input: [{ type: 'text', text: 'Read source.' }],
+        tools: [
+          {
+            name: 'read_source_file',
+            description: 'Read source.',
+            inputSchema: { type: 'object' },
+            execute: async () => ({ text: 'PRIVATE_SOURCE' }),
+          },
+        ],
+      },
+      client
+    ).catch(error => {
+      failure = error;
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(failure).toMatchObject({
+        code: 'protocol',
+        cause: { code: 'jsonrpc_deserialization_failed' },
+      });
+      await result;
+      expect(vi.getTimerCount()).toBe(0);
+      expect(fakeProcess.kill).toHaveBeenCalledTimes(1);
+      expect(fakeProcess.received.some(message => message.method === 'turn/interrupt')).toBe(false);
+    } finally {
+      client.close();
+    }
+  });
+
+  test.each([
+    'success',
+    'failure',
+  ])('settles a late tool %s after parser closure', async outcome => {
+    const fakeProcess = new FakeCodexProcess(() => undefined);
+    const client = new CodexJsonRpcClient(fakeProcess);
+    let settleTool: () => void = () => undefined;
+    const toolResult = new Promise<unknown>((resolve, reject) => {
+      settleTool = () =>
+        outcome === 'success' ? resolve({ text: 'source' }) : reject(new Error('tool failed'));
+    });
+    const execute = vi.fn(() => toolResult);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    client.handleServerRequests(execute);
+    try {
+      fakeProcess.send({ id: 'slow-source', method: 'item/tool/call', params: {} });
+      await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+      const pending = client.request('test/ping');
+      fakeProcess.stderr.write('Failed to deserialize JSONRPCMessage\n');
+      await expect(pending).rejects.toMatchObject({ code: 'protocol' });
+      settleTool();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(fakeProcess.received).toHaveLength(1);
+      expect(fakeProcess.received[0].method).toBe('test/ping');
+      expect(fakeProcess.kill).toHaveBeenCalledTimes(1);
+      if (outcome === 'failure') expect(log).toHaveBeenCalledOnce();
+      else expect(log).not.toHaveBeenCalled();
+    } finally {
+      settleTool();
+      client.close();
+      log.mockRestore();
+    }
   });
 
   test('keeps the parser exception behind an invalid JSON protocol error', async () => {
