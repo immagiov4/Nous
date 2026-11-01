@@ -11,6 +11,7 @@ const IMAGE_CONTEXT_LINE_COUNT = 5;
 const LINE_THRESHOLD = 4.6;
 const CELL_THRESHOLD = 7;
 const IMAGE_DIMENSION_THRESHOLD = 32;
+const PDFJS_GLOBAL_OBJECT_PREFIX = 'g_';
 const STANDALONE_RENDERED_IMAGE_MIN_AREA = 10_000;
 const STANDALONE_RENDERED_IMAGE_MIN_MAX_DIMENSION = 140;
 const STANDALONE_RENDERED_IMAGE_MIN_SHORT_SIDE = 72;
@@ -557,11 +558,13 @@ const extractPageImagePlacements = async (
     }
 
     const name = args[0];
-    const isCommon = page.commonObjs.has(name);
-    const { width, height } = await resolveEmbeddedImage(
-      isCommon ? page.commonObjs : page.objs,
-      name
-    );
+    const isGlobalImage = typeof name === 'string' && name.startsWith(PDFJS_GLOBAL_OBJECT_PREFIX);
+    const imageObjects = isGlobalImage ? page.commonObjs : page.objs;
+    // PDF.js inline operands contain pixels; named objects choose their store before resolution.
+    const { width, height } =
+      fn === pdfjs.OPS.paintInlineImageXObject
+        ? (name as { width: number; height: number })
+        : await resolveEmbeddedImage(imageObjects, name);
 
     if (imageThreshold >= width || imageThreshold >= height) {
       continue;
