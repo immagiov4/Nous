@@ -1,3 +1,5 @@
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import { type ContextNoteResult, createContextNoteValidationError } from '@shared/contextNote';
 import { type ContextNoteRecord, readContextNoteSnapshotId } from '@shared/contextNoteCatalog';
 import { MAX_CONTEXT_CHAT_FIELD_CHARS } from '@shared/lessonSourceContext';
@@ -292,11 +294,8 @@ export const buildConversationNoteCatalog = ({
     origin?.lessonId,
     included.map(entry => [entry.id, entry.kind, entry.selector.start, entry.selector.end]),
   ]);
-  const snapshotId = crypto.subtle
-    .digest('SHA-256', new TextEncoder().encode(snapshotInput))
-    .then(bytes =>
-      Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('')
-    );
+  // Private-network HTTP is supported, where the browser's SubtleCrypto is unavailable.
+  const snapshotId = Promise.resolve().then(() => bytesToHex(sha256(snapshotInput)));
   return {
     content,
     origin,

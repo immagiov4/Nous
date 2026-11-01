@@ -1,6 +1,6 @@
 import { ContextNoteCatalogSchema, serializeContextNoteView } from '@shared/contextNoteCatalog';
 import { MAX_CONTEXT_CHAT_FIELD_CHARS } from '@shared/lessonSourceContext';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import {
   buildConversationNoteCatalog,
   resolveConversationNotePassage,
@@ -55,6 +55,25 @@ test('rebuilding identical input resolves a previously issued ID and has the sam
   expect(
     resolveConversationNotePassage(rebuilt, { passageId: first.entries[0].id })?.selector
   ).toEqual(first.entries[0].selector);
+});
+
+test('keeps stable exact targets without secure-context crypto on private-network HTTP', async () => {
+  const source = 'Prima frase. Seconda frase.';
+  const secure = build(source, 'it');
+  const secureId = await secure.snapshotId;
+  vi.stubGlobal('crypto', {
+    getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto),
+  });
+  try {
+    const insecure = build(source, 'it');
+    expect(await insecure.snapshotId).toBe(secureId);
+    expect(
+      resolveConversationNotePassage(insecure, { passageId: secure.entries[1].id })?.selector
+    ).toEqual(secure.entries[1].selector);
+    assertRoundTrip(insecure);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 test.each([

@@ -83,6 +83,7 @@
     "@ai-sdk/react": "^3.0.139",
     "@mariozechner/pi-ai": "0.73.1",
     "@mariozechner/pi-coding-agent": "0.73.1",
+    "@noble/hashes": "1.8.0",
     "@observablehq/plot": "0.6.17",
     "@resvg/resvg-js": "^2.6.2",
     "@tabler/icons": "3.49.0",
