@@ -203,6 +203,7 @@ export class CodexJsonRpcClient {
   readonly #failureListeners = new Set<(error: unknown) => void>();
   readonly #pendingRequests = new Map<string, PendingRequest>();
   #closed = false;
+  #closedReason: unknown;
   #nextRequestId = 1;
   #serverRequestHandler?: (request: JsonRpcRequest) => Promise<unknown>;
   #stderrPrefix = '';
@@ -215,12 +216,11 @@ export class CodexJsonRpcClient {
       const cause = Object.assign(new Error(`${CODEX_PARSER_REJECTION}.`), {
         code: 'jsonrpc_deserialization_failed',
       });
-      this.#failPending(
+      this.close(
         new CodexAppServerError('Codex app-server rejected a JSON-RPC message.', 'protocol', {
           cause,
         })
       );
-      this.close();
       return;
     }
     // Retain only a possible marker prefix, bounded by the marker's own length.
@@ -241,11 +241,11 @@ export class CodexJsonRpcClient {
     this.#lineReader.on('line', line => this.#handleLine(line));
     process.stderr.on('data', this.#onStderr);
     process.once('error', error =>
-      this.#failPending(error instanceof Error ? error : new Error(String(error)))
+      this.close(error instanceof Error ? error : new Error(String(error)))
     );
     process.once('exit', code => {
       if (!this.#closed) {
-        this.#failPending(
+        this.close(
           new CodexAppServerError(
             `Codex app-server exited with code ${code ?? 'unknown'}.`,
             'process'
@@ -262,7 +262,7 @@ export class CodexJsonRpcClient {
   ): Promise<unknown> {
     options.signal?.throwIfAborted();
     if (this.#closed) {
-      throw new CodexAppServerError('Codex app-server connection is closed.', 'process');
+      throw this.#closedReason;
     }
 
     const id = this.#nextRequestId++;
@@ -270,8 +270,7 @@ export class CodexJsonRpcClient {
     const onAbort = () => {
       // Drain a response already buffered on stdout so a started turn can be interrupted.
       abortImmediate = setImmediate(() => {
-        this.#failPending(options.signal?.reason);
-        this.close();
+        this.close(options.signal?.reason);
       });
     };
     const cleanup = () => {
@@ -311,17 +310,20 @@ export class CodexJsonRpcClient {
     this.#serverRequestHandler = handler;
   }
 
-  close(): void {
+  close(
+    reason: unknown = new CodexAppServerError('Codex app-server connection closed.', 'process')
+  ): void {
     if (this.#closed) {
       return;
     }
     this.#closed = true;
+    this.#closedReason = reason;
     this.#stderrPrefix = '';
     this.process.stderr.off('data', this.#onStderr);
     this.#lineReader.close();
     this.process.stdin.end();
     this.process.kill();
-    this.#failPending(new CodexAppServerError('Codex app-server connection closed.', 'process'));
+    this.#failPending(reason);
   }
 
   #write(message: JsonObject): void {
