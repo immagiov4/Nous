@@ -4,6 +4,8 @@ Run fast checks on changed files and targeted tests while editing, then push for
 
 Browser tests are always muted; audio is verified inside the page or from files.
 
+CI runs `quality-coverage` and `browser-proofs` independently. The first runs `gate:ci` once and uploads LCOV; it also scans the resulting coverage with SonarCloud on pushes and pull requests from the same repository. The second verifies production audio, caption rows, keyboard focus and interview recovery, retaining the recovery evidence. The required `test` check evaluates both worker results and passes only when both succeed; a failed, cancelled or skipped worker makes it fail.
+
 ## Cloud Codex environment
 
 After dependencies are installed, run `bun run setup:codex` in the cloud setup command. It installs Geppetto at the commit already pinned by the PR gate, and My Codex Skills and Ponytail at reviewed commits, through Codex's native plugin manager. Pin changes replace only clean native marketplaces from those repositories; custom sources, sparse configurations and local edits stop setup for preservation. It reuses the machine's memory choice, otherwise links the existing Nous memory repository, adopts the project, approves only the two installed hook packs, and checks their skills through the native discovery API. Geppetto reuses the maintenance jobs already registered on another machine.
