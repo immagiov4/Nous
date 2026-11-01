@@ -669,7 +669,7 @@ test('a deleted captured annotation cannot update an overlapping replacement', a
   expect(args.patchSectionAnnotations).not.toHaveBeenCalled();
 });
 
-test('two contextual notes on different sentences in one paragraph stay distinct after reload', async () => {
+test('two contextual notes on different sentences in one paragraph retain distinct serialized selectors', async () => {
   const content = 'First sentence. Second sentence.';
   let lesson = buildTestLesson({ id: 'lesson-1', content });
   const args = buildHookArgs({
@@ -770,4 +770,53 @@ test('context-question capture carries the clicked annotation ID', async () => {
   expect(args.openContextAnswer).toHaveBeenCalledWith(
     expect.objectContaining({ attachedAnnotationId: 'clicked', attachedAnnotationNote: 'Existing' })
   );
+});
+
+test.each([
+  { stored: undefined, active: true, matches: true },
+  { stored: '', active: true, matches: true },
+  { stored: undefined, active: false, matches: true },
+  { stored: '', active: false, matches: true },
+  { stored: undefined, active: true, matches: false },
+  { stored: '', active: true, matches: false },
+  { stored: 'Different persisted sentence.', active: true, matches: true },
+])('exact note writes use only the matching active reader source: $stored/$active/$matches', async ({
+  stored,
+  active,
+  matches,
+}) => {
+  const source = 'First sentence. Second sentence.';
+  const input = { ...exactNoteInput(source), annotationId: 'captured' };
+  const annotation = {
+    id: 'captured',
+    note: 'Original note',
+    createdAt: '',
+    updatedAt: '',
+    anchor: { kind: 'selection' as const, selector: input.exactTarget.selector },
+  };
+  const args = buildHookArgs({
+    activeSectionId: active ? 'lesson-1' : 'other',
+    sectionContent: matches ? source : 'Changed reader sentence.',
+    learningPlan: buildTestLearningPlan([
+      buildTestLesson({ id: 'lesson-1', content: stored, annotations: [annotation] }),
+    ]),
+  });
+  const { result } = renderHook(() => useWorkspaceReaderActions(args));
+  const accepted = active && matches && !stored;
+  for (const mutate of [
+    result.current.handleSaveConversationNote,
+    result.current.handleUpdateConversationNote,
+  ]) {
+    const outcome = await mutate({ lessonId: 'lesson-1', projectId: 'project-1' }, input);
+    expect(outcome.saved).toBe(accepted);
+    if (accepted) expect(outcome.resolvedText).toBe('First sentence.');
+    else expect(outcome.code).toBe('stale_context');
+  }
+  expect(args.patchSectionAnnotations).toHaveBeenCalledTimes(accepted ? 2 : 0);
+  if (accepted) {
+    for (const [, annotations] of vi.mocked(args.patchSectionAnnotations).mock.calls)
+      expect(annotations).toEqual([
+        expect.objectContaining({ id: 'captured', anchor: annotation.anchor }),
+      ]);
+  } else expect(args.updateSection).not.toHaveBeenCalled();
 });

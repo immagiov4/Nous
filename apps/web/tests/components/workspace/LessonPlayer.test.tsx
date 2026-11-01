@@ -413,7 +413,7 @@ test('saves a note after API parsing reorders the source span properties', async
     {
       exactTarget: expect.objectContaining({
         content: expect.any(String),
-        selector: expect.objectContaining({ exact: expect.any(String) }),
+        selector: expect.objectContaining({ exact: 'La prima frase.' }),
       }),
       note: 'Da ricordare.',
       selectedText: 'La prima frase.',

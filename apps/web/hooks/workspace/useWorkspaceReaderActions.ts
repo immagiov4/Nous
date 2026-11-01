@@ -626,7 +626,7 @@ export const useWorkspaceReaderActions = ({
       }
       const { lessonId, section } = resolution;
 
-      const content = section.content ?? '';
+      const content = section.content || (lessonId === activeSectionId ? sectionContent : '');
       if (content !== exactTarget?.content)
         return { saved: false, merged: false, code: 'stale_context' };
       const result = applySectionAnnotation({
@@ -678,6 +678,8 @@ export const useWorkspaceReaderActions = ({
       };
     },
     [
+      activeSectionId,
+      sectionContent,
       commitSectionAnnotations,
       resolveMutationSection,
       updateSection,
@@ -701,7 +703,7 @@ export const useWorkspaceReaderActions = ({
       }
       const { lessonId, section } = resolution;
 
-      const content = section.content ?? '';
+      const content = section.content || (lessonId === activeSectionId ? sectionContent : '');
       if (content !== exactTarget?.content)
         return { saved: false, merged: false, code: 'stale_context' };
       if (!resolveExactAnnotationTarget(content, exactTarget).length)
@@ -768,6 +770,8 @@ export const useWorkspaceReaderActions = ({
       };
     },
     [
+      activeSectionId,
+      sectionContent,
       commitSectionAnnotations,
       resolveMutationSection,
       updateSection,
