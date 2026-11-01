@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
 import SourceShelf from '../../../components/library/SourceShelf.tsx';
@@ -13,6 +13,54 @@ const sources = [
 ];
 
 describe('SourceShelf', () => {
+  test.each([
+    ['it', 'Fonte non utilizzabile'],
+    ['en', 'Source unavailable'],
+  ] as const)('distinguishes a failed source from an idle book in %s', (locale, description) => {
+    setRenderingLocaleOverride(locale);
+    try {
+      render(
+        <SourceShelf
+          sources={[
+            { key: 'failed', name: 'failed.pdf', state: 'error' },
+            { key: 'waiting', name: 'waiting.pdf', state: 'idle' },
+          ]}
+        />
+      );
+      const failed = screen.getByRole('listitem', { name: 'failed.pdf' });
+      expect(failed).toHaveAccessibleDescription(description);
+      expect(failed.querySelector('.source-book-error')).toBeVisible();
+      expect(screen.getByRole('listitem', { name: 'waiting.pdf' })).toHaveAccessibleDescription(
+        'waiting.pdf'
+      );
+    } finally {
+      setRenderingLocaleOverride(null);
+    }
+  });
+
+  test('reveals a newly reading offscreen book once without changing keyboard focus', () => {
+    const { rerender } = render(<SourceShelf sources={sources} />);
+    const list = screen.getByRole('list', { name: 'Le tue fonti' });
+    const books = screen.getAllByRole('listitem');
+    list.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200);
+    books[2].getBoundingClientRect = () => new DOMRect(500, 0, 150, 200);
+    const reveal = vi.fn();
+    books[2].scrollIntoView = reveal;
+    act(() => books[0].focus());
+    const reading = sources.map((source, index) => ({
+      ...source,
+      state: index === 2 ? ('reading' as const) : ('idle' as const),
+    }));
+    rerender(<SourceShelf sources={reading} />);
+    expect(reveal).toHaveBeenCalledWith(
+      expect.objectContaining({ block: 'nearest', inline: 'nearest' })
+    );
+    expect(books[0]).toHaveFocus();
+    rerender(
+      <SourceShelf sources={reading.map(source => ({ ...source }))} preparationStatus="next page" />
+    );
+    expect(reveal).toHaveBeenCalledOnce();
+  });
   test('keeps PDF page progress and reduced-quality disclosure with the book counter', () => {
     const progress = {
       step: 'pdf-transcription' as const,

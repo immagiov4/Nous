@@ -1149,6 +1149,7 @@ router.get('/import/chunks/:uploadId', async (req: Request, res: Response) => {
       meta: upload.completed.meta,
       snapshot: projectResponseSnapshot(req, snapshot),
       uploadStatus: upload.status,
+      progress: upload.progress,
     });
   } catch (error) {
     sendErrorResponse(

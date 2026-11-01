@@ -1,3 +1,4 @@
+import CourseSetupHeader from '../../../components/library/CourseSetupHeader.tsx';
 import * as sourceSelection from '../../../services/projects/sourceFileSelection.ts';
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
@@ -44,7 +45,13 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       <div data-testid="confirmation-messages">
         {chatProps.assessmentMessages.map(message => message.text).join('\n')}
       </div>
-      <output aria-label="Source count">{chatProps.sourceCount}</output>
+      <CourseSetupHeader
+        phase="sources"
+        sourceCount={chatProps.sourceCount ?? 0}
+        hasPreferences={false}
+        hasDiagnostic={false}
+        isLoading={false}
+      />
       <button type="button" onClick={() => void chatProps.onConfirmGenerate()}>
         Conferma scelte
       </button>
@@ -131,7 +138,7 @@ describe('LibraryScreenContainer route fallback', () => {
       },
     };
     render(<LibraryScreenContainer {...props} />);
-    expect(screen.getByRole('status', { name: 'Source count' })).toHaveTextContent('3');
+    expect(screen.getByText('3 fonti')).toBeVisible();
   });
 
   test('keeps the terminal preparation error and source warnings in one notification', async () => {
@@ -250,7 +257,7 @@ describe('LibraryScreenContainer route fallback', () => {
       file: { name: 'old.md', mimeType: 'text/markdown', data: '' },
     };
     const { container } = render(<LibraryScreenContainer {...props} />);
-    expect(screen.getByLabelText('Source count')).toHaveTextContent('1');
+    expect(screen.getByText('1 fonte')).toBeVisible();
     const input = container.querySelector<HTMLInputElement>('#library-source-file');
     if (!input) throw new Error('Missing source input');
     await act(async () =>
@@ -263,9 +270,9 @@ describe('LibraryScreenContainer route fallback', () => {
         },
       })
     );
-    expect(screen.getByLabelText('Source count')).toHaveTextContent('2');
+    expect(screen.getByText('2 fonti')).toBeVisible();
     await act(async () => fireEvent.change(input, { target: { files: [] } }));
-    expect(screen.getByLabelText('Source count')).toHaveTextContent('1');
+    expect(screen.getByText('1 fonte')).toBeVisible();
   });
 
   test('retains the latest selection when an earlier archive inspection finishes later', async () => {

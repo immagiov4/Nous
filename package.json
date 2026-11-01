@@ -78,6 +78,7 @@
     "test:course-setup-stage": "bun scripts/heavy-run.mjs --label course-setup-stage -- bun e2e/nous/tests/courseSetupStage.browser.ts",
     "test:interview-recovery": "bun scripts/heavy-run.mjs --label interview-recovery -- bun e2e/nous/tests/interviewRecovery.browser.ts",
     "test:source-shelf": "bun scripts/heavy-run.mjs --label source-shelf -- bun e2e/nous/tests/sourceShelf.browser.ts",
+    "test:source-preparation-shelf": "bun scripts/heavy-run.mjs --label source-preparation-shelf -- bun e2e/nous/tests/sourcePreparationShelf.browser.ts",
     "setup:codex": "node scripts/setup-codex-cloud.mjs",
     "gate:cloud": "mkdir -p ../.nous-cloud-tmp && NOUS_GATE_TMPDIR=\"$(cd ../.nous-cloud-tmp && pwd -P)\" && TMPDIR=\"$NOUS_GATE_TMPDIR\" GIT_CEILING_DIRECTORIES=\"$NOUS_GATE_TMPDIR${GIT_CEILING_DIRECTORIES:+:$GIT_CEILING_DIRECTORIES}\" docker-init -s -- bun run gate:ci"
   },

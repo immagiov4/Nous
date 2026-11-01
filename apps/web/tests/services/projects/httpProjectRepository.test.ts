@@ -1128,7 +1128,11 @@ test('subscribeToProjectRevisionStream requests catch-up on the first successful
   unsubscribe();
 });
 
-test('uploads all 30 sources in bounded binary requests and publishes metadata once', async () => {
+test.each([
+  'immediate',
+  'polled',
+])('uploads all 30 sources in bounded binary requests and publishes metadata once (%s completion)', async completionMode => {
+  const onSourceProgress = vi.fn();
   const files = Array.from(
     { length: 30 },
     (_, index) =>
@@ -1185,12 +1189,34 @@ test('uploads all 30 sources in bounded binary requests and publishes metadata o
     }
     if (init?.method === 'POST' && url.endsWith('/complete')) {
       completions.push(JSON.parse(init.body as string));
+      if (completionMode === 'polled')
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({ success: true, uploadStatus: 'finalizing' }),
+        };
+    }
+    if (
+      (init?.method === 'POST' && url.endsWith('/complete')) ||
+      (init?.method ?? 'GET') === 'GET'
+    ) {
       return {
         ok: true,
         status: 200,
         json: async () => ({
           success: true,
+          complete: true,
           meta: { id: snapshot.id, revision: 1 },
+          progress: {
+            step: 'persistence',
+            completed: 30,
+            total: 30,
+            documents: descriptors.map(descriptor => ({
+              id: descriptor.id,
+              name: descriptor.name,
+              state: 'done',
+            })),
+          },
           snapshot: {
             ...snapshot,
             source: { ...storedSource, ref: storedSource.sources?.[0]?.ref },
@@ -1202,7 +1228,20 @@ test('uploads all 30 sources in bounded binary requests and publishes metadata o
   });
   const saved = await new HttpProjectRepository('http://localhost:3301').saveProject(snapshot, {
     sourceFiles: files,
+    onSourceProgress,
   });
+  expect(onSourceProgress).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      step: 'persistence',
+      completed: 30,
+      total: 30,
+      documents: descriptors.map(descriptor => ({
+        id: descriptor.id,
+        name: descriptor.name,
+        state: 'done',
+      })),
+    })
+  );
   expect(completions[0]?.snapshot).toBeUndefined();
   const metadataBytes = completions[0]?.metadataBytes as number;
   expect(JSON.parse(await new Blob(bodies).slice(0, metadataBytes).text())).toMatchObject({

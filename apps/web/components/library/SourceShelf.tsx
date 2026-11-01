@@ -1,7 +1,8 @@
 import type { SourcePreparationProgress } from '@shared/sourcePreparation';
-import { Check, Paperclip, X } from 'lucide-react';
-import { type KeyboardEvent, useId, useState } from 'react';
+import { Check, CircleAlert, Paperclip, X } from 'lucide-react';
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { useShouldAnimate } from '../../utils/motion/index.ts';
 import './sourceShelf.css';
 
 interface ShelfSource {
@@ -20,6 +21,48 @@ interface SourceShelfProps {
 }
 
 const COVER_PALETTE = ['cream', 'terracotta', 'sage', 'blue', 'brown', 'mauve'] as const;
+const SOURCE_STATE_DESCRIPTION: Partial<
+  Record<NonNullable<ShelfSource['state']>, Parameters<typeof t>[0]>
+> = {
+  done: 'Fonte letta',
+  error: 'Fonte non utilizzabile',
+};
+
+function useReadingBookReveal(sources: readonly ShelfSource[]) {
+  const listRef = useRef<HTMLUListElement>(null);
+  const readingKeys = useRef(new Set<string>());
+  const shouldAnimate = useShouldAnimate();
+  useEffect(() => {
+    const previous = readingKeys.current;
+    readingKeys.current = new Set(
+      sources.filter(source => source.state === 'reading').map(source => source.key)
+    );
+    const list = listRef.current;
+    if (!list) return;
+    const listBounds = list.getBoundingClientRect();
+    for (const [index, source] of sources.entries()) {
+      if (source.state !== 'reading' || previous.has(source.key)) continue;
+      const book = list.children[index];
+      const bounds = book.getBoundingClientRect();
+      if (bounds.left < listBounds.left || bounds.right > listBounds.right)
+        book.scrollIntoView({
+          block: 'nearest',
+          inline: 'nearest',
+          behavior: shouldAnimate ? 'smooth' : 'auto',
+        });
+    }
+  }, [sources, shouldAnimate]);
+  return listRef;
+}
+
+function SourceBookStatus({ state }: { readonly state: ShelfSource['state'] }) {
+  if (state !== 'done' && state !== 'error') return null;
+  return (
+    <span className={state === 'error' ? 'source-book-error' : 'source-book-done'}>
+      {state === 'error' ? <CircleAlert /> : <Check />}
+    </span>
+  );
+}
 
 const sourceTitle = (name: string) =>
   name
@@ -114,6 +157,7 @@ export default function SourceShelf({
   preparationStatus,
 }: SourceShelfProps) {
   const headingId = useId();
+  const bookListRef = useReadingBookReveal(sources);
   const [focusedKey, setFocusedKey] = useState<string>();
   const activeKey = sources.find(source => source.key === focusedKey)?.key ?? sources[0]?.key;
   const hasContent = sources.length > 0 || warnings.length > 0;
@@ -134,45 +178,48 @@ export default function SourceShelf({
       ) : null}
       {sources.length > 0 ? (
         <div className="source-shelf-edges">
-          <ul className="source-shelf-books" aria-labelledby={headingId}>
-            {sources.map((source, index) => (
-              // One tab stop; arrow keys browse filenames without delaying access to the composer.
-              <li
-                key={source.key}
-                className="source-shelf-item"
-                tabIndex={source.key === activeKey ? 0 : -1}
-                onFocus={() => setFocusedKey(source.key)}
-                onKeyDown={navigateBooks}
-                title={source.name}
-                aria-label={source.name}
-                aria-current={source.state === 'reading' ? 'true' : undefined}
-                aria-description={source.state === 'done' ? t('Fonte letta') : undefined}
-                data-palette={COVER_PALETTE[index % COVER_PALETTE.length]}
-                data-state={source.state ?? 'idle'}
-              >
-                <div className="source-book" aria-hidden="true">
-                  <div className="source-book-art">
-                    <div className="source-book-tint" />
+          <ul ref={bookListRef} className="source-shelf-books" aria-labelledby={headingId}>
+            {sources.map((source, index) => {
+              const description = SOURCE_STATE_DESCRIPTION[source.state ?? 'idle'];
+              return (
+                // One tab stop; arrow keys browse filenames without delaying access to the composer.
+                <li
+                  key={source.key}
+                  className="source-shelf-item"
+                  tabIndex={source.key === activeKey ? 0 : -1}
+                  onFocus={() => setFocusedKey(source.key)}
+                  onKeyDown={navigateBooks}
+                  title={source.name}
+                  aria-label={source.name}
+                  aria-current={source.state === 'reading' ? 'true' : undefined}
+                  aria-description={description ? t(description) : undefined}
+                  data-palette={COVER_PALETTE[index % COVER_PALETTE.length]}
+                  data-state={source.state ?? 'idle'}
+                >
+                  <div className="source-book" aria-hidden="true">
+                    <div className="source-book-art">
+                      <div className="source-book-tint" />
+                    </div>
+                    <div className="source-book-cover" lang="it">
+                      <span className="source-book-index">
+                        {String(index + 1).padStart(2, '0')}
+                      </span>
+                      <span
+                        className="source-book-title"
+                        data-length={titleSize(sourceTitle(source.name))}
+                      >
+                        {sourceTitle(source.name)}
+                      </span>
+                      <span className="source-book-rule" />
+                      <span className="source-book-type">
+                        {source.name.match(/\.([^.]+)$/)?.[1]}
+                      </span>
+                    </div>
+                    <SourceBookStatus state={source.state} />
                   </div>
-                  <div className="source-book-cover" lang="it">
-                    <span className="source-book-index">{String(index + 1).padStart(2, '0')}</span>
-                    <span
-                      className="source-book-title"
-                      data-length={titleSize(sourceTitle(source.name))}
-                    >
-                      {sourceTitle(source.name)}
-                    </span>
-                    <span className="source-book-rule" />
-                    <span className="source-book-type">{source.name.match(/\.([^.]+)$/)?.[1]}</span>
-                  </div>
-                  {source.state === 'done' ? (
-                    <span className="source-book-done">
-                      <Check />
-                    </span>
-                  ) : null}
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         </div>
       ) : null}

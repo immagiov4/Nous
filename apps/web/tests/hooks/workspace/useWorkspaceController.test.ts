@@ -686,6 +686,7 @@ const createStateAdapter = () => {
           status: 'failed',
           error: errorMessage,
           message: undefined,
+          sourcePreparation: undefined,
         },
       };
     },
@@ -791,7 +792,10 @@ const createStateAdapter = () => {
       internalState.screenState = screenState;
     },
     setWorkflowMessage: (workflowId, requestId, message, sourcePreparation) => {
-      if (internalState.workflowState[workflowId].requestId !== requestId) {
+      if (
+        internalState.workflowState[workflowId].requestId !== requestId ||
+        (sourcePreparation && internalState.workflowState[workflowId].status !== 'pending')
+      ) {
         return;
       }
 
@@ -842,6 +846,7 @@ const createStateAdapter = () => {
           status: 'succeeded',
           error: undefined,
           message,
+          sourcePreparation: undefined,
         },
       };
     },
@@ -1084,6 +1089,22 @@ const createControllerHarness = (args?: {
     stopAudioCalls,
   };
 };
+
+test.each([
+  'succeeded',
+  'failed',
+] as const)('controller harness rejects preparation callbacks after %s', terminal => {
+  const { state } = createControllerHarness();
+  const request = state.adapter.beginWorkflow('assessment');
+  const progress = { step: 'extraction' as const, completed: 0, total: 1 };
+  state.adapter.setWorkflowMessage('assessment', request, 'Reading', progress);
+  expect(state.internalState.workflowState.assessment.sourcePreparation).toEqual(progress);
+  if (terminal === 'succeeded') state.adapter.succeedWorkflow('assessment', request);
+  else state.adapter.failWorkflow('assessment', request, 'Terminal error');
+  expect(state.internalState.workflowState.assessment.sourcePreparation).toBeUndefined();
+  state.adapter.setWorkflowMessage('assessment', request, 'Late reading', progress);
+  expect(state.internalState.workflowState.assessment.sourcePreparation).toBeUndefined();
+});
 
 test('openProject starts document assessment when a stored project has a source but no plan', async () => {
   const snapshot = createProjectSnapshot({

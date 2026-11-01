@@ -264,6 +264,12 @@ describe('/api/projects', () => {
       .poll(async () => (await request(app).get(`/api/projects/import/chunks/${uploadId}`)).status)
       .toBe(200);
     const status = await request(app).get(`/api/projects/import/chunks/${uploadId}`);
+    expect(status.body.progress).toMatchObject({
+      step: 'persistence',
+      completed: 1,
+      total: 1,
+      documents: [{ id: 'source-first', name: 'lesson.txt', state: 'done' }],
+    });
     expect(status.body.snapshot.documentIndex.chunks).toMatchObject([
       { sourceId: 'source-first', text: 'Course source text' },
     ]);
