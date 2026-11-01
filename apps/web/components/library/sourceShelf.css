@@ -280,15 +280,24 @@
   }
 }
 
-/* Preparation uses the approved fixed-camera 3D exports, with a separate bounded
-   caption so the filename cannot float over a moving cover or page. */
+/* Preparation keeps one large active book above the ordered, static source strip. */
+.source-shelf[data-preparing] {
+  --book-width: 92px;
+  --book-height: 112px;
+}
+.source-shelf[data-preparing] .source-shelf-books {
+  gap: 0.5rem;
+  padding: 0.75rem 1rem 1rem;
+  scroll-padding-inline: 1rem;
+  border-top: 1px solid var(--border-subtle);
+}
 .source-shelf[data-preparing] .source-shelf-item {
   height: auto;
   min-height: var(--book-height);
   border-radius: 0.75rem;
 }
 .source-shelf[data-preparing] .source-book {
-  height: var(--book-width);
+  height: 72px;
 }
 .source-shelf[data-preparing] .source-shelf-item:hover .source-book,
 .source-shelf[data-preparing] .source-shelf-item:focus-visible .source-book {
@@ -303,11 +312,26 @@
   object-fit: contain;
   pointer-events: none;
 }
+.source-preparation-stage {
+  padding: 0 1rem 0.75rem;
+  text-align: center;
+}
+.source-preparation-stage > .source-book-preparation {
+  height: clamp(140px, 26vh, 240px);
+}
+.source-preparation-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--ink-primary);
+  font: 500 1rem / 1.35 var(--font-serif);
+}
 .source-book-caption {
   display: flex;
   align-items: baseline;
-  gap: 0.4rem;
-  padding: 0.5rem 0.25rem 0;
+  padding: 0.25rem 0.4rem;
   color: var(--ink-primary);
 }
 .source-book-caption .source-book-title {
@@ -317,9 +341,12 @@
   font: 0.75rem / 1.4 var(--font-sans);
   text-wrap: pretty;
 }
-
-.source-shelf[data-preparing] .source-shelf-item[data-state="reading"] .source-book-preparation {
-  border-radius: 0.75rem;
+.source-shelf[data-preparing] .source-shelf-item[data-state="reading"] {
   background: color-mix(in srgb, var(--accent) 7%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.source-shelf[data-preparing] .source-book-done,
+.source-shelf[data-preparing] .source-book-error {
+  top: 2px;
+  right: 3px;
 }

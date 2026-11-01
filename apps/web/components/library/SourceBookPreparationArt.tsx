@@ -4,6 +4,8 @@ import { useShouldAnimate } from '../../utils/motion/index.ts';
 
 type SourceState = NonNullable<SourcePreparationProgress['documents']>[number]['state'];
 const ART_ROOT = '/source-shelf/preparation-';
+export const PREPARATION_PALETTE = ['blue', 'copper', 'sage'] as const;
+type PreparationColor = (typeof PREPARATION_PALETTE)[number];
 
 const POSTER: Record<SourceState, string> = {
   idle: 'closed',
@@ -11,7 +13,8 @@ const POSTER: Record<SourceState, string> = {
   done: 'complete',
   error: 'closed',
 };
-const posterFor = (state: SourceState) => `${ART_ROOT}${POSTER[state]}.webp`;
+export const sourcePreparationPoster = (state: SourceState, color: PreparationColor) =>
+  `${ART_ROOT}${color}-${POSTER[state]}.webp`;
 
 // Some browsers decode VP9 without its alpha plane. Keep the approved static art
 // instead of displaying an opaque rectangle over the shelf in those browsers.
@@ -26,9 +29,11 @@ function hasTransparentFrame(video: HTMLVideoElement): boolean {
 
 function PreparationVideo({
   completing,
+  color,
   onPlaying,
 }: {
   readonly completing: boolean;
+  readonly color: PreparationColor;
   readonly onPlaying: () => void;
 }) {
   const [searching, setSearching] = useState(false);
@@ -36,7 +41,7 @@ function PreparationVideo({
   const [failed, setFailed] = useState(false);
   const readingClip = searching ? 'search' : 'reading';
   const clip = completing ? 'complete' : readingClip;
-  const poster = posterFor(completing ? 'done' : 'reading');
+  const poster = sourcePreparationPoster(completing ? 'done' : 'reading', color);
 
   const bindVideo = useCallback((video: HTMLVideoElement | null) => {
     if (!video) return;
@@ -60,10 +65,9 @@ function PreparationVideo({
   if (failed || settled) return <img src={poster} alt="" />;
   return (
     <video
-      key={clip}
       ref={bindVideo}
-      src={`${ART_ROOT}${clip}.webm`}
-      poster={posterFor(searching || completing ? 'reading' : 'idle')}
+      src={`${ART_ROOT}${color}-${clip}.webm`}
+      poster={sourcePreparationPoster(searching || completing ? 'reading' : 'idle', color)}
       autoPlay
       muted
       playsInline
@@ -81,7 +85,13 @@ function PreparationVideo({
 }
 
 /** Decorative playback follows document state; it never completes or delays preparation. */
-export default function SourceBookPreparationArt({ state }: { readonly state: SourceState }) {
+export default function SourceBookPreparationArt({
+  state,
+  color,
+}: {
+  readonly state: SourceState;
+  readonly color: PreparationColor;
+}) {
   const shouldAnimate = useShouldAnimate();
   const [hasPlayed, setHasPlayed] = useState(false);
   const animate = shouldAnimate && (state === 'reading' || (state === 'done' && hasPlayed));
@@ -89,12 +99,12 @@ export default function SourceBookPreparationArt({ state }: { readonly state: So
     <div className="source-book-preparation" aria-hidden="true" inert>
       {animate ? (
         <PreparationVideo
-          key={state}
           completing={state === 'done'}
+          color={color}
           onPlaying={() => setHasPlayed(true)}
         />
       ) : (
-        <img src={posterFor(state)} alt="" />
+        <img src={sourcePreparationPoster(state, color)} alt="" />
       )}
     </div>
   );

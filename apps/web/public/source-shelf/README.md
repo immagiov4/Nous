@@ -9,19 +9,23 @@ Export: the 1086 × 1448 RGBA master is cropped to (105,100)–(985,1375), resiz
 The cover's affine transform is fitted to the front face of this export. Keep render, mask and transform registered when replacing the artwork. `e2e/nous/tests/sourceShelf.browser.ts` samples the tinted front-face pixels for text contrast, captures both themes at desktop/mobile sizes and records keyboard, upload, removal and reduced-motion evidence outside Git.
 
 
-## Approved source-preparation motion
+## Approved single-book source-preparation motion
 
-During preparation, the shelf uses transparent Blender renders from the maintainer-approved fixed-camera Opus 5.5 revision (2026-11-01). The original neutral book and cloth palette remain the attachment-selection artwork. All source names remain HTML text, not baked into the shared animation.
+During preparation one large, fixed-camera book represents the active source. The ordered strip uses static source thumbnails with persistent completion/error marks. The original neutral book and six-color cloth palette remain the attachment-selection artwork. Source names remain bounded HTML text with full accessible names.
 
-| Asset | Approved source frames at 24 fps | Purpose |
+The maintainer accepted the single-book blue/copper/sage composition on 2026-11-01, including occasional visible frame glitches in the prototype. These are actual Blender cover/spine material variants of the rounded reference model, with a bookmark present from the first pose and a matching magnifier. The camera is constant and turned sheets remain stacked. No private source content was used.
+
+Each `preparation-{blue,copper,sage}-` set contains:
+
+| Suffix | Source frames | Purpose |
 | --- | --- | --- |
-| `preparation-reading.webm` | 1–178 | Opening and reading, with no completion or upper bookmark |
-| `preparation-search.webm` | 178–152 then 152–178 | Seamless search loop retaining both turned sheets while preparation is pending |
-| `preparation-complete.webm` | 179–230 | Closure and gradual bookmark, started only after a source that visibly played becomes done |
-| `preparation-closed.webp` | 1 | Waiting/error poster |
-| `preparation-reading.webp` | 156 | Reduced-motion/unavailable-playback reading poster |
-| `preparation-complete.webp` | 230 | Completed poster |
+| `reading.webm` | 1–152, 24 fps | Opening and forward reading |
+| `search.webm` | 153–178, 12 fps | Forward closed search trajectory, never reversed footage |
+| `complete.webm` | 179–230, 24 fps | Closure only when the source is actually done |
+| `closed.webp` | 1 | Queued/error thumbnail and initial poster |
+| `reading.webp` | 152 | Reading fallback and clip-boundary poster |
+| `complete.webp` | 230 | Completed thumbnail/poster |
 
-Videos are 512×512 VP9 with alpha; posters are lossless WebP with alpha. Only reading/completing books decode video; queued and fast-completed sources use still images. The browser checks the decoded transparent corner and keeps a poster if the alpha plane is unavailable, decoding fails or autoplay is rejected. Reduced motion uses stills. Playback pauses when the page is hidden or the artwork unmounts. Animation playback cannot complete or delay the source-preparation job.
+Videos are 512×512 VP9 with alpha; posters are lossless WebP with alpha. A single native player retains its DOM identity across polling updates and clip changes, and is replaced only for a different source. Queued/fast-completed sources use stills. Opaque alpha, failed decoding or rejected autoplay retain static artwork. Reduced motion uses stills; hidden/unmounted media pauses. Playback never completes or delays backend preparation.
 
-The approved editable Blender/GLB scene and full transparent frame sequence remain in the external task artifacts. Runtime clips/posters are checked in here; no private course content is included. Native media playback, actual source state transitions and the poster fallback are verified by `test:source-preparation-shelf` and the shelf component tests.
+Editable Blender scenes and transparent frame sequences remain in the external approved task artifacts. Native playback, source identity, warnings, cancellation and poster fallback are verified by `test:source-preparation-shelf` and shelf component tests.

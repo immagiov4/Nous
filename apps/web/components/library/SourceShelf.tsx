@@ -3,7 +3,10 @@ import { Check, CircleAlert, Paperclip, X } from 'lucide-react';
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { useShouldAnimate } from '../../utils/motion/index.ts';
-import SourceBookPreparationArt from './SourceBookPreparationArt.tsx';
+import SourceBookPreparationArt, {
+  PREPARATION_PALETTE,
+  sourcePreparationPoster,
+} from './SourceBookPreparationArt.tsx';
 import './sourceShelf.css';
 
 interface ShelfSource {
@@ -137,7 +140,7 @@ function SourceShelfHeader({
         <h3 id={headingId} className="source-shelf-heading">
           {t(preparationProgress ? 'Preparazione delle fonti' : 'Le tue fonti')}
         </h3>
-        {sources.length > 0 ? (
+        {sources.length > 0 && !preparationProgress ? (
           <p className="source-shelf-count">
             {sources.length === 1
               ? t('1 fonte selezionata')
@@ -164,6 +167,24 @@ function SourceShelfHeader({
           <X className="h-4 w-4" aria-hidden="true" />
         </button>
       ) : null}
+    </div>
+  );
+}
+
+function SourcePreparationStage({ sources }: { readonly sources: readonly ShelfSource[] }) {
+  const readingKey = sources.find(source => source.state === 'reading')?.key;
+  const [lastReadingKey, setLastReadingKey] = useState(readingKey);
+  if (readingKey && readingKey !== lastReadingKey) setLastReadingKey(readingKey);
+  const source =
+    sources.find(source => source.key === (readingKey ?? lastReadingKey)) ?? sources[0];
+  if (!source) return null;
+  const color = PREPARATION_PALETTE[sources.indexOf(source) % PREPARATION_PALETTE.length];
+  return (
+    <div className="source-preparation-stage" data-source-key={source.key} data-palette={color}>
+      <SourceBookPreparationArt key={source.key} state={source.state ?? 'idle'} color={color} />
+      <span className="source-preparation-name" title={source.name}>
+        {sourceTitle(source.name)}
+      </span>
     </div>
   );
 }
@@ -198,6 +219,7 @@ export default function SourceShelf({
           headingId={headingId}
         />
       ) : null}
+      {preparationProgress ? <SourcePreparationStage sources={sources} /> : null}
       {sources.length > 0 ? (
         <div className="source-shelf-edges">
           <ul ref={bookListRef} className="source-shelf-books" aria-labelledby={headingId}>
@@ -215,12 +237,24 @@ export default function SourceShelf({
                   aria-label={source.name}
                   aria-current={source.state === 'reading' ? 'true' : undefined}
                   aria-description={description ? t(description) : undefined}
-                  data-palette={COVER_PALETTE[index % COVER_PALETTE.length]}
+                  data-palette={
+                    preparationProgress
+                      ? PREPARATION_PALETTE[index % PREPARATION_PALETTE.length]
+                      : COVER_PALETTE[index % COVER_PALETTE.length]
+                  }
                   data-state={source.state ?? 'idle'}
                 >
                   <div className="source-book" aria-hidden="true">
                     {preparationProgress ? (
-                      <SourceBookPreparationArt state={source.state ?? 'idle'} />
+                      <div className="source-book-preparation">
+                        <img
+                          src={sourcePreparationPoster(
+                            source.state === 'reading' ? 'idle' : (source.state ?? 'idle'),
+                            PREPARATION_PALETTE[index % PREPARATION_PALETTE.length]
+                          )}
+                          alt=""
+                        />
+                      </div>
                     ) : (
                       <>
                         <div className="source-book-art">

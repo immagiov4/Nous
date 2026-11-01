@@ -144,7 +144,7 @@ for (const scene of scenes) {
             id: source.id,
             name: source.name,
             state:
-              phase === 'error' && index === 0
+              scene.name === 'media-failure' && phase === 'error' && index === 2
                 ? 'error'
                 : phase === 'saving' || index === 0
                   ? 'done'
@@ -262,21 +262,19 @@ for (const scene of scenes) {
         await page.waitForFunction(
           () => document.querySelectorAll('.source-shelf video').length === 0
         );
-        assert(await books.nth(1).locator('.source-book-preparation img').isVisible());
+        assert(await shelf.locator('.source-preparation-stage img').isVisible());
       } else {
-        await books.nth(1).locator('video[data-phase=search]').waitFor();
+        await shelf.locator('.source-preparation-stage video[data-phase=search]').waitFor();
         await page.waitForFunction(() => {
-          const video = document.querySelector<HTMLVideoElement>(
-            '.source-shelf-item[aria-current=true] video'
-          );
+          const video = document.querySelector<HTMLVideoElement>('.source-preparation-stage video');
           return video && !video.paused && video.readyState >= 2 && video.currentTime > 0;
         });
-        const playback = await books
-          .nth(1)
-          .locator('video')
+        const playback = await shelf
+          .locator('.source-preparation-stage video')
           .evaluate(element => {
             const video = element as HTMLVideoElement;
             const quality = video.getVideoPlaybackQuality();
+            video.dataset.playerWitness = 'same-source-player';
             return {
               phase: video.dataset.phase,
               time: video.currentTime,
@@ -301,11 +299,30 @@ for (const scene of scenes) {
           .getByText(`${sourceNames.length} fonti`, { exact: true })
           .isVisible()
       );
+      const stage = shelf.locator('.source-preparation-stage');
+      assert.equal(await stage.getAttribute('data-source-key'), documents[1].id);
+      assert.equal(await stage.getAttribute('data-palette'), 'copper');
+      assert.equal(
+        await shelf.locator('video').count(),
+        scene.reduced || scene.name === 'media-failure' ? 0 : 1
+      );
+      assert.equal(await books.first().getAttribute('data-palette'), 'blue');
+      assert.equal(await books.nth(2).getAttribute('data-palette'), 'sage');
       phase = 'error';
-      await books.first().locator('.source-book-error').waitFor();
-      assert.equal(await books.first().getAttribute('aria-description'), 'Fonte non utilizzabile');
-      await page.screenshot({ path: join(evidence, `${scene.name}-error.png`) });
+      if (scene.name === 'media-failure') {
+        await books.nth(2).locator('.source-book-error').waitFor();
+        assert.equal(await books.nth(2).getAttribute('aria-description'), 'Fonte non utilizzabile');
+        await page.screenshot({ path: join(evidence, `${scene.name}-error.png`) });
+      }
+      assert.equal(await books.first().getAttribute('aria-description'), 'Fonte letta');
+      assert(await books.first().locator('.source-book-done').isVisible());
       snapshots.push({ phase, documents });
+      if (!scene.reduced && scene.name !== 'media-failure')
+        assert.equal(
+          await stage.locator('video').getAttribute('data-player-witness'),
+          'same-source-player',
+          'Polling remounted the active player'
+        );
       phase = 'reveal';
       await books.last().locator('[aria-hidden=true]').first().waitFor();
       await page.waitForFunction(
@@ -346,7 +363,15 @@ for (const scene of scenes) {
       assert.equal(caption.clamp, '2');
       assert(caption.height <= 2 * 12 * 1.4 + 1);
       assert.equal(await books.last().getAttribute('title'), sourceNames.at(-1));
-      snapshots.push({ phase, documents, reveal, caption });
+      assert.equal(await stage.getAttribute('data-source-key'), documents.at(-1)?.id);
+      const heroTitle = await stage.locator('.source-preparation-name').evaluate(element => ({
+        clamp: getComputedStyle(element).webkitLineClamp,
+        width: element.getBoundingClientRect().width,
+        parentWidth: element.parentElement?.getBoundingClientRect().width,
+      }));
+      assert.equal(heroTitle.clamp, '2');
+      assert(heroTitle.parentWidth && heroTitle.width <= heroTitle.parentWidth);
+      snapshots.push({ phase, documents, reveal, caption, heroTitle });
       phase = 'transcription';
       await shelf.getByText(/165\/200/).waitFor();
       assert(await shelf.getByText(/Pagine 151–200 trascritte in qualità ridotta/).isVisible());
@@ -381,9 +406,7 @@ for (const scene of scenes) {
       snapshots.push({ phase, documents });
       if (!scene.reduced && scene.name !== 'media-failure')
         await page.waitForFunction(() => {
-          const video = document.querySelector<HTMLVideoElement>(
-            '.source-shelf-item[aria-current=true] video'
-          );
+          const video = document.querySelector<HTMLVideoElement>('.source-preparation-stage video');
           return video && !video.paused && video.readyState >= 2;
         });
       phase = 'saving';
