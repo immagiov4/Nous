@@ -75,3 +75,28 @@ test('rejects arbitrary content before writing to logs or the network', async ()
   expect(fetchMock).not.toHaveBeenCalled();
   expect(log).not.toHaveBeenCalled();
 });
+
+test('reports opaque UUIDs on private-network HTTP without randomUUID', async () => {
+  vi.stubGlobal('crypto', {
+    getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto),
+  });
+  try {
+    await expect(
+      createContextNoteDiagnostics().report('PRIVATE_PROVIDER_ID', {
+        phase: 'proposal',
+        outcome: 'accepted',
+        durationMs: 0,
+        contextScope: 'lesson',
+        candidateOutcomes: [],
+      })
+    ).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.operationId).toMatch(
+      /^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/u
+    );
+    expect(JSON.stringify(sent)).not.toContain('PRIVATE_PROVIDER_ID');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

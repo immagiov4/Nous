@@ -1,5 +1,10 @@
 import { useChat } from '@ai-sdk/react';
-import { type ContextNoteResult, readContextNoteResult } from '@shared/contextNote';
+import {
+  type ContextNoteResult,
+  createContextNoteValidationError,
+  readContextNoteResult,
+} from '@shared/contextNote';
+import { serializeContextNoteView } from '@shared/contextNoteCatalog';
 import type { ContextSourceReference } from '@shared/lessonSourceContext';
 import { sanitizeContextSourceDisplayName } from '@shared/lessonSourceContext';
 import {
@@ -39,7 +44,11 @@ import {
   useLatestValue,
 } from '../../../hooks/chat/useChatResponseControl.ts';
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
-import { CONTEXT_NOTE_MESSAGES, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import {
+  CONTEXT_NOTE_MESSAGES,
+  getAppLocale,
+  translateUiMessage as t,
+} from '../../../i18n/uiMessages.ts';
 import { fetchWithSupabaseAuth } from '../../../services/auth/supabaseAuth.ts';
 import { createContextNoteDiagnostics } from '../../../services/context/contextNoteDiagnostics.ts';
 import {
@@ -56,10 +65,12 @@ import type {
   LessonGeneratedVisualKind,
   StoredLessonVisual,
 } from '../../../types.ts';
+import { buildConversationNoteSaveCandidates } from '../../../utils/context/conversationNote.ts';
 import {
-  buildConversationNoteSaveCandidates,
-  evaluateConversationNoteCandidate,
-} from '../../../utils/context/conversationNote.ts';
+  buildConversationNoteCatalog,
+  restoreConversationNotePassage,
+  validateConversationNotePassage,
+} from '../../../utils/context/conversationNoteCatalog.ts';
 import {
   buildGeneratedVisualLearningArtifactPayload,
   filterLearningArtifactPayloads,
@@ -99,7 +110,6 @@ import type {
   ContextArtifactMutationResult,
   ContextChatToolPreferences,
   ContextLessonMutationTarget,
-  ConversationSelectionAnchor,
   SaveConversationNoteInput,
   SaveConversationNoteResult,
 } from './types.ts';
@@ -108,7 +118,8 @@ interface RequestAddToNotesInput {
   artifactIds?: string[];
   noteDraft: string;
   rationale: string;
-  selectedTextDraft: string;
+  passageId?: string;
+  selectedTextDraft?: string;
 }
 
 const CONTEXT_ANSWER_INPUT_TARGET = 'context-answer-input';
@@ -149,7 +160,7 @@ const isRequestAddToNotesInput = (value: unknown): value is RequestAddToNotesInp
   return (
     typeof candidate.noteDraft === 'string' &&
     typeof candidate.rationale === 'string' &&
-    typeof candidate.selectedTextDraft === 'string' &&
+    (typeof candidate.passageId === 'string' || typeof candidate.selectedTextDraft === 'string') &&
     (candidate.artifactIds === undefined ||
       (Array.isArray(candidate.artifactIds) &&
         candidate.artifactIds.every(item => typeof item === 'string')))
@@ -447,9 +458,11 @@ interface ContextRequestState {
   contextAfter?: string;
   contextBefore?: string;
   contextScope?: ContextAnswerState['contextScope'];
+  noteCatalog: ReturnType<typeof buildConversationNoteCatalog>;
   lessonContent?: string;
   lessonDescription?: string;
   lessonTitle?: string;
+  lessonId?: string;
   projectId?: string;
   projectTitle?: string;
   selectedText: string;
@@ -671,12 +684,6 @@ function ContextAnswerPanelSession({
   const [focusStopAfterSubmit, setFocusStopAfterSubmit] = useState(false);
   const toolMenuRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const selectionAnchorRef = useRef<ConversationSelectionAnchor>({
-    contextAfter: contextAnswer.contextAfter,
-    contextBefore: contextAnswer.contextBefore,
-    selectedText: contextAnswer.selectedText,
-    selectedTextStart: contextAnswer.selectedTextStart,
-  });
 
   // Tracks when each requestAddToNotes part entered input-available without
   // valid input, so we can show fallback buttons after GRACE and auto-reject
@@ -714,7 +721,7 @@ function ContextAnswerPanelSession({
     while (pending !== undefined) {
       const succeeded = await pending;
       saved = saved || succeeded;
-      // A note may have started its next candidate while the previous attempt settled.
+      // Another save may have started while this operation settled.
       const next = pendingArtifactSavesRef.current.get(artifactId);
       pending = next === pending ? undefined : next;
     }
@@ -727,20 +734,48 @@ function ContextAnswerPanelSession({
 
   const { keyboardOffset, viewportHeight } = useMobileKeyboardOffset();
 
-  useEffect(() => {
-    selectionAnchorRef.current = {
-      contextAfter: contextAnswer.contextAfter,
-      contextBefore: contextAnswer.contextBefore,
-      selectedText: contextAnswer.selectedText,
-      selectedTextStart: contextAnswer.selectedTextStart,
+  const locale = getAppLocale();
+  const noteCatalog = useMemo(
+    () =>
+      buildConversationNoteCatalog({
+        content: contextAnswer.lessonContent ?? '',
+        origin: { projectId: contextAnswer.projectId, lessonId: contextAnswer.lessonId },
+        locale,
+        selection:
+          contextAnswer.contextScope === 'lesson'
+            ? undefined
+            : {
+                selectedText: contextAnswer.selectedText,
+                selectedTextStart: contextAnswer.selectedTextStart,
+                contextBefore: contextAnswer.contextBefore,
+                contextAfter: contextAnswer.contextAfter,
+              },
+      }),
+    [
+      contextAnswer.lessonContent,
+      contextAnswer.projectId,
+      contextAnswer.lessonId,
+      contextAnswer.selectedText,
+      contextAnswer.selectedTextStart,
+      contextAnswer.contextBefore,
+      contextAnswer.contextAfter,
+      contextAnswer.contextScope,
+      locale,
+    ]
+  );
+  const [noteCatalogSnapshot] = useState(() => {
+    let sent = noteCatalog;
+    return {
+      read: () => sent,
+      capture: (catalog: typeof noteCatalog) => {
+        sent = catalog;
+      },
     };
-  }, [
-    contextAnswer.contextAfter,
-    contextAnswer.contextBefore,
-    contextAnswer.selectedText,
-    contextAnswer.selectedTextStart,
-  ]);
-
+  });
+  const [noteTargets, setNoteTargets] = useState<
+    Record<string, ReturnType<typeof validateConversationNotePassage>['target']>
+  >({});
+  const [noteDiagnostics] = useState(createContextNoteDiagnostics);
   const currentContextRequestState = useMemo<ContextRequestState>(
     () => ({
       attachedAnnotationNote: contextAnswer.attachedAnnotationNote,
@@ -750,9 +785,11 @@ function ContextAnswerPanelSession({
       contextScope: contextAnswer.contextScope,
       sourceReferences: serializeContextSourceReferences(contextAnswer.documentSourceReferences),
       sourceName: buildLegacySourceName(contextAnswer.documentSourceReferences),
+      noteCatalog,
       lessonContent: contextAnswer.lessonContent,
       lessonDescription: contextAnswer.lessonDescription,
       lessonTitle: contextAnswer.lessonTitle,
+      lessonId: contextAnswer.lessonId,
       projectId: contextAnswer.projectId,
       projectTitle: contextAnswer.projectTitle,
       selectedText: contextAnswer.selectedText,
@@ -762,6 +799,7 @@ function ContextAnswerPanelSession({
       toolPreferences,
     }),
     [
+      noteCatalog,
       contextAnswer.attachedAnnotationNote,
       contextAnswer.attachedAnnotationText,
       contextAnswer.contextAfter,
@@ -771,6 +809,7 @@ function ContextAnswerPanelSession({
       contextAnswer.lessonContent,
       contextAnswer.lessonDescription,
       contextAnswer.lessonTitle,
+      contextAnswer.lessonId,
       contextAnswer.projectId,
       contextAnswer.projectTitle,
       contextAnswer.selectedText,
@@ -788,8 +827,23 @@ function ContextAnswerPanelSession({
         api: `${getBackendUrl()}/api/chat/context`,
         fetch: fetchWithSupabaseAuth,
         // `useChat` keeps the initial transport instance, so request data comes from its stable store.
-        prepareSendMessagesRequest: ({ headers, id, messages }) => {
+        prepareSendMessagesRequest: async ({ headers, id, messages }) => {
           const currentRequestState = readContextRequestState();
+          noteCatalogSnapshot.capture(currentRequestState.noteCatalog);
+          const catalog = currentRequestState.noteCatalog;
+          let outcome: 'complete' | 'clipped' | 'unavailable' = 'complete';
+          if (catalog.entries.length < catalog.totalEntries) outcome = 'clipped';
+          if (!catalog.entries.length) outcome = 'unavailable';
+          const snapshotId = await catalog.snapshotId;
+          void noteDiagnostics.report(snapshotId, {
+            phase: 'catalog',
+            contextScope: currentRequestState.contextScope ?? 'selection',
+            durationMs: catalog.durationMs,
+            totalEntries: catalog.totalEntries,
+            includedEntries: catalog.entries.length,
+            serializedChars: serializeContextNoteView(catalog.records).length,
+            outcome,
+          });
 
           return {
             headers,
@@ -799,6 +853,11 @@ function ContextAnswerPanelSession({
               contextAfter: currentRequestState.contextAfter,
               contextBefore: currentRequestState.contextBefore,
               contextScope: currentRequestState.contextScope || 'selection',
+              noteCatalog: {
+                records: catalog.records,
+                snapshotId,
+                selectionId: catalog.selectionId,
+              },
               lessonContent: currentRequestState.lessonContent,
               lessonDescription: currentRequestState.lessonDescription,
               lessonTitle: currentRequestState.lessonTitle,
@@ -817,7 +876,7 @@ function ContextAnswerPanelSession({
           };
         },
       }),
-    [readContextRequestState, readRequestPlaybackContext]
+    [noteCatalogSnapshot, noteDiagnostics, readContextRequestState, readRequestPlaybackContext]
   );
 
   const artifactPayloadsById = useMemo(() => {
@@ -834,8 +893,6 @@ function ContextAnswerPanelSession({
     () => new Set(originLessonArtifactPayloads.map(payload => payload.summary.id)),
     [originLessonArtifactPayloads]
   );
-
-  const [noteDiagnostics] = useState(createContextNoteDiagnostics);
 
   const contextChat = useChat<ContextChatMessage>({
     id: contextAnswer.id,
@@ -877,38 +934,28 @@ function ContextAnswerPanelSession({
         const finishProposal = noteDiagnostics.measure(toolCall.toolCallId);
         const noteInput = isRequestAddToNotesInput(toolCall.input) ? toolCall.input : null;
         const currentState = readContextRequestState();
-        const candidates = noteInput
-          ? buildConversationNoteSaveCandidates({
-              anchor: selectionAnchorRef.current,
-              toolInput: {
-                note: noteInput.noteDraft,
-                selectedText: noteInput.selectedTextDraft,
-              },
-            })
-          : [];
-
-        const candidateOutcomes = candidates.map(candidate =>
-          evaluateConversationNoteCandidate(currentState.lessonContent || '', candidate)
-        );
         if (noteInput) {
-          const accepted = candidateOutcomes.includes('anchorable');
-          const code = candidateOutcomes.includes('text_mismatch')
-            ? 'anchor_mismatch'
-            : 'target_not_annotatable';
+          const catalog = noteCatalogSnapshot.read();
+          const { target, error } = validateConversationNotePassage({
+            catalog,
+            input: noteInput,
+            current: currentState,
+          });
+          const accepted = !error;
           void finishProposal({
             phase: 'proposal',
             outcome: accepted ? 'accepted' : 'validation_error',
-            ...(accepted ? {} : { code }),
-            candidateOutcomes,
+            ...(error ? { code: error.code } : {}),
+            candidateOutcomes: target ? ['anchorable'] : [],
             contextScope: currentState.contextScope ?? 'selection',
           });
-          if (!accepted) {
+          if (target) setNoteTargets(previous => ({ ...previous, [toolCall.toolCallId]: target }));
+          if (error)
             void addToolOutput({
               tool: 'requestAddToNotes',
               toolCallId: toolCall.toolCallId,
-              output: { status: 'validation_error', code, recovery: 'choose_passage' },
+              output: error,
             });
-          }
         }
         return;
       }
@@ -1191,6 +1238,18 @@ function ContextAnswerPanelSession({
       return;
     }
 
+    const target = noteTargets[toolCallId];
+    if (!target) {
+      void addToolOutput({
+        tool: 'requestAddToNotes',
+        toolCallId,
+        output: createContextNoteValidationError(
+          'unknown_passage',
+          readContextRequestState().noteCatalog.entries.map(entry => entry.id)
+        ),
+      });
+      return;
+    }
     const finishSave = noteDiagnostics.measure(toolCallId);
     const currentState = readContextRequestState();
     const contextScope = currentState.contextScope ?? 'selection';
@@ -1239,7 +1298,7 @@ function ContextAnswerPanelSession({
         return;
       }
       const candidates = buildConversationNoteSaveCandidates({
-        anchor: selectionAnchorRef.current,
+        anchor: target.anchor,
         toolInput: {
           artifactRefs: noteArtifactIds.flatMap(artifactId => {
             const payload = artifactPayloadsById.get(artifactId);
@@ -1264,7 +1323,7 @@ function ContextAnswerPanelSession({
               : [];
           }),
           note: inputValue.noteDraft,
-          selectedText: inputValue.selectedTextDraft,
+          ...target.anchor,
         },
       });
 
@@ -1528,6 +1587,65 @@ function ContextAnswerPanelSession({
     }
   };
 
+  const settledHistoricalNotes = useRef(new Set<string>());
+  useEffect(() => {
+    let active = true;
+    const pendingParts = messages.flatMap(message =>
+      message.parts.map(part => ({ part, metadata: message.metadata }))
+    );
+    const restore = async () => {
+      for (const { part, metadata } of pendingParts) {
+        if (
+          !isToolUIPart(part) ||
+          part.type !== 'tool-requestAddToNotes' ||
+          part.state !== 'input-available' ||
+          !isRequestAddToNotesInput(part.input)
+        )
+          continue;
+        if (noteTargets[part.toolCallId] || settledHistoricalNotes.current.has(part.toolCallId))
+          continue;
+        const result =
+          part.input.passageId === undefined
+            ? validateConversationNotePassage({
+                catalog: noteCatalog,
+                input: part.input,
+                current: { lessonContent: noteCatalog.content, ...noteCatalog.origin },
+              })
+            : await restoreConversationNotePassage(noteCatalog, part.input, metadata);
+        if (!active || !responseControl.canContinue()) return;
+        settledHistoricalNotes.current.add(part.toolCallId);
+        if (result.target && !result.error)
+          setNoteTargets(previous => ({ ...previous, [part.toolCallId]: result.target }));
+        if (!result.error) continue;
+        void noteDiagnostics.report(part.toolCallId, {
+          phase: 'proposal',
+          outcome: 'validation_error',
+          code: result.error.code,
+          candidateOutcomes: [],
+          contextScope: contextAnswer.contextScope ?? 'selection',
+          durationMs: 0,
+        });
+        void addToolOutput({
+          tool: 'requestAddToNotes',
+          toolCallId: part.toolCallId,
+          output: result.error,
+        });
+      }
+    };
+    void restore();
+    return () => {
+      active = false;
+    };
+  }, [
+    messages,
+    noteCatalog,
+    noteTargets,
+    responseControl,
+    noteDiagnostics,
+    addToolOutput,
+    contextAnswer.contextScope,
+  ]);
+
   // Detect stuck requestAddToNotes parts (input-available without valid input)
   // and schedule grace/hard fallback timers via a 1s polling interval.
   useEffect(() => {
@@ -1613,7 +1731,7 @@ function ContextAnswerPanelSession({
         addToolOutput({
           tool: 'requestAddToNotes',
           toolCallId: id,
-          output: { status: 'validation_error', code: 'invalid_input', recovery: 'rebuild_input' },
+          output: createContextNoteValidationError('invalid_input'),
         });
       }
 
@@ -1758,6 +1876,10 @@ function ContextAnswerPanelSession({
 
     if (part.type === 'tool-requestAddToNotes') {
       const inputValue = isRequestAddToNotesInput(part.input) ? part.input : null;
+      const target = noteTargets[part.toolCallId];
+      const passageText =
+        target?.text ??
+        (inputValue?.passageId === undefined ? inputValue?.selectedTextDraft : undefined);
       const outputValue = readContextNoteResult(part.output);
       const isProcessing = processingNoteToolCallIds.has(part.toolCallId);
       const hasExistingNote = Boolean(contextAnswer.attachedAnnotationNote?.trim());
@@ -1819,7 +1941,7 @@ function ContextAnswerPanelSession({
       };
 
       const renderNoteDecision = () => {
-        if (part.state === 'input-available' && inputValue) {
+        if (part.state === 'input-available' && inputValue && target) {
           if (isProcessing) {
             return (
               <output className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
@@ -1902,12 +2024,16 @@ function ContextAnswerPanelSession({
 
           {inputValue ? (
             <div className="mt-3 space-y-2 rounded-[1rem] bg-white/70 px-3 py-2 dark:bg-stone-800/50">
-              <p className="text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-stone-400 dark:text-stone-500">
-                {t('Passaggio proposto')}
-              </p>
-              <p className="text-sm leading-6 text-stone-700 dark:text-stone-200">
-                "{inputValue.selectedTextDraft}"
-              </p>
+              {passageText ? (
+                <>
+                  <p className="text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-stone-400 dark:text-stone-500">
+                    {t('Passaggio proposto')}
+                  </p>
+                  <p className="text-sm leading-6 text-stone-700 dark:text-stone-200">
+                    "{passageText}"
+                  </p>
+                </>
+              ) : null}
               <p className="text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-stone-400 dark:text-stone-500">
                 {t(hasExistingNote ? 'Nuova versione della nota' : 'Nota proposta')}
               </p>
@@ -2033,6 +2159,7 @@ function ContextAnswerPanelSession({
             }
             className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-stone-100/80 dark:hover:bg-stone-700/80"
             role="menuitemcheckbox"
+            disabled={noteCatalog.entries.length === 0}
             aria-checked={toolPreferences.annotate}
           >
             <span
@@ -2051,7 +2178,9 @@ function ContextAnswerPanelSession({
               </span>
               <span className="mt-1 block text-xs leading-5 text-stone-500 dark:text-zinc-400">
                 {t(
-                  'Segnala con forza che vuoi trasformare il chiarimento in una nota o aggiornare quella già collegata al passaggio.'
+                  noteCatalog.entries.length === 0
+                    ? CONTEXT_NOTE_MESSAGES.noPassages
+                    : 'Segnala con forza che vuoi trasformare il chiarimento in una nota o aggiornare quella già collegata al passaggio.'
                 )}
               </span>
             </span>

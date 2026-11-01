@@ -3,9 +3,21 @@ import * as z from 'zod';
 const ContextNoteModeSchema = z.enum(['new', 'update']);
 const ContextNoteValidationCodeSchema = z.enum([
   'invalid_input',
+  'unknown_passage',
+  'stale_context',
+  'no_annotatable_passage',
   'target_not_annotatable',
   'anchor_mismatch',
 ]);
+
+const validationRecovery = {
+  invalid_input: 'rebuild_input',
+  unknown_passage: 'choose_passage',
+  stale_context: 'refresh_context',
+  no_annotatable_passage: 'unavailable',
+  target_not_annotatable: 'choose_passage',
+  anchor_mismatch: 'choose_passage',
+} as const satisfies Record<z.infer<typeof ContextNoteValidationCodeSchema>, string>;
 
 /** Tool outcomes distinguish a learner's choice from automatic validation and write failures. */
 export const ContextNoteResultSchema = z.discriminatedUnion('status', [
@@ -19,9 +31,10 @@ export const ContextNoteResultSchema = z.discriminatedUnion('status', [
     .object({
       status: z.literal('validation_error'),
       code: ContextNoteValidationCodeSchema,
-      recovery: z.enum(['choose_passage', 'rebuild_input']),
+      recovery: z.enum(['choose_passage', 'rebuild_input', 'refresh_context', 'unavailable']),
+      availablePassageIds: z.array(z.string()).optional(),
     })
-    .refine(result => (result.code === 'invalid_input') === (result.recovery === 'rebuild_input')),
+    .refine(result => result.recovery === validationRecovery[result.code]),
   z.object({
     status: z.literal('save_error'),
     mode: ContextNoteModeSchema,
@@ -30,6 +43,16 @@ export const ContextNoteResultSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('cancelled') }),
 ]);
 export type ContextNoteResult = z.infer<typeof ContextNoteResultSchema>;
+
+export const createContextNoteValidationError = (
+  code: z.infer<typeof ContextNoteValidationCodeSchema>,
+  availablePassageIds?: string[]
+): Extract<ContextNoteResult, { status: 'validation_error' }> => ({
+  status: 'validation_error',
+  code,
+  recovery: validationRecovery[code],
+  ...(availablePassageIds === undefined ? {} : { availablePassageIds }),
+});
 
 const LegacyContextNoteResultSchema = z.object({
   approved: z.boolean(),
@@ -74,10 +97,20 @@ const eventBase = z.object({
 export const ContextNoteEventSchema = z.discriminatedUnion('phase', [
   eventBase
     .extend({
+      phase: z.literal('catalog'),
+      outcome: z.enum(['complete', 'clipped', 'unavailable']),
+      totalEntries: z.number().int().nonnegative(),
+      includedEntries: z.number().int().nonnegative(),
+      serializedChars: z.number().int().nonnegative(),
+    })
+    .strict()
+    .refine(event => event.includedEntries <= event.totalEntries),
+  eventBase
+    .extend({
       phase: z.literal('proposal'),
       outcome: z.enum(['accepted', 'validation_error']),
       code: ContextNoteValidationCodeSchema.optional(),
-      // Ordered as the proposed candidate, then the captured selection when different.
+      // ID proposals report one target; retain the second slot for earlier client diagnostics.
       candidateOutcomes: candidateOutcomesSchema,
     })
     .strict()

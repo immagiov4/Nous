@@ -46,6 +46,7 @@ describe('Codex UI message adapter', () => {
     const stream = await createCodexChatStream({
       messages: [{ role: 'user', content: 'Salva questa nota.' }],
       model: 'gpt-test',
+      messageMetadata: { contextNoteSnapshotId: 'a'.repeat(64) },
       originalMessages: [
         { id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'Salva questa nota.' }] },
       ],
@@ -63,6 +64,10 @@ describe('Codex UI message adapter', () => {
       },
     });
     const chunks = await readStreamChunks(stream);
+    expect(chunks[0]).toMatchObject({
+      type: 'start',
+      messageMetadata: { contextNoteSnapshotId: 'a'.repeat(64) },
+    });
 
     expect(chunks).toContainEqual({
       type: 'tool-input-available',

@@ -3,6 +3,7 @@ import {
   type ContextNoteEventPayload,
   ContextNoteEventSchema,
 } from '@shared/contextNote';
+import { v4 as uuidv4 } from 'uuid';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
 
@@ -22,7 +23,7 @@ export const createContextNoteDiagnostics = () => {
   const report = async (toolCallId: string, event: ContextNoteEventPayload): Promise<void> => {
     let operation = operations.get(toolCallId);
     if (!operation) {
-      operation = { operationId: crypto.randomUUID(), reported: new Set() };
+      operation = { operationId: uuidv4(), reported: new Set() };
       operations.set(toolCallId, operation);
     }
     if (operation.reported.has(event.phase)) return;

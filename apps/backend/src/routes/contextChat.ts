@@ -1,6 +1,11 @@
 // Handles context-aware chat requests for the backend API.
 
 import { ContextNoteEventSchema, ContextNoteResultSchema } from '@shared/contextNote';
+import {
+  ContextNoteCatalogSchema,
+  getContextNotePassageIds,
+  serializeContextNoteView,
+} from '@shared/contextNoteCatalog';
 import type {
   ContextSourceArchiveSelector,
   ContextSourceArchiveVersion,
@@ -56,7 +61,7 @@ import {
   type WebSearchToolResult,
 } from './chatPrompts.js';
 import { createContextSourceArchiveTool } from './contextSourceArchiveTool.js';
-import { libraryRetrievalToolNames, libraryRetrievalTools } from './libraryChat.js';
+import { libraryRetrievalTools } from './libraryChat.js';
 
 const DEFAULT_CONTEXT_SCOPE: ContextChatScope = 'selection';
 const CONTEXT_CHAT_SCOPES = new Set<ContextChatScope>(['annotation', 'lesson', 'selection']);
@@ -287,14 +292,17 @@ const contextChatTools = {
       },
     }),
   }),
-  requestAddToNotes: tool({
+} as const;
+
+const createNoteProposalTool = () =>
+  tool({
     description:
       'The only tool for proposing that a study note be saved. The UI automatically decides whether to create a new note or update the one already linked to the passage. Do not choose or distinguish these modes. Saving occurs when the user clicks the confirmation card, and the tool returns the outcome.',
     inputSchema: jsonSchema<{
       artifactIds?: string[];
       noteDraft: string;
       rationale: string;
-      selectedTextDraft: string;
+      passageId: string;
     }>({
       type: 'object',
       additionalProperties: false,
@@ -317,21 +325,20 @@ const contextChatTools = {
           description:
             'Short explanation of why the note is worth saving, naming the doubt it resolves or the implicit point it makes explicit.',
         },
-        selectedTextDraft: {
+        passageId: {
+          pattern: '^(?:p[0-9a-z]+|s)$',
           type: 'string',
           description:
-            'Text passage to associate with the note. Keep it faithful to the selected lesson text and refine it only to improve the anchor. Do not replace it with your rephrasing unless necessary.',
+            'An advertised passage ID from the addressable current lesson. Prefer its captured selection when the note concerns that selection. Never copy or invent a quotation.',
         },
       },
-      required: ['noteDraft', 'rationale', 'selectedTextDraft'],
+      required: ['noteDraft', 'rationale', 'passageId'],
     }),
     outputSchema: ContextNoteResultSchema,
-  }),
-} as const;
-
-const contextLocalToolNames = Object.keys(contextChatTools) as Array<keyof typeof contextChatTools>;
+  });
 
 const buildContextToolSet = ({
+  passageIds,
   attachedAnnotationNote,
   attachedAnnotationText,
   contextAfter,
@@ -345,6 +352,7 @@ const buildContextToolSet = ({
   sourceReferences,
   userId,
 }: {
+  passageIds: string[];
   attachedAnnotationNote?: string;
   attachedAnnotationText?: string;
   contextAfter?: string;
@@ -396,21 +404,15 @@ const buildContextToolSet = ({
       sourceReferences,
     }),
     ...contextChatTools,
+    ...(passageIds.length ? { requestAddToNotes: createNoteProposalTool() } : {}),
     ...(archiveTool ? { [CONTEXT_SOURCE_ARCHIVE_TOOL_NAME]: archiveTool } : {}),
     ...libraryRetrievalTools,
   };
 };
 
-const buildContextPrepareStep = (hasSourceArchiveTool: boolean) => {
-  return () => ({
-    activeTools: [
-      LIBRARY_WEB_SEARCH_TOOL_NAME,
-      ...contextLocalToolNames,
-      ...(hasSourceArchiveTool ? [CONTEXT_SOURCE_ARCHIVE_TOOL_NAME] : []),
-      ...libraryRetrievalToolNames,
-    ],
-  });
-};
+const buildContextPrepareStep = (tools: ReturnType<typeof buildContextToolSet>) => () => ({
+  activeTools: Object.keys(tools) as Array<keyof typeof tools>,
+});
 
 const readContextArchiveSelectors = (
   value: unknown
@@ -569,6 +571,20 @@ contextChatRouter.post('/context/note-events', (req: Request, res: Response) => 
   res.sendStatus(204);
 });
 
+const readCapturedContext = (body: Record<string, unknown>) => {
+  const playback = PlaybackQuestionContextSchema.optional().safeParse(body.playbackContext);
+  if (!playback.success) return { error: 'Invalid playback context.' } as const;
+  const catalog = ContextNoteCatalogSchema.optional().safeParse(body.noteCatalog);
+  if (!catalog.success) return { error: 'Invalid note passage catalog.' } as const;
+  return {
+    playbackContext: playback.data,
+    passageIds: getContextNotePassageIds(catalog.data?.records, catalog.data?.selectionId),
+    noteLessonView: catalog.data ? serializeContextNoteView(catalog.data.records) : undefined,
+    noteSelectionId: catalog.data?.selectionId,
+    messageMetadata: catalog.data ? { contextNoteSnapshotId: catalog.data.snapshotId } : undefined,
+  };
+};
+
 contextChatRouter.post('/context', async (req: Request, res: Response) => {
   try {
     if (!isRecord(req.body)) {
@@ -603,16 +619,14 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     const contextSourceMaterial = readOptionalString(sourceMaterial);
     const selectedText = readOptionalString(req.body.selectedText);
     const messages = req.body.messages;
-    const playbackContext = PlaybackQuestionContextSchema.optional().safeParse(
-      req.body.playbackContext
-    );
-    if (!playbackContext.success) {
-      res.status(400).json({ success: false, error: 'Invalid playback context.' });
+    const capturedContext = readCapturedContext(req.body);
+    if ('error' in capturedContext) {
+      res.status(400).json({ success: false, error: capturedContext.error });
       return;
     }
 
     const contextInput = {
-      playbackContext: playbackContext.data,
+      playbackContext: capturedContext.playbackContext,
       attachedAnnotationNote: readOptionalString(attachedAnnotationNote),
       attachedAnnotationText: readOptionalString(attachedAnnotationText),
       contextAfter: readOptionalString(contextAfter),
@@ -692,6 +706,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
         : 'Full current lesson');
 
     const contextTools = buildContextToolSet({
+      passageIds: capturedContext.passageIds,
       modelConfig: researchModelConfig,
       selectedText: contextSubject,
       signal: contextAbortController.signal,
@@ -707,6 +722,8 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     const system = buildContextSystemPrompt({
       contextScope,
       hasSourceArchiveTool,
+      noteLessonView: capturedContext.noteLessonView,
+      noteSelectionId: capturedContext.noteSelectionId,
       selectedText,
       ...contextInput,
     });
@@ -720,6 +737,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
         messages: modelMessages,
         model: contextModelConfig.model,
         originalMessages: messages,
+        messageMetadata: capturedContext.messageMetadata,
         reasoningEffort: contextModelConfig.reasoningEffort,
         system,
         tools: contextTools,
@@ -740,13 +758,15 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       providerOptions: configuredModel.providerOptions,
       tools: contextTools,
       stopWhen: stepCountIs(CHAT_TOOL_STEP_LIMIT),
-      prepareStep: buildContextPrepareStep(hasSourceArchiveTool),
+      prepareStep: buildContextPrepareStep(contextTools),
     });
 
     pipeUIMessageStreamToResponse({
       response: res,
       stream: result.toUIMessageStream({
         originalMessages: messages,
+        messageMetadata: ({ part }) =>
+          part.type === 'start' ? capturedContext.messageMetadata : undefined,
         generateMessageId: generateId,
         onError: () => SAFE_AI_STREAM_ERROR,
       }),

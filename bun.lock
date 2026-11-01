@@ -8,6 +8,7 @@
         "@ai-sdk/react": "^3.0.139",
         "@mariozechner/pi-ai": "0.73.1",
         "@mariozechner/pi-coding-agent": "0.73.1",
+        "@noble/hashes": "1.8.0",
         "@observablehq/plot": "0.6.17",
         "@resvg/resvg-js": "^2.6.2",
         "@tabler/icons": "3.49.0",
@@ -35,6 +36,7 @@
         "remotion": "4.0.487",
         "signalsmith-stretch": "1.3.2",
         "unified": "^11.0.5",
+        "uuid": "14.0.1",
         "zod": "4.3.6",
       },
       "devDependencies": {

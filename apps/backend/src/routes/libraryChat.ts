@@ -440,10 +440,6 @@ export const libraryRetrievalTools = {
   searchLibrary: libraryChatTools.searchLibrary,
 } as const;
 
-export const libraryRetrievalToolNames = Object.keys(libraryRetrievalTools) as Array<
-  keyof typeof libraryRetrievalTools
->;
-
 const createLibrarySearchWebTool = ({
   attachedContextRefs,
   modelConfig,

@@ -970,6 +970,33 @@ describe('POST /api/chat/context', () => {
     expect(JSON.stringify(response.body)).not.toContain('PRIVATE_');
   });
 
+  test('collects catalog coverage counts without accepting source text', async () => {
+    const event = {
+      operationId: 'c27e152a-c40b-4b24-a695-454f5d5d088a',
+      phase: 'catalog',
+      outcome: 'clipped',
+      contextScope: 'lesson',
+      durationMs: 1,
+      totalEntries: 10,
+      includedEntries: 2,
+      serializedChars: 24000,
+    };
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+    expect(
+      (await request(createApp()).post('/api/chat/context/note-events').send(event)).status
+    ).toBe(204);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('"includedEntries":2'));
+    log.mockClear();
+    expect(
+      (
+        await request(createApp())
+          .post('/api/chat/context/note-events')
+          .send({ ...event, source: 'PRIVATE_LESSON' })
+      ).status
+    ).toBe(400);
+    expect(JSON.stringify(log.mock.calls)).not.toContain('PRIVATE_LESSON');
+  });
+
   test('note diagnostic collection requires authentication', async () => {
     process.env.AUTH_MODE = 'supabase';
     const response = await request(createApp()).post('/api/chat/context/note-events').send({});
@@ -1017,6 +1044,115 @@ describe('POST /api/chat/context', () => {
       });
     expect(response.status).toBe(204);
     expect(log).toHaveBeenCalledWith(expect.stringContaining(`"outcome":"${event.outcome}"`));
+  });
+
+  test.each([
+    'openrouter',
+    'codex',
+  ] as const)('binds compact catalog IDs without repeating an enum through %s', async provider => {
+    const token = authenticateProvider(provider);
+    const id = 'p0';
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        contextScope: 'lesson',
+        lessonContent: 'Canonical sentence.',
+        noteCatalog: {
+          snapshotId: 'a'.repeat(64),
+          records: [
+            { kind: 'paragraph', id },
+            { kind: 'context', text: 'Canonical sentence.' },
+            { kind: 'context', text: '$x+y$' },
+          ],
+        },
+        messages: [{ id: 'catalog-user', role: 'user', content: 'Explain it.' }],
+      });
+    expect(response.status).toBe(200);
+    const options =
+      provider === 'codex'
+        ? codexStreamMocks.createCodexChatStream.mock.lastCall?.[0]
+        : aiMocks.streamText.mock.lastCall?.[0];
+    const schema = options.tools.requestAddToNotes.inputSchema;
+    expect(schema.properties.passageId.enum).toBeUndefined();
+    expect(schema.properties.passageId.pattern).toBe('^(?:p[0-9a-z]+|s)$');
+    if (provider === 'codex')
+      expect(options.messageMetadata).toEqual({ contextNoteSnapshotId: 'a'.repeat(64) });
+    else
+      expect(
+        aiMocks.toUIMessageStream.mock.lastCall?.[0].messageMetadata({ part: { type: 'start' } })
+      ).toEqual({ contextNoteSnapshotId: 'a'.repeat(64) });
+    expect(schema.required).toEqual(['noteDraft', 'rationale', 'passageId']);
+    expect(schema.properties.selectedTextDraft).toBeUndefined();
+    expect(aiMocks.convertToModelMessages).toHaveBeenCalledWith(expect.any(Array), {
+      tools: options.tools,
+    });
+  });
+
+  test.each([
+    { records: [{ kind: 'paragraph', id: 'invented', text: 'text' }] },
+    { records: [0] },
+    { records: [{ kind: 'context', text: 'a'.repeat(24_001) }] },
+    {
+      records: [
+        { kind: 'context', text: 'same source' },
+        ...Array(2).fill({ kind: 'paragraph', id: 'p0' }),
+      ],
+    },
+  ])('rejects an invalid external catalog before invoking either provider', async noteCatalog => {
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .send({
+        noteCatalog: { snapshotId: 'a'.repeat(64), ...noteCatalog },
+        selectedText: 'text',
+        messages: [{ id: '1', role: 'user', content: 'Explain' }],
+      });
+    expect(response.status).toBe(400);
+    expect(aiMocks.streamText).not.toHaveBeenCalled();
+    expect(codexStreamMocks.createCodexChatStream).not.toHaveBeenCalled();
+  });
+
+  test('retains the entire long lesson in the provider view without growing the tool schema', async () => {
+    const paragraphs = Array.from(
+      { length: 470 },
+      (_, index) => `La memoria conserva informazioni nella frase ${index}.\n`
+    );
+    const content = paragraphs.join('');
+    expect(content.length).toBeGreaterThan(22_000);
+    const records = paragraphs.flatMap((text, index) => [
+      { kind: 'paragraph', id: `p${index.toString(36)}` },
+      { kind: 'context', text },
+    ]);
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .send({
+        contextScope: 'lesson',
+        lessonContent: content,
+        noteCatalog: { snapshotId: 'a'.repeat(64), records },
+        messages: [{ id: 'long', role: 'user', content: 'Spiega la parte finale.' }],
+      });
+    expect(response.status).toBe(200);
+    const options = aiMocks.streamText.mock.lastCall?.[0];
+    expect(options.system.replace(/⟦p[0-9a-z]+⟧/gu, '')).toContain(content);
+    expect(options.tools.requestAddToNotes.inputSchema.properties.passageId.enum).toBeUndefined();
+    expect(options.system).not.toContain('a'.repeat(64));
+  });
+
+  test('omits the note capability when no addressable passage is supplied', async () => {
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .send({
+        noteCatalog: {
+          snapshotId: 'a'.repeat(64),
+          records: [{ kind: 'context', text: 'code only' }],
+        },
+        selectedText: 'code',
+        messages: [{ id: '1', role: 'user', content: 'Explain' }],
+      });
+    expect(response.status).toBe(200);
+    const options = aiMocks.streamText.mock.lastCall?.[0];
+    expect(options.tools.requestAddToNotes).toBeUndefined();
+    expect(options.prepareStep().activeTools).not.toContain('requestAddToNotes');
   });
 
   test('validates that selected text is present', async () => {
@@ -1158,6 +1294,13 @@ describe('POST /api/chat/context', () => {
     const response = await request(createApp())
       .post('/api/chat/context')
       .send({
+        noteCatalog: {
+          snapshotId: 'a'.repeat(64),
+          records: [
+            { kind: 'paragraph', id: 'p0' },
+            { kind: 'context', text: 'Puntatore' },
+          ],
+        },
         selectedText: 'Puntatore',
         contextBefore: 'testo prima',
         contextAfter: 'testo dopo',
@@ -1618,6 +1761,13 @@ describe('POST /api/chat/context', () => {
       .post('/api/chat/context')
       .set('Authorization', `Bearer ${token}`)
       .send({
+        noteCatalog: {
+          snapshotId: 'a'.repeat(64),
+          records: [
+            { kind: 'paragraph', id: 'p0' },
+            { kind: 'context', text: 'Puntatore' },
+          ],
+        },
         selectedText: 'Puntatore',
         messages: [{ id: '1', role: 'user', content: 'Spiegami' }],
       });
