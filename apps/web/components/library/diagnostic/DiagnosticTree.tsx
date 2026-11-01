@@ -64,15 +64,22 @@ function Topic({
   const answer = answers[topic.id];
   const value = answer?.kind === 'self-report' ? answer.value : undefined;
   const answerStatus = value ? t('Risposta presente') : t('Nessuna risposta');
+  const expandable = topic.children.length > 0 && Boolean(value);
   return (
     <li>
       <button
         type="button"
         className="diagnostic-topic"
-        aria-expanded={open}
-        onClick={() => onToggle(topic.id)}
+        aria-expanded={expandable ? open : undefined}
+        onClick={() => {
+          if (expandable) onToggle(topic.id);
+        }}
       >
-        <ChevronRight size={18} className="diagnostic-chevron" />
+        <ChevronRight
+          size={18}
+          aria-hidden="true"
+          className={`diagnostic-chevron${topic.children.length > 0 ? '' : ' invisible'}`}
+        />
         <span
           aria-hidden="true"
           className="diagnostic-dot"
@@ -93,7 +100,7 @@ function Topic({
           onChange={next => onAnswer(topic.id, next)}
         />
         {topic.children.length > 0 && (
-          <BranchContents open={open && Boolean(value)}>
+          <BranchContents open={expandable && open}>
             <TopicList
               topics={topic.children}
               answers={answers}

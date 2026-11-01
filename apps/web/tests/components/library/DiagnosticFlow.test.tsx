@@ -437,4 +437,19 @@ describe('self-assessment cascade decisions', () => {
       submit.mock.calls[0][0].answers.find(answer => answer.itemId === 'needs')?.response
     ).toEqual({ kind: 'self-report', value: 'independent' });
   });
+  test('topic header only toggles a branch whose subtopics can be shown', async () => {
+    const user = userEvent.setup();
+    render(
+      <DiagnosticFlow adapter={{ collectionId: 'cascade', initial: stage, submit: vi.fn() }} />
+    );
+    const header = screen.getByRole('button', { name: /^Marketing/ });
+    expect(header).not.toHaveAttribute('aria-expanded');
+    await user.click(header);
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Marketing' }), { key: 'End' });
+    expect(screen.getByRole('button', { name: /^Marketing/ })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
+    expect(screen.getByRole('slider', { name: 'Pubblico' })).toBeInTheDocument();
+  });
 });
