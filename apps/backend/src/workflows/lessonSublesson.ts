@@ -12,6 +12,7 @@ import {
   SOURCE_ARCHIVE_LESSON_CONTEXT_MAX_BYTES,
   SourceArchiveSelectorContractError,
 } from '@shared/sourceArchiveSelectors';
+import { sourceTextStartOffset } from '@shared/sourceTextSlice';
 import * as z from 'zod';
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
@@ -220,7 +221,7 @@ const loadSourceMaterials = async ({
 const clipText = (text: string): string =>
   text.length <= SUBLESSON_METADATA_SOURCE_MAX_CHARS
     ? text
-    : `${text.slice(0, SUBLESSON_METADATA_SOURCE_MAX_CHARS)}\n[content truncated]`;
+    : `${text.slice(0, sourceTextStartOffset(text, SUBLESSON_METADATA_SOURCE_MAX_CHARS))}\n[content truncated]`;
 
 const readParentContext = (project: ProjectSnapshot, parentSectionId: string) => {
   const parent = findProjectLessonSection(project, parentSectionId);

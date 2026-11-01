@@ -1,8 +1,11 @@
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import type { TransactionSql } from 'postgres';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import * as z from 'zod';
-
+import { CodexJsonRpcClient } from '../../src/services/codexAppServer.js';
 import { WorkflowExecutionDefaultsSchema } from '../../src/workflows/config.js';
+import { CourseModelProviderError } from '../../src/workflows/courseGenerationModel.js';
 import {
   createWorkflowRegistry,
   sequence,
@@ -129,6 +132,88 @@ afterEach(() => {
 });
 
 describe('single workflow step runner', () => {
+  test.each([
+    'parser',
+    'silence',
+    'exit',
+  ] as const)('records a private-safe Codex %s failure at the durable attempt boundary', async scenario => {
+    vi.useFakeTimers();
+    const child = Object.assign(new EventEmitter(), {
+      stderr: new PassThrough(),
+      stdin: new PassThrough(),
+      stdout: new PassThrough(),
+      kill: vi.fn(),
+    });
+    const client = new CodexJsonRpcClient(child);
+    const started = Promise.withResolvers<void>();
+    const work = step({
+      id: 'work',
+      inputSchema: Text,
+      outputSchema: Text,
+      run: async () => {
+        try {
+          const response = client.request('turn/start');
+          started.resolve();
+          await response;
+          return { text: 'unexpected response' };
+        } catch (cause) {
+          throw new CourseModelProviderError(cause);
+        } finally {
+          client.close();
+        }
+      },
+    });
+    const registry = createWorkflowRegistry();
+    const registered = registry.register({
+      current: workflow({
+        compatibilityId: 'test-v1',
+        configSchema: WorkflowExecutionDefaultsSchema,
+        executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+        id: 'codex-transport',
+        inputSchema: Text,
+        outputSchema: Text,
+        root: work,
+      }),
+    }).current;
+    const store = makeStore();
+    const execution = runWorkflowStepClaim({
+      claim: makeClaim(registered),
+      registry,
+      services: {},
+      store,
+    });
+    await started.promise;
+    if (scenario === 'parser') {
+      child.stderr.write(
+        'prompt=PRIVATE_PROMPT source=PRIVATE_SOURCE model=PRIVATE_MODEL token=PRIVATE_SECRET\n'
+      );
+      child.stderr.write(
+        '2026-11-01T20:12:04.223259Z ERROR codex_app_server_transport::transport: Failed to deserialize JSON'
+      );
+      child.stderr.write('RPCMessage: unexpected end of hex escape PRIVATE_SOURCE\n');
+    } else if (scenario === 'exit') {
+      child.emit('exit', 1);
+    } else {
+      child.stderr.write('unrelated warning PRIVATE_SOURCE\n');
+    }
+    // The real RPC acknowledgment deadline, before the enclosing workflow deadline.
+    await vi.advanceTimersByTimeAsync(30_000);
+    await expect(execution).resolves.toMatchObject({ status: 'failure-recorded' });
+    const failure = vi.mocked(store.steps.recordFailure).mock.calls[0]?.[0].failure;
+    const durable = JSON.parse(JSON.stringify(failure));
+    expect(durable.details.diagnostic).toMatchObject({
+      type: 'CourseModelProviderError',
+      cause: {
+        type: 'CodexAppServerError',
+        code: scenario === 'parser' ? 'protocol' : scenario === 'exit' ? 'process' : 'timeout',
+        ...(scenario === 'parser' ? { cause: { code: 'jsonrpc_deserialization_failed' } } : {}),
+      },
+    });
+    expect(JSON.stringify(durable)).not.toContain('PRIVATE_');
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(child.stdin.writableEnded).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
   test('resolves a nested step, validates boundaries and keeps idempotency stable across retries', async () => {
     const executionIdentities: unknown[] = [];
     const keys: string[] = [];

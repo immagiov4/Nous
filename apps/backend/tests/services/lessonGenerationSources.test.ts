@@ -1,4 +1,9 @@
+import {
+  MAX_LESSON_COMBINED_SOURCE_CONTEXT_CHARS,
+  MAX_LESSON_SOURCE_CONTEXT_CHARS,
+} from '@shared/lessonSourceContext';
 import { expect, test, vi } from 'vitest';
+import { buildLegacySourceFixture } from '../../../web/tests/helpers/legacySourceIndex.ts';
 import type { ProjectStore } from '../../src/projects/types.js';
 import { resolveLessonSourceMaterials } from '../../src/services/lessonGenerationPreparation.js';
 import {
@@ -14,6 +19,50 @@ import {
   withPdfAssetSoftTimeout,
 } from '../../src/services/lessonGenerationSources.js';
 import { readLessonPrimarySources } from '../../src/services/lessonPrimarySourceContext.js';
+
+test.each([
+  'source',
+  'combined',
+] as const)('lesson %s context keeps complete characters within its excerpt limit', async boundary => {
+  const name = 'symbols.txt';
+  const prefix = `ORIGINAL SOURCE: ${name}\n`;
+  const firstText = 'a'.repeat(MAX_LESSON_SOURCE_CONTEXT_CHARS);
+  const offset =
+    boundary === 'source'
+      ? MAX_LESSON_SOURCE_CONTEXT_CHARS - 1
+      : MAX_LESSON_COMBINED_SOURCE_CONTEXT_CHARS -
+        2 * (prefix.length + firstText.length + '\n\n---\n\n'.length) -
+        prefix.length -
+        1;
+  const text = `${'b'.repeat(offset)}𝑋${'z'.repeat(100)}`;
+  const contents = boundary === 'source' ? [text] : [firstText, firstText, text];
+  const store = {
+    loadProjectSources: vi.fn().mockResolvedValue(
+      contents.map((content, index) => ({
+        file: { name, mimeType: 'text/plain', data: Buffer.from(content).toString('base64') },
+        ref: { id: `source-${index}`, hash: 'a'.repeat(64) },
+      }))
+    ),
+  } as unknown as ProjectStore;
+  const context = await buildStoredDocumentSourceContext({
+    store,
+    userId: 'user',
+    projectId: 'project',
+    section: {},
+    signal: new AbortController().signal,
+    primarySourceId: '',
+  });
+  const parts = readLessonPrimarySources(context);
+  expect(parts?.every(part => !/[\uD800-\uDFFF]/u.test(part.text))).toBe(true);
+  expect(parts?.at(-1)?.text).toBe(`${prefix}${'b'.repeat(offset)}\n[truncated source excerpt]`);
+  const cap =
+    boundary === 'source'
+      ? prefix.length + MAX_LESSON_SOURCE_CONTEXT_CHARS
+      : MAX_LESSON_COMBINED_SOURCE_CONTEXT_CHARS;
+  expect(parts?.reduce((length, part) => length + part.text.length, 0)).toBeLessThanOrEqual(
+    cap + '\n[truncated source excerpt]'.length
+  );
+});
 
 const extraction = vi.hoisted(() => ({ extractPdfText: vi.fn() }));
 vi.mock('../../src/services/pdfTextExtractor.js', async original => ({
@@ -155,6 +204,17 @@ const mappedProject = {
     })),
   },
 } as never;
+
+test('mapped lesson sources project saved legacy chunk boundaries without mutating the index', () => {
+  const project = buildLegacySourceFixture(`𝑋${'a'.repeat(7_997)}𝑋${'z'.repeat(7_999)}`);
+  const before = JSON.stringify(project);
+  const context = buildMappedSourceContext(project as never, {});
+  const parts = readLessonPrimarySources(context);
+  expect(parts).toHaveLength(2);
+  expect(parts?.map(part => part.text).join('\n')).not.toMatch(/[\uD800-\uDFFF]/u);
+  expect(parts?.[0].text).toContain('𝑋');
+  expect(JSON.stringify(project)).toBe(before);
+});
 
 test('explicit chunks take priority over neighbors within the context cap', () => {
   const context = buildMappedSourceContext(mappedProject, {

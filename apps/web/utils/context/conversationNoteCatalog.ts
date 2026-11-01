@@ -3,6 +3,7 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 import { type ContextNoteResult, createContextNoteValidationError } from '@shared/contextNote';
 import { type ContextNoteRecord, readContextNoteSnapshotId } from '@shared/contextNoteCatalog';
 import { MAX_CONTEXT_CHAT_FIELD_CHARS } from '@shared/lessonSourceContext';
+import { sourceTextStartOffset } from '@shared/sourceTextSlice';
 import type { ConversationSelectionAnchor } from '../../components/workspace/shell/types.ts';
 import type { SectionAnnotationTextSelector } from '../../types.ts';
 import { createSectionAnnotationSelector } from '../learning/sectionAnnotationAnchors.ts';
@@ -366,7 +367,7 @@ export const buildConversationNoteCatalog = ({
     }
   }
   if (selected) addEntry(selected.start, selected.end, 'selection');
-  const prefix = content.slice(0, MAX_CONTEXT_CHAT_FIELD_CHARS);
+  const prefix = content.slice(0, sourceTextStartOffset(content, MAX_CONTEXT_CHAT_FIELD_CHARS));
   const included = entries.filter(entry => isVisiblePassage(entry, prefix.length));
   const selectionId = included.some(entry => entry.kind === 'selection')
     ? ('s' as const)

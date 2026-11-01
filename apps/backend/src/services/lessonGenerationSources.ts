@@ -12,6 +12,7 @@ import type { LessonWorkflowWarning } from '@shared/lessonWorkflowContract';
 import { LESSON_PDF_IMAGE_EXTRACTION_LIMIT } from '@shared/pdfImagePolicy';
 import { readPdfTranscribedPages } from '@shared/pdfTranscription';
 import { SOURCE_ARCHIVE_LESSON_CONTEXT_MAX_BYTES } from '@shared/sourceArchiveSelectors';
+import { clipSourceExcerptText, sliceSourceText } from '@shared/sourceTextSlice';
 import {
   formatYouTubeTranscript,
   parseYouTubeTranscript,
@@ -135,7 +136,7 @@ export const isPdfAssetSoftTimeoutError = (error: unknown): error is PdfAssetSof
 const clipSourceContext = (value: string, maxChars: number): string => {
   const trimmed = value.trim();
   if (trimmed.length <= maxChars) return trimmed;
-  return `${trimmed.slice(0, maxChars).trimEnd()}\n[truncated source excerpt]`;
+  return `${sliceSourceText(trimmed, 0, maxChars).trimEnd()}\n[truncated source excerpt]`;
 };
 
 const readReferenceChunkIds = (section: Record<string, unknown>, sourceId?: string): string[] =>
@@ -254,7 +255,7 @@ export const buildMappedSourceContext = (
       return [
         {
           source,
-          text: `CHUNK ${String(chunk.id)}\nHeading path: ${headingPath.join(' > ') || 'Nessuno'}\n${chunk.text.trim()}`,
+          text: `CHUNK ${String(chunk.id)}\nHeading path: ${headingPath.join(' > ') || 'Nessuno'}\n${clipSourceExcerptText(chunk.text).trim()}`,
         },
       ];
     });

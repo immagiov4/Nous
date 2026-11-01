@@ -126,6 +126,29 @@ const documentIndex = {
 };
 
 describe('durable sublesson stages', () => {
+  test('sublesson metadata generation receives a Unicode-safe parent excerpt within its hard cap', async () => {
+    const project = snapshot();
+    const parent = project.learningPlan?.modules[0].children?.[0];
+    if (!parent) throw new Error('Missing parent lesson fixture');
+    const prefix = 'a'.repeat(31_999);
+    parent.content = `${prefix}𝑋${'z'.repeat(100)}`;
+    const generateObject = vi.fn(async (request: { prompt: string }) => {
+      expect(request.prompt).not.toMatch(/[\uD800-\uDFFF]/u);
+      expect(request.prompt).toContain(`${prefix}\n[content truncated]`);
+      expect(request.prompt).not.toContain('a'.repeat(32_000));
+      expect(request.prompt).not.toContain('z'.repeat(100));
+      expect(JSON.stringify(request.prompt)).not.toMatch(/\\u[dD][89a-fA-F][0-9a-fA-F]{2}/u);
+      return metadata;
+    });
+    const stages = createLessonSublessonStages({
+      generateObject: generateObject as never,
+      projectStore: store(project),
+    });
+    const result = await stages.planSublesson(context(input));
+    expect(result).toMatchObject({ stage: 'sublesson-plan', section: metadata });
+    expect(generateObject).toHaveBeenCalledOnce();
+  });
+
   test('plans from authoritative parent content and fileless course context', async () => {
     const generateObject = vi.fn(async () => metadata);
     const stages = createLessonSublessonStages({
