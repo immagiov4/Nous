@@ -3,6 +3,7 @@ import request from 'supertest';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { playbackQuestion } from '../../../web/tests/helpers/playbackQuestion.ts';
 import type { LessonNode, ProjectSource } from '../../../web/types.js';
+import { buildConversationNoteCatalog } from '../../../web/utils/context/conversationNoteCatalog.js';
 import { resolveLessonSourceReferences } from '../../../web/utils/context/sourceMaterial.js';
 import type { ProjectStore } from '../../src/projects/types.js';
 import { createSupabaseTestToken } from '../helpers/auth.js';
@@ -1324,6 +1325,33 @@ describe('POST /api/chat/context', () => {
       'DISTINCT ORIGINAL SOURCE METADATA (1;'
     );
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('049.pdf');
+  });
+
+  test.each([
+    'openrouter',
+    'codex',
+  ] as const)('catalog-backed contextual chat preserves Unicode and the field cap through %s', async provider => {
+    const token = authenticateProvider(provider);
+    const content = `${'a'.repeat(MAX_CONTEXT_CHARS - 1)}𝑋${'z'.repeat(100)}`;
+    const catalog = buildConversationNoteCatalog({ content, locale: 'en' });
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        contextScope: 'lesson',
+        lessonContent: content,
+        noteCatalog: { records: catalog.records, snapshotId: await catalog.snapshotId },
+        messages: [{ id: 'catalog-boundary', role: 'user', content: 'Explain this.' }],
+      });
+    expect(response.status).toBe(200);
+    const options =
+      provider === 'codex'
+        ? codexStreamMocks.createCodexChatStream.mock.lastCall?.[0]
+        : aiMocks.streamText.mock.lastCall?.[0];
+    expect(options.system).not.toMatch(/[\uD800-\uDFFF]/u);
+    expect(options.system).toContain(`${'a'.repeat(MAX_CONTEXT_CHARS - 1)}\n\n[context truncated]`);
+    expect(options.system).not.toContain('z'.repeat(100));
+    expect(JSON.stringify(options.system)).not.toMatch(/\\u[dD][89a-fA-F][0-9a-fA-F]{2}/u);
   });
 
   test('streams a contextual answer with the selected source information', async () => {
