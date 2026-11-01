@@ -541,6 +541,8 @@ interface ContextAnswerPanelProps {
     stopResponse?: () => void,
     tools?: ReactNode
   ) => ReactNode;
+  /** Appends a recovered draft to the externally controlled composer. */
+  readonly onReuseDraft?: (text: string) => void;
   readonly artifactActionFeedbackOverride?: 'saved';
   readonly artifactPreviewIdOverride?: string | null;
   readonly artifactPortalContainer?: HTMLElement | null;
@@ -617,6 +619,7 @@ function ContextAnswerPanelSession({
   docked = false,
   composerPortal,
   renderComposer,
+  onReuseDraft,
   artifactActionFeedbackOverride,
   artifactPreviewIdOverride,
   artifactPortalContainer,
@@ -662,6 +665,9 @@ function ContextAnswerPanelSession({
     projectId: contextAnswer.projectId,
   };
   const displayedInput = inputValueOverride ?? input;
+  const hasExternalComposer = Boolean(
+    composerPortal && renderComposer && (docked || !isMobileViewport)
+  );
   const [isToolMenuOpen, setIsToolMenuOpen] = useState(false);
   const [, setIsChatScrolled] = useState(false);
   const [isChatNotAtBottom, setIsChatNotAtBottom] = useState(false);
@@ -706,6 +712,7 @@ function ContextAnswerPanelSession({
       read: () => active,
       capture: (correction: Correction) => {
         pending = correction;
+        active = correction;
       },
       take: () => {
         const correction = pending;
@@ -818,6 +825,7 @@ function ContextAnswerPanelSession({
   const [noteTargets, setNoteTargets] = useState<
     Record<string, ReturnType<typeof validateConversationNotePassage>['target']>
   >({});
+  const [recoveredNoteToolCallIds, setRecoveredNoteToolCallIds] = useState<Set<string>>(new Set());
   const [noteDiagnostics] = useState(createContextNoteDiagnostics);
   const currentContextRequestState = useMemo<ContextRequestState>(
     () => ({
@@ -1036,6 +1044,14 @@ function ContextAnswerPanelSession({
             current: currentState,
           });
           const accepted = !error;
+          const correction = pendingNoteCorrection.read();
+          if (accepted && correction?.guard.isCurrent()) {
+            setRecoveredNoteToolCallIds(previous =>
+              previous.has(correction.toolCallId)
+                ? previous
+                : new Set(previous).add(correction.toolCallId)
+            );
+          }
           void finishProposal({
             phase: 'proposal',
             outcome: accepted ? 'accepted' : 'validation_error',
@@ -1986,6 +2002,11 @@ function ContextAnswerPanelSession({
         target?.text ??
         (inputValue?.passageId === undefined ? inputValue?.selectedTextDraft : undefined);
       const outputValue = readContextNoteResult(part.output);
+      const correction = pendingNoteCorrection.read();
+      const isCorrectingNote =
+        (isLoading || isWaitingForNoteDecision) &&
+        correction?.toolCallId === part.toolCallId &&
+        correction.guard.isCurrent();
       const isProcessing = processingNoteToolCallIds.has(part.toolCallId);
       const hasExistingNote =
         target?.hasExistingNote ?? Boolean(contextAnswer.attachedAnnotationNote?.trim());
@@ -2160,12 +2181,16 @@ function ContextAnswerPanelSession({
           ) : null}
 
           {renderNoteDecision()}
-          {outputValue?.status === 'validation_error' && noteDraft !== undefined ? (
+          {outputValue?.status === 'validation_error' &&
+          noteDraft !== undefined &&
+          !isCorrectingNote &&
+          !recoveredNoteToolCallIds.has(part.toolCallId) ? (
             <button
               type="button"
               disabled={isComposerDisabled}
               onClick={() => {
-                setInput(current => appendSpeechTranscription(current, noteDraft));
+                if (hasExternalComposer && onReuseDraft) onReuseDraft(noteDraft);
+                else setInput(current => appendSpeechTranscription(current, noteDraft));
                 const input =
                   composerPortal?.querySelector<HTMLElement>(
                     '[data-context-menu-target="input"]'
@@ -2418,9 +2443,6 @@ function ContextAnswerPanelSession({
     panelPlacementClassName = 'rounded-2xl';
   }
   const stopComposerResponse = isLoading ? handleStopResponse : undefined;
-  const hasExternalComposer = Boolean(
-    composerPortal && renderComposer && (docked || !isMobileViewport)
-  );
   const answerPanel = (
     <motion.div
       ref={contextAnswerPanelRef}

@@ -3106,6 +3106,71 @@ describe('ContextAnswerPanel', () => {
     expect(chatTextComposerProps.at(-1)?.disabled).toBe(false);
   });
 
+  test('reuse appends to and submits the visible controlled playback composer', async () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      sendMessage: sendMessageMock,
+      status: 'ready',
+      messages: [
+        {
+          id: 'failed',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'failed',
+              state: 'output-available',
+              input: { noteDraft: 'Bozza recuperata.' },
+              output: {
+                status: 'validation_error',
+                code: 'invalid_input',
+                recovery: 'rebuild_input',
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const portal = document.createElement('div');
+    document.body.append(portal);
+    const user = userEvent.setup();
+    function PlaybackComposer() {
+      const [draft, setDraft] = useState('Testo preparato.');
+      return (
+        <ContextAnswerPanel
+          {...buildProps()}
+          docked
+          composerPortal={portal}
+          onReuseDraft={text => setDraft(current => `${current} ${text}`)}
+          renderComposer={(send, disabled) => (
+            <>
+              <input
+                aria-label="Composer visibile"
+                data-context-menu-target="input"
+                value={draft}
+                onChange={event => setDraft(event.target.value)}
+              />
+              <button type="button" disabled={disabled} onClick={() => send(draft)}>
+                Invia bozza
+              </button>
+            </>
+          )}
+        />
+      );
+    }
+    const view = render(<PlaybackComposer />);
+    try {
+      await user.click(screen.getByRole('button', { name: 'Riprendi bozza' }));
+      expect(screen.getByRole('textbox')).toHaveValue('Testo preparato. Bozza recuperata.');
+      expect(screen.getByRole('textbox')).toHaveFocus();
+      await user.click(screen.getByRole('button', { name: 'Invia bozza' }));
+      expect(sendMessageMock).toHaveBeenCalledWith({ text: 'Testo preparato. Bozza recuperata.' });
+    } finally {
+      view.unmount();
+      portal.remove();
+    }
+  });
+
   test('only an explicit learner decline emits the declined result', async () => {
     const user = userEvent.setup();
     useChatMock.mockReturnValue({

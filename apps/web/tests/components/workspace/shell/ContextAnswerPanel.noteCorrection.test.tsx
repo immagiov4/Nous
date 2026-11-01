@@ -118,6 +118,7 @@ test('one automatic choose_passage correction preserves the draft and still requ
   const user = userEvent.setup();
   render(panel());
   const approve = await screen.findByRole('button', { name: 'Aggiungi alle note' });
+  expect(screen.queryByRole('button', { name: 'Riprendi bozza' })).not.toBeInTheDocument();
   expect(flow.requests).toHaveLength(2);
   expect(flow.requests[1].messages.filter(message => message.role === 'user')).toHaveLength(1);
   expect(flow.requests[1].messages.flatMap(message => message.parts)).toContainEqual(
@@ -139,6 +140,7 @@ test('one automatic choose_passage correction preserves the draft and still requ
   ]);
   await user.click(approve);
   await screen.findByText('Nota salvata.');
+  expect(screen.queryByRole('button', { name: 'Riprendi bozza' })).not.toBeInTheDocument();
   await finished(2);
   expect(flow.requests).toHaveLength(2);
   expect(save).toHaveBeenCalledTimes(1);
@@ -209,6 +211,7 @@ test('malformed correction retains the original draft after the existing deadlin
     await finished(1);
     await act(() => vi.advanceTimersByTimeAsync(17_000));
     await finished(2);
+    expect(screen.queryByRole('button', { name: 'Riprendi bozza' })).not.toBeInTheDocument();
     await act(() => vi.advanceTimersByTimeAsync(17_000));
     await waitFor(() =>
       expect(screen.getAllByRole('button', { name: 'Riprendi bozza' })).toHaveLength(2)
