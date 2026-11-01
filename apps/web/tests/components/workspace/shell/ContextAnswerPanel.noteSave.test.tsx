@@ -6,6 +6,7 @@ import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } 
 import { createRef } from 'react';
 import { expect, test, vi } from 'vitest';
 import ContextAnswerPanel from '../../../../components/workspace/shell/ContextAnswerPanel.tsx';
+import { createSectionAnnotationSelector } from '../../../../utils/learning/sectionAnnotationAnchors.ts';
 
 const requests = vi.hoisted(() => [] as Array<{ messages: UIMessage[] }>);
 vi.mock('../../../../services/auth/supabaseAuth.ts', () => ({
@@ -56,7 +57,12 @@ test.each([
   const user = userEvent.setup();
   const save = vi.fn(async () => {
     if (outcome === 'thrown') throw new Error('PRIVATE_CALLBACK_ERROR');
-    return { saved: outcome === 'saved', annotationId: 'saved-note', merged: mode === 'update' };
+    return {
+      saved: outcome === 'saved',
+      annotationId: 'saved-note',
+      merged: mode === 'update',
+      ...(outcome === 'failed' ? { code: 'stale_context' as const } : {}),
+    };
   });
   render(
     <ContextAnswerPanel
@@ -70,7 +76,16 @@ test.each([
         lessonTitle: 'Acqua',
         projectId: 'science',
         projectTitle: 'Scienze',
-        ...(mode === 'update' ? { attachedAnnotationNote: 'Nota precedente.' } : {}),
+        ...(mode === 'update'
+          ? {
+              attachedAnnotationId: 'saved-note',
+              attachedAnnotationNote: 'Nota precedente.',
+              attachedAnnotationSelector:
+                createSectionAnnotationSelector('Il Sole scalda l’acqua.', [
+                  { start: 0, end: 'Il Sole scalda l’acqua.'.length },
+                ]) ?? undefined,
+            }
+          : {}),
       }}
       contextAnswerPanelRef={createRef<HTMLDivElement>()}
       contextAnswerSize={{ width: 600, height: 500 }}
@@ -131,7 +146,7 @@ test.each([
       output: expect.objectContaining(
         outcome === 'saved'
           ? { status: 'saved', annotationId: 'saved-note' }
-          : { status: 'save_error', code: 'save_failed' }
+          : { status: 'save_error', code: outcome === 'failed' ? 'stale_context' : 'save_failed' }
       ),
     })
   );

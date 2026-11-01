@@ -12,6 +12,7 @@ import type {
   AudioPanelTab,
   ContextMenuState,
   ContextScope,
+  ExactSectionAnnotationTarget,
   FileData,
   LearningArtifactRenderPayload,
   LessonContentBlock,
@@ -37,6 +38,8 @@ import type { LibraryNavigationTarget } from '../../shared/LibraryToolReferences
 
 export interface ContextAnswerState {
   playbackContext?: PlaybackQuestionContext;
+  attachedAnnotationId?: string;
+  attachedAnnotationSelector?: SectionAnnotationTextSelector;
   attachedAnnotationNote?: string;
   attachedAnnotationText?: string;
   contextAfter?: string;
@@ -70,17 +73,16 @@ export interface ContextChatToolPreferences {
   webSearch: boolean;
 }
 
-export interface SaveConversationNoteToolInput extends ConversationSelectionAnchor {
+export interface SaveConversationNoteInput extends ConversationSelectionAnchor {
+  exactTarget: ExactSectionAnnotationTarget;
+  annotationId?: string;
   artifactRefs?: SectionAnnotationArtifactRef[];
   generatedVisuals?: StoredLessonVisual[];
   note: string;
 }
 
-export interface SaveConversationNoteInput extends SaveConversationNoteToolInput {
-  fallbackSelection?: ConversationSelectionAnchor;
-}
-
 export interface SaveConversationNoteResult {
+  code?: Extract<import('@shared/contextNote').ContextNoteResult, { status: 'save_error' }>['code'];
   annotationId?: string;
   error?: string;
   merged: boolean;

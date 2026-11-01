@@ -7,6 +7,7 @@ import type { ConversationSelectionAnchor } from '../../components/workspace/she
 import type { SectionAnnotationTextSelector } from '../../types.ts';
 import { createSectionAnnotationSelector } from '../learning/sectionAnnotationAnchors.ts';
 import { resolveSelectedSegments } from '../learning/sectionAnnotationProjection.ts';
+import { equalAnnotationSelectors } from '../learning/sectionAnnotations.ts';
 import {
   getMarkdownAnnotationProtectedRanges,
   type MarkdownRange,
@@ -28,6 +29,10 @@ interface ConversationNotePassage {
   anchor: ConversationSelectionAnchor;
   selector: SectionAnnotationTextSelector;
   segments: MarkdownRange[];
+  content: string;
+  annotationId?: string;
+  origin?: { projectId?: string; lessonId?: string };
+  hasExistingNote: boolean;
 }
 
 /** Historical pending quotes can be converted only when their exact target is unambiguous. */
@@ -42,11 +47,19 @@ export const resolveConversationNotePassage = (
   const projection = buildVisibleProjection(catalog.content);
   const start = projection.text.indexOf(quote);
   if (start < 0 || projection.text.indexOf(quote, start + 1) >= 0) return undefined;
-  return buildConversationNoteCatalog({
+  const target = buildConversationNoteCatalog({
     content: catalog.content,
     locale: catalog.locale,
+    origin: catalog.origin,
     selection: { selectedText: quote, selectedTextStart: start },
   }).entries.find(entry => entry.kind === 'selection');
+  if (!target) return undefined;
+  return (
+    catalog.entries.find(
+      entry =>
+        entry.kind === 'selection' && equalAnnotationSelectors(entry.selector, target.selector)
+    ) ?? target
+  );
 };
 export const validateConversationNotePassage = ({
   catalog,
@@ -69,6 +82,16 @@ export const validateConversationNotePassage = ({
     return {
       target,
       error: createContextNoteValidationError('stale_context', []),
+    };
+  if (
+    catalog.annotationTargetMismatch &&
+    (input.passageId === 's' || (target?.kind === 'selection' && catalog.entries.includes(target)))
+  )
+    return {
+      error: createContextNoteValidationError(
+        'anchor_mismatch',
+        catalog.entries.filter(entry => entry.kind !== 'selection').map(entry => entry.id)
+      ),
     };
   if (target) return { target };
   if (!catalog.entries.length)
@@ -141,6 +164,51 @@ const capturedSelectionRange = (
     : undefined;
 };
 
+/** Resolve only the stored source positions, then require complete selector agreement. */
+const annotationSelectionRange = (
+  content: string,
+  projection: VisibleProjection,
+  protectedRanges: MarkdownRange[],
+  selector?: SectionAnnotationTextSelector
+): MarkdownRange | undefined => {
+  if (!selector) return undefined;
+  const start = projection.sourceIndexes.findIndex(index => index >= selector.start);
+  const foundEnd = projection.sourceIndexes.findIndex(index => index >= selector.end);
+  const end = foundEnd < 0 ? projection.text.length : foundEnd;
+  if (start < 0 || end <= start) return undefined;
+  const segments = buildMarkableSegments(
+    content,
+    buildSourceSegments(projection, start, end - start),
+    protectedRanges
+  );
+  const resolved = createSectionAnnotationSelector(content, segments, projection);
+  return resolved && equalAnnotationSelectors(resolved, selector) ? { start, end } : undefined;
+};
+
+const resolveCapturedNoteSelection = (
+  content: string,
+  projection: VisibleProjection,
+  protectedRanges: MarkdownRange[],
+  {
+    annotationId,
+    annotationSelector,
+    hasExistingNote,
+    selection,
+  }: Pick<
+    Parameters<typeof buildConversationNoteCatalog>[0],
+    'annotationId' | 'annotationSelector' | 'hasExistingNote' | 'selection'
+  >
+) => {
+  const annotationRange =
+    hasExistingNote && annotationId
+      ? annotationSelectionRange(content, projection, protectedRanges, annotationSelector)
+      : undefined;
+  return {
+    selected: annotationRange ?? capturedSelectionRange(content, projection, selection),
+    annotationTargetMismatch: Boolean(hasExistingNote && !annotationRange),
+  };
+};
+
 const buildNoteLessonRecords = (
   content: string,
   entries: ConversationNotePassage[]
@@ -207,13 +275,23 @@ export const buildConversationNoteCatalog = ({
   locale,
   selection,
   origin,
+  annotationId,
+  annotationSelector,
+  hasExistingNote = Boolean(annotationId),
 }: {
   content: string;
   locale: string;
+  annotationId?: string;
+  annotationSelector?: SectionAnnotationTextSelector;
+  hasExistingNote?: boolean;
   selection?: ConversationSelectionAnchor;
   origin?: { projectId?: string; lessonId?: string };
 }): {
   content: string;
+  annotationId?: string;
+  annotationSelector?: SectionAnnotationTextSelector;
+  annotationTargetMismatch: boolean;
+  hasExistingNote: boolean;
   origin?: { projectId?: string; lessonId?: string };
   entries: ConversationNotePassage[];
   records: ContextNoteRecord[];
@@ -232,6 +310,12 @@ export const buildConversationNoteCatalog = ({
   ]);
   const protectedIndexes = buildProtectedProjectionIndexes(projection, protectedRanges);
   const entries: ConversationNotePassage[] = [];
+  const { selected, annotationTargetMismatch } = resolveCapturedNoteSelection(
+    content,
+    projection,
+    protectedRanges,
+    { annotationId, annotationSelector, hasExistingNote, selection }
+  );
   const addEntry = (start: number, end: number, kind: ConversationNotePassage['kind']) => {
     const text = projection.text.slice(start, end);
     const leading = text.length - text.trimStart().length;
@@ -251,6 +335,7 @@ export const buildConversationNoteCatalog = ({
       contextBefore: selector.prefix,
       contextAfter: selector.suffix,
     };
+    const updatesAnnotation = kind === 'selection' && hasExistingNote && !annotationTargetMismatch;
     entries.push({
       id: kind === 'selection' ? 's' : `p${entries.length.toString(36)}`,
       kind,
@@ -258,6 +343,10 @@ export const buildConversationNoteCatalog = ({
       anchor,
       selector,
       segments,
+      content,
+      origin,
+      annotationId: updatesAnnotation ? annotationId : undefined,
+      hasExistingNote: updatesAnnotation,
     });
   };
   const segmenter = new Intl.Segmenter(locale, { granularity: 'sentence' });
@@ -275,7 +364,6 @@ export const buildConversationNoteCatalog = ({
         addEntry(run.start, run.end, block.kind);
     }
   }
-  const selected = capturedSelectionRange(content, projection, selection);
   if (selected) addEntry(selected.start, selected.end, 'selection');
   const prefix = content.slice(0, MAX_CONTEXT_CHAT_FIELD_CHARS);
   const included = entries.filter(entry => isVisiblePassage(entry, prefix.length));
@@ -293,12 +381,19 @@ export const buildConversationNoteCatalog = ({
     origin?.projectId,
     origin?.lessonId,
     included.map(entry => [entry.id, entry.kind, entry.selector.start, entry.selector.end]),
+    ...(hasExistingNote || annotationId
+      ? [{ annotationId, hasExistingNote, annotationSelector }]
+      : []),
   ]);
   // Private-network HTTP is supported, where the browser's SubtleCrypto is unavailable.
   const snapshotId = Promise.resolve().then(() => bytesToHex(sha256(snapshotInput)));
   return {
     content,
     origin,
+    annotationId,
+    annotationSelector,
+    annotationTargetMismatch,
+    hasExistingNote,
     locale,
     snapshotId,
     durationMs: performance.now() - started,

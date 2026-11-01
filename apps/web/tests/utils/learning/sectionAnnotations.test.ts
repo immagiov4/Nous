@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { expect, test } from 'vitest';
+import { buildConversationNoteCatalog } from '../../../utils/context/conversationNoteCatalog.ts';
 import { materializeSectionAnnotationMarks } from '../../../utils/learning/sectionAnnotationAnchors.ts';
 import {
   applySectionAnnotation,
@@ -802,4 +803,28 @@ test('anchors displayed text across image syntax containing a rendering control'
     getSectionAnnotationText(content, annotation.annotations[0].id, annotation.annotations),
     selectedText
   );
+});
+
+test('an exact contextual target cannot expand into an existing paragraph note; manual merge is preserved', () => {
+  const content = 'First sentence. Second sentence.';
+  const first = buildConversationNoteCatalog({ content, locale: 'en' }).entries[0];
+  const paragraph = applySectionAnnotation({
+    content,
+    selectedText: content,
+    note: 'Keep both sentences',
+  });
+  assert.ok(paragraph);
+  const input = {
+    content,
+    annotations: paragraph.annotations,
+    selectedText: first.text,
+    note: 'New sentence note',
+  };
+  expect(
+    applySectionAnnotation({
+      ...input,
+      exactTarget: { content, selector: first.selector, segments: first.segments },
+    })
+  ).toBeNull();
+  expect(applySectionAnnotation(input)?.resolvedText).toBe(content);
 });

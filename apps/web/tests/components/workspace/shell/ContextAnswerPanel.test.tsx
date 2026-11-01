@@ -4,7 +4,7 @@ import '@testing-library/jest-dom/vitest';
 
 import { deriveLegacyLessonContent } from '@shared/lessonContent';
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { UIMessage } from 'ai';
 import { createRef, type ReactNode, StrictMode, useState } from 'react';
@@ -14,10 +14,7 @@ import type {
   WorkspaceReaderOverlaysModel,
 } from '../../../../components/workspace/shell/types.ts';
 import type { LearningArtifactRenderPayload, ProjectSnapshot } from '../../../../types.ts';
-import {
-  buildConversationNoteSaveCandidates,
-  hasAnchorableConversationNoteCandidate,
-} from '../../../../utils/context/conversationNote.ts';
+import { resolveExactAnnotationTarget } from '../../../../utils/learning/sectionAnnotations.ts';
 import { playbackSentenceSelector } from '../../../../utils/reader/lessonPlayback.ts';
 import {
   buildTestLearningPlan,
@@ -3070,7 +3067,6 @@ describe('ContextAnswerPanel', () => {
   });
 
   test('shows that an approved note is being saved until the save settles', async () => {
-    const user = userEvent.setup();
     const lessonContent = 'La memoria di lavoro è una scrivania piccola. Contiene poche cose.';
     const input = {
       noteDraft: 'Poche cose alla volta.',
@@ -3104,18 +3100,31 @@ describe('ContextAnswerPanel', () => {
           finishSave = resolve;
         })
     );
-    render(
+    const props = buildProps({
+      selectedText: input.selectedTextDraft,
+      selectedTextStart: 0,
+      lessonContent,
+      contextScope: 'selection',
+    });
+    const view = render(<ContextAnswerPanel {...props} onSaveConversationNote={save} />);
+    view.rerender(
       <ContextAnswerPanel
-        {...buildProps({
-          selectedText: input.selectedTextDraft,
-          selectedTextStart: 0,
-          lessonContent,
-          contextScope: 'selection',
-        })}
+        {...props}
+        contextAnswer={{
+          ...props.contextAnswer,
+          attachedAnnotationNote: 'Concurrent note',
+          attachedAnnotationId: 'replacement',
+        }}
         onSaveConversationNote={save}
       />
     );
-    await user.click(screen.getByRole('button', { name: 'Aggiungi alle note' }));
+    expect(screen.getByText('Vuoi aggiungerlo alle note?')).toBeInTheDocument();
+    const approve = screen.getByRole('button', { name: 'Aggiungi alle note' });
+    act(() => {
+      fireEvent.click(approve);
+      fireEvent.click(approve);
+    });
+    expect(save).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Salvataggio…')).toBeInTheDocument();
     await act(async () => finishSave({ saved: true, merged: false, annotationId: 'note' }));
     expect(screen.queryByText('Salvataggio…')).not.toBeInTheDocument();
@@ -3145,13 +3154,6 @@ describe('ContextAnswerPanel', () => {
       rationale: 'Conserva il chiarimento.',
       selectedTextDraft: anchor.selectedText,
     };
-    const candidates = buildConversationNoteSaveCandidates({
-      anchor,
-      toolInput: { note: input.noteDraft, selectedText: input.selectedTextDraft },
-    });
-    expect(
-      candidates.map(candidate => hasAnchorableConversationNoteCandidate(lessonContent, candidate))
-    ).toEqual([true]);
     const toolCallId = 'player-note';
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
@@ -3168,7 +3170,7 @@ describe('ContextAnswerPanel', () => {
     });
     const save = vi.fn<WorkspaceReaderOverlaysModel['onSaveConversationNote']>(
       async (_target, candidate) => ({
-        saved: hasAnchorableConversationNoteCandidate(lessonContent, candidate),
+        saved: resolveExactAnnotationTarget(lessonContent, candidate.exactTarget).length > 0,
         merged: false,
         annotationId: 'player-annotation',
       })
@@ -3188,7 +3190,10 @@ describe('ContextAnswerPanel', () => {
     expect(save).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Aggiungi alle note' }));
     expect(save).toHaveBeenCalledTimes(1);
-    expect(save.mock.calls[0][1]).toMatchObject(candidates[0]);
+    expect(save.mock.calls[0][1]).toMatchObject({
+      selectedText: anchor.selectedText,
+      exactTarget: { content: lessonContent, selector: { exact: anchor.selectedText } },
+    });
     expect(addToolOutputMock).toHaveBeenCalledWith({
       tool: 'requestAddToNotes',
       toolCallId,

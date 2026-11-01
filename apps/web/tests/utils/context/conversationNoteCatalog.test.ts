@@ -4,6 +4,8 @@ import { expect, test, vi } from 'vitest';
 import {
   buildConversationNoteCatalog,
   resolveConversationNotePassage,
+  restoreConversationNotePassage,
+  validateConversationNotePassage,
 } from '../../../utils/context/conversationNoteCatalog.ts';
 import { createSectionAnnotationSelector } from '../../../utils/learning/sectionAnnotationAnchors.ts';
 import { resolveSelectedSegments } from '../../../utils/learning/sectionAnnotationProjection.ts';
@@ -203,5 +205,145 @@ test('keeps the captured focus addressable when the preceding lesson body fills 
       .map(r => r.text)
       .join('').length
   ).toBeLessThanOrEqual(MAX_CONTEXT_CHAT_FIELD_CHARS);
+  assertRoundTrip(catalog);
+});
+
+test('historical update provenance includes captured annotation identity', async () => {
+  const input = {
+    content: 'First sentence.',
+    locale: 'en',
+    hasExistingNote: true,
+    annotationId: 'captured',
+  };
+  const first = buildConversationNoteCatalog(input);
+  expect(await buildConversationNoteCatalog(input).snapshotId).toBe(await first.snapshotId);
+  expect(
+    await buildConversationNoteCatalog({ ...input, annotationId: 'replacement' }).snapshotId
+  ).not.toBe(await first.snapshotId);
+});
+
+test('restores a pre-identity-capture pending proposal when no annotation was attached', async () => {
+  const catalog = buildConversationNoteCatalog({
+    content:
+      'Working memory holds a few active items. Grouping related items reduces the number of separate units.',
+    locale: 'it',
+    origin: { projectId: 'synthetic-course', lessonId: 'lesson' },
+  });
+  const result = await restoreConversationNotePassage(
+    catalog,
+    { passageId: 'p0' },
+    {
+      contextNoteSnapshotId: 'a0d7586a3a257bdc9dee125ecab63de07f28b6fa1460489e00f8da4028c5381d',
+    }
+  );
+  expect(result.error).toBeUndefined();
+  expect(result.target?.text).toBe('Working memory holds a few active items.');
+});
+
+test.each([
+  true,
+  undefined,
+])('only the captured annotation target updates, even for a subspan: %s', hasExistingNote => {
+  const content = 'First sentence. Second sentence.';
+  const annotationSelector = build(content).entries[0].selector;
+  const catalog = buildConversationNoteCatalog({
+    content,
+    locale: 'en',
+    annotationId: 'attached',
+    annotationSelector,
+    hasExistingNote,
+    selection: { selectedText: 'First', selectedTextStart: 0 },
+  });
+  const selected = catalog.entries.find(entry => entry.id === 's');
+  expect(selected).toMatchObject({
+    text: 'First sentence.',
+    selector: annotationSelector,
+    annotationId: 'attached',
+    hasExistingNote: true,
+  });
+  for (const entry of catalog.entries.filter(entry => entry.id !== 's')) {
+    expect(entry.annotationId).toBeUndefined();
+    expect(entry.hasExistingNote).toBe(false);
+  }
+  assertRoundTrip(catalog);
+});
+
+test('an invalid stored selector has no update identity and cannot relocate to its quotation', () => {
+  const annotationSelector = build('First sentence. Second sentence.').entries[0].selector;
+  const content = 'Changed first sentence. First sentence.';
+  const catalog = buildConversationNoteCatalog({
+    content,
+    locale: 'en',
+    annotationId: 'attached',
+    annotationSelector,
+    hasExistingNote: true,
+    selection: {
+      selectedText: 'First sentence.',
+      selectedTextStart: content.indexOf('First sentence.'),
+    },
+  });
+  expect(catalog.entries.find(entry => entry.id === 's')?.annotationId).toBeUndefined();
+  expect(catalog.entries.find(entry => entry.id === 's')?.hasExistingNote).toBe(false);
+  expect(
+    validateConversationNotePassage({
+      catalog,
+      input: { passageId: 's' },
+      current: { lessonContent: content },
+    }).error?.code
+  ).toBe('anchor_mismatch');
+  expect(
+    validateConversationNotePassage({
+      catalog,
+      input: { passageId: 'p1' },
+      current: { lessonContent: content },
+    }).error
+  ).toBeUndefined();
+  const otherQuote = validateConversationNotePassage({
+    catalog,
+    input: { selectedTextDraft: 'Changed first sentence.' },
+    current: { lessonContent: content },
+  });
+  expect(otherQuote.error).toBeUndefined();
+  expect(otherQuote.target?.hasExistingNote).toBe(false);
+});
+
+test('historical quotes keep their own exact target and update only when it equals the annotation target', () => {
+  const content = 'First sentence. Second sentence.';
+  const annotationSelector = build(content).entries[0].selector;
+  const catalog = buildConversationNoteCatalog({
+    content,
+    locale: 'en',
+    hasExistingNote: true,
+    annotationId: 'attached',
+    annotationSelector,
+    selection: { selectedText: 'First', selectedTextStart: 0 },
+  });
+  for (const quote of ['First', 'First sentence.', 'Second sentence.']) {
+    const target = resolveConversationNotePassage(catalog, { selectedTextDraft: quote });
+    expect(target?.text).toBe(quote);
+    expect(target?.hasExistingNote).toBe(quote === annotationSelector.exact);
+  }
+});
+
+test.each([
+  '**First** sentence. Second sentence.',
+  '# First sentence.',
+  '- First sentence. Second sentence.',
+  '[First](https://example.test) sentence. Second sentence.',
+])('the stored annotation selector round-trips formatted source: %s', content => {
+  const annotationSelector = build(content).entries[0].selector;
+  const catalog = buildConversationNoteCatalog({
+    content,
+    locale: 'en',
+    annotationId: 'attached',
+    annotationSelector,
+    hasExistingNote: true,
+    selection: { selectedText: 'First', selectedTextStart: 0 },
+  });
+  expect(catalog.entries.find(entry => entry.id === 's')).toMatchObject({
+    selector: annotationSelector,
+    hasExistingNote: true,
+    annotationId: 'attached',
+  });
   assertRoundTrip(catalog);
 });

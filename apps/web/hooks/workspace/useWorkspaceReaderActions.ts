@@ -30,10 +30,12 @@ import { flattenLessons } from '../../utils/learning/pathNodes.ts';
 import {
   applySectionAnnotation,
   createLessonSectionAnnotation,
+  equalAnnotationSelectors,
   findSectionAnnotationForSelection,
   getSectionAnnotationText,
   removeSectionAnnotation,
   removeSectionAnnotationArtifactRef,
+  resolveExactAnnotationTarget,
   updateSectionAnnotationNote,
   upsertSectionAnnotationArtifactRefs,
 } from '../../utils/learning/sectionAnnotations.ts';
@@ -58,6 +60,8 @@ interface UseWorkspaceReaderActionsArgs {
   learningPlan: LearningPlan | null;
   notify: (message: string) => void;
   openContextAnswer: (args: {
+    attachedAnnotationId?: string;
+    attachedAnnotationSelector?: SectionAnnotationTextSelector;
     attachedAnnotationNote?: string;
     attachedAnnotationText?: string;
     contextAfter?: string;
@@ -286,6 +290,7 @@ export const useWorkspaceReaderActions = ({
               annotation => annotation.id === contextMenu.annotationId
             )
           : null;
+      const attachedAnnotation = clickedAnnotation ?? attachedAnnotationMatch?.annotation;
 
       if (isMobileViewport && document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
@@ -301,16 +306,19 @@ export const useWorkspaceReaderActions = ({
         contextScope,
         documentSourceReferences: sourceContext.documentSourceReferences,
         initialQuestion: question,
-        attachedAnnotationNote:
-          clickedAnnotation?.note || attachedAnnotationMatch?.annotation.note || undefined,
-        attachedAnnotationText:
-          clickedAnnotation && activeSection
-            ? getSectionAnnotationText(
-                activeSection.content || sectionContent,
-                clickedAnnotation.id,
-                activeSection.annotations
-              )
-            : attachedAnnotationMatch?.resolvedText,
+        attachedAnnotationId: attachedAnnotation?.id,
+        attachedAnnotationSelector:
+          attachedAnnotation?.anchor?.kind === 'selection'
+            ? attachedAnnotation.anchor.selector
+            : undefined,
+        attachedAnnotationNote: attachedAnnotation?.note || undefined,
+        attachedAnnotationText: attachedAnnotation
+          ? getSectionAnnotationText(
+              activeSection?.content || sectionContent,
+              attachedAnnotation.id,
+              activeSection?.annotations
+            )
+          : undefined,
         lessonContent: activeSection?.content || sectionContent,
         lessonDescription: activeSection?.description,
         lessonId: activeSection?.id,
@@ -609,16 +617,7 @@ export const useWorkspaceReaderActions = ({
   const handleSaveConversationNote = useCallback(
     async (
       target: ContextLessonMutationTarget,
-      {
-        artifactRefs,
-        fallbackSelection,
-        generatedVisuals,
-        contextAfter,
-        contextBefore,
-        note,
-        selectedText,
-        selectedTextStart,
-      }: SaveConversationNoteInput
+      { artifactRefs, exactTarget, generatedVisuals, note, selectedText }: SaveConversationNoteInput
     ): Promise<SaveConversationNoteResult> => {
       const resolution = resolveMutationSection(target);
       if ('error' in resolution) {
@@ -626,59 +625,23 @@ export const useWorkspaceReaderActions = ({
           saved: false,
           merged: false,
           error: resolution.error,
+          code: 'stale_context',
         };
       }
       const { lessonId, section } = resolution;
 
-      const trySave = (input: {
-        contextAfter?: string;
-        contextBefore?: string;
-        preferredSelection?: SaveConversationNoteInput['fallbackSelection'];
-        selectedText: string;
-        selectedTextStart?: number;
-      }) =>
-        applySectionAnnotation({
-          annotations: section.annotations,
-          artifactRefs,
-          content: section.content || (lessonId === activeSectionId ? sectionContent : ''),
-          contextAfter: input.contextAfter,
-          contextBefore: input.contextBefore,
-          note,
-          preferredSelection: input.preferredSelection,
-          selectedText: input.selectedText,
-          selectedTextStart: input.selectedTextStart,
-        });
-
-      const primaryResult = trySave({
-        contextAfter,
-        contextBefore,
-        preferredSelection: fallbackSelection,
+      const content = section.content || (lessonId === activeSectionId ? sectionContent : '');
+      if (content !== exactTarget?.content)
+        return { saved: false, merged: false, code: 'stale_context' };
+      const result = applySectionAnnotation({
+        annotations: section.annotations,
+        artifactRefs,
+        content,
+        note,
         selectedText,
-        selectedTextStart,
+        exactTarget,
       });
-
-      const fallbackResult =
-        !primaryResult && fallbackSelection
-          ? trySave({
-              contextAfter: fallbackSelection.contextAfter,
-              contextBefore: fallbackSelection.contextBefore,
-              preferredSelection: fallbackSelection,
-              selectedText: fallbackSelection.selectedText,
-              selectedTextStart: fallbackSelection.selectedTextStart,
-            })
-          : null;
-
-      const result = primaryResult || fallbackResult;
-
-      if (!result) {
-        return {
-          saved: false,
-          merged: false,
-          error: t(
-            'Non sono riuscito a ritrovare il passaggio da annotare nella lezione corrente.'
-          ),
-        };
-      }
+      if (!result) return { saved: false, merged: false, code: 'anchor_mismatch' };
 
       const nextGeneratedVisuals = mergeGeneratedVisuals(
         section.generatedVisuals,
@@ -720,9 +683,9 @@ export const useWorkspaceReaderActions = ({
     },
     [
       activeSectionId,
+      sectionContent,
       commitSectionAnnotations,
       resolveMutationSection,
-      sectionContent,
       updateSection,
       updateSectionPreservingReaderScroll,
     ]
@@ -731,16 +694,7 @@ export const useWorkspaceReaderActions = ({
   const handleUpdateConversationNote = useCallback(
     async (
       target: ContextLessonMutationTarget,
-      {
-        artifactRefs,
-        fallbackSelection,
-        generatedVisuals,
-        contextAfter,
-        contextBefore,
-        note,
-        selectedText,
-        selectedTextStart,
-      }: SaveConversationNoteInput
+      { artifactRefs, exactTarget, annotationId, generatedVisuals, note }: SaveConversationNoteInput
     ): Promise<SaveConversationNoteResult> => {
       const resolution = resolveMutationSection(target);
       if ('error' in resolution) {
@@ -748,55 +702,26 @@ export const useWorkspaceReaderActions = ({
           saved: false,
           merged: false,
           error: resolution.error,
+          code: 'stale_context',
         };
       }
       const { lessonId, section } = resolution;
 
-      const resolveMatch = (input: {
-        contextAfter?: string;
-        contextBefore?: string;
-        preferredSelection?: SaveConversationNoteInput['fallbackSelection'];
-        selectedText: string;
-        selectedTextStart?: number;
-      }) =>
-        findSectionAnnotationForSelection({
-          annotations: section.annotations,
-          content: section.content || (lessonId === activeSectionId ? sectionContent : ''),
-          contextAfter: input.contextAfter,
-          contextBefore: input.contextBefore,
-          preferredSelection: input.preferredSelection,
-          selectedText: input.selectedText,
-          selectedTextStart: input.selectedTextStart,
-        });
-
-      const match =
-        resolveMatch({
-          contextAfter,
-          contextBefore,
-          preferredSelection: fallbackSelection,
-          selectedText,
-          selectedTextStart,
-        }) ||
-        (fallbackSelection
-          ? resolveMatch({
-              contextAfter: fallbackSelection.contextAfter,
-              contextBefore: fallbackSelection.contextBefore,
-              preferredSelection: fallbackSelection,
-              selectedText: fallbackSelection.selectedText,
-              selectedTextStart: fallbackSelection.selectedTextStart,
-            })
-          : null);
-
-      if (!match) {
-        return {
-          saved: false,
-          merged: false,
-          error: t('Non ho trovato una nota esistente collegata a questo passaggio da aggiornare.'),
-        };
-      }
+      const content = section.content || (lessonId === activeSectionId ? sectionContent : '');
+      if (content !== exactTarget?.content)
+        return { saved: false, merged: false, code: 'stale_context' };
+      if (!resolveExactAnnotationTarget(content, exactTarget).length)
+        return { saved: false, merged: false, code: 'anchor_mismatch' };
+      const annotation = section.annotations?.find(candidate => candidate.id === annotationId);
+      if (!annotation) return { saved: false, merged: false, code: 'target_annotation_missing' };
+      if (
+        annotation.anchor?.kind !== 'selection' ||
+        !equalAnnotationSelectors(annotation.anchor.selector, exactTarget.selector)
+      )
+        return { saved: false, merged: false, code: 'anchor_mismatch' };
 
       const result = updateSectionAnnotationNote({
-        annotationId: match.annotation.id,
+        annotationId: annotation.id,
         annotations: section.annotations,
         artifactRefs,
         note,
@@ -843,16 +768,16 @@ export const useWorkspaceReaderActions = ({
 
       return {
         saved: true,
-        annotationId: match.annotation.id,
+        annotationId: annotation.id,
         merged: false,
-        resolvedText: match.resolvedText,
+        resolvedText: exactTarget.selector.exact,
       };
     },
     [
       activeSectionId,
+      sectionContent,
       commitSectionAnnotations,
       resolveMutationSection,
-      sectionContent,
       updateSection,
       updateSectionPreservingReaderScroll,
     ]

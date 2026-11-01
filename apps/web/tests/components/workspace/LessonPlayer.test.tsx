@@ -411,6 +411,10 @@ test('saves a note after API parsing reorders the source span properties', async
   expect(save.mock.calls[0]).toEqual([
     { projectId: 'project', lessonId: 'lesson' },
     {
+      exactTarget: expect.objectContaining({
+        content: expect.any(String),
+        selector: expect.objectContaining({ exact: 'La prima frase.' }),
+      }),
       note: 'Da ricordare.',
       selectedText: 'La prima frase.',
       selectedTextStart: 0,
