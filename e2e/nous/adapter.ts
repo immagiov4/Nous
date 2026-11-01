@@ -1,9 +1,8 @@
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type { PlaytestAdapter } from '../../packages/playtest/src/adapter';
 import { privateFixtureSkipReason } from './fixtures';
 import { prepare } from './prepare';
-import { APP_URL, BACKEND_URL, dataRoot, ensureStack } from './stack';
+import { APP_URL, BACKEND_URL, ensureStack } from './stack';
 
 const HTTP_SERVER_ERROR = 500;
 const adapter: PlaytestAdapter = {
@@ -32,11 +31,7 @@ const adapter: PlaytestAdapter = {
   },
   styleReference: () => [],
   taxonomy() {
-    const text = readFileSync(join(dataRoot(), 'complaint-mining/TAXONOMY.md'), 'utf8');
-    const section =
-      /^## Family matrix for the checker prompt\r?\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(text);
-    if (!section) throw new Error('Taxonomy family matrix is missing.');
-    return section[1].trim();
+    return readFileSync(new URL('../../docs/VISUAL_DEFECTS.md', import.meta.url), 'utf8').trim();
   },
   taxonomyClasses() {
     return [...new Set(this.taxonomy().match(/\bD\d+\b/g) ?? [])];
