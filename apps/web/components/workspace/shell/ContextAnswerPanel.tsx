@@ -8,7 +8,6 @@ import { serializeContextNoteView } from '@shared/contextNoteCatalog';
 import type { ContextSourceReference } from '@shared/lessonSourceContext';
 import { sanitizeContextSourceDisplayName } from '@shared/lessonSourceContext';
 import {
-  DefaultChatTransport,
   isTextUIPart,
   isToolUIPart,
   lastAssistantMessageIsCompleteWithToolCalls,
@@ -66,7 +65,13 @@ import type {
   LessonGeneratedVisualKind,
   StoredLessonVisual,
 } from '../../../types.ts';
-import { readContextNoteCorrection } from '../../../utils/context/contextNoteCorrection.ts';
+import {
+  ContextNoteChatTransport,
+  preserveContextNoteInput,
+  readContextNoteCorrection,
+  readContextNoteDraft,
+  refreshContextNoteMessages,
+} from '../../../utils/context/contextNoteCorrection.ts';
 import {
   buildConversationNoteCatalog,
   restoreConversationNotePassage,
@@ -690,9 +695,15 @@ function ContextAnswerPanelSession({
   const [pendingNoteCorrection] = useState(() => {
     type Correction = NonNullable<ReturnType<typeof readContextNoteCorrection>> & {
       guard: ChatToolCallGuard;
+      snapshotId: Promise<string>;
     };
     let pending: Correction | undefined;
+    let active: Correction | undefined;
     return {
+      activate: (correction: Correction | undefined) => {
+        active = correction;
+      },
+      read: () => active,
       capture: (correction: Correction) => {
         pending = correction;
       },
@@ -855,15 +866,25 @@ function ContextAnswerPanelSession({
 
   const transport = useMemo(
     () =>
-      new DefaultChatTransport<ContextChatMessage>({
+      new ContextNoteChatTransport<ContextChatMessage>({
         api: `${getBackendUrl()}/api/chat/context`,
         fetch: fetchWithSupabaseAuth,
+        normalizeNoteInput: input => {
+          const correction = pendingNoteCorrection.read();
+          return correction?.guard.isCurrent()
+            ? preserveContextNoteInput(input, correction.input, correction.recovery)
+            : input;
+        },
         // `useChat` keeps the initial transport instance, so request data comes from its stable store.
         prepareSendMessagesRequest: async ({ headers, id, messages }) => {
           const correction = pendingNoteCorrection.take();
           const finishCorrection =
             correction && noteDiagnostics.measureCorrection(correction.toolCallId);
           const currentRequestState = readContextRequestState();
+          const snapshotChanged =
+            correction &&
+            (await correction.snapshotId) !== (await currentRequestState.noteCatalog.snapshotId);
+          if (snapshotChanged) correction.recovery = 'refresh_context';
           const catalog =
             correction?.recovery === 'refresh_context'
               ? buildConversationNoteCatalog(currentRequestState.noteCatalog)
@@ -876,6 +897,7 @@ function ContextAnswerPanelSession({
             throw new DOMException('Response superseded', 'AbortError');
           }
           noteCatalogSnapshot.capture(catalog);
+          pendingNoteCorrection.activate(correction);
           if (correction) {
             void finishCorrection?.({
               phase: 'correction',
@@ -898,7 +920,9 @@ function ContextAnswerPanelSession({
             headers,
             body: {
               id,
-              messages,
+              messages: snapshotChanged
+                ? refreshContextNoteMessages(messages, correction.toolCallId)
+                : messages,
               contextAfter: currentRequestState.contextAfter,
               contextBefore: currentRequestState.contextBefore,
               contextScope: currentRequestState.contextScope || 'selection',
@@ -963,6 +987,7 @@ function ContextAnswerPanelSession({
       ) {
         pendingNoteCorrection.capture({
           ...correction,
+          snapshotId: noteCatalogSnapshot.read().snapshotId,
           guard: responseControl.guardToolCall({ ...correction, toolName: 'requestAddToNotes' }),
         });
         return true;
@@ -1955,6 +1980,7 @@ function ContextAnswerPanelSession({
 
     if (part.type === 'tool-requestAddToNotes') {
       const inputValue = isRequestAddToNotesInput(part.input) ? part.input : null;
+      const noteDraft = readContextNoteDraft(part.input);
       const target = noteTargets[part.toolCallId];
       const passageText =
         target?.text ??
@@ -2102,7 +2128,7 @@ function ContextAnswerPanelSession({
             </p>
           ) : null}
 
-          {inputValue ? (
+          {noteDraft !== undefined ? (
             <div className="mt-3 space-y-2 rounded-[1rem] bg-white/70 px-3 py-2 dark:bg-stone-800/50">
               {passageText ? (
                 <>
@@ -2118,7 +2144,7 @@ function ContextAnswerPanelSession({
                 {t(hasExistingNote ? 'Nuova versione della nota' : 'Nota proposta')}
               </p>
               <p className="whitespace-pre-wrap text-sm leading-6 text-stone-700 dark:text-stone-200">
-                {inputValue.noteDraft}
+                {noteDraft}
               </p>
               {noteArtifactPayloads.length > 0 ? (
                 <div className="pt-1">
@@ -2134,12 +2160,12 @@ function ContextAnswerPanelSession({
           ) : null}
 
           {renderNoteDecision()}
-          {outputValue?.status === 'validation_error' && inputValue ? (
+          {outputValue?.status === 'validation_error' && noteDraft !== undefined ? (
             <button
               type="button"
               disabled={isComposerDisabled}
               onClick={() => {
-                setInput(current => appendSpeechTranscription(current, inputValue.noteDraft));
+                setInput(current => appendSpeechTranscription(current, noteDraft));
                 const input =
                   composerPortal?.querySelector<HTMLElement>(
                     '[data-context-menu-target="input"]'

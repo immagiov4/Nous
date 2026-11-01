@@ -123,13 +123,11 @@ The Chat & Assistant UI in Nous transforms the learning experience from passive 
 
 ## Contextual notes: exact targets and bounded correction
 
-The lesson view preserves Markdown and adds compact sentence IDs. `Intl.Segmenter` uses the interface locale when the lesson has no explicit locale. The client keeps the ID-to-selector table; the model supplies `passageId` instead of reproducing lesson text. Identical source, locale and captured selection produce the same snapshot. Context-only material and protected text are not note targets.
+The lesson view preserves Markdown and adds compact sentence IDs. `Intl.Segmenter` always uses the interface locale. The client keeps the ID-to-selector table; the model supplies `passageId` instead of reproducing lesson text. Snapshot identity includes the source, locale, captured selection, lesson/project origin and attached annotation state: its ID, stored selector and `hasExistingNote`. Context-only material and protected text are not note targets.
 
 Each proposal validates against that snapshot. Approval revalidates the exact source and selector before saving, including active-reader content when the persisted section is empty. Only the captured selection entry can update its attached annotation, using that annotation's stored selector and identity. Other passages create separate notes, including two sentences in the same paragraph. Invalid selectors never relocate and updates never fall back to creation.
 
-`validation_error` is an automatic failure, distinct from learner refusal and approved-save failure. The current learner turn permits one automatic correction: `choose_passage` selects from `availablePassageIds`, `refresh_context` rebuilds the lesson view, and `rebuild_input` repairs a malformed payload. `unavailable` and empty passage choices stop. The corrected proposal still requires approval. A second validation failure ends correction; the composer becomes available. The failed card keeps any complete draft and offers **Reuse draft** to append it to the composer for editing and explicit submission. This is conversation-local recovery, not a saved annotation.
-
-Stop, unmount and a newer learner response invalidate outstanding correction work. Decline, cancellation and any save result prevent another correction in the same turn. Automatic continuation never resets the allowance; a new learner submission does. The existing tool deadlines remain unchanged.
+`validation_error` is an automatic failure, distinct from learner refusal and approved-save failure. Anchor correction preserves the draft, rationale and attachments, and the resulting proposal still requires approval. When a proposal cannot be recovered, the composer remains available and **Reuse draft** appends any draft text to the composer for editing and explicit submission, even when other proposal fields are malformed. This is conversation-local recovery, not a saved annotation. Correction mechanics remain at their [implementation owner](../../../apps/web/utils/context/contextNoteCorrection.ts).
 
 ## Observability
 

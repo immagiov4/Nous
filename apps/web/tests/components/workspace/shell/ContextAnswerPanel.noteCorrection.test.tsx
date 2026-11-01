@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from 'ai';
 import { createRef } from 'react';
@@ -12,7 +12,22 @@ const flow = vi.hoisted(() => ({
   events: [] as Array<Record<string, unknown>>,
   passages: ['invented', 'p0'],
   beforeReply: undefined as ((index: number) => Promise<void>) | undefined,
+  inputs: [] as unknown[],
+  finished: 0,
 }));
+vi.mock('@ai-sdk/react', async importOriginal => {
+  const { useChat } = await importOriginal<typeof import('@ai-sdk/react')>();
+  return {
+    useChat: (options: Parameters<typeof useChat>[0]) =>
+      useChat({
+        ...options,
+        onFinish: (...args) => {
+          if (options && 'onFinish' in options) void options.onFinish?.(...args);
+          flow.finished += 1;
+        },
+      }),
+  };
+});
 vi.mock('../../../../services/auth/supabaseAuth.ts', () => ({
   fetchWithSupabaseAuth: async (url: string, init: RequestInit) => {
     const request = JSON.parse(init.body as string);
@@ -35,7 +50,7 @@ vi.mock('../../../../services/auth/supabaseAuth.ts', () => ({
             type: 'tool-input-available',
             toolCallId: `note-${index}`,
             toolName: 'requestAddToNotes',
-            input: {
+            input: flow.inputs[index] ?? {
               noteDraft: 'Il Sole provoca evaporazione.',
               rationale: 'Conserva il concetto.',
               passageId: flow.passages[index] ?? 'invented',
@@ -88,15 +103,14 @@ const panel = (lessonContent?: string) => (
     onUpdateConversationNote={save}
   />
 );
-const drain = () =>
-  act(async () => {
-    await new Promise(resolve => setTimeout(resolve, 0));
-  });
+const finished = (count: number) => waitFor(() => expect(flow.finished).toBe(count));
 beforeEach(() => {
   flow.requests.length = 0;
   flow.events.length = 0;
   flow.passages = ['invented', 'p0'];
   flow.beforeReply = undefined;
+  flow.inputs = [];
+  flow.finished = 0;
   save.mockClear();
 });
 
@@ -125,7 +139,7 @@ test('one automatic choose_passage correction preserves the draft and still requ
   ]);
   await user.click(approve);
   await screen.findByText('Nota salvata.');
-  await drain();
+  await finished(2);
   expect(flow.requests).toHaveLength(2);
   expect(save).toHaveBeenCalledTimes(1);
 });
@@ -138,7 +152,7 @@ test('a second invalid proposal stops; the learner can recover the draft and sta
   await waitFor(() =>
     expect(screen.getAllByRole('button', { name: 'Riprendi bozza' })).toHaveLength(2)
   );
-  await drain();
+  await finished(2);
   expect(flow.requests).toHaveLength(2);
   expect(screen.getByRole('textbox')).toBeEnabled();
   await user.click(screen.getAllByRole('button', { name: 'Riprendi bozza' })[1]);
@@ -151,7 +165,7 @@ test('a second invalid proposal stops; the learner can recover the draft and sta
 test('unavailable context never starts a correction', async () => {
   render(panel('```js\nconst water = 1;\n```'));
   await screen.findByText('Proposta di nota non disponibile.');
-  await drain();
+  await finished(1);
   expect(flow.requests).toHaveLength(1);
   expect(screen.getByRole('textbox')).toBeEnabled();
   expect(save).not.toHaveBeenCalled();
@@ -187,6 +201,66 @@ test('refresh_context sends the rebuilt lesson view instead of the stale snapsho
   );
 });
 
+test('malformed correction retains the original draft after the existing deadlines settle both calls', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    flow.inputs = [{ noteDraft: 'Bozza da riprendere.' }, { noteDraft: 'Bozza cambiata.' }];
+    render(panel());
+    await finished(1);
+    await act(() => vi.advanceTimersByTimeAsync(17_000));
+    await finished(2);
+    await act(() => vi.advanceTimersByTimeAsync(17_000));
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: 'Riprendi bozza' })).toHaveLength(2)
+    );
+    expect(flow.requests).toHaveLength(2);
+    expect(screen.queryByText('Bozza cambiata.')).not.toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Riprendi bozza' })[1]);
+    expect(screen.getByRole('textbox')).toHaveValue('Bozza da riprendere.');
+    expect(screen.getByRole('textbox')).toBeEnabled();
+    expect(save).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('the corrected call cannot rewrite the draft, rationale or attachments in the card or history', async () => {
+  const original = {
+    passageId: 'invented',
+    noteDraft: 'Bozza originale.',
+    rationale: 'Motivo originale.',
+    artifactIds: ['original-artifact'],
+  };
+  flow.inputs = [
+    original,
+    {
+      passageId: 'p0',
+      noteDraft: 'Bozza riscritta.',
+      rationale: 'Motivo riscritto.',
+      artifactIds: ['other-artifact'],
+    },
+  ];
+  const user = userEvent.setup();
+  render(panel());
+  await user.click(await screen.findByRole('button', { name: 'Aggiungi alle note' }));
+  await screen.findByText('Nota salvata.');
+  expect(save).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ note: original.noteDraft })
+  );
+  expect(screen.queryByText('Bozza riscritta.')).not.toBeInTheDocument();
+  expect(screen.queryByText('Motivo riscritto.')).not.toBeInTheDocument();
+  await user.type(screen.getByRole('textbox'), 'Continuiamo.');
+  await user.click(screen.getByRole('button', { name: 'Invia messaggio' }));
+  await waitFor(() => expect(flow.requests.length).toBeGreaterThanOrEqual(3));
+  expect(flow.requests[2].messages.flatMap(message => message.parts)).toContainEqual(
+    expect.objectContaining({
+      toolCallId: 'note-1',
+      input: { ...original, passageId: 'p0' },
+    })
+  );
+});
+
 test.each([
   'stop',
   'unmount',
@@ -206,7 +280,7 @@ test.each([
   await act(async () => {
     release();
   });
-  await drain();
+  await finished(2);
   expect(screen.queryByRole('button', { name: 'Aggiungi alle note' })).not.toBeInTheDocument();
   expect(flow.requests).toHaveLength(2);
   expect(save).not.toHaveBeenCalled();
