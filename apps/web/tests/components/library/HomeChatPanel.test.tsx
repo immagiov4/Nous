@@ -408,6 +408,33 @@ describe('HomeChatPanel', () => {
     }
   });
 
+  test('retains the completed preferences phase after its card is cleared', () => {
+    const props = { ...buildProps(), supportsCoursePreferences: true };
+    const { container, rerender } = render(
+      <HomeChatPanel {...props} assessmentComplete coursePreferences={<div>Preferences</div>} />
+    );
+    rerender(
+      <HomeChatPanel
+        {...props}
+        diagnosticAdapter={{
+          collectionId: 'assessment',
+          initial: {
+            kind: 'self-assessment',
+            id: 'self',
+            title: 'Knowledge',
+            topics: [{ id: 'topic', children: [], title: 'Topic' }],
+          },
+          submit: vi.fn(),
+        }}
+      />
+    );
+    expect(container.querySelector('[data-setup-phase="preferences"]')).toHaveAttribute(
+      'data-state',
+      'done'
+    );
+    expect(container.querySelector('[aria-current="step"]')).toHaveAccessibleName('Conoscenze');
+  });
+
   test('omits optional phases for a resumed compatibility interview', () => {
     const { container } = render(<HomeChatPanel {...buildProps()} assessmentComplete />);
     expect(container.querySelector('[aria-current="step"]')).toHaveAccessibleName('Piano');

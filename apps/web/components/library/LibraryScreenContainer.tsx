@@ -354,6 +354,7 @@ export const LibraryScreenContainer = ({
       <NewHomeView
         storageError={projectLibrary.storageError}
         chatProps={{
+          supportsCoursePreferences: controller.supportsCoursePreferences,
           coursePreferences:
             controller.courseProposal && controller.supportsCoursePreferences ? (
               <div className="w-full space-y-4">

@@ -26,6 +26,7 @@ import { useHomeChatPanelState } from './useHomeChatPanelState.ts';
 interface HomeChatPanelProps {
   readonly sourceCount?: number;
   readonly coursePreferences?: import('react').ReactNode;
+  readonly supportsCoursePreferences?: boolean;
   readonly diagnosticAdapter?: DiagnosticAdapter;
   readonly assessmentComplete: boolean;
   readonly assessmentMessages: Message[];
@@ -97,6 +98,7 @@ interface HomeChatPanelProps {
 export default function HomeChatPanel({
   sourceCount = 0,
   coursePreferences,
+  supportsCoursePreferences = Boolean(coursePreferences),
   diagnosticAdapter,
   assessmentComplete,
   assessmentMessages,
@@ -208,7 +210,7 @@ export default function HomeChatPanel({
         <CourseSetupHeader
           phase={setupPhase}
           sourceCount={sourceCount}
-          hasPreferences={Boolean(coursePreferences)}
+          hasPreferences={supportsCoursePreferences}
           hasDiagnostic={Boolean(diagnosticAdapter)}
           isLoading={isLoading}
           onAbandon={onCancelNewCourse}

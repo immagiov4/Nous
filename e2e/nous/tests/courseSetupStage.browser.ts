@@ -107,7 +107,7 @@ for (const mobile of process.env.SETUP_MOBILE ? [true] : [false, true]) {
               '2'
             ),
           ];
-          if (phase === 'preferences')
+          if (phase === 'preferences' || phase === 'knowledge' || phase === 'plan')
             events.push(
               event(
                 'course-proposal-ready',
@@ -292,6 +292,11 @@ for (const mobile of process.env.SETUP_MOBILE ? [true] : [false, true]) {
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
         await page.locator('[data-home-chat-target=confirm-generate]').click();
         await page.locator('[data-course-setup-phase=knowledge]').waitFor();
+        assert.equal(
+          await page.locator('[data-setup-phase=preferences]').getAttribute('data-state'),
+          'done',
+          'The completed preferences step remains visible during diagnostics'
+        );
         assert.deepEqual(approval, {
           kind: 'approve',
           coursePlanningControls: { depth: 'more', granularity: 'much-less' },
