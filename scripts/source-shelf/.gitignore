@@ -2,3 +2,6 @@
 /copper/
 /sage/
 /__pycache__/
+/.coverage-*
+/coverage-*.xml
+/coverage-output/

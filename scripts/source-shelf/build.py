@@ -2,11 +2,11 @@
 # Self-contained scene, including the approved book geometry, materials and lights.
 # Only timing, lens choreography and the (now fixed) camera differ.
 # Usage: blender -b --python-exit-code 1 --python build.py -- check|draft|preview|alpha blue|copper|sage
-import bpy, math, sys, json
+import bpy, math, sys, json, os
 from mathutils import Vector, Matrix
 from pathlib import Path
 from bpy_extras.object_utils import world_to_camera_view
-OUT=Path(__file__).parent / sys.argv[-1]; OUT.mkdir(exist_ok=True)
+OUT=Path(os.environ.get('SOURCE_SHELF_WORK_DIR', Path(__file__).parent)) / sys.argv[-1]; OUT.mkdir(exist_ok=True)
 bpy.ops.object.select_all(action='SELECT'); bpy.ops.object.delete(use_global=False)
 scene=bpy.context.scene
 scene.render.engine='BLENDER_EEVEE'
@@ -27,16 +27,16 @@ scene.world.color=(.7,.7,.7)
 #   loop     L0..L1-1 lens reads two lines, steps aside, one sheet turns, lens returns
 #   complete L1..end  lens lifts away, sheets fold back, cover closes softly
 L0=62;P=80;L1=L0+P
-T=dict(
- open=(3,39),
- turns=[(31,53),(L0+46,L0+66)],
- lens_out=(L1,L1+12),
- pages_close=(L1+6,L1+34),
- cover_close=(L1+8,L1+40),
- bookmark=(L1+40,L1+41),
- end=L1+54,
- loop=(L0,L1),
-)
+T={
+ 'open':(3,39),
+ 'turns':[(31,53),(L0+46,L0+66)],
+ 'lens_out':(L1,L1+12),
+ 'pages_close':(L1+6,L1+34),
+ 'cover_close':(L1+8,L1+40),
+ 'bookmark':(L1+40,L1+41),
+ 'end':L1+54,
+ 'loop':(L0,L1),
+}
 Z=.54;HOP=.60;LIFT=.70;ASIDE=1.32
 S=(-.40,.62,Z)   # rest pose at the head of the first line: every clip boundary
 LENS=[
@@ -55,11 +55,12 @@ TILT_DEG=6
 scene.frame_start=1;scene.frame_end=T['end']
 
 # ---------------------------------------------------------------- geometry (unchanged)
+PRINCIPLED_BSDF = 'Principled BSDF'
 def mat(name,hexval,rough=.4,metal=0):
  h=hexval.lstrip('#');srgb=[int(h[i:i+2],16)/255 for i in (0,2,4)]
  rgb=[v/12.92 if v<.04045 else ((v+.055)/1.055)**2.4 for v in srgb]
  m=bpy.data.materials.new(name);m.diffuse_color=(*rgb,1);m.use_nodes=True
- p=m.node_tree.nodes.get('Principled BSDF');p.inputs['Base Color'].default_value=(*rgb,1);p.inputs['Roughness'].default_value=rough;p.inputs['Metallic'].default_value=metal
+ p=m.node_tree.nodes.get(PRINCIPLED_BSDF);p.inputs['Base Color'].default_value=(*rgb,1);p.inputs['Roughness'].default_value=rough;p.inputs['Metallic'].default_value=metal
  return m
 PALETTES={'blue':('#78B4E4','#367ED1'),'copper':('#C9876D','#97523E'),'sage':('#93AE91','#567B61')}
 cover_color,spine_color=PALETTES[sys.argv[-1]]
@@ -73,8 +74,8 @@ ribbon=mat('Lime woven bookmark','#B9D84E',.58)
 lensrim=mat('Deep blue lens rim','#255C9A',.24,.32)
 lenshandle=mat('Blue soft touch lens handle','#75AFE2',.3)
 glass=mat('Optical glass','#D7EDFF',.1)
-pp=paper.node_tree.nodes.get('Principled BSDF');pp.inputs['Emission'].default_value=(.75,.72,.65,1);pp.inputs['Emission Strength'].default_value=.10
-gp=glass.node_tree.nodes.get('Principled BSDF');gp.inputs['Alpha'].default_value=.18;glass.blend_method='BLEND';glass.use_screen_refraction=True
+pp=paper.node_tree.nodes.get(PRINCIPLED_BSDF);pp.inputs['Emission'].default_value=(.75,.72,.65,1);pp.inputs['Emission Strength'].default_value=.10
+gp=glass.node_tree.nodes.get(PRINCIPLED_BSDF);gp.inputs['Alpha'].default_value=.18;glass.blend_method='BLEND';glass.use_screen_refraction=True
 ink=mat('Page typographic lines','#8F9CA6',.7)
 
 def empty(name,parent=None):
@@ -91,7 +92,7 @@ def rounded(name,w,h,depth,radius,z,material,parent=None,x=0,y=0):
  mesh=bpy.data.meshes.new(name);mesh.from_pydata(verts,[],faces);mesh.materials.append(material);mesh.update();mesh.use_auto_smooth=True;mesh.auto_smooth_angle=math.radians(60)
  o=bpy.data.objects.new(name,mesh);scene.collection.objects.link(o);o.parent=parent;o.location=(x,y,z)
  bevel=o.modifiers.new('Soft manufactured edges','BEVEL');bevel.width=min(depth*.28,.028);bevel.segments=3
- norm=o.modifiers.new('Weighted surface normals','WEIGHTED_NORMAL')
+ o.modifiers.new('Weighted surface normals','WEIGHTED_NORMAL')
  for p in mesh.polygons:p.use_smooth=True
  return o
 
@@ -142,6 +143,25 @@ def animate_lens(lens):
   tilt.append((f,(c(-vy),c(vx),0)))
  key(lens,'rotation_euler',tilt)  # clamped: no banking overshoot through the rest poses
 
+def animate_book(name,root,hinge):
+ o0,o1=T['open'];c0,c1=T['cover_close'];E=T['end']
+ key(hinge,'rotation_euler',[(1,(0,0,0)),(o0,(0,0,0)),(o1,(0,math.radians(-180),0)),(c0,(0,math.radians(-180),0)),(c1,(0,0,0)),(E,(0,0,0))])
+ rounded(name+' right reading sheet',1.83,2.67,.008,.17,.329,paper,root,x=.025)
+ for j in range(9):rounded(name+' base text %d'%j,1.18 if j%3 else .88,.012,.001,.005,.336,ink,root,x=.025,y=.83-j*.17)
+ p0,p1=T['pages_close']
+ for i in range(3):
+  ph=empty(name+' page turn %d'%i,root);ph.location=(-.89,0,.346-i*.004)
+  rounded(name+' turning page %d'%i,1.83,2.67,.008,.17,0,paper,ph,x=.915)
+  for j in range(9):
+   rounded(name+' typeset line %d %d'%(i,j),1.18 if j%3 else .88,.012,.001,.005,.008,ink,ph,x=.91,y=.83-j*.17)
+   rounded(name+' reverse typeset line %d %d'%(i,j),1.18 if j%3 else .88,.012,.001,.005,-.008,ink,ph,x=.91,y=.83-j*.17)
+  if i<len(T['turns']):
+   s,e=T['turns'][i]
+   flat=(-.89,0,.346-i*.004);left=(-.89,0,.412+i*.009)
+   key(ph,'rotation_euler',[(1,(0,0,0)),(s,(0,0,0)),(e,(0,math.radians(-179.5),0)),(p0,(0,math.radians(-179.5),0)),(p1,(0,0,0)),(E,(0,0,0))])
+   key(ph,'location',[(1,flat),(s,flat),(e,left),(p0,left),(p1,flat),(E,flat)])
+ lens=build_lens(root);animate_lens(lens)
+
 def book(name,position,yaw,cover,spine,animated=False):
  root=empty(name);root.location=position;root.rotation_euler.z=math.radians(yaw)
  rounded(name+' bottom cover',2.08,2.94,.075,.25,.038,cover,root)
@@ -152,24 +172,7 @@ def book(name,position,yaw,cover,spine,animated=False):
  rounded(name+' top cover',2.08,2.94,.075,.25,0,cover,hinge,x=.98)
  rounded(name+' hinge seam',.028,2.63,.008,.013,.043,spine,hinge,x=.018)
  bookmark(root,name+' bookmark',False)
- if animated:
-  o0,o1=T['open'];c0,c1=T['cover_close'];E=T['end']
-  key(hinge,'rotation_euler',[(1,(0,0,0)),(o0,(0,0,0)),(o1,(0,math.radians(-180),0)),(c0,(0,math.radians(-180),0)),(c1,(0,0,0)),(E,(0,0,0))])
-  rounded(name+' right reading sheet',1.83,2.67,.008,.17,.329,paper,root,x=.025)
-  for j in range(9):rounded(name+' base text %d'%j,1.18 if j%3 else .88,.012,.001,.005,.336,ink,root,x=.025,y=.83-j*.17)
-  p0,p1=T['pages_close']
-  for i in range(3):
-   ph=empty(name+' page turn %d'%i,root);ph.location=(-.89,0,.346-i*.004)
-   rounded(name+' turning page %d'%i,1.83,2.67,.008,.17,0,paper,ph,x=.915)
-   for j in range(9):
-    rounded(name+' typeset line %d %d'%(i,j),1.18 if j%3 else .88,.012,.001,.005,.008,ink,ph,x=.91,y=.83-j*.17)
-    rounded(name+' reverse typeset line %d %d'%(i,j),1.18 if j%3 else .88,.012,.001,.005,-.008,ink,ph,x=.91,y=.83-j*.17)
-   if i<len(T['turns']):
-    s,e=T['turns'][i]
-    flat=(-.89,0,.346-i*.004);left=(-.89,0,.412+i*.009)
-    key(ph,'rotation_euler',[(1,(0,0,0)),(s,(0,0,0)),(e,(0,math.radians(-179.5),0)),(p0,(0,math.radians(-179.5),0)),(p1,(0,0,0)),(E,(0,0,0))])
-    key(ph,'location',[(1,flat),(s,flat),(e,left),(p0,left),(p1,flat),(E,flat)])
-  lens=build_lens(root);animate_lens(lens)
+ if animated: animate_book(name,root,hinge)
  return root
 
 
@@ -202,15 +205,18 @@ scene.frame_set(1)
 bpy.ops.wm.save_as_mainfile(filepath=str(OUT/'reading-books.blend'))
 
 # ---------------------------------------------------------------- verification (every frame, with sub-frames)
-def verify():
- lens=bpy.data.objects['Reading magnifier']
- parts=[o for o in lens.children]
- obstacles=[bpy.data.objects['Upper sky book top cover']]+[bpy.data.objects['Upper sky book turning page %d'%i] for i in range(3)]
- dg=bpy.context.evaluated_depsgraph_get()
- lens_local={o.name:[v.co.copy() for v in o.evaluated_get(dg).data.vertices] for o in parts}
- cam0=(cam.matrix_world.copy(),cam.data.ortho_scale)
- report={'frames':T['end'],'cameraKeyed':bool(cam.animation_data),'cameraConstant':True,'minLensClearance':9,'minLensClearanceAt':None,
-         'boundsNormalized':[1,1,0,0],'turnedPagesRetained':True,'bookmarkMonotonic':True,'trajectory':[]}
+def sheet_gap(ob,points,margin):
+ inv=ob.matrix_world.inverted();bb=ob.bound_box
+ hx=max(abs(c[0]) for c in bb);hy=max(abs(c[1]) for c in bb);hz=max(abs(c[2]) for c in bb)
+ local=[inv@p for p in points]
+ inside=[q for q in local if abs(q.x)<hx+margin and abs(q.y)<hy+margin]
+ if not inside:return None
+ zs=[q.z for q in inside]
+ if min(zs)>0:return min(zs)-hz
+ if max(zs)<0:return -hz-max(zs)
+ return -1
+
+def verify_clearance(report,lens,parts,lens_local,obstacles,cam0):
  margin=.03
  for f in range(1,T['end']+1):
   for sub in (0,.25,.5,.75):
@@ -220,16 +226,11 @@ def verify():
    if max(lens.matrix_world.to_scale())<1e-3:continue
    pts=[o.matrix_world@c for o in parts for c in lens_local[o.name]]
    for ob in obstacles:
-    inv=ob.matrix_world.inverted();bb=ob.bound_box
-    hx=max(abs(c[0]) for c in bb);hy=max(abs(c[1]) for c in bb);hz=max(abs(c[2]) for c in bb)
-    loc=[inv@p for p in pts];inside=[q for q in loc if abs(q.x)<hx+margin and abs(q.y)<hy+margin]
-    if not inside:continue
-    zs=[q.z for q in inside]
-    # clearance: smallest gap between the sheet slab and lens geometry above/below it
-    if min(zs)>0:gap=min(zs)-hz
-    elif max(zs)<0:gap=-hz-max(zs)
-    else:gap=-1
-    if gap<report['minLensClearance']:report['minLensClearance']=gap;report['minLensClearanceAt']=[f+sub,ob.name]
+    gap=sheet_gap(ob,pts,margin)
+    if gap is not None and gap<report['minLensClearance']:
+     report['minLensClearance']=gap;report['minLensClearanceAt']=[f+sub,ob.name]
+
+def verify_frame_geometry(report,lens):
  for f in range(1,T['end']+1):
   scene.frame_set(f)
   for o in mesh_objects():
@@ -242,11 +243,26 @@ def verify():
   for i,(s,e) in enumerate(T['turns']):
    pg=bpy.data.objects['Upper sky book page turn %d'%i]
    if e<=f<=T['pages_close'][0] and (abs(math.degrees(pg.rotation_euler.y)+179.5)>.01 or pg.hide_render):report['turnedPagesRetained']=False
+
+def verify_bookmark(report):
  prev=.9
  for f in range(T['bookmark'][0],T['bookmark'][1]+1):
   scene.frame_set(f);y=bpy.data.objects['Upper sky book bookmark'].location.y
   if y>prev+1e-6:report['bookmarkMonotonic']=False
   prev=y
+
+def verify():
+ lens=bpy.data.objects['Reading magnifier']
+ parts=list(lens.children)
+ obstacles=[bpy.data.objects['Upper sky book top cover']]+[bpy.data.objects['Upper sky book turning page %d'%i] for i in range(3)]
+ dg=bpy.context.evaluated_depsgraph_get()
+ lens_local={o.name:[v.co.copy() for v in o.evaluated_get(dg).data.vertices] for o in parts}
+ cam0=(cam.matrix_world.copy(),cam.data.ortho_scale)
+ report={'frames':T['end'],'cameraKeyed':bool(cam.animation_data),'cameraConstant':True,'minLensClearance':9,'minLensClearanceAt':None,
+         'boundsNormalized':[1,1,0,0],'turnedPagesRetained':True,'bookmarkMonotonic':True,'trajectory':[]}
+ verify_clearance(report,lens,parts,lens_local,obstacles,cam0)
+ verify_frame_geometry(report,lens)
+ verify_bookmark(report)
  def pose(f):
   scene.frame_set(f);return [list(r) for r in lens.matrix_world]+[[math.degrees(bpy.data.objects['Upper sky book cover hinge'].rotation_euler.y)]]
  a0,a1=T['loop'];d=lambda x,y:max(abs(u-v) for r1,r2 in zip(x,y) for u,v in zip(r1,r2))

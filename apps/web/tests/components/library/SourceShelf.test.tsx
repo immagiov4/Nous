@@ -370,7 +370,7 @@ describe('SourceShelf', () => {
     if (!video) throw new Error('Missing player');
     const before = play.mock.calls.length;
     fireEvent.loadedData(video);
-    expect(play.mock.calls.length).toBe(before + 1);
+    expect(play.mock.calls).toHaveLength(before + 1);
   });
 
   test('uses the transparent poster if the browser decodes an opaque video frame', () => {

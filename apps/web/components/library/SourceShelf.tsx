@@ -238,7 +238,7 @@ export default function SourceShelf({
                   <div className="source-book-caption" aria-hidden="true">
                     {!preparationProgress ? (
                       <span className="source-book-meta">
-                        <span>{source.name.match(/\.([^.]+)$/)?.[1]}</span>
+                        <span>{/\.([^.]+)$/.exec(source.name)?.[1]}</span>
                       </span>
                     ) : null}
                     <span className="source-book-title">{sourceTitle(source.name)}</span>

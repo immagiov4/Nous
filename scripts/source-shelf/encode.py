@@ -1,10 +1,10 @@
 # Encode the PR533 motion revision into the product's existing asset names.
-import subprocess,json,sys
+import subprocess,json,sys,os
 from pathlib import Path
 import numpy as np
 from PIL import Image
-root=Path(__file__).parent
-out=Path(sys.argv[1])
+root=Path(os.environ.get('SOURCE_SHELF_FRAMES_DIR', Path(__file__).parent)).resolve()
+out=Path(sys.argv[1]).resolve()
 CLIPS=[('reading',1,61),('search',62,80),('complete',142,55)]  # 24 fps throughout
 STILLS=[('closed',1),('reading',62),('complete',196)]
 def px(c,f):return np.asarray(Image.open(root/c/'frames'/f'frame-{f:04d}.png'),dtype=np.int16)

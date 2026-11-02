@@ -288,10 +288,7 @@
     var(--source-book-mark-inset)
   );
   right: 3px;
-}
-/* A finished mark settles in rather than popping while its book moves aside. */
-.source-shelf[data-preparing] .source-book-done,
-.source-shelf[data-preparing] .source-book-error {
+  /* A finished mark settles in while its book moves aside. */
   animation: source-book-mark 420ms cubic-bezier(0.34, 1.4, 0.64, 1) both;
 }
 @keyframes source-book-mark {
