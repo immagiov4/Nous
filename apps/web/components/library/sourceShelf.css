@@ -99,34 +99,18 @@
 }
 
 .source-shelf-item {
-  --cover: #f0dfc2;
   flex: 0 0 var(--book-width);
+  min-width: 0;
   height: var(--book-height);
   border-radius: 3px;
   scroll-margin-inline: 1.75rem;
   animation: source-shelf-appear 240ms ease-out;
 }
 
-.source-shelf-item[data-palette="terracotta"] {
-  --cover: #cf9475;
-}
-.source-shelf-item[data-palette="sage"] {
-  --cover: #a4b294;
-}
-.source-shelf-item[data-palette="blue"] {
-  --cover: #89abc2;
-}
-.source-shelf-item[data-palette="brown"] {
-  --cover: #bca087;
-}
-.source-shelf-item[data-palette="mauve"] {
-  --cover: #b39aaf;
-}
-
 .source-book {
   position: relative;
   width: var(--book-width);
-  height: var(--book-height);
+  height: 140px;
   transition: transform 240ms ease;
 }
 
@@ -135,89 +119,22 @@
   transform: translateY(-7px);
 }
 
-.source-book-art {
-  position: absolute;
-  inset: 0;
-  isolation: isolate;
-  background: url("/source-shelf/book-neutral.webp") center / 100% 100%;
-  filter: drop-shadow(1px 6px 4px #34221430);
-  transition: filter 240ms ease;
-}
-
-.source-book-tint {
-  position: absolute;
-  inset: 0;
-  background: var(--cover);
-  mask: url("/source-shelf/book-cloth-mask.webp") center / 100% 100%;
-  mix-blend-mode: multiply;
-}
-
-.source-shelf-item:hover .source-book-art,
-.source-shelf-item:focus-visible .source-book-art {
-  filter: drop-shadow(1px 10px 7px #34221440);
-}
-
-.source-shelf-item[data-state="reading"] .source-book-art {
-  filter: drop-shadow(0 0 7px #eea04bb0) drop-shadow(1px 6px 4px #34221430);
-}
-
-.source-book-cover {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 100px;
-  height: 150px;
-  padding: 12px 8px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  /* Affine projection of the neutral render's front face; shared by all colours. */
-  transform: matrix(1.07, 0.06, 0, 1.18, 20, 14);
-  transform-origin: 0 0;
-  color: #241b15;
-  font-family: var(--font-serif);
-}
-
-.source-book-index {
-  margin-bottom: 8px;
-  font-size: 11px;
-}
-
 .source-book-title {
-  display: -webkit-box;
+  display: block;
   overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 5;
-  overflow-wrap: normal;
-  word-break: normal;
-  text-wrap: balance;
-  hyphens: auto;
-  hyphenate-limit-chars: 18;
-  font-size: 13px;
-  line-height: 1.35;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
-
-.source-book-title[data-length="medium"] {
-  font-size: 12px;
-}
-.source-book-title[data-length="long"] {
-  font-size: 11px;
-}
-
-.source-book-rule {
-  width: 25px;
-  margin-top: auto;
-  border-top: 1px solid currentColor;
-  opacity: 0.35;
-}
-
-.source-book-type {
-  margin-top: 5px;
-  font: 8px / 1.2 var(--font-sans);
+.source-book-meta {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  color: var(--ink-muted);
+  font: 0.625rem / 1.4 var(--font-sans);
   text-transform: uppercase;
 }
-
-.source-book-done {
+.source-book-done,
+.source-book-error {
   position: absolute;
   top: 13px;
   right: 14px;
@@ -230,7 +147,11 @@
   background: #39743c;
   box-shadow: 0 0 0 2px var(--bg-surface);
 }
-.source-book-done svg {
+.source-book-error {
+  background: #9b3d2d;
+}
+.source-book-done svg,
+.source-book-error svg {
   width: 12px;
   height: 12px;
 }
@@ -265,12 +186,165 @@
     animation: none;
   }
   .source-book,
-  .source-book-art,
   .source-shelf-clear {
     transition: none;
   }
   .source-shelf-item:hover .source-book,
   .source-shelf-item:focus-visible .source-book {
     transform: none;
+  }
+}
+
+/* A tall shelf must not raise the setup frame's intrinsic minimum above the viewport. */
+.course-setup-stage:has([data-source-preparing="true"]) {
+  min-height: 0;
+}
+
+/* Preparation keeps Stop outside the scrollable shelf, including in Firefox. */
+.course-setup-stage [data-source-preparing="true"] {
+  display: flex;
+  min-height: 0;
+  flex-shrink: 1;
+  flex-direction: column;
+}
+
+/* The active book grows within the ordered carousel. */
+.source-shelf[data-preparing] {
+  min-height: 0;
+  overflow-y: auto;
+  --source-carousel-glide: var(--source-carousel-glide-duration) cubic-bezier(0.65, 0, 0.35, 1);
+  --book-width: 128px;
+  --book-height: 208px;
+  --source-book-container-height: 184px;
+  --source-book-art-height: 128px;
+  --source-book-mark-inset: 2rem;
+}
+.source-shelf[data-preparing] .source-shelf-header {
+  padding-top: 0.5rem;
+}
+.source-shelf[data-preparing] .source-shelf-warnings:not(:empty) {
+  padding: 0 1rem 0.5rem;
+}
+.source-shelf[data-preparing] .source-shelf-books {
+  /* Keyboard focus moves the track smoothly too; glideScrollBy overrides it while gliding. */
+  scroll-behavior: smooth;
+  gap: 0.5rem;
+  padding: 0.5rem calc((100% - var(--book-width)) / 2);
+  scroll-padding-inline: calc((100% - var(--book-width)) / 2);
+  align-items: center;
+}
+.source-shelf[data-preparing] .source-shelf-item {
+  height: auto;
+  min-height: var(--book-height);
+  border-radius: 0.75rem;
+}
+.source-shelf[data-preparing] .source-book {
+  height: var(--source-book-container-height);
+  display: flex;
+  align-items: center;
+  transition: transform var(--source-carousel-glide);
+}
+.source-shelf[data-preparing] .source-shelf-item[aria-current="true"] .source-book {
+  transform: scale(1.5);
+  position: relative;
+  z-index: 2;
+}
+.source-shelf[data-preparing] .source-shelf-item:not([aria-current="true"]):hover .source-book,
+.source-shelf[data-preparing]
+  .source-shelf-item:not([aria-current="true"]):focus-visible
+  .source-book {
+  transform: none;
+}
+.source-book-preparation,
+.source-book-preparation img,
+.source-book-preparation video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.source-shelf[data-preparing] .source-book-preparation {
+  height: var(--source-book-art-height);
+}
+.source-book-caption {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.25rem 0.4rem;
+  color: var(--ink-primary);
+}
+.source-book-caption .source-book-title {
+  min-width: 0;
+  max-width: 100%;
+  font: 0.75rem / 1.4 var(--font-sans);
+}
+.source-shelf[data-preparing] .source-book-done,
+.source-shelf[data-preparing] .source-book-error {
+  top: calc(
+    (var(--source-book-container-height) - var(--source-book-art-height)) /
+    2 +
+    var(--source-book-mark-inset)
+  );
+  right: 3px;
+  /* A finished mark settles in while its book moves aside. */
+  animation: source-book-mark 420ms cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+@keyframes source-book-mark {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .source-shelf[data-preparing] .source-shelf-books {
+    scroll-behavior: auto;
+  }
+  .source-shelf[data-preparing] .source-book {
+    transition: none;
+  }
+  .source-shelf[data-preparing] .source-book-done,
+  .source-shelf[data-preparing] .source-book-error {
+    animation: none;
+  }
+}
+
+/* Keep the source carousel and its controls visible on short mobile screens. */
+@media (max-height: 700px) {
+  .course-setup-stage:has([data-source-preparing="true"]) {
+    --source-setup-height: calc(100dvh - 5rem);
+    height: var(--source-setup-height);
+  }
+  .source-shelf[data-preparing] {
+    --book-width: 100px;
+    --book-height: 160px;
+    --source-book-container-height: 136px;
+    --source-book-art-height: 100px;
+    --source-book-mark-inset: 1rem;
+  }
+  .source-shelf[data-preparing] .source-shelf-books {
+    padding-top: 0.375rem;
+    padding-bottom: 0.375rem;
+  }
+  .source-shelf[data-preparing] .source-shelf-warnings {
+    font-size: 0.6875rem;
+    line-height: 1.4;
+  }
+  .course-setup-stage:has([data-source-preparing="true"]) > header {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+  .course-setup-stage:has([data-source-preparing="true"]) > header > div:first-of-type > p {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 }

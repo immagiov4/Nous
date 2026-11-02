@@ -116,6 +116,9 @@ export const LibraryScreenContainer = ({
   const [pendingHomeSourceFiles, setPendingHomeSourceFiles] = useState<File[]>([]);
   const [isConfirmingCourse, setIsConfirmingCourse] = useState(false);
   const [pendingFileWarnings, setPendingFileWarnings] = useState<string[]>([]);
+  const [terminalSourceDocuments, setTerminalSourceDocuments] =
+    useState<{ id: string; name: string; state: 'error' }[]>();
+  const [terminalSourceWarnings, setTerminalSourceWarnings] = useState<string[]>([]);
   const [isSourceSelectionPending, setIsSourceSelectionPending] = useState(false);
   const sourceSelectionRequestRef = useRef(0);
   const isConfirmingCourseRef = useRef(false);
@@ -135,6 +138,8 @@ export const LibraryScreenContainer = ({
   let sourceCount = pendingHomeSourceFiles.length;
   if (source && pendingHomeSourceFiles.length === 0)
     sourceCount = 'sources' in source && source.sources ? source.sources.length : 1;
+  sourceCount =
+    controller.workflowState.assessment.sourcePreparation?.documents?.length ?? sourceCount;
   const assessmentComplete = Boolean(controller.courseProposal) && !isAddingAssessmentDetails;
   const isNewCourseLoading =
     controller.workflowState.assessment.status === 'pending' || isConfirmingCourse;
@@ -161,6 +166,8 @@ export const LibraryScreenContainer = ({
     const input = event.target;
     const selectedFiles = sortSourceFiles(Array.from(input.files || []));
     const request = ++sourceSelectionRequestRef.current;
+    setTerminalSourceDocuments(undefined);
+    setTerminalSourceWarnings([]);
     setPendingHomeSourceFiles(selectedFiles);
     setPendingFileWarnings([]);
     setIsSourceSelectionPending(true);
@@ -184,6 +191,8 @@ export const LibraryScreenContainer = ({
     async (message: string) => {
       if (isSourceSelectionPending) return;
       const requestToken = ++newCourseRequestTokenRef.current;
+      setTerminalSourceDocuments(undefined);
+      setTerminalSourceWarnings([]);
       const toolPreferences: HomeChatToolPreferences = {
         addingAssessmentDetails: isAddingAssessmentDetails,
         mode: 'new-course',
@@ -209,16 +218,21 @@ export const LibraryScreenContainer = ({
         setPendingFileWarnings([]);
       }
 
-      if (result.errorMessage) {
-        notify(result.errorMessage);
-      }
-      if (result.sourceWarnings?.length) {
-        notify(
-          formatSourceWarningSummary(result.sourceWarnings, {
+      const sourceWarningMessage = result.sourceWarnings?.length
+        ? formatSourceWarningSummary(result.sourceWarnings, {
             continues: !result.errorMessage,
           })
+        : undefined;
+      if (result.outcome === 'failed' && result.terminalSourceDocuments?.length) {
+        setTerminalSourceDocuments(result.terminalSourceDocuments);
+        setTerminalSourceWarnings(
+          result.sourceWarnings?.map(warning =>
+            t('Non verrà usato: {name}. {reason}', { name: warning.name, reason: warning.message })
+          ) ?? []
         );
       }
+      if (result.errorMessage || sourceWarningMessage)
+        notify([result.errorMessage, sourceWarningMessage].filter(Boolean).join('\n'));
     },
     [
       assessmentMessages.length,
@@ -242,6 +256,8 @@ export const LibraryScreenContainer = ({
       setIsAddingAssessmentDetails(false);
       setPendingHomeSourceFiles([]);
       setPendingFileWarnings([]);
+      setTerminalSourceDocuments(undefined);
+      setTerminalSourceWarnings([]);
       setHomeChatMode('library-query');
       return true;
     } catch (error) {
@@ -399,15 +415,19 @@ export const LibraryScreenContainer = ({
           libraryGenerateArtifacts: libraryAssistantChat.generateArtifacts,
           newCourseLoadingStatus:
             controller.workflowState.assessment.message || t('Caricamento...'),
+          sourcePreparationProgress: controller.workflowState.assessment.sourcePreparation,
           pendingFileName: pendingHomeSourceFiles[0]?.name || null,
           pendingFileNames: pendingHomeSourceFiles.map(file => file.name),
-          pendingFileWarnings,
+          pendingFileWarnings: [...pendingFileWarnings, ...terminalSourceWarnings],
+          terminalSourceDocuments,
           isSourceSelectionPending,
           onClearPendingFile: () => {
             sourceSelectionRequestRef.current += 1;
             setIsSourceSelectionPending(false);
             setPendingHomeSourceFiles([]);
             setPendingFileWarnings([]);
+            setTerminalSourceDocuments(undefined);
+            setTerminalSourceWarnings([]);
           },
           onClearLibraryMessages: libraryAssistantChat.clearLibraryMessages,
           onCancelNewCourse: cancelNewCourse,

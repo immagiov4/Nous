@@ -1,3 +1,4 @@
+import CourseSetupHeader from '../../../components/library/CourseSetupHeader.tsx';
 import * as sourceSelection from '../../../services/projects/sourceFileSelection.ts';
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
@@ -30,6 +31,8 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       pendingFileNames?: string[];
       sourceCount?: number;
       pendingFileWarnings?: string[];
+      terminalSourceDocuments?: { id: string; name: string; state: string }[];
+      onClearPendingFile: () => void;
     };
     onPageChange: (page: 'home' | 'library') => void;
     storageError?: string | null;
@@ -40,11 +43,21 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
         {chatProps.homeChatMode}:{String(chatProps.assessmentComplete)}:
         {chatProps.pendingFileNames?.join(',')}
         {chatProps.pendingFileWarnings?.join(',')}
+        {chatProps.terminalSourceDocuments?.map(d => [d.id, d.name, d.state].join(':')).join(',')}
       </div>
       <div data-testid="confirmation-messages">
         {chatProps.assessmentMessages.map(message => message.text).join('\n')}
       </div>
-      <output aria-label="Source count">{chatProps.sourceCount}</output>
+      <CourseSetupHeader
+        phase="sources"
+        sourceCount={chatProps.sourceCount ?? 0}
+        hasPreferences={false}
+        hasDiagnostic={false}
+        isLoading={false}
+      />
+      <button type="button" onClick={chatProps.onClearPendingFile}>
+        Rimuovi fonti
+      </button>
       <button type="button" onClick={() => void chatProps.onConfirmGenerate()}>
         Conferma scelte
       </button>
@@ -114,6 +127,74 @@ afterEach(() => {
 });
 
 describe('LibraryScreenContainer route fallback', () => {
+  test('counts expanded preparation documents in the setup header', () => {
+    const props = buildProps();
+    props.controller.workflowState.assessment = {
+      status: 'pending',
+      requestId: 1,
+      sourcePreparation: {
+        step: 'extraction',
+        completed: 1,
+        total: 3,
+        documents: [
+          { id: 'one', name: 'one.md', state: 'done' },
+          { id: 'two', name: 'two.md', state: 'reading' },
+          { id: 'three', name: 'three.md', state: 'idle' },
+        ],
+      },
+    };
+    render(<LibraryScreenContainer {...props} />);
+    expect(screen.getByText('3 fonti')).toBeVisible();
+  });
+
+  test('retains unusable source identities and warnings until retry or removal', async () => {
+    const props = buildProps();
+    const documents = [
+      { id: 'one', name: 'bad.pdf', state: 'error' as const },
+      { id: 'two', name: 'bad.pdf', state: 'error' as const },
+    ];
+    props.controller.startHomeChat = vi
+      .fn()
+      .mockResolvedValueOnce({
+        outcome: 'failed',
+        errorMessage: 'Failed',
+        sourceWarnings: [{ name: 'bad.pdf', message: 'Unreadable source' }],
+        terminalSourceDocuments: documents,
+      })
+      .mockResolvedValueOnce({ outcome: 'noop' });
+    render(<LibraryScreenContainer {...props} />);
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Invia nuovo corso' }))
+    );
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent(
+      'one:bad.pdf:error,two:bad.pdf:error'
+    );
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('Unreadable source');
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Invia nuovo corso' }))
+    );
+    expect(screen.getByTestId('new-home-surface')).not.toHaveTextContent('one:bad.pdf:error');
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Rimuovi fonti' })));
+    expect(screen.getByTestId('new-home-surface')).not.toHaveTextContent('Unreadable source');
+  });
+
+  test('keeps the terminal preparation error and source warnings in one notification', async () => {
+    const props = buildProps();
+    props.controller.startHomeChat = vi.fn().mockResolvedValue({
+      outcome: 'failed',
+      errorMessage: 'Preparation failed. Retry.',
+      sourceWarnings: [{ name: 'bad.pdf', message: 'Unreadable source' }],
+    });
+    render(<LibraryScreenContainer {...props} />);
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Invia nuovo corso' }))
+    );
+    expect(props.notify).toHaveBeenCalledOnce();
+    expect(props.notify).toHaveBeenCalledWith(
+      expect.stringContaining('Preparation failed. Retry.')
+    );
+    expect(props.notify).toHaveBeenCalledWith(expect.stringContaining('bad.pdf'));
+  });
   test('passes storage warnings to the library destination and clears recovered warnings', () => {
     const props = buildProps();
     props.projectLibrary.storageError =
@@ -213,7 +294,7 @@ describe('LibraryScreenContainer route fallback', () => {
       file: { name: 'old.md', mimeType: 'text/markdown', data: '' },
     };
     const { container } = render(<LibraryScreenContainer {...props} />);
-    expect(screen.getByLabelText('Source count')).toHaveTextContent('1');
+    expect(screen.getByText('1 fonte')).toBeVisible();
     const input = container.querySelector<HTMLInputElement>('#library-source-file');
     if (!input) throw new Error('Missing source input');
     await act(async () =>
@@ -226,9 +307,9 @@ describe('LibraryScreenContainer route fallback', () => {
         },
       })
     );
-    expect(screen.getByLabelText('Source count')).toHaveTextContent('2');
+    expect(screen.getByText('2 fonti')).toBeVisible();
     await act(async () => fireEvent.change(input, { target: { files: [] } }));
-    expect(screen.getByLabelText('Source count')).toHaveTextContent('1');
+    expect(screen.getByText('1 fonte')).toBeVisible();
   });
 
   test('retains the latest selection when an earlier archive inspection finishes later', async () => {

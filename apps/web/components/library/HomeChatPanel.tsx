@@ -1,3 +1,4 @@
+import type { SourcePreparationProgress } from '@shared/sourcePreparation';
 import type { UIMessage } from 'ai';
 import type {
   HomeChatMode,
@@ -46,9 +47,11 @@ interface HomeChatPanelProps {
   readonly libraryWebSearch: boolean;
   readonly libraryGenerateArtifacts: boolean;
   readonly newCourseLoadingStatus: string;
+  readonly sourcePreparationProgress?: SourcePreparationProgress;
   readonly pendingFileName: string | null;
   readonly pendingFileNames?: string[];
   readonly pendingFileWarnings?: string[];
+  readonly terminalSourceDocuments?: { id: string; name: string; state: 'error' }[];
   readonly isSourceSelectionPending?: boolean;
   readonly draftValueOverride?: string;
   readonly draftTemplate?: {
@@ -118,9 +121,11 @@ export default function HomeChatPanel({
   libraryWebSearch,
   libraryGenerateArtifacts,
   newCourseLoadingStatus,
+  sourcePreparationProgress,
   pendingFileName,
   pendingFileNames,
   pendingFileWarnings,
+  terminalSourceDocuments,
   isSourceSelectionPending = false,
   draftValueOverride,
   draftTemplate,
@@ -193,6 +198,7 @@ export default function HomeChatPanel({
     <HomeChatPanelFrame
       setupPhase={setupPhase}
       hasActiveChat={hasActiveChat || Boolean(setupPhase)}
+      isSourcePreparing={Boolean(sourcePreparationProgress)}
       hideHeaderCopy={hideHeaderCopy}
       hideModeSelector={hideModeSelector}
       homeChatMode={homeChatMode}
@@ -234,6 +240,7 @@ export default function HomeChatPanel({
         libraryErrorMessage={libraryErrorMessage}
         libraryFloatingArtifactPayloads={libraryFloatingArtifactPayloads}
         newCourseLoadingStatus={newCourseLoadingStatus}
+        showLoadingStatus={!sourcePreparationProgress}
         onConfirmGenerate={onConfirmGenerate}
         onContinueAssessment={onContinueAssessment}
         onLibraryArtifactNoteApprove={onLibraryArtifactNoteApprove}
@@ -277,6 +284,9 @@ export default function HomeChatPanel({
           pendingFileName={pendingFileName}
           pendingFileNames={pendingFileNames}
           pendingFileWarnings={pendingFileWarnings}
+          terminalSourceDocuments={terminalSourceDocuments}
+          sourcePreparationProgress={sourcePreparationProgress}
+          sourcePreparationStatus={newCourseLoadingStatus}
           isSourceSelectionPending={isSourceSelectionPending}
           viewportHeight={viewportHeight}
         />

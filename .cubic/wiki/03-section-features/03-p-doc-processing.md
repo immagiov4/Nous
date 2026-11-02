@@ -131,6 +131,12 @@ Sources: [apps/backend/src/projects/postgresProjectStore.ts](https://github.com/
 
 Source Ingestion & Processing provides a robust framework for converting heterogeneous data into a unified format for pedagogical use. By combining vision-transcription fallbacks for PDFs, strict path validation for archives, and transactional persistence in Postgres, the system ensures that lesson generation is supported by reliable and traceable source material.
 
+## Preparation feedback
+
+Home course setup receives structured preparation progress from the request-owned assessment workflow. Progress identifies ordered source documents, including expanded ZIP members, and distinguishes document completion from PDF page transcription.
+
 ## Observability
+
+The preparation status response carries source IDs, names and actual states; the shelf exposes `data-state`, `aria-current` and its progress output. [Backend completion tests](../../../apps/backend/tests/services/sourceIngestionTranscription.test.ts) cover PDFs finishing out of order, [state tests](../../../apps/web/tests/hooks/workspace/controllerState.test.tsx) cover request ownership, and the [browser proof](../../../e2e/nous/tests/sourcePreparationShelf.browser.ts) records desktop/mobile themes, cancellation, saved sources and terminal errors. Its upload, ZIP expansion, controller and storage are real; intermediate progress responses and the interview failure are controlled for deterministic inspection. Artifacts stay in `NOUS_E2E_DATA`; this proof does not establish provider behaviour or deployed database durability.
 
 The [preparation operation](../../../apps/backend/src/projects/projectImportChunks.ts) retains per-step progress, terminal status and failures for authenticated status polling. [Prepared source descriptors](../../../apps/backend/src/projects/sourceIngestion.ts) retain failed and blank page identities, allowing partial recovery to be distinguished from usable text. This operation is process-local rather than a durable generation trace. Successful extraction and valid mathematical syntax cannot establish transcription fidelity; compare recovered text with the original pages when assessing lost symbols or meaning.

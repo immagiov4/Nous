@@ -257,6 +257,7 @@ const sendProjectWriteError = (
       code: SOURCE_PREPARATION_UNUSABLE_CODE,
       error: error.message,
       sourceWarnings: error.failures,
+      sourceDocuments: error.documents,
     });
     return;
   }
@@ -1149,6 +1150,7 @@ router.get('/import/chunks/:uploadId', async (req: Request, res: Response) => {
       meta: upload.completed.meta,
       snapshot: projectResponseSnapshot(req, snapshot),
       uploadStatus: upload.status,
+      progress: upload.progress,
     });
   } catch (error) {
     sendErrorResponse(

@@ -11,6 +11,8 @@ const errors: string[] = [];
 const results: unknown[] = [];
 for (const mobile of process.env.SETUP_MOBILE ? [true] : [false, true]) {
   for (const dark of [false, true]) {
+    const scene = `${mobile ? 'mobile' : 'desktop'}-${dark ? 'dark' : 'light'}`;
+    if (process.env.SETUP_SCENE && process.env.SETUP_SCENE !== scene) continue;
     await withMemoryProjectBrowserStack(
       {
         userId: 'setup-stage-user',
@@ -28,7 +30,6 @@ for (const mobile of process.env.SETUP_MOBILE ? [true] : [false, true]) {
         assert.deepEqual(await page.context().storageState(), { cookies: [], origins: [] });
         await page.goto(url, { waitUntil: 'domcontentloaded' });
         const started = performance.now();
-        const scene = `${mobile ? 'mobile' : 'desktop'}-${dark ? 'dark' : 'light'}`;
         await page.setViewportSize(
           mobile ? { width: 390, height: 844 } : { width: 1280, height: 800 }
         );
@@ -224,6 +225,11 @@ for (const mobile of process.env.SETUP_MOBILE ? [true] : [false, true]) {
         if (mobile) {
           await page.setViewportSize({ width: 390, height: 400 });
           await page.waitForTimeout(500);
+          const stageHeight = await stage.evaluate(element => element.clientHeight);
+          assert(
+            stageHeight <= 400 * 0.75,
+            `Setup frame exceeds its viewport allocation: ${stageHeight}`
+          );
           await input.scrollIntoViewIfNeeded();
           await input.focus();
           await input.fill('Risposta con la tastiera aperta');

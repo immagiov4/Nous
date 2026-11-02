@@ -93,7 +93,20 @@ describe('workflow PostgreSQL CI contract', () => {
       'bun install --frozen-lockfile',
       'bunx playwright install --with-deps chromium',
       'bun run gate:ci',
+      expect.stringContaining('scripts/source-shelf/tests/coverage_blender.py'),
     ]);
+    const pythonCoverageIndex = quality.steps.findIndex(step =>
+      step.run?.includes('scripts/source-shelf/tests/coverage_blender.py')
+    );
+    expect(quality.steps[pythonCoverageIndex].run).toContain(
+      'python3 scripts/source-shelf/tests/coverage_encoder.py'
+    );
+    expect(pythonCoverageIndex).toBeGreaterThan(
+      quality.steps.findIndex(step => step.uses === 'actions/setup-python@v5')
+    );
+    expect(
+      quality.steps.findIndex(step => step.name === 'SonarQube Cloud scan and quality gate')
+    ).toBeGreaterThan(pythonCoverageIndex);
     const commands = browser.steps.flatMap(step => (step.run ? [step.run] : []));
 
     expect(commands).toEqual([
@@ -111,6 +124,8 @@ describe('workflow PostgreSQL CI contract', () => {
       'bun run test:caption-rows',
       'bun apps/web/tests/components/workspace/PlaybackFocus.browser.ts',
       'bun run test:interview-recovery',
+      'bun run test:source-preparation-shelf',
+      'bun run test:source-preparation-shelf',
     ]);
     expect(
       browser.steps.find(
@@ -119,13 +134,52 @@ describe('workflow PostgreSQL CI contract', () => {
     ).toEqual({
       NOUS_E2E_DATA: `\${{ runner.temp }}/nous-recovery`,
     });
-    expect(browser.steps.at(-1)).toEqual({
+    expect(
+      browser.steps.findIndex(step => step.name === 'Upload interview recovery evidence')
+    ).toBeGreaterThan(
+      browser.steps.findIndex(
+        step => step.name === 'Verify interview draft recovery through the library'
+      )
+    );
+    expect(browser.steps.find(step => step.name === 'Upload interview recovery evidence')).toEqual({
       name: 'Upload interview recovery evidence',
       if: 'always()',
       uses: 'actions/upload-artifact@v4',
       with: {
         name: 'interview-recovery',
         path: `\${{ runner.temp }}/nous-recovery/interview-recovery`,
+        'if-no-files-found': 'ignore',
+      },
+    });
+    expect(
+      browser.steps.find(step => step.name === 'Verify source-preparation motion and lifecycle')
+    ).toEqual({
+      name: 'Verify source-preparation motion and lifecycle',
+      env: { NOUS_E2E_DATA: `\${{ runner.temp }}/nous-source-preparation` },
+      run: 'bun run test:source-preparation-shelf',
+    });
+    expect(
+      browser.steps.find(step => step.name === 'Verify source-preparation playback in Firefox')
+    ).toEqual({
+      name: 'Verify source-preparation playback in Firefox',
+      env: {
+        NOUS_E2E_DATA: `\${{ runner.temp }}/nous-source-preparation-firefox`,
+        SHELF_BROWSER: 'firefox',
+        SHELF_SCENE: 'desktop-light',
+      },
+      run: 'bun run test:source-preparation-shelf',
+    });
+    expect(browser.steps.at(-1)).toEqual({
+      name: 'Upload source-preparation evidence',
+      if: 'always()',
+      uses: 'actions/upload-artifact@v4',
+      with: {
+        name: 'source-preparation',
+        path: [
+          `\${{ runner.temp }}/nous-source-preparation/source-preparation-shelf`,
+          `\${{ runner.temp }}/nous-source-preparation-firefox/source-preparation-shelf`,
+          '',
+        ].join('\n'),
         'if-no-files-found': 'ignore',
       },
     });

@@ -686,6 +686,7 @@ const createStateAdapter = () => {
           status: 'failed',
           error: errorMessage,
           message: undefined,
+          sourcePreparation: undefined,
         },
       };
     },
@@ -790,8 +791,11 @@ const createStateAdapter = () => {
     setScreenState: screenState => {
       internalState.screenState = screenState;
     },
-    setWorkflowMessage: (workflowId, requestId, message) => {
-      if (internalState.workflowState[workflowId].requestId !== requestId) {
+    setWorkflowMessage: (workflowId, requestId, message, sourcePreparation) => {
+      if (
+        internalState.workflowState[workflowId].requestId !== requestId ||
+        (sourcePreparation && internalState.workflowState[workflowId].status !== 'pending')
+      ) {
         return;
       }
 
@@ -800,6 +804,7 @@ const createStateAdapter = () => {
         [workflowId]: {
           ...internalState.workflowState[workflowId],
           message,
+          sourcePreparation,
         },
       };
     },
@@ -841,6 +846,7 @@ const createStateAdapter = () => {
           status: 'succeeded',
           error: undefined,
           message,
+          sourcePreparation: undefined,
         },
       };
     },
@@ -1083,6 +1089,22 @@ const createControllerHarness = (args?: {
     stopAudioCalls,
   };
 };
+
+test.each([
+  'succeeded',
+  'failed',
+] as const)('controller harness rejects preparation callbacks after %s', terminal => {
+  const { state } = createControllerHarness();
+  const request = state.adapter.beginWorkflow('assessment');
+  const progress = { step: 'extraction' as const, completed: 0, total: 1 };
+  state.adapter.setWorkflowMessage('assessment', request, 'Reading', progress);
+  expect(state.internalState.workflowState.assessment.sourcePreparation).toEqual(progress);
+  if (terminal === 'succeeded') state.adapter.succeedWorkflow('assessment', request);
+  else state.adapter.failWorkflow('assessment', request, 'Terminal error');
+  expect(state.internalState.workflowState.assessment.sourcePreparation).toBeUndefined();
+  state.adapter.setWorkflowMessage('assessment', request, 'Late reading', progress);
+  expect(state.internalState.workflowState.assessment.sourcePreparation).toBeUndefined();
+});
 
 test('openProject starts document assessment when a stored project has a source but no plan', async () => {
   const snapshot = createProjectSnapshot({
@@ -4926,6 +4948,35 @@ test('startHomeChat resets its unsaved selection when the first draft save fails
   expect(startCourseInterview).not.toHaveBeenCalled();
 });
 
+test('startHomeChat forwards structured preparation through its existing workflow message', async () => {
+  const started = createDeferred();
+  const finish = createDeferred();
+  const progress = {
+    step: 'extraction' as const,
+    completed: 0,
+    total: 1,
+    documents: [{ id: 'source', name: 'notes.md', state: 'reading' as const }],
+  };
+  const { controller, state } = createControllerHarness({
+    projectLibrary: {
+      persistSnapshot: async (_snapshot, options) => {
+        options?.onSourceProgress?.(progress);
+        started.resolve();
+        await finish.promise;
+        throw new Error('Synthetic save failure');
+      },
+    },
+  });
+  const starting = controller.startHomeChat({
+    input: 'Learn from notes',
+    selectedFile: new File(['Notes'], 'notes.md', { type: 'text/markdown' }),
+  });
+  await started.promise;
+  expect(state.internalState.workflowState.assessment.sourcePreparation).toEqual(progress);
+  finish.resolve();
+  expect((await starting).outcome).toBe('failed');
+});
+
 test('startHomeChat preserves prepared sources for retry after interview startup fails', async () => {
   const startCourseInterview = vi
     .fn()
@@ -5847,6 +5898,33 @@ test('startHomeChat assesses extracted ZIP PDFs and reports each unusable PDF en
   expect(assessmentText).toContain('Testo estratto dalla dispensa');
   expect(assessmentText).toContain('scansioni/allegato.pdf');
   expect(assessmentText).toContain('note.txt');
+});
+
+test('startHomeChat retains terminal source identities on a failed preparation', async () => {
+  const sourceDocuments = [
+    { id: 'one', name: 'same.pdf', state: 'error' as const },
+    { id: 'two', name: 'same.pdf', state: 'error' as const },
+  ];
+  const sourceWarnings = [{ name: 'same.pdf', message: 'Unreadable source' }];
+  const { controller } = createControllerHarness({
+    projectLibrary: {
+      persistSnapshot: async () => {
+        throw new ProjectStorageError('Unusable', 'source-preparation-failed', {
+          sourceWarnings,
+          sourceDocuments,
+        });
+      },
+    },
+  });
+  const result = await controller.startHomeChat({
+    input: 'Study',
+    selectedFile: new File(['data'], 'sources.zip', { type: 'application/zip' }),
+  });
+  expect(result).toMatchObject({
+    outcome: 'failed',
+    terminalSourceDocuments: sourceDocuments,
+    sourceWarnings,
+  });
 });
 
 test('startHomeChat rejects a ZIP when every PDF entry is unusable', async () => {

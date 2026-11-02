@@ -71,6 +71,65 @@ const fixture = async () => {
   return { snapshot, upload: { path, files: [file] }, context, extracted, bytes };
 };
 
+test('document progress follows actual PDF completion rather than extraction or page order', async () => {
+  const input = await fixture();
+  const report = input.context.reportProgress;
+  const second = { ...input.upload.files[0], id: 'second', name: 'chapter/scan.pdf' };
+  input.upload.files.push(second);
+  input.snapshot.source.sources.push({
+    ...input.snapshot.source.sources[0],
+    ...second,
+    file: { ...second, data: '' },
+  });
+  await writeFile(input.upload.path, Buffer.concat([input.bytes, input.bytes]));
+  const firstDone = Promise.withResolvers<typeof input.extracted>();
+  const secondDone = Promise.withResolvers<typeof input.extracted>();
+  mocks.prepare
+    .mockResolvedValueOnce({ completion: firstDone.promise })
+    .mockResolvedValueOnce({ completion: secondDone.promise });
+  const prepared = {
+    ...input.extracted,
+    text: 'Prepared text',
+    pages: [{ pageNumber: 1, text: 'Prepared text' }],
+  };
+  const preparing = prepareSourceCollection(input);
+  try {
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          documents: [
+            { id: 'scan', name: 'scan.pdf', state: 'reading' },
+            { id: 'second', name: 'chapter/scan.pdf', state: 'reading' },
+          ],
+        })
+      )
+    );
+    secondDone.resolve(prepared);
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          documents: [
+            { id: 'scan', name: 'scan.pdf', state: 'reading' },
+            { id: 'second', name: 'chapter/scan.pdf', state: 'done' },
+          ],
+        })
+      )
+    );
+  } finally {
+    firstDone.resolve(prepared);
+    secondDone.resolve(prepared);
+    await preparing;
+  }
+  expect(report).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      documents: [
+        { id: 'scan', name: 'scan.pdf', state: 'done' },
+        { id: 'second', name: 'chapter/scan.pdf', state: 'done' },
+      ],
+    })
+  );
+});
+
 test('ingestion persists the server transcript, its page provenance and failed/blank page identities', async () => {
   const input = await fixture();
   const pdf = {

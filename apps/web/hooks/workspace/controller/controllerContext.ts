@@ -34,7 +34,10 @@ export const formatSourcePreparationProgress = (progress: SourcePreparationProgr
     completed: progress.completed,
     total: progress.total,
   });
-  const namedMessage = progress.documentName ? `${message} · ${progress.documentName}` : message;
+  const namedMessage =
+    progress.step !== 'pdf-transcription' && progress.documentName
+      ? `${message} · ${progress.documentName}`
+      : message;
   return progress.reducedQuality
     ? `${namedMessage} · ${t('Pagine {from}–{to} trascritte in qualità ridotta.', progress.reducedQuality)}`
     : namedMessage;

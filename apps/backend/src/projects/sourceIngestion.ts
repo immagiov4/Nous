@@ -10,6 +10,7 @@ import {
   SOURCE_PREPARATION_FAILURE_MESSAGES,
   SOURCE_PREPARATION_UNUSABLE_MESSAGE,
   type SourcePreparationFailure,
+  type SourcePreparationProgress,
 } from '@shared/sourcePreparation';
 import { isSafeZipEntryPath } from '@shared/zipSafety';
 import { preparePdfTextExtraction } from '../services/pdfPageTranscription.js';
@@ -40,7 +41,10 @@ export class SourceIngestionRequiredError extends Error {
 }
 
 export class SourcePreparationUnusableError extends Error {
-  constructor(readonly failures: SourcePreparationFailure[]) {
+  constructor(
+    readonly failures: SourcePreparationFailure[],
+    readonly documents: NonNullable<SourcePreparationProgress['documents']> = []
+  ) {
     super(SOURCE_PREPARATION_UNUSABLE_MESSAGE);
   }
 }
@@ -205,6 +209,28 @@ export const prepareSourceCollection = async ({
     };
   });
   const byId = new Map(descriptors.map(descriptor => [descriptor.id, descriptor]));
+  const documentStates = new Map<
+    string,
+    NonNullable<SourcePreparationProgress['documents']>[number]['state']
+  >();
+  const reportProgress = context.reportProgress;
+  let latestProgress: SourcePreparationProgress = {
+    step: 'extraction',
+    completed: 0,
+    total: upload.files.length,
+  };
+  // The collection context also carries these identities through page progress and persistence.
+  context.reportProgress = progress => {
+    latestProgress = progress;
+    reportProgress({
+      ...progress,
+      documents: upload.files.map(file => ({
+        id: file.id,
+        name: file.name,
+        state: documentStates.get(file.id) ?? 'idle',
+      })),
+    });
+  };
   const totalBytes = upload.files.reduce((total, file) => total + file.byteSize, 0);
   if (
     !Number.isSafeInteger(totalBytes) ||
@@ -225,6 +251,7 @@ export const prepareSourceCollection = async ({
     context.signal.throwIfAborted();
     if (error instanceof PdfScannedPageLimitError) throw error;
     descriptor.status = 'error';
+    documentStates.set(descriptor.id, 'error');
     const reason = failureReason(error);
     descriptor.errorReason = reason;
     descriptor.errorMessage = SOURCE_PREPARATION_FAILURE_MESSAGES[reason];
@@ -240,6 +267,7 @@ export const prepareSourceCollection = async ({
       ...(failedPages.length ? { failedPages } : {}),
     });
     checkpoint();
+    context.reportProgress(latestProgress);
     console.warn('[Sources] Per-file preparation failed.', { name: descriptor.name, reason });
   };
   let offset = upload.offset ?? 0;
@@ -261,6 +289,7 @@ export const prepareSourceCollection = async ({
       )
         throw new ProjectImportInputError('File sorgente non valido.');
       uploadedIds.add(file.id);
+      documentStates.set(file.id, 'reading');
       context.reportProgress({
         step: 'extraction',
         documentName: descriptor.name,
@@ -297,7 +326,9 @@ export const prepareSourceCollection = async ({
         const completion = preparation.completion
           .then(prepared => {
             Object.assign(descriptor, prepared);
+            documentStates.set(descriptor.id, 'done');
             checkpoint();
+            context.reportProgress(latestProgress);
           })
           .catch(error => markFailure(descriptor, error));
         void completion.catch(() => undefined);
@@ -327,7 +358,10 @@ export const prepareSourceCollection = async ({
     await handle.close();
   }
   if (descriptors.every(descriptor => descriptor.status === 'error'))
-    throw new SourcePreparationUnusableError(failures);
+    throw new SourcePreparationUnusableError(
+      failures,
+      upload.files.map(file => ({ id: file.id, name: file.name, state: 'error' as const }))
+    );
   return {
     failures,
     snapshot: {

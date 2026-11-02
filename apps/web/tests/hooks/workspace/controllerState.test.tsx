@@ -4,6 +4,35 @@ import { describe, expect, test, vi } from 'vitest';
 import { useWorkspaceControllerState } from '../../../hooks/workspace/controller/state.ts';
 
 describe('useWorkspaceControllerState generation ownership', () => {
+  test('owns preparation progress by request and clears it on message, success, failure, navigation and retry', () => {
+    const { result } = renderHook(() => useWorkspaceControllerState());
+    const progress = { step: 'extraction' as const, completed: 0, total: 2 };
+    const adapter = result.current.stateAdapter;
+    let request = 0;
+    act(() => {
+      request = adapter.beginWorkflow('assessment');
+    });
+    act(() => adapter.setWorkflowMessage('assessment', request, 'Reading', progress));
+    expect(result.current.workflowState.assessment.sourcePreparation).toEqual(progress);
+    act(() => adapter.setWorkflowMessage('assessment', request, 'Interview'));
+    expect(result.current.workflowState.assessment.sourcePreparation).toBeUndefined();
+    for (const terminal of ['succeed', 'fail', 'invalidate', 'retry'] as const) {
+      act(() => {
+        request = adapter.beginWorkflow('assessment');
+      });
+      act(() => adapter.setWorkflowMessage('assessment', request, 'Reading', progress));
+      act(() => {
+        if (terminal === 'succeed') adapter.succeedWorkflow('assessment', request);
+        if (terminal === 'fail') adapter.failWorkflow('assessment', request, 'Terminal error');
+        if (terminal === 'invalidate') adapter.invalidateWorkflows(['assessment']);
+        if (terminal === 'retry') adapter.beginWorkflow('assessment');
+        adapter.setWorkflowMessage('assessment', request, 'Late reading', progress);
+      });
+      expect(result.current.workflowState.assessment.sourcePreparation).toBeUndefined();
+      if (terminal === 'fail')
+        expect(result.current.workflowState.assessment.error).toBe('Terminal error');
+    }
+  });
   test('clears the diagnostic adapter when hydration resets the current session', () => {
     const { result } = renderHook(() => useWorkspaceControllerState());
     const adapter = {

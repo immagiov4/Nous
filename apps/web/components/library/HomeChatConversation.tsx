@@ -44,6 +44,7 @@ interface HomeChatConversationProps {
   readonly libraryErrorMessage: string | null;
   readonly libraryFloatingArtifactPayloads: LearningArtifactRenderPayload[];
   readonly newCourseLoadingStatus: string;
+  readonly showLoadingStatus?: boolean;
   readonly onConfirmGenerate: () => void;
   readonly onContinueAssessment?: () => void;
   readonly onLibraryArtifactNoteApprove: (
@@ -482,11 +483,13 @@ const UserAvatar = ({ show }: { show: boolean }) => {
 const EmptyConversationState = ({
   hasMessages,
   homeChatMode,
+  showLoadingStatus,
 }: {
   hasMessages: boolean;
   homeChatMode: HomeChatMode;
+  showLoadingStatus: boolean;
 }) => {
-  if (hasMessages) return null;
+  if (hasMessages || (homeChatMode === 'new-course' && !showLoadingStatus)) return null;
   const isNewCourse = homeChatMode === 'new-course';
   const title = isNewCourse ? t('Cosa vorresti imparare?') : t('Interroga la tua libreria');
   const description = isNewCourse
@@ -589,6 +592,7 @@ export default function HomeChatConversation({
   libraryErrorMessage,
   libraryFloatingArtifactPayloads,
   newCourseLoadingStatus,
+  showLoadingStatus = true,
   onConfirmGenerate,
   onContinueAssessment,
   onLibraryArtifactNoteApprove,
@@ -692,7 +696,11 @@ export default function HomeChatConversation({
             : { transform: `translateY(-${scrollOffsetOverride}px)` }
         }
       >
-        <EmptyConversationState hasMessages={hasMessages} homeChatMode={homeChatMode} />
+        <EmptyConversationState
+          hasMessages={hasMessages}
+          homeChatMode={homeChatMode}
+          showLoadingStatus={showLoadingStatus}
+        />
 
         {homeChatMode === 'new-course' ? (
           <AssessmentConversation
@@ -728,7 +736,7 @@ export default function HomeChatConversation({
             onReplaceArtifact={onLibraryArtifactReplace}
           />
         ) : null}
-        {homeChatMode === 'new-course' && isLoading ? (
+        {homeChatMode === 'new-course' && isLoading && showLoadingStatus ? (
           <div className="flex justify-start">
             <div className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-gray-50/80 px-4 py-3 text-sm text-gray-600 dark:border-zinc-600/50 dark:bg-stone-700 dark:text-zinc-300">
               <Loader2 className="h-4 w-4 animate-spin text-orange-500" />

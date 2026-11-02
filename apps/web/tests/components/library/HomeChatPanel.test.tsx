@@ -205,6 +205,27 @@ const buildProps = () => ({
 });
 
 describe('HomeChatPanel', () => {
+  test('shows terminal failed documents without a preparation or stop state', () => {
+    const props = buildProps();
+    render(
+      <HomeChatPanel
+        {...props}
+        homeChatMode="new-course"
+        terminalSourceDocuments={[
+          { id: 'one', name: 'bad.pdf', state: 'error' },
+          { id: 'two', name: 'bad.pdf', state: 'error' },
+        ]}
+        pendingFileWarnings={['bad.pdf: unreadable']}
+      />
+    );
+    const books = screen.getAllByRole('listitem', { name: 'bad.pdf' });
+    expect(books).toHaveLength(2);
+    expect(books.map(book => book.getAttribute('data-source-key'))).toEqual(['one', 'two']);
+    expect(books[0]).toHaveAccessibleDescription('Fonte non utilizzabile');
+    expect(screen.getByText('bad.pdf: unreadable')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Annulla' })).not.toBeInTheDocument();
+  });
+
   test('omits the abandon control when a demo supplies no cancellation action', () => {
     render(<HomeChatPanel {...buildProps()} onCancelNewCourse={undefined} />);
     expect(screen.getByRole('heading', { name: 'Prepariamo il tuo corso' })).toBeInTheDocument();
@@ -679,6 +700,61 @@ describe('HomeChatPanel', () => {
       within(screen.getByRole('region', { name: 'Le tue fonti' })).queryByRole('status')
     ).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Obiettivo');
+  });
+
+  test('shows actual preparation books and progress instead of the selected ZIP, preserving warnings and Stop', () => {
+    const props = buildProps();
+    const progress = {
+      step: 'extraction' as const,
+      completed: 1,
+      total: 3,
+      documents: [
+        { id: 'first', name: '01.md', state: 'done' as const },
+        { id: 'second', name: '02.pdf', state: 'reading' as const },
+        { id: 'third', name: '03.md', state: 'idle' as const },
+      ],
+    };
+    const { rerender } = render(
+      <HomeChatPanel
+        {...props}
+        assessmentMessages={[]}
+        isNewCourseLoading
+        pendingFileName="course.zip"
+        pendingFileWarnings={['Documento ignorato']}
+        sourcePreparationProgress={progress}
+        newCourseLoadingStatus="Reading duplicate status"
+        onCancelNewCourse={vi.fn()}
+      />
+    );
+    expect(screen.queryByText('Cosa vorresti imparare?')).not.toBeInTheDocument();
+    const shelf = screen.getByRole('region', { name: 'Preparazione delle fonti' });
+    expect(within(shelf).getByRole('status')).toHaveTextContent('Lettura fonti 2 di 3');
+    expect(screen.queryByText('Reading duplicate status')).not.toBeInTheDocument();
+    expect(within(shelf).getByRole('listitem', { name: '01.md' })).toHaveAttribute(
+      'data-state',
+      'done'
+    );
+    expect(within(shelf).getByRole('listitem', { name: '02.pdf' })).toHaveAttribute(
+      'aria-current',
+      'true'
+    );
+    expect(within(shelf).getByRole('listitem', { name: '03.md' })).toHaveAttribute(
+      'data-state',
+      'idle'
+    );
+    expect(within(shelf).queryByRole('listitem', { name: 'course.zip' })).not.toBeInTheDocument();
+    expect(within(shelf).getByText('Documento ignorato')).toBeVisible();
+    expect(
+      within(shelf).queryByRole('button', { name: 'Rimuovi allegato' })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Annulla' })).toBeEnabled();
+    rerender(<HomeChatPanel {...props} assessmentMessages={[]} pendingFileName="course.zip" />);
+    expect(screen.queryByText(/Lettura fonti/)).not.toBeInTheDocument();
+    expect(screen.getByRole('listitem', { name: 'course.zip' })).toHaveAttribute(
+      'data-state',
+      'idle'
+    );
+    expect(screen.getByRole('button', { name: 'Rimuovi allegato' })).toBeEnabled();
   });
 
   test('renders the course setup surface in the browser language', () => {

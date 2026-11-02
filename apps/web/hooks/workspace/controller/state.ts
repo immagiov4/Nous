@@ -1,3 +1,4 @@
+import type { SourcePreparationProgress } from '@shared/sourcePreparation';
 import { useEffect, useReducer, useRef, useState } from 'react';
 import type { DiagnosticAdapter } from '../../../components/library/diagnostic/diagnosticFlow.ts';
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
@@ -91,6 +92,7 @@ export const useWorkspaceControllerState = () => {
             message,
             reasoning: undefined,
             progress: undefined,
+            sourcePreparation: undefined,
             error: undefined,
             requestId: nextRequestId,
           },
@@ -114,6 +116,7 @@ export const useWorkspaceControllerState = () => {
             message: undefined,
             reasoning: undefined,
             progress: undefined,
+            sourcePreparation: undefined,
           },
         };
         commitWorkflowState(nextState);
@@ -245,9 +248,17 @@ export const useWorkspaceControllerState = () => {
         });
       },
       setScreenState,
-      setWorkflowMessage: (workflowId: WorkspaceWorkflowId, requestId: number, message: string) => {
+      setWorkflowMessage: (
+        workflowId,
+        requestId,
+        message,
+        sourcePreparation?: SourcePreparationProgress
+      ) => {
         const currentState = workflowStateRef.current;
-        if (currentState[workflowId].requestId !== requestId) {
+        if (
+          currentState[workflowId].requestId !== requestId ||
+          (sourcePreparation && currentState[workflowId].status !== 'pending')
+        ) {
           return;
         }
 
@@ -256,6 +267,7 @@ export const useWorkspaceControllerState = () => {
           [workflowId]: {
             ...currentState[workflowId],
             message,
+            sourcePreparation,
           },
         };
         commitWorkflowState(nextState);
@@ -313,6 +325,7 @@ export const useWorkspaceControllerState = () => {
             message,
             reasoning: undefined,
             progress: undefined,
+            sourcePreparation: undefined,
           },
         };
         commitWorkflowState(nextState);

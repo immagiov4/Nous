@@ -1,9 +1,37 @@
-# Shared source-shelf book
+# Shared 3D source-shelf books
 
-Generated with OpenAI GPT Image through the native `image_gen` tool on 2026-11-01, editing the maintainer-approved candidate A / study 1. One neutral transparent book is reused for every source. CSS multiplies the six palette colours through a cloth-only alpha mask; the page block and edge highlights retain their original colours. Index, title and file type remain live HTML. No source content was sent to the image tool.
+Attachment selection uses the same closed blue/copper/sage Blender book posters as preparation. Index, extension and bounded filename remain live HTML below the artwork; full filenames remain accessible. All palettes share geometry, camera, paper and magnifier materials. No source content is baked into the assets.
 
-Prompt: "Use case: precise-object-edit. Edit target: the attached study 1 linen hardcover book. Produce ONE isolated blank book for a web UI sprite, with actual transparent background. Preserve this same adorable soft rounded silhouette, near-front orthographic camera, slightly visible top pale page block and right page edges, gently convex rounded left spine and delicate woven-linen tactile cloth. Change ONLY the binding cloth to very light near-white neutral greige (almost white, no yellow cast), suitable for later multiply recolouring in CSS. Page block stays natural pale ivory. The broad front cover is blank, no lettering, symbols, numbers or ornament. Keep its front plane nearly frontal with the slight downward-right slope in the reference; upright vertical spine; enough blank face for live HTML titles. Soft diffuse upper-left light preserves weave, rounded bevels and shallow fold by spine. No floor, no pedestal, no baked ground shadow, no rectangular background or checkerboard; transparent pixels everywhere outside book. Whole book fully in frame with small even transparent margin. One single book only. Do not create colour variants."
+## Source-preparation carousel
 
-Export: the 1086 × 1448 RGBA master is cropped to (105,100)–(985,1375), resized with Lanczos to fit 280 × 384 and centred in a 300 × 400 transparent canvas. `book-neutral.webp` uses quality 88 and is 14,224 bytes. `book-cloth-mask.webp` (6,016 bytes) uses the same crop and scale, with the master's alpha restricted to the cloth polygon (116,161), (176,156), (905,196), (905,1354), (865,1370), (150,1300), (116,1280). These two shared assets total 20,240 bytes; palette changes never alter the silhouette. The former tiling cloth/pages atlas is replaced by this render.
+During preparation a single ordered carousel centers and enlarges the active source. Other sources remain beside it; a source that has been visibly read finishes closing as the next source moves to the center. Completed and failed sources retain their distinct marks. Visible names use a single truncated line; the full filename remains accessible.
 
-The cover's affine transform is fitted to the front face of this export. Keep render, mask and transform registered when replacing the artwork. `e2e/nous/tests/sourceShelf.browser.ts` samples the tinted front-face pixels for text contrast, captures both themes at desktop/mobile sizes and records keyboard, upload, removal and reduced-motion evidence outside Git.
+The maintainer accepted the single-book blue/copper/sage 3D artwork on 2026-11-01, including occasional visible frame glitches in the prototype. These are actual Blender cover/spine material variants of the rounded reference model, with a bookmark present from the first pose and a matching magnifier. The camera is constant and turned sheets remain stacked. No private source content was used.
+
+Each `preparation-{blue,copper,sage}-` set contains:
+
+| Suffix | Purpose |
+| --- | --- |
+| `reading.webm` | Cover opens, the first sheet follows, magnifier settles on the first line |
+| `search.webm` | Seamless forward loop: reads two lines, steps aside while one sheet turns, returns |
+| `complete.webm` | Magnifier lifts away, sheets fold back, cover closes softly and rests |
+| `closed.webp` | Queued/error thumbnail and initial poster |
+| `reading.webp` | Reading fallback and clip-boundary poster |
+| `complete.webp` | Completed thumbnail/poster |
+
+Videos are 512×512 VP9 with alpha; posters are lossless WebP with alpha. Clip boundaries use a shared rendered rest pose; the loop wrap differs only by a turned sheet's approximately 1 px thickness.
+
+The scene and encoder share [timeline.py](../../../../../scripts/source-shelf/timeline.py) for frame rate, choreography, clip boundaries and poster frames. Scene generation and seam/clearance checks live in [build.py](../../../../../scripts/source-shelf/build.py) and [encode.py](../../../../../scripts/source-shelf/encode.py).
+
+## Regenerate the assets
+
+Use Blender 3.0 (Eevee), FFmpeg with libvpx-vp9, and Python with Pillow and NumPy. From the repository root, render each palette:
+
+```sh
+blender -b --python-exit-code 1 --python scripts/source-shelf/build.py -- alpha blue
+blender -b --python-exit-code 1 --python scripts/source-shelf/build.py -- alpha copper
+blender -b --python-exit-code 1 --python scripts/source-shelf/build.py -- alpha sage
+python scripts/source-shelf/encode.py apps/web/public/source-shelf
+```
+
+Replace `alpha` with `check` to run geometry and clearance assertions without rendering. Each palette directory receives the editable scene and geometry report; encoding prints pixel seam measurements. Generated working files stay beside the scripts and are ignored by Git.
