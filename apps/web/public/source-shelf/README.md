@@ -19,11 +19,9 @@ Each `preparation-{blue,copper,sage}-` set contains:
 | `reading.webp` | 62 | Reading fallback and clip-boundary poster |
 | `complete.webp` | 196 | Completed thumbnail/poster |
 
-Motion revision (2026-11-02): every clip boundary is the same rendered rest pose (frames 61→62, 141→62 and 141→142 join without a cut; the loop wrap differs only by a turned sheet's ~1 px thickness). When a source is actually done, the playing loop pass stops looping and ends at that pose before the book closes, so completion never cuts mid-gesture; the done mark is immediate. The carousel's book resize and track glide share an 850 ms duration, with a cubic polynomial for the track and CSS cubic-bezier easing for the resize (`utils/motion/glideScroll.ts`, `sourceShelf.css`). Scene source and seam/clearance checks: [`build.py`](../../../../../scripts/source-shelf/build.py) and [`encode.py`](../../../../../scripts/source-shelf/encode.py).
+Videos are 512×512 VP9 with alpha; posters are lossless WebP with alpha. Clip boundaries use a shared rendered rest pose; the loop wrap differs only by a turned sheet's approximately 1 px thickness.
 
-Videos are 512×512 VP9 with alpha; posters are lossless WebP with alpha. Each keyed source retains its native player across polling updates and clip changes. A newly loaded clip explicitly resumes playback when visible. Queued/fast-completed sources use stills. Opaque alpha, failed decoding or rejected autoplay retain static artwork. Reduced motion uses stills and no resize/glide; hidden/unmounted media pauses. Playback never completes or delays backend preparation.
-
-Editable Blender scenes and transparent frame sequences remain in the external approved task artifacts. Native playback, source identity, warnings, cancellation and poster fallback are verified by `test:source-preparation-shelf` and shelf component tests.
+The scene and encoder share [timeline.py](../../../../../scripts/source-shelf/timeline.py) for frame rate, choreography and clip boundaries. The table above describes the currently shipped assets. Scene generation and seam/clearance checks live in [build.py](../../../../../scripts/source-shelf/build.py) and [encode.py](../../../../../scripts/source-shelf/encode.py).
 
 ## Regenerate the assets
 

@@ -12,4 +12,4 @@ with tempfile.TemporaryDirectory(prefix='source-shelf-blender-') as scratch:
     runpy.run_path(str(root / 'build.py'), run_name='__main__')
 cov.stop()
 cov.save()
-cov.xml_report(outfile=str(root / 'coverage-blender.xml'), include=[str(root / 'build.py')])
+cov.xml_report(outfile=str(root / 'coverage-blender.xml'), include=[str(root / 'build.py'), str(root / 'timeline.py')])

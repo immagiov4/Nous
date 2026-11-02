@@ -2,7 +2,7 @@
 # Self-contained scene, including the approved book geometry, materials and lights.
 # Only timing, lens choreography and the (now fixed) camera differ.
 # Usage: blender -b --python-exit-code 1 --python build.py -- check|draft|preview|alpha blue|copper|sage
-import bpy, math, sys, json, os
+import bpy, math, sys, json, os, runpy
 from mathutils import Vector, Matrix
 from pathlib import Path
 from bpy_extras.object_utils import world_to_camera_view
@@ -15,7 +15,8 @@ scene.eevee.use_soft_shadows=True;scene.eevee.taa_render_samples=96
 scene.render.resolution_x=768;scene.render.resolution_y=768;scene.render.resolution_percentage=100
 scene.render.image_settings.file_format='PNG';scene.render.image_settings.color_mode='RGBA'
 scene.render.film_transparent=True
-scene.render.fps=24
+timeline=runpy.run_path(str(Path(__file__).with_name('timeline.py')))
+scene.render.fps=timeline['FPS']
 scene.view_settings.view_transform='Standard';scene.view_settings.look='Medium High Contrast';scene.view_settings.exposure=0;scene.view_settings.gamma=1
 scene.world.color=(.7,.7,.7)
 
@@ -26,17 +27,8 @@ scene.world.color=(.7,.7,.7)
 #   intro    1..L0-1  cover swings open (eased, 1.5 s) and the first sheet follows
 #   loop     L0..L1-1 lens reads two lines, steps aside, one sheet turns, lens returns
 #   complete L1..end  lens lifts away, sheets fold back, cover closes softly
-L0=62;P=80;L1=L0+P
-T={
- 'open':(3,39),
- 'turns':[(31,53),(L0+46,L0+66)],
- 'lens_out':(L1,L1+12),
- 'pages_close':(L1+6,L1+34),
- 'cover_close':(L1+8,L1+40),
- 'bookmark':(L1+40,L1+41),
- 'end':L1+54,
- 'loop':(L0,L1),
-}
+T=timeline['T']
+L0,L1=T['loop']
 Z=.54;HOP=.60;LIFT=.70;ASIDE=1.32
 S=(-.40,.62,Z)   # rest pose at the head of the first line: every clip boundary
 LENS=[

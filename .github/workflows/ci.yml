@@ -80,7 +80,7 @@ jobs:
       - name: Verify source-shelf generator and measure Python coverage
         shell: bash
         run: |
-          python3 -m pip install --target "$RUNNER_TEMP/source-shelf-python" coverage==6.5.0 numpy==2.5.4 pillow==13.0.0
+          python3 -m pip install --target "$RUNNER_TEMP/source-shelf-python" coverage==7.6.1 numpy==2.5.4 pillow==13.0.0
           curl --fail --location --silent --show-error https://download.blender.org/release/Blender3.0/blender-3.0.0-linux-x64.tar.xz -o "$RUNNER_TEMP/blender.tar.xz"
           echo "19b09dfcf5d3f3a068827454f0a704a9aa9c826350f73016121afef5f4d287ce  $RUNNER_TEMP/blender.tar.xz" | sha256sum --check
           tar -xf "$RUNNER_TEMP/blender.tar.xz" -C "$RUNNER_TEMP"
