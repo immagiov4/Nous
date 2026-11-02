@@ -215,6 +215,9 @@
   --source-carousel-glide: var(--source-carousel-glide-duration) cubic-bezier(0.65, 0, 0.35, 1);
   --book-width: 128px;
   --book-height: 208px;
+  --source-book-container-height: 184px;
+  --source-book-art-height: 128px;
+  --source-book-mark-inset: 2rem;
 }
 .source-shelf[data-preparing] .source-shelf-header {
   padding-top: 0.5rem;
@@ -236,7 +239,7 @@
   border-radius: 0.75rem;
 }
 .source-shelf[data-preparing] .source-book {
-  height: 184px;
+  height: var(--source-book-container-height);
   display: flex;
   align-items: center;
   transition: transform var(--source-carousel-glide);
@@ -262,7 +265,7 @@
   pointer-events: none;
 }
 .source-shelf[data-preparing] .source-book-preparation {
-  height: 128px;
+  height: var(--source-book-art-height);
 }
 .source-book-caption {
   display: flex;
@@ -279,7 +282,11 @@
 }
 .source-shelf[data-preparing] .source-book-done,
 .source-shelf[data-preparing] .source-book-error {
-  top: calc((184px - 128px) / 2 + 2rem);
+  top: calc(
+    (var(--source-book-container-height) - var(--source-book-art-height)) /
+    2 +
+    var(--source-book-mark-inset)
+  );
   right: 3px;
 }
 /* A finished mark settles in rather than popping while its book moves aside. */
@@ -316,16 +323,9 @@
   .source-shelf[data-preparing] {
     --book-width: 100px;
     --book-height: 160px;
-  }
-  .source-shelf[data-preparing] .source-book {
-    height: 136px;
-  }
-  .source-shelf[data-preparing] .source-book-preparation {
-    height: 100px;
-  }
-  .source-shelf[data-preparing] .source-book-done,
-  .source-shelf[data-preparing] .source-book-error {
-    top: calc((136px - 100px) / 2 + 1rem);
+    --source-book-container-height: 136px;
+    --source-book-art-height: 100px;
+    --source-book-mark-inset: 1rem;
   }
   .source-shelf[data-preparing] .source-shelf-books {
     padding-top: 0.375rem;

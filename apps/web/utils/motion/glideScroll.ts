@@ -20,6 +20,8 @@ export function glideScrollBy(element: HTMLElement, left: number, duration = CAR
     cancelAnimationFrame(frame);
     element.removeEventListener('wheel', cancel);
     element.removeEventListener('pointerdown', cancel);
+    element.removeEventListener('keydown', cancel);
+    element.removeEventListener('focusin', cancel);
     if (active.get(element) === cancel) {
       active.delete(element);
       element.style.scrollBehavior = '';
@@ -33,6 +35,8 @@ export function glideScrollBy(element: HTMLElement, left: number, duration = CAR
   };
   element.addEventListener('wheel', cancel, { passive: true });
   element.addEventListener('pointerdown', cancel);
+  element.addEventListener('keydown', cancel);
+  element.addEventListener('focusin', cancel);
   active.set(element, cancel);
   frame = requestAnimationFrame(step);
   return cancel;
