@@ -120,10 +120,10 @@
 }
 
 .source-book-title {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  display: block;
   overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .source-book-meta {
   display: flex;
@@ -275,12 +275,8 @@
 }
 .source-book-caption .source-book-title {
   min-width: 0;
-  min-height: 2.8em;
   max-width: 100%;
-  -webkit-line-clamp: 2;
-  overflow-wrap: anywhere;
   font: 0.75rem / 1.4 var(--font-sans);
-  text-wrap: pretty;
 }
 .source-shelf[data-preparing] .source-book-done,
 .source-shelf[data-preparing] .source-book-error {
@@ -299,13 +295,6 @@
   }
 }
 
-.source-shelf[data-preparing] .source-book-caption .source-book-title {
-  display: block;
-  min-height: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
 @media (prefers-reduced-motion: reduce) {
   .source-shelf[data-preparing] .source-shelf-books {
     scroll-behavior: auto;

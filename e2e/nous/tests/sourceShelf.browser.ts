@@ -76,6 +76,24 @@ await withMemoryProjectBrowserStack(
           const shelf = page.getByRole('region', { name: 'Le tue fonti', exact: true });
           const books = shelf.locator('.source-shelf-item');
           assert.equal(await books.count(), count);
+          const captions = await books.locator('.source-book-title').evaluateAll(nodes =>
+            nodes.map(node => {
+              const style = getComputedStyle(node);
+              return {
+                whiteSpace: style.whiteSpace,
+                overflow: style.textOverflow,
+                height: node.getBoundingClientRect().height,
+                lineHeight: Number.parseFloat(style.lineHeight),
+              };
+            })
+          );
+          for (const caption of captions) {
+            assert.equal(caption.whiteSpace, 'nowrap');
+            assert.equal(caption.overflow, 'ellipsis');
+            assert(
+              caption.height > 0 && Math.round(caption.height) <= Math.round(caption.lineHeight)
+            );
+          }
           assert.equal(
             await books.first().locator('.source-book-title').textContent(),
             '01 Probabilità concetti di base'
