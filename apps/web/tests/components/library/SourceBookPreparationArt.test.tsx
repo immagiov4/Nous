@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import SourceBookPreparationArt from '../../../components/library/SourceBookPreparationArt.tsx';
 import { glideScrollBy } from '../../../utils/motion/glideScroll.ts';
@@ -17,6 +17,25 @@ afterEach(() => {
 const art = (state: 'reading' | 'done') => <SourceBookPreparationArt state={state} color="sage" />;
 
 describe('SourceBookPreparationArt motion', () => {
+  test('resumes interrupted playback after the tab becomes visible', async () => {
+    let rejectPlay!: (error: Error) => void;
+    vi.mocked(HTMLMediaElement.prototype.play).mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectPlay = reject;
+        })
+    );
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    const { container } = render(art('reading'));
+    const video = container.querySelector('video');
+    visibility.mockReturnValue('hidden');
+    fireEvent(document, new Event('visibilitychange'));
+    await act(async () => rejectPlay(new DOMException('Playback paused', 'AbortError')));
+    expect(container.querySelector('video')).toBe(video);
+    visibility.mockReturnValue('visible');
+    fireEvent(document, new Event('visibilitychange'));
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2);
+  });
   test('finishes the current reading pass before closing, without cutting mid-gesture', () => {
     const { container, rerender } = render(art('reading'));
     const video = container.querySelector('video');
@@ -83,16 +102,20 @@ describe('SourceBookPreparationArt motion', () => {
 
 describe('glideScrollBy', () => {
   test('moves on the shared ease-in-out curve, lands exactly, and yields to user input', () => {
-    const frames: FrameRequestCallback[] = [];
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
-      frames.push(callback)
-    );
-    vi.stubGlobal('cancelAnimationFrame', () => frames.splice(0));
+    const frames = new Map<number, FrameRequestCallback>();
+    let frameId = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++frameId, callback);
+      return frameId;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
     const now = vi.spyOn(performance, 'now').mockReturnValue(0);
     const list = document.createElement('div');
     list.scrollLeft = 0;
     const run = (time: number) => {
-      for (const frame of frames.splice(0)) frame(time);
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const frame of pending) frame(time);
     };
 
     glideScrollBy(list, 200, 800);
@@ -102,12 +125,15 @@ describe('glideScrollBy', () => {
     expect(list.scrollLeft).toBeCloseTo(100);
     run(800);
     expect(list.scrollLeft).toBe(200);
-    expect(frames).toHaveLength(0);
+    expect(frames.size).toBe(0);
 
     now.mockReturnValue(1000);
     glideScrollBy(list, -200, 800);
+    const unrelated = vi.fn();
+    requestAnimationFrame(unrelated);
     fireEvent.wheel(list);
     run(1400);
     expect(list.scrollLeft).toBe(200);
+    expect(unrelated).toHaveBeenCalledOnce();
   });
 });

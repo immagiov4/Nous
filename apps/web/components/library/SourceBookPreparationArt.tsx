@@ -62,8 +62,8 @@ function PreparationVideo({
     const synchronize = () => {
       if (document.visibilityState === 'hidden') video.pause();
       else
-        void video.play().catch(() => {
-          if (current) setFailed(true);
+        void video.play().catch(error => {
+          if (current && error.name !== 'AbortError') setFailed(true);
         });
     };
     synchronize();
@@ -100,8 +100,13 @@ function PreparationVideo({
         }
         if (document.visibilityState === 'hidden') return;
         const loadedSource = video.currentSrc;
-        void video.play().catch(() => {
-          if (video.isConnected && video.currentSrc === loadedSource && video.src === loadedSource)
+        void video.play().catch(error => {
+          if (
+            error.name !== 'AbortError' &&
+            video.isConnected &&
+            video.currentSrc === loadedSource &&
+            video.src === loadedSource
+          )
             setFailed(true);
         });
       }}

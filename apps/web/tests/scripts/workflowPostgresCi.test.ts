@@ -121,6 +121,13 @@ describe('workflow PostgreSQL CI contract', () => {
     ).toEqual({
       NOUS_E2E_DATA: `\${{ runner.temp }}/nous-recovery`,
     });
+    expect(
+      browser.steps.findIndex(step => step.name === 'Upload interview recovery evidence')
+    ).toBeGreaterThan(
+      browser.steps.findIndex(
+        step => step.name === 'Verify interview draft recovery through the library'
+      )
+    );
     expect(browser.steps.find(step => step.name === 'Upload interview recovery evidence')).toEqual({
       name: 'Upload interview recovery evidence',
       if: 'always()',

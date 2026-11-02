@@ -19,8 +19,21 @@ Each `preparation-{blue,copper,sage}-` set contains:
 | `reading.webp` | 62 | Reading fallback and clip-boundary poster |
 | `complete.webp` | 196 | Completed thumbnail/poster |
 
-Motion revision (2026-11-02): every clip boundary is the same rendered rest pose (frames 61→62, 141→62 and 141→142 join without a cut; the loop wrap differs only by a turned sheet's ~1 px thickness). When a source is actually done, the playing loop pass stops looping and ends at that pose before the book closes, so completion never cuts mid-gesture; the done mark is immediate. The carousel's book resize and track glide share one 850 ms ease-in-out curve (`utils/motion/glideScroll.ts`, `sourceShelf.css`). Scene source and seam/clearance checks: external `pr-533-motion-opus/build.py` and `encode.py`.
+Motion revision (2026-11-02): every clip boundary is the same rendered rest pose (frames 61→62, 141→62 and 141→142 join without a cut; the loop wrap differs only by a turned sheet's ~1 px thickness). When a source is actually done, the playing loop pass stops looping and ends at that pose before the book closes, so completion never cuts mid-gesture; the done mark is immediate. The carousel's book resize and track glide share an 850 ms duration, with a cubic polynomial for the track and CSS cubic-bezier easing for the resize (`utils/motion/glideScroll.ts`, `sourceShelf.css`). Scene source and seam/clearance checks: [`build.py`](../../../../../scripts/source-shelf/build.py) and [`encode.py`](../../../../../scripts/source-shelf/encode.py).
 
 Videos are 512×512 VP9 with alpha; posters are lossless WebP with alpha. Each keyed source retains its native player across polling updates and clip changes. A newly loaded clip explicitly resumes playback when visible. Queued/fast-completed sources use stills. Opaque alpha, failed decoding or rejected autoplay retain static artwork. Reduced motion uses stills and no resize/glide; hidden/unmounted media pauses. Playback never completes or delays backend preparation.
 
 Editable Blender scenes and transparent frame sequences remain in the external approved task artifacts. Native playback, source identity, warnings, cancellation and poster fallback are verified by `test:source-preparation-shelf` and shelf component tests.
+
+## Regenerate the assets
+
+Use Blender 3.0 (Eevee), FFmpeg with libvpx-vp9, and Python with Pillow and NumPy. From the repository root, render each palette:
+
+```sh
+blender -b --python-exit-code 1 --python scripts/source-shelf/build.py -- alpha blue
+blender -b --python-exit-code 1 --python scripts/source-shelf/build.py -- alpha copper
+blender -b --python-exit-code 1 --python scripts/source-shelf/build.py -- alpha sage
+python scripts/source-shelf/encode.py apps/web/public/source-shelf
+```
+
+Replace `alpha` with `check` to run geometry and clearance assertions without rendering. Each palette directory receives the editable scene and geometry report; encoding prints pixel seam measurements. Generated working files stay beside the scripts and are ignored by Git.

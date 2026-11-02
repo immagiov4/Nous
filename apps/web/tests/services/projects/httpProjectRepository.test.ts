@@ -1198,7 +1198,8 @@ test.each([
     }
     if (
       (init?.method === 'POST' && url.endsWith('/complete')) ||
-      (init?.method ?? 'GET') === 'GET'
+      ((init?.method ?? 'GET') === 'GET' &&
+        /^\/api\/projects\/import\/chunks\/[^/]+$/.test(new URL(url).pathname))
     ) {
       return {
         ok: true,
