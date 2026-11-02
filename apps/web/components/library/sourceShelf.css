@@ -208,10 +208,12 @@
   flex-direction: column;
 }
 
-/* Preparation keeps one large active book above the ordered, static source strip. */
+/* The active book grows within the ordered carousel. */
 .source-shelf[data-preparing] {
   min-height: 0;
   overflow-y: auto;
+  /* Matches CAROUSEL_GLIDE_MS in utils/motion/glideScroll.ts. */
+  --source-carousel-glide: 850ms cubic-bezier(0.65, 0, 0.35, 1);
   --book-width: 128px;
   --book-height: 208px;
 }
@@ -222,6 +224,8 @@
   padding: 0 1rem 0.5rem;
 }
 .source-shelf[data-preparing] .source-shelf-books {
+  /* Keyboard focus moves the track smoothly too; glideScrollBy overrides it while gliding. */
+  scroll-behavior: smooth;
   gap: 0.5rem;
   padding: 0.5rem calc((100% - var(--book-width)) / 2);
   scroll-padding-inline: calc((100% - var(--book-width)) / 2);
@@ -236,7 +240,7 @@
   height: 184px;
   display: flex;
   align-items: center;
-  transition: transform 350ms ease;
+  transition: transform var(--source-carousel-glide);
 }
 .source-shelf[data-preparing] .source-shelf-item[aria-current="true"] .source-book {
   transform: scale(1.5);
@@ -283,6 +287,17 @@
   top: calc((184px - 128px) / 2 + 2rem);
   right: 3px;
 }
+/* A finished mark settles in rather than popping while its book moves aside. */
+.source-shelf[data-preparing] .source-book-done,
+.source-shelf[data-preparing] .source-book-error {
+  animation: source-book-mark 420ms cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+@keyframes source-book-mark {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
 
 .source-shelf[data-preparing] .source-book-caption .source-book-title {
   display: block;
@@ -292,8 +307,15 @@
   text-overflow: ellipsis;
 }
 @media (prefers-reduced-motion: reduce) {
+  .source-shelf[data-preparing] .source-shelf-books {
+    scroll-behavior: auto;
+  }
   .source-shelf[data-preparing] .source-book {
     transition: none;
+  }
+  .source-shelf[data-preparing] .source-book-done,
+  .source-shelf[data-preparing] .source-book-error {
+    animation: none;
   }
 }
 

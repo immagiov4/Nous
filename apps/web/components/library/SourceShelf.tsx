@@ -2,6 +2,7 @@ import type { SourcePreparationProgress } from '@shared/sourcePreparation';
 import { Check, CircleAlert, Paperclip, X } from 'lucide-react';
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { glideScrollBy } from '../../utils/motion/glideScroll.ts';
 import { useShouldAnimate } from '../../utils/motion/index.ts';
 import SourceBookPreparationArt, {
   PREPARATION_PALETTE,
@@ -45,7 +46,9 @@ function useReadingBookReveal(sources: readonly ShelfSource[], readingKey: strin
     const bounds = list.children[index].getBoundingClientRect();
     const listBounds = list.getBoundingClientRect();
     const offset = bounds.left + bounds.width / 2 - (listBounds.left + listBounds.width / 2);
-    if (offset !== 0) list.scrollBy({ left: offset, behavior: shouldAnimate ? 'smooth' : 'auto' });
+    if (offset === 0) return;
+    if (shouldAnimate) glideScrollBy(list, offset);
+    else list.scrollBy({ left: offset });
   }, [sources, readingKey, shouldAnimate]);
   return listRef;
 }
@@ -90,7 +93,7 @@ function SourcePreparationStatus({
   const completed = sources.filter(
     source => source.state === 'done' || source.state === 'error'
   ).length;
-  const reading = sources.some(source => source.state === 'reading');
+  const readingIndex = sources.findIndex(source => source.state === 'reading');
   const isReading =
     preparationProgress.step === 'extraction' || preparationProgress.step === 'pdf-transcription';
   return (
@@ -98,7 +101,7 @@ function SourcePreparationStatus({
       <span className={isReading ? 'sr-only' : undefined}>
         {isReading
           ? t('Lettura fonti {current} di {total}', {
-              current: completed + (reading ? 1 : 0),
+              current: readingIndex >= 0 ? readingIndex + 1 : completed,
               total: sources.length,
             })
           : preparationStatus}
@@ -234,7 +237,6 @@ export default function SourceShelf({
                   <div className="source-book-caption" aria-hidden="true">
                     {!preparationProgress ? (
                       <span className="source-book-meta">
-                        <span>{String(index + 1).padStart(2, '0')}</span>
                         <span>{source.name.match(/\.([^.]+)$/)?.[1]}</span>
                       </span>
                     ) : null}

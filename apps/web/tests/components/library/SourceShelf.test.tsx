@@ -72,6 +72,9 @@ describe('SourceShelf', () => {
       />
     );
     expect(books[1].querySelector('video')).toBe(video);
+    expect(video).toHaveAttribute('data-phase', 'search');
+    expect(video).not.toHaveAttribute('loop');
+    fireEvent.ended(video);
     expect(video).toHaveAttribute('src', '/source-shelf/preparation-copper-complete.webm');
     expect(video).not.toHaveAttribute('loop');
     expect(books[2].querySelector('video')).toHaveAttribute(
@@ -107,10 +110,35 @@ describe('SourceShelf', () => {
       />
     );
     expect(first.querySelector('video')).toBe(video);
-    expect(video).toHaveAttribute('data-phase', 'complete');
+    expect(video).toHaveAttribute('data-phase', 'search');
     expect(video).not.toHaveAttribute('loop');
+    fireEvent.ended(video);
+    expect(video).toHaveAttribute('data-phase', 'complete');
     expect(second).toHaveAttribute('aria-current', 'true');
     expect(second.querySelector('video')).toHaveAttribute('data-phase', 'reading');
+  });
+
+  test('announces the selected source ordinal when later sources finish first', () => {
+    const progress = { step: 'extraction' as const, completed: 1, total: 2 };
+    const firstReading = [
+      { ...sources[0], state: 'reading' as const },
+      { ...sources[1], state: 'done' as const },
+    ];
+    const { rerender } = render(
+      <SourceShelf sources={firstReading} preparationProgress={progress} />
+    );
+    expect(screen.getByRole('listitem', { name: sources[0].name })).toHaveAttribute(
+      'aria-current',
+      'true'
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('Lettura fonti 1 di 2');
+    rerender(
+      <SourceShelf
+        sources={[{ ...firstReading[0], state: 'done' }, firstReading[1]]}
+        preparationProgress={{ ...progress, completed: 2 }}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('Lettura fonti 2 di 2');
   });
 
   test('finishes opening before closing a source that completed during the opening', () => {
@@ -271,8 +299,12 @@ describe('SourceShelf', () => {
     const books = screen.getAllByRole('listitem');
     list.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200);
     books[2].getBoundingClientRect = () => new DOMRect(500, 0, 150, 200);
-    const reveal = vi.fn();
-    list.scrollBy = reveal;
+    let frame: FrameRequestCallback | undefined;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frame = callback;
+      return 1;
+    });
+    vi.spyOn(performance, 'now').mockReturnValue(0);
     books[2].scrollIntoView = vi.fn();
     act(() => books[0].focus());
     const reading = sources.map((source, index) => ({
@@ -280,12 +312,16 @@ describe('SourceShelf', () => {
       state: index === 2 ? ('reading' as const) : ('idle' as const),
     }));
     rerender(<SourceShelf sources={reading} />);
-    expect(reveal).toHaveBeenCalledWith(expect.objectContaining({ left: 425 }));
+    expect(frame).toBeDefined();
+    act(() => frame?.(850));
+    expect(list.scrollLeft).toBe(425);
+    frame = undefined;
     expect(books[0]).toHaveFocus();
     rerender(
       <SourceShelf sources={reading.map(source => ({ ...source }))} preparationStatus="next page" />
     );
-    expect(reveal).toHaveBeenCalledOnce();
+    expect(frame).toBeUndefined();
+    vi.unstubAllGlobals();
   });
   test('pauses hidden media and restarts a replacement source at its opening instead of the old loop', async () => {
     const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
@@ -435,7 +471,7 @@ describe('SourceShelf', () => {
     ).toBeVisible();
   });
 
-  test('renders ordered books with derived titles, indices and accessible full filenames', () => {
+  test('renders ordered books with derived titles and accessible full filenames', () => {
     render(<SourceShelf sources={sources} />);
     const books = within(screen.getByRole('list', { name: 'Le tue fonti' })).getAllByRole(
       'listitem'
@@ -444,11 +480,18 @@ describe('SourceShelf', () => {
     for (const [index, source] of sources.entries()) {
       expect(books[index]).toHaveAccessibleName(source.name);
       expect(books[index]).toHaveAttribute('title', source.name);
-      expect(within(books[index]).getByText(String(index + 1).padStart(2, '0'))).toBeVisible();
     }
     expect(within(books[0]).getByText('Probabilità concetti di base')).toBeVisible();
     expect(within(books[1]).getByText('Il teorema di Bayes.v2')).toBeVisible();
     expect(within(books[2]).getByText('Appunti')).toBeVisible();
+  });
+
+  test('does not add a second number to an already numbered filename', () => {
+    render(<SourceShelf sources={[{ key: 'numbered', name: '03 Il teorema di Bayes.md' }]} />);
+    const book = screen.getByRole('listitem', { name: '03 Il teorema di Bayes.md' });
+    expect(within(book).getByText('03 Il teorema di Bayes')).toBeVisible();
+    expect(within(book).queryByText('01')).not.toBeInTheDocument();
+    expect(within(book).getByText('md')).toBeVisible();
   });
 
   test('keeps all 32 sources and gives adjacent covers different palette colours', () => {

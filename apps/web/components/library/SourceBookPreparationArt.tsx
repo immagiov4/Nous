@@ -1,5 +1,5 @@
 import type { SourcePreparationProgress } from '@shared/sourcePreparation';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useShouldAnimate } from '../../utils/motion/index.ts';
 
 type SourceState = NonNullable<SourcePreparationProgress['documents']>[number]['state'];
@@ -27,6 +27,10 @@ function hasTransparentFrame(video: HTMLVideoElement): boolean {
   return context.getImageData(0, 0, 1, 1).data[3] === 0;
 }
 
+type Clip = 'reading' | 'search' | 'complete';
+
+// Every clip starts and ends on the same rendered rest pose, so a clip boundary never cuts
+// mid-gesture: completion lets the current reading pass end before the book closes.
 function PreparationVideo({
   completing,
   color,
@@ -36,12 +40,21 @@ function PreparationVideo({
   readonly color: PreparationColor;
   readonly onPlaying: () => void;
 }) {
-  const [searching, setSearching] = useState(false);
+  const [clip, setClip] = useState<Clip>('reading');
   const [settled, setSettled] = useState(false);
   const [failed, setFailed] = useState(false);
-  const readingClip = searching ? 'search' : 'reading';
-  const clip = completing && searching ? 'complete' : readingClip;
+  const [started, setStarted] = useState(false);
   const poster = sourcePreparationPoster(completing ? 'done' : 'reading', color);
+  // Browsers paint the poster while a new clip source loads. Decode the boundary and final
+  // stills up front so a clip switch never shows a stale (closed) poster for a frame.
+  useEffect(() => {
+    for (const state of ['reading', 'done'] as const)
+      new Image().src = sourcePreparationPoster(state, color);
+  }, [color]);
+  const finishClip = () => {
+    if (clip === 'complete') setSettled(true);
+    else setClip(completing ? 'complete' : 'search');
+  };
 
   const bindVideo = useCallback((video: HTMLVideoElement | null) => {
     if (!video) return;
@@ -67,14 +80,18 @@ function PreparationVideo({
     <video
       ref={bindVideo}
       src={`${ART_ROOT}${color}-${clip}.webm`}
-      poster={sourcePreparationPoster(searching || completing ? 'reading' : 'idle', color)}
+      // Switch to the rest-pose poster once playback hides it, never at the clip switch itself.
+      poster={sourcePreparationPoster(started ? 'reading' : 'idle', color)}
       autoPlay
       muted
       playsInline
-      loop={searching && !completing}
+      loop={clip === 'search' && !completing}
       preload="auto"
       data-phase={clip}
-      onPlaying={onPlaying}
+      onPlaying={() => {
+        setStarted(true);
+        onPlaying();
+      }}
       onLoadedData={event => {
         const video = event.currentTarget;
         if (!hasTransparentFrame(video)) {
@@ -89,7 +106,7 @@ function PreparationVideo({
         });
       }}
       onError={() => setFailed(true)}
-      onEnded={() => (completing && searching ? setSettled(true) : setSearching(true))}
+      onEnded={finishClip}
     />
   );
 }
@@ -104,12 +121,19 @@ export default function SourceBookPreparationArt({
 }) {
   const shouldAnimate = useShouldAnimate();
   const [hasPlayed, setHasPlayed] = useState(false);
-  const animate = shouldAnimate && (state === 'reading' || (state === 'done' && hasPlayed));
+  // A new reading run gets a fresh player; a run that ended keeps its settled still.
+  const [run, setRun] = useState({ state, count: 0 });
+  if (run.state !== state) setRun({ state, count: run.count + (state === 'reading' ? 1 : 0) });
+  // A book that was visibly reading never snaps shut: whatever state follows (done, error or
+  // another source taking the stage), it finishes its pass and closes. The closing clip's last
+  // frame is pixel-identical to the closed still.
+  const animate = shouldAnimate && (state === 'reading' || hasPlayed);
   return (
     <div className="source-book-preparation" aria-hidden="true" inert>
       {animate ? (
         <PreparationVideo
-          completing={state === 'done'}
+          key={run.count}
+          completing={state !== 'reading'}
           color={color}
           onPlaying={() => setHasPlayed(true)}
         />

@@ -145,7 +145,11 @@ for (const scene of scenes) {
         heldUploadId = uploadId;
         const response = await route.fetch();
         const body = await response.json();
-        if (!body.complete) return route.fulfill({ response });
+        if (!body.complete) {
+          // Keep the scripted document states monotonic while the real import finishes.
+          delete body.progress;
+          return route.fulfill({ json: body });
+        }
         projectId = body.snapshot.id;
         const activeIndex =
           phase === 'reveal'
@@ -506,10 +510,25 @@ for (const scene of scenes) {
       snapshots.push({ phase, documents, reveal, caption, clippedTitle });
       phase = 'saving';
       await shelf.getByText(/Salvataggio fonti/).waitFor();
-      await page.waitForFunction(() => {
-        const books = [...document.querySelectorAll('.source-shelf-item')];
-        return books.length > 0 && books.every(book => book.getAttribute('data-state') === 'done');
-      });
+      try {
+        await page.waitForFunction(() => {
+          const books = [...document.querySelectorAll('.source-shelf-item')];
+          return (
+            books.length > 0 && books.every(book => book.getAttribute('data-state') === 'done')
+          );
+        });
+      } catch (error) {
+        console.error(
+          'Saving source states:',
+          await books.evaluateAll(nodes =>
+            nodes.map(node => ({
+              key: node.getAttribute('data-source-key'),
+              state: node.getAttribute('data-state'),
+            }))
+          )
+        );
+        throw error;
+      }
       assert.deepEqual(
         await books.evaluateAll(nodes => nodes.map(node => node.getAttribute('data-state'))),
         sourceNames.map(() => 'done')

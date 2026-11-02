@@ -10,15 +10,17 @@ The maintainer accepted the single-book blue/copper/sage 3D artwork on 2026-11-0
 
 Each `preparation-{blue,copper,sage}-` set contains:
 
-| Suffix | Source frames | Purpose |
+| Suffix | Source frames (24 fps) | Purpose |
 | --- | --- | --- |
-| `reading.webm` | 1–152, 24 fps | Opening and forward reading |
-| `search.webm` | 153–178, 12 fps | Forward closed search trajectory, never reversed footage |
-| `complete.webm` | 179–230, 24 fps | Closure only when the source is actually done |
+| `reading.webm` | 1–61 | Cover eases open over 1.5 s, the first sheet follows, magnifier settles on the first line |
+| `search.webm` | 62–141 | Seamless forward loop: reads two lines, steps aside while one sheet turns, returns |
+| `complete.webm` | 142–196 | Magnifier lifts away, sheets fold back, cover closes softly and rests |
 | `closed.webp` | 1 | Queued/error thumbnail and initial poster |
-| `reading.webp` | 152 | Reading fallback and clip-boundary poster |
-| `complete.webp` | 230 | Completed thumbnail/poster |
+| `reading.webp` | 62 | Reading fallback and clip-boundary poster |
+| `complete.webp` | 196 | Completed thumbnail/poster |
 
-Videos are 512×512 VP9 with alpha; posters are lossless WebP with alpha. Each keyed source retains its native player across polling updates and clip changes. When a reading source completes during its opening, it finishes opening and then closes without looping while the next source starts. A newly loaded clip explicitly resumes playback when visible. Queued/fast-completed sources use stills. Opaque alpha, failed decoding or rejected autoplay retain static artwork. Reduced motion uses stills; hidden/unmounted media pauses. Playback never completes or delays backend preparation.
+Motion revision (2026-11-02): every clip boundary is the same rendered rest pose (frames 61→62, 141→62 and 141→142 join without a cut; the loop wrap differs only by a turned sheet's ~1 px thickness). When a source is actually done, the playing loop pass stops looping and ends at that pose before the book closes, so completion never cuts mid-gesture; the done mark is immediate. The carousel's book resize and track glide share one 850 ms ease-in-out curve (`utils/motion/glideScroll.ts`, `sourceShelf.css`). Scene source and seam/clearance checks: external `pr-533-motion-opus/build.py` and `encode.py`.
+
+Videos are 512×512 VP9 with alpha; posters are lossless WebP with alpha. Each keyed source retains its native player across polling updates and clip changes. A newly loaded clip explicitly resumes playback when visible. Queued/fast-completed sources use stills. Opaque alpha, failed decoding or rejected autoplay retain static artwork. Reduced motion uses stills and no resize/glide; hidden/unmounted media pauses. Playback never completes or delays backend preparation.
 
 Editable Blender scenes and transparent frame sequences remain in the external approved task artifacts. Native playback, source identity, warnings, cancellation and poster fallback are verified by `test:source-preparation-shelf` and shelf component tests.
