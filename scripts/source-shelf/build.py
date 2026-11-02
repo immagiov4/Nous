@@ -6,7 +6,10 @@ import bpy, math, sys, json, os, runpy
 from mathutils import Vector, Matrix
 from pathlib import Path
 from bpy_extras.object_utils import world_to_camera_view
-OUT=Path(os.environ.get('SOURCE_SHELF_WORK_DIR', Path(__file__).parent)) / sys.argv[-1]; OUT.mkdir(exist_ok=True)
+PALETTES=json.loads((Path(__file__).resolve().parents[2] / 'packages/shared-types/sourceShelfPalettes.json').read_text())
+palette=next((name for name in PALETTES if name==sys.argv[-1]), None)
+if palette is None:raise ValueError('Choose a palette from sourceShelfPalettes.json')
+OUT=Path(os.environ.get('SOURCE_SHELF_WORK_DIR', Path(__file__).parent)) / palette; OUT.mkdir(exist_ok=True)
 bpy.ops.object.select_all(action='SELECT'); bpy.ops.object.delete(use_global=False)
 scene=bpy.context.scene
 scene.render.engine='BLENDER_EEVEE'
@@ -54,8 +57,7 @@ def mat(name,hexval,rough=.4,metal=0):
  m=bpy.data.materials.new(name);m.diffuse_color=(*rgb,1);m.use_nodes=True
  p=m.node_tree.nodes.get(PRINCIPLED_BSDF);p.inputs['Base Color'].default_value=(*rgb,1);p.inputs['Roughness'].default_value=rough;p.inputs['Metallic'].default_value=metal
  return m
-PALETTES=json.loads((Path(__file__).resolve().parents[2] / 'packages/shared-types/sourceShelfPalettes.json').read_text())
-cover_color,spine_color=PALETTES[sys.argv[-1]]
+cover_color,spine_color=PALETTES[palette]
 blue=mat('Source satin cover',cover_color,.32)
 blueedge=mat('Source bound spine',spine_color,.32)
 purple=mat('Lavender satin cover','#9683E4',.32)
@@ -208,28 +210,34 @@ def sheet_gap(ob,points,margin):
  if max(zs)<0:return -hz-max(zs)
  return -1
 
-def verify_clearance(report,lens,parts,lens_local,obstacles,cam0):
+def verify_lens_clearance(report,lens,parts,lens_local,obstacles,frame):
  margin=.03
+ if max(lens.matrix_world.to_scale())<1e-3:return
+ pts=[o.matrix_world@c for o in parts for c in lens_local[o.name]]
+ for ob in obstacles:
+  gap=sheet_gap(ob,pts,margin)
+  if gap is not None and gap<report['minLensClearance']:
+   report['minLensClearance']=gap;report['minLensClearanceAt']=[frame,ob.name]
+
+def verify_clearance(report,lens,parts,lens_local,obstacles,cam0):
  for f in range(1,T['end']+1):
   for sub in (0,.25,.5,.75):
    scene.frame_set(f,subframe=sub)
    if any(abs(a-b)>1e-9 for r1,r2 in zip(cam.matrix_world,cam0[0]) for a,b in zip(r1,r2)) or cam.data.ortho_scale!=cam0[1]:
     report['cameraConstant']=False
-   if max(lens.matrix_world.to_scale())<1e-3:continue
-   pts=[o.matrix_world@c for o in parts for c in lens_local[o.name]]
-   for ob in obstacles:
-    gap=sheet_gap(ob,pts,margin)
-    if gap is not None and gap<report['minLensClearance']:
-     report['minLensClearance']=gap;report['minLensClearanceAt']=[f+sub,ob.name]
+   verify_lens_clearance(report,lens,parts,lens_local,obstacles,f+sub)
+
+def verify_visible_bounds(report):
+ for o in mesh_objects():
+  if max(o.matrix_world.to_scale())<1e-4:continue
+  for c in o.bound_box:
+   p=world_to_camera_view(scene,cam,o.matrix_world@Vector(c));b=report['boundsNormalized']
+   report['boundsNormalized']=[min(b[0],p.x),min(b[1],p.y),max(b[2],p.x),max(b[3],p.y)]
 
 def verify_frame_geometry(report,lens):
  for f in range(1,T['end']+1):
   scene.frame_set(f)
-  for o in mesh_objects():
-   if max(o.matrix_world.to_scale())<1e-4:continue
-   for c in o.bound_box:
-    p=world_to_camera_view(scene,cam,o.matrix_world@Vector(c));b=report['boundsNormalized']
-    report['boundsNormalized']=[min(b[0],p.x),min(b[1],p.y),max(b[2],p.x),max(b[3],p.y)]
+  verify_visible_bounds(report)
   p=world_to_camera_view(scene,cam,lens.matrix_world.translation)
   report['trajectory'].append([f,round(p.x,4),round(p.y,4),round(max(lens.matrix_world.to_scale()),3)])
   for i,(s,e) in enumerate(T['turns']):
