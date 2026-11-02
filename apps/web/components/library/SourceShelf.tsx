@@ -1,8 +1,8 @@
 import type { SourcePreparationProgress } from '@shared/sourcePreparation';
 import { Check, CircleAlert, Paperclip, X } from 'lucide-react';
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
+import { type CSSProperties, type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
-import { glideScrollBy } from '../../utils/motion/glideScroll.ts';
+import { CAROUSEL_GLIDE_MS, glideScrollBy } from '../../utils/motion/glideScroll.ts';
 import { useShouldAnimate } from '../../utils/motion/index.ts';
 import SourceBookPreparationArt, {
   PREPARATION_PALETTE,
@@ -178,6 +178,7 @@ export default function SourceShelf({
     <section
       className={hasContent ? 'source-shelf' : undefined}
       data-preparing={preparationProgress ? 'true' : undefined}
+      style={{ '--source-carousel-glide-duration': `${CAROUSEL_GLIDE_MS}ms` } as CSSProperties}
       aria-labelledby={hasContent ? headingId : undefined}
     >
       {hasContent ? (

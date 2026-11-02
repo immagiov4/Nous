@@ -212,8 +212,7 @@
 .source-shelf[data-preparing] {
   min-height: 0;
   overflow-y: auto;
-  /* Matches CAROUSEL_GLIDE_MS in utils/motion/glideScroll.ts. */
-  --source-carousel-glide: 850ms cubic-bezier(0.65, 0, 0.35, 1);
+  --source-carousel-glide: var(--source-carousel-glide-duration) cubic-bezier(0.65, 0, 0.35, 1);
   --book-width: 128px;
   --book-height: 208px;
 }
