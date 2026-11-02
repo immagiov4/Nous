@@ -146,6 +146,8 @@ for (const scene of scenes) {
         const response = await route.fetch();
         const body = await response.json();
         if (!body.complete) {
+          // The cancellation scene must observe the real pending save before aborting it.
+          if (scene.name === 'cancel-retry' && !saveAborted) return route.fulfill({ response });
           // Keep the scripted document states monotonic while the real import finishes.
           delete body.progress;
           return route.fulfill({ json: body });
