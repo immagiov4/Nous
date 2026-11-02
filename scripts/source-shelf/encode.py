@@ -10,7 +10,8 @@ CLIPS=timeline['CLIPS']
 STILLS=timeline['STILLS']
 def px(c,f):return np.asarray(Image.open(root/c/'frames'/f'frame-{f:04d}.png'),dtype=np.int16)
 report={}
-for c in ['blue','copper','sage']:
+palettes=json.loads((Path(__file__).resolve().parents[2] / 'packages/shared-types/sourceShelfPalettes.json').read_text())
+for c in palettes:
  fr=root/c/'frames';assert len(list(fr.glob('frame-*.png')))==timeline['T']['end']
  # Seams in actual pixels: each boundary should look like an ordinary consecutive-frame step.
  step=lambda a,b:int(np.abs(px(c,a)-px(c,b)).max())

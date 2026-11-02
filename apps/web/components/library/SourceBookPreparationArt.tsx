@@ -1,10 +1,13 @@
 import type { SourcePreparationProgress } from '@shared/sourcePreparation';
+import sourceShelfPalettes from '@shared/sourceShelfPalettes.json';
 import { useCallback, useEffect, useState } from 'react';
 import { useShouldAnimate } from '../../utils/motion/index.ts';
 
 type SourceState = NonNullable<SourcePreparationProgress['documents']>[number]['state'];
 const ART_ROOT = '/source-shelf/preparation-';
-export const PREPARATION_PALETTE = ['blue', 'copper', 'sage'] as const;
+export const PREPARATION_PALETTE = Object.keys(
+  sourceShelfPalettes
+) as (keyof typeof sourceShelfPalettes)[];
 type PreparationColor = (typeof PREPARATION_PALETTE)[number];
 
 const POSTER: Record<SourceState, string> = {

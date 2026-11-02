@@ -54,7 +54,7 @@ def mat(name,hexval,rough=.4,metal=0):
  m=bpy.data.materials.new(name);m.diffuse_color=(*rgb,1);m.use_nodes=True
  p=m.node_tree.nodes.get(PRINCIPLED_BSDF);p.inputs['Base Color'].default_value=(*rgb,1);p.inputs['Roughness'].default_value=rough;p.inputs['Metallic'].default_value=metal
  return m
-PALETTES={'blue':('#78B4E4','#367ED1'),'copper':('#C9876D','#97523E'),'sage':('#93AE91','#567B61')}
+PALETTES=json.loads((Path(__file__).resolve().parents[2] / 'packages/shared-types/sourceShelfPalettes.json').read_text())
 cover_color,spine_color=PALETTES[sys.argv[-1]]
 blue=mat('Source satin cover',cover_color,.32)
 blueedge=mat('Source bound spine',spine_color,.32)

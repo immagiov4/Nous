@@ -9,11 +9,13 @@ from pathlib import Path
 from PIL import Image
 
 root = Path(__file__).resolve().parent.parent
+palette_path = Path('packages/shared-types/sourceShelfPalettes.json')
 
 
 def verify_encoding(script_root, scratch, measure=False):
     timeline = runpy.run_path(str(script_root / 'timeline.py'))
-    for color in ('blue', 'copper', 'sage'):
+    palettes = json.loads((script_root.parents[1] / palette_path).read_text())
+    for color in palettes:
         frames = scratch / color / 'frames'
         frames.mkdir(parents=True)
         for frame in range(1, timeline['T']['end'] + 1):
@@ -26,7 +28,8 @@ def verify_encoding(script_root, scratch, measure=False):
         command += ['-m', 'coverage', 'run']
     subprocess.run(command + [str(script_root / 'encode.py'), str(out)], env=env, check=True)
     files = list(out.glob('preparation-*'))
-    assert len(files) == 18 and all(file.stat().st_size > 0 for file in files)
+    assert len(files) == len(palettes) * (len(timeline['CLIPS']) + len(timeline['STILLS']))
+    assert all(file.stat().st_size > 0 for file in files)
     for name, _start, count in timeline['CLIPS']:
         probe = subprocess.check_output(['ffprobe', '-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries', 'stream=nb_read_frames', '-of', 'json', str(out / f'preparation-blue-{name}.webm')], text=True)
         assert int(json.loads(probe)['streams'][0]['nb_read_frames']) == count
@@ -40,8 +43,13 @@ def verify_encoding(script_root, scratch, measure=False):
 with tempfile.TemporaryDirectory(prefix='source-shelf-encoder-') as directory:
     scratch = Path(directory)
     verify_encoding(root, scratch / 'baseline', measure=True)
-    scripts = scratch / 'scripts'
-    scripts.mkdir()
+    scripts = scratch / 'repo/scripts/source-shelf'
+    scripts.mkdir(parents=True)
+    manifest = scratch / 'repo' / palette_path
+    manifest.parent.mkdir(parents=True)
+    palettes = json.loads((root.parents[1] / palette_path).read_text())
+    palettes['verification'] = palettes['blue']
+    manifest.write_text(json.dumps(palettes))
     shutil.copyfile(root / 'encode.py', scripts / 'encode.py')
     # Shift boundaries while preserving total length: frame-count-only checks cannot catch this.
     source = (root / 'timeline.py').read_text()
