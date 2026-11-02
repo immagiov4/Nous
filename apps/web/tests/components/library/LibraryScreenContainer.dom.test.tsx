@@ -31,6 +31,8 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       pendingFileNames?: string[];
       sourceCount?: number;
       pendingFileWarnings?: string[];
+      terminalSourceDocuments?: { id: string; name: string; state: string }[];
+      onClearPendingFile: () => void;
     };
     onPageChange: (page: 'home' | 'library') => void;
     storageError?: string | null;
@@ -41,6 +43,7 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
         {chatProps.homeChatMode}:{String(chatProps.assessmentComplete)}:
         {chatProps.pendingFileNames?.join(',')}
         {chatProps.pendingFileWarnings?.join(',')}
+        {chatProps.terminalSourceDocuments?.map(d => [d.id, d.name, d.state].join(':')).join(',')}
       </div>
       <div data-testid="confirmation-messages">
         {chatProps.assessmentMessages.map(message => message.text).join('\n')}
@@ -52,6 +55,9 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
         hasDiagnostic={false}
         isLoading={false}
       />
+      <button type="button" onClick={chatProps.onClearPendingFile}>
+        Rimuovi fonti
+      </button>
       <button type="button" onClick={() => void chatProps.onConfirmGenerate()}>
         Conferma scelte
       </button>
@@ -139,6 +145,37 @@ describe('LibraryScreenContainer route fallback', () => {
     };
     render(<LibraryScreenContainer {...props} />);
     expect(screen.getByText('3 fonti')).toBeVisible();
+  });
+
+  test('retains unusable source identities and warnings until retry or removal', async () => {
+    const props = buildProps();
+    const documents = [
+      { id: 'one', name: 'bad.pdf', state: 'error' as const },
+      { id: 'two', name: 'bad.pdf', state: 'error' as const },
+    ];
+    props.controller.startHomeChat = vi
+      .fn()
+      .mockResolvedValueOnce({
+        outcome: 'failed',
+        errorMessage: 'Failed',
+        sourceWarnings: [{ name: 'bad.pdf', message: 'Unreadable source' }],
+        terminalSourceDocuments: documents,
+      })
+      .mockResolvedValueOnce({ outcome: 'noop' });
+    render(<LibraryScreenContainer {...props} />);
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Invia nuovo corso' }))
+    );
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent(
+      'one:bad.pdf:error,two:bad.pdf:error'
+    );
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('Unreadable source');
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Invia nuovo corso' }))
+    );
+    expect(screen.getByTestId('new-home-surface')).not.toHaveTextContent('one:bad.pdf:error');
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Rimuovi fonti' })));
+    expect(screen.getByTestId('new-home-surface')).not.toHaveTextContent('Unreadable source');
   });
 
   test('keeps the terminal preparation error and source warnings in one notification', async () => {

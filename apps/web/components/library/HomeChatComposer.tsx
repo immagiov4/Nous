@@ -54,6 +54,7 @@ interface HomeChatComposerProps {
   readonly pendingFileName: string | null;
   readonly pendingFileNames?: string[];
   readonly pendingFileWarnings?: string[];
+  readonly terminalSourceDocuments?: { id: string; name: string; state: 'error' }[];
   readonly sourcePreparationProgress?: SourcePreparationProgress;
   readonly sourcePreparationStatus?: string;
   readonly isSourceSelectionPending?: boolean;
@@ -437,6 +438,7 @@ export default function HomeChatComposer({
   pendingFileName,
   pendingFileNames,
   pendingFileWarnings,
+  terminalSourceDocuments,
   sourcePreparationProgress,
   sourcePreparationStatus,
   isSourceSelectionPending = false,
@@ -447,6 +449,8 @@ export default function HomeChatComposer({
     [pendingFileName, pendingFileNames]
   );
   const displayedPendingFiles = useMemo(() => {
+    if (terminalSourceDocuments)
+      return terminalSourceDocuments.map(document => ({ ...document, key: document.id }));
     if (sourcePreparationProgress?.documents)
       return sourcePreparationProgress.documents.map(document => ({
         ...document,
@@ -458,7 +462,7 @@ export default function HomeChatComposer({
       occurrences.set(name, occurrence);
       return { key: `${name}-${occurrence}`, name };
     });
-  }, [displayedPendingFileNames, sourcePreparationProgress]);
+  }, [displayedPendingFileNames, sourcePreparationProgress, terminalSourceDocuments]);
   const [draftByMode, setDraftByMode] = useState<Record<HomeChatMode, string>>({
     'library-query': homeChatMode === 'library-query' ? draftTemplate?.value || '' : '',
     'new-course': homeChatMode === 'new-course' ? draftTemplate?.value || '' : '',

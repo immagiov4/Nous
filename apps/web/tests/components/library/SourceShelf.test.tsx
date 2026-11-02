@@ -399,6 +399,29 @@ describe('SourceShelf', () => {
     expect(book).toHaveAttribute('data-state', 'reading');
   });
 
+  test('does not attribute aggregate PDF progress to a different book', () => {
+    const progress = {
+      step: 'pdf-transcription' as const,
+      completed: 5,
+      total: 10,
+      documentName: 'B.pdf',
+      reducedQuality: { from: 1, to: 2 },
+    };
+    render(
+      <SourceShelf
+        sources={[
+          { key: 'a', name: 'A.pdf', state: 'reading' },
+          { key: 'b', name: 'B.pdf', state: 'reading' },
+        ]}
+        preparationProgress={progress}
+        preparationStatus={formatSourcePreparationProgress(progress)}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('5/10');
+    expect(screen.getByRole('status')).toHaveTextContent('qualità ridotta');
+    expect(screen.getByRole('status')).not.toHaveTextContent('B.pdf');
+  });
+
   test('keeps PDF page progress and reduced-quality disclosure with the book counter', () => {
     const progress = {
       step: 'pdf-transcription' as const,

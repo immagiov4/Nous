@@ -5900,6 +5900,33 @@ test('startHomeChat assesses extracted ZIP PDFs and reports each unusable PDF en
   expect(assessmentText).toContain('note.txt');
 });
 
+test('startHomeChat retains terminal source identities on a failed preparation', async () => {
+  const sourceDocuments = [
+    { id: 'one', name: 'same.pdf', state: 'error' as const },
+    { id: 'two', name: 'same.pdf', state: 'error' as const },
+  ];
+  const sourceWarnings = [{ name: 'same.pdf', message: 'Unreadable source' }];
+  const { controller } = createControllerHarness({
+    projectLibrary: {
+      persistSnapshot: async () => {
+        throw new ProjectStorageError('Unusable', 'source-preparation-failed', {
+          sourceWarnings,
+          sourceDocuments,
+        });
+      },
+    },
+  });
+  const result = await controller.startHomeChat({
+    input: 'Study',
+    selectedFile: new File(['data'], 'sources.zip', { type: 'application/zip' }),
+  });
+  expect(result).toMatchObject({
+    outcome: 'failed',
+    terminalSourceDocuments: sourceDocuments,
+    sourceWarnings,
+  });
+});
+
 test('startHomeChat rejects a ZIP when every PDF entry is unusable', async () => {
   const sourceWarnings = [
     {

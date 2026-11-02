@@ -26,7 +26,12 @@ const sourceNames = [
   `8_${'Fondamenti di probabilità e statistica applicata '.repeat(3)}.md`,
 ];
 for (const name of sourceNames)
-  archive.file(name, `# ${name}\nSynthetic material for source preparation verification.`);
+  archive.file(
+    name,
+    process.env.SHELF_SCENE === 'terminal-unusable'
+      ? '   '
+      : `# ${name}\nSynthetic material for source preparation verification.`
+  );
 archive.file('Ignorato.zip', 'Excluded nested archive');
 const buffer = await archive.generateAsync({ type: 'nodebuffer' });
 
@@ -38,6 +43,7 @@ const scenes = [
   { name: 'mobile-compact', width: 360, height: 640, dark: false, reduced: false },
   { name: 'cancel-retry', width: 390, height: 844, dark: false, reduced: true },
   { name: 'media-failure', width: 390, height: 844, dark: true, reduced: false },
+  { name: 'terminal-unusable', width: 390, height: 844, dark: false, reduced: true },
 ] as const;
 
 // Each Vite/Rolldown instance owns its native lifetime. Repeated teardown in one
@@ -109,6 +115,7 @@ for (const scene of scenes) {
         | 'reading'
         | 'error'
         | 'concurrent'
+        | 'pdf-concurrent'
         | 'next'
         | 'reveal'
         | 'transcription'
@@ -145,6 +152,7 @@ for (const scene of scenes) {
         heldUploadId = uploadId;
         const response = await route.fetch();
         const body = await response.json();
+        if (!response.ok()) return route.fulfill({ response });
         if (!body.complete) {
           // The cancellation scene must observe the real pending save before aborting it.
           if (scene.name === 'cancel-retry' && !saveAborted) return route.fulfill({ response });
@@ -168,7 +176,8 @@ for (const scene of scenes) {
                 ? 'error'
                 : phase === 'saving' || index < activeIndex
                   ? 'done'
-                  : index === activeIndex || (phase === 'concurrent' && index === 2)
+                  : index === activeIndex ||
+                      ((phase === 'concurrent' || phase === 'pdf-concurrent') && index === 2)
                     ? 'reading'
                     : 'idle',
           })
@@ -180,7 +189,8 @@ for (const scene of scenes) {
           documents,
           documentName: documents.find(document => document.state === 'reading')?.name,
         };
-        if (phase === 'transcription') {
+        if (phase === 'transcription' || phase === 'pdf-concurrent') {
+          if (phase === 'pdf-concurrent') progress.documentName = documents[2].name;
           progress.step = 'pdf-transcription';
           progress.completed = 165;
           progress.total = 200;
@@ -205,6 +215,7 @@ for (const scene of scenes) {
           .locator('input[data-home-chat-target=objective]')
           .fill('Imparare probabilità e statistica');
         await page.locator('input[data-home-chat-target=objective]').press('Enter');
+        if (scene.name === 'terminal-unusable') return;
         try {
           await page
             .getByRole('region', { name: 'Preparazione delle fonti' })
@@ -240,6 +251,53 @@ for (const scene of scenes) {
         assert.notEqual(getProjectImportUploadStatus(userId, heldUploadId)?.status, 'completed');
         snapshots.push({ phase: 'cancelled-pending-save', saveAborted, cancelledProjectId });
         await start();
+      }
+      if (scene.name === 'terminal-unusable') {
+        const shelf = page.getByRole('region', { name: 'Le tue fonti' });
+        await shelf.locator('.source-shelf-item[data-state=error]').first().waitFor();
+        const failed = shelf.locator('.source-shelf-item[data-state=error]');
+        assert.equal(await failed.count(), sourceNames.length);
+        assert.equal(
+          await failed.first().getAttribute('aria-description'),
+          'Fonte non utilizzabile'
+        );
+        assert(
+          await shelf
+            .getByText(/non contiene testo utilizzabile/i)
+            .first()
+            .isVisible()
+        );
+        assert.equal(await page.getByRole('button', { name: 'Annulla', exact: true }).count(), 0);
+        await page.screenshot({ path: join(evidence, `${scene.name}-failed.png`) });
+        const retryFailure = page.waitForResponse(
+          response =>
+            response.status() === 422 && response.url().includes('/api/projects/import/chunks/')
+        );
+        const objective = page.locator('input[data-home-chat-target=objective]');
+        await objective.fill('Imparare probabilità e statistica');
+        await objective.press('Enter');
+        await retryFailure;
+        await shelf.locator('.source-shelf-item[data-state=error]').first().waitFor();
+        assert.equal(
+          await shelf.locator('.source-shelf-item[data-state=error]').count(),
+          sourceNames.length
+        );
+        await shelf.getByRole('button', { name: 'Rimuovi allegato' }).click();
+        await shelf.waitFor({ state: 'detached' });
+        assert.deepEqual(errors, []);
+        await page.context().tracing.stop({ path: join(evidence, `${scene.name}-trace.zip`) });
+        const video = page.video();
+        if (video) {
+          await page.close();
+          await video.saveAs(join(evidence, `${scene.name}.webm`));
+        }
+        results.push({
+          scene,
+          browserName,
+          durationMs: performance.now() - startedAt,
+          pageErrors: errors,
+        });
+        return;
       }
       const shelf = page.getByRole('region', { name: 'Preparazione delle fonti' });
       const books = shelf.locator('.source-shelf-item');
@@ -378,6 +436,14 @@ for (const scene of scenes) {
       assert.equal(await books.nth(1).getAttribute('aria-current'), 'true');
       assert.equal(await books.nth(2).getAttribute('aria-current'), null);
       assert.equal(await books.nth(2).locator('video').count(), 0);
+      snapshots.push({ phase, documents });
+      phase = 'pdf-concurrent';
+      await shelf.getByText(/165\/200/).waitFor();
+      assert.equal(await books.nth(1).getAttribute('aria-current'), 'true');
+      assert.equal(await books.nth(2).getAttribute('data-state'), 'reading');
+      assert(!(await shelf.getByRole('status').innerText()).includes(sourceNames[2]));
+      assert(await shelf.getByText(/Pagine 151–200 trascritte in qualità ridotta/).isVisible());
+      await page.screenshot({ path: join(evidence, `${scene.name}-pdf-concurrent.png`) });
       snapshots.push({ phase, documents });
       phase = 'next';
       await page.waitForFunction(

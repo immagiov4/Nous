@@ -51,6 +51,7 @@ interface HomeChatPanelProps {
   readonly pendingFileName: string | null;
   readonly pendingFileNames?: string[];
   readonly pendingFileWarnings?: string[];
+  readonly terminalSourceDocuments?: { id: string; name: string; state: 'error' }[];
   readonly isSourceSelectionPending?: boolean;
   readonly draftValueOverride?: string;
   readonly draftTemplate?: {
@@ -124,6 +125,7 @@ export default function HomeChatPanel({
   pendingFileName,
   pendingFileNames,
   pendingFileWarnings,
+  terminalSourceDocuments,
   isSourceSelectionPending = false,
   draftValueOverride,
   draftTemplate,
@@ -282,6 +284,7 @@ export default function HomeChatPanel({
           pendingFileName={pendingFileName}
           pendingFileNames={pendingFileNames}
           pendingFileWarnings={pendingFileWarnings}
+          terminalSourceDocuments={terminalSourceDocuments}
           sourcePreparationProgress={sourcePreparationProgress}
           sourcePreparationStatus={newCourseLoadingStatus}
           isSourceSelectionPending={isSourceSelectionPending}

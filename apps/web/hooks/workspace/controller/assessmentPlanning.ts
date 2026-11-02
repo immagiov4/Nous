@@ -1052,8 +1052,9 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
         return abandonCancelledStart();
       }
     }
-    if (error instanceof ProjectStorageError && error.sourceWarnings?.length) {
-      startState.sourceWarnings = error.sourceWarnings;
+    const storageError = error instanceof ProjectStorageError ? error : undefined;
+    if (storageError?.sourceWarnings?.length) {
+      startState.sourceWarnings = storageError.sourceWarnings;
     }
     const errorMessage = getErrorMessage(error);
     const isCurrent = isRequestCurrent();
@@ -1062,14 +1063,19 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     pushNousDebugTrace('assessment:startup-failed', {
       draftCleanup: 'skipped',
       errorType: error instanceof Error ? error.constructor.name : typeof error,
-      ...(error instanceof ProjectStorageError ? { errorCode: error.code } : {}),
+      errorCode: storageError?.code,
       projectId: startState.draftProjectId,
     });
     if (!isCurrent) return { outcome: 'abandoned' };
     if (projectLibrary.getCurrentProjectId() === startState.draftProjectId) {
       resetInterviewClientState();
     }
-    return { outcome: 'failed', errorMessage, sourceWarnings: startState.sourceWarnings };
+    return {
+      outcome: 'failed',
+      errorMessage,
+      sourceWarnings: startState.sourceWarnings,
+      terminalSourceDocuments: storageError?.sourceDocuments,
+    };
   };
 
   async function runHomeChatStart(args: HomeChatStartArgs): Promise<HomeChatStartResult> {

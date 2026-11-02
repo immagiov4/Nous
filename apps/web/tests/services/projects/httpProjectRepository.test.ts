@@ -159,6 +159,30 @@ test('HttpProjectRepository writes favorites through the project API', async () 
   );
 });
 
+test('preserves ordered failed document identities across a 422 response', async () => {
+  const documents = [
+    { id: 'one', name: 'same.pdf', state: 'error' },
+    { id: 'two', name: 'same.pdf', state: 'error' },
+  ];
+  fetchMock.mockResolvedValueOnce({
+    ok: false,
+    status: 422,
+    headers: new Headers({ 'content-type': 'application/json' }),
+    json: async () => ({
+      success: false,
+      code: 'SOURCE_PREPARATION_UNUSABLE',
+      sourceDocuments: documents,
+      sourceWarnings: [{ name: 'same.pdf', reason: 'no-usable-text' }],
+    }),
+  });
+  const repository = new HttpProjectRepository('http://localhost:3301');
+  await expect(repository.listFolders()).rejects.toMatchObject({
+    code: 'source-preparation-failed',
+    sourceDocuments: documents,
+    sourceWarnings: [{ name: 'same.pdf' }],
+  });
+});
+
 test('HttpProjectRepository hides generic backend error details', async () => {
   fetchMock.mockResolvedValueOnce({
     ok: false,

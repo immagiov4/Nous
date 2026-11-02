@@ -41,7 +41,10 @@ export class SourceIngestionRequiredError extends Error {
 }
 
 export class SourcePreparationUnusableError extends Error {
-  constructor(readonly failures: SourcePreparationFailure[]) {
+  constructor(
+    readonly failures: SourcePreparationFailure[],
+    readonly documents: NonNullable<SourcePreparationProgress['documents']> = []
+  ) {
     super(SOURCE_PREPARATION_UNUSABLE_MESSAGE);
   }
 }
@@ -355,7 +358,10 @@ export const prepareSourceCollection = async ({
     await handle.close();
   }
   if (descriptors.every(descriptor => descriptor.status === 'error'))
-    throw new SourcePreparationUnusableError(failures);
+    throw new SourcePreparationUnusableError(
+      failures,
+      upload.files.map(file => ({ id: file.id, name: file.name, state: 'error' as const }))
+    );
   return {
     failures,
     snapshot: {

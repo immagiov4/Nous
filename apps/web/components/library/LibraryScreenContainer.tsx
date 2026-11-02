@@ -116,6 +116,9 @@ export const LibraryScreenContainer = ({
   const [pendingHomeSourceFiles, setPendingHomeSourceFiles] = useState<File[]>([]);
   const [isConfirmingCourse, setIsConfirmingCourse] = useState(false);
   const [pendingFileWarnings, setPendingFileWarnings] = useState<string[]>([]);
+  const [terminalSourceDocuments, setTerminalSourceDocuments] =
+    useState<{ id: string; name: string; state: 'error' }[]>();
+  const [terminalSourceWarnings, setTerminalSourceWarnings] = useState<string[]>([]);
   const [isSourceSelectionPending, setIsSourceSelectionPending] = useState(false);
   const sourceSelectionRequestRef = useRef(0);
   const isConfirmingCourseRef = useRef(false);
@@ -163,6 +166,8 @@ export const LibraryScreenContainer = ({
     const input = event.target;
     const selectedFiles = sortSourceFiles(Array.from(input.files || []));
     const request = ++sourceSelectionRequestRef.current;
+    setTerminalSourceDocuments(undefined);
+    setTerminalSourceWarnings([]);
     setPendingHomeSourceFiles(selectedFiles);
     setPendingFileWarnings([]);
     setIsSourceSelectionPending(true);
@@ -186,6 +191,8 @@ export const LibraryScreenContainer = ({
     async (message: string) => {
       if (isSourceSelectionPending) return;
       const requestToken = ++newCourseRequestTokenRef.current;
+      setTerminalSourceDocuments(undefined);
+      setTerminalSourceWarnings([]);
       const toolPreferences: HomeChatToolPreferences = {
         addingAssessmentDetails: isAddingAssessmentDetails,
         mode: 'new-course',
@@ -216,6 +223,14 @@ export const LibraryScreenContainer = ({
             continues: !result.errorMessage,
           })
         : undefined;
+      if (result.outcome === 'failed' && result.terminalSourceDocuments?.length) {
+        setTerminalSourceDocuments(result.terminalSourceDocuments);
+        setTerminalSourceWarnings(
+          result.sourceWarnings?.map(warning =>
+            t('Non verrà usato: {name}. {reason}', { name: warning.name, reason: warning.message })
+          ) ?? []
+        );
+      }
       if (result.errorMessage || sourceWarningMessage)
         notify([result.errorMessage, sourceWarningMessage].filter(Boolean).join('\n'));
     },
@@ -241,6 +256,8 @@ export const LibraryScreenContainer = ({
       setIsAddingAssessmentDetails(false);
       setPendingHomeSourceFiles([]);
       setPendingFileWarnings([]);
+      setTerminalSourceDocuments(undefined);
+      setTerminalSourceWarnings([]);
       setHomeChatMode('library-query');
       return true;
     } catch (error) {
@@ -401,13 +418,16 @@ export const LibraryScreenContainer = ({
           sourcePreparationProgress: controller.workflowState.assessment.sourcePreparation,
           pendingFileName: pendingHomeSourceFiles[0]?.name || null,
           pendingFileNames: pendingHomeSourceFiles.map(file => file.name),
-          pendingFileWarnings,
+          pendingFileWarnings: [...pendingFileWarnings, ...terminalSourceWarnings],
+          terminalSourceDocuments,
           isSourceSelectionPending,
           onClearPendingFile: () => {
             sourceSelectionRequestRef.current += 1;
             setIsSourceSelectionPending(false);
             setPendingHomeSourceFiles([]);
             setPendingFileWarnings([]);
+            setTerminalSourceDocuments(undefined);
+            setTerminalSourceWarnings([]);
           },
           onClearLibraryMessages: libraryAssistantChat.clearLibraryMessages,
           onCancelNewCourse: cancelNewCourse,

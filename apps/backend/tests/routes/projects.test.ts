@@ -163,6 +163,25 @@ describe('/api/projects', () => {
     expect(response.body).toMatchObject({ success: false, code, error: error.message });
   });
 
+  test('returns ordered failed document identities with unusable source warnings', async () => {
+    const documents = [
+      { id: 'one', name: 'same.pdf', state: 'error' as const },
+      { id: 'two', name: 'same.pdf', state: 'error' as const },
+    ];
+    vi.spyOn(store, 'saveProject').mockRejectedValue(
+      new SourcePreparationUnusableError(
+        [{ name: 'same.pdf', reason: 'no-usable-text' }],
+        documents
+      )
+    );
+    const response = await request(createApp())
+      .put('/api/projects/projects/error-contract')
+      .send({ snapshot: createSnapshot('error-contract', 'Error contract') });
+    expect(response.status).toBe(422);
+    expect(response.body.sourceDocuments).toEqual(documents);
+    expect(response.body.sourceWarnings).toEqual([{ name: 'same.pdf', reason: 'no-usable-text' }]);
+  });
+
   test('negotiates deferred segment text while preserving complete responses for older clients', async () => {
     const documentIndex = {
       kind: 'pdf-text-index',

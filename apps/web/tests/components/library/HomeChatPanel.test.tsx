@@ -205,6 +205,27 @@ const buildProps = () => ({
 });
 
 describe('HomeChatPanel', () => {
+  test('shows terminal failed documents without a preparation or stop state', () => {
+    const props = buildProps();
+    render(
+      <HomeChatPanel
+        {...props}
+        homeChatMode="new-course"
+        terminalSourceDocuments={[
+          { id: 'one', name: 'bad.pdf', state: 'error' },
+          { id: 'two', name: 'bad.pdf', state: 'error' },
+        ]}
+        pendingFileWarnings={['bad.pdf: unreadable']}
+      />
+    );
+    const books = screen.getAllByRole('listitem', { name: 'bad.pdf' });
+    expect(books).toHaveLength(2);
+    expect(books.map(book => book.getAttribute('data-source-key'))).toEqual(['one', 'two']);
+    expect(books[0]).toHaveAccessibleDescription('Fonte non utilizzabile');
+    expect(screen.getByText('bad.pdf: unreadable')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Annulla' })).not.toBeInTheDocument();
+  });
+
   test('omits the abandon control when a demo supplies no cancellation action', () => {
     render(<HomeChatPanel {...buildProps()} onCancelNewCourse={undefined} />);
     expect(screen.getByRole('heading', { name: 'Prepariamo il tuo corso' })).toBeInTheDocument();

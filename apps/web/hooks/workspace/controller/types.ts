@@ -358,6 +358,7 @@ export interface WorkspaceControllerCommands {
       | 'noop'
       | 'planned';
     sourceWarnings?: ProjectSourceWarning[];
+    terminalSourceDocuments?: { id: string; name: string; state: 'error' }[];
   }>;
   submitAssessment: (
     input: string,
@@ -366,6 +367,7 @@ export interface WorkspaceControllerCommands {
     errorMessage?: string;
     outcome: 'abandoned' | 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
     sourceWarnings?: ProjectSourceWarning[];
+    terminalSourceDocuments?: { id: string; name: string; state: 'error' }[];
   }>;
   updateApplicationExercise: (
     exerciseId: string,

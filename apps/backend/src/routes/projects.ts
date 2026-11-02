@@ -257,6 +257,7 @@ const sendProjectWriteError = (
       code: SOURCE_PREPARATION_UNUSABLE_CODE,
       error: error.message,
       sourceWarnings: error.failures,
+      sourceDocuments: error.documents,
     });
     return;
   }

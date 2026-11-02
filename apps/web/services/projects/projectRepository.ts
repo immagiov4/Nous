@@ -50,6 +50,7 @@ export class ProjectStorageError extends Error {
   readonly httpStatus?: number;
   readonly responseContentType?: string;
   readonly sourceWarnings?: ProjectSourceWarning[];
+  readonly sourceDocuments?: { id: string; name: string; state: 'error' }[];
 
   constructor(
     message: string,
@@ -57,6 +58,7 @@ export class ProjectStorageError extends Error {
     response?: {
       contentType?: string;
       sourceWarnings?: ProjectSourceWarning[];
+      sourceDocuments?: { id: string; name: string; state: 'error' }[];
       status?: number;
     }
   ) {
@@ -66,6 +68,7 @@ export class ProjectStorageError extends Error {
     this.httpStatus = response?.status;
     this.responseContentType = response?.contentType;
     this.sourceWarnings = response?.sourceWarnings;
+    this.sourceDocuments = response?.sourceDocuments;
   }
 }
 

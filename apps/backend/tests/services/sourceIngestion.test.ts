@@ -151,6 +151,7 @@ test.each([
   await expect(preparing).rejects.toBeInstanceOf(SourcePreparationUnusableError);
   await expect(preparing).rejects.toMatchObject({
     failures: [{ name: 'blank.txt', reason }],
+    documents: [{ id: 'source-blank', name: 'blank.txt', state: 'error' }],
   });
 });
 
