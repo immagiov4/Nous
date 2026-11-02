@@ -1,6 +1,7 @@
 import type { SourcePreparationProgress } from '@shared/sourcePreparation';
 import sourceShelfPalettes from '@shared/sourceShelfPalettes.json';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
 import { useShouldAnimate } from '../../utils/motion/index.ts';
 
 type SourceState = NonNullable<SourcePreparationProgress['documents']>[number]['state'];
@@ -47,6 +48,21 @@ function PreparationVideo({
   const [settled, setSettled] = useState(false);
   const [failed, setFailed] = useState(false);
   const [started, setStarted] = useState(false);
+  const fallbackRecorded = useRef(false);
+  const showFallback = useCallback(
+    (video: HTMLVideoElement, reason: string, cause?: number | string) => {
+      if (fallbackRecorded.current) return;
+      fallbackRecorded.current = true;
+      pushNousDebugTrace('source-shelf:video-fallback', {
+        clip: video.dataset.phase,
+        color,
+        reason,
+        cause,
+      });
+      setFailed(true);
+    },
+    [color]
+  );
   const poster = sourcePreparationPoster(completing ? 'done' : 'reading', color);
   // Browsers paint the poster while a new clip source loads. Decode the boundary and final
   // stills up front so a clip switch never shows a stale (closed) poster for a frame.
@@ -59,24 +75,32 @@ function PreparationVideo({
     else setClip(completing ? 'complete' : 'search');
   };
 
-  const bindVideo = useCallback((video: HTMLVideoElement | null) => {
-    if (!video) return;
-    let current = true;
-    const synchronize = () => {
-      if (document.visibilityState === 'hidden') video.pause();
-      else
-        void video.play().catch(error => {
-          if (current && error.name !== 'AbortError') setFailed(true);
-        });
-    };
-    synchronize();
-    document.addEventListener('visibilitychange', synchronize);
-    return () => {
-      current = false;
-      document.removeEventListener('visibilitychange', synchronize);
-      video.pause();
-    };
-  }, []);
+  const bindVideo = useCallback(
+    (video: HTMLVideoElement | null) => {
+      if (!video) return;
+      let current = true;
+      const synchronize = () => {
+        if (document.visibilityState === 'hidden') video.pause();
+        else
+          void video.play().catch(error => {
+            if (current && error.name !== 'AbortError')
+              showFallback(
+                video,
+                'playback-rejected',
+                error instanceof DOMException ? error.name : 'Error'
+              );
+          });
+      };
+      synchronize();
+      document.addEventListener('visibilitychange', synchronize);
+      return () => {
+        current = false;
+        document.removeEventListener('visibilitychange', synchronize);
+        video.pause();
+      };
+    },
+    [showFallback]
+  );
 
   if (failed || settled) return <img src={poster} alt="" />;
   return (
@@ -98,7 +122,7 @@ function PreparationVideo({
       onLoadedData={event => {
         const video = event.currentTarget;
         if (!hasTransparentFrame(video)) {
-          setFailed(true);
+          showFallback(video, 'alpha-unsupported');
           return;
         }
         if (document.visibilityState === 'hidden') return;
@@ -110,10 +134,16 @@ function PreparationVideo({
             video.currentSrc === loadedSource &&
             video.src === loadedSource
           )
-            setFailed(true);
+            showFallback(
+              video,
+              'playback-rejected',
+              error instanceof DOMException ? error.name : 'Error'
+            );
         });
       }}
-      onError={() => setFailed(true)}
+      onError={event =>
+        showFallback(event.currentTarget, 'media-error', event.currentTarget.error?.code)
+      }
       onEnded={finishClip}
     />
   );

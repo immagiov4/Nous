@@ -10,18 +10,18 @@ The maintainer accepted the single-book blue/copper/sage 3D artwork on 2026-11-0
 
 Each `preparation-{blue,copper,sage}-` set contains:
 
-| Suffix | Source frames (24 fps) | Purpose |
-| --- | --- | --- |
-| `reading.webm` | 1–61 | Cover eases open over 1.5 s, the first sheet follows, magnifier settles on the first line |
-| `search.webm` | 62–141 | Seamless forward loop: reads two lines, steps aside while one sheet turns, returns |
-| `complete.webm` | 142–196 | Magnifier lifts away, sheets fold back, cover closes softly and rests |
-| `closed.webp` | 1 | Queued/error thumbnail and initial poster |
-| `reading.webp` | 62 | Reading fallback and clip-boundary poster |
-| `complete.webp` | 196 | Completed thumbnail/poster |
+| Suffix | Purpose |
+| --- | --- |
+| `reading.webm` | Cover opens, the first sheet follows, magnifier settles on the first line |
+| `search.webm` | Seamless forward loop: reads two lines, steps aside while one sheet turns, returns |
+| `complete.webm` | Magnifier lifts away, sheets fold back, cover closes softly and rests |
+| `closed.webp` | Queued/error thumbnail and initial poster |
+| `reading.webp` | Reading fallback and clip-boundary poster |
+| `complete.webp` | Completed thumbnail/poster |
 
 Videos are 512×512 VP9 with alpha; posters are lossless WebP with alpha. Clip boundaries use a shared rendered rest pose; the loop wrap differs only by a turned sheet's approximately 1 px thickness.
 
-The scene and encoder share [timeline.py](../../../../../scripts/source-shelf/timeline.py) for frame rate, choreography and clip boundaries. The table above describes the currently shipped assets. Scene generation and seam/clearance checks live in [build.py](../../../../../scripts/source-shelf/build.py) and [encode.py](../../../../../scripts/source-shelf/encode.py).
+The scene and encoder share [timeline.py](../../../../../scripts/source-shelf/timeline.py) for frame rate, choreography, clip boundaries and poster frames. Scene generation and seam/clearance checks live in [build.py](../../../../../scripts/source-shelf/build.py) and [encode.py](../../../../../scripts/source-shelf/encode.py).
 
 ## Regenerate the assets
 

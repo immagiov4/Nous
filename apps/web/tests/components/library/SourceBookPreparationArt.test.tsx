@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import SourceBookPreparationArt from '../../../components/library/SourceBookPreparationArt.tsx';
+import * as debugTrace from '../../../services/core/debugTrace.ts';
 import { glideScrollBy } from '../../../utils/motion/glideScroll.ts';
 
 beforeEach(() => {
@@ -17,6 +18,42 @@ afterEach(() => {
 const art = (state: 'reading' | 'done') => <SourceBookPreparationArt state={state} color="sage" />;
 
 describe('SourceBookPreparationArt motion', () => {
+  test('records a media failure once before showing the static poster', () => {
+    const trace = vi.spyOn(debugTrace, 'pushNousDebugTrace');
+    const { container } = render(art('reading'));
+    const video = container.querySelector('video');
+    if (!video) throw new Error('Missing player');
+    Object.defineProperty(video, 'error', { value: { code: 3 } });
+    fireEvent.error(video);
+    expect(container.querySelector('video')).toBeNull();
+    expect(container.querySelector('img')).toHaveAttribute(
+      'src',
+      '/source-shelf/preparation-sage-reading.webp'
+    );
+    expect(trace).toHaveBeenCalledExactlyOnceWith('source-shelf:video-fallback', {
+      clip: 'reading',
+      color: 'sage',
+      reason: 'media-error',
+      cause: 3,
+    });
+  });
+
+  test('records blocked playback without including the exception message', async () => {
+    const trace = vi.spyOn(debugTrace, 'pushNousDebugTrace');
+    vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(
+      new DOMException('private context', 'NotAllowedError')
+    );
+    const { container } = render(art('reading'));
+    await act(async () => {});
+    expect(container.querySelector('video')).toBeNull();
+    expect(trace).toHaveBeenCalledExactlyOnceWith('source-shelf:video-fallback', {
+      clip: 'reading',
+      color: 'sage',
+      reason: 'playback-rejected',
+      cause: 'NotAllowedError',
+    });
+  });
+
   test('resumes interrupted playback after the tab becomes visible', async () => {
     let rejectPlay!: (error: Error) => void;
     vi.mocked(HTMLMediaElement.prototype.play).mockImplementationOnce(
