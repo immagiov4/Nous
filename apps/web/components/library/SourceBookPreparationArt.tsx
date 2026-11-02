@@ -120,9 +120,11 @@ function PreparationVideo({
 export default function SourceBookPreparationArt({
   state,
   color,
+  animateReading = true,
 }: {
   readonly state: SourceState;
   readonly color: PreparationColor;
+  readonly animateReading?: boolean;
 }) {
   const shouldAnimate = useShouldAnimate();
   const [hasPlayed, setHasPlayed] = useState(false);
@@ -132,7 +134,7 @@ export default function SourceBookPreparationArt({
   // A book that was visibly reading never snaps shut: whatever state follows (done, error or
   // another source taking the stage), it finishes its pass and closes. The closing clip's last
   // frame is pixel-identical to the closed still.
-  const animate = shouldAnimate && (state === 'reading' || hasPlayed);
+  const animate = shouldAnimate && (state === 'reading' ? animateReading : hasPlayed);
   return (
     <div className="source-book-preparation" aria-hidden="true" inert>
       {animate ? (

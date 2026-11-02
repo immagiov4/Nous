@@ -101,6 +101,10 @@ describe('SourceShelf', () => {
     expect(second).not.toHaveAttribute('aria-current');
     expect(second).toHaveAttribute('data-state', 'reading');
     expect(second.querySelector('video')).toBeNull();
+    expect(second.querySelector('img')).toHaveAttribute(
+      'src',
+      '/source-shelf/preparation-copper-reading.webp'
+    );
     fireEvent.playing(video);
     fireEvent.ended(video);
     rerender(

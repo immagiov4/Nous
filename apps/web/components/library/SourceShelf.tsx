@@ -215,11 +215,8 @@ export default function SourceShelf({
                   <div className="source-book" aria-hidden="true">
                     {preparationProgress ? (
                       <SourceBookPreparationArt
-                        state={
-                          source.state === 'reading' && source.key !== readingKey
-                            ? 'idle'
-                            : (source.state ?? 'idle')
-                        }
+                        state={source.state ?? 'idle'}
+                        animateReading={source.key === readingKey}
                         color={PREPARATION_PALETTE[index % PREPARATION_PALETTE.length]}
                       />
                     ) : (
