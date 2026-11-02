@@ -93,7 +93,20 @@ describe('workflow PostgreSQL CI contract', () => {
       'bun install --frozen-lockfile',
       'bunx playwright install --with-deps chromium',
       'bun run gate:ci',
+      expect.stringContaining('scripts/source-shelf/tests/coverage_blender.py'),
     ]);
+    const pythonCoverageIndex = quality.steps.findIndex(step =>
+      step.run?.includes('scripts/source-shelf/tests/coverage_blender.py')
+    );
+    expect(quality.steps[pythonCoverageIndex].run).toContain(
+      'python3 scripts/source-shelf/tests/coverage_encoder.py'
+    );
+    expect(pythonCoverageIndex).toBeGreaterThan(
+      quality.steps.findIndex(step => step.uses === 'actions/setup-python@v5')
+    );
+    expect(
+      quality.steps.findIndex(step => step.name === 'SonarQube Cloud scan and quality gate')
+    ).toBeGreaterThan(pythonCoverageIndex);
     const commands = browser.steps.flatMap(step => (step.run ? [step.run] : []));
 
     expect(commands).toEqual([
