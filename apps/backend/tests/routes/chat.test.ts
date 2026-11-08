@@ -1651,9 +1651,12 @@ describe('POST /api/chat/context', () => {
         sourceCount: 1,
         webSearchRequests: 1,
       });
-      expect(Object.keys(event)).not.toEqual(
-        expect.arrayContaining(['query', 'summary', 'sources', 'messages'])
-      );
+      const serializedEvent = JSON.stringify(event);
+      expect(serializedEvent).not.toContain('synthetic query');
+      expect(serializedEvent).not.toContain('Synthetic question');
+      expect(serializedEvent).not.toContain('Synthetic checked answer');
+      expect(serializedEvent).not.toContain('https://example.com/checked');
+      expect(serializedEvent).not.toContain('Checked source');
     } finally {
       log.mockRestore();
     }
@@ -1751,6 +1754,9 @@ describe('POST /api/chat/context', () => {
     { kind: 'exception', stage: 'request', code: 'provider_exception', status: undefined },
     { kind: 'unusable', stage: 'result', code: 'unusable_result', status: 200 },
     { kind: 'invalid-json', stage: 'response', code: 'invalid_response', status: 200 },
+    { kind: 'null-json', stage: 'response', code: 'invalid_response', status: 200 },
+    { kind: 'string-json', stage: 'response', code: 'invalid_response', status: 200 },
+    { kind: 'array-json', stage: 'response', code: 'invalid_response', status: 200 },
   ])('diagnoses $kind search failures inside a successful chat transport without private content', async ({
     kind,
     stage,
@@ -1768,6 +1774,9 @@ describe('POST /api/chat/context', () => {
           Object.assign(new Error(privateText), { code: 'ECONNRESET', status: 503 })
         );
       else if (kind === 'invalid-json') fetchMock.mockResolvedValueOnce(new Response(privateText));
+      else if (kind === 'null-json') fetchMock.mockResolvedValueOnce(Response.json(null));
+      else if (kind === 'string-json') fetchMock.mockResolvedValueOnce(Response.json(privateText));
+      else if (kind === 'array-json') fetchMock.mockResolvedValueOnce(Response.json([]));
       else
         fetchMock.mockResolvedValueOnce(
           Response.json({ choices: [{ message: { content: privateText } }] })

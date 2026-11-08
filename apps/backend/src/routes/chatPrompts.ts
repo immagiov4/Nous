@@ -283,7 +283,11 @@ const runWebSearchCompletion = async ({
 
   let payload: WebSearchResponse;
   try {
-    payload = (await response.json()) as WebSearchResponse;
+    const parsedPayload: unknown = await response.json();
+    if (!isRecord(parsedPayload)) {
+      throw new TypeError('The web search response must be a JSON object.');
+    }
+    payload = parsedPayload as WebSearchResponse;
   } catch (cause) {
     throw new WebSearchFailure('response', 'invalid_response', response.status, { cause });
   }
