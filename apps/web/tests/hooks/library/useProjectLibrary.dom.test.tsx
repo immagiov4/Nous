@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { ProjectRevisionConflictError } from '../../../../backend/src/projects/projectRevision.ts';
 import type { ProjectSnapshot as StoredProjectSnapshot } from '../../../../backend/src/projects/types.ts';
 import { InMemoryProjectStore } from '../../../../backend/tests/helpers/inMemoryProjectStore.ts';
+import { useReaderShellProps } from '../../../app/useReaderShellProps.ts';
 import AccountSettingsDialog from '../../../components/account/AccountSettingsDialog.tsx';
 import { NewHomeView } from '../../../components/newHome/NewHomeView.tsx';
 import { importProjectBackupFile } from '../../../hooks/workspace/controller/projectImport.ts';
@@ -21,6 +22,7 @@ import { createEmptyWorkspaceDomainState } from '../../../services/workspace/dom
 import { resolvePersistedAppState } from '../../../services/workspace/persistence.ts';
 import {
   AppState,
+  type LessonLearningAid,
   type ProjectRevisionEvent,
   type ProjectSnapshot,
   type ProjectSource,
@@ -113,6 +115,40 @@ const buildSnapshot = (id: string, overrides: Partial<ProjectSnapshot> = {}): Pr
   lastOpenedAt: '2026-04-02T10:00:00.000Z',
   ...overrides,
 });
+
+const useReaderSaveSession = () => {
+  const domain = useWorkspaceDomain();
+  const library = useProjectLibrary({
+    domainState: domain.domainState,
+    hydrateSnapshot: domain.hydrateSnapshot,
+  });
+  const [attachExerciseFiles] = useState(() => vi.fn(async () => undefined));
+  type ShellArgs = Parameters<typeof useReaderShellProps>[0];
+  const shell = useReaderShellProps({
+    controller: {
+      ...domain,
+      ...library,
+      attachExerciseFiles,
+      workflowState: { loadSection: { requestId: 0 }, generateExercise: {}, evaluateExercise: {} },
+    } as unknown as ShellArgs['controller'],
+    readerState: {
+      readerChrome: {},
+      readerContext: {},
+      ttsPlayer: { audioState: { chunks: [], currentChunkIndex: 0 } },
+      ttsTextPicker: {},
+    } as unknown as ShellArgs['readerState'],
+    readerActions: {} as ShellArgs['readerActions'],
+    handleAttachSourceFile: vi.fn(),
+    handleBackToLibrary: vi.fn(),
+    handleExportProject: vi.fn(),
+    libraryAssistantDataSource: {} as ShellArgs['libraryAssistantDataSource'],
+    notify: vi.fn(),
+    onOpenLibraryReference: vi.fn(),
+    pdfMappingWarning: null,
+    syncState: 'saved',
+  });
+  return { domain, library, shell, attachExerciseFiles };
+};
 
 const switchProjectDuringWrite = async ({
   failWrite,
@@ -312,6 +348,131 @@ describe('useProjectLibrary', () => {
     unmount();
     await loadDocumentText('text-lifecycle', current);
     expect(repositoryMocks.loadProjectWithRevision).toHaveBeenCalledTimes(4);
+  });
+
+  test.each([
+    { destination: 'project-2', succeeds: true },
+    { destination: 'project-2', succeeds: false },
+    { destination: 'project-1', succeeds: true },
+    { destination: 'project-1', succeeds: false },
+  ])('keeps concept saves with their course across navigation ($destination, success: $succeeds)', async ({
+    destination,
+    succeeds,
+  }) => {
+    const aid = (id: string): LessonLearningAid => ({
+      id,
+      kind: 'definition',
+      title: id,
+      content: `Definition ${id}`,
+    });
+    const originalAids = [aid('original')];
+    const savedAids = [aid('saved')];
+    const otherAids = [aid('other-course')];
+    const snapshot = (id: string, learningAids: LessonLearningAid[]) =>
+      buildSnapshot(id, {
+        activeSectionId: 'lesson-1',
+        learningPlan: buildTestLearningPlan([
+          buildTestLesson({ id: 'lesson-1', content: 'Lesson', learningAids }),
+          buildTestLesson({ id: 'lesson-2', content: 'Next lesson' }),
+        ]),
+      });
+    const first = snapshot('project-1', originalAids);
+    const second = snapshot('project-2', otherAids);
+    const store = new InMemoryProjectStore();
+    const userId = 'concept-save-learner';
+    for (const project of [first, second])
+      await store.saveProject(userId, project as unknown as StoredProjectSnapshot);
+    repositoryMocks.listProjects.mockImplementation(() => store.listProjects(userId));
+    repositoryMocks.saveProject.mockImplementation((project, options) =>
+      store.saveProject(userId, project, options)
+    );
+    let finish!: () => void;
+    repositoryMocks.patchProject.mockImplementation(async (id, patch, options) => {
+      await new Promise<void>(resolve => {
+        finish = resolve;
+      });
+      if (!succeeds) throw new ProjectStorageError('Save failed', 'unknown');
+      return store.patchProject(userId, id, patch, options);
+    });
+    const { result, unmount } = renderHook(useReaderSaveSession);
+    await waitFor(() => expect(result.current.library.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.domain.hydrateSnapshot(first);
+      result.current.library.setCurrentProjectId(first.id);
+    });
+    act(() => result.current.library.completeProjectHydration({ snapshot: first, revision: 1 }));
+    let saving!: Promise<boolean>;
+    act(() => {
+      saving = result.current.shell.header.onSaveLearningAids(savedAids);
+    });
+    await waitFor(() => expect(repositoryMocks.patchProject).toHaveBeenCalledOnce());
+    act(() => {
+      if (destination === second.id) {
+        result.current.library.setProjectHydrated(false);
+        result.current.library.setCurrentProjectId(second.id);
+        result.current.domain.hydrateSnapshot(second);
+      } else {
+        result.current.domain.setActiveSectionId('lesson-2');
+      }
+    });
+    if (destination === second.id)
+      act(() => result.current.library.completeProjectHydration({ snapshot: second, revision: 1 }));
+    await act(async () => {
+      finish();
+      await saving;
+    });
+    await expect(saving).resolves.toBe(succeeds);
+    const expectedAids =
+      destination === second.id ? otherAids : succeeds ? savedAids : originalAids;
+    expect(result.current.domain.learningPlan?.modules[0]?.children[0]).toMatchObject({
+      learningAids: expectedAids,
+    });
+    // A later real snapshot write must not persist the old course's concepts into the destination.
+    await act(async () => {
+      await result.current.library.saveCurrentProject();
+    });
+    const reloadedDestination = await store.loadProject(userId, destination);
+    expect(reloadedDestination?.learningPlan?.modules?.[0]?.children?.[0]).toMatchObject({
+      learningAids: expectedAids,
+    });
+    const reloadedOrigin = await store.loadProject(userId, first.id);
+    expect(reloadedOrigin?.learningPlan?.modules?.[0]?.children?.[0]).toMatchObject({
+      learningAids: succeeds ? savedAids : originalAids,
+    });
+    if (destination === second.id) expect(result.current.library.storageError).toBeNull();
+    unmount();
+  });
+
+  test.each([
+    false,
+    true,
+  ])('applies decoded exercise files only in their originating course (switch: %s)', async switchProject => {
+    const { result, unmount } = renderHook(useReaderSaveSession);
+    await waitFor(() => expect(result.current.library.isLibraryLoading).toBe(false));
+    act(() => result.current.library.setCurrentProjectId('project-1'));
+    let finishRead!: (bytes: ArrayBuffer) => void;
+    const file = new File(['answer'], 'answer.txt', { type: 'text/plain' });
+    Object.defineProperty(file, 'arrayBuffer', {
+      value: () =>
+        new Promise<ArrayBuffer>(resolve => {
+          finishRead = resolve;
+        }),
+    });
+    act(() =>
+      result.current.shell.content.onAttachExerciseFiles('exercise-1', [
+        file,
+      ] as unknown as FileList)
+    );
+    if (switchProject) act(() => result.current.library.setCurrentProjectId('project-2'));
+    await act(async () => {
+      finishRead(new TextEncoder().encode('answer').buffer);
+    });
+    if (switchProject) expect(result.current.attachExerciseFiles).not.toHaveBeenCalled();
+    else
+      expect(result.current.attachExerciseFiles).toHaveBeenCalledWith('exercise-1', [
+        expect.objectContaining({ name: 'answer.txt', kind: 'text', data: 'answer' }),
+      ]);
+    unmount();
   });
 
   test('loads and sorts saved projects by last opened time', async () => {

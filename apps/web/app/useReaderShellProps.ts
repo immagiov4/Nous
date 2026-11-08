@@ -426,11 +426,13 @@ export const useReaderShellProps = ({
         return;
       }
 
+      const projectId = controller.currentProjectId;
       void (async () => {
         const attachments: ExerciseAttachment[] = [];
         for (const file of Array.from(files)) {
           attachments.push(await createExerciseAttachmentFromFile(file));
         }
+        if (controller.getCurrentProjectId() !== projectId) return;
         await controller.attachExerciseFiles(exerciseId, attachments);
       })().catch(error => {
         notify(
@@ -449,6 +451,7 @@ export const useReaderShellProps = ({
   const handleSaveLearningAids = useCallback(
     async (learningAids: LessonLearningAid[]) => {
       const activeSection = controller.activeSection;
+      const projectId = controller.currentProjectId;
       if (!activeSection) {
         return false;
       }
@@ -460,7 +463,9 @@ export const useReaderShellProps = ({
         return false;
       }
 
-      controller.updateSection(activeSection.id, section => ({ ...section, learningAids }));
+      if (controller.getCurrentProjectId() === projectId) {
+        controller.updateSection(activeSection.id, section => ({ ...section, learningAids }));
+      }
       return true;
     },
     [controller]
