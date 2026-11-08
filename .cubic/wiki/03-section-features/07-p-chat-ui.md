@@ -142,7 +142,7 @@ Selecting **Search the web** is an explicit request to search before answering; 
 
 ## Observability
 
-[Composer browser tests](../../../apps/web/tests/components/workspace/ContextComposerLayout.test.ts) exercise the actual reader/domain/menu path, saved-note reopening, attachment interaction and request context using synthetic persistence and response boundaries. Component tests retain callback, draft and playback-adapter invariants. Built-candidate Chromium/Firefox frame traces are local review evidence; these checks do not establish physical keyboard behavior or a historical stutter cause.
+[Composer browser tests](../../../apps/web/tests/components/workspace/ContextComposerLayout.test.ts) exercise the actual reader/domain/menu path, saved-note reopening, attachment interaction and request context using synthetic persistence and response boundaries. Component tests retain callback, draft and playback-adapter invariants.
 
 The authenticated `/api/chat/context/note-events` collector accepts strict, sanitized catalog, proposal, correction, decision, save and cancellation events. A correction records its recovery, request-preparation duration and an opaque `parentOperationId` referring to the rejected proposal. Counts show requested corrections; proposal and save events show their own outcomes. Events contain no lesson or note text, passage IDs, selectors, offsets, annotation IDs or provider tool-call IDs. Reporting failure cannot change a note result. Browser console events use `[Nous][ContextNote]`; collection logs use `context_note`.
 
