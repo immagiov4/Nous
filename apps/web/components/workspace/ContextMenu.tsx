@@ -920,7 +920,7 @@ const ContextMenu = ({
         onScroll={handleNotePreviewScroll}
         className={notePreviewClassName}
       >
-        <div>
+        <div className="flex flex-col gap-3">
           {normalizedNotePreview.trim() ? (
             <MarkdownRenderer
               content={normalizedNotePreview}
