@@ -1145,7 +1145,8 @@
   border-color: var(--nested-inner);
   background: var(--nested-focus);
 }
-.lesson-scene .groups.assessment h3 {
+.lesson-scene .groups.assessment h3,
+.lesson-scene .groups h3:has(> .meaning-icon) {
   display: flex;
   gap: 10px;
   align-items: center;
