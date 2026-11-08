@@ -868,6 +868,137 @@ test('centers both columns independently without caption jumps when visual heigh
 });
 
 test.each([
+  1024, 1440, 1920,
+])('desktop passage starts at the player title and keeps its geometry at %spx', async width => {
+  const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
+  try {
+    const measurements = [];
+    for (const length of ['', '&long']) {
+      await page.goto(`${baseUrl}tests/fixtures/playbackFocus.html?layout${length}`);
+      await page.getByRole('button', { name: 'Riproduci', exact: true }).click();
+      await page.locator('.scene-host .steps').waitFor();
+      await page.waitForFunction(
+        () => !!document.querySelector('.scene-fit')?.getAttribute('style')
+      );
+      measurements.push(
+        await page.evaluate(() => {
+          const rect = (selector: string) => {
+            const element = document.querySelector(selector);
+            if (!element) throw new Error(`Missing playback element: ${selector}`);
+            return element.getBoundingClientRect().toJSON();
+          };
+          return {
+            title: rect('dialog header h1'),
+            label: rect('.captions h2'),
+            caption: rect('.captions'),
+            visual: rect('.scene-host'),
+            slot: rect('.scene-fit'),
+          };
+        })
+      );
+    }
+    for (const geometry of measurements) {
+      expect(geometry.label.left).toBeCloseTo(geometry.title.left, 0);
+      expect(geometry.visual.left).toBeGreaterThanOrEqual(geometry.slot.left);
+      expect(geometry.visual.right).toBeLessThanOrEqual(geometry.slot.right + 1);
+      expect(geometry.visual.top).toBeGreaterThanOrEqual(0);
+      expect(geometry.visual.bottom).toBeLessThanOrEqual(900);
+    }
+    expect(measurements[1].caption.left).toBe(measurements[0].caption.left);
+    expect(measurements[1].caption.width).toBe(measurements[0].caption.width);
+    expect(measurements[1].label.top).toBe(measurements[0].label.top);
+    await evidence(page, `desktop-caption-${width}`);
+  } finally {
+    await page.close();
+  }
+});
+
+test.each([
+  'no-preference',
+  'reduce',
+] as const)('numbered steps join badge centers and terminate at the final row with motion=%s', async reducedMotion => {
+  for (const width of [390, 1440]) {
+    const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion });
+    try {
+      await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=steps`);
+      await page.locator('.steps > li.motion-target').first().waitFor();
+      const rows = await page.locator('.steps > li').evaluateAll(elements =>
+        elements.map(element => {
+          const badge = element.querySelector('.step-index');
+          if (!badge) throw new Error('Numbered badge must exist');
+          const row = element.getBoundingClientRect();
+          const rect = badge.getBoundingClientRect();
+          const style = getComputedStyle(element, '::before');
+          const scale = rect.width / Number.parseFloat(getComputedStyle(badge).width);
+          return {
+            badgeCenter: rect.left + rect.width / 2,
+            badgeTop: rect.top,
+            badgeBottom: rect.bottom,
+            lineX: row.left + Number.parseFloat(style.left) * scale,
+            lineTop: row.top + Number.parseFloat(style.top) * scale,
+            lineBottom: row.bottom - Number.parseFloat(style.bottom) * scale,
+            content: style.content,
+            stroke: Number.parseFloat(style.borderLeftWidth) * scale,
+          };
+        })
+      );
+      expect(rows).toHaveLength(3);
+      for (let index = 0; index < rows.length - 1; index++) {
+        expect(Math.abs(rows[index].lineX - rows[index].badgeCenter)).toBeLessThanOrEqual(
+          rows[index].stroke
+        );
+        expect(rows[index].lineTop).toBeCloseTo(rows[index].badgeBottom, 0);
+        expect(rows[index].lineBottom).toBeCloseTo(rows[index + 1].badgeTop, 0);
+      }
+      expect(rows.at(-1)?.content).toBe('none');
+      await evidence(page, `numbered-motion-${width}-${reducedMotion}`);
+    } finally {
+      await page.close();
+    }
+  }
+});
+
+test('keeps desktop caption and visual geometry through a live long-to-short passage transition', async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  try {
+    await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=steps&clock&transition`);
+    await page.locator('.steps > li.motion-target').first().waitFor();
+    await page.waitForFunction(() => !!document.querySelector('.scene-fit')?.getAttribute('style'));
+    const samples = await page.evaluate(async () => {
+      const samples = [];
+      for (let frame = 0; frame < 60; frame++) {
+        if (frame === 20) dispatchEvent(new Event('playback-next'));
+        await new Promise(requestAnimationFrame);
+        const bounds = (selector: string) => {
+          const element = document.querySelector(selector);
+          if (!element) throw new Error(`Missing ${selector} during passage transition`);
+          const rect = element.getBoundingClientRect();
+          return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+        };
+        samples.push({
+          label: bounds('.captions h2'),
+          caption: bounds('.captions'),
+          slot: bounds('.scene-fit'),
+          visual: bounds('.scene-host'),
+          words: document.querySelectorAll('.caption-word').length,
+        });
+      }
+      return samples;
+    });
+    expect(samples.at(-1)?.words).toBeLessThan(samples[0].words);
+    for (const sample of samples) {
+      expect(sample.label).toEqual(samples[0].label);
+      expect(sample.caption).toEqual(samples[0].caption);
+      expect(sample.slot).toEqual(samples[0].slot);
+      expect(sample.visual).toEqual(samples[0].visual);
+    }
+    await evidence(page, 'desktop-live-passage-transition');
+  } finally {
+    await page.close();
+  }
+});
+
+test.each([
   1440, 390,
 ])('verdict heading icons keep their spacing in reader and playback at %spx', async width => {
   const page = await browser.newPage({ viewport: { width, height: 900 } });

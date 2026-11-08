@@ -30,6 +30,7 @@ import {
   PROJECT_API_ERROR_CODE,
   PROJECT_PATCH_REBASE_MODE,
   PROJECT_REVISION_RESYNC_EVENT,
+  type ProjectAnnotationWriteState,
   type ProjectPatchRebaseMode,
 } from '@shared/projectContract';
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
@@ -39,7 +40,6 @@ import {
 } from '@shared/projectSnapshotWire';
 import { SOURCE_ARCHIVE_LESSON_CONTEXT_MAX_BYTES } from '@shared/sourceArchiveSelectors';
 import { type Request, type Response, Router } from 'express';
-
 import { getAuthMode, getCurrentUser } from '../auth/currentUser.js';
 import {
   LIBRARY_SIBLING_CONFLICT_MESSAGE,
@@ -113,6 +113,7 @@ import {
   readOptionalString,
   readStringArray,
 } from '../utils/validation.js';
+import { getCorrelationId } from '../workflows/requestObservability.js';
 
 const router = Router();
 
@@ -184,11 +185,30 @@ const readProjectPatchRebaseMode = (
   if (body.rebaseMode === undefined) return undefined;
   if (
     body.rebaseMode !== PROJECT_PATCH_REBASE_MODE.navigation &&
-    body.rebaseMode !== PROJECT_PATCH_REBASE_MODE.quiz
+    body.rebaseMode !== PROJECT_PATCH_REBASE_MODE.quiz &&
+    body.rebaseMode !== PROJECT_PATCH_REBASE_MODE.annotations
   ) {
     throw new Error('Modalità di rebase progetto non valida.');
   }
   return body.rebaseMode;
+};
+
+const readExpectedAnnotationState = (value: unknown): ProjectAnnotationWriteState | undefined => {
+  if (value === undefined) return undefined;
+  if (
+    !isRecord(value) ||
+    !['annotations', 'content', 'contentBlocks', 'generatedVisuals', 'lastGenerationRunId'].every(
+      field => Object.hasOwn(value, field)
+    )
+  )
+    throw new Error('Stato annotazioni atteso non valido.');
+  return {
+    annotations: value.annotations,
+    content: value.content,
+    contentBlocks: value.contentBlocks,
+    generatedVisuals: value.generatedVisuals,
+    lastGenerationRunId: value.lastGenerationRunId,
+  };
 };
 
 const readProjectImportChunk = (req: Request): string | Uint8Array => {
@@ -232,6 +252,13 @@ const sendProjectWriteError = (
   fallbackMessage: string,
   fallbackStatus = 400
 ): void => {
+  if (error instanceof ProjectRevisionConflictError) {
+    console.warn('[Nous][ProjectWrite] Revision conflict', {
+      requestId: getCorrelationId(),
+      code: error.code,
+      ...error.revisions,
+    });
+  }
   if (
     error instanceof ProjectRevisionConflictError ||
     error instanceof ProjectImportConflictError
@@ -953,6 +980,7 @@ router.patch(
       const meta = await getProjectStore().patchProject(userId, projectId, patch, {
         expectedRevision: readExpectedRevision(body),
         rebaseMode,
+        expectedAnnotationState: readExpectedAnnotationState(body.expectedAnnotationState),
         expectedQuizState: LessonQuizStateSchema.nullish().parse(body.expectedQuizState),
         expectedLessonGenerationRunId:
           body.expectedLessonGenerationRunId === null

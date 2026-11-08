@@ -20,6 +20,8 @@ export const CODEX_TURN_TIMEOUT_MS = 10 * 60_000;
 const CODEX_BASE_INSTRUCTIONS =
   'You are the Nous Reader text engine. Use only capabilities explicitly supplied by Nous. Never inspect the host filesystem, environment, applications, or browser. If a dynamic tool returns status "awaiting_client_result", end the turn immediately without inventing its result.';
 const CODEX_OFFLINE_INSTRUCTION = 'Do not access the network.';
+const CODEX_SERVER_TOOL_INSTRUCTION =
+  'Do not access the network directly. Only the explicitly registered server-side dynamic tools may perform authorized server-side operations. This does not grant shell, browser, native web search, or any other network access.';
 const CODEX_WEB_RESEARCH_INSTRUCTION =
   'Web search is available for this research request. Search and open enough relevant sources to support the requested result, and preserve source URLs in the structured output.';
 const CODEX_IMAGE_GENERATION_INSTRUCTION =
@@ -31,8 +33,8 @@ const CODEX_DISABLED_BUILTIN_FEATURES = [
   'browser_use',
   'browser_use_external',
   'browser_use_full_cdp_access',
-  'code_mode_host',
   'computer_use',
+  'code_mode_host',
   'goals',
   'hooks',
   'image_generation',
@@ -135,6 +137,7 @@ export interface CodexTurnInput {
   input: Array<{ text: string; type: 'text' } | { type: 'image'; url: string }>;
   model: string;
   onImageGenerated?: (result: string) => void;
+  onWebSearchCompleted?: () => void;
   onUsage?: (usage: Omit<WorkflowAiUsage, 'model' | 'provider'>) => void;
   onReasoningDelta?: (delta: string) => void;
   onTextDelta?: (delta: string) => void;
@@ -445,7 +448,11 @@ export const isCodexAppServerEnabled = (): boolean =>
 
 export const buildCodexAppServerCommand = (
   binary: string,
-  options: { allowImageGeneration?: boolean } = {}
+  options: {
+    allowImageGeneration?: boolean;
+    allowWebSearch?: boolean;
+    hasDynamicTools?: boolean;
+  } = {}
 ): string[] => [
   binary,
   'app-server',
@@ -456,10 +463,15 @@ export const buildCodexAppServerCommand = (
   'mcp_servers={}',
   ...CODEX_DISABLED_BUILTIN_FEATURES.filter(
     feature =>
-      !options.allowImageGeneration || !['image_generation', 'code_mode_host'].includes(feature)
+      !(feature === 'image_generation' && options.allowImageGeneration) &&
+      !(
+        feature === 'code_mode_host' &&
+        (options.allowImageGeneration || options.allowWebSearch || options.hasDynamicTools)
+      )
   ).flatMap(feature => ['--disable', feature]),
-  ...(options.allowImageGeneration
-    ? ['--enable', 'image_generation', '--enable', 'code_mode_host']
+  ...(options.allowImageGeneration ? ['--enable', 'image_generation'] : []),
+  ...(options.allowImageGeneration || options.allowWebSearch || options.hasDynamicTools
+    ? ['--enable', 'code_mode_host']
     : []),
 ];
 
@@ -501,7 +513,13 @@ declare const Bun: {
   };
 };
 
-const spawnCodexAppServer = (options: { allowImageGeneration?: boolean } = {}): CodexProcess => {
+const spawnCodexAppServer = (
+  options: {
+    allowImageGeneration?: boolean;
+    allowWebSearch?: boolean;
+    hasDynamicTools?: boolean;
+  } = {}
+): CodexProcess => {
   const binary = process.env.CODEX_BINARY?.trim() || 'codex';
   const subprocess = Bun.spawn(buildCodexAppServerCommand(binary, options), {
     cwd: process.env.CODEX_WORKING_DIRECTORY?.trim() || tmpdir(),
@@ -772,12 +790,17 @@ interface CodexTurnExecution {
   readonly settled: Promise<void>;
 }
 
-const codexBaseInstructions = (turn: CodexTurnInput): string =>
-  [
+const codexBaseInstructions = (turn: CodexTurnInput): string => {
+  let networkInstruction = CODEX_OFFLINE_INSTRUCTION;
+  if (turn.allowWebSearch) networkInstruction = CODEX_WEB_RESEARCH_INSTRUCTION;
+  else if (turn.tools?.some(tool => tool.execute))
+    networkInstruction = CODEX_SERVER_TOOL_INSTRUCTION;
+  return [
     CODEX_BASE_INSTRUCTIONS,
-    turn.allowWebSearch ? CODEX_WEB_RESEARCH_INSTRUCTION : CODEX_OFFLINE_INSTRUCTION,
+    networkInstruction,
     ...(turn.allowImageGeneration ? [CODEX_IMAGE_GENERATION_INSTRUCTION] : []),
   ].join('\n');
+};
 
 type ExchangeCapture = ReturnType<typeof startModelExchange>;
 
@@ -1020,6 +1043,9 @@ const executeCodexAppServerTurn = async (
       }
 
       if (method === 'item/completed') {
+        if (isRecord(params) && isRecord(params.item) && params.item.type === 'webSearch') {
+          turn.onWebSearchCompleted?.();
+        }
         const imageResult = readCompletedImageResult(params);
         if (imageResult) {
           turn.onImageGenerated?.(imageResult);
@@ -1191,7 +1217,12 @@ const startCodexAppServerTurn = async (turn: CodexTurnInput): Promise<CodexTurnE
   let client: CodexJsonRpcClient;
   try {
     client = await startCodexAppServerClient(
-      () => spawnCodexAppServer({ allowImageGeneration: turn.allowImageGeneration }),
+      () =>
+        spawnCodexAppServer({
+          allowImageGeneration: turn.allowImageGeneration,
+          allowWebSearch: turn.allowWebSearch,
+          hasDynamicTools: Boolean(turn.tools?.length),
+        }),
       turn.signal
     );
   } catch (error) {

@@ -35,7 +35,8 @@ export const writeProjectMetaRevision = async (
 ): Promise<StoredProjectMetaRow> => {
   const serializedMeta = sql.json(toPostgresJson(stripProjectRevision(meta)));
   if (isNewProject) {
-    if (expectedRevision !== undefined) throw new ProjectRevisionConflictError();
+    if (expectedRevision !== undefined)
+      throw new ProjectRevisionConflictError({ expectedRevision });
     const rows = await measureRequestPhase(
       'query',
       () => sql<StoredProjectMetaRow[]>`
@@ -69,7 +70,7 @@ export const writeProjectMetaRevision = async (
     returning meta, revision
   `
   );
-  if (!rows[0]) throw new ProjectRevisionConflictError();
+  if (!rows[0]) throw new ProjectRevisionConflictError({ expectedRevision });
   return rows[0];
 };
 

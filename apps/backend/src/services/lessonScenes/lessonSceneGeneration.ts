@@ -279,6 +279,7 @@ const buildScenePrompt = (input: GenerateLessonSceneInput): string => {
     : '';
   return `Lesson: ${input.sectionTitle}
 Description: ${input.sectionDescription}
+${input.requestText?.trim() ? `EXPLICIT ARTIFACT REQUEST:\n${input.requestText.trim()}\nChoose a supported catalog form that actually represents the requested structure and relationships. Preserve requested direction and visible connections; a list does not replace an explicitly requested connected diagram. Retain these constraints on revision unless explicitly changed.\n` : ''}
 ${provenance}
 ${
   input.plan

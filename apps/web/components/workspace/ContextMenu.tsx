@@ -91,7 +91,10 @@ interface ContextMenuProps {
   readonly onDetachArtifactFromAnnotation?: (artifactId: string) => void;
   readonly onHighlight: () => void;
   readonly onEntranceComplete?: () => void;
-  readonly onSaveNote: (note: string, artifactRefs?: SectionAnnotationArtifactRef[]) => void;
+  readonly onSaveNote: (
+    note: string,
+    artifactRefs?: SectionAnnotationArtifactRef[]
+  ) => void | Promise<void>;
   readonly placement: ContextMenuPlacement;
   readonly selectionRect?: SelectionRect;
   readonly selectedText: string;
@@ -171,7 +174,7 @@ const ContextMenu = ({
   containerRef,
   horizontalBounds,
   isDarkMode = false,
-  isLoading,
+  isLoading: isContextLoading,
   isPreparingContext = false,
   contextPreparationFailed = false,
   lessonCreationBlockReason,
@@ -191,6 +194,9 @@ const ContextMenu = ({
   selectedText,
   type,
 }: ContextMenuProps) => {
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const noteSavePendingRef = useRef(false);
+  const isLoading = isContextLoading || isSavingNote;
   const areContextActionsDisabled = isLoading || isPreparingContext;
   const [input, setInput] = useState('');
   const [hasEntered, setHasEntered] = useState(false);
@@ -485,16 +491,26 @@ const ContextMenu = ({
     setIsNoteEditorOpen(currentValue => !currentValue);
   };
 
-  const handleSaveNote = (event: MouseEvent<HTMLButtonElement>) => {
+  const handleSaveNote = async (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (areContextActionsDisabled) return;
+    if (areContextActionsDisabled || noteSavePendingRef.current) return;
 
     if (!isAnnotationMode && !trimmedNote && localAnnotationArtifactRefs.length === 0) {
       return;
     }
 
-    onSaveNote(noteInput, localAnnotationArtifactRefs);
+    noteSavePendingRef.current = true;
+    setIsSavingNote(true);
+    setIsAttachmentPickerOpen(false);
+    setIsMoreActionsOpen(false);
+    setIsLessonConfirmOpen(false);
+    try {
+      await onSaveNote(noteInput, localAnnotationArtifactRefs);
+    } finally {
+      noteSavePendingRef.current = false;
+      setIsSavingNote(false);
+    }
   };
 
   const handleCancelNoteEdit = (event: MouseEvent<HTMLButtonElement>) => {
@@ -831,7 +847,9 @@ const ContextMenu = ({
             isDarkMode={isDarkMode}
             openArtifactIdOverride={artifactPreviewIdOverride}
             portalContainer={artifactPortalContainer}
-            onRemoveArtifact={() => handleDetachArtifact(artifact.summary.id)}
+            onRemoveArtifact={
+              isSavingNote ? undefined : () => handleDetachArtifact(artifact.summary.id)
+            }
           />
         ))}
       </div>
@@ -989,6 +1007,7 @@ const ContextMenu = ({
               <button
                 type="button"
                 onClick={handleCancelNoteEdit}
+                disabled={isLoading}
                 className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-200"
               >
                 {t('Annulla')}
@@ -1023,12 +1042,19 @@ const ContextMenu = ({
               <button
                 type="button"
                 onClick={handleSaveNote}
+                aria-busy={isSavingNote || undefined}
                 disabled={
                   areContextActionsDisabled ||
                   (!isAnnotationMode && !trimmedNote && localAnnotationArtifactRefs.length === 0)
                 }
                 className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500"
               >
+                {isSavingNote ? (
+                  <LoaderCircle
+                    className="mr-1 inline h-3.5 w-3.5 animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : null}
                 {t(isAnnotationMode ? 'Salva' : 'Salva nota')}
               </button>
             ) : null}

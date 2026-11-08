@@ -101,6 +101,11 @@ The assistant can generate and edit visual pedagogical aids. These artifacts are
 *   **Mermaid**: Entity-relationship diagrams (`erDiagram`) or object-oriented structures (`classDiagram`).
 
 ### Generation Logic
+
+Contextual artifact generation retains the learner's original requests separately from the assistant's tool prompt and the model-authored visual plan. Planning, rendering and retry receive that request text directly, so the requested structure, direction and artifact destination are available to each stage. The existing catalog chooses a supported form; the application does not classify natural-language requests with keyword rules. Current artifact checkpoints retain this provenance while historical workflow definitions keep their original contracts.
+
+Owners: [artifact draft workflow](../../../apps/backend/src/workflows/artifactDraftWorkflow.ts) and [visual workflow](../../../apps/backend/src/workflows/lessonVisualWorkflow.ts).
+
 When a user asks for a visual, the assistant decides on a type and provides a prompt or structured data. For **Lesson Scenes**, the system reads the lesson, identifies a semantic relationship, and fills a structured schema (items, groups, values).
 
 ```mermaid
@@ -129,6 +134,10 @@ Each proposal validates against that snapshot. Approval revalidates the exact so
 
 `validation_error` is an automatic failure, distinct from learner refusal and approved-save failure. Anchor correction preserves the draft, rationale and attachments, and the resulting proposal still requires approval. When a proposal cannot be recovered, the composer remains available and **Reuse draft** appends any draft text to the composer for editing and explicit submission, even when other proposal fields are malformed. This is conversation-local recovery, not a saved annotation. Correction mechanics remain at their [implementation owner](../../../apps/web/utils/context/contextNoteCorrection.ts).
 
+## Contextual web search
+
+Selecting **Search the web** is an explicit request to search before answering; an explicit message asking not to use the web takes precedence. Both contextual providers receive this instruction. Search remains a model-owned tool choice, so execution evidence is the actual `searchWeb` call and result, not the selection flag or the chat's HTTP status. Codex enables the tool host needed by registered dynamic tools and authorized native research while contextual native web search stays disabled.
+
 ## Observability
 
 The authenticated `/api/chat/context/note-events` collector accepts strict, sanitized catalog, proposal, correction, decision, save and cancellation events. A correction records its recovery, request-preparation duration and an opaque `parentOperationId` referring to the rejected proposal. Counts show requested corrections; proposal and save events show their own outcomes. Events contain no lesson or note text, passage IDs, selectors, offsets, annotation IDs or provider tool-call IDs. Reporting failure cannot change a note result. Browser console events use `[Nous][ContextNote]`; collection logs use `context_note`.
@@ -136,3 +145,7 @@ The authenticated `/api/chat/context/note-events` collector accepts strict, sani
 The real-SDK [correction tests](../../../apps/web/tests/components/workspace/shell/ContextAnswerPanel.noteCorrection.test.tsx) exercise bounded continuation, refreshed context, consent, interruption and draft recovery. [Save tests](../../../apps/web/tests/components/workspace/shell/ContextAnswerPanel.noteSave.test.tsx) retain terminal save failures. [Diagnostic tests](../../../apps/web/tests/services/context/contextNoteDiagnostics.test.ts) and the context route tests check opaque correlation and reject extra fields before logging. Diagnostics describe the client boundary and collector; they do not prove production persistence or the model's unrecorded reasoning.
 
 The [context route](../../../apps/backend/src/routes/contextChat.ts) logs caught request errors. Its [route tests](../../../apps/backend/tests/routes/chat.test.ts) inspect the playback snapshot delivered to the provider and exercise scoped archive retrieval and safe tool failures. [Response-control tests](../../../apps/web/tests/hooks/chat/useChatResponseControl.test.tsx) cover stale tool calls after Stop, a newer response or unmount. These checks provide reproducible boundary evidence; the error log alone cannot reconstruct a successful conversation's context or prove that an answer is grounded in the intended passage.
+
+The shared search owner emits one `web_search` completion event with the request correlation ID, provider/model, outcome, stage/code and duration; failed upstream responses include status, and exceptions retain only bounded technical cause fields. These events omit queries, lesson/note text, response bodies and citations. Join the correlation ID to the HTTP request log: HTTP 200 confirms streaming transport, while the search event describes tool execution. Failed searches return a stable error with no usable summary or references. Codex request counts come from observed native completion events; its structured source list remains empty rather than synthesizing verified references from prose. The route and Codex protocol tests cover controlled success, upstream rejection, unusable results, exceptions and native completion counting. These diagnostics establish execution, not independent verification of every statement or source.
+
+For contextual artifacts, inspect the original request, selected plan and generated scene in authorized private checkpoints or synthetic model-exchange traces. The client request, artifact workflow and production-registry compatibility tests cover serialization, checkpoint/retry propagation and immutable historical contracts. Actual generated scene rendering supplies separate evidence of nodes, arrows and revised labels; transport success or a model's claim alone does not prove a suitable diagram. These traces may contain learner text and are not public diagnostic logs.

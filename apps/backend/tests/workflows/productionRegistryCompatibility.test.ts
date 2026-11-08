@@ -22,6 +22,7 @@ test('preserves every production registry output and durable fingerprint byte fo
   expect({
     ...current,
     'course-generation': fixture.current['course-generation'],
+    'lesson-artifact-draft': fixture.current['lesson-artifact-draft'],
     'prepare-lesson-playback-block': fixture.current['prepare-lesson-playback-block'],
   }).toEqual(fixture.current);
   const added = registry
@@ -32,7 +33,11 @@ test('preserves every production registry output and durable fingerprint byte fo
     );
   expect(added.length).toBeGreaterThan(0);
   for (const boundary of added)
-    expect(['prepare-lesson-playback-block', 'course-generation']).toContain(boundary.workflowId);
+    expect([
+      'prepare-lesson-playback-block',
+      'course-generation',
+      'lesson-artifact-draft',
+    ]).toContain(boundary.workflowId);
   expect(
     fixture.definitions.map(
       ({ manifestSha256: _manifest, defaultsSha256: _defaults, ...boundary }) => {
@@ -96,4 +101,52 @@ test('retains the old course boundary while promoting the diagnostic result cont
   expect(
     registry.resolve('course-generation', fixture.current['course-generation'])
   ).not.toBeNull();
+});
+
+test('only current artifact checkpoints retain the original request while historical and ordinary visual inputs keep their contract', () => {
+  const workflowId = 'lesson-artifact-draft';
+  const current = registry.current(workflowId);
+  const historical = registry.resolve(workflowId, fixture.current[workflowId]);
+  const checkpoint = {
+    kind: 'render',
+    contextFingerprint: 'a'.repeat(64),
+    lessonMarkdown: 'Synthetic lesson.',
+    requestText: 'Draw four connected nodes with arrows as an artifact.',
+    projectId: 'project',
+    sectionId: 'section',
+    sectionTitle: 'Synthetic lesson',
+    sectionDescription: '',
+    userId: 'user',
+    plan: {
+      slotId: 'artifact-draft',
+      visualType: 'lesson_scene',
+      complexity: 'simple',
+      interactionLevel: 'none',
+      requiresDepiction: false,
+      concept: 'Directed flow',
+      title: 'Directed flow',
+      altText: 'Four connected nodes',
+      anchorHeading: '',
+      pedagogicalGoal: 'Show order',
+      visualDirection: 'Left to right',
+      reason: 'Explicit request',
+      factualRequirements: [],
+      coverage: 'complete_synthesis',
+      coverageRationale: 'Entire flow',
+    },
+  };
+  if (current?.root.kind !== 'sequence' || historical?.root.kind !== 'sequence')
+    throw new Error('Expected artifact workflow sequences');
+  const currentPlan = current.root.nodes[0];
+  const historicalPlan = historical.root.nodes[0];
+  if (currentPlan.kind !== 'step' || historicalPlan.kind !== 'step')
+    throw new Error('Expected artifact planning steps');
+  expect(current.definitionHash).not.toBe(historical.definitionHash);
+  expect(currentPlan.outputSchema.parse(checkpoint)).toMatchObject({
+    requestText: checkpoint.requestText,
+  });
+  const { requestText: _requestText, ...previousCheckpoint } = checkpoint;
+  expect(historicalPlan.outputSchema.parse(checkpoint)).toEqual(previousCheckpoint);
+  const ordinary = registry.current('retry-lesson-visual');
+  expect(ordinary?.inputSchema.parse(checkpoint)).not.toHaveProperty('requestText');
 });

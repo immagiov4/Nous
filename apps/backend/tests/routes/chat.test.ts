@@ -921,7 +921,10 @@ describe('POST /api/chat/context', () => {
     aiMocks.toUIMessageStream.mockReturnValue('stream-token');
     aiMocks.streamText.mockReturnValue({ toUIMessageStream: aiMocks.toUIMessageStream });
     codexStreamMocks.createCodexChatStream.mockResolvedValue('codex-stream-token');
-    codexAppServerMocks.runCodexAppServerTurn.mockResolvedValue('Cross-check Codex eseguito.');
+    codexAppServerMocks.runCodexAppServerTurn.mockImplementation(async options => {
+      options.onWebSearchCompleted?.();
+      return 'Cross-check Codex eseguito.';
+    });
     aiMocks.pipeUIMessageStreamToResponse.mockImplementation(
       ({
         response,
@@ -1605,6 +1608,226 @@ describe('POST /api/chat/context', () => {
     expect(fetchOptions?.body).toContain('Puntatore');
   });
 
+  test('records successful provider execution without logging the query, summary or citations', async () => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      fetchMock.mockResolvedValueOnce(
+        Response.json({
+          choices: [
+            {
+              message: {
+                content: 'Synthetic checked answer',
+                annotations: [
+                  {
+                    type: 'url_citation',
+                    url_citation: { url: 'https://example.com/checked', title: 'Checked source' },
+                  },
+                ],
+              },
+            },
+          ],
+          usage: { server_tool_use: { web_search_requests: 1 } },
+        })
+      );
+      const { runConfiguredWebSearch } = await import('../../src/routes/chatPrompts.js');
+      const result = await runConfiguredWebSearch({
+        query: 'synthetic query',
+        messages: [{ role: 'user', content: 'Synthetic question' }],
+        modelConfig: { provider: 'openrouter', model: 'research-model', reasoningEffort: 'none' },
+      });
+      expect(result).toMatchObject({
+        sources: [{ url: 'https://example.com/checked', title: 'Checked source' }],
+        summary: 'Synthetic checked answer',
+        webSearchRequests: 1,
+      });
+      expect(result.error).toBeUndefined();
+      const event = JSON.parse(String(log.mock.lastCall?.[0]));
+      expect(event).toMatchObject({
+        event: 'web_search',
+        provider: 'openrouter',
+        model: 'research-model',
+        outcome: 'success',
+        code: 'completed',
+        sourceCount: 1,
+        webSearchRequests: 1,
+      });
+      const serializedEvent = JSON.stringify(event);
+      expect(serializedEvent).not.toContain('synthetic query');
+      expect(serializedEvent).not.toContain('Synthetic question');
+      expect(serializedEvent).not.toContain('Synthetic checked answer');
+      expect(serializedEvent).not.toContain('https://example.com/checked');
+      expect(serializedEvent).not.toContain('Checked source');
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  test.each([
+    '',
+    '   ',
+  ])('diagnoses rejected empty search %j without calling a provider', async query => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const correlationId = 'a1111111-1111-4111-8111-111111111111';
+    const privateText = 'PRIVATE lesson-query sk-secret';
+    try {
+      let toolResult: Promise<unknown> | undefined;
+      aiMocks.streamText.mockImplementationOnce(options => {
+        toolResult = options.tools.searchWeb.execute({ query });
+        return { toUIMessageStream: aiMocks.toUIMessageStream };
+      });
+      const response = await request(createApp())
+        .post('/api/chat/context')
+        .set('x-request-id', correlationId)
+        .send({
+          selectedText: privateText,
+          toolPreferences: { webSearch: true },
+          messages: [{ id: 'empty-search', role: 'user', content: 'Explain this.' }],
+        });
+      expect(response.status).toBe(200);
+      expect(await toolResult).toEqual({
+        error: 'La query per la ricerca web è vuota.',
+        query: '',
+        sources: [],
+        summary: '',
+        webSearchRequests: 0,
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(codexAppServerMocks.runCodexAppServerTurn).not.toHaveBeenCalled();
+      const events = log.mock.calls
+        .map(([entry]) => JSON.parse(String(entry)))
+        .filter(entry => entry.event === 'web_search');
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        correlationId,
+        provider: 'openrouter',
+        model: expect.any(String),
+        outcome: 'error',
+        stage: 'request',
+        code: 'empty_query',
+        durationMs: expect.any(Number),
+      });
+      expect(events[0]).not.toHaveProperty('query');
+      expect(JSON.stringify(events[0])).not.toContain(privateText);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  test('counts only observed completed Codex searches and retains truthful unstructured references', async () => {
+    codexAppServerMocks.runCodexAppServerTurn.mockImplementationOnce(async options => {
+      options.onWebSearchCompleted();
+      options.onWebSearchCompleted();
+      return 'Synthetic checked answer with https://example.com/source';
+    });
+    const { runConfiguredWebSearch } = await import('../../src/routes/chatPrompts.js');
+    const result = await runConfiguredWebSearch({
+      query: 'synthetic search',
+      messages: [{ role: 'user', content: 'Synthetic question' }],
+      modelConfig: { provider: 'codex', model: 'codex-research', reasoningEffort: 'none' },
+    });
+    expect(result).toEqual({
+      query: 'synthetic search',
+      sources: [],
+      summary: 'Synthetic checked answer with https://example.com/source',
+      webSearchRequests: 2,
+    });
+  });
+
+  test('does not count Codex prose without an observed native search as successful verification', async () => {
+    codexAppServerMocks.runCodexAppServerTurn.mockResolvedValueOnce('Unverified prose.');
+    const { runConfiguredWebSearch } = await import('../../src/routes/chatPrompts.js');
+    const result = await runConfiguredWebSearch({
+      query: 'synthetic search',
+      messages: [{ role: 'user', content: 'Synthetic question' }],
+      modelConfig: { provider: 'codex', model: 'codex-research', reasoningEffort: 'none' },
+    });
+    expect(result).toMatchObject({
+      error: expect.any(String),
+      sources: [],
+      summary: '',
+      webSearchRequests: 0,
+    });
+  });
+
+  test.each([
+    { kind: 'rejection', stage: 'response', code: 'upstream_rejected', status: 429 },
+    { kind: 'exception', stage: 'request', code: 'provider_exception', status: undefined },
+    { kind: 'unusable', stage: 'result', code: 'unusable_result', status: 200 },
+    { kind: 'invalid-json', stage: 'response', code: 'invalid_response', status: 200 },
+    { kind: 'null-json', stage: 'response', code: 'invalid_response', status: 200 },
+    { kind: 'string-json', stage: 'response', code: 'invalid_response', status: 200 },
+    { kind: 'array-json', stage: 'response', code: 'invalid_response', status: 200 },
+  ])('diagnoses $kind search failures inside a successful chat transport without private content', async ({
+    kind,
+    stage,
+    code,
+    status,
+  }) => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const privateText = 'PRIVATE lesson-query sk-secret';
+    const correlationId = 'a1111111-1111-4111-8111-111111111111';
+    try {
+      if (kind === 'rejection')
+        fetchMock.mockResolvedValueOnce(new Response(privateText, { status: 429 }));
+      else if (kind === 'exception')
+        fetchMock.mockRejectedValueOnce(
+          Object.assign(new Error(privateText), { code: 'ECONNRESET', status: 503 })
+        );
+      else if (kind === 'invalid-json') fetchMock.mockResolvedValueOnce(new Response(privateText));
+      else if (kind === 'null-json') fetchMock.mockResolvedValueOnce(Response.json(null));
+      else if (kind === 'string-json') fetchMock.mockResolvedValueOnce(Response.json(privateText));
+      else if (kind === 'array-json') fetchMock.mockResolvedValueOnce(Response.json([]));
+      else
+        fetchMock.mockResolvedValueOnce(
+          Response.json({ choices: [{ message: { content: privateText } }] })
+        );
+      let toolResult: Promise<unknown> | undefined;
+      aiMocks.streamText.mockImplementationOnce(options => {
+        toolResult = options.tools.searchWeb.execute({ query: privateText });
+        return { toUIMessageStream: aiMocks.toUIMessageStream };
+      });
+      const response = await request(createApp())
+        .post('/api/chat/context')
+        .set('x-request-id', correlationId)
+        .send({
+          selectedText: privateText,
+          toolPreferences: { webSearch: true },
+          messages: [{ id: 'search-failure', role: 'user', content: 'Explain this.' }],
+        });
+      expect(response.status).toBe(200);
+      const result = (await toolResult) as { error: string };
+      expect(result).toMatchObject({
+        error: 'Ricerca web non riuscita. Riprova tra poco.',
+        sources: [],
+        summary: '',
+      });
+      expect(result.error).not.toContain(privateText);
+      const event = log.mock.calls
+        .map(([entry]) => JSON.parse(String(entry)))
+        .find(entry => entry.event === 'web_search');
+      expect(event).toMatchObject({
+        correlationId,
+        provider: 'openrouter',
+        model: expect.any(String),
+        outcome: 'error',
+        stage,
+        code,
+        durationMs: expect.any(Number),
+      });
+      if (status !== undefined) expect(event.status).toBe(status);
+      if (kind === 'exception')
+        expect(event.diagnostic.cause).toMatchObject({
+          code: 'ECONNRESET',
+          status: 503,
+          type: 'Error',
+        });
+      expect(JSON.stringify(event)).not.toContain(privateText);
+      expect(JSON.stringify(event)).not.toContain('sk-secret');
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   test('round-trips retained archive context into bounded search, read, and citation results', async () => {
     const archiveText = 'class ClientMap {\n  void render();\n}\n';
     const archiveBytes = new TextEncoder().encode(archiveText);
@@ -2040,7 +2263,10 @@ describe('POST /api/chat/library', () => {
     aiMocks.toUIMessageStream.mockReturnValue('stream-token');
     aiMocks.streamText.mockReturnValue({ toUIMessageStream: aiMocks.toUIMessageStream });
     codexStreamMocks.createCodexChatStream.mockResolvedValue('codex-stream-token');
-    codexAppServerMocks.runCodexAppServerTurn.mockResolvedValue('Cross-check Codex eseguito.');
+    codexAppServerMocks.runCodexAppServerTurn.mockImplementation(async options => {
+      options.onWebSearchCompleted?.();
+      return 'Cross-check Codex eseguito.';
+    });
     aiMocks.pipeUIMessageStreamToResponse.mockImplementation(
       ({
         response,

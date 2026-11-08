@@ -143,7 +143,8 @@ const getRequestPath = (req: express.Request): string => req.originalUrl.split('
 const getRequestLogPath = (req: express.Request): string => {
   const requestPath = getRequestPath(req);
   if (SAFE_REQUEST_LOG_PATHS.has(requestPath)) return requestPath;
-  const routePath: unknown = req.route?.path;
+  // Route aliases share one handler; record its declared canonical template, never the URL.
+  const routePath: unknown = Array.isArray(req.route?.path) ? req.route.path[0] : req.route?.path;
   if (typeof routePath !== 'string') return UNMATCHED_REQUEST_ROUTE;
   if (!req.baseUrl) return routePath;
   return routePath === '/' ? req.baseUrl : `${req.baseUrl}${routePath}`;

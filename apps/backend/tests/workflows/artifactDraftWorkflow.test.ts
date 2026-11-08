@@ -8,6 +8,7 @@ import {
   type ArtifactDraftWorkflowInput,
   type ArtifactDraftWorkflowServices,
   createArtifactDraftWorkflow,
+  createPreviousArtifactDraftWorkflow,
 } from '../../src/workflows/artifactDraftWorkflow.js';
 import { LegacyLessonVisualContractSchemas } from '../../src/workflows/lessonGenerationWorkflowSchemas.js';
 import { buildLessonVisualContextFingerprint } from '../../src/workflows/lessonVisualContext.js';
@@ -127,6 +128,91 @@ const workflowNodes = () => {
 };
 
 describe('artifact draft workflow', () => {
+  test.each([
+    true,
+    false,
+  ])('preserves the planner request only for the current artifact contract: %s', async current => {
+    const workflow = (current ? createArtifactDraftWorkflow : createPreviousArtifactDraftWorkflow)(
+      config
+    );
+    if (workflow.root.kind !== 'sequence') throw new Error('Expected artifact sequence');
+    const plan = workflow.root.nodes[0];
+    if (plan.kind !== 'step') throw new Error('Expected artifact planner step');
+    const services = makeServices();
+    await plan.run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'root/plan-artifact-draft', runId: RUN_ID },
+      idempotencyKey: 'plan-key',
+      input: { ...input, requestedVisualKind: 'scene' },
+      retryFeedback: '',
+      services,
+      signal: new AbortController().signal,
+    });
+    const plannerInput = services.planArtifactDraft.mock.calls[0]?.[0];
+    if (current) expect(plannerInput).toHaveProperty('requestText', input.requestText);
+    else expect(plannerInput).not.toHaveProperty('requestText');
+  });
+
+  test('preserves the explicit artifact request through planning, checkpoint and scene retry', async () => {
+    const requestText =
+      'Crea un diagramma con frecce prima/dopo come artefatto.\n\nMantieni il diagramma, cambia solo le etichette.';
+    const { plan } = workflowNodes();
+    const generateScene = vi.fn(async () => ({
+      kind: 'scene' as const,
+      scene: {
+        type: 'steps' as const,
+        title: 'Percorso',
+        body: '',
+        note: '',
+        quote: '',
+        groups: [],
+        items: [
+          { label: 'Prima', detail: '', icon: 'point' },
+          { label: 'Dopo', detail: '', icon: 'point' },
+        ],
+      },
+    }));
+    const services = makeServices({ generateScene });
+    const planned = await plan.run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'root/plan-artifact-draft', runId: RUN_ID },
+      idempotencyKey: 'plan-key',
+      input: { ...input, requestText, requestedVisualKind: 'scene' },
+      retryFeedback: '',
+      services,
+      signal: new AbortController().signal,
+    });
+    expect(services.planArtifactDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ requestText })
+    );
+    const checkpoint = plan.outputSchema.parse(JSON.parse(JSON.stringify(planned)));
+    expect(checkpoint).toMatchObject({ kind: 'render', requestText });
+    if (checkpoint.kind !== 'render') throw new Error('Expected artifact render state');
+    const artifactRoute = workflowNodes().route.cases.render;
+    if (artifactRoute.kind !== 'sequence') throw new Error('Expected artifact render sequence');
+    const visual = artifactRoute.nodes[1];
+    if (visual.kind !== 'workflow') throw new Error('Expected artifact visual workflow');
+    const route = visual.root;
+    if (route.kind !== 'routeBy' || route.cases.scene.kind !== 'step')
+      throw new Error('Expected scene render step');
+    const render = route.cases.scene;
+    await render.run({
+      attemptNumber: 2,
+      config,
+      execution: { nodeInstanceId: 'root/render-scene', runId: RUN_ID },
+      idempotencyKey: 'scene-key',
+      input: render.inputSchema.parse(checkpoint),
+      retryFeedback: 'Preserva le frecce richieste.',
+      services,
+      signal: new AbortController().signal,
+    });
+    expect(generateScene).toHaveBeenCalledWith(
+      expect.objectContaining({ requestText, retryFeedback: 'Preserva le frecce richieste.' })
+    );
+  });
+
   test('plans an explicit raster request durably without an unnecessary planner call', async () => {
     const { plan, route } = workflowNodes();
     const services = makeServices();

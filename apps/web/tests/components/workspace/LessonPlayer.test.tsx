@@ -294,6 +294,21 @@ test('changing viewport mode preserves focus while writing a question', () => {
   expect(screen.getByRole('textbox')).toHaveValue('Una domanda');
 });
 
+test('changing color theme preserves the open question and its focus', () => {
+  const view = render(<LessonPlayer {...props} autoPlay={false} />);
+  const input = screen.getByRole('textbox');
+  input.focus();
+  fireEvent.change(input, { target: { value: 'Una domanda' } });
+  for (const isDarkMode of [true, false]) {
+    view.rerender(
+      <LessonPlayer {...props} autoPlay={false} content={{ ...content, isDarkMode }} />
+    );
+    expect(screen.getByRole('dialog').classList.contains('dark')).toBe(isDarkMode);
+    expect(screen.getByRole('textbox')).toHaveFocus();
+    expect(screen.getByRole('textbox')).toHaveValue('Una domanda');
+  }
+});
+
 test('opening the player uses preventScroll and restores the opening control on close', () => {
   const opener = document.createElement('button');
   document.body.append(opener);
