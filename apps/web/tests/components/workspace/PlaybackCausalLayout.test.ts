@@ -978,7 +978,8 @@ test('keeps desktop caption and visual geometry through a live long-to-short pas
         samples.push({
           label: bounds('.captions h2'),
           caption: bounds('.captions'),
-          visual: bounds('.scene-fit'),
+          slot: bounds('.scene-fit'),
+          visual: bounds('.scene-host'),
           words: document.querySelectorAll('.caption-word').length,
         });
       }
@@ -988,6 +989,7 @@ test('keeps desktop caption and visual geometry through a live long-to-short pas
     for (const sample of samples) {
       expect(sample.label).toEqual(samples[0].label);
       expect(sample.caption).toEqual(samples[0].caption);
+      expect(sample.slot).toEqual(samples[0].slot);
       expect(sample.visual).toEqual(samples[0].visual);
     }
     await evidence(page, 'desktop-live-passage-transition');
