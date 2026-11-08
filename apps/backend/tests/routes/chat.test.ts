@@ -1659,6 +1659,57 @@ describe('POST /api/chat/context', () => {
     }
   });
 
+  test.each([
+    '',
+    '   ',
+  ])('diagnoses rejected empty search %j without calling a provider', async query => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const correlationId = 'a1111111-1111-4111-8111-111111111111';
+    const privateText = 'PRIVATE lesson-query sk-secret';
+    try {
+      let toolResult: Promise<unknown> | undefined;
+      aiMocks.streamText.mockImplementationOnce(options => {
+        toolResult = options.tools.searchWeb.execute({ query });
+        return { toUIMessageStream: aiMocks.toUIMessageStream };
+      });
+      const response = await request(createApp())
+        .post('/api/chat/context')
+        .set('x-request-id', correlationId)
+        .send({
+          selectedText: privateText,
+          toolPreferences: { webSearch: true },
+          messages: [{ id: 'empty-search', role: 'user', content: 'Explain this.' }],
+        });
+      expect(response.status).toBe(200);
+      expect(await toolResult).toEqual({
+        error: 'La query per la ricerca web è vuota.',
+        query: '',
+        sources: [],
+        summary: '',
+        webSearchRequests: 0,
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(codexAppServerMocks.runCodexAppServerTurn).not.toHaveBeenCalled();
+      const events = log.mock.calls
+        .map(([entry]) => JSON.parse(String(entry)))
+        .filter(entry => entry.event === 'web_search');
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        correlationId,
+        provider: 'openrouter',
+        model: expect.any(String),
+        outcome: 'error',
+        stage: 'request',
+        code: 'empty_query',
+        durationMs: expect.any(Number),
+      });
+      expect(events[0]).not.toHaveProperty('query');
+      expect(JSON.stringify(events[0])).not.toContain(privateText);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   test('counts only observed completed Codex searches and retains truthful unstructured references', async () => {
     codexAppServerMocks.runCodexAppServerTurn.mockImplementationOnce(async options => {
       options.onWebSearchCompleted();

@@ -372,19 +372,12 @@ export const runConfiguredWebSearch = async ({
     MAX_WEB_SEARCH_RESULTS
   );
 
-  if (!normalizedQuery) {
-    return {
-      error: 'La query per la ricerca web è vuota.',
-      query: '',
-      sources: [],
-      summary: '',
-      webSearchRequests: 0,
-    };
-  }
-
   const started = performance.now();
   const correlationId = getCorrelationId() ?? createCorrelationId();
   try {
+    if (!normalizedQuery) {
+      throw new WebSearchFailure('request', 'empty_query');
+    }
     const result =
       modelConfig.provider === 'codex'
         ? await runCodexWebSearch({ messages, modelConfig, query: normalizedQuery })
@@ -445,7 +438,10 @@ export const runConfiguredWebSearch = async ({
       })
     );
     return {
-      error: SAFE_WEB_SEARCH_ERROR,
+      error:
+        failure.code === 'empty_query'
+          ? 'La query per la ricerca web è vuota.'
+          : SAFE_WEB_SEARCH_ERROR,
       query: normalizedQuery,
       sources: [],
       summary: '',
