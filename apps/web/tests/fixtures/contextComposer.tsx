@@ -73,6 +73,33 @@ const artifacts: LearningArtifactRenderPayload[] = [
     previewMode: 'chip-only',
   },
 })) as LearningArtifactRenderPayload[];
+if (params.has('many')) {
+  const template = artifacts[0];
+  if (template && 'visual' in template) {
+    artifacts.push(
+      ...Array.from({ length: 12 }, (_, index) => ({
+        ...template,
+        visual: { ...template.visual, id: `many-${index}`, title: `Schema ${index + 1}` },
+        summary: {
+          ...template.summary,
+          id: `synthetic:lesson:generated-visual:many-${index}`,
+          title: `Schema ${index + 1}`,
+        },
+      }))
+    );
+  }
+}
+const seededAnnotations = richAnnotation?.annotations.map(annotation => ({
+  ...annotation,
+  ...(params.has('many')
+    ? {
+        artifactRefs: artifacts.map(payload => ({
+          artifactId: payload.summary.id,
+          kind: 'generated-visual' as const,
+        })),
+      }
+    : {}),
+}));
 const emptyLibrary = {
   attachedContextRefs: [],
   folders: [],
@@ -103,7 +130,7 @@ function Fixture() {
             id: 'lesson',
             title: 'Collegare',
             content: markdown,
-            annotations: richAnnotation?.annotations,
+            annotations: seededAnnotations,
           }),
         ]),
       })

@@ -93,7 +93,10 @@ interface ContextMenuProps {
   readonly onDetachArtifactFromAnnotation?: (artifactId: string) => void;
   readonly onHighlight: () => void;
   readonly onEntranceComplete?: () => void;
-  readonly onSaveNote: (note: string, artifactRefs?: SectionAnnotationArtifactRef[]) => void;
+  readonly onSaveNote: (
+    note: string,
+    artifactRefs?: SectionAnnotationArtifactRef[]
+  ) => void | Promise<void>;
   readonly placement: ContextMenuPlacement;
   readonly selectionRect?: SelectionRect;
   readonly selectedText: string;
@@ -175,7 +178,7 @@ const ContextMenu = ({
   containerRef,
   horizontalBounds,
   isDarkMode = false,
-  isLoading,
+  isLoading: isContextLoading,
   isPreparingContext = false,
   contextPreparationFailed = false,
   lessonCreationBlockReason,
@@ -195,6 +198,9 @@ const ContextMenu = ({
   selectedText,
   type,
 }: ContextMenuProps) => {
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const noteSavePendingRef = useRef(false);
+  const isLoading = isContextLoading || isSavingNote;
   const areContextActionsDisabled = isLoading || isPreparingContext;
   const [input, setInput] = useState('');
   const [hasEntered, setHasEntered] = useState(false);
@@ -226,7 +232,6 @@ const ContextMenu = ({
   const notePreviewRef = useRef<HTMLDivElement>(null);
   const moreActionsButtonRef = useRef<HTMLButtonElement>(null);
   const moreActionsMenuRef = useRef<HTMLDivElement>(null);
-  const moreActionsMenuItemRef = useRef<HTMLButtonElement>(null);
   const lessonCancelButtonRef = useRef<HTMLButtonElement>(null);
   const isMobileSheet = placement === 'mobile-sheet';
 
@@ -498,22 +503,37 @@ const ContextMenu = ({
     } else setIsNoteEditorOpen(currentValue => !currentValue);
   };
 
-  const handleSaveNote = (event: MouseEvent<HTMLButtonElement> | SubmitEvent<HTMLFormElement>) => {
+  const handleSaveNote = async (
+    event: MouseEvent<HTMLButtonElement> | SubmitEvent<HTMLFormElement>
+  ) => {
     event.preventDefault();
     event.stopPropagation();
-    if (areContextActionsDisabled) return;
+    if (areContextActionsDisabled || noteSavePendingRef.current) return;
 
     if (!isAnnotationMode && !trimmedNote && localAnnotationArtifactRefs.length === 0) {
       return;
     }
 
-    onSaveNote(noteInput, localAnnotationArtifactRefs);
+    noteSavePendingRef.current = true;
+    setIsSavingNote(true);
+    setIsAttachmentPickerOpen(false);
+    setIsMoreActionsOpen(false);
+    setIsLessonConfirmOpen(false);
+    try {
+      await onSaveNote(noteInput, localAnnotationArtifactRefs);
+    } finally {
+      noteSavePendingRef.current = false;
+      setIsSavingNote(false);
+    }
   };
 
   const handleCancelNoteEdit = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
     setNoteInput(annotationNote);
+    // Existing annotation links are committed immediately; selection links remain draft-only.
+    if (!isAnnotationMode) setLocalAnnotationArtifactRefs(annotationArtifactRefs);
+    setIsAttachmentPickerOpen(false);
     setIsNoteEditorOpen(false);
     setComposerMode(isAnnotationMode && hasSavedAnnotationContent ? 'note' : 'ask');
     restoreComposerFocus();
@@ -586,7 +606,9 @@ const ContextMenu = ({
     }
 
     const frameId = globalThis.window.requestAnimationFrame(() =>
-      moreActionsMenuItemRef.current?.focus()
+      moreActionsMenuRef.current
+        ?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')
+        ?.focus()
     );
     const handlePointerDown = (event: globalThis.PointerEvent) => {
       const target = event.target;
@@ -713,12 +735,13 @@ const ContextMenu = ({
     : typeof menuStyle.top === 'number'
       ? menuStyle.top
       : CONTEXT_MENU_VIEWPORT_PADDING;
+  const desktopMenuMaxHeight = Math.max(
+    0,
+    viewportHeight - desktopMenuOffset - CONTEXT_MENU_VIEWPORT_PADDING
+  );
   const desktopNoteMaxHeight = Math.max(
     0,
-    viewportHeight -
-      desktopMenuOffset -
-      CONTEXT_MENU_VIEWPORT_PADDING -
-      CONTEXT_MENU_DESKTOP_CHROME_HEIGHT
+    desktopMenuMaxHeight - CONTEXT_MENU_DESKTOP_CHROME_HEIGHT
   );
 
   const [transformOrigin] = useState(() => {
@@ -837,7 +860,9 @@ const ContextMenu = ({
             openArtifactIdOverride={artifactPreviewIdOverride}
             portalContainer={annotationArtifactPortalTarget}
             onOverlayClose={isUnifiedComposer ? restoreComposerFocus : undefined}
-            onRemoveArtifact={() => handleDetachArtifact(artifact.summary.id)}
+            onRemoveArtifact={
+              isSavingNote ? undefined : () => handleDetachArtifact(artifact.summary.id)
+            }
           />
         ))}
       </div>
@@ -930,7 +955,9 @@ const ContextMenu = ({
       aria-expanded={isMoreActionsOpen}
       aria-haspopup="menu"
       aria-label={t('Apri menu')}
-      className={moreActionsButtonClassName}
+      className={
+        isUnifiedComposer && isMobileSheet ? 'context-composer-icon' : moreActionsButtonClassName
+      }
       title={t('Apri menu')}
     >
       <MoreVertical className="h-4 w-4 shrink-0" />
@@ -955,7 +982,6 @@ const ContextMenu = ({
         style={moreActionsMenuStyle}
       >
         <button
-          ref={moreActionsMenuItemRef}
           type="button"
           role="menuitem"
           onClick={handleCreateIntent}
@@ -965,6 +991,24 @@ const ContextMenu = ({
           <BookPlus className="h-4 w-4 shrink-0 text-stone-500 dark:text-stone-300" />
           <span>{lessonCreationBlockedLabel ?? t('Crea sottolezione')}</span>
         </button>
+        {isUnifiedComposer &&
+        isMobileSheet &&
+        composerMode === 'note' &&
+        !isAnnotationPreviewMode ? (
+          <button
+            type="button"
+            role="menuitem"
+            disabled={isLoading}
+            onClick={event => {
+              setIsMoreActionsOpen(false);
+              handleCancelNoteEdit(event);
+            }}
+            className="context-composer-menu-item"
+          >
+            <X className="h-4 w-4" />
+            {t('Annulla')}
+          </button>
+        ) : null}
       </motion.div>,
       moreActionsPortalTarget
     );
@@ -1357,7 +1401,7 @@ const ContextMenu = ({
             data-mode={composerMode}
             data-context-menu-target="composer"
             aria-hidden={false}
-            onSubmit={event => (noteMode ? handleSaveNote(event) : handleAskSubmit(event))}
+            onSubmit={noteMode ? handleSaveNote : handleAskSubmit}
           >
             <div className="context-composer-heading">
               <span>{t(preview ? 'Nota associata al passaggio' : 'Su questo passaggio')}</span>
@@ -1370,68 +1414,83 @@ const ContextMenu = ({
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div
-              className="context-composer-field"
-              data-context-menu-target="composer-field"
-              style={!shouldAnimate ? { transition: 'none' } : undefined}
-            >
-              {isAnnotationMode && hasSavedAnnotationContent ? (
-                <div hidden={!preview} aria-hidden={!preview} className="h-full">
-                  {renderRenderedNotePreview()}
-                </div>
-              ) : null}
-              {!preview ? (
-                <textarea
-                  ref={composerInputRef}
-                  rows={noteMode ? PLAYBACK_NOTE_ROWS : 1}
-                  data-context-menu-target="input"
-                  aria-label={t(noteMode ? 'Scrivi una nota' : 'Chiedi a Nous')}
-                  value={noteMode ? noteInput : displayedInput}
-                  onChange={event =>
-                    noteMode ? setNoteInput(event.target.value) : changeInput(event.target.value)
-                  }
-                  onKeyDown={event => {
-                    if (
-                      event.key === 'Enter' &&
-                      !event.nativeEvent.isComposing &&
-                      ((!noteMode && !event.shiftKey) || event.ctrlKey || event.metaKey)
-                    ) {
-                      event.preventDefault();
-                      event.currentTarget.form?.requestSubmit();
-                    }
-                  }}
-                  placeholder={
-                    noteMode
-                      ? isAnnotationMode
-                        ? t('Scrivi, aggiorna o svuota la nota...')
-                        : t('Scrivi la nota che vuoi lasciare su questo passaggio...')
-                      : askInputPlaceholder
-                  }
-                  disabled={isLoading}
-                  className="custom-scrollbar placeholder:text-stone-400 dark:placeholder:text-stone-400"
-                />
-              ) : null}
-            </div>
-            <div aria-hidden={!noteMode || preview} inert={!noteMode || preview || undefined}>
-              <AnimatePresence initial={false}>
-                {noteMode && !preview && annotationArtifactPayloads.length > 0 ? (
-                  <motion.div
-                    key="note-artifacts"
-                    className="overflow-hidden"
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{
-                      duration: shouldAnimate ? COMPOSER_MOTION.durationMs / 1000 : 0,
-                      ease: COMPOSER_MOTION.ease,
-                    }}
-                  >
-                    <div className="context-composer-artifacts">
-                      {renderAttachedAnnotationArtifacts()}
-                    </div>
-                  </motion.div>
+            <div className="context-composer-content custom-scrollbar">
+              <div
+                className="context-composer-field"
+                data-context-menu-target="composer-field"
+                style={!shouldAnimate ? { transition: 'none' } : undefined}
+              >
+                {isAnnotationMode && hasSavedAnnotationContent ? (
+                  <div hidden={!preview} aria-hidden={!preview} className="h-full">
+                    {renderRenderedNotePreview()}
+                  </div>
                 ) : null}
-              </AnimatePresence>
+                {isMobileSheet && !noteMode && showSpeechInput ? (
+                  <div className="context-composer-speech">
+                    <SpeechInputButton
+                      disabled={isLoading}
+                      onTranscription={handleSpeechTranscription}
+                      errorPresentation="viewport"
+                      variant="compact"
+                    />
+                  </div>
+                ) : null}
+                {!preview ? (
+                  <textarea
+                    ref={composerInputRef}
+                    rows={noteMode ? PLAYBACK_NOTE_ROWS : 1}
+                    data-context-menu-target="input"
+                    aria-label={t(noteMode ? 'Scrivi una nota' : 'Chiedi a Nous')}
+                    value={noteMode ? noteInput : displayedInput}
+                    onChange={event =>
+                      noteMode ? setNoteInput(event.target.value) : changeInput(event.target.value)
+                    }
+                    onKeyDown={event => {
+                      if (
+                        event.key === 'Enter' &&
+                        !event.nativeEvent.isComposing &&
+                        ((!noteMode && !event.shiftKey) || event.ctrlKey || event.metaKey)
+                      ) {
+                        event.preventDefault();
+                        event.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                    placeholder={
+                      noteMode
+                        ? isAnnotationMode
+                          ? t('Scrivi, aggiorna o svuota la nota...')
+                          : t('Scrivi la nota che vuoi lasciare su questo passaggio...')
+                        : askInputPlaceholder
+                    }
+                    disabled={isLoading}
+                    className="custom-scrollbar placeholder:text-stone-400 dark:placeholder:text-stone-400"
+                  />
+                ) : null}
+              </div>
+              <div
+                aria-hidden={!noteMode || preview || annotationArtifactPayloads.length === 0}
+                inert={!noteMode || preview || annotationArtifactPayloads.length === 0 || undefined}
+              >
+                <AnimatePresence initial={false}>
+                  {noteMode && !preview && annotationArtifactPayloads.length > 0 ? (
+                    <motion.div
+                      key="note-artifacts"
+                      className="overflow-hidden"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{
+                        duration: shouldAnimate ? COMPOSER_MOTION.durationMs / 1000 : 0,
+                        ease: COMPOSER_MOTION.ease,
+                      }}
+                    >
+                      <div className="context-composer-artifacts">
+                        {renderAttachedAnnotationArtifacts()}
+                      </div>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
+              </div>
             </div>
             <footer className="context-composer-footer">
               {noteMode && !preview && attachableArtifactPayloads.length ? (
@@ -1486,12 +1545,13 @@ const ContextMenu = ({
                   <button
                     type="button"
                     className="context-composer-cancel"
+                    disabled={isLoading}
                     onClick={handleCancelNoteEdit}
                   >
                     {t('Annulla')}
                   </button>
                 ) : null}
-                {!noteMode && showSpeechInput ? (
+                {!isMobileSheet && !noteMode && showSpeechInput ? (
                   <SpeechInputButton
                     disabled={isLoading}
                     onTranscription={handleSpeechTranscription}
@@ -1501,7 +1561,9 @@ const ContextMenu = ({
                 ) : null}
                 <div className="context-composer-more">{renderMoreActionsButton()}</div>
                 {isMobileSheet && !noteMode
-                  ? renderComposerHighlightButton('context-composer-icon')
+                  ? renderComposerHighlightButton(
+                      'context-composer-icon context-composer-highlight'
+                    )
                   : null}
                 {preview ? (
                   <button
@@ -1517,8 +1579,15 @@ const ContextMenu = ({
                     type="submit"
                     className="context-composer-primary"
                     aria-label={t('Salva nota')}
+                    aria-busy={isSavingNote || undefined}
                     disabled={saveDisabled}
                   >
+                    {isSavingNote ? (
+                      <LoaderCircle
+                        className="mr-1 inline h-3.5 w-3.5 animate-spin"
+                        aria-hidden="true"
+                      />
+                    ) : null}
                     {t(isMobileSheet ? 'Salva' : 'Salva nota')}
                   </button>
                 ) : (
@@ -1602,6 +1671,7 @@ const ContextMenu = ({
           ...(!isMobileSheet
             ? ({
                 '--context-menu-note-max-height': `${desktopNoteMaxHeight}px`,
+                ...(isUnifiedComposer ? { maxHeight: desktopMenuMaxHeight } : null),
               } as CSSProperties)
             : null),
           transformOrigin,

@@ -3612,7 +3612,23 @@ describe('useProjectLibrary', () => {
         expect(result.current.domain.generationNotes).toBe('Keep local instructions');
       if (timing === 'later-dirty')
         expect(result.current.library.storageError).toContain('modifiche locali');
-      expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
+      await act(async () => {
+        await new Promise(resolve => globalThis.setTimeout(resolve, 500));
+      });
+      const hasUnrelatedDirtyInput =
+        timing === 'dirty' || timing === 'dirty-before-render' || timing === 'later-dirty';
+      if (hasUnrelatedDirtyInput) {
+        expect(repositoryMocks.saveProject).toHaveBeenCalledOnce();
+        expect(repositoryMocks.saveProject.mock.calls[0]?.[1]).toMatchObject({
+          expectedRevision: 1,
+        });
+        expect(result.current.domain.generationNotes).toBe('Keep local instructions');
+      } else {
+        expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
+      }
+      expect((await store.loadProjectWithRevision(userId, initial.id))?.snapshot).toEqual(
+        persisted?.snapshot
+      );
     } finally {
       unmount();
     }

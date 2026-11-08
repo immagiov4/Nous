@@ -104,6 +104,122 @@ describe('ContextMenu', () => {
     expect(preview?.textContent).toContain('Nota aggiornata');
   });
 
+  test('places mobile speech beside Ask text and keeps it out of the footer and Note', async () => {
+    const user = userEvent.setup();
+    render(<ContextMenu {...buildProps()} placement="mobile-sheet" />);
+    const speech = screen.getByRole('button', { name: 'Dettatura test' });
+    expect(speech.closest('.context-composer-field')).not.toBeNull();
+    expect(speech.closest('footer')).toBeNull();
+    await user.click(speech);
+    expect(screen.getByRole('textbox')).toHaveValue('testo trascritto');
+    await user.click(screen.getByRole('button', { name: 'Nota' }));
+    expect(screen.queryByRole('button', { name: 'Dettatura test' })).not.toBeInTheDocument();
+  });
+
+  test('offers mobile Note discard in More and returns to the saved rendered note', async () => {
+    const user = userEvent.setup();
+    render(
+      <ContextMenu
+        {...buildProps()}
+        placement="mobile-sheet"
+        type="annotation"
+        annotationNote="Nota **salvata**"
+      />
+    );
+    await user.click(screen.getByRole('button', { name: 'Modifica' }));
+    await user.type(screen.getByRole('textbox'), ' bozza da scartare');
+    await user.click(screen.getByRole('button', { name: 'Apri menu' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Annulla' }));
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.getByText('salvata', { selector: 'strong' })).toBeInTheDocument();
+    expect(screen.queryByText(/bozza da scartare/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  test('Cancel clears unsaved selection attachments while preserving the Ask draft', async () => {
+    const user = userEvent.setup();
+    render(
+      <ContextMenu
+        {...buildProps()}
+        placement="mobile-sheet"
+        artifactPayloads={[annotationArtifact]}
+      />
+    );
+    await user.type(screen.getByRole('textbox'), 'Domanda da conservare');
+    await user.click(screen.getByRole('button', { name: 'Nota' }));
+    await user.type(screen.getByRole('textbox'), 'Bozza nota');
+    await user.click(screen.getByRole('button', { name: 'Allega dagli artefatti' }));
+    await user.click(screen.getByRole('menuitem', { name: /Allega Mappa salvata alla nota/ }));
+    await user.click(screen.getByRole('button', { name: 'Apri menu' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Annulla' }));
+    expect(screen.getByRole('textbox')).toHaveValue('Domanda da conservare');
+    await user.click(screen.getByRole('button', { name: 'Nota' }));
+    expect(screen.getByRole('textbox')).toHaveValue('');
+    expect(screen.queryByRole('button', { name: 'Apri Mappa salvata' })).not.toBeInTheDocument();
+  });
+
+  test('More focuses enabled Cancel when lesson creation is blocked', async () => {
+    const user = userEvent.setup();
+    render(
+      <ContextMenu
+        {...buildProps()}
+        placement="mobile-sheet"
+        lessonCreationBlockReason="lesson-generation"
+      />
+    );
+    await user.type(screen.getByRole('textbox'), 'Domanda da conservare');
+    await user.click(screen.getByRole('button', { name: 'Nota' }));
+    await user.type(screen.getByRole('textbox'), 'Bozza');
+    await user.click(screen.getByRole('button', { name: 'Apri menu' }));
+    expect(
+      screen.getByRole('menuitem', { name: 'Attendi che la generazione in corso termini' })
+    ).toBeDisabled();
+    const cancel = screen.getByRole('menuitem', { name: 'Annulla' });
+    await waitFor(() => expect(cancel).toHaveFocus());
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('textbox')).toHaveValue('Domanda da conservare');
+  });
+
+  test.each([
+    'attach',
+    'detach',
+  ] as const)('Cancel preserves already-committed annotation %s refs', async operation => {
+    const user = userEvent.setup();
+    const onAttachArtifactToAnnotation = vi.fn();
+    const onDetachArtifactFromAnnotation = vi.fn();
+    render(
+      <ContextMenu
+        {...buildProps()}
+        placement="mobile-sheet"
+        type="annotation"
+        annotationNote="Nota salvata"
+        artifactPayloads={[annotationArtifact]}
+        annotationArtifactRefs={
+          operation === 'detach'
+            ? [{ artifactId: annotationArtifact.summary.id, kind: 'generated-visual' }]
+            : []
+        }
+        onAttachArtifactToAnnotation={onAttachArtifactToAnnotation}
+        onDetachArtifactFromAnnotation={onDetachArtifactFromAnnotation}
+      />
+    );
+    await user.click(screen.getByRole('button', { name: 'Modifica' }));
+    if (operation === 'attach') {
+      await user.click(screen.getByRole('button', { name: 'Allega dagli artefatti' }));
+      await user.click(screen.getByRole('menuitem', { name: /Allega Mappa salvata alla nota/ }));
+      expect(onAttachArtifactToAnnotation).toHaveBeenCalledOnce();
+    } else {
+      await user.click(screen.getByRole('button', { name: /Rimuovi Mappa salvata dalla nota/ }));
+      expect(onDetachArtifactFromAnnotation).toHaveBeenCalledOnce();
+    }
+    await user.click(screen.getByRole('button', { name: 'Apri menu' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Annulla' }));
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryAllByRole('button', { name: 'Apri Mappa salvata' })).toHaveLength(
+      operation === 'attach' ? 1 : 0
+    );
+  });
+
   test.each([
     'ask',
     'note',
@@ -135,8 +251,8 @@ describe('ContextMenu', () => {
     const more = screen.getByRole('button', { name: 'Apri menu' });
     const send = screen.getByRole('button', { name: 'Invia domanda' });
     const actions = highlight.closest('.context-composer-actions');
-    expect(actions).not.toBeNull();
-    expect([...actions!.querySelectorAll('button')].slice(-3)).toEqual([more, highlight, send]);
+    if (!actions) throw new Error('Expected footer actions');
+    expect([...actions.querySelectorAll('button')].slice(-3)).toEqual([more, highlight, send]);
     more.focus();
     await user.tab();
     expect(highlight).toHaveFocus();
@@ -215,6 +331,57 @@ describe('ContextMenu', () => {
     rerender(<ContextMenu {...props} annotationNote="Nota appena riaperta" />);
     expect(screen.getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByText('Nota appena riaperta')).toBeInTheDocument();
+  });
+
+  test.each(
+    (['desktop-floating', 'mobile-sheet'] as const).flatMap(placement =>
+      [true, false].map(persisted => ({ placement, persisted }))
+    )
+  )('freezes a pending $placement note until acknowledgement (success=$persisted)', async ({
+    placement,
+    persisted,
+  }) => {
+    const user = userEvent.setup();
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const props = { ...buildProps(), placement, artifactPayloads: [annotationArtifact] };
+    props.onSaveNote.mockImplementation(async () => {
+      await pending;
+      if (persisted) props.onClose();
+    });
+    render(<ContextMenu {...props} />);
+    await user.click(screen.getByRole('button', { name: 'Nota' }));
+    const note = screen.getByPlaceholderText(
+      'Scrivi la nota che vuoi lasciare su questo passaggio...'
+    );
+    note.scrollIntoView = vi.fn();
+    await user.type(note, 'Save this exact draft');
+    const save = screen.getByRole('button', { name: 'Salva nota' });
+    await user.click(save);
+    expect(note).toBeDisabled();
+    expect(save).toBeDisabled();
+    expect(save).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('button', { name: 'Nota' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Allega dagli artefatti' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Annulla' })).toBeDisabled();
+    await user.type(note, ' must not be discarded');
+    await user.click(save);
+    expect(note).toHaveValue('Save this exact draft');
+    expect(props.onSaveNote).toHaveBeenCalledOnce();
+    expect(props.onClose).not.toHaveBeenCalled();
+    await act(async () => {
+      release();
+      await pending;
+    });
+    expect(props.onClose).toHaveBeenCalledTimes(persisted ? 1 : 0);
+    expect(note).toBeEnabled();
+    expect(note).toHaveValue('Save this exact draft');
+    if (!persisted) {
+      await user.type(note, ' retained');
+      expect(note).toHaveValue('Save this exact draft retained');
+    }
   });
 
   test.each([

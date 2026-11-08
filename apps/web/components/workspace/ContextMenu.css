@@ -12,6 +12,10 @@
   min-width: 0;
 }
 .context-composer {
+  --composer-action-gap: 5px;
+  --composer-icon-size: 36px;
+  --composer-primary-size: 38px;
+  --composer-speech-size: 2rem;
   --composer-selected-background: #ffe7d5;
   --composer-selected-ink: #582f1a;
   --composer-primary-background: #292524;
@@ -36,7 +40,13 @@
   width: 24px;
   height: 24px;
 }
+.context-composer-content {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 .context-composer-field {
+  position: relative;
   height: 32px;
   max-height: var(--context-menu-note-max-height);
   margin: 8px 20px 12px;
@@ -60,6 +70,16 @@
   font-size: 15px;
   line-height: 1.65;
   color: inherit;
+}
+.context-composer-speech {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 0;
+  width: var(--composer-speech-size);
+  height: var(--composer-speech-size);
+}
+.context-composer-field:has(.context-composer-speech) textarea {
+  padding-inline-end: calc(var(--composer-speech-size) + var(--composer-action-gap));
 }
 .context-composer-field textarea:focus,
 .context-composer-field textarea:focus-visible {
@@ -123,18 +143,24 @@
 .context-composer-actions {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--composer-action-gap);
   margin-left: auto;
 }
 .context-composer-icon {
   display: inline-flex;
-  height: 36px;
+  height: var(--composer-icon-size);
   align-items: center;
   justify-content: center;
   gap: 6px;
   color: var(--ink-secondary);
   border-radius: 9px;
   padding-inline: 5px;
+}
+.context-composer-highlight {
+  width: var(--composer-primary-size);
+  height: var(--composer-primary-size);
+  border: 1px solid var(--border-subtle);
+  border-radius: 50%;
 }
 .context-composer button {
   cursor: pointer;
@@ -158,7 +184,8 @@
   opacity: 0.45;
 }
 .context-composer-more {
-  margin-inline: 5px 12px;
+  display: flex;
+  align-items: center;
 }
 .context-composer-more > button {
   padding-inline: 8px;
@@ -169,7 +196,7 @@
   color: var(--ink-secondary);
 }
 .context-composer-primary {
-  height: 38px;
+  height: var(--composer-primary-size);
   padding-inline: 14px;
   border-radius: 13px;
   white-space: nowrap;
@@ -183,7 +210,7 @@
 }
 
 .context-composer-send {
-  width: 38px;
+  width: var(--composer-primary-size);
   padding: 0;
   border-radius: 50%;
   display: grid;
@@ -240,12 +267,6 @@
 .context-composer-mobile .context-composer-cancel {
   display: none;
 }
-.context-composer-mobile .context-composer-actions {
-  gap: 0;
-}
-.context-composer-mobile .context-composer[data-mode="ask"] .context-composer-more {
-  margin-inline: 0;
-}
 .context-composer-mobile .context-composer-primary {
   padding-inline: 11px;
 }
@@ -275,8 +296,8 @@
   --composer-primary-hover: #e7e5e4;
 }
 
-.context-composer-mobile .context-composer-layout,
-.context-composer-mobile .context-composer-column {
+.context-composer-layout,
+.context-composer-column {
   max-height: inherit;
 }
 .context-composer-column {
@@ -287,6 +308,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  max-height: inherit;
 }
 .context-composer-field {
   flex-shrink: 1;
