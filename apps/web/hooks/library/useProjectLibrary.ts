@@ -18,7 +18,10 @@ import {
   importLibraryArchive,
   type LibraryBackupImportResult,
 } from '../../services/projects/libraryArchiveImport.ts';
-import { buildAutosaveSignature } from '../../services/projects/persistenceSignature';
+import {
+  acknowledgeSectionPatch,
+  buildAutosaveSignature,
+} from '../../services/projects/persistenceSignature';
 import {
   createProjectArchiveBlob,
   getProjectArchiveExtension,
@@ -1001,7 +1004,12 @@ export const useProjectLibrary = ({
             currentProjectIdRef.current === selectedProjectId &&
             (domainChange === undefined || lastPersistedSignatureRef.current === previousSignature)
           ) {
-            lastPersistedSignatureRef.current = persistedSignature;
+            lastPersistedSignatureRef.current = domainChange
+              ? persistedSignature
+              : acknowledgeSectionPatch(lastPersistedSignatureRef.current, {
+                  sectionId,
+                  ...changes,
+                });
           }
           return saved;
         });
