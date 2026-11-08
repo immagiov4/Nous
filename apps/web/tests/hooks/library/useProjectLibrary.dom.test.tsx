@@ -458,19 +458,26 @@ describe('useProjectLibrary', () => {
           finishRead = resolve;
         }),
     });
+    const nextFile = new File(['next answer'], 'next.txt', { type: 'text/plain' });
+    const readNextFile = vi.fn(async () => new TextEncoder().encode('next answer').buffer);
+    Object.defineProperty(nextFile, 'arrayBuffer', { value: readNextFile });
     act(() =>
       result.current.shell.content.onAttachExerciseFiles('exercise-1', [
         file,
+        nextFile,
       ] as unknown as FileList)
     );
     if (switchProject) act(() => result.current.library.setCurrentProjectId('project-2'));
     await act(async () => {
       finishRead(new TextEncoder().encode('answer').buffer);
     });
-    if (switchProject) expect(result.current.attachExerciseFiles).not.toHaveBeenCalled();
-    else
+    if (switchProject) {
+      expect(readNextFile).not.toHaveBeenCalled();
+      expect(result.current.attachExerciseFiles).not.toHaveBeenCalled();
+    } else
       expect(result.current.attachExerciseFiles).toHaveBeenCalledWith('exercise-1', [
         expect.objectContaining({ name: 'answer.txt', kind: 'text', data: 'answer' }),
+        expect.objectContaining({ name: 'next.txt', kind: 'text', data: 'next answer' }),
       ]);
     unmount();
   });

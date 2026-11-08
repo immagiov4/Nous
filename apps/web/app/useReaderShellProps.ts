@@ -431,8 +431,8 @@ export const useReaderShellProps = ({
         const attachments: ExerciseAttachment[] = [];
         for (const file of Array.from(files)) {
           attachments.push(await createExerciseAttachmentFromFile(file));
+          if (controller.getCurrentProjectId() !== projectId) return;
         }
-        if (controller.getCurrentProjectId() !== projectId) return;
         await controller.attachExerciseFiles(exerciseId, attachments);
       })().catch(error => {
         notify(
