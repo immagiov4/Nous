@@ -468,9 +468,19 @@ export const useWorkspaceReaderActions = ({
   const persistNoteChange = useCallback(
     async (annotations: LessonNode['annotations'], clearSelection = false) => {
       if (!activeSectionId || pendingNoteMenusRef.current.has(contextMenu)) return;
+      const previousAnnotations = getCurrentSection()?.annotations;
       pendingNoteMenusRef.current.add(contextMenu);
       try {
         const persisted = await commitSectionAnnotations(activeSectionId, { annotations });
+        if (!persisted && sourceOwnerRef.current.projectId === projectId) {
+          (activeSectionIdRef.current === activeSectionId
+            ? updateSectionPreservingReaderScroll
+            : updateSection)(activeSectionId, section => ({
+            ...section,
+            annotations:
+              section.annotations === annotations ? previousAnnotations : section.annotations,
+          }));
+        }
         if (
           contextMenuRef.current !== contextMenu ||
           activeSectionIdRef.current !== activeSectionId ||
@@ -487,7 +497,17 @@ export const useWorkspaceReaderActions = ({
         pendingNoteMenusRef.current.delete(contextMenu);
       }
     },
-    [activeSectionId, contextMenu, projectId, commitSectionAnnotations, notify, closeContextMenu]
+    [
+      activeSectionId,
+      contextMenu,
+      projectId,
+      commitSectionAnnotations,
+      notify,
+      closeContextMenu,
+      getCurrentSection,
+      updateSection,
+      updateSectionPreservingReaderScroll,
+    ]
   );
 
   const handleSaveNote = useCallback(

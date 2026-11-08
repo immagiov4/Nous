@@ -5,6 +5,7 @@ import { createDeferred } from '../../helpers/deferred';
 
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
+import { useWorkspaceDomain } from '../../../hooks/workspace/useWorkspaceDomain.ts';
 import { useWorkspaceReaderActions } from '../../../hooks/workspace/useWorkspaceReaderActions.ts';
 import {
   LESSON_SOURCE_UNAVAILABLE_MESSAGE,
@@ -1017,4 +1018,83 @@ test.each([
     await Promise.all([first, duplicate]);
   });
   expect(args.closeContextMenu).toHaveBeenCalledTimes(replacement === 'original' ? 1 : 0);
+});
+
+test.each([
+  false,
+  true,
+])('failed plain-note save rolls back only its own optimistic annotations; later annotation edit=%s', async laterAnnotationEdit => {
+  const pending = createDeferred();
+  const content = 'First sentence.';
+  const patch = vi
+    .fn()
+    .mockImplementationOnce(async () => {
+      await pending.promise;
+      return false;
+    })
+    .mockResolvedValue(true);
+  const args = buildHookArgs({
+    contextMenu: {
+      type: 'selection',
+      selectedText: content,
+      selectedTextStart: 0,
+    } as HookArgs['contextMenu'],
+    patchSectionAnnotations: patch,
+  });
+  const { result } = renderHook(() => {
+    const domain = useWorkspaceDomain();
+    const reader = useWorkspaceReaderActions({
+      ...args,
+      activeSectionId: domain.activeSectionId,
+      learningPlan: domain.learningPlan,
+      updateSection: domain.updateSection,
+    });
+    return { domain, reader };
+  });
+  act(() => {
+    result.current.domain.setLearningPlan(
+      buildTestLearningPlan([buildTestLesson({ id: 'lesson-1', content })])
+    );
+    result.current.domain.setActiveSectionId('lesson-1');
+  });
+  let save: Promise<void> | undefined;
+  act(() => {
+    save = result.current.reader.handleSaveNote('Keep this once');
+  });
+  const optimistic = result.current.domain.activeSection?.annotations;
+  expect(optimistic).toHaveLength(1);
+  const optimisticAnnotation = optimistic?.[0];
+  if (!optimisticAnnotation) throw new Error('Expected optimistic annotation');
+  act(() =>
+    result.current.domain.updateSection('lesson-1', section => ({
+      ...section,
+      title: 'Later title',
+      ...(laterAnnotationEdit
+        ? {
+            annotations: [
+              ...(section.annotations || []),
+              { ...optimisticAnnotation, id: 'later', note: 'Later note' },
+            ],
+          }
+        : {}),
+    }))
+  );
+  await act(async () => {
+    pending.resolve();
+    await save;
+  });
+  expect(result.current.domain.activeSection?.title).toBe('Later title');
+  expect(args.closeContextMenu).not.toHaveBeenCalled();
+  if (laterAnnotationEdit) {
+    expect(result.current.domain.activeSection?.annotations).toHaveLength(2);
+    expect(result.current.domain.activeSection?.annotations?.[1].note).toBe('Later note');
+  } else {
+    expect(result.current.domain.activeSection?.annotations || []).toHaveLength(0);
+    await act(async () => {
+      await result.current.reader.handleSaveNote('Keep this once');
+    });
+    expect(result.current.domain.activeSection?.annotations).toHaveLength(1);
+    expect(result.current.domain.activeSection?.annotations?.[0].note).toBe('Keep this once');
+    expect(args.closeContextMenu).toHaveBeenCalledOnce();
+  }
 });

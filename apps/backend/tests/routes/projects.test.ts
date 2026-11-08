@@ -144,6 +144,7 @@ describe('/api/projects', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await clearProjectImportUploadsForTesting();
     setProjectStoreForTesting(null);
     if (previousLocalUserId === undefined) {

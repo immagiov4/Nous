@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
-import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
+import {
+  buildProjectAnnotationWriteState,
+  PROJECT_PATCH_REBASE_MODE,
+} from '@shared/projectContract';
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import JSZip from 'jszip';
 import { useState } from 'react';
@@ -3577,6 +3580,16 @@ describe('useProjectLibrary', () => {
       expect(repositoryMocks.patchProject.mock.calls[0]?.[2]).toMatchObject({
         expectedRevision: timing === 'adopted' ? 2 : 1,
       });
+      const options = repositoryMocks.patchProject.mock.calls[0]?.[2];
+      if (succeeds) {
+        expect(options).toMatchObject({
+          rebaseMode: PROJECT_PATCH_REBASE_MODE.annotations,
+          expectedAnnotationState: buildProjectAnnotationWriteState(initialLesson),
+        });
+      } else {
+        expect(options).not.toHaveProperty('rebaseMode');
+        expect(options).not.toHaveProperty('expectedAnnotationState');
+      }
       const persisted = await store.loadProjectWithRevision(userId, initial.id);
       expect(persisted?.revision).toBe(succeeds ? 3 : 2);
       const lesson = persisted?.snapshot.learningPlan?.modules?.[0]?.children?.[0];
