@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { buildPersistenceSignature } from '../../../services/projects/persistenceSignature.ts';
+import {
+  acknowledgeSectionPatch,
+  buildAutosaveSignature,
+  buildPersistenceSignature,
+} from '../../../services/projects/persistenceSignature.ts';
 import { createEmptyWorkspaceDomainState } from '../../../services/workspace/domain.ts';
 import type { WorkspaceDomainState } from '../../../types.ts';
 import { updateLessons } from '../../../utils/learning/pathNodes.ts';
@@ -66,4 +70,57 @@ test('buildPersistenceSignature detects persisted changes in large referenced st
 
   assert.equal(buildPersistenceSignature(state), buildPersistenceSignature(unchangedClone));
   assert.notEqual(buildPersistenceSignature(state), buildPersistenceSignature(changedClone));
+});
+
+test('internal signatures ignore object key order and omitted optional fields while preserving source identity and array order', () => {
+  const first = buildTestLesson({
+    id: 'first',
+    annotations: undefined,
+    quizState: { answers: [0], isSubmitted: false },
+  });
+  const second = buildTestLesson({ id: 'second' });
+  const state: WorkspaceDomainState = {
+    ...createEmptyWorkspaceDomainState(),
+    source: {
+      kind: 'pdf',
+      file: { name: 'synthetic.pdf', mimeType: 'application/pdf', data: 'c3ludGhldGlj' },
+    },
+    learningPlan: buildTestLearningPlan([first, second]),
+  };
+  const persistedPayload = JSON.stringify(state);
+  const clone: WorkspaceDomainState = JSON.parse(persistedPayload);
+  clone.source = state.source;
+  clone.learningPlan = Object.fromEntries(
+    Object.entries(clone.learningPlan ?? {}).reverse()
+  ) as WorkspaceDomainState['learningPlan'];
+  assert.equal(buildAutosaveSignature(state), buildAutosaveSignature(clone));
+  assert.equal(buildPersistenceSignature(state), buildPersistenceSignature(clone));
+  assert.ok(state.source);
+  assert.notEqual(
+    buildAutosaveSignature(state),
+    buildAutosaveSignature({ ...state, source: { ...state.source } })
+  );
+  const reversed = { ...state, learningPlan: buildTestLearningPlan([second, first]) };
+  assert.notEqual(buildAutosaveSignature(state), buildAutosaveSignature(reversed));
+  const reorderedAnswers = {
+    ...state,
+    learningPlan: buildTestLearningPlan([
+      { ...first, quizState: { answers: [1, 0], isSubmitted: false } },
+      second,
+    ]),
+  };
+  const originalAnswers = {
+    ...state,
+    learningPlan: buildTestLearningPlan([
+      { ...first, quizState: { answers: [0, 1], isSubmitted: false } },
+      second,
+    ]),
+  };
+  assert.notEqual(
+    buildAutosaveSignature(reorderedAnswers),
+    buildAutosaveSignature(originalAnswers)
+  );
+  acknowledgeSectionPatch(buildAutosaveSignature(state), { sectionId: 'first', annotations: [] });
+  assert.equal(JSON.stringify(state), persistedPayload);
+  assert.equal(Object.hasOwn(first, 'annotations'), true);
 });
