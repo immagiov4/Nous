@@ -450,6 +450,26 @@ describe('Codex app-server protocol client', () => {
     expect(imageCommand).toEqual(expect.arrayContaining(['--disable', 'shell_tool']));
   });
 
+  test('enables the host required by registered dynamic tools while retaining unrelated capability restrictions', () => {
+    const command = buildCodexAppServerCommand('codex', { hasDynamicTools: true });
+    expect(command[command.indexOf('code_mode_host') - 1]).toBe('--enable');
+    const disabled = command.filter((_argument, index) => command[index - 1] === '--disable');
+    expect(disabled).toEqual(
+      expect.arrayContaining([
+        'shell_tool',
+        'browser_use',
+        'computer_use',
+        'image_generation',
+        'apps',
+        'plugins',
+      ])
+    );
+    const research = buildCodexAppServerCommand('codex', { allowWebSearch: true });
+    expect(research[research.indexOf('code_mode_host') - 1]).toBe('--enable');
+    const offline = buildCodexAppServerCommand('codex');
+    expect(offline[offline.indexOf('code_mode_host') - 1]).toBe('--disable');
+  });
+
   test('performs the mandatory handshake and reads paginated account/model contracts', async () => {
     let fakeProcess: FakeCodexProcess;
     fakeProcess = new FakeCodexProcess(message => {
@@ -868,6 +888,7 @@ describe('Codex app-server protocol client', () => {
   });
 
   test('enables live web search only for an explicitly authorized turn', async () => {
+    const onWebSearchCompleted = vi.fn();
     let fakeProcess: FakeCodexProcess;
     fakeProcess = new FakeCodexProcess(message => {
       if (message.method === 'initialize') {
@@ -881,6 +902,20 @@ describe('Codex app-server protocol client', () => {
         respond(fakeProcess, message, { thread: { id: 'thread-research' } });
       } else if (message.method === 'turn/start') {
         respond(fakeProcess, message, { turn: { id: 'turn-research' } });
+        fakeProcess.send({
+          method: 'item/started',
+          params: {
+            threadId: 'thread-research',
+            item: { id: 'search-1', type: 'webSearch', query: 'graphs' },
+          },
+        });
+        fakeProcess.send({
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-research',
+            item: { id: 'search-1', type: 'webSearch', query: 'graphs' },
+          },
+        });
         fakeProcess.send({
           method: 'item/completed',
           params: {
@@ -903,6 +938,7 @@ describe('Codex app-server protocol client', () => {
     await runCodexAppServerTurnWithClient(
       {
         allowWebSearch: true,
+        onWebSearchCompleted,
         developerInstructions: 'Cerca fonti affidabili.',
         input: [{ type: 'text', text: 'Ricerca i grafi.' }],
         model: 'gpt-test-a',
@@ -914,6 +950,7 @@ describe('Codex app-server protocol client', () => {
     expect(fakeProcess.received.find(message => message.method === 'thread/start')).toMatchObject({
       params: { config: { web_search: 'live' } },
     });
+    expect(onWebSearchCompleted).toHaveBeenCalledOnce();
     client.close();
   });
 
