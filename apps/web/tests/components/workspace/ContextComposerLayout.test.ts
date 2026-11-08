@@ -52,8 +52,9 @@ test.each([
     await page
       .getByRole('menuitem', { name: 'Allega Schema sintetico alla nota', exact: true })
       .click();
-    // Let the real reader's mobile selection/focus synchronization run after the picker unmounts.
-    await page.waitForTimeout(250);
+    await page.waitForFunction(
+      () => document.activeElement?.matches('[data-context-menu-target="input"]') === true
+    );
     expect(await page.getByRole('textbox').inputValue()).toBe('Una nota **salvata**');
     expect(
       await page.getByRole('textbox').evaluate(element => element === document.activeElement)
@@ -61,7 +62,9 @@ test.each([
     await page.getByRole('button', { name: 'Apri Schema sintetico', exact: true }).click();
     await page.getByRole('dialog', { name: 'Schema sintetico', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Chiudi artefatto', exact: true }).click();
-    await page.waitForTimeout(250);
+    await page
+      .getByRole('dialog', { name: 'Schema sintetico', exact: true })
+      .waitFor({ state: 'detached' });
     expect(await page.getByRole('textbox').inputValue()).toBe('Una nota **salvata**');
     const geometry = await composer.evaluate(element => {
       const bounds = element.getBoundingClientRect();

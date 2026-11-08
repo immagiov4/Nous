@@ -105,6 +105,58 @@ describe('ContextMenu', () => {
   });
 
   test.each([
+    'ask',
+    'note',
+  ] as const)('does not submit %s while IME composition commits Enter', async mode => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(<ContextMenu {...props} />);
+    if (mode === 'note') await user.click(screen.getByRole('button', { name: 'Nota' }));
+    const field = screen.getByRole('textbox');
+    await user.type(field, 'Testo composto');
+    fireEvent.keyDown(field, { key: 'Enter', isComposing: true, ctrlKey: mode === 'note' });
+    expect(props.onAsk).not.toHaveBeenCalled();
+    expect(props.onSaveNote).not.toHaveBeenCalled();
+    expect(field).toHaveValue('Testo composto');
+    fireEvent.keyDown(field, { key: 'Enter', isComposing: false, ctrlKey: mode === 'note' });
+    expect(mode === 'note' ? props.onSaveNote : props.onAsk).toHaveBeenCalledOnce();
+  });
+
+  test.each([
+    'selection',
+    'annotation',
+  ] as const)('puts mobile %s highlight in Ask footer between More and Send, never in Note', async type => {
+    const user = userEvent.setup();
+    const props = { ...buildProps(), placement: 'mobile-sheet' as const, type };
+    render(<ContextMenu {...props} askInputValue="Domanda" />);
+    await user.click(screen.getByRole('button', { name: 'Chiedi a Nous' }));
+    const label = type === 'annotation' ? 'Rimuovi evidenziazione' : 'Evidenzia selezione';
+    const highlight = screen.getByRole('button', { name: label });
+    const more = screen.getByRole('button', { name: 'Apri menu' });
+    const send = screen.getByRole('button', { name: 'Invia domanda' });
+    const actions = highlight.closest('.context-composer-actions');
+    expect(actions).not.toBeNull();
+    expect([...actions!.querySelectorAll('button')].slice(-3)).toEqual([more, highlight, send]);
+    more.focus();
+    await user.tab();
+    expect(highlight).toHaveFocus();
+    await user.tab();
+    expect(send).toHaveFocus();
+    await user.click(more);
+    expect(screen.queryByRole('menuitem', { name: label })).not.toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    highlight.focus();
+    await user.keyboard(' ');
+    expect(
+      type === 'annotation' ? props.onDeleteAnnotation : props.onHighlight
+    ).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole('button', { name: 'Nota' }));
+    expect(screen.queryByRole('button', { name: label })).not.toBeInTheDocument();
+    await user.click(more);
+    expect(screen.queryByRole('menuitem', { name: label })).not.toBeInTheDocument();
+  });
+
+  test.each([
     'desktop-floating',
     'mobile-sheet',
   ] as const)('uses one %s composer with independent question and note drafts', async placement => {
@@ -225,10 +277,7 @@ describe('ContextMenu', () => {
     expect(input).toBeEnabled();
     await user.type(input, 'Spiega');
     expect(screen.getByRole('button', { name: 'Invia domanda' })).toBeDisabled();
-    if (placement === 'mobile-sheet') {
-      await user.click(screen.getByRole('button', { name: 'Apri menu' }));
-      expect(screen.getByRole('menuitem', { name: 'Evidenzia selezione' })).toBeDisabled();
-    } else expect(screen.getByRole('button', { name: 'Evidenzia selezione' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Evidenzia selezione' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: /^Nota$/ }));
     const note = screen.getByPlaceholderText(
       'Scrivi la nota che vuoi lasciare su questo passaggio...'
@@ -473,8 +522,7 @@ describe('ContextMenu', () => {
     const contextProps = { ...props, isPreparingContext: true };
     render(<ContextMenu {...contextProps} askInputValue="Explain this passage" />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Apri menu' }));
-    fireEvent[eventType](screen.getByRole('menuitem', { name: /Evidenzia selezione/i }));
+    fireEvent[eventType](screen.getByRole('button', { name: /Evidenzia selezione/i }));
     fireEvent[eventType](screen.getByRole('button', { name: /Invia domanda/i }));
 
     expect(props.onHighlight).not.toHaveBeenCalled();

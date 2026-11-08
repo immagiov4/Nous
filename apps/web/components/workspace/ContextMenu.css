@@ -243,6 +243,9 @@
 .context-composer-mobile .context-composer-actions {
   gap: 0;
 }
+.context-composer-mobile .context-composer[data-mode="ask"] .context-composer-more {
+  margin-inline: 0;
+}
 .context-composer-mobile .context-composer-primary {
   padding-inline: 11px;
 }

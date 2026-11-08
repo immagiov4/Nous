@@ -954,26 +954,6 @@ const ContextMenu = ({
         className="fixed z-[70] w-60 rounded-2xl border border-stone-200 bg-white p-1.5 shadow-[0_24px_64px_-24px_rgba(28,25,23,0.45)] dark:border-stone-500 dark:bg-stone-800"
         style={moreActionsMenuStyle}
       >
-        {isUnifiedComposer && isMobileSheet ? (
-          <button
-            type="button"
-            role="menuitem"
-            disabled={areContextActionsDisabled}
-            onClick={event => {
-              setIsMoreActionsOpen(false);
-              handleHighlightClick(event);
-            }}
-            aria-label={t(isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione')}
-            className="context-composer-menu-item"
-          >
-            {isAnnotationMode ? (
-              <Eraser className="h-4 w-4" />
-            ) : (
-              <Highlighter className="h-4 w-4" />
-            )}
-            {t(isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione')}
-          </button>
-        ) : null}
         <button
           ref={moreActionsMenuItemRef}
           type="button"
@@ -1345,6 +1325,23 @@ const ContextMenu = ({
     restoreComposerFocus();
   };
 
+  const renderComposerHighlightButton = (className: string) => (
+    <button
+      type="button"
+      aria-label={t(isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione')}
+      title={t(isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia il testo selezionato')}
+      disabled={areContextActionsDisabled}
+      onClick={handleHighlightClick}
+      className={className}
+    >
+      {isAnnotationMode ? (
+        <Eraser className="h-4 w-4" />
+      ) : (
+        <Highlighter className="h-4 w-4 text-amber-700 dark:text-amber-400" />
+      )}
+    </button>
+  );
+
   const renderUnifiedComposer = () => {
     const noteMode = composerMode === 'note';
     const preview = noteMode && isAnnotationPreviewMode;
@@ -1353,24 +1350,7 @@ const ContextMenu = ({
       (!isAnnotationMode && !trimmedNote && !localAnnotationArtifactRefs.length);
     return (
       <div className="context-composer-layout">
-        {!isMobileSheet ? (
-          <button
-            type="button"
-            aria-label={t(isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione')}
-            title={t(
-              isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia il testo selezionato'
-            )}
-            disabled={areContextActionsDisabled}
-            onClick={handleHighlightClick}
-            className={highlightButtonClassName}
-          >
-            {isAnnotationMode ? (
-              <Eraser className="h-4 w-4" />
-            ) : (
-              <Highlighter className="h-4 w-4 text-amber-700 dark:text-amber-400" />
-            )}
-          </button>
-        ) : null}
+        {!isMobileSheet ? renderComposerHighlightButton(highlightButtonClassName) : null}
         <div className="context-composer-column">
           <form
             className="context-composer border border-stone-200 bg-white text-stone-800 dark:border-stone-500 dark:bg-stone-800 dark:text-stone-100"
@@ -1413,6 +1393,7 @@ const ContextMenu = ({
                   onKeyDown={event => {
                     if (
                       event.key === 'Enter' &&
+                      !event.nativeEvent.isComposing &&
                       ((!noteMode && !event.shiftKey) || event.ctrlKey || event.metaKey)
                     ) {
                       event.preventDefault();
@@ -1519,6 +1500,9 @@ const ContextMenu = ({
                   />
                 ) : null}
                 <div className="context-composer-more">{renderMoreActionsButton()}</div>
+                {isMobileSheet && !noteMode
+                  ? renderComposerHighlightButton('context-composer-icon')
+                  : null}
                 {preview ? (
                   <button
                     type="button"
