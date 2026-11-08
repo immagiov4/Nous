@@ -50,6 +50,8 @@ import { unified } from 'unified';
 import * as z from 'zod';
 import {
   isLessonStructuredOutputError,
+  type LessonReviewDiagnostic,
+  LessonReviewDiagnosticSchema,
   retryLessonGenerationCorrection,
 } from './lessonGenerationCorrection.js';
 import {
@@ -515,6 +517,89 @@ ${structuralCheckIds.includes('code-structure') ? 'Also return fencedCode: exact
 Return only the corrected lesson JSON with lessonIntegrity and verificationReport and no external text.`;
 };
 
+// Zod messages and unknown object keys may contain provider text; retain only known paths.
+const reviewSchemaDiagnostic = (
+  error: z.ZodError,
+  root: 'fencedCode' | 'verificationReport'
+): LessonReviewDiagnostic => {
+  const parsed = LessonReviewDiagnosticSchema.safeParse({
+    reason: 'schema-invalid',
+    path: [root, ...error.issues[0].path],
+  });
+  return parsed.success ? parsed.data : { reason: 'schema-invalid', path: [root] };
+};
+
+const fenceDiagnostic = (
+  decisions: ReturnType<typeof FencedCodeReviewSchema.safeParse>,
+  remainingFences: ReturnType<typeof ambiguousDraftFences>
+): LessonReviewDiagnostic | undefined => {
+  let validation: LessonReviewDiagnostic | undefined;
+  if (!decisions.success) {
+    validation = reviewSchemaDiagnostic(decisions.error, 'fencedCode');
+  } else if (decisions.data.length !== remainingFences.length) {
+    validation = { reason: 'count-mismatch', path: ['fencedCode'] };
+  } else {
+    for (const [index, decision] of decisions.data.entries()) {
+      if (decision.source !== remainingFences[index].source) {
+        validation = { reason: 'source-mismatch', path: ['fencedCode', index, 'source'] };
+        break;
+      }
+      if (decision.kind !== 'code') {
+        validation = { reason: 'prose-remains', path: ['fencedCode', index, 'kind'] };
+        break;
+      }
+    }
+  }
+  return validation;
+};
+
+const reportItemDiagnostic = (
+  item: z.infer<typeof LessonVerificationReportSchema>[number],
+  index: number,
+  requiredJudgments: ReadonlySet<string>
+): LessonReviewDiagnostic | undefined => {
+  const path = ['verificationReport', index] as const;
+  if (item.status === LESSON_VERIFICATION_STATUS.corrected && !item.action.trim()) {
+    return { reason: 'action-missing', path: [...path, 'action'] };
+  }
+  if (item.status === LESSON_VERIFICATION_STATUS.notApplicable) {
+    if (!CHECKS_ALLOWING_NOT_APPLICABLE.has(item.checkId))
+      return { reason: 'not-applicable-forbidden', path: [...path, 'status'] };
+    if (requiredJudgments.has(item.checkId))
+      return { reason: 'judgment-required', path: [...path, 'status'] };
+  }
+  return undefined;
+};
+
+const reportDiagnostic = (
+  report: z.infer<typeof LessonVerificationReportSchema>,
+  checkIds: readonly string[],
+  requiredJudgments: ReadonlySet<string>
+): LessonReviewDiagnostic | undefined => {
+  if (!isLessonVerificationReportComplete(report, checkIds)) {
+    const seen = new Set<string>();
+    for (const [index, item] of report.entries()) {
+      const path = ['verificationReport', index] as const;
+      if (!checkIds.includes(item.checkId))
+        return { reason: 'unknown-check', path: [...path, 'checkId'] };
+      if (seen.has(item.checkId)) return { reason: 'duplicate-check', path: [...path, 'checkId'] };
+      seen.add(item.checkId);
+    }
+    const missingIndex = checkIds.findIndex(checkId => !seen.has(checkId));
+    if (missingIndex >= 0)
+      return {
+        reason: 'missing-check',
+        path: ['verificationReport'],
+        requiredCheckIndex: missingIndex,
+      };
+  }
+  for (const [index, item] of report.entries()) {
+    const diagnostic = reportItemDiagnostic(item, index, requiredJudgments);
+    if (diagnostic) return diagnostic;
+  }
+  return undefined;
+};
+
 export const verifyLessonContentDraft = async (input: {
   draft: LessonContentDraft;
   generationInput: LessonGenerationInput;
@@ -560,16 +645,11 @@ export const verifyLessonContentDraft = async (input: {
   const remainingFences = ambiguousDraftFences(verified);
   if (classifyFences || remainingFences.length) {
     const decisions = FencedCodeReviewSchema.safeParse(verified.fencedCode);
-    if (
-      !decisions.success ||
-      decisions.data.length !== remainingFences.length ||
-      decisions.data.some(
-        (decision, index) =>
-          decision.source !== remainingFences[index].source || decision.kind !== 'code'
-      )
-    ) {
+    const validation = fenceDiagnostic(decisions, remainingFences);
+    if (validation) {
       throw retryLessonGenerationCorrection({
         code: 'lesson_review_fenced_prose',
+        validation,
         feedback:
           'Unwrap explanatory prose and mathematical explanations from text/plaintext or unlabelled fences into ordinary Markdown. Preserve genuine code, diagrams and logs. Return fencedCode covering every remaining ambiguous fence exactly in source order; only code decisions may remain.',
         message: 'The lesson review did not validate prose outside code fences.',
@@ -596,19 +676,13 @@ export const verifyLessonContentDraft = async (input: {
 
   const report = LessonVerificationReportSchema.safeParse(verified.verificationReport);
   const requiredJudgments = findChecksRequiringJudgment(generationInput, input.draft, verified);
-  if (
-    !report.success ||
-    !isLessonVerificationReportComplete(report.data, checkIds) ||
-    report.data.some(
-      item =>
-        (item.status === LESSON_VERIFICATION_STATUS.corrected && !item.action.trim()) ||
-        (item.status === LESSON_VERIFICATION_STATUS.notApplicable &&
-          (!CHECKS_ALLOWING_NOT_APPLICABLE.has(item.checkId) ||
-            requiredJudgments.has(item.checkId)))
-    )
-  ) {
+  const validation = report.success
+    ? reportDiagnostic(report.data, checkIds, requiredJudgments)
+    : reviewSchemaDiagnostic(report.error, 'verificationReport');
+  if (!report.success || validation) {
     throw retryLessonGenerationCorrection({
       code: 'lesson_review_report_incomplete',
+      validation,
       feedback:
         'Return exactly one verificationReport entry for every required checkId, with a valid status and non-empty concrete evidence from the corrected draft. For corrected checks, describe the repair in action. Use not-applicable only where the check instruction permits it. Quizzes, image references, video clips, and generated visuals present in either the original or corrected draft require a judgment. With visual-learning active, generated-visual also requires a judgment when the corrected draft lacks source images and video clips.',
       message: 'The lesson verification report is incomplete.',
