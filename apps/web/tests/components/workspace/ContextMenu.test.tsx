@@ -68,6 +68,57 @@ const annotationArtifact: LearningArtifactRenderPayload = {
 };
 
 describe('ContextMenu', () => {
+  test.each(
+    (['desktop-floating', 'mobile-sheet'] as const).flatMap(placement =>
+      [true, false].map(persisted => ({ placement, persisted }))
+    )
+  )('freezes a pending $placement note until acknowledgement (success=$persisted)', async ({
+    placement,
+    persisted,
+  }) => {
+    const user = userEvent.setup();
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const props = { ...buildProps(), placement, artifactPayloads: [annotationArtifact] };
+    props.onSaveNote.mockImplementation(async () => {
+      await pending;
+      if (persisted) props.onClose();
+    });
+    render(<ContextMenu {...props} />);
+    await user.click(screen.getByRole('button', { name: 'Nota' }));
+    const note = screen.getByPlaceholderText(
+      'Scrivi la nota che vuoi lasciare su questo passaggio...'
+    );
+    note.scrollIntoView = vi.fn();
+    await user.type(note, 'Save this exact draft');
+    const save = screen.getByRole('button', { name: 'Salva nota' });
+    await user.click(save);
+    expect(note).toBeDisabled();
+    expect(save).toBeDisabled();
+    expect(save).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('button', { name: 'Nota' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Allega dagli artefatti' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Annulla' })).toBeDisabled();
+    await user.type(note, ' must not be discarded');
+    await user.click(save);
+    expect(note).toHaveValue('Save this exact draft');
+    expect(props.onSaveNote).toHaveBeenCalledOnce();
+    expect(props.onClose).not.toHaveBeenCalled();
+    await act(async () => {
+      release();
+      await pending;
+    });
+    expect(props.onClose).toHaveBeenCalledTimes(persisted ? 1 : 0);
+    expect(note).toBeEnabled();
+    expect(note).toHaveValue('Save this exact draft');
+    if (!persisted) {
+      await user.type(note, ' retained');
+      expect(note).toHaveValue('Save this exact draft retained');
+    }
+  });
+
   test.each([
     false,
     true,
