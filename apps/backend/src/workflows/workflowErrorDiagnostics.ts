@@ -10,6 +10,10 @@ import {
   type TextModelSlot,
 } from '../config/modelConfig.js';
 import {
+  type LessonReviewDiagnostic,
+  LessonReviewDiagnosticSchema,
+} from '../services/lessonGenerationCorrection.js';
+import {
   sanitizeDiagnosticPayload,
   sanitizeDiagnosticText,
 } from '../utils/sanitizeDiagnosticText.js';
@@ -170,6 +174,7 @@ const createDiagnosticProjection = (input: {
   providerFields: ProviderDiagnosticFields;
   status: number | undefined;
   type: string;
+  validation?: LessonReviewDiagnostic;
 }): WorkflowErrorDiagnostic => ({
   ...(input.cause ? { cause: input.cause } : {}),
   ...(input.code === undefined ? {} : { code: input.code }),
@@ -187,6 +192,7 @@ const createDiagnosticProjection = (input: {
     : {}),
   ...(input.status === undefined ? {} : { status: input.status }),
   type: input.type,
+  ...(input.validation ? { validation: input.validation } : {}),
 });
 
 const createDiagnostic = (
@@ -229,7 +235,9 @@ const createDiagnostic = (
     depth < MAX_ERROR_CAUSE_DEPTH && value.cause !== undefined
       ? createDiagnostic(value.cause, depth + 1, persisted)
       : undefined;
+  const validation = LessonReviewDiagnosticSchema.safeParse(value.validation);
   return createDiagnosticProjection({
+    ...(validation.success ? { validation: validation.data } : {}),
     cause,
     code,
     message,
@@ -251,9 +259,12 @@ export const toWorkflowErrorDiagnostic = (
   const diagnostic = createDiagnostic(error, 1, false, options.trustedMessage) ?? {
     type: 'UnknownError',
   };
-  return options.includeContent === false
-    ? WorkflowTechnicalDiagnosticSchema.parse(diagnostic)
-    : diagnostic;
+  if (options.includeContent !== false) return diagnostic;
+  // Keep the exported durable workflow schema stable; review metadata is runtime-only.
+  return {
+    ...WorkflowTechnicalDiagnosticSchema.parse(diagnostic),
+    ...(diagnostic.validation ? { validation: diagnostic.validation } : {}),
+  };
 };
 
 /** Revalidates stored diagnostics before they cross into structured operational logs. */
