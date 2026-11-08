@@ -997,3 +997,54 @@ test('keeps desktop caption and visual geometry through a live long-to-short pas
     await page.close();
   }
 });
+
+test.each([
+  1440, 390,
+])('verdict heading icons keep their spacing in reader and playback at %spx', async width => {
+  const page = await browser.newPage({ viewport: { width, height: 900 } });
+  try {
+    for (const reader of [true, false])
+      for (const dark of [false, true]) {
+        await page.goto(
+          `${baseUrl}tests/fixtures/playbackLayout.html?case=comparison${reader ? '&reader' : ''}${dark ? '&dark' : ''}`
+        );
+        await page.locator('.groups h3 > .meaning-icon').first().waitFor();
+        await page.waitForFunction(iconsLoaded);
+        if (dark && !reader)
+          await page.evaluate(() => document.documentElement.classList.add('dark'));
+        const headings = await page
+          .locator('.groups h3:has(> .meaning-icon)')
+          .evaluateAll(elements =>
+            elements.map(element => {
+              const icon = element.querySelector<HTMLElement>(':scope > .meaning-icon');
+              const label = element.querySelector<HTMLElement>(':scope > span:not(.meaning-icon)');
+              if (!icon || !label)
+                throw new Error('Verdict heading must retain its icon and label');
+              const iconBox = icon.getBoundingClientRect();
+              const labelBox = label.getBoundingClientRect();
+              const scale = iconBox.width / Number.parseFloat(getComputedStyle(icon).width);
+              return {
+                gap: (labelBox.left - iconBox.right) / scale,
+                label: label.textContent,
+                iconWidth: iconBox.width,
+              };
+            })
+          );
+        expect(headings.map(heading => heading.label)).toEqual([
+          'Richiesta generica',
+          'Richiesta efficace',
+        ]);
+        for (const heading of headings) {
+          expect(heading.iconWidth).toBeGreaterThan(0);
+          // Reuse the existing assessment/playback heading gap.
+          expect(heading.gap).toBeCloseTo(10, 0);
+        }
+        await evidence(
+          page,
+          `verdict-heading-${width}-${reader ? 'reader' : 'playback'}-${dark ? 'dark' : 'light'}`
+        );
+      }
+  } finally {
+    await page.close();
+  }
+});

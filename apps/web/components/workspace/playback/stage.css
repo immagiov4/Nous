@@ -2220,11 +2220,6 @@
   top: calc(var(--step-top) + var(--step-badge-size));
   bottom: calc(-1 * (var(--step-row-gap) + var(--step-top)));
 }
-.lesson-player-stage .lesson-scene .groups h3:has(> .meaning-icon) {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
 /* Keep badge and connector geometry unchanged while motion targets are replaced. */
 .lesson-player-stage .lesson-scene .scene .steps > li,
 .lesson-player-stage .lesson-scene .scene .sequence > li.motion-target {
