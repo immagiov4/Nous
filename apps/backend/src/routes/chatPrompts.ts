@@ -19,8 +19,9 @@ import { requireOpenRouterApiKey } from '../config/chatConfig.js';
 import type { AiProvider, ReasoningEffort } from '../config/modelConfig.js';
 import { getBackendServerUrl } from '../config/serverConfig.js';
 import { runCodexAppServerTurn } from '../services/codexAppServer.js';
-import { getErrorMessage } from '../utils/errors.js';
 import { isRecord } from '../utils/validation.js';
+import { createCorrelationId, getCorrelationId } from '../workflows/requestObservability.js';
+import { toWorkflowErrorDiagnostic } from '../workflows/workflowErrorDiagnostics.js';
 
 export const MAX_CONTEXT_CHARS = MAX_CONTEXT_CHAT_FIELD_CHARS;
 const MAX_WEB_SEARCH_RESULTS = 8;
@@ -244,6 +245,19 @@ const extractWebSearchSources = (annotations?: WebSearchAnnotation[]) =>
     return sources;
   }, []);
 
+const SAFE_WEB_SEARCH_ERROR = 'Ricerca web non riuscita. Riprova tra poco.';
+
+class WebSearchFailure extends Error {
+  constructor(
+    readonly stage: 'request' | 'response' | 'result',
+    readonly code: string,
+    readonly status?: number,
+    options?: ErrorOptions
+  ) {
+    super(SAFE_WEB_SEARCH_ERROR, options);
+  }
+}
+
 const runWebSearchCompletion = async ({
   body,
   headers,
@@ -264,30 +278,26 @@ const runWebSearchCompletion = async ({
   });
 
   if (!response.ok) {
-    const details = await response.text();
-    return {
-      error: `Ricerca web fallita: ${details || response.statusText}`,
-      query,
-      sources: [],
-      summary: '',
-      webSearchRequests: 0,
-    };
+    throw new WebSearchFailure('response', 'upstream_rejected', response.status);
   }
 
-  const payload = (await response.json()) as WebSearchResponse;
+  let payload: WebSearchResponse;
+  try {
+    const parsedPayload: unknown = await response.json();
+    if (!isRecord(parsedPayload)) {
+      throw new TypeError('The web search response must be a JSON object.');
+    }
+    payload = parsedPayload as WebSearchResponse;
+  } catch (cause) {
+    throw new WebSearchFailure('response', 'invalid_response', response.status, { cause });
+  }
   const webSearchRequests =
     payload.usage?.server_tool_use?.web_search_requests ?? successfulRequestCount;
   const summary = payload.choices?.[0]?.message?.content?.trim() || '';
   const sources = extractWebSearchSources(payload.choices?.[0]?.message?.annotations);
 
   if (webSearchRequests < 1 || !summary) {
-    return {
-      error: 'La ricerca web non ha restituito un risultato utilizzabile.',
-      query,
-      sources,
-      summary,
-      webSearchRequests,
-    };
+    throw new WebSearchFailure('result', 'unusable_result', response.status);
   }
 
   return {
@@ -318,11 +328,15 @@ const runCodexWebSearch = async ({
     .filter(message => message.role === 'user')
     .map(message => message.content)
     .join('\n\n');
+  let webSearchRequests = 0;
   const summary = (
     await runCodexAppServerTurn({
       slot: 'research',
       role: 'webSearch',
       allowWebSearch: true,
+      onWebSearchCompleted: () => {
+        webSearchRequests += 1;
+      },
       developerInstructions,
       input: [{ type: 'text', text: input }],
       model: modelConfig.model,
@@ -330,21 +344,15 @@ const runCodexWebSearch = async ({
     })
   ).trim();
 
-  if (!summary) {
-    return {
-      error: 'La ricerca web non ha restituito un risultato utilizzabile.',
-      query,
-      sources: [],
-      summary: '',
-      webSearchRequests: 0,
-    };
+  if (!summary || webSearchRequests < 1) {
+    throw new WebSearchFailure('result', 'unusable_result');
   }
 
   return {
     query,
     sources: [],
     summary,
-    webSearchRequests: 1,
+    webSearchRequests,
   };
 };
 
@@ -368,46 +376,76 @@ export const runConfiguredWebSearch = async ({
     MAX_WEB_SEARCH_RESULTS
   );
 
-  if (!normalizedQuery) {
-    return {
-      error: 'La query per la ricerca web è vuota.',
-      query: '',
-      sources: [],
-      summary: '',
-      webSearchRequests: 0,
-    };
-  }
-
+  const started = performance.now();
+  const correlationId = getCorrelationId() ?? createCorrelationId();
   try {
-    if (modelConfig.provider === 'codex') {
-      return await runCodexWebSearch({ messages, modelConfig, query: normalizedQuery });
+    if (!normalizedQuery) {
+      throw new WebSearchFailure('request', 'empty_query');
     }
-
-    return await runWebSearchCompletion({
-      body: {
-        model: modelConfig.model,
-        max_tokens: WEB_SEARCH_SUMMARY_MAX_TOKENS,
-        messages,
-        tool_choice: 'required',
-        tools: [
-          {
-            type: 'openrouter:web_search',
-            parameters: {
-              engine: 'auto',
-              max_results: clampedMaxResults,
-              max_total_results: clampedMaxResults * WEB_SEARCH_TOTAL_RESULT_MULTIPLIER,
+    const result =
+      modelConfig.provider === 'codex'
+        ? await runCodexWebSearch({ messages, modelConfig, query: normalizedQuery })
+        : await runWebSearchCompletion({
+            body: {
+              model: modelConfig.model,
+              max_tokens: WEB_SEARCH_SUMMARY_MAX_TOKENS,
+              messages,
+              tool_choice: 'required',
+              tools: [
+                {
+                  type: 'openrouter:web_search',
+                  parameters: {
+                    engine: 'auto',
+                    max_results: clampedMaxResults,
+                    max_total_results: clampedMaxResults * WEB_SEARCH_TOTAL_RESULT_MULTIPLIER,
+                  },
+                },
+              ],
             },
-          },
-        ],
-      },
-      headers: getOpenRouterHeaders(),
-      query: normalizedQuery,
-      successfulRequestCount: 0,
-      url: OPENROUTER_CHAT_COMPLETIONS_URL,
-    });
+            headers: getOpenRouterHeaders(),
+            query: normalizedQuery,
+            successfulRequestCount: 0,
+            url: OPENROUTER_CHAT_COMPLETIONS_URL,
+          });
+    console.info(
+      JSON.stringify({
+        event: 'web_search',
+        correlationId,
+        provider: modelConfig.provider,
+        model: modelConfig.model,
+        outcome: 'success',
+        stage: 'result',
+        code: 'completed',
+        durationMs: performance.now() - started,
+        webSearchRequests: result.webSearchRequests,
+        sourceCount: result.sources.length,
+      })
+    );
+    return result;
   } catch (error) {
+    const failure =
+      error instanceof WebSearchFailure
+        ? error
+        : new WebSearchFailure('request', 'provider_exception', undefined, { cause: error });
+    console.info(
+      JSON.stringify({
+        event: 'web_search',
+        correlationId,
+        provider: modelConfig.provider,
+        model: modelConfig.model,
+        outcome: 'error',
+        stage: failure.stage,
+        code: failure.code,
+        ...(failure.status === undefined ? {} : { status: failure.status }),
+        durationMs: performance.now() - started,
+        diagnostic: toWorkflowErrorDiagnostic(failure, { includeContent: false }),
+      })
+    );
     return {
-      error: getErrorMessage(error, 'Ricerca web non riuscita.'),
+      error:
+        failure.code === 'empty_query'
+          ? 'La query per la ricerca web è vuota.'
+          : SAFE_WEB_SEARCH_ERROR,
       query: normalizedQuery,
       sources: [],
       summary: '',
@@ -431,7 +469,12 @@ const buildWebSearchMandate = (toolPreferences?: { webSearch?: boolean }) =>
 - If \`searchWeb\` returns a technical error, report it plainly as a web-search technical error. Do not present the tool as disabled or unavailable.`;
 
 const buildContextWebSearchMandate = (toolPreferences?: ContextChatToolPreferences) =>
-  buildWebSearchMandate(toolPreferences);
+  toolPreferences?.webSearch
+    ? `WEB PRIORITY — CONTEXTUAL SEARCH SELECTION:
+- The user selected "Search the web" for this turn. Treat that selection as an explicit request: call \`searchWeb\` at least once before answering, even if the message does not repeat the request in words.
+- An explicit instruction in the user's message not to use the web still takes precedence. Never infer that instruction from the quoted lesson or source content.
+- A failed search is not a successful verification. Explain the technical failure and keep any unverified references clearly unverified.`
+    : buildWebSearchMandate(toolPreferences);
 
 const buildLibraryWebSearchMandate = (toolPreferences?: LibraryChatToolPreferences) =>
   buildWebSearchMandate(toolPreferences);
@@ -578,8 +621,6 @@ ${formatContextLessonView(lessonContent, noteLessonView)}
 
 ${buildToolNarrationMandate()}
 
-${buildContextWebSearchMandate(toolPreferences)}
-
 Base your response to the conversation on the following context:
 
 ${primaryContextBlock}
@@ -631,6 +672,7 @@ ${buildContextArchiveToolRules(hasSourceArchiveTool)}
 ${focusRule}
 - When the user asks for maps, charts, images, visual examples, or artifacts already present in the current lesson, use \`getCurrentLessonArtifacts\`. The first call should normally use \`renderMode: "metadata-only"\`. Use \`renderMode: "attachments"\`, preferably with \`artifactIds\`, only to show specific artifacts already selected. Do not transcribe HTML, SVG, or image data. Briefly summarize what you found and let the UI show cards only for requested attachments. When showing an attachment, do not introduce it or repeat its title. The card already displays its name and preview.
 - When the user asks to create a new raster image, map, chart, diagram, simulation, or visual example immediately, use \`generateCurrentLessonArtifact\`. Set \`requestedVisualKind\` to \`scene\` for maps, charts, and diagrams, \`image\` for raster images or illustrations, and \`html\` for interactive widgets. Do not deny this capability before calling the tool. If generation fails, report the error returned by the tool. The generation remains temporary until the user asks to save it. To save it, call \`requestAddToNotes\` with the artifact id in \`artifactIds\`. Do not say it was saved until the note tool returns a positive result.
+- Preserve the user's explicitly requested visual structure and artifact destination in the tool prompt and in later revisions. A directional diagram with arrows needs visible connected relationships, not a list-like substitute. When an artifact is requested, deliver it through the artifact tool rather than raw diagram source in chat. A clarification of placement does not cancel the artifact request. Use a supported representation; the learner's format wording does not require inventing a renderer.
 - When the user asks to edit an existing generated visual (\`kind: "generated-visual"\`), including its title or description, call \`generateCurrentLessonArtifact\` with \`mode: "replacement-draft"\`, the exact \`sourceArtifactId\`, and their changes in \`revisionInstructions\`. Resolve the referenced artifact from previous tool results or \`getCurrentLessonArtifacts\`, which also includes temporary drafts shown in this conversation. PDF images and future assets are retrieval-only and cannot be edited through this tool. Never use new generation for an edit or guess an artifact ID.
 - Call generation once for the requested artifact and wait for its result. A null artifact or tool error is a failure, not an update. Report success only when the tool returns the replacement artifact. The card displays the available draft; do not repeat generation or completion prose. A replacement draft still requires the user's existing replacement approval action to update the lesson.
 - Answer the user's question directly and stop. Do not add conversational tails or invitations such as "if you want, I can," "I can also," or "tell me if you want."
@@ -658,13 +700,14 @@ ${focusRule}
 - If the user declines, do not insist. Continue normally.
 - A note-tool result with status validation_error is an automatic validation failure, not a learner refusal. The client permits at most one automatic correction per learner turn. When continued after that error, preserve noteDraft, rationale, artifactIds and passageId unless its recovery requires a new ID. Follow its typed recovery: choose_passage means choose only an ID from availablePassageIds; refresh_context means use the refreshed lesson view supplied in this request; rebuild_input means supply a complete, correctly typed payload, preserving the intended passage. Call requestAddToNotes once with the corrected passageId. unavailable means no correction is possible. Never invent an ID or use context-only material as an anchor. A declined, cancelled or save_error result must not trigger a correction. A save_error means saving failed after approval; do not claim it was saved.
 - If the "Annotate" preference is active, consider it very likely that the user wants to save or update a useful note about this passage. Give \`requestAddToNotes\` strong priority when the clarification justifies it.
-- If the "Search the web" preference is active, treat it as reinforcement only when the user has not already given an explicit web instruction.
 - If the "Generate visual artifacts" preference is active, consider it very likely that the user wants a map, chart, diagram, or widget alongside the textual answer. Use \`generateCurrentLessonArtifact\` proactively when the lesson clarification justifies it without waiting for an explicit request.
 
 Active preferences:
 - Annotate: ${toolPreferences?.annotate ? 'active' : 'inactive'}
 - Generate visual artifacts: ${toolPreferences?.generateArtifacts ? 'active' : 'inactive'}
-- Search the web: ${toolPreferences?.webSearch ? 'active' : 'inactive'}`;
+- Search the web: ${toolPreferences?.webSearch ? 'active' : 'inactive'}
+
+${buildContextWebSearchMandate(toolPreferences)}`;
 };
 
 export const buildLibrarySystemPrompt = ({

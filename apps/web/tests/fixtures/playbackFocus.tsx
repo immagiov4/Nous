@@ -6,9 +6,38 @@ import { setAccountLocale } from '../../i18n/uiMessages';
 import '../../styles/app.css';
 
 setAccountLocale('it');
+const layout = new URLSearchParams(location.search).has('layout');
+const long = new URLSearchParams(location.search).has('long');
 const mobile = new URLSearchParams(location.search).has('mobile');
 const content = {
-  sectionContent: 'Una lezione di prova.',
+  sectionContent: layout
+    ? `# Passaggio sintetico\n\n${long ? 'La descrizione collega ogni passaggio alla figura e mantiene il contesto durante la lettura. '.repeat(12) : 'Una breve spiegazione.'}\n\n{{VISUAL_EXAMPLE:layout-scene}}`
+    : 'Una lezione di prova.',
+  activeSectionGeneratedVisualsById: layout
+    ? {
+        'layout-scene': {
+          id: 'layout-scene',
+          kind: 'scene',
+          code: '',
+          createdAt: '',
+          title: 'Passi sintetici',
+          scene: {
+            type: 'steps',
+            title: 'Passi sintetici',
+            body: '',
+            quote: '',
+            note: '',
+            groups: [],
+            items: ['Osserva', 'Collega', 'Verifica'].map(label => ({
+              label,
+              icon: '',
+              detail:
+                'Una descrizione abbastanza lunga da andare a capo anche nel lettore desktop, senza nascondere alcun passaggio della figura.',
+            })),
+          },
+        },
+      }
+    : {},
   activeSectionTitle: 'Prova del fuoco',
   isDarkMode: false,
   isMobileViewport: mobile,

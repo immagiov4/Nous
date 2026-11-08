@@ -85,6 +85,8 @@ export interface GeneratedLessonVisualImage {
 interface LessonVisualRenderInput {
   existingEmbeddedAssets?: readonly ProjectAssetRef[];
   lessonMarkdown: string;
+  /** Explicit artifact request, kept separate from model-authored plan summaries. */
+  requestText?: string;
   plan: LessonVisualRetryPlan;
   retryFeedback?: string;
   sectionDescription: string;
@@ -110,6 +112,7 @@ export interface PlanLessonArtifactDraftInput {
   readonly config: LessonVisualModelConfig;
   readonly generationNotes?: string;
   readonly lessonMarkdown: string;
+  readonly requestText?: string;
   readonly requestedVisualKind?: ProjectVisual['kind'];
   readonly retryFeedback?: string;
   readonly sectionDescription: string;
@@ -232,6 +235,9 @@ const requestArtifactDraftPlan = async (input: PlanLessonArtifactDraftInput): Pr
     sectionTitle: input.sectionTitle,
   });
   const prompt = [
+    input.requestText?.trim()
+      ? `EXPLICIT ARTIFACT REQUEST:\n${input.requestText.trim()}\nPreserve the requested structure, relationships and direction in the plan. This is a requested artifact, not a request for raw source or a list substitute. Later revisions retain these constraints unless the learner explicitly changes them.`
+      : undefined,
     basePrompt,
     input.requestedVisualKind
       ? `Required rendering format: ${input.requestedVisualKind}. Keep this category.`
@@ -348,6 +354,7 @@ const buildArtifactRenderPrompt = (
 
 Lesson title: ${input.sectionTitle}
 Description: ${input.sectionDescription}
+${input.requestText?.trim() ? `Explicit artifact request:\n${input.requestText.trim()}\nPreserve its requested structure and relationships; the plan summarizes the request and does not replace it.\n` : ''}
 Visual plan: ${JSON.stringify(input.plan)}
 Lesson content:
 ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}

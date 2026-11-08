@@ -25,7 +25,10 @@ import {
   createArtifactDraftApi,
   unavailableArtifactDraftApi,
 } from '../artifactDraftApi.js';
-import { createArtifactDraftWorkflow } from '../artifactDraftWorkflow.js';
+import {
+  createArtifactDraftWorkflow,
+  createPreviousArtifactDraftWorkflow,
+} from '../artifactDraftWorkflow.js';
 import { WorkflowExecutionDefaultsSchema } from '../config.js';
 import {
   type CourseGenerationApi,
@@ -170,7 +173,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 8;
+export const WORKFLOW_SET_VERSION = 9;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -281,6 +284,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     const contract = createSceneLessonVisualContractSchemas(schema);
     return {
       artifact: createArtifactDraftWorkflow(visualExecutionDefaults, contract),
+      previousArtifact: createPreviousArtifactDraftWorkflow(visualExecutionDefaults, contract),
       retry: createLessonVisualWorkflows(visualExecutionDefaults, undefined, contract).retry,
       lesson: createLessonGenerationWorkflow(
         {
@@ -348,7 +352,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   const preOpenAiRemovalScenes = sceneSchemas.map(schema => {
     const contract = createSceneLessonVisualContractSchemas(schema);
     return {
-      artifact: createArtifactDraftWorkflow(
+      artifact: createPreviousArtifactDraftWorkflow(
         visualExecutionDefaults,
         contract,
         historicalVisualConfigSchema
@@ -372,7 +376,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     historicalVisualConfigSchema,
     LegacyLessonVisualContractSchemas
   ).retry;
-  const preSceneArtifactDraftWorkflow = createArtifactDraftWorkflow(
+  const preSceneArtifactDraftWorkflow = createPreviousArtifactDraftWorkflow(
     visualExecutionDefaults,
     LegacyLessonVisualContractSchemas,
     historicalVisualConfigSchema
@@ -502,7 +506,8 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: currentScenes.artifact,
     previous: [
-      ...historicalScenes.map(definition => definition.artifact),
+      currentScenes.previousArtifact,
+      ...historicalScenes.flatMap(definition => [definition.artifact, definition.previousArtifact]),
       ...preOpenAiRemovalScenes.map(definition => definition.artifact),
       preSceneArtifactDraftWorkflow,
       preProviderPostprocessingPrevious(preSceneArtifactDraftWorkflow),
