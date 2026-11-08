@@ -30,6 +30,7 @@ export default async function setup(project: TestProject) {
         rollupOptions: {
           input: [
             path.resolve('apps/web/tests/fixtures/playbackLayout.html'),
+            path.resolve('apps/web/tests/fixtures/contextComposer.html'),
             path.resolve('apps/web/tests/fixtures/playbackOnset.html'),
             path.resolve('apps/web/tests/fixtures/audio-path.html'),
           ],

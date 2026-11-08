@@ -68,6 +68,103 @@ const annotationArtifact: LearningArtifactRenderPayload = {
 };
 
 describe('ContextMenu', () => {
+  test('retains only the saved note preview across modes and keeps editing independent', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      type: 'annotation' as const,
+      annotationNote: 'Nota **salvata**',
+      artifactPayloads: [annotationArtifact],
+      annotationArtifactRefs: [
+        { artifactId: annotationArtifact.summary.id, kind: 'generated-visual' as const },
+      ],
+    };
+    const { container, rerender } = render(<ContextMenu {...props} />);
+    const preview = container.querySelector('[data-context-menu-target="note-preview"]');
+    expect(preview).not.toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Chiedi a Nous' }));
+    expect(preview).not.toBeVisible();
+    expect(screen.getAllByRole('textbox')).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /Apri Mappa salvata/ })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Nota' }));
+    expect(container.querySelector('[data-context-menu-target="note-preview"]')).toBe(preview);
+    expect(screen.getAllByRole('button', { name: /Apri Mappa salvata/ })).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: 'Modifica' }));
+    await user.type(screen.getByRole('textbox'), ' nuova bozza');
+    expect(preview?.textContent).toContain('Nota salvata');
+    expect(preview?.textContent).not.toContain('nuova bozza');
+    expect(screen.getAllByRole('textbox')).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /Apri Mappa salvata/ })).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: 'Salva nota' }));
+    expect(props.onSaveNote).toHaveBeenCalledWith(
+      'Nota **salvata** nuova bozza',
+      expect.any(Array)
+    );
+    rerender(<ContextMenu {...props} annotationNote="Nota aggiornata" />);
+    expect(preview?.textContent).toContain('Nota aggiornata');
+  });
+
+  test.each([
+    'desktop-floating',
+    'mobile-sheet',
+  ] as const)('uses one %s composer with independent question and note drafts', async placement => {
+    const user = userEvent.setup();
+    const props = { ...buildProps(), placement, artifactPayloads: [annotationArtifact] };
+    render(<ContextMenu {...props} />);
+    await user.type(screen.getByRole('textbox'), 'Spiega questo collegamento');
+    await user.click(screen.getByRole('button', { name: 'Nota' }));
+    expect(screen.getAllByRole('textbox')).toHaveLength(1);
+    await user.type(screen.getByRole('textbox'), 'Un esempio che conosco');
+    await user.click(screen.getByRole('button', { name: /Allega dagli artefatti/ }));
+    await user.click(screen.getByRole('menuitem', { name: /Allega Mappa salvata alla nota/ }));
+    expect(screen.getByRole('textbox')).toHaveFocus();
+    await user.click(screen.getByRole('button', { name: 'Chiedi a Nous' }));
+    expect(screen.getByRole('textbox')).toHaveValue('Spiega questo collegamento');
+    expect(screen.getByRole('button', { name: 'Chiedi a Nous' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    await user.click(screen.getByRole('button', { name: 'Nota' }));
+    expect(screen.getByRole('textbox')).toHaveValue('Un esempio che conosco');
+    expect(screen.getByRole('button', { name: /Apri Mappa salvata/ })).toBeInTheDocument();
+    const save = screen.getByRole('button', { name: 'Salva nota' });
+    const more = screen.getByRole('button', { name: 'Apri menu' });
+    expect(save.closest('form')).toBe(more.closest('form'));
+    await user.click(save);
+    expect(props.onSaveNote).toHaveBeenCalledWith('Un esempio che conosco', [
+      {
+        artifactId: annotationArtifact.summary.id,
+        kind: 'generated-visual',
+        title: annotationArtifact.summary.title,
+      },
+    ]);
+  });
+
+  test.each([
+    'desktop-floating',
+    'mobile-sheet',
+  ] as const)('opens a saved %s annotation in note preview and keeps asking separate', async placement => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      placement,
+      type: 'annotation' as const,
+      annotationNote: 'La mia nota **salvata**',
+    };
+    const { rerender } = render(<ContextMenu {...props} />);
+    expect(screen.getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('salvata', { selector: 'strong' })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Chiedi a Nous' }));
+    await user.type(screen.getByRole('textbox'), 'Parti dalla mia nota');
+    await user.click(screen.getByRole('button', { name: 'Nota' }));
+    await user.click(screen.getByRole('button', { name: 'Modifica' }));
+    expect(screen.getByRole('textbox')).toHaveValue(props.annotationNote);
+    rerender(<ContextMenu {...props} annotationNote="Nota appena riaperta" />);
+    expect(screen.getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Nota appena riaperta')).toBeInTheDocument();
+  });
+
   test.each([
     false,
     true,
@@ -128,7 +225,10 @@ describe('ContextMenu', () => {
     expect(input).toBeEnabled();
     await user.type(input, 'Spiega');
     expect(screen.getByRole('button', { name: 'Invia domanda' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Evidenzia selezione' })).toBeDisabled();
+    if (placement === 'mobile-sheet') {
+      await user.click(screen.getByRole('button', { name: 'Apri menu' }));
+      expect(screen.getByRole('menuitem', { name: 'Evidenzia selezione' })).toBeDisabled();
+    } else expect(screen.getByRole('button', { name: 'Evidenzia selezione' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: /^Nota$/ }));
     const note = screen.getByPlaceholderText(
       'Scrivi la nota che vuoi lasciare su questo passaggio...'
@@ -137,8 +237,11 @@ describe('ContextMenu', () => {
     await user.type(note, 'Appunto');
     expect(screen.getByRole('button', { name: 'Salva nota' })).toBeDisabled();
     rerender(<ContextMenu {...props} isPreparingContext={false} />);
-    expect(input).toHaveValue('Spiega');
-    expect(note).toHaveValue('Appunto');
+    expect(screen.getByRole('textbox')).toHaveValue('Appunto');
+    await user.click(screen.getByRole('button', { name: 'Chiedi a Nous' }));
+    expect(screen.getByRole('textbox')).toHaveValue('Spiega');
+    await user.click(screen.getByRole('button', { name: 'Nota' }));
+    expect(screen.getByRole('textbox')).toHaveValue('Appunto');
     await user.click(screen.getByRole('button', { name: 'Salva nota' }));
     expect(props.onSaveNote).toHaveBeenCalledWith('Appunto', []);
   });
@@ -355,7 +458,7 @@ describe('ContextMenu', () => {
     fireEvent.keyDown(globalThis.window, { key: 'Escape' });
 
     expect(props.onClose).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('button', { name: /Invia domanda/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Invia domanda/i })).toBeDisabled();
     expect(screen.getByTitle(/Evidenzia il testo selezionato/i)).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Apri menu' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Dettatura test' })).toBeDisabled();
@@ -367,10 +470,11 @@ describe('ContextMenu', () => {
   ] as const)('keeps mobile %s actions pending while context loads', eventType => {
     const props = buildProps();
     props.placement = 'mobile-sheet';
-    props.isLoading = true;
-    render(<ContextMenu {...props} askInputValue="Explain this passage" />);
+    const contextProps = { ...props, isPreparingContext: true };
+    render(<ContextMenu {...contextProps} askInputValue="Explain this passage" />);
 
-    fireEvent[eventType](screen.getByRole('button', { name: /Evidenzia selezione/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Apri menu' }));
+    fireEvent[eventType](screen.getByRole('menuitem', { name: /Evidenzia selezione/i }));
     fireEvent[eventType](screen.getByRole('button', { name: /Invia domanda/i }));
 
     expect(props.onHighlight).not.toHaveBeenCalled();
@@ -514,7 +618,7 @@ describe('ContextMenu', () => {
   test.each([
     'desktop-floating',
     'mobile-sheet',
-  ] as const)('replaces an open saved annotation note with lesson confirmation on %s', async placement => {
+  ] as const)('keeps a saved annotation visible while its separate lesson confirmation unfolds on %s', async placement => {
     const user = userEvent.setup();
     const props = {
       ...buildProps(),
@@ -540,8 +644,8 @@ describe('ContextMenu', () => {
 
     expect(confirmationPanel).toHaveAttribute('aria-hidden', 'false');
     expect(confirmationPanel).not.toHaveAttribute('inert');
-    expect(notePanel).toHaveAttribute('aria-hidden', 'true');
-    expect(notePanel).toHaveAttribute('inert');
+    expect(notePanel).toHaveAttribute('aria-hidden', 'false');
+    expect(notePanel).not.toHaveAttribute('inert');
 
     await user.click(screen.getByRole('button', { name: 'Annulla' }));
 
@@ -768,11 +872,11 @@ describe('ContextMenu', () => {
     await user.click(screen.getByTitle(/Aggiungi o modifica una nota/i));
 
     expect(screen.getByRole('button', { name: 'Annulla' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Salva' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Salva nota' })).toBeInTheDocument();
     expect(screen.queryByText('Rimuovi')).not.toBeInTheDocument();
   });
 
-  test('opens annotation clicks as a selection toolbar before editing notes', async () => {
+  test('opens annotation clicks as a rendered note before editing or asking', async () => {
     const user = userEvent.setup();
     const props = {
       ...buildProps(),
@@ -789,8 +893,8 @@ describe('ContextMenu', () => {
     expect(
       screen.getByText(/Nota associata al passaggio/i).closest('[aria-hidden]')
     ).toHaveAttribute('aria-hidden', 'false');
-    expect(screen.getByPlaceholderText(/Chiedi a Nous/i)).toBeInTheDocument();
-    expect(screen.queryByTitle(/Aggiungi o modifica una nota/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(screen.getByTitle('Rimuovi evidenziazione')).toBeInTheDocument();
     expect(container.querySelector('strong')?.textContent).toBe('chiave');
     expect(container.querySelector('.katex')).not.toBeNull();
@@ -802,7 +906,7 @@ describe('ContextMenu', () => {
     const textarea = screen.getByPlaceholderText(/Scrivi, aggiorna o svuota la nota/i);
     expect(textarea).toHaveValue(props.annotationNote);
     await user.clear(textarea);
-    await user.click(screen.getByRole('button', { name: 'Salva' }));
+    await user.click(screen.getByRole('button', { name: 'Salva nota' }));
 
     expect(props.onSaveNote).toHaveBeenCalledWith('', []);
   });

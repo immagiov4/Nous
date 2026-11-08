@@ -55,6 +55,8 @@ Context Chat anchors the conversation to the current lesson. It supports three d
 *   **Lesson**: Addresses the entire open lesson.
 *   **Annotation**: Relates to an existing note or highlight linked to a passage.
 
+Selection and annotation menus share one expanding question/note composer with independent drafts. Opening a saved annotation starts with its rendered note; editing stays in the same menu. Existing artifact previews and kind-specific attachment controls remain available. Questions open the separate answer panel on desktop or the bottom answer sheet on mobile, and saved notes stay attached to the passage rather than entering lesson prose. The lesson-wide and playback composers retain their existing adapters. [ContextMenu](../../../apps/web/components/workspace/ContextMenu.tsx) owns the menu interior; [reader context](../../../apps/web/hooks/reader/useReaderContext.ts) owns passage capture and answer placement.
+
 The system prompt enforces strict rules: the assistant must stay concrete, simplify explanations without losing content, and prefer original source material for factual grounding.
 Sources: [apps/backend/src/routes/chatPrompts.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/routes/chatPrompts.ts), [apps/backend/src/routes/contextChat.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/routes/contextChat.ts)
 
@@ -130,6 +132,8 @@ Each proposal validates against that snapshot. Approval revalidates the exact so
 `validation_error` is an automatic failure, distinct from learner refusal and approved-save failure. Anchor correction preserves the draft, rationale and attachments, and the resulting proposal still requires approval. When a proposal cannot be recovered, the composer remains available and **Reuse draft** appends any draft text to the composer for editing and explicit submission, even when other proposal fields are malformed. This is conversation-local recovery, not a saved annotation. Correction mechanics remain at their [implementation owner](../../../apps/web/utils/context/contextNoteCorrection.ts).
 
 ## Observability
+
+[Composer browser tests](../../../apps/web/tests/components/workspace/ContextComposerLayout.test.ts) exercise the actual reader/domain/menu path, saved-note reopening, attachment interaction and request context using synthetic persistence and response boundaries. Component tests retain callback, draft and playback-adapter invariants. Built-candidate Chromium/Firefox frame traces are local review evidence; these checks do not establish physical keyboard behavior or a historical stutter cause.
 
 The authenticated `/api/chat/context/note-events` collector accepts strict, sanitized catalog, proposal, correction, decision, save and cancellation events. A correction records its recovery, request-preparation duration and an opaque `parentOperationId` referring to the rejected proposal. Counts show requested corrections; proposal and save events show their own outcomes. Events contain no lesson or note text, passage IDs, selectors, offsets, annotation IDs or provider tool-call IDs. Reporting failure cannot change a note result. Browser console events use `[Nous][ContextNote]`; collection logs use `context_note`.
 
