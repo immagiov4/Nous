@@ -120,7 +120,23 @@ test('internal signatures ignore object key order and omitted optional fields wh
     buildAutosaveSignature(reorderedAnswers),
     buildAutosaveSignature(originalAnswers)
   );
-  acknowledgeSectionPatch(buildAutosaveSignature(state), { sectionId: 'first', annotations: [] });
+  assert.ok(state.learningPlan);
+  const acknowledged = acknowledgeSectionPatch(buildAutosaveSignature(state), {
+    sectionId: 'first',
+    annotations: [],
+  });
+  assert.equal(
+    acknowledged,
+    buildAutosaveSignature({
+      ...state,
+      learningPlan: {
+        ...state.learningPlan,
+        modules: updateLessons(state.learningPlan.modules, lesson =>
+          lesson.id === 'first' ? { ...lesson, annotations: [] } : lesson
+        ),
+      },
+    })
+  );
   assert.equal(JSON.stringify(state), persistedPayload);
   assert.equal(Object.hasOwn(first, 'annotations'), true);
 });
