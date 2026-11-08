@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { ProjectRevisionConflictError } from '../../../../backend/src/projects/projectRevision.ts';
 import type { ProjectSnapshot as StoredProjectSnapshot } from '../../../../backend/src/projects/types.ts';
 import { InMemoryProjectStore } from '../../../../backend/tests/helpers/inMemoryProjectStore.ts';
+import { preparedPlayback } from '../../../../backend/tests/helpers/lessonPlayback.ts';
 import { useReaderShellProps } from '../../../app/useReaderShellProps.ts';
 import AccountSettingsDialog from '../../../components/account/AccountSettingsDialog.tsx';
 import { NewHomeView } from '../../../components/newHome/NewHomeView.tsx';
@@ -156,6 +157,7 @@ const useAnnotationSaveSession = () => {
   const domain = useWorkspaceDomain();
   const library = useProjectLibrary({
     domainState: domain.domainState,
+    getDomainState: domain.getDomainState,
     hydrateSnapshot: domain.hydrateSnapshot,
     setSource: domain.setSource,
   });
@@ -3463,6 +3465,148 @@ describe('useProjectLibrary', () => {
 
   test.each(
     (['note', 'artifact'] as const).flatMap(kind =>
+      (['adopted', 'dirty', 'dirty-before-render', 'in-flight', 'later-dirty'] as const).map(
+        timing => ({ kind, timing })
+      )
+    )
+  )('playback revision advance preserves remote data across $kind save: $timing', async ({
+    kind,
+    timing,
+  }) => {
+    const userId = 'synthetic-playback-learner';
+    const store = new InMemoryProjectStore();
+    const content = 'First sentence.';
+    const initialLesson = buildTestLesson({ id: 'lesson-1', content });
+    const initial = buildSnapshot('project-1', {
+      activeSectionId: 'lesson-1',
+      learningPlan: buildTestLearningPlan([initialLesson]),
+    });
+    await store.saveProject(userId, initial as unknown as StoredProjectSnapshot);
+    repositoryMocks.listProjects.mockImplementation(() => store.listProjects(userId));
+    repositoryMocks.loadProjectWithRevision.mockImplementation(id =>
+      store.loadProjectWithRevision(userId, id)
+    );
+    let releasePatch!: () => void;
+    const patchGate = new Promise<void>(resolve => {
+      releasePatch = resolve;
+    });
+    repositoryMocks.patchProject.mockImplementation(async (id, patch, options) => {
+      if (timing === 'in-flight' || timing === 'later-dirty') await patchGate;
+      try {
+        return await store.patchProject(userId, id, patch, options);
+      } catch (error) {
+        if (error instanceof ProjectRevisionConflictError)
+          throw new ProjectStorageError(error.message, 'revision-conflict');
+        throw error;
+      }
+    });
+    repositoryMocks.saveProject.mockImplementation(async (snapshot, options) => {
+      try {
+        return await store.saveProject(userId, snapshot, options);
+      } catch (error) {
+        if (error instanceof ProjectRevisionConflictError)
+          throw new ProjectStorageError(error.message, 'revision-conflict');
+        throw error;
+      }
+    });
+    const { result, unmount } = renderHook(useAnnotationSaveSession);
+    try {
+      await waitFor(() => expect(result.current.library.isLibraryLoading).toBe(false));
+      act(() => {
+        result.current.domain.hydrateSnapshot(initial);
+        result.current.library.setCurrentProjectId(initial.id);
+      });
+      act(() =>
+        result.current.library.completeProjectHydration({ revision: 1, snapshot: initial })
+      );
+      if (timing === 'dirty')
+        act(() => result.current.domain.setGenerationNotes('Keep local instructions'));
+      const playback = preparedPlayback({ ...initialLesson });
+      const advancePlayback = async () => {
+        const meta = await store.patchProject(
+          userId,
+          initial.id,
+          { section: { sectionId: initialLesson.id, playback } },
+          { expectedRevision: 1 }
+        );
+        if (meta.revision === undefined) throw new Error('Stored playback revision is required.');
+        if (timing !== 'dirty-before-render')
+          revisionListener?.({ projectId: initial.id, revision: meta.revision });
+      };
+      if (timing !== 'in-flight' && timing !== 'later-dirty') await act(advancePlayback);
+      if (timing === 'adopted')
+        await waitFor(() => expect(result.current.domain.activeSection?.playback).toBeDefined());
+      let save!: Promise<unknown>;
+      act(() => {
+        if (timing === 'dirty-before-render')
+          result.current.domain.setGenerationNotes('Keep local instructions');
+        const target = { projectId: initial.id, lessonId: initialLesson.id };
+        if (kind === 'artifact')
+          save = result.current.reader.handleSaveArtifactToLesson(
+            target,
+            { id: 'visual-draft-new', kind: 'scene', title: 'Memory', code: '', createdAt: '' },
+            {
+              artifactId: 'project-1:lesson-1:generated-visual:visual-draft-new',
+              kind: 'generated-visual',
+              title: 'Memory',
+            }
+          );
+        else {
+          const passage = buildConversationNoteCatalog({ content, locale: 'en' }).entries[0];
+          save = result.current.reader.handleSaveConversationNote(target, {
+            ...passage.anchor,
+            note: 'Keep my note',
+            exactTarget: { content, selector: passage.selector, segments: passage.segments },
+          });
+        }
+      });
+      await waitFor(() => expect(repositoryMocks.patchProject).toHaveBeenCalledOnce());
+      if (timing === 'in-flight' || timing === 'later-dirty')
+        await act(async () => {
+          if (timing === 'later-dirty')
+            result.current.domain.setGenerationNotes('Keep local instructions');
+          await advancePlayback();
+          releasePatch();
+        });
+      const succeeds = timing !== 'dirty' && timing !== 'dirty-before-render';
+      await act(async () =>
+        expect(await save).toMatchObject(
+          kind === 'artifact' ? { succeeded: succeeds } : { saved: succeeds }
+        )
+      );
+      expect(repositoryMocks.patchProject.mock.calls[0]?.[2]).toMatchObject({
+        expectedRevision: timing === 'adopted' ? 2 : 1,
+      });
+      const persisted = await store.loadProjectWithRevision(userId, initial.id);
+      expect(persisted?.revision).toBe(succeeds ? 3 : 2);
+      const lesson = persisted?.snapshot.learningPlan?.modules?.[0]?.children?.[0];
+      expect(lesson?.playback).toMatchObject({ lessonKey: playback.lessonKey });
+      if (succeeds) {
+        expect(lesson?.annotations).toHaveLength(1);
+        if (kind === 'note')
+          expect(lesson?.annotations).toMatchObject([
+            {
+              note: 'Keep my note',
+              anchor: { kind: 'selection', selector: { exact: content } },
+            },
+          ]);
+      } else {
+        expect(lesson?.annotations || []).toHaveLength(0);
+        expect(result.current.library.projectSyncState.kind).toBe('conflict');
+        expect(result.current.domain.activeSection?.annotations).toEqual(initialLesson.annotations);
+      }
+      if (timing === 'dirty' || timing === 'dirty-before-render' || timing === 'later-dirty')
+        expect(result.current.domain.generationNotes).toBe('Keep local instructions');
+      if (timing === 'later-dirty')
+        expect(result.current.library.storageError).toContain('modifiche locali');
+      expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
+    } finally {
+      unmount();
+    }
+  });
+
+  test.each(
+    (['note', 'artifact'] as const).flatMap(kind =>
       (['clean', 'dirty-before', 'dirty-during', 'conflict', 'rollback-quiz'] as const).map(
         scenario => ({
           kind,
@@ -3588,7 +3732,7 @@ describe('useProjectLibrary', () => {
         await Promise.resolve();
       });
       expect(repositoryMocks.patchProject).toHaveBeenCalledOnce();
-      expect(repositoryMocks.patchProject.mock.calls[0]?.[2]).toEqual({
+      expect(repositoryMocks.patchProject.mock.calls[0]?.[2]).toMatchObject({
         expectedRevision: scenario === 'rollback-quiz' ? 2 : 1,
       });
       const committed = repositoryMocks.patchProject.mock.calls[0]?.[1].section;

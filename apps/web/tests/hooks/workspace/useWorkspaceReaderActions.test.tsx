@@ -944,3 +944,77 @@ test('a partial selection captures and updates the attached annotation full exac
     undefined
   );
 });
+
+test.each([
+  'selection',
+  'annotation',
+] as const)('plain-note %s keeps its composer after a rejected PATCH', async type => {
+  const content = 'First sentence.';
+  const existing = { id: 'existing', note: 'Old note', createdAt: '', updatedAt: '' };
+  const args = buildHookArgs({
+    activeSectionId: 'lesson-1',
+    learningPlan: buildTestLearningPlan([
+      buildTestLesson({ id: 'lesson-1', content, annotations: [existing] }),
+    ]),
+    contextMenu: {
+      visible: true,
+      placement: 'desktop-floating',
+      annotationNote: 'Old note',
+      type,
+      annotationId: 'existing',
+      selectedText: content,
+      selectedTextStart: 0,
+    } as HookArgs['contextMenu'],
+    patchSectionAnnotations: vi.fn(async () => false),
+  });
+  const { result } = renderHook(() => useWorkspaceReaderActions(args));
+  await act(async () => {
+    await result.current.handleSaveNote('Keep my unsaved draft');
+  });
+  expect(args.closeContextMenu).not.toHaveBeenCalled();
+  expect(args.notify).toHaveBeenCalledWith('Non sono riuscito a salvare la nota.');
+});
+
+test.each([
+  'original',
+  'replacement-menu',
+  'another-project',
+] as const)('plain-note acknowledgement closes only its own composer: %s', async replacement => {
+  const pending = createDeferred();
+  const content = 'First sentence.';
+  const args = buildHookArgs({
+    activeSectionId: 'lesson-1',
+    learningPlan: buildTestLearningPlan([buildTestLesson({ id: 'lesson-1', content })]),
+    contextMenu: {
+      type: 'selection',
+      selectedText: content,
+      selectedTextStart: 0,
+    } as HookArgs['contextMenu'],
+    patchSectionAnnotations: vi.fn(async () => {
+      await pending.promise;
+      return true;
+    }),
+  });
+  const { result, rerender } = renderHook((props: HookArgs) => useWorkspaceReaderActions(props), {
+    initialProps: args,
+  });
+  let first: Promise<void> | undefined;
+  let duplicate: Promise<void> | undefined;
+  act(() => {
+    first = result.current.handleSaveNote('Draft');
+    duplicate = result.current.handleSaveNote('Draft');
+  });
+  expect(args.patchSectionAnnotations).toHaveBeenCalledOnce();
+  expect(args.closeContextMenu).not.toHaveBeenCalled();
+  if (replacement === 'replacement-menu')
+    rerender({
+      ...args,
+      contextMenu: { ...args.contextMenu, selectedText: 'Replacement selection.' },
+    });
+  if (replacement === 'another-project') rerender({ ...args, projectId: 'project-2' });
+  await act(async () => {
+    pending.resolve();
+    await Promise.all([first, duplicate]);
+  });
+  expect(args.closeContextMenu).toHaveBeenCalledTimes(replacement === 'original' ? 1 : 0);
+});

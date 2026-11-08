@@ -79,6 +79,7 @@ export const PROJECT_API_ERROR_CODE = {
 export const PROJECT_PATCH_REBASE_MODE = {
   navigation: 'navigation',
   quiz: 'quiz',
+  annotations: 'annotations',
 } as const;
 
 export type ProjectPatchRebaseMode =
@@ -89,7 +90,27 @@ export interface ProjectWriteOptions {
   rebaseMode?: ProjectPatchRebaseMode;
   expectedLessonGenerationRunId?: string | null;
   expectedQuizState?: LessonQuizState | null;
+  expectedAnnotationState?: ProjectAnnotationWriteState;
 }
+
+export interface ProjectAnnotationWriteState {
+  annotations: unknown;
+  content: unknown;
+  contentBlocks: unknown;
+  generatedVisuals: unknown;
+  lastGenerationRunId: unknown;
+}
+
+/** The exact annotation replacement context; playback preparation is independent of it. */
+export const buildProjectAnnotationWriteState = (
+  section: Partial<ProjectAnnotationWriteState> | Record<string, unknown>
+): ProjectAnnotationWriteState => ({
+  annotations: section.annotations ?? null,
+  content: section.content ?? null,
+  contentBlocks: section.contentBlocks ?? null,
+  generatedVisuals: section.generatedVisuals ?? null,
+  lastGenerationRunId: section.lastGenerationRunId ?? null,
+});
 
 export interface SectionPatch {
   sectionId: string;
