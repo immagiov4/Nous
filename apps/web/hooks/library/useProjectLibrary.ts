@@ -1,5 +1,8 @@
 import type { ProjectWriteOptions, SectionPatch } from '@shared/projectContract';
-import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
+import {
+  buildProjectAnnotationWriteState,
+  PROJECT_PATCH_REBASE_MODE,
+} from '@shared/projectContract';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { IMPORT_REFRESH_WARNING, translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { readSupabaseSession } from '../../services/auth/supabaseAuth.ts';
@@ -80,6 +83,7 @@ const quizWriteOptions = (
 
 interface UseProjectLibraryArgs {
   domainState: WorkspaceDomainState;
+  getDomainState?: () => WorkspaceDomainState;
   hydrateSnapshot: (snapshot: ProjectSnapshot) => void;
   setSource: (source: ProjectSource | null) => void;
 }
@@ -190,6 +194,7 @@ const haveSameProjectList = (
 
 export const useProjectLibrary = ({
   domainState,
+  getDomainState,
   hydrateSnapshot,
   setSource,
 }: UseProjectLibraryArgs) => {
@@ -990,8 +995,24 @@ export const useProjectLibrary = ({
       const after = domainChange?.after ?? domainStateRef.current;
       const previousSignature = buildAutosaveSignature(before);
       const persistedSignature = buildAutosaveSignature(after);
-      const writeOptions = quizWriteOptions(sectionId, changes, before);
+      const section = findPathNodeById(before.learningPlan?.modules, sectionId);
+      const annotationRebase =
+        changes.annotations !== undefined &&
+        changes.content === undefined &&
+        changes.quizState === undefined &&
+        previousSignature === lastPersistedSignatureRef.current &&
+        section?.kind === 'lesson' &&
+        getDomainState !== undefined &&
+        buildAutosaveSignature(getDomainState()) ===
+          acknowledgeSectionPatch(lastPersistedSignatureRef.current, { sectionId, ...changes });
+      const writeOptions: ProjectWriteOptions = annotationRebase
+        ? {
+            rebaseMode: PROJECT_PATCH_REBASE_MODE.annotations,
+            expectedAnnotationState: buildProjectAnnotationWriteState(section),
+          }
+        : quizWriteOptions(sectionId, changes, before);
       let expectedRevision: number | undefined;
+      let annotationCommitted = false;
       try {
         markSyncSaving();
         const meta = await runTrackedProjectWrite(selectedProjectId, async () => {
@@ -1014,11 +1035,15 @@ export const useProjectLibrary = ({
           return saved;
         });
         if (!meta) return false;
+        annotationCommitted = annotationRebase;
         if (currentProjectIdRef.current !== selectedProjectId) return true;
 
         const writeState = getProjectWriteState(selectedProjectId);
         const savedRevision = meta.revision;
-        if (changes.quizState && didRebaseOverRemoteRevision(expectedRevision, savedRevision)) {
+        if (
+          writeOptions.rebaseMode &&
+          didRebaseOverRemoteRevision(expectedRevision, savedRevision)
+        ) {
           writeState.rebasedRevision = savedRevision;
         }
         if (writeState.pendingCount === 0 && !writeState.batchFailed) {
@@ -1035,12 +1060,14 @@ export const useProjectLibrary = ({
           setStorageError(message);
           markSyncError();
         }
-        return false;
+        // A failed catch-up must not turn a committed annotation into a failed Save.
+        return annotationCommitted;
       }
     },
     [
       currentProjectId,
       getExpectedRevision,
+      getDomainState,
       getProjectWriteState,
       reconcileRebasedProjectWrites,
       runTrackedProjectWrite,

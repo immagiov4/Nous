@@ -154,6 +154,11 @@ export const useWorkspaceReaderActions = ({
   useEffect(() => {
     sourceOwnerRef.current = { projectId, source };
   }, [projectId, source]);
+  const contextMenuRef = useRef(contextMenu);
+  const pendingNoteMenusRef = useRef(new WeakSet<object>());
+  useEffect(() => {
+    contextMenuRef.current = contextMenu;
+  }, [contextMenu]);
   const activeSectionIdRef = useRef(activeSectionId);
   useEffect(() => {
     activeSectionIdRef.current = activeSectionId;
@@ -460,6 +465,51 @@ export const useWorkspaceReaderActions = ({
     sectionContent,
   ]);
 
+  const persistNoteChange = useCallback(
+    async (annotations: LessonNode['annotations'], clearSelection = false) => {
+      if (!activeSectionId || pendingNoteMenusRef.current.has(contextMenu)) return;
+      const previousAnnotations = getCurrentSection()?.annotations;
+      pendingNoteMenusRef.current.add(contextMenu);
+      try {
+        const persisted = await commitSectionAnnotations(activeSectionId, { annotations });
+        if (!persisted && sourceOwnerRef.current.projectId === projectId) {
+          (activeSectionIdRef.current === activeSectionId
+            ? updateSectionPreservingReaderScroll
+            : updateSection)(activeSectionId, section => ({
+            ...section,
+            annotations:
+              section.annotations === annotations ? previousAnnotations : section.annotations,
+          }));
+        }
+        if (
+          contextMenuRef.current !== contextMenu ||
+          activeSectionIdRef.current !== activeSectionId ||
+          sourceOwnerRef.current.projectId !== projectId
+        )
+          return;
+        if (!persisted) {
+          notify(t('Non sono riuscito a salvare la nota.'));
+          return;
+        }
+        closeContextMenu();
+        if (clearSelection) clearNativeSelection();
+      } finally {
+        pendingNoteMenusRef.current.delete(contextMenu);
+      }
+    },
+    [
+      activeSectionId,
+      contextMenu,
+      projectId,
+      commitSectionAnnotations,
+      notify,
+      closeContextMenu,
+      getCurrentSection,
+      updateSection,
+      updateSectionPreservingReaderScroll,
+    ]
+  );
+
   const handleSaveNote = useCallback(
     (note: string, artifactRefs?: SectionAnnotationArtifactRef[]) => {
       if (!activeSectionId) {
@@ -492,10 +542,7 @@ export const useWorkspaceReaderActions = ({
           return;
         }
 
-        void commitSectionAnnotations(activeSectionId, { annotations: result.annotations });
-        closeContextMenu();
-        clearNativeSelection();
-        return;
+        return persistNoteChange(result.annotations, true);
       }
 
       if (contextMenu.type !== 'annotation') {
@@ -513,18 +560,9 @@ export const useWorkspaceReaderActions = ({
         return;
       }
 
-      void commitSectionAnnotations(activeSectionId, { annotations: result.annotations });
-      closeContextMenu();
+      return persistNoteChange(result.annotations);
     },
-    [
-      activeSectionId,
-      closeContextMenu,
-      contextMenu,
-      getCurrentSection,
-      notify,
-      commitSectionAnnotations,
-      sectionContent,
-    ]
+    [activeSectionId, contextMenu, getCurrentSection, notify, persistNoteChange, sectionContent]
   );
 
   const handleDeleteAnnotation = useCallback(() => {

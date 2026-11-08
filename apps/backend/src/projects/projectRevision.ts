@@ -7,7 +7,7 @@ export const PROJECT_NOT_FOUND_MESSAGE = 'Il corso non esiste più.';
 export class ProjectRevisionConflictError extends Error {
   readonly code = PROJECT_API_ERROR_CODE.revisionConflict;
 
-  constructor() {
+  constructor(readonly revisions?: { expectedRevision?: number; currentRevision?: number }) {
     super(PROJECT_REVISION_CONFLICT_MESSAGE);
     this.name = 'ProjectRevisionConflictError';
   }

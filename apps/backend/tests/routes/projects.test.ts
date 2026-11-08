@@ -4,7 +4,11 @@ import {
   PROJECT_BACKUP_MAX_MANIFEST_BYTES,
   PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
 } from '@shared/projectBackupArchive';
-import { PROJECT_API_ERROR_CODE, PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
+import {
+  buildProjectAnnotationWriteState,
+  PROJECT_API_ERROR_CODE,
+  PROJECT_PATCH_REBASE_MODE,
+} from '@shared/projectContract';
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
 import { SOURCE_PREPARATION_CONFLICT_CODE } from '@shared/sourcePreparation';
 import JSZip from 'jszip';
@@ -140,6 +144,7 @@ describe('/api/projects', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await clearProjectImportUploadsForTesting();
     setProjectStoreForTesting(null);
     if (previousLocalUserId === undefined) {
@@ -866,6 +871,73 @@ describe('/api/projects', () => {
     });
     const listResponse = await request(app).get('/api/projects/projects');
     expect(listResponse.body.projects[0].isFavorite).toBe(false);
+  });
+
+  test.each([
+    '',
+    '/deferred',
+  ])('correlates a stale annotation PATCH rejection without private content: %s', async suffix => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const app = createApp();
+    const projectId = 'synthetic-private-course';
+    const snapshot = createModuleSnapshot(projectId, 'Private course title');
+    await request(app).put(`/api/projects/projects/${projectId}`).send({ snapshot });
+    await request(app)
+      .patch(`/api/projects/projects/${projectId}`)
+      .send({
+        expectedRevision: 1,
+        patch: { section: { sectionId: 'lesson-2', content: 'Remote lesson' } },
+      });
+    const response = await request(app)
+      .patch(`/api/projects/projects/${projectId}${suffix}`)
+      .send({
+        expectedRevision: 1,
+        patch: {
+          section: {
+            sectionId: 'lesson-1',
+            annotations: [
+              { id: 'private-note-id', note: 'Private note text', createdAt: '', updatedAt: '' },
+            ],
+          },
+        },
+      });
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe(PROJECT_API_ERROR_CODE.revisionConflict);
+    const lifecycle = errorLog.mock.calls
+      .flat()
+      .filter(value => typeof value === 'string')
+      .map(value => {
+        try {
+          return JSON.parse(value);
+        } catch {
+          return null;
+        }
+      })
+      .find(event => event?.correlationId === response.headers['x-request-id']);
+    expect(lifecycle.path).toContain('/projects/:id');
+    const diagnostic = warning.mock.calls.find(
+      ([message]) => message === '[Nous][ProjectWrite] Revision conflict'
+    )?.[1];
+    expect(diagnostic).toEqual({
+      requestId: response.headers['x-request-id'],
+      code: PROJECT_API_ERROR_CODE.revisionConflict,
+      expectedRevision: 1,
+      currentRevision: 2,
+    });
+    const logged = JSON.stringify({ lifecycle, diagnostic });
+    for (const privateValue of [
+      projectId,
+      'Private course title',
+      'private-note-id',
+      'Private note text',
+    ])
+      expect(logged).not.toContain(privateValue);
+    const loaded = await request(app).get(`/api/projects/projects/${projectId}`);
+    expect(loaded.body.project.learningPlan.modules[1].children[0].content).toBe('Remote lesson');
+    expect(loaded.body.project.learningPlan.modules[0].children[0].annotations).toBeUndefined();
+    errorLog.mockRestore();
+    warning.mockRestore();
   });
 
   test('keeps the newest project version when stale clients save later', async () => {
@@ -2572,6 +2644,114 @@ describe('/api/projects', () => {
     expect((await write([3])).status).toBe(200);
     const loaded = await request(app).get(`/api/projects/projects/${projectId}`);
     expect(loaded.body.project.learningPlan.modules[0].children[0].quizState.answers).toEqual([3]);
+  });
+
+  test.each([
+    'annotations',
+    'content',
+    'contentBlocks',
+    'generatedVisuals',
+    'lastGenerationRunId',
+  ])('annotation rebase rejects changed target context: %s', async field => {
+    const app = createApp();
+    const projectId = 'annotation-context';
+    const snapshot = createModuleSnapshot(projectId, 'Annotations');
+    await request(app).put(`/api/projects/projects/${projectId}`).send({ snapshot });
+    const before = await request(app).get(`/api/projects/projects/${projectId}`);
+    const expectedAnnotationState = buildProjectAnnotationWriteState(
+      before.body.project.learningPlan.modules[0].children[0]
+    );
+    const competing: Record<string, unknown> = {
+      annotations: [{ id: 'remote-note', note: 'Keep remote note', createdAt: '', updatedAt: '' }],
+      content: 'Remote replacement.',
+      contentBlocks: [{ type: 'markdown', markdown: 'Remote replacement.' }],
+      generatedVisuals: [
+        {
+          id: 'visual-draft-remote',
+          title: 'Remote visual',
+          kind: 'scene',
+          code: '',
+          createdAt: '',
+        },
+      ],
+      lastGenerationRunId: 'remote-generation',
+    };
+    const remote = await request(app)
+      .patch(`/api/projects/projects/${projectId}`)
+      .send({
+        expectedRevision: 1,
+        patch: { section: { sectionId: 'lesson-1', [field]: competing[field] } },
+      });
+    expect(remote.status).toBe(200);
+    const write = {
+      expectedRevision: 1,
+      rebaseMode: PROJECT_PATCH_REBASE_MODE.annotations,
+      expectedAnnotationState,
+      patch: {
+        section: {
+          sectionId: 'lesson-1',
+          annotations: [{ id: 'local-note', note: 'Local note', createdAt: '', updatedAt: '' }],
+        },
+      },
+    };
+    const saved = await request(app).patch(`/api/projects/projects/${projectId}`).send(write);
+    expect(saved.status).toBe(409);
+    expect(saved.body.code).toBe(PROJECT_API_ERROR_CODE.revisionConflict);
+    const after = await request(app).get(`/api/projects/projects/${projectId}`);
+    expect(after.body.project.learningPlan.modules[0].children[0][field]).toEqual(competing[field]);
+    expect(after.body.revision).toBe(2);
+  });
+
+  test('annotation rebase preserves unrelated remote content and rejects broad or incomplete writes', async () => {
+    const app = createApp();
+    const projectId = 'annotation-unrelated-rebase';
+    const snapshot = createModuleSnapshot(projectId, 'Annotations');
+    await request(app).put(`/api/projects/projects/${projectId}`).send({ snapshot });
+    const before = await request(app).get(`/api/projects/projects/${projectId}`);
+    const expectedAnnotationState = buildProjectAnnotationWriteState(
+      before.body.project.learningPlan.modules[0].children[0]
+    );
+    await request(app)
+      .patch(`/api/projects/projects/${projectId}`)
+      .send({
+        expectedRevision: 1,
+        patch: { section: { sectionId: 'lesson-2', content: 'Keep remote content.' } },
+      });
+    const write = {
+      expectedRevision: 1,
+      rebaseMode: PROJECT_PATCH_REBASE_MODE.annotations,
+      expectedAnnotationState,
+      patch: {
+        section: {
+          sectionId: 'lesson-1',
+          annotations: [{ id: 'local-note', note: 'Local note', createdAt: '', updatedAt: '' }],
+        },
+      },
+    };
+    const saved = await request(app).patch(`/api/projects/projects/${projectId}`).send(write);
+    expect(saved.status).toBe(200);
+    expect(saved.body.meta.revision).toBe(3);
+    const after = await request(app).get(`/api/projects/projects/${projectId}`);
+    expect(after.body.project.learningPlan.modules[1].children[0].content).toBe(
+      'Keep remote content.'
+    );
+    expect(after.body.project.learningPlan.modules[0].children[0].annotations).toEqual(
+      write.patch.section.annotations
+    );
+    expect(
+      (
+        await request(app)
+          .patch(`/api/projects/projects/${projectId}`)
+          .send({ ...write, patch: { ...write.patch, title: 'Forbidden broad replacement' } })
+      ).status
+    ).toBe(400);
+    expect(
+      (
+        await request(app)
+          .patch(`/api/projects/projects/${projectId}`)
+          .send({ ...write, expectedAnnotationState: {} })
+      ).status
+    ).toBe(400);
   });
 
   test('saves a quiz across another lesson commit but rejects answers for replaced content', async () => {
