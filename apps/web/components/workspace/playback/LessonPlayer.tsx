@@ -640,10 +640,10 @@ export default function LessonPlayer({
       open
       aria-modal="true"
       aria-label={t('Riproduci lezione')}
-      className={`${content.isDarkMode ? 'dark' : ''} fixed inset-0 z-[80] m-0 flex w-full max-w-none max-h-none flex-col border-0 bg-paper-light p-0 font-sans text-stone-800 outline-0 dark:bg-paper-dark dark:text-stone-100`}
+      className={`lesson-player-dialog ${content.isDarkMode ? 'dark' : ''} fixed inset-0 z-[80] m-0 flex w-full max-w-none max-h-none flex-col border-0 bg-paper-light p-0 font-sans text-stone-800 outline-0 dark:bg-paper-dark dark:text-stone-100`}
       style={{ height: viewportHeight ?? '100dvh' }}
     >
-      <header className="flex shrink-0 items-center gap-3 px-4 py-3 md:gap-5 md:px-[4%] md:pt-6">
+      <header className="lesson-player-header flex shrink-0 items-center gap-3 px-4 py-3 md:pt-6">
         <button
           ref={backButton}
           type="button"
