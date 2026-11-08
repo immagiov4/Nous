@@ -102,7 +102,7 @@ The assistant can generate and edit visual pedagogical aids. These artifacts are
 
 ### Generation Logic
 
-Contextual artifact generation retains the learner's original requests separately from the assistant's tool prompt and the model-authored visual plan. Planning, rendering and retry receive those instructions directly, so a requested connected diagram and artifact destination survive a label-only revision. The existing catalog chooses a supported form; the application does not classify natural-language requests with keyword rules. Current artifact checkpoints retain this provenance while historical workflow definitions keep their original contracts.
+Contextual artifact generation retains the learner's original requests separately from the assistant's tool prompt and the model-authored visual plan. Planning, rendering and retry receive that request text directly, so the requested structure, direction and artifact destination are available to each stage. The existing catalog chooses a supported form; the application does not classify natural-language requests with keyword rules. Current artifact checkpoints retain this provenance while historical workflow definitions keep their original contracts.
 
 Owners: [artifact draft workflow](../../../apps/backend/src/workflows/artifactDraftWorkflow.ts) and [visual workflow](../../../apps/backend/src/workflows/lessonVisualWorkflow.ts).
 
