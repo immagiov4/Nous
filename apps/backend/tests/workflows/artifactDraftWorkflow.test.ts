@@ -8,6 +8,7 @@ import {
   type ArtifactDraftWorkflowInput,
   type ArtifactDraftWorkflowServices,
   createArtifactDraftWorkflow,
+  createPreviousArtifactDraftWorkflow,
 } from '../../src/workflows/artifactDraftWorkflow.js';
 import { LegacyLessonVisualContractSchemas } from '../../src/workflows/lessonGenerationWorkflowSchemas.js';
 import { buildLessonVisualContextFingerprint } from '../../src/workflows/lessonVisualContext.js';
@@ -127,6 +128,32 @@ const workflowNodes = () => {
 };
 
 describe('artifact draft workflow', () => {
+  test.each([
+    true,
+    false,
+  ])('preserves the planner request only for the current artifact contract: %s', async current => {
+    const workflow = (current ? createArtifactDraftWorkflow : createPreviousArtifactDraftWorkflow)(
+      config
+    );
+    if (workflow.root.kind !== 'sequence') throw new Error('Expected artifact sequence');
+    const plan = workflow.root.nodes[0];
+    if (plan.kind !== 'step') throw new Error('Expected artifact planner step');
+    const services = makeServices();
+    await plan.run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'root/plan-artifact-draft', runId: RUN_ID },
+      idempotencyKey: 'plan-key',
+      input: { ...input, requestedVisualKind: 'scene' },
+      retryFeedback: '',
+      services,
+      signal: new AbortController().signal,
+    });
+    const plannerInput = services.planArtifactDraft.mock.calls[0]?.[0];
+    if (current) expect(plannerInput).toHaveProperty('requestText', input.requestText);
+    else expect(plannerInput).not.toHaveProperty('requestText');
+  });
+
   test('preserves the explicit artifact request through planning, checkpoint and scene retry', async () => {
     const requestText =
       'Crea un diagramma con frecce prima/dopo come artefatto.\n\nMantieni il diagramma, cambia solo le etichette.';

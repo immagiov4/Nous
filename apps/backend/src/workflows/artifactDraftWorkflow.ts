@@ -145,7 +145,7 @@ const planWithModel = async (
   config: ArtifactDraftWorkflowConfig,
   services: ArtifactDraftWorkflowServices,
   signal: AbortSignal,
-  retryFeedback: string
+  options: { preserveArtifactRequest: boolean; retryFeedback: string }
 ): Promise<LessonVisualRetryPlan | null> => {
   return runWorkflowStage({
     failure: {
@@ -158,9 +158,9 @@ const planWithModel = async (
           config: config.visual,
           generationNotes: input.generationNotes,
           lessonMarkdown: input.lessonMarkdown,
-          requestText: input.requestText,
+          ...(options.preserveArtifactRequest ? { requestText: input.requestText } : {}),
           requestedVisualKind: input.requestedVisualKind,
-          retryFeedback,
+          retryFeedback: options.retryFeedback,
           sectionDescription: input.sectionDescription,
           sectionTitle: input.sectionTitle,
           signal,
@@ -233,7 +233,10 @@ export const createArtifactDraftWorkflow = (
       const plan =
         input.requestedVisualKind === 'image'
           ? explicitRasterPlan(input)
-          : await planWithModel(input, config, services, signal, retryFeedback);
+          : await planWithModel(input, config, services, signal, {
+              preserveArtifactRequest,
+              retryFeedback,
+            });
       if (!plan) {
         return {
           kind: 'none',
