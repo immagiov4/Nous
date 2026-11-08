@@ -15,6 +15,7 @@ const MERMAID_PARSER_TEST = 'apps/backend/tests/services/mermaidValidation.test.
 const BROWSER_FIXTURE_TESTS = [
   'apps/web/tests/utils/reader/lessonPlaybackSignal.test.ts',
   'apps/web/tests/components/workspace/PlaybackCausalLayout.test.ts',
+  'apps/web/tests/components/workspace/ContextComposerLayout.test.ts',
 ];
 // These suites own browser/parser subprocesses, process fixtures, or production registry rebuilds.
 const LOAD_SENSITIVE_TESTS = [

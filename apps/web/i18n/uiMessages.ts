@@ -1235,6 +1235,11 @@ const ENGLISH_UI_MESSAGES = {
   'Nessuna istruzione aggiuntiva: verrà usata solo la selezione corrente.':
     'No additional instructions: only the current selection will be used.',
   Nota: 'Note',
+  'Su questo passaggio': 'About this passage',
+  'Scrivi una nota': 'Write a note',
+  Allega: 'Attach',
+  'Modalità di scrittura': 'Writing mode',
+  'Bozza presente': 'Draft available',
   'Nota associata al passaggio': 'Note attached to this passage',
   Procedi: 'Continue',
   Rimuovi: 'Remove',
