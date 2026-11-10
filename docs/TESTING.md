@@ -16,6 +16,8 @@ Run `bun run gate:cloud` for the complete gate in this Linux cloud image. It use
 
 ## Local checks
 
+Before restoring worktree dependencies, check free space and exact-lockfile reuse through `bun run deps:install`; keep cache and hardlinks on the same volume. If Vite config imports or Vitest peer resolution fail, inspect their real paths before calling it a product failure: a junction to another checkout can break config temporaries, and global-store links can miss peers. Keep any frozen-install repair local to the affected worktree and preserve manifests and lockfiles.
+
 After installing dependencies with `bun run deps:install`, install Chromium for browser tests:
 
 ```bash
@@ -66,7 +68,7 @@ Pull requests also run the Supabase contract and remote body verification. The c
 
 <details><summary>Details</summary>
 
-Coverage uses the Node major pinned in `.node-version` and the ordered Vitest projects in `apps/web/vitest.config.ts`. Its preflight removes stale LCOV, checks Node, and installs Chromium. One coverage-producing suite supplies both the test result and the Sonar report.
+Coverage uses the Node major pinned in `.node-version` and the ordered Vitest projects in `apps/web/vitest.config.ts`. Its preflight removes stale LCOV, checks Node, and installs Chromium. One coverage-producing suite supplies both the test result and the Sonar report. Before including a new source language in Sonar analysis, verify that CI produces and imports coverage for it; an asset-render proof does not supply Python coverage through JavaScript LCOV.
 
 Fallow compares finding identities with `config/fallow-baselines/regression.json`; every new identity blocks CI. Refresh the baseline explicitly after reviewing the change. The scripts own fingerprinting and report details.
 

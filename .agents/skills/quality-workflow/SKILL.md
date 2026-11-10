@@ -45,6 +45,8 @@ When the same violation appears in sibling paths within this work, fix every occ
 - Record the test, deliberate defect, command, observed failure, and restored result so its ability to detect a regression is checkable.
 - When the change has no meaningful deterministic boundary (for example behaviour that exists only in nondeterministic model output), follow AGENTS.md: write no tautological test and document the manual or evaluation-based verification instead.
 - Run `bun run check:changed` alongside selected behaviour tests; add `bun run lint:types` when types or interfaces change.
+- For controlled inputs or recovery actions, exercise the visible parent-owned state and verify that success clears the failed recovery offer; an internal composer test cannot prove the parent integration.
+- After a failed optimistic save, exercise a second Save through the application's save/state owner and inspect persisted and local state, including preservation of a later concurrent edit; retaining input or returning false alone does not prove retry safety.
 
 ### b. Performance within behaviour and integration tests
 
@@ -68,6 +70,8 @@ When the same violation appears in sibling paths within this work, fix every occ
 ### e. Agentic playtest
 
 - Run `bun run playtest` for UI-affecting work and the levels requiring it. Use AGENTS.md and the [testing wiki](../../../.cubic/wiki/09-section-tools/02-p-testing-quality.md) for setup and supported options.
+- After resizing, wait for layout to settle, bring the affected control into view, recheck bounds and inspect the captured scene; an offscreen or stale bounding box cannot prove usability.
+- For textured or tinted surfaces, verify contrast on the composed pixels in every affected theme; the nominal CSS palette alone does not establish readable text.
 - Keep browser execution hidden. Record the outcome, the playtest trace and screenshots, and the performance profile for the maintainer. Use trace and screenshots as the default evidence. Produce a video with `--video` when the maintainer requests it or for co-review of new UI work.
 - Process findings through the zoom-out and review procedures before treating this stage as passed.
 
