@@ -45,7 +45,7 @@ When the same violation appears in sibling paths within this work, fix every occ
 - Record the test, deliberate defect, command, observed failure, and restored result so its ability to detect a regression is checkable.
 - When the change has no meaningful deterministic boundary (for example behaviour that exists only in nondeterministic model output), follow AGENTS.md: write no tautological test and document the manual or evaluation-based verification instead.
 - Run `bun run check:changed` alongside selected behaviour tests; add `bun run lint:types` when types or interfaces change.
-- For controlled inputs or recovery actions, exercise the visible parent-owned state and verify that success clears the failed recovery offer; an internal composer test cannot prove the parent integration.
+- For controlled inputs, exercise the visible parent-owned state; for a recovery action, also verify that success clears the failed recovery offer; an internal composer test cannot prove the parent integration.
 - After a failed optimistic save, exercise a second Save through the application's save/state owner and inspect persisted and local state, including preservation of a later concurrent edit; retaining input or returning false alone does not prove retry safety.
 
 ### b. Performance within behaviour and integration tests

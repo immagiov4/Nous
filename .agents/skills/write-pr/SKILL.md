@@ -21,7 +21,7 @@ Run `bun run github:body -- validate --kind pr --body-file <path>` and `node <ad
 
 For PR-format migrations, validate the bootstrap body against the trusted base validator used by `pull_request_target` as well as the proposed validator; keep it base-compatible until that change lands.
 
-Verify the requested media-upload capability before promising attachments. If the maintainer explicitly prioritizes opening an authorized PR while its evidence host is unavailable, publish with the evidence gap stated, retain inspected local media and complete the authorized upload when available; keep merge readiness separate.
+Verify the requested media-upload capability before promising attachments. If the maintainer explicitly prioritizes opening an authorized PR while its evidence host is unavailable, publish with the evidence gap stated, retain inspected local media and complete the authorized upload of public or synthetic media when available; keep merge readiness separate.
 
 Before authorized publication, run `bun run github:body -- preview --repo immagiov4/Nous --body-file <path>`. Publish with `--body-file`, verify the remote body through `github:body verify`, and use `github:body update` for later revisions. Complete when the body passes both validators and the rendered result supports its claims. A local draft can finish with publication pending.
 

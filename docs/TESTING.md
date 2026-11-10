@@ -16,7 +16,7 @@ Run `bun run gate:cloud` for the complete gate in this Linux cloud image. It use
 
 ## Local checks
 
-Before restoring worktree dependencies, check free space and exact-lockfile reuse through `bun run deps:install`; keep cache and hardlinks on the same volume. If Vite config imports or Vitest peer resolution fail, inspect their real paths before calling it a product failure: a junction to another checkout can break config temporaries, and global-store links can miss peers. Keep any frozen-install repair local to the affected worktree and preserve manifests and lockfiles.
+Before restoring worktree dependencies, check free space on the target volume, then restore with `bun run deps:install`, which reuses the exact lockfile; keep cache and hardlinks on the same volume. If Vite config imports or Vitest peer resolution fail, inspect their real paths before calling it a product failure: a junction to another checkout can break config temporaries, and global-store links can miss peers. Keep any frozen-install repair local to the affected worktree and preserve manifests and lockfiles.
 
 After installing dependencies with `bun run deps:install`, install Chromium for browser tests:
 
