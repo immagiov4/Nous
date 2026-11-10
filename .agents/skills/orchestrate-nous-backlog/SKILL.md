@@ -65,20 +65,30 @@ When dispatching a task, include only the applicable `$skill-name` invocations a
 installed `SKILL.md` paths. Do not paste or reimplement those skills' instructions. Every dispatched
 agent receives the repository instructions, exact issue/scope, exclusive ownership where possible,
 output path, authority limits, applicable skill pointers, and a falsifiable completion condition.
-For an authorized PR batch, name the PR owner in the brief and ledger. In T3, the orchestrator owns native CI/review watching and any authorized merge; the child verifies the published body against write-pr, including evidence-only Details, pushes scoped fixes and hands back the PR URL, head SHA and observed checks/reviews. Elsewhere, assign monitoring to an actor with the required tools. The batch stays active until its authorized terminal state; a status question or failed T3 link does not cancel executable GitHub or local work.
+For an authorized PR batch, make the post-PR ownership explicit: the agent must keep babysitting its
+PR through CI and review cycles until it is merged or reaches a concrete blocker that needs a user
+decision. Opening a PR, reporting an initially green CI run, or waiting for an optional reviewer is
+not a completion condition.
+A status question from the user does not end the loop: answer it and keep babysitting.
 
 ### Persistent task goals
 
 Every delegated task that can outlive one immediate action must create a Codex goal before it begins
-implementation, review, or babysitting. The goal names the assigned outcome: a verified T3 PR handoff, an evidence-backed issue, or a bounded investigation report; the orchestrator retains the batch outcome through monitoring and any authorized merge. Keep that goal active
+implementation, review, or babysitting. The goal names the concrete outcome, such as a verified
+merge, a created evidence-backed issue, or a bounded investigation report. Keep that goal active
 across pauses, CI/review cycles, shared-gate queues, and handoffs. A task may report a dependency,
-but waiting alone does not complete it: the assigned dependency owner monitors, while the task pursues independent safe work and resumes at the next executable action. A completed T3 PR handoff follows the ownership rule above. Complete the goal only after
+but it does not complete merely because it is waiting: it keeps monitoring the dependency, pursues
+any independent safe work, and resumes at the next executable action. Complete the goal only after
 the stated outcome is verified; mark it blocked only for a repeated concrete blocker that genuinely
 requires user input or an external change.
 
 ### Active waiting is work
 
-The assigned dependency owner keeps a live dependency active. In T3, the orchestrator registers the native PR watch and follows its handoff instructions; children report the observed state without watching. For other dependencies, follow the verified handle's native waiting instructions, process its result and take the next safe action.
+Treat a live dependency as an active loop, not a reason to end a delegated turn. While CI, review,
+an external job, a shared-gate queue, or another owned task can change without user input, keep the
+goal active and poll the verified handle with the native waiting mechanism at a proportionate cadence
+(normally about two minutes). Process the result, take the next safe action, then wait again. A task
+does not self-pause merely because the last poll was unchanged.
 
 Use `blocked` only when the same concrete user-decision or external-state blocker has recurred under
 the platform's blocked audit and there is no executable safe work left. In that state, name the exact
@@ -183,7 +193,7 @@ active and queue excess work.
 Dispatch route in T3 Code:
 
 - Write the batch-wide rules once (base on fresh `origin/main`, skills, test scope, PR format,
-  PR owner, publication authority, waiting loop, final status line) to `<run>/common-brief.md`. Each task brief
+  merge authority, waiting loop, final status line) to `<run>/common-brief.md`. Each task brief
   points to it and adds its own issues and Requirements map.
 - Begin every Codex brief with: `Do NOT spawn sub-agents or nested tasks; do all work yourself.
   Never change model or service tier.` A PreToolUse hook rejects briefs without it.
@@ -209,7 +219,11 @@ Dispatch route in T3 Code:
    cutting contracts, and final publication. Read every delegated artifact and diff yourself.
 5. Follow the user's publication authority exactly. When the user authorizes the high-throughput
    PR loop, each agent may commit its scoped diff, push a branch, open a non-draft PR, respond to
-   genuine automated-review findings. Assign watching and any authorized merge through the PR ownership rule above. Invoking this skill authorizes scoped commit, push and PR publication after verification; merge and deployment retain separate authorization. Use the branch/PR route unless the maintainer explicitly requests direct publication.
+   genuine automated-review findings, and merge only when the defined conditions are met.
+   Invoking this skill already authorizes scoped commit, push and PR publication after verification;
+   otherwise, do not infer any of those permissions. For governance-only `AGENTS.md` edits
+   explicitly authorized by the user, update and push directly to Nous `main` after verifying the
+   remote and clean scope; do not create a PR merely for that.
 6. Use `$show-me-your-work` for a long unattended run when a TSV decision trail materially helps a
    later reviewer. Use `$handoff` only when a separate task needs a redacted continuation document.
 
@@ -358,7 +372,12 @@ Use this only after the user has approved the loop. `$full-send` approves it wit
 2. Per autonomous issue: synchronize the worktree, implement the narrow contract using the routed
    skills, run changed-file checks and targeted tests, inspect the diff, commit, push, and open a
    non-draft PR.
-3. The assigned PR owner monitors CI and reviews through the environment's native mechanism; in T3 that owner is the orchestrator. Reconcile every unresolved thread against current code and record its disposition, including findings from earlier review rounds; a clean summary does not settle unanswered threads.
+3. Monitor the PR continuously for CI and reviewer comments. Do not confuse Security Review,
+   Greptile, Cubic, and Codex Code Review; report which actually ran. Do not stop babysitting after
+   opening the PR or after a clean snapshot: keep polling with a bounded native monitor, process
+   genuine findings, and begin a fresh CI/review cycle after every material change. Answer every
+   unresolved thread with its disposition (fixed or not, and why), including threads from earlier
+   rounds; a clean summary does not settle unanswered threads.
 4. Fix genuine comments in small commits. Before changing code, use `$receiving-pr-reviews`; wait
    for a fresh CI/review cycle after each material fix.
 5. Merge automatically only when the user authorized it, the applicable CI/review gates are clean,

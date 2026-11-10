@@ -6,7 +6,8 @@ description: Full send on a Nous backlog batch. Delegate each item, babysit its 
 # Full send
 
 An explicit full-send request grants the high-throughput PR loop of
-[orchestrate-nous-backlog](../orchestrate-nous-backlog/SKILL.md): the batch commits, pushes, opens non-draft PRs, fixes genuine findings and merges through that skill's PR ownership and merge gates. Under
+[orchestrate-nous-backlog](../orchestrate-nous-backlog/SKILL.md): delegated tasks commit, push,
+open non-draft PRs, fix genuine review findings, and merge once that skill's merge gates pass. Under
 `$full-stop` the same loop ends each PR at `merge-ready`, and the user merges. Run the steps through
 orchestrate-nous-backlog; this file adds the authority and the finish line.
 
