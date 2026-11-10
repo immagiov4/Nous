@@ -37,7 +37,7 @@ Load a row when its condition applies. Skill names resolve through the harness's
 
 | When | Where |
 | --- | --- |
-| Adopting, updating or removing Geppetto | `$geppetto-adopt` |
+| Adopting, updating or removing Geppetto; an update includes the installed plugin and this project's pin/adoption through the authorized PR | `$geppetto-adopt` |
 | Planning behaviour or steering changes the outcome | `$geppetto-spec` |
 | Implementing a specified unit | `$geppetto-build` |
 | Before a PR, on review findings or checking completion | `$geppetto-verify` |

@@ -69,6 +69,7 @@ For an authorized PR batch, make the post-PR ownership explicit: the agent must 
 PR through CI and review cycles until it is merged or reaches a concrete blocker that needs a user
 decision. Opening a PR, reporting an initially green CI run, or waiting for an optional reviewer is
 not a completion condition.
+A status question from the user does not end the loop: answer it and keep babysitting.
 
 ### Persistent task goals
 
@@ -170,8 +171,8 @@ The ledger is the orchestrator's memory of the batch. Create it before the first
 (`C:/Users/giovb/nous-work/` on the maintainer's machine; a temporary directory outside the
 checkout elsewhere). Keep one row per work item:
 
-| Item | Issues | Lane | Owner | Branch | PR | State | Next action | Updated |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Item | Issues | Lane | Owner | Worktree | Branch | PR | State | Next action | Updated |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
 - **Owner** is the task ID or thread link; **State** is one of `queued`, `running`, `pr-open`,
   `merge-ready`, `merged`, `closed-noop`, `needs-user`, `blocked`.
@@ -213,14 +214,14 @@ Dispatch route in T3 Code:
 2. Give each agent a concrete outcome, exact issue(s), validation expectations, exclusive
    file/module ownership where possible, and the applicable installed skills from the routing
    table above.
-3. Do not let agents edit the same files concurrently. Use isolated worktrees only when the
-   environment supports them and integration cost is justified.
+3. Give each implementation task its isolated absolute worktree path and branch in the brief and ledger. Before edits or Git mutations, including after a tool resets its directory, the child verifies repository root, branch and remote in that worktree. On mismatch, report the observed identity to the orchestrator; preserve the canonical checkout and unrelated files.
 4. Keep the main agent responsible for repository context, user questions, integration, cross-
    cutting contracts, and final publication. Read every delegated artifact and diff yourself.
 5. Follow the user's publication authority exactly. When the user authorizes the high-throughput
    PR loop, each agent may commit its scoped diff, push a branch, open a non-draft PR, respond to
    genuine automated-review findings, and merge only when the defined conditions are met.
-   Otherwise, do not infer any of those permissions. For governance-only `AGENTS.md` edits
+   Invoking this skill already authorizes scoped commit, push and PR publication after verification;
+   otherwise, do not infer any of those permissions. For governance-only `AGENTS.md` edits
    explicitly authorized by the user, update and push directly to Nous `main` after verifying the
    remote and clean scope; do not create a PR merely for that.
 6. Use `$show-me-your-work` for a long unattended run when a TSV decision trail materially helps a
@@ -343,6 +344,7 @@ Before publication, re-check remote state and the complete worktree.
 - Push directly to `main` only when the user explicitly requests that route. Otherwise use the
   repository's branch/PR workflow.
 - Confirm local HEAD and remote branch SHA after push, then report the CI URL/status.
+- Before removing local evidence, establish its owning PR and verify its live merge state; directory numbers alone do not establish ownership. Inspect resolved paths and retain Git worktrees and links for their own lifecycle rather than deleting them recursively as media.
 - Before creating a pull request or issue, run `bun run github:body -- preview` on its body file;
   create with the native `--body-file` option, then run `bun run github:body -- verify`. For later
   body mutations, use `bun run github:body -- update`; keep body text out of shell interpolation
@@ -373,7 +375,9 @@ Use this only after the user has approved the loop. `$full-send` approves it wit
 3. Monitor the PR continuously for CI and reviewer comments. Do not confuse Security Review,
    Greptile, Cubic, and Codex Code Review; report which actually ran. Do not stop babysitting after
    opening the PR or after a clean snapshot: keep polling with a bounded native monitor, process
-   genuine findings, and begin a fresh CI/review cycle after every material change.
+   genuine findings, and begin a fresh CI/review cycle after every material change. Answer every
+   unresolved thread with its disposition (fixed or not, and why), including threads from earlier
+   rounds; a clean summary does not settle unanswered threads.
 4. Fix genuine comments in small commits. Before changing code, use `$receiving-pr-reviews`; wait
    for a fresh CI/review cycle after each material fix.
 5. Merge automatically only when the user authorized it, the applicable CI/review gates are clean,
