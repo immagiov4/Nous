@@ -24,12 +24,14 @@ export type ResearchYouTube = (
 
 export const generateLessonResearchSummary = async ({
   allowOptionalFailure = false,
+  onOptionalFailure,
   existingDossier,
   generationInput,
   research,
   youtubeOutcome,
 }: {
   allowOptionalFailure?: boolean;
+  onOptionalFailure?: (error: unknown) => null;
   existingDossier: Record<string, unknown> | null;
   generationInput: LessonGenerationInput;
   research: GenerateResearch;
@@ -54,6 +56,7 @@ export const generateLessonResearchSummary = async ({
       !isResearchProviderUnavailable(error)
     )
       throw error;
+    if (onOptionalFailure) return onOptionalFailure(error);
     console.warn('[Lesson workflow] Optional research unavailable; using supplied sources.', {
       error,
     });

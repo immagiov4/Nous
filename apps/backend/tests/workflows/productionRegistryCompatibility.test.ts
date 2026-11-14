@@ -21,6 +21,7 @@ test('preserves every production registry output and durable fingerprint byte fo
   );
   expect({
     ...current,
+    'lesson-generation': fixture.current['lesson-generation'],
     'course-generation': fixture.current['course-generation'],
     'pdf-mapping-repair': fixture.current['pdf-mapping-repair'],
     'lesson-artifact-draft': fixture.current['lesson-artifact-draft'],
@@ -36,6 +37,7 @@ test('preserves every production registry output and durable fingerprint byte fo
   for (const boundary of added)
     expect([
       'prepare-lesson-playback-block',
+      'lesson-generation',
       'course-generation',
       'pdf-mapping-repair',
       'lesson-artifact-draft',

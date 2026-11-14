@@ -1,6 +1,7 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import {
+  degradeOnFinalAttempt,
   failPermanently,
   getRetryDecision,
   readRetryAfterMs,
@@ -243,4 +244,102 @@ test.each([
       maxRetryDelayMs,
     })
   ).toThrow('maxRetryDelayMs must be a non-negative integer.');
+});
+
+describe('final-attempt degradation', () => {
+  test.each([
+    { attemptNumber: 1, eligible: true, degrades: false },
+    { attemptNumber: 3, eligible: false, degrades: false },
+    { attemptNumber: 3, eligible: true, degrades: true },
+    { attemptNumber: 4, eligible: true, degrades: true },
+  ])('preserves retry and eligibility: $attemptNumber / $eligible', scenario => {
+    const error = retryCorrective({
+      code: 'mapping_invalid',
+      feedback: 'private',
+      message: 'private',
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fallback = vi.fn(failure => ({ value: null, failure }));
+    const operation = () =>
+      degradeOnFinalAttempt({
+        ...scenario,
+        error,
+        fallback,
+        maxAttempts: 3,
+        signal: new AbortController().signal,
+        stage: 'map',
+      });
+    try {
+      if (scenario.degrades) {
+        expect(operation()).toEqual({
+          value: null,
+          failure: {
+            attemptNumber: scenario.attemptNumber,
+            kind: 'corrective',
+            stage: 'map',
+            diagnostic: { type: 'WorkflowStepError', code: 'mapping_invalid' },
+          },
+        });
+        expect(warn).toHaveBeenCalledWith(
+          'Workflow step degraded.',
+          expect.objectContaining({ stage: 'map' })
+        );
+        expect(JSON.stringify(warn.mock.calls)).not.toContain('private');
+      } else {
+        expect(operation).toThrow(error);
+        expect(fallback).not.toHaveBeenCalled();
+        expect(warn).not.toHaveBeenCalled();
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+  test('cancellation wins even on the final eligible attempt', () => {
+    const controller = new AbortController();
+    controller.abort(new Error('cancelled'));
+    const fallback = vi.fn();
+    expect(() =>
+      degradeOnFinalAttempt({
+        attemptNumber: 3,
+        maxAttempts: 3,
+        eligible: true,
+        error: new Error('private'),
+        fallback,
+        signal: controller.signal,
+        stage: 'map',
+      })
+    ).toThrow('cancelled');
+    expect(fallback).not.toHaveBeenCalled();
+  });
+});
+
+test('degradation retains a wrapped validation cause through a content-free projection', () => {
+  const error = retryOperational({
+    code: 'provider_failed',
+    message: 'private',
+    details: {
+      diagnostic: {
+        type: 'ProviderError',
+        code: 'invalid_output',
+        originalMessage: 'private',
+        validation: { reason: 'schema-invalid', path: ['verificationReport', 0, 'status'] },
+      },
+    },
+  });
+  const failure = degradeOnFinalAttempt({
+    attemptNumber: 3,
+    maxAttempts: 3,
+    eligible: true,
+    error,
+    signal: new AbortController().signal,
+    stage: 'research',
+    fallback: failure => failure,
+  });
+  expect(failure.diagnostic).toEqual({
+    type: 'WorkflowStepError',
+    code: 'provider_failed',
+    cause: { type: 'ProviderError', code: 'invalid_output' },
+    validation: { reason: 'schema-invalid', path: ['verificationReport', 0, 'status'] },
+  });
+  expect(JSON.stringify(failure)).not.toContain('private');
 });
