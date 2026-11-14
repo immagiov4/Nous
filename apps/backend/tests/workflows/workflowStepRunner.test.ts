@@ -12,7 +12,7 @@ import {
   step,
   workflow,
 } from '../../src/workflows/definition.js';
-import { retryOperational } from '../../src/workflows/retryPolicy.js';
+import { parseStepFailure, retryOperational } from '../../src/workflows/retryPolicy.js';
 import type {
   JsonValue,
   RegisteredWorkflow,
@@ -1827,4 +1827,95 @@ test('returns a sanitized heartbeat failure without checkpointing or releasing t
   expect(store.checkpointStep).not.toHaveBeenCalled();
   expect(store.steps.recordFailure).not.toHaveBeenCalled();
   expect(store.cancellation.releaseClaim).not.toHaveBeenCalled();
+});
+
+test.each([
+  { input: { alpha: 42, beta: ['ok', 'ok'] }, path: ['alpha'], code: 'invalid_type' },
+  { input: { alpha: 'ok', beta: ['ok', ''] }, path: ['beta', 1], code: 'too_small' },
+  { input: { alpha: 'data:text/plain,secret', beta: ['ok', 'ok'] }, phase: 'input-snapshot' },
+])('records distinguishable claimed input failures: $input', async fixture => {
+  const Input = z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('main'), alpha: z.string(), beta: z.array(z.string().min(1)) }),
+    z.object({ kind: z.literal('alternative'), alternative: z.boolean() }),
+  ]);
+  const work = step({
+    id: 'work',
+    inputSchema: Input,
+    outputSchema: Text,
+    run: async () => ({ text: 'done' }),
+  });
+  const registry = createWorkflowRegistry();
+  const registered = registry.register({
+    current: workflow({
+      compatibilityId: 'test-v1',
+      configSchema: WorkflowExecutionDefaultsSchema,
+      executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+      id: 'input-diagnostics',
+      inputSchema: Input,
+      outputSchema: Text,
+      root: work,
+    }),
+  }).current;
+  const recordFailure = vi.fn(makeStore().steps.recordFailure);
+  await runWorkflowStepClaim({
+    claim: makeClaim(registered, { input: { kind: 'main', ...fixture.input } }),
+    registry,
+    services: {},
+    store: makeStore({ recordFailure }),
+  });
+  const failure = parseStepFailure(recordFailure.mock.calls[0]?.[0].failure);
+  expect(failure).toMatchObject({
+    code: 'workflow_step_input_incompatible',
+    kind: 'permanent',
+    details: {
+      phase: fixture.phase ?? 'input-parse',
+      diagnostic: { type: fixture.phase ? 'TypeError' : 'ZodError' },
+      ...(fixture.path ? { validationIssue: { path: fixture.path, code: fixture.code } } : {}),
+    },
+  });
+  expect(JSON.stringify(failure)).not.toContain('secret');
+  expect(JSON.stringify(failure)).not.toContain('originalMessage');
+});
+
+test.each([
+  'private-key-secret',
+  'data:text/plain,secret',
+])('records record-schema failures without disclosing dynamic key %s', async key => {
+  const Input = z.record(z.string(), z.string());
+  const work = step({
+    id: 'work',
+    inputSchema: Input,
+    outputSchema: Text,
+    run: async () => ({ text: 'done' }),
+  });
+  const registry = createWorkflowRegistry();
+  const registered = registry.register({
+    current: workflow({
+      compatibilityId: 'test-v1',
+      configSchema: WorkflowExecutionDefaultsSchema,
+      executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+      id: 'record-input-diagnostics',
+      inputSchema: Input,
+      outputSchema: Text,
+      root: work,
+    }),
+  }).current;
+  const recorded: unknown[] = [];
+  const recordFailure: WorkflowStepRunnerStore['steps']['recordFailure'] = async input => {
+    recorded.push(parseStepFailure(input.failure));
+    return { status: 'failed', transientEvents: [] };
+  };
+  await expect(
+    runWorkflowStepClaim({
+      claim: makeClaim(registered, { input: { [key]: 42 } }),
+      registry,
+      services: {},
+      store: makeStore({ recordFailure }),
+    })
+  ).resolves.toMatchObject({ status: 'failure-recorded' });
+  expect(recorded).toHaveLength(1);
+  expect(JSON.stringify(recorded)).not.toContain(key);
+  expect(recorded[0]).toMatchObject({
+    details: { validationIssue: { path: ['*'], code: 'invalid_type' } },
+  });
 });
