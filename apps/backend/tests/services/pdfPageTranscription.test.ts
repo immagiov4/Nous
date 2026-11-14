@@ -979,6 +979,7 @@ test.each([
             ? { code: DOMException.TIMEOUT_ERR }
             : {}),
           ...(scenario === 'structured-answer' ? { validationPaths: ['markdown'] } : {}),
+          ...(scenario === 'validation' ? { code: 'pdf-page-unreadable' } : {}),
         },
         requests,
         requestBudgetExhausted: requests === 2,
@@ -989,6 +990,136 @@ test.each([
   } finally {
     operation.mockRestore();
     retry.mockRestore();
+    warn.mockRestore();
+  }
+});
+
+test.each([
+  {
+    statusCode: 429,
+    status: 'unreadable',
+    markdown: 'private transcript',
+    code: 'pdf-page-unreadable',
+  },
+  {
+    statusCode: 503,
+    status: 'unreadable',
+    markdown: 'private transcript',
+    code: 'pdf-page-unreadable',
+  },
+  {
+    statusCode: 429,
+    status: 'ok',
+    markdown: 'private transcript $x',
+    code: 'pdf-page-invalid-math',
+  },
+  {
+    statusCode: 503,
+    status: 'ok',
+    markdown: 'private transcript $x',
+    code: 'pdf-page-invalid-math',
+  },
+])('retains $code after HTTP $statusCode consumes the first request', async ({
+  statusCode,
+  status,
+  markdown,
+  code,
+}) => {
+  const retry = vi.spyOn(retryPolicy, 'getOperationalRetryDelayMs').mockReturnValue(0);
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  provider.generateText
+    .mockRejectedValueOnce(
+      new APICallError({
+        message: 'private provider response',
+        url: 'https://provider.invalid',
+        requestBodyValues: { prompt: 'private prompt' },
+        statusCode,
+      })
+    )
+    .mockResolvedValue({ output: { status, markdown }, usage: {} });
+  try {
+    const result = await completePdfTextExtraction(bytes, textLayer(''), {
+      config: await getResolvedGlobalModelConfig(),
+    });
+    expect(result.pages).toEqual([{ pageNumber: 1, text: '' }]);
+    expect(result.transcription?.failedPages).toEqual([1]);
+    expect(provider.generateText).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith(
+      '[Nous][PDF] Page transcription failed',
+      expect.objectContaining({
+        diagnostic: { stage: 'validation', type: 'Error', code },
+        previousProviderStatus: statusCode,
+        requests: 2,
+        requestBudgetExhausted: true,
+      })
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('private');
+    expect(JSON.stringify(result.transcription)).not.toContain('private');
+  } finally {
+    retry.mockRestore();
+    warn.mockRestore();
+  }
+});
+
+test.each([
+  429, 503,
+])('reports effective provider status %i separately from HTTP 200', async status => {
+  const retry = vi.spyOn(retryPolicy, 'getOperationalRetryDelayMs').mockReturnValue(0);
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  provider.generateText.mockRejectedValue(
+    new APICallError({
+      message: 'private response',
+      url: 'https://provider.invalid',
+      requestBodyValues: { prompt: 'private prompt' },
+      responseBody: 'private payload',
+      statusCode: 200,
+      data: { code: status, message: 'private envelope' },
+    })
+  );
+  try {
+    const result = await completePdfTextExtraction(bytes, textLayer(''), {
+      config: await getResolvedGlobalModelConfig(),
+    });
+    expect(result.pages).toEqual([{ pageNumber: 1, text: '' }]);
+    expect(result.transcription?.failedPages).toEqual([1]);
+    expect(provider.generateText).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith(
+      '[Nous][PDF] Page transcription failed',
+      expect.objectContaining({
+        failure: 'provider-error',
+        statusCode: status,
+        diagnostic: {
+          stage: 'request',
+          type: 'AI_APICallError',
+          code: status,
+          status,
+          transportStatus: 200,
+        },
+        requests: 2,
+        requestBudgetExhausted: true,
+      })
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('private');
+    expect(JSON.stringify(result.transcription)).not.toContain('private');
+  } finally {
+    retry.mockRestore();
+    warn.mockRestore();
+  }
+});
+
+test('successful transcription uses one request without a failure diagnostic', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const result = await completePdfTextExtraction(bytes, textLayer(''), {
+      config: await getResolvedGlobalModelConfig(),
+    });
+    expect(result.pages[0].text).toBe(
+      `${formatPdfTranscriptionMarker(1)}\n\n${recordedPage.markdown}`
+    );
+    expect(result.transcription?.failedPages).toEqual([]);
+    expect(provider.generateText).toHaveBeenCalledOnce();
+    expect(warn).not.toHaveBeenCalled();
+  } finally {
     warn.mockRestore();
   }
 });

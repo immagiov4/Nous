@@ -17,7 +17,7 @@ import {
   normalizePdfTranscriptionMarkdown,
 } from './pdfTranscriptionMath.js';
 import type { PdfTranscriptionSelection } from './pdfTranscriptionPolicy.js';
-import { PdfTranscriptionPool } from './pdfTranscriptionPool.js';
+import { PdfTranscriptionPool, readPdfProviderFailureStatus } from './pdfTranscriptionPool.js';
 
 // Technical settings are calibrated on real handwritten notes and printed math pages.
 const PDF_TRANSCRIPTION = {
@@ -65,6 +65,11 @@ interface PageUsage {
   costUsd?: number;
 }
 type PageStage = 'render' | 'request' | 'structured-answer' | 'validation' | 'request-budget';
+interface PageState {
+  stage: PageStage;
+  requests: number;
+  previousProviderStatus?: number;
+}
 
 const requestPageTranscription = async ({
   image,
@@ -223,6 +228,7 @@ const transcribePage = async (
   const reread = first.answer.status === 'unreadable';
   if (
     attempts === MAX_PDF_PAGE_REQUESTS ||
+    !context.canRetry() ||
     (!reread && (errors.length === 0 || first.answer.status !== 'ok'))
   )
     return { ...first, mathErrors: errors, attempts };
@@ -339,11 +345,7 @@ export const preparePdfTextExtraction = async (
     options.onProgress?.(current);
   };
   progress();
-  const observe = (
-    job: Promise<void>,
-    target: { pageNumber: number },
-    state: { stage: PageStage; requests: number }
-  ) => {
+  const observe = (job: Promise<void>, target: { pageNumber: number }, state: PageState) => {
     const observed = job
       .catch(error => {
         if (signal?.aborted || pool.signal.aborted) throw error;
@@ -353,14 +355,23 @@ export const preparePdfTextExtraction = async (
           documentName: options.documentName || '',
           pageNumber: target.pageNumber,
         });
+        const providerError = APICallError.isInstance(error) ? error : undefined;
+        const status = providerError ? readPdfProviderFailureStatus(providerError) : undefined;
         console.warn('[Nous][PDF] Page transcription failed', {
           sourceHash: extracted.sourceHash,
           pageNumber: target.pageNumber,
-          failure: APICallError.isInstance(error) ? 'provider-error' : 'transcription-error',
-          ...(APICallError.isInstance(error) ? { statusCode: error.statusCode } : {}),
+          failure: providerError ? 'provider-error' : 'transcription-error',
+          ...(providerError ? { statusCode: status } : {}),
+          ...(!providerError && state.previousProviderStatus !== undefined
+            ? { previousProviderStatus: state.previousProviderStatus }
+            : {}),
           diagnostic: {
             stage: state.stage,
             ...toWorkflowErrorDiagnostic(error, { includeContent: false }),
+            ...(providerError ? { status } : {}),
+            ...(providerError && status !== providerError.statusCode
+              ? { transportStatus: providerError.statusCode }
+              : {}),
             ...(error instanceof z.ZodError
               ? { validationPaths: error.issues.map(issue => issue.path.join('.')) }
               : {}),
@@ -379,7 +390,7 @@ export const preparePdfTextExtraction = async (
   for (const [index, target] of planned.entries()) {
     const selection = selections[index];
     const started = performance.now();
-    const state: { stage: PageStage; requests: number } = { stage: 'render', requests: 0 };
+    const state: PageState = { stage: 'render', requests: 0 };
     const canRetry = () => state.requests < MAX_PDF_PAGE_REQUESTS;
     const onRequest = () => {
       if (state.requests >= MAX_PDF_PAGE_REQUESTS) {
@@ -415,7 +426,11 @@ export const preparePdfTextExtraction = async (
               sourceHash: extracted.sourceHash,
               pageNumber: target.pageNumber,
             }
-          );
+          ).catch(error => {
+            if (APICallError.isInstance(error))
+              state.previousProviderStatus = readPdfProviderFailureStatus(error);
+            throw error;
+          });
           report.measurements.push({
             pageNumber: target.pageNumber,
             reasons: target.reasons,
@@ -433,7 +448,12 @@ export const preparePdfTextExtraction = async (
             reasoningEffort: selection.reasoningEffort,
           });
           if (result.mathErrors.length > 0 || result.answer.status === 'unreadable')
-            throw new Error('PDF page cannot be transcribed faithfully.');
+            throw Object.assign(new Error('PDF page cannot be transcribed faithfully.'), {
+              code:
+                result.answer.status === 'unreadable'
+                  ? 'pdf-page-unreadable'
+                  : 'pdf-page-invalid-math',
+            });
           if (result.answer.status === 'blank') {
             pages[target.pageNumber - 1] = { pageNumber: target.pageNumber, text: '' };
             report.blankPages?.push(target.pageNumber);
