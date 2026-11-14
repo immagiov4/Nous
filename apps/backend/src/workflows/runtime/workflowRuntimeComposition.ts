@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { COURSE_INTERVIEW_EVENT_SCHEMA_VERSION } from '@shared/courseInterviewContract.js';
 import {
   createLessonPlaybackBlockSchema,
   HistoricalLessonSceneSchemas,
@@ -56,6 +57,7 @@ import {
 } from '../courseGenerationWorkflowContract.js';
 import {
   type CourseInterviewApi,
+  courseInterviewPublishedEventSchemas,
   createCourseInterviewApi,
   projectCourseInterviewEvents,
   unavailableCourseInterviewApi,
@@ -194,6 +196,10 @@ export const createRuntimeProjectRevisionNotificationDelivery = (
 ) =>
   createProjectRevisionNotificationDelivery({
     eventTypes: new Set([COURSE_PROJECT_REVISION_EVENT, LESSON_PROJECT_REVISION_EVENT]),
+    polledEvents: {
+      schemaVersion: COURSE_INTERVIEW_EVENT_SCHEMA_VERSION,
+      schemas: new Map(Object.entries(courseInterviewPublishedEventSchemas)),
+    },
     receiveNotification,
   });
 

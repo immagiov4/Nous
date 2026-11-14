@@ -78,7 +78,7 @@ const mapRun = (run: WorkflowRun): CourseInterviewRun => {
   });
 };
 
-const publishedEventSchemas = {
+export const courseInterviewPublishedEventSchemas = {
   [DIAGNOSTIC_STAGE_EVENT]: DiagnosticStageEventSchema,
   [COURSE_INTERVIEW_ENDED_EVENT]: CourseInterviewResultSchema,
   [COURSE_INTERVIEW_GENERATION_STARTED_EVENT]: CourseInterviewGenerationStartedEventSchema,
@@ -94,7 +94,10 @@ export const projectCourseInterviewEvents = (
 ): readonly WorkflowPublishedEventState[] =>
   state.events.flatMap(event => {
     if (event.schemaVersion !== COURSE_INTERVIEW_EVENT_SCHEMA_VERSION) return [];
-    const schema = publishedEventSchemas[event.eventType as keyof typeof publishedEventSchemas];
+    const schema =
+      courseInterviewPublishedEventSchemas[
+        event.eventType as keyof typeof courseInterviewPublishedEventSchemas
+      ];
     if (!schema) return [];
     const parsed = schema.safeParse(event.payload);
     if (!parsed.success) return [];

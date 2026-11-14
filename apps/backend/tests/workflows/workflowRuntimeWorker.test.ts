@@ -6,6 +6,7 @@ import { createWorkflowRegistry, step, workflow } from '../../src/workflows/defi
 import { type ModelExchange, withModelExchanges } from '../../src/workflows/modelExchanges.js';
 import type { WorkflowOutboxClaim } from '../../src/workflows/postgresWorkflowOutboxStore.js';
 import { failPermanently } from '../../src/workflows/retryPolicy.js';
+import { createRuntimeProjectRevisionNotificationDelivery } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
 import {
   createWorkflowRuntimeWorker as createRuntimeWorker,
   type WorkflowRuntimeAssetCleanup,
@@ -194,6 +195,59 @@ afterEach(() => {
 });
 
 describe('workflow runtime worker', () => {
+  test.each([
+    ['course-interview-message', { message: { role: 'model', text: 'Question?' } }],
+    [
+      'course-diagnostic-stage',
+      {
+        collectionId: 'diagnostic-1',
+        stage: { kind: 'complete', id: 'stage-1', title: 'Complete', feedback: 'Ready' },
+      },
+    ],
+    [
+      'course-proposal-ready',
+      {
+        proposal: {
+          context: 'Study',
+          experienceLevel: 'Beginner',
+          goals: 'Learn',
+          language: 'en',
+          learningStyle: 'Examples',
+          topic: 'Physics',
+        },
+      },
+    ],
+    ['course-generation-started', { generationRunId: 'generation-1', projectId: 'project-1' }],
+    ['course-interview-ended', { kind: 'cancelled', projectId: 'project-1' }],
+  ])('settles %s for API polling without a revision notification or dead letter', async (eventType, payload) => {
+    vi.useFakeTimers();
+    const { registry } = registerStepWorkflow(async text => text);
+    const store = makeStore();
+    const claim = { ...outboxClaim, eventType, payload };
+    vi.mocked(store.outbox.claimNext).mockResolvedValueOnce(claim);
+    const receiveNotification = vi.fn(async () => undefined);
+    const worker = createWorkflowRuntimeWorker({
+      deliverNotification: createRuntimeProjectRevisionNotificationDelivery(receiveNotification),
+      onLoopError: vi.fn(),
+      pollIntervalMs: POLL_INTERVAL_MS,
+      reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
+      registry,
+      services: {},
+      store,
+      wakeSource: new FakeWakeSource(),
+      workerId: 'worker-1',
+    });
+    try {
+      await worker.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(store.outbox.recordFailure).not.toHaveBeenCalled();
+      expect(store.outbox.markDelivered).toHaveBeenCalledExactlyOnceWith(claim);
+      expect(receiveNotification).not.toHaveBeenCalled();
+    } finally {
+      await worker.stop();
+    }
+  });
+
   test('captures a model call from an external wake with the durable attempt identity', async () => {
     vi.useFakeTimers();
     const exchanges: ModelExchange[] = [];
