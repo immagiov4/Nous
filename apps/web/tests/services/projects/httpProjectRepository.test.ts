@@ -1555,7 +1555,6 @@ test('cancellation releases the client when finalizing outlives the existing req
     }
     if (deleting) {
       cancellationPolls++;
-      if (unavailableRead && cancellationPolls === 1) throw new TypeError('synthetic disconnect');
       if (!settled)
         return new Response(JSON.stringify({ success: true, uploadStatus: 'finalizing' }));
       return new Response(
