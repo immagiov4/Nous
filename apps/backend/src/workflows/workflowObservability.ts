@@ -237,7 +237,29 @@ interface LifecycleLogEvent {
   readonly workflowId?: string;
 }
 
+interface LessonFenceClassificationLogEvent {
+  readonly event: 'workflow.lesson-fence-classification';
+  readonly level: WorkflowLogLevel;
+  readonly runId?: string;
+  readonly nodeInstanceIdDigest?: string;
+  readonly attemptNumber?: number;
+  readonly ran: boolean;
+  readonly fenceCount: number;
+  readonly durationMs: number;
+  readonly outcome: 'skipped' | 'succeeded' | 'failed' | 'interrupted';
+}
+
+interface LessonFenceClassificationLogSource
+  extends Omit<
+    LessonFenceClassificationLogEvent,
+    'event' | 'level' | 'runId' | 'nodeInstanceIdDigest' | 'attemptNumber'
+  > {
+  readonly entity: 'lesson-fence-classification';
+  readonly attempt?: { runId: string; nodeInstanceId: string; attemptNumber: number };
+}
+
 export type WorkflowLogEvent =
+  | LessonFenceClassificationLogEvent
   | WorkflowAttemptLogEvent
   | WorkflowDefinitionLogEvent
   | WorkflowNotificationLogEvent
@@ -348,6 +370,7 @@ interface WorkflowDefinitionLogSource {
 }
 
 export type WorkflowLogSource =
+  | LessonFenceClassificationLogSource
   | WorkflowAttemptLogSource
   | WorkflowDefinitionLogSource
   | WorkflowNotificationLogSource
@@ -614,6 +637,22 @@ const projectDefinitionLogEvent = (
 /** Projects authoritative runtime outcomes into a content-free structured event. */
 export const projectWorkflowLogEvent = (source: WorkflowLogSource): WorkflowLogEvent => {
   switch (source.entity) {
+    case 'lesson-fence-classification':
+      return {
+        event: 'workflow.lesson-fence-classification',
+        level: source.outcome === 'failed' || source.outcome === 'interrupted' ? 'warn' : 'info',
+        ...(source.attempt
+          ? {
+              runId: source.attempt.runId,
+              nodeInstanceIdDigest: digestIdentifier(source.attempt.nodeInstanceId),
+              attemptNumber: source.attempt.attemptNumber,
+            }
+          : {}),
+        ran: source.ran,
+        fenceCount: source.fenceCount,
+        durationMs: source.durationMs,
+        outcome: source.outcome,
+      };
     case 'run':
       return projectRunLogEvent(source);
     case 'attempt':

@@ -238,14 +238,16 @@ const mockModels = () => {
             evidence: 'Definizione, catena e distinzione richieste sono presenti.',
           },
         },
-        verificationReport: properties.verificationReport.items.properties.checkId.enum.map(
-          (checkId: string) => ({
+        verificationReport: Object.fromEntries(
+          Object.keys(properties.verificationReport.properties).map((checkId: string) => [
             checkId,
-            status: 'pass',
-            evidence:
-              'Le definizioni precedono la catena e tutte le alternative del quiz sono giudicabili dal paragrafo sugli orologi.',
-            action: 'Preserve supported content.',
-          })
+            {
+              status: 'pass',
+              evidence:
+                'Le definizioni precedono la catena e tutte le alternative del quiz sono giudicabili dal paragrafo sugli orologi.',
+              action: 'Preserve supported content.',
+            },
+          ])
         ),
       });
     if (properties.blocks) {

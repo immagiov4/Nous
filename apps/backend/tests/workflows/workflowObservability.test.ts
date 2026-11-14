@@ -60,6 +60,23 @@ const claim: WorkflowStepClaim = {
 };
 
 describe('workflow observability', () => {
+  test.each([
+    { outcome: 'skipped' as const, level: 'info' },
+    { outcome: 'succeeded' as const, level: 'info' },
+    { outcome: 'failed' as const, level: 'warn' },
+    { outcome: 'interrupted' as const, level: 'warn' },
+  ])('fence classification $outcome emits at $level', ({ outcome, level }) => {
+    const event = projectWorkflowLogEvent({
+      entity: 'lesson-fence-classification',
+      attempt: { runId: run.id, nodeInstanceId: claim.nodeInstanceId, attemptNumber: 2 },
+      ran: outcome !== 'skipped',
+      fenceCount: outcome === 'skipped' ? 0 : 1,
+      durationMs: 1,
+      outcome,
+    });
+    expect(event).toMatchObject({ event: 'workflow.lesson-fence-classification', level, outcome });
+  });
+
   test('keeps transient delivery synchronous and isolates nested payloads between observers', () => {
     expectTypeOf<WorkflowTransientEventPublisher>().returns.toEqualTypeOf<undefined>();
     const received: number[] = [];

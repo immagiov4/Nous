@@ -7,6 +7,7 @@ import { APICallError, generateText, jsonSchema, NoObjectGeneratedError, Output 
 import * as z from 'zod';
 import { type GlobalModelConfig, getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import type { SourcePreparationContext } from '../projects/sourcePreparationContext.js';
+import { toWorkflowErrorDiagnostic } from '../workflows/workflowErrorDiagnostics.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runPdfPageTask } from './pdfPageTask.js';
 import { type ExtractedPdfText, PdfTextExtractionTimeoutError } from './pdfTextExtractor.js';
@@ -63,6 +64,7 @@ interface PageUsage {
   outputTokens?: number;
   costUsd?: number;
 }
+type PageStage = 'render' | 'request' | 'structured-answer' | 'validation' | 'request-budget';
 
 const requestPageTranscription = async ({
   image,
@@ -74,6 +76,7 @@ const requestPageTranscription = async ({
   sourceHash,
   pageNumber,
   selection,
+  onStage,
 }: {
   image: string;
   config: GlobalModelConfig;
@@ -84,12 +87,14 @@ const requestPageTranscription = async ({
   sourceHash?: string;
   pageNumber?: number;
   selection: PdfTranscriptionSelection;
+  onStage: (stage: PageStage) => void;
 }) => {
   parentSignal.throwIfAborted();
   const signal = AbortSignal.any([
     parentSignal,
     AbortSignal.timeout(PDF_TRANSCRIPTION.attemptTimeoutMs),
   ]);
+  onStage('request');
   onRequest?.();
   const prompt = correction
     ? `Transcribe this page again in full. Preserve the source's mathematical meaning and every step. Repair only the math delimiters, LaTeX syntax or invalid Unicode identified by validation, without changing the mathematics. Previous transcription:\n${correction.markdown}\nValidation errors:\n${correction.errors.join('\n')}`
@@ -133,6 +138,7 @@ const requestPageTranscription = async ({
     providerOptions,
   }).catch(error => {
     signal.throwIfAborted();
+    if (NoObjectGeneratedError.isInstance(error)) onStage('structured-answer');
     if (NoObjectGeneratedError.isInstance(error) && error.usage) onUsage(error.usage);
     throw error;
   });
@@ -161,6 +167,7 @@ const requestPageTranscription = async ({
     outputTokens: response.usage.outputTokens,
     ...(typeof cost === 'number' ? { costUsd: cost } : {}),
   });
+  onStage('structured-answer');
   return {
     answer: pageAnswer.parse(response.output),
     model,
@@ -178,9 +185,11 @@ const transcribePage = async (
   onUsage: (usage: PageUsage) => void,
   context: {
     onRequest?: () => void;
+    canRetry: () => boolean;
     sourceHash?: string;
     pageNumber?: number;
     selection: PdfTranscriptionSelection;
+    onStage: (stage: PageStage) => void;
   }
 ) => {
   const request = {
@@ -192,6 +201,7 @@ const transcribePage = async (
     sourceHash: context.sourceHash,
     pageNumber: context.pageNumber,
     selection: context.selection,
+    onStage: context.onStage,
   };
   let attempts = 1;
   let first: Awaited<ReturnType<typeof requestPageTranscription>>;
@@ -200,10 +210,15 @@ const transcribePage = async (
   } catch (error) {
     signal.throwIfAborted();
     if (!(error instanceof Error) || error.name !== 'TimeoutError') throw error;
+    if (!context.canRetry()) {
+      context.onStage('request-budget');
+      throw error;
+    }
     attempts = 2;
     first = await requestPageTranscription(request);
   }
   first.answer.markdown = normalizePdfTranscriptionMarkdown(first.answer.markdown);
+  context.onStage('validation');
   const errors = getPdfTranscriptionMathErrors(first.answer.markdown);
   const reread = first.answer.status === 'unreadable';
   if (
@@ -217,6 +232,7 @@ const transcribePage = async (
     correction: reread ? undefined : { markdown: first.answer.markdown, errors },
   });
   corrected.answer.markdown = normalizePdfTranscriptionMarkdown(corrected.answer.markdown);
+  context.onStage('validation');
   if (corrected.answer.status === 'blank')
     throw new Error('A corrective request cannot erase a nonempty PDF page.');
   return {
@@ -323,7 +339,11 @@ export const preparePdfTextExtraction = async (
     options.onProgress?.(current);
   };
   progress();
-  const observe = (job: Promise<void>, target: { pageNumber: number }) => {
+  const observe = (
+    job: Promise<void>,
+    target: { pageNumber: number },
+    state: { stage: PageStage; requests: number }
+  ) => {
     const observed = job
       .catch(error => {
         if (signal?.aborted || pool.signal.aborted) throw error;
@@ -338,6 +358,15 @@ export const preparePdfTextExtraction = async (
           pageNumber: target.pageNumber,
           failure: APICallError.isInstance(error) ? 'provider-error' : 'transcription-error',
           ...(APICallError.isInstance(error) ? { statusCode: error.statusCode } : {}),
+          diagnostic: {
+            stage: state.stage,
+            ...toWorkflowErrorDiagnostic(error, { includeContent: false }),
+            ...(error instanceof z.ZodError
+              ? { validationPaths: error.issues.map(issue => issue.path.join('.')) }
+              : {}),
+          },
+          requests: state.requests,
+          requestBudgetExhausted: state.requests >= MAX_PDF_PAGE_REQUESTS,
         });
       })
       .finally(() => {
@@ -350,16 +379,20 @@ export const preparePdfTextExtraction = async (
   for (const [index, target] of planned.entries()) {
     const selection = selections[index];
     const started = performance.now();
-    let requests = 0;
+    const state: { stage: PageStage; requests: number } = { stage: 'render', requests: 0 };
+    const canRetry = () => state.requests < MAX_PDF_PAGE_REQUESTS;
     const onRequest = () => {
-      if (requests >= MAX_PDF_PAGE_REQUESTS) throw new Error('PDF page request budget exhausted.');
-      requests += 1;
+      if (state.requests >= MAX_PDF_PAGE_REQUESTS) {
+        state.stage = 'request-budget';
+        throw new Error('PDF page request budget exhausted.');
+      }
+      state.requests += 1;
     };
     try {
       const scheduled = await pool.schedule({
         signal,
         timeoutMs: PDF_TRANSCRIPTION.renderTimeoutMs,
-        canRetry: () => requests < MAX_PDF_PAGE_REQUESTS,
+        canRetry,
         render: signal => renderPdfPage(bytes, target.pageNumber, signal),
         transcribe: async (image, signal) => {
           const result = await transcribePage(
@@ -375,6 +408,10 @@ export const preparePdfTextExtraction = async (
             {
               selection,
               onRequest,
+              canRetry,
+              onStage: stage => {
+                state.stage = stage;
+              },
               sourceHash: extracted.sourceHash,
               pageNumber: target.pageNumber,
             }
@@ -390,7 +427,7 @@ export const preparePdfTextExtraction = async (
             inputTokens: result.inputTokens,
             outputTokens: result.outputTokens,
             costUsd: result.costUsd,
-            attempts: requests,
+            attempts: state.requests,
             tier: selection.tier,
             coursePageNumber: selection.ordinal,
             reasoningEffort: selection.reasoningEffort,
@@ -417,9 +454,9 @@ ${result.answer.markdown}`,
           report.pages.push(target.pageNumber);
         },
       });
-      observe(scheduled.completion, target);
+      observe(scheduled.completion, target, state);
     } catch (error) {
-      observe(Promise.reject(error), target);
+      observe(Promise.reject(error), target, state);
       if (signal?.aborted || pool.signal.aborted) break;
     }
   }
