@@ -619,6 +619,7 @@ describe('single workflow step runner', () => {
     'ack',
     'output',
     'stream',
+    'started',
   ] as const)('records the last model-call phase during %s timeout', async phase => {
     vi.useFakeTimers();
     const child = Object.assign(new EventEmitter(), {
@@ -633,8 +634,12 @@ describe('single workflow step runner', () => {
       if (request.method === 'account/read')
         result = { account: { type: 'chatgpt' }, requiresOpenaiAuth: false };
       if (request.method === 'thread/start') result = { thread: { id: 'thread-test' } };
-      if (request.method === 'turn/start' && phase !== 'ack')
+      if (request.method === 'turn/start' && phase !== 'ack' && phase !== 'started')
         result = { turn: { id: 'turn-test' } };
+      if (request.method === 'turn/start' && phase === 'started')
+        child.stdout.write(
+          `${JSON.stringify({ method: 'turn/started', params: { threadId: 'thread-test', turn: { id: 'turn-test' } } })}\n`
+        );
       if (request.method === 'turn/start' && phase === 'stream')
         child.stdout.write(
           `${JSON.stringify({ method: 'item/agentMessage/delta', params: { threadId: 'thread-test', delta: 'PRIVATE_OUTPUT' } })}\n`

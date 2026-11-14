@@ -397,3 +397,23 @@ test('keeps malformed Codex JSON cause and post-processing in the persistible co
   });
   expect(JSON.stringify(failure)).not.toContain('PRIVATE_');
 });
+
+test('rejects invalid tool consultation limits before calling either provider', async () => {
+  const runAiObject = vi.fn();
+  const runCodexObject = vi.fn();
+  const generate = createCourseObjectGenerator({ runAiObject, runCodexObject });
+  await expect(
+    generate({
+      config: getGlobalModelConfig(),
+      developerInstructions: 'system',
+      prompt: 'prompt',
+      name: 'answer',
+      schema,
+      signal: new AbortController().signal,
+      slot: 'course',
+      maxToolSteps: 0,
+    })
+  ).rejects.toBeInstanceOf(RangeError);
+  expect(runAiObject).not.toHaveBeenCalled();
+  expect(runCodexObject).not.toHaveBeenCalled();
+});

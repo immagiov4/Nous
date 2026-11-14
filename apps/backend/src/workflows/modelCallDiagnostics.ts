@@ -53,9 +53,10 @@ export const createModelCallObserver = () => {
 /** Nested adapters share the call; concurrent calls have independent phase state. */
 export const withModelCallDiagnostics = async <T>(
   signal: AbortSignal | undefined,
-  operation: () => Promise<T>
+  operation: () => Promise<T>,
+  options: { newCall?: boolean } = {}
 ): Promise<T> => {
-  if (calls.getStore()) return operation();
+  if (!options.newCall && calls.getStore()) return operation();
   const startedAt = performance.now();
   let phaseStartedAt = startedAt;
   let phase: ModelCallPhase = 'initializing';
@@ -94,7 +95,9 @@ export const withModelCallDiagnostics = async <T>(
   try {
     return await calls.run(observation, operation);
   } catch (error) {
-    if (typeof error === 'object' && error !== null) errors.set(error, observation.snapshot());
+    // A nested retry already owns the most specific call observation.
+    if (typeof error === 'object' && error !== null && !errors.has(error))
+      errors.set(error, observation.snapshot());
     throw error;
   } finally {
     stop();

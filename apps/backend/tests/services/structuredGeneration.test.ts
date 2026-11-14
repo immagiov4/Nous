@@ -1,5 +1,5 @@
 import { TRANSCRIBED_SOURCE_RULE } from '@shared/pdfTranscription';
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import * as z from 'zod';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { generateStructuredOutput } from '../../src/services/structuredGeneration.js';
@@ -483,4 +483,53 @@ test('observes a stalled OpenRouter lesson call through abort without retaining 
   expect(toWorkflowErrorDiagnostic(error, { includeContent: false })).toMatchObject({
     modelCall: { phase: 'awaiting-output' },
   });
+});
+
+afterEach(() => vi.useRealTimers());
+
+test.each([
+  'completed',
+  'failed',
+  'aborted',
+] as const)('envelope %s observation excludes the rejected direct request duration', async outcome => {
+  vi.useFakeTimers();
+  const controller = new AbortController();
+  const observer = createModelCallObserver();
+  createConfiguredTextModelFromResolution.mockReturnValue({ model: 'model' });
+  generateText
+    .mockImplementationOnce(async () => {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      throw new Error('Schema is too complex');
+    })
+    .mockImplementationOnce(async ({ abortSignal }) => {
+      if (outcome === 'aborted')
+        return new Promise((_resolve, reject) => {
+          abortSignal.addEventListener('abort', () => reject(abortSignal.reason), { once: true });
+        });
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (outcome === 'failed')
+        throw Object.assign(new Error('PRIVATE_OUTPUT'), { code: 'provider_failed' });
+      return { output: { payload: '{"answer":"42"}' } };
+    });
+  const pending = observer
+    .run(() => generateStructuredOutput({ ...request('openrouter'), signal: controller.signal }))
+    .catch(error => error);
+  await vi.advanceTimersByTimeAsync(2000);
+  await vi.advanceTimersByTimeAsync(500);
+  if (outcome === 'aborted') controller.abort(new Error('PRIVATE_PROMPT'));
+  const result = await pending;
+  expect(observer.snapshot()).toMatchObject({
+    elapsedMs: 500,
+    durationsMs: { 'awaiting-output': 500 },
+  });
+  if (outcome === 'completed') {
+    expect(result).toEqual({ answer: '42' });
+    expect(observer.snapshot()?.phase).toBe('post-processing');
+  } else {
+    const diagnostic = toWorkflowErrorDiagnostic(result, { includeContent: false });
+    expect(diagnostic).toMatchObject({
+      modelCall: { phase: 'awaiting-output', elapsedMs: 500, phaseElapsedMs: 500 },
+    });
+    expect(JSON.stringify(diagnostic)).not.toContain('PRIVATE_');
+  }
 });

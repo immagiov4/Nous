@@ -70,3 +70,23 @@ test('keeps concurrent attempts separate and records completed local processing'
   expect(first.snapshot()?.phase).toBe('post-processing');
   expect(second.snapshot()?.phase).toBe('awaiting-output');
 });
+
+test('nested provider adapters keep the parent call phase and elapsed time', async () => {
+  vi.useFakeTimers();
+  const observer = createModelCallObserver();
+  await observer.run(() =>
+    withModelCallDiagnostics(undefined, async () => {
+      markModelCallPhase('awaiting-ack');
+      await vi.advanceTimersByTimeAsync(10);
+      await withModelCallDiagnostics(undefined, async () => {
+        markModelCallPhase('receiving-output');
+        await vi.advanceTimersByTimeAsync(5);
+      });
+    })
+  );
+  expect(observer.snapshot()).toMatchObject({
+    phase: 'receiving-output',
+    elapsedMs: 15,
+    durationsMs: { 'awaiting-ack': 10, 'receiving-output': 5 },
+  });
+});
