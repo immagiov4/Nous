@@ -303,6 +303,16 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
         undefined,
         createSceneLessonGenerationDurableSchemaSet(contract, false)
       ),
+      diagnosticLesson: createLessonGenerationWorkflow(
+        {
+          maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+          models,
+          timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+          visual,
+        },
+        undefined,
+        createSceneLessonGenerationDurableSchemaSet(contract)
+      ),
       visualSectionsPlayback: createLessonPlaybackWorkflow(
         playbackExecutionDefaults,
         createLessonPlaybackBlockSchema(schema, true, true, true, false, true),
@@ -376,16 +386,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
       ),
     };
   });
-  const lessonWorkflow = createLessonGenerationWorkflow(
-    {
-      maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
-      models,
-      timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
-      visual,
-    },
-    undefined,
-    createSceneLessonGenerationDurableSchemaSet(createSceneLessonVisualContractSchemas(sceneSchema))
-  );
+  const lessonWorkflow = currentScenes.diagnosticLesson;
   // Definitions deployed before lesson scenes keep the legacy visual contract.
   const preSceneRetryWorkflow = createLessonVisualWorkflows(
     visualExecutionDefaults,
@@ -609,6 +610,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     current: lessonWorkflow,
     previous: [
       currentScenes.lesson,
+      ...historicalScenes.map(definition => definition.diagnosticLesson),
       ...historicalScenes.map(definition => definition.lesson),
       ...preOpenAiRemovalScenes.map(definition => definition.lesson),
       previousPreSceneLessonWorkflow,
