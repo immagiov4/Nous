@@ -17,7 +17,10 @@ import {
   type CourseChunkMappingBatchResult,
   createCourseLessonChunkBatchMapper,
 } from '../../src/workflows/courseChunkMapping.js';
-import { CourseModelProviderError } from '../../src/workflows/courseGenerationModel.js';
+import {
+  CourseModelProviderError,
+  createCourseObjectGenerator,
+} from '../../src/workflows/courseGenerationModel.js';
 import {
   type CourseGenerationWorkflowConfig,
   type CourseGenerationWorkflowServices,
@@ -803,6 +806,68 @@ describe('course source finalization', () => {
       mappingRecovery: { status: 'exhausted' },
       mappingWarnings: [PDF_MAPPING_RECOVERY_EXHAUSTED_WARNING],
     });
+  });
+
+  test.each([
+    { mode: 'fast', response: 'PRIVATE_MALFORMED_JSON', causeType: 'SyntaxError' },
+    { mode: 'repair', response: 'PRIVATE_MALFORMED_JSON', causeType: 'SyntaxError' },
+    { mode: 'fast', response: '{}', causeType: 'ZodError' },
+    { mode: 'repair', response: '{}', causeType: 'ZodError' },
+  ] as const)('retains the recorded $causeType cause in final $mode mapping checkpoints', async ({
+    mode,
+    response,
+    causeType,
+  }) => {
+    const generate = createCourseObjectGenerator({
+      runAiObject: vi.fn(),
+      runCodexObject: vi.fn().mockResolvedValue(response),
+    });
+    const mapper = createCourseLessonChunkBatchMapper(generate);
+    const services = sourceServices(
+      createCourseSourceFinalizationServices({
+        buildDocumentIndex: vi.fn(),
+        readSourceMaterials: vi.fn(),
+        mapBatch: input =>
+          mapper({
+            ...input,
+            config: { ...input.config, aiProviderOverrides: { course: 'codex' } },
+          }),
+      })
+    );
+    const node = findNode(`map-course-source-${mode}-batches`) as FanOutDefinition<
+      CourseSourcePreparationOutcome | CourseSourceMappingProgress,
+      CourseChunkMappingBatch,
+      BatchAttempt,
+      CourseSourceMappingProgress
+    >;
+    const parent = mode === 'fast' ? mappingState() : mappingProgress([]);
+    const batch = node.inputs(parent)[0];
+    const workerId = `map-course-source-${mode}-batch`;
+    const worker = findNode(workerId) as StepDefinition;
+    const output = worker.outputSchema.parse(
+      JSON.parse(JSON.stringify(await runStep(workerId, batch, services, 3)))
+    ) as BatchAttempt;
+    const progress = node.outputSchema.parse(
+      JSON.parse(
+        JSON.stringify(
+          node.fanIn(
+            [{ input: batch, key: String(batch.batchIndex), output, status: 'completed' }],
+            parent
+          )
+        )
+      )
+    );
+    const expected = {
+      type: 'WorkflowStepError',
+      code: 'course_model_output_invalid',
+      cause: {
+        type: causeType,
+        modelCall: { phase: 'post-processing', elapsedMs: expect.any(Number) },
+      },
+    };
+    expect(output).toMatchObject({ status: 'failed', failure: { diagnostic: expected } });
+    expect(progress).toMatchObject({ mappingFailures: [{ diagnostic: expected }] });
+    expect(JSON.stringify(progress)).not.toContain('PRIVATE_');
   });
 
   test('retains only technical provider causes on the final failed batch', async () => {

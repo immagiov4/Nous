@@ -47,9 +47,10 @@ import {
   runWorkflowStage,
   WorkflowStepError,
 } from './retryPolicy.js';
-import type { FanOutResult, StepExecutionContext } from './types.js';
+import type { FanOutResult, StepExecutionContext, StepFailure } from './types.js';
 import {
   createWorkflowModelDiagnostic,
+  readWorkflowErrorDiagnostic,
   toWorkflowErrorDiagnostic,
   WorkflowObservedTechnicalDiagnosticSchema,
   WorkflowTechnicalDiagnosticSchema,
@@ -471,6 +472,18 @@ const appendBatchAttempts = (
   };
 };
 
+const mappingFailureDiagnostic = (
+  error: CourseModelProviderError | WorkflowStepError,
+  failure: StepFailure
+) => {
+  const nested = readWorkflowErrorDiagnostic(failure.details?.diagnostic);
+  return WorkflowObservedTechnicalDiagnosticSchema.parse({
+    ...toWorkflowErrorDiagnostic(error, { includeContent: false }),
+    ...(nested ? { cause: nested } : {}),
+    code: failure.code,
+  });
+};
+
 export const createCourseSourceFinalizationNode = <
   Config extends CourseGenerationWorkflowConfig,
   Services extends CourseSourceFinalizationServices,
@@ -573,6 +586,7 @@ export const createCourseSourceFinalizationNode = <
           if (!retryableFailure) throw error;
           if (context.attemptNumber < context.config.maxAttempts) throw retryableFailure;
           const mappingError = error as CourseModelProviderError | WorkflowStepError;
+
           return {
             batchIndex: context.input.batchIndex,
             ...(failureDiagnostics
@@ -580,10 +594,7 @@ export const createCourseSourceFinalizationNode = <
                   failure: {
                     attemptNumber: context.attemptNumber,
                     batchIndex: context.input.batchIndex,
-                    diagnostic: {
-                      ...toWorkflowErrorDiagnostic(mappingError, { includeContent: false }),
-                      code: retryableFailure.failure.code,
-                    },
+                    diagnostic: mappingFailureDiagnostic(mappingError, retryableFailure.failure),
                     kind:
                       retryableFailure.failure.kind === 'corrective' ? 'corrective' : 'operational',
                     stage: id,
