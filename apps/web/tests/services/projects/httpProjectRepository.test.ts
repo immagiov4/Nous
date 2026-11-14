@@ -1401,7 +1401,10 @@ test.each([
   }
 });
 
-test('cancellation waits for accepted source work to settle before returning to draft cleanup', async () => {
+test.each([
+  false,
+  true,
+])('cancellation waits for accepted source work to settle (unavailable read: %s)', async unavailableRead => {
   const controller = new AbortController();
   const deleted = createDeferred();
   const stop = createDeferred();
@@ -1439,6 +1442,7 @@ test('cancellation waits for accepted source work to settle before returning to 
     }
     if (deleting) {
       cancellationPolls++;
+      if (unavailableRead && cancellationPolls === 1) throw new TypeError('synthetic disconnect');
       await stop.promise;
       return new Response(
         JSON.stringify({ success: false, code: 'SOURCE_PREPARATION_CANCELLED' }),
@@ -1458,7 +1462,7 @@ test('cancellation waits for accepted source work to settle before returning to 
     });
   try {
     await deleted.promise;
-    await expect.poll(() => cancellationPolls).toBe(1);
+    await expect.poll(() => cancellationPolls).toBe(unavailableRead ? 2 : 1);
     expect(settled).toBe(false);
   } finally {
     stop.resolve();
@@ -1551,6 +1555,7 @@ test('cancellation releases the client when finalizing outlives the existing req
     }
     if (deleting) {
       cancellationPolls++;
+      if (unavailableRead && cancellationPolls === 1) throw new TypeError('synthetic disconnect');
       if (!settled)
         return new Response(JSON.stringify({ success: true, uploadStatus: 'finalizing' }));
       return new Response(
