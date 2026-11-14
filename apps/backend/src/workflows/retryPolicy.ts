@@ -325,6 +325,7 @@ export const degradeOnFinalAttempt = <Output>(input: {
     kind: input.error instanceof WorkflowStepError ? input.error.failure.kind : 'operational',
     stage: input.stage,
   });
+  const output = input.fallback(failure);
   console.warn('Workflow step degraded.', failure);
-  return input.fallback(failure);
+  return output;
 };

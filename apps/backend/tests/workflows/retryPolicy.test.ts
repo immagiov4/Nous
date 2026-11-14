@@ -343,3 +343,47 @@ test('degradation retains a wrapped validation cause through a content-free proj
   });
   expect(JSON.stringify(failure)).not.toContain('private');
 });
+
+test.each([
+  false,
+  true,
+])('logs degradation only after fallback completion (throws: %s)', fallbackThrows => {
+  const events: string[] = [];
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {
+    events.push('logged');
+  });
+  const fallbackFailure = failPermanently({
+    code: 'course_chunk_fallback_missing',
+    message: 'The fallback source association is missing.',
+  });
+  const operation = () =>
+    degradeOnFinalAttempt({
+      attemptNumber: 3,
+      maxAttempts: 3,
+      eligible: true,
+      error: new Error('Original mapping failure'),
+      signal: new AbortController().signal,
+      stage: 'map',
+      fallback: () => {
+        events.push('fallback');
+        if (fallbackThrows) throw fallbackFailure;
+        return null;
+      },
+    });
+  try {
+    if (fallbackThrows) {
+      expect(operation).toThrow(fallbackFailure);
+      expect(warn).not.toHaveBeenCalled();
+      expect(events).toEqual(['fallback']);
+    } else {
+      expect(operation()).toBeNull();
+      expect(warn).toHaveBeenCalledExactlyOnceWith(
+        'Workflow step degraded.',
+        expect.objectContaining({ stage: 'map' })
+      );
+      expect(events).toEqual(['fallback', 'logged']);
+    }
+  } finally {
+    warn.mockRestore();
+  }
+});
