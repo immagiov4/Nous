@@ -27,6 +27,7 @@ import {
   readProjectSourceMaterial,
 } from '../services/projectSourceText.js';
 import { isRecord } from '../utils/validation.js';
+import { toWorkflowErrorDiagnostic } from '../workflows/workflowErrorDiagnostics.js';
 import { restoreProjectDocumentText } from './projectDocumentText.js';
 import { ProjectImportInputError } from './projectImportChunks.js';
 import { restoreStoredPreparedPdfText } from './projectSource.js';
@@ -255,6 +256,10 @@ export const prepareSourceCollection = async ({
     const reason = failureReason(error);
     descriptor.errorReason = reason;
     descriptor.errorMessage = SOURCE_PREPARATION_FAILURE_MESSAGES[reason];
+    descriptor.errorDiagnostic = {
+      stage: 'source-preparation',
+      ...toWorkflowErrorDiagnostic(error, { includeContent: false }),
+    };
     delete descriptor.documentIndex;
     const prepared = descriptor.preparedPdfText;
     const failedPages =
@@ -268,7 +273,11 @@ export const prepareSourceCollection = async ({
     });
     checkpoint();
     context.reportProgress(latestProgress);
-    console.warn('[Sources] Per-file preparation failed.', { name: descriptor.name, reason });
+    console.warn('[Sources] Per-file preparation failed.', {
+      name: descriptor.name,
+      reason,
+      diagnostic: descriptor.errorDiagnostic,
+    });
   };
   let offset = upload.offset ?? 0;
   const uploadedIds = new Set<string>();
@@ -306,6 +315,7 @@ export const prepareSourceCollection = async ({
       delete descriptor.documentIndex;
       delete descriptor.errorMessage;
       delete descriptor.errorReason;
+      delete descriptor.errorDiagnostic;
       try {
         if (preparedPdf)
           context.pdfTranscriptionPool?.allocateScannedPages(

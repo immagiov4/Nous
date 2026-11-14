@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { SOURCE_PREPARATION_FAILURE_MESSAGES } from '@shared/sourcePreparation';
 import { afterEach, expect, test, vi } from 'vitest';
 import { prepareSourceCollection } from '../../src/projects/sourceIngestion.js';
 import { PdfScannedPageLimitError } from '../../src/services/pdfTranscriptionPolicy.js';
@@ -182,6 +183,46 @@ test('course admission errors reach the job instead of becoming per-file parser 
   });
 });
 
+test.each([
+  {
+    error: Object.assign(new Error('private source contents'), { code: 'ECONNRESET' }),
+    diagnostic: { type: 'Error', code: 'ECONNRESET' },
+  },
+  { error: new TypeError('private source contents'), diagnostic: { type: 'TypeError' } },
+])('retains safe originating diagnostics in failed-file checkpoints ($diagnostic.type)', async ({
+  error,
+  diagnostic,
+}) => {
+  const input = await fixture();
+  const checkpoint = vi.fn();
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  mocks.extract.mockRejectedValue(error);
+  try {
+    await expect(
+      prepareSourceCollection({
+        ...input,
+        context: { ...input.context, checkpointPreparedSources: checkpoint },
+      })
+    ).rejects.toMatchObject({ failures: [{ name: 'scan.pdf', reason: 'parser-failed' }] });
+    const descriptor = checkpoint.mock.calls.at(-1)?.[0].source.sources[0];
+    expect(descriptor).toMatchObject({
+      status: 'error',
+      errorReason: 'parser-failed',
+      errorMessage: SOURCE_PREPARATION_FAILURE_MESSAGES['parser-failed'],
+      errorDiagnostic: { stage: 'source-preparation', ...diagnostic },
+    });
+    expect(warn).toHaveBeenCalledWith('[Sources] Per-file preparation failed.', {
+      name: 'scan.pdf',
+      reason: 'parser-failed',
+      diagnostic: descriptor.errorDiagnostic,
+    });
+    expect(JSON.stringify(descriptor.errorDiagnostic)).not.toContain('private');
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('private');
+  } finally {
+    warn.mockRestore();
+  }
+});
+
 test('retains document and failed page identities when the whole collection has no usable text', async () => {
   const input = await fixture();
   const pdf = {
@@ -199,6 +240,52 @@ test('retains document and failed page identities when the whole collection has 
   await expect(prepareSourceCollection(input)).rejects.toMatchObject({
     failures: [{ name: 'scan.pdf', reason: 'no-usable-text', failedPages: [1] }],
   });
+});
+
+test('keeps successful sources after an asynchronous file failure and clears stale diagnostics on retry', async () => {
+  const input = await fixture();
+  const second = { ...input.upload.files[0], id: 'second', name: 'second.pdf' };
+  input.upload.files.push(second);
+  input.snapshot.source.sources.push({
+    ...input.snapshot.source.sources[0],
+    ...second,
+    file: { ...second, data: '' },
+  });
+  await writeFile(input.upload.path, Buffer.concat([input.bytes, input.bytes]));
+  const pdf = {
+    ...input.extracted,
+    text: 'Prepared text',
+    pages: [{ pageNumber: 1, text: 'Prepared text' }],
+  };
+  mocks.prepare
+    .mockImplementationOnce(async () => ({
+      completion: Promise.reject(
+        Object.assign(new Error('private content'), { code: 'ECONNRESET' })
+      ),
+    }))
+    .mockResolvedValueOnce({ completion: Promise.resolve(pdf) });
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const result = await prepareSourceCollection(input);
+    expect(result.failures).toEqual([{ name: 'scan.pdf', reason: 'parser-failed' }]);
+    expect(result.snapshot.source).toMatchObject({
+      sources: [
+        {
+          status: 'error',
+          errorDiagnostic: { stage: 'source-preparation', type: 'Error', code: 'ECONNRESET' },
+        },
+        { status: 'ready' },
+      ],
+    });
+    mocks.prepare.mockResolvedValue({ completion: Promise.resolve(pdf) });
+    const retried = await prepareSourceCollection({ ...input, snapshot: result.snapshot });
+    expect(retried.failures).toEqual([]);
+    const source = retried.snapshot.source as { sources: Array<Record<string, unknown>> };
+    expect(source.sources.map(descriptor => descriptor.status)).toEqual(['ready', 'ready']);
+    expect(source.sources.every(descriptor => !('errorDiagnostic' in descriptor))).toBe(true);
+  } finally {
+    warn.mockRestore();
+  }
 });
 
 test('restores authoritative retained transcripts before publishing the prepared collection', async () => {
