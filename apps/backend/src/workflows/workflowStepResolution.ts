@@ -1,5 +1,5 @@
 import * as z from 'zod';
-import { firstSanitizedZodIssue } from '../utils/zodDiagnostics.js';
+import { firstSanitizedZodIssue, schemaSanitizedZodIssue } from '../utils/zodDiagnostics.js';
 import { snapshotImmutableJson } from './jsonSnapshot.js';
 import type {
   ErasedRegisteredWorkflow,
@@ -223,7 +223,8 @@ export const resolveWorkflowStepClaim = (
       },
     };
   } catch (error) {
-    const issue = error instanceof z.ZodError ? firstSanitizedZodIssue(error) : undefined;
+    const issue =
+      error instanceof z.ZodError ? schemaSanitizedZodIssue(error, node.inputSchema) : undefined;
     return {
       failure: {
         ...permanentFailure(
@@ -232,12 +233,21 @@ export const resolveWorkflowStepClaim = (
         ),
         details: {
           phase,
-          diagnostic: toWorkflowErrorDiagnostic(error, { includeContent: false }),
+          diagnostic: inputFailureDiagnostic(error),
           ...(issue ? { validationIssue: { code: issue.code, path: [...issue.path] } } : {}),
         },
       },
       registeredDefinition: definition,
       resolved: false,
     };
+  }
+};
+
+/** Diagnostic inspection must never prevent recording the original permanent rejection. */
+const inputFailureDiagnostic = (error: unknown) => {
+  try {
+    return toWorkflowErrorDiagnostic(error, { includeContent: false });
+  } catch {
+    return { type: 'UnknownError' };
   }
 };

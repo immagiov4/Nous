@@ -12,7 +12,7 @@ import {
   step,
   workflow,
 } from '../../src/workflows/definition.js';
-import { retryOperational } from '../../src/workflows/retryPolicy.js';
+import { parseStepFailure, retryOperational } from '../../src/workflows/retryPolicy.js';
 import type {
   JsonValue,
   RegisteredWorkflow,
@@ -1860,7 +1860,7 @@ test.each([
     services: {},
     store: makeStore({ recordFailure }),
   });
-  const failure = recordFailure.mock.calls[0]?.[0].failure;
+  const failure = parseStepFailure(recordFailure.mock.calls[0]?.[0].failure);
   expect(failure).toMatchObject({
     code: 'workflow_step_input_incompatible',
     kind: 'permanent',
@@ -1872,4 +1872,47 @@ test.each([
   });
   expect(JSON.stringify(failure)).not.toContain('secret');
   expect(JSON.stringify(failure)).not.toContain('originalMessage');
+});
+
+test.each([
+  'private-key-secret',
+  'data:text/plain,secret',
+])('records record-schema failures without disclosing dynamic key %s', async key => {
+  const Input = z.record(z.string(), z.string());
+  const work = step({
+    id: 'work',
+    inputSchema: Input,
+    outputSchema: Text,
+    run: async () => ({ text: 'done' }),
+  });
+  const registry = createWorkflowRegistry();
+  const registered = registry.register({
+    current: workflow({
+      compatibilityId: 'test-v1',
+      configSchema: WorkflowExecutionDefaultsSchema,
+      executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+      id: 'record-input-diagnostics',
+      inputSchema: Input,
+      outputSchema: Text,
+      root: work,
+    }),
+  }).current;
+  const recorded: unknown[] = [];
+  const recordFailure: WorkflowStepRunnerStore['steps']['recordFailure'] = async input => {
+    recorded.push(parseStepFailure(input.failure));
+    return { status: 'failed', transientEvents: [] };
+  };
+  await expect(
+    runWorkflowStepClaim({
+      claim: makeClaim(registered, { input: { [key]: 42 } }),
+      registry,
+      services: {},
+      store: makeStore({ recordFailure }),
+    })
+  ).resolves.toMatchObject({ status: 'failure-recorded' });
+  expect(recorded).toHaveLength(1);
+  expect(JSON.stringify(recorded)).not.toContain(key);
+  expect(recorded[0]).toMatchObject({
+    details: { validationIssue: { path: ['*'], code: 'invalid_type' } },
+  });
 });
