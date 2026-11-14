@@ -345,6 +345,7 @@ test('corrects an unclosed math delimiter instead of inserting an unrendered for
 });
 
 test('rejects a corrective response that erases a page previously classified as nonempty', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   provider.generateText
     .mockResolvedValueOnce({
       output: { ...recordedPage, markdown: '$\\unsupportedMath{x}$' },
@@ -354,12 +355,25 @@ test('rejects a corrective response that erases a page previously classified as 
       output: { markdown: '', status: 'blank' },
       usage: { inputTokens: 100, outputTokens: 5 },
     });
-  await expect(
-    completePdfTextExtraction(bytes, textLayer(''), {
+  try {
+    const result = await completePdfTextExtraction(bytes, textLayer(''), {
       config: await getResolvedGlobalModelConfig(),
-    })
-  ).resolves.toMatchObject({ transcription: { failedPages: [1] } });
-  expect(provider.generateText).toHaveBeenCalledTimes(2);
+    });
+    expect(result.pages).toEqual([{ pageNumber: 1, text: '' }]);
+    expect(result.transcription?.failedPages).toEqual([1]);
+    expect(provider.generateText).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith(
+      '[Nous][PDF] Page transcription failed',
+      expect.objectContaining({
+        diagnostic: { stage: 'validation', type: 'Error', code: 'pdf-page-corrective-blank' },
+        requests: 2,
+        requestBudgetExhausted: true,
+      })
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('unsupportedMath');
+  } finally {
+    warn.mockRestore();
+  }
 });
 
 test('logs completed paid responses when another page is cancelled', async () => {

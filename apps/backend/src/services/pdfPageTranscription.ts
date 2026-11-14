@@ -240,7 +240,9 @@ const transcribePage = async (
   corrected.answer.markdown = normalizePdfTranscriptionMarkdown(corrected.answer.markdown);
   context.onStage('validation');
   if (corrected.answer.status === 'blank')
-    throw new Error('A corrective request cannot erase a nonempty PDF page.');
+    throw Object.assign(new Error('A corrective request cannot erase a nonempty PDF page.'), {
+      code: 'pdf-page-corrective-blank',
+    });
   return {
     ...corrected,
     attempts: 2,
