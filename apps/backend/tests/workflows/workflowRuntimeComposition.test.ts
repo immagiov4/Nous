@@ -222,6 +222,21 @@ describe('workflow runtime production composition', () => {
 
   test.each([
     ['unsupported event', { eventType: 'unknown' }, 'notification_unsupported'],
+    ['unsupported version', { schemaVersion: 2 }, 'notification_unsupported'],
+    [
+      'unsupported interview version',
+      {
+        eventType: 'course-interview-message',
+        schemaVersion: 2,
+        payload: { message: { role: 'model', text: 'Question?' } },
+      },
+      'notification_unsupported',
+    ],
+    [
+      'invalid interview payload',
+      { eventType: 'course-interview-message', payload: { message: { role: 'model', text: '' } } },
+      'notification_payload_invalid',
+    ],
     [
       'invalid payload',
       { payload: { projectId: 'project-1', revision: -1 } },

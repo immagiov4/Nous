@@ -1401,7 +1401,14 @@ test.each([
   }
 });
 
-test('cancellation waits for accepted source work to settle before returning to draft cleanup', async () => {
+test.each([
+  { unavailableRead: false, completed: false },
+  { unavailableRead: true, completed: false },
+  { unavailableRead: true, completed: true },
+])('cancellation waits for accepted source work to settle (%j)', async ({
+  unavailableRead,
+  completed,
+}) => {
   const controller = new AbortController();
   const deleted = createDeferred();
   const stop = createDeferred();
@@ -1439,7 +1446,9 @@ test('cancellation waits for accepted source work to settle before returning to 
     }
     if (deleting) {
       cancellationPolls++;
+      if (unavailableRead && cancellationPolls === 1) throw new TypeError('synthetic disconnect');
       await stop.promise;
+      if (completed) return new Response(JSON.stringify({ success: true, complete: true }));
       return new Response(
         JSON.stringify({ success: false, code: 'SOURCE_PREPARATION_CANCELLED' }),
         { status: 409 }
@@ -1458,7 +1467,7 @@ test('cancellation waits for accepted source work to settle before returning to 
     });
   try {
     await deleted.promise;
-    await expect.poll(() => cancellationPolls).toBe(1);
+    await expect.poll(() => cancellationPolls).toBe(unavailableRead ? 2 : 1);
     expect(settled).toBe(false);
   } finally {
     stop.resolve();
@@ -1694,7 +1703,7 @@ test('a network blip during preparation keeps following the accepted operation w
     if (url.endsWith(`/projects/${snapshot.id}`))
       return new Response(JSON.stringify({ success: true, preparation: { uploadId } }));
     statuses++;
-    if (statuses === 1) throw new TypeError('synthetic network disconnection');
+    if (statuses <= 2) throw new TypeError('synthetic network disconnection');
     return new Response(
       JSON.stringify({
         success: true,
@@ -1708,7 +1717,7 @@ test('a network blip during preparation keeps following the accepted operation w
     snapshot.id
   );
   expect(loaded?.snapshot.id).toBe(snapshot.id);
-  expect(statuses).toBe(2);
+  expect(statuses).toBe(3);
 });
 
 test('course response progress keeps the existing deadline alive, but a stalled body aborts', async () => {
@@ -1881,4 +1890,29 @@ test('first-use text follows a running source preparation with the full-text con
   );
   expect(loaded?.snapshot.documentIndex?.chunks[0].text).toBe('Prepared source text');
   expect(loaded?.snapshot.documentIndex?.textDeferred).toBeUndefined();
+});
+
+test('source preparation distinguishes unavailable reads from observed finalizing and missing jobs', async () => {
+  const repository = new HttpProjectRepository('http://localhost:3301');
+  const reader = repository as unknown as {
+    readSourcePreparationStatus(id: string): Promise<unknown>;
+    request: () => Promise<unknown>;
+  };
+  const request = vi.spyOn(reader, 'request');
+  request.mockRejectedValueOnce(new ProjectStorageError('synthetic', 'persistence-failed'));
+  expect(await reader.readSourcePreparationStatus('upload')).toEqual({
+    success: false,
+    statusReadUnavailable: true,
+  });
+  request.mockResolvedValueOnce({ success: true, uploadStatus: 'finalizing' });
+  expect(await reader.readSourcePreparationStatus('upload')).toEqual({
+    success: true,
+    uploadStatus: 'finalizing',
+  });
+  request.mockRejectedValueOnce(
+    new ProjectStorageError('missing', 'persistence-failed', { status: 404 })
+  );
+  await expect(reader.readSourcePreparationStatus('upload')).rejects.toMatchObject({
+    code: 'source-preparation-interrupted',
+  });
 });

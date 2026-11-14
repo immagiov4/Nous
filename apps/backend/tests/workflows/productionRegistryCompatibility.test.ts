@@ -22,6 +22,7 @@ test('preserves every production registry output and durable fingerprint byte fo
   expect({
     ...current,
     'course-generation': fixture.current['course-generation'],
+    'pdf-mapping-repair': fixture.current['pdf-mapping-repair'],
     'lesson-artifact-draft': fixture.current['lesson-artifact-draft'],
     'prepare-lesson-playback-block': fixture.current['prepare-lesson-playback-block'],
   }).toEqual(fixture.current);
@@ -36,6 +37,7 @@ test('preserves every production registry output and durable fingerprint byte fo
     expect([
       'prepare-lesson-playback-block',
       'course-generation',
+      'pdf-mapping-repair',
       'lesson-artifact-draft',
     ]).toContain(boundary.workflowId);
   expect(
@@ -101,6 +103,12 @@ test('retains the old course boundary while promoting the diagnostic result cont
   expect(
     registry.resolve('course-generation', fixture.current['course-generation'])
   ).not.toBeNull();
+});
+
+test('retains the immediately preceding course source-mapping boundary', () => {
+  const previousHash = 'a0281bd3c245fd1bb4441c30982501b0a10e6a38de2395c39e10ae850933eca5';
+  expect(registry.resolve('course-generation', previousHash)).not.toBeNull();
+  expect(registry.current('course-generation')?.definitionHash).not.toBe(previousHash);
 });
 
 test('only current artifact checkpoints retain the original request while historical and ordinary visual inputs keep their contract', () => {
