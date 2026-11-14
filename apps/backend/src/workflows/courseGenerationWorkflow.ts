@@ -155,7 +155,8 @@ const createCourseGenerationWorkflowDefinition = <
   executionDefaults: Config,
   configSchema: z.ZodType<Config>,
   planningTopology: CoursePlanningTopology,
-  schemas = courseGenerationStateSchemas
+  schemas = courseGenerationStateSchemas,
+  sourceMappingDiagnostics = schemas === courseGenerationStateSchemas
 ) => {
   const {
     CourseGenerationWorkflowInputSchema,
@@ -402,7 +403,10 @@ const createCourseGenerationWorkflowDefinition = <
     select: input => input.strategy,
   });
 
-  const finalizeCourseSources = createCourseSourceFinalizationNode<Config, Services>(schemas);
+  const finalizeCourseSources = createCourseSourceFinalizationNode<Config, Services>(
+    schemas,
+    sourceMappingDiagnostics
+  );
 
   const placeApplicationExercises = step<
     typeof CourseSourcesFinalizedStateSchema,
@@ -544,6 +548,19 @@ export const createCourseGenerationWorkflow = <
     configSchema,
     'current',
     schemas
+  );
+
+/** Retains checkpoints deployed before final source-mapping failure diagnostics. */
+export const createPreviousSourceMappingDiagnosticsCourseGenerationWorkflow = (
+  executionDefaults: CourseGenerationWorkflowConfig,
+  configSchema = CourseGenerationWorkflowConfigSchema
+) =>
+  createCourseGenerationWorkflowDefinition(
+    executionDefaults,
+    configSchema,
+    'current',
+    courseGenerationStateSchemas,
+    false
   );
 
 export const createPreviousCourseGenerationWorkflow = <

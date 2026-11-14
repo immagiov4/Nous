@@ -303,7 +303,8 @@ export const createPdfMappingRepairWorkflow = (
   executionDefaults: CourseGenerationWorkflowConfig,
   configSchema: z.ZodType<CourseGenerationWorkflowConfig> = CourseGenerationWorkflowConfigSchema,
   schemas = courseGenerationStateSchemas,
-  compatibilityId = 'pdf-mapping-repair-v2'
+  compatibilityId = 'pdf-mapping-repair-v2',
+  sourceMappingDiagnostics = schemas === courseGenerationStateSchemas
 ) => {
   const { CoursePlanStateSchema, CourseSourcesFinalizedStateSchema } = schemas;
   const PdfMappingRepairPreparationSchema =
@@ -358,7 +359,7 @@ export const createPdfMappingRepairWorkflow = (
   const finalizeSources = createCourseSourceFinalizationNode<
     CourseGenerationWorkflowConfig,
     PdfMappingRepairWorkflowServices
-  >(schemas);
+  >(schemas, sourceMappingDiagnostics);
 
   const persistRepair = step<
     typeof CourseSourcesFinalizedStateSchema,

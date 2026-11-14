@@ -46,6 +46,7 @@ import {
   createPreviousFailureDiagnosticsCourseGenerationWorkflow,
   createPreviousPreferencesCourseGenerationWorkflow,
   createPreviousRoutingCourseGenerationWorkflow,
+  createPreviousSourceMappingDiagnosticsCourseGenerationWorkflow,
   createPreviousVerificationCriteriaCourseGenerationWorkflow,
 } from '../courseGenerationWorkflow.js';
 import {
@@ -473,7 +474,8 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     historicalGenerationDefaults,
     historicalModelConfigSchema,
     courseGenerationStateSchemas,
-    PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID
+    PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID,
+    false
   );
   const previousControlsPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
     historicalGenerationDefaults,
@@ -545,6 +547,11 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: courseWorkflow,
     previous: [
+      createPreviousSourceMappingDiagnosticsCourseGenerationWorkflow({
+        maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+        models,
+        timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+      }),
       createPreviousFailureDiagnosticsCourseGenerationWorkflow({
         maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
         models,
@@ -594,7 +601,24 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: pdfMappingRepairWorkflow,
     previous: [
-      createPdfMappingRepairWorkflow(historicalGenerationDefaults, historicalModelConfigSchema),
+      createPdfMappingRepairWorkflow(
+        {
+          maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+          models,
+          timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+        },
+        undefined,
+        courseGenerationStateSchemas,
+        undefined,
+        false
+      ),
+      createPdfMappingRepairWorkflow(
+        historicalGenerationDefaults,
+        historicalModelConfigSchema,
+        courseGenerationStateSchemas,
+        undefined,
+        false
+      ),
       previousDiagnosticPdfMappingRepairWorkflow,
       previousDiagnosticLegacyPdfMappingRepairWorkflow,
       previousControlsPdfMappingRepairWorkflow,
