@@ -154,9 +154,15 @@ const createCourseGenerationWorkflowDefinition = <
 >(
   executionDefaults: Config,
   configSchema: z.ZodType<Config>,
-  planningTopology: CoursePlanningTopology,
-  schemas = courseGenerationStateSchemas,
-  sourceMappingDiagnostics = schemas === courseGenerationStateSchemas
+  {
+    planningTopology,
+    schemas = courseGenerationStateSchemas,
+    sourceMappingDiagnostics = schemas === courseGenerationStateSchemas,
+  }: {
+    planningTopology: CoursePlanningTopology;
+    schemas?: typeof courseGenerationStateSchemas;
+    sourceMappingDiagnostics?: boolean;
+  }
 ) => {
   const {
     CourseGenerationWorkflowInputSchema,
@@ -543,25 +549,20 @@ export const createCourseGenerationWorkflow = <
   configSchema: z.ZodType<Config> = CourseGenerationWorkflowConfigSchema as z.ZodType<Config>,
   schemas = courseGenerationStateSchemas
 ) =>
-  createCourseGenerationWorkflowDefinition<Config, Services>(
-    executionDefaults,
-    configSchema,
-    'current',
-    schemas
-  );
+  createCourseGenerationWorkflowDefinition<Config, Services>(executionDefaults, configSchema, {
+    planningTopology: 'current',
+    schemas,
+  });
 
 /** Retains checkpoints deployed before final source-mapping failure diagnostics. */
 export const createPreviousSourceMappingDiagnosticsCourseGenerationWorkflow = (
   executionDefaults: CourseGenerationWorkflowConfig,
   configSchema = CourseGenerationWorkflowConfigSchema
 ) =>
-  createCourseGenerationWorkflowDefinition(
-    executionDefaults,
-    configSchema,
-    'current',
-    courseGenerationStateSchemas,
-    false
-  );
+  createCourseGenerationWorkflowDefinition(executionDefaults, configSchema, {
+    planningTopology: 'current',
+    sourceMappingDiagnostics: false,
+  });
 
 export const createPreviousCourseGenerationWorkflow = <
   Config extends CourseGenerationWorkflowConfig = CourseGenerationWorkflowConfig,
@@ -570,12 +571,10 @@ export const createPreviousCourseGenerationWorkflow = <
   executionDefaults: Config,
   configSchema: z.ZodType<Config> = CourseGenerationWorkflowConfigSchema as z.ZodType<Config>
 ) =>
-  createCourseGenerationWorkflowDefinition<Config, Services>(
-    executionDefaults,
-    configSchema,
-    'previous',
-    previousCourseGenerationStateSchemas
-  );
+  createCourseGenerationWorkflowDefinition<Config, Services>(executionDefaults, configSchema, {
+    planningTopology: 'previous',
+    schemas: previousCourseGenerationStateSchemas,
+  });
 
 export const createPreviousPreferencesCourseGenerationWorkflow = <
   Config extends CourseGenerationWorkflowConfig = CourseGenerationWorkflowConfig,
@@ -584,12 +583,10 @@ export const createPreviousPreferencesCourseGenerationWorkflow = <
   executionDefaults: Config,
   configSchema: z.ZodType<Config> = CourseGenerationWorkflowConfigSchema as z.ZodType<Config>
 ) =>
-  createCourseGenerationWorkflowDefinition<Config, Services>(
-    executionDefaults,
-    configSchema,
-    'current',
-    previousCourseGenerationStateSchemas
-  );
+  createCourseGenerationWorkflowDefinition<Config, Services>(executionDefaults, configSchema, {
+    planningTopology: 'current',
+    schemas: previousCourseGenerationStateSchemas,
+  });
 
 /** Retains the course definition used before explicit depth and granularity choices. */
 export const createPreviousControlsCourseGenerationWorkflow = <
@@ -599,34 +596,28 @@ export const createPreviousControlsCourseGenerationWorkflow = <
   executionDefaults: Config,
   configSchema: z.ZodType<Config> = CourseGenerationWorkflowConfigSchema as z.ZodType<Config>
 ) =>
-  createCourseGenerationWorkflowDefinition<Config, Services>(
-    executionDefaults,
-    configSchema,
-    'current',
-    preControlsCourseGenerationStateSchemas
-  );
+  createCourseGenerationWorkflowDefinition<Config, Services>(executionDefaults, configSchema, {
+    planningTopology: 'current',
+    schemas: preControlsCourseGenerationStateSchemas,
+  });
 
 export const createPreviousDiagnosticCourseGenerationWorkflow = (
   executionDefaults: CourseGenerationWorkflowConfig,
   configSchema = CourseGenerationWorkflowConfigSchema
 ) =>
-  createCourseGenerationWorkflowDefinition(
-    executionDefaults,
-    configSchema,
-    'current',
-    preDiagnosticCourseGenerationStateSchemas
-  );
+  createCourseGenerationWorkflowDefinition(executionDefaults, configSchema, {
+    planningTopology: 'current',
+    schemas: preDiagnosticCourseGenerationStateSchemas,
+  });
 
 export const createPreviousRoutingCourseGenerationWorkflow = (
   executionDefaults: CourseGenerationWorkflowConfig,
   configSchema = CourseGenerationWorkflowConfigSchema
 ) =>
-  createCourseGenerationWorkflowDefinition(
-    executionDefaults,
-    configSchema,
-    'current',
-    preRoutingCourseGenerationStateSchemas
-  );
+  createCourseGenerationWorkflowDefinition(executionDefaults, configSchema, {
+    planningTopology: 'current',
+    schemas: preRoutingCourseGenerationStateSchemas,
+  });
 
 /** Reconstructs definitions deployed before checkable plan refinement conditions. */
 export const createPreviousVerificationCriteriaCourseGenerationWorkflow = (

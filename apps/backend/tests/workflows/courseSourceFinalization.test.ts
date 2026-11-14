@@ -825,9 +825,14 @@ describe('course source finalization', () => {
       CourseChunkMappingBatch
     >;
     const batch = fast.inputs(mappingState())[0];
-    const output = await runStep('map-course-source-fast-batch', batch, services, 3);
-    expect(output).toMatchObject({
+    const output = JSON.parse(
+      JSON.stringify(await runStep('map-course-source-fast-batch', batch, services, 3))
+    );
+    expect(output).toEqual({
+      batchIndex: batch.batchIndex,
       failure: {
+        attemptNumber: 3,
+        batchIndex: batch.batchIndex,
         diagnostic: {
           type: 'CourseModelProviderError',
           code: 'course_source_finalization_failed',
