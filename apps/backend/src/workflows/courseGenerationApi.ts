@@ -103,6 +103,13 @@ export class CourseGenerationCleanupIncompleteError extends Error {
   }
 }
 
+export class CourseGenerationRetryChainError extends Error {
+  constructor() {
+    super('The course generation replacement chain contains a cycle.');
+    this.name = 'CourseGenerationRetryChainError';
+  }
+}
+
 const rejectUnavailableRuntime = (): Promise<never> =>
   Promise.reject(new WorkflowRuntimeUnavailableError());
 
@@ -189,8 +196,18 @@ const createSnapshot = (run: WorkflowRun, state: WorkflowRunState): CourseWorkfl
   };
 };
 
-const retryRequestKey = (runId: string): string =>
-  JSON.stringify(['course-generation-retry', runId]);
+const RETRY_REQUEST_NAMESPACE = 'course-generation-retry';
+
+export const isReservedCourseGenerationRequestKey = (requestKey: string): boolean => {
+  try {
+    const key: unknown = JSON.parse(requestKey);
+    return Array.isArray(key) && key[0] === RETRY_REQUEST_NAMESPACE;
+  } catch {
+    return false;
+  }
+};
+
+const retryRequestKey = (runId: string): string => JSON.stringify([RETRY_REQUEST_NAMESPACE, runId]);
 
 export const createCourseGenerationApi = (
   dependencies: CourseGenerationApiDependencies
@@ -200,7 +217,10 @@ export const createCourseGenerationApi = (
     if (run?.workflowId !== COURSE_GENERATION_WORKFLOW_ID || run.projectId !== input.projectId) {
       throw new CourseGenerationTargetNotFoundError();
     }
+    const visited = new Set<string>();
     for (;;) {
+      if (visited.has(run.id)) throw new CourseGenerationRetryChainError();
+      visited.add(run.id);
       const successor = await dependencies.runReader.getRunByRequestKey({
         requestKey: retryRequestKey(run.id),
         userId: input.userId,

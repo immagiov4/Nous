@@ -103,6 +103,29 @@ const startRequest = {
 };
 
 describe('course generation workflow API', () => {
+  test.each([
+    ['self-reference', ['run-1']],
+    ['cycle', ['run-1', 'run-2']],
+  ] as const)('rejects a replacement %s without continuing database reads', async (_label, ids) => {
+    const input = dependencies();
+    let reads = 0;
+    input.runReader.getRunByRequestKey.mockImplementation(async () => {
+      // Bound the broken implementation so the red run terminates too.
+      if (reads >= ids.length) throw new Error('Cycle harness exhausted');
+      reads += 1;
+      return run({ id: ids[reads % ids.length] });
+    });
+    await expect(
+      createCourseGenerationApi(input).retry({
+        projectId: 'project-1',
+        runId: 'run-1',
+        userId: 'user-1',
+      })
+    ).rejects.toMatchObject({ name: 'CourseGenerationRetryChainError' });
+    expect(input.runReader.getRunByRequestKey).toHaveBeenCalledTimes(ids.length);
+    expect(input.starter.start).not.toHaveBeenCalled();
+  });
+
   test('A to B to C Continue waits for failed B cleanup before scheduling C', async () => {
     const auth = await import('../../../web/services/auth/supabaseAuth.ts');
     const { resumeDurableCourse } = await import(

@@ -1154,7 +1154,7 @@ test('openProject resumes an active durable course instead of restarting assessm
   assert.equal(result.outcome, 'opened');
   assert.equal(resumeActiveDurableCourse.mock.calls.length, 1);
   assert.deepEqual(projectLibrary.appliedProjectRevisions, [
-    { projectId: snapshot.id, revision: 7 },
+    { projectId: snapshot.id, revision: 7, acceptNewerRevision: true },
   ]);
   assert.equal(state.internalState.screenState, AppState.READING);
   assert.deepEqual(state.internalState.assessmentMessages, []);
@@ -6637,7 +6637,10 @@ test('confirmation recovers an approval already waiting on diagnostics and prese
   assert.equal(setDiagnosticAdapter.mock.calls.length, 1);
 });
 
-test('completed diagnostic Continue reuses its successful replacement after project recovery fails', async () => {
+test.each([
+  'download failure',
+  'rejected revision',
+])('completed diagnostic Continue retains its replacement after %s', async failure => {
   const auth = await import('../../../services/auth/supabaseAuth.ts');
   const { resumeDurableCourse } = await import(
     '../../../services/openrouter/courseGenerationClient.ts'
@@ -6687,11 +6690,15 @@ test('completed diagnostic Continue reuses its successful replacement after proj
     wait: null,
   });
   const { controller, state, projectLibrary } = createControllerHarness({
+    domain: { learningPlan: buildPlan({ title: 'Previous course' }) },
     projectLibrary: {
       currentProjectId: 'document-project',
       applyPersistedProjectRevision: vi
         .fn()
-        .mockRejectedValueOnce(new Error('Project download failed'))
+        .mockImplementationOnce(async () => {
+          if (failure === 'download failure') throw new Error('Project download failed');
+          return false;
+        })
         .mockResolvedValue(true),
     },
     openRouter: {
@@ -6705,7 +6712,11 @@ test('completed diagnostic Continue reuses its successful replacement after proj
   state.adapter.setDiagnosticAdapter = setDiagnosticAdapter;
   expect((await controller.confirmPlanGeneration()).outcome).toBe('diagnostic');
   const adapter = setDiagnosticAdapter.mock.calls[0][0];
-  await expect(adapter.onComplete()).rejects.toThrow('Project download failed');
+  await expect(adapter.onComplete()).rejects.toThrow(
+    failure === 'download failure'
+      ? 'Project download failed'
+      : 'Il corso è stato generato, ma non è stato possibile caricarlo.'
+  );
   expect(state.internalState.screenState).toBe(AppState.LIBRARY);
   expect(setDiagnosticAdapter).toHaveBeenCalledTimes(1);
   await adapter.onComplete();
@@ -6716,6 +6727,7 @@ test('completed diagnostic Continue reuses its successful replacement after proj
   expect(projectLibrary.adapter.applyPersistedProjectRevision).toHaveBeenNthCalledWith(2, {
     projectId: 'document-project',
     revision: 4,
+    acceptNewerRevision: true,
   });
   expect(setDiagnosticAdapter).toHaveBeenLastCalledWith(undefined);
 });
@@ -6885,7 +6897,7 @@ test('confirmPlanGeneration approves the durable proposal and resumes its course
     { role: 'model', text: 'Proposta approvata' },
   ]);
   assert.deepEqual(projectLibrary.appliedProjectRevisions, [
-    { projectId: 'document-project', revision: 4 },
+    { projectId: 'document-project', revision: 4, acceptNewerRevision: true },
   ]);
 });
 

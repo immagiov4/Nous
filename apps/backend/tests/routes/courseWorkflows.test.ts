@@ -5,6 +5,7 @@ import { createApp } from '../../src/index.js';
 import {
   type CourseGenerationApi,
   CourseGenerationCleanupIncompleteError,
+  CourseGenerationRetryChainError,
   CourseGenerationTargetNotFoundError,
 } from '../../src/workflows/courseGenerationApi.js';
 import type { PdfMappingRepairApi } from '../../src/workflows/pdfMappingRepairApi.js';
@@ -50,6 +51,43 @@ const requestBody = {
 };
 
 describe('course workflow routes', () => {
+  test('reports a corrupt replacement chain with a stable error code', async () => {
+    const api = createApi();
+    vi.mocked(api.retry).mockRejectedValue(new CourseGenerationRetryChainError());
+    const response = await request(createApp({ courseGenerationApi: api }))
+      .post('/api/course-workflows/runs/run-1/retry')
+      .send({ projectId: 'project-1' });
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({
+      code: 'course_generation_retry_chain_invalid',
+      error: 'La generazione del corso non è riuscita. Riprova.',
+      success: false,
+    });
+  });
+
+  test('accepts a non-reserved structured client key', async () => {
+    const api = createApi();
+    const requestKey = JSON.stringify(['course-generation-client', 'request-1']);
+    const response = await request(createApp({ courseGenerationApi: api }))
+      .post('/api/course-workflows/courses')
+      .send({ ...requestBody, requestKey });
+    expect(response.status).toBe(202);
+    expect(api.start).toHaveBeenCalledWith(expect.objectContaining({ requestKey }));
+  });
+
+  test.each([
+    JSON.stringify(['course-generation-retry', 'run-1']),
+    ' [ "course-generation-retry", "run-1" ] ',
+  ])('rejects a client key in the reserved retry namespace: %s', async requestKey => {
+    const api = createApi();
+    const response = await request(createApp({ courseGenerationApi: api }))
+      .post('/api/course-workflows/courses')
+      .send({ ...requestBody, requestKey });
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('course_generation_request_invalid');
+    expect(api.start).not.toHaveBeenCalled();
+  });
+
   test('reports incomplete cleanup without starting replacement work', async () => {
     const api = createApi();
     vi.mocked(api.retry).mockRejectedValue(new CourseGenerationCleanupIncompleteError());

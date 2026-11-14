@@ -503,6 +503,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
       if (!state.isWorkflowCurrent('generatePlan', requestId)) return true;
 
       const applied = await projectLibrary.applyPersistedProjectRevision({
+        acceptNewerRevision: true,
         projectId: result.projectId,
         revision: result.projectRevision,
       });
@@ -512,7 +513,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
       ) {
         return true;
       }
-      if (!applied && !domain.learningPlan) {
+      if (!applied) {
         throw new Error('Il corso è stato generato, ma non è stato possibile caricarlo.');
       }
 

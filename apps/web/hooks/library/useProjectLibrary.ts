@@ -484,7 +484,15 @@ export const useProjectLibrary = ({
   );
 
   const applyPersistedProjectRevision = useCallback(
-    async ({ projectId, revision }: { projectId: string; revision: number }): Promise<boolean> => {
+    async ({
+      projectId,
+      revision,
+      acceptNewerRevision = false,
+    }: {
+      projectId: string;
+      revision: number;
+      acceptNewerRevision?: boolean;
+    }): Promise<boolean> => {
       const adopt = async (attempt: number): Promise<boolean> => {
         const queuedAt = performance.now();
         await getProjectWriteState(projectId).queue;
@@ -560,7 +568,8 @@ export const useProjectLibrary = ({
           durationMs: performance.now() - hydrateStarted,
         });
         setStorageError(null);
-        return persisted.revision === revision;
+        // Course recovery may open newer work; lesson results still require their exact revision.
+        return acceptNewerRevision || persisted.revision === revision;
       };
       return adopt(0);
     },

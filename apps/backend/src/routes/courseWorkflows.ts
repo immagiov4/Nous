@@ -5,7 +5,9 @@ import { getCurrentUser } from '../auth/currentUser.js';
 import {
   type CourseGenerationApi,
   CourseGenerationCleanupIncompleteError,
+  CourseGenerationRetryChainError,
   CourseGenerationTargetNotFoundError,
+  isReservedCourseGenerationRequestKey,
 } from '../workflows/courseGenerationApi.js';
 import {
   type PdfMappingRepairApi,
@@ -27,7 +29,11 @@ const startBodySchema = z
     ),
     mode: z.enum(['document', 'learn']),
     projectId: z.string().trim().min(1),
-    requestKey: z.string().trim().min(1),
+    requestKey: z
+      .string()
+      .trim()
+      .min(1)
+      .refine(key => !isReservedCourseGenerationRequestKey(key)),
   })
   .strict();
 const runParametersSchema = z.object({ runId: z.string().trim().min(1) });
@@ -45,6 +51,14 @@ const INVALID_REQUEST_RESPONSE = {
 } as const;
 
 const sendCourseWorkflowError: WorkflowRouteErrorHandler = (response, error) => {
+  if (error instanceof CourseGenerationRetryChainError) {
+    response.status(409).json({
+      code: 'course_generation_retry_chain_invalid',
+      error: 'La generazione del corso non è riuscita. Riprova.',
+      success: false,
+    });
+    return true;
+  }
   if (error instanceof CourseGenerationCleanupIncompleteError) {
     response.status(409).json({
       code: 'course_generation_cleanup_incomplete',
