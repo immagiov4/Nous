@@ -2,6 +2,10 @@ import { APICallError } from 'ai';
 import { describe, expect, test } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import {
+  CourseExercisesStateSchema,
+  CourseYoutubeQueryPlanSchema,
+} from '../../src/workflows/courseGenerationWorkflowContract.js';
+import {
   createWorkflowModelDiagnostic,
   readWorkflowErrorDiagnostic,
   readWorkflowModelDiagnostic,
@@ -216,4 +220,36 @@ test('keeps caller stage separate from the underlying error stage', () => {
     errorStage: 'pdf-parse',
     type: 'Error',
   });
+});
+
+test('durable planning fallback schemas preserve phase timings and nested error stages', () => {
+  const modelCall = {
+    phase: 'awaiting-ack',
+    elapsedMs: 25,
+    phaseElapsedMs: 20,
+    durationsMs: { initializing: 5, 'awaiting-ack': 20 },
+  };
+  const projected = toWorkflowErrorDiagnostic(
+    Object.assign(
+      new Error('PRIVATE_PROMPT', {
+        cause: Object.assign(new Error('PRIVATE_OUTPUT'), { stage: 'turn/start', code: 'timeout' }),
+      }),
+      { modelCall }
+    ),
+    { includeContent: false }
+  );
+  const youtube = CourseYoutubeQueryPlanSchema.parse({
+    queries: ['synthetic query'],
+    planningDiagnostic: projected,
+  });
+  const exercise = CourseExercisesStateSchema.shape.exercisePlanningDiagnostic.parse(projected);
+  for (const checkpoint of [youtube.planningDiagnostic, exercise]) {
+    const logged = readWorkflowErrorDiagnostic(JSON.parse(JSON.stringify(checkpoint)));
+    expect(logged).toEqual(projected);
+    expect(logged).toMatchObject({
+      modelCall,
+      cause: { errorStage: 'turn/start', code: 'timeout' },
+    });
+    expect(JSON.stringify(logged)).not.toContain('PRIVATE_');
+  }
 });

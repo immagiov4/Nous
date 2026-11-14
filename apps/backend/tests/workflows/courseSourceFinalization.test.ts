@@ -812,6 +812,14 @@ describe('course source finalization', () => {
         responseBody: 'PRIVATE PROVIDER RESPONSE',
       })
     );
+    Object.assign(error, {
+      modelCall: {
+        phase: 'awaiting-output',
+        elapsedMs: 25,
+        phaseElapsedMs: 25,
+        durationsMs: { 'awaiting-output': 25 },
+      },
+    });
     const mapBatch = vi.fn().mockRejectedValue(error);
     const services = sourceServices(
       createCourseSourceFinalizationServices({
@@ -837,11 +845,20 @@ describe('course source finalization', () => {
           type: 'CourseModelProviderError',
           code: 'course_source_finalization_failed',
           cause: { type: 'Error', code: 'ETIMEDOUT' },
+          modelCall: {
+            phase: 'awaiting-output',
+            elapsedMs: 25,
+            phaseElapsedMs: 25,
+            durationsMs: { 'awaiting-output': 25 },
+          },
         },
         kind: 'operational',
         stage: 'map-course-source-fast-batch',
       },
       status: 'failed',
+    });
+    expect(output.failure.diagnostic).toMatchObject({
+      modelCall: { phase: 'awaiting-output', elapsedMs: 25 },
     });
     expect(JSON.stringify(output)).not.toContain('PRIVATE');
     const permanent = failPermanently({ code: 'mapping_forbidden', message: 'Forbidden.' });

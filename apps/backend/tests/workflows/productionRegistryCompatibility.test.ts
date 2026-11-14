@@ -158,3 +158,12 @@ test('only current artifact checkpoints retain the original request while histor
   const ordinary = registry.current('retry-lesson-visual');
   expect(ordinary?.inputSchema.parse(checkpoint)).not.toHaveProperty('requestText');
 });
+
+// Frozen from the registry before #603 at f519dc1, using its unchanged defaults.
+test.each([
+  ['course-generation', '63a25e1442392de839f5b72f53949285902dcf6e872d3d7d530ff585bc2dcf53'],
+  ['pdf-mapping-repair', '67eacc4ec881db634368c3b7b2e8dfc7e541378b60f1260cb3e1463b850e6928'],
+])('retains the pre-observation %s definition while promoting the current schema', (workflowId, hash) => {
+  expect(registry.resolve(workflowId, hash)).not.toBeNull();
+  expect(registry.current(workflowId)?.definitionHash).not.toBe(hash);
+});

@@ -45,6 +45,7 @@ import {
   createPreviousCourseGenerationWorkflow,
   createPreviousDiagnosticCourseGenerationWorkflow,
   createPreviousFailureDiagnosticsCourseGenerationWorkflow,
+  createPreviousModelCallCourseGenerationWorkflow,
   createPreviousPreferencesCourseGenerationWorkflow,
   createPreviousRoutingCourseGenerationWorkflow,
   createPreviousSourceMappingDiagnosticsCourseGenerationWorkflow,
@@ -54,6 +55,7 @@ import {
   courseGenerationStateSchemas,
   preControlsCourseGenerationStateSchemas,
   preDiagnosticCourseGenerationStateSchemas,
+  preModelCallCourseGenerationStateSchemas,
   previousCourseGenerationStateSchemas,
 } from '../courseGenerationWorkflowContract.js';
 import {
@@ -561,6 +563,11 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: courseWorkflow,
     previous: [
+      createPreviousModelCallCourseGenerationWorkflow({
+        maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+        models,
+        timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+      }),
       createPreviousSourceMappingDiagnosticsCourseGenerationWorkflow({
         maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
         models,
@@ -615,6 +622,15 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: pdfMappingRepairWorkflow,
     previous: [
+      createPdfMappingRepairWorkflow(
+        {
+          maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+          models,
+          timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+        },
+        undefined,
+        { schemas: preModelCallCourseGenerationStateSchemas, sourceMappingDiagnostics: true }
+      ),
       createPdfMappingRepairWorkflow(
         {
           maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,

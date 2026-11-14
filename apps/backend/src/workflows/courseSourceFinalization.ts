@@ -38,6 +38,7 @@ import {
   type CourseSourcesFinalizedState,
   CourseSourcesFinalizedStateSchema,
   courseGenerationStateSchemas,
+  preModelCallCourseGenerationStateSchemas,
 } from './courseGenerationWorkflowContract.js';
 import { fanOut, routeBy, sequence, step } from './definition.js';
 import {
@@ -50,6 +51,7 @@ import type { FanOutResult, StepExecutionContext } from './types.js';
 import {
   createWorkflowModelDiagnostic,
   toWorkflowErrorDiagnostic,
+  WorkflowObservedTechnicalDiagnosticSchema,
   WorkflowTechnicalDiagnosticSchema,
 } from './workflowErrorDiagnostics.js';
 
@@ -71,9 +73,14 @@ const CourseMappingFailureSchema = z.object({
 });
 
 const createSourceFinalizationSchemas = (
-  { CoursePlanStateSchema, CourseSourcesFinalizedStateSchema }: typeof courseGenerationStateSchemas,
+  schemas: typeof courseGenerationStateSchemas,
   failureDiagnostics = true
 ) => {
+  const { CoursePlanStateSchema, CourseSourcesFinalizedStateSchema } = schemas;
+  const mappingFailureSchema =
+    schemas === courseGenerationStateSchemas
+      ? CourseMappingFailureSchema.extend({ diagnostic: WorkflowObservedTechnicalDiagnosticSchema })
+      : CourseMappingFailureSchema;
   const CourseSourceMappingStateSchema = z.object({
     index: CourseDocumentIndexSchema,
     kind: z.literal('mapping'),
@@ -88,13 +95,13 @@ const createSourceFinalizationSchemas = (
 
   const CourseSourceMappingProgressSchema = z.object({
     mappingFailed: z.boolean(),
-    mappingFailures: z.array(CourseMappingFailureSchema).optional(),
+    mappingFailures: z.array(mappingFailureSchema).optional(),
     mappings: CourseChunkMappingBatchResultSchema.shape.mappings,
     state: CourseSourceMappingStateSchema,
   });
   const failedBatchSchema = z.object({
     batchIndex: z.number().int().nonnegative(),
-    failure: CourseMappingFailureSchema.optional(),
+    failure: mappingFailureSchema.optional(),
     status: z.literal('failed'),
   });
   const { failure: _failure, ...historicalFailedBatchShape } = failedBatchSchema.shape;
@@ -469,7 +476,8 @@ export const createCourseSourceFinalizationNode = <
   Services extends CourseSourceFinalizationServices,
 >(
   schemas = courseGenerationStateSchemas,
-  failureDiagnostics = schemas === courseGenerationStateSchemas
+  failureDiagnostics = schemas === courseGenerationStateSchemas ||
+    schemas === preModelCallCourseGenerationStateSchemas
 ) => {
   const { CoursePlanStateSchema, CourseSourcesFinalizedStateSchema } = schemas;
   const {
@@ -572,14 +580,10 @@ export const createCourseSourceFinalizationNode = <
                   failure: {
                     attemptNumber: context.attemptNumber,
                     batchIndex: context.input.batchIndex,
-                    diagnostic: toWorkflowErrorDiagnostic(
-                      {
-                        name: mappingError.name,
-                        code: retryableFailure.failure.code,
-                        cause: mappingError.cause,
-                      },
-                      { includeContent: false }
-                    ),
+                    diagnostic: {
+                      ...toWorkflowErrorDiagnostic(mappingError, { includeContent: false }),
+                      code: retryableFailure.failure.code,
+                    },
                     kind:
                       retryableFailure.failure.kind === 'corrective' ? 'corrective' : 'operational',
                     stage: id,

@@ -49,7 +49,7 @@ for (let depth = 1; depth < MAX_ERROR_CAUSE_DEPTH; depth += 1) {
 }
 export const WorkflowTechnicalDiagnosticSchema: z.ZodType<WorkflowErrorDiagnostic> =
   technicalDiagnosticSchema;
-// Runtime failure details may evolve without changing durable workflow output definitions.
+// Historical definitions retain the legacy schema; current checkpoints keep observations.
 const ObservedTechnicalFieldsSchema = TechnicalDiagnosticFieldsSchema.extend({
   errorStage: z.string().optional(),
   modelCall: ModelCallDiagnosticSchema.optional(),
@@ -60,6 +60,9 @@ for (let depth = 1; depth < MAX_ERROR_CAUSE_DEPTH; depth += 1) {
     cause: observedTechnicalSchema.optional(),
   });
 }
+export const WorkflowObservedTechnicalDiagnosticSchema: z.ZodType<WorkflowErrorDiagnostic> =
+  observedTechnicalSchema;
+
 type DiagnosticCode = number | string;
 
 const readTechnicalIdentifier = (value: unknown): string | undefined =>
