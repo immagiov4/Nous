@@ -1834,7 +1834,10 @@ test.each([
   { input: { alpha: 'ok', beta: ['ok', ''] }, path: ['beta', 1], code: 'too_small' },
   { input: { alpha: 'data:text/plain,secret', beta: ['ok', 'ok'] }, phase: 'input-snapshot' },
 ])('records distinguishable claimed input failures: $input', async fixture => {
-  const Input = z.object({ alpha: z.string(), beta: z.array(z.string().min(1)) });
+  const Input = z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('main'), alpha: z.string(), beta: z.array(z.string().min(1)) }),
+    z.object({ kind: z.literal('alternative'), alternative: z.boolean() }),
+  ]);
   const work = step({
     id: 'work',
     inputSchema: Input,
@@ -1855,7 +1858,7 @@ test.each([
   }).current;
   const recordFailure = vi.fn(makeStore().steps.recordFailure);
   await runWorkflowStepClaim({
-    claim: makeClaim(registered, { input: fixture.input }),
+    claim: makeClaim(registered, { input: { kind: 'main', ...fixture.input } }),
     registry,
     services: {},
     store: makeStore({ recordFailure }),

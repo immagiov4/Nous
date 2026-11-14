@@ -39,33 +39,44 @@ export const schemaSanitizedZodIssue = (
   try {
     const issue = error.issues[0];
     if (!issue) return undefined;
-    let current: z.ZodType | undefined = schema;
+    let candidates: z.ZodType[] = [schema];
     const path = issue.path.slice(0, MAX_DIAGNOSTIC_PATH_SEGMENTS).map(segment => {
-      while (
-        current instanceof z.ZodOptional ||
-        current instanceof z.ZodNullable ||
-        current instanceof z.ZodReadonly
-      )
-        current = current.unwrap() as z.ZodType;
+      candidates = candidates.flatMap(diagnosticSchemaBranches);
       if (typeof segment === 'number' && Number.isSafeInteger(segment) && segment >= 0) {
-        current = current instanceof z.ZodArray ? (current.element as z.ZodType) : undefined;
+        candidates = candidates.flatMap(candidate =>
+          candidate instanceof z.ZodArray ? [candidate.element as z.ZodType] : []
+        );
         return segment;
       }
-      if (
+      const declared =
         typeof segment === 'string' &&
         segment.length <= MAX_DIAGNOSTIC_KEY_LENGTH &&
-        /^[A-Za-z_][A-Za-z0-9_]*$/u.test(segment) &&
-        current instanceof z.ZodObject &&
-        Object.hasOwn(current.shape, segment)
-      ) {
-        current = current.shape[segment];
-        return segment;
-      }
-      current = undefined;
-      return '*';
+        /^[A-Za-z_][A-Za-z0-9_]*$/u.test(segment)
+          ? candidates.flatMap(candidate =>
+              candidate instanceof z.ZodObject && Object.hasOwn(candidate.shape, segment)
+                ? [candidate.shape[segment] as z.ZodType]
+                : []
+            )
+          : [];
+      candidates = declared;
+      return declared.length ? (segment as string) : '*';
     });
     return { code: issue.code, path };
   } catch {
     return undefined;
   }
+};
+
+const diagnosticSchemaBranches = (schema: z.ZodType): z.ZodType[] => {
+  if (schema instanceof z.ZodUnion) {
+    return schema.options.flatMap(option => diagnosticSchemaBranches(option as z.ZodType));
+  }
+  if (
+    schema instanceof z.ZodOptional ||
+    schema instanceof z.ZodNullable ||
+    schema instanceof z.ZodReadonly
+  ) {
+    return diagnosticSchemaBranches(schema.unwrap() as z.ZodType);
+  }
+  return [schema];
 };
