@@ -103,6 +103,31 @@ const startRequest = {
 
 describe('course generation workflow API', () => {
   test.each([
+    'pending',
+    'running',
+    'failed',
+  ])('blocks retry while previous undo is %s, then allows it after cleanup', async cleanupStatus => {
+    const input = dependencies();
+    input.runReader.getRun.mockResolvedValue(run({ status: 'failed', cleanupStatus }));
+    const api = createCourseGenerationApi(input);
+    const request = {
+      runId: 'run-1',
+      projectId: 'project-1',
+      requestKey: 'click',
+      userId: 'user-1',
+    };
+    await expect(api.retry(request)).rejects.toMatchObject({
+      name: 'CourseGenerationCleanupIncompleteError',
+    });
+    expect(input.starter.start).not.toHaveBeenCalled();
+    input.runReader.getRun.mockResolvedValue(run({ status: 'failed', cleanupStatus: 'completed' }));
+    await expect(api.retry(request)).resolves.toMatchObject({
+      created: true,
+      job: { status: 'queued' },
+    });
+    expect(input.starter.start).toHaveBeenCalledTimes(1);
+  });
+  test.each([
     'queued',
     'running',
     'completed',

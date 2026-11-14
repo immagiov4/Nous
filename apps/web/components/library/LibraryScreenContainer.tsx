@@ -108,6 +108,7 @@ export const LibraryScreenContainer = ({
   }, [controller.learningPlan]);
   const [isAddingAssessmentDetails, setIsAddingAssessmentDetails] = useState(false);
   const [homeChatMode, setHomeChatMode] = useState<HomeChatMode>(() =>
+    !controller.diagnosticAdapter &&
     typeof globalThis.window !== 'undefined' &&
     isLibraryQueryPath(globalThis.window.location.pathname)
       ? 'library-query'
@@ -123,6 +124,15 @@ export const LibraryScreenContainer = ({
   const sourceSelectionRequestRef = useRef(0);
   const isConfirmingCourseRef = useRef(false);
   const newCourseRequestTokenRef = useRef(0);
+
+  const completeDiagnostic = async () => {
+    try {
+      await controller.diagnosticAdapter?.onComplete?.();
+    } catch (error) {
+      notify(getErrorMessage(error));
+      throw error;
+    }
+  };
 
   const {
     assessmentMessages,
@@ -393,7 +403,10 @@ export const LibraryScreenContainer = ({
               </div>
             ) : undefined,
           sourceCount,
-          diagnosticAdapter: controller.diagnosticAdapter,
+          diagnosticAdapter: controller.diagnosticAdapter && {
+            ...controller.diagnosticAdapter,
+            onComplete: controller.diagnosticAdapter.onComplete ? completeDiagnostic : undefined,
+          },
           assessmentComplete,
           assessmentMessages:
             confirmedPreferences !== undefined &&

@@ -4,6 +4,7 @@ import * as z from 'zod';
 import { getCurrentUser } from '../auth/currentUser.js';
 import {
   type CourseGenerationApi,
+  CourseGenerationCleanupIncompleteError,
   CourseGenerationTargetNotFoundError,
 } from '../workflows/courseGenerationApi.js';
 import {
@@ -44,6 +45,14 @@ const INVALID_REQUEST_RESPONSE = {
 } as const;
 
 const sendCourseWorkflowError: WorkflowRouteErrorHandler = (response, error) => {
+  if (error instanceof CourseGenerationCleanupIncompleteError) {
+    response.status(409).json({
+      code: 'course_generation_cleanup_incomplete',
+      error: 'Il tentativo precedente non è ancora stato ripristinato. Riprova più tardi.',
+      success: false,
+    });
+    return true;
+  }
   if (
     !(error instanceof CourseGenerationTargetNotFoundError) &&
     !(error instanceof PdfMappingRepairTargetNotFoundError)

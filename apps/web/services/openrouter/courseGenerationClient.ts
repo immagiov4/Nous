@@ -31,6 +31,8 @@ import {
 const COURSE_GENERATION_ERROR = 'La generazione del corso non è riuscita. Riprova.';
 const COURSE_GENERATION_TIMEOUT_ERROR =
   'La generazione del corso ha superato il tempo disponibile. Riprova.';
+const COURSE_GENERATION_CLEANUP_ERROR =
+  'Il tentativo precedente non è ancora stato ripristinato. Riprova più tardi.';
 const COURSE_REQUEST_KEY_PREFIX = 'nous:course-workflow-request:';
 const PDF_MAPPING_REPAIR_ERROR = 'La mappatura del PDF non è riuscita.';
 const PDF_MAPPING_REPAIR_REQUEST_KEY_PREFIX = 'nous:pdf-mapping-repair-request:';
@@ -239,7 +241,11 @@ export const resumeDurableCourse = async ({
       }
     );
     if (isDefinitiveWorkflowStartRejection(response)) request.clear();
-    const retryJob = readWorkflowJob(await readWorkflowJson(response), isCourseWorkflowSnapshot);
+    const payload = await readWorkflowJson(response);
+    if (isRecord(payload) && payload.code === 'course_generation_cleanup_incomplete') {
+      throw new Error(COURSE_GENERATION_CLEANUP_ERROR);
+    }
+    const retryJob = readWorkflowJob(payload, isCourseWorkflowSnapshot);
     if (!response.ok || retryJob?.projectId !== projectId || retryJob.mode !== job.mode) {
       throw new Error(COURSE_GENERATION_ERROR);
     }

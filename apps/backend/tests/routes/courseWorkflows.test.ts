@@ -4,6 +4,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { createApp } from '../../src/index.js';
 import {
   type CourseGenerationApi,
+  CourseGenerationCleanupIncompleteError,
   CourseGenerationTargetNotFoundError,
 } from '../../src/workflows/courseGenerationApi.js';
 import type { PdfMappingRepairApi } from '../../src/workflows/pdfMappingRepairApi.js';
@@ -49,6 +50,19 @@ const requestBody = {
 };
 
 describe('course workflow routes', () => {
+  test('reports incomplete cleanup without starting replacement work', async () => {
+    const api = createApi();
+    vi.mocked(api.retry).mockRejectedValue(new CourseGenerationCleanupIncompleteError());
+    const response = await request(createApp({ courseGenerationApi: api }))
+      .post('/api/course-workflows/runs/failed-run/retry')
+      .send({ projectId: 'project-1', requestKey: 'retry-1' });
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({
+      success: false,
+      code: 'course_generation_cleanup_incomplete',
+      error: 'Il tentativo precedente non è ancora stato ripristinato. Riprova più tardi.',
+    });
+  });
   test('retries through the authenticated API without accepting replacement interview input', async () => {
     const api = createApi();
     const app = createApp({ courseGenerationApi: api });

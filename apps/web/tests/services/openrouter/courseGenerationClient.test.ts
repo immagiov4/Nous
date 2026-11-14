@@ -64,6 +64,34 @@ const requestBody = (callIndex: number) =>
   };
 
 describe('courseGenerationClient', () => {
+  test('explains blocked retry cleanup instead of replaying the old failure', async () => {
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(
+        workflowResponse({
+          id: 'failed-run',
+          mode: 'learn',
+          projectId: 'project-1',
+          status: 'failed',
+          stage: 'structure',
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: false,
+            code: 'course_generation_cleanup_incomplete',
+            error: 'Private server message',
+          }),
+          { status: 409 }
+        )
+      );
+    await expect(
+      resumeDurableCourse({ runId: 'failed-run', projectId: 'project-1' })
+    ).rejects.toThrow(
+      'Il tentativo precedente non è ancora stato ripristinato. Riprova più tardi.'
+    );
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(2);
+  });
   test('simultaneous Continue clicks share one retry request identity', async () => {
     fetchWithSupabaseAuthMock.mockImplementation(async (_url: string, options?: RequestInit) =>
       options?.method === 'POST'

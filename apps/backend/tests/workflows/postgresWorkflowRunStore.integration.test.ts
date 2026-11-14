@@ -70,8 +70,12 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integra
       requestKey: randomUUID(),
     });
     try {
-      await sql`update public.workflow_runs set status = 'failed', completed_at = now() where id = ${original.run.id}`;
+      await sql`update public.workflow_runs set status = 'failed', cleanup_status = 'pending', completed_at = now() where id = ${original.run.id}`;
       const request = { runId: original.run.id, projectId, userId, requestKey: randomUUID() };
+      await expect(api.retry(request)).rejects.toMatchObject({
+        name: 'CourseGenerationCleanupIncompleteError',
+      });
+      await sql`update public.workflow_runs set cleanup_status = 'completed' where id = ${original.run.id}`;
       const retries = await Promise.all([api.retry(request), api.retry(request)]);
       const replacementId = retries[0].job.id;
       expect(replacementId).not.toBe(original.run.id);

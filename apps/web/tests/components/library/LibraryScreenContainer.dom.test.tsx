@@ -33,6 +33,7 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       pendingFileWarnings?: string[];
       terminalSourceDocuments?: { id: string; name: string; state: string }[];
       onClearPendingFile: () => void;
+      diagnosticAdapter?: { onComplete?: () => Promise<void> };
     };
     onPageChange: (page: 'home' | 'library') => void;
     storageError?: string | null;
@@ -57,6 +58,12 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       />
       <button type="button" onClick={chatProps.onClearPendingFile}>
         Rimuovi fonti
+      </button>
+      <button
+        type="button"
+        onClick={() => void chatProps.diagnosticAdapter?.onComplete?.().catch(() => {})}
+      >
+        Continua diagnosi
       </button>
       <button type="button" onClick={() => void chatProps.onConfirmGenerate()}>
         Conferma scelte
@@ -127,6 +134,27 @@ afterEach(() => {
 });
 
 describe('LibraryScreenContainer route fallback', () => {
+  test('retains the completed diagnostic after remount and notifies the retry failure cause', async () => {
+    const props = buildProps();
+    const error = 'La generazione del corso ha superato il tempo disponibile. Riprova.';
+    props.controller.diagnosticAdapter = {
+      collectionId: 'retained',
+      initial: {
+        kind: 'complete',
+        id: 'done',
+        title: 'Punto di partenza individuato',
+        feedback: 'Ripartiamo dalle basi.',
+      },
+      submit: vi.fn(),
+      onComplete: vi.fn().mockRejectedValue(new Error(error)),
+    };
+    render(<LibraryScreenContainer {...props} />);
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course');
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Continua diagnosi' }))
+    );
+    expect(props.notify).toHaveBeenCalledWith(error);
+  });
   test('counts expanded preparation documents in the setup header', () => {
     const props = buildProps();
     props.controller.workflowState.assessment = {

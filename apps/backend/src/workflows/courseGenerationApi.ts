@@ -91,6 +91,13 @@ export class CourseGenerationTargetNotFoundError extends Error {
   }
 }
 
+export class CourseGenerationCleanupIncompleteError extends Error {
+  constructor() {
+    super('The previous course generation has not completed cleanup.');
+    this.name = 'CourseGenerationCleanupIncompleteError';
+  }
+}
+
 const rejectUnavailableRuntime = (): Promise<never> =>
   Promise.reject(new WorkflowRuntimeUnavailableError());
 
@@ -189,6 +196,9 @@ export const createCourseGenerationApi = (
       const job = await this.get(input);
       if (!job) throw new WorkflowRunNotFoundError();
       return { created: false, job };
+    }
+    if (run.cleanupStatus !== 'completed' && run.cleanupStatus !== 'not-required') {
+      throw new CourseGenerationCleanupIncompleteError();
     }
     return this.start({
       ...parseRunInput(run),
