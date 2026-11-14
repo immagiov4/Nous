@@ -13,6 +13,7 @@ import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
 import { setFeedbackProductContext } from '../../services/feedback/browserDiagnostics.ts';
+import { CourseGenerationError } from '../../services/openrouter/courseGenerationClient.ts';
 import { sortSourceFiles } from '../../services/projects/courseSources.ts';
 import { inspectSourceSelection } from '../../services/projects/sourceFileSelection.ts';
 import { formatSourceWarningSummary } from '../../services/projects/sourceWarningSummary.ts';
@@ -20,6 +21,7 @@ import type { HomeChatMode, HomeChatToolPreferences } from '../../types.ts';
 import { type NewHomePage, NewHomeView } from '../newHome/NewHomeView.tsx';
 import { CourseControls, describeCourseControls } from './CourseControls.tsx';
 import { CourseLanguageProficiency } from './CourseLanguageProficiency.tsx';
+import { DIAGNOSTIC_COMPLETION_ERROR } from './diagnostic/diagnosticFlow.ts';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
 type WorkspaceReaderState = ReturnType<typeof useWorkspaceReaderState>;
@@ -129,7 +131,15 @@ export const LibraryScreenContainer = ({
     try {
       await controller.diagnosticAdapter?.onComplete?.();
     } catch (error) {
-      notify(getErrorMessage(error));
+      console.error('Diagnostic completion failed', {
+        name: error instanceof Error ? error.name : typeof error,
+        code: error instanceof CourseGenerationError ? error.code : 'diagnostic_completion_failed',
+      });
+      notify(
+        error instanceof CourseGenerationError
+          ? t(error.publicMessage)
+          : t(DIAGNOSTIC_COMPLETION_ERROR)
+      );
       throw error;
     }
   };

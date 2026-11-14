@@ -1,4 +1,7 @@
 /** Local presentation boundary. No curriculum identities or persistence policy live here. */
+export const DIAGNOSTIC_COMPLETION_ERROR =
+  'La richiesta non è disponibile in questo momento. Riprova più tardi.';
+
 export const SELF_ASSESSMENT_OPTIONS = [
   { value: 'unfamiliar', label: 'Non lo conosco', description: 'Non riconosco l’argomento.' },
   {

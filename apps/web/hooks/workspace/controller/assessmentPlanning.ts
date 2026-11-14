@@ -543,6 +543,10 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
         requestId,
       });
       if (state.isWorkflowCurrent('generatePlan', requestId)) {
+        if (resumed && runId && projectLibrary.getCurrentProjectId() === projectId) {
+          openRouter.acknowledgeDurableCourseRecovery({ projectId, runId });
+          state.setDiagnosticAdapter?.(undefined);
+        }
         state.succeedWorkflow('generatePlan', requestId);
       }
       return resumed ? 'resumed' : 'not-found';

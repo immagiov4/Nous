@@ -7,7 +7,7 @@ import type {
   PdfMappingRepairResult,
   PdfMappingRepairSnapshot,
 } from '@shared/pdfMappingRepairContract';
-
+import type { UiMessage } from '../../i18n/uiMessages.ts';
 import type { Message } from '../../types.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { logBackendFailureCorrelationId } from '../feedback/browserDiagnostics.ts';
@@ -23,8 +23,8 @@ import {
   readWorkflowJson,
   readWorkflowPollJson,
   readWorkflowRequestKey,
-  resolveWorkflowFailureMessage,
   retryTransientWorkflowRequest,
+  WORKFLOW_DEFINITION_UNAVAILABLE_MESSAGE,
   WORKFLOW_NOT_FOUND_STATUS,
 } from './workflowClientTransport.ts';
 
@@ -33,6 +33,26 @@ const COURSE_GENERATION_TIMEOUT_ERROR =
   'La generazione del corso ha superato il tempo disponibile. Riprova.';
 const COURSE_GENERATION_CLEANUP_ERROR =
   'Il tentativo precedente non è ancora stato ripristinato. Riprova più tardi.';
+
+const courseGenerationErrorMessage = (code?: string): UiMessage => {
+  if (code === 'course_generation_cleanup_incomplete') return COURSE_GENERATION_CLEANUP_ERROR;
+  if (code === 'workflow_definition_unavailable') return WORKFLOW_DEFINITION_UNAVAILABLE_MESSAGE;
+  return code === 'workflow_step_timeout'
+    ? COURSE_GENERATION_TIMEOUT_ERROR
+    : COURSE_GENERATION_ERROR;
+};
+
+/** Only stable workflow codes determine public copy; Error.message is never trusted by the UI. */
+export class CourseGenerationError extends Error {
+  constructor(readonly code?: string) {
+    super(courseGenerationErrorMessage(code));
+    this.name = 'CourseGenerationError';
+  }
+
+  get publicMessage(): UiMessage {
+    return courseGenerationErrorMessage(this.code);
+  }
+}
 const COURSE_REQUEST_KEY_PREFIX = 'nous:course-workflow-request:';
 const PDF_MAPPING_REPAIR_ERROR = 'La mappatura del PDF non è riuscita.';
 const PDF_MAPPING_REPAIR_REQUEST_KEY_PREFIX = 'nous:pdf-mapping-repair-request:';
@@ -162,11 +182,7 @@ const readCompletedResult = (
 ): CourseWorkflowResult => {
   if (job.status !== 'completed') {
     logBackendFailureCorrelationId(job.correlationId);
-    const fallbackMessage =
-      job.errorCode === 'workflow_step_timeout'
-        ? COURSE_GENERATION_TIMEOUT_ERROR
-        : COURSE_GENERATION_ERROR;
-    throw new Error(resolveWorkflowFailureMessage(job.errorCode, fallbackMessage));
+    throw new CourseGenerationError(job.errorCode);
   }
   try {
     return parseCompletedResult(job, projectId);
@@ -243,17 +259,29 @@ export const resumeDurableCourse = async ({
     if (isDefinitiveWorkflowStartRejection(response)) request.clear();
     const payload = await readWorkflowJson(response);
     if (isRecord(payload) && payload.code === 'course_generation_cleanup_incomplete') {
-      throw new Error(COURSE_GENERATION_CLEANUP_ERROR);
+      throw new CourseGenerationError('course_generation_cleanup_incomplete');
     }
     const retryJob = readWorkflowJob(payload, isCourseWorkflowSnapshot);
     if (!response.ok || retryJob?.projectId !== projectId || retryJob.mode !== job.mode) {
       throw new Error(COURSE_GENERATION_ERROR);
     }
     const terminalJob = await waitForTerminalRun(retryJob, callbacks);
-    request.clear();
+    // Completed work must stay replayable until the controller has loaded its project revision.
+    if (terminalJob.status === 'failed') request.clear();
     return readCompletedResult(terminalJob, projectId);
   }
   return readCompletedResult(await waitForTerminalRun(job, callbacks), projectId);
+};
+
+/** Retires the retry identity only after the replacement has been opened by the application. */
+export const acknowledgeDurableCourseRecovery = ({
+  projectId,
+  runId,
+}: {
+  projectId: string;
+  runId: string;
+}): void => {
+  clearWorkflowRequestKey(`${COURSE_REQUEST_KEY_PREFIX}${projectId}:retry:${runId}`);
 };
 
 export const resumeActiveDurableCourse = async ({

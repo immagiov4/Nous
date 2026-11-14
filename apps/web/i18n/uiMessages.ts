@@ -59,6 +59,13 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 };
 
 const ENGLISH_UI_MESSAGES = {
+  'La generazione del corso non è riuscita. Riprova.': 'Course generation failed. Try again.',
+  'La generazione del corso ha superato il tempo disponibile. Riprova.':
+    'Course generation timed out. Try again.',
+  'Il tentativo precedente non è ancora stato ripristinato. Riprova più tardi.':
+    'The previous attempt has not finished restoring the course. Try again later.',
+  'L’app è stata aggiornata mentre questa generazione era in corso. Avvia una nuova generazione.':
+    'The app was updated while this generation was running. Start a new generation.',
   [CONTEXT_NOTE_MESSAGES.noPassages]: 'This lesson has no passages to attach a note to.',
   [CONTEXT_NOTE_MESSAGES.unavailable]: 'Note proposal unavailable.',
   [CONTEXT_NOTE_MESSAGES.invalidAnchor]:

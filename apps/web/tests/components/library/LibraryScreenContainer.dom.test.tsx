@@ -1,4 +1,6 @@
 import CourseSetupHeader from '../../../components/library/CourseSetupHeader.tsx';
+import { setRenderingLocaleOverride } from '../../../i18n/uiMessages.ts';
+import { CourseGenerationError } from '../../../services/openrouter/courseGenerationClient.ts';
 import * as sourceSelection from '../../../services/projects/sourceFileSelection.ts';
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
@@ -128,15 +130,19 @@ const buildProps = () =>
   }) as unknown as ComponentProps<typeof LibraryScreenContainer>;
 
 afterEach(() => {
+  setRenderingLocaleOverride(null);
   cleanup();
   clearFeedbackDiagnostics();
   globalThis.history.replaceState({}, '', '/');
 });
 
 describe('LibraryScreenContainer route fallback', () => {
-  test('retains the completed diagnostic after remount and notifies the retry failure cause', async () => {
+  test.each([
+    ['it', 'La richiesta non è disponibile in questo momento. Riprova più tardi.'],
+    ['en', 'The request is unavailable right now. Try again later.'],
+  ] as const)('diagnostic completion hides internal errors behind a stable %s message', async (locale, message) => {
+    setRenderingLocaleOverride(locale);
     const props = buildProps();
-    const error = 'La generazione del corso ha superato il tempo disponibile. Riprova.';
     props.controller.diagnosticAdapter = {
       collectionId: 'retained',
       initial: {
@@ -146,7 +152,30 @@ describe('LibraryScreenContainer route fallback', () => {
         feedback: 'Ripartiamo dalle basi.',
       },
       submit: vi.fn(),
-      onComplete: vi.fn().mockRejectedValue(new Error(error)),
+      onComplete: vi.fn().mockRejectedValue(new Error('The approved course is not available.')),
+    };
+    render(<LibraryScreenContainer {...props} />);
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Continua diagnosi' }))
+    );
+    expect(props.notify).toHaveBeenCalledWith(message);
+    expect(props.notify).not.toHaveBeenCalledWith(expect.stringContaining('The approved course'));
+  });
+  test('retains the completed diagnostic after remount and notifies the retry failure cause', async () => {
+    const props = buildProps();
+    const error = 'La generazione del corso ha superato il tempo disponibile. Riprova.';
+    const failure = new CourseGenerationError('workflow_step_timeout');
+    failure.message = 'Private provider message';
+    props.controller.diagnosticAdapter = {
+      collectionId: 'retained',
+      initial: {
+        kind: 'complete',
+        id: 'done',
+        title: 'Punto di partenza individuato',
+        feedback: 'Ripartiamo dalle basi.',
+      },
+      submit: vi.fn(),
+      onComplete: vi.fn().mockRejectedValue(failure),
     };
     render(<LibraryScreenContainer {...props} />);
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course');

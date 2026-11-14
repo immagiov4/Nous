@@ -5,6 +5,7 @@ import DiagnosticQuestionCard from './DiagnosticQuestionCard.tsx';
 import DiagnosticTree from './DiagnosticTree.tsx';
 import {
   buildDiagnosticSubmission,
+  DIAGNOSTIC_COMPLETION_ERROR,
   type DiagnosticAdapter,
   type DiagnosticAnswer,
   DiagnosticStoppedError,
@@ -105,11 +106,7 @@ export default function DiagnosticFlow({ adapter, isDarkMode }: DiagnosticFlowPr
               {t('Continua')}
             </button>
           )}
-          {completionError && (
-            <p role="alert">
-              {t('La richiesta non è disponibile in questo momento. Riprova più tardi.')}
-            </p>
-          )}
+          {completionError && <p role="alert">{t(DIAGNOSTIC_COMPLETION_ERROR)}</p>}
         </>
       ) : (
         <>

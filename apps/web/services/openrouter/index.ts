@@ -4,6 +4,7 @@ export {
   buildAssessmentDocumentPrompt,
 } from './assessment.ts';
 export {
+  acknowledgeDurableCourseRecovery,
   generateDurableCourse,
   repairDurablePdfMapping,
   resumeActiveDurableCourse,
