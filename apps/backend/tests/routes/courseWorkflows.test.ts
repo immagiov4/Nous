@@ -55,7 +55,7 @@ describe('course workflow routes', () => {
     vi.mocked(api.retry).mockRejectedValue(new CourseGenerationCleanupIncompleteError());
     const response = await request(createApp({ courseGenerationApi: api }))
       .post('/api/course-workflows/runs/failed-run/retry')
-      .send({ projectId: 'project-1', requestKey: 'retry-1' });
+      .send({ projectId: 'project-1' });
     expect(response.status).toBe(409);
     expect(response.body).toEqual({
       success: false,
@@ -68,13 +68,12 @@ describe('course workflow routes', () => {
     const app = createApp({ courseGenerationApi: api });
     const response = await request(app)
       .post('/api/course-workflows/runs/failed-run/retry')
-      .send({ projectId: 'project-1', requestKey: 'retry-1' });
+      .send({ projectId: 'project-1' });
     expect(response.status).toBe(202);
     expect(api.retry).toHaveBeenCalledWith({
       aiProvider: undefined,
       aiProviderOverrides: undefined,
       projectId: 'project-1',
-      requestKey: 'retry-1',
       runId: 'failed-run',
       userId: 'local-user',
     });

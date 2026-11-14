@@ -871,7 +871,6 @@ const createOpenRouterMock = (
   overrides: Partial<typeof import('../../../services/openrouter/index.ts')> = {}
 ) =>
   ({
-    acknowledgeDurableCourseRecovery: vi.fn(),
     buildAssessmentDocumentContextFromSourceSet: (
       sources: Parameters<
         typeof import('../../../services/openrouter/index.ts').buildAssessmentDocumentContextFromSourceSet
@@ -6640,7 +6639,7 @@ test('confirmation recovers an approval already waiting on diagnostics and prese
 
 test('completed diagnostic Continue reuses its successful replacement after project recovery fails', async () => {
   const auth = await import('../../../services/auth/supabaseAuth.ts');
-  const { resumeDurableCourse, acknowledgeDurableCourseRecovery } = await import(
+  const { resumeDurableCourse } = await import(
     '../../../services/openrouter/courseGenerationClient.ts'
   );
   const job = {
@@ -6654,36 +6653,22 @@ test('completed diagnostic Continue reuses its successful replacement after proj
     id: 'failed-course',
     errorCode: 'workflow_step_timeout',
   };
-  const replacements = new Map<string, string>();
-  const storage = new Map<string, string>();
-  vi.stubGlobal('sessionStorage', {
-    getItem: (key: string) => storage.get(key) ?? null,
-    setItem: (key: string, value: string) => storage.set(key, value),
-    removeItem: (key: string) => storage.delete(key),
-  });
+  let replacement: Record<string, unknown> | undefined;
+  let replacementCount = 0;
   const fetch = vi
     .spyOn(auth, 'fetchWithSupabaseAuth')
     .mockImplementation(async (_url, options) => {
-      if (options?.method !== 'POST') return new Response(JSON.stringify({ success: true, job }));
-      const { requestKey } = JSON.parse(String(options.body));
-      if (!replacements.has(requestKey))
-        replacements.set(requestKey, `new-course-${replacements.size + 1}`);
-      return new Response(
-        JSON.stringify({
-          success: true,
-          job: {
-            ...job,
-            id: replacements.get(requestKey),
-            status: 'completed',
-            stage: 'ready',
-            result: {
-              projectId: 'document-project',
-              firstSectionId: 'lesson-1',
-              projectRevision: 4,
-            },
-          },
-        })
-      );
+      if (options?.method === 'POST' && !replacement) {
+        replacementCount += 1;
+        replacement = {
+          ...job,
+          id: 'new-course',
+          status: 'completed',
+          stage: 'ready',
+          result: { projectId: 'document-project', firstSectionId: 'lesson-1', projectRevision: 4 },
+        };
+      }
+      return new Response(JSON.stringify({ success: true, job: replacement ?? job }));
     });
   const completedInterview = createInterviewSnapshot({
     projectId: 'document-project',
@@ -6714,31 +6699,25 @@ test('completed diagnostic Continue reuses its successful replacement after proj
       sendCourseInterviewDecision: async () => completedInterview,
       resumeCourseInterview: async () => completedInterview,
       resumeDurableCourse,
-      acknowledgeDurableCourseRecovery,
     },
   });
   const setDiagnosticAdapter = vi.fn();
   state.adapter.setDiagnosticAdapter = setDiagnosticAdapter;
   expect((await controller.confirmPlanGeneration()).outcome).toBe('diagnostic');
   const adapter = setDiagnosticAdapter.mock.calls[0][0];
-  try {
-    await expect(adapter.onComplete()).rejects.toThrow('Project download failed');
-    expect(state.internalState.screenState).toBe(AppState.LIBRARY);
-    expect(setDiagnosticAdapter).toHaveBeenCalledTimes(1);
-    await adapter.onComplete();
-    expect(replacements.size).toBe(1);
-    expect(fetch.mock.calls[1][0]).toContain('/runs/failed-course/retry');
-    expect(state.internalState.workflowState.generatePlan.status).toBe('succeeded');
-    expect(state.internalState.screenState).toBe(AppState.READING);
-    expect(projectLibrary.adapter.applyPersistedProjectRevision).toHaveBeenNthCalledWith(2, {
-      projectId: 'document-project',
-      revision: 4,
-    });
-    expect(setDiagnosticAdapter).toHaveBeenLastCalledWith(undefined);
-    expect(storage.size).toBe(0);
-  } finally {
-    vi.unstubAllGlobals();
-  }
+  await expect(adapter.onComplete()).rejects.toThrow('Project download failed');
+  expect(state.internalState.screenState).toBe(AppState.LIBRARY);
+  expect(setDiagnosticAdapter).toHaveBeenCalledTimes(1);
+  await adapter.onComplete();
+  expect(replacementCount).toBe(1);
+  expect(fetch.mock.calls[1][0]).toContain('/runs/failed-course/retry');
+  expect(state.internalState.workflowState.generatePlan.status).toBe('succeeded');
+  expect(state.internalState.screenState).toBe(AppState.READING);
+  expect(projectLibrary.adapter.applyPersistedProjectRevision).toHaveBeenNthCalledWith(2, {
+    projectId: 'document-project',
+    revision: 4,
+  });
+  expect(setDiagnosticAdapter).toHaveBeenLastCalledWith(undefined);
 });
 test.each([
   ['lookup', 'generatePlan'],

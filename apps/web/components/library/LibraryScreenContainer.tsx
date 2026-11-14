@@ -9,7 +9,7 @@ import type { useWorkspaceController } from '../../hooks/workspace/useWorkspaceC
 import type { useWorkspaceFileActions } from '../../hooks/workspace/useWorkspaceFileActions.ts';
 import type { useWorkspaceNavigation } from '../../hooks/workspace/useWorkspaceNavigation.ts';
 import type { useWorkspaceReaderState } from '../../hooks/workspace/useWorkspaceReaderState.ts';
-import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { DIAGNOSTIC_COMPLETION_ERROR, translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
 import { setFeedbackProductContext } from '../../services/feedback/browserDiagnostics.ts';
@@ -21,7 +21,6 @@ import type { HomeChatMode, HomeChatToolPreferences } from '../../types.ts';
 import { type NewHomePage, NewHomeView } from '../newHome/NewHomeView.tsx';
 import { CourseControls, describeCourseControls } from './CourseControls.tsx';
 import { CourseLanguageProficiency } from './CourseLanguageProficiency.tsx';
-import { DIAGNOSTIC_COMPLETION_ERROR } from './diagnostic/diagnosticFlow.ts';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
 type WorkspaceReaderState = ReturnType<typeof useWorkspaceReaderState>;
@@ -140,7 +139,6 @@ export const LibraryScreenContainer = ({
           ? t(error.publicMessage)
           : t(DIAGNOSTIC_COMPLETION_ERROR)
       );
-      throw error;
     }
   };
 

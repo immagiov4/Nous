@@ -71,7 +71,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integra
     });
     try {
       await sql`update public.workflow_runs set status = 'failed', cleanup_status = 'pending', completed_at = now() where id = ${original.run.id}`;
-      const request = { runId: original.run.id, projectId, userId, requestKey: randomUUID() };
+      const request = { runId: original.run.id, projectId, userId };
       await expect(api.retry(request)).rejects.toMatchObject({
         name: 'CourseGenerationCleanupIncompleteError',
       });
@@ -84,12 +84,37 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integra
       const replacement = await store.getRun({ runId: replacementId, userId });
       expect(replacement?.input).toEqual(original.run.input);
       expect(replacement?.requestKey).toContain(original.run.id);
+      await sql`update public.workflow_runs set status = 'failed', cleanup_status = 'pending', completed_at = now() where id = ${replacementId}`;
+      await expect(api.retry(request)).rejects.toMatchObject({
+        name: 'CourseGenerationCleanupIncompleteError',
+      });
+      await sql`update public.workflow_runs set cleanup_status = 'completed' where id = ${replacementId}`;
+      const followup = await api.retry(request);
+      expect(followup.created).toBe(true);
+      expect(followup.job.id).not.toBe(replacementId);
+      const completedId = followup.job.id;
       const output = { projectId, firstSectionId: 'lesson-1', projectRevision: 1 };
-      await sql`update public.workflow_runs set status = 'completed', output = ${sql.json(output)}, completed_at = now() where id = ${replacementId}`;
+      await sql`update public.workflow_runs set status = 'completed', output = ${sql.json(output)}, completed_at = now() where id = ${completedId}`;
       await expect(api.retry(request)).resolves.toMatchObject({
         created: false,
-        job: { id: replacementId, status: 'completed', result: output },
+        job: { id: completedId, status: 'completed', result: output },
       });
+      const otherClient = createCourseGenerationApi({
+        projectReader: {
+          loadProject: async () => ({
+            id: projectId,
+            version: '4.1',
+            createdAt: '',
+            updatedAt: '',
+            lastOpenedAt: '',
+          }),
+        },
+        runReader: store,
+        starter,
+      });
+      await expect(
+        otherClient.retry({ runId: original.run.id, projectId, userId })
+      ).resolves.toMatchObject({ created: false, job: { id: completedId, status: 'completed' } });
     } finally {
       await sql`delete from public.workflow_runs where user_id = ${userId} and workflow_id = 'course-generation'`;
     }

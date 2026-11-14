@@ -144,7 +144,10 @@ export const createCourseWorkflowRouter = (
     '/runs/:runId/retry',
     asyncRoute(async (request, response) => {
       const parameters = runParametersSchema.safeParse(request.params);
-      const body = pdfMappingRepairBodySchema.safeParse(request.body);
+      const body = z
+        .object({ projectId: z.string().trim().min(1) })
+        .strict()
+        .safeParse(request.body);
       if (!parameters.success || !body.success)
         return response.status(400).json(INVALID_REQUEST_RESPONSE);
       const user = getCurrentUser(request);

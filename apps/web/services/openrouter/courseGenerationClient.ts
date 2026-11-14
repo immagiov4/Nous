@@ -224,64 +224,27 @@ export const generateDurableCourse = async ({
   return readCompletedResult(terminalJob, projectId);
 };
 
-/** Recovers approved work, or explicitly retries a run that had already failed before Continue. */
+/** The server resolves approved work to its latest attempt and owns any replacement identity. */
 export const resumeDurableCourse = async ({
   runId,
   projectId,
   ...callbacks
 }: ResumeActiveDurableCourseInput & { runId: string }): Promise<CourseWorkflowResult> => {
-  const job = await retryTransientWorkflowRequest(async () => {
-    const response = await fetchWithSupabaseAuth(
-      `${getBackendUrl()}/api/course-workflows/runs/${encodeURIComponent(runId)}`,
-      { cache: 'no-store' }
-    );
-    assertWorkflowPollResponse(response, COURSE_GENERATION_ERROR);
-    const snapshot = readWorkflowJob(
-      await readWorkflowPollJson(response, COURSE_GENERATION_ERROR),
-      isCourseWorkflowSnapshot
-    );
-    if (snapshot?.id !== runId || snapshot.projectId !== projectId)
-      throw new Error(COURSE_GENERATION_ERROR);
-    return snapshot;
-  });
-  if (job.status === 'failed') {
-    const request = acquireWorkflowRequestKey(
-      `${COURSE_REQUEST_KEY_PREFIX}${projectId}:retry:${runId}`
-    );
-    const response = await fetchWithSupabaseAuth(
-      `${getBackendUrl()}/api/course-workflows/runs/${encodeURIComponent(runId)}/retry`,
-      {
-        body: JSON.stringify({ projectId, requestKey: request.requestKey }),
-        headers: { 'Content-Type': 'application/json' },
-        method: 'POST',
-      }
-    );
-    if (isDefinitiveWorkflowStartRejection(response)) request.clear();
-    const payload = await readWorkflowJson(response);
-    if (isRecord(payload) && payload.code === 'course_generation_cleanup_incomplete') {
-      throw new CourseGenerationError('course_generation_cleanup_incomplete');
+  const response = await fetchWithSupabaseAuth(
+    `${getBackendUrl()}/api/course-workflows/runs/${encodeURIComponent(runId)}/retry`,
+    {
+      body: JSON.stringify({ projectId }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
     }
-    const retryJob = readWorkflowJob(payload, isCourseWorkflowSnapshot);
-    if (!response.ok || retryJob?.projectId !== projectId || retryJob.mode !== job.mode) {
-      throw new Error(COURSE_GENERATION_ERROR);
-    }
-    const terminalJob = await waitForTerminalRun(retryJob, callbacks);
-    // Completed work must stay replayable until the controller has loaded its project revision.
-    if (terminalJob.status === 'failed') request.clear();
-    return readCompletedResult(terminalJob, projectId);
+  );
+  const payload = await readWorkflowJson(response);
+  if (isRecord(payload) && payload.code === 'course_generation_cleanup_incomplete') {
+    throw new CourseGenerationError('course_generation_cleanup_incomplete');
   }
+  const job = readWorkflowJob(payload, isCourseWorkflowSnapshot);
+  if (!response.ok || job?.projectId !== projectId) throw new Error(COURSE_GENERATION_ERROR);
   return readCompletedResult(await waitForTerminalRun(job, callbacks), projectId);
-};
-
-/** Retires the retry identity only after the replacement has been opened by the application. */
-export const acknowledgeDurableCourseRecovery = ({
-  projectId,
-  runId,
-}: {
-  projectId: string;
-  runId: string;
-}): void => {
-  clearWorkflowRequestKey(`${COURSE_REQUEST_KEY_PREFIX}${projectId}:retry:${runId}`);
 };
 
 export const resumeActiveDurableCourse = async ({

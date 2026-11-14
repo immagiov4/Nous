@@ -54,6 +54,11 @@ interface CourseGenerationProjectReader {
 }
 
 interface CourseGenerationRunReader {
+  getRunByRequestKey(input: {
+    requestKey: string;
+    userId: string;
+    workflowId: string;
+  }): Promise<WorkflowRun | null>;
   getActiveRun(input: {
     projectId: string;
     userId: string;
@@ -73,7 +78,7 @@ export interface CourseGenerationApi {
   retry(
     input: Pick<
       CourseGenerationStartRequest,
-      'aiProvider' | 'aiProviderOverrides' | 'projectId' | 'requestKey' | 'userId'
+      'aiProvider' | 'aiProviderOverrides' | 'projectId' | 'userId'
     > & { runId: string }
   ): Promise<{ created: boolean; job: CourseWorkflowSnapshot }>;
   get(input: { runId: string; userId: string }): Promise<CourseWorkflowSnapshot | null>;
@@ -184,16 +189,28 @@ const createSnapshot = (run: WorkflowRun, state: WorkflowRunState): CourseWorkfl
   };
 };
 
+const retryRequestKey = (runId: string): string =>
+  JSON.stringify(['course-generation-retry', runId]);
+
 export const createCourseGenerationApi = (
   dependencies: CourseGenerationApiDependencies
 ): CourseGenerationApi => ({
   async retry(input) {
-    const run = await dependencies.runReader.getRun(input);
+    let run = await dependencies.runReader.getRun(input);
     if (run?.workflowId !== COURSE_GENERATION_WORKFLOW_ID || run.projectId !== input.projectId) {
       throw new CourseGenerationTargetNotFoundError();
     }
+    for (;;) {
+      const successor = await dependencies.runReader.getRunByRequestKey({
+        requestKey: retryRequestKey(run.id),
+        userId: input.userId,
+        workflowId: COURSE_GENERATION_WORKFLOW_ID,
+      });
+      if (!successor) break;
+      run = successor;
+    }
     if (run.status !== 'failed') {
-      const job = await this.get(input);
+      const job = await this.get({ runId: run.id, userId: input.userId });
       if (!job) throw new WorkflowRunNotFoundError();
       return { created: false, job };
     }
@@ -205,7 +222,7 @@ export const createCourseGenerationApi = (
       aiProvider: input.aiProvider,
       aiProviderOverrides: input.aiProviderOverrides,
       // Keep retries idempotent and traceable without persisting learner content in diagnostics.
-      requestKey: JSON.stringify(['course-generation-retry', run.id, input.requestKey]),
+      requestKey: retryRequestKey(run.id),
       userId: input.userId,
     });
   },

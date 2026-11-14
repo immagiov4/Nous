@@ -1,4 +1,6 @@
 import CourseSetupHeader from '../../../components/library/CourseSetupHeader.tsx';
+import DiagnosticFlow from '../../../components/library/diagnostic/DiagnosticFlow.tsx';
+import type { DiagnosticAdapter } from '../../../components/library/diagnostic/diagnosticFlow.ts';
 import { setRenderingLocaleOverride } from '../../../i18n/uiMessages.ts';
 import { CourseGenerationError } from '../../../services/openrouter/courseGenerationClient.ts';
 import * as sourceSelection from '../../../services/projects/sourceFileSelection.ts';
@@ -35,7 +37,7 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       pendingFileWarnings?: string[];
       terminalSourceDocuments?: { id: string; name: string; state: string }[];
       onClearPendingFile: () => void;
-      diagnosticAdapter?: { onComplete?: () => Promise<void> };
+      diagnosticAdapter?: DiagnosticAdapter;
     };
     onPageChange: (page: 'home' | 'library') => void;
     storageError?: string | null;
@@ -61,12 +63,7 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       <button type="button" onClick={chatProps.onClearPendingFile}>
         Rimuovi fonti
       </button>
-      <button
-        type="button"
-        onClick={() => void chatProps.diagnosticAdapter?.onComplete?.().catch(() => {})}
-      >
-        Continua diagnosi
-      </button>
+      {chatProps.diagnosticAdapter && <DiagnosticFlow adapter={chatProps.diagnosticAdapter} />}
       <button type="button" onClick={() => void chatProps.onConfirmGenerate()}>
         Conferma scelte
       </button>
@@ -156,10 +153,14 @@ describe('LibraryScreenContainer route fallback', () => {
     };
     render(<LibraryScreenContainer {...props} />);
     await act(async () =>
-      fireEvent.click(screen.getByRole('button', { name: 'Continua diagnosi' }))
+      fireEvent.click(
+        screen.getByRole('button', { name: locale === 'en' ? 'Continue' : 'Continua' })
+      )
     );
     expect(props.notify).toHaveBeenCalledWith(message);
     expect(props.notify).not.toHaveBeenCalledWith(expect.stringContaining('The approved course'));
+    expect(props.notify).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
   test('retains the completed diagnostic after remount and notifies the retry failure cause', async () => {
     const props = buildProps();
@@ -179,9 +180,7 @@ describe('LibraryScreenContainer route fallback', () => {
     };
     render(<LibraryScreenContainer {...props} />);
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course');
-    await act(async () =>
-      fireEvent.click(screen.getByRole('button', { name: 'Continua diagnosi' }))
-    );
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Continua' })));
     expect(props.notify).toHaveBeenCalledWith(error);
   });
   test('counts expanded preparation documents in the setup header', () => {

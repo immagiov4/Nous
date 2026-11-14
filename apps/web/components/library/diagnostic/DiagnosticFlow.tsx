@@ -1,11 +1,10 @@
 import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { useLayoutEffect, useReducer, useRef, useState } from 'react';
-import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import { DIAGNOSTIC_COMPLETION_ERROR, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import DiagnosticQuestionCard from './DiagnosticQuestionCard.tsx';
 import DiagnosticTree from './DiagnosticTree.tsx';
 import {
   buildDiagnosticSubmission,
-  DIAGNOSTIC_COMPLETION_ERROR,
   type DiagnosticAdapter,
   type DiagnosticAnswer,
   DiagnosticStoppedError,
