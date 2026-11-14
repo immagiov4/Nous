@@ -184,7 +184,11 @@ export const prepareSourceCollection = async ({
   snapshot: ProjectSnapshot;
   upload: SourceUpload;
   context: SourcePreparationContext;
-}): Promise<{ snapshot: ProjectSnapshot; failures: SourcePreparationFailure[] }> => {
+}): Promise<{
+  snapshot: ProjectSnapshot;
+  privateCheckpoint: ProjectSnapshot;
+  failures: SourcePreparationFailure[];
+}> => {
   snapshot = restoreProjectDocumentText(snapshot, storedSnapshot ?? null);
   snapshot = restoreStoredPreparedPdfText(snapshot, storedSnapshot);
   if (!isRecord(snapshot.source) || !Array.isArray(snapshot.source.sources))
@@ -380,12 +384,17 @@ export const prepareSourceCollection = async ({
     delete published.errorDiagnostic;
     return published;
   });
+  const privateCheckpoint: ProjectSnapshot = {
+    ...snapshot,
+    source: { ...source, sources: descriptors },
+    documentIndex: combineCourseSourceIndexes(publishedDescriptors),
+  };
   return {
     failures,
+    privateCheckpoint,
     snapshot: {
-      ...snapshot,
+      ...privateCheckpoint,
       source: { ...source, sources: publishedDescriptors },
-      documentIndex: combineCourseSourceIndexes(publishedDescriptors),
     },
   };
 };

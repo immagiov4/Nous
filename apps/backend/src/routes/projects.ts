@@ -1335,7 +1335,11 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
                 })
               );
               context.signal.throwIfAborted();
-              checkpointPreparedProjectSources(userId, completionInput.uploadId, prepared.snapshot);
+              checkpointPreparedProjectSources(
+                userId,
+                completionInput.uploadId,
+                prepared.privateCheckpoint
+              );
               context.reportProgress({ step: 'persistence', completed: 0, total: files.length });
               const imported = await store.saveProject(userId, prepared.snapshot, {
                 expectedRevision,

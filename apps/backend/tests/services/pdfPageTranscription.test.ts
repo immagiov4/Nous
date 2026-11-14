@@ -900,6 +900,7 @@ test.each([
   { scenario: 'validation', stage: 'validation', type: 'Error', requests: 2 },
   { scenario: 'provider', stage: 'request', type: 'AI_APICallError', requests: 1 },
   { scenario: 'retry-budget', stage: 'request', type: 'AI_APICallError', requests: 2 },
+  { scenario: 'retry-then-timeout', stage: 'request-budget', type: 'TimeoutError', requests: 2 },
 ])('records a distinct safe page cause for $scenario while continuing preparation', async ({
   scenario,
   stage,
@@ -923,6 +924,17 @@ test.each([
   const progress = vi.fn();
   if (scenario === 'timeout')
     provider.generateText.mockRejectedValue(new DOMException('private request', 'TimeoutError'));
+  if (scenario === 'retry-then-timeout')
+    provider.generateText
+      .mockRejectedValueOnce(
+        new APICallError({
+          message: 'private response',
+          url: 'https://provider.invalid',
+          requestBodyValues: {},
+          statusCode: 503,
+        })
+      )
+      .mockRejectedValue(new DOMException('private request', 'TimeoutError'));
   if (scenario === 'structured-answer')
     provider.generateText.mockResolvedValue({ output: { status: 'ok', markdown: 42 }, usage: {} });
   if (scenario === 'validation')
@@ -963,7 +975,9 @@ test.each([
           type,
           ...(scenario === 'provider' ? { status: 400 } : {}),
           ...(scenario === 'retry-budget' ? { status: 503 } : {}),
-          ...(scenario === 'timeout' ? { code: DOMException.TIMEOUT_ERR } : {}),
+          ...(scenario === 'timeout' || scenario === 'retry-then-timeout'
+            ? { code: DOMException.TIMEOUT_ERR }
+            : {}),
           ...(scenario === 'structured-answer' ? { validationPaths: ['markdown'] } : {}),
         },
         requests,

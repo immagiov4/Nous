@@ -185,6 +185,7 @@ const transcribePage = async (
   onUsage: (usage: PageUsage) => void,
   context: {
     onRequest?: () => void;
+    canRetry: () => boolean;
     sourceHash?: string;
     pageNumber?: number;
     selection: PdfTranscriptionSelection;
@@ -209,6 +210,10 @@ const transcribePage = async (
   } catch (error) {
     signal.throwIfAborted();
     if (!(error instanceof Error) || error.name !== 'TimeoutError') throw error;
+    if (!context.canRetry()) {
+      context.onStage('request-budget');
+      throw error;
+    }
     attempts = 2;
     first = await requestPageTranscription(request);
   }
@@ -375,6 +380,7 @@ export const preparePdfTextExtraction = async (
     const selection = selections[index];
     const started = performance.now();
     const state: { stage: PageStage; requests: number } = { stage: 'render', requests: 0 };
+    const canRetry = () => state.requests < MAX_PDF_PAGE_REQUESTS;
     const onRequest = () => {
       if (state.requests >= MAX_PDF_PAGE_REQUESTS) {
         state.stage = 'request-budget';
@@ -386,7 +392,7 @@ export const preparePdfTextExtraction = async (
       const scheduled = await pool.schedule({
         signal,
         timeoutMs: PDF_TRANSCRIPTION.renderTimeoutMs,
-        canRetry: () => state.requests < MAX_PDF_PAGE_REQUESTS,
+        canRetry,
         render: signal => renderPdfPage(bytes, target.pageNumber, signal),
         transcribe: async (image, signal) => {
           const result = await transcribePage(
@@ -402,6 +408,7 @@ export const preparePdfTextExtraction = async (
             {
               selection,
               onRequest,
+              canRetry,
               onStage: stage => {
                 state.stage = stage;
               },
