@@ -3,6 +3,8 @@ import * as z from 'zod';
 
 const ReviewDiagnosticRootSchema = z.enum(['fencedCode', 'verificationReport']);
 const ReviewDiagnosticIndexSchema = z.number().int().nonnegative();
+export const REVIEW_DIAGNOSTIC_ID_LIMIT = 32;
+export const LessonFenceIdSchema = z.string().regex(/^fence-\d{1,10}$/);
 export const LessonReviewDiagnosticSchema = z.object({
   reason: z.enum([
     'schema-invalid',
@@ -15,7 +17,13 @@ export const LessonReviewDiagnosticSchema = z.object({
     'action-missing',
     'not-applicable-forbidden',
     'judgment-required',
+    'id-mismatch',
   ]),
+  expectedCount: ReviewDiagnosticIndexSchema.optional(),
+  receivedCount: ReviewDiagnosticIndexSchema.optional(),
+  expectedIds: z.array(LessonFenceIdSchema).max(REVIEW_DIAGNOSTIC_ID_LIMIT).optional(),
+  receivedIds: z.array(LessonFenceIdSchema).max(REVIEW_DIAGNOSTIC_ID_LIMIT).optional(),
+  unknownIdCount: ReviewDiagnosticIndexSchema.optional(),
   requiredCheckIndex: ReviewDiagnosticIndexSchema.optional(),
   path: z.union([
     z.tuple([ReviewDiagnosticRootSchema]),

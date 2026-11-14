@@ -51,10 +51,9 @@ describe('sanitized review rejection diagnostics', () => {
     'count',
     'source',
     'prose',
-    'report-duplicate',
+    'report-array',
     'report-action',
     'report-applicability',
-    'schema-source',
     'schema-kind',
     'report-schema',
     'report-key',
@@ -65,52 +64,62 @@ describe('sanitized review rejection diagnostics', () => {
   ])('%s', async variant => {
     let returningValid = false;
     generateStructuredOutput.mockImplementation(async ({ output }) => {
-      const ids: string[] =
-        output.schema.properties.verificationReport.items.properties.checkId.enum;
+      if (output.name === 'durable_lesson_fence_classification') {
+        if (!returningValid) {
+          if (variant === 'missing') return undefined;
+          if (variant === 'count') return {};
+          if (variant === 'source') return { PRIVATE_ID_SENTINEL: 'code' };
+          if (variant === 'prose') return { 'fence-0': 'prose' };
+          if (variant === 'schema-kind') return { 'fence-0': 'PRIVATE_KIND_SENTINEL' };
+        }
+        return { 'fence-0': 'code' };
+      }
+      const ids = Object.keys(output.schema.properties.verificationReport.properties);
       const response = {
         ...structuredClone(draft),
-        fencedCode: [{ source: '```\ncount = 1\n```', kind: 'code' }],
         lessonIntegrity: {
           topic: { preserved: true, evidence: 'Synthetic topic preserved.' },
           objectives: { preserved: true, evidence: 'Synthetic objective preserved.' },
         },
-        verificationReport: ids.map(checkId => ({
-          checkId,
-          status: 'pass',
-          evidence: 'Synthetic evidence.',
-          action: 'Retain.',
-        })),
+        verificationReport: Object.fromEntries(
+          ids.map(checkId => [
+            checkId,
+            {
+              status: 'pass',
+              evidence: 'Synthetic evidence.',
+              action: 'Retain.',
+            },
+          ])
+        ),
       };
-      if (!returningValid && variant === 'missing')
-        Object.assign(response, { fencedCode: undefined });
-      if (!returningValid && variant === 'count') response.fencedCode = [];
-      if (!returningValid && variant === 'source')
-        response.fencedCode[0].source = '```\ncount = 2\n```';
-      if (!returningValid && variant === 'prose') response.fencedCode[0].kind = 'prose';
-      if (!returningValid && variant === 'report-duplicate')
-        response.verificationReport[1].checkId = ids[0];
+      if (!returningValid && variant === 'report-array')
+        Object.assign(response, {
+          verificationReport: ids.map(checkId => ({
+            checkId,
+            ...response.verificationReport[checkId],
+          })),
+        });
       if (!returningValid && variant === 'report-action')
-        Object.assign(response.verificationReport[0], { status: 'corrected', action: '' });
+        Object.assign(response.verificationReport[ids[0]], { status: 'corrected', action: '' });
       if (!returningValid && variant === 'report-applicability')
-        Object.assign(response.verificationReport[0], { status: 'not-applicable' });
-      if (!returningValid && variant === 'schema-source')
-        Object.assign(response.fencedCode[0], { source: 42 });
-      if (!returningValid && variant === 'schema-kind')
-        response.fencedCode[0].kind = 'PRIVATE_KIND_SENTINEL';
+        Object.assign(response.verificationReport[ids[0]], { status: 'not-applicable' });
       if (!returningValid && variant === 'report-schema')
-        Object.assign(response.verificationReport[0], {
+        Object.assign(response.verificationReport[ids[0]], {
           status: 'PRIVATE_STATUS_SENTINEL',
           PRIVATE_KEY_SENTINEL: 'PRIVATE_VALUE_SENTINEL',
         });
       if (!returningValid && variant === 'report-key')
-        Object.assign(response.verificationReport[0], {
+        Object.assign(response.verificationReport[ids[0]], {
           PRIVATE_KEY_SENTINEL: 'PRIVATE_VALUE_SENTINEL',
         });
-      if (!returningValid && variant === 'report-missing') response.verificationReport.shift();
+      if (!returningValid && variant === 'report-missing')
+        delete response.verificationReport[ids[0]];
       if (!returningValid && variant === 'report-unknown')
-        response.verificationReport[0].checkId = 'PRIVATE_CHECK_SENTINEL';
+        Object.assign(response.verificationReport, {
+          PRIVATE_CHECK_SENTINEL: response.verificationReport[ids[0]],
+        });
       if (!returningValid && variant === 'report-evidence')
-        response.verificationReport[0].evidence = '  ';
+        response.verificationReport[ids[0]].evidence = '  ';
       if (!returningValid && variant === 'report-judgment') {
         response.contentBlocks.push({
           type: 'inline-quiz',
@@ -122,7 +131,7 @@ describe('sanitized review rejection diagnostics', () => {
             options: ['One', 'Two'],
           },
         } as never);
-        Object.assign(response.verificationReport[ids.indexOf('quiz-quality')], {
+        Object.assign(response.verificationReport['quiz-quality'], {
           status: 'not-applicable',
         });
       }
@@ -149,8 +158,7 @@ describe('sanitized review rejection diagnostics', () => {
     );
     expect(typeof error.feedback).toBe('string');
     const expected = {
-      'schema-source': { reason: 'schema-invalid', path: ['fencedCode', 0, 'source'] },
-      'schema-kind': { reason: 'schema-invalid', path: ['fencedCode', 0, 'kind'] },
+      'schema-kind': { reason: 'schema-invalid', path: ['fencedCode'] },
       'report-key': { reason: 'schema-invalid', path: ['verificationReport', 0] },
       'report-schema': { reason: 'schema-invalid', path: ['verificationReport', 0, 'status'] },
       'report-missing': {
@@ -158,17 +166,41 @@ describe('sanitized review rejection diagnostics', () => {
         path: ['verificationReport'],
         requiredCheckIndex: 0,
       },
-      'report-unknown': { reason: 'unknown-check', path: ['verificationReport', 0, 'checkId'] },
+      'report-unknown': { reason: 'unknown-check', path: ['verificationReport'] },
       'report-evidence': { reason: 'schema-invalid', path: ['verificationReport', 0, 'evidence'] },
       'report-judgment': {
         reason: 'judgment-required',
         path: ['verificationReport', 13, 'status'],
       },
-      missing: { reason: 'schema-invalid', path: ['fencedCode'] },
-      count: { reason: 'count-mismatch', path: ['fencedCode'] },
-      source: { reason: 'source-mismatch', path: ['fencedCode', 0, 'source'] },
+      missing: {
+        reason: 'id-mismatch',
+        path: ['fencedCode'],
+        expectedCount: 1,
+        receivedCount: 0,
+        expectedIds: ['fence-0'],
+        receivedIds: [],
+        unknownIdCount: 0,
+      },
+      count: {
+        reason: 'id-mismatch',
+        path: ['fencedCode'],
+        expectedCount: 1,
+        receivedCount: 0,
+        expectedIds: ['fence-0'],
+        receivedIds: [],
+        unknownIdCount: 0,
+      },
+      source: {
+        reason: 'id-mismatch',
+        path: ['fencedCode'],
+        expectedCount: 1,
+        receivedCount: 1,
+        expectedIds: ['fence-0'],
+        receivedIds: [],
+        unknownIdCount: 1,
+      },
       prose: { reason: 'prose-remains', path: ['fencedCode', 0, 'kind'] },
-      'report-duplicate': { reason: 'duplicate-check', path: ['verificationReport', 1, 'checkId'] },
+      'report-array': { reason: 'schema-invalid', path: ['verificationReport'] },
       'report-action': { reason: 'action-missing', path: ['verificationReport', 0, 'action'] },
       'report-applicability': {
         reason: 'not-applicable-forbidden',

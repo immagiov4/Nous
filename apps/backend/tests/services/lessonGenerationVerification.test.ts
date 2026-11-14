@@ -1,4 +1,3 @@
-import { getAmbiguousFencedBlocks } from '@shared/lessonPlayback';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { reviewLessonContentDraftStrict } from '../../src/services/lessonGenerationModel.js';
@@ -88,26 +87,24 @@ const mockReview = (
   reportOverride?: Record<string, unknown>
 ) => {
   generateStructuredOutput.mockImplementation(async ({ output }) => {
-    const checkIds: string[] =
-      output.schema.properties.verificationReport.items.properties.checkId.enum;
+    if (output.name === 'durable_lesson_fence_classification')
+      return Object.fromEntries(Object.keys(output.schema.properties).map(id => [id, 'code']));
+    const checkIds = Object.keys(output.schema.properties.verificationReport.properties);
+    const { checkId: overrideId, ...override } = reportOverride ?? {};
     return {
       ...draft,
-      fencedCode: draft.contentBlocks.flatMap(block =>
-        block.type === 'markdown'
-          ? getAmbiguousFencedBlocks(block.markdown).map(fence => ({
-              source: fence.source,
-              kind: 'code',
-            }))
-          : []
-      ),
       ...(lessonIntegrity === undefined ? {} : { lessonIntegrity }),
-      verificationReport: checkIds.map(checkId => ({
-        action: 'Retain the reviewed content.',
-        checkId,
-        evidence: 'Complete deterministic report fixture.',
-        status: 'pass',
-        ...(checkId === reportOverride?.checkId ? reportOverride : {}),
-      })),
+      verificationReport: Object.fromEntries(
+        checkIds.map(checkId => [
+          checkId,
+          {
+            action: 'Retain the reviewed content.',
+            evidence: 'Complete deterministic report fixture.',
+            status: 'pass',
+            ...(checkId === overrideId ? override : {}),
+          },
+        ])
+      ),
     };
   });
 };
@@ -582,10 +579,11 @@ test('rejects reviewed mathematical prose that the model still classifies inside
   mockReview(draft, preserved);
   const base = generateStructuredOutput.getMockImplementation();
   if (!base) throw new Error('Expected the recorded lesson review.');
-  generateStructuredOutput.mockImplementation(async request => ({
-    ...(await base(request)),
-    fencedCode: [{ source: draft.contentBlocks[0].markdown, kind: 'prose' }],
-  }));
+  generateStructuredOutput.mockImplementation(async request =>
+    request.output.name === 'durable_lesson_fence_classification'
+      ? Object.fromEntries(Object.keys(request.output.schema.properties).map(id => [id, 'prose']))
+      : base(request)
+  );
   await expect(reviewLessonContentDraftStrict({ generationInput, draft })).rejects.toMatchObject({
     code: 'lesson_review_fenced_prose',
   });
@@ -599,7 +597,7 @@ test.each([
   const draft = { ...original, contentBlocks: [{ type: 'markdown' as const, markdown }] };
   mockReview(draft, preserved);
   await expect(reviewLessonContentDraftStrict({ generationInput, draft })).resolves.toEqual(draft);
-  expect(generateStructuredOutput).toHaveBeenCalledOnce();
+  expect(generateStructuredOutput).toHaveBeenCalledTimes(2);
 });
 
 test('accepts recorded review that unwraps mathematical prose into ordinary Markdown', async () => {
@@ -631,14 +629,6 @@ test('accepts genuine text output introduced by an authorized code-structure cor
     ],
   };
   mockReview(corrected, preserved);
-  const recorded = generateStructuredOutput.getMockImplementation();
-  if (!recorded) throw new Error('Expected a recorded review.');
-  generateStructuredOutput.mockImplementation(async request => {
-    const response = await recorded(request);
-    if (Object.hasOwn(request.output.schema.properties, 'fencedCode')) return response;
-    const { fencedCode: _notAllowedBySchema, ...strictResponse } = response;
-    return strictResponse;
-  });
   await expect(reviewLessonContentDraftStrict({ generationInput, draft })).resolves.toEqual(
     corrected
   );
