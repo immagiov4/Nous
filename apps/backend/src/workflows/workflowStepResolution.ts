@@ -10,6 +10,7 @@ import type {
 } from './types.js';
 import { WORKFLOW_STEP_POLICIES_VERSION } from './types.js';
 import { assertRegisteredWorkflowIntegrity } from './validation.js';
+import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
 import { indexWorkflowNodes } from './workflowNodeIndex.js';
 import { workflowOperationIdempotencyKey } from './workflowStepAttempt.js';
 
@@ -208,22 +209,33 @@ export const resolveWorkflowStepClaim = (
   const claimedPolicy = resolveClaimedWorkflowStepPolicy(definition, claim);
   if (!claimedPolicy.resolved) return mapClaimResolutionFailure(claimedPolicy);
 
+  let phase = 'input-parse';
   try {
+    const parsedInput = node.inputSchema.parse(claim.input);
+    phase = 'input-snapshot';
     return {
       resolved: true,
       value: {
         config: claimedPolicy.config,
         definition,
-        input: snapshotImmutableJson(node.inputSchema.parse(claim.input)),
+        input: snapshotImmutableJson(parsedInput),
         step: node,
       },
     };
-  } catch {
+  } catch (error) {
+    const issue = error instanceof z.ZodError ? firstSanitizedZodIssue(error) : undefined;
     return {
-      failure: permanentFailure(
-        'workflow_step_input_incompatible',
-        'The workflow step input does not match its durable schema.'
-      ),
+      failure: {
+        ...permanentFailure(
+          'workflow_step_input_incompatible',
+          'The workflow step input does not match its durable schema.'
+        ),
+        details: {
+          phase,
+          diagnostic: toWorkflowErrorDiagnostic(error, { includeContent: false }),
+          ...(issue ? { validationIssue: { code: issue.code, path: [...issue.path] } } : {}),
+        },
+      },
       registeredDefinition: definition,
       resolved: false,
     };

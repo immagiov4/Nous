@@ -1828,3 +1828,48 @@ test('returns a sanitized heartbeat failure without checkpointing or releasing t
   expect(store.steps.recordFailure).not.toHaveBeenCalled();
   expect(store.cancellation.releaseClaim).not.toHaveBeenCalled();
 });
+
+test.each([
+  { input: { alpha: 42, beta: ['ok', 'ok'] }, path: ['alpha'], code: 'invalid_type' },
+  { input: { alpha: 'ok', beta: ['ok', ''] }, path: ['beta', 1], code: 'too_small' },
+  { input: { alpha: 'data:text/plain,secret', beta: ['ok', 'ok'] }, phase: 'input-snapshot' },
+])('records distinguishable claimed input failures: $input', async fixture => {
+  const Input = z.object({ alpha: z.string(), beta: z.array(z.string().min(1)) });
+  const work = step({
+    id: 'work',
+    inputSchema: Input,
+    outputSchema: Text,
+    run: async () => ({ text: 'done' }),
+  });
+  const registry = createWorkflowRegistry();
+  const registered = registry.register({
+    current: workflow({
+      compatibilityId: 'test-v1',
+      configSchema: WorkflowExecutionDefaultsSchema,
+      executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+      id: 'input-diagnostics',
+      inputSchema: Input,
+      outputSchema: Text,
+      root: work,
+    }),
+  }).current;
+  const recordFailure = vi.fn(makeStore().steps.recordFailure);
+  await runWorkflowStepClaim({
+    claim: makeClaim(registered, { input: fixture.input }),
+    registry,
+    services: {},
+    store: makeStore({ recordFailure }),
+  });
+  const failure = recordFailure.mock.calls[0]?.[0].failure;
+  expect(failure).toMatchObject({
+    code: 'workflow_step_input_incompatible',
+    kind: 'permanent',
+    details: {
+      phase: fixture.phase ?? 'input-parse',
+      diagnostic: { type: fixture.phase ? 'TypeError' : 'ZodError' },
+      ...(fixture.path ? { validationIssue: { path: fixture.path, code: fixture.code } } : {}),
+    },
+  });
+  expect(JSON.stringify(failure)).not.toContain('secret');
+  expect(JSON.stringify(failure)).not.toContain('originalMessage');
+});
