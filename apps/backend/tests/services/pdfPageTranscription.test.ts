@@ -11,6 +11,7 @@ import {
   normalizePdfTranscriptionMarkdown,
 } from '../../src/services/pdfTranscriptionMath.js';
 import { PdfTranscriptionPool } from '../../src/services/pdfTranscriptionPool.js';
+import * as retryPolicy from '../../src/workflows/retryPolicy.js';
 import recording from '../fixtures/pdf-transcription-response.json';
 import { buildPdfPageFixture, buildPdfTextDataUrl } from '../fixtures/pdfText.js';
 
@@ -882,9 +883,112 @@ test('logs only a safe category for a provider failure with private request and 
       pageNumber: 1,
       failure: 'provider-error',
       statusCode: 400,
+      diagnostic: { stage: 'request', type: 'AI_APICallError', status: 400 },
+      requests: 1,
+      requestBudgetExhausted: false,
     });
     expect(JSON.stringify(warn.mock.calls)).not.toContain('private');
   } finally {
+    warn.mockRestore();
+  }
+});
+
+test.each([
+  { scenario: 'render', stage: 'render', type: 'TypeError', requests: 0 },
+  { scenario: 'timeout', stage: 'request', type: 'TimeoutError', requests: 2 },
+  { scenario: 'structured-answer', stage: 'structured-answer', type: 'ZodError', requests: 1 },
+  { scenario: 'validation', stage: 'validation', type: 'Error', requests: 2 },
+  { scenario: 'provider', stage: 'request', type: 'AI_APICallError', requests: 1 },
+  { scenario: 'retry-budget', stage: 'request', type: 'AI_APICallError', requests: 2 },
+  { scenario: 'retry-then-timeout', stage: 'request-budget', type: 'TimeoutError', requests: 2 },
+])('records a distinct safe page cause for $scenario while continuing preparation', async ({
+  scenario,
+  stage,
+  type,
+  requests,
+}) => {
+  const original = pdfTasks.runPdfPageTask;
+  const operation = vi
+    .spyOn(pdfTasks, 'runPdfPageTask')
+    .mockImplementation((bytes, task, signal) => {
+      if (task.kind === 'inspect') return original(bytes, task, signal);
+      if (scenario === 'render') return Promise.reject(new TypeError('private page image'));
+      return Promise.resolve({
+        dataUrl: 'data:image/png;base64,c3ludGhldGlj',
+        width: 10,
+        height: 10,
+      });
+    });
+  const retry = vi.spyOn(retryPolicy, 'getOperationalRetryDelayMs').mockReturnValue(0);
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const progress = vi.fn();
+  if (scenario === 'timeout')
+    provider.generateText.mockRejectedValue(new DOMException('private request', 'TimeoutError'));
+  if (scenario === 'retry-then-timeout')
+    provider.generateText
+      .mockRejectedValueOnce(
+        new APICallError({
+          message: 'private response',
+          url: 'https://provider.invalid',
+          requestBodyValues: {},
+          statusCode: 503,
+        })
+      )
+      .mockRejectedValue(new DOMException('private request', 'TimeoutError'));
+  if (scenario === 'structured-answer')
+    provider.generateText.mockResolvedValue({ output: { status: 'ok', markdown: 42 }, usage: {} });
+  if (scenario === 'validation')
+    provider.generateText.mockResolvedValue({
+      output: { status: 'unreadable', markdown: 'private transcript' },
+      usage: {},
+    });
+  if (scenario === 'provider' || scenario === 'retry-budget')
+    provider.generateText.mockRejectedValue(
+      new APICallError({
+        message: 'private response',
+        url: 'https://provider.invalid',
+        requestBodyValues: { prompt: 'private prompt' },
+        responseBody: 'private payload',
+        statusCode: scenario === 'provider' ? 400 : 503,
+      })
+    );
+  try {
+    const result = await completePdfTextExtraction(bytes, textLayer(''), {
+      config: await getResolvedGlobalModelConfig(),
+      onProgress: progress,
+    });
+    expect(result.pages).toEqual([{ pageNumber: 1, text: '' }]);
+    expect(result.transcription?.failedPages).toEqual([1]);
+    expect(progress).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        completed: 1,
+        failedPages: [1],
+        failures: [{ documentName: '', pageNumber: 1 }],
+      })
+    );
+    expect(warn).toHaveBeenCalledWith(
+      '[Nous][PDF] Page transcription failed',
+      expect.objectContaining({
+        pageNumber: 1,
+        diagnostic: {
+          stage,
+          type,
+          ...(scenario === 'provider' ? { status: 400 } : {}),
+          ...(scenario === 'retry-budget' ? { status: 503 } : {}),
+          ...(scenario === 'timeout' || scenario === 'retry-then-timeout'
+            ? { code: DOMException.TIMEOUT_ERR }
+            : {}),
+          ...(scenario === 'structured-answer' ? { validationPaths: ['markdown'] } : {}),
+        },
+        requests,
+        requestBudgetExhausted: requests === 2,
+      })
+    );
+    expect(provider.generateText).toHaveBeenCalledTimes(requests);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('private');
+  } finally {
+    operation.mockRestore();
+    retry.mockRestore();
     warn.mockRestore();
   }
 });
