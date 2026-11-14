@@ -213,6 +213,8 @@ test.each([
     });
     expect(warn).toHaveBeenCalledWith('[Sources] Per-file preparation failed.', {
       name: 'scan.pdf',
+      sourceId: 'scan',
+      sourceHash: input.extracted.sourceHash,
       reason: 'parser-failed',
       diagnostic: descriptor.errorDiagnostic,
     });
@@ -274,8 +276,19 @@ test('keeps successful sources after an asynchronous file failure and clears sta
           status: 'error',
           errorDiagnostic: { stage: 'source-preparation', type: 'Error', code: 'ECONNRESET' },
         },
-        { status: 'ready' },
+        { status: 'ready', preparedPdfText: { text: pdf.text, sourceHash: pdf.sourceHash } },
       ],
+    });
+    expect(mocks.prepare).toHaveBeenNthCalledWith(2, input.bytes, input.extracted, {
+      context: input.context,
+      documentName: second.name,
+    });
+    expect(warn).toHaveBeenCalledWith('[Sources] Per-file preparation failed.', {
+      name: 'scan.pdf',
+      sourceId: 'scan',
+      sourceHash: input.extracted.sourceHash,
+      reason: 'parser-failed',
+      diagnostic: { stage: 'source-preparation', type: 'Error', code: 'ECONNRESET' },
     });
     mocks.prepare.mockResolvedValue({ completion: Promise.resolve(pdf) });
     const retried = await prepareSourceCollection({ ...input, snapshot: result.snapshot });

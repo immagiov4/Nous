@@ -248,7 +248,7 @@ export const prepareSourceCollection = async ({
       ...snapshot,
       source: { ...source, sources: descriptors },
     });
-  const markFailure = (descriptor: SourceDescriptor, error: unknown) => {
+  const markFailure = (descriptor: SourceDescriptor, error: unknown, sourceHash: string) => {
     context.signal.throwIfAborted();
     if (error instanceof PdfScannedPageLimitError) throw error;
     descriptor.status = 'error';
@@ -275,6 +275,8 @@ export const prepareSourceCollection = async ({
     context.reportProgress(latestProgress);
     console.warn('[Sources] Per-file preparation failed.', {
       name: descriptor.name,
+      sourceId: descriptor.id,
+      sourceHash,
       reason,
       diagnostic: descriptor.errorDiagnostic,
     });
@@ -340,11 +342,11 @@ export const prepareSourceCollection = async ({
             checkpoint();
             context.reportProgress(latestProgress);
           })
-          .catch(error => markFailure(descriptor, error));
+          .catch(error => markFailure(descriptor, error, hash));
         void completion.catch(() => undefined);
         completions.push(completion);
       } catch (error) {
-        markFailure(descriptor, error);
+        markFailure(descriptor, error, hash);
       }
       collectReleasedSourceMemory();
       const transcription = context.pdfTranscriptionPool?.progress;
