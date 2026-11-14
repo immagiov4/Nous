@@ -462,3 +462,63 @@ describe('course plan verification', () => {
     );
   });
 });
+
+test('preserves distinct sanitized rejection predicates and a valid control', () => {
+  const moduleIds = fragmentedDraft.plan.modules.map(module => module.id);
+  const cases = [
+    {
+      candidate: { ...fragmentedVerification, verdict: 'pass' },
+      reason: 'verdict-dimension-mismatch',
+      path: ['verdict'],
+    },
+    {
+      candidate: {
+        ...fragmentedVerification,
+        fragmentation: {
+          ...fragmentedVerification.fragmentation,
+          moduleIds: ['private unknown content'],
+        },
+      },
+      reason: 'unknown-module',
+      path: ['fragmentation', 'moduleIds', 0],
+    },
+    {
+      candidate: {
+        ...fragmentedVerification,
+        fragmentation: {
+          ...fragmentedVerification.fragmentation,
+          moduleIds: [moduleIds[0], moduleIds[0]],
+        },
+      },
+      reason: 'duplicate-module',
+      path: ['fragmentation', 'moduleIds', 1],
+    },
+  ];
+  for (const { candidate, reason, path } of cases) {
+    try {
+      validateCoursePlanVerification(CoursePlanVerificationSchema.parse(candidate), moduleIds);
+      expect.unreachable('Invalid verification accepted');
+    } catch (error) {
+      const failure = (error as import('../../src/workflows/retryPolicy.js').WorkflowStepError)
+        .failure;
+      expect(failure).toMatchObject({
+        code: 'course_plan_verification_invalid',
+        kind: 'corrective',
+        details: { validation: { reason, path } },
+      });
+      expect(failure.kind === 'corrective' && failure.feedback).toContain(
+        JSON.stringify({ reason, path })
+      );
+      const serialized = JSON.stringify(failure);
+      for (const moduleId of [...moduleIds, 'private unknown content']) {
+        expect(serialized).not.toContain(moduleId);
+      }
+    }
+  }
+  expect(
+    validateCoursePlanVerification(
+      CoursePlanVerificationSchema.parse(fragmentedVerification),
+      moduleIds
+    ).verdict
+  ).toBe('refine');
+});
