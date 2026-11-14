@@ -219,7 +219,7 @@ test.each([
   expect(JSON.stringify(logCalls)).not.toContain('PRIVATE_');
 });
 
-test('report schema excludes duplicates, missing identities and not-applicable on existing quizzes', async () => {
+test('report schema requires every identity and a judgment on existing quizzes', async () => {
   const quizDraft = {
     ...draft,
     contentBlocks: [
@@ -240,12 +240,6 @@ test('report schema excludes duplicates, missing identities and not-applicable o
     const report = result.verificationReport;
     const schema = z.fromJSONSchema(output.schema.properties.verificationReport);
     expect(schema.safeParse(report).success).toBe(true);
-    expect(
-      schema.safeParse([
-        { checkId: 'core.clarity', ...report['core.clarity'] },
-        { checkId: 'core.clarity', ...report['core.clarity'] },
-      ]).success
-    ).toBe(false);
     const { 'core.clarity': _missing, ...incomplete } = report;
     expect(schema.safeParse(incomplete).success).toBe(false);
     report['quiz-quality'].status = 'not-applicable';

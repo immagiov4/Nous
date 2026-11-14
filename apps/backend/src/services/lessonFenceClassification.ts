@@ -93,10 +93,15 @@ export const classifyLessonFences = async (
   }
 };
 
-const fenceRejection = (validation: LessonReviewDiagnostic, detail = '') =>
-  retryLessonGenerationCorrection({
+const fenceRejection = (validation: LessonReviewDiagnostic, detail = '') => {
+  const correction =
+    validation.reason === 'prose-remains'
+      ? 'Unwrap explanatory prose and mathematical explanations from text/plaintext or unlabelled fences into ordinary Markdown. Preserve genuine code, diagrams and logs.'
+      : 'The separate fence classifier returned incomplete or invalid decisions. Preserve valid lesson content; this rejection does not establish a defect in the lesson text.';
+  return retryLessonGenerationCorrection({
     code: 'lesson_review_fenced_prose',
     validation,
-    feedback: `Unwrap explanatory prose and mathematical explanations from text/plaintext or unlabelled fences into ordinary Markdown. Preserve genuine code, diagrams and logs. Fence decisions must use exactly the server-issued IDs. ${detail}`,
+    feedback: `${correction} Return the reviewed lesson with lessonIntegrity and verificationReport only. Fence classification is handled separately. ${detail}`,
     message: 'The lesson review did not validate prose outside code fences.',
   });
+};

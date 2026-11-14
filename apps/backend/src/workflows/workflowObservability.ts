@@ -640,7 +640,7 @@ export const projectWorkflowLogEvent = (source: WorkflowLogSource): WorkflowLogE
     case 'lesson-fence-classification':
       return {
         event: 'workflow.lesson-fence-classification',
-        level: source.outcome === 'failed' ? 'warn' : 'info',
+        level: source.outcome === 'failed' || source.outcome === 'interrupted' ? 'warn' : 'info',
         ...(source.attempt
           ? {
               runId: source.attempt.runId,
