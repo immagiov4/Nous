@@ -70,6 +70,12 @@ interface CourseGenerationApiDependencies {
 }
 
 export interface CourseGenerationApi {
+  retry(
+    input: Pick<
+      CourseGenerationStartRequest,
+      'aiProvider' | 'aiProviderOverrides' | 'projectId' | 'requestKey' | 'userId'
+    > & { runId: string }
+  ): Promise<{ created: boolean; job: CourseWorkflowSnapshot }>;
   get(input: { runId: string; userId: string }): Promise<CourseWorkflowSnapshot | null>;
   getActive(input: { projectId: string; userId: string }): Promise<CourseWorkflowSnapshot | null>;
   start(input: CourseGenerationStartRequest): Promise<{
@@ -89,6 +95,7 @@ const rejectUnavailableRuntime = (): Promise<never> =>
   Promise.reject(new WorkflowRuntimeUnavailableError());
 
 export const unavailableCourseGenerationApi: CourseGenerationApi = {
+  retry: rejectUnavailableRuntime,
   get: rejectUnavailableRuntime,
   getActive: rejectUnavailableRuntime,
   start: rejectUnavailableRuntime,
@@ -173,6 +180,25 @@ const createSnapshot = (run: WorkflowRun, state: WorkflowRunState): CourseWorkfl
 export const createCourseGenerationApi = (
   dependencies: CourseGenerationApiDependencies
 ): CourseGenerationApi => ({
+  async retry(input) {
+    const run = await dependencies.runReader.getRun(input);
+    if (run?.workflowId !== COURSE_GENERATION_WORKFLOW_ID || run.projectId !== input.projectId) {
+      throw new CourseGenerationTargetNotFoundError();
+    }
+    if (run.status !== 'failed') {
+      const job = await this.get(input);
+      if (!job) throw new WorkflowRunNotFoundError();
+      return { created: false, job };
+    }
+    return this.start({
+      ...parseRunInput(run),
+      aiProvider: input.aiProvider,
+      aiProviderOverrides: input.aiProviderOverrides,
+      // Keep retries idempotent and traceable without persisting learner content in diagnostics.
+      requestKey: JSON.stringify(['course-generation-retry', run.id, input.requestKey]),
+      userId: input.userId,
+    });
+  },
   async get(input) {
     const state = await dependencies.runReader.getRunState(input);
     const run = state ? await dependencies.runReader.getRun(input) : null;

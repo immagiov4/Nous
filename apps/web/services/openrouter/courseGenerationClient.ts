@@ -206,7 +206,7 @@ export const generateDurableCourse = async ({
   return readCompletedResult(terminalJob, projectId);
 };
 
-/** Recovers the approved run even when generation finished while feedback was being read. */
+/** Recovers approved work, or explicitly retries a run that had already failed before Continue. */
 export const resumeDurableCourse = async ({
   runId,
   projectId,
@@ -226,6 +226,27 @@ export const resumeDurableCourse = async ({
       throw new Error(COURSE_GENERATION_ERROR);
     return snapshot;
   });
+  if (job.status === 'failed') {
+    const request = acquireWorkflowRequestKey(
+      `${COURSE_REQUEST_KEY_PREFIX}${projectId}:retry:${runId}`
+    );
+    const response = await fetchWithSupabaseAuth(
+      `${getBackendUrl()}/api/course-workflows/runs/${encodeURIComponent(runId)}/retry`,
+      {
+        body: JSON.stringify({ projectId, requestKey: request.requestKey }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      }
+    );
+    if (isDefinitiveWorkflowStartRejection(response)) request.clear();
+    const retryJob = readWorkflowJob(await readWorkflowJson(response), isCourseWorkflowSnapshot);
+    if (!response.ok || retryJob?.projectId !== projectId || retryJob.mode !== job.mode) {
+      throw new Error(COURSE_GENERATION_ERROR);
+    }
+    const terminalJob = await waitForTerminalRun(retryJob, callbacks);
+    request.clear();
+    return readCompletedResult(terminalJob, projectId);
+  }
   return readCompletedResult(await waitForTerminalRun(job, callbacks), projectId);
 };
 

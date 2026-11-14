@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
+import { createCourseGenerationApi } from '../../src/workflows/courseGenerationApi.js';
+import { createCourseGenerationStarter } from '../../src/workflows/courseGenerationStart.js';
+import { createCourseGenerationWorkflow } from '../../src/workflows/courseGenerationWorkflow.js';
 import { createWorkflowRegistry } from '../../src/workflows/definition.js';
 import { mapPreviousSublessonIdempotencyInput } from '../../src/workflows/lessonGenerationStart.js';
 import { materializeWorkflowStart } from '../../src/workflows/materialization.js';
@@ -31,6 +35,61 @@ const productionRegistry = context.enabled ? createProductionRegistry() : null;
 describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integration', () => {
   beforeAll(() => setupPostgresWorkflowIntegrationContext(context));
   afterAll(() => teardownPostgresWorkflowIntegrationContext(context));
+
+  test('concurrent Continue retries persist one new course run and replay it after completion', async () => {
+    if (!sql) throw new Error('Workflow integration database is required.');
+    const store = createStore(sql);
+    const registry = createWorkflowRegistry();
+    const models = getGlobalModelConfig();
+    registry.register({
+      current: createCourseGenerationWorkflow({ models, maxAttempts: 3, timeoutMs: 600_000 }),
+    });
+    const starter = createCourseGenerationStarter({
+      registry,
+      store,
+      resolveModels: async () => models,
+    });
+    const api = createCourseGenerationApi({
+      projectReader: {
+        loadProject: async () => ({
+          id: projectId,
+          version: '4.1',
+          createdAt: '',
+          updatedAt: '',
+          lastOpenedAt: '',
+        }),
+      },
+      runReader: store,
+      starter,
+    });
+    const original = await starter.start({
+      assessmentHistory: [{ role: 'user', text: 'Retained interview answer' }],
+      mode: 'learn',
+      projectId,
+      userId,
+      requestKey: randomUUID(),
+    });
+    try {
+      await sql`update public.workflow_runs set status = 'failed', completed_at = now() where id = ${original.run.id}`;
+      const request = { runId: original.run.id, projectId, userId, requestKey: randomUUID() };
+      const retries = await Promise.all([api.retry(request), api.retry(request)]);
+      const replacementId = retries[0].job.id;
+      expect(replacementId).not.toBe(original.run.id);
+      expect(retries[1].job.id).toBe(replacementId);
+      expect(retries.filter(result => result.created)).toHaveLength(1);
+      const replacement = await store.getRun({ runId: replacementId, userId });
+      expect(replacement?.input).toEqual(original.run.input);
+      expect(replacement?.requestKey).toContain(original.run.id);
+      const output = { projectId, firstSectionId: 'lesson-1', projectRevision: 1 };
+      await sql`update public.workflow_runs set status = 'completed', output = ${sql.json(output)}, completed_at = now() where id = ${replacementId}`;
+      await expect(api.retry(request)).resolves.toMatchObject({
+        created: false,
+        job: { id: replacementId, status: 'completed', result: output },
+      });
+    } finally {
+      await sql`delete from public.workflow_runs where user_id = ${userId} and workflow_id = 'course-generation'`;
+    }
+  });
 
   test.each([
     previousPdfMappingRepairDeployment,

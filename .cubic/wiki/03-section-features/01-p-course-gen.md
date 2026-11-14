@@ -106,6 +106,8 @@ Sources: [packages/shared-types/lessonWritingContract.ts](https://github.com/imm
 
 ## Persistence and Publication
 
+The completed diagnostic card's Continue action resumes its approved generation run. When that run has already failed, the client explicitly posts to `/api/course-workflows/runs/:runId/retry` with a project ID and request key. The authenticated server reuses the failed run's stored interview history and diagnostic reference; sources remain on the same project. Running and completed runs retain ordinary resume behavior. Retry creation uses the existing project-level active-work deduplication and durable request identity, so repeated requests share one attempt.
+
 The final stage commits the course to the database via `persist-course`. This node handles:
 *   Storing the `CourseLearningPlan` (modules, lessons, and exercises).
 *   Updating the `projectRevision`.
@@ -114,5 +116,7 @@ The final stage commits the course to the database via `persist-course`. This no
 Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/courseGenerationWorkflowContract.ts), [apps/backend/tests/workflows/courseGenerationWorkflow.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/workflows/courseGenerationWorkflow.test.ts)
 
 ## Observability
+
+Explicit retry runs retain the replaced run ID in their durable `requestKey` (`course-generation-retry`, replaced run ID, client request key). Inspect this identity in the authenticated workflow state API alongside the new run's node attempts and failure code. The client follows the replacement run's progress and reports that attempt's failure, without automatically retrying a failure encountered while polling.
 
 The authenticated [workflow state API](../../../apps/backend/src/routes/workflows.ts) exposes planning node status, attempt counts and failure codes. [Workflow logs](../../../apps/backend/src/workflows/workflowObservability.ts) connect run and attempt events through `runId`, with node definitions and retry outcomes identifying where planning stopped. These lifecycle signals establish execution, not factual coverage or prerequisite quality; inspect the saved research, verification and refinement outputs through [content evaluation](../09-section-tools/02-p-testing-quality.md) for those judgments.

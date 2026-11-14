@@ -30,6 +30,13 @@ describe('course generation workflow start', () => {
 
     await starter.start({
       aiProvider: 'codex',
+      diagnosticRef: {
+        userId: 'user-1',
+        projectId: 'project-1',
+        incarnationId: 'incarnation-1',
+        revisionId: 'revision-1',
+        diagnosticId: 'diagnostic-1',
+      },
       assessmentHistory: [{ role: 'user', text: 'Voglio capire i sistemi distribuiti.' }],
       mode: 'learn',
       projectId: 'project-1',
@@ -43,6 +50,13 @@ describe('course generation workflow start', () => {
         config: expect.objectContaining({ models: GlobalModelConfigSchema.parse(models) }),
         dedupeKey: '["course-generation","project-1"]',
         input: {
+          diagnosticRef: {
+            userId: 'user-1',
+            projectId: 'project-1',
+            incarnationId: 'incarnation-1',
+            revisionId: 'revision-1',
+            diagnosticId: 'diagnostic-1',
+          },
           assessmentHistory: [{ role: 'user', text: 'Voglio capire i sistemi distribuiti.' }],
           mode: 'learn',
           projectId: 'project-1',

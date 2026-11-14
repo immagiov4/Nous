@@ -64,6 +64,127 @@ const requestBody = (callIndex: number) =>
   };
 
 describe('courseGenerationClient', () => {
+  test('simultaneous Continue clicks share one retry request identity', async () => {
+    fetchWithSupabaseAuthMock.mockImplementation(async (_url: string, options?: RequestInit) =>
+      options?.method === 'POST'
+        ? workflowResponse({
+            id: 'retry-run',
+            mode: 'learn',
+            projectId: 'project-1',
+            status: 'completed',
+            stage: 'ready',
+            result: completedResult,
+          })
+        : workflowResponse({
+            id: 'failed-run',
+            mode: 'learn',
+            projectId: 'project-1',
+            status: 'failed',
+            stage: 'structure',
+          })
+    );
+    await expect(
+      Promise.all([
+        resumeDurableCourse({ runId: 'failed-run', projectId: 'project-1' }),
+        resumeDurableCourse({ runId: 'failed-run', projectId: 'project-1' }),
+      ])
+    ).resolves.toEqual([completedResult, completedResult]);
+    const starts = fetchWithSupabaseAuthMock.mock.calls.filter(
+      ([, options]) => options?.method === 'POST'
+    );
+    expect(starts).toHaveLength(2);
+    expect(JSON.parse(starts[0][1].body).requestKey).toBe(JSON.parse(starts[1][1].body).requestKey);
+  });
+
+  test('a retry failure reports its own timeout without starting another attempt automatically', async () => {
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(
+        workflowResponse({
+          id: 'failed-run',
+          mode: 'learn',
+          projectId: 'project-1',
+          status: 'failed',
+          stage: 'structure',
+          errorCode: 'course_generation_failed',
+        })
+      )
+      .mockResolvedValueOnce(
+        workflowResponse({
+          id: 'retry-run',
+          mode: 'learn',
+          projectId: 'project-1',
+          status: 'failed',
+          stage: 'sources',
+          errorCode: 'workflow_step_timeout',
+        })
+      );
+    await expect(
+      resumeDurableCourse({ runId: 'failed-run', projectId: 'project-1' })
+    ).rejects.toThrow('La generazione del corso ha superato il tempo disponibile. Riprova.');
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('resumes running work without issuing a retry', async () => {
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(
+        workflowResponse({
+          id: 'running-run',
+          mode: 'learn',
+          projectId: 'project-1',
+          status: 'running',
+          stage: 'structure',
+        })
+      )
+      .mockResolvedValueOnce(
+        workflowResponse({
+          id: 'running-run',
+          mode: 'learn',
+          projectId: 'project-1',
+          status: 'completed',
+          stage: 'ready',
+          result: completedResult,
+        })
+      );
+    const outcome = resumeDurableCourse({ runId: 'running-run', projectId: 'project-1' });
+    await advancePoll();
+    await expect(outcome).resolves.toEqual(completedResult);
+    expect(
+      fetchWithSupabaseAuthMock.mock.calls.every(([, options]) => options?.method !== 'POST')
+    ).toBe(true);
+  });
+  test('Continue replaces an already failed run and reports the new attempt', async () => {
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(
+        workflowResponse({
+          id: 'failed-run',
+          mode: 'learn',
+          projectId: 'project-1',
+          status: 'failed',
+          stage: 'structure',
+          errorCode: 'workflow_step_timeout',
+        })
+      )
+      .mockResolvedValueOnce(
+        workflowResponse({
+          id: 'retry-run',
+          mode: 'learn',
+          projectId: 'project-1',
+          status: 'completed',
+          stage: 'ready',
+          result: completedResult,
+        })
+      );
+    const onWorkflowSnapshot = vi.fn();
+    await expect(
+      resumeDurableCourse({ runId: 'failed-run', projectId: 'project-1', onWorkflowSnapshot })
+    ).resolves.toEqual(completedResult);
+    expect(fetchWithSupabaseAuthMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3301/api/course-workflows/runs/failed-run/retry',
+      expect.objectContaining({ method: 'POST' })
+    );
+    expect(onWorkflowSnapshot).toHaveBeenCalledWith(expect.objectContaining({ id: 'retry-run' }));
+  });
   beforeEach(() => {
     vi.useFakeTimers();
     fetchWithSupabaseAuthMock.mockReset();

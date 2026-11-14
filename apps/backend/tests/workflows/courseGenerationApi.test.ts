@@ -25,6 +25,7 @@ const run = (overrides: Record<string, unknown> = {}) =>
     definitionHash: 'hash',
     definitionHashVersion: 1,
     id: 'run-1',
+    projectId: 'project-1',
     input: {
       assessmentHistory: [{ role: 'user', text: 'Spiegami i sistemi distribuiti.' }],
       mode: 'learn',
@@ -101,6 +102,66 @@ const startRequest = {
 };
 
 describe('course generation workflow API', () => {
+  test.each([
+    'queued',
+    'running',
+    'completed',
+    'cancelled',
+    'expired',
+  ])('does not replace a %s run', async status => {
+    const input = dependencies();
+    input.runReader.getRun.mockResolvedValue(run({ status }));
+    await createCourseGenerationApi(input).retry({
+      runId: 'run-1',
+      projectId: 'project-1',
+      requestKey: 'click',
+      userId: 'user-1',
+    });
+    expect(input.starter.start).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    null,
+    run({ workflowId: 'course-interview' }),
+    run({ projectId: 'other-project' }),
+  ])('rejects an unavailable or mismatched retry target', async target => {
+    const input = dependencies();
+    input.runReader.getRun.mockResolvedValue(target);
+    await expect(
+      createCourseGenerationApi(input).retry({
+        runId: 'run-1',
+        projectId: 'project-1',
+        requestKey: 'click',
+        userId: 'user-1',
+      })
+    ).rejects.toBeInstanceOf(CourseGenerationTargetNotFoundError);
+    expect(input.starter.start).not.toHaveBeenCalled();
+  });
+  test('retries a failed run with saved inputs and a request identity linked to that run', async () => {
+    const input = dependencies();
+    const diagnosticRef = {
+      userId: 'user-1',
+      projectId: 'project-1',
+      incarnationId: 'incarnation-1',
+      revisionId: 'revision-1',
+      diagnosticId: 'diagnostic-1',
+    };
+    input.runReader.getRun.mockResolvedValue(
+      run({ status: 'failed', input: { ...startRequest, diagnosticRef } })
+    );
+    const result = await createCourseGenerationApi(input).retry({
+      runId: 'run-1',
+      projectId: 'project-1',
+      requestKey: 'retry-click',
+      userId: 'user-1',
+    });
+    expect(result.job.status).toBe('queued');
+    expect(input.starter.start).toHaveBeenCalledWith({
+      ...startRequest,
+      diagnosticRef,
+      requestKey: JSON.stringify(['course-generation-retry', 'run-1', 'retry-click']),
+    });
+  });
   test('starts one validated course and forwards the authenticated provider selection', async () => {
     const input = dependencies();
     const api = createCourseGenerationApi(input);

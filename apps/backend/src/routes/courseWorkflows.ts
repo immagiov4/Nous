@@ -132,6 +132,25 @@ export const createCourseWorkflowRouter = (
   );
 
   router.post(
+    '/runs/:runId/retry',
+    asyncRoute(async (request, response) => {
+      const parameters = runParametersSchema.safeParse(request.params);
+      const body = pdfMappingRepairBodySchema.safeParse(request.body);
+      if (!parameters.success || !body.success)
+        return response.status(400).json(INVALID_REQUEST_RESPONSE);
+      const user = getCurrentUser(request);
+      const result = await api.retry({
+        ...parameters.data,
+        ...body.data,
+        aiProvider: user.aiProvider,
+        aiProviderOverrides: user.aiProviderOverrides,
+        userId: user.id,
+      });
+      return response.status(result.created ? 202 : 200).json({ ...result, success: true });
+    })
+  );
+
+  router.post(
     '/pdf-mapping-repairs',
     asyncRoute(async (request, response) => {
       const body = pdfMappingRepairBodySchema.safeParse(request.body);

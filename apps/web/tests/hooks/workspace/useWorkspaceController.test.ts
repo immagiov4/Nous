@@ -6636,6 +6636,80 @@ test('confirmation recovers an approval already waiting on diagnostics and prese
   );
   assert.equal(setDiagnosticAdapter.mock.calls.length, 1);
 });
+
+test('completed diagnostic Continue retries the failed approved course through the client and opens its replacement', async () => {
+  const auth = await import('../../../services/auth/supabaseAuth.ts');
+  const { resumeDurableCourse } = await import(
+    '../../../services/openrouter/courseGenerationClient.ts'
+  );
+  const job = {
+    createdAt: '2026-11-14T12:00:00.000Z',
+    updatedAt: '2026-11-14T12:00:00.000Z',
+    mode: 'learn',
+    projectId: 'document-project',
+    retrying: false,
+    stage: 'structure',
+    status: 'failed',
+    id: 'failed-course',
+    errorCode: 'workflow_step_timeout',
+  };
+  const fetch = vi
+    .spyOn(auth, 'fetchWithSupabaseAuth')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, job })))
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          job: {
+            ...job,
+            id: 'new-course',
+            status: 'completed',
+            stage: 'ready',
+            result: {
+              projectId: 'document-project',
+              firstSectionId: 'lesson-1',
+              projectRevision: 4,
+            },
+          },
+        })
+      )
+    );
+  const completedInterview = createInterviewSnapshot({
+    projectId: 'document-project',
+    generationRunId: 'failed-course',
+    result: { kind: 'approved', projectId: 'document-project', generationRunId: 'failed-course' },
+    diagnostic: {
+      collectionId: 'collection',
+      stage: {
+        kind: 'complete',
+        id: 'done',
+        title: 'Punto di partenza individuato',
+        feedback: 'Ripartiamo dalle basi.',
+      },
+    },
+    status: 'completed',
+    wait: null,
+  });
+  const { controller, state, projectLibrary } = createControllerHarness({
+    projectLibrary: { currentProjectId: 'document-project' },
+    openRouter: {
+      getActiveCourseInterview: async () => createProposalSnapshot('document-project'),
+      sendCourseInterviewDecision: async () => completedInterview,
+      resumeCourseInterview: async () => completedInterview,
+      resumeDurableCourse,
+    },
+  });
+  const setDiagnosticAdapter = vi.fn();
+  state.adapter.setDiagnosticAdapter = setDiagnosticAdapter;
+  expect((await controller.confirmPlanGeneration()).outcome).toBe('diagnostic');
+  await setDiagnosticAdapter.mock.calls[0][0].onComplete();
+  expect(fetch.mock.calls[1][0]).toContain('/runs/failed-course/retry');
+  expect(state.internalState.workflowState.generatePlan.status).toBe('succeeded');
+  expect(state.internalState.screenState).toBe(AppState.READING);
+  expect(projectLibrary.appliedProjectRevisions).toEqual([
+    { projectId: 'document-project', revision: 4 },
+  ]);
+});
 test.each([
   ['lookup', 'generatePlan'],
   ['approval', 'generatePlan'],
