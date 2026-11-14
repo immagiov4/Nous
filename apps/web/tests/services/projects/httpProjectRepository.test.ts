@@ -1402,9 +1402,13 @@ test.each([
 });
 
 test.each([
-  false,
-  true,
-])('cancellation waits for accepted source work to settle (unavailable read: %s)', async unavailableRead => {
+  { unavailableRead: false, completed: false },
+  { unavailableRead: true, completed: false },
+  { unavailableRead: true, completed: true },
+])('cancellation waits for accepted source work to settle (%j)', async ({
+  unavailableRead,
+  completed,
+}) => {
   const controller = new AbortController();
   const deleted = createDeferred();
   const stop = createDeferred();
@@ -1444,6 +1448,7 @@ test.each([
       cancellationPolls++;
       if (unavailableRead && cancellationPolls === 1) throw new TypeError('synthetic disconnect');
       await stop.promise;
+      if (completed) return new Response(JSON.stringify({ success: true, complete: true }));
       return new Response(
         JSON.stringify({ success: false, code: 'SOURCE_PREPARATION_CANCELLED' }),
         { status: 409 }
@@ -1698,7 +1703,7 @@ test('a network blip during preparation keeps following the accepted operation w
     if (url.endsWith(`/projects/${snapshot.id}`))
       return new Response(JSON.stringify({ success: true, preparation: { uploadId } }));
     statuses++;
-    if (statuses === 1) throw new TypeError('synthetic network disconnection');
+    if (statuses <= 2) throw new TypeError('synthetic network disconnection');
     return new Response(
       JSON.stringify({
         success: true,
@@ -1712,7 +1717,7 @@ test('a network blip during preparation keeps following the accepted operation w
     snapshot.id
   );
   expect(loaded?.snapshot.id).toBe(snapshot.id);
-  expect(statuses).toBe(2);
+  expect(statuses).toBe(3);
 });
 
 test('course response progress keeps the existing deadline alive, but a stalled body aborts', async () => {
