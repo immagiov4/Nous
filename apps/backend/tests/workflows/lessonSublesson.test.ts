@@ -495,6 +495,13 @@ describe('durable sublesson stages', () => {
       attemptNumber: config.maxAttempts,
     });
 
+    expect(exhausted).toMatchObject({
+      mappingFailure: {
+        attemptNumber: config.maxAttempts,
+        stage: 'finalize-sublesson',
+        diagnostic: { type: 'WorkflowStepError', code: 'course_chunk_mapping_invalid' },
+      },
+    });
     expect(exhausted.section).toMatchObject({
       primaryChunkIds: ['source-1:chunk-001'],
       primaryChunkMappingSource: 'fallback',

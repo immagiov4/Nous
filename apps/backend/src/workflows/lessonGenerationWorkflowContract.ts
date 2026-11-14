@@ -27,6 +27,7 @@ import {
   ResearchSourceSchema,
   YouTubeResearchOutcomeSchema,
 } from './lessonGenerationWorkflowSchemas.js';
+import { WorkflowDegradationSchema } from './retryPolicy.js';
 export const LessonGenerationRequestSchema = z.object({
   forceRegenerate: z.boolean(),
   projectId: LessonIdentifierSchema,
@@ -67,9 +68,13 @@ export const SublessonPlanStateSchema = z.object({
   stage: z.literal('sublesson-plan'),
 });
 
-export const SublessonReadyStateSchema = SublessonPlanStateSchema.extend({
+const PreviousSublessonReadyStateSchema = SublessonPlanStateSchema.extend({
   createdDocumentIndex: CourseDocumentIndexSchema.nullable(),
   stage: z.literal('sublesson-ready'),
+});
+
+export const SublessonReadyStateSchema = PreviousSublessonReadyStateSchema.extend({
+  mappingFailure: WorkflowDegradationSchema.optional(),
 });
 
 export const LessonContextStateSchema = z.object({
@@ -128,6 +133,7 @@ const createLessonVisualFanOutResultSchema = (visualContract: LessonVisualContra
   ]);
 
 const createLessonGenerationDurableSchemaSet = ({
+  failureDiagnostics = false,
   evidence = false,
   routing = false,
   pdfImageMetadataSchema,
@@ -139,6 +145,7 @@ const createLessonGenerationDurableSchemaSet = ({
   lessonResultBlockSchema,
   visualContract,
 }: {
+  failureDiagnostics?: boolean;
   evidence?: boolean;
   routing?: boolean;
   visualContract: LessonVisualContractSchemas;
@@ -160,7 +167,11 @@ const createLessonGenerationDurableSchemaSet = ({
     : (LessonCoverageStateSchema as ReturnType<
         typeof LessonCoverageStateSchema.extend<typeof routingShape>
       >);
-  const LessonSourcesStateSchema = sourceSchema.extend({
+  const diagnosticShape = { degradationDiagnostics: z.array(WorkflowDegradationSchema).optional() };
+  const diagnosticSourceSchema = failureDiagnostics
+    ? sourceSchema.extend(diagnosticShape)
+    : (sourceSchema as ReturnType<typeof sourceSchema.extend<typeof diagnosticShape>>);
+  const LessonSourcesStateSchema = diagnosticSourceSchema.extend({
     documentAssetOwners: z.array(LessonAssetOwnerSchema),
     pdfImages: z.array(pdfImageMetadataSchema),
     stage: z.literal('sources'),
@@ -294,6 +305,9 @@ const createLessonGenerationDurableSchemaSet = ({
   });
 
   return {
+    SublessonReadyStateSchema: failureDiagnostics
+      ? SublessonReadyStateSchema
+      : (PreviousSublessonReadyStateSchema as typeof SublessonReadyStateSchema),
     evidence,
     LessonAidsStateSchema,
     LessonDraftStateSchema,
@@ -326,10 +340,12 @@ const legacyVisualLessonSchemas = {
 };
 
 export const createSceneLessonGenerationDurableSchemaSet = (
-  visualContract: LessonVisualContractSchemas
+  visualContract: LessonVisualContractSchemas,
+  failureDiagnostics = true
 ) =>
   createLessonGenerationDurableSchemaSet({
     ...legacyVisualLessonSchemas,
+    failureDiagnostics,
     evidence: true,
     lessonContentDraftSchema: visualContract.LessonContentDraftSchema,
     lessonResearchDossierSchema: LessonResearchDossierSchema,

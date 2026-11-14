@@ -60,7 +60,7 @@ import {
   type SublessonPlanState,
   SublessonPlanStateSchema,
   type SublessonReadyState,
-  SublessonReadyStateSchema,
+  type SublessonReadyStateSchema,
 } from './lessonGenerationWorkflowContract.js';
 import {
   LegacyLessonVisualContractSchemas,
@@ -314,7 +314,7 @@ const createLessonGenerationWorkflowDefinition = <
     externalEffect: 'provider',
     id: 'finalize-sublesson',
     inputSchema: SublessonPlanStateSchema,
-    outputSchema: SublessonReadyStateSchema,
+    outputSchema: durableSchemas.SublessonReadyStateSchema,
     run: context =>
       runStage(
         context,
@@ -336,7 +336,7 @@ const createLessonGenerationWorkflowDefinition = <
     Services
   >({
     id: 'compact-sublesson-request',
-    inputSchema: SublessonReadyStateSchema,
+    inputSchema: durableSchemas.SublessonReadyStateSchema,
     outputSchema: LessonGenerationRequestSchema,
     run: async ({ input }) => input.request,
   });

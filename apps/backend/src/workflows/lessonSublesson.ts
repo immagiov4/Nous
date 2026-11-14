@@ -68,7 +68,13 @@ import {
   SublessonPlanStateSchema,
   SublessonReadyStateSchema,
 } from './lessonGenerationWorkflowContract.js';
-import { failPermanently, retryCorrective, WorkflowStepError } from './retryPolicy.js';
+import {
+  degradeOnFinalAttempt,
+  failPermanently,
+  retryCorrective,
+  type WorkflowDegradation,
+  WorkflowStepError,
+} from './retryPolicy.js';
 import type { DeepReadonly } from './types.js';
 
 const SUBLESSON_METADATA_SOURCE_MAX_CHARS = 32_000;
@@ -372,7 +378,11 @@ const mapSublessonSource = async ({
   readonly retryFeedback: string;
   readonly sectionId: string;
   readonly signal: AbortSignal;
-}): Promise<{ chunkIds: string[]; mappingSource: 'fallback' | 'mapped' }> => {
+}): Promise<{
+  chunkIds: string[];
+  mappingSource: 'fallback' | 'mapped';
+  mappingFailure?: WorkflowDegradation;
+}> => {
   const batches = buildCourseChunkMappingBatches({
     index,
     lessonIds: [sectionId],
@@ -406,18 +416,25 @@ const mapSublessonSource = async ({
     signal.throwIfAborted();
     const retryableWorkflowFailure =
       error instanceof WorkflowStepError && error.failure.kind !== 'permanent';
-    if (!retryableWorkflowFailure && !(error instanceof CourseModelProviderError)) throw error;
-    if (attemptNumber < maxAttempts) throw error;
-  }
-
-  const chunkIds = buildFallbackMappings(plan, index).get(sectionId);
-  if (!chunkIds?.length) {
-    throw failPermanently({
-      code: 'course_chunk_fallback_missing',
-      message: 'The sublesson source could not be associated with the source.',
+    return degradeOnFinalAttempt({
+      attemptNumber,
+      maxAttempts,
+      signal,
+      error,
+      eligible: retryableWorkflowFailure || error instanceof CourseModelProviderError,
+      stage: 'finalize-sublesson',
+      fallback: mappingFailure => {
+        const chunkIds = buildFallbackMappings(plan, index).get(sectionId);
+        if (!chunkIds?.length) {
+          throw failPermanently({
+            code: 'course_chunk_fallback_missing',
+            message: 'The sublesson source could not be associated with the source.',
+          });
+        }
+        return { chunkIds, mappingSource: 'fallback' as const, mappingFailure };
+      },
     });
   }
-  return { chunkIds, mappingSource: 'fallback' };
 };
 
 export const createLessonSublessonStages = ({
@@ -603,6 +620,7 @@ ${LESSON_INSTRUCTION_PACK_SELECTION_RULES}`,
       return SublessonReadyStateSchema.parse({
         ...context.input,
         createdDocumentIndex,
+        ...(mapping.mappingFailure ? { mappingFailure: mapping.mappingFailure } : {}),
         section: {
           ...context.input.section,
           primaryChunkIds: mapping.chunkIds,

@@ -7,8 +7,7 @@ import {
   CourseLearningPlanSchema,
   type CourseSourcesFinalizedState,
 } from './courseGenerationWorkflowContract.js';
-import { WorkflowStepError } from './retryPolicy.js';
-import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
+import { degradeOnFinalAttempt, WorkflowStepError } from './retryPolicy.js';
 
 const MAX_ASSESSED_OBJECTIVE_CHARS = 280;
 
@@ -229,17 +228,23 @@ export const createCourseExercisePlanningStage =
         webSearch: false,
       });
     } catch (error) {
-      context.signal.throwIfAborted();
-      if (error instanceof WorkflowStepError && error.failure.kind === 'permanent') throw error;
-      if (context.attemptNumber < context.config.maxAttempts) throw error;
-      return CourseExercisesStateSchema.parse({
-        ...context.input,
-        exercisePlanningDiagnostic: {
-          ...toWorkflowErrorDiagnostic(error, { includeContent: false }),
-          ...(error instanceof WorkflowStepError ? { code: error.failure.code } : {}),
-        },
-        plan: markCourseExercisePlanningFailed(context.input.plan, context.attemptNumber, now()),
-        stage: 'exercises',
+      return degradeOnFinalAttempt({
+        ...context,
+        maxAttempts: context.config.maxAttempts,
+        error,
+        eligible: !(error instanceof WorkflowStepError && error.failure.kind === 'permanent'),
+        stage: 'place-application-exercises',
+        fallback: failure =>
+          CourseExercisesStateSchema.parse({
+            ...context.input,
+            exercisePlanningDiagnostic: failure.diagnostic,
+            plan: markCourseExercisePlanningFailed(
+              context.input.plan,
+              context.attemptNumber,
+              now()
+            ),
+            stage: 'exercises',
+          }),
       });
     }
 
