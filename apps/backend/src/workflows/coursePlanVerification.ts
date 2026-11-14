@@ -70,20 +70,36 @@ export const validateCoursePlanVerification = (
   const fragmented = verification.fragmentation.canGroupCoherently;
   const fragmentedModuleIds = verification.fragmentation.moduleIds;
   const knownModuleIds = new Set(moduleIds);
-  const referencesKnownUniqueModules =
-    new Set(fragmentedModuleIds).size === fragmentedModuleIds.length &&
-    fragmentedModuleIds.every(moduleId => knownModuleIds.has(moduleId));
-  const fragmentationIsConsistent = fragmented
-    ? fragmentedModuleIds.length > 0 &&
-      verification.granularity.status === 'needs-refinement' &&
-      referencesKnownUniqueModules
-    : fragmentedModuleIds.length === 0;
-  if ((verification.verdict === 'refine') === needsRefinement && fragmentationIsConsistent) {
-    return verification;
+  const unknownIndex = fragmentedModuleIds.findIndex(moduleId => !knownModuleIds.has(moduleId));
+  const seenModuleIds = new Set<string>();
+  const duplicateIndex = fragmentedModuleIds.findIndex(moduleId => {
+    if (seenModuleIds.has(moduleId)) return true;
+    seenModuleIds.add(moduleId);
+    return false;
+  });
+  let validation: { reason: string; path: (string | number)[] } | undefined;
+  if ((verification.verdict === 'refine') !== needsRefinement) {
+    validation = { reason: 'verdict-dimension-mismatch', path: ['verdict'] };
+  } else if (unknownIndex >= 0) {
+    validation = { reason: 'unknown-module', path: ['fragmentation', 'moduleIds', unknownIndex] };
+  } else if (duplicateIndex >= 0) {
+    validation = {
+      reason: 'duplicate-module',
+      path: ['fragmentation', 'moduleIds', duplicateIndex],
+    };
+  } else if (
+    fragmented
+      ? fragmentedModuleIds.length === 0 || verification.granularity.status !== 'needs-refinement'
+      : fragmentedModuleIds.length > 0
+  ) {
+    validation = { reason: 'fragmentation-inconsistent', path: ['fragmentation'] };
   }
+  if (!validation) return verification;
   throw retryCorrective({
     code: 'course_plan_verification_invalid',
-    feedback: `Make the verdict match the quality dimensions. ${FRAGMENTATION_ASSESSMENT_RULE}`,
+    details: { validation },
+    feedback: `Make the verdict match the quality dimensions. ${FRAGMENTATION_ASSESSMENT_RULE}
+Rejected contract: ${JSON.stringify(validation)}`,
     message: 'The course plan verification is internally inconsistent.',
   });
 };
