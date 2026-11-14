@@ -273,6 +273,7 @@ describe('workflow runtime production composition', () => {
       readActive: vi.fn().mockResolvedValue(null),
     };
     const courseGenerationApi: CourseGenerationApi = {
+      retry: vi.fn(),
       get: vi.fn(),
       getActive: vi.fn(),
       start: vi.fn(),

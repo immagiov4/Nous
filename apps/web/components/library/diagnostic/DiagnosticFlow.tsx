@@ -1,6 +1,6 @@
 import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { useLayoutEffect, useReducer, useRef, useState } from 'react';
-import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import { DIAGNOSTIC_COMPLETION_ERROR, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import DiagnosticQuestionCard from './DiagnosticQuestionCard.tsx';
 import DiagnosticTree from './DiagnosticTree.tsx';
 import {
@@ -105,11 +105,7 @@ export default function DiagnosticFlow({ adapter, isDarkMode }: DiagnosticFlowPr
               {t('Continua')}
             </button>
           )}
-          {completionError && (
-            <p role="alert">
-              {t('La richiesta non è disponibile in questo momento. Riprova più tardi.')}
-            </p>
-          )}
+          {completionError && <p role="alert">{t(DIAGNOSTIC_COMPLETION_ERROR)}</p>}
         </>
       ) : (
         <>

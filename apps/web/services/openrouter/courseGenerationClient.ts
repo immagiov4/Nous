@@ -7,7 +7,7 @@ import type {
   PdfMappingRepairResult,
   PdfMappingRepairSnapshot,
 } from '@shared/pdfMappingRepairContract';
-
+import type { UiMessage } from '../../i18n/uiMessages.ts';
 import type { Message } from '../../types.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { logBackendFailureCorrelationId } from '../feedback/browserDiagnostics.ts';
@@ -23,14 +23,36 @@ import {
   readWorkflowJson,
   readWorkflowPollJson,
   readWorkflowRequestKey,
-  resolveWorkflowFailureMessage,
   retryTransientWorkflowRequest,
+  WORKFLOW_DEFINITION_UNAVAILABLE_MESSAGE,
   WORKFLOW_NOT_FOUND_STATUS,
 } from './workflowClientTransport.ts';
 
 const COURSE_GENERATION_ERROR = 'La generazione del corso non è riuscita. Riprova.';
 const COURSE_GENERATION_TIMEOUT_ERROR =
   'La generazione del corso ha superato il tempo disponibile. Riprova.';
+const COURSE_GENERATION_CLEANUP_ERROR =
+  'Il tentativo precedente non è ancora stato ripristinato. Riprova più tardi.';
+
+const courseGenerationErrorMessage = (code?: string): UiMessage => {
+  if (code === 'course_generation_cleanup_incomplete') return COURSE_GENERATION_CLEANUP_ERROR;
+  if (code === 'workflow_definition_unavailable') return WORKFLOW_DEFINITION_UNAVAILABLE_MESSAGE;
+  return code === 'workflow_step_timeout'
+    ? COURSE_GENERATION_TIMEOUT_ERROR
+    : COURSE_GENERATION_ERROR;
+};
+
+/** Only stable workflow codes determine public copy; Error.message is never trusted by the UI. */
+export class CourseGenerationError extends Error {
+  constructor(readonly code?: string) {
+    super(courseGenerationErrorMessage(code));
+    this.name = 'CourseGenerationError';
+  }
+
+  get publicMessage(): UiMessage {
+    return courseGenerationErrorMessage(this.code);
+  }
+}
 const COURSE_REQUEST_KEY_PREFIX = 'nous:course-workflow-request:';
 const PDF_MAPPING_REPAIR_ERROR = 'La mappatura del PDF non è riuscita.';
 const PDF_MAPPING_REPAIR_REQUEST_KEY_PREFIX = 'nous:pdf-mapping-repair-request:';
@@ -160,11 +182,7 @@ const readCompletedResult = (
 ): CourseWorkflowResult => {
   if (job.status !== 'completed') {
     logBackendFailureCorrelationId(job.correlationId);
-    const fallbackMessage =
-      job.errorCode === 'workflow_step_timeout'
-        ? COURSE_GENERATION_TIMEOUT_ERROR
-        : COURSE_GENERATION_ERROR;
-    throw new Error(resolveWorkflowFailureMessage(job.errorCode, fallbackMessage));
+    throw new CourseGenerationError(job.errorCode);
   }
   try {
     return parseCompletedResult(job, projectId);
@@ -206,26 +224,26 @@ export const generateDurableCourse = async ({
   return readCompletedResult(terminalJob, projectId);
 };
 
-/** Recovers the approved run even when generation finished while feedback was being read. */
+/** The server resolves approved work to its latest attempt and owns any replacement identity. */
 export const resumeDurableCourse = async ({
   runId,
   projectId,
   ...callbacks
 }: ResumeActiveDurableCourseInput & { runId: string }): Promise<CourseWorkflowResult> => {
-  const job = await retryTransientWorkflowRequest(async () => {
-    const response = await fetchWithSupabaseAuth(
-      `${getBackendUrl()}/api/course-workflows/runs/${encodeURIComponent(runId)}`,
-      { cache: 'no-store' }
-    );
-    assertWorkflowPollResponse(response, COURSE_GENERATION_ERROR);
-    const snapshot = readWorkflowJob(
-      await readWorkflowPollJson(response, COURSE_GENERATION_ERROR),
-      isCourseWorkflowSnapshot
-    );
-    if (snapshot?.id !== runId || snapshot.projectId !== projectId)
-      throw new Error(COURSE_GENERATION_ERROR);
-    return snapshot;
-  });
+  const response = await fetchWithSupabaseAuth(
+    `${getBackendUrl()}/api/course-workflows/runs/${encodeURIComponent(runId)}/retry`,
+    {
+      body: JSON.stringify({ projectId }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    }
+  );
+  const payload = await readWorkflowJson(response);
+  if (isRecord(payload) && payload.code === 'course_generation_cleanup_incomplete') {
+    throw new CourseGenerationError('course_generation_cleanup_incomplete');
+  }
+  const job = readWorkflowJob(payload, isCourseWorkflowSnapshot);
+  if (!response.ok || job?.projectId !== projectId) throw new Error(COURSE_GENERATION_ERROR);
   return readCompletedResult(await waitForTerminalRun(job, callbacks), projectId);
 };
 

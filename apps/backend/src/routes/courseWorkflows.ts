@@ -4,7 +4,10 @@ import * as z from 'zod';
 import { getCurrentUser } from '../auth/currentUser.js';
 import {
   type CourseGenerationApi,
+  CourseGenerationCleanupIncompleteError,
+  CourseGenerationRetryChainError,
   CourseGenerationTargetNotFoundError,
+  isReservedCourseGenerationRequestKey,
 } from '../workflows/courseGenerationApi.js';
 import {
   type PdfMappingRepairApi,
@@ -26,7 +29,11 @@ const startBodySchema = z
     ),
     mode: z.enum(['document', 'learn']),
     projectId: z.string().trim().min(1),
-    requestKey: z.string().trim().min(1),
+    requestKey: z
+      .string()
+      .trim()
+      .min(1)
+      .refine(key => !isReservedCourseGenerationRequestKey(key)),
   })
   .strict();
 const runParametersSchema = z.object({ runId: z.string().trim().min(1) });
@@ -44,6 +51,22 @@ const INVALID_REQUEST_RESPONSE = {
 } as const;
 
 const sendCourseWorkflowError: WorkflowRouteErrorHandler = (response, error) => {
+  if (error instanceof CourseGenerationRetryChainError) {
+    response.status(409).json({
+      code: 'course_generation_retry_chain_invalid',
+      error: 'La generazione del corso non è riuscita. Riprova.',
+      success: false,
+    });
+    return true;
+  }
+  if (error instanceof CourseGenerationCleanupIncompleteError) {
+    response.status(409).json({
+      code: 'course_generation_cleanup_incomplete',
+      error: 'Il tentativo precedente non è ancora stato ripristinato. Riprova più tardi.',
+      success: false,
+    });
+    return true;
+  }
   if (
     !(error instanceof CourseGenerationTargetNotFoundError) &&
     !(error instanceof PdfMappingRepairTargetNotFoundError)
@@ -128,6 +151,28 @@ export const createCourseWorkflowRouter = (
         });
       }
       return response.json({ job, success: true });
+    })
+  );
+
+  router.post(
+    '/runs/:runId/retry',
+    asyncRoute(async (request, response) => {
+      const parameters = runParametersSchema.safeParse(request.params);
+      const body = z
+        .object({ projectId: z.string().trim().min(1) })
+        .strict()
+        .safeParse(request.body);
+      if (!parameters.success || !body.success)
+        return response.status(400).json(INVALID_REQUEST_RESPONSE);
+      const user = getCurrentUser(request);
+      const result = await api.retry({
+        ...parameters.data,
+        ...body.data,
+        aiProvider: user.aiProvider,
+        aiProviderOverrides: user.aiProviderOverrides,
+        userId: user.id,
+      });
+      return response.status(result.created ? 202 : 200).json({ ...result, success: true });
     })
   );
 
