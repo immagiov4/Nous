@@ -18,6 +18,7 @@ import {
   sanitizeDiagnosticText,
 } from '../utils/sanitizeDiagnosticText.js';
 import { isRecord } from '../utils/validation.js';
+import { ModelCallDiagnosticSchema, modelCallErrorDiagnostic } from './modelCallDiagnostics.js';
 import type { JsonValue } from './types.js';
 
 const MAX_ERROR_CAUSE_DEPTH = 3;
@@ -48,6 +49,17 @@ for (let depth = 1; depth < MAX_ERROR_CAUSE_DEPTH; depth += 1) {
 }
 export const WorkflowTechnicalDiagnosticSchema: z.ZodType<WorkflowErrorDiagnostic> =
   technicalDiagnosticSchema;
+// Runtime failure details may evolve without changing durable workflow output definitions.
+const ObservedTechnicalFieldsSchema = TechnicalDiagnosticFieldsSchema.extend({
+  stage: z.string().optional(),
+  modelCall: ModelCallDiagnosticSchema.optional(),
+});
+let observedTechnicalSchema = ObservedTechnicalFieldsSchema;
+for (let depth = 1; depth < MAX_ERROR_CAUSE_DEPTH; depth += 1) {
+  observedTechnicalSchema = ObservedTechnicalFieldsSchema.extend({
+    cause: observedTechnicalSchema.optional(),
+  });
+}
 type DiagnosticCode = number | string;
 
 const readTechnicalIdentifier = (value: unknown): string | undefined =>
@@ -175,6 +187,8 @@ const createDiagnosticProjection = (input: {
   status: number | undefined;
   type: string;
   validation?: LessonReviewDiagnostic;
+  stage?: string;
+  modelCall?: z.infer<typeof ModelCallDiagnosticSchema>;
 }): WorkflowErrorDiagnostic => ({
   ...(input.cause ? { cause: input.cause } : {}),
   ...(input.code === undefined ? {} : { code: input.code }),
@@ -192,6 +206,8 @@ const createDiagnosticProjection = (input: {
     : {}),
   ...(input.status === undefined ? {} : { status: input.status }),
   type: input.type,
+  ...(input.stage ? { stage: input.stage } : {}),
+  ...(input.modelCall ? { modelCall: input.modelCall } : {}),
   ...(input.validation ? { validation: input.validation } : {}),
 });
 
@@ -236,7 +252,12 @@ const createDiagnostic = (
       ? createDiagnostic(value.cause, depth + 1, persisted)
       : undefined;
   const validation = LessonReviewDiagnosticSchema.safeParse(value.validation);
+  const modelCall = ModelCallDiagnosticSchema.safeParse(
+    value.modelCall ?? modelCallErrorDiagnostic(value)
+  );
   return createDiagnosticProjection({
+    ...(modelCall.success ? { modelCall: modelCall.data } : {}),
+    stage: readModelIdentifier(value.stage),
     ...(validation.success ? { validation: validation.data } : {}),
     cause,
     code,
@@ -262,7 +283,7 @@ export const toWorkflowErrorDiagnostic = (
   if (options.includeContent !== false) return diagnostic;
   // Keep the exported durable workflow schema stable; review metadata is runtime-only.
   return {
-    ...WorkflowTechnicalDiagnosticSchema.parse(diagnostic),
+    ...observedTechnicalSchema.parse(diagnostic),
     ...(diagnostic.validation ? { validation: diagnostic.validation } : {}),
   };
 };

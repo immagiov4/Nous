@@ -5,10 +5,54 @@ import * as z from 'zod';
 
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { createCourseObjectGenerator } from '../../src/workflows/courseGenerationModel.js';
+import {
+  readWorkflowErrorDiagnostic,
+  toWorkflowErrorDiagnostic,
+} from '../../src/workflows/workflowErrorDiagnostics.js';
 
 const schema = z.object({ title: z.string().min(1) }).strict();
 
 describe('course generation structured model adapter', () => {
+  test.each([
+    'codex',
+    'openrouter',
+  ] as const)('keeps %s provider cause and phase through durable diagnostics', async provider => {
+    const cause = Object.assign(new Error('PRIVATE_PROVIDER_OUTPUT'), {
+      name: 'ProviderCallError',
+      code: 'unavailable',
+      stage: 'request',
+    });
+    const generate = createCourseObjectGenerator({
+      runAiObject: async () => {
+        throw cause;
+      },
+      runCodexObject: async () => {
+        throw cause;
+      },
+    });
+    const error = await generate({
+      config: {
+        ...getGlobalModelConfig(),
+        aiProvider: provider,
+        aiProviderOverrides: { course: provider },
+      },
+      developerInstructions: 'PRIVATE_INSTRUCTIONS',
+      prompt: 'PRIVATE_PROMPT',
+      name: 'course_plan',
+      schema,
+      signal: new AbortController().signal,
+      slot: 'course',
+    }).catch(error => error);
+    const diagnostic = toWorkflowErrorDiagnostic(error, { includeContent: false });
+    expect(diagnostic).toMatchObject({
+      type: 'CourseModelProviderError',
+      cause: { type: 'ProviderCallError', code: 'unavailable', stage: 'request' },
+      modelCall: { phase: provider === 'codex' ? 'initializing' : 'awaiting-output' },
+    });
+    expect(readWorkflowErrorDiagnostic(JSON.parse(JSON.stringify(diagnostic)))).toEqual(diagnostic);
+    expect(JSON.stringify(diagnostic)).not.toContain('PRIVATE_');
+  });
+
   test('routes Codex through the app server and validates its JSON output', async () => {
     const signal = new AbortController().signal;
     const runAiObject = vi.fn();

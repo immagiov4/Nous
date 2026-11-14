@@ -9,6 +9,21 @@ import {
 } from '../../src/workflows/workflowErrorDiagnostics.js';
 
 describe('workflow error diagnostics', () => {
+  test('preserves sanitized cause class, code and stage through a provider wrapper and log readback', () => {
+    const cause = Object.assign(new Error('PRIVATE_OUTPUT'), {
+      name: 'CodexAppServerError',
+      code: 'timeout',
+      stage: 'turn-start',
+    });
+    const error = new Error('PRIVATE_PROMPT', { cause });
+    error.name = 'CourseModelProviderError';
+    const durable = toWorkflowErrorDiagnostic(error, { includeContent: false });
+    expect(durable).toEqual({
+      type: 'CourseModelProviderError',
+      cause: { type: 'CodexAppServerError', code: 'timeout', stage: 'turn-start' },
+    });
+    expect(readWorkflowErrorDiagnostic(JSON.parse(JSON.stringify(durable)))).toEqual(durable);
+  });
   test('retains thrown strings as redacted original diagnostics', () => {
     expect(toWorkflowErrorDiagnostic('Codex failed: api_key=hidden')).toEqual({
       originalMessage: 'Codex failed: api_key=[REDACTED]',

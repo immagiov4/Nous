@@ -152,3 +152,9 @@ Sources: [apps/backend/tests/workflows/postgresWorkflowUndoStore.integration.tes
 ## Conclusion
 
 The Postgres-Backed Workflow Engine provides a robust foundation for distributed task execution by leveraging PostgreSQL's transactional guarantees. By combining row-level locking, fencing tokens, and durable state persistence, the system ensures that workflows are executed reliably and consistently, even in the presence of worker failures or concurrent updates.
+
+## Observability
+
+Workflow attempt failures retain bounded technical diagnostics in failure details, projected into operational logs as `failureDiagnostic`. Model-call diagnostics include the last observed phase, elapsed milliseconds, current-phase milliseconds and durations by phase. Workflow timeouts snapshot the latest call at interruption, including work that has not yet rejected. Provider wrappers retain their bounded cause chain, class, code and technical stage when supplied.
+
+Codex distinguishes initialization, turn acknowledgement, waiting for output, receiving reasoning/text, completion and structured-output post-processing. The buffered OpenRouter structured-call API exposes waiting and completion, followed by local post-processing; it does not expose the first-output time. The attempt snapshot retains only the latest call, not a history of parallel calls. Added phase metadata contains no prompts, model output or provider payloads. Historical failures cannot acquire observations retroactively.
