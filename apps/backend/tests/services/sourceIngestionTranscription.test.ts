@@ -244,8 +244,10 @@ test('retains document and failed page identities when the whole collection has 
   });
 });
 
-test('keeps successful sources after an asynchronous file failure and clears stale diagnostics on retry', async () => {
+test('keeps private failure checkpoints separate from publishable partial-success snapshots', async () => {
   const input = await fixture();
+  const checkpoint = vi.fn();
+  const context = { ...input.context, checkpointPreparedSources: checkpoint };
   const second = { ...input.upload.files[0], id: 'second', name: 'second.pdf' };
   input.upload.files.push(second);
   input.snapshot.source.sources.push({
@@ -268,19 +270,26 @@ test('keeps successful sources after an asynchronous file failure and clears sta
     .mockResolvedValueOnce({ completion: Promise.resolve(pdf) });
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   try {
-    const result = await prepareSourceCollection(input);
+    const result = await prepareSourceCollection({ ...input, context });
     expect(result.failures).toEqual([{ name: 'scan.pdf', reason: 'parser-failed' }]);
     expect(result.snapshot.source).toMatchObject({
       sources: [
         {
           status: 'error',
-          errorDiagnostic: { stage: 'source-preparation', type: 'Error', code: 'ECONNRESET' },
+          errorReason: 'parser-failed',
+          errorMessage: SOURCE_PREPARATION_FAILURE_MESSAGES['parser-failed'],
         },
         { status: 'ready', preparedPdfText: { text: pdf.text, sourceHash: pdf.sourceHash } },
       ],
     });
+    expect(result.snapshot).not.toHaveProperty('source.sources.0.errorDiagnostic');
+    expect(checkpoint.mock.calls.at(-1)?.[0]).toHaveProperty('source.sources.0.errorDiagnostic', {
+      stage: 'source-preparation',
+      type: 'Error',
+      code: 'ECONNRESET',
+    });
     expect(mocks.prepare).toHaveBeenNthCalledWith(2, input.bytes, input.extracted, {
-      context: input.context,
+      context,
       documentName: second.name,
     });
     expect(warn).toHaveBeenCalledWith('[Sources] Per-file preparation failed.', {

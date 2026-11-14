@@ -374,12 +374,18 @@ export const prepareSourceCollection = async ({
       failures,
       upload.files.map(file => ({ id: file.id, name: file.name, state: 'error' as const }))
     );
+  // Keep operator diagnostics in private checkpoints, outside the published project snapshot.
+  const publishedDescriptors = descriptors.map(descriptor => {
+    const published = { ...descriptor };
+    delete published.errorDiagnostic;
+    return published;
+  });
   return {
     failures,
     snapshot: {
       ...snapshot,
-      source: { ...source, sources: descriptors },
-      documentIndex: combineCourseSourceIndexes(descriptors),
+      source: { ...source, sources: publishedDescriptors },
+      documentIndex: combineCourseSourceIndexes(publishedDescriptors),
     },
   };
 };
