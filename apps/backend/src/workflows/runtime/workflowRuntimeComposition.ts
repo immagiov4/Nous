@@ -178,7 +178,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 11;
+export const WORKFLOW_SET_VERSION = 12;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -303,7 +303,27 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
           visual,
         },
         undefined,
+        createSceneLessonGenerationDurableSchemaSet(contract, false)
+      ),
+      diagnosticLesson: createLessonGenerationWorkflow(
+        {
+          maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+          models,
+          timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+          visual,
+        },
+        undefined,
         createSceneLessonGenerationDurableSchemaSet(contract)
+      ),
+      previousDiagnosticLesson: createLessonGenerationWorkflow(
+        {
+          maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+          models,
+          timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+          visual,
+        },
+        undefined,
+        createSceneLessonGenerationDurableSchemaSet(contract, true, false)
       ),
       visualSectionsPlayback: createLessonPlaybackWorkflow(
         playbackExecutionDefaults,
@@ -374,11 +394,11 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
       lesson: createLessonGenerationWorkflow(
         historicalGenerationDefaults,
         historicalLessonConfigSchema,
-        createSceneLessonGenerationDurableSchemaSet(contract)
+        createSceneLessonGenerationDurableSchemaSet(contract, false)
       ),
     };
   });
-  const lessonWorkflow = currentScenes.lesson;
+  const lessonWorkflow = currentScenes.diagnosticLesson;
   // Definitions deployed before lesson scenes keep the legacy visual contract.
   const preSceneRetryWorkflow = createLessonVisualWorkflows(
     visualExecutionDefaults,
@@ -606,6 +626,10 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: lessonWorkflow,
     previous: [
+      currentScenes.lesson,
+      currentScenes.previousDiagnosticLesson,
+      ...historicalScenes.map(definition => definition.previousDiagnosticLesson),
+      ...historicalScenes.map(definition => definition.diagnosticLesson),
       ...historicalScenes.map(definition => definition.lesson),
       ...preOpenAiRemovalScenes.map(definition => definition.lesson),
       previousPreSceneLessonWorkflow,

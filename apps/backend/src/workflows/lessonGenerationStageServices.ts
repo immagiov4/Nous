@@ -1,6 +1,5 @@
 import { buildLessonInstructionPackBlock } from '@shared/lessonInstructionPacks';
 import { buildUserGenerationNotesBlock } from '@shared/lessonWritingContract';
-
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import {
   findProjectLessonSection,
@@ -80,7 +79,13 @@ import {
   ProjectLessonVisualSchema,
 } from './lessonGenerationWorkflowSchemas.js';
 import { readLessonReviewRetry, serializeLessonReviewRetry } from './lessonReviewCheckpoint.js';
-import { failPermanently, readRetryAfterMs, retryCorrective } from './retryPolicy.js';
+import {
+  degradeOnFinalAttempt,
+  failPermanently,
+  readRetryAfterMs,
+  retryCorrective,
+  type WorkflowDegradation,
+} from './retryPolicy.js';
 import { canonicalJson } from './schemaFingerprint.js';
 import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
 
@@ -440,34 +445,45 @@ const optionalYouTubeFailureWarnings = (
   context: {
     readonly attemptNumber: number;
     readonly config: { readonly maxAttempts: number };
-    readonly input: Pick<LessonSourcesState, 'request' | 'warnings' | 'researchRouting'>;
+    readonly input: Pick<
+      LessonSourcesState,
+      'request' | 'warnings' | 'researchRouting' | 'degradationDiagnostics'
+    >;
     readonly signal: AbortSignal;
   },
   error: unknown,
-  logger: LessonStageLogger
+  logger: LessonStageLogger,
+  stage: string
 ) => {
-  context.signal.throwIfAborted();
-  if (
-    context.input.researchRouting &&
-    (context.attemptNumber < context.config.maxAttempts ||
-      !context.input.researchRouting.suppliedSourcesSufficient ||
-      !isResearchProviderUnavailable(
-        error instanceof CourseModelProviderError ? error.cause : error
-      ))
-  ) {
-    throw error;
-  }
-  const retryAfterMs = readRetryAfterMs(error);
-  logger.warn('Optional lesson YouTube research failed.', {
-    diagnostic: toWorkflowErrorDiagnostic(error),
-    projectId: context.input.request.projectId,
-    ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
-    sectionId: context.input.request.sectionId,
+  return degradeOnFinalAttempt({
+    ...context,
+    // Historical definitions treated YouTube as optional immediately.
+    maxAttempts: context.input.researchRouting ? context.config.maxAttempts : context.attemptNumber,
+    error,
+    stage,
+    eligible:
+      !context.input.researchRouting ||
+      (context.input.researchRouting.suppliedSourcesSufficient &&
+        isResearchProviderUnavailable(
+          error instanceof CourseModelProviderError ? error.cause : error
+        )),
+    fallback: failure => {
+      const retryAfterMs = readRetryAfterMs(error);
+      logger.warn('Optional lesson YouTube research failed.', {
+        diagnostic: failure.diagnostic,
+        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+        projectId: context.input.request.projectId,
+        sectionId: context.input.request.sectionId,
+      });
+      return {
+        warnings: [
+          ...context.input.warnings,
+          { code: 'lesson_youtube_research_unavailable' as const, stage: 'youtube' as const },
+        ],
+        degradationDiagnostics: [...(context.input.degradationDiagnostics ?? []), failure],
+      };
+    },
   });
-  return [
-    ...context.input.warnings,
-    { code: 'lesson_youtube_research_unavailable' as const, stage: 'youtube' as const },
-  ];
 };
 
 const planYouTubeResearch =
@@ -501,7 +517,7 @@ const planYouTubeResearch =
       return {
         ...context.input,
         stage: 'youtube-plan',
-        warnings: optionalYouTubeFailureWarnings(context, error, logger),
+        ...optionalYouTubeFailureWarnings(context, error, logger, 'plan-youtube-research'),
         youtubeSearchPlan: null,
       };
     }
@@ -530,7 +546,7 @@ const researchSpecificYouTube =
       return {
         ...context.input,
         stage: 'youtube-search',
-        warnings: optionalYouTubeFailureWarnings(context, error, logger),
+        ...optionalYouTubeFailureWarnings(context, error, logger, 'research-specific-youtube'),
         youtubeSearchOutcome: null,
       };
     }
@@ -557,7 +573,7 @@ const researchFallbackYouTube =
     } catch (error) {
       return {
         ...context.input,
-        warnings: optionalYouTubeFailureWarnings(context, error, logger),
+        ...optionalYouTubeFailureWarnings(context, error, logger, 'research-fallback-youtube'),
         youtubeSearchOutcome: null,
       };
     }
@@ -588,7 +604,7 @@ const finalizeYouTubeResearch =
         discoveredYoutubeSources: [],
         research: { context: '', youtube: null },
         stage: 'youtube',
-        warnings: optionalYouTubeFailureWarnings(context, error, logger),
+        ...optionalYouTubeFailureWarnings(context, error, logger, 'finalize-youtube-research'),
       };
     }
   };
@@ -610,10 +626,24 @@ const researchLesson =
       ),
       context.retryFeedback
     );
+    let optionalFailure: WorkflowDegradation | undefined;
+    const onOptionalFailure = (error: unknown) =>
+      degradeOnFinalAttempt({
+        ...context,
+        maxAttempts: context.config.maxAttempts,
+        error,
+        eligible: true,
+        stage: 'research-lesson',
+        fallback: (failure: WorkflowDegradation) => {
+          optionalFailure = failure;
+          return null;
+        },
+      });
     const summary = await runCorrectableLessonOperation(
       () =>
         generateLessonResearchSummary({
-          allowOptionalFailure: context.attemptNumber >= context.config.maxAttempts,
+          allowOptionalFailure: true,
+          onOptionalFailure,
           existingDossier,
           generationInput,
           research: dependencies.generateResearch,
@@ -641,6 +671,14 @@ const researchLesson =
     const researchContext = canonicalJson(existingDossier ?? summary ?? {});
     const researchState = {
       ...context.input,
+      ...(optionalFailure
+        ? {
+            degradationDiagnostics: [
+              ...(context.input.degradationDiagnostics ?? []),
+              optionalFailure,
+            ],
+          }
+        : {}),
       lessonSources,
       research: { context: researchContext, summary, youtube: context.input.research.youtube },
       stage: 'research' as const,

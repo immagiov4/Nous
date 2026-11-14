@@ -24,6 +24,7 @@ import { subscribeToWorkflowTransientEvents } from '../../src/workflows/workflow
 import type { WorkflowRunState } from '../../src/workflows/workflowReadModel.js';
 
 import frozenContracts from './fixtures/productionWorkflowContracts.json';
+import phaseContracts from './fixtures/productionWorkflowPhaseContracts.json';
 
 const RUN_ID = '9de19290-0dab-470d-a554-9a214073283e';
 const PRE_PDF_SOURCE_HASH_LESSON_DEFINITION =
@@ -74,7 +75,7 @@ describe('workflow runtime production composition', () => {
   });
 
   test('in-flight runs retain every frozen workflow-set contract', () => {
-    for (const deployment of frozenContracts) {
+    for (const deployment of [...frozenContracts, phaseContracts]) {
       for (const boundary of deployment.current) {
         expect(
           productionRegistry.resolve(boundary.workflowId, boundary.definitionHash)?.definitionHash

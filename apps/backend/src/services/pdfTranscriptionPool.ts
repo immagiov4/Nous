@@ -24,7 +24,7 @@ const readConcurrency = (): number => {
   return concurrency;
 };
 
-const readProviderFailureStatus = (error: APICallError): number | undefined => {
+export const readPdfProviderFailureStatus = (error: APICallError): number | undefined => {
   if (error.statusCode === 200 && isRecord(error.data) && typeof error.data.code === 'number')
     return error.data.code;
   return error.statusCode;
@@ -142,7 +142,7 @@ export class PdfTranscriptionPool {
         return await operation();
       } catch (error) {
         const statusCode = APICallError.isInstance(error)
-          ? readProviderFailureStatus(error)
+          ? readPdfProviderFailureStatus(error)
           : undefined;
         if (
           canRetry?.() === false ||
