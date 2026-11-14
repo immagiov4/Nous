@@ -1882,3 +1882,28 @@ test('first-use text follows a running source preparation with the full-text con
   expect(loaded?.snapshot.documentIndex?.chunks[0].text).toBe('Prepared source text');
   expect(loaded?.snapshot.documentIndex?.textDeferred).toBeUndefined();
 });
+
+test('source preparation distinguishes unavailable reads from observed finalizing and missing jobs', async () => {
+  const repository = new HttpProjectRepository('http://localhost:3301');
+  const reader = repository as unknown as {
+    readSourcePreparationStatus(id: string): Promise<unknown>;
+    request: () => Promise<unknown>;
+  };
+  const request = vi.spyOn(reader, 'request');
+  request.mockRejectedValueOnce(new ProjectStorageError('synthetic', 'persistence-failed'));
+  expect(await reader.readSourcePreparationStatus('upload')).toEqual({
+    success: false,
+    statusReadUnavailable: true,
+  });
+  request.mockResolvedValueOnce({ success: true, uploadStatus: 'finalizing' });
+  expect(await reader.readSourcePreparationStatus('upload')).toEqual({
+    success: true,
+    uploadStatus: 'finalizing',
+  });
+  request.mockRejectedValueOnce(
+    new ProjectStorageError('missing', 'persistence-failed', { status: 404 })
+  );
+  await expect(reader.readSourcePreparationStatus('upload')).rejects.toMatchObject({
+    code: 'source-preparation-interrupted',
+  });
+});
