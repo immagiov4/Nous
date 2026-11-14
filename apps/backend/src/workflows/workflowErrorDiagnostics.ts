@@ -51,7 +51,7 @@ export const WorkflowTechnicalDiagnosticSchema: z.ZodType<WorkflowErrorDiagnosti
   technicalDiagnosticSchema;
 // Runtime failure details may evolve without changing durable workflow output definitions.
 const ObservedTechnicalFieldsSchema = TechnicalDiagnosticFieldsSchema.extend({
-  stage: z.string().optional(),
+  errorStage: z.string().optional(),
   modelCall: ModelCallDiagnosticSchema.optional(),
 });
 let observedTechnicalSchema = ObservedTechnicalFieldsSchema;
@@ -187,7 +187,7 @@ const createDiagnosticProjection = (input: {
   status: number | undefined;
   type: string;
   validation?: LessonReviewDiagnostic;
-  stage?: string;
+  errorStage?: string;
   modelCall?: z.infer<typeof ModelCallDiagnosticSchema>;
 }): WorkflowErrorDiagnostic => ({
   ...(input.cause ? { cause: input.cause } : {}),
@@ -206,10 +206,13 @@ const createDiagnosticProjection = (input: {
     : {}),
   ...(input.status === undefined ? {} : { status: input.status }),
   type: input.type,
-  ...(input.stage ? { stage: input.stage } : {}),
+  ...(input.errorStage ? { errorStage: input.errorStage } : {}),
   ...(input.modelCall ? { modelCall: input.modelCall } : {}),
   ...(input.validation ? { validation: input.validation } : {}),
 });
+
+const readErrorStage = (value: Record<string, unknown>, persisted: boolean) =>
+  readModelIdentifier(persisted ? value.errorStage : value.stage);
 
 const createDiagnostic = (
   value: unknown,
@@ -257,7 +260,7 @@ const createDiagnostic = (
   );
   return createDiagnosticProjection({
     ...(modelCall.success ? { modelCall: modelCall.data } : {}),
-    stage: readModelIdentifier(value.stage),
+    errorStage: readErrorStage(value, persisted),
     ...(validation.success ? { validation: validation.data } : {}),
     cause,
     code,

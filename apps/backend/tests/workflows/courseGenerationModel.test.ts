@@ -2,9 +2,9 @@ import { TRANSCRIBED_SOURCE_RULE } from '@shared/pdfTranscription';
 import { NoObjectGeneratedError } from 'ai';
 import { describe, expect, test, vi } from 'vitest';
 import * as z from 'zod';
-
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { createCourseObjectGenerator } from '../../src/workflows/courseGenerationModel.js';
+import { toStepFailure } from '../../src/workflows/retryPolicy.js';
 import {
   readWorkflowErrorDiagnostic,
   toWorkflowErrorDiagnostic,
@@ -46,7 +46,7 @@ describe('course generation structured model adapter', () => {
     const diagnostic = toWorkflowErrorDiagnostic(error, { includeContent: false });
     expect(diagnostic).toMatchObject({
       type: 'CourseModelProviderError',
-      cause: { type: 'ProviderCallError', code: 'unavailable', stage: 'request' },
+      cause: { type: 'ProviderCallError', code: 'unavailable', errorStage: 'request' },
       modelCall: { phase: provider === 'codex' ? 'initializing' : 'awaiting-output' },
     });
     expect(readWorkflowErrorDiagnostic(JSON.parse(JSON.stringify(diagnostic)))).toEqual(diagnostic);
@@ -368,4 +368,32 @@ describe('course generation structured model adapter', () => {
       })
     );
   });
+});
+
+test('keeps malformed Codex JSON cause and post-processing in the persistible corrective failure', async () => {
+  const generate = createCourseObjectGenerator({
+    runAiObject: vi.fn(),
+    runCodexObject: vi.fn().mockResolvedValue('PRIVATE_MALFORMED_JSON'),
+  });
+  const error = await generate({
+    config: { ...getGlobalModelConfig(), aiProviderOverrides: { course: 'codex' } },
+    developerInstructions: 'PRIVATE_SYSTEM',
+    prompt: 'PRIVATE_PROMPT',
+    name: 'course_plan',
+    schema,
+    signal: new AbortController().signal,
+    slot: 'course',
+  }).catch(error => error);
+  const failure = JSON.parse(JSON.stringify(toStepFailure(error)));
+  expect(failure).toMatchObject({
+    kind: 'corrective',
+    code: 'course_model_output_invalid',
+    details: {
+      diagnostic: {
+        type: 'SyntaxError',
+        modelCall: { phase: 'post-processing', elapsedMs: expect.any(Number) },
+      },
+    },
+  });
+  expect(JSON.stringify(failure)).not.toContain('PRIVATE_');
 });

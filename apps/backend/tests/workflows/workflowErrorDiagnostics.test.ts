@@ -20,7 +20,7 @@ describe('workflow error diagnostics', () => {
     const durable = toWorkflowErrorDiagnostic(error, { includeContent: false });
     expect(durable).toEqual({
       type: 'CourseModelProviderError',
-      cause: { type: 'CodexAppServerError', code: 'timeout', stage: 'turn-start' },
+      cause: { type: 'CodexAppServerError', code: 'timeout', errorStage: 'turn-start' },
     });
     expect(readWorkflowErrorDiagnostic(JSON.parse(JSON.stringify(durable)))).toEqual(durable);
   });
@@ -202,5 +202,18 @@ describe('workflow error diagnostics', () => {
         slot: 'lesson',
       })
     ).toBeUndefined();
+  });
+});
+
+test('keeps caller stage separate from the underlying error stage', () => {
+  const error = Object.assign(new Error('private'), { stage: 'pdf-parse' });
+  const diagnostic = {
+    stage: 'source-preparation',
+    ...toWorkflowErrorDiagnostic(error, { includeContent: false }),
+  };
+  expect(diagnostic).toEqual({
+    stage: 'source-preparation',
+    errorStage: 'pdf-parse',
+    type: 'Error',
   });
 });

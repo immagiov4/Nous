@@ -28,6 +28,8 @@ const errors = new WeakMap<object, ModelCallDiagnostic>();
 
 export const modelCallErrorDiagnostic = (error: object): ModelCallDiagnostic | undefined =>
   errors.get(error);
+export const currentModelCallDiagnostic = (): ModelCallDiagnostic | undefined =>
+  calls.getStore()?.snapshot();
 export const markModelCallPhase = (phase: ModelCallPhase): void => calls.getStore()?.mark(phase);
 
 /** Bind event callbacks to their call rather than the transport's creation context. */

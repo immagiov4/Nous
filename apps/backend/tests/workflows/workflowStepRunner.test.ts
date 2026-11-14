@@ -138,6 +138,7 @@ describe('single workflow step runner', () => {
   test.each([
     'parser',
     'silence',
+    'rpc-error',
     'exit',
   ] as const)('records a private-safe Codex %s failure at the durable attempt boundary', async scenario => {
     vi.useFakeTimers();
@@ -194,6 +195,8 @@ describe('single workflow step runner', () => {
         '2026-11-01T20:12:04.223259Z ERROR codex_app_server_transport::transport: Failed to deserialize JSON'
       );
       child.stderr.write('RPCMessage: unexpected end of hex escape PRIVATE_SOURCE\n');
+    } else if (scenario === 'rpc-error') {
+      child.stdout.write(`${JSON.stringify({ id: 1, error: { message: 'Request rejected.' } })}\n`);
     } else if (scenario === 'exit') {
       child.emit('exit', 1);
     } else {
@@ -208,8 +211,13 @@ describe('single workflow step runner', () => {
       type: 'CourseModelProviderError',
       cause: {
         type: 'CodexAppServerError',
-        code: scenario === 'parser' ? 'protocol' : scenario === 'exit' ? 'process' : 'timeout',
-        ...(scenario === 'silence' ? { stage: 'turn/start' } : {}),
+        code:
+          scenario === 'parser' || scenario === 'rpc-error'
+            ? 'protocol'
+            : scenario === 'exit'
+              ? 'process'
+              : 'timeout',
+        errorStage: 'turn/start',
         ...(scenario === 'parser' ? { cause: { code: 'jsonrpc_deserialization_failed' } } : {}),
       },
     });

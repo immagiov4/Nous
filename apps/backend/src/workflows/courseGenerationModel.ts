@@ -16,9 +16,14 @@ import {
   runCodexAppServerTurn,
 } from '../services/codexAppServer.js';
 import { prepareStrictStructuredOutput } from '../services/strictStructuredOutput.js';
-import { markModelCallPhase, withModelCallDiagnostics } from './modelCallDiagnostics.js';
+import {
+  currentModelCallDiagnostic,
+  markModelCallPhase,
+  withModelCallDiagnostics,
+} from './modelCallDiagnostics.js';
 import { retryCorrective } from './retryPolicy.js';
 import type { DeepReadonly } from './types.js';
+import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
 
 export interface CourseObjectTool {
   readonly description: string;
@@ -224,7 +229,14 @@ export const createCourseObjectGenerator =
         ) {
           throw new CourseModelProviderError(error);
         }
+        const modelCall = currentModelCallDiagnostic();
         throw retryCorrective({
+          details: {
+            diagnostic: {
+              ...toWorkflowErrorDiagnostic(error, { includeContent: false }),
+              ...(modelCall ? { modelCall } : {}),
+            },
+          },
           code: 'course_model_output_invalid',
           feedback:
             'Return valid JSON that exactly matches the requested schema, including every required field and no extra fields.',

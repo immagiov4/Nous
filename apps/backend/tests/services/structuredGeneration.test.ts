@@ -4,6 +4,8 @@ import * as z from 'zod';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { generateStructuredOutput } from '../../src/services/structuredGeneration.js';
 import { isRecord } from '../../src/utils/validation.js';
+import { createModelCallObserver } from '../../src/workflows/modelCallDiagnostics.js';
+import { toWorkflowErrorDiagnostic } from '../../src/workflows/workflowErrorDiagnostics.js';
 
 const { createConfiguredTextModelFromResolution, generateText, runCodexAppServerTurn } = vi.hoisted(
   () => ({
@@ -457,4 +459,28 @@ test('enables source interpretation only when explicitly requested', async () =>
   generateText.mockResolvedValue({ output: { answer: '42' } });
   await generateStructuredOutput({ ...request('openrouter'), sourceAware: true });
   expect(generateText.mock.lastCall?.[0].system).toBe(`Rispondi.\n${TRANSCRIBED_SOURCE_RULE}`);
+});
+
+test('observes a stalled OpenRouter lesson call through abort without retaining content', async () => {
+  const controller = new AbortController();
+  const observer = createModelCallObserver();
+  createConfiguredTextModelFromResolution.mockReturnValue({ model: 'model' });
+  generateText.mockImplementation(
+    async ({ abortSignal }) =>
+      new Promise((_resolve, reject) => {
+        abortSignal.addEventListener('abort', () => reject(abortSignal.reason), { once: true });
+      })
+  );
+  const pending = observer
+    .run(() => generateStructuredOutput({ ...request('openrouter'), signal: controller.signal }))
+    .catch(error => error);
+  expect(observer.snapshot()).toMatchObject({
+    phase: 'awaiting-output',
+    elapsedMs: expect.any(Number),
+  });
+  controller.abort(new Error('PRIVATE_PROMPT'));
+  const error = await pending;
+  expect(toWorkflowErrorDiagnostic(error, { includeContent: false })).toMatchObject({
+    modelCall: { phase: 'awaiting-output' },
+  });
 });

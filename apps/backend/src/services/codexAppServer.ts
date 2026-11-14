@@ -299,12 +299,7 @@ export class CodexJsonRpcClient {
       const timeout = setTimeout(() => {
         this.#pendingRequests.delete(String(id));
         cleanup();
-        reject(
-          Object.assign(
-            new CodexAppServerError(`Codex app-server timed out during ${method}.`, 'timeout'),
-            { stage: method }
-          )
-        );
+        reject(new CodexAppServerError(`Codex app-server timed out during ${method}.`, 'timeout'));
       }, options.timeoutMs ?? this.requestTimeoutMs);
       timeout.unref?.();
       this.#pendingRequests.set(String(id), { cleanup, reject, resolve, timeout });
@@ -312,7 +307,24 @@ export class CodexJsonRpcClient {
     });
 
     this.#write({ id, method, ...(params === undefined ? {} : { params }) });
-    return result;
+    return result.catch(error => {
+      // Caller cancellation retains its identity for interruption handling.
+      if (options.signal?.aborted && error === options.signal.reason) throw error;
+      if (error instanceof CodexAppServerError) {
+        throw Object.assign(
+          new CodexAppServerError(error.message, error.code, { cause: error.cause }),
+          { stage: method }
+        );
+      }
+      throw Object.assign(
+        new CodexAppServerError(
+          error instanceof Error ? error.message : 'Codex RPC request failed.',
+          'process',
+          { cause: error }
+        ),
+        { stage: method }
+      );
+    });
   }
 
   notify(method: string, params?: unknown): void {
