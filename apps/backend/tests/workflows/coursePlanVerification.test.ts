@@ -509,7 +509,10 @@ test('preserves distinct sanitized rejection predicates and a valid control', ()
       expect(failure.kind === 'corrective' && failure.feedback).toContain(
         JSON.stringify({ reason, path })
       );
-      expect(JSON.stringify(failure)).not.toContain('private unknown content');
+      const serialized = JSON.stringify(failure);
+      for (const moduleId of [...moduleIds, 'private unknown content']) {
+        expect(serialized).not.toContain(moduleId);
+      }
     }
   }
   expect(

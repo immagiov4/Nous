@@ -71,9 +71,12 @@ export const validateCoursePlanVerification = (
   const fragmentedModuleIds = verification.fragmentation.moduleIds;
   const knownModuleIds = new Set(moduleIds);
   const unknownIndex = fragmentedModuleIds.findIndex(moduleId => !knownModuleIds.has(moduleId));
-  const duplicateIndex = fragmentedModuleIds.findIndex(
-    (moduleId, index) => fragmentedModuleIds.indexOf(moduleId) !== index
-  );
+  const seenModuleIds = new Set<string>();
+  const duplicateIndex = fragmentedModuleIds.findIndex(moduleId => {
+    if (seenModuleIds.has(moduleId)) return true;
+    seenModuleIds.add(moduleId);
+    return false;
+  });
   let validation: { reason: string; path: (string | number)[] } | undefined;
   if ((verification.verdict === 'refine') !== needsRefinement) {
     validation = { reason: 'verdict-dimension-mismatch', path: ['verdict'] };
