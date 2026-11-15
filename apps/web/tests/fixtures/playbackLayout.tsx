@@ -214,6 +214,12 @@ if (new URLSearchParams(location.search).has('case')) {
               id: 'fixture-image',
               mimeType: 'image/jpeg',
               dataUrl: mixedImageUrl,
+              ...(imageAspect
+                ? {
+                    intrinsicWidth: imageAspect === 'wide' ? 2400 : 240,
+                    intrinsicHeight: imageAspect === 'tall' ? 2400 : 240,
+                  }
+                : {}),
               sourceOrder: 0,
               textBefore: '',
               textAfter: '',

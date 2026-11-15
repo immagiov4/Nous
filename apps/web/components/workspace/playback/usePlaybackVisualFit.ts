@@ -75,6 +75,7 @@ function fitImagesAroundText(card: HTMLElement, availableHeight: number) {
   if (!imageHeight) return;
   const textHeight = Math.max(card.offsetHeight, card.scrollHeight) - imageHeight;
   const imageScale = Math.min(1, Math.max(0, availableHeight - textHeight) / imageHeight);
+  if (imageScale === 1) return;
   images.forEach((image, index) => {
     image.style.maxHeight = `${heights[index] * imageScale}px`;
     image.style.objectFit = 'contain';
