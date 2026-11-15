@@ -158,7 +158,7 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
       return result;
     },
     /** Presentation lead never changes acoustic scene cues or advances a paused seek target. */
-    fill(current: CaptionTimingClock, time = current.read().blockTime): number[] {
+    fill(current: CaptionTimingClock, time = current.read().blockTime, rate = 1): number[] {
       if (time === 0 && previousFillTime > 0) {
         completedWords.clear();
         fillBoundary = 0;
@@ -169,7 +169,7 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
       for (const [index, span] of acousticSpans.entries())
         if (span && span.startMs <= time * 1000) spokenWord = index;
       if (time < 0) return spans.map(() => 0);
-      const lead = Math.min(CAPTION_FILL_LEAD_SECONDS, Math.max(0, time - fillBoundary));
+      const lead = Math.min(CAPTION_FILL_LEAD_SECONDS * rate, Math.max(0, time - fillBoundary));
       const presentedMs = Math.max(0, time + lead) * 1000;
       return spans.map((span, index) => {
         if (!span) throw new Error('Caption word timing must exist');

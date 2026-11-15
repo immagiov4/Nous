@@ -1,15 +1,18 @@
+import { animate } from 'framer-motion';
 import { CAPTION_SCROLL } from './captionFormat.ts';
 
 type CaptionRow = { top: number; bottom: number; inkTop: number; inkBottom: number };
-const readingStates = new WeakMap<HTMLElement, { manual: boolean; scrollbarDrag: boolean }>();
+type ReadingState = { manual: boolean; scrollbarDrag: boolean; stopScroll?: () => void };
+const readingStates = new WeakMap<HTMLElement, ReadingState>();
 
 function readingState(paragraph: HTMLElement) {
   const existing = readingStates.get(paragraph);
   if (existing) return existing;
-  const state = { manual: false, scrollbarDrag: false };
+  const state: ReadingState = { manual: false, scrollbarDrag: false };
   readingStates.set(paragraph, state);
   const pauseFollow = () => {
     state.manual = true;
+    state.stopScroll?.();
   };
   paragraph.addEventListener('wheel', pauseFollow, { passive: true });
   paragraph.addEventListener('touchmove', pauseFollow, { passive: true });
@@ -61,9 +64,10 @@ function measureRows(paragraph: HTMLElement, origin: number, scale: number) {
   return { rows, words };
 }
 
-/** Measure once per layout and exclude partial rows throughout native smooth scrolling. */
+/** Measure once per layout and exclude partial rows throughout eased block scrolling. */
 export function captionViewport(paragraph: HTMLElement) {
   const reading = readingState(paragraph);
+  reading.stopScroll?.();
   const readingPosition = reading.manual ? paragraph.scrollTop : 0;
   paragraph.scrollTop = 0;
   const bounds = paragraph.getBoundingClientRect();
@@ -110,7 +114,20 @@ export function captionViewport(paragraph: HTMLElement) {
       if (row.top < target || row.bottom > target + height * CAPTION_SCROLL.trigger) {
         const destination = row.top - height * CAPTION_SCROLL.destination;
         target = Math.max(0, ...rows.filter(line => line.top <= destination).map(line => line.top));
-        paragraph.scrollTo({ top: target, behavior: motion ? 'smooth' : 'instant' });
+        reading.stopScroll?.();
+        if (motion) {
+          const scrolling = animate(paragraph.scrollTop, target, {
+            duration: CAPTION_SCROLL.durationSeconds,
+            ease: 'easeInOut',
+            onUpdate: top => {
+              paragraph.scrollTop = top;
+              clip();
+            },
+          });
+          reading.stopScroll = () => scrolling.stop();
+        } else {
+          paragraph.scrollTo({ top: target, behavior: 'instant' });
+        }
       }
       previousLine = row;
       clip();

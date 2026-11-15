@@ -207,3 +207,9 @@ test('single-block replay clears completed fill when its live clock returns to z
   time = 1.9;
   expect(owner.fill(current)).toEqual([1, expect.closeTo(0.25), 0, 0]);
 });
+
+test.each([0.5, 1, 2])('keeps a 600 ms perceived lead at playback rate %s', rate => {
+  const owner = createCaptionTiming(speech, { words: narrationWords(speech) });
+  const current = clock(4, [0, 2, 4, 6]);
+  expect(owner.fill(current, 4, rate)[2]).toBeCloseTo(0.3 * rate);
+});

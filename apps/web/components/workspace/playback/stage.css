@@ -1921,9 +1921,15 @@
   padding: 32px 0;
 }
 .lesson-player-stage .captions {
+  position: relative;
   min-height: 0;
   display: flex;
   align-items: center;
+}
+.lesson-player-stage .caption-headings {
+  position: absolute;
+  bottom: 100%;
+  width: 100%;
 }
 .lesson-player-stage .captions .caption-page {
   font-size: clamp(22px, 2.2vw, 31px);

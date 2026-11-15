@@ -829,7 +829,7 @@ test.each([false, true])('reader sequence notes are opaque (dark=%s)', async dar
   }
 });
 
-test('centers both columns independently without caption jumps when visual height changes', async () => {
+test('centers captions within the fitted visual height when the visual changes', async () => {
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
   try {
     await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?snapshot&type=parts`);
@@ -863,7 +863,8 @@ test('centers both columns independently without caption jumps when visual heigh
       expect(geometry.captions.center).toBeCloseTo(geometry.stage.center, 0);
       expect(geometry.visual.center).toBeCloseTo(geometry.stage.center, 0);
     }
-    expect(after.captions.top).toBe(before.captions.top);
+    for (const geometry of [before, after])
+      expect(geometry.captions.height).toBeLessThanOrEqual(geometry.visual.height + 1);
     expect(after.visual.height).toBeLessThan(before.visual.height);
     await evidence(page, 'centered-stable-columns-1080p');
   } finally {
@@ -873,7 +874,7 @@ test('centers both columns independently without caption jumps when visual heigh
 
 test.each([
   1024, 1440, 1920,
-])('desktop passage starts at the player title and keeps its geometry at %spx', async width => {
+])('desktop passage retains the title inset and fits its visual card at %spx', async width => {
   const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
   try {
     const measurements = [];
@@ -910,7 +911,13 @@ test.each([
     }
     expect(measurements[1].caption.left).toBe(measurements[0].caption.left);
     expect(measurements[1].caption.width).toBe(measurements[0].caption.width);
-    expect(measurements[1].label.top).toBe(measurements[0].label.top);
+    for (const geometry of measurements) {
+      expect(geometry.caption.height).toBeLessThanOrEqual(geometry.visual.height + 1);
+      expect(geometry.caption.top + geometry.caption.height / 2).toBeCloseTo(
+        geometry.visual.top + geometry.visual.height / 2,
+        0
+      );
+    }
     await evidence(page, `desktop-caption-${width}`);
   } finally {
     await page.close();
@@ -962,7 +969,7 @@ test.each([
   }
 });
 
-test('keeps desktop caption and visual geometry through a live long-to-short passage transition', async () => {
+test('keeps visual geometry while short captions retain natural height after a passage transition', async () => {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   try {
     await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=steps&clock&transition`);
@@ -991,8 +998,14 @@ test('keeps desktop caption and visual geometry through a live long-to-short pas
     });
     expect(samples.at(-1)?.words).toBeLessThan(samples[0].words);
     for (const sample of samples) {
-      expect(sample.label).toEqual(samples[0].label);
-      expect(sample.caption).toEqual(samples[0].caption);
+      expect(sample.label.left).toBe(samples[0].label.left);
+      expect(sample.caption.left).toBe(samples[0].caption.left);
+      expect(sample.caption.width).toBe(samples[0].caption.width);
+      expect(sample.caption.height).toBeLessThanOrEqual(sample.visual.height + 1);
+      expect(sample.caption.top + sample.caption.height / 2).toBeCloseTo(
+        sample.visual.top + sample.visual.height / 2,
+        0
+      );
       expect(sample.slot).toEqual(samples[0].slot);
       expect(sample.visual).toEqual(samples[0].visual);
     }

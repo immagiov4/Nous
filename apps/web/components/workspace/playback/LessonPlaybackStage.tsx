@@ -405,9 +405,12 @@ function PlaybackPassage({
       };
     };
     measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(paragraph);
     window.addEventListener('resize', measure);
     document.fonts.addEventListener('loadingdone', measure);
     return () => {
+      observer.disconnect();
       window.removeEventListener('resize', measure);
       document.fonts.removeEventListener('loadingdone', measure);
     };
@@ -439,7 +442,7 @@ function PlaybackPassage({
       const motion = latest.current.animate;
       current.viewport.clip();
       if (previousBodyTime === bodyTime) return;
-      const progress = timing.fill(current, bodyTime);
+      const progress = timing.fill(current, bodyTime, latest.current.speed);
       current.runs.forEach((run, index) => {
         drawCaptionWord(run, progress[index]);
       });
@@ -846,10 +849,12 @@ function PlaybackPassage({
     >
       <section className="listening-stage">
         <section className="captions">
-          {passageHeadings.map((heading, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: authored headings may repeat
-            <h2 key={`${index}:${heading}`}>{heading}</h2>
-          ))}
+          <div className="caption-headings">
+            {passageHeadings.map((heading, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: authored headings may repeat
+              <h2 key={`${index}:${heading}`}>{heading}</h2>
+            ))}
+          </div>
           <section
             ref={captions}
             key={block.id}

@@ -67,7 +67,36 @@ function Fixture() {
     return () => window.removeEventListener('caption-playback-time', advance);
   }, []);
   const [passage, setPassage] = useState(0);
-  const currentBlock = useMemo(() => ({ ...block, id: String(passage) }), [passage]);
+  const [tallVisual, setTallVisual] = useState(
+    new URLSearchParams(location.search).has('resize-card')
+  );
+  const currentBlock = useMemo(
+    () => ({
+      ...block,
+      id: String(passage),
+      ...(new URLSearchParams(location.search).has('resize-card')
+        ? {
+            prepared: {
+              motion: [],
+              scene: {
+                type: 'parts' as const,
+                title: 'Variable visual',
+                body: '',
+                groups: [],
+                quote: '',
+                note: '',
+                items: Array.from({ length: tallVisual ? 22 : 2 }, (_, index) => ({
+                  icon: 'point',
+                  label: `Detail ${index}`,
+                  detail: 'A visual detail.',
+                })),
+              },
+            },
+          }
+        : {}),
+    }),
+    [passage, tallVisual]
+  );
   return (
     <>
       <style>{`@font-face { font-family: "Caption fixture"; src: url("${fontUrl}"); font-display: swap; } .lesson-player-stage { font-family: "Caption fixture", sans-serif; }`}</style>
@@ -82,6 +111,9 @@ function Fixture() {
         />
       </div>
       <div style={{ position: 'fixed', bottom: 0, right: 0 }}>
+        <button type="button" onClick={() => setTallVisual(false)}>
+          Shrink visual
+        </button>
         <button type="button" onClick={() => setDark(!dark)}>
           Switch theme
         </button>

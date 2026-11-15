@@ -522,10 +522,10 @@ beforeEach(() => {
   vi.stubGlobal(
     'ResizeObserver',
     class {
-      constructor(callback: () => void) {
-        resizeScene = callback;
+      constructor(readonly callback: () => void) {}
+      observe(target: Element) {
+        if (target.classList.contains('scene-fit')) resizeScene = this.callback;
       }
-      observe() {}
       disconnect = disconnectScene;
     }
   );
@@ -810,7 +810,7 @@ test('fits the complete scene into both available dimensions and releases the ob
   act(() => resizeScene());
   unmount();
   expect(frames.size).toBe(0);
-  expect(disconnectScene).toHaveBeenCalledTimes(1);
+  expect(disconnectScene).toHaveBeenCalledTimes(2);
 });
 
 test('mounts a fresh scene for each block so the page transition restarts', () => {

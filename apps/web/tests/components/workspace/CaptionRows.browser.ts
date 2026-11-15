@@ -146,6 +146,35 @@ async function spokenRowSurvivesThemeRemeasurement(page: Page, baseUrl: string) 
   await page.setViewportSize({ width: 1280, height: 800 });
 }
 
+async function resizedCardKeepsSpokenRowVisible(page: Page, baseUrl: string) {
+  await page.goto(`${baseUrl}tests/fixtures/captionRows.html?follow&resize-card`);
+  await page.waitForFunction(
+    () => (document.querySelector('.caption-page')?.getBoundingClientRect().height ?? 0) > 500
+  );
+  await page.evaluate(() => dispatchEvent(new Event('resize')));
+  const index = await page.locator('.caption-page').evaluate(paragraph => {
+    const origin = paragraph.getBoundingClientRect().top;
+    return [...paragraph.querySelectorAll('.caption-word')].findIndex(word => {
+      const y = word.getBoundingClientRect().top - origin;
+      return y > 350 && y < 500;
+    });
+  });
+  assert(index > 0, 'The large card has a spoken row below the later small viewport');
+  await page.evaluate(
+    index => dispatchEvent(new CustomEvent('caption-playback-time', { detail: (index + 0.2) / 4 })),
+    index
+  );
+  await page.getByRole('button', { name: 'Shrink visual' }).click();
+  await page.waitForFunction(
+    () =>
+      (document.querySelector('.caption-page')?.getBoundingClientRect().height ?? Infinity) <= 301
+  );
+  assert(
+    await activeCaptionIsVisible(page),
+    'A shorter card remeasures follow and keeps its spoken row visible'
+  );
+}
+
 async function captionViewportMatchesCard(page: Page, baseUrl: string) {
   for (const short of [false, true]) {
     await page.goto(`${baseUrl}tests/fixtures/captionRows.html${short ? '?short' : ''}`);
@@ -332,6 +361,16 @@ try {
       const smoke = process.argv.includes('--smoke');
       let cases = 0;
       try {
+        if (process.argv.includes('--card-resize')) {
+          const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+          try {
+            await resizedCardKeepsSpokenRowVisible(page, baseUrl);
+            console.log(`PASS ${browserName}: visual-height change retains spoken row`);
+          } finally {
+            await page.close();
+          }
+          continue;
+        }
         if (process.argv.includes('--card-height')) {
           const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
           try {
@@ -354,6 +393,7 @@ try {
         try {
           await captionScrollbarsStayHidden(paragraphPage, baseUrl);
           await captionViewportMatchesCard(paragraphPage, baseUrl);
+          await resizedCardKeepsSpokenRowVisible(paragraphPage, baseUrl);
           await spokenRowSurvivesThemeRemeasurement(paragraphPage, baseUrl);
           for (const input of ['wheel', 'keyboard'] as const)
             await paragraphFillSurvivesThemesAndManualReading(paragraphPage, baseUrl, input);
