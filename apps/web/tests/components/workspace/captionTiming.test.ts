@@ -195,3 +195,15 @@ test('fill uses one live sample for its seek boundary and presentation', () => {
   expect(owner.fill(sought)).toEqual([expect.closeTo(0.95), 0, 0, 0]);
   expect(reads).toBe(1);
 });
+
+test('single-block replay clears completed fill when its live clock returns to zero', () => {
+  let time = 0;
+  const current = { ...clock(0, [0, 2, 4, 6]), read: () => ({ blockTime: time }) };
+  const owner = createCaptionTiming(speech, { words: narrationWords(speech) });
+  time = 10;
+  expect(owner.fill(current)).toEqual([1, 1, 1, 1]);
+  time = 0;
+  expect(owner.fill(current)).toEqual([0, 0, 0, 0]);
+  time = 1.9;
+  expect(owner.fill(current)).toEqual([1, expect.closeTo(0.25), 0, 0]);
+});

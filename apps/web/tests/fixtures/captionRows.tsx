@@ -11,11 +11,13 @@ const acousticFollow = new URLSearchParams(location.search).has('follow');
 const sources = [
   {
     type: 'markdown' as const,
-    markdown: Array.from({ length: 12 }, () =>
-      acousticFollow
-        ? 'Sincronizzazione rappresentazione elaborazione memorizzazione organizzazione comprensione.'
-        : 'La **memoria** conserva i dati del programma mentre il processore legge le istruzioni e aggiorna il risultato con `open`.'
-    ).join(' '),
+    markdown: new URLSearchParams(location.search).has('short')
+      ? 'Una frase breve.'
+      : Array.from({ length: 12 }, () =>
+          acousticFollow
+            ? 'Sincronizzazione rappresentazione elaborazione memorizzazione organizzazione comprensione.'
+            : 'La **memoria** conserva i dati del programma mentre il processore legge le istruzioni e aggiorna il risultato con `open`.'
+        ).join(' '),
   },
 ];
 const block = {

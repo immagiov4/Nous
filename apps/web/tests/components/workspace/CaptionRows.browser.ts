@@ -146,6 +146,50 @@ async function spokenRowSurvivesThemeRemeasurement(page: Page, baseUrl: string) 
   await page.setViewportSize({ width: 1280, height: 800 });
 }
 
+async function captionViewportMatchesCard(page: Page, baseUrl: string) {
+  for (const short of [false, true]) {
+    await page.goto(`${baseUrl}tests/fixtures/captionRows.html${short ? '?short' : ''}`);
+    for (const theme of ['light', 'dark']) {
+      await page.waitForFunction(
+        () => !!document.querySelector('.scene-host')?.getAttribute('style')
+      );
+      const boxes = await page.locator('.caption-page').evaluate(paragraph => {
+        const card = document.querySelector('.scene-host');
+        if (!card) throw new Error('Visual card must exist');
+        const caption = paragraph.getBoundingClientRect();
+        const visual = card.getBoundingClientRect();
+        return {
+          top: caption.top,
+          bottom: caption.bottom,
+          height: caption.height,
+          cardTop: visual.top,
+          cardBottom: visual.bottom,
+          cardHeight: visual.height,
+          overflowing: paragraph.scrollHeight > paragraph.clientHeight,
+        };
+      });
+      if (short) {
+        assert(boxes.height < boxes.cardHeight, `${theme}: short text keeps its natural height`);
+        assert(!boxes.overflowing, `${theme}: short text needs no scrolling`);
+      } else {
+        assert(
+          Math.abs(boxes.top - boxes.cardTop) < 1,
+          `${theme}: caption/card top edges match: ${JSON.stringify(boxes)}`
+        );
+        assert(
+          Math.abs(boxes.bottom - boxes.cardBottom) < 1,
+          `${theme}: caption/card bottom edges match`
+        );
+        assert(
+          boxes.overflowing,
+          `${theme}: long paragraph scrolls inside its card-height viewport`
+        );
+      }
+      await page.getByRole('button', { name: 'Switch theme' }).click();
+    }
+  }
+}
+
 async function captionScrollbarsStayHidden(page: Page, baseUrl: string) {
   await page.goto(`${baseUrl}tests/fixtures/captionRows.html`);
   for (const theme of ['light', 'dark']) {
@@ -288,6 +332,16 @@ try {
       const smoke = process.argv.includes('--smoke');
       let cases = 0;
       try {
+        if (process.argv.includes('--card-height')) {
+          const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+          try {
+            await captionViewportMatchesCard(page, baseUrl);
+            console.log(`PASS ${browserName}: caption/card alignment, both themes, long and short`);
+          } finally {
+            await page.close();
+          }
+          continue;
+        }
         const mobilePage = await browser.newPage();
         try {
           await mobilePlaybackShowsOnlyVisuals(mobilePage, baseUrl);
@@ -299,6 +353,7 @@ try {
         const paragraphPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
         try {
           await captionScrollbarsStayHidden(paragraphPage, baseUrl);
+          await captionViewportMatchesCard(paragraphPage, baseUrl);
           await spokenRowSurvivesThemeRemeasurement(paragraphPage, baseUrl);
           for (const input of ['wheel', 'keyboard'] as const)
             await paragraphFillSurvivesThemesAndManualReading(paragraphPage, baseUrl, input);

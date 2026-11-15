@@ -35,6 +35,7 @@ interface TimingRequest {
  */
 export function createCaptionTiming(speech: string, request: TimingRequest) {
   let fillBoundary = 0;
+  let previousFillTime = 0;
   // Presentation can complete before an acoustic boundary is eligible for retention.
   const completedWords = new Set<number>();
   let acousticSpans: (Span | undefined)[] = [];
@@ -158,6 +159,11 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
     },
     /** Presentation lead never changes acoustic scene cues or advances a paused seek target. */
     fill(current: CaptionTimingClock, time = current.read().blockTime): number[] {
+      if (time === 0 && previousFillTime > 0) {
+        completedWords.clear();
+        fillBoundary = 0;
+      }
+      previousFillTime = time;
       const { spans } = this.read(current, time);
       spokenWord = undefined;
       for (const [index, span] of acousticSpans.entries())
