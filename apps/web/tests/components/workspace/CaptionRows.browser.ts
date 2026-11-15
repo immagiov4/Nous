@@ -32,11 +32,7 @@ async function visibleCaptionRows(page: Page) {
       const bottom = bounds.bottom - (insets[2] ?? insets[0]) * scale;
       let frameVisible = 0;
       for (const word of paragraph.querySelectorAll<HTMLElement>('.caption-word')) {
-        if (
-          getComputedStyle(word).opacity === '0' ||
-          getComputedStyle(word).visibility === 'hidden'
-        )
-          continue;
+        if (!word.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
         const range = document.createRange();
         if (!word.firstElementChild) throw new Error('Caption word must contain text');
         range.selectNodeContents(word.firstElementChild);
@@ -93,6 +89,8 @@ async function mobilePlaybackShowsOnlyVisuals(page: Page, baseUrl: string) {
     const accessibleText = await stage.ariaSnapshot();
     const desktop = width > 650;
     assert.equal(await caption.isVisible(), desktop, `width=${width}: caption visibility`);
+    if (desktop)
+      assert((await visibleCaptionRows(page)).visible > 0, `width=${width}: painted caption text`);
     assert.equal(visibleText.includes('conserva'), desktop, `width=${width}: visible caption text`);
     assert.equal(
       accessibleText.includes('conserva'),
