@@ -146,10 +146,30 @@ async function spokenRowSurvivesThemeRemeasurement(page: Page, baseUrl: string) 
   await page.setViewportSize({ width: 1280, height: 800 });
 }
 
+async function captionScrollbarsStayHidden(page: Page, baseUrl: string) {
+  await page.goto(`${baseUrl}tests/fixtures/captionRows.html`);
+  for (const theme of ['light', 'dark']) {
+    const scrollbar = await page.locator('.caption-page').evaluate(element => ({
+      width: getComputedStyle(element).scrollbarWidth,
+      gutter: (element as HTMLElement).offsetWidth - element.clientWidth,
+      overflow: element.scrollHeight > element.clientHeight,
+      webkit: CSS.supports('selector(::-webkit-scrollbar)')
+        ? getComputedStyle(element, '::-webkit-scrollbar').display
+        : undefined,
+    }));
+    assert(scrollbar.overflow, `${theme}: the long paragraph remains scrollable`);
+    assert.equal(scrollbar.width, 'none', `${theme}: no native caption scrollbar`);
+    assert.equal(scrollbar.gutter, 0, `${theme}: no visible caption scrollbar gutter`);
+    if (scrollbar.webkit !== undefined)
+      assert.equal(scrollbar.webkit, 'none', `${theme}: no WebKit caption scrollbar`);
+    await page.getByRole('button', { name: 'Switch theme' }).click();
+  }
+}
+
 async function paragraphFillSurvivesThemesAndManualReading(
   page: Page,
   baseUrl: string,
-  input: 'wheel' | 'keyboard' | 'scrollbar'
+  input: 'wheel' | 'keyboard'
 ) {
   console.log(`Checking manual caption input: ${input}`);
   await page.goto(`${baseUrl}tests/fixtures/captionRows.html`);
@@ -197,17 +217,6 @@ async function paragraphFillSurvivesThemesAndManualReading(
     await page.getByRole('spinbutton', { name: 'Playback time' }).fill('18');
     await visibleCaptionRows(page);
   }
-  if (
-    input === 'scrollbar' &&
-    (await paragraph.evaluate(
-      element => (element as HTMLElement).offsetWidth === element.clientWidth
-    ))
-  ) {
-    console.log(
-      'SKIP native scrollbar drag: this headless engine exposes no scrollbar gutter; wheel and keyboard are covered'
-    );
-    return;
-  }
   const followingPosition = await paragraph.evaluate(element => element.scrollTop);
   if (input === 'keyboard') {
     await paragraph.focus();
@@ -216,25 +225,6 @@ async function paragraphFillSurvivesThemesAndManualReading(
       'Caption region is focusable'
     );
     await page.keyboard.press('PageDown');
-  } else if (input === 'scrollbar') {
-    const thumb = await paragraph.evaluate(element => {
-      const box = element.getBoundingClientRect();
-      const scale = box.width / (element as HTMLElement).offsetWidth;
-      const gutter = ((element as HTMLElement).offsetWidth - element.clientWidth) * scale;
-      return {
-        x: box.right - gutter / 2,
-        y:
-          box.top +
-          ((element.scrollTop + element.clientHeight / 2) / element.scrollHeight) *
-            element.clientHeight *
-            scale,
-      };
-    });
-    await page.mouse.move(thumb.x, thumb.y);
-    await page.mouse.down();
-    await page.evaluate(() => new Promise(requestAnimationFrame));
-    await page.mouse.move(thumb.x, thumb.y + 60, { steps: 6 });
-    await page.mouse.up();
   } else {
     await paragraph.hover();
     await page.mouse.wheel(0, 250);
@@ -288,7 +278,7 @@ try {
       : ['chromium', 'firefox'];
     for (const browserName of browsers) {
       assert(['chromium', 'firefox'].includes(browserName));
-      // Expose native scrollbar controls for the drag proof while keeping the browser headless.
+      // Expose native controls so scrollbar absence is a product-style assertion.
       const browser = await (browserName === 'firefox' ? firefox : chromium).launch(
         withMutedAudio({
           headless: true,
@@ -308,8 +298,9 @@ try {
         if (process.argv.includes('--mobile-only')) continue;
         const paragraphPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
         try {
+          await captionScrollbarsStayHidden(paragraphPage, baseUrl);
           await spokenRowSurvivesThemeRemeasurement(paragraphPage, baseUrl);
-          for (const input of ['wheel', 'keyboard', 'scrollbar'] as const)
+          for (const input of ['wheel', 'keyboard'] as const)
             await paragraphFillSurvivesThemesAndManualReading(paragraphPage, baseUrl, input);
           console.log(`PASS ${browserName}: paragraph fill, both themes and manual reading`);
         } finally {

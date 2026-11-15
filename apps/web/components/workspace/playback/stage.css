@@ -2066,9 +2066,11 @@
   height: var(--caption-height);
   align-content: safe center;
   overflow: auto;
-  scrollbar-width: thin;
-  scrollbar-gutter: stable;
+  scrollbar-width: none;
   margin: 0;
+}
+.lesson-player-stage .captions .caption-page::-webkit-scrollbar {
+  display: none;
 }
 .lesson-player-stage .captions .caption-page::after {
   content: "";
