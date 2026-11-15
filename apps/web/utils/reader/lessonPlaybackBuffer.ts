@@ -1,7 +1,7 @@
 /** Upcoming listening time requested by the lesson player, in wall-clock seconds. */
-export const PLAYBACK_BUFFER_SECONDS = 30;
-// Two paid preparations can overlap without issuing a burst for an entire lesson.
-export const PLAYBACK_PREPARATION_CONCURRENCY = 2;
+export const PLAYBACK_BUFFER_SECONDS = 60;
+// Bound paid preparation while the rest of the listening horizon stays in the client queue.
+export const PLAYBACK_PREPARATION_CONCURRENCY = 3;
 
 /** A cancellable FIFO shared by foreground and prefetched preparations. */
 export class PlaybackPreparationQueue {
