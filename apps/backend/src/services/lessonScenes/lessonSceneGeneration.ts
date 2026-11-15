@@ -501,8 +501,8 @@ export async function generateLessonScene(
     problems: unknown,
     evidence?: string,
     source = excerpt
-  ) =>
-    toWorkflowErrorDiagnostic(
+  ) => ({
+    ...toWorkflowErrorDiagnostic(
       new Error(
         JSON.stringify({
           outputPath,
@@ -515,7 +515,9 @@ export async function generateLessonScene(
           problems,
         })
       )
-    );
+    ),
+    errorStage: stage,
+  });
   const response = await generateStructuredOutput<unknown>({
     sourceAware: Boolean(input.sourceProvenance),
     onOutputPath: path => {
