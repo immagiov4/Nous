@@ -32,11 +32,7 @@ async function visibleCaptionRows(page: Page) {
       const bottom = bounds.bottom - (insets[2] ?? insets[0]) * scale;
       let frameVisible = 0;
       for (const word of paragraph.querySelectorAll<HTMLElement>('.caption-word')) {
-        if (
-          getComputedStyle(word).opacity === '0' ||
-          getComputedStyle(word).visibility === 'hidden'
-        )
-          continue;
+        if (!word.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
         const range = document.createRange();
         if (!word.firstElementChild) throw new Error('Caption word must contain text');
         range.selectNodeContents(word.firstElementChild);
@@ -79,6 +75,31 @@ async function activeCaptionIsVisible(page: Page) {
   });
 }
 
+async function mobilePlaybackShowsOnlyVisuals(page: Page, baseUrl: string) {
+  await page.goto(`${baseUrl}tests/fixtures/captionRows.html?mobile`);
+  const caption = page.locator('.caption-word').first();
+  const visual = page.getByRole('heading', { name: 'Memoria e processore' });
+  await page.getByRole('spinbutton', { name: 'Playback time' }).fill('18');
+  for (const width of [390, 650, 651]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    assert(await visual.isVisible(), `width=${width}: lesson visual remains visible`);
+    const stage = page.locator('.lesson-player-stage');
+    const visibleText = await stage.innerText();
+    const accessibleText = await stage.ariaSnapshot();
+    const desktop = width > 650;
+    assert.equal(await caption.isVisible(), desktop, `width=${width}: caption visibility`);
+    if (desktop)
+      assert((await visibleCaptionRows(page)).visible > 0, `width=${width}: painted caption text`);
+    assert.equal(visibleText.includes('conserva'), desktop, `width=${width}: visible caption text`);
+    assert.equal(
+      accessibleText.includes('conserva'),
+      desktop,
+      `width=${width}: accessible caption text`
+    );
+  }
+}
+
 // Like the playback atlas contract, run explicitly without changing the unit-test timeout.
 const output = await realpath(await mkdtemp(path.join(tmpdir(), 'nous-caption-rows-')));
 const started = performance.now();
@@ -115,6 +136,14 @@ try {
       const smoke = process.argv.includes('--smoke');
       let cases = 0;
       try {
+        const mobilePage = await browser.newPage();
+        try {
+          await mobilePlaybackShowsOnlyVisuals(mobilePage, baseUrl);
+          console.log(`PASS ${browserName}: mobile visuals only; desktop captions retained`);
+        } finally {
+          await mobilePage.close();
+        }
+        if (process.argv.includes('--mobile-only')) continue;
         for (const height of smoke ? [900] : [700, 900]) {
           for (const width of smoke ? [1440] : [900, 1440]) {
             for (const zoom of smoke ? [1] : [0.9, 1, 1.25]) {

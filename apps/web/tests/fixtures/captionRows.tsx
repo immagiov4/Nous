@@ -18,6 +18,22 @@ const sources = [
 ];
 const block = {
   ...segmentLessonPlayback(sources)[0],
+  ...(new URLSearchParams(location.search).has('mobile')
+    ? {
+        prepared: {
+          motion: [],
+          scene: {
+            type: 'parts' as const,
+            title: 'Memoria e processore',
+            body: '',
+            groups: [],
+            quote: '',
+            note: '',
+            items: [{ icon: 'point', label: 'Memoria', detail: 'Conserva i dati.' }],
+          },
+        },
+      }
+    : {}),
   visuals: [
     {
       kind: 'markdown' as const,
