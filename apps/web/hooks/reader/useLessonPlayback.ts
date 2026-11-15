@@ -588,7 +588,6 @@ export function useLessonPlayback({
       continuing = false
     ): Promise<void> {
       const audio = getAudio();
-      const opening = !started.current;
       started.current = true;
       const { epoch, signal } = beginPlaybackAttempt(continuing);
       const startId = ++activeStart.current;
@@ -635,14 +634,6 @@ export function useLessonPlayback({
           audio.select({ index: blockIndex, buffer: prepared.buffer }, position);
           return;
         }
-        // Refill reports a failed successor; retain a ready recording while still honoring Stop.
-        if (opening)
-          await prepare({
-            blockIndex: Math.min(blockIndex + 1, playbackRef.current.blocks.length - 1),
-            requestedVoice,
-            epoch,
-            signal,
-          }).catch(() => signal.throwIfAborted());
         if (prepared.block.prepared?.scene) await visualAssets;
         if (!isCurrentStart()) return;
         const visualBlocks = playbackRef.current.blocks.map((block, index) =>

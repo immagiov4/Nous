@@ -235,26 +235,45 @@ test('keeps complete scene text and audio available when decorative paths fail',
   }
 });
 
-test('supplies ready contiguous recordings from the listening horizon', async () => {
+test('prepares sixty seconds ahead and requests the next passage after advancing', async () => {
+  const lesson = Array.from({ length: 8 }, (_, index) => ({ ...blocks[0], id: String(index) }));
+  vi.mocked(getLessonPlayback).mockResolvedValue({ lessonKey: 'a'.repeat(64), blocks: lesson });
+  vi.mocked(prepareLessonPlayback).mockImplementation(async request => ({
+    block: lesson[Number(request.blockId)],
+    voice: 'Kore',
+    model: 'tts',
+  }));
   const first = deferred<Awaited<ReturnType<typeof prepareLessonPlayback>>>();
   vi.mocked(prepareLessonPlayback).mockReturnValueOnce(first.promise);
-  const { result } = renderHook(() => useLessonPlayback(target));
+  const { result } = renderHook(() => useLessonPlayback({ ...target, initialBlocks: lesson }));
   act(() => {
     void result.current.play();
   });
   await waitFor(() => expect(prepareLessonPlayback).toHaveBeenCalled());
   expect(result.current.loading).toBe(true);
   expect(audio.start).not.toHaveBeenCalled();
-  await act(async () => first.resolve({ block: blocks[0], voice: 'Kore', model: 'tts' }));
-  expect(audio.recordings.map(recording => recording.index)).toEqual([0, 1, 2]);
-  expect(downloadProjectAssetBytes).toHaveBeenCalledTimes(3);
+  await act(async () => first.resolve({ block: lesson[0], voice: 'Kore', model: 'tts' }));
+  expect(audio.recordings.map(recording => recording.index)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  expect(downloadProjectAssetBytes).toHaveBeenCalledTimes(7);
+  expect(vi.mocked(prepareLessonPlayback).mock.calls.map(([request]) => request.blockId)).toEqual([
+    '0',
+    '1',
+    '2',
+    '3',
+    '4',
+    '5',
+    '6',
+  ]);
   const starts = audio.start.mock.calls.length;
   act(() => audio.moveTo(1));
   expect(result.current.index).toBe(1);
+  await waitFor(() =>
+    expect(prepareLessonPlayback).toHaveBeenCalledWith(expect.objectContaining({ blockId: '7' }))
+  );
   expect(audio.start).toHaveBeenCalledTimes(starts);
 });
 
-test('buffers the first transition before starting narration', async () => {
+test('starts the current passage while an uncached successor is still preparing', async () => {
   const next = deferred<Awaited<ReturnType<typeof prepareLessonPlayback>>>();
   vi.mocked(prepareLessonPlayback).mockImplementation(async request =>
     request.blockId === '1'
@@ -265,15 +284,19 @@ test('buffers the first transition before starting narration', async () => {
   act(() => {
     void result.current.play();
   });
-  await waitFor(() => expect(audio.decode).toHaveBeenCalled());
-  expect(audio.start).not.toHaveBeenCalled();
-  expect(result.current.loading).toBe(true);
-  expect(result.current.playing).toBe(false);
+  await waitFor(() => expect(audio.start).toHaveBeenCalledOnce());
+  expect(result.current.loading).toBe(false);
+  expect(result.current.playing).toBe(true);
+  expect(audio.recordings.map(recording => recording.index)).toEqual([0]);
   await act(async () => next.resolve({ block: blocks[1], voice: 'Kore', model: 'tts' }));
   expect(audio.start).toHaveBeenCalledTimes(1);
   expect(result.current.loading).toBe(false);
   expect(result.current.playing).toBe(true);
-  expect(audio.recordings.map(recording => recording.index)).toContain(1);
+  expect(
+    audio.append.mock.calls.some(([recordings]) =>
+      recordings.some(recording => recording.index === 1)
+    )
+  ).toBe(true);
   expect(
     vi.mocked(prepareLessonPlayback).mock.calls.filter(([request]) => request.blockId === '1')
   ).toHaveLength(1);
@@ -282,7 +305,7 @@ test('buffers the first transition before starting narration', async () => {
 test('keeps slow future preparations ready across a sequence of short passages', async () => {
   // The real trace had 16–35s clips followed by 51–83s preparations.
   const passageSeconds = 20;
-  const preparationMs = [1000, 30_000, ...Array<number>(7).fill(50_000)];
+  const preparationMs = [1000, 1000, 35_000, ...Array<number>(6).fill(50_000)];
   const lesson = preparationMs.map((_, index) => ({
     ...blocks[0],
     id: String(index),
