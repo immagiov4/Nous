@@ -197,6 +197,9 @@ Dispatch route in T3 Code:
   points to it and adds its own issues and Requirements map.
 - Begin every Codex brief with: `Do NOT spawn sub-agents or nested tasks; do all work yourself.
   Never change model or service tier.` A PreToolUse hook rejects briefs without it.
+- The common brief forbids delegated tasks from using the maintainer's desktop: no Computer Use, no
+  desktop control and no new visible windows. Browsers run headless. The only exception is the
+  maintainer's already-open Chrome through Chrome control, in tabs, when a logged-in step needs it.
 - `delegate_task` with `isolation: "worktree"` needs this thread to belong to the T3 project whose
   remote is `immagiov4/Nous` (its legacy title may read `Lumina-Reader`; verify the remote, not the
   title). From a thread outside it, `delegate_task` fails with `Unable to resolve the parent
@@ -230,10 +233,11 @@ Dispatch route in T3 Code:
 Keep useful local work moving while agents run. Send concise progress updates at least once per
 minute during long operations.
 
-For user decisions, read [agent-question-notifications](../agent-question-notifications/SKILL.md)
-and include its installed path in delegated tasks that may need user input.
-Assign one notification owner and one stable decision ID so the orchestrator and
-agent do not duplicate the post-it. Closing it is not an answer or authorization.
+For user decisions, only the orchestrator reads and uses
+[agent-question-notifications](../agent-question-notifications/SKILL.md) and owns desktop notices.
+Delegated tasks report questions in their final message or through the harness's pending-question
+mechanism; they never post desktop notices. Use one stable decision ID.
+Closing a notice is not an answer or authorization.
 
 ### Orchestration health checks
 
