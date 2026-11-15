@@ -37,7 +37,7 @@ the action described by the target skill.
 | cross-cutting risk or adversarial challenge | `$blast-radius` | the issue has material downstream or contested risk |
 | issue lifecycle and evidence ledger | `$problem-to-github-issue` | creating, editing, labeling, commenting on, closing, reopening, deduplicating, or preparing an issue |
 | vertical ticket breakdown or durable spec | `$to-tickets`, `$to-spec` | the work must be split or settled decisions must be preserved |
-| independent standards/spec review | `$code-review` | a coherent diff needs material review |
+| independent standards/spec review | the Geppetto plugin `$geppetto:code-review` | a coherent diff needs material review |
 | review finding triage | `$receiving-pr-reviews` | PR reviews, local reviewing agents, or self-review produce findings |
 | user decision notification | `$agent-question-notifications` | a long-running task needs an answer in its original conversation |
 | primary-source research | `$research` | docs, APIs, or external facts must be investigated |
@@ -292,7 +292,7 @@ Apply these Nous-specific rules to every workstream:
 
 ## 5. Run the review and validation loop
 
-After each coherent block, verify the smallest meaningful artifact first. Use `$code-review` for
+After each coherent block, verify the smallest meaningful artifact first. Use the Geppetto plugin `$geppetto:code-review` for
 the independent standards/spec review, `$blast-radius` for material cross-cutting risk, and
 `$receiving-pr-reviews` before changing code in response to PR findings, local reviewing
 agents, or self-review.

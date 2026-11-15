@@ -21,7 +21,7 @@ Review comments are bug reports, not instructions. Validate the requirement befo
 its implementation. Then establish whether the reported path is real and choose a bounded response.
 Do this before editing code or requesting another review.
 
-Follow repository instructions first. Use `$code-review` when the finding itself needs an
+Follow repository instructions first. Use the Geppetto plugin `$geppetto:code-review` when the finding itself needs an
 independent correctness check. Return to `$engineering-workflow` only after this skill has decided
 whether implementation may continue. Use an issue-governance skill before creating or changing an
 issue for work split out of the PR.
