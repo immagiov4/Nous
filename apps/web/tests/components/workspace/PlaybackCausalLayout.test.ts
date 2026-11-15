@@ -21,6 +21,72 @@ const formulaViewports = [
   { width: 390, height: 844 },
 ];
 
+test('flows short supplemental formulas beside each other without shrinking mixed image cards', async () => {
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  try {
+    for (const viewport of [
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      for (const dark of [false, true]) {
+        await page.goto(
+          `${baseUrl}tests/fixtures/playbackLayout.html?formulas=5&formulaPath=image${dark ? '&dark' : ''}`
+        );
+        const image = page.locator('.scene-host img');
+        await image.waitFor();
+        await image.evaluate((image: HTMLImageElement) => image.decode());
+        await page.evaluate(() => document.fonts.ready);
+        const geometry = await page.locator('.scene-host').evaluate(async card => {
+          await new Promise(requestAnimationFrame);
+          await new Promise(requestAnimationFrame);
+          const summary = card.querySelector(':scope > .prose');
+          const formulas = [...(summary?.querySelectorAll('.katex-display') ?? [])];
+          const box = card.getBoundingClientRect();
+          const slot = card.parentElement?.getBoundingClientRect();
+          if (!slot) throw new Error('Scene slot must exist');
+          return {
+            count: formulas.length,
+            rows: new Set(formulas.map(formula => Math.round(formula.getBoundingClientRect().top)))
+              .size,
+            fillsWidth: Math.round(box.width) === Math.round(slot.width),
+            contentInside: [
+              ...formulas.map(formula => formula.querySelector('.katex-html') ?? formula),
+              ...card.querySelectorAll('img'),
+            ].every(element => {
+              const content = element.getBoundingClientRect();
+              return (
+                content.width > 0 &&
+                content.height > 0 &&
+                Math.round(content.left) >= Math.round(box.left) &&
+                Math.round(content.right) <= Math.round(box.right) &&
+                Math.round(content.top) >= Math.round(box.top) &&
+                Math.round(content.bottom) <= Math.round(box.bottom)
+              );
+            }),
+            inside:
+              Math.round(box.left) >= Math.round(slot.left) &&
+              Math.round(box.right) <= Math.round(slot.right) &&
+              Math.round(box.top) >= Math.round(slot.top) &&
+              Math.round(box.bottom) <= Math.round(slot.bottom),
+          };
+        });
+        expect(geometry.count).toBe(5);
+        expect(geometry.rows).toBeLessThan(geometry.count);
+        expect(geometry.fillsWidth).toBe(true);
+        expect(geometry.contentInside).toBe(true);
+        expect(geometry.inside).toBe(true);
+        if (viewport.width === 390)
+          expect(
+            await page.locator('.captions').evaluate(e => getComputedStyle(e).visibility)
+          ).toBe('hidden');
+      }
+    }
+  } finally {
+    await page.close();
+  }
+});
+
 test('keeps the save action at its approved size when a scene is fitted on desktop or touch screens', async () => {
   const page = await browser.newPage({ reducedMotion: 'reduce' });
   try {

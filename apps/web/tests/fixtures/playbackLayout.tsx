@@ -1,6 +1,7 @@
 import type { LessonPlaybackBlock } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
 import { createRoot } from 'react-dom/client';
+import playbackImageUrl from '../../../../packages/playtest/tests/fixtures/images/reference.jpg?url';
 import {
   resolvePlaybackNarration,
   segmentLessonPlayback,
@@ -27,6 +28,9 @@ if (new URLSearchParams(location.search).has('case')) {
   const boundaryProof = new URLSearchParams(location.search).has('boundary');
   const snapshotProof = new URLSearchParams(location.search).has('snapshot');
   const formulaPath = new URLSearchParams(location.search).get('formulaPath');
+  const mixedImage = formulaPath === 'image';
+  const isDarkMode = new URLSearchParams(location.search).has('dark');
+  document.documentElement.classList.toggle('dark', isDarkMode);
   const formulaCount = Number(new URLSearchParams(location.search).get('formulas'));
   if (formulaCount)
     sources[0].markdown =
@@ -41,6 +45,9 @@ if (new URLSearchParams(location.search).has('case')) {
   if (formulaPath === 'inherited')
     sources[0].markdown = '# Function\n\nThe result is $h=wx+b$.\n\nIts bias shifts the result.';
   if (formulaPath === 'inline') sources[0].markdown = 'The result is $h=wx+b$.';
+  if (mixedImage)
+    sources[0].markdown =
+      'Compare $a$, $b$, $c$, $d$ and $e$.\n\n{{PDF_IMAGE:fixture-image|alt=Synthetic image}}';
   if (snapshotProof) sources[0].markdown = Array(50).fill(sources[0].markdown).join(' ');
   if (boundaryProof) sources[0].markdown += '\n\nIl file è pronto.';
   let scene: LessonScene = {
@@ -96,8 +103,6 @@ if (new URLSearchParams(location.search).has('case')) {
     };
   }
   const blocks = segmentLessonPlayback(sources);
-  document.documentElement.style.cssText =
-    '--bg-paper:#fdfbf7;--bg-surface:#fff;--ink-primary:#1f1f1f;--ink-secondary:#4a4a4a;--border-subtle:#e5e7eb';
   const root = document.getElementById('root');
   if (!root) throw new Error('Fixture root must exist');
   const playbackRoot = createRoot(root);
@@ -148,6 +153,13 @@ if (new URLSearchParams(location.search).has('case')) {
     if (formulaPath === 'inline') {
       block = { ...block, visuals: [{ kind: 'markdown', markdown: '$h=wx+b$' }] };
     }
+    if (mixedImage)
+      block = {
+        ...block,
+        visuals: [
+          { kind: 'markdown', markdown: '{{PDF_IMAGE:fixture-image|alt=Synthetic image}}' },
+        ],
+      };
     if (formulaPath === 'scene') {
       block = { ...block, prepared: { scene: formulaSpotlight, motion: [] } };
     }
@@ -175,8 +187,20 @@ if (new URLSearchParams(location.search).has('case')) {
             onRemovePlaybackVisual: async () => ({ succeeded: true }),
           }
         : {}),
-      isDarkMode: false,
+      isDarkMode,
       sectionContentBlocks: structuredClone(sources),
+      activeSectionAssetsById: mixedImage
+        ? {
+            'fixture-image': {
+              id: 'fixture-image',
+              mimeType: 'image/jpeg',
+              dataUrl: playbackImageUrl,
+              sourceOrder: 0,
+              textBefore: '',
+              textAfter: '',
+            },
+          }
+        : {},
       activeSectionGeneratedVisualsById: {
         'stored-formula': {
           id: 'stored-formula',
