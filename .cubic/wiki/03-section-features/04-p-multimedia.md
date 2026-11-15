@@ -18,6 +18,8 @@ Interactive Lesson Playback turns authored course documents into synchronized, n
 
 The system segments lesson content into discrete playback blocks, mapping spoken text to specific source markdown ranges. It ensures visual elements like LaTeX formulas and Mermaid diagrams appear exactly when the narration refers to them.
 
+Maintainer design decision (2026-11-15): mobile playback shows only lesson visuals; captions are hidden at viewport widths of 650 CSS pixels or less and excluded from visible and accessible text. Desktop playback retains captions; the `CaptionRows.browser.ts` browser proof checks both sides of this boundary while retaining a visible lesson visual.
+
 ## System Architecture
 
 The playback system operates across the web workspace and the backend. The `LessonPlayer` component manages the UI state, audio playback, and visual transitions, while shared types define the contracts for content segmentation and synchronization.
