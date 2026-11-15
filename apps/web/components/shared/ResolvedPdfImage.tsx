@@ -26,6 +26,8 @@ const ResolvedPdfImage = ({
   if (resolution.status === 'ready' && resolution.result) {
     return (
       <img
+        width={image.intrinsicWidth}
+        height={image.intrinsicHeight}
         {...imageProps}
         alt={alt}
         className={className}
@@ -50,7 +52,15 @@ const ResolvedPdfImage = ({
     );
   }
 
-  return null;
+  // Keep the measured image box while its asset URL is being resolved.
+  return image.intrinsicWidth && image.intrinsicHeight ? (
+    <span
+      role="img"
+      aria-label={alt}
+      className={className}
+      style={{ aspectRatio: `${image.intrinsicWidth} / ${image.intrinsicHeight}` }}
+    />
+  ) : null;
 };
 
 export default memo(ResolvedPdfImage);

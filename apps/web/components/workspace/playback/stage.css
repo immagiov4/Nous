@@ -2368,3 +2368,8 @@
 .lesson-player-stage .scene-host:empty {
   visibility: hidden;
 }
+
+/* Fitting needs the actual figure geometry, including before its image loads. */
+.lesson-player-stage .scene-host figure {
+  content-visibility: visible;
+}
