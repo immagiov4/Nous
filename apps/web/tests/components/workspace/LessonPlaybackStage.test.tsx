@@ -23,7 +23,6 @@ import {
 } from '../../../components/workspace/playback/captionFormat.ts';
 import LessonPlaybackStage from '../../../components/workspace/playback/LessonPlaybackStage.tsx';
 import {
-  adoptCueTimes,
   captionAnchorSpan,
   captionAnchorTimes,
   captionMotionEvents,
@@ -1477,7 +1476,9 @@ test('keeps three formulas and their explanations in the prepared list', () => {
     expect(container.querySelector('.type-parts')?.textContent).toContain(`Explanation ${index}`);
 });
 
-test('uses recording onsets for formula selection after forward and backward seeks', () => {
+test.each([
+  60, 180,
+])('keeps formula cue boundaries through remeasurement to %s px and explicit seeks', measuredWidth => {
   const frames = new Map<number, FrameRequestCallback>();
   let frameId = 0;
   vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
@@ -1528,6 +1529,8 @@ test('uses recording onsets for formula selection after forward and backward see
   act(() => window.dispatchEvent(new Event('resize')));
   for (const [time, selected] of [
     [4, false],
+    [4.999, false],
+    [5.001, true],
     [5.1, true],
     [7.1, false],
     [5.1, true],
@@ -1554,6 +1557,9 @@ test('uses recording onsets for formula selection after forward and backward see
       for (const callback of pending) callback(0);
     });
   flush();
+  vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({
+    width: measuredWidth,
+  } as DOMRect);
   act(() => window.dispatchEvent(new Event('resize')));
   flush();
   expect(container.querySelector('.nous-formula-symbol-x')?.getAttribute('data-active')).toBe(
@@ -2190,10 +2196,6 @@ test('renders resolved step citations instead of the unanchored source scene', (
     />
   );
   expect(container.querySelector('[data-stop="0"]')?.getAttribute('aria-current')).toBe('step');
-});
-
-test('adopts an overdue acoustic cue instead of waiting for its future estimate', () => {
-  expect(adoptCueTimes([8000, 2000, 9000], [3000, 1000, 7000], 5000)).toEqual([3000, 2000, 7000]);
 });
 
 test('heading quotations stay within the spoken heading interval before alignment', () => {
