@@ -153,6 +153,9 @@ jobs:
       - name: Verify complete caption rows
         run: bun run test:caption-rows
 
+      - name: Verify playback bar layout
+        run: bun scripts/heavy-run.mjs --label playback-bar -- bun apps/web/tests/components/workspace/PlaybackBarLayout.browser.ts
+
       - name: Verify playback keyboard focus in Chromium and Firefox
         run: bun apps/web/tests/components/workspace/PlaybackFocus.browser.ts
 
