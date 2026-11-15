@@ -1906,6 +1906,7 @@
 .lesson-player-stage,
 .lesson-player-stage .lesson-scene-bare {
   --caption-change: 180ms;
+  --caption-fill-duration: 100ms;
   --caption-feather: 22px;
 }
 .lesson-player-stage .listening-stage {
@@ -1925,23 +1926,20 @@
   align-items: center;
 }
 .lesson-player-stage .captions p {
-  font-size: clamp(23px, 2.4vw, 34px);
-  line-height: 1.5;
+  font-size: clamp(22px, 2.2vw, 31px);
+  line-height: 1.6;
   letter-spacing: -0.025em;
   width: 100%;
 }
 .lesson-player-stage .caption-word {
   display: inline-block;
-  opacity: 0;
+  opacity: var(--caption-future-opacity);
   color: var(--ink);
-  mask-image: linear-gradient(
-    to right,
-    #000 calc(var(--reveal-edge, 0px) - var(--caption-feather)),
-    transparent var(--reveal-edge, 0px)
-  );
+  mask-image: none;
+  transition: opacity var(--caption-fill-duration) linear;
 }
 .lesson-player-stage .caption-page {
-  animation: lesson-player-caption-in var(--caption-change) ease-out;
+  animation: none;
 }
 .lesson-player-stage .listening-stage > .scene-fit > .scene-host {
   min-height: 300px;
@@ -2063,20 +2061,17 @@
   }
 }
 .lesson-player-stage .captions p {
-  --caption-height: min(45dvh, 8lh);
+  --caption-height: min(62dvh, 13lh);
   position: relative;
   max-height: var(--caption-height);
   overflow: auto;
-  scrollbar-width: none;
+  scrollbar-width: thin;
   margin: 0;
 }
 .lesson-player-stage .captions p::after {
   content: "";
   display: block;
-  height: calc(var(--caption-height) - 1lh);
-}
-.lesson-player-stage .captions p::-webkit-scrollbar {
-  display: none;
+  height: 1lh;
 }
 @media (max-width: 650px) {
   .lesson-player-stage .captions p {

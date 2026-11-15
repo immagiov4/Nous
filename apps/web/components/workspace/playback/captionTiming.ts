@@ -20,7 +20,9 @@ export interface CaptionTimingClock {
   read: () => { blockTime: number };
 }
 type Span = { startMs: number; endMs: number };
+export const CAPTION_FILL_LEAD_SECONDS = 0.2;
 interface TimingRequest {
+  words?: readonly PlaybackRange[];
   anchors?: readonly string[];
   formula?: FormulaSpotlightData;
   events?: readonly PlaybackMotionEvent[];
@@ -32,6 +34,7 @@ interface TimingRequest {
  * Range spans use absolute passage milliseconds, so paragraph progress can share this mapping.
  */
 export function createCaptionTiming(speech: string, request: TimingRequest) {
+  let fillBoundary = 0;
   let previous: CaptionTimingClock | undefined;
   let result: {
     spans: (Span | undefined)[];
@@ -74,6 +77,7 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
           if (range) return captionRangeSpan({ ...timing, range });
           return anchors ? captionAnchorSpan({ ...timing, anchors }) : undefined;
         });
+      if (request.words) spans = request.words.map(range => captionRangeSpan({ ...timing, range }));
       let events = request.itemRanges
         ? request.itemRanges.map((range, index): TimedMotionEvent => {
             const span = captionRangeSpan({ ...timing, range });
@@ -115,7 +119,9 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
         };
       });
       let reason: 'initial' | 'refresh' | 'seek' = 'initial';
-      if (previous) reason = retain ? 'refresh' : 'seek';
+      if (retain) reason = 'refresh';
+      else if (previous) reason = 'seek';
+      if (current.seekRevision !== (previous?.seekRevision ?? 0)) fillBoundary = heardMs / 1000;
       transition = {
         reason,
         heardMs,
@@ -140,6 +146,19 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
             : undefined,
       };
       return result;
+    },
+    /** Presentation lead never changes acoustic scene cues or advances a paused seek target. */
+    fill(current: CaptionTimingClock): number[] {
+      const { spans } = this.read(current);
+      const time = current.read().blockTime;
+      if (time < 0) return spans.map(() => 0);
+      const lead = Math.min(CAPTION_FILL_LEAD_SECONDS, Math.max(0, time - fillBoundary));
+      const presentedMs = Math.max(0, time + lead) * 1000;
+      return spans.map(span => {
+        if (!span) throw new Error('Caption word timing must exist');
+        if (span.endMs === span.startMs) return presentedMs >= span.endMs ? 1 : 0;
+        return Math.max(0, Math.min(1, (presentedMs - span.startMs) / (span.endMs - span.startMs)));
+      });
     },
     /** Latest refresh only; no narration, word data, DOM references or accumulated history. */
     snapshot: () => transition,

@@ -20,6 +20,8 @@ The system segments lesson content into discrete playback blocks, mapping spoken
 
 Maintainer design decision (2026-11-15): mobile playback shows only lesson visuals; captions are hidden at viewport widths of 650 CSS pixels or less and excluded from visible and accessible text. Desktop playback retains captions; the `CaptionRows.browser.ts` browser proof checks both sides of this boundary while retaining a visible lesson visual.
 
+Desktop captions present the complete paragraph at 50% opacity and fill each word to its normal colour, retaining full opacity after speech. Presentation leads the recording alignment by 200 ms with 100 ms smoothing; paragraph start and explicit seek targets bound that lead, while scene cues retain their acoustic timing. Theme changes preserve progress. Manual caption scrolling suspends following until the next paragraph; mobile playback continues to show only visuals.
+
 ## System Architecture
 
 The playback system operates across the web workspace and the backend. The `LessonPlayer` component manages the UI state, audio playback, and visual transitions, while shared types define the contracts for content segmentation and synchronization.
@@ -120,7 +122,7 @@ classDiagram
 ```
 The class diagram illustrates how motion events are nested within the playback block structure. Sources: [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts), [packages/shared-types/lessonPlaybackSchema.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlaybackSchema.ts)
 
-`LessonPlaybackStage` delegates acoustic cue timing to `captionTiming.ts`, giving narration-synchronized visuals a shared timing owner. Captions retain their existing reveal pacing and viewport tracking.
+`LessonPlaybackStage` delegates caption progress and acoustic scene cues to the shared timing owner in `captionTiming.ts`.
 
 ### Motion Events
 - **Focus**: Highlights specific elements within a scene or diagram.
@@ -170,6 +172,8 @@ Sources: [packages/shared-types/lessonPlaybackSchema.ts:127-160](https://github.
 ## Observability
 
 The client exposes `nous.playback.preparation`, `nous.playback.passage` and `nous.playback.stall` User Timing measures. Read them in browser performance tools or with a `PerformanceObserver` for `measure` entries, inspecting each entry's `detail`. Their definitions live in [playbackTrace](../../../apps/web/utils/reader/playbackTrace.ts).
+
+Stage/viewport tests and the caption-row browser proof expose word opacity, theme continuity, seek boundaries and caption scroll position. Recorded renderer-versus-alignment measurements expose the presentation offset; they do not establish acoustic alignment accuracy or speaker-output latency.
 
 [Workflow state](../../../apps/backend/src/routes/workflows.ts) exposes preparation and alignment progress and failures. The [alignment workflow](../../../apps/backend/src/workflows/recordingAlignment.ts) also warns when alignment fails and stores a failed alignment result while retaining estimated timing. [Hook-and-stage integration tests](../../../apps/web/tests/hooks/reader/useLessonPlaybackAudio.integration.test.tsx) cover playback startup and audio-session failures. A playable recording can therefore still use estimated cues; successful preparation alone does not establish audible pronunciation quality or accurate synchronization.
 

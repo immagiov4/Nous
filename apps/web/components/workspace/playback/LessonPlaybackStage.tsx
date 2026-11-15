@@ -20,6 +20,7 @@ import type { PlaybackQuestionContext } from '@shared/playbackQuestionContext';
 import { hasPreparedVisualSections, playbackVisualSections } from '@shared/playbackVisualSections';
 import { alignedWordTimes, type PlaybackWordAlignment } from '@shared/playbackWordTiming';
 import {
+  type CSSProperties,
   Fragment,
   type RefObject,
   useCallback,
@@ -45,14 +46,10 @@ import { LessonSceneVisual } from '../../shared/lessonScene/LessonSceneVisual.ts
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import type { WorkspaceReaderContentModel } from '../shell/types.ts';
 import {
-  CAPTION_TIMING,
   type CaptionWord,
   captionFormat,
-  captionLookAhead,
-  captionPauses,
   captionSource,
   captionSpeechRanges,
-  pacedCaptionTime,
 } from './captionFormat.ts';
 import { type CaptionTimingClock, createCaptionTiming } from './captionTiming.ts';
 import { captionViewport } from './captionViewport.ts';
@@ -67,41 +64,22 @@ import {
 import './stage.css';
 import { PlaybackVisualPresence, SaveablePlaybackVisual } from './SaveablePlaybackVisual.tsx';
 
-type DrawnCaptionRun = CaptionRun & { revealEdge?: number; readOpacity?: number };
+type DrawnCaptionRun = CaptionRun & { opacity?: number };
+const CAPTION_FUTURE_OPACITY = 0.5;
 
 interface CaptionClock extends CaptionTimingClock {
   viewport: ReturnType<typeof captionViewport>;
   runs: DrawnCaptionRun[];
-  feather: number;
   duration: number;
-  read: () => { blockTime: number; bodyTime: number; revealTime: number };
 }
 
-/** Draws changed word styles and identifies the word crossed by the reveal edge. */
-function drawCaptionWord(
-  run: DrawnCaptionRun,
-  clock: CaptionClock,
-  edge: number,
-  bodyTime: number
-) {
-  const local = edge - run.start;
-  // Settled words keep their cached styles to avoid per-frame invalidation.
-  const maskEdge = Math.max(0, Math.min(run.width + clock.feather, local));
-  if (run.revealEdge !== maskEdge) {
-    run.span.style.opacity = local > 0 ? '1' : '0';
-    run.span.style.setProperty('--reveal-edge', `${maskEdge}px`);
-    run.span.style.maskImage = local >= run.width + clock.feather ? 'none' : '';
-    run.revealEdge = maskEdge;
+/** Theme colours stay in CSS; only changed progress is written to the retained word DOM. */
+function drawCaptionWord(run: DrawnCaptionRun, progress: number) {
+  const opacity = CAPTION_FUTURE_OPACITY + progress * (1 - CAPTION_FUTURE_OPACITY);
+  if (run.opacity !== opacity) {
+    run.span.style.opacity = String(opacity);
+    run.opacity = opacity;
   }
-  const readAge = bodyTime - ((run.start + run.width) / clock.width) * clock.bodyDuration;
-  const fade = Math.max(0, Math.min(1, readAge / CAPTION_TIMING.readFadeSeconds));
-  const readOpacity = 1 - fade * (1 - CAPTION_TIMING.readOpacity);
-  if (run.readOpacity !== readOpacity) {
-    const text = run.span.firstElementChild as HTMLElement;
-    text.style.opacity = String(readOpacity);
-    run.readOpacity = readOpacity;
-  }
-  return local >= 0 && local <= run.width;
 }
 
 function hasMissingMotionTargets(
@@ -404,45 +382,19 @@ function PlaybackPassage({
         width += wordWidth;
         return { span, start, width: wordWidth };
       });
-      const feather = Number.parseFloat(
-        getComputedStyle(paragraph).getPropertyValue('--caption-feather')
-      );
       const bodyDuration =
         (duration * formatted.words.length) / (formatted.words.length + formatted.headingWords);
-      const pauses = captionPauses(
-        formatted.words,
-        runs.map(run => (run.start + run.width) / width),
-        bodyDuration
-      );
-      const headingShare =
-        formatted.headingWords / (formatted.words.length + formatted.headingWords);
       clock.current = {
         viewport: captionViewport(paragraph),
         runs,
         width,
-        feather,
         bodyDuration,
         aligned: latest.current.aligned,
         duration,
         seekRevision: latest.current.seekRevision,
         headingDuration: duration - bodyDuration,
         speechRanges: formatted.speechRanges,
-        read: () => {
-          const {
-            readTime: read,
-            time: fallbackTime,
-            speed: rate,
-            animate: motion,
-          } = latest.current;
-          const elapsed = read ? read() : fallbackTime;
-          const bodyTime = elapsed - duration * headingShare;
-          const ahead = bodyTime + captionLookAhead(elapsed, rate, CAPTION_TIMING.lookAheadSeconds);
-          return {
-            blockTime: elapsed,
-            bodyTime,
-            revealTime: motion ? pacedCaptionTime(ahead, pauses) : ahead,
-          };
-        },
+        read: () => ({ blockTime: latest.current.readTime?.() ?? latest.current.time }),
       };
     };
     measure();
@@ -463,8 +415,10 @@ function PlaybackPassage({
   }, [aligned, seekRevision]);
 
   useLayoutEffect(() => {
+    const timing = createCaptionTiming(block.speech, { words: formatted.speechRanges });
     let previousClock: CaptionClock | null = null;
     let previousBodyTime: number | undefined;
+    let previousActive: HTMLElement | undefined;
     const render = () => {
       const paragraph = captions.current;
       if (!paragraph) throw new Error('Captions must be mounted');
@@ -474,15 +428,20 @@ function PlaybackPassage({
         previousClock = current;
         previousBodyTime = undefined;
       }
-      const { bodyTime, revealTime } = current.read();
+      const { blockTime: bodyTime } = current.read();
       const motion = latest.current.animate;
       current.viewport.clip();
       if (previousBodyTime === bodyTime) return;
-      const progress = Math.max(0, Math.min(1, revealTime / current.bodyDuration));
-      const edge = progress * (current.width + current.feather);
-      let active = edge >= current.width ? current.runs.at(-1)?.span : undefined;
-      for (const run of current.runs) {
-        if (drawCaptionWord(run, current, edge, bodyTime)) active = run.span;
+      const progress = timing.fill(current);
+      let active: HTMLElement | undefined;
+      current.runs.forEach((run, index) => {
+        drawCaptionWord(run, progress[index]);
+        if (progress[index] > 0) active = run.span;
+      });
+      if (active !== previousActive) {
+        previousActive?.removeAttribute('aria-current');
+        active?.setAttribute('aria-current', 'true');
+        previousActive = active;
       }
       // Place new or backward seeks immediately; animate subsequent playback updates.
       current.viewport.follow(
@@ -498,7 +457,7 @@ function PlaybackPassage({
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [block.speech, formatted.speechRanges]);
 
   const [unavailableImages, setUnavailableImages] = useState<ReadonlySet<string>>(new Set());
   const onImageUnavailable = useCallback((imageId: string) => {
@@ -874,7 +833,10 @@ function PlaybackPassage({
     </SaveablePlaybackVisual>
   );
   return (
-    <div className="lesson-player-stage">
+    <div
+      className="lesson-player-stage"
+      style={{ '--caption-future-opacity': CAPTION_FUTURE_OPACITY } as CSSProperties}
+    >
       <section className="listening-stage">
         <section className="captions" aria-label={t('Sottotitoli')}>
           {passageHeadings.map((heading, index) => (

@@ -1,6 +1,36 @@
 import { CAPTION_SCROLL } from './captionFormat.ts';
 
 type CaptionRow = { top: number; bottom: number; inkTop: number; inkBottom: number };
+const readingStates = new WeakMap<HTMLElement, { manual: boolean; pointerDown: boolean }>();
+
+function readingState(paragraph: HTMLElement) {
+  const existing = readingStates.get(paragraph);
+  if (existing) return existing;
+  const state = { manual: false, pointerDown: false };
+  readingStates.set(paragraph, state);
+  const pauseFollow = () => {
+    state.manual = true;
+  };
+  paragraph.addEventListener('wheel', pauseFollow, { passive: true });
+  paragraph.addEventListener('touchmove', pauseFollow, { passive: true });
+  paragraph.addEventListener('keydown', event => {
+    if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key))
+      pauseFollow();
+  });
+  paragraph.addEventListener('pointerdown', () => {
+    state.pointerDown = true;
+  });
+  const releasePointer = () => {
+    state.pointerDown = false;
+  };
+  paragraph.addEventListener('pointerup', releasePointer);
+  paragraph.addEventListener('pointercancel', releasePointer);
+  paragraph.addEventListener('pointerleave', releasePointer);
+  paragraph.addEventListener('scroll', () => {
+    if (state.pointerDown) pauseFollow();
+  });
+  return state;
+}
 
 function measureRows(paragraph: HTMLElement, origin: number, scale: number) {
   const rows: CaptionRow[] = [];
@@ -29,6 +59,8 @@ function measureRows(paragraph: HTMLElement, origin: number, scale: number) {
 
 /** Measure once per layout and exclude partial rows throughout native smooth scrolling. */
 export function captionViewport(paragraph: HTMLElement) {
+  const reading = readingState(paragraph);
+  const readingPosition = reading.manual ? paragraph.scrollTop : 0;
   paragraph.scrollTop = 0;
   const bounds = paragraph.getBoundingClientRect();
   const scale = bounds.width / Number.parseFloat(getComputedStyle(paragraph).width);
@@ -36,6 +68,7 @@ export function captionViewport(paragraph: HTMLElement) {
   const first = words.keys().next().value;
   const firstTop = first ? (first.getBoundingClientRect().top - bounds.top) / scale : 0;
   const height = bounds.height / scale;
+  paragraph.scrollTop = readingPosition;
   let previousLine: CaptionRow | undefined;
   let target = 0;
   let previousClip = '';
@@ -67,6 +100,7 @@ export function captionViewport(paragraph: HTMLElement) {
   return {
     clip,
     follow(active: HTMLElement | undefined, motion: boolean) {
+      if (reading.manual) return;
       const row = active ? words.get(active) : rows[0];
       if (!row || row === previousLine) return;
       if (row.top < target || row.bottom > target + height * CAPTION_SCROLL.trigger) {

@@ -62,3 +62,21 @@ test('handles an empty caption without a scroll or clipped content', () => {
   viewport.follow(undefined, false);
   expect(paragraph.style.clipPath).toBe('');
 });
+
+test('manual reading suspends following through remeasurement until a new paragraph', () => {
+  const { paragraph, words, move } = layout();
+  const viewport = captionViewport(paragraph);
+  paragraph.dispatchEvent(new WheelEvent('wheel', { deltaY: 100 }));
+  move(30);
+  viewport.follow(words[3], true);
+  expect(paragraph.scrollTo).not.toHaveBeenCalled();
+  const measured = captionViewport(paragraph);
+  expect(paragraph.scrollTop).toBe(30);
+  measured.follow(words[0], false);
+  expect(paragraph.scrollTo).not.toHaveBeenCalled();
+  const next = layout();
+  captionViewport(next.paragraph).follow(next.words[3], true);
+  expect(next.paragraph.scrollTo).toHaveBeenCalledWith({ top: 102, behavior: 'smooth' });
+  paragraph.remove();
+  next.paragraph.remove();
+});

@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import LessonPlaybackStage from '../../components/workspace/playback/LessonPlaybackStage';
 import type { WorkspaceReaderContentModel } from '../../components/workspace/shell/types';
+import '../../styles/app.css';
 
 const sources = [
   {
@@ -44,6 +45,7 @@ const block = {
 const content = { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel;
 const durationSeconds = 60;
 function Fixture() {
+  const [dark, setDark] = useState(false);
   const [alignment, setAlignment] = useState<PlaybackWordAlignment>();
   const [time, setTime] = useState(0);
   const [passage, setPassage] = useState(0);
@@ -51,16 +53,19 @@ function Fixture() {
   return (
     <>
       <style>{`@font-face { font-family: "Caption fixture"; src: url("${fontUrl}"); font-display: swap; } .lesson-player-stage { font-family: "Caption fixture", sans-serif; }`}</style>
-      <div style={{ height: '100dvh', display: 'flex' }}>
+      <div className={dark ? 'dark' : ''} style={{ height: '100dvh', display: 'flex' }}>
         <LessonPlaybackStage
           block={currentBlock}
-          content={content}
+          content={{ ...content, isDarkMode: dark }}
           duration={durationSeconds}
           time={time}
           alignment={alignment}
         />
       </div>
       <div style={{ position: 'fixed', bottom: 0, right: 0 }}>
+        <button type="button" onClick={() => setDark(!dark)}>
+          Switch theme
+        </button>
         <button
           type="button"
           onClick={() => {

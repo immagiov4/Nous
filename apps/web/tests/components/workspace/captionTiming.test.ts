@@ -6,6 +6,47 @@ import {
 } from '../../../components/workspace/playback/captionTiming.ts';
 
 const speech = 'Alpha beta gamma delta';
+
+test('paragraph fill leads aligned words by 200 ms without starting before the paragraph', () => {
+  let heard = -1;
+  const current = { ...clock(0, [0, 2, 4, 6]), read: () => ({ blockTime: heard }) };
+  const owner = createCaptionTiming(speech, { words: narrationWords(speech) });
+  expect(owner.fill(current)).toEqual([0, 0, 0, 0]);
+  const coincident = createCaptionTiming(speech, { words: narrationWords(speech) });
+  expect(coincident.fill(clock(-1, [0, 0, 0, 0]))).toEqual([0, 0, 0, 0]);
+  heard = 0;
+  expect(owner.fill(current)).toEqual([0, 0, 0, 0]);
+  heard = 1.9;
+  expect(owner.fill(current)).toEqual([1, expect.closeTo(0.05), 0, 0]);
+  heard = 10;
+  expect(owner.fill(current)).toEqual([1, 1, 1, 1]);
+});
+
+test('explicit seeks reconstruct at their target and restore the lead only as audio advances', () => {
+  let heard = 5;
+  const current = { ...clock(0, [0, 2, 4, 6]), read: () => ({ blockTime: heard }) };
+  const owner = createCaptionTiming(speech, { words: narrationWords(speech) });
+  owner.fill(current);
+  heard = 1.9;
+  const seek = { ...current, seekRevision: 1 };
+  expect(owner.fill(seek)).toEqual([expect.closeTo(0.95), 0, 0, 0]);
+  expect(owner.fill(seek)).toEqual([expect.closeTo(0.95), 0, 0, 0]);
+  heard = 2;
+  expect(owner.fill(seek)).toEqual([1, expect.closeTo(0.05), 0, 0]);
+  heard = 2.1;
+  expect(owner.fill(seek)).toEqual([1, expect.closeTo(0.15), 0, 0]);
+  expect(owner.fill({ ...seek })).toEqual([1, expect.closeTo(0.15), 0, 0]);
+});
+
+test('a seek into a new paragraph starts at the target without presenting later words', () => {
+  const owner = createCaptionTiming(speech, { words: narrationWords(speech) });
+  expect(owner.fill({ ...clock(1.9, [0, 2, 4, 6]), seekRevision: 2 })).toEqual([
+    expect.closeTo(0.95),
+    0,
+    0,
+    0,
+  ]);
+});
 function clock(time: number, onsets?: number[]): CaptionTimingClock {
   return {
     runs: [0, 1, 2, 3].map(index => ({ start: index * 100, width: 100 })),

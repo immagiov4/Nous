@@ -61,12 +61,7 @@ async function activeCaptionIsVisible(page: Page) {
     const paragraph = document.querySelector<HTMLElement>('.caption-page');
     if (!paragraph) throw new Error('Captions must exist');
     const box = paragraph.getBoundingClientRect();
-    const active = Array.from(paragraph.querySelectorAll<HTMLElement>('.caption-word')).find(
-      word => {
-        const edge = Number.parseFloat(word.style.getPropertyValue('--reveal-edge'));
-        return edge >= 0 && edge <= word.getBoundingClientRect().width;
-      }
-    );
+    const active = paragraph.querySelector<HTMLElement>('.caption-word[aria-current="true"]');
     if (!active?.firstElementChild) throw new Error('Playback must reveal an active caption word');
     const range = document.createRange();
     range.selectNodeContents(active.firstElementChild);
@@ -98,6 +93,51 @@ async function mobilePlaybackShowsOnlyVisuals(page: Page, baseUrl: string) {
       `width=${width}: accessible caption text`
     );
   }
+}
+
+async function paragraphFillSurvivesThemesAndManualReading(page: Page, baseUrl: string) {
+  await page.goto(`${baseUrl}tests/fixtures/captionRows.html`);
+  await page.getByRole('spinbutton', { name: 'Playback time' }).fill('18');
+  const read = () =>
+    page.locator('.caption-page').evaluate(async paragraph => {
+      await Promise.all(
+        paragraph.getAnimations({ subtree: true }).map(animation => animation.finished)
+      );
+      const words = Array.from(paragraph.querySelectorAll<HTMLElement>('.caption-word'));
+      return {
+        opacity: words.map(word => Number(getComputedStyle(word).opacity)),
+        color: getComputedStyle(words[0]).color,
+      };
+    });
+  const light = await read();
+  assert.equal(light.opacity[0], 1, 'Spoken words retain full colour');
+  assert.equal(light.opacity.at(-1), 0.5, 'Future words remain readable');
+  for (const dark of [true, false]) {
+    await page.getByRole('button', { name: 'Switch theme' }).click();
+    const after = await read();
+    assert.deepEqual(after.opacity, light.opacity, 'Theme changes preserve every word fill');
+    assert.equal(after.color === light.color, !dark, 'Word colour follows the current theme');
+  }
+  const paragraph = page.locator('.caption-page');
+  const followingPosition = await paragraph.evaluate(element => element.scrollTop);
+  await paragraph.hover();
+  await page.mouse.wheel(0, 250);
+  await page.waitForFunction(before => {
+    const paragraph = document.querySelector('.caption-page');
+    return paragraph && paragraph.scrollTop !== before;
+  }, followingPosition);
+  assert.deepEqual((await visibleCaptionRows(page)).violations, []);
+  const manual = await paragraph.evaluate(element => element.scrollTop);
+  await page.getByRole('spinbutton', { name: 'Playback time' }).fill('8');
+  await read();
+  assert.equal(await paragraph.evaluate(element => element.scrollTop), manual);
+  await page.getByRole('button', { name: 'Next passage', exact: true }).click();
+  await page.getByRole('spinbutton', { name: 'Playback time' }).fill('38');
+  await read();
+  assert(
+    await paragraph.evaluate(element => element.scrollTop > 0),
+    'Next paragraph resumes following'
+  );
 }
 
 // Like the playback atlas contract, run explicitly without changing the unit-test timeout.
@@ -144,6 +184,14 @@ try {
           await mobilePage.close();
         }
         if (process.argv.includes('--mobile-only')) continue;
+        const paragraphPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+        try {
+          await paragraphFillSurvivesThemesAndManualReading(paragraphPage, baseUrl);
+          console.log(`PASS ${browserName}: paragraph fill, both themes and manual reading`);
+        } finally {
+          await paragraphPage.close();
+        }
+        if (process.argv.includes('--paragraph-fill')) continue;
         for (const height of smoke ? [900] : [700, 900]) {
           for (const width of smoke ? [1440] : [900, 1440]) {
             for (const zoom of smoke ? [1] : [0.9, 1, 1.25]) {
@@ -185,19 +233,6 @@ try {
                   const loadedFont = await visibleCaptionRows(page);
                   assert.deepEqual(loadedFont.violations, [], `${label} late font`);
                   assert(loadedFont.visible > 0, `${label} late font must retain revealed text`);
-                  if (reducedMotion === 'no-preference') {
-                    await page.evaluate(() => {
-                      for (const word of document.querySelectorAll<HTMLElement>('.caption-word')) {
-                        word.style.maskImage = '';
-                        word.style.setProperty('--reveal-edge', '-1px');
-                      }
-                    });
-                    assert.equal(
-                      (await visibleCaptionRows(page)).visible,
-                      0,
-                      'Masked text must not count as revealed'
-                    );
-                  }
                   await seek.fill('54');
                   await page.setViewportSize({ width: width - 57, height: height - 31 });
                   assert.deepEqual(
