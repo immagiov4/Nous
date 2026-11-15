@@ -23,7 +23,6 @@ import {
 } from '../../../components/workspace/playback/captionFormat.ts';
 import LessonPlaybackStage from '../../../components/workspace/playback/LessonPlaybackStage.tsx';
 import {
-  adoptCueTimes,
   captionAnchorSpan,
   captionAnchorTimes,
   captionMotionEvents,
@@ -1477,7 +1476,9 @@ test('keeps three formulas and their explanations in the prepared list', () => {
     expect(container.querySelector('.type-parts')?.textContent).toContain(`Explanation ${index}`);
 });
 
-test('uses recording onsets for formula selection after forward and backward seeks', () => {
+test.each([
+  60, 180,
+])('keeps formula cue boundaries through remeasurement to %s px and explicit seeks', measuredWidth => {
   const frames = new Map<number, FrameRequestCallback>();
   let frameId = 0;
   vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
@@ -1528,6 +1529,8 @@ test('uses recording onsets for formula selection after forward and backward see
   act(() => window.dispatchEvent(new Event('resize')));
   for (const [time, selected] of [
     [4, false],
+    [4.999, false],
+    [5.001, true],
     [5.1, true],
     [7.1, false],
     [5.1, true],
@@ -1554,6 +1557,9 @@ test('uses recording onsets for formula selection after forward and backward see
       for (const callback of pending) callback(0);
     });
   flush();
+  vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({
+    width: measuredWidth,
+  } as DOMRect);
   act(() => window.dispatchEvent(new Event('resize')));
   flush();
   expect(container.querySelector('.nous-formula-symbol-x')?.getAttribute('data-active')).toBe(
@@ -2192,10 +2198,6 @@ test('renders resolved step citations instead of the unanchored source scene', (
   expect(container.querySelector('[data-stop="0"]')?.getAttribute('aria-current')).toBe('step');
 });
 
-test('adopts an overdue acoustic cue instead of waiting for its future estimate', () => {
-  expect(adoptCueTimes([8000, 2000, 9000], [3000, 1000, 7000], 5000)).toEqual([3000, 2000, 7000]);
-});
-
 test('heading quotations stay within the spoken heading interval before alignment', () => {
   const input = {
     speech: 'Primo titolo Corpo finale',
@@ -2556,4 +2558,88 @@ test('leaves the list panel empty while a saved summary lacks its list preparati
   );
   expect(container.querySelector('.scene-host')?.textContent).not.toContain(controllerScene.title);
   expect(container.querySelector('.scene-host blockquote')).toBeNull();
+});
+
+// Parity with main: equal future onsets preserve duration until an explicit seek.
+test('future motion with unchanged onset retains duration when remeasurement moves its end', () => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  let remeasured = false;
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement
+  ) {
+    const widths: Record<string, number> = { Alpha: 100, beta: 200, gamma: 50, delta: 50 };
+    const width =
+      remeasured && this.classList.contains('caption-word')
+        ? widths[this.textContent?.trim() ?? '']
+        : 100;
+    return { width } as DOMRect;
+  });
+  const style = document.createElement('p').style;
+  style.setProperty('--caption-feather', '0');
+  vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(style);
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const sources = [{ type: 'markdown' as const, markdown: 'Alpha beta gamma delta' }];
+  const scene: LessonScene = {
+    type: 'steps',
+    title: 'Words',
+    body: '',
+    items: [{ label: 'Beta', detail: '', icon: 'circle' }],
+    groups: [],
+    note: '',
+    quote: '',
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: {
+      scene,
+      motion: [{ effect: 'focus' as const, targets: ['item:0'], quote: 'beta' }],
+    },
+  };
+  let heard = 1;
+  const props = {
+    block,
+    content: { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel,
+    duration: 8,
+    time: 0,
+    readTime: () => heard,
+  };
+  const { container, rerender } = render(<LessonPlaybackStage {...props} />);
+  const flush = () =>
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      pending.forEach(callback => {
+        callback(0);
+      });
+    });
+  const emphasis = () =>
+    Number(
+      container
+        .querySelector<HTMLElement>('[data-motion-id="item:0"]')
+        ?.style.getPropertyValue('--motion-emphasis')
+    );
+  flush();
+  expect(emphasis()).toBe(0);
+  // At t=1 beta is future: its onset stays 2s, but its measured end moves from 4s to 6s.
+  remeasured = true;
+  act(() => window.dispatchEvent(new Event('resize')));
+  flush();
+  heard = 2.5;
+  flush();
+  expect(emphasis()).toBe(1);
+  heard = 4.5;
+  flush();
+  expect(emphasis()).toBe(0);
+  // A fresh timing adoption proves the changed quote end was measured, not ignored.
+  rerender(<LessonPlaybackStage {...props} seekRevision={1} />);
+  flush();
+  expect(emphasis()).toBe(1);
 });
