@@ -133,8 +133,8 @@ test('long-paragraph following waits for the lower threshold and moves in fewer 
     );
     return word;
   });
-  paragraph.scrollTo = vi.fn(({ top }: ScrollToOptions) => {
-    paragraph.scrollTop = top ?? 0;
+  paragraph.scrollTo = vi.fn((options?: ScrollToOptions | number, y?: number) => {
+    paragraph.scrollTop = typeof options === 'number' ? (y ?? 0) : (options?.top ?? 0);
   });
   const viewport = captionViewport(paragraph);
   words.slice(0, 5).forEach(word => {
