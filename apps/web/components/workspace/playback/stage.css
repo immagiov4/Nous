@@ -2271,7 +2271,7 @@
 .lesson-player-stage .scene-host > div {
   width: 100%;
 }
-.lesson-player-stage .scene-host > .prose:has(> .katex-display) {
+.lesson-player-stage .scene-host > .prose {
   /* Supplemental expressions share rows before the complete visual is fitted. */
   display: flex;
   flex-wrap: wrap;

@@ -39,7 +39,7 @@ The renderer selects a component based on the `type` field in the scene data. Th
 1.  **Form Selection:** The system identifies the specific renderer (e.g., `flowchart`, `radar`, `comparison`) from the `LESSON_SCENE_REGISTRY`.
 2.  **Icon Resolution:** The backend chooses icons based on `iconQueries` provided in the scene draft.
 3.  **Geometry Computation:** The renderer calculates positions, such as the trig-based coordinates for `radar` charts or the tree levels for `tree` diagrams.
-4.  **Scaling:** The `LessonPlaybackStage` uses a `ResizeObserver` to fit the scene within the viewport, applying CSS scales to maintain aspect ratios. Supplemental formulas share rows and wrap at the available width before the complete visual, including any image, is measured and fitted.
+4.  **Scaling:** The `LessonPlaybackStage` uses a `ResizeObserver` to fit the scene within the viewport, applying CSS scales to maintain aspect ratios.
 
 Sources: [apps/backend/src/services/lessonScenes/lessonSceneGeneration.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/lessonScenes/lessonSceneGeneration.ts), [apps/web/tests/components/workspace/LessonPlaybackStage.test.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/components/workspace/LessonPlaybackStage.test.tsx), [packages/shared-types/lessonSceneRegistry.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonSceneRegistry.ts)
 
@@ -125,7 +125,3 @@ In the `LessonPlaybackStage`, the renderer synchronizes with the audio clock.
 3.  **Captions:** The renderer ensures that as a word is spoken, the corresponding scene element (if anchored) is highlighted or revealed.
 
 Sources: [apps/web/tests/components/workspace/LessonPlaybackStage.test.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/components/workspace/LessonPlaybackStage.test.tsx)
-
-## Observability
-
-The [browser layout regressions](../../../apps/web/tests/components/workspace/PlaybackCausalLayout.test.ts) inspect displayed visual bounds, formula rows and the image after decoding, at desktop and phone widths in both themes. The mixed-image case verifies that short formulas preserve the full available width and mobile captions stay hidden. These constructed-layout checks do not establish narrated playback quality or readability of every course-specific visual.
