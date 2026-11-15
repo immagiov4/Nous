@@ -352,6 +352,22 @@ test('keeps slow future preparations ready across a sequence of short passages',
   }
 });
 
+test('keeps playback running when legacy User Timing rejects measurement options', async () => {
+  const unsupportedMeasure = vi.spyOn(performance, 'measure').mockImplementation(() => {
+    throw new DOMException('The mark [object Object] does not exist.', 'SyntaxError');
+  });
+  try {
+    const { result } = renderHook(() => useLessonPlayback(target));
+    await act(async () => result.current.play());
+    expect(unsupportedMeasure).toHaveBeenCalled();
+    expect(audio.start).toHaveBeenCalledOnce();
+    expect(result.current.playing).toBe(true);
+    expect(result.current.failed).toBe(false);
+  } finally {
+    unsupportedMeasure.mockRestore();
+  }
+});
+
 test('uses the audio clock unlocked in the opening gesture', async () => {
   const audioSessionRef = { current: audio as unknown as LessonPlaybackAudio };
   const { result } = renderHook(() => useLessonPlayback({ ...target, audioSessionRef }));
