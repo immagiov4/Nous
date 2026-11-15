@@ -45,6 +45,8 @@ This diagram shows the flow from raw markdown to the interactive player interfac
 
 Sources: [packages/shared-types/lessonPlayback.ts:80-100](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts#L80-L100), [apps/backend/src/projects/lessonPlayback.ts:57-73](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/projects/lessonPlayback.ts#L57-L73)
 
+The first listen buffers the selected passage and its immediate successor before narration starts. Later transitions use the same cancellable preparation queue; seeking and resuming can start a ready passage immediately. A longer initial loading state buys preparation lead time without adding an automatic retry.
+
 ## Content Segmentation and Projection
 
 The system processes `PlaybackContentBlock` arrays to produce a `LessonPlayback`. This process involves identifying headings, extracting spoken text while omitting markdown syntax, and associating visual elements with the correct narrative context.
@@ -164,5 +166,7 @@ Sources: [apps/backend/src/projects/lessonPlayback.ts:111-135](https://github.co
 Sources: [packages/shared-types/lessonPlaybackSchema.ts:127-160](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlaybackSchema.ts#L127-L160)
 
 ## Observability
+
+The client emits `nous.playback.preparation`, `nous.playback.passage` and `nous.playback.stall` performance measures through [playbackTrace](../../../apps/web/utils/reader/playbackTrace.ts). Observe `measure` entries with a `PerformanceObserver` before playback and read each entry's `detail` explicitly: preparation reports queue, server, download/decode and local visual durations in milliseconds; passage reports its ordinal, audio duration in seconds and ready-ahead margin in milliseconds (negative after an underrun). Stall measures cover automatic mid-lesson gaps, excluding initial loading and manual pauses. The timeline retains only the latest entry of each kind; the observer receives the sequence without retaining lesson text or identifiers.
 
 [Workflow state](../../../apps/backend/src/routes/workflows.ts) exposes preparation and alignment progress and failures. The [alignment workflow](../../../apps/backend/src/workflows/recordingAlignment.ts) also warns when alignment fails and stores a failed alignment result while retaining estimated timing. [Hook-and-stage integration tests](../../../apps/web/tests/hooks/reader/useLessonPlaybackAudio.integration.test.tsx) cover playback startup and audio-session failures. A playable recording can therefore still use estimated cues; successful preparation alone does not establish audible pronunciation quality or accurate synchronization.
