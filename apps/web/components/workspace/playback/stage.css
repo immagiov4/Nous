@@ -2083,6 +2083,10 @@
     --caption-height: 4lh;
   }
 }
+.lesson-player-dialog:focus {
+  /* Initial focus targets the surface; its controls retain native keyboard indicators. */
+  outline: 0;
+}
 /* Share the title's desktop inset with the caption column, including the back action. */
 .lesson-player-dialog,
 .lesson-player-stage {
