@@ -673,9 +673,9 @@ export default function LessonPlayer({
       ) : (
         <p className="flex-1 p-4">{t('Questa lezione non contiene testo da ascoltare.')}</p>
       )}
-      <div className="shrink-0 px-2 pb-2 md:relative md:flex md:items-end md:justify-between md:gap-4 md:px-[4%] md:pb-6">
+      <div className="shrink-0 px-2 pb-2 md:relative md:flex md:flex-wrap md:items-end md:justify-between md:gap-4 md:px-[4%] md:pb-6">
         <div
-          className={`min-w-0 pb-2 md:relative md:flex md:items-center md:pb-0 ${COMPOSER_BAR_HEIGHT}`}
+          className={`min-w-0 shrink-0 pb-2 md:relative md:flex md:items-center md:pb-0 ${COMPOSER_BAR_HEIGHT}`}
         >
           {/* On desktop, status lines sit above the controls so the bottom row keeps one axis. */}
           <div className="md:absolute md:bottom-full md:left-0 md:w-max md:max-w-[45vw]">
@@ -758,7 +758,7 @@ export default function LessonPlayer({
         {/* Desktop only: push-to-talk has no equivalent on touch screens. */}
         <p
           aria-hidden={spaceHintHidden}
-          className={`pointer-events-none hidden min-w-0 flex-1 items-center justify-center gap-1 whitespace-nowrap ${COMPOSER_BAR_HEIGHT} text-xs text-stone-500 transition-opacity duration-200 ease-out motion-reduce:transition-none md:flex dark:text-stone-400 ${spaceHintHidden ? 'opacity-0' : 'opacity-100'}`}
+          className={`pointer-events-none hidden min-w-0 flex-wrap items-center justify-center gap-1 whitespace-normal md:order-last md:basis-full ${COMPOSER_BAR_HEIGHT} text-xs text-stone-500 transition-opacity duration-200 ease-out motion-reduce:transition-none md:flex dark:text-stone-400 ${spaceHintHidden ? 'opacity-0' : 'opacity-100'}`}
         >
           {t('Tieni premuto')}
           <kbd className="font-sans">{t('Spazio')}</kbd>
