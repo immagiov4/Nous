@@ -1,8 +1,10 @@
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, vi } from 'vitest';
+import { MAX_VISUAL_LESSON_CHARS } from '../packages/shared-types/lessonGenerationPolicy.js';
 import {
   measureCase,
   outsideRepository,
@@ -119,8 +121,32 @@ test('validates JSONL without echoing private records in errors', () => {
     JSON.stringify({ ...cases[0], preferred: 'bogus' }),
     [cases[0], cases[0]].map(c => JSON.stringify(c)).join('\n'),
     JSON.stringify({ ...cases[0], rejected: 'steps' }),
+    JSON.stringify({ ...cases[0], preferred: 'formula-spotlight' }),
+    JSON.stringify({ ...cases[0], rejected: 'formula-spotlight' }),
   ]) {
     expect(() => parseCases(input)).toThrowError(new Error('Invalid benchmark dataset'));
+  }
+});
+
+test('records the production excerpt boundary and hash without retaining passage text', async () => {
+  const passage = `${'a'.repeat(MAX_VISUAL_LESSON_CHARS)}omitted tail`;
+  for (const text of [passage, 'short passage']) {
+    const trial = await measureCase({
+      c: { ...cases[0], passage: text },
+      repetition: 1,
+      config,
+      signal: new AbortController().signal,
+      generate: vi.fn().mockResolvedValue({ kind: 'text' }),
+    });
+    expect(trial.source).toEqual({
+      chars: text.length,
+      excerptChars: Math.min(text.length, MAX_VISUAL_LESSON_CHARS),
+      truncated: text.length > MAX_VISUAL_LESSON_CHARS,
+      excerptSha256: createHash('sha256')
+        .update(text.slice(0, MAX_VISUAL_LESSON_CHARS))
+        .digest('hex'),
+    });
+    expect(JSON.stringify(trial)).not.toContain(text);
   }
 });
 

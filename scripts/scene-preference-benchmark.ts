@@ -1,9 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { existsSync, watch, writeFileSync } from 'node:fs';
+import { mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import * as z from 'zod';
+import { MAX_VISUAL_LESSON_CHARS } from '../packages/shared-types/lessonGenerationPolicy.js';
 import { GENERATABLE_LESSON_SCENE_TYPES } from '../packages/shared-types/lessonScene.js';
 import { readGitIdentity } from './git-identity.js';
 
@@ -11,6 +14,7 @@ import { readGitIdentity } from './git-identity.js';
  * Run: bun --tsconfig-override apps/backend/tsconfig.json scripts/scene-preference-benchmark.ts
  * --dataset <private.jsonl> --output <new-private.json> --repetitions 3 --run
  * Omit --run for preflight; use --limit N or --cases id,id for a bounded smoke run.
+ * Uncaptioned cases cannot label formula-spotlight. First interrupt checkpoints; repeat to force stop.
  * Accuracy = preferred / (preferred + rejected); neither, invalid, error and text are separate.
  * This measures uncaptioned generation with the local production defaults/environment, not
  * deployed settings. Labels never reach the model. No workflow, database, icons or renderer runs.
@@ -33,7 +37,9 @@ const CaseSchema = z
     rejected: form,
     tie: z.boolean(),
   })
-  .refine(c => c.preferred !== c.rejected);
+  .refine(c => c.preferred !== c.rejected)
+  // This benchmark exercises uncaptioned generation, where spotlight cannot be selected.
+  .refine(c => c.preferred !== 'formula-spotlight' && c.rejected !== 'formula-spotlight');
 type PreferenceCase = z.infer<typeof CaseSchema>;
 export interface Trial {
   id: string;
@@ -43,6 +49,7 @@ export interface Trial {
   latencyMs: number;
   errorClass?: string;
   diagnostic?: import('../apps/backend/src/workflows/workflowErrorDiagnostics.js').WorkflowErrorDiagnostic;
+  source?: { chars: number; excerptChars: number; truncated: boolean; excerptSha256: string };
 }
 
 /** Reject malformed input without embedding a private record in the diagnostic. */
@@ -194,7 +201,14 @@ export const measureCase = async (input: {
       },
     });
     kind = result.kind;
-    if (result.kind === 'invalid') diagnostic = { type: 'InvalidScene', errorStage: 'validation' };
+    if (result.kind === 'invalid') {
+      const { WorkflowObservedTechnicalDiagnosticSchema } = await import(
+        '../apps/backend/src/workflows/workflowErrorDiagnostics.js'
+      );
+      diagnostic = WorkflowObservedTechnicalDiagnosticSchema.parse(
+        result.diagnostic ?? { type: 'InvalidScene', errorStage: 'validation' }
+      );
+    }
   } catch (error) {
     if (error === validated) kind = 'scene';
     else if (input.signal.aborted) kind = 'cancelled';
@@ -215,6 +229,14 @@ export const measureCase = async (input: {
     ...(chosen ? { chosen } : {}),
     ...(errorClass ? { errorClass } : {}),
     ...(diagnostic ? { diagnostic } : {}),
+    source: {
+      chars: input.c.passage.length,
+      excerptChars: Math.min(input.c.passage.length, MAX_VISUAL_LESSON_CHARS),
+      truncated: input.c.passage.length > MAX_VISUAL_LESSON_CHARS,
+      excerptSha256: createHash('sha256')
+        .update(input.c.passage.slice(0, MAX_VISUAL_LESSON_CHARS))
+        .digest('hex'),
+    },
     latencyMs: performance.now() - started,
   };
 };
@@ -229,6 +251,7 @@ export const readOptions = (args: string[]) => {
       limit: { type: 'string' },
       cases: { type: 'string' },
       run: { type: 'boolean' },
+      'cancel-file': { type: 'string' },
     },
   });
   if (!values.dataset || !values.output)
@@ -262,6 +285,16 @@ const loadCases = async (values: ReturnType<typeof readOptions>) => {
   }
   if (values.limit) cases = cases.filter(c => !c.tie).slice(0, positiveInteger(values.limit));
   return { cases, datasetText };
+};
+
+const watchCancellation = (cancelFile: string | undefined, cancel: () => void) => {
+  if (!cancelFile) return undefined;
+  const watcher = watch(dirname(cancelFile), { persistent: false }, () => {
+    if (existsSync(cancelFile)) cancel();
+  });
+  if (existsSync(cancelFile)) cancel();
+  writeFileSync(`${cancelFile}.ready`, '', { flag: 'wx' });
+  return watcher;
 };
 
 export async function runBenchmark(args: string[]) {
@@ -319,6 +352,7 @@ export async function runBenchmark(args: string[]) {
   const processEvents: NodeJS.EventEmitter = process;
   processEvents.once('SIGINT', cancel);
   processEvents.once('SIGTERM', cancel);
+  const cancelWatch = watchCancellation(values['cancel-file'], cancel);
   const trials: Trial[] = [];
   const save = () =>
     writeCheckpoint(values.output, {
@@ -353,6 +387,7 @@ export async function runBenchmark(args: string[]) {
     await save();
     processEvents.removeListener('SIGINT', cancel);
     processEvents.removeListener('SIGTERM', cancel);
+    cancelWatch?.close();
   }
   console.table(summarize(cases, trials, repetitions).repetitions);
   console.log(JSON.stringify(summarize(cases, trials, repetitions)));
@@ -373,15 +408,40 @@ export const writeCheckpoint = async (output: string, report: unknown) => {
 export const runCli = async (args: string[]) => {
   if (args.includes('--run') && process.env.HEAVY_RUN_HELD !== '1' && process.env.CI !== 'true') {
     const { main: heavyRun } = await import('./heavy-run.mjs');
-    process.exitCode = await heavyRun([
-      '--label',
-      'scene-preferences',
-      '--',
-      process.execPath,
-      ...process.execArgv,
-      fileURLToPath(import.meta.url),
-      ...args,
-    ]);
+    const control = await mkdtemp(resolve(tmpdir(), 'scene-cancel-'));
+    const cancelFile = resolve(control, 'cancel');
+    let requested = false;
+    try {
+      process.exitCode = await heavyRun(
+        [
+          '--label',
+          'scene-preferences',
+          '--',
+          process.execPath,
+          ...process.execArgv,
+          fileURLToPath(import.meta.url),
+          ...args,
+          '--cancel-file',
+          cancelFile,
+        ],
+        {
+          onInterrupt: () => {
+            // No admitted benchmark can own a checkpoint yet; a second interrupt uses forced cleanup.
+            if (requested || !existsSync(`${cancelFile}.ready`)) return false;
+            requested = true;
+            try {
+              writeFileSync(cancelFile, '', { flag: 'wx' });
+              return true;
+            } catch {
+              console.error('Graceful cancellation unavailable; stopping the benchmark.');
+              return false;
+            }
+          },
+        }
+      );
+    } finally {
+      await rm(control, { recursive: true, force: true });
+    }
     return;
   }
   await runBenchmark(args);

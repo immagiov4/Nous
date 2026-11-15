@@ -1,3 +1,4 @@
+import { existsSync, writeFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -180,10 +181,55 @@ test('routes real batches through the existing shared lease and reuses inherited
   vi.stubEnv('HEAVY_RUN_HELD', '');
   await runCli(['--run', '--dataset', 'synthetic.jsonl', '--output', 'report.json']);
   expect(heavy).toHaveBeenCalledWith(
-    expect.arrayContaining(['--label', 'scene-preferences', '--', process.execPath, '--run'])
+    expect.arrayContaining(['--label', 'scene-preferences', '--', process.execPath, '--run']),
+    { onInterrupt: expect.any(Function) }
   );
   vi.stubEnv('HEAVY_RUN_HELD', '1');
   await expect(runCli(['--run'])).rejects.toThrow('Usage:');
+});
+
+test('requests one graceful cancellation and leaves repeated interruption to forced lease cleanup', async () => {
+  vi.stubEnv('CI', 'false');
+  vi.stubEnv('HEAVY_RUN_HELD', '');
+  heavy.mockImplementationOnce(async (args, options) => {
+    const cancelFile = args.at(-1);
+    expect(options.onInterrupt()).toBe(false);
+    writeFileSync(`${cancelFile}.ready`, '', { flag: 'wx' });
+    expect(options.onInterrupt()).toBe(true);
+    expect(existsSync(cancelFile)).toBe(true);
+    expect(options.onInterrupt()).toBe(false);
+    return 130;
+  });
+  await runCli(['--run']);
+  expect(process.exitCode).toBe(130);
+});
+
+test.each([
+  'schema',
+  'domain',
+])('retains the real generator %s failure stage without private diagnostics', async stage => {
+  const folder = await mkdtemp(join(tmpdir(), 'scene-invalid-'));
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  vi.spyOn(console, 'table').mockImplementation(() => {});
+  vi.stubEnv('OPENROUTER_API_KEY', 'synthetic-key');
+  structured.mockResolvedValue(
+    stage === 'schema' ? {} : { ...draft, evidence: 'private invalid quotation' }
+  );
+  try {
+    const dataset = join(folder, 'cases.jsonl');
+    const output = join(folder, 'report.json');
+    await writeFile(dataset, JSON.stringify(fixture));
+    await runBenchmark(['--dataset', dataset, '--output', output, '--repetitions', '1', '--run']);
+    const report = JSON.parse(await readFile(output, 'utf8'));
+    expect(report.trials[0]).toMatchObject({
+      kind: 'invalid',
+      diagnostic: { type: 'Error', errorStage: stage },
+    });
+    expect(report.trials[0].diagnostic).not.toHaveProperty('originalMessage');
+    expect(JSON.stringify(report)).not.toContain('private invalid quotation');
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
 });
 
 import { spawnSync } from 'node:child_process';
