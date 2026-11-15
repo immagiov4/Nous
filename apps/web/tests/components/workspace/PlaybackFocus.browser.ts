@@ -78,6 +78,40 @@ try {
           }
           Object.defineProperty(window, 'MediaRecorder', { value: Recorder });
         });
+        for (const mobileTheme of [false, true]) {
+          await page.setViewportSize(
+            mobileTheme ? { width: 390, height: 844 } : { width: 1440, height: 900 }
+          );
+          for (const dark of [true, false]) {
+            await page.goto(
+              `${base}tests/fixtures/playbackFocus.html?${new URLSearchParams({ ...(dark ? { dark: '' } : {}), ...(mobileTheme ? { mobile: '' } : {}) })}`
+            );
+            await page.getByRole('button', { name: 'Riproduci', exact: true }).click();
+            const voice = page.getByRole('combobox', { name: 'Voce', exact: true });
+            const palette = await voice.evaluate(element => {
+              const style = getComputedStyle(element);
+              const firstOption = element.querySelector('option');
+              if (!firstOption) throw new Error('Voice picker requires an option');
+              const option = getComputedStyle(firstOption);
+              return {
+                scheme: style.colorScheme,
+                background: option.backgroundColor,
+                foreground: option.color,
+              };
+            });
+            assert.equal(palette.scheme, dark ? 'dark' : 'light');
+            assert.equal(palette.background, dark ? 'rgb(39, 39, 42)' : 'rgb(255, 255, 255)');
+            assert.equal(palette.foreground, dark ? 'rgb(228, 228, 231)' : 'rgb(55, 65, 81)');
+            await voice.focus();
+            await page.keyboard.press('ArrowDown');
+            await page.keyboard.press('Enter');
+            assert.equal(await voice.inputValue(), 'Puck');
+            console.log(
+              `PASS ${engine.name()} ${mobileTheme ? 'mobile' : 'desktop'} ${dark ? 'dark' : 'light'} native voice theme and keyboard selection`
+            );
+          }
+        }
+        await page.setViewportSize({ width: 1440, height: 900 });
         await page.goto(`${base}tests/fixtures/playbackFocus.html`);
         await page.evaluate(() => scrollTo(0, 250));
         const scroll = await page.evaluate(() => scrollY);
@@ -125,12 +159,38 @@ try {
           await player.evaluate(element => getComputedStyle(element).outlineWidth),
           '0px'
         );
+        const forward = player.getByRole('button', { name: 'Avanti di 5 secondi' });
+        await forward.focus();
+        await page.keyboard.press('Enter');
+        const timeline = player.getByRole('slider', { name: 'Posizione audio' });
+        assert.equal(await timeline.inputValue(), '5');
+        await player.getByRole('button', { name: 'Indietro di 5 secondi' }).focus();
+        await page.keyboard.press('Enter');
+        assert.equal(await timeline.inputValue(), '0');
+        await timeline.focus();
+        await page.keyboard.press('ArrowRight');
+        assert(Number(await timeline.inputValue()) > 0);
+        const speedControl = player.getByRole('button', { name: 'Velocita', exact: true });
+        await speedControl.focus();
+        await page.keyboard.press('Enter');
+        await player.getByRole('slider', { name: 'Velocita', exact: true }).focus();
+        await page.keyboard.press('ArrowRight');
+        assert.equal(await speedControl.textContent(), '1.05x');
+        await page.keyboard.press('Escape');
+        await back.focus();
+        await back.evaluate(element => {
+          element.addEventListener('click', () => {
+            element.dataset.spaceClicked = 'true';
+          });
+        });
         await page.keyboard.down('Space');
         await page.waitForFunction(() => document.documentElement.dataset.recording === 'true');
         assert(
           await player.getByRole('button', { name: /Riproduci|TTS non disponibile/ }).isDisabled()
         );
         await page.keyboard.up('Space');
+        assert.equal(await back.getAttribute('data-space-clicked'), null);
+        assert(await player.isVisible());
         await page.getByRole('button', { name: 'Chiudi', exact: true }).click();
         assert(await player.evaluate(element => element === document.activeElement));
         const question = page.getByRole('textbox');

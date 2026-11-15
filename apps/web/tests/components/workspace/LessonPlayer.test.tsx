@@ -1057,26 +1057,89 @@ test.each([
   'Torna alla lezione',
   'Pausa',
   'Indietro di 5 secondi',
+  'Avanti di 5 secondi',
   'Velocita',
   'Nota',
-])('Space retains native activation on %s', label => {
+])('Space on %s records without activating the focused button', async label => {
   render(<LessonPlayer {...props} autoPlay={false} />);
   const button = screen.getByRole('button', { name: label });
+  const clicked = vi.fn();
+  button.addEventListener('click', clicked);
   button.focus();
-  const event = new KeyboardEvent('keydown', { ...space, bubbles: true, cancelable: true });
-  button.dispatchEvent(event);
-  expect(event.defaultPrevented).toBe(false);
-  expect(getUserMedia).not.toHaveBeenCalled();
-  expect(playback.pause).not.toHaveBeenCalled();
+  const user = userEvent.setup();
+  await user.keyboard('[Space>]');
+  expect(Recorder.instances[0]?.state).toBe('recording');
+  expect(playback.pause).toHaveBeenCalledOnce();
+  await user.keyboard('[/Space]');
+  expect(await screen.findByText('Perché funziona?')).toBeInTheDocument();
+  expect(clicked).not.toHaveBeenCalled();
 });
 
-test('Space retains the voice selector keyboard behavior', () => {
+test.each([
+  'Torna alla lezione',
+  'Pausa',
+  'Indietro di 5 secondi',
+  'Avanti di 5 secondi',
+  'Velocita',
+  'Nota',
+  'Avvia dettatura',
+])('Enter still operates %s', async label => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  screen.getByRole('button', { name: label }).focus();
+  await userEvent.setup().keyboard('{Enter}');
+  if (label === 'Torna alla lezione') expect(props.onClose).toHaveBeenCalledOnce();
+  else if (label === 'Pausa') expect(playback.pause).toHaveBeenCalledOnce();
+  else if (label === 'Indietro di 5 secondi') expect(playback.seek).toHaveBeenCalledWith(-5);
+  else if (label === 'Avanti di 5 secondi') expect(playback.seek).toHaveBeenCalledWith(5);
+  else if (label === 'Velocita')
+    expect(screen.getByRole('button', { name: label })).toHaveAttribute('aria-expanded', 'true');
+  else if (label === 'Nota') expect(screen.getByRole('textbox').tagName).toBe('TEXTAREA');
+  else expect(Recorder.instances[0]?.state).toBe('recording');
+});
+
+test.each([
+  'range',
+  'checkbox',
+  'radio',
+  'button',
+  'file',
+  'color',
+])('Space on a non-editable %s input starts voice capture', async type => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  const control = document.createElement('input');
+  control.type = type;
+  screen.getByRole('dialog').append(control);
+  control.focus();
+  const user = userEvent.setup();
+  await user.keyboard('[Space>]');
+  expect(Recorder.instances[0]?.state).toBe('recording');
+  await user.keyboard('[/Space]');
+  expect(await screen.findByText('Perché funziona?')).toBeInTheDocument();
+  expect(control.checked).toBe(false);
+});
+
+test('Space takes priority over a child control key handler', async () => {
   render(<LessonPlayer {...props} autoPlay={false} />);
   const control = screen.getByRole('combobox', { name: 'Voce' });
-  const event = new KeyboardEvent('keydown', { ...space, bubbles: true, cancelable: true });
-  control.dispatchEvent(event);
-  expect(event.defaultPrevented).toBe(false);
-  expect(getUserMedia).not.toHaveBeenCalled();
+  control.addEventListener('keydown', event => event.stopPropagation());
+  control.focus();
+  const user = userEvent.setup();
+  await user.keyboard('[Space>]');
+  expect(Recorder.instances[0]?.state).toBe('recording');
+  await user.keyboard('[/Space]');
+  expect(await screen.findByText('Perché funziona?')).toBeInTheDocument();
+});
+
+test('Space on the speed slider records without changing speed', async () => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Velocita' }));
+  screen.getByRole('slider', { name: 'Velocita' }).focus();
+  const user = userEvent.setup();
+  await user.keyboard('[Space>]');
+  expect(Recorder.instances[0]?.state).toBe('recording');
+  await user.keyboard('[/Space]');
+  expect(await screen.findByText('Perché funziona?')).toBeInTheDocument();
+  expect(tts.onSpeedChange).not.toHaveBeenCalled();
 });
 
 test.each([

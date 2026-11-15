@@ -530,11 +530,11 @@ export default function LessonPlayer({
   useEffect(() => {
     if (mobile) return;
     const keydown = (event: KeyboardEvent) => {
-      if (event.code !== 'Space' || event.defaultPrevented) return;
+      if (event.code !== 'Space') return;
       const target = event.target instanceof Element ? event.target : document.activeElement;
       if (
         target?.closest(
-          'input, textarea, button, select, a[href], [role="button"], [role="slider"], [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
+          'input:read-write, textarea:read-write, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
         )
       )
         return;
@@ -576,12 +576,13 @@ export default function LessonPlayer({
     const blur = () => {
       if (spaceDown.current) cancelCapture();
     };
-    window.addEventListener('keydown', keydown);
-    window.addEventListener('keyup', keyup);
+    // Reserve Space before focused controls handle it; Enter keeps their native activation.
+    window.addEventListener('keydown', keydown, true);
+    window.addEventListener('keyup', keyup, true);
     window.addEventListener('blur', blur);
     return () => {
-      window.removeEventListener('keydown', keydown);
-      window.removeEventListener('keyup', keyup);
+      window.removeEventListener('keydown', keydown, true);
+      window.removeEventListener('keyup', keyup, true);
       window.removeEventListener('blur', blur);
     };
   });
