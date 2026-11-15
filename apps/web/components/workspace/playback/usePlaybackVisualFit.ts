@@ -23,6 +23,7 @@ export function usePlaybackVisualFit(present: boolean) {
       card.style.width = `${slot.clientWidth}px`;
       const width = Math.max(card.offsetWidth, card.scrollWidth);
       card.style.width = `${width}px`;
+      if (formulas.length) fitImagesAroundText(card, availableHeight);
       const height = Math.max(card.offsetHeight, card.scrollHeight);
       if (!width || !height) return;
       const scale = Math.min(1, slot.clientWidth / width, availableHeight / height);
@@ -63,4 +64,19 @@ export function usePlaybackVisualFit(present: boolean) {
     };
   }, [present]);
   return cardRef;
+}
+
+/** Images yield height before the whole visual scales its native formula typography. */
+function fitImagesAroundText(card: HTMLElement, availableHeight: number) {
+  const images = [...card.querySelectorAll<HTMLImageElement>('figure img')];
+  for (const image of images) image.style.maxHeight = '';
+  const heights = images.map(image => image.offsetHeight);
+  const imageHeight = heights.reduce((sum, height) => sum + height, 0);
+  if (!imageHeight) return;
+  const textHeight = Math.max(card.offsetHeight, card.scrollHeight) - imageHeight;
+  const imageScale = Math.min(1, Math.max(0, availableHeight - textHeight) / imageHeight);
+  images.forEach((image, index) => {
+    image.style.maxHeight = `${heights[index] * imageScale}px`;
+    image.style.objectFit = 'contain';
+  });
 }

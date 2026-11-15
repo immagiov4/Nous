@@ -29,6 +29,25 @@ if (new URLSearchParams(location.search).has('case')) {
   const snapshotProof = new URLSearchParams(location.search).has('snapshot');
   const formulaPath = new URLSearchParams(location.search).get('formulaPath');
   const mixedImage = formulaPath === 'image';
+  const imageAspect = new URLSearchParams(location.search).get('imageAspect');
+  let mixedImageUrl = playbackImageUrl;
+  if (imageAspect) {
+    const canvas = document.createElement('canvas');
+    canvas.width = imageAspect === 'wide' ? 2400 : 240;
+    canvas.height = imageAspect === 'tall' ? 2400 : 240;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Synthetic image requires a canvas');
+    context.fillStyle = '#dbeafe';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.strokeStyle = '#1e40af';
+    context.lineWidth = 12;
+    context.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
+    context.fillStyle = '#1e40af';
+    context.font = '32px sans-serif';
+    context.fillText('IMAGE', 24, 60);
+    context.fillText('END', canvas.width - 96, canvas.height - 24);
+    mixedImageUrl = canvas.toDataURL('image/png');
+  }
   const isDarkMode = new URLSearchParams(location.search).has('dark');
   document.documentElement.classList.toggle('dark', isDarkMode);
   const formulaCount = Number(new URLSearchParams(location.search).get('formulas'));
@@ -194,7 +213,7 @@ if (new URLSearchParams(location.search).has('case')) {
             'fixture-image': {
               id: 'fixture-image',
               mimeType: 'image/jpeg',
-              dataUrl: playbackImageUrl,
+              dataUrl: mixedImageUrl,
               sourceOrder: 0,
               textBefore: '',
               textAfter: '',
