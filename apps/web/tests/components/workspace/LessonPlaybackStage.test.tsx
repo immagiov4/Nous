@@ -328,7 +328,12 @@ test.each([
       time={4}
     />
   );
-  if (kind === 'broken-image') fireEvent.error(screen.getByRole('img', { name: 'Dominio' }));
+  if (kind === 'broken-image') {
+    fireEvent.error(screen.getByRole('img', { name: 'Dominio' }));
+    expect(screen.getByRole('img', { name: 'Immagine non disponibile' })).toBeInTheDocument();
+    expect(prepareLessonPlaybackVisual).not.toHaveBeenCalled();
+    return;
+  }
   expect(container.querySelector('.scene-host')?.textContent).toBe('');
   expect(questionContextRef.current?.().visual).toBeUndefined();
   expect(container.querySelector('.captions')?.textContent).toContain(speech);
@@ -411,6 +416,10 @@ test.each([
     expect(container.querySelector('.captions')?.textContent).toContain(
       'La memoria conserva i dati del programma.'
     );
+  } else if (imageState === 'broken') {
+    expect(screen.getByRole('img', { name: 'Immagine non disponibile' })).toBeInTheDocument();
+    expect(container.querySelector('.scene-host')?.textContent).toContain('Un esempio visivo');
+    return;
   } else {
     expect(container.querySelector('.scene-host h2')?.textContent).toBe('Scena del passaggio');
     expect(container.querySelector('.scene-host strong')?.textContent).toBe('Il concetto');
@@ -419,7 +428,7 @@ test.each([
   expect(container.querySelector('.scene-host')?.textContent).not.toContain('Figura di esempio');
   expect(container.querySelector('.scene-host')?.textContent).not.toContain('Un esempio visivo');
 });
-test('removes one failed adjacent PDF image and retains the available image', () => {
+test('retains a failed adjacent PDF placeholder beside the available image', () => {
   const sources = [
     {
       type: 'markdown' as const,
@@ -451,10 +460,9 @@ test('removes one failed adjacent PDF image and retains the available image', ()
     'Bad',
   ]);
   fireEvent.error(screen.getByRole('img', { name: 'Bad' }));
-  expect(screen.getAllByRole('img').map(image => image.getAttribute('alt'))).toEqual(['Good']);
-  expect(container.querySelector('.scene-host')?.textContent).not.toContain(
-    'Immagine non disponibile'
-  );
+  expect(screen.getByRole('img', { name: 'Good' })).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: 'Immagine non disponibile' })).toBeInTheDocument();
+  expect(container.querySelector('.scene-host')?.textContent).toContain('Immagine non disponibile');
 });
 beforeEach(() => {
   vi.stubGlobal(

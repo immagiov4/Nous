@@ -13,7 +13,19 @@ declare global {
   interface Window {
     imageGeometryReady: typeof atlasStageReady;
     imageGeometryInitial: number[][];
-    imageGeometryControl: (action: 'hide' | 'show' | 'replace') => void;
+    imageGeometryControl: (
+      action:
+        | 'hide'
+        | 'show'
+        | 'replace'
+        | 'replace-html'
+        | 'replace-mermaid'
+        | 'replace-steps'
+        | 'replace-causal'
+        | 'reset'
+        | 'dark'
+        | 'light'
+    ) => void;
   }
 }
 
@@ -25,29 +37,59 @@ function PlaybackFixture({
   scenario: string;
 }) {
   const [mounted, setMounted] = useState(true);
-  const [replacement, setReplacement] = useState(false);
+  const [replacement, setReplacement] = useState('');
+  const [dark, setDark] = useState(reader.isDarkMode ?? false);
+  useLayoutEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+  }, [dark]);
   useEffect(() => {
     window.imageGeometryControl = action => {
-      if (action === 'replace') setReplacement(true);
+      if (action === 'dark' || action === 'light') setDark(action === 'dark');
+      else if (action === 'reset') setReplacement('');
+      else if (action.startsWith('replace')) setReplacement(action);
       else setMounted(action === 'show');
     };
   }, []);
   const sources = reader.sectionContentBlocks ?? [];
   const sourceBlock = segmentLessonPlayback(sources)[0];
   let block = sourceBlock;
-  if (replacement)
+  if (['replace', 'replace-steps', 'replace-causal'].includes(replacement) || scenario === 'scene')
     block = {
       ...sourceBlock,
       visuals: [
         {
           kind: 'scene',
           scene: {
-            type: 'definition',
+            type:
+              replacement === 'replace-steps'
+                ? 'steps'
+                : replacement === 'replace-causal'
+                  ? 'causal'
+                  : 'definition',
             title: 'Replacement visual',
             body: '',
             groups: [],
             note: '',
             quote: '',
+            ...(replacement === 'replace-causal'
+              ? {
+                  diagram: {
+                    nodes: [
+                      { id: 'a', label: 'Cause', kind: 'start' as const },
+                      { id: 'b', label: 'Effect', kind: 'end' as const },
+                    ],
+                    edges: [
+                      {
+                        from: 'a',
+                        to: 'b',
+                        label: 'causes',
+                        kind: 'call' as const,
+                        evidence: 'The new visual remains fitted.',
+                      },
+                    ],
+                  },
+                }
+              : {}),
             items: [
               {
                 icon: 'point',
@@ -59,6 +101,13 @@ function PlaybackFixture({
         },
       ],
     };
+  if (scenario === 'html' || replacement === 'replace-html')
+    block = { ...sourceBlock, visuals: [{ kind: 'generated-visual', visualId: 'fixture-html' }] };
+  if (scenario === 'mermaid' || replacement === 'replace-mermaid')
+    block = {
+      ...sourceBlock,
+      visuals: [{ kind: 'mermaid', code: 'graph TD; A[Start] --> B[End]' }],
+    };
   return (
     <div style={{ height: '100dvh', display: 'flex' }} data-scenario={scenario}>
       {mounted ? (
@@ -66,7 +115,7 @@ function PlaybackFixture({
           block={block}
           duration={30}
           time={15}
-          content={reader as WorkspaceReaderContentModel}
+          content={{ ...reader, isDarkMode: dark } as WorkspaceReaderContentModel}
         />
       ) : null}
     </div>
@@ -127,7 +176,7 @@ async function render() {
             },
           ])
         )
-      : scenario === 'legacy'
+      : scenario.startsWith('legacy')
         ? {
             'fixture-image': {
               id: 'fixture-image',
@@ -143,7 +192,9 @@ async function render() {
     {
       type: 'markdown' as const,
       markdown:
-        'Observe the image.\n\n' +
+        (scenario === 'legacy-content'
+          ? 'Observe the image and $x=1$.\n\n'
+          : 'Observe the image.\n\n') +
         Object.keys(assets)
           .map(id => `{{PDF_IMAGE:${id}}}`)
           .join(''),
@@ -161,6 +212,15 @@ async function render() {
     sectionContentBlocks: sources,
     activeSectionAssetsById: assets,
     isDarkMode: params.has('dark'),
+    activeSectionGeneratedVisualsById: {
+      'fixture-html': {
+        id: 'fixture-html',
+        kind: 'html',
+        title: 'HTML visual',
+        code: '<p>Visible HTML visual</p>',
+        createdAt: '',
+      },
+    },
   };
   const content =
     surface === 'playback' ? (

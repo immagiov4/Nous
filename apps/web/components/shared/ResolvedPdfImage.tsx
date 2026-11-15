@@ -25,6 +25,15 @@ const ResolvedPdfImage = ({
   const [failedSrc, setFailedSrc] = useState<string>();
   const src = resolution.result?.src;
   const failed = resolution.status === 'failed' || (!!src && failedSrc === src);
+  // Legacy images without metadata keep the same standard frame through decode or failure.
+  const placeholderStyle =
+    image.intrinsicWidth && image.intrinsicHeight
+      ? {}
+      : {
+          aspectRatio: '16 / 9',
+          width: '100%',
+          objectFit: 'contain' as const,
+        };
   useEffect(() => {
     if (failed) onUnavailable?.(image.id);
   }, [failed, image.id, onUnavailable]);
@@ -38,6 +47,7 @@ const ResolvedPdfImage = ({
         className={`resolved-pdf-image ${className ?? ''}`}
         src={src}
         style={{
+          ...placeholderStyle,
           ...imageProps.style,
           opacity: decodedSrc === src ? (imageProps.style?.opacity ?? 1) : 0,
         }}
@@ -69,8 +79,8 @@ const ResolvedPdfImage = ({
         {label}
       </span>
     );
-    if (image.intrinsicWidth && image.intrinsicHeight)
-      return (
+    return (
+      <span className="block text-center leading-none">
         <span
           role="img"
           aria-label={label}
@@ -80,6 +90,7 @@ const ResolvedPdfImage = ({
             verticalAlign: 'top',
             position: 'relative',
             maxWidth: '100%',
+            ...placeholderStyle,
             ...imageProps.style,
           }}
         >
@@ -89,33 +100,25 @@ const ResolvedPdfImage = ({
             width={imageProps.width ?? image.intrinsicWidth}
             height={imageProps.height ?? image.intrinsicHeight}
             className={className}
-            style={{ ...imageProps.style, visibility: 'hidden', opacity: 0 }}
+            style={{ ...placeholderStyle, ...imageProps.style, visibility: 'hidden', opacity: 0 }}
           />
           {message}
         </span>
-      );
-    return (
-      <span
-        aria-label={label}
-        className={`flex items-center justify-center bg-gray-50 px-4 py-6 text-center text-sm text-gray-500 dark:bg-zinc-950 dark:text-zinc-400 ${className ?? ''}`}
-        role="img"
-      >
-        {label}
       </span>
     );
   }
 
   // Keep the measured image box while its asset URL is being resolved.
-  return image.intrinsicWidth && image.intrinsicHeight ? (
+  return (
     <img
       alt=""
       aria-hidden="true"
       className={className}
       width={imageProps.width ?? image.intrinsicWidth}
       height={imageProps.height ?? image.intrinsicHeight}
-      style={{ ...imageProps.style, visibility: 'hidden', opacity: 0 }}
+      style={{ ...placeholderStyle, ...imageProps.style, visibility: 'hidden', opacity: 0 }}
     />
-  ) : null;
+  );
 };
 
 export default memo(ResolvedPdfImage);

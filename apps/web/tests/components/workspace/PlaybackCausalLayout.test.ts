@@ -79,13 +79,16 @@ for (const viewport of formulaViewports) {
       await page.goto(
         `${baseUrl}tests/fixtures/playbackLayout.html?formulas=1&formulaPath=${formulaPath}`
       );
-      const formula = page.locator('.scene-host .katex:not(.spotlight-symbol .katex)');
+      const host = page.locator('.scene-host:not([data-exiting])');
+      const formula = host.locator('.katex:not(.spotlight-symbol .katex)');
       await formula.waitFor();
       await page.waitForFunction(() =>
-        document.querySelector('.scene-host')?.classList.contains('lesson-player-formula')
+        document
+          .querySelector('.scene-host:not([data-exiting])')
+          ?.classList.contains('lesson-player-formula')
       );
-      expect(await page.locator('.scene-host .katex-error').count()).toBe(0);
-      expect(await page.locator('.scene-host').innerText()).not.toMatch(/\\(?:mathbf|omega)/);
+      expect(await host.locator('.katex-error').count()).toBe(0);
+      expect(await host.innerText()).not.toMatch(/\\(?:mathbf|omega)/);
       const size = await formula.evaluate(formula => {
         const actual = formula.getBoundingClientRect();
         const reference = formula.cloneNode(true) as HTMLElement;
@@ -567,7 +570,7 @@ test('1: an unresolved historical PDF reference yields its prepared scene after 
 test.each([
   'available',
   'broken',
-])('1: resolves an %s image without exposing its placeholder', async imageState => {
+])('1: presents an %s image or its stable unavailable placeholder', async imageState => {
   const page = await openCard(`missing&asset=${imageState}`);
   try {
     if (imageState === 'available') {
@@ -577,6 +580,8 @@ test.each([
         )
         .toBe(180);
       expect(await page.locator('.scene-host img').getAttribute('alt')).toBe('Figura di esempio');
+    } else if (imageState === 'broken') {
+      await page.getByRole('img', { name: 'Immagine non disponibile' }).waitFor();
     } else {
       await page.locator('.scene-host h2').waitFor();
       expect(await page.locator('.scene-host h2').textContent()).toBe('Una scena disponibile');

@@ -12,6 +12,150 @@ afterAll(async () => {
   await browser?.close();
 });
 
+test.each(
+  ['scene', 'html', 'mermaid', 'pending', 'pending-failure', 'error-dialog'].flatMap(scenario =>
+    [
+      { width: 1440, height: 900 },
+      { width: 390, height: 844 },
+    ].flatMap(viewport => [false, true].map(dark => ({ scenario, viewport, dark })))
+  )
+)('shows available $scenario content at $viewport.width px (dark=$dark)', async ({
+  scenario,
+  viewport,
+  dark,
+}) => {
+  const page = await browser.newPage({ viewport, reducedMotion: 'no-preference' });
+  let release = () => {};
+  try {
+    const held = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    await page.route(
+      scenario.startsWith('pending')
+        ? '**/lifecycle-image.png'
+        : '**/api/projects/image-geometry/assets/*',
+      async route => {
+        await held;
+        await route.fulfill({
+          status: scenario === 'error-dialog' || scenario === 'pending-failure' ? 503 : 200,
+          contentType: 'image/png',
+          body:
+            scenario === 'error-dialog' || scenario === 'pending-failure'
+              ? Buffer.from('Unavailable')
+              : await readFile('apps/web/public/icons/nous-app-icon-mask-512.png'),
+        });
+      }
+    );
+    await page.goto(
+      `${inject('browserFixtureUrl')}tests/fixtures/imageGeometry.html?surface=${scenario === 'error-dialog' ? 'dialog' : 'playback'}&scenario=${scenario.startsWith('pending') ? 'legacy-content' : scenario}${dark ? '&dark' : ''}`
+    );
+    const card = page.locator('.scene-host');
+    const image = page.locator('img').first();
+    if (scenario !== 'error-dialog') {
+      await card.waitFor({ state: 'attached' });
+      await page.waitForTimeout(250);
+      expect(await card.evaluate(element => Number(getComputedStyle(element).opacity))).toBe(1);
+      expect((await card.boundingBox())?.height).toBeGreaterThan(0);
+      if (scenario === 'html') {
+        const html = page.frameLocator('iframe').getByText('Visible HTML visual');
+        await html.waitFor();
+        expect(await html.isVisible()).toBe(true);
+      } else if (scenario === 'mermaid') {
+        const diagram = page.frameLocator('iframe').locator('svg');
+        await diagram.waitFor();
+        expect(await diagram.isVisible()).toBe(true);
+      } else expect(await card.locator('.katex, .lesson-scene').count()).toBeGreaterThan(0);
+    }
+    if (scenario.startsWith('pending') || scenario === 'error-dialog') {
+      const before = await image.boundingBox();
+      expect(before?.height).toBeGreaterThan(0);
+      release();
+      if (scenario === 'error-dialog' || scenario === 'pending-failure') {
+        const fallback = page.getByRole('img', { name: 'Immagine non disponibile' });
+        await fallback.waitFor();
+        const after = await fallback.boundingBox();
+        expect(after).toEqual(before);
+      } else {
+        await image.evaluate((element: HTMLImageElement) => element.decode());
+        await page.waitForTimeout(250);
+        expect(await image.boundingBox()).toEqual(before);
+        expect(await image.evaluate(element => getComputedStyle(element).opacity)).toBe('1');
+      }
+    }
+    if (scenario !== 'error-dialog' && viewport.width === 390)
+      expect(
+        await page.locator('.captions').evaluate(element => getComputedStyle(element).visibility)
+      ).toBe('hidden');
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+    await page.close();
+  }
+});
+
+test.each(
+  ['replace', 'replace-steps', 'replace-causal', 'replace-html', 'replace-mermaid'].flatMap(
+    action =>
+      [
+        { width: 1440, height: 900 },
+        { width: 390, height: 844 },
+      ].flatMap(viewport =>
+        [false, true].map(dark => ({
+          action: action as
+            | 'replace'
+            | 'replace-steps'
+            | 'replace-causal'
+            | 'replace-html'
+            | 'replace-mermaid',
+          viewport,
+          dark,
+        }))
+      )
+  )
+)('keeps the incoming $action visual painted after image exit at $viewport.width (dark=$dark)', async ({
+  action,
+  viewport,
+  dark,
+}) => {
+  const page = await browser.newPage({ viewport, reducedMotion: 'no-preference' });
+  try {
+    const bytes = await readFile('apps/web/public/icons/nous-app-icon-mask-512.png');
+    await page.route('**/api/projects/image-geometry/assets/*', route =>
+      route.fulfill({ status: 200, contentType: 'image/png', body: bytes })
+    );
+    await page.goto(
+      `${inject('browserFixtureUrl')}tests/fixtures/imageGeometry.html?surface=playback${dark ? '&dark' : ''}`
+    );
+    await page
+      .locator('.scene-host img[src]')
+      .evaluate((image: HTMLImageElement) => image.decode());
+    await page.waitForTimeout(250);
+    await page.evaluate(action => window.imageGeometryControl(action), action);
+    if (action === 'replace-html')
+      await page.frameLocator('iframe').getByText('Visible HTML visual').waitFor();
+    else if (action === 'replace-mermaid')
+      await page.frameLocator('iframe').locator('svg').waitFor();
+    await page.waitForTimeout(250);
+    expect(await page.locator('.scene-host[data-exiting]').count()).toBe(0);
+    const settled = await page.locator('.scene-host').evaluate(async card => {
+      const frames = [];
+      for (let index = 0; index < 30; index++) {
+        await new Promise(requestAnimationFrame);
+        frames.push({
+          opacity: Number(getComputedStyle(card).opacity),
+          height: card.getBoundingClientRect().height,
+        });
+      }
+      return frames;
+    });
+    expect(settled.every(frame => frame.opacity === 1 && frame.height > 0)).toBe(true);
+    if (['replace', 'replace-steps', 'replace-causal'].includes(action))
+      expect(await page.locator('.scene-host').textContent()).toContain('Replacement visual');
+  } finally {
+    await page.close();
+  }
+});
+
 test.each([
   'playback',
   'dialog',
@@ -228,7 +372,13 @@ test.each(
     expect(visibleImages.every(box => box.inside && box.decoded)).toBe(true);
     expect(shifts.reduce((sum, shift) => sum + shift, 0)).toBe(0);
     if (scenario === 'cached') expect(visibleImages.some(box => box.opacity < 1)).toBe(true);
-    if (scenario === 'replacement') expect(visibleCards.some(box => box.opacity < 1)).toBe(true);
+    if (scenario === 'replacement') {
+      expect(visibleCards.some(box => box.opacity < 1)).toBe(true);
+      expect(frames.at(-1)?.cards.some(card => card.opacity === 1)).toBe(true);
+      expect(await page.locator('.scene-host:not([data-exiting])').textContent()).toContain(
+        'Replacement visual'
+      );
+    }
     if (scenario === 'failure') {
       for (const id of new Set(visibleImages.map(image => image.id))) {
         const boxes = visibleImages.filter(image => image.id === id);
@@ -238,7 +388,8 @@ test.each(
         ).toBe(1);
       }
       expect(await page.locator('.scene-host img[src]').count()).toBe(2);
-      expect(await page.locator('.scene-host img:not([src])').count()).toBe(0);
+      expect(await page.locator('.scene-host img:not([src])').count()).toBe(1);
+      expect(await page.getByRole('img', { name: 'Immagine non disponibile' }).count()).toBe(1);
     }
     if (viewport.width === 390)
       expect(await page.locator('.captions').evaluate(e => getComputedStyle(e).visibility)).toBe(

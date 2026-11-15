@@ -61,7 +61,7 @@ export function SaveablePlaybackVisual({
 }>) {
   const present = useIsPresent();
   const animate = useShouldAnimate();
-  const { cardRef: fittedCardRef, ready } = usePlaybackVisualFit(present);
+  const fittedCardRef = usePlaybackVisualFit(present);
   const attachCard = useCallback(
     (node: HTMLElement | null) => {
       const previous = fittedCardRef.current;
@@ -170,7 +170,7 @@ export function SaveablePlaybackVisual({
     <motion.section
       ref={attachCard}
       initial={{ opacity: 0 }}
-      animate={{ opacity: ready ? 1 : 0 }}
+      animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={animate ? TRANSITION_FADE : { duration: 0 }}
       style={{ pointerEvents: present ? undefined : 'none' }}

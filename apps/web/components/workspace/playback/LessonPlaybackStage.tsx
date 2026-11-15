@@ -320,7 +320,6 @@ function PlaybackVisualContent({
       ) : null}
       {visual.kind === 'markdown' ? (
         <MarkdownRenderer
-          onImageUnavailable={onImageUnavailable}
           content={visual.markdown}
           isDarkMode={content.isDarkMode}
           projectId={content.projectId}

@@ -1,27 +1,17 @@
-import { useLayoutEffect, useRef, useState } from 'react';
-
-function measuredFigure(figure: Element) {
-  return (
-    Boolean(figure.querySelector('[role="img"]')) ||
-    [...figure.querySelectorAll('img')].some(
-      image =>
-        image.naturalWidth > 0 ||
-        (Number(image.getAttribute('width')) > 0 && Number(image.getAttribute('height')) > 0)
-    )
-  );
-}
+import { useLayoutEffect, useRef } from 'react';
 
 /** Fit each current or departing visual independently, before its pixels become visible. */
 export function usePlaybackVisualFit(present: boolean) {
   const cardRef = useRef<HTMLElement>(null);
-  const [ready, setReady] = useState(false);
   useLayoutEffect(() => {
     if (!present) return;
     const card = cardRef.current;
+    const stage = card?.closest<HTMLElement>('.listening-stage');
+    // The saveable visual is also used independently of the playback stage.
+    if (!card || !stage) return;
     const slot = card?.parentElement;
-    const stage = slot?.parentElement;
     const captions = stage?.querySelector('.captions');
-    if (!card || !slot || !stage || !captions) throw new Error('Playback stage must be mounted');
+    if (!slot || !captions) throw new Error('Playback stage must be mounted');
     const fitScene = () => {
       const formulas = card.querySelectorAll('.katex:not(.spotlight-symbol .katex)');
       card.classList.toggle('lesson-player-formula', formulas.length === 1);
@@ -42,8 +32,6 @@ export function usePlaybackVisualFit(present: boolean) {
       // Keep the viewport fixed while independently fitted outgoing/current cards overlap.
       slot.style.height = `${availableHeight}px`;
       slot.style.setProperty('--scene-scale', String(scale));
-      const measuredImages = [...card.querySelectorAll('figure')].every(measuredFigure);
-      setReady(measuredImages);
     };
     let frame: number | undefined;
     const schedule = () => {
@@ -74,5 +62,5 @@ export function usePlaybackVisualFit(present: boolean) {
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
   }, [present]);
-  return { cardRef, ready };
+  return cardRef;
 }
