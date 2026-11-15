@@ -5,8 +5,8 @@ description: "Redirect: the canonical code-review skill is the Geppetto plugin's
 
 # Code review (redirect)
 
-In Codex, use `$geppetto:code-review`. Read and follow the Geppetto plugin's code-review skill at the newest installed version:
-`D:/DevData/Codex/plugins/cache/geppetto/geppetto/<newest version>/skills/code-review/SKILL.md` (list the versions in that folder and pick the highest).
-Resolve its relative links from that directory. Source repository: `D:/Dev/geppetto-public/skills/code-review`.
+Read and follow the Geppetto plugin's code-review skill at the newest installed version. In Codex, use `$geppetto:code-review` and the harness-provided skill discovery to locate its installed directory. If discovery exposes an older version, inspect the active harness's plugin cache and select the highest installed version by version number.
 
-For Claude Code, select the newest installed Geppetto code-review at ~/.claude/plugins/cache/<marketplace>/geppetto/<version>/skills/code-review/SKILL.md and resolve links there.
+For Codex, locate the cache through the configured `CODEX_HOME` (default `~/.codex`), under `plugins/cache/<marketplace>/geppetto/<version>/skills/code-review/`. For Claude Code, use its discovered plugin directory or `~/.claude/plugins/cache/<marketplace>/geppetto/<version>/skills/code-review/`.
+
+Read `SKILL.md` and resolve its relative links from the selected directory.
