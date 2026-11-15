@@ -7,7 +7,7 @@ import {
 
 const speech = 'Alpha beta gamma delta';
 
-test('paragraph fill leads aligned words by 200 ms without starting before the paragraph', () => {
+test('paragraph fill leads aligned words by 600 ms without starting before the paragraph', () => {
   let heard = -1;
   const current = { ...clock(0, [0, 2, 4, 6]), read: () => ({ blockTime: heard }) };
   const owner = createCaptionTiming(speech, { words: narrationWords(speech) });
@@ -17,9 +17,21 @@ test('paragraph fill leads aligned words by 200 ms without starting before the p
   heard = 0;
   expect(owner.fill(current)).toEqual([0, 0, 0, 0]);
   heard = 1.9;
-  expect(owner.fill(current)).toEqual([1, expect.closeTo(0.05), 0, 0]);
+  expect(owner.fill(current)).toEqual([1, expect.closeTo(0.25), 0, 0]);
   heard = 10;
   expect(owner.fill(current)).toEqual([1, 1, 1, 1]);
+});
+
+test('the spoken word follows acoustic timing while fill leads and completed words persist', () => {
+  const owner = createCaptionTiming(speech, { words: narrationWords(speech) });
+  owner.fill(clock(1.9, [0, 2, 4, 6]));
+  expect(owner.spokenWord()).toBe(0);
+  owner.fill(clock(2.1, [0, 3, 4, 6]));
+  expect(owner.spokenWord()).toBe(0);
+  owner.fill(clock(3.1, [0, 3, 4, 6]));
+  expect(owner.spokenWord()).toBe(1);
+  owner.fill({ ...clock(0.1, [0, 3, 4, 6]), seekRevision: 1 });
+  expect(owner.spokenWord()).toBe(0);
 });
 
 test('explicit seeks reconstruct at their target and restore the lead only as audio advances', () => {

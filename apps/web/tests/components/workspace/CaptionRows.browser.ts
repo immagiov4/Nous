@@ -95,6 +95,57 @@ async function mobilePlaybackShowsOnlyVisuals(page: Page, baseUrl: string) {
   }
 }
 
+async function spokenRowSurvivesThemeRemeasurement(page: Page, baseUrl: string) {
+  await page.setViewportSize({ width: 651, height: 500 });
+  await page.goto(`${baseUrl}tests/fixtures/captionRows.html?follow`);
+  await page.getByRole('spinbutton', { name: 'Playback time' }).fill('6.2');
+  const advance = (time: number) =>
+    page.evaluate(
+      time => dispatchEvent(new CustomEvent('caption-playback-time', { detail: time })),
+      time
+    );
+  const spokenVisible = (index: number) =>
+    page.evaluate(async index => {
+      await new Promise(requestAnimationFrame);
+      const paragraph = document.querySelector<HTMLElement>('.caption-page');
+      if (!paragraph) throw new Error('Captions must exist');
+      const word = paragraph.querySelectorAll('.caption-word')[index]?.firstElementChild;
+      if (!word) throw new Error('Spoken word must exist');
+      const bounds = paragraph.getBoundingClientRect();
+      const scale = bounds.width / Number.parseFloat(getComputedStyle(paragraph).width);
+      const insets = getComputedStyle(paragraph)
+        .clipPath.match(/-?[\d.]+px/gu)
+        ?.map(Number.parseFloat) ?? [0, 0, 0, 0];
+      const glyph = document.createRange();
+      glyph.selectNodeContents(word);
+      const box = glyph.getBoundingClientRect();
+      return (
+        box.top >= bounds.top + insets[0] * scale &&
+        box.bottom <= bounds.bottom - (insets[2] ?? insets[0]) * scale
+      );
+    }, index);
+  await advance(6.95);
+  await visibleCaptionRows(page);
+  assert(
+    await spokenVisible(27),
+    'Auto-follow keeps the acoustic word visible despite leading fill'
+  );
+  await advance(11.95);
+  await visibleCaptionRows(page);
+  for (const dark of [true, false]) {
+    await page.getByRole('button', { name: 'Switch theme' }).click();
+    await page.evaluate(() => dispatchEvent(new Event('resize')));
+    assert(
+      await spokenVisible(47),
+      `Theme ${dark ? 'dark' : 'light'} remeasurement keeps the spoken word visible`
+    );
+  }
+  await advance(15.95);
+  await visibleCaptionRows(page);
+  assert(await spokenVisible(63), 'Theme remeasurement does not disable automatic following');
+  await page.setViewportSize({ width: 1280, height: 800 });
+}
+
 async function paragraphFillSurvivesThemesAndManualReading(
   page: Page,
   baseUrl: string,
@@ -257,6 +308,7 @@ try {
         if (process.argv.includes('--mobile-only')) continue;
         const paragraphPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
         try {
+          await spokenRowSurvivesThemeRemeasurement(paragraphPage, baseUrl);
           for (const input of ['wheel', 'keyboard', 'scrollbar'] as const)
             await paragraphFillSurvivesThemesAndManualReading(paragraphPage, baseUrl, input);
           console.log(`PASS ${browserName}: paragraph fill, both themes and manual reading`);

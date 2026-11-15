@@ -88,15 +88,15 @@ test.each([
       Number(word.style.opacity)
     );
   tick();
-  expect(opacities()).toEqual([1, expect.closeTo(0.8), 0.5, 0.5]);
+  expect(opacities()).toEqual([1, expect.closeTo(0.9), 0.5, 0.5]);
   for (const dark of [true, false]) {
     mounted.rerender(view(dark));
     tick();
-    expect(opacities()).toEqual([1, expect.closeTo(0.8), 0.5, 0.5]);
+    expect(opacities()).toEqual([1, expect.closeTo(0.9), 0.5, 0.5]);
   }
   heard = 4.5;
   tick();
-  expect(opacities()).toEqual([1, 1, expect.closeTo(0.675), 0.5]);
+  expect(opacities()).toEqual([1, 1, expect.closeTo(0.775), 0.5]);
   mounted.unmount();
 });
 
@@ -956,7 +956,7 @@ test('updates the live word fill without rewriting settled or future words', () 
     });
   expect(opacity(0)).toBe(1);
   expect(opacity(9)).toBe(0.5);
-  expect(opacity(5)).toBeCloseTo(0.5 + 0.5 * (0.2 / 6));
+  expect(opacity(5)).toBeCloseTo(0.5 + 0.5 * (0.6 / 6));
   const settledWrites = vi.spyOn(words[0].style, 'opacity', 'set');
   const futureWrites = vi.spyOn(words[9].style, 'opacity', 'set');
   const before = opacity(5);

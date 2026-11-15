@@ -124,7 +124,7 @@ test('complete anchors follow heard words regardless of caption lead or playback
   );
   expect(
     Number((container.querySelectorAll('.caption-word')[2] as HTMLElement).style.opacity)
-  ).toBeCloseTo(0.605);
+  ).toBeCloseTo(0.805);
   flush();
   expect(container.querySelectorAll('[aria-current=step]')).toHaveLength(2);
   advance(2.01, 0.5);

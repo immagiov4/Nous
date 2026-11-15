@@ -269,7 +269,7 @@ async function openOnset(mode = '') {
   return page;
 }
 
-test('finishes voice cue fades at word start while paragraph fill leads by 200 ms', async () => {
+test('finishes voice cue fades at word start while paragraph fill leads by 600 ms', async () => {
   const page = await openOnset();
   try {
     await page.locator('[data-motion-id]').first().waitFor({ state: 'attached' });
@@ -317,7 +317,7 @@ test('finishes voice cue fades at word start while paragraph fill leads by 200 m
     expect(result.duringFade.emphasis).toBeGreaterThan(0);
     expect(result.duringFade.emphasis).toBeLessThan(1);
     expect(result.atWordStart).toEqual({ opacity: 1, emphasis: 1 });
-    expect(result.captionOpacity).toBeCloseTo(0.8);
+    expect(result.captionOpacity).toBeCloseTo(0.9);
   } finally {
     await page.close();
   }

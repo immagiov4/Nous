@@ -20,7 +20,7 @@ export interface CaptionTimingClock {
   read: () => { blockTime: number };
 }
 type Span = { startMs: number; endMs: number };
-export const CAPTION_FILL_LEAD_SECONDS = 0.2;
+export const CAPTION_FILL_LEAD_SECONDS = 0.6;
 interface TimingRequest {
   words?: readonly PlaybackRange[];
   anchors?: readonly string[];
@@ -37,6 +37,8 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
   let fillBoundary = 0;
   // Presentation can complete before an acoustic boundary is eligible for retention.
   const completedWords = new Set<number>();
+  let acousticSpans: (Span | undefined)[] = [];
+  let spokenWord: number | undefined;
   let previous: CaptionTimingClock | undefined;
   let result: {
     spans: (Span | undefined)[];
@@ -80,6 +82,8 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
           return anchors ? captionAnchorSpan({ ...timing, anchors }) : undefined;
         });
       if (request.words) spans = request.words.map(range => captionRangeSpan({ ...timing, range }));
+      // Following tracks the recording, independently of retained presentation and its lead.
+      acousticSpans = spans;
       let events = request.itemRanges
         ? request.itemRanges.map((range, index): TimedMotionEvent => {
             const span = captionRangeSpan({ ...timing, range });
@@ -155,6 +159,9 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
     /** Presentation lead never changes acoustic scene cues or advances a paused seek target. */
     fill(current: CaptionTimingClock, time = current.read().blockTime): number[] {
       const { spans } = this.read(current, time);
+      spokenWord = undefined;
+      for (const [index, span] of acousticSpans.entries())
+        if (span && span.startMs <= time * 1000) spokenWord = index;
       if (time < 0) return spans.map(() => 0);
       const lead = Math.min(CAPTION_FILL_LEAD_SECONDS, Math.max(0, time - fillBoundary));
       const presentedMs = Math.max(0, time + lead) * 1000;
@@ -169,6 +176,7 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
         return Math.max(0, Math.min(1, (presentedMs - span.startMs) / (span.endMs - span.startMs)));
       });
     },
+    spokenWord: () => spokenWord,
     /** Latest refresh only; no narration, word data, DOM references or accumulated history. */
     snapshot: () => transition,
   };

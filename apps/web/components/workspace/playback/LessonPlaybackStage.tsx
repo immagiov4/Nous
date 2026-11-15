@@ -440,11 +440,11 @@ function PlaybackPassage({
       current.viewport.clip();
       if (previousBodyTime === bodyTime) return;
       const progress = timing.fill(current, bodyTime);
-      let active: HTMLElement | undefined;
       current.runs.forEach((run, index) => {
         drawCaptionWord(run, progress[index]);
-        if (progress[index] > 0) active = run.span;
       });
+      const spokenWord = timing.spokenWord();
+      const active = spokenWord === undefined ? undefined : current.runs[spokenWord]?.span;
       if (active !== previousActive) {
         previousActive?.removeAttribute('aria-current');
         active?.setAttribute('aria-current', 'true');

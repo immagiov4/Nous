@@ -7,13 +7,14 @@ import LessonPlaybackStage from '../../components/workspace/playback/LessonPlayb
 import type { WorkspaceReaderContentModel } from '../../components/workspace/shell/types';
 import '../../styles/app.css';
 
+const acousticFollow = new URLSearchParams(location.search).has('follow');
 const sources = [
   {
     type: 'markdown' as const,
-    markdown: Array.from(
-      { length: 12 },
-      () =>
-        'La **memoria** conserva i dati del programma mentre il processore legge le istruzioni e aggiorna il risultato con `open`.'
+    markdown: Array.from({ length: 12 }, () =>
+      acousticFollow
+        ? 'Sincronizzazione rappresentazione elaborazione memorizzazione organizzazione comprensione.'
+        : 'La **memoria** conserva i dati del programma mentre il processore legge le istruzioni e aggiorna il risultato con `open`.'
     ).join(' '),
   },
 ];
@@ -43,10 +44,19 @@ const block = {
   ],
 };
 const content = { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel;
-const durationSeconds = 60;
+const durationSeconds = acousticFollow ? 18 : 60;
 function Fixture() {
   const [dark, setDark] = useState(false);
-  const [alignment, setAlignment] = useState<PlaybackWordAlignment>();
+  const [alignment, setAlignment] = useState<PlaybackWordAlignment | undefined>(
+    acousticFollow
+      ? {
+          status: 'aligned',
+          onsets: narrationWords(resolvePlaybackNarration(block).speech).map(
+            (_, index) => index / 4
+          ),
+        }
+      : undefined
+  );
   const [time, setTime] = useState(0);
   const [seekRevision, setSeekRevision] = useState(0);
   useEffect(() => {
