@@ -122,6 +122,7 @@ describe('workflow PostgreSQL CI contract', () => {
         '',
       ].join('\n'),
       'bun run test:caption-rows',
+      'bun --tsconfig-override e2e/nous/tsconfig.json apps/web/tests/components/shared/GuidedStepAlignment.browser.tsx',
       'bun apps/web/tests/components/workspace/PlaybackFocus.browser.ts',
       'bun run test:interview-recovery',
       'bun run test:source-preparation-shelf',

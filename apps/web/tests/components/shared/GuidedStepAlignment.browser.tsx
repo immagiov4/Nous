@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { withMutedAudio } from '../../../../../scripts/browser-audio';
 import { guidedPathScene } from '../../../../backend/tests/helpers/animatedLessonScenes';
 import { LessonSceneVisual } from '../../../components/shared/lessonScene/LessonSceneVisual';
 
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch(withMutedAudio({ headless: true }));
 try {
   const page = await browser.newPage();
   const css = await readFile('apps/web/components/shared/lessonScene/lessonScene.css', 'utf8');
