@@ -54,11 +54,13 @@ const ResolvedPdfImage = ({
 
   // Keep the measured image box while its asset URL is being resolved.
   return image.intrinsicWidth && image.intrinsicHeight ? (
-    <span
-      role="img"
-      aria-label={alt}
+    <img
+      alt=""
+      aria-hidden="true"
       className={className}
-      style={{ aspectRatio: `${image.intrinsicWidth} / ${image.intrinsicHeight}` }}
+      width={imageProps.width ?? image.intrinsicWidth}
+      height={imageProps.height ?? image.intrinsicHeight}
+      style={{ ...imageProps.style, visibility: 'hidden' }}
     />
   ) : null;
 };

@@ -18,6 +18,8 @@ Run `bun run gate:cloud` for the complete gate in this Linux cloud image. It use
 
 Before restoring worktree dependencies, check free space on the target volume, then restore with `bun run deps:install`, which reuses the exact lockfile; keep cache and hardlinks on the same volume. If Vite config imports or Vitest peer resolution fail, inspect their real paths before calling it a product failure: a junction to another checkout can break config temporaries, and global-store links can miss peers. Keep any frozen-install repair local to the affected worktree and preserve manifests and lockfiles.
 
+With an explicitly configured shared/global store, restore its links through the configured linker and repair missing-peer resolution at the package metadata or resolver. Reproduce the failing import and verify both the affected test and the resolved shared package paths. This preserves disk reuse; diagnosis may delay the first test run. Worktrees without a configured shared store retain the frozen-install recovery above.
+
 After installing dependencies with `bun run deps:install`, install Chromium for browser tests:
 
 ```bash

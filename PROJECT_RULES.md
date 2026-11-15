@@ -118,7 +118,7 @@ a feature is core or better left to external tools.
 
 ## Validation Commands
 
-Repair shared dependency resolution at its owner when a shared-store import fails. Preserve the configured shared store and linker, reproduce the failing import, and verify both the affected test and shared package identity after repair. Replacing the shared installation with per-worktree package copies requires an explicit maintainer decision. This preserves disk reuse; diagnosing package metadata or resolver behavior may delay the first test run.
+For dependency-resolution failures, follow [Local checks](docs/TESTING.md#local-checks). Preserve an explicitly configured shared/global store; replacing it with per-worktree package copies requires a maintainer decision.
 
 Local browser suites, provider batches, gates and coverage acquire shared FIFO leases automatically. Fast checks use `bun run check:changed` without a lease. Wrap additional heavy commands with `bun scripts/heavy-run.mjs --label "who/what" -- <command...>`. Prepare inputs and wait for external signals before entering the wrapper; run only the heavy command inside it. Nested commands inherit the existing lease. Manual reservations are unsupported. Use `status` to inspect lease IDs, owners, commands and activity; `release <id>` cancels that entry and stops its command before freeing capacity. See [Testing](docs/TESTING.md#heavy-command-leases) for expiry and capacity.
 
