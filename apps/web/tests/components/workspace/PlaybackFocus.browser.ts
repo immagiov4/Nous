@@ -103,6 +103,28 @@ try {
             assert.equal(palette.background, dark ? 'rgb(39, 39, 42)' : 'rgb(255, 255, 255)');
             assert.equal(palette.foreground, dark ? 'rgb(228, 228, 231)' : 'rgb(55, 65, 81)');
             await voice.focus();
+            const spaceAllowed = await voice.evaluate(element =>
+              element.dispatchEvent(
+                new KeyboardEvent('keydown', {
+                  key: ' ',
+                  code: 'Space',
+                  bubbles: true,
+                  cancelable: true,
+                })
+              )
+            );
+            assert(spaceAllowed, 'Focused native select retains Space');
+            await page.keyboard.press('Alt+ArrowDown');
+            assert(await voice.evaluate(element => element.matches(':open')));
+            await page.keyboard.down('Space');
+            assert.notEqual(
+              await page.evaluate(() => document.documentElement.dataset.recording),
+              'true'
+            );
+            await page.keyboard.up('Space');
+            await page.keyboard.press('Tab');
+            await voice.focus();
+            await page.keyboard.press('Home');
             await page.keyboard.press('ArrowDown');
             await page.keyboard.press('Enter');
             assert.equal(await voice.inputValue(), 'Puck');

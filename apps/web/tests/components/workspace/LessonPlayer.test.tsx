@@ -1143,7 +1143,7 @@ test.each([
 
 test('Space takes priority over a child control key handler', async () => {
   render(<LessonPlayer {...props} autoPlay={false} />);
-  const control = screen.getByRole('combobox', { name: 'Voce' });
+  const control = screen.getByRole('button', { name: 'Nota' });
   control.addEventListener('keydown', event => event.stopPropagation());
   control.focus();
   const user = userEvent.setup();
@@ -1321,4 +1321,64 @@ test('prepares authored and stored playback diagrams once before narration, incl
   await expect(prepare(richBlocks, signal)).resolves.toBeUndefined();
   expect(fail).not.toHaveBeenCalled();
   expect(mermaid.render).toHaveBeenCalledTimes(11);
+});
+
+test.each([
+  'generation',
+  'note decision',
+])('retains two completed spoken follow-ups during %s until one ordered submission', async reason => {
+  const { rerender } = render(
+    <StrictMode>
+      <LessonPlayer {...props} autoPlay={false} />
+    </StrictMode>
+  );
+  await recordQuestion();
+  if (reason === 'generation') generatingResponse.stop = vi.fn();
+  else composerState.disabled = true;
+  rerender(
+    <StrictMode>
+      <LessonPlayer {...props} autoPlay={false} />
+    </StrictMode>
+  );
+  for (const text of ['Prima domanda completa', 'Seconda domanda completa']) {
+    vi.mocked(requestSpeechTranscription).mockResolvedValueOnce(text);
+    const button = screen.getByRole('button', {
+      name: reason === 'generation' ? 'Annulla' : 'Chiudi risposta',
+    });
+    button.focus();
+    const user = userEvent.setup();
+    await user.keyboard('[Space>]');
+    await user.keyboard('[/Space]');
+  }
+  expect(requestSpeechTranscription).toHaveBeenCalledTimes(3);
+  expect(sendInConversation).not.toHaveBeenCalled();
+  generatingResponse.stop = null;
+  composerState.disabled = false;
+  rerender(
+    <StrictMode>
+      <LessonPlayer {...props} autoPlay={false} />
+    </StrictMode>
+  );
+  expect(sendInConversation).toHaveBeenCalledExactlyOnceWith(
+    'Prima domanda completa Seconda domanda completa'
+  );
+  rerender(
+    <StrictMode>
+      <LessonPlayer {...props} autoPlay={false} />
+    </StrictMode>
+  );
+  expect(sendInConversation).toHaveBeenCalledOnce();
+  await recordQuestion();
+  expect(sendInConversation).toHaveBeenLastCalledWith('Perché funziona?');
+  expect(sendInConversation).toHaveBeenCalledTimes(2);
+});
+
+test('Space preserves the focused native voice picker instead of recording', async () => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  const voice = screen.getByRole('combobox', { name: 'Voce' });
+  voice.focus();
+  const event = new KeyboardEvent('keydown', { ...space, bubbles: true, cancelable: true });
+  await act(async () => voice.dispatchEvent(event));
+  expect(event.defaultPrevented).toBe(false);
+  expect(getUserMedia).not.toHaveBeenCalled();
 });

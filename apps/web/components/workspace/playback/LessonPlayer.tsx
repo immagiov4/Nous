@@ -237,8 +237,14 @@ export default function LessonPlayer({
   const deliveredFollowUps = useRef(new Set<string>());
   const receiveTranscription = (text: string) => {
     const question = spokenQuestion.current;
-    if (question?.initialQuestion) setSpokenFollowUp({ id: crypto.randomUUID(), text });
-    else if (question) setAnswer({ ...question, initialQuestion: text });
+    if (question?.initialQuestion) {
+      const id = crypto.randomUUID();
+      // Keep completed captures together while the conversation is busy.
+      setSpokenFollowUp(previous => ({
+        id,
+        text: appendSpeechTranscription(previous?.text ?? '', text),
+      }));
+    } else if (question) setAnswer({ ...question, initialQuestion: text });
     else changeDraft(appendSpeechTranscription(draft, text));
   };
   const speech = useSpeechInput({
@@ -418,13 +424,13 @@ export default function LessonPlayer({
   const questionActive = Boolean(answer) || holdingSpace;
   const pendingQuestion = Boolean(answer && !answer.initialQuestion && speech.state !== 'idle');
   // The effect that delivers a follow-up can run more than once (re-renders, Strict Mode), so
-  // each spoken question is sent exactly once by id.
+  // each accumulated follow-up is sent exactly once by id.
   const deliverSpokenFollowUp = useCallback(
     (question: SpokenFollowUpQuestion, send: (text: string) => void) => {
       if (deliveredFollowUps.current.has(question.id)) return;
       deliveredFollowUps.current.add(question.id);
       send(question.text);
-      setSpokenFollowUp(null);
+      setSpokenFollowUp(previous => (previous?.id === question.id ? null : previous));
     },
     []
   );
@@ -521,9 +527,10 @@ export default function LessonPlayer({
     const keydown = (event: KeyboardEvent) => {
       if (event.code !== 'Space') return;
       const target = event.target instanceof Element ? event.target : document.activeElement;
+      // Native selects own Space for option selection, including their browser popup.
       if (
         target?.closest(
-          'input:read-write, textarea:read-write, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
+          'input:read-write, textarea:read-write, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
         )
       )
         return;
