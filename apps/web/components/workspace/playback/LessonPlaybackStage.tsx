@@ -65,7 +65,7 @@ import {
   visualSpeechRange,
 } from './stageMotion.ts';
 import './stage.css';
-import { SaveablePlaybackVisual } from './SaveablePlaybackVisual.tsx';
+import { PlaybackVisualPresence, SaveablePlaybackVisual } from './SaveablePlaybackVisual.tsx';
 
 type DrawnCaptionRun = CaptionRun & { revealEdge?: number; readOpacity?: number };
 
@@ -385,70 +385,11 @@ function PlaybackPassage({
     [alignmentKey, block.speech, duration]
   );
   const captions = useRef<HTMLParagraphElement>(null);
-  const sceneFit = useRef<HTMLDivElement>(null);
   const sceneCard = useRef<HTMLElement>(null);
   const clock = useRef<CaptionClock | null>(null);
 
   const animate = useShouldAnimate();
   const latest = useRef({ time, speed, readTime, animate, aligned, seekRevision });
-  useLayoutEffect(() => {
-    const slot = sceneFit.current;
-    const card = sceneCard.current;
-    const stage = slot?.parentElement;
-    const captionSection = captions.current?.parentElement;
-    if (!slot || !card || !stage || !captionSection)
-      throw new Error('Playback stage must be mounted');
-    // Measure before scaling: transforms must not feed back into the natural dimensions.
-    const fitScene = () => {
-      // Classify the presented visual, including aligned cards and asynchronously mounted scenes.
-      const formulas = card.querySelectorAll('.katex:not(.spotlight-symbol .katex)');
-      card.classList.toggle('lesson-player-formula', formulas.length === 1);
-      const layout = getComputedStyle(stage);
-      const verticalPadding =
-        (Number.parseFloat(layout.paddingTop) || 0) +
-        (Number.parseFloat(layout.paddingBottom) || 0);
-      const availableHeight = stage.clientHeight - verticalPadding;
-      if (!slot.clientWidth || availableHeight <= 0) return;
-      card.style.width = `${slot.clientWidth}px`;
-      const width = Math.max(card.offsetWidth, card.scrollWidth);
-      card.style.width = `${width}px`;
-      const height = Math.max(card.offsetHeight, card.scrollHeight);
-      if (!width || !height) return;
-      const scale = Math.min(1, slot.clientWidth / width, availableHeight / height);
-      slot.style.setProperty('--scene-scale', String(scale));
-      // The visual centers independently inside the stage's full-height grid row.
-      slot.style.height = `${height * scale}px`;
-      slot.style.setProperty('--scene-left', `${(slot.clientWidth - width * scale) / 2}px`);
-    };
-    let fitFrame: number | undefined;
-    // ResizeObserver notifications must not resize their own observed ancestors.
-    const scheduleFit = () => {
-      fitFrame ??= requestAnimationFrame(() => {
-        fitFrame = undefined;
-        fitScene();
-      });
-    };
-    const observer = new ResizeObserver(scheduleFit);
-    observer.observe(slot);
-    observer.observe(card);
-    observer.observe(stage);
-    observer.observe(captionSection);
-    // A replacement or asynchronous diagram can change overflow without resizing the card.
-    const mutations = new MutationObserver(scheduleFit);
-    mutations.observe(card, {
-      childList: true,
-      characterData: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['hidden'],
-    });
-    fitScene();
-    return () => {
-      observer.disconnect();
-      mutations.disconnect();
-      if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);
-    };
-  }, []);
   useLayoutEffect(() => {
     latest.current = { time, speed, readTime, animate, aligned, seekRevision };
   }, [time, speed, readTime, animate, aligned, seekRevision]);
@@ -792,6 +733,7 @@ function PlaybackPassage({
   const visual = visuals[visualIndex];
   const selectedStored =
     visual?.kind === 'generated-visual' ? availableGeneratedVisuals[visual.visualId] : undefined;
+  const selectedStoredKind = selectedStored ? getStoredLessonVisualKind(selectedStored) : undefined;
   let selectedScene: LessonScene | null = null;
   if (visual?.kind === 'scene') selectedScene = visual.scene;
   else if (selectedStored) selectedScene = getStoredLessonVisualScene(selectedStored);
@@ -844,7 +786,7 @@ function PlaybackPassage({
             }))
         : [];
       let code = visual?.kind === 'mermaid' ? visual.code : undefined;
-      if (selectedStored && getStoredLessonVisualKind(selectedStored) !== 'image') {
+      if (selectedStored && selectedStoredKind !== 'image') {
         code = getStoredLessonVisualCode(selectedStored) ?? undefined;
       }
       return {
@@ -853,7 +795,7 @@ function PlaybackPassage({
         heardSentence: playbackHeardSentence(block, voiceTime, duration, alignment),
         visual: visual
           ? {
-              kind: selectedStored ? getStoredLessonVisualKind(selectedStored) : visual.kind,
+              kind: selectedStoredKind ?? visual.kind,
               title: selectedScene?.title ?? selectedStored?.title ?? block.heading,
               scene: selectedScene ?? undefined,
               code,
@@ -880,8 +822,58 @@ function PlaybackPassage({
     visual,
     selectedScene,
     selectedStored,
+    selectedStoredKind,
     supplementalFormula,
   ]);
+  const visualCard = (
+    <SaveablePlaybackVisual
+      key={JSON.stringify([visualIndex, visual, supplementalFormula, [...unavailableImages]])}
+      hasVisual={!!visual}
+      cardRef={sceneCard}
+      scene={selectedScene}
+      visualIndex={visualIndex}
+      playback={{
+        lessonKey,
+        readTime: () => latest.current.readTime?.() ?? latest.current.time,
+        duration,
+        alignment,
+      }}
+      block={block}
+      content={content}
+    >
+      {authoredListVisuals.map(({ visual: authored, sourceIndex }) => (
+        <PlaybackVisualContent
+          key={`authored:${sourceIndex}`}
+          {...sceneProps}
+          itemRanges={undefined}
+          onImageUnavailable={onImageUnavailable}
+          interval={{ start: 0, duration }}
+          visual={authored}
+          content={{ ...content, activeSectionAssetsById: availableAssets }}
+        />
+      ))}
+      {supplementalFormula ? (
+        <MarkdownRenderer content={supplementalFormula} isDarkMode={content.isDarkMode} />
+      ) : null}
+      {visual ? (
+        <PlaybackVisualContent
+          onImageUnavailable={onImageUnavailable}
+          key={`${block.id}:${visualIndex}`}
+          {...sceneProps}
+          interval={{
+            start: (duration * visualIndex) / visuals.length,
+            duration: duration / visuals.length,
+          }}
+          visual={visual}
+          content={{
+            ...content,
+            activeSectionAssetsById: availableAssets,
+            activeSectionGeneratedVisualsById: availableGeneratedVisuals,
+          }}
+        />
+      ) : null}
+    </SaveablePlaybackVisual>
+  );
   return (
     <div className="lesson-player-stage">
       <section className="listening-stage">
@@ -915,53 +907,10 @@ function PlaybackPassage({
             })}
           </p>
         </section>
-        <div ref={sceneFit} className="scene-fit">
-          <SaveablePlaybackVisual
-            hasVisual={!!visual}
-            cardRef={sceneCard}
-            scene={selectedScene}
-            visualIndex={visualIndex}
-            playback={{
-              lessonKey,
-              readTime: () => latest.current.readTime?.() ?? latest.current.time,
-              duration,
-              alignment,
-            }}
-            block={block}
-            content={content}
-          >
-            {authoredListVisuals.map(({ visual: authored, sourceIndex }) => (
-              <PlaybackVisualContent
-                key={`authored:${sourceIndex}`}
-                {...sceneProps}
-                itemRanges={undefined}
-                onImageUnavailable={onImageUnavailable}
-                interval={{ start: 0, duration }}
-                visual={authored}
-                content={{ ...content, activeSectionAssetsById: availableAssets }}
-              />
-            ))}
-            {supplementalFormula ? (
-              <MarkdownRenderer content={supplementalFormula} isDarkMode={content.isDarkMode} />
-            ) : null}
-            {visual ? (
-              <PlaybackVisualContent
-                onImageUnavailable={onImageUnavailable}
-                key={`${block.id}:${visualIndex}`}
-                {...sceneProps}
-                interval={{
-                  start: (duration * visualIndex) / visuals.length,
-                  duration: duration / visuals.length,
-                }}
-                visual={visual}
-                content={{
-                  ...content,
-                  activeSectionAssetsById: availableAssets,
-                  activeSectionGeneratedVisualsById: availableGeneratedVisuals,
-                }}
-              />
-            ) : null}
-          </SaveablePlaybackVisual>
+        <div className="scene-fit">
+          <PlaybackVisualPresence enabled={animate && selectedStoredKind !== 'html'}>
+            {visualCard}
+          </PlaybackVisualPresence>
         </div>
       </section>
     </div>

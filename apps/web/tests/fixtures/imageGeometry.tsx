@@ -1,4 +1,4 @@
-import { type ReactNode, useLayoutEffect } from 'react';
+import { type ReactNode, useEffect, useLayoutEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { atlasStageReady } from '../../../../e2e/nous/atlas/dom';
 import { segmentLessonPlayback } from '../../../../packages/shared-types/lessonPlayback';
@@ -13,7 +13,64 @@ declare global {
   interface Window {
     imageGeometryReady: typeof atlasStageReady;
     imageGeometryInitial: number[][];
+    imageGeometryControl: (action: 'hide' | 'show' | 'replace') => void;
   }
+}
+
+function PlaybackFixture({
+  reader,
+  scenario,
+}: {
+  reader: Partial<WorkspaceReaderContentModel>;
+  scenario: string;
+}) {
+  const [mounted, setMounted] = useState(true);
+  const [replacement, setReplacement] = useState(false);
+  useEffect(() => {
+    window.imageGeometryControl = action => {
+      if (action === 'replace') setReplacement(true);
+      else setMounted(action === 'show');
+    };
+  }, []);
+  const sources = reader.sectionContentBlocks ?? [];
+  const sourceBlock = segmentLessonPlayback(sources)[0];
+  let block = sourceBlock;
+  if (replacement)
+    block = {
+      ...sourceBlock,
+      visuals: [
+        {
+          kind: 'scene',
+          scene: {
+            type: 'definition',
+            title: 'Replacement visual',
+            body: '',
+            groups: [],
+            note: '',
+            quote: '',
+            items: [
+              {
+                icon: 'point',
+                label: 'A complete scene',
+                detail: 'The new visual remains fitted.',
+              },
+            ],
+          },
+        },
+      ],
+    };
+  return (
+    <div style={{ height: '100dvh', display: 'flex' }} data-scenario={scenario}>
+      {mounted ? (
+        <LessonPlaybackStage
+          block={block}
+          duration={30}
+          time={15}
+          content={reader as WorkspaceReaderContentModel}
+        />
+      ) : null}
+    </div>
+  );
 }
 
 function GeometryProbe({ children, surface }: { children: ReactNode; surface: string }) {
@@ -55,11 +112,43 @@ async function render() {
     textBefore: '',
     textAfter: '',
   };
-  const sources = [
-    { type: 'markdown' as const, markdown: 'Observe the image.\n\n{{PDF_IMAGE:fixture-image}}' },
-  ];
-  const block = segmentLessonPlayback(sources)[0];
   const params = new URLSearchParams(location.search);
+  const scenario = params.get('scenario') ?? '';
+  const assets =
+    scenario === 'multi'
+      ? Object.fromEntries(
+          ['a', 'b', 'c'].map((id, index) => [
+            `figure-${id}`,
+            {
+              ...asset,
+              id: `figure-${id}`,
+              sourceOrder: index,
+              asset: { ...asset.asset, id: id.repeat(64) },
+            },
+          ])
+        )
+      : scenario === 'legacy'
+        ? {
+            'fixture-image': {
+              id: 'fixture-image',
+              mimeType: 'image/png',
+              dataUrl: '/lifecycle-image.png',
+              sourceOrder: 0,
+              textBefore: '',
+              textAfter: '',
+            },
+          }
+        : { 'fixture-image': asset };
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        'Observe the image.\n\n' +
+        Object.keys(assets)
+          .map(id => `{{PDF_IMAGE:${id}}}`)
+          .join(''),
+    },
+  ];
   document.documentElement.classList.toggle('dark', params.has('dark'));
   const root = document.getElementById('root');
   if (!root) throw new Error('Fixture root must exist');
@@ -70,19 +159,12 @@ async function render() {
   const reader: Partial<WorkspaceReaderContentModel> = {
     projectId: 'image-geometry',
     sectionContentBlocks: sources,
-    activeSectionAssetsById: { 'fixture-image': asset },
+    activeSectionAssetsById: assets,
     isDarkMode: params.has('dark'),
   };
   const content =
     surface === 'playback' ? (
-      <div style={{ height: '100dvh', display: 'flex' }}>
-        <LessonPlaybackStage
-          block={block}
-          duration={30}
-          time={15}
-          content={reader as WorkspaceReaderContentModel}
-        />
-      </div>
+      <PlaybackFixture reader={reader} scenario={scenario} />
     ) : (
       <div style={{ width: '80vw', margin: 'auto' }}>
         <ResolvedPdfImage

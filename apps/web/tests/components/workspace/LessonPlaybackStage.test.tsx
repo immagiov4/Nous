@@ -723,19 +723,19 @@ test('fits the complete scene into both available dimensions and releases the ob
   act(() => resizeScene());
   flushFrame();
   expect(slot.style.getPropertyValue('--scene-scale')).toBe('1');
-  expect(slot.style.height).toBe('600px');
+  expect(slot.style.height).toBe('800px');
   // A wide table or code block must fit too, even when the card itself does not resize.
   Object.defineProperty(card, 'scrollWidth', { configurable: true, value: 1400 });
   act(() => resizeScene());
   flushFrame();
   expect(slot.style.getPropertyValue('--scene-scale')).toBe('0.5');
-  expect(slot.style.height).toBe('300px');
+  expect(slot.style.height).toBe('800px');
   expect(card.style.width).toBe('1400px');
   Object.defineProperty(card, 'scrollHeight', { configurable: true, value: 2000 });
   act(() => resizeScene());
   flushFrame();
   expect(slot.style.getPropertyValue('--scene-scale')).toBe('0.4');
-  expect(slot.style.getPropertyValue('--scene-left')).toBe('70px');
+  expect(card.style.getPropertyValue('--scene-left')).toBe('70px');
   stage.style.flexDirection = 'column';
   stage.style.rowGap = '20px';
   Object.defineProperty(captions, 'offsetHeight', { configurable: true, value: 140 });
@@ -744,7 +744,7 @@ test('fits the complete scene into both available dimensions and releases the ob
   expect(slot.style.getPropertyValue('--scene-scale')).toBe('0.4');
   expect(slot.style.height).toBe('800px');
   expect(card.style.width).toBe('1400px');
-  expect(slot.style.getPropertyValue('--scene-left')).toBe('70px');
+  expect(card.style.getPropertyValue('--scene-left')).toBe('70px');
   act(() => resizeScene());
   unmount();
   expect(frames.size).toBe(0);

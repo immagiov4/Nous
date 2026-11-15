@@ -378,7 +378,9 @@ test('selects sourced formula cards on the voice clock after forward and backwar
         controls.setPlaybackTime(time);
         await new Promise(requestAnimationFrame);
         await new Promise(requestAnimationFrame);
-        selected.push(document.querySelector('.scene-host annotation')?.textContent);
+        selected.push(
+          document.querySelector('.scene-host:not([data-exiting]) annotation')?.textContent
+        );
       }
       return selected;
     });
@@ -844,14 +846,16 @@ test('centers both columns independently without caption jumps when visual heigh
         return {
           stage: rect('.listening-stage'),
           captions: rect('.captions'),
-          visual: rect('.scene-fit'),
+          visual: rect('.scene-host:not([data-exiting])'),
         };
       });
     await page.waitForFunction(() => !!document.querySelector('.scene-fit')?.getAttribute('style'));
     const before = await measure();
     await page.evaluate(() => dispatchEvent(new Event('playback-short-scene')));
     await page.waitForFunction(height => {
-      const current = document.querySelector('.scene-fit')?.getBoundingClientRect().height;
+      const current = document
+        .querySelector('.scene-host:not([data-exiting])')
+        ?.getBoundingClientRect().height;
       return current !== undefined && Math.abs(current - height) > 1;
     }, before.visual.height);
     const after = await measure();

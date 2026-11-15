@@ -44,7 +44,7 @@ export const SPRING_TAP: Transition = {
 /**
  * Quick fade — backdrops, cross-fades between views.
  */
-const TRANSITION_FADE: Transition = {
+export const TRANSITION_FADE: Transition = {
   duration: MOTION_DURATION.short,
   ease: MOTION_EASING.standard,
 };
