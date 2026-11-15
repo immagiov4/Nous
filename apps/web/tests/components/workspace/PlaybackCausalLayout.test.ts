@@ -581,7 +581,7 @@ test.each([
         .toBe(180);
       expect(await page.locator('.scene-host img').getAttribute('alt')).toBe('Figura di esempio');
     } else if (imageState === 'broken') {
-      await page.getByRole('img', { name: 'Immagine non disponibile' }).waitFor();
+      await page.locator('[role="img"]').waitFor();
     } else {
       await page.locator('.scene-host h2').waitFor();
       expect(await page.locator('.scene-host h2').textContent()).toBe('Una scena disponibile');

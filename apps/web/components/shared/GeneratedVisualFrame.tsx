@@ -47,6 +47,7 @@ body > * {
 `;
 
 const GENERATED_VISUAL_ROOT_ID = 'nous-generated-visual-root';
+const GENERATED_VISUAL_MIN_HEIGHT = 180;
 
 const GENERATED_VISUAL_SECURITY_META = `
 <meta http-equiv="Content-Security-Policy" content="${GENERATED_VISUAL_CONTENT_SECURITY_POLICY}">
@@ -643,7 +644,7 @@ const ResolvedGeneratedVisualFrame = ({
 
       if (event.data?.type === 'generated-visual-resize') {
         if (isThumbnail) return;
-        const nextHeight = Math.max(Number(event.data.height) || 0, 180);
+        const nextHeight = Math.max(Number(event.data.height) || 0, GENERATED_VISUAL_MIN_HEIGHT);
         const currentHeight = Number.parseFloat(iframeRef.current.style.height || '0');
         if (Math.abs(currentHeight - nextHeight) > 1) {
           iframeRef.current.style.height = `${nextHeight}px`;
@@ -703,7 +704,8 @@ const ResolvedGeneratedVisualFrame = ({
     return (
       <output
         aria-busy={isMermaidLoading}
-        className={`${className} block min-h-40 rounded-2xl border border-stone-200 bg-stone-50 dark:border-zinc-700 dark:bg-zinc-900`}
+        className={`${className} block rounded-2xl border border-stone-200 bg-stone-50 dark:border-zinc-700 dark:bg-zinc-900`}
+        style={{ minHeight: GENERATED_VISUAL_MIN_HEIGHT }}
         data-nous-speech="ignore"
       >
         {isMermaidLoading ? null : (
@@ -728,7 +730,10 @@ const ResolvedGeneratedVisualFrame = ({
         style={
           isThumbnail
             ? { height: '100%', minHeight: 0, overflow: 'hidden' }
-            : { minHeight: visual.kind === 'html' ? 240 : 180, overflow: 'hidden' }
+            : {
+                minHeight: visual.kind === 'html' ? 240 : GENERATED_VISUAL_MIN_HEIGHT,
+                overflow: 'hidden',
+              }
         }
       />
     </figure>

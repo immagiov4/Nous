@@ -44,6 +44,7 @@ const ResolvedPdfImage = ({
         height={image.intrinsicHeight}
         {...imageProps}
         alt={alt}
+        aria-busy={decodedSrc !== src}
         className={`resolved-pdf-image ${className ?? ''}`}
         src={src}
         style={{

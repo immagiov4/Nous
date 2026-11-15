@@ -12,6 +12,147 @@ afterAll(async () => {
   await browser?.close();
 });
 
+test.each(['en-US', 'it-IT'])('finds the unavailable image in browser locale %s', async locale => {
+  const page = await browser.newPage({ locale });
+  try {
+    await page.route('**/api/projects/image-geometry/assets/*', route =>
+      route.fulfill({ status: 503, body: 'Unavailable' })
+    );
+    await page.goto(
+      `${inject('browserFixtureUrl')}tests/fixtures/imageGeometry.html?surface=dialog`
+    );
+    await page.locator('[role="img"]').waitFor();
+    expect(await page.locator('[role="img"]').count()).toBe(1);
+  } finally {
+    await page.close();
+  }
+});
+
+const asynchronousCases = [
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+].flatMap(viewport =>
+  [false, true].flatMap(dark =>
+    (['reduce', 'no-preference'] as const).map(reducedMotion => ({ viewport, dark, reducedMotion }))
+  )
+);
+
+test.each(
+  asynchronousCases
+)('keeps the mixed Mermaid frame stable at $viewport.width (dark=$dark, motion=$reducedMotion)', async ({
+  viewport,
+  dark,
+  reducedMotion,
+}) => {
+  const page = await browser.newPage({ viewport, reducedMotion });
+  let release = () => {};
+  try {
+    const held = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    let intercepted = false;
+    await page.route('**/*flowDiagram*.js', async route => {
+      intercepted = true;
+      await held;
+      await route.continue();
+    });
+    await page.goto(
+      `${inject('browserFixtureUrl')}tests/fixtures/imageGeometry.html?surface=playback&scenario=mermaid-math${dark ? '&dark' : ''}`,
+      { waitUntil: 'domcontentloaded' }
+    );
+    await page.locator('.scene-host output[aria-busy="true"]').waitFor();
+    await page.evaluate(() => document.fonts.ready);
+    await expect.poll(() => intercepted).toBe(true);
+    await page.waitForTimeout(250);
+    const before = await page.locator('.scene-host').boundingBox();
+    await page.evaluate(() => {
+      Object.assign(window, { mermaidLayoutShifts: [] });
+      new PerformanceObserver(list =>
+        (window as unknown as { mermaidLayoutShifts: number[] }).mermaidLayoutShifts.push(
+          ...list.getEntries().map(entry => (entry as PerformanceEntry & { value: number }).value)
+        )
+      ).observe({ type: 'layout-shift' });
+    });
+    release();
+    await page.frameLocator('iframe').locator('svg').waitFor();
+    await page.waitForTimeout(250);
+    const after = await page.locator('.scene-host').boundingBox();
+    const shifts = await page.evaluate(
+      () => (window as unknown as { mermaidLayoutShifts: number[] }).mermaidLayoutShifts
+    );
+    if (process.env.NOUS_E2E_DATA) {
+      await mkdir(process.env.NOUS_E2E_DATA, { recursive: true });
+      await writeFile(
+        path.join(
+          process.env.NOUS_E2E_DATA,
+          `mermaid-${viewport.width}-${dark}-${reducedMotion}.json`
+        ),
+        JSON.stringify({ before, after, shifts })
+      );
+    }
+    expect(after).toEqual(before);
+    expect(shifts.reduce((sum, value) => sum + value, 0)).toBe(0);
+    expect(
+      await page.locator('.scene-host').evaluate(element => getComputedStyle(element).opacity)
+    ).toBe('1');
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+    await page.close();
+  }
+});
+
+test.each(
+  asynchronousCases
+)('waits for decoded image presentation in atlas at $viewport.width (dark=$dark, motion=$reducedMotion)', async ({
+  viewport,
+  dark,
+  reducedMotion,
+}) => {
+  const page = await browser.newPage({ viewport, reducedMotion });
+  try {
+    await page.addInitScript(() => {
+      const original = HTMLImageElement.prototype.decode;
+      const releases: (() => void)[] = [];
+      Object.assign(window, { imageDecodeReleases: releases });
+      HTMLImageElement.prototype.decode = function () {
+        const source = this.src;
+        return original
+          .call(this)
+          .then(() =>
+            source.startsWith('blob:')
+              ? new Promise<void>(resolve => releases.push(resolve))
+              : undefined
+          );
+      };
+    });
+    const bytes = await readFile('apps/web/public/icons/nous-app-icon-mask-512.png');
+    await page.route('**/api/projects/image-geometry/assets/*', route =>
+      route.fulfill({ status: 200, contentType: 'image/png', body: bytes })
+    );
+    await page.goto(
+      `${inject('browserFixtureUrl')}tests/fixtures/imageGeometry.html?surface=playback${dark ? '&dark' : ''}`
+    );
+    await page.waitForFunction(
+      () =>
+        (window as unknown as { imageDecodeReleases: (() => void)[] }).imageDecodeReleases
+          .length === 1
+    );
+    expect(await page.evaluate(() => window.imageGeometryReady())).toBe(false);
+    await page.evaluate(() => {
+      for (const release of (window as unknown as { imageDecodeReleases: (() => void)[] })
+        .imageDecodeReleases)
+        release();
+    });
+    await expect.poll(() => page.evaluate(() => window.imageGeometryReady())).toBe(true);
+    expect(
+      await page.locator('img[src]').evaluate(element => getComputedStyle(element).opacity)
+    ).toBe('1');
+  } finally {
+    await page.close();
+  }
+});
+
 test.each(
   ['scene', 'html', 'mermaid', 'pending', 'pending-failure', 'error-dialog'].flatMap(scenario =>
     [
@@ -71,7 +212,7 @@ test.each(
       expect(before?.height).toBeGreaterThan(0);
       release();
       if (scenario === 'error-dialog' || scenario === 'pending-failure') {
-        const fallback = page.getByRole('img', { name: 'Immagine non disponibile' });
+        const fallback = page.locator('[role="img"]');
         await fallback.waitFor();
         const after = await fallback.boundingBox();
         expect(after).toEqual(before);
@@ -207,7 +348,7 @@ test.each([
           .evaluate((image: HTMLImageElement) => image.decode());
         expect(await measure()).toEqual(before);
         if (surface === 'playback') {
-          expect(await page.evaluate(() => window.imageGeometryReady())).toBe(true);
+          await expect.poll(() => page.evaluate(() => window.imageGeometryReady())).toBe(true);
           if (viewport.width === 390)
             expect(
               await page.locator('.captions').evaluate(e => getComputedStyle(e).visibility)
@@ -389,7 +530,7 @@ test.each(
       }
       expect(await page.locator('.scene-host img[src]').count()).toBe(2);
       expect(await page.locator('.scene-host img:not([src])').count()).toBe(1);
-      expect(await page.getByRole('img', { name: 'Immagine non disponibile' }).count()).toBe(1);
+      expect(await page.locator('[role="img"]').count()).toBe(1);
     }
     if (viewport.width === 390)
       expect(await page.locator('.captions').evaluate(e => getComputedStyle(e).visibility)).toBe(

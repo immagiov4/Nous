@@ -103,7 +103,7 @@ function PlaybackFixture({
     };
   if (scenario === 'html' || replacement === 'replace-html')
     block = { ...sourceBlock, visuals: [{ kind: 'generated-visual', visualId: 'fixture-html' }] };
-  if (scenario === 'mermaid' || replacement === 'replace-mermaid')
+  if (scenario === 'mermaid' || scenario === 'mermaid-math' || replacement === 'replace-mermaid')
     block = {
       ...sourceBlock,
       visuals: [{ kind: 'mermaid', code: 'graph TD; A[Start] --> B[End]' }],
@@ -192,7 +192,7 @@ async function render() {
     {
       type: 'markdown' as const,
       markdown:
-        (scenario === 'legacy-content'
+        (scenario === 'legacy-content' || scenario === 'mermaid-math'
           ? 'Observe the image and $x=1$.\n\n'
           : 'Observe the image.\n\n') +
         Object.keys(assets)
