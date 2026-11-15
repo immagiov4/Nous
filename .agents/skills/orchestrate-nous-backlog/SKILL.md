@@ -233,10 +233,11 @@ Dispatch route in T3 Code:
 Keep useful local work moving while agents run. Send concise progress updates at least once per
 minute during long operations.
 
-For user decisions, read [agent-question-notifications](../agent-question-notifications/SKILL.md)
-and include its installed path in delegated tasks that may need user input.
-Assign one notification owner and one stable decision ID so the orchestrator and
-agent do not duplicate the post-it. Closing it is not an answer or authorization.
+For user decisions, only the orchestrator reads and uses
+[agent-question-notifications](../agent-question-notifications/SKILL.md) and owns desktop notices.
+Delegated tasks report questions in their final message or through the harness's pending-question
+mechanism; they never post desktop notices. Use one stable decision ID.
+Closing a notice is not an answer or authorization.
 
 ### Orchestration health checks
 
