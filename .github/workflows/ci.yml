@@ -153,6 +153,9 @@ jobs:
       - name: Verify complete caption rows
         run: bun run test:caption-rows
 
+      - name: Verify guided-step badge alignment
+        run: bun --tsconfig-override e2e/nous/tsconfig.json apps/web/tests/components/shared/GuidedStepAlignment.browser.tsx
+
       - name: Verify playback keyboard focus in Chromium and Firefox
         run: bun apps/web/tests/components/workspace/PlaybackFocus.browser.ts
 

@@ -1759,6 +1759,7 @@
   }
   .lesson-scene.lesson-scene-animated .interaction-card .guided-stops .guided-stop {
     min-height: 62px;
+    text-align: left;
     flex-direction: row;
     justify-content: flex-start;
     padding: 12px 18px;

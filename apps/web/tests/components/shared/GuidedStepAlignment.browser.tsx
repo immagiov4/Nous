@@ -13,15 +13,16 @@ try {
     ...guidedPathScene,
     steps: guidedPathScene.steps.map(step => ({
       ...step,
-      label: 'Sostegno ridotto progressivamente',
+      label: 'Sostegno ridotto progressivamente durante ogni passaggio',
     })),
   };
   for (const width of [900, 375]) {
     for (const dark of [false, true]) {
       await page.setViewportSize({ width, height: 800 });
       await page.setContent(
-        `<style>body { font-family: sans-serif; --bg-paper: ${dark ? '#222' : '#fff'}; --bg-surface: ${dark ? '#111' : '#eee'}; --ink-primary: ${dark ? '#eee' : '#222'}; } ${css}</style>${renderToStaticMarkup(<LessonSceneVisual scene={scene} isDarkMode={dark} />)}`
+        `<style>body { font-family: sans-serif; --bg-paper: ${dark ? '#222' : '#fff'}; --bg-surface: ${dark ? '#111' : '#eee'}; --ink-primary: ${dark ? '#eee' : '#222'}; } ${css}</style><div class="${dark ? 'dark' : ''}">${renderToStaticMarkup(<LessonSceneVisual scene={scene} isDarkMode={dark} />)}</div>`
       );
+      assert.equal(await page.locator('.dark .lesson-scene').count(), dark ? 1 : 0);
       if (process.env.SCENE_SCREENSHOT) {
         await mkdir(process.env.SCENE_SCREENSHOT, { recursive: true });
         await page.screenshot({ path: `${process.env.SCENE_SCREENSHOT}/${width}-${dark}.png` });
@@ -49,6 +50,7 @@ try {
         assert.equal(alignment.text, 'center', 'Wrapped label lines must center beneath badge');
       } else {
         assert.equal(alignment.badgeY, alignment.labelY);
+        assert.equal(alignment.text, 'left', 'Wrapped mobile labels must stay left-aligned');
       }
     }
   }
