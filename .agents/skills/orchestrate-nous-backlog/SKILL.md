@@ -197,6 +197,9 @@ Dispatch route in T3 Code:
   points to it and adds its own issues and Requirements map.
 - Begin every Codex brief with: `Do NOT spawn sub-agents or nested tasks; do all work yourself.
   Never change model or service tier.` A PreToolUse hook rejects briefs without it.
+- The common brief forbids delegated tasks from using the maintainer's desktop: no Computer Use, no
+  desktop control and no new visible windows. Browsers run headless. The only exception is the
+  maintainer's already-open Chrome through Chrome control, in tabs, when a logged-in step needs it.
 - `delegate_task` with `isolation: "worktree"` needs this thread to belong to the T3 project whose
   remote is `immagiov4/Nous` (its legacy title may read `Lumina-Reader`; verify the remote, not the
   title). From a thread outside it, `delegate_task` fails with `Unable to resolve the parent
