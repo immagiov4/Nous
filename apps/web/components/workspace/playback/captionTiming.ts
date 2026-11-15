@@ -110,6 +110,7 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
         return {
           ...event,
           atMs,
+          // Preserve the pre-extraction rule, including equal onsets that are still future.
           durationMs: retain && before?.atMs === atMs ? before.durationMs : event.durationMs,
         };
       });

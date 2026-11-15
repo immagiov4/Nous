@@ -118,7 +118,7 @@ classDiagram
 ```
 The class diagram illustrates how motion events are nested within the playback block structure. Sources: [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts), [packages/shared-types/lessonPlaybackSchema.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlaybackSchema.ts)
 
-The stage delegates acoustic cue refreshes to `captionTiming.ts`: a passage-scoped owner recomputes spans on clock replacement, retains boundaries already heard, and adopts fresh timing after an explicit seek. Caption reveal pacing and viewport tracking remain separate. The owner accepts measured word geometry without DOM elements.
+`LessonPlaybackStage` delegates acoustic cue timing to `captionTiming.ts`, giving narration-synchronized visuals a shared timing owner. Captions retain their existing reveal pacing and viewport tracking.
 
 ### Motion Events
 - **Focus**: Highlights specific elements within a scene or diagram.
@@ -169,4 +169,4 @@ Sources: [packages/shared-types/lessonPlaybackSchema.ts:127-160](https://github.
 
 [Workflow state](../../../apps/backend/src/routes/workflows.ts) exposes preparation and alignment progress and failures. The [alignment workflow](../../../apps/backend/src/workflows/recordingAlignment.ts) also warns when alignment fails and stores a failed alignment result while retaining estimated timing. [Hook-and-stage integration tests](../../../apps/web/tests/hooks/reader/useLessonPlaybackAudio.integration.test.tsx) cover playback startup and audio-session failures. A playable recording can therefore still use estimated cues; successful preparation alone does not establish audible pronunciation quality or accurate synchronization.
 
-The caption timing owner exposes `snapshot()` for its latest refresh reason, heard time and retained-boundary count. It keeps no narration or accumulated history and emits no production logs. Inspect the owner in a debugger or exercise `captionTiming.test.ts` for measurement refresh, late alignment and seek transitions; `LessonPlaybackStage.test.tsx` covers the rendered consumers. These deterministic checks do not establish audible synchronization on a particular recording.
+Stage and audio-hook integration tests cover narration-synchronized captions and visuals. These deterministic checks do not establish audible synchronization on a particular recording.
