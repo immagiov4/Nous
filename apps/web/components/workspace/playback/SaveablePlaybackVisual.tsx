@@ -2,16 +2,20 @@ import { buildLearningArtifactId } from '@shared/learningArtifact';
 import type { LessonPlaybackBlock } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
 import type { PlaybackWordAlignment } from '@shared/playbackWordTiming';
+import { AnimatePresence, motion, useIsPresent } from 'framer-motion';
 import { Bookmark, Trash2 } from 'lucide-react';
-import { type ReactNode, type RefObject, useMemo, useRef, useState } from 'react';
+import { type ReactNode, type RefObject, useCallback, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { LessonGeneratedVisual } from '../../../types.ts';
+import { TRANSITION_FADE } from '../../../utils/motion/tokens.ts';
+import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { playbackSentenceSelector } from '../../../utils/reader/lessonPlayback.ts';
 import {
   getStoredLessonVisualScene,
   isUserGeneratedLessonArtifact,
 } from '../../../utils/visuals/storedLessonVisual.ts';
 import type { WorkspaceReaderContentModel } from '../shell/types.ts';
+import { usePlaybackVisualFit } from './usePlaybackVisualFit.ts';
 
 const sceneIdentity = (scene: LessonScene | null) =>
   JSON.stringify(scene, (_key, value: unknown) =>
@@ -21,6 +25,14 @@ const sceneIdentity = (scene: LessonScene | null) =>
         )
       : value
   );
+
+/** HTML frames and reduced motion release the previous visual immediately. */
+export function PlaybackVisualPresence({
+  enabled,
+  children,
+}: Readonly<{ enabled: boolean; children: ReactNode }>) {
+  return enabled ? <AnimatePresence initial={false}>{children}</AnimatePresence> : children;
+}
 
 /** Keeps the saved scene in the course's existing artifact collection. */
 export function SaveablePlaybackVisual({
@@ -47,6 +59,17 @@ export function SaveablePlaybackVisual({
     alignment?: PlaybackWordAlignment;
   };
 }>) {
+  const present = useIsPresent();
+  const animate = useShouldAnimate();
+  const fittedCardRef = usePlaybackVisualFit(present);
+  const attachCard = useCallback(
+    (node: HTMLElement | null) => {
+      const previous = fittedCardRef.current;
+      fittedCardRef.current = node;
+      if (present && (node || cardRef.current === previous)) cardRef.current = node;
+    },
+    [cardRef, fittedCardRef, present]
+  );
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [tapped, setTapped] = useState(false);
@@ -144,10 +167,17 @@ export function SaveablePlaybackVisual({
     }
   };
   return (
-    <section
-      ref={cardRef}
+    <motion.section
+      ref={attachCard}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={animate ? TRANSITION_FADE : { duration: 0 }}
+      style={{ pointerEvents: present ? undefined : 'none' }}
       className="scene-host"
-      aria-hidden={!hasVisual}
+      data-exiting={present ? undefined : true}
+      inert={!present}
+      aria-hidden={!hasVisual || !present}
       aria-label={t('Visualizzazione della lezione')}
       tabIndex={enabled ? 0 : undefined}
       onMouseEnter={() => setHovered(true)}
@@ -187,6 +217,6 @@ export function SaveablePlaybackVisual({
           {error}
         </p>
       ) : null}
-    </section>
+    </motion.section>
   );
 }

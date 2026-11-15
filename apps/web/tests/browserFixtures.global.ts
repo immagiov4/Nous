@@ -29,6 +29,7 @@ export default async function setup(project: TestProject) {
         outDir: output,
         rollupOptions: {
           input: [
+            path.resolve('apps/web/tests/fixtures/imageGeometry.html'),
             path.resolve('apps/web/tests/fixtures/playbackLayout.html'),
             path.resolve('apps/web/tests/fixtures/contextComposer.html'),
             path.resolve('apps/web/tests/fixtures/playbackFocus.html'),

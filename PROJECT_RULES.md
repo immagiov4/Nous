@@ -118,6 +118,8 @@ a feature is core or better left to external tools.
 
 ## Validation Commands
 
+For dependency-resolution failures, follow [Local checks](docs/TESTING.md#local-checks). Preserve an explicitly configured shared/global store; replacing it with per-worktree package copies requires a maintainer decision.
+
 Local browser suites, provider batches, gates and coverage acquire shared FIFO leases automatically. Fast checks use `bun run check:changed` without a lease. Wrap additional heavy commands with `bun scripts/heavy-run.mjs --label "who/what" -- <command...>`. Prepare inputs and wait for external signals before entering the wrapper; run only the heavy command inside it. Nested commands inherit the existing lease. Manual reservations are unsupported. Use `status` to inspect lease IDs, owners, commands and activity; `release <id>` cancels that entry and stops its command before freeing capacity. See [Testing](docs/TESTING.md#heavy-command-leases) for expiry and capacity.
 
 After installing dependencies, run `bunx playwright install chromium` for browser tests under `bun run test` and Node coverage. `bun run prepare:coverage` also installs Chromium after the Node preflight.

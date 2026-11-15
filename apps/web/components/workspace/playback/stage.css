@@ -2265,7 +2265,7 @@
   container-type: normal;
   width: 100%;
 }
-.lesson-player-stage .scene-host[aria-hidden="true"] {
+.lesson-player-stage .scene-host[aria-hidden="true"]:not([data-exiting]) {
   visibility: hidden;
 }
 .lesson-player-stage .scene-host > div {
@@ -2327,7 +2327,7 @@
 }
 .lesson-player-stage .listening-stage > .scene-fit > .scene-host {
   position: absolute;
-  top: 0;
+  top: var(--scene-top, 0px);
   left: var(--scene-left, 0px);
   transform: scale(var(--scene-scale, 1));
   transform-origin: top left;
@@ -2367,4 +2367,9 @@
 
 .lesson-player-stage .scene-host:empty {
   visibility: hidden;
+}
+
+/* Fitting needs the actual figure geometry, including before its image loads. */
+.lesson-player-stage .scene-host figure {
+  content-visibility: visible;
 }

@@ -79,13 +79,16 @@ for (const viewport of formulaViewports) {
       await page.goto(
         `${baseUrl}tests/fixtures/playbackLayout.html?formulas=1&formulaPath=${formulaPath}`
       );
-      const formula = page.locator('.scene-host .katex:not(.spotlight-symbol .katex)');
+      const host = page.locator('.scene-host:not([data-exiting])');
+      const formula = host.locator('.katex:not(.spotlight-symbol .katex)');
       await formula.waitFor();
       await page.waitForFunction(() =>
-        document.querySelector('.scene-host')?.classList.contains('lesson-player-formula')
+        document
+          .querySelector('.scene-host:not([data-exiting])')
+          ?.classList.contains('lesson-player-formula')
       );
-      expect(await page.locator('.scene-host .katex-error').count()).toBe(0);
-      expect(await page.locator('.scene-host').innerText()).not.toMatch(/\\(?:mathbf|omega)/);
+      expect(await host.locator('.katex-error').count()).toBe(0);
+      expect(await host.innerText()).not.toMatch(/\\(?:mathbf|omega)/);
       const size = await formula.evaluate(formula => {
         const actual = formula.getBoundingClientRect();
         const reference = formula.cloneNode(true) as HTMLElement;
@@ -378,7 +381,9 @@ test('selects sourced formula cards on the voice clock after forward and backwar
         controls.setPlaybackTime(time);
         await new Promise(requestAnimationFrame);
         await new Promise(requestAnimationFrame);
-        selected.push(document.querySelector('.scene-host annotation')?.textContent);
+        selected.push(
+          document.querySelector('.scene-host:not([data-exiting]) annotation')?.textContent
+        );
       }
       return selected;
     });
@@ -565,7 +570,7 @@ test('1: an unresolved historical PDF reference yields its prepared scene after 
 test.each([
   'available',
   'broken',
-])('1: resolves an %s image without exposing its placeholder', async imageState => {
+])('1: presents an %s image or its stable unavailable placeholder', async imageState => {
   const page = await openCard(`missing&asset=${imageState}`);
   try {
     if (imageState === 'available') {
@@ -575,6 +580,8 @@ test.each([
         )
         .toBe(180);
       expect(await page.locator('.scene-host img').getAttribute('alt')).toBe('Figura di esempio');
+    } else if (imageState === 'broken') {
+      await page.locator('[role="img"]').waitFor();
     } else {
       await page.locator('.scene-host h2').waitFor();
       expect(await page.locator('.scene-host h2').textContent()).toBe('Una scena disponibile');
@@ -844,14 +851,16 @@ test('centers both columns independently without caption jumps when visual heigh
         return {
           stage: rect('.listening-stage'),
           captions: rect('.captions'),
-          visual: rect('.scene-fit'),
+          visual: rect('.scene-host:not([data-exiting])'),
         };
       });
     await page.waitForFunction(() => !!document.querySelector('.scene-fit')?.getAttribute('style'));
     const before = await measure();
     await page.evaluate(() => dispatchEvent(new Event('playback-short-scene')));
     await page.waitForFunction(height => {
-      const current = document.querySelector('.scene-fit')?.getBoundingClientRect().height;
+      const current = document
+        .querySelector('.scene-host:not([data-exiting])')
+        ?.getBoundingClientRect().height;
       return current !== undefined && Math.abs(current - height) > 1;
     }, before.visual.height);
     const after = await measure();

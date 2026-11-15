@@ -13,6 +13,7 @@ const TEST_FILES = [
 ];
 const MERMAID_PARSER_TEST = 'apps/backend/tests/services/mermaidValidation.test.ts';
 const BROWSER_FIXTURE_TESTS = [
+  'apps/web/tests/components/workspace/PlaybackImageGeometry.test.ts',
   'apps/web/tests/utils/reader/lessonPlaybackSignal.test.ts',
   'apps/web/tests/components/workspace/PlaybackCausalLayout.test.ts',
   'apps/web/tests/components/workspace/ContextComposerLayout.test.ts',
@@ -52,6 +53,8 @@ export default defineConfig({
     },
   },
   test: {
+    // The matcher adapter imports the project's Vitest without declaring it as a peer.
+    server: { deps: { inline: ['@testing-library/jest-dom'] } },
     environment: 'node',
     exclude: ['apps/web/dist/**', 'apps/backend/dist/**', '**/node_modules/**'],
     globals: false,
