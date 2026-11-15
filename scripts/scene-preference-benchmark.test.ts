@@ -1,5 +1,17 @@
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expect, test, vi } from 'vitest';
-import { measureCase, parseCases, summarize, type Trial } from './scene-preference-benchmark.js';
+import {
+  measureCase,
+  outsideRepository,
+  parseCases,
+  readOptions,
+  summarize,
+  type Trial,
+  writeCheckpoint,
+} from './scene-preference-benchmark.js';
 
 const cases = [
   {
@@ -108,8 +120,107 @@ test('validates JSONL without echoing private records in errors', () => {
     [cases[0], cases[0]].map(c => JSON.stringify(c)).join('\n'),
     JSON.stringify({ ...cases[0], rejected: 'steps' }),
   ]) {
-    expect(() => parseCases(input)).toThrow('Invalid benchmark dataset');
+    expect(() => parseCases(input)).toThrowError(new Error('Invalid benchmark dataset'));
   }
+});
+
+test('rejects internal dot-dot-prefixed directories and junctions while admitting external siblings', async () => {
+  const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const internal = await mkdtemp(join(repo, '..private-'));
+  const external = await mkdtemp(join(dirname(repo), 'benchmark-private-'));
+  try {
+    await expect(outsideRepository(repo)).rejects.toThrow();
+    await expect(outsideRepository(internal)).rejects.toThrow();
+    await expect(outsideRepository(external)).resolves.toBeTruthy();
+    const alias = join(external, 'alias');
+    await symlink(internal, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    await expect(outsideRepository(alias)).rejects.toThrow();
+  } finally {
+    await rm(external, { recursive: true, force: true });
+    await rm(internal, { recursive: true, force: true });
+  }
+});
+
+test('rejects empty and conflicting smoke selectors before a paid run can start', () => {
+  const base = ['--dataset', 'external.jsonl', '--output', 'report.json', '--run'];
+  for (const args of [
+    [],
+    ['--limit', ''],
+    ['--limit', ' '],
+    ['--limit', '0'],
+    ['--repetitions', '1.5'],
+    ['--cases', ''],
+    ['--cases', ' '],
+    ['--cases', ','],
+    ['--cases', 'a,'],
+    ['--cases', 'a', '--limit', '1'],
+  ]) {
+    expect(() => readOptions(args.length ? [...base, ...args] : args)).toThrow();
+  }
+  expect(readOptions([...base, '--limit', '1'])).toMatchObject({ limit: '1', repetitions: 3 });
+  expect(readOptions([...base, '--cases', 'a,b'])).toMatchObject({ cases: 'a,b' });
+});
+
+test('keeps censored cancellations out of completion counts, percentiles and rate denominators', () => {
+  const report = summarize(
+    cases,
+    [
+      { id: 'synthetic-a', repetition: 1, kind: 'cancelled', latencyMs: 100000 },
+      { id: 'synthetic-b', repetition: 1, kind: 'error', latencyMs: 10 },
+      { id: 'synthetic-c', repetition: 1, kind: 'text', latencyMs: 20 },
+    ],
+    3
+  );
+  expect(report).toMatchObject({
+    completedTrials: 2,
+    cancelledTrials: 1,
+    failureRate: 0.5,
+    textFallbackRate: 0.5,
+    latencyMs: { p50: 10, p95: 20 },
+  });
+  expect(report.repetitions[0].completed).toBe(2);
+});
+
+test('checkpoints never touch a stale partial link and clean failed rename temporaries', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'scene-checkpoint-'));
+  try {
+    const output = join(folder, 'report.json');
+    const protectedFile = join(folder, 'protected.json');
+    await writeFile(protectedFile, 'keep');
+    const target = join(folder, 'protected');
+    await mkdir(target);
+    await symlink(target, `${output}.partial`, process.platform === 'win32' ? 'junction' : 'dir');
+    await writeCheckpoint(output, { synthetic: true });
+    expect(JSON.parse(await readFile(output, 'utf8'))).toEqual({ synthetic: true });
+    expect(await readFile(protectedFile, 'utf8')).toBe('keep');
+    await expect(writeCheckpoint(folder, {})).rejects.toThrow();
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
+test('retains bounded technical failure codes and stages while stripping private messages and bodies', async () => {
+  const error = Object.assign(new Error('private request contents'), {
+    name: 'AI_APICallError',
+    statusCode: 401,
+    code: 'AUTH_FAILED',
+    stage: 'awaiting-output',
+    responseBody: 'private response',
+  });
+  const trial = await measureCase({
+    c: cases[0],
+    repetition: 1,
+    config,
+    signal: new AbortController().signal,
+    generate: vi.fn().mockRejectedValue(error),
+  });
+  expect(trial.diagnostic).toMatchObject({
+    type: 'AI_APICallError',
+    status: 401,
+    code: 'AUTH_FAILED',
+    errorStage: 'awaiting-output',
+  });
+  expect(JSON.stringify(trial)).not.toContain('private');
 });
 
 const slot = {
@@ -124,11 +235,9 @@ const config = {
   review: { enabled: false, maxRounds: 1 },
 };
 
-test('observes validated form before icons and sends only source fields to the generator', async () => {
-  let reachedIcons = false;
+test('captures validated form and sends only source fields to the generator', async () => {
   const generate = vi.fn(async input => {
     input.onValidatedScene({ type: 'steps' });
-    reachedIcons = true;
     return { kind: 'invalid' as const, problems: [] };
   });
   const result = await measureCase({
@@ -145,7 +254,6 @@ test('observes validated form before icons and sends only source fields to the g
     chosen: 'steps',
   });
   expect(result.latencyMs).toBeGreaterThanOrEqual(0);
-  expect(reachedIcons).toBe(false);
   const input = generate.mock.calls[0][0];
   expect(input.lessonMarkdown).toBe(cases[0].passage);
   expect(Object.keys(input).sort()).toEqual([

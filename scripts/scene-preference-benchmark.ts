@@ -1,11 +1,11 @@
-import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { readFile, realpath, rename, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import * as z from 'zod';
 import { GENERATABLE_LESSON_SCENE_TYPES } from '../packages/shared-types/lessonScene.js';
+import { readGitIdentity } from './git-identity.js';
 
 /**
  * Run: bun --tsconfig-override apps/backend/tsconfig.json scripts/scene-preference-benchmark.ts
@@ -42,6 +42,7 @@ export interface Trial {
   chosen?: string;
   latencyMs: number;
   errorClass?: string;
+  diagnostic?: import('../apps/backend/src/workflows/workflowErrorDiagnostics.js').WorkflowErrorDiagnostic;
 }
 
 /** Reject malformed input without embedding a private record in the diagnostic. */
@@ -51,7 +52,8 @@ export const parseCases = (text: string): PreferenceCase[] => {
       .split(/\r?\n/u)
       .filter(line => line.trim())
       .map(line => CaseSchema.parse(JSON.parse(line)));
-    if (!cases.length || new Set(cases.map(c => c.id)).size !== cases.length) throw new Error();
+    if (!cases.length || new Set(cases.map(c => c.id)).size !== cases.length)
+      throw new Error('Empty or duplicate cases');
     return cases;
   } catch {
     throw new Error('Invalid benchmark dataset');
@@ -73,6 +75,7 @@ export const summarize = (
   trials: readonly Trial[],
   repetitions: number
 ) => {
+  const completed = trials.filter(t => t.kind !== 'cancelled');
   const decisive = cases.filter(c => !c.tie);
   const pairs = new Map(
     decisive.filter(c => !uncovered(c.preferred) && !uncovered(c.rejected)).map(c => [c.id, c])
@@ -83,7 +86,7 @@ export const summarize = (
     uncoveredPreferred[label] = (uncoveredPreferred[label] ?? 0) + 1;
   }
   const runs = Array.from({ length: repetitions }, (_, index) => {
-    const own = trials.filter(t => t.repetition === index + 1);
+    const own = completed.filter(t => t.repetition === index + 1);
     const paired = own.filter(t => pairs.has(t.id));
     const preferred = paired.filter(
       t => t.kind === 'scene' && t.chosen === pairs.get(t.id)?.preferred
@@ -111,7 +114,7 @@ export const summarize = (
     };
   });
   const accuracies = runs.flatMap(r => (r.accuracy === null ? [] : [r.accuracy]));
-  const failed = trials.filter(t => t.kind === 'error' || t.kind === 'invalid').length;
+  const failed = completed.filter(t => t.kind === 'error' || t.kind === 'invalid').length;
   return {
     dataset: {
       total: cases.length,
@@ -135,20 +138,22 @@ export const summarize = (
       spread: accuracies.length ? Math.max(...accuracies) - Math.min(...accuracies) : null,
       scoredRepetitions: accuracies.length,
     },
-    latencyMs: latencyStats(trials),
-    failureRate: ratio(failed, trials.length),
-    textFallbackRate: ratio(trials.filter(t => t.kind === 'text').length, trials.length),
-    completedTrials: trials.length,
+    latencyMs: latencyStats(completed),
+    failureRate: ratio(failed, completed.length),
+    textFallbackRate: ratio(completed.filter(t => t.kind === 'text').length, completed.length),
+    completedTrials: completed.length,
+    cancelledTrials: trials.length - completed.length,
     expectedTrials: decisive.length * repetitions,
   };
 };
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const outsideRepository = async (path: string) => {
+export const outsideRepository = async (path: string) => {
   const canonical = await realpath(path);
   const rel = relative(await realpath(repository), canonical);
-  if (!rel || (!rel.startsWith('..') && !isAbsolute(rel)))
+  if (!rel || !(rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)))
     throw new Error('Use private paths outside the repository.');
+  return canonical;
 };
 const positiveInteger = (value: string) => {
   const parsed = Number(value);
@@ -174,6 +179,7 @@ export const measureCase = async (input: {
   let chosen: string | undefined;
   let kind: Trial['kind'];
   let errorClass: string | undefined;
+  let diagnostic: Trial['diagnostic'];
   try {
     const result = await input.generate({
       allowTextFallback: true,
@@ -188,6 +194,7 @@ export const measureCase = async (input: {
       },
     });
     kind = result.kind;
+    if (result.kind === 'invalid') diagnostic = { type: 'InvalidScene', errorStage: 'validation' };
   } catch (error) {
     if (error === validated) kind = 'scene';
     else if (input.signal.aborted) kind = 'cancelled';
@@ -195,6 +202,10 @@ export const measureCase = async (input: {
       kind = 'error';
       // Keep only a bounded technical classification, never a provider message or request body.
       errorClass = error instanceof TypeError ? 'TypeError' : 'ProviderOrGenerationError';
+      const { toWorkflowErrorDiagnostic } = await import(
+        '../apps/backend/src/workflows/workflowErrorDiagnostics.js'
+      );
+      diagnostic = toWorkflowErrorDiagnostic(error, { includeContent: false });
     }
   }
   return {
@@ -203,12 +214,14 @@ export const measureCase = async (input: {
     kind,
     ...(chosen ? { chosen } : {}),
     ...(errorClass ? { errorClass } : {}),
+    ...(diagnostic ? { diagnostic } : {}),
     latencyMs: performance.now() - started,
   };
 };
 
-const readOptions = () => {
+export const readOptions = (args: string[]) => {
   const { values } = parseArgs({
+    args,
     options: {
       dataset: { type: 'string' },
       output: { type: 'string' },
@@ -223,19 +236,24 @@ const readOptions = () => {
       'Usage: bun --tsconfig-override apps/backend/tsconfig.json scripts/scene-preference-benchmark.ts --dataset <private.jsonl> --output <private.json> [--repetitions 3] [--limit N | --cases id,id] [--run]'
     );
   const repetitions = positiveInteger(values.repetitions);
-  if (values.limit && values.cases) throw new Error('Choose --limit or --cases.');
+  if (values.limit !== undefined) positiveInteger(values.limit);
+  if (values.cases?.split(',').some(id => !id.trim()))
+    throw new Error('Case selection must not be empty.');
+  if (values.limit !== undefined && values.cases !== undefined)
+    throw new Error('Choose --limit or --cases.');
   return { ...values, dataset: values.dataset, output: values.output, repetitions };
 };
 
 const loadCases = async (values: ReturnType<typeof readOptions>) => {
-  await outsideRepository(values.dataset);
+  const dataset = await outsideRepository(values.dataset);
   await outsideRepository(dirname(resolve(values.output)));
   try {
     await outsideRepository(values.output);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
-  const datasetText = await readFile(values.dataset, 'utf8');
+  // The local CLI explicitly selects this canonical external dataset; it is not a server path.
+  const datasetText = await readFile(dataset, 'utf8'); // NOSONAR
   let cases = parseCases(datasetText);
   if (values.cases) {
     const requested = new Set(values.cases.split(','));
@@ -246,11 +264,14 @@ const loadCases = async (values: ReturnType<typeof readOptions>) => {
   return { cases, datasetText };
 };
 
-async function main() {
-  const values = readOptions();
+export async function runBenchmark(args: string[]) {
+  const values = readOptions(args);
   const { repetitions } = values;
   const { cases, datasetText } = await loadCases(values);
-  // Environment loading happens in backend imports; clear remote persistence before resolving config.
+  await import('../apps/backend/src/config/env.js');
+  // Match backend initialization order, then disable persisted settings before any resolution.
+  process.env.SUPABASE_URL = '';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = '';
   const { getResolvedGlobalModelConfig, resolveTextModelConfig } = await import(
     '../apps/backend/src/config/modelConfig.js'
   );
@@ -260,8 +281,6 @@ async function main() {
   const { resolveLessonVisualModelConfig } = await import(
     '../apps/backend/src/services/lessonVisualModelConfig.js'
   );
-  process.env.SUPABASE_URL = '';
-  process.env.SUPABASE_SERVICE_ROLE_KEY = '';
   const config = await getResolvedGlobalModelConfig();
   const visualConfig = resolveLessonVisualModelConfig(config);
   if (visualConfig.artifact.provider !== 'openrouter')
@@ -272,12 +291,16 @@ async function main() {
     aiProviderOverrides: {},
   };
   const model = resolveTextModelConfig(sceneConfig, 'scene');
+  const { commitSha, dirty } = readGitIdentity(repository);
+  const diff = Bun.spawnSync(['git', 'diff', '--binary', 'HEAD', '--'], {
+    cwd: repository,
+    windowsHide: true,
+  }); // NOSONAR: fixed Git arguments through the developer's Git installation, no shell.
+  if (!diff.success) throw new Error('Cannot identify benchmark worktree diff.');
   const metadata = {
-    commit: execFileSync('git', ['rev-parse', 'HEAD'], {
-      cwd: repository,
-      encoding: 'utf8',
-      windowsHide: true,
-    }).trim(),
+    commit: commitSha,
+    dirty,
+    diffSha256: createHash('sha256').update(diff.stdout).digest('hex'),
     datasetSha256: createHash('sha256').update(datasetText).digest('hex'),
     selectionSha256: createHash('sha256').update(JSON.stringify(cases)).digest('hex'),
     provider: 'openrouter',
@@ -297,42 +320,32 @@ async function main() {
   processEvents.once('SIGINT', cancel);
   processEvents.once('SIGTERM', cancel);
   const trials: Trial[] = [];
-  const save = async () => {
-    const temp = `${values.output}.partial`;
-    await writeFile(
-      temp,
-      JSON.stringify(
-        {
-          metadata,
-          cancelled: abort.signal.aborted,
-          summary: summarize(cases, trials, repetitions),
-          trials,
-        },
-        null,
-        2
-      )
-    );
-    await rename(temp, values.output as string);
-  };
+  const save = () =>
+    writeCheckpoint(values.output, {
+      metadata,
+      cancelled: abort.signal.aborted,
+      summary: summarize(cases, trials, repetitions),
+      trials,
+    });
   // Exclusive creation protects a previous run; checkpoints replace only this run's file.
-  await writeFile(values.output, '{}', { flag: 'wx' });
+  await writeFile(values.output, '{}', { flag: 'wx' }); // NOSONAR: validated external CLI output; exclusive creation prevents overwrites.
   try {
     await save();
     const decisive = cases.filter(c => !c.tie);
     for (let repetition = 1; repetition <= repetitions; repetition++) {
       for (const c of decisive) {
         if (abort.signal.aborted) break;
-        trials.push(
-          await measureCase({
-            c,
-            repetition,
-            config: visualConfig,
-            signal: abort.signal,
-            generate: generateLessonScene,
-          })
-        );
-        await save();
-        console.log(`Completed ${trials.length}/${cases.filter(c => !c.tie).length * repetitions}`);
+        const input = {
+          c,
+          repetition,
+          config: visualConfig,
+          signal: abort.signal,
+          generate: generateLessonScene,
+        };
+        const trial = await measureCase(input); // NOSONAR: serial calls isolate latency from self-induced contention.
+        trials.push(trial);
+        await save(); // NOSONAR: persist each observation before starting the next paid call.
+        console.log(`Recorded ${trials.length}/${cases.filter(c => !c.tie).length * repetitions}`);
       }
       if (abort.signal.aborted) break;
     }
@@ -346,8 +359,40 @@ async function main() {
   if (abort.signal.aborted) process.exitCode = 130;
 }
 
+/** Exclusive same-directory temporary creation avoids following a stale .partial symlink. */
+export const writeCheckpoint = async (output: string, report: unknown) => {
+  const temp = `${output}.${randomUUID()}.partial`;
+  await writeFile(temp, JSON.stringify(report, null, 2), { flag: 'wx' }); // NOSONAR: exclusive private sibling of the validated output; never follows existing paths.
+  try {
+    await rename(temp, output);
+  } finally {
+    await rm(temp, { force: true });
+  }
+};
+
+export const runCli = async (args: string[]) => {
+  if (args.includes('--run') && process.env.HEAVY_RUN_HELD !== '1' && process.env.CI !== 'true') {
+    const { main: heavyRun } = await import('./heavy-run.mjs');
+    process.exitCode = await heavyRun([
+      '--label',
+      'scene-preferences',
+      '--',
+      process.execPath,
+      ...process.execArgv,
+      fileURLToPath(import.meta.url),
+      ...args,
+    ]);
+    return;
+  }
+  await runBenchmark(args);
+};
+
 if (import.meta.main)
-  await main().catch(() => {
+  await runCli(process.argv.slice(2)).catch(async error => {
+    const { toWorkflowErrorDiagnostic } = await import(
+      '../apps/backend/src/workflows/workflowErrorDiagnostics.js'
+    );
     console.error('Benchmark failed; inspect configuration and private paths.');
+    console.error(JSON.stringify(toWorkflowErrorDiagnostic(error, { includeContent: false })));
     process.exitCode = 1;
   });
