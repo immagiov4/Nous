@@ -118,6 +118,8 @@ classDiagram
 ```
 The class diagram illustrates how motion events are nested within the playback block structure. Sources: [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts), [packages/shared-types/lessonPlaybackSchema.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlaybackSchema.ts)
 
+`LessonPlaybackStage` delegates acoustic cue timing to `captionTiming.ts`, giving narration-synchronized visuals a shared timing owner. Captions retain their existing reveal pacing and viewport tracking.
+
 ### Motion Events
 - **Focus**: Highlights specific elements within a scene or diagram.
 - **Reveal**: Gradually shows items as the narrator mentions them.
@@ -166,3 +168,5 @@ Sources: [packages/shared-types/lessonPlaybackSchema.ts:127-160](https://github.
 ## Observability
 
 [Workflow state](../../../apps/backend/src/routes/workflows.ts) exposes preparation and alignment progress and failures. The [alignment workflow](../../../apps/backend/src/workflows/recordingAlignment.ts) also warns when alignment fails and stores a failed alignment result while retaining estimated timing. [Hook-and-stage integration tests](../../../apps/web/tests/hooks/reader/useLessonPlaybackAudio.integration.test.tsx) cover playback startup and audio-session failures. A playable recording can therefore still use estimated cues; successful preparation alone does not establish audible pronunciation quality or accurate synchronization.
+
+Stage and audio-hook integration tests cover narration-synchronized captions and visuals. These deterministic checks do not establish audible synchronization on a particular recording.
