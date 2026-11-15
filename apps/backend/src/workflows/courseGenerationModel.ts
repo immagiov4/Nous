@@ -16,8 +16,14 @@ import {
   runCodexAppServerTurn,
 } from '../services/codexAppServer.js';
 import { prepareStrictStructuredOutput } from '../services/strictStructuredOutput.js';
+import {
+  currentModelCallDiagnostic,
+  markModelCallPhase,
+  withModelCallDiagnostics,
+} from './modelCallDiagnostics.js';
 import { retryCorrective } from './retryPolicy.js';
 import type { DeepReadonly } from './types.js';
+import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
 
 export interface CourseObjectTool {
   readonly description: string;
@@ -150,6 +156,8 @@ const requestCourseObject = async <Schema extends z.ZodType>({
 }): Promise<unknown> => {
   const strictOutput = prepareStrictStructuredOutput(outputSchema);
   if (resolveAiProviderForSlot(config, input.slot) !== 'codex') {
+    // generateText buffers output, so first-output timing is unavailable on this path.
+    markModelCallPhase('awaiting-output');
     const response = await dependencies.runAiObject({
       config,
       developerInstructions: `${input.developerInstructions}\n${TRANSCRIBED_SOURCE_RULE}`,
@@ -162,6 +170,8 @@ const requestCourseObject = async <Schema extends z.ZodType>({
       ...(input.tools ? { tools: input.tools } : {}),
       webSearch,
     });
+    markModelCallPhase('completed');
+    markModelCallPhase('post-processing');
     return strictOutput.normalize(response);
   }
 
@@ -182,6 +192,7 @@ const requestCourseObject = async <Schema extends z.ZodType>({
       ? { tools: toCodexTools(input.tools, input.maxToolSteps) as CodexTurnTool[] }
       : {}),
   });
+  markModelCallPhase('post-processing');
   return strictOutput.normalize(JSON.parse(response));
 };
 
@@ -189,41 +200,49 @@ export const createCourseObjectGenerator =
   (dependencies: CourseObjectGeneratorDependencies = productionDependencies) =>
   async <Schema extends z.ZodType>(
     input: GenerateCourseObjectInput<Schema>
-  ): Promise<z.output<Schema>> => {
-    const config = input.config as GlobalModelConfig;
-    const outputSchema = toProviderSchema(input.schema);
-    const webSearch = input.webSearch ?? false;
-    if (
-      input.maxToolSteps !== undefined &&
-      (!Number.isSafeInteger(input.maxToolSteps) || input.maxToolSteps < 1)
-    ) {
-      throw new RangeError('maxToolSteps must be a positive safe integer.');
-    }
-    try {
-      const output = await requestCourseObject({
-        config,
-        dependencies,
-        input,
-        outputSchema,
-        webSearch,
-      });
-      return input.schema.parse(output);
-    } catch (error) {
-      input.signal.throwIfAborted();
+  ): Promise<z.output<Schema>> =>
+    withModelCallDiagnostics(input.signal, async () => {
+      const config = input.config as GlobalModelConfig;
+      const outputSchema = toProviderSchema(input.schema);
+      const webSearch = input.webSearch ?? false;
       if (
-        !(error instanceof SyntaxError) &&
-        !(error instanceof z.ZodError) &&
-        !NoObjectGeneratedError.isInstance(error)
+        input.maxToolSteps !== undefined &&
+        (!Number.isSafeInteger(input.maxToolSteps) || input.maxToolSteps < 1)
       ) {
-        throw new CourseModelProviderError(error);
+        throw new RangeError('maxToolSteps must be a positive safe integer.');
       }
-      throw retryCorrective({
-        code: 'course_model_output_invalid',
-        feedback:
-          'Return valid JSON that exactly matches the requested schema, including every required field and no extra fields.',
-        message: 'The course model returned invalid structured output.',
-      });
-    }
-  };
+      try {
+        const output = await requestCourseObject({
+          config,
+          dependencies,
+          input,
+          outputSchema,
+          webSearch,
+        });
+        return input.schema.parse(output);
+      } catch (error) {
+        input.signal.throwIfAborted();
+        if (
+          !(error instanceof SyntaxError) &&
+          !(error instanceof z.ZodError) &&
+          !NoObjectGeneratedError.isInstance(error)
+        ) {
+          throw new CourseModelProviderError(error);
+        }
+        const modelCall = currentModelCallDiagnostic();
+        throw retryCorrective({
+          details: {
+            diagnostic: {
+              ...toWorkflowErrorDiagnostic(error, { includeContent: false }),
+              ...(modelCall ? { modelCall } : {}),
+            },
+          },
+          code: 'course_model_output_invalid',
+          feedback:
+            'Return valid JSON that exactly matches the requested schema, including every required field and no extra fields.',
+          message: 'The course model returned invalid structured output.',
+        });
+      }
+    });
 
 export const generateCourseObject = createCourseObjectGenerator();

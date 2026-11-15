@@ -41,6 +41,8 @@ import {
   CourseYoutubeResearchSchema,
   courseGenerationStateSchemas,
   PreFailureDiagnosticsCourseYoutubeQueryPlanSchema,
+  PreModelCallCourseYoutubeQueryPlanSchema,
+  preModelCallCourseGenerationStateSchemas,
 } from './courseGenerationWorkflowContract.js';
 import { fanOut, routeBy, sequence, step } from './definition.js';
 import { YouTubeResearchOutcomeSchema } from './lessonGenerationWorkflowSchemas.js';
@@ -292,10 +294,14 @@ export const createCourseResearchNode = <
       ? CoursePreparationStateSchema.extend({ routing: ResearchSourceRoutingSchema.optional() })
       : CoursePreparationStateSchema,
   });
+  const historicalQueryPlanSchema =
+    schemas === preModelCallCourseGenerationStateSchemas
+      ? PreModelCallCourseYoutubeQueryPlanSchema
+      : PreFailureDiagnosticsCourseYoutubeQueryPlanSchema;
   const queryPlanSchema =
     schemas === courseGenerationStateSchemas
       ? CourseYoutubeQueryPlanSchema
-      : PreFailureDiagnosticsCourseYoutubeQueryPlanSchema;
+      : historicalQueryPlanSchema;
   const CourseYoutubeQueryPlanStateSchema = queryPlanSchema.extend({
     state: CoursePreparationStateSchema,
   });

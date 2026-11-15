@@ -17,7 +17,10 @@ import {
   type CourseChunkMappingBatchResult,
   createCourseLessonChunkBatchMapper,
 } from '../../src/workflows/courseChunkMapping.js';
-import { CourseModelProviderError } from '../../src/workflows/courseGenerationModel.js';
+import {
+  CourseModelProviderError,
+  createCourseObjectGenerator,
+} from '../../src/workflows/courseGenerationModel.js';
 import {
   type CourseGenerationWorkflowConfig,
   type CourseGenerationWorkflowServices,
@@ -805,6 +808,68 @@ describe('course source finalization', () => {
     });
   });
 
+  test.each([
+    { mode: 'fast', response: 'PRIVATE_MALFORMED_JSON', causeType: 'SyntaxError' },
+    { mode: 'repair', response: 'PRIVATE_MALFORMED_JSON', causeType: 'SyntaxError' },
+    { mode: 'fast', response: '{}', causeType: 'ZodError' },
+    { mode: 'repair', response: '{}', causeType: 'ZodError' },
+  ] as const)('retains the recorded $causeType cause in final $mode mapping checkpoints', async ({
+    mode,
+    response,
+    causeType,
+  }) => {
+    const generate = createCourseObjectGenerator({
+      runAiObject: vi.fn(),
+      runCodexObject: vi.fn().mockResolvedValue(response),
+    });
+    const mapper = createCourseLessonChunkBatchMapper(generate);
+    const services = sourceServices(
+      createCourseSourceFinalizationServices({
+        buildDocumentIndex: vi.fn(),
+        readSourceMaterials: vi.fn(),
+        mapBatch: input =>
+          mapper({
+            ...input,
+            config: { ...input.config, aiProviderOverrides: { course: 'codex' } },
+          }),
+      })
+    );
+    const node = findNode(`map-course-source-${mode}-batches`) as FanOutDefinition<
+      CourseSourcePreparationOutcome | CourseSourceMappingProgress,
+      CourseChunkMappingBatch,
+      BatchAttempt,
+      CourseSourceMappingProgress
+    >;
+    const parent = mode === 'fast' ? mappingState() : mappingProgress([]);
+    const batch = node.inputs(parent)[0];
+    const workerId = `map-course-source-${mode}-batch`;
+    const worker = findNode(workerId) as StepDefinition;
+    const output = worker.outputSchema.parse(
+      JSON.parse(JSON.stringify(await runStep(workerId, batch, services, 3)))
+    ) as BatchAttempt;
+    const progress = node.outputSchema.parse(
+      JSON.parse(
+        JSON.stringify(
+          node.fanIn(
+            [{ input: batch, key: String(batch.batchIndex), output, status: 'completed' }],
+            parent
+          )
+        )
+      )
+    );
+    const expected = {
+      type: 'WorkflowStepError',
+      code: 'course_model_output_invalid',
+      cause: {
+        type: causeType,
+        modelCall: { phase: 'post-processing', elapsedMs: expect.any(Number) },
+      },
+    };
+    expect(output).toMatchObject({ status: 'failed', failure: { diagnostic: expected } });
+    expect(progress).toMatchObject({ mappingFailures: [{ diagnostic: expected }] });
+    expect(JSON.stringify(progress)).not.toContain('PRIVATE_');
+  });
+
   test('retains only technical provider causes on the final failed batch', async () => {
     const error = new CourseModelProviderError(
       Object.assign(new Error('PRIVATE SOURCE CONTENT'), {
@@ -812,6 +877,14 @@ describe('course source finalization', () => {
         responseBody: 'PRIVATE PROVIDER RESPONSE',
       })
     );
+    Object.assign(error, {
+      modelCall: {
+        phase: 'awaiting-output',
+        elapsedMs: 25,
+        phaseElapsedMs: 25,
+        durationsMs: { 'awaiting-output': 25 },
+      },
+    });
     const mapBatch = vi.fn().mockRejectedValue(error);
     const services = sourceServices(
       createCourseSourceFinalizationServices({
@@ -837,11 +910,20 @@ describe('course source finalization', () => {
           type: 'CourseModelProviderError',
           code: 'course_source_finalization_failed',
           cause: { type: 'Error', code: 'ETIMEDOUT' },
+          modelCall: {
+            phase: 'awaiting-output',
+            elapsedMs: 25,
+            phaseElapsedMs: 25,
+            durationsMs: { 'awaiting-output': 25 },
+          },
         },
         kind: 'operational',
         stage: 'map-course-source-fast-batch',
       },
       status: 'failed',
+    });
+    expect(output.failure.diagnostic).toMatchObject({
+      modelCall: { phase: 'awaiting-output', elapsedMs: 25 },
     });
     expect(JSON.stringify(output)).not.toContain('PRIVATE');
     const permanent = failPermanently({ code: 'mapping_forbidden', message: 'Forbidden.' });

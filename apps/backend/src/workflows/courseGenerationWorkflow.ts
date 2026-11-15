@@ -28,6 +28,7 @@ import {
   preControlsCourseGenerationStateSchemas,
   preDiagnosticCourseGenerationStateSchemas,
   preFailureDiagnosticsCourseGenerationStateSchemas,
+  preModelCallCourseGenerationStateSchemas,
   preRoutingCourseGenerationStateSchemas,
   preVerificationCriteriaCourseGenerationStateSchemas,
   previousCourseGenerationStateSchemas,
@@ -157,7 +158,8 @@ const createCourseGenerationWorkflowDefinition = <
   {
     planningTopology,
     schemas = courseGenerationStateSchemas,
-    sourceMappingDiagnostics = schemas === courseGenerationStateSchemas,
+    sourceMappingDiagnostics = schemas === courseGenerationStateSchemas ||
+      schemas === preModelCallCourseGenerationStateSchemas,
   }: {
     planningTopology: CoursePlanningTopology;
     schemas?: typeof courseGenerationStateSchemas;
@@ -207,6 +209,7 @@ const createCourseGenerationWorkflowDefinition = <
   const courseResearch = createCourseResearchNode<Config, Services>(
     schemas,
     schemas === courseGenerationStateSchemas ||
+      schemas === preModelCallCourseGenerationStateSchemas ||
       schemas === preFailureDiagnosticsCourseGenerationStateSchemas ||
       schemas === preVerificationCriteriaCourseGenerationStateSchemas
   );
@@ -562,6 +565,7 @@ export const createPreviousSourceMappingDiagnosticsCourseGenerationWorkflow = (
   createCourseGenerationWorkflowDefinition(executionDefaults, configSchema, {
     planningTopology: 'current',
     sourceMappingDiagnostics: false,
+    schemas: preModelCallCourseGenerationStateSchemas,
   });
 
 export const createPreviousCourseGenerationWorkflow = <
@@ -639,4 +643,15 @@ export const createPreviousFailureDiagnosticsCourseGenerationWorkflow = (
     executionDefaults,
     configSchema,
     preFailureDiagnosticsCourseGenerationStateSchemas
+  );
+
+/** Retains planning checkpoints deployed before model-call observations. */
+export const createPreviousModelCallCourseGenerationWorkflow = (
+  executionDefaults: CourseGenerationWorkflowConfig,
+  configSchema = CourseGenerationWorkflowConfigSchema
+) =>
+  createCourseGenerationWorkflow(
+    executionDefaults,
+    configSchema,
+    preModelCallCourseGenerationStateSchemas
   );

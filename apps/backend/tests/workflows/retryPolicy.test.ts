@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
+import { CurrentLessonGenerationDurableSchemaSet } from '../../src/workflows/lessonGenerationWorkflowContract.js';
 
 import {
   degradeOnFinalAttempt,
@@ -383,6 +384,50 @@ test.each([
       );
       expect(events).toEqual(['fallback', 'logged']);
     }
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+test('final-attempt degradation keeps model-call observations through current lesson checkpoints', () => {
+  const modelCall = {
+    phase: 'awaiting-output',
+    elapsedMs: 500,
+    phaseElapsedMs: 500,
+    durationsMs: { 'awaiting-output': 500 },
+  };
+  const error = Object.assign(
+    new Error('PRIVATE_PROMPT', {
+      cause: Object.assign(new Error('PRIVATE_OUTPUT'), { stage: 'turn/start', code: 'timeout' }),
+    }),
+    { modelCall }
+  );
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const failure = degradeOnFinalAttempt({
+      attemptNumber: 3,
+      maxAttempts: 3,
+      eligible: true,
+      error,
+      signal: new AbortController().signal,
+      stage: 'lesson-research',
+      fallback: failure => failure,
+    });
+    const sources =
+      CurrentLessonGenerationDurableSchemaSet.LessonSourcesStateSchema.shape.degradationDiagnostics.parse(
+        [failure]
+      );
+    const sublesson =
+      CurrentLessonGenerationDurableSchemaSet.SublessonReadyStateSchema.shape.mappingFailure.parse(
+        failure
+      );
+    for (const checkpoint of [failure, sources?.[0], sublesson]) {
+      expect(checkpoint).toMatchObject({
+        diagnostic: { modelCall, cause: { code: 'timeout', errorStage: 'turn/start' } },
+      });
+      expect(JSON.stringify(checkpoint)).not.toContain('PRIVATE_');
+    }
+    expect(warn).toHaveBeenCalledWith('Workflow step degraded.', failure);
   } finally {
     warn.mockRestore();
   }

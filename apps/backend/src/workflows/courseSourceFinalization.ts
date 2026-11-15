@@ -38,6 +38,7 @@ import {
   type CourseSourcesFinalizedState,
   CourseSourcesFinalizedStateSchema,
   courseGenerationStateSchemas,
+  preModelCallCourseGenerationStateSchemas,
 } from './courseGenerationWorkflowContract.js';
 import { fanOut, routeBy, sequence, step } from './definition.js';
 import {
@@ -46,10 +47,12 @@ import {
   runWorkflowStage,
   WorkflowStepError,
 } from './retryPolicy.js';
-import type { FanOutResult, StepExecutionContext } from './types.js';
+import type { FanOutResult, StepExecutionContext, StepFailure } from './types.js';
 import {
   createWorkflowModelDiagnostic,
+  readWorkflowErrorDiagnostic,
   toWorkflowErrorDiagnostic,
+  WorkflowObservedTechnicalDiagnosticSchema,
   WorkflowTechnicalDiagnosticSchema,
 } from './workflowErrorDiagnostics.js';
 
@@ -71,9 +74,14 @@ const CourseMappingFailureSchema = z.object({
 });
 
 const createSourceFinalizationSchemas = (
-  { CoursePlanStateSchema, CourseSourcesFinalizedStateSchema }: typeof courseGenerationStateSchemas,
+  schemas: typeof courseGenerationStateSchemas,
   failureDiagnostics = true
 ) => {
+  const { CoursePlanStateSchema, CourseSourcesFinalizedStateSchema } = schemas;
+  const mappingFailureSchema =
+    schemas === courseGenerationStateSchemas
+      ? CourseMappingFailureSchema.extend({ diagnostic: WorkflowObservedTechnicalDiagnosticSchema })
+      : CourseMappingFailureSchema;
   const CourseSourceMappingStateSchema = z.object({
     index: CourseDocumentIndexSchema,
     kind: z.literal('mapping'),
@@ -88,13 +96,13 @@ const createSourceFinalizationSchemas = (
 
   const CourseSourceMappingProgressSchema = z.object({
     mappingFailed: z.boolean(),
-    mappingFailures: z.array(CourseMappingFailureSchema).optional(),
+    mappingFailures: z.array(mappingFailureSchema).optional(),
     mappings: CourseChunkMappingBatchResultSchema.shape.mappings,
     state: CourseSourceMappingStateSchema,
   });
   const failedBatchSchema = z.object({
     batchIndex: z.number().int().nonnegative(),
-    failure: CourseMappingFailureSchema.optional(),
+    failure: mappingFailureSchema.optional(),
     status: z.literal('failed'),
   });
   const { failure: _failure, ...historicalFailedBatchShape } = failedBatchSchema.shape;
@@ -464,12 +472,25 @@ const appendBatchAttempts = (
   };
 };
 
+const mappingFailureDiagnostic = (
+  error: CourseModelProviderError | WorkflowStepError,
+  failure: StepFailure
+) => {
+  const nested = readWorkflowErrorDiagnostic(failure.details?.diagnostic);
+  return WorkflowObservedTechnicalDiagnosticSchema.parse({
+    ...toWorkflowErrorDiagnostic(error, { includeContent: false }),
+    ...(nested ? { cause: nested } : {}),
+    code: failure.code,
+  });
+};
+
 export const createCourseSourceFinalizationNode = <
   Config extends CourseGenerationWorkflowConfig,
   Services extends CourseSourceFinalizationServices,
 >(
   schemas = courseGenerationStateSchemas,
-  failureDiagnostics = schemas === courseGenerationStateSchemas
+  failureDiagnostics = schemas === courseGenerationStateSchemas ||
+    schemas === preModelCallCourseGenerationStateSchemas
 ) => {
   const { CoursePlanStateSchema, CourseSourcesFinalizedStateSchema } = schemas;
   const {
@@ -565,6 +586,7 @@ export const createCourseSourceFinalizationNode = <
           if (!retryableFailure) throw error;
           if (context.attemptNumber < context.config.maxAttempts) throw retryableFailure;
           const mappingError = error as CourseModelProviderError | WorkflowStepError;
+
           return {
             batchIndex: context.input.batchIndex,
             ...(failureDiagnostics
@@ -572,14 +594,7 @@ export const createCourseSourceFinalizationNode = <
                   failure: {
                     attemptNumber: context.attemptNumber,
                     batchIndex: context.input.batchIndex,
-                    diagnostic: toWorkflowErrorDiagnostic(
-                      {
-                        name: mappingError.name,
-                        code: retryableFailure.failure.code,
-                        cause: mappingError.cause,
-                      },
-                      { includeContent: false }
-                    ),
+                    diagnostic: mappingFailureDiagnostic(mappingError, retryableFailure.failure),
                     kind:
                       retryableFailure.failure.kind === 'corrective' ? 'corrective' : 'operational',
                     stage: id,

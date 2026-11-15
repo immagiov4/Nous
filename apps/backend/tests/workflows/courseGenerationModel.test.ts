@@ -2,13 +2,57 @@ import { TRANSCRIBED_SOURCE_RULE } from '@shared/pdfTranscription';
 import { NoObjectGeneratedError } from 'ai';
 import { describe, expect, test, vi } from 'vitest';
 import * as z from 'zod';
-
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { createCourseObjectGenerator } from '../../src/workflows/courseGenerationModel.js';
+import { toStepFailure } from '../../src/workflows/retryPolicy.js';
+import {
+  readWorkflowErrorDiagnostic,
+  toWorkflowErrorDiagnostic,
+} from '../../src/workflows/workflowErrorDiagnostics.js';
 
 const schema = z.object({ title: z.string().min(1) }).strict();
 
 describe('course generation structured model adapter', () => {
+  test.each([
+    'codex',
+    'openrouter',
+  ] as const)('keeps %s provider cause and phase through durable diagnostics', async provider => {
+    const cause = Object.assign(new Error('PRIVATE_PROVIDER_OUTPUT'), {
+      name: 'ProviderCallError',
+      code: 'unavailable',
+      stage: 'request',
+    });
+    const generate = createCourseObjectGenerator({
+      runAiObject: async () => {
+        throw cause;
+      },
+      runCodexObject: async () => {
+        throw cause;
+      },
+    });
+    const error = await generate({
+      config: {
+        ...getGlobalModelConfig(),
+        aiProvider: provider,
+        aiProviderOverrides: { course: provider },
+      },
+      developerInstructions: 'PRIVATE_INSTRUCTIONS',
+      prompt: 'PRIVATE_PROMPT',
+      name: 'course_plan',
+      schema,
+      signal: new AbortController().signal,
+      slot: 'course',
+    }).catch(error => error);
+    const diagnostic = toWorkflowErrorDiagnostic(error, { includeContent: false });
+    expect(diagnostic).toMatchObject({
+      type: 'CourseModelProviderError',
+      cause: { type: 'ProviderCallError', code: 'unavailable', errorStage: 'request' },
+      modelCall: { phase: provider === 'codex' ? 'initializing' : 'awaiting-output' },
+    });
+    expect(readWorkflowErrorDiagnostic(JSON.parse(JSON.stringify(diagnostic)))).toEqual(diagnostic);
+    expect(JSON.stringify(diagnostic)).not.toContain('PRIVATE_');
+  });
+
   test('routes Codex through the app server and validates its JSON output', async () => {
     const signal = new AbortController().signal;
     const runAiObject = vi.fn();
@@ -324,4 +368,52 @@ describe('course generation structured model adapter', () => {
       })
     );
   });
+});
+
+test('keeps malformed Codex JSON cause and post-processing in the persistible corrective failure', async () => {
+  const generate = createCourseObjectGenerator({
+    runAiObject: vi.fn(),
+    runCodexObject: vi.fn().mockResolvedValue('PRIVATE_MALFORMED_JSON'),
+  });
+  const error = await generate({
+    config: { ...getGlobalModelConfig(), aiProviderOverrides: { course: 'codex' } },
+    developerInstructions: 'PRIVATE_SYSTEM',
+    prompt: 'PRIVATE_PROMPT',
+    name: 'course_plan',
+    schema,
+    signal: new AbortController().signal,
+    slot: 'course',
+  }).catch(error => error);
+  const failure = JSON.parse(JSON.stringify(toStepFailure(error)));
+  expect(failure).toMatchObject({
+    kind: 'corrective',
+    code: 'course_model_output_invalid',
+    details: {
+      diagnostic: {
+        type: 'SyntaxError',
+        modelCall: { phase: 'post-processing', elapsedMs: expect.any(Number) },
+      },
+    },
+  });
+  expect(JSON.stringify(failure)).not.toContain('PRIVATE_');
+});
+
+test('rejects invalid tool consultation limits before calling either provider', async () => {
+  const runAiObject = vi.fn();
+  const runCodexObject = vi.fn();
+  const generate = createCourseObjectGenerator({ runAiObject, runCodexObject });
+  await expect(
+    generate({
+      config: getGlobalModelConfig(),
+      developerInstructions: 'system',
+      prompt: 'prompt',
+      name: 'answer',
+      schema,
+      signal: new AbortController().signal,
+      slot: 'course',
+      maxToolSteps: 0,
+    })
+  ).rejects.toBeInstanceOf(RangeError);
+  expect(runAiObject).not.toHaveBeenCalled();
+  expect(runCodexObject).not.toHaveBeenCalled();
 });

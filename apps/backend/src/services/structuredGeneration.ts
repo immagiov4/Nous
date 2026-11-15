@@ -1,6 +1,5 @@
 import { TRANSCRIBED_SOURCE_RULE } from '@shared/pdfTranscription';
 import { generateText, jsonSchema, Output } from 'ai';
-
 import {
   type AiProvider,
   type GlobalModelConfig,
@@ -10,6 +9,7 @@ import {
   resolveTextModelConfig,
   type TextModelSlot,
 } from '../config/modelConfig.js';
+import { markModelCallPhase, withModelCallDiagnostics } from '../workflows/modelCallDiagnostics.js';
 import { createConfiguredTextModelFromResolution } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
 import { prepareStrictStructuredOutput } from './strictStructuredOutput.js';
@@ -82,96 +82,110 @@ const resolveTarget = (request: StructuredGenerationRequest): ResolvedStructured
  */
 export const generateStructuredOutput = async <T>(
   request: StructuredGenerationRequest
-): Promise<T> => {
-  const { image, maxRetries = 0, output, prompt, signal, system, webSearch = false } = request;
-  const target = resolveTarget(request);
-  const sourceAwareSystem =
-    request.sourceAware && !system.includes(TRANSCRIBED_SOURCE_RULE)
-      ? `${system}\n${TRANSCRIBED_SOURCE_RULE}`
-      : system;
-  request.onOutputPath?.('direct');
-  const strictOutput = prepareStrictStructuredOutput(output.schema);
-  if (target.provider === 'codex') {
-    const response = await runCodexAppServerTurn({
-      allowWebSearch: webSearch,
-      developerInstructions: `${sourceAwareSystem} ${webSearch ? CODEX_WEB_ONLY_INSTRUCTION : CODEX_TOOL_FREE_INSTRUCTION}`,
-      input: [
-        ...(image ? [{ type: 'image' as const, url: image }] : []),
-        { text: prompt, type: 'text' },
-      ],
-      model: target.model,
-      slot: 'slot' in request ? request.slot : undefined,
-      role: output.name,
-      outputSchemaName: output.name,
-      outputSchema: strictOutput.schema,
-      reasoningEffort: target.reasoningEffort,
-      serviceTier: target.serviceTier,
-      signal,
-    });
-    return strictOutput.normalize(JSON.parse(response)) as T;
-  }
-
-  const configured = createConfiguredTextModelFromResolution(
-    {
-      model: target.model,
-      provider: target.provider,
-      reasoningEffort: target.reasoningEffort,
-      slot: 'slot' in request ? request.slot : undefined,
-      role: output.name,
-    },
-    { webSearch }
-  );
-  const generate = async <Result>(schema: StructuredOutputSchema, generationPrompt: string) =>
-    generateText({
-      abortSignal: signal,
-      maxRetries,
-      model: configured.model,
-      output: Output.object({
-        name: schema.name,
-        schema: jsonSchema<Result>(schema.schema as Parameters<typeof jsonSchema>[0]),
-      }),
-      ...(image
-        ? {
-            messages: [
-              {
-                content: [
-                  { image, type: 'image' as const },
-                  { text: generationPrompt, type: 'text' as const },
-                ],
-                role: 'user' as const,
-              },
-            ],
-          }
-        : { prompt: generationPrompt }),
-      providerOptions: configured.providerOptions,
-      system: sourceAwareSystem,
-      ...(configured.tools ? { tools: configured.tools } : {}),
-    });
-
-  try {
-    const response = await generate<unknown>({ ...output, schema: strictOutput.schema }, prompt);
-    return strictOutput.normalize(response.output) as T;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (
-      !/schema is too complex|schemas contains too many (?:optional parameters|parameters with union types)|invalid schema for response_format|additionalProperties.*required/iu.test(
-        message
-      )
-    ) {
-      throw error;
+): Promise<T> =>
+  withModelCallDiagnostics(request.signal, async () => {
+    const { image, maxRetries = 0, output, prompt, signal, system, webSearch = false } = request;
+    const target = resolveTarget(request);
+    const sourceAwareSystem =
+      request.sourceAware && !system.includes(TRANSCRIBED_SOURCE_RULE)
+        ? `${system}\n${TRANSCRIBED_SOURCE_RULE}`
+        : system;
+    request.onOutputPath?.('direct');
+    const strictOutput = prepareStrictStructuredOutput(output.schema);
+    if (target.provider === 'codex') {
+      const response = await runCodexAppServerTurn({
+        allowWebSearch: webSearch,
+        developerInstructions: `${sourceAwareSystem} ${webSearch ? CODEX_WEB_ONLY_INSTRUCTION : CODEX_TOOL_FREE_INSTRUCTION}`,
+        input: [
+          ...(image ? [{ type: 'image' as const, url: image }] : []),
+          { text: prompt, type: 'text' },
+        ],
+        model: target.model,
+        slot: 'slot' in request ? request.slot : undefined,
+        role: output.name,
+        outputSchemaName: output.name,
+        outputSchema: strictOutput.schema,
+        reasoningEffort: target.reasoningEffort,
+        serviceTier: target.serviceTier,
+        signal,
+      });
+      markModelCallPhase('post-processing');
+      return strictOutput.normalize(JSON.parse(response)) as T;
     }
-    const envelope = {
-      name: `${output.name}_json_envelope`,
-      schema: {
-        additionalProperties: false,
-        properties: { payload: { type: 'string' } },
-        required: ['payload'],
-        type: 'object',
+
+    const configured = createConfiguredTextModelFromResolution(
+      {
+        model: target.model,
+        provider: target.provider,
+        reasoningEffort: target.reasoningEffort,
+        slot: 'slot' in request ? request.slot : undefined,
+        role: output.name,
       },
-    } as const;
-    const fallbackPrompt = `${prompt}\n\nThe provider cannot compile the requested schema. Return the complete requested JSON object as a JSON-encoded string in payload. Do not omit, summarize, or alter fields. The JSON object inside payload must conform to the original requested output schema below:\n\n${JSON.stringify(output.schema)}`;
-    request.onOutputPath?.('json-envelope');
-    const fallback = await generate<{ payload: string }>(envelope, fallbackPrompt);
-    return strictOutput.normalizePayload(JSON.parse(fallback.output.payload)) as T;
-  }
-};
+      { webSearch }
+    );
+    const generate = async <Result>(schema: StructuredOutputSchema, generationPrompt: string) => {
+      markModelCallPhase('awaiting-output');
+      return generateText({
+        abortSignal: signal,
+        maxRetries,
+        model: configured.model,
+        output: Output.object({
+          name: schema.name,
+          schema: jsonSchema<Result>(schema.schema as Parameters<typeof jsonSchema>[0]),
+        }),
+        ...(image
+          ? {
+              messages: [
+                {
+                  content: [
+                    { image, type: 'image' as const },
+                    { text: generationPrompt, type: 'text' as const },
+                  ],
+                  role: 'user' as const,
+                },
+              ],
+            }
+          : { prompt: generationPrompt }),
+        providerOptions: configured.providerOptions,
+        system: sourceAwareSystem,
+        ...(configured.tools ? { tools: configured.tools } : {}),
+      });
+    };
+
+    try {
+      const response = await generate<unknown>({ ...output, schema: strictOutput.schema }, prompt);
+      markModelCallPhase('completed');
+      markModelCallPhase('post-processing');
+      return strictOutput.normalize(response.output) as T;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        !/schema is too complex|schemas contains too many (?:optional parameters|parameters with union types)|invalid schema for response_format|additionalProperties.*required/iu.test(
+          message
+        )
+      ) {
+        throw error;
+      }
+      const envelope = {
+        name: `${output.name}_json_envelope`,
+        schema: {
+          additionalProperties: false,
+          properties: { payload: { type: 'string' } },
+          required: ['payload'],
+          type: 'object',
+        },
+      } as const;
+      const fallbackPrompt = `${prompt}\n\nThe provider cannot compile the requested schema. Return the complete requested JSON object as a JSON-encoded string in payload. Do not omit, summarize, or alter fields. The JSON object inside payload must conform to the original requested output schema below:\n\n${JSON.stringify(output.schema)}`;
+      request.onOutputPath?.('json-envelope');
+      return withModelCallDiagnostics(
+        signal,
+        async () => {
+          const fallback = await generate<{ payload: string }>(envelope, fallbackPrompt);
+          markModelCallPhase('completed');
+          markModelCallPhase('post-processing');
+          return strictOutput.normalizePayload(JSON.parse(fallback.output.payload)) as T;
+        },
+        { newCall: true }
+      );
+    }
+  });

@@ -6,6 +6,7 @@ import type { JsonValue, StepFailure } from './types.js';
 import {
   readWorkflowErrorDiagnostic,
   toWorkflowErrorDiagnostic,
+  WorkflowObservedTechnicalDiagnosticSchema,
   WorkflowTechnicalDiagnosticSchema,
 } from './workflowErrorDiagnostics.js';
 
@@ -291,6 +292,12 @@ export const WorkflowDegradationSchema = z.object({
   kind: z.enum(['corrective', 'operational', 'permanent']),
   stage: z.string(),
 });
+export const WorkflowObservedDegradationSchema = WorkflowDegradationSchema.extend({
+  diagnostic: z.intersection(
+    WorkflowObservedTechnicalDiagnosticSchema,
+    z.object({ validation: LessonReviewDiagnosticSchema.optional() })
+  ),
+});
 export type WorkflowDegradation = z.infer<typeof WorkflowDegradationSchema>;
 
 /** Keep the retry boundary and content-free cause together whenever a step degrades. */
@@ -308,7 +315,7 @@ export const degradeOnFinalAttempt = <Output>(input: {
   const diagnostic = toWorkflowErrorDiagnostic(input.error, { includeContent: false });
   const stepFailure = input.error instanceof WorkflowStepError ? input.error.failure : undefined;
   const nested = readWorkflowErrorDiagnostic(stepFailure?.details?.diagnostic);
-  const failure = WorkflowDegradationSchema.parse({
+  const failure = WorkflowObservedDegradationSchema.parse({
     attemptNumber: input.attemptNumber,
     diagnostic: {
       ...diagnostic,

@@ -45,6 +45,7 @@ import {
   createPreviousCourseGenerationWorkflow,
   createPreviousDiagnosticCourseGenerationWorkflow,
   createPreviousFailureDiagnosticsCourseGenerationWorkflow,
+  createPreviousModelCallCourseGenerationWorkflow,
   createPreviousPreferencesCourseGenerationWorkflow,
   createPreviousRoutingCourseGenerationWorkflow,
   createPreviousSourceMappingDiagnosticsCourseGenerationWorkflow,
@@ -54,6 +55,7 @@ import {
   courseGenerationStateSchemas,
   preControlsCourseGenerationStateSchemas,
   preDiagnosticCourseGenerationStateSchemas,
+  preModelCallCourseGenerationStateSchemas,
   previousCourseGenerationStateSchemas,
 } from '../courseGenerationWorkflowContract.js';
 import {
@@ -176,7 +178,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 11;
+export const WORKFLOW_SET_VERSION = 12;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -312,6 +314,16 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
         },
         undefined,
         createSceneLessonGenerationDurableSchemaSet(contract)
+      ),
+      previousDiagnosticLesson: createLessonGenerationWorkflow(
+        {
+          maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+          models,
+          timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+          visual,
+        },
+        undefined,
+        createSceneLessonGenerationDurableSchemaSet(contract, true, false)
       ),
       visualSectionsPlayback: createLessonPlaybackWorkflow(
         playbackExecutionDefaults,
@@ -571,6 +583,11 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: courseWorkflow,
     previous: [
+      createPreviousModelCallCourseGenerationWorkflow({
+        maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+        models,
+        timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+      }),
       createPreviousSourceMappingDiagnosticsCourseGenerationWorkflow({
         maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
         models,
@@ -610,6 +627,8 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     current: lessonWorkflow,
     previous: [
       currentScenes.lesson,
+      currentScenes.previousDiagnosticLesson,
+      ...historicalScenes.map(definition => definition.previousDiagnosticLesson),
       ...historicalScenes.map(definition => definition.diagnosticLesson),
       ...historicalScenes.map(definition => definition.lesson),
       ...preOpenAiRemovalScenes.map(definition => definition.lesson),
@@ -627,6 +646,15 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: pdfMappingRepairWorkflow,
     previous: [
+      createPdfMappingRepairWorkflow(
+        {
+          maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+          models,
+          timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+        },
+        undefined,
+        { schemas: preModelCallCourseGenerationStateSchemas, sourceMappingDiagnostics: true }
+      ),
       createPdfMappingRepairWorkflow(
         {
           maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,

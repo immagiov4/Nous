@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { expect, test, vi } from 'vitest';
 import { createProductionRegistry } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
 import diagnosticContracts from './fixtures/productionRegistryDegradation.json';
+import combinedContracts from './fixtures/productionRegistryPhaseDiagnostics.json';
 import fixture from './productionRegistryCompatibility.fixture.json';
 
 // Keep model settings explicit so local environment overrides do not change the comparison.
@@ -20,7 +21,7 @@ test('preserves every production registry output and durable fingerprint byte fo
       .listDefinitionDeployments()
       .map(({ current }) => [current.workflowId, current.definitionHash])
   );
-  expect(current).toEqual(diagnosticContracts.current);
+  expect(current).toEqual(combinedContracts.current);
   const added = registry
     .listRegisteredBoundaries()
     .filter(
@@ -37,7 +38,7 @@ test('preserves every production registry output and durable fingerprint byte fo
         defaultsSha256: sha256(definition.executionDefaults),
       };
     })
-  ).toEqual(diagnosticContracts.addedDefinitions);
+  ).toEqual(combinedContracts.addedDefinitions);
   expect(
     fixture.definitions.map(
       ({ manifestSha256: _manifest, defaultsSha256: _defaults, ...boundary }) => {
@@ -155,4 +156,32 @@ test('only current artifact checkpoints retain the original request while histor
   expect(historicalPlan.outputSchema.parse(checkpoint)).toEqual(previousCheckpoint);
   const ordinary = registry.current('retry-lesson-visual');
   expect(ordinary?.inputSchema.parse(checkpoint)).not.toHaveProperty('requestText');
+});
+
+// Frozen from the registry before #603 at f519dc1, using its unchanged defaults.
+test.each([
+  ['course-generation', '63a25e1442392de839f5b72f53949285902dcf6e872d3d7d530ff585bc2dcf53'],
+  ['pdf-mapping-repair', '67eacc4ec881db634368c3b7b2e8dfc7e541378b60f1260cb3e1463b850e6928'],
+])('retains the pre-observation %s definition while promoting the current schema', (workflowId, hash) => {
+  expect(registry.resolve(workflowId, hash)).not.toBeNull();
+  expect(registry.current(workflowId)?.definitionHash).not.toBe(hash);
+});
+
+test('preserves PR602 current and historical degradation fingerprints exactly', () => {
+  for (const [workflowId, definitionHash] of Object.entries(diagnosticContracts.current)) {
+    expect(registry.resolve(workflowId, definitionHash)?.definitionHash).toBe(definitionHash);
+  }
+  expect(
+    diagnosticContracts.addedDefinitions.map(
+      ({ manifestSha256: _manifest, defaultsSha256: _defaults, ...boundary }) => {
+        const definition = registry.resolve(boundary.workflowId, boundary.definitionHash);
+        if (!definition) throw new Error(`Unresolvable PR602 definition: ${boundary.workflowId}`);
+        return {
+          ...boundary,
+          manifestSha256: sha256(definition.manifest),
+          defaultsSha256: sha256(definition.executionDefaults),
+        };
+      }
+    )
+  ).toEqual(diagnosticContracts.addedDefinitions);
 });

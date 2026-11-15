@@ -27,7 +27,7 @@ import {
   ResearchSourceSchema,
   YouTubeResearchOutcomeSchema,
 } from './lessonGenerationWorkflowSchemas.js';
-import { WorkflowDegradationSchema } from './retryPolicy.js';
+import { WorkflowDegradationSchema, WorkflowObservedDegradationSchema } from './retryPolicy.js';
 export const LessonGenerationRequestSchema = z.object({
   forceRegenerate: z.boolean(),
   projectId: LessonIdentifierSchema,
@@ -73,8 +73,12 @@ const PreviousSublessonReadyStateSchema = SublessonPlanStateSchema.extend({
   stage: z.literal('sublesson-ready'),
 });
 
-export const SublessonReadyStateSchema = PreviousSublessonReadyStateSchema.extend({
+const PreModelCallSublessonReadyStateSchema = PreviousSublessonReadyStateSchema.extend({
   mappingFailure: WorkflowDegradationSchema.optional(),
+});
+
+export const SublessonReadyStateSchema = PreviousSublessonReadyStateSchema.extend({
+  mappingFailure: WorkflowObservedDegradationSchema.optional(),
 });
 
 export const LessonContextStateSchema = z.object({
@@ -134,6 +138,7 @@ const createLessonVisualFanOutResultSchema = (visualContract: LessonVisualContra
 
 const createLessonGenerationDurableSchemaSet = ({
   failureDiagnostics = false,
+  modelCallDiagnostics = false,
   evidence = false,
   routing = false,
   pdfImageMetadataSchema,
@@ -146,6 +151,7 @@ const createLessonGenerationDurableSchemaSet = ({
   visualContract,
 }: {
   failureDiagnostics?: boolean;
+  modelCallDiagnostics?: boolean;
   evidence?: boolean;
   routing?: boolean;
   visualContract: LessonVisualContractSchemas;
@@ -167,7 +173,11 @@ const createLessonGenerationDurableSchemaSet = ({
     : (LessonCoverageStateSchema as ReturnType<
         typeof LessonCoverageStateSchema.extend<typeof routingShape>
       >);
-  const diagnosticShape = { degradationDiagnostics: z.array(WorkflowDegradationSchema).optional() };
+  const diagnosticShape = {
+    degradationDiagnostics: z
+      .array(modelCallDiagnostics ? WorkflowObservedDegradationSchema : WorkflowDegradationSchema)
+      .optional(),
+  };
   const diagnosticSourceSchema = failureDiagnostics
     ? sourceSchema.extend(diagnosticShape)
     : (sourceSchema as ReturnType<typeof sourceSchema.extend<typeof diagnosticShape>>);
@@ -304,9 +314,12 @@ const createLessonGenerationDurableSchemaSet = ({
     userId: LessonIdentifierSchema,
   });
 
+  const diagnosticSublessonReadySchema = modelCallDiagnostics
+    ? SublessonReadyStateSchema
+    : PreModelCallSublessonReadyStateSchema;
   return {
     SublessonReadyStateSchema: failureDiagnostics
-      ? SublessonReadyStateSchema
+      ? diagnosticSublessonReadySchema
       : (PreviousSublessonReadyStateSchema as typeof SublessonReadyStateSchema),
     evidence,
     LessonAidsStateSchema,
@@ -341,11 +354,13 @@ const legacyVisualLessonSchemas = {
 
 export const createSceneLessonGenerationDurableSchemaSet = (
   visualContract: LessonVisualContractSchemas,
-  failureDiagnostics = true
+  failureDiagnostics = true,
+  modelCallDiagnostics = true
 ) =>
   createLessonGenerationDurableSchemaSet({
     ...legacyVisualLessonSchemas,
     failureDiagnostics,
+    modelCallDiagnostics,
     evidence: true,
     lessonContentDraftSchema: visualContract.LessonContentDraftSchema,
     lessonResearchDossierSchema: LessonResearchDossierSchema,
