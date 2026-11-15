@@ -670,7 +670,8 @@ test.each([false, true])('generation preserves the draft and Stop on mobile=%s',
   const form = input.closest('form');
   if (!form) throw new Error('Expected the question composer form');
   fireEvent.submit(form);
-  fireEvent.keyDown(screen.getByRole('dialog'), space);
+  input.focus();
+  fireEvent.keyDown(input, space);
   fireEvent.keyUp(window, space);
   expect(getUserMedia).not.toHaveBeenCalled();
   expect(sendInConversation).not.toHaveBeenCalled();
@@ -939,16 +940,38 @@ test.each([
   expect(answerPanelProps).not.toHaveBeenCalled();
 });
 
-test('a pending note decision blocks Space capture', async () => {
+test.each([
+  'note decision',
+  'generation',
+])('Space captures during %s and sends the follow-up once it finishes', async reason => {
   const { rerender } = render(<LessonPlayer {...props} autoPlay={false} />);
   await recordQuestion();
-  composerState.disabled = true;
+  if (reason === 'note decision') composerState.disabled = true;
+  else generatingResponse.stop = vi.fn();
   rerender(<LessonPlayer {...props} autoPlay={false} />);
-  getUserMedia.mockClear();
-  fireEvent.keyDown(screen.getByRole('dialog'), space);
-  fireEvent.keyUp(window, space);
-  expect(getUserMedia).not.toHaveBeenCalled();
+  const control = screen.getByRole('button', {
+    name: reason === 'generation' ? 'Annulla' : 'Chiudi risposta',
+  });
+  control.focus();
+  const clicked = vi.fn();
+  control.addEventListener('click', clicked);
+  const user = userEvent.setup();
+  await user.keyboard('[Space>]');
+  expect(Recorder.instances.at(-1)?.state).toBe('recording');
+  await user.keyboard('[/Space]');
+  expect(clicked).not.toHaveBeenCalled();
   expect(sendInConversation).not.toHaveBeenCalled();
+  if (reason === 'generation') {
+    expect(generatingResponse.stop).not.toHaveBeenCalled();
+    await user.keyboard('{Enter}');
+    expect(generatingResponse.stop).toHaveBeenCalledOnce();
+  }
+  composerState.disabled = false;
+  generatingResponse.stop = null;
+  rerender(<LessonPlayer {...props} autoPlay={false} />);
+  expect(sendInConversation).toHaveBeenCalledExactlyOnceWith('Perché funziona?');
+  rerender(<LessonPlayer {...props} autoPlay={false} />);
+  expect(sendInConversation).toHaveBeenCalledOnce();
 });
 
 test.each([

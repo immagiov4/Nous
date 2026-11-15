@@ -1,6 +1,8 @@
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { useCallback, useState } from 'react';
 
+const DURATION_SECONDS = 12;
+
 // Only narration transport is synthetic; the player, recorder and overlays are real.
 export function useLessonPlayback() {
   const [playing, setPlaying] = useState(true);
@@ -13,8 +15,8 @@ export function useLessonPlayback() {
     index: 0,
     time,
     elapsed: time,
-    duration: 12,
-    total: 12,
+    duration: DURATION_SECONDS,
+    total: DURATION_SECONDS,
     playing,
     loading: false,
     estimated: false,
@@ -22,8 +24,8 @@ export function useLessonPlayback() {
     seekRevision: 0,
     pause,
     play,
-    seek: setTime,
+    seek: (target: number) => setTime(Math.max(0, Math.min(DURATION_SECONDS, target))),
     readTime: () => time,
-    readPosition: () => ({ index: 0, time, duration: 12 }),
+    readPosition: () => ({ index: 0, time, duration: DURATION_SECONDS }),
   };
 }

@@ -167,7 +167,19 @@ try {
         await player.getByRole('button', { name: 'Indietro di 5 secondi' }).focus();
         await page.keyboard.press('Enter');
         assert.equal(await timeline.inputValue(), '0');
+        await page.keyboard.press('Enter');
+        assert.equal(await timeline.inputValue(), '0');
+        for (let skip = 0; skip < 3; skip++) {
+          await forward.focus();
+          await page.keyboard.press('Enter');
+        }
+        assert.equal(await timeline.inputValue(), '12');
+        await player.getByRole('button', { name: 'Indietro di 5 secondi' }).focus();
+        await page.keyboard.press('Enter');
+        assert.equal(await timeline.inputValue(), '7');
         await timeline.focus();
+        await page.keyboard.press('Home');
+        assert.equal(await timeline.inputValue(), '0');
         await page.keyboard.press('ArrowRight');
         assert(Number(await timeline.inputValue()) > 0);
         const speedControl = player.getByRole('button', { name: 'Velocita', exact: true });

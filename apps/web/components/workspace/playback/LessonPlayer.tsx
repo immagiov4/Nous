@@ -99,20 +99,15 @@ interface SpokenFollowUpQuestion {
 /** Connects the conversation generation state and spoken questions to the player. */
 function ConversationBridge({
   blocked,
-  onBlockedChange,
   question,
   send,
   deliver,
 }: Readonly<{
   blocked: boolean;
-  onBlockedChange: (blocked: boolean) => void;
   question: SpokenFollowUpQuestion | null;
   send: (text: string) => void;
   deliver: (question: SpokenFollowUpQuestion, send: (text: string) => void) => void;
 }>) {
-  useLayoutEffect(() => {
-    onBlockedChange(blocked);
-  }, [blocked, onBlockedChange]);
   useEffect(() => {
     if (question && !blocked) deliver(question, send);
   }, [blocked, deliver, question, send]);
@@ -236,10 +231,6 @@ export default function LessonPlayer({
   const [answer, setAnswer] = useState<ContextAnswerState | null>(null);
   const [holdingSpace, setHoldingSpace] = useState(false);
   const spaceDown = useRef(false);
-  const answerSubmissionBlocked = useRef(false);
-  const syncAnswerSubmissionBlocked = useCallback((blocked: boolean) => {
-    answerSubmissionBlocked.current = blocked;
-  }, []);
   const spokenQuestion = useRef<ContextAnswerState | null>(null);
   const heldTranscription = useRef<string | null>(null);
   const [spokenFollowUp, setSpokenFollowUp] = useState<SpokenFollowUpQuestion | null>(null);
@@ -454,7 +445,6 @@ export default function LessonPlayer({
       {conversation ? (
         <ConversationBridge
           blocked={disabled || Boolean(stopResponse)}
-          onBlockedChange={syncAnswerSubmissionBlocked}
           question={spokenFollowUp}
           send={send}
           deliver={deliverSpokenFollowUp}
@@ -515,7 +505,6 @@ export default function LessonPlayer({
   }, [resetSpeech]);
   const closeAnswer = () => {
     cancelCapture();
-    answerSubmissionBlocked.current = false;
     setSpokenFollowUp(null);
     setAnswer(null);
     if (!mobile) dialogRef.current?.focus({ preventScroll: true });
@@ -539,7 +528,7 @@ export default function LessonPlayer({
       )
         return;
       event.preventDefault();
-      if (!canAsk || event.repeat || spaceDown.current || answerSubmissionBlocked.current) return;
+      if (!canAsk || event.repeat || spaceDown.current) return;
       playback.pause();
       speech.reset();
       heldTranscription.current = null;
