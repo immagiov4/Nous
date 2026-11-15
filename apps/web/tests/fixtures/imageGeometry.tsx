@@ -5,8 +5,9 @@ import { segmentLessonPlayback } from '../../../../packages/shared-types/lessonP
 import ResolvedPdfImage from '../../components/shared/ResolvedPdfImage';
 import LessonPlaybackStage from '../../components/workspace/playback/LessonPlaybackStage';
 import type { WorkspaceReaderContentModel } from '../../components/workspace/shell/types';
-import imageUrl from '../../public/icons/nous-app-icon-mask-512.png?url';
 import '../../styles/app.css';
+
+const imageUrl = '/icons/nous-app-icon-mask-512.png';
 
 declare global {
   interface Window {
