@@ -60,8 +60,8 @@ export async function probePosixLease(mode = 'finish') {
   };
   const children = [];
   let group;
-  function launch(args) {
-    const child = spawn(process.execPath, [wrapper, ...args], {
+  function launch(args, entry = wrapper) {
+    const child = spawn(process.execPath, [entry, ...args], {
       env: environment,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -88,6 +88,21 @@ export async function probePosixLease(mode = 'finish') {
     const next = join(directory, 'next');
     const descendant = join(directory, 'descendant.mjs');
     const root = join(directory, 'root.mjs');
+    const repeatSignal = mode.startsWith('repeat-') ? mode.slice('repeat-'.length) : null;
+    const interruptions = join(directory, 'interruptions');
+    const entry = join(directory, 'entry.mjs');
+    if (repeatSignal) {
+      writeFileSync(
+        entry,
+        `import { writeFileSync } from 'node:fs';
+import { main } from ${JSON.stringify(new URL('./heavy-run.mjs', import.meta.url).href)};
+let count = 0;
+process.exitCode = await main(process.argv.slice(2), { onInterrupt: () => {
+  writeFileSync(${JSON.stringify(interruptions)}, String(++count));
+  return count === 1;
+} });`
+      );
+    }
     writeFileSync(
       descendant,
       `import { existsSync, writeFileSync } from 'node:fs';
@@ -104,18 +119,21 @@ child.unref();
 writeFileSync(process.argv[5], String(process.pid));
 while (!existsSync(process.argv[6])) await new Promise(resolve => setTimeout(resolve, 20));`
     );
-    const owner = launch([
-      '--label',
-      'posix-owner',
-      '--',
-      process.execPath,
-      root,
-      descendant,
-      ready,
-      finish,
-      rootPid,
-      exitRoot,
-    ]);
+    const owner = launch(
+      [
+        '--label',
+        'posix-owner',
+        '--',
+        process.execPath,
+        root,
+        descendant,
+        ready,
+        finish,
+        rootPid,
+        exitRoot,
+      ],
+      repeatSignal ? entry : wrapper
+    );
     await until(() => existsSync(ready) && existsSync(rootPid));
     const held = readdirSync(join(directory, 'lock')).find(name => name.startsWith('running-'));
     assert.ok(held, owner.output());
@@ -140,7 +158,13 @@ while (!existsSync(process.argv[6])) await new Promise(resolve => setTimeout(res
       false,
       'A descendant must retain capacity after its root exits.'
     );
-    if (mode === 'release') {
+    if (repeatSignal) {
+      owner.child.kill(repeatSignal);
+      await until(() => existsSync(interruptions));
+      assert.equal(readFileSync(interruptions, 'utf8'), '1');
+      assert.equal(processRunning(descendantPid), true);
+      owner.child.kill(repeatSignal);
+    } else if (mode === 'release') {
       const cleanup = launch(['release', held.replace('running-', '')]);
       assert.equal(await bounded(cleanup.completion), 0, cleanup.output());
     } else if (mode === 'SIGINT' || mode === 'SIGTERM') {
@@ -148,8 +172,9 @@ while (!existsSync(process.argv[6])) await new Promise(resolve => setTimeout(res
     } else {
       writeFileSync(finish, 'finish');
     }
-    const interrupted = mode === 'SIGINT' || mode === 'SIGTERM';
+    const interrupted = repeatSignal || mode === 'SIGINT' || mode === 'SIGTERM';
     assert.equal(await bounded(owner.completion), interrupted ? 130 : 0, owner.output());
+    if (repeatSignal) assert.equal(readFileSync(interruptions, 'utf8'), '2');
     assert.equal(await bounded(successor.completion), 0, successor.output());
     assert.equal(processRunning(descendantPid), false);
     assert.equal(readFileSync(next, 'utf8'), 'admitted');

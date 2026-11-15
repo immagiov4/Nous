@@ -289,11 +289,12 @@ const loadCases = async (values: ReturnType<typeof readOptions>) => {
 
 const watchCancellation = (cancelFile: string | undefined, cancel: () => void) => {
   if (!cancelFile) return undefined;
-  const watcher = watch(dirname(cancelFile), { persistent: false }, () => {
+  const checkCancellation = () => {
     if (existsSync(cancelFile)) cancel();
-  });
-  if (existsSync(cancelFile)) cancel();
-  writeFileSync(`${cancelFile}.ready`, '', { flag: 'wx' });
+  };
+  const watcher = watch(dirname(cancelFile), { persistent: false }, checkCancellation); // NOSONAR: Operator CLI control path; watches metadata only, never reads file contents.
+  checkCancellation();
+  writeFileSync(`${cancelFile}.ready`, '', { flag: 'wx' }); // NOSONAR: Operator CLI path; exclusively creates an empty marker and rejects existing files/symlinks.
   return watcher;
 };
 

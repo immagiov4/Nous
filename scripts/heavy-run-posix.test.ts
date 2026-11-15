@@ -30,3 +30,13 @@ test.skipIf(process.platform === 'win32').each(['SIGINT', 'SIGTERM'])(
     });
   }
 );
+
+test.skipIf(process.platform === 'win32').each(['SIGINT', 'SIGTERM'])(
+  'repeated %s forces cleanup after deferred POSIX cancellation',
+  async signal => {
+    expect(await probePosixLease(`repeat-${signal}`)).toEqual({
+      successor: 'admitted',
+      descendantRunning: false,
+    });
+  }
+);

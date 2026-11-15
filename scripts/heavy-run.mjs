@@ -550,8 +550,10 @@ export async function main(args = process.argv.slice(2), { onInterrupt } = {}) {
   };
   const interrupt = () => requestStop('SIGINT');
   const terminate = () => requestStop('SIGTERM');
-  process.once('SIGINT', interrupt);
-  process.once('SIGTERM', terminate);
+  // Deferred cancellation must keep receiving signals so another interrupt can force cleanup.
+  const subscribe = onInterrupt ? 'on' : 'once';
+  process[subscribe]('SIGINT', interrupt);
+  process[subscribe]('SIGTERM', terminate);
   try {
     if (bypass) {
       return await runCommand(command, process.env, abort);
