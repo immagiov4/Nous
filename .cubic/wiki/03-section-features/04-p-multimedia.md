@@ -20,7 +20,7 @@ The system segments lesson content into discrete playback blocks, mapping spoken
 
 Maintainer design decision (2026-11-15): mobile playback shows only lesson visuals; captions are hidden at viewport widths of 650 CSS pixels or less and excluded from visible and accessible text. Desktop playback retains captions; the `CaptionRows.browser.ts` browser proof checks both sides of this boundary while retaining a visible lesson visual.
 
-Desktop captions present the complete paragraph at 50% opacity and fill each word to its normal colour, retaining full opacity after speech. Presentation leads the recording alignment by 200 ms with 100 ms smoothing; paragraph start and explicit seek targets bound that lead, while scene cues retain their acoustic timing. Theme changes preserve progress. Manual caption scrolling suspends following until the next paragraph; mobile playback continues to show only visuals.
+Desktop captions present the complete paragraph at 50% opacity and fill each word to its normal colour, retaining full opacity after speech. Presentation leads the recording alignment by 200 ms with 100 ms smoothing when motion is enabled; paragraph start and explicit seek targets bound that lead, while scene cues retain their acoustic timing. Theme changes preserve progress. Manual caption scrolling suspends following until the next paragraph.
 
 ## System Architecture
 

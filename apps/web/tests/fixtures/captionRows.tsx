@@ -1,7 +1,7 @@
 import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
 import { narrationWords, type PlaybackWordAlignment } from '@shared/playbackWordTiming';
 import fontUrl from 'katex/dist/fonts/KaTeX_Main-Regular.woff2?url';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import LessonPlaybackStage from '../../components/workspace/playback/LessonPlaybackStage';
 import type { WorkspaceReaderContentModel } from '../../components/workspace/shell/types';
@@ -48,6 +48,12 @@ function Fixture() {
   const [dark, setDark] = useState(false);
   const [alignment, setAlignment] = useState<PlaybackWordAlignment>();
   const [time, setTime] = useState(0);
+  const [seekRevision, setSeekRevision] = useState(0);
+  useEffect(() => {
+    const advance = (event: Event) => setTime((event as CustomEvent<number>).detail);
+    window.addEventListener('caption-playback-time', advance);
+    return () => window.removeEventListener('caption-playback-time', advance);
+  }, []);
   const [passage, setPassage] = useState(0);
   const currentBlock = useMemo(() => ({ ...block, id: String(passage) }), [passage]);
   return (
@@ -59,6 +65,7 @@ function Fixture() {
           content={{ ...content, isDarkMode: dark }}
           duration={durationSeconds}
           time={time}
+          seekRevision={seekRevision}
           alignment={alignment}
         />
       </div>
@@ -82,7 +89,10 @@ function Fixture() {
           aria-label="Playback time"
           type="number"
           value={time}
-          onChange={event => setTime(Number(event.target.value))}
+          onChange={event => {
+            setTime(Number(event.target.value));
+            setSeekRevision(revision => revision + 1);
+          }}
         />
         <button
           type="button"

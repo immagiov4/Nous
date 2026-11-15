@@ -95,7 +95,12 @@ async function mobilePlaybackShowsOnlyVisuals(page: Page, baseUrl: string) {
   }
 }
 
-async function paragraphFillSurvivesThemesAndManualReading(page: Page, baseUrl: string) {
+async function paragraphFillSurvivesThemesAndManualReading(
+  page: Page,
+  baseUrl: string,
+  input: 'wheel' | 'keyboard' | 'scrollbar'
+) {
+  console.log(`Checking manual caption input: ${input}`);
   await page.goto(`${baseUrl}tests/fixtures/captionRows.html`);
   await page.getByRole('spinbutton', { name: 'Playback time' }).fill('18');
   const read = () =>
@@ -119,9 +124,70 @@ async function paragraphFillSurvivesThemesAndManualReading(page: Page, baseUrl: 
     assert.equal(after.color === light.color, !dark, 'Word colour follows the current theme');
   }
   const paragraph = page.locator('.caption-page');
+  await visibleCaptionRows(page);
+  if (input === 'wheel') {
+    await page.evaluate(() =>
+      dispatchEvent(new CustomEvent('caption-playback-time', { detail: 38 }))
+    );
+    const box = await paragraph.boundingBox();
+    assert(box);
+    await page.mouse.move(box.x + 20, box.y + 20);
+    await page.mouse.down();
+    await visibleCaptionRows(page);
+    await page.mouse.up();
+    const afterPress = await paragraph.evaluate(element => element.scrollTop);
+    await page.evaluate(() =>
+      dispatchEvent(new CustomEvent('caption-playback-time', { detail: 55 }))
+    );
+    await page.waitForFunction(
+      before => (document.querySelector('.caption-page')?.scrollTop ?? 0) > before,
+      afterPress
+    );
+    await page.getByRole('spinbutton', { name: 'Playback time' }).fill('18');
+    await visibleCaptionRows(page);
+  }
+  if (
+    input === 'scrollbar' &&
+    (await paragraph.evaluate(
+      element => (element as HTMLElement).offsetWidth === element.clientWidth
+    ))
+  ) {
+    console.log(
+      'SKIP native scrollbar drag: this headless engine exposes no scrollbar gutter; wheel and keyboard are covered'
+    );
+    return;
+  }
   const followingPosition = await paragraph.evaluate(element => element.scrollTop);
-  await paragraph.hover();
-  await page.mouse.wheel(0, 250);
+  if (input === 'keyboard') {
+    await paragraph.focus();
+    assert(
+      await paragraph.evaluate(element => element === document.activeElement),
+      'Caption region is focusable'
+    );
+    await page.keyboard.press('PageDown');
+  } else if (input === 'scrollbar') {
+    const thumb = await paragraph.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      const scale = box.width / (element as HTMLElement).offsetWidth;
+      const gutter = ((element as HTMLElement).offsetWidth - element.clientWidth) * scale;
+      return {
+        x: box.right - gutter / 2,
+        y:
+          box.top +
+          ((element.scrollTop + element.clientHeight / 2) / element.scrollHeight) *
+            element.clientHeight *
+            scale,
+      };
+    });
+    await page.mouse.move(thumb.x, thumb.y);
+    await page.mouse.down();
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    await page.mouse.move(thumb.x, thumb.y + 60, { steps: 6 });
+    await page.mouse.up();
+  } else {
+    await paragraph.hover();
+    await page.mouse.wheel(0, 250);
+  }
   await page.waitForFunction(before => {
     const paragraph = document.querySelector('.caption-page');
     return paragraph && paragraph.scrollTop !== before;
@@ -134,8 +200,9 @@ async function paragraphFillSurvivesThemesAndManualReading(page: Page, baseUrl: 
   await page.getByRole('button', { name: 'Next passage', exact: true }).click();
   await page.getByRole('spinbutton', { name: 'Playback time' }).fill('38');
   await read();
+  await page.waitForFunction(() => (document.querySelector('.caption-page')?.scrollTop ?? 0) > 0);
   assert(
-    await paragraph.evaluate(element => element.scrollTop > 0),
+    (await paragraph.evaluate(element => element.scrollTop)) > 0,
     'Next paragraph resumes following'
   );
 }
@@ -170,8 +237,12 @@ try {
       : ['chromium', 'firefox'];
     for (const browserName of browsers) {
       assert(['chromium', 'firefox'].includes(browserName));
+      // Expose native scrollbar controls for the drag proof while keeping the browser headless.
       const browser = await (browserName === 'firefox' ? firefox : chromium).launch(
-        withMutedAudio({ headless: true })
+        withMutedAudio({
+          headless: true,
+          ignoreDefaultArgs: ['--hide-scrollbars'],
+        })
       );
       const smoke = process.argv.includes('--smoke');
       let cases = 0;
@@ -186,7 +257,8 @@ try {
         if (process.argv.includes('--mobile-only')) continue;
         const paragraphPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
         try {
-          await paragraphFillSurvivesThemesAndManualReading(paragraphPage, baseUrl);
+          for (const input of ['wheel', 'keyboard', 'scrollbar'] as const)
+            await paragraphFillSurvivesThemesAndManualReading(paragraphPage, baseUrl, input);
           console.log(`PASS ${browserName}: paragraph fill, both themes and manual reading`);
         } finally {
           await paragraphPage.close();

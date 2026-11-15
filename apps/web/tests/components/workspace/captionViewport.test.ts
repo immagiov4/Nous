@@ -11,7 +11,7 @@ function layout() {
   const words = Array.from(paragraph.children) as HTMLElement[];
   let offset = 0;
   const rect = (top: number, height: number) =>
-    ({ top, bottom: top + height, width: 400, height }) as DOMRect;
+    ({ left: 0, right: 400, top, bottom: top + height, width: 400, height }) as DOMRect;
   vi.spyOn(paragraph, 'getBoundingClientRect').mockImplementation(() => rect(0, 102));
   for (const [index, word] of words.entries()) {
     const row = Math.max(0, index - 1) * 51;
@@ -79,4 +79,34 @@ test('manual reading suspends following through remeasurement until a new paragr
   expect(next.paragraph.scrollTo).toHaveBeenCalledWith({ top: 102, behavior: 'smooth' });
   paragraph.remove();
   next.paragraph.remove();
+});
+
+test('a press or selection during automatic scrolling does not suspend follow', () => {
+  const { paragraph, words, move } = layout();
+  const viewport = captionViewport(paragraph);
+  viewport.follow(words[2], true);
+  paragraph.dispatchEvent(new MouseEvent('pointerdown', { clientX: 20, clientY: 20 }));
+  move(20);
+  paragraph.dispatchEvent(new Event('scroll'));
+  paragraph.dispatchEvent(new MouseEvent('pointerup'));
+  viewport.follow(words[3], true);
+  expect(paragraph.scrollTo).toHaveBeenCalledTimes(2);
+  paragraph.remove();
+});
+
+test('dragging the actual scrollbar suspends following', () => {
+  const { paragraph, words, move } = layout();
+  Object.defineProperties(paragraph, {
+    offsetWidth: { value: 400 },
+    clientWidth: { value: 385 },
+    clientLeft: { value: 0 },
+  });
+  const viewport = captionViewport(paragraph);
+  paragraph.dispatchEvent(new MouseEvent('pointerdown', { clientX: 395, clientY: 20 }));
+  move(30);
+  paragraph.dispatchEvent(new Event('scroll'));
+  paragraph.dispatchEvent(new MouseEvent('pointerup'));
+  viewport.follow(words[3], true);
+  expect(paragraph.scrollTo).not.toHaveBeenCalled();
+  paragraph.remove();
 });

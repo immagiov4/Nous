@@ -881,7 +881,7 @@ test.each([true, false])('fills continuously and retains spoken words (animate=%
   vi.spyOn(globalThis, 'getComputedStyle').mockReturnValue(computedStyle);
   const props = { block, content, duration: 6 };
   const { container, rerender } = render(<LessonPlaybackStage {...props} time={0} />);
-  const paragraph = container.querySelector('.captions p');
+  const paragraph = container.querySelector('.captions .caption-page');
   if (!(paragraph instanceof HTMLElement)) throw new Error('Captions must be rendered');
   const advance = (time: number) => {
     rerender(<LessonPlaybackStage {...props} time={time} />);
@@ -902,7 +902,7 @@ test.each([true, false])('fills continuously and retains spoken words (animate=%
   expect(first?.style.opacity).toBe('1');
   paragraph.scrollTop = 200;
   rerender(<LessonPlaybackStage {...props} block={{ ...block, id: 'next' }} time={0} />);
-  const next = container.querySelector('.captions p');
+  const next = container.querySelector('.captions .caption-page');
   expect(next?.scrollTop).toBe(0);
 });
 
@@ -967,7 +967,7 @@ test('updates the live word fill without rewriting settled or future words', () 
   expect(futureWrites).not.toHaveBeenCalled();
   heard = 1;
   advance();
-  expect(opacity(0)).toBeCloseTo(0.6);
+  expect(opacity(0)).toBe(1);
   expect(opacity(9)).toBe(0.5);
   unmount();
   expect(frames.size).toBe(0);
@@ -1595,7 +1595,7 @@ test.each([
   }
   const captions = container.querySelectorAll<HTMLElement>('.caption-word');
   expect(captions[1].style.opacity).toBe('1');
-  expect(captions[5].style.opacity).toBe('0.5');
+  expect(captions[5].style.opacity).toBe('1');
   const later = { status: 'aligned' as const, onsets: [0, 8, 8.2, 8.4, 8.6, 9, 9.2, 9.4] };
   rerender(<LessonPlaybackStage {...props} alignment={later} time={5.1} />);
   const flush = () =>
@@ -1618,6 +1618,7 @@ test.each([
   expect(container.querySelector('.nous-formula-symbol-x')?.getAttribute('data-active')).toBe(
     'false'
   );
+  expect(captions[5].style.opacity).toBe('0.5');
 });
 
 test('a complete spotlight replaces sourced math while text fallback shows the formula without prose', () => {
@@ -2689,4 +2690,65 @@ test('future motion with unchanged onset retains duration when remeasurement mov
   rerender(<LessonPlaybackStage {...props} seekRevision={1} />);
   flush();
   expect(emphasis()).toBe(1);
+});
+
+test.each([
+  'forward',
+  'backward',
+] as const)('pending %s seek presents its target before the live audio anchor commits', direction => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const frames = new Map<number, FrameRequestCallback>();
+  let id = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++id, callback);
+    return id;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(key => frames.delete(key));
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const sources = [{ type: 'markdown' as const, markdown: 'Uno Due' }];
+  const block = segmentLessonPlayback(sources)[0];
+  const content = {
+    sectionContentBlocks: sources,
+    isDarkMode: false,
+  } as WorkspaceReaderContentModel;
+  let heard = direction === 'forward' ? 1 : 6;
+  const target = direction === 'forward' ? 4.9 : 1.9;
+  const view = (time: number, loading: boolean, seekRevision: number) => (
+    <LessonPlaybackStage
+      block={block}
+      content={content}
+      time={time}
+      duration={10}
+      loading={loading}
+      readTime={() => heard}
+      seekRevision={seekRevision}
+      alignment={{ status: 'aligned', onsets: [0, 5] }}
+    />
+  );
+  const mounted = render(view(heard, false, 0));
+  const tick = () =>
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    });
+  const opacity = () =>
+    Array.from(mounted.container.querySelectorAll<HTMLElement>('.caption-word'), word =>
+      Number(word.style.opacity)
+    );
+  tick();
+  mounted.rerender(view(target, true, 1));
+  tick();
+  expect(opacity()).toEqual([expect.closeTo(0.5 + (0.5 * target) / 5), 0.5]);
+  heard = target;
+  mounted.rerender(view(target, false, 1));
+  tick();
+  expect(opacity()).toEqual([expect.closeTo(0.5 + (0.5 * target) / 5), 0.5]);
+  heard = target + 0.2;
+  tick();
+  if (direction === 'backward') expect(opacity()[0]).toBeCloseTo(0.73);
+  else expect(opacity()[1]).toBeCloseTo(0.53);
+  mounted.unmount();
 });

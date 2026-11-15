@@ -329,6 +329,7 @@ function PlaybackPassage({
   readTime,
   alignment,
   seekRevision = 0,
+  loading = false,
   questionContextRef,
 }: Readonly<{
   lessonKey?: string;
@@ -341,6 +342,7 @@ function PlaybackPassage({
   readTime?: () => number;
   alignment?: PlaybackWordAlignment;
   seekRevision?: number;
+  loading?: boolean;
   questionContextRef?: RefObject<(() => PlaybackQuestionContext) | null>;
 }>) {
   const source = useMemo(() => captionSource(block, sources), [block, sources]);
@@ -361,15 +363,15 @@ function PlaybackPassage({
       ),
     [alignmentKey, block.speech, duration]
   );
-  const captions = useRef<HTMLParagraphElement>(null);
+  const captions = useRef<HTMLElement>(null);
   const sceneCard = useRef<HTMLElement>(null);
   const clock = useRef<CaptionClock | null>(null);
 
   const animate = useShouldAnimate();
-  const latest = useRef({ time, speed, readTime, animate, aligned, seekRevision });
+  const latest = useRef({ time, speed, readTime, animate, aligned, seekRevision, loading });
   useLayoutEffect(() => {
-    latest.current = { time, speed, readTime, animate, aligned, seekRevision };
-  }, [time, speed, readTime, animate, aligned, seekRevision]);
+    latest.current = { time, speed, readTime, animate, aligned, seekRevision, loading };
+  }, [time, speed, readTime, animate, aligned, seekRevision, loading]);
 
   useLayoutEffect(() => {
     const paragraph = captions.current;
@@ -394,7 +396,12 @@ function PlaybackPassage({
         seekRevision: latest.current.seekRevision,
         headingDuration: duration - bodyDuration,
         speechRanges: formatted.speechRanges,
-        read: () => ({ blockTime: latest.current.readTime?.() ?? latest.current.time }),
+        // Preparation exposes the requested position before the live audio anchor commits.
+        read: () => ({
+          blockTime: latest.current.loading
+            ? latest.current.time
+            : (latest.current.readTime?.() ?? latest.current.time),
+        }),
       };
     };
     measure();
@@ -432,7 +439,7 @@ function PlaybackPassage({
       const motion = latest.current.animate;
       current.viewport.clip();
       if (previousBodyTime === bodyTime) return;
-      const progress = timing.fill(current);
+      const progress = timing.fill(current, bodyTime);
       let active: HTMLElement | undefined;
       current.runs.forEach((run, index) => {
         drawCaptionWord(run, progress[index]);
@@ -838,12 +845,19 @@ function PlaybackPassage({
       style={{ '--caption-future-opacity': CAPTION_FUTURE_OPACITY } as CSSProperties}
     >
       <section className="listening-stage">
-        <section className="captions" aria-label={t('Sottotitoli')}>
+        <section className="captions">
           {passageHeadings.map((heading, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: authored headings may repeat
             <h2 key={`${index}:${heading}`}>{heading}</h2>
           ))}
-          <p ref={captions} key={block.id} className="caption-page">
+          <section
+            ref={captions}
+            key={block.id}
+            className="caption-page"
+            aria-label={t('Sottotitoli')}
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: This named scroll region needs native keyboard scrolling.
+            tabIndex={0}
+          >
             {formatted.words.map((word, index) => {
               const Tag = captionTag(word);
               return (
@@ -866,7 +880,7 @@ function PlaybackPassage({
                 </Fragment>
               );
             })}
-          </p>
+          </section>
         </section>
         <div className="scene-fit">
           <PlaybackVisualPresence enabled={animate && selectedStoredKind !== 'html'}>

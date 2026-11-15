@@ -227,6 +227,17 @@ try {
         assert(await player.isVisible());
         await page.getByRole('button', { name: 'Chiudi', exact: true }).click();
         assert(await player.evaluate(element => element === document.activeElement));
+        const captionRegion = page.locator('.caption-page');
+        await captionRegion.focus();
+        assert(
+          await captionRegion.evaluate(element => element === document.activeElement),
+          'Caption scroll region accepts keyboard focus'
+        );
+        await page.keyboard.down('Space');
+        await page.waitForFunction(() => document.documentElement.dataset.recording === 'true');
+        await page.keyboard.up('Space');
+        await page.getByRole('button', { name: 'Chiudi', exact: true }).click();
+        assert(await player.evaluate(element => element === document.activeElement));
         const question = page.getByRole('textbox');
         await question.fill('Una');
         await page.keyboard.press('Space');

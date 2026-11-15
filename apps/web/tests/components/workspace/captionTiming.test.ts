@@ -148,3 +148,38 @@ test('adopts overdue acoustic cues instead of waiting for a future estimate', ()
   expect(owner.read(clock(5)).cueTimes).toEqual([8000]);
   expect(owner.read(clock(5, [0, 1, 2, 3])).cueTimes).toEqual([3000]);
 });
+
+test.each([
+  {
+    source: 'aligned refresh',
+    time: 1.9,
+    before: [0, 2, 4, 6],
+    after: [0, 3, 4, 6],
+    atSeek: 1.9 / 3,
+  },
+  { source: 'estimated timing', time: 3.9, before: undefined, after: [0, 5, 6, 8], atSeek: 0.78 },
+])('completed words stay full after $source until an explicit seek', ({
+  time,
+  before,
+  after,
+  atSeek,
+}) => {
+  const owner = createCaptionTiming(speech, { words: narrationWords(speech) });
+  expect(owner.fill(clock(time, before))[0]).toBe(1);
+  const late = clock(time, after);
+  expect(owner.fill(late)[0]).toBe(1);
+  expect(owner.fill({ ...late, seekRevision: 1 })[0]).toBeCloseTo(atSeek);
+});
+
+test('fill uses one live sample for its seek boundary and presentation', () => {
+  const owner = createCaptionTiming(speech, { words: narrationWords(speech) });
+  owner.fill(clock(1, [0, 2, 4, 6]));
+  let reads = 0;
+  const sought = {
+    ...clock(1.9, [0, 2, 4, 6]),
+    seekRevision: 1,
+    read: () => ({ blockTime: ++reads === 1 ? 1.9 : 5 }),
+  };
+  expect(owner.fill(sought)).toEqual([expect.closeTo(0.95), 0, 0, 0]);
+  expect(reads).toBe(1);
+});

@@ -1,12 +1,12 @@
 import { CAPTION_SCROLL } from './captionFormat.ts';
 
 type CaptionRow = { top: number; bottom: number; inkTop: number; inkBottom: number };
-const readingStates = new WeakMap<HTMLElement, { manual: boolean; pointerDown: boolean }>();
+const readingStates = new WeakMap<HTMLElement, { manual: boolean; scrollbarDrag: boolean }>();
 
 function readingState(paragraph: HTMLElement) {
   const existing = readingStates.get(paragraph);
   if (existing) return existing;
-  const state = { manual: false, pointerDown: false };
+  const state = { manual: false, scrollbarDrag: false };
   readingStates.set(paragraph, state);
   const pauseFollow = () => {
     state.manual = true;
@@ -17,17 +17,21 @@ function readingState(paragraph: HTMLElement) {
     if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key))
       pauseFollow();
   });
-  paragraph.addEventListener('pointerdown', () => {
-    state.pointerDown = true;
+  paragraph.addEventListener('pointerdown', event => {
+    const bounds = paragraph.getBoundingClientRect();
+    const scale = bounds.width / paragraph.offsetWidth;
+    const left = bounds.left + paragraph.clientLeft * scale;
+    const right = left + paragraph.clientWidth * scale;
+    state.scrollbarDrag = event.clientX < left || event.clientX >= right;
   });
   const releasePointer = () => {
-    state.pointerDown = false;
+    state.scrollbarDrag = false;
   };
   paragraph.addEventListener('pointerup', releasePointer);
   paragraph.addEventListener('pointercancel', releasePointer);
   paragraph.addEventListener('pointerleave', releasePointer);
   paragraph.addEventListener('scroll', () => {
-    if (state.pointerDown) pauseFollow();
+    if (state.scrollbarDrag) pauseFollow();
   });
   return state;
 }

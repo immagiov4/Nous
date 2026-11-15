@@ -35,6 +35,8 @@ interface TimingRequest {
  */
 export function createCaptionTiming(speech: string, request: TimingRequest) {
   let fillBoundary = 0;
+  // Presentation can complete before an acoustic boundary is eligible for retention.
+  const completedWords = new Set<number>();
   let previous: CaptionTimingClock | undefined;
   let result: {
     spans: (Span | undefined)[];
@@ -49,7 +51,7 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
     | { reason: 'initial' | 'refresh' | 'seek'; heardMs: number; retained: number }
     | undefined;
   return {
-    read(current: CaptionTimingClock) {
+    read(current: CaptionTimingClock, blockTime?: number) {
       if (current === previous) return result;
       const timing = {
         speech,
@@ -91,7 +93,7 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
             };
           })
         : captionMotionEvents({ ...timing, events: request.events ?? [] });
-      const heardMs = current.read().blockTime * 1000;
+      const heardMs = (blockTime ?? current.read().blockTime) * 1000;
       const retain = previous?.seekRevision === current.seekRevision;
       let retained = 0;
       const boundary = (before: number | undefined, next: number) => {
@@ -121,7 +123,10 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
       let reason: 'initial' | 'refresh' | 'seek' = 'initial';
       if (retain) reason = 'refresh';
       else if (previous) reason = 'seek';
-      if (current.seekRevision !== (previous?.seekRevision ?? 0)) fillBoundary = heardMs / 1000;
+      if (current.seekRevision !== (previous?.seekRevision ?? 0)) {
+        fillBoundary = heardMs / 1000;
+        completedWords.clear();
+      }
       transition = {
         reason,
         heardMs,
@@ -148,15 +153,19 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
       return result;
     },
     /** Presentation lead never changes acoustic scene cues or advances a paused seek target. */
-    fill(current: CaptionTimingClock): number[] {
-      const { spans } = this.read(current);
-      const time = current.read().blockTime;
+    fill(current: CaptionTimingClock, time = current.read().blockTime): number[] {
+      const { spans } = this.read(current, time);
       if (time < 0) return spans.map(() => 0);
       const lead = Math.min(CAPTION_FILL_LEAD_SECONDS, Math.max(0, time - fillBoundary));
       const presentedMs = Math.max(0, time + lead) * 1000;
-      return spans.map(span => {
+      return spans.map((span, index) => {
         if (!span) throw new Error('Caption word timing must exist');
-        if (span.endMs === span.startMs) return presentedMs >= span.endMs ? 1 : 0;
+        if (completedWords.has(index)) return 1;
+        if (presentedMs >= span.endMs) {
+          completedWords.add(index);
+          return 1;
+        }
+        if (span.endMs === span.startMs) return 0;
         return Math.max(0, Math.min(1, (presentedMs - span.startMs) / (span.endMs - span.startMs)));
       });
     },

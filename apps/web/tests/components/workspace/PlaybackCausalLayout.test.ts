@@ -269,7 +269,7 @@ async function openOnset(mode = '') {
   return page;
 }
 
-test('finishes voice cue fades at word start while captions retain their 1.3 second lead', async () => {
+test('finishes voice cue fades at word start while paragraph fill leads by 200 ms', async () => {
   const page = await openOnset();
   try {
     await page.locator('[data-motion-id]').first().waitFor({ state: 'attached' });
@@ -287,11 +287,7 @@ test('finishes voice cue fades at word start while captions retain their 1.3 sec
       controls.setPlaybackTime(1);
       await frame();
       await frame();
-      const width = words.reduce((sum, word) => sum + word.getBoundingClientRect().width, 0);
-      const feather = Number.parseFloat(
-        getComputedStyle(paragraph).getPropertyValue('--caption-feather')
-      );
-      const captionEdge = Number.parseFloat(words[1].style.getPropertyValue('--reveal-edge'));
+      const captionOpacity = Number(words[0].style.opacity);
       const before = {
         opacity: Number(getComputedStyle(reveal).opacity),
         emphasis: Number(focus.style.getPropertyValue('--motion-emphasis')),
@@ -313,8 +309,7 @@ test('finishes voice cue fades at word start while captions retain their 1.3 sec
           opacity: Number(getComputedStyle(reveal).opacity),
           emphasis: Number(focus.style.getPropertyValue('--motion-emphasis')),
         },
-        captionLead:
-          ((captionEdge + words[0].getBoundingClientRect().width) / (width + feather)) * 6 - 1,
+        captionOpacity,
       };
     });
     expect(result.before).toEqual({ opacity: 0, emphasis: 0 });
@@ -322,7 +317,7 @@ test('finishes voice cue fades at word start while captions retain their 1.3 sec
     expect(result.duringFade.emphasis).toBeGreaterThan(0);
     expect(result.duringFade.emphasis).toBeLessThan(1);
     expect(result.atWordStart).toEqual({ opacity: 1, emphasis: 1 });
-    expect(result.captionLead).toBeCloseTo(1.3);
+    expect(result.captionOpacity).toBeCloseTo(0.8);
   } finally {
     await page.close();
   }

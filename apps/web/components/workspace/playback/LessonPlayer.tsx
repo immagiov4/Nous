@@ -667,6 +667,7 @@ export default function LessonPlayer({
             speed={tts.playbackRate}
             readTime={playback.readTime}
             seekRevision={playback.seekRevision}
+            loading={playback.loading}
             alignment={playback.recording?.wordAlignment}
           />
         </MermaidRenderCacheContext.Provider>

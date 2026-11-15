@@ -1925,7 +1925,7 @@
   display: flex;
   align-items: center;
 }
-.lesson-player-stage .captions p {
+.lesson-player-stage .captions .caption-page {
   font-size: clamp(22px, 2.2vw, 31px);
   line-height: 1.6;
   letter-spacing: -0.025em;
@@ -1990,7 +1990,7 @@
     width: 100%;
     align-items: center;
   }
-  .lesson-player-stage .captions p {
+  .lesson-player-stage .captions .caption-page {
     font-size: 22px;
     line-height: 1.45;
     text-align: center;
@@ -2060,21 +2060,23 @@
     font-size: 12px;
   }
 }
-.lesson-player-stage .captions p {
+.lesson-player-stage .captions .caption-page {
   --caption-height: min(62dvh, 13lh);
   position: relative;
-  max-height: var(--caption-height);
+  height: var(--caption-height);
+  align-content: safe center;
   overflow: auto;
   scrollbar-width: thin;
+  scrollbar-gutter: stable;
   margin: 0;
 }
-.lesson-player-stage .captions p::after {
+.lesson-player-stage .captions .caption-page::after {
   content: "";
   display: block;
   height: 1lh;
 }
 @media (max-width: 650px) {
-  .lesson-player-stage .captions p {
+  .lesson-player-stage .captions .caption-page {
     --caption-height: 4lh;
   }
 }
