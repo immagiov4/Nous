@@ -26,7 +26,10 @@ const hasDuplicateDecisionIntro = (scene: LessonScene) =>
   normalizedQuestion(scene.body) === normalizedQuestion(scene.quote || scene.body);
 
 const SceneContent = (
-  props: Pick<SceneRenderContext, 'scene' | 'isDarkMode' | 'readFrame' | 'playback'>
+  props: Pick<
+    SceneRenderContext,
+    'scene' | 'isDarkMode' | 'readFrame' | 'playback' | 'tableKeyboardAccess'
+  >
 ) =>
   SCENE_RENDERERS[props.scene.type as Exclude<LessonScene['type'], 'quote'>]({
     ...props,
@@ -46,13 +49,14 @@ export const LessonSceneVisual = ({
   readonly isDarkMode?: boolean;
   readonly scene: LessonScene;
   readonly readAnimationFrame?: ReadSceneAnimationFrame;
-  readonly variant?: 'card' | 'bare';
+  readonly variant?: 'card' | 'bare' | 'thumbnail';
 }) => {
   if (isRetiredLessonScene(scene)) return null;
   return (
     <figure
-      className={`lesson-scene ${variant === 'bare' ? 'lesson-scene-bare' : ''} ${isAnimatedLessonScene(scene) ? 'lesson-scene-animated' : ''} ${className}`}
+      className={`lesson-scene ${variant === 'card' ? '' : `lesson-scene-${variant}`} ${isAnimatedLessonScene(scene) ? 'lesson-scene-animated' : ''} ${className}`}
       data-nous-speech="ignore"
+      inert={variant === 'thumbnail'}
     >
       <SceneIconProvider prototype={variant === 'bare' || isAnimatedLessonScene(scene)}>
         <article
@@ -73,6 +77,7 @@ export const LessonSceneVisual = ({
           {isAnimatedLessonScene(scene) ? (
             <SceneContent
               playback={variant === 'bare'}
+              tableKeyboardAccess={variant === 'card'}
               isDarkMode={isDarkMode}
               scene={scene}
               readFrame={readAnimationFrame}
@@ -81,6 +86,7 @@ export const LessonSceneVisual = ({
             <div className="visual-content">
               <SceneContent
                 playback={variant === 'bare'}
+                tableKeyboardAccess={variant === 'card'}
                 isDarkMode={isDarkMode}
                 scene={scene}
                 readFrame={readAnimationFrame}

@@ -11,6 +11,7 @@ export interface SceneRenderContext {
   isDarkMode: boolean;
   prototype: boolean;
   playback: boolean;
+  tableKeyboardAccess: boolean;
   readFrame?: ReadSceneAnimationFrame;
   labels: { comparison: string; criterion: string; becomes: string };
   relationSymbols: Readonly<Record<string, string>>;
@@ -156,13 +157,13 @@ export const sequence = ({ scene }: SceneRenderContext, kind: string) => (
   </ol>
 );
 
-export const matrix = ({ scene, labels, playback }: SceneRenderContext) => {
+export const matrix = ({ scene, labels, tableKeyboardAccess }: SceneRenderContext) => {
   const rowCount = Math.max(0, ...scene.groups.map(group => group.items.length));
   return (
     <section
       className="table-wrap"
       aria-label={scene.title || labels.comparison}
-      tabIndex={playback ? undefined : 0}
+      tabIndex={tableKeyboardAccess ? 0 : undefined}
     >
       <table>
         <thead>
@@ -413,36 +414,51 @@ export const quickTree = ({ scene }: SceneRenderContext) => {
   );
 };
 
-export const quickMatrix = ({ scene, labels, playback }: SceneRenderContext) => {
+type QuickMatrixRows = NonNullable<LessonScene['rows']>;
+
+function authoredHeatmapMaximum(max: number | undefined, rows: QuickMatrixRows) {
+  if (typeof max !== 'number' || !Number.isFinite(max) || max <= 0) return undefined;
+  return rows.every(row =>
+    row.values.every(value => typeof value === 'number' && value >= 0 && value <= max)
+  )
+    ? max
+    : undefined;
+}
+
+export const quickMatrix = ({ scene, labels, tableKeyboardAccess }: SceneRenderContext) => {
   const columns = scene.columns as string[];
+  const rows = scene.rows as QuickMatrixRows;
   const heatmap = scene.type === 'heatmap';
+  const max = heatmap ? authoredHeatmapMaximum(scene.max, rows) : undefined;
+  const unit = heatmap && typeof scene.unit === 'string' ? scene.unit.trim() : '';
+  const caption = max === undefined ? unit : `0–${max}${unit ? ` ${unit}` : ''}`;
   return (
     <section
       className="q-table"
       aria-label={scene.title || labels.comparison}
-      tabIndex={playback ? undefined : 0}
+      tabIndex={tableKeyboardAccess ? 0 : undefined}
     >
       <table
-        style={heatmap ? ({ '--heatmap-tracks': columns.length + 2 } as CSSProperties) : undefined}
+        style={
+          max === undefined
+            ? undefined
+            : ({ '--heatmap-tracks': columns.length + 2 } as CSSProperties)
+        }
       >
-        {heatmap ? (
-          <caption>
-            0–{scene.max} {scene.unit}
-          </caption>
-        ) : null}
+        {caption ? <caption>{caption}</caption> : null}
         <thead>
           <tr>
             <td />
             {columns.map((column, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: authored columns have stable order
               <th key={`${index}-${column}`} scope="col">
-                {column}
+                {heatmap ? column : <div className="security-cell-copy">{column}</div>}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {(scene.rows as NonNullable<LessonScene['rows']>).map((row, index) => (
+          {rows.map((row, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: authored rows have stable order
             <tr key={`${index}-${row.label}`}>
               <th scope="row">
@@ -453,19 +469,19 @@ export const quickMatrix = ({ scene, labels, playback }: SceneRenderContext) => 
                   // biome-ignore lint/suspicious/noArrayIndexKey: repeated values occupy distinct fixed columns
                   key={`${column}-${value}`}
                   style={
-                    heatmap
-                      ? ({
-                          '--heatmap-value': `${((value as number) / (scene.max as number)) * 100}%`,
+                    max === undefined
+                      ? undefined
+                      : ({
+                          '--heatmap-value': `${((value as number) / max) * 100}%`,
                         } as CSSProperties)
-                      : undefined
                   }
                 >
-                  {value}
-                  {heatmap ? (
+                  {heatmap ? value : <div className="security-cell-copy">{value}</div>}
+                  {max === undefined ? null : (
                     <span className="heatmap-track" aria-hidden="true">
                       <span />
                     </span>
-                  ) : null}
+                  )}
                 </td>
               ))}
             </tr>

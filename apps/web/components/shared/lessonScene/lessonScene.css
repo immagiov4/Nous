@@ -2024,8 +2024,9 @@
 }
 .lesson-scene .quick-scene .q-table th,
 .lesson-scene .quick-scene .q-table td {
+  --q-table-cell-inline-padding: 16px;
   text-align: left;
-  padding: 16px;
+  padding: 16px var(--q-table-cell-inline-padding);
   border-bottom: 1px solid var(--line);
   overflow-wrap: anywhere;
 }
@@ -2047,8 +2048,9 @@
 .lesson-scene:not(.lesson-scene-bare) .type-security .q-table td {
   overflow-wrap: normal;
 }
-.lesson-scene:not(.lesson-scene-bare) .type-security .matrix-row-label {
-  max-inline-size: 50cqi;
+.lesson-scene:not(.lesson-scene-bare) .type-security :is(.matrix-row-label, .security-cell-copy) {
+  /* The pinned resource and any one permission must fit in the table viewport together. */
+  max-inline-size: calc(50cqi - 2 * var(--q-table-cell-inline-padding));
   overflow-wrap: break-word;
 }
 .lesson-scene .type-heatmap caption {
@@ -2363,7 +2365,8 @@
   }
   .lesson-scene .quick-scene .q-table th,
   .lesson-scene .quick-scene .q-table td {
-    padding: 10px 8px;
+    --q-table-cell-inline-padding: 8px;
+    padding: 10px var(--q-table-cell-inline-padding);
   }
   .lesson-scene .quick-scene .q-cycle-node {
     border-radius: 14px;

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { findLessonSceneProblems, type LessonScene } from '@shared/lessonScene';
-import { devices, type Locator } from 'playwright';
+import { devices, type Locator, type Page } from 'playwright';
 import { unavailableCourseGenerationApi } from '../../../apps/backend/src/workflows/courseGenerationApi';
 import { UI_PREFERENCES_KEY } from '../../../apps/web/services/preferences/uiPreferencesStorage';
 import { dataRoot, withMemoryProjectBrowserStack } from '../stack';
@@ -59,6 +59,32 @@ const scenes: LessonScene[] = [
       { label: 'Ripetizione', values: [0, 7, 8] },
     ],
   },
+];
+
+const permissionIdentifier = 'iam:GenerateServiceLastAccessedDetails';
+const historicalHeatmap: LessonScene = {
+  ...base,
+  type: 'heatmap',
+  title: 'Verifica storica',
+  unit: 'casi',
+  columns: ['Prima', 'Dopo'],
+  rows: [{ label: 'Errori', values: [0, 3] }],
+};
+const securityIdentifiers: LessonScene = {
+  ...scenes[2],
+  title: 'Permessi del servizio',
+  rows: [{ label: 'Configurazione', values: ['Modifica', 'Sola lettura', permissionIdentifier] }],
+};
+const historicalScenes: LessonScene[] = [
+  historicalHeatmap,
+  {
+    ...historicalHeatmap,
+    title: 'Verifica a zero',
+    max: 0,
+    rows: [{ label: 'Errori', values: [0, 0] }],
+  },
+  { ...historicalHeatmap, title: 'Verifica senza unità', max: 3, unit: undefined },
+  securityIdentifiers,
 ];
 
 async function inspectTable(table: Locator) {
@@ -153,6 +179,34 @@ const evidence = dataRoot();
 await mkdir(evidence, { recursive: true });
 const recordVideo = process.argv.includes('--video');
 const userId = 'matrix-reader-proof';
+const historicalProject = syntheticCourse();
+const historicalLesson = historicalProject.learningPlan?.modules?.[0]?.children?.[0];
+assert(historicalLesson?.kind === 'lesson');
+delete historicalLesson.contentBlocks;
+const historicalVisuals = historicalScenes.map((scene, index) => ({
+  id: `historical-${index}`,
+  kind: 'scene',
+  title: scene.title,
+  code: '',
+  scene,
+  createdAt: new Date(0).toISOString(),
+}));
+historicalLesson.content = [
+  'La verifica storica riporta i valori registrati.',
+  ...historicalVisuals.map(visual => `{{VISUAL_EXAMPLE:${visual.id}}}`),
+].join('\n\n');
+const thumbnailScenes = [scenes[1], historicalHeatmap, securityIdentifiers];
+historicalLesson.generatedVisuals = [
+  ...historicalVisuals,
+  ...thumbnailScenes.map((scene, index) => ({
+    id: `visual-draft-review-${index}`,
+    kind: 'scene',
+    title: scene.title,
+    code: '',
+    scene,
+    createdAt: new Date(0).toISOString(),
+  })),
+];
 const project = syntheticCourse();
 const lesson = project.learningPlan?.modules?.[0]?.children?.[0];
 assert(lesson?.kind === 'lesson');
@@ -178,6 +232,131 @@ if (recordVideo) await writeFile(join(evidence, 'project.json'), JSON.stringify(
 
 const failures: string[] = [];
 const results: object[] = [];
+const historicalResults: object[] = [];
+
+async function readLastPermission(table: Locator) {
+  const last = table.getByRole('cell', { name: permissionIdentifier, exact: true });
+  await last.scrollIntoViewIfNeeded();
+  return last.evaluate(cell => {
+    const row = cell.parentElement;
+    const table = cell.closest('table');
+    const viewport = table?.parentElement;
+    if (!row || !viewport) throw new Error('Missing permission table.');
+    const text = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT).nextNode();
+    if (!text) throw new Error('Missing permission text.');
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    const rowHeading = row.firstElementChild?.getBoundingClientRect();
+    if (!rowHeading) throw new Error('Missing resource heading.');
+    const bounds = viewport.getBoundingClientRect();
+    const rects = Array.from(range.getClientRects()).filter(rect => rect.width > 0);
+    return {
+      text: cell.textContent,
+      startsAt: Math.min(...rects.map(rect => rect.left)),
+      endsAt: Math.max(...rects.map(rect => rect.right)),
+      visibleFrom: rowHeading.right,
+      visibleTo: bounds.right,
+      row: row.firstElementChild?.textContent,
+      column: table?.querySelector('thead th:last-child')?.textContent,
+      lines: rects.length,
+      visible:
+        rects.length > 0 &&
+        rects.every(rect => rect.left >= rowHeading.right && rect.right <= bounds.right),
+    };
+  });
+}
+
+async function inspectHistoricalReader(reader: Page, label: string, url: string) {
+  await reader.goto(`${url}/?project=${historicalProject.id}`);
+  const tables = reader.locator('[data-nous-lesson-content-root] .lesson-scene table');
+  await tables.last().waitFor();
+  await reader.evaluate(() => document.fonts.ready);
+  assert.equal(await tables.count(), historicalScenes.length);
+  const permission = await readLastPermission(tables.last());
+  assert.deepEqual(
+    [permission.row, permission.column, permission.text],
+    ['Configurazione', 'Ospite', permissionIdentifier]
+  );
+  if (!permission.visible) failures.push(`${label}: last permission is partly hidden`);
+  for (let index = 0; index < historicalScenes.length; index++) {
+    await tables
+      .nth(index)
+      .locator('xpath=ancestor::figure')
+      .screenshot({
+        path: join(evidence, `${label}-saved-${index}.png`),
+      });
+    if (recordVideo) await reader.waitForTimeout(1600);
+  }
+  const heatmaps = await Promise.all([0, 1, 2].map(index => inspectTable(tables.nth(index))));
+  const [missingMax, zeroMax, missingUnit] = heatmaps;
+  assert.deepEqual(missingMax.rows[0], [
+    ['row', 'Errori'],
+    ['', '0'],
+    ['', '3'],
+  ]);
+  assert.deepEqual(zeroMax.rows[0], [
+    ['row', 'Errori'],
+    ['', '0'],
+    ['', '0'],
+  ]);
+  if ([missingMax, zeroMax].some(table => table.scale !== 'casi' || table.marks.some(Boolean)))
+    failures.push(`${label}: missing or zero maximum still draws a scale`);
+  if (
+    missingUnit.scale !== '0–3' ||
+    missingUnit.marks[0]?.portion !== 0 ||
+    missingUnit.marks[1]?.portion !== 1
+  )
+    failures.push(`${label}: valid scale without unit is incorrect`);
+
+  const openButtons = reader.locator('button[data-artifact-target^="open-"]');
+  assert.equal(await openButtons.count(), thumbnailScenes.length);
+  for (const button of await openButtons.all()) {
+    await button.locator('table').waitFor();
+    const preview = await button.getAttribute('aria-label');
+    await button.focus();
+    await reader.keyboard.press('Tab');
+    if (
+      await button.evaluate(
+        element =>
+          element.contains(document.activeElement) || Boolean(element.querySelector('[tabindex]'))
+      )
+    )
+      failures.push(`${label}: extra thumbnail tab stop in ${preview}`);
+  }
+  const open = reader.getByRole('button', { name: 'Apri Permessi del servizio', exact: true });
+  await open.screenshot({ path: join(evidence, `${label}-thumbnail.png`) });
+  await open.press('Enter');
+  const dialog = reader.getByRole('dialog');
+  const openedTable = dialog.getByRole('table');
+  await openedTable.waitFor();
+  const scroll = openedTable.locator('..');
+  if (await scroll.evaluate(element => element.scrollWidth > element.clientWidth)) {
+    await dialog.getByRole('button', { name: 'Chiudi artefatto', exact: true }).focus();
+    await reader.keyboard.press('Tab');
+    assert(await scroll.evaluate(element => element === document.activeElement));
+    await reader.keyboard.press('ArrowRight');
+    await reader.waitForFunction(() => document.activeElement?.scrollLeft);
+  }
+  const openedPermission = await readLastPermission(openedTable);
+  if (!openedPermission.visible) failures.push(`${label}: opened permission is partly hidden`);
+  await dialog.screenshot({ path: join(evidence, `${label}-opened.png`) });
+  if (recordVideo) await reader.waitForTimeout(1600);
+  await reader.reload();
+  await tables.last().waitFor();
+  const reloadedHeatmap = await inspectTable(tables.first());
+  assert.deepEqual(reloadedHeatmap.rows, missingMax.rows);
+  assert.equal(reloadedHeatmap.scale, missingMax.scale);
+  assert.deepEqual(reloadedHeatmap.marks, missingMax.marks);
+  assert.deepEqual((await inspectTable(tables.last())).rows[0], [
+    ['row', 'Configurazione'],
+    ['', 'Modifica'],
+    ['', 'Sola lettura'],
+    ['', permissionIdentifier],
+  ]);
+  const reloadedPermission = await readLastPermission(tables.last());
+  if (!reloadedPermission.visible) failures.push(`${label}: reopened permission is partly hidden`);
+  historicalResults.push({ label, heatmaps, permission, openedPermission, reloadedPermission });
+}
 await withMemoryProjectBrowserStack(
   {
     userId,
@@ -189,6 +368,7 @@ await withMemoryProjectBrowserStack(
     const browser = page.context().browser();
     assert(browser);
     await store.saveProject(userId, project);
+    await store.saveProject(userId, historicalProject);
     for (const mobile of [false, true]) {
       for (const dark of [false, true]) {
         const label = `${mobile ? 'phone' : 'desktop'}-${dark ? 'dark' : 'light'}`;
@@ -300,6 +480,7 @@ await withMemoryProjectBrowserStack(
           await tables.last().waitFor();
           assert.deepEqual((await inspectTable(tables.last())).rows, heatmap.rows);
           results.push({ label, readerReadyMs, metrics });
+          await inspectHistoricalReader(reader, label, url);
         } finally {
           await context.tracing.stop({ path: join(evidence, `${label}.zip`) });
           const video = context.pages()[0]?.video();
@@ -310,5 +491,8 @@ await withMemoryProjectBrowserStack(
     }
   }
 );
-await writeFile(join(evidence, 'result.json'), JSON.stringify({ failures, results }, null, 2));
+await writeFile(
+  join(evidence, 'result.json'),
+  JSON.stringify({ failures, results, historicalResults }, null, 2)
+);
 assert.deepEqual(failures, []);
