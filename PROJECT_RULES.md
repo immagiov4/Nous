@@ -118,6 +118,8 @@ a feature is core or better left to external tools.
 
 ## Validation Commands
 
+For dependency-resolution failures, follow [Local checks](docs/TESTING.md#local-checks). Preserve an explicitly configured shared/global store; replacing it with per-worktree package copies requires a maintainer decision.
+
 Local browser suites, provider batches, gates and coverage acquire shared FIFO leases automatically. Fast checks use `bun run check:changed` without a lease. Wrap additional heavy commands with `bun scripts/heavy-run.mjs --label "who/what" -- <command...>`. Prepare inputs and wait for external signals before entering the wrapper; run only the heavy command inside it. Nested commands inherit the existing lease. Manual reservations are unsupported. Use `status` to inspect lease IDs, owners, commands and activity; `release <id>` cancels that entry and stops its command before freeing capacity. See [Testing](docs/TESTING.md#heavy-command-leases) for expiry and capacity.
 
 After installing dependencies, run `bunx playwright install chromium` for browser tests under `bun run test` and Node coverage. `bun run prepare:coverage` also installs Chromium after the Node preflight.
@@ -290,6 +292,7 @@ UI code should minimize visual noise and avoid redundant feedback:
 - Centralize aesthetic decisions: colors, spacing, animation timings, layout dimensions.
 - Use consistent visual patterns across similar UI elements.
 - Do not fix layout bugs by randomly forcing sizes — understand the layout model and fix the underlying constraint.
+- For a spacing correction to an existing control, preserve its containing surface, shape and placement; verify it in the surrounding interface. A request for padding does not authorize redesigning the toolbar.
 - Do not use blur or `backdrop-filter` as decorative UI defaults. Introduce either only when functionally necessary and after verifying performance on the affected devices and browsers, especially mobile Firefox.
 - When rendering dynamic lists from unordered data structures, sort before display for a stable UI.
 

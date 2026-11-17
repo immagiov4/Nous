@@ -2928,7 +2928,10 @@ describe('useProjectLibrary', () => {
     });
   });
 
-  test('hydrates a newer authoritative snapshot without applying a stale job result', async () => {
+  test.each([
+    false,
+    true,
+  ])('hydrates a newer authoritative snapshot with acceptance %s', async acceptNewerRevision => {
     const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
     const newerSnapshot = buildSnapshot('project-1', {
       activeSectionId: 'lesson-1',
@@ -2961,10 +2964,11 @@ describe('useProjectLibrary', () => {
       shouldApplyResult = await result.current.applyPersistedProjectRevision({
         projectId: 'project-1',
         revision: 5,
+        acceptNewerRevision,
       });
     });
 
-    expect(shouldApplyResult).toBe(false);
+    expect(shouldApplyResult).toBe(acceptNewerRevision);
     expect(hydrateSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({
         activeSectionId: 'lesson-1',
@@ -2985,7 +2989,10 @@ describe('useProjectLibrary', () => {
     );
   });
 
-  test('does not hydrate a delayed snapshot older than a completed local write', async () => {
+  test.each([
+    false,
+    true,
+  ])('does not hydrate a delayed snapshot older than a completed local write with acceptance %s', async acceptNewerRevision => {
     const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
     let resolveRevisionLoad!: (value: { revision: number; snapshot: ProjectSnapshot }) => void;
     repositoryMocks.listProjects.mockResolvedValue([initialMeta]);
@@ -3015,6 +3022,7 @@ describe('useProjectLibrary', () => {
       applyResult = result.current.applyPersistedProjectRevision({
         projectId: 'project-1',
         revision: 4,
+        acceptNewerRevision,
       });
     });
     await act(async () => {

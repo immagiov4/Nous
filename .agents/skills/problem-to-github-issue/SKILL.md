@@ -43,6 +43,7 @@ remaining limit names the evidence that would resolve it.
   does not decide additional requirements. Omit a separate criteria list when the clear outcome
   already supplies the completion condition; do not pad the issue with plausible improvements.
 - Preserve missing evidence as a diagnostic limit. Do not fill the gap with a plausible cause.
+- When the maintainer requests GitHub-native mockup attachments, upload through the requested authenticated browser and verify the returned attachment URLs in the issue. Attach only public or synthetic material; private course content stays local; API authentication alone does not establish browser upload capability.
 - Describe observable behavior. Use code paths only as evidence, not as a brittle implementation
   plan.
 - Keep unrelated warnings and adjacent improvement ideas out of the issue.

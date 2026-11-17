@@ -97,6 +97,7 @@ export interface WorkspaceDomainControllerAdapter {
 
 export interface WorkspaceProjectLibraryAdapter {
   applyPersistedProjectRevision: (args: {
+    acceptNewerRevision?: boolean;
     projectId: string;
     revision: number;
   }) => Promise<boolean>;

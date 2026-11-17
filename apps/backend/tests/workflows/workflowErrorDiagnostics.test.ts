@@ -2,6 +2,10 @@ import { APICallError } from 'ai';
 import { describe, expect, test } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import {
+  CourseExercisesStateSchema,
+  CourseYoutubeQueryPlanSchema,
+} from '../../src/workflows/courseGenerationWorkflowContract.js';
+import {
   createWorkflowModelDiagnostic,
   readWorkflowErrorDiagnostic,
   readWorkflowModelDiagnostic,
@@ -9,6 +13,21 @@ import {
 } from '../../src/workflows/workflowErrorDiagnostics.js';
 
 describe('workflow error diagnostics', () => {
+  test('preserves sanitized cause class, code and stage through a provider wrapper and log readback', () => {
+    const cause = Object.assign(new Error('PRIVATE_OUTPUT'), {
+      name: 'CodexAppServerError',
+      code: 'timeout',
+      stage: 'turn-start',
+    });
+    const error = new Error('PRIVATE_PROMPT', { cause });
+    error.name = 'CourseModelProviderError';
+    const durable = toWorkflowErrorDiagnostic(error, { includeContent: false });
+    expect(durable).toEqual({
+      type: 'CourseModelProviderError',
+      cause: { type: 'CodexAppServerError', code: 'timeout', errorStage: 'turn-start' },
+    });
+    expect(readWorkflowErrorDiagnostic(JSON.parse(JSON.stringify(durable)))).toEqual(durable);
+  });
   test('retains thrown strings as redacted original diagnostics', () => {
     expect(toWorkflowErrorDiagnostic('Codex failed: api_key=hidden')).toEqual({
       originalMessage: 'Codex failed: api_key=[REDACTED]',
@@ -188,4 +207,49 @@ describe('workflow error diagnostics', () => {
       })
     ).toBeUndefined();
   });
+});
+
+test('keeps caller stage separate from the underlying error stage', () => {
+  const error = Object.assign(new Error('private'), { stage: 'pdf-parse' });
+  const diagnostic = {
+    stage: 'source-preparation',
+    ...toWorkflowErrorDiagnostic(error, { includeContent: false }),
+  };
+  expect(diagnostic).toEqual({
+    stage: 'source-preparation',
+    errorStage: 'pdf-parse',
+    type: 'Error',
+  });
+});
+
+test('durable planning fallback schemas preserve phase timings and nested error stages', () => {
+  const modelCall = {
+    phase: 'awaiting-ack',
+    elapsedMs: 25,
+    phaseElapsedMs: 20,
+    durationsMs: { initializing: 5, 'awaiting-ack': 20 },
+  };
+  const projected = toWorkflowErrorDiagnostic(
+    Object.assign(
+      new Error('PRIVATE_PROMPT', {
+        cause: Object.assign(new Error('PRIVATE_OUTPUT'), { stage: 'turn/start', code: 'timeout' }),
+      }),
+      { modelCall }
+    ),
+    { includeContent: false }
+  );
+  const youtube = CourseYoutubeQueryPlanSchema.parse({
+    queries: ['synthetic query'],
+    planningDiagnostic: projected,
+  });
+  const exercise = CourseExercisesStateSchema.shape.exercisePlanningDiagnostic.parse(projected);
+  for (const checkpoint of [youtube.planningDiagnostic, exercise]) {
+    const logged = readWorkflowErrorDiagnostic(JSON.parse(JSON.stringify(checkpoint)));
+    expect(logged).toEqual(projected);
+    expect(logged).toMatchObject({
+      modelCall,
+      cause: { errorStage: 'turn/start', code: 'timeout' },
+    });
+    expect(JSON.stringify(logged)).not.toContain('PRIVATE_');
+  }
 });

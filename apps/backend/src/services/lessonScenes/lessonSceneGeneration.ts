@@ -16,6 +16,7 @@ import {
   type LessonScene,
   LessonSceneSchema,
   type LessonSceneType,
+  selectableLessonSceneTypes,
 } from '@shared/lessonScene';
 import { interactiveSelectionRules } from '@shared/lessonSceneAnimation';
 import {
@@ -231,7 +232,7 @@ Diagram labels use brief entity names, symbols, quantities or messages, not expl
 FORMS
 - ${LESSON_SCENE_INDEPENDENT_CONTENT_RULE}
 - Make the layout mirror the logical relations the lesson states: parallel criteria, factors, or options sit side by side in one form (checklist, parts, comparison); only actions the lesson explicitly orders become steps. Sequence diagrams show message exchanges between participants. Never chain parallel items as consecutive steps.
-- checklist: concrete questions in labels, details only when they add information. limits: two items meaning "Shows" and "Does not prove", in the lesson language. roles: people as items with a neutral profile. steps: strictly ordered actions, not alternatives; options after a pause become a checklist with the pause in body.
+- checklist: concrete questions or practical checks in labels, including how to test a hypothesis. State the question being tested in the title or a label. Use details only when they add information. limits: two items meaning "Shows" and "Does not prove", in the lesson language. roles: people as items with a neutral profile. steps: strictly ordered actions, not alternatives; options after a pause become a checklist with the pause in body.
 - comparison, signals, matrix, decision, balance, and beforeafter need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other original forms need at least two items, except number, flowchart, sequence, journey, proportional, and guided-path; diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
 - For hierarchies and networks the title names the common node. Do not use maps, cycles, or timelines for plain lists. beforeafter needs an actual transformation; a mere preference between two behaviours is a comparison with verdicts.
 - Quantitative forms only with REAL numbers present in the lesson, never invented scores. Each numeric item has a finite value >= 0 and a label with unit or period. interval has exactly three items: minimum, estimate, maximum. line points carry increasing times, which set their real spacing; the label shows how the lesson names each time. number has one item. HTTP codes, versions, and identifiers are not quantities.
@@ -481,10 +482,7 @@ export async function generateLessonScene(
   const captioned = input.narration !== undefined;
   // A resumed workflow must generate within the catalog admitted by its saved contract.
   // Spotlight definitions need the owning playback's canonical speech, not raw Markdown anchors.
-  const types = (input.allowedSceneTypes ?? GENERATABLE_LESSON_SCENE_TYPES).filter(
-    type =>
-      GENERATABLE_LESSON_SCENE_TYPES.includes(type) && (type !== 'formula-spotlight' || captioned)
-  );
+  const types = selectableLessonSceneTypes({ captioned, allowedTypes: input.allowedSceneTypes });
   const catalogSchema = SceneDraftSchema.extend({
     type: z.enum(input.allowTextFallback ? [...types, 'text'] : types),
   });
@@ -501,8 +499,8 @@ export async function generateLessonScene(
     problems: unknown,
     evidence?: string,
     source = excerpt
-  ) =>
-    toWorkflowErrorDiagnostic(
+  ) => ({
+    ...toWorkflowErrorDiagnostic(
       new Error(
         JSON.stringify({
           outputPath,
@@ -515,7 +513,9 @@ export async function generateLessonScene(
           problems,
         })
       )
-    );
+    ),
+    errorStage: stage,
+  });
   const response = await generateStructuredOutput<unknown>({
     sourceAware: Boolean(input.sourceProvenance),
     onOutputPath: path => {

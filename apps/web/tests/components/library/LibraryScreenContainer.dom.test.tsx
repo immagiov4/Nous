@@ -1,4 +1,8 @@
 import CourseSetupHeader from '../../../components/library/CourseSetupHeader.tsx';
+import DiagnosticFlow from '../../../components/library/diagnostic/DiagnosticFlow.tsx';
+import type { DiagnosticAdapter } from '../../../components/library/diagnostic/diagnosticFlow.ts';
+import { setRenderingLocaleOverride } from '../../../i18n/uiMessages.ts';
+import { CourseGenerationError } from '../../../services/openrouter/courseGenerationClient.ts';
 import * as sourceSelection from '../../../services/projects/sourceFileSelection.ts';
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
@@ -33,6 +37,7 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       pendingFileWarnings?: string[];
       terminalSourceDocuments?: { id: string; name: string; state: string }[];
       onClearPendingFile: () => void;
+      diagnosticAdapter?: DiagnosticAdapter;
     };
     onPageChange: (page: 'home' | 'library') => void;
     storageError?: string | null;
@@ -58,6 +63,7 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       <button type="button" onClick={chatProps.onClearPendingFile}>
         Rimuovi fonti
       </button>
+      {chatProps.diagnosticAdapter && <DiagnosticFlow adapter={chatProps.diagnosticAdapter} />}
       <button type="button" onClick={() => void chatProps.onConfirmGenerate()}>
         Conferma scelte
       </button>
@@ -121,12 +127,62 @@ const buildProps = () =>
   }) as unknown as ComponentProps<typeof LibraryScreenContainer>;
 
 afterEach(() => {
+  setRenderingLocaleOverride(null);
   cleanup();
   clearFeedbackDiagnostics();
   globalThis.history.replaceState({}, '', '/');
 });
 
 describe('LibraryScreenContainer route fallback', () => {
+  test.each([
+    ['it', 'La richiesta non è disponibile in questo momento. Riprova più tardi.'],
+    ['en', 'The request is unavailable right now. Try again later.'],
+  ] as const)('diagnostic completion hides internal errors behind a stable %s message', async (locale, message) => {
+    setRenderingLocaleOverride(locale);
+    const props = buildProps();
+    props.controller.diagnosticAdapter = {
+      collectionId: 'retained',
+      initial: {
+        kind: 'complete',
+        id: 'done',
+        title: 'Punto di partenza individuato',
+        feedback: 'Ripartiamo dalle basi.',
+      },
+      submit: vi.fn(),
+      onComplete: vi.fn().mockRejectedValue(new Error('The approved course is not available.')),
+    };
+    render(<LibraryScreenContainer {...props} />);
+    await act(async () =>
+      fireEvent.click(
+        screen.getByRole('button', { name: locale === 'en' ? 'Continue' : 'Continua' })
+      )
+    );
+    expect(props.notify).toHaveBeenCalledWith(message);
+    expect(props.notify).not.toHaveBeenCalledWith(expect.stringContaining('The approved course'));
+    expect(props.notify).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+  test('retains the completed diagnostic after remount and notifies the retry failure cause', async () => {
+    const props = buildProps();
+    const error = 'La generazione del corso ha superato il tempo disponibile. Riprova.';
+    const failure = new CourseGenerationError('workflow_step_timeout');
+    failure.message = 'Private provider message';
+    props.controller.diagnosticAdapter = {
+      collectionId: 'retained',
+      initial: {
+        kind: 'complete',
+        id: 'done',
+        title: 'Punto di partenza individuato',
+        feedback: 'Ripartiamo dalle basi.',
+      },
+      submit: vi.fn(),
+      onComplete: vi.fn().mockRejectedValue(failure),
+    };
+    render(<LibraryScreenContainer {...props} />);
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course');
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Continua' })));
+    expect(props.notify).toHaveBeenCalledWith(error);
+  });
   test('counts expanded preparation documents in the setup header', () => {
     const props = buildProps();
     props.controller.workflowState.assessment = {

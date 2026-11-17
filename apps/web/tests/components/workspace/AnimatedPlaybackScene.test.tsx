@@ -71,7 +71,7 @@ function mount(scene: LessonScene | LessonScene[], speech: string, duration = 9.
   const readTime = () => time;
   const props = { block, content, duration, readTime };
   const result = render(<LessonPlaybackStage {...props} time={time} />);
-  const paragraph = result.container.querySelector<HTMLElement>('.captions p');
+  const paragraph = result.container.querySelector<HTMLElement>('.captions .caption-page');
   if (!paragraph) throw new Error('Captions must be mounted');
   paragraph.scrollTo = vi.fn();
   return {
@@ -122,9 +122,9 @@ test('complete anchors follow heard words regardless of caption lead or playback
   expect(container.querySelector('.path-explanation p')?.textContent).toBe(
     'Secondo passaggio. Lo stesso gruppo.'
   );
-  expect(container.querySelectorAll('.caption-word')[2].getAttribute('style')).toContain(
-    'opacity: 1'
-  );
+  expect(
+    Number((container.querySelectorAll('.caption-word')[2] as HTMLElement).style.opacity)
+  ).toBeCloseTo(0.805);
   flush();
   expect(container.querySelectorAll('[aria-current=step]')).toHaveLength(2);
   advance(2.01, 0.5);

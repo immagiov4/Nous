@@ -934,11 +934,15 @@ function VoicePicker({
         title={t('Voce')}
         value={tts.currentVoice}
         onChange={event => tts.onVoiceChange(event.target.value as VoiceProfileId)}
-        className="absolute inset-0 z-10 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed"
+        className="absolute inset-0 z-10 h-full w-full cursor-pointer appearance-none bg-white text-gray-700 opacity-0 [color-scheme:light] disabled:cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-200 dark:[color-scheme:dark]"
         disabled={disabled}
       >
         {getDisplayedVoices(tts).map(voice => (
-          <option key={voice.id} value={voice.id}>
+          <option
+            key={voice.id}
+            value={voice.id}
+            className="bg-white text-gray-700 dark:bg-zinc-800 dark:text-zinc-200"
+          >
             {voice.label}
           </option>
         ))}

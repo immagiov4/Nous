@@ -524,7 +524,7 @@ function localSettings(bypass) {
   return { staleMs, slots };
 }
 
-export async function main(args = process.argv.slice(2)) {
+export async function main(args = process.argv.slice(2), { onInterrupt } = {}) {
   const directory = process.env.HEAVY_RUN_DIR || join(homedir(), '.agent-questions', 'heavy-run');
   const worker = args[0] === '--worker';
   const bypass = worker || process.env.CI === 'true' || process.env.HEAVY_RUN_HELD === '1';
@@ -545,10 +545,15 @@ export async function main(args = process.argv.slice(2)) {
     throw new Error('--weight must be a positive integer no greater than HEAVY_RUN_SLOTS.');
   if (!command) return 1;
   const abort = new AbortController();
-  const interrupt = () => abort.abort('SIGINT');
-  const terminate = () => abort.abort('SIGTERM');
-  process.once('SIGINT', interrupt);
-  process.once('SIGTERM', terminate);
+  const requestStop = signal => {
+    if (!onInterrupt?.(signal)) abort.abort(signal);
+  };
+  const interrupt = () => requestStop('SIGINT');
+  const terminate = () => requestStop('SIGTERM');
+  // Deferred cancellation must keep receiving signals so another interrupt can force cleanup.
+  const subscribe = onInterrupt ? 'on' : 'once';
+  process[subscribe]('SIGINT', interrupt);
+  process[subscribe]('SIGTERM', terminate);
   try {
     if (bypass) {
       return await runCommand(command, process.env, abort);

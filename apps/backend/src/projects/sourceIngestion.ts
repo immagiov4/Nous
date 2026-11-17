@@ -27,6 +27,7 @@ import {
   readProjectSourceMaterial,
 } from '../services/projectSourceText.js';
 import { isRecord } from '../utils/validation.js';
+import { toWorkflowErrorDiagnostic } from '../workflows/workflowErrorDiagnostics.js';
 import { restoreProjectDocumentText } from './projectDocumentText.js';
 import { ProjectImportInputError } from './projectImportChunks.js';
 import { restoreStoredPreparedPdfText } from './projectSource.js';
@@ -183,7 +184,11 @@ export const prepareSourceCollection = async ({
   snapshot: ProjectSnapshot;
   upload: SourceUpload;
   context: SourcePreparationContext;
-}): Promise<{ snapshot: ProjectSnapshot; failures: SourcePreparationFailure[] }> => {
+}): Promise<{
+  snapshot: ProjectSnapshot;
+  privateCheckpoint: ProjectSnapshot;
+  failures: SourcePreparationFailure[];
+}> => {
   snapshot = restoreProjectDocumentText(snapshot, storedSnapshot ?? null);
   snapshot = restoreStoredPreparedPdfText(snapshot, storedSnapshot);
   if (!isRecord(snapshot.source) || !Array.isArray(snapshot.source.sources))
@@ -247,7 +252,7 @@ export const prepareSourceCollection = async ({
       ...snapshot,
       source: { ...source, sources: descriptors },
     });
-  const markFailure = (descriptor: SourceDescriptor, error: unknown) => {
+  const markFailure = (descriptor: SourceDescriptor, error: unknown, sourceHash: string) => {
     context.signal.throwIfAborted();
     if (error instanceof PdfScannedPageLimitError) throw error;
     descriptor.status = 'error';
@@ -255,6 +260,10 @@ export const prepareSourceCollection = async ({
     const reason = failureReason(error);
     descriptor.errorReason = reason;
     descriptor.errorMessage = SOURCE_PREPARATION_FAILURE_MESSAGES[reason];
+    descriptor.errorDiagnostic = {
+      stage: 'source-preparation',
+      ...toWorkflowErrorDiagnostic(error, { includeContent: false }),
+    };
     delete descriptor.documentIndex;
     const prepared = descriptor.preparedPdfText;
     const failedPages =
@@ -268,7 +277,13 @@ export const prepareSourceCollection = async ({
     });
     checkpoint();
     context.reportProgress(latestProgress);
-    console.warn('[Sources] Per-file preparation failed.', { name: descriptor.name, reason });
+    console.warn('[Sources] Per-file preparation failed.', {
+      name: descriptor.name,
+      sourceId: descriptor.id,
+      sourceHash,
+      reason,
+      diagnostic: descriptor.errorDiagnostic,
+    });
   };
   let offset = upload.offset ?? 0;
   const uploadedIds = new Set<string>();
@@ -306,6 +321,7 @@ export const prepareSourceCollection = async ({
       delete descriptor.documentIndex;
       delete descriptor.errorMessage;
       delete descriptor.errorReason;
+      delete descriptor.errorDiagnostic;
       try {
         if (preparedPdf)
           context.pdfTranscriptionPool?.allocateScannedPages(
@@ -330,11 +346,11 @@ export const prepareSourceCollection = async ({
             checkpoint();
             context.reportProgress(latestProgress);
           })
-          .catch(error => markFailure(descriptor, error));
+          .catch(error => markFailure(descriptor, error, hash));
         void completion.catch(() => undefined);
         completions.push(completion);
       } catch (error) {
-        markFailure(descriptor, error);
+        markFailure(descriptor, error, hash);
       }
       collectReleasedSourceMemory();
       const transcription = context.pdfTranscriptionPool?.progress;
@@ -362,12 +378,23 @@ export const prepareSourceCollection = async ({
       failures,
       upload.files.map(file => ({ id: file.id, name: file.name, state: 'error' as const }))
     );
+  // Keep operator diagnostics in private checkpoints, outside the published project snapshot.
+  const publishedDescriptors = descriptors.map(descriptor => {
+    const published = { ...descriptor };
+    delete published.errorDiagnostic;
+    return published;
+  });
+  const privateCheckpoint: ProjectSnapshot = {
+    ...snapshot,
+    source: { ...source, sources: descriptors },
+    documentIndex: combineCourseSourceIndexes(publishedDescriptors),
+  };
   return {
     failures,
+    privateCheckpoint,
     snapshot: {
-      ...snapshot,
-      source: { ...source, sources: descriptors },
-      documentIndex: combineCourseSourceIndexes(descriptors),
+      ...privateCheckpoint,
+      source: { ...source, sources: publishedDescriptors },
     },
   };
 };

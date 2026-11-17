@@ -3,7 +3,10 @@ import { PassThrough } from 'node:stream';
 import type { TransactionSql } from 'postgres';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import * as z from 'zod';
-import { CodexJsonRpcClient } from '../../src/services/codexAppServer.js';
+import {
+  CodexJsonRpcClient,
+  runCodexAppServerTurnWithClient,
+} from '../../src/services/codexAppServer.js';
 import { WorkflowExecutionDefaultsSchema } from '../../src/workflows/config.js';
 import { CourseModelProviderError } from '../../src/workflows/courseGenerationModel.js';
 import {
@@ -12,7 +15,7 @@ import {
   step,
   workflow,
 } from '../../src/workflows/definition.js';
-import { retryOperational } from '../../src/workflows/retryPolicy.js';
+import { parseStepFailure, retryOperational } from '../../src/workflows/retryPolicy.js';
 import type {
   JsonValue,
   RegisteredWorkflow,
@@ -135,6 +138,7 @@ describe('single workflow step runner', () => {
   test.each([
     'parser',
     'silence',
+    'rpc-error',
     'exit',
   ] as const)('records a private-safe Codex %s failure at the durable attempt boundary', async scenario => {
     vi.useFakeTimers();
@@ -191,6 +195,8 @@ describe('single workflow step runner', () => {
         '2026-11-01T20:12:04.223259Z ERROR codex_app_server_transport::transport: Failed to deserialize JSON'
       );
       child.stderr.write('RPCMessage: unexpected end of hex escape PRIVATE_SOURCE\n');
+    } else if (scenario === 'rpc-error') {
+      child.stdout.write(`${JSON.stringify({ id: 1, error: { message: 'Request rejected.' } })}\n`);
     } else if (scenario === 'exit') {
       child.emit('exit', 1);
     } else {
@@ -205,7 +211,13 @@ describe('single workflow step runner', () => {
       type: 'CourseModelProviderError',
       cause: {
         type: 'CodexAppServerError',
-        code: scenario === 'parser' ? 'protocol' : scenario === 'exit' ? 'process' : 'timeout',
+        code:
+          scenario === 'parser' || scenario === 'rpc-error'
+            ? 'protocol'
+            : scenario === 'exit'
+              ? 'process'
+              : 'timeout',
+        errorStage: 'turn/start',
         ...(scenario === 'parser' ? { cause: { code: 'jsonrpc_deserialization_failed' } } : {}),
       },
     });
@@ -601,6 +613,109 @@ describe('single workflow step runner', () => {
       kind: 'permanent',
     });
     expect(run).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    'ack',
+    'output',
+    'stream',
+    'started',
+  ] as const)('records the last model-call phase during %s timeout', async phase => {
+    vi.useFakeTimers();
+    const child = Object.assign(new EventEmitter(), {
+      stderr: new PassThrough(),
+      stdin: new PassThrough(),
+      stdout: new PassThrough(),
+      kill: vi.fn(),
+    });
+    child.stdin.on('data', chunk => {
+      const request = JSON.parse(String(chunk));
+      let result: unknown;
+      if (request.method === 'account/read')
+        result = { account: { type: 'chatgpt' }, requiresOpenaiAuth: false };
+      if (request.method === 'thread/start') result = { thread: { id: 'thread-test' } };
+      if (request.method === 'turn/start' && phase !== 'ack' && phase !== 'started')
+        result = { turn: { id: 'turn-test' } };
+      if (request.method === 'turn/start' && phase === 'started')
+        child.stdout.write(
+          `${JSON.stringify({ method: 'turn/started', params: { threadId: 'thread-test', turn: { id: 'turn-test' } } })}\n`
+        );
+      if (request.method === 'turn/start' && phase === 'stream')
+        child.stdout.write(
+          `${JSON.stringify({ method: 'item/agentMessage/delta', params: { threadId: 'thread-test', delta: 'PRIVATE_OUTPUT' } })}\n`
+        );
+      if (result) child.stdout.write(`${JSON.stringify({ id: request.id, result })}\n`);
+    });
+    const client = new CodexJsonRpcClient(child);
+    const work = step({
+      id: 'work',
+      inputSchema: Text,
+      outputSchema: Text,
+      run: async ({ signal }) =>
+        runCodexAppServerTurnWithClient(
+          {
+            developerInstructions: 'PRIVATE_PROMPT',
+            input: [{ type: 'text', text: 'PRIVATE_SOURCE' }],
+            model: 'test',
+            reasoningEffort: 'low',
+            signal,
+          },
+          client
+        ).then(text => ({ text })),
+    });
+    const registry = createWorkflowRegistry();
+    const registered = registry.register({
+      current: workflow({
+        compatibilityId: 'test-v1',
+        configSchema: WorkflowExecutionDefaultsSchema,
+        executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+        id: 'timeout',
+        inputSchema: Text,
+        outputSchema: Text,
+        root: work,
+      }),
+    }).current;
+    const recordFailure = vi.fn(async () => ({ status: 'failed' as const, transientEvents: [] }));
+    const execution = runWorkflowStepClaim({
+      claim: makeClaim(registered, {
+        nodeInstanceId: 'work',
+        stepPolicies: {
+          work: {
+            config: { maxAttempts: 3, timeoutMs: 1_000 },
+            maxAttempts: 3,
+            timeoutMs: 1_000,
+          },
+        },
+        timeoutMs: 1_000,
+      }),
+      registry,
+      services: {},
+      store: makeStore({ recordFailure }),
+    });
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    const result = await Promise.race([
+      execution,
+      Promise.resolve({ status: 'execution-did-not-settle' as const }),
+    ]);
+    expect(result).toMatchObject({ status: 'failure-recorded' });
+    expect(recordFailure.mock.calls[0]?.[0].failure).toMatchObject({
+      code: 'workflow_step_timeout',
+      details: { diagnostic: { originalMessage: 'Workflow step timed out.' } },
+      kind: 'operational',
+    });
+    const durable = JSON.parse(JSON.stringify(recordFailure.mock.calls[0]?.[0].failure));
+    expect(durable.details.diagnostic.modelCall).toMatchObject({
+      phase:
+        phase === 'ack'
+          ? 'awaiting-ack'
+          : phase === 'stream'
+            ? 'receiving-output'
+            : 'awaiting-output',
+      elapsedMs: 1_000,
+    });
+    expect(JSON.stringify(durable)).not.toContain('PRIVATE_');
+    client.close();
   });
 
   test('finishes a timeout even when run ignores its abort signal', async () => {
@@ -1827,4 +1942,95 @@ test('returns a sanitized heartbeat failure without checkpointing or releasing t
   expect(store.checkpointStep).not.toHaveBeenCalled();
   expect(store.steps.recordFailure).not.toHaveBeenCalled();
   expect(store.cancellation.releaseClaim).not.toHaveBeenCalled();
+});
+
+test.each([
+  { input: { alpha: 42, beta: ['ok', 'ok'] }, path: ['alpha'], code: 'invalid_type' },
+  { input: { alpha: 'ok', beta: ['ok', ''] }, path: ['beta', 1], code: 'too_small' },
+  { input: { alpha: 'data:text/plain,secret', beta: ['ok', 'ok'] }, phase: 'input-snapshot' },
+])('records distinguishable claimed input failures: $input', async fixture => {
+  const Input = z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('main'), alpha: z.string(), beta: z.array(z.string().min(1)) }),
+    z.object({ kind: z.literal('alternative'), alternative: z.boolean() }),
+  ]);
+  const work = step({
+    id: 'work',
+    inputSchema: Input,
+    outputSchema: Text,
+    run: async () => ({ text: 'done' }),
+  });
+  const registry = createWorkflowRegistry();
+  const registered = registry.register({
+    current: workflow({
+      compatibilityId: 'test-v1',
+      configSchema: WorkflowExecutionDefaultsSchema,
+      executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+      id: 'input-diagnostics',
+      inputSchema: Input,
+      outputSchema: Text,
+      root: work,
+    }),
+  }).current;
+  const recordFailure = vi.fn(makeStore().steps.recordFailure);
+  await runWorkflowStepClaim({
+    claim: makeClaim(registered, { input: { kind: 'main', ...fixture.input } }),
+    registry,
+    services: {},
+    store: makeStore({ recordFailure }),
+  });
+  const failure = parseStepFailure(recordFailure.mock.calls[0]?.[0].failure);
+  expect(failure).toMatchObject({
+    code: 'workflow_step_input_incompatible',
+    kind: 'permanent',
+    details: {
+      phase: fixture.phase ?? 'input-parse',
+      diagnostic: { type: fixture.phase ? 'TypeError' : 'ZodError' },
+      ...(fixture.path ? { validationIssue: { path: fixture.path, code: fixture.code } } : {}),
+    },
+  });
+  expect(JSON.stringify(failure)).not.toContain('secret');
+  expect(JSON.stringify(failure)).not.toContain('originalMessage');
+});
+
+test.each([
+  'private-key-secret',
+  'data:text/plain,secret',
+])('records record-schema failures without disclosing dynamic key %s', async key => {
+  const Input = z.record(z.string(), z.string());
+  const work = step({
+    id: 'work',
+    inputSchema: Input,
+    outputSchema: Text,
+    run: async () => ({ text: 'done' }),
+  });
+  const registry = createWorkflowRegistry();
+  const registered = registry.register({
+    current: workflow({
+      compatibilityId: 'test-v1',
+      configSchema: WorkflowExecutionDefaultsSchema,
+      executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+      id: 'record-input-diagnostics',
+      inputSchema: Input,
+      outputSchema: Text,
+      root: work,
+    }),
+  }).current;
+  const recorded: unknown[] = [];
+  const recordFailure: WorkflowStepRunnerStore['steps']['recordFailure'] = async input => {
+    recorded.push(parseStepFailure(input.failure));
+    return { status: 'failed', transientEvents: [] };
+  };
+  await expect(
+    runWorkflowStepClaim({
+      claim: makeClaim(registered, { input: { [key]: 42 } }),
+      registry,
+      services: {},
+      store: makeStore({ recordFailure }),
+    })
+  ).resolves.toMatchObject({ status: 'failure-recorded' });
+  expect(recorded).toHaveLength(1);
+  expect(JSON.stringify(recorded)).not.toContain(key);
+  expect(recorded[0]).toMatchObject({
+    details: { validationIssue: { path: ['*'], code: 'invalid_type' } },
+  });
 });

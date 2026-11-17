@@ -39,14 +39,18 @@ const content = {
       }
     : {},
   activeSectionTitle: 'Prova del fuoco',
-  isDarkMode: false,
+  isDarkMode: new URLSearchParams(location.search).has('dark'),
   isMobileViewport: mobile,
   activeSectionAssetsById: {},
   activeSectionImageRefsById: {},
 } as WorkspaceReaderContentModel;
 
+document.documentElement.classList.toggle('dark', content.isDarkMode);
+
 function Fixture() {
   const [open, setOpen] = useState(false);
+  const [voice, setVoice] = useState('Kore');
+  const [speed, setSpeed] = useState(1);
   return (
     <main style={{ height: '200vh', paddingTop: '50vh' }}>
       <button type="button" onClick={() => setOpen(true)}>
@@ -60,11 +64,14 @@ function Fixture() {
           autoPlay={false}
           onClose={() => setOpen(false)}
           tts={{
-            currentVoice: 'Kore',
-            playbackRate: 1,
-            availableVoices: [{ id: 'Kore', label: 'Voce', language: 'it' }],
-            onVoiceChange: () => {},
-            onSpeedChange: () => {},
+            currentVoice: voice,
+            playbackRate: speed,
+            availableVoices: [
+              { id: 'Kore', label: 'Kore', language: 'it' },
+              { id: 'Puck', label: 'Puck', language: 'it' },
+            ],
+            onVoiceChange: setVoice,
+            onSpeedChange: setSpeed,
           }}
           overlays={{
             contextAnswerSize: { width: 480, height: 400 },

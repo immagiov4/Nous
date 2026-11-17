@@ -58,7 +58,17 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
   for (const listener of localeListeners) listener();
 };
 
+export const DIAGNOSTIC_COMPLETION_ERROR =
+  'La richiesta non è disponibile in questo momento. Riprova più tardi.';
+
 const ENGLISH_UI_MESSAGES = {
+  'La generazione del corso non è riuscita. Riprova.': 'Course generation failed. Try again.',
+  'La generazione del corso ha superato il tempo disponibile. Riprova.':
+    'Course generation timed out. Try again.',
+  'Il tentativo precedente non è ancora stato ripristinato. Riprova più tardi.':
+    'The previous attempt has not finished restoring the course. Try again later.',
+  'L’app è stata aggiornata mentre questa generazione era in corso. Avvia una nuova generazione.':
+    'The app was updated while this generation was running. Start a new generation.',
   [CONTEXT_NOTE_MESSAGES.noPassages]: 'This lesson has no passages to attach a note to.',
   [CONTEXT_NOTE_MESSAGES.unavailable]: 'Note proposal unavailable.',
   [CONTEXT_NOTE_MESSAGES.invalidAnchor]:
@@ -721,8 +731,7 @@ const ENGLISH_UI_MESSAGES = {
   'Invia email di recupero': 'Send recovery email',
   'Invio email di recupero non riuscito. Riprova.': 'Could not send the recovery email. Try again.',
   'Interroga e verifica': 'Ask and check your understanding',
-  'La richiesta non è disponibile in questo momento. Riprova più tardi.':
-    'The request is unavailable right now. Try again later.',
+  [DIAGNOSTIC_COMPLETION_ERROR]: 'The request is unavailable right now. Try again later.',
   'La password è troppo debole. Scegline una più lunga e difficile.':
     'The password is too weak. Choose a longer, harder-to-guess password.',
   'La tua email': 'Your email',

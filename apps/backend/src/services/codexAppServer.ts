@@ -3,8 +3,8 @@ import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { createInterface, type Interface as ReadLineInterface } from 'node:readline';
 import { Readable } from 'node:stream';
-
 import type { ReasoningEffort } from '../config/modelConfig.js';
+import { bindModelCallPhase, withModelCallDiagnostics } from '../workflows/modelCallDiagnostics.js';
 import { startModelExchange } from '../workflows/modelExchanges.js';
 import {
   currentWorkflowAttempt,
@@ -307,7 +307,24 @@ export class CodexJsonRpcClient {
     });
 
     this.#write({ id, method, ...(params === undefined ? {} : { params }) });
-    return result;
+    return result.catch(error => {
+      // Caller cancellation retains its identity for interruption handling.
+      if (options.signal?.aborted && error === options.signal.reason) throw error;
+      if (error instanceof CodexAppServerError) {
+        throw Object.assign(
+          new CodexAppServerError(error.message, error.code, { cause: error.cause }),
+          { stage: method }
+        );
+      }
+      throw Object.assign(
+        new CodexAppServerError(
+          error instanceof Error ? error.message : 'Codex RPC request failed.',
+          'process',
+          { cause: error }
+        ),
+        { stage: method }
+      );
+    });
   }
 
   notify(method: string, params?: unknown): void {
@@ -901,6 +918,7 @@ const executeCodexAppServerTurn = async (
   client: CodexJsonRpcClient,
   capture: ExchangeCapture
 ): Promise<CodexTurnExecution> => {
+  const markPhase = bindModelCallPhase();
   turn.signal?.throwIfAborted();
   let completedText = '';
   let streamedText = '';
@@ -1005,6 +1023,8 @@ const executeCodexAppServerTurn = async (
       }
       if (captured) captureCodexNotification(capture, captured, method, params);
 
+      if (method === 'turn/started') markPhase('awaiting-output');
+
       if (method === 'thread/tokenUsage/updated') {
         const metering = readTurnTokenUsage(params);
         if (metering) usageByTurnId.set(metering.turnId, metering.usage);
@@ -1014,6 +1034,7 @@ const executeCodexAppServerTurn = async (
       if (method === 'item/agentMessage/delta' && isRecord(params)) {
         const delta = readText(params.delta);
         if (delta) {
+          markPhase('receiving-output');
           streamedText += delta;
           turn.onTextDelta?.(delta);
         }
@@ -1023,6 +1044,7 @@ const executeCodexAppServerTurn = async (
       if (method === 'item/reasoning/textDelta' && isRecord(params)) {
         const delta = readText(params.delta);
         if (delta) {
+          markPhase('receiving-output');
           hasStreamedReasoningText = true;
           turn.onReasoningDelta?.(delta);
         }
@@ -1036,6 +1058,7 @@ const executeCodexAppServerTurn = async (
       ) {
         const delta = readText(params.delta);
         if (delta) {
+          markPhase('receiving-output');
           streamedReasoningSummary += delta;
           turn.onReasoningDelta?.(delta);
         }
@@ -1043,6 +1066,8 @@ const executeCodexAppServerTurn = async (
       }
 
       if (method === 'item/completed') {
+        if (readAgentMessageText(params) || readCompletedReasoningSummary(params))
+          markPhase('receiving-output');
         if (isRecord(params) && isRecord(params.item) && params.item.type === 'webSearch') {
           turn.onWebSearchCompleted?.();
         }
@@ -1080,6 +1105,7 @@ const executeCodexAppServerTurn = async (
         );
         return;
       }
+      markPhase('completed');
       resolveTurnCompleted(completedText || streamedText);
     });
     const unsubscribeFailure = client.onFailure(rejectTurnCompleted);
@@ -1091,6 +1117,7 @@ const executeCodexAppServerTurn = async (
   });
 
   try {
+    markPhase('awaiting-ack');
     const turnResponse = await client.request(
       'turn/start',
       {
@@ -1107,6 +1134,7 @@ const executeCodexAppServerTurn = async (
       },
       { signal: turn.signal }
     );
+    markPhase('awaiting-output');
     const turnId = readStartedTurnId(turnResponse);
     if (!turnId) {
       throw new CodexAppServerError('Codex did not return a turn id.', 'protocol');
@@ -1211,7 +1239,10 @@ const trackCodexTurnUsage = async (execution: Promise<CodexTurnExecution>): Prom
 export const runCodexAppServerTurnWithClient = (
   turn: CodexTurnInput,
   client: CodexJsonRpcClient
-): Promise<string> => trackCodexTurnUsage(startCodexAppServerTurnWithClient(turn, client));
+): Promise<string> =>
+  withModelCallDiagnostics(turn.signal, () =>
+    trackCodexTurnUsage(startCodexAppServerTurnWithClient(turn, client))
+  );
 
 const startCodexAppServerTurn = async (turn: CodexTurnInput): Promise<CodexTurnExecution> => {
   let client: CodexJsonRpcClient;
@@ -1234,7 +1265,7 @@ const startCodexAppServerTurn = async (turn: CodexTurnInput): Promise<CodexTurnE
 };
 
 export const runCodexAppServerTurn = (turn: CodexTurnInput): Promise<string> =>
-  trackCodexTurnUsage(startCodexAppServerTurn(turn));
+  withModelCallDiagnostics(turn.signal, () => trackCodexTurnUsage(startCodexAppServerTurn(turn)));
 
 export const CODEX_IMAGE_TURN_SETTINGS = { reasoningEffort: 'low', serviceTier: 'fast' } as const;
 

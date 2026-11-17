@@ -1,6 +1,43 @@
+import { animate } from 'framer-motion';
 import { CAPTION_SCROLL } from './captionFormat.ts';
 
 type CaptionRow = { top: number; bottom: number; inkTop: number; inkBottom: number };
+type ReadingState = { manual: boolean; scrollbarDrag: boolean; stopScroll?: () => void };
+const readingStates = new WeakMap<HTMLElement, ReadingState>();
+
+function readingState(paragraph: HTMLElement) {
+  const existing = readingStates.get(paragraph);
+  if (existing) return existing;
+  const state: ReadingState = { manual: false, scrollbarDrag: false };
+  readingStates.set(paragraph, state);
+  const pauseFollow = () => {
+    state.manual = true;
+    state.stopScroll?.();
+  };
+  paragraph.addEventListener('wheel', pauseFollow, { passive: true });
+  paragraph.addEventListener('touchmove', pauseFollow, { passive: true });
+  paragraph.addEventListener('keydown', event => {
+    if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key))
+      pauseFollow();
+  });
+  paragraph.addEventListener('pointerdown', event => {
+    const bounds = paragraph.getBoundingClientRect();
+    const scale = bounds.width / paragraph.offsetWidth;
+    const left = bounds.left + paragraph.clientLeft * scale;
+    const right = left + paragraph.clientWidth * scale;
+    state.scrollbarDrag = event.clientX < left || event.clientX >= right;
+  });
+  const releasePointer = () => {
+    state.scrollbarDrag = false;
+  };
+  paragraph.addEventListener('pointerup', releasePointer);
+  paragraph.addEventListener('pointercancel', releasePointer);
+  paragraph.addEventListener('pointerleave', releasePointer);
+  paragraph.addEventListener('scroll', () => {
+    if (state.scrollbarDrag) pauseFollow();
+  });
+  return state;
+}
 
 function measureRows(paragraph: HTMLElement, origin: number, scale: number) {
   const rows: CaptionRow[] = [];
@@ -27,8 +64,11 @@ function measureRows(paragraph: HTMLElement, origin: number, scale: number) {
   return { rows, words };
 }
 
-/** Measure once per layout and exclude partial rows throughout native smooth scrolling. */
+/** Measure once per layout and exclude partial rows throughout eased block scrolling. */
 export function captionViewport(paragraph: HTMLElement) {
+  const reading = readingState(paragraph);
+  reading.stopScroll?.();
+  const readingPosition = reading.manual ? paragraph.scrollTop : 0;
   paragraph.scrollTop = 0;
   const bounds = paragraph.getBoundingClientRect();
   const scale = bounds.width / Number.parseFloat(getComputedStyle(paragraph).width);
@@ -36,6 +76,7 @@ export function captionViewport(paragraph: HTMLElement) {
   const first = words.keys().next().value;
   const firstTop = first ? (first.getBoundingClientRect().top - bounds.top) / scale : 0;
   const height = bounds.height / scale;
+  paragraph.scrollTop = readingPosition;
   let previousLine: CaptionRow | undefined;
   let target = 0;
   let previousClip = '';
@@ -67,12 +108,26 @@ export function captionViewport(paragraph: HTMLElement) {
   return {
     clip,
     follow(active: HTMLElement | undefined, motion: boolean) {
+      if (reading.manual) return;
       const row = active ? words.get(active) : rows[0];
       if (!row || row === previousLine) return;
       if (row.top < target || row.bottom > target + height * CAPTION_SCROLL.trigger) {
         const destination = row.top - height * CAPTION_SCROLL.destination;
         target = Math.max(0, ...rows.filter(line => line.top <= destination).map(line => line.top));
-        paragraph.scrollTo({ top: target, behavior: motion ? 'smooth' : 'instant' });
+        reading.stopScroll?.();
+        if (motion) {
+          const scrolling = animate(paragraph.scrollTop, target, {
+            duration: CAPTION_SCROLL.durationSeconds,
+            ease: 'easeInOut',
+            onUpdate: top => {
+              paragraph.scrollTop = top;
+              clip();
+            },
+          });
+          reading.stopScroll = () => scrolling.stop();
+        } else {
+          paragraph.scrollTo({ top: target, behavior: 'instant' });
+        }
       }
       previousLine = row;
       clip();

@@ -67,6 +67,7 @@ export const createCourseGenerationStarter = (
   start: async input => {
     const models = await dependencies.resolveModels(input.aiProvider, input.aiProviderOverrides);
     return startCourseGenerationWithModels(dependencies, {
+      ...(input.diagnosticRef ? { diagnosticRef: input.diagnosticRef } : {}),
       assessmentHistory: input.assessmentHistory,
       mode: input.mode,
       models,

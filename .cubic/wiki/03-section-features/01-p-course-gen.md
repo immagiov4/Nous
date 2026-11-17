@@ -106,6 +106,8 @@ Sources: [packages/shared-types/lessonWritingContract.ts](https://github.com/imm
 
 ## Persistence and Publication
 
+The authenticated `POST /api/course-workflows/runs/:runId/retry` resolves the latest attempt in the replacement chain. It resumes existing running or completed work, or creates one successor for a failed run after its cleanup has completed, using retained interview and diagnostic evidence. This identity is shared across clients.
+
 The final stage commits the course to the database via `persist-course`. This node handles:
 *   Storing the `CourseLearningPlan` (modules, lessons, and exercises).
 *   Updating the `projectRevision`.

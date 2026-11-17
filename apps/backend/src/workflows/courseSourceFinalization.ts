@@ -38,6 +38,7 @@ import {
   type CourseSourcesFinalizedState,
   CourseSourcesFinalizedStateSchema,
   courseGenerationStateSchemas,
+  preModelCallCourseGenerationStateSchemas,
 } from './courseGenerationWorkflowContract.js';
 import { fanOut, routeBy, sequence, step } from './definition.js';
 import {
@@ -46,8 +47,14 @@ import {
   runWorkflowStage,
   WorkflowStepError,
 } from './retryPolicy.js';
-import type { FanOutResult, StepExecutionContext } from './types.js';
-import { createWorkflowModelDiagnostic } from './workflowErrorDiagnostics.js';
+import type { FanOutResult, StepExecutionContext, StepFailure } from './types.js';
+import {
+  createWorkflowModelDiagnostic,
+  readWorkflowErrorDiagnostic,
+  toWorkflowErrorDiagnostic,
+  WorkflowObservedTechnicalDiagnosticSchema,
+  WorkflowTechnicalDiagnosticSchema,
+} from './workflowErrorDiagnostics.js';
 
 type ReadSourceMaterials = import('./courseGenerationSources.js').ReadCourseSourceMaterials;
 
@@ -58,10 +65,23 @@ export type BuildCourseDocumentIndex = (
 
 const COURSE_SOURCE_MAPPING_TIMEOUT_MS = 90_000;
 
-const createSourceFinalizationSchemas = ({
-  CoursePlanStateSchema,
-  CourseSourcesFinalizedStateSchema,
-}: typeof courseGenerationStateSchemas) => {
+const CourseMappingFailureSchema = z.object({
+  attemptNumber: z.number().int().positive(),
+  batchIndex: z.number().int().nonnegative(),
+  diagnostic: WorkflowTechnicalDiagnosticSchema,
+  kind: z.enum(['corrective', 'operational']),
+  stage: z.enum(['map-course-source-fast-batch', 'map-course-source-repair-batch']),
+});
+
+const createSourceFinalizationSchemas = (
+  schemas: typeof courseGenerationStateSchemas,
+  failureDiagnostics = true
+) => {
+  const { CoursePlanStateSchema, CourseSourcesFinalizedStateSchema } = schemas;
+  const mappingFailureSchema =
+    schemas === courseGenerationStateSchemas
+      ? CourseMappingFailureSchema.extend({ diagnostic: WorkflowObservedTechnicalDiagnosticSchema })
+      : CourseMappingFailureSchema;
   const CourseSourceMappingStateSchema = z.object({
     index: CourseDocumentIndexSchema,
     kind: z.literal('mapping'),
@@ -76,19 +96,39 @@ const createSourceFinalizationSchemas = ({
 
   const CourseSourceMappingProgressSchema = z.object({
     mappingFailed: z.boolean(),
+    mappingFailures: z.array(mappingFailureSchema).optional(),
     mappings: CourseChunkMappingBatchResultSchema.shape.mappings,
     state: CourseSourceMappingStateSchema,
   });
-  return { CourseSourcePreparationOutcomeSchema, CourseSourceMappingProgressSchema };
+  const failedBatchSchema = z.object({
+    batchIndex: z.number().int().nonnegative(),
+    failure: mappingFailureSchema.optional(),
+    status: z.literal('failed'),
+  });
+  const { failure: _failure, ...historicalFailedBatchShape } = failedBatchSchema.shape;
+  const { mappingFailures: _mappingFailures, ...historicalProgressShape } =
+    CourseSourceMappingProgressSchema.shape;
+  const CourseChunkMappingAttemptSchema = z.discriminatedUnion('status', [
+    z.object({ result: CourseChunkMappingBatchResultSchema, status: z.literal('completed') }),
+    // Historical schemas omit optional diagnostics to retain their durable fingerprints.
+    (failureDiagnostics
+      ? failedBatchSchema
+      : z.object(historicalFailedBatchShape)) as typeof failedBatchSchema,
+  ]);
+  return {
+    CourseSourcePreparationOutcomeSchema,
+    CourseSourceMappingProgressSchema: (failureDiagnostics
+      ? CourseSourceMappingProgressSchema
+      : z.object(historicalProgressShape)) as typeof CourseSourceMappingProgressSchema,
+    CourseChunkMappingAttemptSchema,
+  };
 };
 
-const { CourseSourcePreparationOutcomeSchema, CourseSourceMappingProgressSchema } =
-  createSourceFinalizationSchemas(courseGenerationStateSchemas);
-
-const CourseChunkMappingAttemptSchema = z.discriminatedUnion('status', [
-  z.object({ result: CourseChunkMappingBatchResultSchema, status: z.literal('completed') }),
-  z.object({ batchIndex: z.number().int().nonnegative(), status: z.literal('failed') }),
-]);
+const {
+  CourseSourcePreparationOutcomeSchema,
+  CourseSourceMappingProgressSchema,
+  CourseChunkMappingAttemptSchema,
+} = createSourceFinalizationSchemas(courseGenerationStateSchemas);
 
 type CourseSourcePreparationOutcome = z.infer<typeof CourseSourcePreparationOutcomeSchema>;
 type CourseSourceMappingProgress = z.infer<typeof CourseSourceMappingProgressSchema>;
@@ -413,8 +453,15 @@ const appendBatchAttempts = (
   >[]
 ): CourseSourceMappingProgress => {
   const attempts = completedBatchAttempts(results);
+  const mappingFailures = [
+    ...(progress.mappingFailures ?? []),
+    ...attempts.flatMap(attempt =>
+      attempt.status === 'failed' && attempt.failure ? [attempt.failure] : []
+    ),
+  ];
   return {
     mappingFailed: progress.mappingFailed || attempts.some(attempt => attempt.status === 'failed'),
+    ...(mappingFailures.length ? { mappingFailures } : {}),
     mappings: [
       ...progress.mappings,
       ...attempts.flatMap(attempt =>
@@ -425,15 +472,32 @@ const appendBatchAttempts = (
   };
 };
 
+const mappingFailureDiagnostic = (
+  error: CourseModelProviderError | WorkflowStepError,
+  failure: StepFailure
+) => {
+  const nested = readWorkflowErrorDiagnostic(failure.details?.diagnostic);
+  return WorkflowObservedTechnicalDiagnosticSchema.parse({
+    ...toWorkflowErrorDiagnostic(error, { includeContent: false }),
+    ...(nested ? { cause: nested } : {}),
+    code: failure.code,
+  });
+};
+
 export const createCourseSourceFinalizationNode = <
   Config extends CourseGenerationWorkflowConfig,
   Services extends CourseSourceFinalizationServices,
 >(
-  schemas = courseGenerationStateSchemas
+  schemas = courseGenerationStateSchemas,
+  failureDiagnostics = schemas === courseGenerationStateSchemas ||
+    schemas === preModelCallCourseGenerationStateSchemas
 ) => {
   const { CoursePlanStateSchema, CourseSourcesFinalizedStateSchema } = schemas;
-  const { CourseSourcePreparationOutcomeSchema, CourseSourceMappingProgressSchema } =
-    createSourceFinalizationSchemas(schemas);
+  const {
+    CourseSourcePreparationOutcomeSchema,
+    CourseSourceMappingProgressSchema,
+    CourseChunkMappingAttemptSchema,
+  } = createSourceFinalizationSchemas(schemas, failureDiagnostics);
   const runSourceStage = <Input, Output>(
     context: StepExecutionContext<Input, Config, Services>,
     operation: (stage: CourseGenerationStageContext<Input>) => Promise<Output>
@@ -483,7 +547,7 @@ export const createCourseSourceFinalizationNode = <
     },
   });
 
-  const mappingBatchStep = (id: string) =>
+  const mappingBatchStep = (id: z.infer<typeof CourseMappingFailureSchema>['stage']) =>
     step<
       typeof CourseChunkMappingBatchSchema,
       typeof CourseChunkMappingAttemptSchema,
@@ -521,7 +585,24 @@ export const createCourseSourceFinalizationNode = <
           }
           if (!retryableFailure) throw error;
           if (context.attemptNumber < context.config.maxAttempts) throw retryableFailure;
-          return { batchIndex: context.input.batchIndex, status: 'failed' };
+          const mappingError = error as CourseModelProviderError | WorkflowStepError;
+
+          return {
+            batchIndex: context.input.batchIndex,
+            ...(failureDiagnostics
+              ? {
+                  failure: {
+                    attemptNumber: context.attemptNumber,
+                    batchIndex: context.input.batchIndex,
+                    diagnostic: mappingFailureDiagnostic(mappingError, retryableFailure.failure),
+                    kind:
+                      retryableFailure.failure.kind === 'corrective' ? 'corrective' : 'operational',
+                    stage: id,
+                  },
+                }
+              : {}),
+            status: 'failed',
+          };
         }
       },
     });

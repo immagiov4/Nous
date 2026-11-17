@@ -17,7 +17,7 @@
     ]
   },
   "review": {
-    "engine": "code-review"
+    "engine": "geppetto:code-review"
   },
   "unitCoverage": "behaviour",
   "packs": [],

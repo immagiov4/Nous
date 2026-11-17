@@ -23,7 +23,10 @@ import type {
   WorkflowProviderEffectExecutor,
   WorkflowStepExecutionIdentity,
 } from './types.js';
-import { WorkflowTechnicalDiagnosticSchema } from './workflowErrorDiagnostics.js';
+import {
+  WorkflowObservedTechnicalDiagnosticSchema,
+  WorkflowTechnicalDiagnosticSchema,
+} from './workflowErrorDiagnostics.js';
 
 export const CourseGenerationWorkflowConfigSchema = WorkflowExecutionDefaultsSchema.extend({
   models: GlobalModelConfigSchema,
@@ -191,9 +194,14 @@ export const PreFailureDiagnosticsCourseYoutubeQueryPlanSchema = z.object({
   queries: z.array(z.string().min(1).max(COURSE_YOUTUBE_QUERY_MAX_CHARS)).min(1).max(3),
 });
 
-export const CourseYoutubeQueryPlanSchema =
+export const PreModelCallCourseYoutubeQueryPlanSchema =
   PreFailureDiagnosticsCourseYoutubeQueryPlanSchema.extend({
     planningDiagnostic: WorkflowTechnicalDiagnosticSchema.optional(),
+  });
+
+export const CourseYoutubeQueryPlanSchema =
+  PreFailureDiagnosticsCourseYoutubeQueryPlanSchema.extend({
+    planningDiagnostic: WorkflowObservedTechnicalDiagnosticSchema.optional(),
   });
 
 export const CourseYoutubeQueryInputSchema = z.object({
@@ -377,7 +385,8 @@ const createCourseGenerationStateSchemas = (
   diagnostic = false,
   routing = false,
   verificationCriteria = false,
-  failureDiagnostics = false
+  failureDiagnostics = false,
+  modelCallDiagnostics = false
 ) => {
   const inputSchema = diagnostic
     ? CourseGenerationWorkflowInputSchema
@@ -492,7 +501,12 @@ const createCourseGenerationStateSchemas = (
     stage: true,
   }).extend({
     ...(failureDiagnostics
-      ? { exercisePlanningDiagnostic: WorkflowTechnicalDiagnosticSchema.optional() }
+      ? {
+          exercisePlanningDiagnostic: (modelCallDiagnostics
+            ? WorkflowObservedTechnicalDiagnosticSchema
+            : WorkflowTechnicalDiagnosticSchema
+          ).optional(),
+        }
       : {}),
     stage: z.literal('exercises'),
   });
@@ -511,8 +525,17 @@ const createCourseGenerationStateSchemas = (
   };
 };
 
+export const preModelCallCourseGenerationStateSchemas = createCourseGenerationStateSchemas(
+  CourseProfileSchema,
+  true,
+  true,
+  true,
+  true
+);
+
 export const courseGenerationStateSchemas = createCourseGenerationStateSchemas(
   CourseProfileSchema,
+  true,
   true,
   true,
   true,

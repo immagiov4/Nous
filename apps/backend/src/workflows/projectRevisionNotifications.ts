@@ -71,27 +71,38 @@ export const appendProjectRevisionNotification = async (
 export const createProjectRevisionNotificationDelivery =
   ({
     eventTypes,
+    polledEvents,
     receiveNotification,
   }: {
     eventTypes: ReadonlySet<string>;
+    polledEvents?: {
+      readonly schemaVersion: number;
+      readonly schemas: ReadonlyMap<string, z.ZodType>;
+    };
     receiveNotification: ProjectRevisionNotificationReceiver;
   }) =>
   async (claim: WorkflowOutboxClaim, signal?: AbortSignal): Promise<void> => {
+    const polledSchema = polledEvents?.schemas.get(claim.eventType);
+    const schemaVersion = polledSchema
+      ? polledEvents?.schemaVersion
+      : PROJECT_REVISION_EVENT_SCHEMA_VERSION;
     if (
-      !eventTypes.has(claim.eventType) ||
-      claim.schemaVersion !== PROJECT_REVISION_EVENT_SCHEMA_VERSION
+      (!polledSchema && !eventTypes.has(claim.eventType)) ||
+      claim.schemaVersion !== schemaVersion
     ) {
       throw failPermanently({
         code: 'notification_unsupported',
         message: 'The durable workflow notification is not supported.',
       });
     }
-    const payload = ProjectRevisionEventSchema.safeParse(claim.payload);
+    const payload = (polledSchema ?? ProjectRevisionEventSchema).safeParse(claim.payload);
     if (!payload.success) {
       throw failPermanently({
         code: 'notification_payload_invalid',
         message: 'The durable workflow notification payload is invalid.',
       });
     }
+    // Polling reads these durable outbox rows directly; no push recipient owns them.
+    if (polledSchema) return;
     await receiveNotification(claim, signal);
   };

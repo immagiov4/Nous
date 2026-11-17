@@ -6,6 +6,7 @@ import {
   type SanitizedZodIssue,
 } from '../utils/zodDiagnostics.js';
 import { snapshotImmutableJson } from './jsonSnapshot.js';
+import { createModelCallObserver } from './modelCallDiagnostics.js';
 import type { WorkflowCheckpointResult } from './postgresWorkflowCheckpoint.js';
 import type { RecordWorkflowProviderResultInput } from './postgresWorkflowProviderEffectStore.js';
 import type {
@@ -365,6 +366,7 @@ const executeStepCallback = async <Services>(input: {
 }): Promise<WorkflowStepAttemptResult> => {
   const controller = new AbortController();
   const diagnostics = createWorkflowSubstageDiagnostics(controller.signal);
+  const modelCalls = createModelCallObserver();
   const monitor = startWorkflowAttemptMonitor({
     controller,
     heartbeat: () => input.store.steps.heartbeat({ claim: input.claim, leaseMs: input.leaseMs }),
@@ -378,11 +380,14 @@ const executeStepCallback = async <Services>(input: {
   let timedOut = false;
   const timeout = setTimeout(() => {
     timedOut = true;
-    controller.abort(new Error('Workflow step timed out.'));
+    controller.abort(
+      Object.assign(new Error('Workflow step timed out.'), { modelCall: modelCalls.snapshot() })
+    );
   }, input.claim.timeoutMs);
   const run = input.resolved.step.run as unknown as (
     context: StepExecutionContext<unknown, Record<string, unknown>, Services>
   ) => Promise<unknown>;
+  const runObserved: typeof run = context => modelCalls.run(() => run(context));
   const pendingAiUsage: WorkflowAiUsageRecord[] = [];
   try {
     if (input.resolved.step.externalEffect === 'provider') {
@@ -421,7 +426,7 @@ const executeStepCallback = async <Services>(input: {
             runId: input.claim.runId,
           },
           async () => {
-            const value = await run({
+            const value = await runObserved({
               diagnostics,
               attemptNumber: input.claim.attemptNumber,
               config: input.resolved.config,

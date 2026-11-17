@@ -64,6 +64,143 @@ const requestBody = (callIndex: number) =>
   };
 
 describe('courseGenerationClient', () => {
+  test('does not open a server-resolved replacement from another project', async () => {
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      workflowResponse({
+        id: 'other-run',
+        mode: 'learn',
+        projectId: 'other-project',
+        status: 'completed',
+        stage: 'ready',
+        result: { ...completedResult, projectId: 'other-project' },
+      })
+    );
+    const onWorkflowSnapshot = vi.fn();
+    await expect(
+      resumeDurableCourse({ runId: 'failed-run', projectId: 'project-1', onWorkflowSnapshot })
+    ).rejects.toThrow('La generazione del corso non è riuscita. Riprova.');
+    expect(onWorkflowSnapshot).not.toHaveBeenCalled();
+  });
+  test('explains blocked retry cleanup instead of replaying the old failure', async () => {
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: false,
+          code: 'course_generation_cleanup_incomplete',
+          error: 'Private server message',
+        }),
+        { status: 409 }
+      )
+    );
+    await expect(
+      resumeDurableCourse({ runId: 'failed-run', projectId: 'project-1' })
+    ).rejects.toThrow(
+      'Il tentativo precedente non è ancora stato ripristinato. Riprova più tardi.'
+    );
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+  });
+  test('simultaneous Continue clicks request the same server-owned replacement', async () => {
+    fetchWithSupabaseAuthMock.mockImplementation(async (_url: string, options?: RequestInit) =>
+      options?.method === 'POST'
+        ? workflowResponse({
+            id: 'retry-run',
+            mode: 'learn',
+            projectId: 'project-1',
+            status: 'completed',
+            stage: 'ready',
+            result: completedResult,
+          })
+        : workflowResponse({
+            id: 'failed-run',
+            mode: 'learn',
+            projectId: 'project-1',
+            status: 'failed',
+            stage: 'structure',
+          })
+    );
+    await expect(
+      Promise.all([
+        resumeDurableCourse({ runId: 'failed-run', projectId: 'project-1' }),
+        resumeDurableCourse({ runId: 'failed-run', projectId: 'project-1' }),
+      ])
+    ).resolves.toEqual([completedResult, completedResult]);
+    const starts = fetchWithSupabaseAuthMock.mock.calls.filter(
+      ([, options]) => options?.method === 'POST'
+    );
+    expect(starts).toHaveLength(2);
+    expect(starts[0][0]).toBe(starts[1][0]);
+    expect(JSON.parse(starts[0][1].body)).toEqual({ projectId: 'project-1' });
+    expect(JSON.parse(starts[1][1].body)).toEqual({ projectId: 'project-1' });
+  });
+
+  test('a retry failure reports its own timeout without starting another attempt automatically', async () => {
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      workflowResponse({
+        id: 'retry-run',
+        mode: 'learn',
+        projectId: 'project-1',
+        status: 'failed',
+        stage: 'sources',
+        errorCode: 'workflow_step_timeout',
+      })
+    );
+    await expect(
+      resumeDurableCourse({ runId: 'failed-run', projectId: 'project-1' })
+    ).rejects.toThrow('La generazione del corso ha superato il tempo disponibile. Riprova.');
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('resumes running work without starting another command', async () => {
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(
+        workflowResponse({
+          id: 'running-run',
+          mode: 'learn',
+          projectId: 'project-1',
+          status: 'running',
+          stage: 'structure',
+        })
+      )
+      .mockResolvedValueOnce(
+        workflowResponse({
+          id: 'running-run',
+          mode: 'learn',
+          projectId: 'project-1',
+          status: 'completed',
+          stage: 'ready',
+          result: completedResult,
+        })
+      );
+    const outcome = resumeDurableCourse({ runId: 'running-run', projectId: 'project-1' });
+    await advancePoll();
+    await expect(outcome).resolves.toEqual(completedResult);
+    expect(
+      fetchWithSupabaseAuthMock.mock.calls.filter(([, options]) => options?.method === 'POST')
+    ).toHaveLength(1);
+    expect(fetchWithSupabaseAuthMock.mock.calls[1][0]).toContain('/runs/running-run');
+  });
+  test('Continue replaces an already failed run and reports the new attempt', async () => {
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      workflowResponse({
+        id: 'retry-run',
+        mode: 'learn',
+        projectId: 'project-1',
+        status: 'completed',
+        stage: 'ready',
+        result: completedResult,
+      })
+    );
+    const onWorkflowSnapshot = vi.fn();
+    await expect(
+      resumeDurableCourse({ runId: 'failed-run', projectId: 'project-1', onWorkflowSnapshot })
+    ).resolves.toEqual(completedResult);
+    expect(fetchWithSupabaseAuthMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3301/api/course-workflows/runs/failed-run/retry',
+      expect.objectContaining({ method: 'POST' })
+    );
+    expect(onWorkflowSnapshot).toHaveBeenCalledWith(expect.objectContaining({ id: 'retry-run' }));
+  });
   beforeEach(() => {
     vi.useFakeTimers();
     fetchWithSupabaseAuthMock.mockReset();
@@ -91,7 +228,7 @@ describe('courseGenerationClient', () => {
     ).resolves.toEqual(completedResult);
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
     expect(fetchWithSupabaseAuthMock.mock.calls[0][0]).toBe(
-      'http://localhost:3301/api/course-workflows/runs/approved-run'
+      'http://localhost:3301/api/course-workflows/runs/approved-run/retry'
     );
   });
 

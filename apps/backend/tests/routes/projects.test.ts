@@ -20,6 +20,7 @@ import {
   bindSourcePreparationProject,
   cancelProjectSourcePreparation,
   clearProjectImportUploadsForTesting,
+  getPreparedProjectSources,
   getProjectImportUploadStatus,
   SourcePreparationCancelledError,
   startSourcePreparation,
@@ -320,6 +321,67 @@ describe('/api/projects', () => {
     expect(replayed.body.meta).toEqual(status.body.meta);
     expect(replayed.body.snapshot).toEqual(status.body.snapshot);
     expect((await store.loadProject('local-user', snapshot.id))?.title).toBe('Later revision');
+  });
+
+  test('retains private source failure causes when saving a partially prepared collection fails', async () => {
+    const app = createApp();
+    const contents = [Buffer.from('Usable source text'), Buffer.from([255])];
+    const files = contents.map((bytes, index) => ({
+      id: `source-${index}`,
+      name: `source-${index}.txt`,
+      mimeType: 'text/plain',
+      byteSize: bytes.length,
+    }));
+    const snapshot = {
+      ...createSnapshot('private-checkpoint-course', 'Private checkpoint'),
+      source: {
+        kind: 'document',
+        file: { ...files[0], data: '', sourceId: files[0].id },
+        sources: files.map((file, position) => ({
+          ...file,
+          file: { ...file, data: '', sourceId: file.id },
+          hash: 'a'.repeat(64),
+          kind: 'text',
+          status: 'ready',
+          position,
+          outline: [],
+          outlineOrigin: 'none',
+        })),
+      },
+    };
+    const prefix = Buffer.from(JSON.stringify({ snapshot, sourceFiles: files }));
+    const uploadId = crypto.randomUUID();
+    const save = vi
+      .spyOn(store, 'saveProject')
+      .mockRejectedValueOnce(new Error('Synthetic persistence failure'));
+    await request(app)
+      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1&sourceUpload=true`)
+      .set('Content-Type', 'application/octet-stream')
+      .send(Buffer.concat([prefix, ...contents]))
+      .expect(202);
+    await request(app)
+      .post(`/api/projects/import/chunks/${uploadId}/complete`)
+      .send({ payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceSet, metadataBytes: prefix.length })
+      .expect(202);
+    await expect
+      .poll(() => getProjectImportUploadStatus('local-user', uploadId)?.status)
+      .toBe('failed');
+    expect(save).toHaveBeenCalledOnce();
+    const published = save.mock.calls[0][1];
+    expect(published).not.toHaveProperty('source.sources.1.errorDiagnostic');
+    expect(published).toHaveProperty('source.sources.1.errorReason', 'parser-failed');
+    const retained = getPreparedProjectSources('local-user', uploadId);
+    expect(retained).toHaveProperty(
+      'source.sources.1.errorDiagnostic',
+      expect.objectContaining({
+        stage: 'source-preparation',
+        type: 'TypeError',
+      })
+    );
+    expect(retained).toHaveProperty(
+      'source.sources.0.documentIndex.chunks.0.text',
+      'Usable source text'
+    );
   });
 
   test('rejects malformed source metadata before accepting preparation', async () => {

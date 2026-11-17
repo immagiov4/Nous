@@ -1,0 +1,9 @@
+.resolved-pdf-image {
+  transition: opacity var(--transition-fast);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .resolved-pdf-image {
+    transition: none;
+  }
+}

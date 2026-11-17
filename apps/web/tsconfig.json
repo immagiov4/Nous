@@ -14,6 +14,8 @@
     "jsx": "react-jsx",
     "resolveJsonModule": true,
     "paths": {
+      "react": ["../../node_modules/@types/react/index.d.ts"],
+      "vitest": ["../../node_modules/vitest"],
       "@/*": ["./*"],
       "@shared/*": ["../../packages/shared-types/*"],
       "@tabler-icon-nodes": ["../../node_modules/@tabler/icons/tabler-nodes-outline.json"]

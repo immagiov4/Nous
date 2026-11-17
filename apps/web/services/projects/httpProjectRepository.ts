@@ -123,10 +123,17 @@ interface ApiResponse {
   progress?: SourcePreparationProgress;
 }
 
+type SourcePreparationRead =
+  | (ApiResponse & { statusReadUnavailable?: false })
+  | ({ success: false; statusReadUnavailable: true } & Partial<
+      Record<Exclude<keyof ApiResponse, 'success'>, never>
+    >);
+
 const isCompletedProjectImport = (response: ApiResponse): boolean =>
   Boolean(response.complete || (response.meta && response.snapshot));
 
-const assertPendingProjectImport = (response: ApiResponse, canBegin: boolean): void => {
+const assertPendingProjectImport = (response: SourcePreparationRead, canBegin: boolean): void => {
+  if (response.statusReadUnavailable) return;
   if (response.uploadStatus === 'finalizing' || (canBegin && response.uploadStatus === 'receiving'))
     return;
   throw new ProjectStorageError(
@@ -808,7 +815,7 @@ export class HttpProjectRepository implements ProjectRepository {
     uploadId: string,
     signal?: AbortSignal,
     includeDocumentText = false
-  ): Promise<ApiResponse> {
+  ): Promise<SourcePreparationRead> {
     try {
       return await this.request<ApiResponse>(
         `/api/projects/import/chunks/${encodeURIComponent(uploadId)}${includeDocumentText ? '?documentText=full' : ''}`,
@@ -818,7 +825,7 @@ export class HttpProjectRepository implements ProjectRepository {
       if (signal?.aborted) throw error;
       // A disconnected poll does not change the accepted server operation's state.
       if (error instanceof ProjectStorageError && error.httpStatus === undefined)
-        return { success: true, uploadStatus: 'finalizing' };
+        return { success: false, statusReadUnavailable: true };
 
       if (error instanceof ProjectStorageError && error.httpStatus === 404)
         throw new ProjectStorageError(
@@ -833,7 +840,7 @@ export class HttpProjectRepository implements ProjectRepository {
     uploadId: string,
     body: Record<string, unknown>,
     signal?: AbortSignal
-  ): Promise<ApiResponse> {
+  ): Promise<SourcePreparationRead> {
     try {
       return await this.request<ApiResponse>(
         `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/complete`,
@@ -1255,7 +1262,11 @@ export class HttpProjectRepository implements ProjectRepository {
           uploadId,
           AbortSignal.timeout(Math.max(1, deadline - Date.now()))
         );
-        if (status.complete || status.uploadStatus !== 'finalizing') return;
+        if (
+          !status.statusReadUnavailable &&
+          (status.complete || status.uploadStatus !== 'finalizing')
+        )
+          return;
       } catch (error) {
         if (
           error instanceof ProjectStorageError &&

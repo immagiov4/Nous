@@ -83,7 +83,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes ffmpeg
           python3 -m pip install --target "$RUNNER_TEMP/source-shelf-python" coverage==7.6.1 numpy==2.5.4 pillow==13.0.0
-          curl --fail --location --silent --show-error https://download.blender.org/release/Blender3.0/blender-3.0.0-linux-x64.tar.xz -o "$RUNNER_TEMP/blender.tar.xz"
+          curl --fail --location --silent --show-error https://mirror.blender.org/release/Blender3.0/blender-3.0.0-linux-x64.tar.xz -o "$RUNNER_TEMP/blender.tar.xz"
           echo "19b09dfcf5d3f3a068827454f0a704a9aa9c826350f73016121afef5f4d287ce  $RUNNER_TEMP/blender.tar.xz" | sha256sum --check
           tar -xf "$RUNNER_TEMP/blender.tar.xz" -C "$RUNNER_TEMP"
           export PYTHONPATH="$RUNNER_TEMP/source-shelf-python"
@@ -152,6 +152,12 @@ jobs:
 
       - name: Verify complete caption rows
         run: bun run test:caption-rows
+
+      - name: Verify guided-step badge alignment
+        run: bun --tsconfig-override e2e/nous/tsconfig.json apps/web/tests/components/shared/GuidedStepAlignment.browser.tsx
+
+      - name: Verify playback bar layout
+        run: bun scripts/heavy-run.mjs --label playback-bar -- bun apps/web/tests/components/workspace/PlaybackBarLayout.browser.ts
 
       - name: Verify playback keyboard focus in Chromium and Firefox
         run: bun apps/web/tests/components/workspace/PlaybackFocus.browser.ts

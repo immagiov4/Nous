@@ -1906,6 +1906,7 @@
 .lesson-player-stage,
 .lesson-player-stage .lesson-scene-bare {
   --caption-change: 180ms;
+  --caption-fill-duration: 100ms;
   --caption-feather: 22px;
 }
 .lesson-player-stage .listening-stage {
@@ -1920,28 +1921,31 @@
   padding: 32px 0;
 }
 .lesson-player-stage .captions {
-  min-height: 210px;
+  position: relative;
+  min-height: 0;
   display: flex;
   align-items: center;
 }
-.lesson-player-stage .captions p {
-  font-size: clamp(23px, 2.4vw, 34px);
-  line-height: 1.5;
+.lesson-player-stage .caption-headings {
+  position: absolute;
+  bottom: 100%;
+  width: 100%;
+}
+.lesson-player-stage .captions .caption-page {
+  font-size: clamp(22px, 2.2vw, 31px);
+  line-height: 1.6;
   letter-spacing: -0.025em;
   width: 100%;
 }
 .lesson-player-stage .caption-word {
   display: inline-block;
-  opacity: 0;
+  opacity: var(--caption-future-opacity);
   color: var(--ink);
-  mask-image: linear-gradient(
-    to right,
-    #000 calc(var(--reveal-edge, 0px) - var(--caption-feather)),
-    transparent var(--reveal-edge, 0px)
-  );
+  mask-image: none;
+  transition: opacity var(--caption-fill-duration) linear;
 }
 .lesson-player-stage .caption-page {
-  animation: lesson-player-caption-in var(--caption-change) ease-out;
+  animation: none;
 }
 .lesson-player-stage .listening-stage > .scene-fit > .scene-host {
   min-height: 300px;
@@ -1992,7 +1996,7 @@
     width: 100%;
     align-items: center;
   }
-  .lesson-player-stage .captions p {
+  .lesson-player-stage .captions .caption-page {
     font-size: 22px;
     line-height: 1.45;
     text-align: center;
@@ -2062,26 +2066,31 @@
     font-size: 12px;
   }
 }
-.lesson-player-stage .captions p {
-  --caption-height: min(45dvh, 8lh);
+.lesson-player-stage .captions .caption-page {
+  --caption-height: 300px;
   position: relative;
-  max-height: var(--caption-height);
+  max-height: var(--caption-card-height, var(--caption-height));
+  align-content: safe center;
   overflow: auto;
   scrollbar-width: none;
   margin: 0;
 }
-.lesson-player-stage .captions p::after {
-  content: "";
-  display: block;
-  height: calc(var(--caption-height) - 1lh);
-}
-.lesson-player-stage .captions p::-webkit-scrollbar {
+.lesson-player-stage .captions .caption-page::-webkit-scrollbar {
   display: none;
 }
+.lesson-player-stage .captions .caption-page::after {
+  content: "";
+  display: block;
+  height: 1lh;
+}
 @media (max-width: 650px) {
-  .lesson-player-stage .captions p {
+  .lesson-player-stage .captions .caption-page {
     --caption-height: 4lh;
   }
+}
+.lesson-player-dialog:focus {
+  /* Initial focus targets the surface; its controls retain native keyboard indicators. */
+  outline: 0;
 }
 /* Share the title's desktop inset with the caption column, including the back action. */
 .lesson-player-dialog,
@@ -2265,11 +2274,22 @@
   container-type: normal;
   width: 100%;
 }
-.lesson-player-stage .scene-host[aria-hidden="true"] {
+.lesson-player-stage .scene-host[aria-hidden="true"]:not([data-exiting]) {
   visibility: hidden;
 }
 .lesson-player-stage .scene-host > div {
   width: 100%;
+}
+.lesson-player-stage .scene-host > .prose {
+  /* Supplemental expressions share rows before the complete visual is fitted. */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space);
+}
+.lesson-player-stage .scene-host > .prose > .katex-display {
+  margin: 0;
 }
 .lesson-player-stage .lesson-player-formula .katex:not(.spotlight-symbol .katex) {
   font-size: var(--symbol-size);
@@ -2327,7 +2347,7 @@
 }
 .lesson-player-stage .listening-stage > .scene-fit > .scene-host {
   position: absolute;
-  top: 0;
+  top: var(--scene-top, 0px);
   left: var(--scene-left, 0px);
   transform: scale(var(--scene-scale, 1));
   transform-origin: top left;
@@ -2367,4 +2387,9 @@
 
 .lesson-player-stage .scene-host:empty {
   visibility: hidden;
+}
+
+/* Fitting needs the actual figure geometry, including before its image loads. */
+.lesson-player-stage .scene-host figure {
+  content-visibility: visible;
 }

@@ -80,7 +80,7 @@ export function captionRangeSpan({
   range: PlaybackRange;
   speech: string;
   speechRanges: readonly PlaybackRange[];
-  runs: readonly CaptionRun[];
+  runs: readonly (Pick<CaptionRun, 'start' | 'width'> & Partial<Pick<CaptionRun, 'span'>>)[];
   width: number;
   feather: number;
   duration: number;
@@ -153,7 +153,7 @@ export function captionAnchorTimes({
   anchors: readonly string[];
   speech: string;
   speechRanges: readonly PlaybackRange[];
-  runs: readonly CaptionRun[];
+  runs: readonly (Pick<CaptionRun, 'start' | 'width'> & Partial<Pick<CaptionRun, 'span'>>)[];
   width: number;
   feather: number;
   duration: number;
@@ -205,7 +205,7 @@ export function captionMotionEvents({
   events: readonly PlaybackMotionEvent[];
   speech: string;
   speechRanges: readonly PlaybackRange[];
-  runs: readonly CaptionRun[];
+  runs: readonly (Pick<CaptionRun, 'start' | 'width'> & Partial<Pick<CaptionRun, 'span'>>)[];
   width: number;
   feather: number;
   duration: number;
@@ -384,16 +384,4 @@ export function sceneElements(host: HTMLElement, scene: LessonScene) {
   const relation = host.querySelector<HTMLElement>('.relation');
   if (relation) elements.set('relation', [relation]);
   return elements;
-}
-
-/** Keep already presented cues stable when acoustic timing arrives during playback. */
-export function adoptCueTimes(
-  previous: readonly number[] | undefined,
-  next: number[],
-  time: number
-) {
-  return next.map((onset, index) => {
-    const estimated = previous?.[index];
-    return estimated !== undefined && estimated <= time ? estimated : onset;
-  });
 }

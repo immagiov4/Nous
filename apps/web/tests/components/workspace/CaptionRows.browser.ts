@@ -32,11 +32,7 @@ async function visibleCaptionRows(page: Page) {
       const bottom = bounds.bottom - (insets[2] ?? insets[0]) * scale;
       let frameVisible = 0;
       for (const word of paragraph.querySelectorAll<HTMLElement>('.caption-word')) {
-        if (
-          getComputedStyle(word).opacity === '0' ||
-          getComputedStyle(word).visibility === 'hidden'
-        )
-          continue;
+        if (!word.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
         const range = document.createRange();
         if (!word.firstElementChild) throw new Error('Caption word must contain text');
         range.selectNodeContents(word.firstElementChild);
@@ -65,18 +61,275 @@ async function activeCaptionIsVisible(page: Page) {
     const paragraph = document.querySelector<HTMLElement>('.caption-page');
     if (!paragraph) throw new Error('Captions must exist');
     const box = paragraph.getBoundingClientRect();
-    const active = Array.from(paragraph.querySelectorAll<HTMLElement>('.caption-word')).find(
-      word => {
-        const edge = Number.parseFloat(word.style.getPropertyValue('--reveal-edge'));
-        return edge >= 0 && edge <= word.getBoundingClientRect().width;
-      }
-    );
+    const active = paragraph.querySelector<HTMLElement>('.caption-word[aria-current="true"]');
     if (!active?.firstElementChild) throw new Error('Playback must reveal an active caption word');
     const range = document.createRange();
     range.selectNodeContents(active.firstElementChild);
     const word = range.getBoundingClientRect();
     return word.top >= box.top && word.bottom <= box.bottom;
   });
+}
+
+async function mobilePlaybackShowsOnlyVisuals(page: Page, baseUrl: string) {
+  await page.goto(`${baseUrl}tests/fixtures/captionRows.html?mobile`);
+  const caption = page.locator('.caption-word').first();
+  const visual = page.getByRole('heading', { name: 'Memoria e processore' });
+  await page.getByRole('spinbutton', { name: 'Playback time' }).fill('18');
+  for (const width of [390, 650, 651]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    assert(await visual.isVisible(), `width=${width}: lesson visual remains visible`);
+    const stage = page.locator('.lesson-player-stage');
+    const visibleText = await stage.innerText();
+    const accessibleText = await stage.ariaSnapshot();
+    const desktop = width > 650;
+    assert.equal(await caption.isVisible(), desktop, `width=${width}: caption visibility`);
+    if (desktop)
+      assert((await visibleCaptionRows(page)).visible > 0, `width=${width}: painted caption text`);
+    assert.equal(visibleText.includes('conserva'), desktop, `width=${width}: visible caption text`);
+    assert.equal(
+      accessibleText.includes('conserva'),
+      desktop,
+      `width=${width}: accessible caption text`
+    );
+  }
+}
+
+async function spokenRowSurvivesThemeRemeasurement(page: Page, baseUrl: string) {
+  await page.setViewportSize({ width: 651, height: 500 });
+  await page.goto(`${baseUrl}tests/fixtures/captionRows.html?follow`);
+  await page.getByRole('spinbutton', { name: 'Playback time' }).fill('6.2');
+  const advance = (time: number) =>
+    page.evaluate(
+      time => dispatchEvent(new CustomEvent('caption-playback-time', { detail: time })),
+      time
+    );
+  const spokenVisible = (index: number) =>
+    page.evaluate(async index => {
+      await new Promise(requestAnimationFrame);
+      const paragraph = document.querySelector<HTMLElement>('.caption-page');
+      if (!paragraph) throw new Error('Captions must exist');
+      const word = paragraph.querySelectorAll('.caption-word')[index]?.firstElementChild;
+      if (!word) throw new Error('Spoken word must exist');
+      const bounds = paragraph.getBoundingClientRect();
+      const scale = bounds.width / Number.parseFloat(getComputedStyle(paragraph).width);
+      const insets = getComputedStyle(paragraph)
+        .clipPath.match(/-?[\d.]+px/gu)
+        ?.map(Number.parseFloat) ?? [0, 0, 0, 0];
+      const glyph = document.createRange();
+      glyph.selectNodeContents(word);
+      const box = glyph.getBoundingClientRect();
+      return (
+        box.top >= bounds.top + insets[0] * scale &&
+        box.bottom <= bounds.bottom - (insets[2] ?? insets[0]) * scale
+      );
+    }, index);
+  await advance(6.95);
+  await visibleCaptionRows(page);
+  assert(
+    await spokenVisible(27),
+    'Auto-follow keeps the acoustic word visible despite leading fill'
+  );
+  await advance(11.95);
+  await visibleCaptionRows(page);
+  for (const dark of [true, false]) {
+    await page.getByRole('button', { name: 'Switch theme' }).click();
+    await page.evaluate(() => dispatchEvent(new Event('resize')));
+    assert(
+      await spokenVisible(47),
+      `Theme ${dark ? 'dark' : 'light'} remeasurement keeps the spoken word visible`
+    );
+  }
+  await advance(15.95);
+  await visibleCaptionRows(page);
+  assert(await spokenVisible(63), 'Theme remeasurement does not disable automatic following');
+  await page.setViewportSize({ width: 1280, height: 800 });
+}
+
+async function resizedCardKeepsSpokenRowVisible(page: Page, baseUrl: string) {
+  await page.goto(`${baseUrl}tests/fixtures/captionRows.html?follow&resize-card`);
+  await page.waitForFunction(
+    () => (document.querySelector('.caption-page')?.getBoundingClientRect().height ?? 0) > 500
+  );
+  await page.evaluate(() => dispatchEvent(new Event('resize')));
+  const captionPage = page.locator('.caption-page');
+  const index = await captionPage.evaluate(paragraph => {
+    const origin = paragraph.getBoundingClientRect().top;
+    return [...paragraph.querySelectorAll('.caption-word')].findIndex(word => {
+      const y = word.getBoundingClientRect().top - origin;
+      return y > 350 && y < 500;
+    });
+  });
+  assert(index > 0, 'The large card has a spoken row below the later small viewport');
+  await page.evaluate(
+    index => dispatchEvent(new CustomEvent('caption-playback-time', { detail: (index + 0.2) / 4 })),
+    index
+  );
+  const spokenWord = captionPage
+    .locator('.caption-word')
+    .nth(index)
+    .and(page.locator('[aria-current="true"]'));
+  await spokenWord.waitFor({ state: 'attached' });
+  const before = await captionPage.evaluate(paragraph => paragraph.scrollTop);
+  await page.getByRole('button', { name: 'Shrink visual' }).click();
+  // The height can change before the resize observer's measurement is used to follow the word.
+  await page.waitForFunction(before => {
+    const paragraph = document.querySelector('.caption-page');
+    return (
+      paragraph && paragraph.getBoundingClientRect().height <= 301 && paragraph.scrollTop > before
+    );
+  }, before);
+  assert.equal(await spokenWord.count(), 1, 'The shortened card keeps the same spoken word');
+  assert(
+    await activeCaptionIsVisible(page),
+    'A shorter card remeasures follow and keeps its spoken row visible'
+  );
+}
+
+async function captionViewportMatchesCard(page: Page, baseUrl: string) {
+  for (const short of [false, true]) {
+    await page.goto(`${baseUrl}tests/fixtures/captionRows.html${short ? '?short' : ''}`);
+    for (const theme of ['light', 'dark']) {
+      await page.waitForFunction(
+        () => !!document.querySelector('.scene-host')?.getAttribute('style')
+      );
+      const boxes = await page.locator('.caption-page').evaluate(paragraph => {
+        const card = document.querySelector('.scene-host');
+        if (!card) throw new Error('Visual card must exist');
+        const caption = paragraph.getBoundingClientRect();
+        const visual = card.getBoundingClientRect();
+        return {
+          top: caption.top,
+          bottom: caption.bottom,
+          height: caption.height,
+          cardTop: visual.top,
+          cardBottom: visual.bottom,
+          cardHeight: visual.height,
+          overflowing: paragraph.scrollHeight > paragraph.clientHeight,
+        };
+      });
+      if (short) {
+        assert(boxes.height < boxes.cardHeight, `${theme}: short text keeps its natural height`);
+        assert(!boxes.overflowing, `${theme}: short text needs no scrolling`);
+      } else {
+        assert(
+          Math.abs(boxes.top - boxes.cardTop) < 1,
+          `${theme}: caption/card top edges match: ${JSON.stringify(boxes)}`
+        );
+        assert(
+          Math.abs(boxes.bottom - boxes.cardBottom) < 1,
+          `${theme}: caption/card bottom edges match`
+        );
+        assert(
+          boxes.overflowing,
+          `${theme}: long paragraph scrolls inside its card-height viewport`
+        );
+      }
+      await page.getByRole('button', { name: 'Switch theme' }).click();
+    }
+  }
+}
+
+async function captionScrollbarsStayHidden(page: Page, baseUrl: string) {
+  await page.goto(`${baseUrl}tests/fixtures/captionRows.html`);
+  for (const theme of ['light', 'dark']) {
+    const scrollbar = await page.locator('.caption-page').evaluate(element => ({
+      width: getComputedStyle(element).scrollbarWidth,
+      gutter: (element as HTMLElement).offsetWidth - element.clientWidth,
+      overflow: element.scrollHeight > element.clientHeight,
+      webkit: CSS.supports('selector(::-webkit-scrollbar)')
+        ? getComputedStyle(element, '::-webkit-scrollbar').display
+        : undefined,
+    }));
+    assert(scrollbar.overflow, `${theme}: the long paragraph remains scrollable`);
+    assert.equal(scrollbar.width, 'none', `${theme}: no native caption scrollbar`);
+    assert.equal(scrollbar.gutter, 0, `${theme}: no visible caption scrollbar gutter`);
+    if (scrollbar.webkit !== undefined)
+      assert.equal(scrollbar.webkit, 'none', `${theme}: no WebKit caption scrollbar`);
+    await page.getByRole('button', { name: 'Switch theme' }).click();
+  }
+}
+
+async function paragraphFillSurvivesThemesAndManualReading(
+  page: Page,
+  baseUrl: string,
+  input: 'wheel' | 'keyboard'
+) {
+  console.log(`Checking manual caption input: ${input}`);
+  await page.goto(`${baseUrl}tests/fixtures/captionRows.html`);
+  await page.getByRole('spinbutton', { name: 'Playback time' }).fill('18');
+  const read = () =>
+    page.locator('.caption-page').evaluate(async paragraph => {
+      await Promise.all(
+        paragraph.getAnimations({ subtree: true }).map(animation => animation.finished)
+      );
+      const words = Array.from(paragraph.querySelectorAll<HTMLElement>('.caption-word'));
+      return {
+        opacity: words.map(word => Number(getComputedStyle(word).opacity)),
+        color: getComputedStyle(words[0]).color,
+      };
+    });
+  const light = await read();
+  assert.equal(light.opacity[0], 1, 'Spoken words retain full colour');
+  assert.equal(light.opacity.at(-1), 0.5, 'Future words remain readable');
+  for (const dark of [true, false]) {
+    await page.getByRole('button', { name: 'Switch theme' }).click();
+    const after = await read();
+    assert.deepEqual(after.opacity, light.opacity, 'Theme changes preserve every word fill');
+    assert.equal(after.color === light.color, !dark, 'Word colour follows the current theme');
+  }
+  const paragraph = page.locator('.caption-page');
+  await visibleCaptionRows(page);
+  if (input === 'wheel') {
+    await page.evaluate(() =>
+      dispatchEvent(new CustomEvent('caption-playback-time', { detail: 38 }))
+    );
+    const box = await paragraph.boundingBox();
+    assert(box);
+    await page.mouse.move(box.x + 20, box.y + 20);
+    await page.mouse.down();
+    await visibleCaptionRows(page);
+    await page.mouse.up();
+    const afterPress = await paragraph.evaluate(element => element.scrollTop);
+    await page.evaluate(() =>
+      dispatchEvent(new CustomEvent('caption-playback-time', { detail: 55 }))
+    );
+    await page.waitForFunction(
+      before => (document.querySelector('.caption-page')?.scrollTop ?? 0) > before,
+      afterPress
+    );
+    await page.getByRole('spinbutton', { name: 'Playback time' }).fill('18');
+    await visibleCaptionRows(page);
+  }
+  const followingPosition = await paragraph.evaluate(element => element.scrollTop);
+  if (input === 'keyboard') {
+    await paragraph.focus();
+    assert(
+      await paragraph.evaluate(element => element === document.activeElement),
+      'Caption region is focusable'
+    );
+    await page.keyboard.press('PageDown');
+  } else {
+    await paragraph.hover();
+    await page.mouse.wheel(0, 250);
+  }
+  await page.waitForFunction(before => {
+    const paragraph = document.querySelector('.caption-page');
+    return paragraph && paragraph.scrollTop !== before;
+  }, followingPosition);
+  assert.deepEqual((await visibleCaptionRows(page)).violations, []);
+  const manual = await paragraph.evaluate(element => element.scrollTop);
+  await page.getByRole('spinbutton', { name: 'Playback time' }).fill('8');
+  await read();
+  assert.equal(await paragraph.evaluate(element => element.scrollTop), manual);
+  await page.getByRole('button', { name: 'Next passage', exact: true }).click();
+  await page.getByRole('spinbutton', { name: 'Playback time' }).fill('38');
+  await read();
+  await page.waitForFunction(() => (document.querySelector('.caption-page')?.scrollTop ?? 0) > 0);
+  assert(
+    (await paragraph.evaluate(element => element.scrollTop)) > 0,
+    'Next paragraph resumes following'
+  );
 }
 
 // Like the playback atlas contract, run explicitly without changing the unit-test timeout.
@@ -109,12 +362,57 @@ try {
       : ['chromium', 'firefox'];
     for (const browserName of browsers) {
       assert(['chromium', 'firefox'].includes(browserName));
+      // Expose native controls so scrollbar absence is a product-style assertion.
       const browser = await (browserName === 'firefox' ? firefox : chromium).launch(
-        withMutedAudio({ headless: true })
+        withMutedAudio({
+          headless: true,
+          ignoreDefaultArgs: ['--hide-scrollbars'],
+        })
       );
       const smoke = process.argv.includes('--smoke');
       let cases = 0;
       try {
+        if (process.argv.includes('--card-resize')) {
+          const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+          try {
+            await resizedCardKeepsSpokenRowVisible(page, baseUrl);
+            console.log(`PASS ${browserName}: visual-height change retains spoken row`);
+          } finally {
+            await page.close();
+          }
+          continue;
+        }
+        if (process.argv.includes('--card-height')) {
+          const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+          try {
+            await captionViewportMatchesCard(page, baseUrl);
+            console.log(`PASS ${browserName}: caption/card alignment, both themes, long and short`);
+          } finally {
+            await page.close();
+          }
+          continue;
+        }
+        const mobilePage = await browser.newPage();
+        try {
+          await mobilePlaybackShowsOnlyVisuals(mobilePage, baseUrl);
+          console.log(`PASS ${browserName}: mobile visuals only; desktop captions retained`);
+        } finally {
+          await mobilePage.close();
+        }
+        if (process.argv.includes('--mobile-only')) continue;
+        const paragraphPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+        try {
+          await captionScrollbarsStayHidden(paragraphPage, baseUrl);
+          await captionViewportMatchesCard(paragraphPage, baseUrl);
+          await resizedCardKeepsSpokenRowVisible(paragraphPage, baseUrl);
+          await spokenRowSurvivesThemeRemeasurement(paragraphPage, baseUrl);
+          for (const input of ['wheel', 'keyboard'] as const)
+            await paragraphFillSurvivesThemesAndManualReading(paragraphPage, baseUrl, input);
+          console.log(`PASS ${browserName}: paragraph fill, both themes and manual reading`);
+        } finally {
+          await paragraphPage.close();
+        }
+        if (process.argv.includes('--paragraph-fill')) continue;
         for (const height of smoke ? [900] : [700, 900]) {
           for (const width of smoke ? [1440] : [900, 1440]) {
             for (const zoom of smoke ? [1] : [0.9, 1, 1.25]) {
@@ -156,19 +454,6 @@ try {
                   const loadedFont = await visibleCaptionRows(page);
                   assert.deepEqual(loadedFont.violations, [], `${label} late font`);
                   assert(loadedFont.visible > 0, `${label} late font must retain revealed text`);
-                  if (reducedMotion === 'no-preference') {
-                    await page.evaluate(() => {
-                      for (const word of document.querySelectorAll<HTMLElement>('.caption-word')) {
-                        word.style.maskImage = '';
-                        word.style.setProperty('--reveal-edge', '-1px');
-                      }
-                    });
-                    assert.equal(
-                      (await visibleCaptionRows(page)).visible,
-                      0,
-                      'Masked text must not count as revealed'
-                    );
-                  }
                   await seek.fill('54');
                   await page.setViewportSize({ width: width - 57, height: height - 31 });
                   assert.deepEqual(

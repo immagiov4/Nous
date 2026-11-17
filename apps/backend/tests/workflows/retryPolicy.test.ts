@@ -1,6 +1,8 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
+import { CurrentLessonGenerationDurableSchemaSet } from '../../src/workflows/lessonGenerationWorkflowContract.js';
 
 import {
+  degradeOnFinalAttempt,
   failPermanently,
   getRetryDecision,
   readRetryAfterMs,
@@ -243,4 +245,190 @@ test.each([
       maxRetryDelayMs,
     })
   ).toThrow('maxRetryDelayMs must be a non-negative integer.');
+});
+
+describe('final-attempt degradation', () => {
+  test.each([
+    { attemptNumber: 1, eligible: true, degrades: false },
+    { attemptNumber: 3, eligible: false, degrades: false },
+    { attemptNumber: 3, eligible: true, degrades: true },
+    { attemptNumber: 4, eligible: true, degrades: true },
+  ])('preserves retry and eligibility: $attemptNumber / $eligible', scenario => {
+    const error = retryCorrective({
+      code: 'mapping_invalid',
+      feedback: 'private',
+      message: 'private',
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fallback = vi.fn(failure => ({ value: null, failure }));
+    const operation = () =>
+      degradeOnFinalAttempt({
+        ...scenario,
+        error,
+        fallback,
+        maxAttempts: 3,
+        signal: new AbortController().signal,
+        stage: 'map',
+      });
+    try {
+      if (scenario.degrades) {
+        expect(operation()).toEqual({
+          value: null,
+          failure: {
+            attemptNumber: scenario.attemptNumber,
+            kind: 'corrective',
+            stage: 'map',
+            diagnostic: { type: 'WorkflowStepError', code: 'mapping_invalid' },
+          },
+        });
+        expect(warn).toHaveBeenCalledWith(
+          'Workflow step degraded.',
+          expect.objectContaining({ stage: 'map' })
+        );
+        expect(JSON.stringify(warn.mock.calls)).not.toContain('private');
+      } else {
+        expect(operation).toThrow(error);
+        expect(fallback).not.toHaveBeenCalled();
+        expect(warn).not.toHaveBeenCalled();
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+  test('cancellation wins even on the final eligible attempt', () => {
+    const controller = new AbortController();
+    controller.abort(new Error('cancelled'));
+    const fallback = vi.fn();
+    expect(() =>
+      degradeOnFinalAttempt({
+        attemptNumber: 3,
+        maxAttempts: 3,
+        eligible: true,
+        error: new Error('private'),
+        fallback,
+        signal: controller.signal,
+        stage: 'map',
+      })
+    ).toThrow('cancelled');
+    expect(fallback).not.toHaveBeenCalled();
+  });
+});
+
+test('degradation retains a wrapped validation cause through a content-free projection', () => {
+  const error = retryOperational({
+    code: 'provider_failed',
+    message: 'private',
+    details: {
+      diagnostic: {
+        type: 'ProviderError',
+        code: 'invalid_output',
+        originalMessage: 'private',
+        validation: { reason: 'schema-invalid', path: ['verificationReport', 0, 'status'] },
+      },
+    },
+  });
+  const failure = degradeOnFinalAttempt({
+    attemptNumber: 3,
+    maxAttempts: 3,
+    eligible: true,
+    error,
+    signal: new AbortController().signal,
+    stage: 'research',
+    fallback: failure => failure,
+  });
+  expect(failure.diagnostic).toEqual({
+    type: 'WorkflowStepError',
+    code: 'provider_failed',
+    cause: { type: 'ProviderError', code: 'invalid_output' },
+    validation: { reason: 'schema-invalid', path: ['verificationReport', 0, 'status'] },
+  });
+  expect(JSON.stringify(failure)).not.toContain('private');
+});
+
+test.each([
+  false,
+  true,
+])('logs degradation only after fallback completion (throws: %s)', fallbackThrows => {
+  const events: string[] = [];
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {
+    events.push('logged');
+  });
+  const fallbackFailure = failPermanently({
+    code: 'course_chunk_fallback_missing',
+    message: 'The fallback source association is missing.',
+  });
+  const operation = () =>
+    degradeOnFinalAttempt({
+      attemptNumber: 3,
+      maxAttempts: 3,
+      eligible: true,
+      error: new Error('Original mapping failure'),
+      signal: new AbortController().signal,
+      stage: 'map',
+      fallback: () => {
+        events.push('fallback');
+        if (fallbackThrows) throw fallbackFailure;
+        return null;
+      },
+    });
+  try {
+    if (fallbackThrows) {
+      expect(operation).toThrow(fallbackFailure);
+      expect(warn).not.toHaveBeenCalled();
+      expect(events).toEqual(['fallback']);
+    } else {
+      expect(operation()).toBeNull();
+      expect(warn).toHaveBeenCalledExactlyOnceWith(
+        'Workflow step degraded.',
+        expect.objectContaining({ stage: 'map' })
+      );
+      expect(events).toEqual(['fallback', 'logged']);
+    }
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+test('final-attempt degradation keeps model-call observations through current lesson checkpoints', () => {
+  const modelCall = {
+    phase: 'awaiting-output',
+    elapsedMs: 500,
+    phaseElapsedMs: 500,
+    durationsMs: { 'awaiting-output': 500 },
+  };
+  const error = Object.assign(
+    new Error('PRIVATE_PROMPT', {
+      cause: Object.assign(new Error('PRIVATE_OUTPUT'), { stage: 'turn/start', code: 'timeout' }),
+    }),
+    { modelCall }
+  );
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const failure = degradeOnFinalAttempt({
+      attemptNumber: 3,
+      maxAttempts: 3,
+      eligible: true,
+      error,
+      signal: new AbortController().signal,
+      stage: 'lesson-research',
+      fallback: failure => failure,
+    });
+    const sources =
+      CurrentLessonGenerationDurableSchemaSet.LessonSourcesStateSchema.shape.degradationDiagnostics.parse(
+        [failure]
+      );
+    const sublesson =
+      CurrentLessonGenerationDurableSchemaSet.SublessonReadyStateSchema.shape.mappingFailure.parse(
+        failure
+      );
+    for (const checkpoint of [failure, sources?.[0], sublesson]) {
+      expect(checkpoint).toMatchObject({
+        diagnostic: { modelCall, cause: { code: 'timeout', errorStage: 'turn/start' } },
+      });
+      expect(JSON.stringify(checkpoint)).not.toContain('PRIVATE_');
+    }
+    expect(warn).toHaveBeenCalledWith('Workflow step degraded.', failure);
+  } finally {
+    warn.mockRestore();
+  }
 });
