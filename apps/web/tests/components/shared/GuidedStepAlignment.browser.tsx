@@ -17,7 +17,7 @@ try {
       label: 'Sostegno ridotto progressivamente durante ogni passaggio',
     })),
   };
-  for (const width of [900, 375]) {
+  for (const [width, expectedDirection] of [[900, 'column'], [375, 'row']] as const) {
     for (const dark of [false, true]) {
       await page.setViewportSize({ width, height: 800 });
       await page.setContent(
@@ -46,7 +46,8 @@ try {
             labelY: rect.y + rect.height / 2,
           };
         });
-      if (alignment.direction === 'column') {
+      assert.equal(alignment.direction, expectedDirection, `Step layout at ${width}px`);
+      if (expectedDirection === 'column') {
         assert.equal(alignment.badgeCenter, alignment.labelCenter);
         assert.equal(alignment.text, 'center', 'Wrapped label lines must center beneath badge');
       } else {
