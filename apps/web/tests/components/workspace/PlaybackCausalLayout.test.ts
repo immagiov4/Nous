@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { type Browser, chromium, type Page } from 'playwright';
 import { afterAll, beforeAll, expect, inject, test } from 'vitest';
@@ -20,6 +20,163 @@ const formulaViewports = [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ];
+
+test.each(
+  ['tall', 'wide', 'square'].flatMap(aspect =>
+    [
+      { width: 1920, height: 900 },
+      { width: 390, height: 844 },
+    ].flatMap(viewport => [false, true].map(dark => ({ aspect, viewport, dark })))
+  )
+)('keeps native formula typography with a $aspect image at $viewport.width px (dark=$dark)', async ({
+  aspect,
+  viewport,
+  dark,
+}) => {
+  const page = await browser.newPage({ viewport, reducedMotion: 'no-preference' });
+  try {
+    await page.addInitScript(() => {
+      Object.assign(window, { formulaImageShifts: [] });
+      new PerformanceObserver(list => {
+        const shifts = (window as unknown as { formulaImageShifts: number[] }).formulaImageShifts;
+        shifts.push(
+          ...list.getEntries().map(entry => (entry as PerformanceEntry & { value: number }).value)
+        );
+      }).observe({ type: 'layout-shift', buffered: true });
+    });
+    await page.goto(
+      `${baseUrl}tests/fixtures/playbackLayout.html?formulas=5&formulaPath=image&imageAspect=${aspect}${dark ? '&dark' : ''}`
+    );
+    await page.locator('.scene-host img').evaluate((image: HTMLImageElement) => image.decode());
+    await page.evaluate(() => document.fonts.ready);
+    const measured = await page.locator('.scene-host').evaluate(async card => {
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+      const image = card.querySelector('img');
+      const slot = card.parentElement?.getBoundingClientRect();
+      if (!image || !slot) throw new Error('Mixed visual must be mounted');
+      const inside = (element: Element) => {
+        const box = element.getBoundingClientRect();
+        return (
+          Math.round(box.left) >= Math.round(slot.left) &&
+          Math.round(box.right) <= Math.round(slot.right) &&
+          Math.round(box.top) >= Math.round(slot.top) &&
+          Math.round(box.bottom) <= Math.round(slot.bottom)
+        );
+      };
+      const formulas = [
+        ...card.querySelectorAll<HTMLElement>(':scope > .prose .katex-html > .base'),
+      ];
+      return {
+        formulas: formulas.map(formula => ({
+          paintedHeight: formula.getBoundingClientRect().height,
+          nativeHeight: formula.offsetHeight,
+          inside: inside(formula),
+        })),
+        image: {
+          width: image.getBoundingClientRect().width,
+          height: image.getBoundingClientRect().height,
+          inside: inside(image),
+          objectFit: getComputedStyle(image).objectFit,
+          naturalWidth: image.naturalWidth,
+          naturalHeight: image.naturalHeight,
+        },
+        card: { ...card.getBoundingClientRect().toJSON(), inside: inside(card) },
+        shifts: (window as unknown as { formulaImageShifts: number[] }).formulaImageShifts,
+      };
+    });
+    if (process.env.NOUS_E2E_DATA) {
+      await mkdir(process.env.NOUS_E2E_DATA, { recursive: true });
+      await writeFile(
+        path.join(process.env.NOUS_E2E_DATA, `formula-${aspect}-${viewport.width}-${dark}.json`),
+        JSON.stringify(measured)
+      );
+    }
+    expect(measured.formulas).toHaveLength(5);
+    for (const formula of measured.formulas) {
+      expect(formula.paintedHeight).toBeCloseTo(formula.nativeHeight, 0);
+      expect(formula.inside).toBe(true);
+    }
+    expect(measured.image.width).toBeGreaterThan(0);
+    expect(measured.image.height).toBeGreaterThan(0);
+    expect(measured.image.inside && measured.card.inside).toBe(true);
+    expect(measured.shifts.reduce((sum, shift) => sum + shift, 0)).toBe(0);
+    if (aspect === 'tall') expect(measured.image.objectFit).toBe('contain');
+    if (viewport.width === 390)
+      expect(
+        await page.locator('.captions').evaluate(element => getComputedStyle(element).visibility)
+      ).toBe('hidden');
+    await evidence(page, `formula-${aspect}-${viewport.width}-${dark}`);
+  } finally {
+    await page.close();
+  }
+});
+
+test('flows short supplemental formulas beside each other without shrinking mixed image cards', async () => {
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  try {
+    for (const viewport of [
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      for (const dark of [false, true]) {
+        await page.goto(
+          `${baseUrl}tests/fixtures/playbackLayout.html?formulas=5&formulaPath=image${dark ? '&dark' : ''}`
+        );
+        const image = page.locator('.scene-host img');
+        await image.waitFor();
+        await image.evaluate((image: HTMLImageElement) => image.decode());
+        await page.evaluate(() => document.fonts.ready);
+        const geometry = await page.locator('.scene-host').evaluate(async card => {
+          await new Promise(requestAnimationFrame);
+          await new Promise(requestAnimationFrame);
+          const summary = card.querySelector(':scope > .prose');
+          const formulas = [...(summary?.querySelectorAll('.katex-display') ?? [])];
+          const box = card.getBoundingClientRect();
+          const slot = card.parentElement?.getBoundingClientRect();
+          if (!slot) throw new Error('Scene slot must exist');
+          return {
+            count: formulas.length,
+            rows: new Set(formulas.map(formula => Math.round(formula.getBoundingClientRect().top)))
+              .size,
+            fillsWidth: Math.round(box.width) === Math.round(slot.width),
+            contentInside: [
+              ...formulas.map(formula => formula.querySelector('.katex-html') ?? formula),
+              ...card.querySelectorAll('img'),
+            ].every(element => {
+              const content = element.getBoundingClientRect();
+              return (
+                content.width > 0 &&
+                content.height > 0 &&
+                Math.round(content.left) >= Math.round(box.left) &&
+                Math.round(content.right) <= Math.round(box.right) &&
+                Math.round(content.top) >= Math.round(box.top) &&
+                Math.round(content.bottom) <= Math.round(box.bottom)
+              );
+            }),
+            inside:
+              Math.round(box.left) >= Math.round(slot.left) &&
+              Math.round(box.right) <= Math.round(slot.right) &&
+              Math.round(box.top) >= Math.round(slot.top) &&
+              Math.round(box.bottom) <= Math.round(slot.bottom),
+          };
+        });
+        expect(geometry.count).toBe(5);
+        expect(geometry.rows).toBeLessThan(geometry.count);
+        expect(geometry.fillsWidth).toBe(true);
+        expect(geometry.contentInside).toBe(true);
+        expect(geometry.inside).toBe(true);
+        if (viewport.width === 390)
+          expect(
+            await page.locator('.captions').evaluate(e => getComputedStyle(e).visibility)
+          ).toBe('hidden');
+      }
+    }
+  } finally {
+    await page.close();
+  }
+});
 
 test('keeps the save action at its approved size when a scene is fitted on desktop or touch screens', async () => {
   const page = await browser.newPage({ reducedMotion: 'reduce' });
@@ -269,7 +426,7 @@ async function openOnset(mode = '') {
   return page;
 }
 
-test('finishes voice cue fades at word start while captions retain their 1.3 second lead', async () => {
+test('finishes voice cue fades at word start while paragraph fill leads by 600 ms', async () => {
   const page = await openOnset();
   try {
     await page.locator('[data-motion-id]').first().waitFor({ state: 'attached' });
@@ -287,11 +444,7 @@ test('finishes voice cue fades at word start while captions retain their 1.3 sec
       controls.setPlaybackTime(1);
       await frame();
       await frame();
-      const width = words.reduce((sum, word) => sum + word.getBoundingClientRect().width, 0);
-      const feather = Number.parseFloat(
-        getComputedStyle(paragraph).getPropertyValue('--caption-feather')
-      );
-      const captionEdge = Number.parseFloat(words[1].style.getPropertyValue('--reveal-edge'));
+      const captionOpacity = Number(words[0].style.opacity);
       const before = {
         opacity: Number(getComputedStyle(reveal).opacity),
         emphasis: Number(focus.style.getPropertyValue('--motion-emphasis')),
@@ -313,8 +466,7 @@ test('finishes voice cue fades at word start while captions retain their 1.3 sec
           opacity: Number(getComputedStyle(reveal).opacity),
           emphasis: Number(focus.style.getPropertyValue('--motion-emphasis')),
         },
-        captionLead:
-          ((captionEdge + words[0].getBoundingClientRect().width) / (width + feather)) * 6 - 1,
+        captionOpacity,
       };
     });
     expect(result.before).toEqual({ opacity: 0, emphasis: 0 });
@@ -322,7 +474,7 @@ test('finishes voice cue fades at word start while captions retain their 1.3 sec
     expect(result.duringFade.emphasis).toBeGreaterThan(0);
     expect(result.duringFade.emphasis).toBeLessThan(1);
     expect(result.atWordStart).toEqual({ opacity: 1, emphasis: 1 });
-    expect(result.captionLead).toBeCloseTo(1.3);
+    expect(result.captionOpacity).toBeCloseTo(0.9);
   } finally {
     await page.close();
   }
@@ -834,7 +986,7 @@ test.each([false, true])('reader sequence notes are opaque (dark=%s)', async dar
   }
 });
 
-test('centers both columns independently without caption jumps when visual height changes', async () => {
+test('centers captions within the fitted visual height when the visual changes', async () => {
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
   try {
     await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?snapshot&type=parts`);
@@ -868,7 +1020,8 @@ test('centers both columns independently without caption jumps when visual heigh
       expect(geometry.captions.center).toBeCloseTo(geometry.stage.center, 0);
       expect(geometry.visual.center).toBeCloseTo(geometry.stage.center, 0);
     }
-    expect(after.captions.top).toBe(before.captions.top);
+    for (const geometry of [before, after])
+      expect(geometry.captions.height).toBeLessThanOrEqual(geometry.visual.height + 1);
     expect(after.visual.height).toBeLessThan(before.visual.height);
     await evidence(page, 'centered-stable-columns-1080p');
   } finally {
@@ -878,7 +1031,7 @@ test('centers both columns independently without caption jumps when visual heigh
 
 test.each([
   1024, 1440, 1920,
-])('desktop passage starts at the player title and keeps its geometry at %spx', async width => {
+])('desktop passage retains the title inset and fits its visual card at %spx', async width => {
   const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
   try {
     const measurements = [];
@@ -915,7 +1068,13 @@ test.each([
     }
     expect(measurements[1].caption.left).toBe(measurements[0].caption.left);
     expect(measurements[1].caption.width).toBe(measurements[0].caption.width);
-    expect(measurements[1].label.top).toBe(measurements[0].label.top);
+    for (const geometry of measurements) {
+      expect(geometry.caption.height).toBeLessThanOrEqual(geometry.visual.height + 1);
+      expect(geometry.caption.top + geometry.caption.height / 2).toBeCloseTo(
+        geometry.visual.top + geometry.visual.height / 2,
+        0
+      );
+    }
     await evidence(page, `desktop-caption-${width}`);
   } finally {
     await page.close();
@@ -967,7 +1126,7 @@ test.each([
   }
 });
 
-test('keeps desktop caption and visual geometry through a live long-to-short passage transition', async () => {
+test('keeps visual geometry while short captions retain natural height after a passage transition', async () => {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   try {
     await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=steps&clock&transition`);
@@ -996,8 +1155,14 @@ test('keeps desktop caption and visual geometry through a live long-to-short pas
     });
     expect(samples.at(-1)?.words).toBeLessThan(samples[0].words);
     for (const sample of samples) {
-      expect(sample.label).toEqual(samples[0].label);
-      expect(sample.caption).toEqual(samples[0].caption);
+      expect(sample.label.left).toBe(samples[0].label.left);
+      expect(sample.caption.left).toBe(samples[0].caption.left);
+      expect(sample.caption.width).toBe(samples[0].caption.width);
+      expect(sample.caption.height).toBeLessThanOrEqual(sample.visual.height + 1);
+      expect(sample.caption.top + sample.caption.height / 2).toBeCloseTo(
+        sample.visual.top + sample.visual.height / 2,
+        0
+      );
       expect(sample.slot).toEqual(samples[0].slot);
       expect(sample.visual).toEqual(samples[0].visual);
     }

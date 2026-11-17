@@ -17,7 +17,10 @@ try {
       label: 'Sostegno ridotto progressivamente durante ogni passaggio',
     })),
   };
-  for (const [width, expectedDirection] of [[900, 'column'], [375, 'row']] as const) {
+  for (const [width, expectedDirection] of [
+    [900, 'column'],
+    [375, 'row'],
+  ] as const) {
     for (const dark of [false, true]) {
       await page.setViewportSize({ width, height: 800 });
       await page.setContent(

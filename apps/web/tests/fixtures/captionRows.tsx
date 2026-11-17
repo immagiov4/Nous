@@ -1,19 +1,23 @@
 import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
 import { narrationWords, type PlaybackWordAlignment } from '@shared/playbackWordTiming';
 import fontUrl from 'katex/dist/fonts/KaTeX_Main-Regular.woff2?url';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import LessonPlaybackStage from '../../components/workspace/playback/LessonPlaybackStage';
 import type { WorkspaceReaderContentModel } from '../../components/workspace/shell/types';
+import '../../styles/app.css';
 
+const acousticFollow = new URLSearchParams(location.search).has('follow');
 const sources = [
   {
     type: 'markdown' as const,
-    markdown: Array.from(
-      { length: 12 },
-      () =>
-        'La **memoria** conserva i dati del programma mentre il processore legge le istruzioni e aggiorna il risultato con `open`.'
-    ).join(' '),
+    markdown: new URLSearchParams(location.search).has('short')
+      ? 'Una frase breve.'
+      : Array.from({ length: 12 }, () =>
+          acousticFollow
+            ? 'Sincronizzazione rappresentazione elaborazione memorizzazione organizzazione comprensione.'
+            : 'La **memoria** conserva i dati del programma mentre il processore legge le istruzioni e aggiorna il risultato con `open`.'
+        ).join(' '),
   },
 ];
 const block = {
@@ -42,25 +46,77 @@ const block = {
   ],
 };
 const content = { isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel;
-const durationSeconds = 60;
+const durationSeconds = acousticFollow ? 18 : 60;
 function Fixture() {
-  const [alignment, setAlignment] = useState<PlaybackWordAlignment>();
+  const [dark, setDark] = useState(false);
+  const [alignment, setAlignment] = useState<PlaybackWordAlignment | undefined>(
+    acousticFollow
+      ? {
+          status: 'aligned',
+          onsets: narrationWords(resolvePlaybackNarration(block).speech).map(
+            (_, index) => index / 4
+          ),
+        }
+      : undefined
+  );
   const [time, setTime] = useState(0);
+  const [seekRevision, setSeekRevision] = useState(0);
+  useEffect(() => {
+    const advance = (event: Event) => setTime((event as CustomEvent<number>).detail);
+    window.addEventListener('caption-playback-time', advance);
+    return () => window.removeEventListener('caption-playback-time', advance);
+  }, []);
   const [passage, setPassage] = useState(0);
-  const currentBlock = useMemo(() => ({ ...block, id: String(passage) }), [passage]);
+  const [tallVisual, setTallVisual] = useState(
+    new URLSearchParams(location.search).has('resize-card')
+  );
+  const currentBlock = useMemo(
+    () => ({
+      ...block,
+      id: String(passage),
+      ...(new URLSearchParams(location.search).has('resize-card')
+        ? {
+            prepared: {
+              motion: [],
+              scene: {
+                type: 'parts' as const,
+                title: 'Variable visual',
+                body: '',
+                groups: [],
+                quote: '',
+                note: '',
+                items: Array.from({ length: tallVisual ? 22 : 2 }, (_, index) => ({
+                  icon: 'point',
+                  label: `Detail ${index}`,
+                  detail: 'A visual detail.',
+                })),
+              },
+            },
+          }
+        : {}),
+    }),
+    [passage, tallVisual]
+  );
   return (
     <>
       <style>{`@font-face { font-family: "Caption fixture"; src: url("${fontUrl}"); font-display: swap; } .lesson-player-stage { font-family: "Caption fixture", sans-serif; }`}</style>
-      <div style={{ height: '100dvh', display: 'flex' }}>
+      <div className={dark ? 'dark' : ''} style={{ height: '100dvh', display: 'flex' }}>
         <LessonPlaybackStage
           block={currentBlock}
-          content={content}
+          content={{ ...content, isDarkMode: dark }}
           duration={durationSeconds}
           time={time}
+          seekRevision={seekRevision}
           alignment={alignment}
         />
       </div>
       <div style={{ position: 'fixed', bottom: 0, right: 0 }}>
+        <button type="button" onClick={() => setTallVisual(false)}>
+          Shrink visual
+        </button>
+        <button type="button" onClick={() => setDark(!dark)}>
+          Switch theme
+        </button>
         <button
           type="button"
           onClick={() => {
@@ -77,7 +133,10 @@ function Fixture() {
           aria-label="Playback time"
           type="number"
           value={time}
-          onChange={event => setTime(Number(event.target.value))}
+          onChange={event => {
+            setTime(Number(event.target.value));
+            setSeekRevision(revision => revision + 1);
+          }}
         />
         <button
           type="button"

@@ -202,6 +202,13 @@ test.each([
 });
 
 beforeEach(() => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    }
+  );
   vi.mocked(mermaid.render).mockReset().mockResolvedValue({
     svg: '<svg><text>Prepared diagram</text></svg>',
     diagramType: 'flowchart',

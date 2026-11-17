@@ -420,7 +420,21 @@ export default function LessonPlayer({
     anchor.current = null;
   };
   const listening = holdingSpace && !speech.speechInputError;
-  const spaceHintHidden = Boolean(answer) || listening || noteMode || Boolean(draft);
+  const hintRef = useRef<HTMLParagraphElement>(null);
+  const hintTextRef = useRef<HTMLSpanElement>(null);
+  const [hintFits, setHintFits] = useState(false);
+  useLayoutEffect(() => {
+    const hint = hintRef.current;
+    const text = hintTextRef.current;
+    if (!hint || !text) return;
+    const updateFit = () => setHintFits(hint.clientWidth >= text.scrollWidth);
+    const observer = new ResizeObserver(updateFit);
+    observer.observe(hint);
+    observer.observe(text);
+    updateFit();
+    return () => observer.disconnect();
+  }, []);
+  const spaceHintHidden = !hintFits || Boolean(answer) || listening || noteMode || Boolean(draft);
   const questionActive = Boolean(answer) || holdingSpace;
   const pendingQuestion = Boolean(answer && !answer.initialQuestion && speech.state !== 'idle');
   // The effect that delivers a follow-up can run more than once (re-renders, Strict Mode), so
@@ -637,7 +651,7 @@ export default function LessonPlayer({
       open
       aria-modal="true"
       aria-label={t('Riproduci lezione')}
-      className={`lesson-player-dialog ${content.isDarkMode ? 'dark' : ''} fixed inset-0 z-[80] m-0 flex w-full max-w-none max-h-none flex-col border-0 bg-paper-light p-0 font-sans text-stone-800 outline-0 dark:bg-paper-dark dark:text-stone-100`}
+      className={`lesson-player-dialog ${content.isDarkMode ? 'dark' : ''} fixed inset-0 z-[80] m-0 flex w-full max-w-none max-h-none flex-col border-0 bg-paper-light p-0 font-sans text-stone-800 dark:bg-paper-dark dark:text-stone-100`}
       style={{ height: viewportHeight ?? '100dvh' }}
     >
       <header className="lesson-player-header flex shrink-0 items-center gap-3 px-4 py-3 md:pt-6">
@@ -667,6 +681,7 @@ export default function LessonPlayer({
             speed={tts.playbackRate}
             readTime={playback.readTime}
             seekRevision={playback.seekRevision}
+            loading={playback.loading}
             alignment={playback.recording?.wordAlignment}
           />
         </MermaidRenderCacheContext.Provider>
@@ -757,12 +772,15 @@ export default function LessonPlayer({
         </div>
         {/* Desktop only: push-to-talk has no equivalent on touch screens. */}
         <p
+          ref={hintRef}
           aria-hidden={spaceHintHidden}
-          className={`pointer-events-none hidden min-w-0 flex-1 items-center justify-center gap-1 whitespace-nowrap ${COMPOSER_BAR_HEIGHT} text-xs text-stone-500 transition-opacity duration-200 ease-out motion-reduce:transition-none md:flex dark:text-stone-400 ${spaceHintHidden ? 'opacity-0' : 'opacity-100'}`}
+          className={`pointer-events-none hidden min-w-0 flex-1 overflow-hidden items-center justify-center gap-1 whitespace-nowrap ${COMPOSER_BAR_HEIGHT} text-xs text-stone-500 transition-opacity duration-200 ease-out motion-reduce:transition-none md:flex dark:text-stone-400 ${spaceHintHidden ? 'opacity-0' : 'opacity-100'}`}
         >
-          {t('Tieni premuto')}
-          <kbd className="font-sans">{t('Spazio')}</kbd>
-          {t('per fare una domanda a voce')}
+          <span ref={hintTextRef} className="inline-flex shrink-0 items-center gap-1">
+            {t('Tieni premuto')}
+            <kbd className="font-sans">{t('Spazio')}</kbd>
+            {t('per fare una domanda a voce')}
+          </span>
         </p>
         <div className="relative flex min-w-0 flex-col gap-2.5 md:w-[30rem] md:max-w-[45vw]">
           <AnimatePresence>
