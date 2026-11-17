@@ -81,6 +81,15 @@ test('exposes overflow after drawing and keeps its scrollbar synchronized throug
   viewportWidth = 600;
   act(resize);
   expect(screen.queryByRole('slider')).toBeNull();
+  viewportWidth = 400;
+  viewport.scrollLeft = 40;
+  act(resize);
+  const restored = screen.getByRole('slider');
+  expect(restored).toHaveAttribute('max', '200');
+  expect(restored).toHaveValue('40');
+  expect(Number.parseFloat(restored.style.getPropertyValue('--diagram-thumb-width'))).toBeCloseTo(
+    (400 / 600) * 100
+  );
 });
 
 test.each([
