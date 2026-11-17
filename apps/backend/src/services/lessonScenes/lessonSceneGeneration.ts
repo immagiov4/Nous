@@ -16,6 +16,7 @@ import {
   type LessonScene,
   LessonSceneSchema,
   type LessonSceneType,
+  selectableLessonSceneTypes,
 } from '@shared/lessonScene';
 import { interactiveSelectionRules } from '@shared/lessonSceneAnimation';
 import {
@@ -481,14 +482,7 @@ export async function generateLessonScene(
   const captioned = input.narration !== undefined;
   // A resumed workflow must generate within the catalog admitted by its saved contract.
   // Spotlight definitions need the owning playback's canonical speech, not raw Markdown anchors.
-  const allowedTypes = input.allowedSceneTypes ?? GENERATABLE_LESSON_SCENE_TYPES;
-  const prefersChecklist = allowedTypes.includes('checklist');
-  const types = allowedTypes.filter(
-    type =>
-      GENERATABLE_LESSON_SCENE_TYPES.includes(type) &&
-      (type !== 'hypothesis' || !prefersChecklist) &&
-      (type !== 'formula-spotlight' || captioned)
-  );
+  const types = selectableLessonSceneTypes({ captioned, allowedTypes: input.allowedSceneTypes });
   const catalogSchema = SceneDraftSchema.extend({
     type: z.enum(input.allowTextFallback ? [...types, 'text'] : types),
   });
