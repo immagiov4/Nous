@@ -280,7 +280,7 @@ export const CAPTION_TIMING = {
   readFadeSeconds: 2,
   readOpacity: 0.55,
 };
-export const CAPTION_SCROLL = { trigger: 0.5, destination: 0 };
+export const CAPTION_SCROLL = { trigger: 0.78, destination: 0, durationSeconds: 0.5 };
 const CAPTION_RHYTHM = {
   radiusSeconds: 0.65,
   commaDelay: 0.055,

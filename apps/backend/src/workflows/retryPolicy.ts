@@ -1,7 +1,14 @@
+import * as z from 'zod';
+import { LessonReviewDiagnosticSchema } from '../services/lessonGenerationCorrection.js';
 import { isRecord } from '../utils/validation.js';
 import { snapshotImmutableJson } from './jsonSnapshot.js';
 import type { JsonValue, StepFailure } from './types.js';
-import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
+import {
+  readWorkflowErrorDiagnostic,
+  toWorkflowErrorDiagnostic,
+  WorkflowObservedTechnicalDiagnosticSchema,
+  WorkflowTechnicalDiagnosticSchema,
+} from './workflowErrorDiagnostics.js';
 
 const BASE_OPERATIONAL_BACKOFF_MS = 2_000;
 const MAX_OPERATIONAL_BACKOFF_MS = 60_000;
@@ -272,4 +279,60 @@ export const getRetryDecision = (input: {
     }),
     retry: true,
   };
+};
+
+export const WorkflowDegradationSchema = z.object({
+  attemptNumber: z.number().int().positive(),
+  diagnostic: z.intersection(
+    WorkflowTechnicalDiagnosticSchema,
+    z.object({
+      validation: LessonReviewDiagnosticSchema.optional(),
+    })
+  ),
+  kind: z.enum(['corrective', 'operational', 'permanent']),
+  stage: z.string(),
+});
+export const WorkflowObservedDegradationSchema = WorkflowDegradationSchema.extend({
+  diagnostic: z.intersection(
+    WorkflowObservedTechnicalDiagnosticSchema,
+    z.object({ validation: LessonReviewDiagnosticSchema.optional() })
+  ),
+});
+export type WorkflowDegradation = z.infer<typeof WorkflowDegradationSchema>;
+
+/** Keep the retry boundary and content-free cause together whenever a step degrades. */
+export const degradeOnFinalAttempt = <Output>(input: {
+  attemptNumber: number;
+  eligible: boolean;
+  error: unknown;
+  fallback: (failure: WorkflowDegradation) => Output;
+  maxAttempts: number;
+  signal: AbortSignal;
+  stage: string;
+}): Output => {
+  input.signal.throwIfAborted();
+  if (!input.eligible || input.attemptNumber < input.maxAttempts) throw input.error;
+  const diagnostic = toWorkflowErrorDiagnostic(input.error, { includeContent: false });
+  const stepFailure = input.error instanceof WorkflowStepError ? input.error.failure : undefined;
+  const nested = readWorkflowErrorDiagnostic(stepFailure?.details?.diagnostic);
+  const failure = WorkflowObservedDegradationSchema.parse({
+    attemptNumber: input.attemptNumber,
+    diagnostic: {
+      ...diagnostic,
+      ...(nested
+        ? { cause: nested, ...(nested.validation ? { validation: nested.validation } : {}) }
+        : {}),
+      ...(stepFailure
+        ? toWorkflowErrorDiagnostic(
+            { name: 'WorkflowStepError', code: stepFailure.code },
+            { includeContent: false }
+          )
+        : {}),
+    },
+    kind: input.error instanceof WorkflowStepError ? input.error.failure.kind : 'operational',
+    stage: input.stage,
+  });
+  const output = input.fallback(failure);
+  console.warn('Workflow step degraded.', failure);
+  return output;
 };

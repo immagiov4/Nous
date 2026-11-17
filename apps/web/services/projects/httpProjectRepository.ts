@@ -110,6 +110,7 @@ interface ApiResponse {
   projects?: ProjectSnapshot[] | SavedProjectMeta[];
   source?: FileData | null;
   sourceWarnings?: unknown;
+  sourceDocuments?: unknown;
   sources?: StoredProjectSourceFile[];
   snapshot?: ProjectSnapshot;
   uploadId?: string;
@@ -122,11 +123,24 @@ interface ApiResponse {
   progress?: SourcePreparationProgress;
 }
 
+type SourcePreparationRead =
+  | (ApiResponse & { statusReadUnavailable?: false })
+  | ({ success: false; statusReadUnavailable: true } & Partial<
+      Record<Exclude<keyof ApiResponse, 'success'>, never>
+    >);
+
 const isCompletedProjectImport = (response: ApiResponse): boolean =>
   Boolean(response.complete || (response.meta && response.snapshot));
 
-const isPendingProjectImport = (response: ApiResponse, canBegin: boolean): boolean =>
-  response.uploadStatus === 'finalizing' || (canBegin && response.uploadStatus === 'receiving');
+const assertPendingProjectImport = (response: SourcePreparationRead, canBegin: boolean): void => {
+  if (response.statusReadUnavailable) return;
+  if (response.uploadStatus === 'finalizing' || (canBegin && response.uploadStatus === 'receiving'))
+    return;
+  throw new ProjectStorageError(
+    translateUiMessage(SOURCE_PREPARATION_INTERRUPTED_MESSAGE),
+    'source-preparation-interrupted'
+  );
+};
 
 interface ProjectImportConfig {
   directMaxBytes: number;
@@ -239,6 +253,7 @@ const createProjectSyncError = (error: unknown): ProjectStorageError => {
       {
         contentType: error.responseContentType,
         sourceWarnings: error.sourceWarnings,
+        sourceDocuments: error.sourceDocuments,
         status: error.httpStatus,
       }
     );
@@ -299,6 +314,21 @@ function responseErrorMessage(code: ProjectStorageError['code']): string {
   }
   return PROJECT_SYNC_ERROR_MESSAGE;
 }
+
+const readFailedSourceDocuments = (
+  value: unknown
+): { id: string; name: string; state: 'error' }[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  return value.every(
+    document =>
+      isRecord(document) &&
+      typeof document.id === 'string' &&
+      typeof document.name === 'string' &&
+      document.state === 'error'
+  )
+    ? value
+    : undefined;
+};
 
 const readSourceWarnings = (value: unknown): ProjectSourceWarning[] | undefined => {
   if (!Array.isArray(value)) return undefined;
@@ -785,7 +815,7 @@ export class HttpProjectRepository implements ProjectRepository {
     uploadId: string,
     signal?: AbortSignal,
     includeDocumentText = false
-  ): Promise<ApiResponse> {
+  ): Promise<SourcePreparationRead> {
     try {
       return await this.request<ApiResponse>(
         `/api/projects/import/chunks/${encodeURIComponent(uploadId)}${includeDocumentText ? '?documentText=full' : ''}`,
@@ -795,7 +825,7 @@ export class HttpProjectRepository implements ProjectRepository {
       if (signal?.aborted) throw error;
       // A disconnected poll does not change the accepted server operation's state.
       if (error instanceof ProjectStorageError && error.httpStatus === undefined)
-        return { success: true, uploadStatus: 'finalizing' };
+        return { success: false, statusReadUnavailable: true };
 
       if (error instanceof ProjectStorageError && error.httpStatus === 404)
         throw new ProjectStorageError(
@@ -810,7 +840,7 @@ export class HttpProjectRepository implements ProjectRepository {
     uploadId: string,
     body: Record<string, unknown>,
     signal?: AbortSignal
-  ): Promise<ApiResponse> {
+  ): Promise<SourcePreparationRead> {
     try {
       return await this.request<ApiResponse>(
         `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/complete`,
@@ -854,15 +884,12 @@ export class HttpProjectRepository implements ProjectRepository {
                 options.includeDocumentText
               );
         if (response.complete) break;
-        if (!isPendingProjectImport(response, Boolean(body)))
-          throw new ProjectStorageError(
-            translateUiMessage(SOURCE_PREPARATION_INTERRUPTED_MESSAGE),
-            'source-preparation-interrupted'
-          );
+        assertPendingProjectImport(response, Boolean(body));
         await new Promise(resolve =>
           globalThis.setTimeout(resolve, PROJECT_OPERATION_STATUS_POLL_MS)
         );
       }
+      if (response.progress) options.onSourceProgress?.(response.progress);
       return {
         meta: assertValue(response.meta, 'Il progetto sincronizzato non è stato salvato.'),
         snapshot: normalizeProjectResponse(
@@ -1235,7 +1262,11 @@ export class HttpProjectRepository implements ProjectRepository {
           uploadId,
           AbortSignal.timeout(Math.max(1, deadline - Date.now()))
         );
-        if (status.complete || status.uploadStatus !== 'finalizing') return;
+        if (
+          !status.statusReadUnavailable &&
+          (status.complete || status.uploadStatus !== 'finalizing')
+        )
+          return;
       } catch (error) {
         if (
           error instanceof ProjectStorageError &&
@@ -1345,6 +1376,10 @@ export class HttpProjectRepository implements ProjectRepository {
           {
             contentType: response.headers?.get('content-type') || undefined,
             sourceWarnings: readSourceWarnings(data.sourceWarnings),
+            sourceDocuments:
+              data.code === SOURCE_PREPARATION_UNUSABLE_CODE
+                ? readFailedSourceDocuments(data.sourceDocuments)
+                : undefined,
             status: response.status,
           }
         );

@@ -54,6 +54,11 @@ interface CourseGenerationProjectReader {
 }
 
 interface CourseGenerationRunReader {
+  getRunByRequestKey(input: {
+    requestKey: string;
+    userId: string;
+    workflowId: string;
+  }): Promise<WorkflowRun | null>;
   getActiveRun(input: {
     projectId: string;
     userId: string;
@@ -70,6 +75,12 @@ interface CourseGenerationApiDependencies {
 }
 
 export interface CourseGenerationApi {
+  retry(
+    input: Pick<
+      CourseGenerationStartRequest,
+      'aiProvider' | 'aiProviderOverrides' | 'projectId' | 'userId'
+    > & { runId: string }
+  ): Promise<{ created: boolean; job: CourseWorkflowSnapshot }>;
   get(input: { runId: string; userId: string }): Promise<CourseWorkflowSnapshot | null>;
   getActive(input: { projectId: string; userId: string }): Promise<CourseWorkflowSnapshot | null>;
   start(input: CourseGenerationStartRequest): Promise<{
@@ -85,10 +96,25 @@ export class CourseGenerationTargetNotFoundError extends Error {
   }
 }
 
+export class CourseGenerationCleanupIncompleteError extends Error {
+  constructor() {
+    super('The previous course generation has not completed cleanup.');
+    this.name = 'CourseGenerationCleanupIncompleteError';
+  }
+}
+
+export class CourseGenerationRetryChainError extends Error {
+  constructor() {
+    super('The course generation replacement chain contains a cycle.');
+    this.name = 'CourseGenerationRetryChainError';
+  }
+}
+
 const rejectUnavailableRuntime = (): Promise<never> =>
   Promise.reject(new WorkflowRuntimeUnavailableError());
 
 export const unavailableCourseGenerationApi: CourseGenerationApi = {
+  retry: rejectUnavailableRuntime,
   get: rejectUnavailableRuntime,
   getActive: rejectUnavailableRuntime,
   start: rejectUnavailableRuntime,
@@ -170,9 +196,56 @@ const createSnapshot = (run: WorkflowRun, state: WorkflowRunState): CourseWorkfl
   };
 };
 
+const RETRY_REQUEST_NAMESPACE = 'course-generation-retry';
+
+export const isReservedCourseGenerationRequestKey = (requestKey: string): boolean => {
+  try {
+    const key: unknown = JSON.parse(requestKey);
+    return Array.isArray(key) && key[0] === RETRY_REQUEST_NAMESPACE;
+  } catch {
+    return false;
+  }
+};
+
+const retryRequestKey = (runId: string): string => JSON.stringify([RETRY_REQUEST_NAMESPACE, runId]);
+
 export const createCourseGenerationApi = (
   dependencies: CourseGenerationApiDependencies
 ): CourseGenerationApi => ({
+  async retry(input) {
+    let run = await dependencies.runReader.getRun(input);
+    if (run?.workflowId !== COURSE_GENERATION_WORKFLOW_ID || run.projectId !== input.projectId) {
+      throw new CourseGenerationTargetNotFoundError();
+    }
+    const visited = new Set<string>();
+    for (;;) {
+      if (visited.has(run.id)) throw new CourseGenerationRetryChainError();
+      visited.add(run.id);
+      const successor = await dependencies.runReader.getRunByRequestKey({
+        requestKey: retryRequestKey(run.id),
+        userId: input.userId,
+        workflowId: COURSE_GENERATION_WORKFLOW_ID,
+      });
+      if (!successor) break;
+      run = successor;
+    }
+    if (run.status !== 'failed') {
+      const job = await this.get({ runId: run.id, userId: input.userId });
+      if (!job) throw new WorkflowRunNotFoundError();
+      return { created: false, job };
+    }
+    if (run.cleanupStatus !== 'completed' && run.cleanupStatus !== 'not-required') {
+      throw new CourseGenerationCleanupIncompleteError();
+    }
+    return this.start({
+      ...parseRunInput(run),
+      aiProvider: input.aiProvider,
+      aiProviderOverrides: input.aiProviderOverrides,
+      // Keep retries idempotent and traceable without persisting learner content in diagnostics.
+      requestKey: retryRequestKey(run.id),
+      userId: input.userId,
+    });
+  },
   async get(input) {
     const state = await dependencies.runReader.getRunState(input);
     const run = state ? await dependencies.runReader.getRun(input) : null;

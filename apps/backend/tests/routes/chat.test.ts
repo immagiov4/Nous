@@ -1,9 +1,14 @@
 import type { AccountPreferences } from '@shared/accountPreferences.js';
 import request from 'supertest';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { buildLegacySourceFixture } from '../../../web/tests/helpers/legacySourceIndex.ts';
 import { playbackQuestion } from '../../../web/tests/helpers/playbackQuestion.ts';
 import type { LessonNode, ProjectSource } from '../../../web/types.js';
-import { resolveLessonSourceReferences } from '../../../web/utils/context/sourceMaterial.js';
+import { buildConversationNoteCatalog } from '../../../web/utils/context/conversationNoteCatalog.js';
+import {
+  buildContextSourceMaterial,
+  resolveLessonSourceReferences,
+} from '../../../web/utils/context/sourceMaterial.js';
 import type { ProjectStore } from '../../src/projects/types.js';
 import { createSupabaseTestToken } from '../helpers/auth.js';
 
@@ -916,7 +921,10 @@ describe('POST /api/chat/context', () => {
     aiMocks.toUIMessageStream.mockReturnValue('stream-token');
     aiMocks.streamText.mockReturnValue({ toUIMessageStream: aiMocks.toUIMessageStream });
     codexStreamMocks.createCodexChatStream.mockResolvedValue('codex-stream-token');
-    codexAppServerMocks.runCodexAppServerTurn.mockResolvedValue('Cross-check Codex eseguito.');
+    codexAppServerMocks.runCodexAppServerTurn.mockImplementation(async options => {
+      options.onWebSearchCompleted?.();
+      return 'Cross-check Codex eseguito.';
+    });
     aiMocks.pipeUIMessageStreamToResponse.mockImplementation(
       ({
         response,
@@ -1285,6 +1293,116 @@ describe('POST /api/chat/context', () => {
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('legacy source.pdf');
   });
 
+  test.each([
+    'openrouter',
+    'codex',
+  ] as const)('contextual chat clips source material within its Unicode-safe field quota through %s', async provider => {
+    const token = authenticateProvider(provider);
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        messages: [{ id: '1', role: 'user', content: 'Spiega il simbolo' }],
+        selectedText: 'Simbolo matematico',
+        sourceMaterial: `${'a'.repeat(MAX_CONTEXT_CHARS - 1)}𝑋${'z'.repeat(100)}`,
+      });
+    expect(response.status).toBe(200);
+    const options =
+      provider === 'codex'
+        ? codexStreamMocks.createCodexChatStream.mock.lastCall?.[0]
+        : aiMocks.streamText.mock.lastCall?.[0];
+    const prompt = options.system;
+    expect(prompt).not.toMatch(/[\uD800-\uDFFF]/u);
+    expect(prompt).toContain(`${'a'.repeat(MAX_CONTEXT_CHARS - 1)}\n\n[context truncated]`);
+    expect(prompt).not.toContain('a'.repeat(MAX_CONTEXT_CHARS));
+    expect(prompt).not.toContain('z'.repeat(100));
+    expect(JSON.stringify({ input: [{ type: 'text', text: prompt }] })).not.toMatch(
+      /\\u[dD][89a-fA-F][0-9a-fA-F]{2}/u
+    );
+  });
+
+  test.each([
+    ['openrouter', false],
+    ['openrouter', true],
+    ['codex', false],
+    ['codex', true],
+  ] as const)('legacy chunk context remains well formed through %s (outer clipping: %s)', async (provider, clipped) => {
+    const fixture = buildLegacySourceFixture(`𝑋${'a'.repeat(7_997)}𝑋${'z'.repeat(7_999)}`);
+    const before = JSON.stringify(fixture);
+    const built = buildContextSourceMaterial({ activeSection: null, ...fixture });
+    if (!built.sourceMaterial) throw new Error('Missing legacy source material fixture');
+    expect(built.sourceMaterial.length).toBeLessThan(MAX_CONTEXT_CHARS);
+    const token = authenticateProvider(provider);
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        messages: [{ id: 'legacy-source', role: 'user', content: 'Explain this.' }],
+        selectedText: 'Mathematical symbol',
+        sourceMaterial: built.sourceMaterial + (clipped ? 'b'.repeat(MAX_CONTEXT_CHARS) : ''),
+      });
+    expect(response.status).toBe(200);
+    const options =
+      provider === 'codex'
+        ? codexStreamMocks.createCodexChatStream.mock.lastCall?.[0]
+        : aiMocks.streamText.mock.lastCall?.[0];
+    expect(options.system).not.toMatch(/[\uD800-\uDFFF]/u);
+    expect(options.system).toContain('𝑋');
+    expect(options.system).toContain('CHUNK legacy-0');
+    expect(options.system.includes('[context truncated]')).toBe(clipped);
+    const material = options.system
+      .split('AGGREGATE TEXT CONTEXT (unspecified):\n"""\n')[1]
+      .split('\n"""')[0];
+    expect(material).toBe(
+      clipped
+        ? `${built.sourceMaterial}${'b'.repeat(MAX_CONTEXT_CHARS - built.sourceMaterial.length)}\n\n[context truncated]`
+        : built.sourceMaterial
+    );
+    expect(JSON.stringify(fixture)).toBe(before);
+  });
+
+  test.each([
+    'openrouter',
+    'codex',
+  ] as const)('legacy ZIP preview context remains well formed through %s', async provider => {
+    const text = `𝑋${'a'.repeat(7_997)}𝑋tail`;
+    const source: ProjectSource = {
+      kind: 'archive',
+      name: 'legacy.zip',
+      file: { name: 'legacy.zip', mimeType: 'application/zip', data: 'UEs=' },
+      index: {
+        entries: [
+          {
+            kind: 'file',
+            path: 'symbols.txt',
+            contentKind: 'text',
+            byteSize: text.length,
+            preview: text.slice(0, 8_000),
+          },
+        ],
+      },
+    };
+    const before = JSON.stringify(source);
+    const built = buildContextSourceMaterial({ activeSection: null, documentIndex: null, source });
+    const token = authenticateProvider(provider);
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        messages: [{ id: 'legacy-zip', role: 'user', content: 'Explain.' }],
+        selectedText: 'Symbol',
+        sourceMaterial: built.sourceMaterial,
+      });
+    expect(response.status).toBe(200);
+    const options =
+      provider === 'codex'
+        ? codexStreamMocks.createCodexChatStream.mock.lastCall?.[0]
+        : aiMocks.streamText.mock.lastCall?.[0];
+    expect(options.system).not.toMatch(/[\uD800-\uDFFF]/u);
+    expect(options.system).toContain(`preview:\n𝑋${'a'.repeat(7_997)}`);
+    expect(JSON.stringify(source)).toBe(before);
+  });
+
   test('retains provenance when aggregate source text exceeds the final prompt budget', async () => {
     const response = await request(createApp())
       .post('/api/chat/context')
@@ -1306,6 +1424,33 @@ describe('POST /api/chat/context', () => {
       'DISTINCT ORIGINAL SOURCE METADATA (1;'
     );
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('049.pdf');
+  });
+
+  test.each([
+    'openrouter',
+    'codex',
+  ] as const)('catalog-backed contextual chat preserves Unicode and the field cap through %s', async provider => {
+    const token = authenticateProvider(provider);
+    const content = `${'a'.repeat(MAX_CONTEXT_CHARS - 1)}𝑋${'z'.repeat(100)}`;
+    const catalog = buildConversationNoteCatalog({ content, locale: 'en' });
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        contextScope: 'lesson',
+        lessonContent: content,
+        noteCatalog: { records: catalog.records, snapshotId: await catalog.snapshotId },
+        messages: [{ id: 'catalog-boundary', role: 'user', content: 'Explain this.' }],
+      });
+    expect(response.status).toBe(200);
+    const options =
+      provider === 'codex'
+        ? codexStreamMocks.createCodexChatStream.mock.lastCall?.[0]
+        : aiMocks.streamText.mock.lastCall?.[0];
+    expect(options.system).not.toMatch(/[\uD800-\uDFFF]/u);
+    expect(options.system).toContain(`${'a'.repeat(MAX_CONTEXT_CHARS - 1)}\n\n[context truncated]`);
+    expect(options.system).not.toContain('z'.repeat(100));
+    expect(JSON.stringify(options.system)).not.toMatch(/\\u[dD][89a-fA-F][0-9a-fA-F]{2}/u);
   });
 
   test('streams a contextual answer with the selected source information', async () => {
@@ -1461,6 +1606,226 @@ describe('POST /api/chat/context', () => {
       'NVIDIA forest real-time ray tracing alternatives foliage lighting'
     );
     expect(fetchOptions?.body).toContain('Puntatore');
+  });
+
+  test('records successful provider execution without logging the query, summary or citations', async () => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      fetchMock.mockResolvedValueOnce(
+        Response.json({
+          choices: [
+            {
+              message: {
+                content: 'Synthetic checked answer',
+                annotations: [
+                  {
+                    type: 'url_citation',
+                    url_citation: { url: 'https://example.com/checked', title: 'Checked source' },
+                  },
+                ],
+              },
+            },
+          ],
+          usage: { server_tool_use: { web_search_requests: 1 } },
+        })
+      );
+      const { runConfiguredWebSearch } = await import('../../src/routes/chatPrompts.js');
+      const result = await runConfiguredWebSearch({
+        query: 'synthetic query',
+        messages: [{ role: 'user', content: 'Synthetic question' }],
+        modelConfig: { provider: 'openrouter', model: 'research-model', reasoningEffort: 'none' },
+      });
+      expect(result).toMatchObject({
+        sources: [{ url: 'https://example.com/checked', title: 'Checked source' }],
+        summary: 'Synthetic checked answer',
+        webSearchRequests: 1,
+      });
+      expect(result.error).toBeUndefined();
+      const event = JSON.parse(String(log.mock.lastCall?.[0]));
+      expect(event).toMatchObject({
+        event: 'web_search',
+        provider: 'openrouter',
+        model: 'research-model',
+        outcome: 'success',
+        code: 'completed',
+        sourceCount: 1,
+        webSearchRequests: 1,
+      });
+      const serializedEvent = JSON.stringify(event);
+      expect(serializedEvent).not.toContain('synthetic query');
+      expect(serializedEvent).not.toContain('Synthetic question');
+      expect(serializedEvent).not.toContain('Synthetic checked answer');
+      expect(serializedEvent).not.toContain('https://example.com/checked');
+      expect(serializedEvent).not.toContain('Checked source');
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  test.each([
+    '',
+    '   ',
+  ])('diagnoses rejected empty search %j without calling a provider', async query => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const correlationId = 'a1111111-1111-4111-8111-111111111111';
+    const privateText = 'PRIVATE lesson-query sk-secret';
+    try {
+      let toolResult: Promise<unknown> | undefined;
+      aiMocks.streamText.mockImplementationOnce(options => {
+        toolResult = options.tools.searchWeb.execute({ query });
+        return { toUIMessageStream: aiMocks.toUIMessageStream };
+      });
+      const response = await request(createApp())
+        .post('/api/chat/context')
+        .set('x-request-id', correlationId)
+        .send({
+          selectedText: privateText,
+          toolPreferences: { webSearch: true },
+          messages: [{ id: 'empty-search', role: 'user', content: 'Explain this.' }],
+        });
+      expect(response.status).toBe(200);
+      expect(await toolResult).toEqual({
+        error: 'La query per la ricerca web è vuota.',
+        query: '',
+        sources: [],
+        summary: '',
+        webSearchRequests: 0,
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(codexAppServerMocks.runCodexAppServerTurn).not.toHaveBeenCalled();
+      const events = log.mock.calls
+        .map(([entry]) => JSON.parse(String(entry)))
+        .filter(entry => entry.event === 'web_search');
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        correlationId,
+        provider: 'openrouter',
+        model: expect.any(String),
+        outcome: 'error',
+        stage: 'request',
+        code: 'empty_query',
+        durationMs: expect.any(Number),
+      });
+      expect(events[0]).not.toHaveProperty('query');
+      expect(JSON.stringify(events[0])).not.toContain(privateText);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  test('counts only observed completed Codex searches and retains truthful unstructured references', async () => {
+    codexAppServerMocks.runCodexAppServerTurn.mockImplementationOnce(async options => {
+      options.onWebSearchCompleted();
+      options.onWebSearchCompleted();
+      return 'Synthetic checked answer with https://example.com/source';
+    });
+    const { runConfiguredWebSearch } = await import('../../src/routes/chatPrompts.js');
+    const result = await runConfiguredWebSearch({
+      query: 'synthetic search',
+      messages: [{ role: 'user', content: 'Synthetic question' }],
+      modelConfig: { provider: 'codex', model: 'codex-research', reasoningEffort: 'none' },
+    });
+    expect(result).toEqual({
+      query: 'synthetic search',
+      sources: [],
+      summary: 'Synthetic checked answer with https://example.com/source',
+      webSearchRequests: 2,
+    });
+  });
+
+  test('does not count Codex prose without an observed native search as successful verification', async () => {
+    codexAppServerMocks.runCodexAppServerTurn.mockResolvedValueOnce('Unverified prose.');
+    const { runConfiguredWebSearch } = await import('../../src/routes/chatPrompts.js');
+    const result = await runConfiguredWebSearch({
+      query: 'synthetic search',
+      messages: [{ role: 'user', content: 'Synthetic question' }],
+      modelConfig: { provider: 'codex', model: 'codex-research', reasoningEffort: 'none' },
+    });
+    expect(result).toMatchObject({
+      error: expect.any(String),
+      sources: [],
+      summary: '',
+      webSearchRequests: 0,
+    });
+  });
+
+  test.each([
+    { kind: 'rejection', stage: 'response', code: 'upstream_rejected', status: 429 },
+    { kind: 'exception', stage: 'request', code: 'provider_exception', status: undefined },
+    { kind: 'unusable', stage: 'result', code: 'unusable_result', status: 200 },
+    { kind: 'invalid-json', stage: 'response', code: 'invalid_response', status: 200 },
+    { kind: 'null-json', stage: 'response', code: 'invalid_response', status: 200 },
+    { kind: 'string-json', stage: 'response', code: 'invalid_response', status: 200 },
+    { kind: 'array-json', stage: 'response', code: 'invalid_response', status: 200 },
+  ])('diagnoses $kind search failures inside a successful chat transport without private content', async ({
+    kind,
+    stage,
+    code,
+    status,
+  }) => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const privateText = 'PRIVATE lesson-query sk-secret';
+    const correlationId = 'a1111111-1111-4111-8111-111111111111';
+    try {
+      if (kind === 'rejection')
+        fetchMock.mockResolvedValueOnce(new Response(privateText, { status: 429 }));
+      else if (kind === 'exception')
+        fetchMock.mockRejectedValueOnce(
+          Object.assign(new Error(privateText), { code: 'ECONNRESET', status: 503 })
+        );
+      else if (kind === 'invalid-json') fetchMock.mockResolvedValueOnce(new Response(privateText));
+      else if (kind === 'null-json') fetchMock.mockResolvedValueOnce(Response.json(null));
+      else if (kind === 'string-json') fetchMock.mockResolvedValueOnce(Response.json(privateText));
+      else if (kind === 'array-json') fetchMock.mockResolvedValueOnce(Response.json([]));
+      else
+        fetchMock.mockResolvedValueOnce(
+          Response.json({ choices: [{ message: { content: privateText } }] })
+        );
+      let toolResult: Promise<unknown> | undefined;
+      aiMocks.streamText.mockImplementationOnce(options => {
+        toolResult = options.tools.searchWeb.execute({ query: privateText });
+        return { toUIMessageStream: aiMocks.toUIMessageStream };
+      });
+      const response = await request(createApp())
+        .post('/api/chat/context')
+        .set('x-request-id', correlationId)
+        .send({
+          selectedText: privateText,
+          toolPreferences: { webSearch: true },
+          messages: [{ id: 'search-failure', role: 'user', content: 'Explain this.' }],
+        });
+      expect(response.status).toBe(200);
+      const result = (await toolResult) as { error: string };
+      expect(result).toMatchObject({
+        error: 'Ricerca web non riuscita. Riprova tra poco.',
+        sources: [],
+        summary: '',
+      });
+      expect(result.error).not.toContain(privateText);
+      const event = log.mock.calls
+        .map(([entry]) => JSON.parse(String(entry)))
+        .find(entry => entry.event === 'web_search');
+      expect(event).toMatchObject({
+        correlationId,
+        provider: 'openrouter',
+        model: expect.any(String),
+        outcome: 'error',
+        stage,
+        code,
+        durationMs: expect.any(Number),
+      });
+      if (status !== undefined) expect(event.status).toBe(status);
+      if (kind === 'exception')
+        expect(event.diagnostic.cause).toMatchObject({
+          code: 'ECONNRESET',
+          status: 503,
+          type: 'Error',
+        });
+      expect(JSON.stringify(event)).not.toContain(privateText);
+      expect(JSON.stringify(event)).not.toContain('sk-secret');
+    } finally {
+      log.mockRestore();
+    }
   });
 
   test('round-trips retained archive context into bounded search, read, and citation results', async () => {
@@ -1898,7 +2263,10 @@ describe('POST /api/chat/library', () => {
     aiMocks.toUIMessageStream.mockReturnValue('stream-token');
     aiMocks.streamText.mockReturnValue({ toUIMessageStream: aiMocks.toUIMessageStream });
     codexStreamMocks.createCodexChatStream.mockResolvedValue('codex-stream-token');
-    codexAppServerMocks.runCodexAppServerTurn.mockResolvedValue('Cross-check Codex eseguito.');
+    codexAppServerMocks.runCodexAppServerTurn.mockImplementation(async options => {
+      options.onWebSearchCompleted?.();
+      return 'Cross-check Codex eseguito.';
+    });
     aiMocks.pipeUIMessageStreamToResponse.mockImplementation(
       ({
         response,

@@ -159,6 +159,30 @@ test('HttpProjectRepository writes favorites through the project API', async () 
   );
 });
 
+test('preserves ordered failed document identities across a 422 response', async () => {
+  const documents = [
+    { id: 'one', name: 'same.pdf', state: 'error' },
+    { id: 'two', name: 'same.pdf', state: 'error' },
+  ];
+  fetchMock.mockResolvedValueOnce({
+    ok: false,
+    status: 422,
+    headers: new Headers({ 'content-type': 'application/json' }),
+    json: async () => ({
+      success: false,
+      code: 'SOURCE_PREPARATION_UNUSABLE',
+      sourceDocuments: documents,
+      sourceWarnings: [{ name: 'same.pdf', reason: 'no-usable-text' }],
+    }),
+  });
+  const repository = new HttpProjectRepository('http://localhost:3301');
+  await expect(repository.listFolders()).rejects.toMatchObject({
+    code: 'source-preparation-failed',
+    sourceDocuments: documents,
+    sourceWarnings: [{ name: 'same.pdf' }],
+  });
+});
+
 test('HttpProjectRepository hides generic backend error details', async () => {
   fetchMock.mockResolvedValueOnce({
     ok: false,
@@ -1128,7 +1152,11 @@ test('subscribeToProjectRevisionStream requests catch-up on the first successful
   unsubscribe();
 });
 
-test('uploads all 30 sources in bounded binary requests and publishes metadata once', async () => {
+test.each([
+  'immediate',
+  'polled',
+])('uploads all 30 sources in bounded binary requests and publishes metadata once (%s completion)', async completionMode => {
+  const onSourceProgress = vi.fn();
   const files = Array.from(
     { length: 30 },
     (_, index) =>
@@ -1185,12 +1213,35 @@ test('uploads all 30 sources in bounded binary requests and publishes metadata o
     }
     if (init?.method === 'POST' && url.endsWith('/complete')) {
       completions.push(JSON.parse(init.body as string));
+      if (completionMode === 'polled')
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({ success: true, uploadStatus: 'finalizing' }),
+        };
+    }
+    if (
+      (init?.method === 'POST' && url.endsWith('/complete')) ||
+      ((init?.method ?? 'GET') === 'GET' &&
+        /^\/api\/projects\/import\/chunks\/[^/]+$/.test(new URL(url).pathname))
+    ) {
       return {
         ok: true,
         status: 200,
         json: async () => ({
           success: true,
+          complete: true,
           meta: { id: snapshot.id, revision: 1 },
+          progress: {
+            step: 'persistence',
+            completed: 30,
+            total: 30,
+            documents: descriptors.map(descriptor => ({
+              id: descriptor.id,
+              name: descriptor.name,
+              state: 'done',
+            })),
+          },
           snapshot: {
             ...snapshot,
             source: { ...storedSource, ref: storedSource.sources?.[0]?.ref },
@@ -1202,7 +1253,20 @@ test('uploads all 30 sources in bounded binary requests and publishes metadata o
   });
   const saved = await new HttpProjectRepository('http://localhost:3301').saveProject(snapshot, {
     sourceFiles: files,
+    onSourceProgress,
   });
+  expect(onSourceProgress).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      step: 'persistence',
+      completed: 30,
+      total: 30,
+      documents: descriptors.map(descriptor => ({
+        id: descriptor.id,
+        name: descriptor.name,
+        state: 'done',
+      })),
+    })
+  );
   expect(completions[0]?.snapshot).toBeUndefined();
   const metadataBytes = completions[0]?.metadataBytes as number;
   expect(JSON.parse(await new Blob(bodies).slice(0, metadataBytes).text())).toMatchObject({
@@ -1337,7 +1401,14 @@ test.each([
   }
 });
 
-test('cancellation waits for accepted source work to settle before returning to draft cleanup', async () => {
+test.each([
+  { unavailableRead: false, completed: false },
+  { unavailableRead: true, completed: false },
+  { unavailableRead: true, completed: true },
+])('cancellation waits for accepted source work to settle (%j)', async ({
+  unavailableRead,
+  completed,
+}) => {
   const controller = new AbortController();
   const deleted = createDeferred();
   const stop = createDeferred();
@@ -1375,7 +1446,9 @@ test('cancellation waits for accepted source work to settle before returning to 
     }
     if (deleting) {
       cancellationPolls++;
+      if (unavailableRead && cancellationPolls === 1) throw new TypeError('synthetic disconnect');
       await stop.promise;
+      if (completed) return new Response(JSON.stringify({ success: true, complete: true }));
       return new Response(
         JSON.stringify({ success: false, code: 'SOURCE_PREPARATION_CANCELLED' }),
         { status: 409 }
@@ -1394,7 +1467,7 @@ test('cancellation waits for accepted source work to settle before returning to 
     });
   try {
     await deleted.promise;
-    await expect.poll(() => cancellationPolls).toBe(1);
+    await expect.poll(() => cancellationPolls).toBe(unavailableRead ? 2 : 1);
     expect(settled).toBe(false);
   } finally {
     stop.resolve();
@@ -1630,7 +1703,7 @@ test('a network blip during preparation keeps following the accepted operation w
     if (url.endsWith(`/projects/${snapshot.id}`))
       return new Response(JSON.stringify({ success: true, preparation: { uploadId } }));
     statuses++;
-    if (statuses === 1) throw new TypeError('synthetic network disconnection');
+    if (statuses <= 2) throw new TypeError('synthetic network disconnection');
     return new Response(
       JSON.stringify({
         success: true,
@@ -1644,7 +1717,7 @@ test('a network blip during preparation keeps following the accepted operation w
     snapshot.id
   );
   expect(loaded?.snapshot.id).toBe(snapshot.id);
-  expect(statuses).toBe(2);
+  expect(statuses).toBe(3);
 });
 
 test('course response progress keeps the existing deadline alive, but a stalled body aborts', async () => {
@@ -1817,4 +1890,29 @@ test('first-use text follows a running source preparation with the full-text con
   );
   expect(loaded?.snapshot.documentIndex?.chunks[0].text).toBe('Prepared source text');
   expect(loaded?.snapshot.documentIndex?.textDeferred).toBeUndefined();
+});
+
+test('source preparation distinguishes unavailable reads from observed finalizing and missing jobs', async () => {
+  const repository = new HttpProjectRepository('http://localhost:3301');
+  const reader = repository as unknown as {
+    readSourcePreparationStatus(id: string): Promise<unknown>;
+    request: () => Promise<unknown>;
+  };
+  const request = vi.spyOn(reader, 'request');
+  request.mockRejectedValueOnce(new ProjectStorageError('synthetic', 'persistence-failed'));
+  expect(await reader.readSourcePreparationStatus('upload')).toEqual({
+    success: false,
+    statusReadUnavailable: true,
+  });
+  request.mockResolvedValueOnce({ success: true, uploadStatus: 'finalizing' });
+  expect(await reader.readSourcePreparationStatus('upload')).toEqual({
+    success: true,
+    uploadStatus: 'finalizing',
+  });
+  request.mockRejectedValueOnce(
+    new ProjectStorageError('missing', 'persistence-failed', { status: 404 })
+  );
+  await expect(reader.readSourcePreparationStatus('upload')).rejects.toMatchObject({
+    code: 'source-preparation-interrupted',
+  });
 });

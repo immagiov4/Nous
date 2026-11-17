@@ -19,6 +19,10 @@ The diagnostic process is iterative and non-linear. It begins with a topic tree 
 
 Sources: [apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts), [apps/backend/src/workflows/courseGenerationPreparation.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/courseGenerationPreparation.ts)
 
+## Self-assessment interaction
+
+Selecting “Non lo conosco” (`unfamiliar`) fills unanswered or previously inferred descendants with the same self-report and collapses the selected parent's branch. The learner can reopen the branch and explicitly change any subtopic. Other ratings do not propagate. Changing the parent away from `unfamiliar` clears answers inferred from that parent while preserving explicit descendant answers, including an explicitly selected `unfamiliar`. Every topic is still submitted individually; inferred answers use the normal self-report contract.
+
 ## Diagnostic Workflow Architecture
 
 The diagnostic system operates as a state machine that transitions between an initial self-assessment and multiple rounds of active tasks. The backend workflow manages a `DiagnosticCollection`, which acts as the single source of truth for the entire interview session.
@@ -121,7 +125,7 @@ Sources: [apps/backend/tests/workflows/courseDiagnostic.integration.test.ts:310-
 ## Diagnostic Rules and Constraints
 
 The system follows a strict set of instructional rules to maintain diagnostic integrity:
-- **No Propagation**: Knowledge is not propagated between parent and child nodes in the tree.
+- **No Propagation**: The diagnostic model does not propagate knowledge inferences between parent and child nodes; the UI pre-fills learner-visible, editable self-reports when the learner rates a parent “Non lo conosco”.
 - **Untrusted Self-Reports**: Self-reports (e.g., "basics", "independent") do not certify observed knowledge and are eligible for verification.
 - **cumulative Interpretation**: Attempts are interpreted cumulativeley; earlier revisions are retained for audit.
 - **No Grade**: Feedback on completion identifies what to revisit without assigning a numerical grade or mastery threshold.
@@ -130,5 +134,7 @@ The system follows a strict set of instructional rules to maintain diagnostic in
 Sources: [apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts:55-80](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts#L55-L80)
 
 ## Observability
+
+The development route `/dev/diagnostic` exercises the self-assessment tree without providers or persistence, including a failed first submission. Inspect `DiagnosticState.inferredFrom` to identify which parent supplied an inferred answer, and `buildDiagnosticSubmission` to inspect the normal per-topic payload. `DiagnosticFlow.test.tsx` verifies cascade ownership, explicit answers and reopening.
 
 The [lesson persistence tests](../../../apps/backend/tests/workflows/lessonGenerationPersistence.test.ts) inspect quiz answers before replacement, after commit and after compensation. For practical activities, the [feedback evaluator](../../../apps/web/services/openrouter/exercises/evaluation.ts) returns a score, summary, caveats and evaluation time; its [tests](../../../apps/web/tests/services/openrouter/exercises.evaluation.test.ts) cover normalization and invalid results. These are inspectable state and contract checks, not a measure of assessment accuracy: pedagogical validity and the justification for a model's score require reading the task, submission and feedback together.

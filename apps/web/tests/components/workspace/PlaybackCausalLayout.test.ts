@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { type Browser, chromium, type Page } from 'playwright';
 import { afterAll, beforeAll, expect, inject, test } from 'vitest';
@@ -20,6 +20,163 @@ const formulaViewports = [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ];
+
+test.each(
+  ['tall', 'wide', 'square'].flatMap(aspect =>
+    [
+      { width: 1920, height: 900 },
+      { width: 390, height: 844 },
+    ].flatMap(viewport => [false, true].map(dark => ({ aspect, viewport, dark })))
+  )
+)('keeps native formula typography with a $aspect image at $viewport.width px (dark=$dark)', async ({
+  aspect,
+  viewport,
+  dark,
+}) => {
+  const page = await browser.newPage({ viewport, reducedMotion: 'no-preference' });
+  try {
+    await page.addInitScript(() => {
+      Object.assign(window, { formulaImageShifts: [] });
+      new PerformanceObserver(list => {
+        const shifts = (window as unknown as { formulaImageShifts: number[] }).formulaImageShifts;
+        shifts.push(
+          ...list.getEntries().map(entry => (entry as PerformanceEntry & { value: number }).value)
+        );
+      }).observe({ type: 'layout-shift', buffered: true });
+    });
+    await page.goto(
+      `${baseUrl}tests/fixtures/playbackLayout.html?formulas=5&formulaPath=image&imageAspect=${aspect}${dark ? '&dark' : ''}`
+    );
+    await page.locator('.scene-host img').evaluate((image: HTMLImageElement) => image.decode());
+    await page.evaluate(() => document.fonts.ready);
+    const measured = await page.locator('.scene-host').evaluate(async card => {
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+      const image = card.querySelector('img');
+      const slot = card.parentElement?.getBoundingClientRect();
+      if (!image || !slot) throw new Error('Mixed visual must be mounted');
+      const inside = (element: Element) => {
+        const box = element.getBoundingClientRect();
+        return (
+          Math.round(box.left) >= Math.round(slot.left) &&
+          Math.round(box.right) <= Math.round(slot.right) &&
+          Math.round(box.top) >= Math.round(slot.top) &&
+          Math.round(box.bottom) <= Math.round(slot.bottom)
+        );
+      };
+      const formulas = [
+        ...card.querySelectorAll<HTMLElement>(':scope > .prose .katex-html > .base'),
+      ];
+      return {
+        formulas: formulas.map(formula => ({
+          paintedHeight: formula.getBoundingClientRect().height,
+          nativeHeight: formula.offsetHeight,
+          inside: inside(formula),
+        })),
+        image: {
+          width: image.getBoundingClientRect().width,
+          height: image.getBoundingClientRect().height,
+          inside: inside(image),
+          objectFit: getComputedStyle(image).objectFit,
+          naturalWidth: image.naturalWidth,
+          naturalHeight: image.naturalHeight,
+        },
+        card: { ...card.getBoundingClientRect().toJSON(), inside: inside(card) },
+        shifts: (window as unknown as { formulaImageShifts: number[] }).formulaImageShifts,
+      };
+    });
+    if (process.env.NOUS_E2E_DATA) {
+      await mkdir(process.env.NOUS_E2E_DATA, { recursive: true });
+      await writeFile(
+        path.join(process.env.NOUS_E2E_DATA, `formula-${aspect}-${viewport.width}-${dark}.json`),
+        JSON.stringify(measured)
+      );
+    }
+    expect(measured.formulas).toHaveLength(5);
+    for (const formula of measured.formulas) {
+      expect(formula.paintedHeight).toBeCloseTo(formula.nativeHeight, 0);
+      expect(formula.inside).toBe(true);
+    }
+    expect(measured.image.width).toBeGreaterThan(0);
+    expect(measured.image.height).toBeGreaterThan(0);
+    expect(measured.image.inside && measured.card.inside).toBe(true);
+    expect(measured.shifts.reduce((sum, shift) => sum + shift, 0)).toBe(0);
+    if (aspect === 'tall') expect(measured.image.objectFit).toBe('contain');
+    if (viewport.width === 390)
+      expect(
+        await page.locator('.captions').evaluate(element => getComputedStyle(element).visibility)
+      ).toBe('hidden');
+    await evidence(page, `formula-${aspect}-${viewport.width}-${dark}`);
+  } finally {
+    await page.close();
+  }
+});
+
+test('flows short supplemental formulas beside each other without shrinking mixed image cards', async () => {
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  try {
+    for (const viewport of [
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      for (const dark of [false, true]) {
+        await page.goto(
+          `${baseUrl}tests/fixtures/playbackLayout.html?formulas=5&formulaPath=image${dark ? '&dark' : ''}`
+        );
+        const image = page.locator('.scene-host img');
+        await image.waitFor();
+        await image.evaluate((image: HTMLImageElement) => image.decode());
+        await page.evaluate(() => document.fonts.ready);
+        const geometry = await page.locator('.scene-host').evaluate(async card => {
+          await new Promise(requestAnimationFrame);
+          await new Promise(requestAnimationFrame);
+          const summary = card.querySelector(':scope > .prose');
+          const formulas = [...(summary?.querySelectorAll('.katex-display') ?? [])];
+          const box = card.getBoundingClientRect();
+          const slot = card.parentElement?.getBoundingClientRect();
+          if (!slot) throw new Error('Scene slot must exist');
+          return {
+            count: formulas.length,
+            rows: new Set(formulas.map(formula => Math.round(formula.getBoundingClientRect().top)))
+              .size,
+            fillsWidth: Math.round(box.width) === Math.round(slot.width),
+            contentInside: [
+              ...formulas.map(formula => formula.querySelector('.katex-html') ?? formula),
+              ...card.querySelectorAll('img'),
+            ].every(element => {
+              const content = element.getBoundingClientRect();
+              return (
+                content.width > 0 &&
+                content.height > 0 &&
+                Math.round(content.left) >= Math.round(box.left) &&
+                Math.round(content.right) <= Math.round(box.right) &&
+                Math.round(content.top) >= Math.round(box.top) &&
+                Math.round(content.bottom) <= Math.round(box.bottom)
+              );
+            }),
+            inside:
+              Math.round(box.left) >= Math.round(slot.left) &&
+              Math.round(box.right) <= Math.round(slot.right) &&
+              Math.round(box.top) >= Math.round(slot.top) &&
+              Math.round(box.bottom) <= Math.round(slot.bottom),
+          };
+        });
+        expect(geometry.count).toBe(5);
+        expect(geometry.rows).toBeLessThan(geometry.count);
+        expect(geometry.fillsWidth).toBe(true);
+        expect(geometry.contentInside).toBe(true);
+        expect(geometry.inside).toBe(true);
+        if (viewport.width === 390)
+          expect(
+            await page.locator('.captions').evaluate(e => getComputedStyle(e).visibility)
+          ).toBe('hidden');
+      }
+    }
+  } finally {
+    await page.close();
+  }
+});
 
 test('keeps the save action at its approved size when a scene is fitted on desktop or touch screens', async () => {
   const page = await browser.newPage({ reducedMotion: 'reduce' });
@@ -79,13 +236,16 @@ for (const viewport of formulaViewports) {
       await page.goto(
         `${baseUrl}tests/fixtures/playbackLayout.html?formulas=1&formulaPath=${formulaPath}`
       );
-      const formula = page.locator('.scene-host .katex:not(.spotlight-symbol .katex)');
+      const host = page.locator('.scene-host:not([data-exiting])');
+      const formula = host.locator('.katex:not(.spotlight-symbol .katex)');
       await formula.waitFor();
       await page.waitForFunction(() =>
-        document.querySelector('.scene-host')?.classList.contains('lesson-player-formula')
+        document
+          .querySelector('.scene-host:not([data-exiting])')
+          ?.classList.contains('lesson-player-formula')
       );
-      expect(await page.locator('.scene-host .katex-error').count()).toBe(0);
-      expect(await page.locator('.scene-host').innerText()).not.toMatch(/\\(?:mathbf|omega)/);
+      expect(await host.locator('.katex-error').count()).toBe(0);
+      expect(await host.innerText()).not.toMatch(/\\(?:mathbf|omega)/);
       const size = await formula.evaluate(formula => {
         const actual = formula.getBoundingClientRect();
         const reference = formula.cloneNode(true) as HTMLElement;
@@ -266,7 +426,7 @@ async function openOnset(mode = '') {
   return page;
 }
 
-test('finishes voice cue fades at word start while captions retain their 1.3 second lead', async () => {
+test('finishes voice cue fades at word start while paragraph fill leads by 600 ms', async () => {
   const page = await openOnset();
   try {
     await page.locator('[data-motion-id]').first().waitFor({ state: 'attached' });
@@ -284,11 +444,7 @@ test('finishes voice cue fades at word start while captions retain their 1.3 sec
       controls.setPlaybackTime(1);
       await frame();
       await frame();
-      const width = words.reduce((sum, word) => sum + word.getBoundingClientRect().width, 0);
-      const feather = Number.parseFloat(
-        getComputedStyle(paragraph).getPropertyValue('--caption-feather')
-      );
-      const captionEdge = Number.parseFloat(words[1].style.getPropertyValue('--reveal-edge'));
+      const captionOpacity = Number(words[0].style.opacity);
       const before = {
         opacity: Number(getComputedStyle(reveal).opacity),
         emphasis: Number(focus.style.getPropertyValue('--motion-emphasis')),
@@ -310,8 +466,7 @@ test('finishes voice cue fades at word start while captions retain their 1.3 sec
           opacity: Number(getComputedStyle(reveal).opacity),
           emphasis: Number(focus.style.getPropertyValue('--motion-emphasis')),
         },
-        captionLead:
-          ((captionEdge + words[0].getBoundingClientRect().width) / (width + feather)) * 6 - 1,
+        captionOpacity,
       };
     });
     expect(result.before).toEqual({ opacity: 0, emphasis: 0 });
@@ -319,7 +474,7 @@ test('finishes voice cue fades at word start while captions retain their 1.3 sec
     expect(result.duringFade.emphasis).toBeGreaterThan(0);
     expect(result.duringFade.emphasis).toBeLessThan(1);
     expect(result.atWordStart).toEqual({ opacity: 1, emphasis: 1 });
-    expect(result.captionLead).toBeCloseTo(1.3);
+    expect(result.captionOpacity).toBeCloseTo(0.9);
   } finally {
     await page.close();
   }
@@ -378,7 +533,9 @@ test('selects sourced formula cards on the voice clock after forward and backwar
         controls.setPlaybackTime(time);
         await new Promise(requestAnimationFrame);
         await new Promise(requestAnimationFrame);
-        selected.push(document.querySelector('.scene-host annotation')?.textContent);
+        selected.push(
+          document.querySelector('.scene-host:not([data-exiting]) annotation')?.textContent
+        );
       }
       return selected;
     });
@@ -565,7 +722,7 @@ test('1: an unresolved historical PDF reference yields its prepared scene after 
 test.each([
   'available',
   'broken',
-])('1: resolves an %s image without exposing its placeholder', async imageState => {
+])('1: presents an %s image or its stable unavailable placeholder', async imageState => {
   const page = await openCard(`missing&asset=${imageState}`);
   try {
     if (imageState === 'available') {
@@ -575,6 +732,8 @@ test.each([
         )
         .toBe(180);
       expect(await page.locator('.scene-host img').getAttribute('alt')).toBe('Figura di esempio');
+    } else if (imageState === 'broken') {
+      await page.locator('[role="img"]').waitFor();
     } else {
       await page.locator('.scene-host h2').waitFor();
       expect(await page.locator('.scene-host h2').textContent()).toBe('Una scena disponibile');
@@ -827,7 +986,7 @@ test.each([false, true])('reader sequence notes are opaque (dark=%s)', async dar
   }
 });
 
-test('centers both columns independently without caption jumps when visual height changes', async () => {
+test('centers captions within the fitted visual height when the visual changes', async () => {
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
   try {
     await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?snapshot&type=parts`);
@@ -844,14 +1003,16 @@ test('centers both columns independently without caption jumps when visual heigh
         return {
           stage: rect('.listening-stage'),
           captions: rect('.captions'),
-          visual: rect('.scene-fit'),
+          visual: rect('.scene-host:not([data-exiting])'),
         };
       });
     await page.waitForFunction(() => !!document.querySelector('.scene-fit')?.getAttribute('style'));
     const before = await measure();
     await page.evaluate(() => dispatchEvent(new Event('playback-short-scene')));
     await page.waitForFunction(height => {
-      const current = document.querySelector('.scene-fit')?.getBoundingClientRect().height;
+      const current = document
+        .querySelector('.scene-host:not([data-exiting])')
+        ?.getBoundingClientRect().height;
       return current !== undefined && Math.abs(current - height) > 1;
     }, before.visual.height);
     const after = await measure();
@@ -859,9 +1020,204 @@ test('centers both columns independently without caption jumps when visual heigh
       expect(geometry.captions.center).toBeCloseTo(geometry.stage.center, 0);
       expect(geometry.visual.center).toBeCloseTo(geometry.stage.center, 0);
     }
-    expect(after.captions.top).toBe(before.captions.top);
+    for (const geometry of [before, after])
+      expect(geometry.captions.height).toBeLessThanOrEqual(geometry.visual.height + 1);
     expect(after.visual.height).toBeLessThan(before.visual.height);
     await evidence(page, 'centered-stable-columns-1080p');
+  } finally {
+    await page.close();
+  }
+});
+
+test.each([
+  1024, 1440, 1920,
+])('desktop passage retains the title inset and fits its visual card at %spx', async width => {
+  const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
+  try {
+    const measurements = [];
+    for (const length of ['', '&long']) {
+      await page.goto(`${baseUrl}tests/fixtures/playbackFocus.html?layout${length}`);
+      await page.getByRole('button', { name: 'Riproduci', exact: true }).click();
+      await page.locator('.scene-host .steps').waitFor();
+      await page.waitForFunction(
+        () => !!document.querySelector('.scene-fit')?.getAttribute('style')
+      );
+      measurements.push(
+        await page.evaluate(() => {
+          const rect = (selector: string) => {
+            const element = document.querySelector(selector);
+            if (!element) throw new Error(`Missing playback element: ${selector}`);
+            return element.getBoundingClientRect().toJSON();
+          };
+          return {
+            title: rect('dialog header h1'),
+            label: rect('.captions h2'),
+            caption: rect('.captions'),
+            visual: rect('.scene-host'),
+            slot: rect('.scene-fit'),
+          };
+        })
+      );
+    }
+    for (const geometry of measurements) {
+      expect(geometry.label.left).toBeCloseTo(geometry.title.left, 0);
+      expect(geometry.visual.left).toBeGreaterThanOrEqual(geometry.slot.left);
+      expect(geometry.visual.right).toBeLessThanOrEqual(geometry.slot.right + 1);
+      expect(geometry.visual.top).toBeGreaterThanOrEqual(0);
+      expect(geometry.visual.bottom).toBeLessThanOrEqual(900);
+    }
+    expect(measurements[1].caption.left).toBe(measurements[0].caption.left);
+    expect(measurements[1].caption.width).toBe(measurements[0].caption.width);
+    for (const geometry of measurements) {
+      expect(geometry.caption.height).toBeLessThanOrEqual(geometry.visual.height + 1);
+      expect(geometry.caption.top + geometry.caption.height / 2).toBeCloseTo(
+        geometry.visual.top + geometry.visual.height / 2,
+        0
+      );
+    }
+    await evidence(page, `desktop-caption-${width}`);
+  } finally {
+    await page.close();
+  }
+});
+
+test.each([
+  'no-preference',
+  'reduce',
+] as const)('numbered steps join badge centers and terminate at the final row with motion=%s', async reducedMotion => {
+  for (const width of [390, 1440]) {
+    const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion });
+    try {
+      await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=steps`);
+      await page.locator('.steps > li.motion-target').first().waitFor();
+      const rows = await page.locator('.steps > li').evaluateAll(elements =>
+        elements.map(element => {
+          const badge = element.querySelector('.step-index');
+          if (!badge) throw new Error('Numbered badge must exist');
+          const row = element.getBoundingClientRect();
+          const rect = badge.getBoundingClientRect();
+          const style = getComputedStyle(element, '::before');
+          const scale = rect.width / Number.parseFloat(getComputedStyle(badge).width);
+          return {
+            badgeCenter: rect.left + rect.width / 2,
+            badgeTop: rect.top,
+            badgeBottom: rect.bottom,
+            lineX: row.left + Number.parseFloat(style.left) * scale,
+            lineTop: row.top + Number.parseFloat(style.top) * scale,
+            lineBottom: row.bottom - Number.parseFloat(style.bottom) * scale,
+            content: style.content,
+            stroke: Number.parseFloat(style.borderLeftWidth) * scale,
+          };
+        })
+      );
+      expect(rows).toHaveLength(3);
+      for (let index = 0; index < rows.length - 1; index++) {
+        expect(Math.abs(rows[index].lineX - rows[index].badgeCenter)).toBeLessThanOrEqual(
+          rows[index].stroke
+        );
+        expect(rows[index].lineTop).toBeCloseTo(rows[index].badgeBottom, 0);
+        expect(rows[index].lineBottom).toBeCloseTo(rows[index + 1].badgeTop, 0);
+      }
+      expect(rows.at(-1)?.content).toBe('none');
+      await evidence(page, `numbered-motion-${width}-${reducedMotion}`);
+    } finally {
+      await page.close();
+    }
+  }
+});
+
+test('keeps visual geometry while short captions retain natural height after a passage transition', async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  try {
+    await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?case=steps&clock&transition`);
+    await page.locator('.steps > li.motion-target').first().waitFor();
+    await page.waitForFunction(() => !!document.querySelector('.scene-fit')?.getAttribute('style'));
+    const samples = await page.evaluate(async () => {
+      const samples = [];
+      for (let frame = 0; frame < 60; frame++) {
+        if (frame === 20) dispatchEvent(new Event('playback-next'));
+        await new Promise(requestAnimationFrame);
+        const bounds = (selector: string) => {
+          const element = document.querySelector(selector);
+          if (!element) throw new Error(`Missing ${selector} during passage transition`);
+          const rect = element.getBoundingClientRect();
+          return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+        };
+        samples.push({
+          label: bounds('.captions h2'),
+          caption: bounds('.captions'),
+          slot: bounds('.scene-fit'),
+          visual: bounds('.scene-host'),
+          words: document.querySelectorAll('.caption-word').length,
+        });
+      }
+      return samples;
+    });
+    expect(samples.at(-1)?.words).toBeLessThan(samples[0].words);
+    for (const sample of samples) {
+      expect(sample.label.left).toBe(samples[0].label.left);
+      expect(sample.caption.left).toBe(samples[0].caption.left);
+      expect(sample.caption.width).toBe(samples[0].caption.width);
+      expect(sample.caption.height).toBeLessThanOrEqual(sample.visual.height + 1);
+      expect(sample.caption.top + sample.caption.height / 2).toBeCloseTo(
+        sample.visual.top + sample.visual.height / 2,
+        0
+      );
+      expect(sample.slot).toEqual(samples[0].slot);
+      expect(sample.visual).toEqual(samples[0].visual);
+    }
+    await evidence(page, 'desktop-live-passage-transition');
+  } finally {
+    await page.close();
+  }
+});
+
+test.each([
+  1440, 390,
+])('verdict heading icons keep their spacing in reader and playback at %spx', async width => {
+  const page = await browser.newPage({ viewport: { width, height: 900 } });
+  try {
+    for (const reader of [true, false])
+      for (const dark of [false, true]) {
+        await page.goto(
+          `${baseUrl}tests/fixtures/playbackLayout.html?case=comparison${reader ? '&reader' : ''}${dark ? '&dark' : ''}`
+        );
+        await page.locator('.groups h3 > .meaning-icon').first().waitFor();
+        await page.waitForFunction(iconsLoaded);
+        if (dark && !reader)
+          await page.evaluate(() => document.documentElement.classList.add('dark'));
+        const headings = await page
+          .locator('.groups h3:has(> .meaning-icon)')
+          .evaluateAll(elements =>
+            elements.map(element => {
+              const icon = element.querySelector<HTMLElement>(':scope > .meaning-icon');
+              const label = element.querySelector<HTMLElement>(':scope > span:not(.meaning-icon)');
+              if (!icon || !label)
+                throw new Error('Verdict heading must retain its icon and label');
+              const iconBox = icon.getBoundingClientRect();
+              const labelBox = label.getBoundingClientRect();
+              const scale = iconBox.width / Number.parseFloat(getComputedStyle(icon).width);
+              return {
+                gap: (labelBox.left - iconBox.right) / scale,
+                label: label.textContent,
+                iconWidth: iconBox.width,
+              };
+            })
+          );
+        expect(headings.map(heading => heading.label)).toEqual([
+          'Richiesta generica',
+          'Richiesta efficace',
+        ]);
+        for (const heading of headings) {
+          expect(heading.iconWidth).toBeGreaterThan(0);
+          // Reuse the existing assessment/playback heading gap.
+          expect(heading.gap).toBeCloseTo(10, 0);
+        }
+        await evidence(
+          page,
+          `verdict-heading-${width}-${reader ? 'reader' : 'playback'}-${dark ? 'dark' : 'light'}`
+        );
+      }
   } finally {
     await page.close();
   }

@@ -58,10 +58,13 @@ const NoArtifactDraftSchema = z.object({
 });
 
 // Stored visuals and plans follow the visual contract, so historical definitions keep the legacy one.
-const createArtifactDraftWorkflowSchemas = (visualContract: LessonVisualContractSchemas) => {
+const createArtifactDraftWorkflowSchemas = (
+  visualContract: LessonVisualContractSchemas,
+  preserveArtifactRequest = true
+) => {
   const { ProjectLessonVisualSchema } = visualContract;
   const { LessonVisualWorkflowInputSchema, LessonVisualWorkflowResultSchema } =
-    createLessonVisualWorkflowSchemas(visualContract);
+    createLessonVisualWorkflowSchemas(visualContract, preserveArtifactRequest);
   const ArtifactDraftWorkflowInputSchema = z.object({
     generationNotes: z.string().optional(),
     lessonMarkdown: z.string().min(1),
@@ -142,7 +145,7 @@ const planWithModel = async (
   config: ArtifactDraftWorkflowConfig,
   services: ArtifactDraftWorkflowServices,
   signal: AbortSignal,
-  retryFeedback: string
+  options: { preserveArtifactRequest: boolean; retryFeedback: string }
 ): Promise<LessonVisualRetryPlan | null> => {
   return runWorkflowStage({
     failure: {
@@ -155,8 +158,9 @@ const planWithModel = async (
           config: config.visual,
           generationNotes: input.generationNotes,
           lessonMarkdown: input.lessonMarkdown,
+          ...(options.preserveArtifactRequest ? { requestText: input.requestText } : {}),
           requestedVisualKind: input.requestedVisualKind,
-          retryFeedback,
+          retryFeedback: options.retryFeedback,
           sectionDescription: input.sectionDescription,
           sectionTitle: input.sectionTitle,
           signal,
@@ -187,6 +191,7 @@ const renderState = (
     : {}),
   kind: 'render',
   lessonMarkdown: input.lessonMarkdown,
+  requestText: input.requestText,
   plan,
   projectId: input.projectId,
   sectionDescription: input.sectionDescription,
@@ -198,20 +203,21 @@ const renderState = (
 export const createArtifactDraftWorkflow = (
   executionDefaults: ArtifactDraftWorkflowConfig,
   visualContract: LessonVisualContractSchemas = CurrentLessonVisualContractSchemas,
-  configSchema: z.ZodType<ArtifactDraftWorkflowConfig> = ArtifactDraftWorkflowConfigSchema
+  configSchema: z.ZodType<ArtifactDraftWorkflowConfig> = ArtifactDraftWorkflowConfigSchema,
+  preserveArtifactRequest = true
 ) => {
   const {
     ArtifactDraftPlanStateSchema,
     ArtifactDraftRenderStateSchema,
     ArtifactDraftWorkflowInputSchema,
     ArtifactDraftWorkflowResultSchema,
-  } = createArtifactDraftWorkflowSchemas(visualContract);
+  } = createArtifactDraftWorkflowSchemas(visualContract, preserveArtifactRequest);
   const { LessonVisualWorkflowInputSchema, LessonVisualWorkflowResultSchema } =
-    createLessonVisualWorkflowSchemas(visualContract);
+    createLessonVisualWorkflowSchemas(visualContract, preserveArtifactRequest);
   const visualWorkflow = createLessonVisualWorkflows<
     ArtifactDraftWorkflowConfig,
     ArtifactDraftWorkflowServices
-  >(executionDefaults, configSchema, visualContract).render;
+  >(executionDefaults, configSchema, visualContract, preserveArtifactRequest).render;
 
   const planArtifactDraft = step<
     typeof ArtifactDraftWorkflowInputSchema,
@@ -227,7 +233,10 @@ export const createArtifactDraftWorkflow = (
       const plan =
         input.requestedVisualKind === 'image'
           ? explicitRasterPlan(input)
-          : await planWithModel(input, config, services, signal, retryFeedback);
+          : await planWithModel(input, config, services, signal, {
+              preserveArtifactRequest,
+              retryFeedback,
+            });
       if (!plan) {
         return {
           kind: 'none',
@@ -324,7 +333,9 @@ export const createArtifactDraftWorkflow = (
   });
 
   return workflow({
-    compatibilityId: 'lesson-artifact-draft-v1',
+    compatibilityId: preserveArtifactRequest
+      ? 'lesson-artifact-draft-v2'
+      : 'lesson-artifact-draft-v1',
     configSchema,
     executionDefaults,
     id: ARTIFACT_DRAFT_WORKFLOW_ID,
@@ -336,3 +347,10 @@ export const createArtifactDraftWorkflow = (
     }),
   });
 };
+
+// Rebuild historical checkpoints without adding request provenance to their durable shape.
+export const createPreviousArtifactDraftWorkflow = (
+  executionDefaults: ArtifactDraftWorkflowConfig,
+  visualContract: LessonVisualContractSchemas = CurrentLessonVisualContractSchemas,
+  configSchema: z.ZodType<ArtifactDraftWorkflowConfig> = ArtifactDraftWorkflowConfigSchema
+) => createArtifactDraftWorkflow(executionDefaults, visualContract, configSchema, false);

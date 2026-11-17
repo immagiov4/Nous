@@ -448,7 +448,12 @@ export async function stopStack(
 
 /** Deterministic full-app browser profile; run each proof in its own process. */
 export async function withMemoryProjectBrowserStack<T>(
-  options: { userId: string; appOptions: CreateAppOptions },
+  options: {
+    userId: string;
+    appOptions: CreateAppOptions;
+    recordVideo?: { dir: string; size: { width: number; height: number } };
+    browserName?: 'chromium' | 'firefox' | 'webkit';
+  },
   scenario: (context: { page: Page; store: InMemoryProjectStore; url: string }) => Promise<T>
 ): Promise<T> {
   const authMode = 'local-bypass' as const;
@@ -463,7 +468,7 @@ export async function withMemoryProjectBrowserStack<T>(
     AUTH_MODE: authMode,
     LOCAL_USER_ID: options.userId,
   });
-  const { chromium } = await import('playwright');
+  const browserType = (await import('playwright'))[options.browserName ?? 'chromium'];
   const { createServer } = await import('vite');
   const { createApp } = await import('../../apps/backend/src/index');
   const { InMemoryProjectStore } = await import(
@@ -494,6 +499,9 @@ export async function withMemoryProjectBrowserStack<T>(
         host: '127.0.0.1',
         port: 0,
         strictPort: false,
+        // Browser proofs inspect a fixed candidate, not hot-reloaded edits.
+        hmr: false,
+        watch: null,
         proxy: {
           '/api': { target: `http://127.0.0.1:${address.port}`, changeOrigin: true },
         },
@@ -504,9 +512,10 @@ export async function withMemoryProjectBrowserStack<T>(
     if (!url) throw new Error('Browser proof frontend has no URL.');
     process.env.CORS_ALLOWED_ORIGINS = url;
     backend.on('request', createApp(options.appOptions));
-    browser = await chromium.launch(withMutedAudio({ headless: true }));
+    browser = await browserType.launch(withMutedAudio({ headless: true }));
     const page = await browser.newPage({
       locale: 'it-IT',
+      recordVideo: options.recordVideo,
       viewport: { width: 1440, height: 1000 },
     });
     // Provider calls belong to real-provider proofs, not this deterministic profile.

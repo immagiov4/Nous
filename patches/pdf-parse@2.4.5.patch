@@ -1,0 +1,18 @@
+diff --git a/dist/pdf-parse/esm/PDFParse.js b/dist/pdf-parse/esm/PDFParse.js
+index c7db69f699ac425e7fab7c2bb35422270e6b9699..d9e8ccee090b24c7f3687707d40a9fb87bc8e0e6 100644
+--- a/dist/pdf-parse/esm/PDFParse.js
++++ b/dist/pdf-parse/esm/PDFParse.js
+@@ -313,10 +313,9 @@ export class PDFParse {
+                 for (let j = 0; j < ops.fnArray.length; j++) {
+                     if (ops.fnArray[j] === pdfjs.OPS.paintInlineImageXObject || ops.fnArray[j] === pdfjs.OPS.paintImageXObject) {
+                         const name = ops.argsArray[j][0];
+-                        const isCommon = page.commonObjs.has(name);
+-                        const imgPromise = isCommon
+-                            ? this.resolveEmbeddedImage(page.commonObjs, name)
+-                            : this.resolveEmbeddedImage(page.objs, name);
++                        const imgPromise = ops.fnArray[j] === pdfjs.OPS.paintInlineImageXObject
++                            ? Promise.resolve(name)
++                            : this.resolveEmbeddedImage(name.startsWith('g_') ? page.commonObjs : page.objs, name);
+                         const { width, height, kind, data } = await imgPromise;
+                         if (params.imageThreshold) {
+                             if (params.imageThreshold >= width || params.imageThreshold >= height) {

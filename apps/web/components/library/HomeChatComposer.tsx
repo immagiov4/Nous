@@ -1,3 +1,4 @@
+import type { SourcePreparationProgress } from '@shared/sourcePreparation';
 import { ArrowUp, Check, Globe, Loader2, Paperclip, Plus, Sparkles, Square, X } from 'lucide-react';
 import type { RefObject, SyntheticEvent } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -6,6 +7,7 @@ import type { HomeChatMode, LibraryContextRef, LibraryTree, Message } from '../.
 import { getAttachedContextProjectIds } from '../../utils/library/tree.ts';
 import SpeechInputButton, { appendSpeechTranscription } from '../shared/SpeechInputButton.tsx';
 import HomeChatLibraryContextPicker from './HomeChatLibraryContextPicker.tsx';
+import SourceShelf from './SourceShelf.tsx';
 
 export type HomeChatSurfaceState = null | 'attachment-menu' | 'tool-menu';
 export type StopGenerationHandler = () => boolean | undefined | Promise<boolean | undefined>;
@@ -52,6 +54,9 @@ interface HomeChatComposerProps {
   readonly pendingFileName: string | null;
   readonly pendingFileNames?: string[];
   readonly pendingFileWarnings?: string[];
+  readonly terminalSourceDocuments?: { id: string; name: string; state: 'error' }[];
+  readonly sourcePreparationProgress?: SourcePreparationProgress;
+  readonly sourcePreparationStatus?: string;
   readonly isSourceSelectionPending?: boolean;
   readonly viewportHeight: number | null;
 }
@@ -144,69 +149,6 @@ const ToolOption = ({
         </span>
       </span>
     </button>
-  );
-};
-
-interface PendingFilesNoticeProps {
-  readonly assessmentMessages: Message[];
-  readonly displayedPendingFileNames: string[];
-  readonly warnings?: string[];
-  readonly pending?: boolean;
-  readonly displayedPendingFiles: Array<{ key: string; name: string }>;
-  readonly onClearPendingFile: () => void;
-}
-
-const PendingFilesNotice = ({
-  assessmentMessages,
-  displayedPendingFileNames,
-  warnings = [],
-  pending = false,
-  displayedPendingFiles,
-  onClearPendingFile,
-}: PendingFilesNoticeProps) => {
-  if (displayedPendingFileNames.length === 0 && warnings.length === 0) return null;
-  const summary =
-    displayedPendingFileNames.length === 1
-      ? displayedPendingFileNames[0]
-      : t('{count} fonti selezionate', { count: displayedPendingFileNames.length });
-  return (
-    <div className="mb-3 flex items-start justify-between gap-3 rounded-2xl border border-gray-200 bg-gray-50/80 px-3 py-2 text-sm text-gray-600 dark:border-zinc-600/50 dark:bg-stone-700 dark:text-zinc-300">
-      <div className="flex min-w-0 items-start gap-2">
-        <Paperclip className="h-4 w-4 shrink-0" />
-        <div className="min-w-0">
-          <span className="font-medium">{summary}</span>
-          {pending ? (
-            <output className="mt-1 block text-xs">{t('Verifica dei file…')}</output>
-          ) : null}
-          {warnings.length ? (
-            <ul aria-live="polite" className="mt-1 space-y-0.5 text-xs">
-              {warnings.map(warning => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
-          ) : null}
-          {displayedPendingFileNames.length > 1 ? (
-            <ul className="mt-1 space-y-0.5 text-xs text-gray-500 dark:text-zinc-400">
-              {displayedPendingFiles.map(file => (
-                <li key={file.key} className="truncate">
-                  {file.name}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      </div>
-      {assessmentMessages.length === 0 ? (
-        <button
-          type="button"
-          onClick={onClearPendingFile}
-          className="flex h-7 w-7 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-stone-600 dark:hover:text-zinc-100"
-          title={t('Rimuovi allegato')}
-        >
-          <X className="h-4 w-4" />
-        </button>
-      ) : null}
-    </div>
   );
 };
 
@@ -496,6 +438,9 @@ export default function HomeChatComposer({
   pendingFileName,
   pendingFileNames,
   pendingFileWarnings,
+  terminalSourceDocuments,
+  sourcePreparationProgress,
+  sourcePreparationStatus,
   isSourceSelectionPending = false,
   viewportHeight,
 }: HomeChatComposerProps) {
@@ -504,13 +449,20 @@ export default function HomeChatComposer({
     [pendingFileName, pendingFileNames]
   );
   const displayedPendingFiles = useMemo(() => {
+    if (terminalSourceDocuments)
+      return terminalSourceDocuments.map(document => ({ ...document, key: document.id }));
+    if (sourcePreparationProgress?.documents)
+      return sourcePreparationProgress.documents.map(document => ({
+        ...document,
+        key: document.id,
+      }));
     const occurrences = new Map<string, number>();
     return displayedPendingFileNames.map(name => {
       const occurrence = (occurrences.get(name) || 0) + 1;
       occurrences.set(name, occurrence);
       return { key: `${name}-${occurrence}`, name };
     });
-  }, [displayedPendingFileNames]);
+  }, [displayedPendingFileNames, sourcePreparationProgress, terminalSourceDocuments]);
   const [draftByMode, setDraftByMode] = useState<Record<HomeChatMode, string>>({
     'library-query': homeChatMode === 'library-query' ? draftTemplate?.value || '' : '',
     'new-course': homeChatMode === 'new-course' ? draftTemplate?.value || '' : '',
@@ -673,24 +625,25 @@ export default function HomeChatComposer({
   return (
     <div
       ref={surfaceRootRef}
-      className={`max-md:shrink-0 ${
+      data-source-preparing={Boolean(sourcePreparationProgress)}
+      className={`shrink-0 ${
         compactSurface
           ? 'border-0 p-0'
           : 'border-t border-gray-100 px-4 pb-4 pt-3 dark:border-zinc-700/50 sm:px-5'
       }`}
     >
       {homeChatMode === 'new-course' ? (
-        <PendingFilesNotice
-          assessmentMessages={assessmentMessages}
-          displayedPendingFileNames={displayedPendingFileNames}
+        <SourceShelf
+          sources={displayedPendingFiles}
+          preparationProgress={sourcePreparationProgress}
+          preparationStatus={sourcePreparationStatus}
           warnings={pendingFileWarnings}
           pending={isSourceSelectionPending}
-          displayedPendingFiles={displayedPendingFiles}
-          onClearPendingFile={onClearPendingFile}
+          onClear={assessmentMessages.length === 0 ? onClearPendingFile : undefined}
         />
       ) : null}
 
-      <div className="relative">
+      <div className="relative shrink-0">
         <form
           onSubmit={submit}
           className="relative flex items-center gap-1.5 rounded-2xl border border-gray-300 bg-white px-2 py-1.5 transition-colors focus-within:border-gray-400 dark:border-zinc-600/60 dark:bg-stone-700/60 dark:focus-within:border-zinc-500 dark:focus-within:bg-stone-700"

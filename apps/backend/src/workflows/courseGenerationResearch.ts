@@ -41,10 +41,13 @@ import {
   CourseYoutubeResearchSchema,
   courseGenerationStateSchemas,
   PreFailureDiagnosticsCourseYoutubeQueryPlanSchema,
+  PreModelCallCourseYoutubeQueryPlanSchema,
+  preModelCallCourseGenerationStateSchemas,
 } from './courseGenerationWorkflowContract.js';
 import { fanOut, routeBy, sequence, step } from './definition.js';
 import { YouTubeResearchOutcomeSchema } from './lessonGenerationWorkflowSchemas.js';
 import {
+  degradeOnFinalAttempt,
   parseStepFailure,
   readRetryAfterMs,
   retryOperational,
@@ -221,20 +224,17 @@ export const createCourseResearchServices = ({
       });
       return { queries: [...new Set(plan.queries)] };
     } catch (error) {
-      context.signal.throwIfAborted();
-      if (
-        context.attemptNumber < context.config.maxAttempts ||
-        !isRetryableYoutubeQueryPlanningError(error)
-      ) {
-        throw error;
-      }
-      return {
-        queries: [buildYoutubeQueryFallback(context.input)],
-        planningDiagnostic: {
-          ...toWorkflowErrorDiagnostic(error, { includeContent: false }),
-          ...(error instanceof WorkflowStepError ? { code: error.failure.code } : {}),
-        },
-      };
+      return degradeOnFinalAttempt({
+        ...context,
+        maxAttempts: context.config.maxAttempts,
+        error,
+        eligible: isRetryableYoutubeQueryPlanningError(error),
+        stage: 'plan-course-youtube-queries',
+        fallback: failure => ({
+          queries: [buildYoutubeQueryFallback(context.input)],
+          planningDiagnostic: failure.diagnostic,
+        }),
+      });
     }
   },
   researchCourseWeb: async context => {
@@ -294,10 +294,14 @@ export const createCourseResearchNode = <
       ? CoursePreparationStateSchema.extend({ routing: ResearchSourceRoutingSchema.optional() })
       : CoursePreparationStateSchema,
   });
+  const historicalQueryPlanSchema =
+    schemas === preModelCallCourseGenerationStateSchemas
+      ? PreModelCallCourseYoutubeQueryPlanSchema
+      : PreFailureDiagnosticsCourseYoutubeQueryPlanSchema;
   const queryPlanSchema =
     schemas === courseGenerationStateSchemas
       ? CourseYoutubeQueryPlanSchema
-      : PreFailureDiagnosticsCourseYoutubeQueryPlanSchema;
+      : historicalQueryPlanSchema;
   const CourseYoutubeQueryPlanStateSchema = queryPlanSchema.extend({
     state: CoursePreparationStateSchema,
   });

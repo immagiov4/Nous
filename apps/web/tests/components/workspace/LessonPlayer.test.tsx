@@ -202,6 +202,13 @@ test.each([
 });
 
 beforeEach(() => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    }
+  );
   vi.mocked(mermaid.render).mockReset().mockResolvedValue({
     svg: '<svg><text>Prepared diagram</text></svg>',
     diagramType: 'flowchart',
@@ -292,6 +299,21 @@ test('changing viewport mode preserves focus while writing a question', () => {
   );
   expect(screen.getByRole('textbox')).toHaveFocus();
   expect(screen.getByRole('textbox')).toHaveValue('Una domanda');
+});
+
+test('changing color theme preserves the open question and its focus', () => {
+  const view = render(<LessonPlayer {...props} autoPlay={false} />);
+  const input = screen.getByRole('textbox');
+  input.focus();
+  fireEvent.change(input, { target: { value: 'Una domanda' } });
+  for (const isDarkMode of [true, false]) {
+    view.rerender(
+      <LessonPlayer {...props} autoPlay={false} content={{ ...content, isDarkMode }} />
+    );
+    expect(screen.getByRole('dialog').classList.contains('dark')).toBe(isDarkMode);
+    expect(screen.getByRole('textbox')).toHaveFocus();
+    expect(screen.getByRole('textbox')).toHaveValue('Una domanda');
+  }
 });
 
 test('opening the player uses preventScroll and restores the opening control on close', () => {
@@ -655,7 +677,8 @@ test.each([false, true])('generation preserves the draft and Stop on mobile=%s',
   const form = input.closest('form');
   if (!form) throw new Error('Expected the question composer form');
   fireEvent.submit(form);
-  fireEvent.keyDown(screen.getByRole('dialog'), space);
+  input.focus();
+  fireEvent.keyDown(input, space);
   fireEvent.keyUp(window, space);
   expect(getUserMedia).not.toHaveBeenCalled();
   expect(sendInConversation).not.toHaveBeenCalled();
@@ -924,16 +947,38 @@ test.each([
   expect(answerPanelProps).not.toHaveBeenCalled();
 });
 
-test('a pending note decision blocks Space capture', async () => {
+test.each([
+  'note decision',
+  'generation',
+])('Space captures during %s and sends the follow-up once it finishes', async reason => {
   const { rerender } = render(<LessonPlayer {...props} autoPlay={false} />);
   await recordQuestion();
-  composerState.disabled = true;
+  if (reason === 'note decision') composerState.disabled = true;
+  else generatingResponse.stop = vi.fn();
   rerender(<LessonPlayer {...props} autoPlay={false} />);
-  getUserMedia.mockClear();
-  fireEvent.keyDown(screen.getByRole('dialog'), space);
-  fireEvent.keyUp(window, space);
-  expect(getUserMedia).not.toHaveBeenCalled();
+  const control = screen.getByRole('button', {
+    name: reason === 'generation' ? 'Annulla' : 'Chiudi risposta',
+  });
+  control.focus();
+  const clicked = vi.fn();
+  control.addEventListener('click', clicked);
+  const user = userEvent.setup();
+  await user.keyboard('[Space>]');
+  expect(Recorder.instances.at(-1)?.state).toBe('recording');
+  await user.keyboard('[/Space]');
+  expect(clicked).not.toHaveBeenCalled();
   expect(sendInConversation).not.toHaveBeenCalled();
+  if (reason === 'generation') {
+    expect(generatingResponse.stop).not.toHaveBeenCalled();
+    await user.keyboard('{Enter}');
+    expect(generatingResponse.stop).toHaveBeenCalledOnce();
+  }
+  composerState.disabled = false;
+  generatingResponse.stop = null;
+  rerender(<LessonPlayer {...props} autoPlay={false} />);
+  expect(sendInConversation).toHaveBeenCalledExactlyOnceWith('Perché funziona?');
+  rerender(<LessonPlayer {...props} autoPlay={false} />);
+  expect(sendInConversation).toHaveBeenCalledOnce();
 });
 
 test.each([
@@ -1042,26 +1087,89 @@ test.each([
   'Torna alla lezione',
   'Pausa',
   'Indietro di 5 secondi',
+  'Avanti di 5 secondi',
   'Velocita',
   'Nota',
-])('Space retains native activation on %s', label => {
+])('Space on %s records without activating the focused button', async label => {
   render(<LessonPlayer {...props} autoPlay={false} />);
   const button = screen.getByRole('button', { name: label });
+  const clicked = vi.fn();
+  button.addEventListener('click', clicked);
   button.focus();
-  const event = new KeyboardEvent('keydown', { ...space, bubbles: true, cancelable: true });
-  button.dispatchEvent(event);
-  expect(event.defaultPrevented).toBe(false);
-  expect(getUserMedia).not.toHaveBeenCalled();
-  expect(playback.pause).not.toHaveBeenCalled();
+  const user = userEvent.setup();
+  await user.keyboard('[Space>]');
+  expect(Recorder.instances[0]?.state).toBe('recording');
+  expect(playback.pause).toHaveBeenCalledOnce();
+  await user.keyboard('[/Space]');
+  expect(await screen.findByText('Perché funziona?')).toBeInTheDocument();
+  expect(clicked).not.toHaveBeenCalled();
 });
 
-test('Space retains the voice selector keyboard behavior', () => {
+test.each([
+  'Torna alla lezione',
+  'Pausa',
+  'Indietro di 5 secondi',
+  'Avanti di 5 secondi',
+  'Velocita',
+  'Nota',
+  'Avvia dettatura',
+])('Enter still operates %s', async label => {
   render(<LessonPlayer {...props} autoPlay={false} />);
-  const control = screen.getByRole('combobox', { name: 'Voce' });
-  const event = new KeyboardEvent('keydown', { ...space, bubbles: true, cancelable: true });
-  control.dispatchEvent(event);
-  expect(event.defaultPrevented).toBe(false);
-  expect(getUserMedia).not.toHaveBeenCalled();
+  screen.getByRole('button', { name: label }).focus();
+  await userEvent.setup().keyboard('{Enter}');
+  if (label === 'Torna alla lezione') expect(props.onClose).toHaveBeenCalledOnce();
+  else if (label === 'Pausa') expect(playback.pause).toHaveBeenCalledOnce();
+  else if (label === 'Indietro di 5 secondi') expect(playback.seek).toHaveBeenCalledWith(-5);
+  else if (label === 'Avanti di 5 secondi') expect(playback.seek).toHaveBeenCalledWith(5);
+  else if (label === 'Velocita')
+    expect(screen.getByRole('button', { name: label })).toHaveAttribute('aria-expanded', 'true');
+  else if (label === 'Nota') expect(screen.getByRole('textbox').tagName).toBe('TEXTAREA');
+  else expect(Recorder.instances[0]?.state).toBe('recording');
+});
+
+test.each([
+  'range',
+  'checkbox',
+  'radio',
+  'button',
+  'file',
+  'color',
+])('Space on a non-editable %s input starts voice capture', async type => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  const control = document.createElement('input');
+  control.type = type;
+  screen.getByRole('dialog').append(control);
+  control.focus();
+  const user = userEvent.setup();
+  await user.keyboard('[Space>]');
+  expect(Recorder.instances[0]?.state).toBe('recording');
+  await user.keyboard('[/Space]');
+  expect(await screen.findByText('Perché funziona?')).toBeInTheDocument();
+  expect(control.checked).toBe(false);
+});
+
+test('Space takes priority over a child control key handler', async () => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  const control = screen.getByRole('button', { name: 'Nota' });
+  control.addEventListener('keydown', event => event.stopPropagation());
+  control.focus();
+  const user = userEvent.setup();
+  await user.keyboard('[Space>]');
+  expect(Recorder.instances[0]?.state).toBe('recording');
+  await user.keyboard('[/Space]');
+  expect(await screen.findByText('Perché funziona?')).toBeInTheDocument();
+});
+
+test('Space on the speed slider records without changing speed', async () => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Velocita' }));
+  screen.getByRole('slider', { name: 'Velocita' }).focus();
+  const user = userEvent.setup();
+  await user.keyboard('[Space>]');
+  expect(Recorder.instances[0]?.state).toBe('recording');
+  await user.keyboard('[/Space]');
+  expect(await screen.findByText('Perché funziona?')).toBeInTheDocument();
+  expect(tts.onSpeedChange).not.toHaveBeenCalled();
 });
 
 test.each([
@@ -1220,4 +1328,64 @@ test('prepares authored and stored playback diagrams once before narration, incl
   await expect(prepare(richBlocks, signal)).resolves.toBeUndefined();
   expect(fail).not.toHaveBeenCalled();
   expect(mermaid.render).toHaveBeenCalledTimes(11);
+});
+
+test.each([
+  'generation',
+  'note decision',
+])('retains two completed spoken follow-ups during %s until one ordered submission', async reason => {
+  const { rerender } = render(
+    <StrictMode>
+      <LessonPlayer {...props} autoPlay={false} />
+    </StrictMode>
+  );
+  await recordQuestion();
+  if (reason === 'generation') generatingResponse.stop = vi.fn();
+  else composerState.disabled = true;
+  rerender(
+    <StrictMode>
+      <LessonPlayer {...props} autoPlay={false} />
+    </StrictMode>
+  );
+  for (const text of ['Prima domanda completa', 'Seconda domanda completa']) {
+    vi.mocked(requestSpeechTranscription).mockResolvedValueOnce(text);
+    const button = screen.getByRole('button', {
+      name: reason === 'generation' ? 'Annulla' : 'Chiudi risposta',
+    });
+    button.focus();
+    const user = userEvent.setup();
+    await user.keyboard('[Space>]');
+    await user.keyboard('[/Space]');
+  }
+  expect(requestSpeechTranscription).toHaveBeenCalledTimes(3);
+  expect(sendInConversation).not.toHaveBeenCalled();
+  generatingResponse.stop = null;
+  composerState.disabled = false;
+  rerender(
+    <StrictMode>
+      <LessonPlayer {...props} autoPlay={false} />
+    </StrictMode>
+  );
+  expect(sendInConversation).toHaveBeenCalledExactlyOnceWith(
+    'Prima domanda completa Seconda domanda completa'
+  );
+  rerender(
+    <StrictMode>
+      <LessonPlayer {...props} autoPlay={false} />
+    </StrictMode>
+  );
+  expect(sendInConversation).toHaveBeenCalledOnce();
+  await recordQuestion();
+  expect(sendInConversation).toHaveBeenLastCalledWith('Perché funziona?');
+  expect(sendInConversation).toHaveBeenCalledTimes(2);
+});
+
+test('Space preserves the focused native voice picker instead of recording', async () => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  const voice = screen.getByRole('combobox', { name: 'Voce' });
+  voice.focus();
+  const event = new KeyboardEvent('keydown', { ...space, bubbles: true, cancelable: true });
+  await act(async () => voice.dispatchEvent(event));
+  expect(event.defaultPrevented).toBe(false);
+  expect(getUserMedia).not.toHaveBeenCalled();
 });

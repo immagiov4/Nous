@@ -273,6 +273,13 @@ test.each([
   const failure = new CourseModelProviderError(
     Object.assign(new Error('private prompt password=hidden'), {
       statusCode: status,
+      stage: 'turn/start',
+      modelCall: {
+        phase: 'awaiting-ack',
+        elapsedMs: 25,
+        phaseElapsedMs: 25,
+        durationsMs: { 'awaiting-ack': 25 },
+      },
       prompt: 'private prompt',
       responseBody: 'private provider content',
     })
@@ -291,7 +298,12 @@ test.each([
     plan: { applicationExercisePlanningStatus: 'failed' },
     exercisePlanningDiagnostic: {
       type: 'CourseModelProviderError',
-      cause: { type: 'Error', status },
+      cause: {
+        type: 'Error',
+        status,
+        errorStage: 'turn/start',
+        modelCall: { phase: 'awaiting-ack', elapsedMs: 25 },
+      },
     },
   });
   expect(providerOutput).toEqual(output);

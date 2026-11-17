@@ -29,6 +29,20 @@ test('accepts an image only after its bytes complete', () => {
   expect(atlasStageReady()).toBe(true);
 });
 
+test('waits for managed image decode and the opacity transition', () => {
+  document.body.innerHTML =
+    '<div class="scene-host"><img class="resolved-pdf-image" aria-busy="true" style="opacity: 0" alt="Synthetic image"></div>';
+  const image = document.querySelector('img');
+  if (!image) throw Error('Synthetic image missing.');
+  Object.defineProperty(image, 'complete', { value: true });
+  expect(atlasStageReady()).toBe(false);
+  image.setAttribute('aria-busy', 'false');
+  image.style.opacity = '0.5';
+  expect(atlasStageReady()).toBe(false);
+  image.style.opacity = '1';
+  expect(atlasStageReady()).toBe(true);
+});
+
 test('waits for archive-backed PDF figures to mount before accepting the stage', () => {
   document.body.innerHTML =
     '<div class="scene-host"><article><figure data-nous-speech="ignore"><figcaption>Caption</figcaption></figure></article></div>';

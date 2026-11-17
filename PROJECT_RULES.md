@@ -118,6 +118,8 @@ a feature is core or better left to external tools.
 
 ## Validation Commands
 
+For dependency-resolution failures, follow [Local checks](docs/TESTING.md#local-checks). Preserve an explicitly configured shared/global store; replacing it with per-worktree package copies requires a maintainer decision.
+
 Local browser suites, provider batches, gates and coverage acquire shared FIFO leases automatically. Fast checks use `bun run check:changed` without a lease. Wrap additional heavy commands with `bun scripts/heavy-run.mjs --label "who/what" -- <command...>`. Prepare inputs and wait for external signals before entering the wrapper; run only the heavy command inside it. Nested commands inherit the existing lease. Manual reservations are unsupported. Use `status` to inspect lease IDs, owners, commands and activity; `release <id>` cancels that entry and stops its command before freeing capacity. See [Testing](docs/TESTING.md#heavy-command-leases) for expiry and capacity.
 
 After installing dependencies, run `bunx playwright install chromium` for browser tests under `bun run test` and Node coverage. `bun run prepare:coverage` also installs Chromium after the Node preflight.
@@ -290,6 +292,7 @@ UI code should minimize visual noise and avoid redundant feedback:
 - Centralize aesthetic decisions: colors, spacing, animation timings, layout dimensions.
 - Use consistent visual patterns across similar UI elements.
 - Do not fix layout bugs by randomly forcing sizes — understand the layout model and fix the underlying constraint.
+- For a spacing correction to an existing control, preserve its containing surface, shape and placement; verify it in the surrounding interface. A request for padding does not authorize redesigning the toolbar.
 - Do not use blur or `backdrop-filter` as decorative UI defaults. Introduce either only when functionally necessary and after verifying performance on the affected devices and browsers, especially mobile Firefox.
 - When rendering dynamic lists from unordered data structures, sort before display for a stable UI.
 
@@ -328,10 +331,10 @@ For manual-only projects, explain what must be verified and where. If validation
 ## Verification: prove it, don't ask to try it
 
 - Prove that each change works with observable evidence; never ask the maintainer to try it as a substitute for verification.
-- Scale evidence to the change: for backend-only changes, use behavior tests and observable outputs at the selected quality level, with integration evidence where integrations are affected; documentation-only changes need no browser run. For changes affecting UI or user-visible behavior, include appropriate screenshots, short videos, render atlases, and integration results across the relevant resolutions and devices.
+- Scale evidence to the change: for backend-only changes, use behavior tests and observable outputs at the selected quality level, with integration evidence where integrations are affected; documentation-only changes need no browser run. For changes affecting UI or user-visible behavior, include a short video, render atlases where they apply, and integration results across the relevant resolutions and devices; the PR format is owned by [write-pr](.agents/skills/write-pr/SKILL.md).
 - For changes affecting UI or user-visible behavior, apply extreme observational TDD: observe and profile what a human would experience, including intermediate states and the final result.
 - For those changes, including backend changes that affect what users see, prove the affected end-to-end flow with human-like Playwright actions and verify its expected outcome; for example, navigate, ask a question, press the relevant button, and verify the answer arrives.
-- Inspect the artifacts yourself for visual and interaction anomalies. Passing tests and one satisfactory screenshot are insufficient evidence.
+- Inspect the artifacts yourself for visual and interaction anomalies, class by class against F01–F03 in [the shared public defect taxonomy](docs/VISUAL_DEFECTS.md), including D06 for redundant or internal text. The playtest inspector reads that same source. Passing tests and one satisfactory screenshot are insufficient evidence.
 - For each change, run the shared verification scenarios tagged for the touched features and regression scenarios for existing features they can affect.
 - Prefer deterministic integration checks and render atlases over real and synthetic content; generate synthetic fixtures from the app's types in compact combinations of supported states.
 - Use real-AI end-to-end runs for nondeterministic stress and long, articulated sessions. For workflows whose output format matters, run integration across every supported provider and feed the outputs into rendering checks.

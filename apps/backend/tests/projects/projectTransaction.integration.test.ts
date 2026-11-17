@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { SIBLING_ORDER_STEP } from '@shared/libraryOrdering';
-import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
+import {
+  buildProjectAnnotationWriteState,
+  PROJECT_PATCH_REBASE_MODE,
+} from '@shared/projectContract';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { LibrarySiblingSetChangedError } from '../../src/projects/librarySiblingOrder.js';
@@ -22,6 +25,7 @@ import type {
   ProjectSnapshot,
   SavedProjectMeta,
 } from '../../src/projects/types.js';
+import { preparedPlayback } from '../helpers/lessonPlayback.js';
 
 const runWorkflowContract = process.env.RUN_WORKFLOW_INTEGRATION_TESTS === '1';
 const shouldRun = process.env.RUN_SUPABASE_LOCAL_TESTS === '1' || runWorkflowContract;
@@ -269,6 +273,81 @@ describe.skipIf(!shouldRun)('transactional project patch integration', () => {
     if (!sql) return;
     await sql`delete from auth.users where id = ${userId}`;
     await sql.end();
+  });
+
+  test('annotation saves rebase playback preparation under the lock and preserve the winning concurrent note', async () => {
+    if (!sql) throw new Error('Workflow integration database is required.');
+    const stores = [
+      new PostgresProjectStore(undefined, sql),
+      new PostgresProjectStore(undefined, sql),
+    ];
+    const id = `annotation-concurrency-${randomUUID()}`;
+    const lesson = { id: 'lesson-a', kind: 'lesson', content: 'First sentence.' };
+    const saved = await stores[0].saveProject(userId, {
+      ...projectSnapshot,
+      id,
+      source: null,
+      sourceKind: 'learn-mode',
+      isLearnMode: true,
+      learningPlan: { title: 'Annotations', sections: [lesson] },
+    });
+    const baseline = (await stores[0].loadProject(userId, id))?.learningPlan?.sections?.[0];
+    if (!baseline) throw new Error('Saved annotation baseline is required.');
+    const options = {
+      expectedRevision: saved.meta.revision,
+      rebaseMode: PROJECT_PATCH_REBASE_MODE.annotations,
+      expectedAnnotationState: buildProjectAnnotationWriteState(baseline),
+    };
+    const prepared = preparedPlayback(lesson);
+    const playback = {
+      ...prepared,
+      blocks: prepared.blocks.map(block => ({ ...block, audio: [] })),
+    };
+    await sql.begin(transaction =>
+      patchProjectInTransaction(transaction, {
+        projectId: id,
+        userId,
+        updatedAt: createdAt,
+        playbackWrite: true,
+        buildPatch: () => ({ section: { sectionId: lesson.id, playback } }),
+      })
+    );
+    const writes = await Promise.allSettled(
+      stores.map((store, index) =>
+        store.patchProject(
+          userId,
+          id,
+          {
+            section: {
+              sectionId: lesson.id,
+              annotations: [
+                { id: `note-${index}`, note: `Note ${index}`, createdAt, updatedAt: createdAt },
+              ],
+            },
+          },
+          options
+        )
+      )
+    );
+    expect(writes.filter(write => write.status === 'fulfilled')).toHaveLength(1);
+    const rejected = writes.find(write => write.status === 'rejected');
+    expect(rejected?.status === 'rejected' && rejected.reason).toBeInstanceOf(
+      ProjectRevisionConflictError
+    );
+    const persisted = await stores[0].loadProjectWithRevision(userId, id);
+    expect(persisted?.revision).toBe(3);
+    expect(persisted?.snapshot.learningPlan?.sections?.[0]).toMatchObject({
+      playback: { lessonKey: playback.lessonKey },
+      annotations: [expect.objectContaining({ id: expect.stringMatching(/^note-/) })],
+    });
+    await expect(
+      stores[0].patchProject(
+        randomUUID(),
+        id,
+        { section: { sectionId: lesson.id, annotations: [] } },
+        options
+      )
+    ).rejects.toBeInstanceOf(ProjectNotFoundError);
   });
 
   test('quiz writes preserve concurrent content and reject replaced lessons and other tenants', async () => {

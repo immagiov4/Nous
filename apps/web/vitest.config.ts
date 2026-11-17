@@ -13,8 +13,10 @@ const TEST_FILES = [
 ];
 const MERMAID_PARSER_TEST = 'apps/backend/tests/services/mermaidValidation.test.ts';
 const BROWSER_FIXTURE_TESTS = [
+  'apps/web/tests/components/workspace/PlaybackImageGeometry.test.ts',
   'apps/web/tests/utils/reader/lessonPlaybackSignal.test.ts',
   'apps/web/tests/components/workspace/PlaybackCausalLayout.test.ts',
+  'apps/web/tests/components/workspace/ContextComposerLayout.test.ts',
 ];
 // These suites own browser/parser subprocesses, process fixtures, or production registry rebuilds.
 const LOAD_SENSITIVE_TESTS = [
@@ -32,6 +34,7 @@ const LOAD_SENSITIVE_TESTS = [
   'scripts/run-eslint-sonar.test.ts',
   'scripts/check-changed.test.ts',
   'scripts/heavy-run.test.ts',
+  'scripts/scene-preference-benchmark.interrupt.test.ts',
   'scripts/heavy-run-windows-job.test.ts',
   'scripts/heavy-run-posix.test.ts',
   'scripts/select-workflow-postgres-contract.test.ts',
@@ -50,6 +53,8 @@ export default defineConfig({
     },
   },
   test: {
+    // The matcher adapter imports the project's Vitest without declaring it as a peer.
+    server: { deps: { inline: ['@testing-library/jest-dom'] } },
     environment: 'node',
     exclude: ['apps/web/dist/**', 'apps/backend/dist/**', '**/node_modules/**'],
     globals: false,

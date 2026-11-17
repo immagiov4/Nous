@@ -8,6 +8,7 @@ import {
   PDF_MAPPING_TARGET_PROMPT_CHARS,
 } from '@shared/pdfDocumentPolicy';
 import { describe, expect, test, vi } from 'vitest';
+import { buildLegacySourceFixture } from '../../../web/tests/helpers/legacySourceIndex.ts';
 
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import {
@@ -16,7 +17,10 @@ import {
   type CourseChunkMappingBatchResult,
   createCourseLessonChunkBatchMapper,
 } from '../../src/workflows/courseChunkMapping.js';
-import { CourseModelProviderError } from '../../src/workflows/courseGenerationModel.js';
+import {
+  CourseModelProviderError,
+  createCourseObjectGenerator,
+} from '../../src/workflows/courseGenerationModel.js';
 import {
   type CourseGenerationWorkflowConfig,
   type CourseGenerationWorkflowServices,
@@ -32,7 +36,11 @@ import {
   type CourseSourcePreparationOutcome,
   createCourseSourceFinalizationServices,
 } from '../../src/workflows/courseSourceFinalization.js';
-import { retryOperational } from '../../src/workflows/retryPolicy.js';
+import {
+  failPermanently,
+  retryCorrective,
+  retryOperational,
+} from '../../src/workflows/retryPolicy.js';
 import type { FanOutDefinition, StepDefinition, WorkflowNode } from '../../src/workflows/types.js';
 import { indexWorkflowNodes } from '../../src/workflows/workflowNodeIndex.js';
 
@@ -144,6 +152,41 @@ const config: CourseGenerationWorkflowConfig = {
   models: getGlobalModelConfig(),
   timeoutMs: 600_000,
 };
+
+test('mapping a resumed legacy index projects complete source previews without changing saved chunks', async () => {
+  const fixture = buildLegacySourceFixture(`𝑋${'a'.repeat(7_997)}𝑋${'z'.repeat(7_999)}`);
+  const index = JSON.parse(
+    JSON.stringify({ ...documentIndex, chunks: fixture.documentIndex.chunks })
+  );
+  const before = JSON.stringify(index);
+  const batches = buildCourseChunkMappingBatches({
+    index,
+    lessonIds: ['lesson-1'],
+    mode: 'fast',
+    plan: planState('source-set').plan,
+  });
+  const generateObject = vi.fn(async (request: { prompt: string }) => {
+    const input = JSON.parse(request.prompt);
+    expect(input.chunks).toHaveLength(2);
+    expect(
+      input.chunks.every(
+        (chunk: { textPreview: string }) =>
+          !/[\uD800-\uDFFF]/u.test(chunk.textPreview) &&
+          chunk.textPreview.length <= PDF_MAPPING_MAX_CHUNK_PREVIEW_CHARS
+      )
+    ).toBe(true);
+    return { mappings: [{ lessonId: 'lesson-1', chunkIds: [input.chunks[0].id] }] };
+  });
+  const mapper = createCourseLessonChunkBatchMapper(generateObject as never);
+  const result = await mapper({
+    batch: batches[0],
+    config: config.models,
+    retryFeedback: '',
+    signal: new AbortController().signal,
+  });
+  expect(result.mappings[0].lessonId).toBe('lesson-1');
+  expect(JSON.stringify(index)).toBe(before);
+});
 
 const stageContext = <Input>(input: Input, attemptNumber = 1, maxAttempts = 3) => ({
   attemptNumber,
@@ -567,6 +610,7 @@ describe('course source finalization', () => {
     );
     const repairInputs = repair.inputs(fastProgress);
 
+    expect(fastProgress).not.toHaveProperty('mappingFailures');
     expect(fast.failureMode).toBe('fail-fast');
     expect(fast.inputs(state).map(batch => fast.keyBy(batch))).toEqual(['0']);
     expect(repairInputs).toHaveLength(1);
@@ -600,7 +644,7 @@ describe('course source finalization', () => {
     ).rejects.toBe(providerError);
     await expect(
       runStep('map-course-source-fast-batch', batch, sourceServices(services), 3, 3)
-    ).resolves.toEqual({ batchIndex: 0, status: 'failed' });
+    ).resolves.toMatchObject({ batchIndex: 0, status: 'failed' });
   });
 
   test('persists deterministic fallback and the recovery marker after exhausted batches', async () => {
@@ -673,7 +717,220 @@ describe('course source finalization', () => {
 
     await expect(
       runStep('map-course-source-fast-batch', batch, sourceServices(services), 3, 3)
-    ).resolves.toEqual({ batchIndex: 0, status: 'failed' });
+    ).resolves.toMatchObject({ batchIndex: 0, status: 'failed' });
+  });
+
+  test.each([
+    { mode: 'fast', kind: 'corrective' },
+    { mode: 'fast', kind: 'operational' },
+    { mode: 'repair', kind: 'corrective' },
+    { mode: 'repair', kind: 'operational' },
+  ] as const)('retains final $mode $kind failure through checkpoint schemas and both fan-ins', async ({
+    mode,
+    kind,
+  }) => {
+    const node = findNode(`map-course-source-${mode}-batches`) as FanOutDefinition<
+      CourseSourcePreparationOutcome | CourseSourceMappingProgress,
+      CourseChunkMappingBatch,
+      BatchAttempt,
+      CourseSourceMappingProgress
+    >;
+    const repair = findNode('map-course-source-repair-batches') as FanOutDefinition<
+      CourseSourceMappingProgress,
+      CourseChunkMappingBatch,
+      BatchAttempt,
+      CourseSourceMappingProgress
+    >;
+    const state = mappingState();
+    const parent = mode === 'fast' ? state : mappingProgress([]);
+    const batch = node.inputs(parent)[0];
+    if (!batch) throw new Error('Expected a mapping batch.');
+    const failures = {
+      corrective: retryCorrective({
+        code: 'course_model_output_invalid',
+        details: { source: 'PRIVATE SOURCE CONTENT' },
+        feedback: 'PRIVATE PROVIDER RESPONSE',
+        message: 'PRIVATE VALIDATION MESSAGE',
+      }),
+      operational: retryOperational({
+        code: 'course_source_mapping_unavailable',
+        details: { payload: 'PRIVATE SOURCE CONTENT' },
+        message: 'PRIVATE PROVIDER RESPONSE',
+      }),
+    };
+    const failure = failures[kind];
+    const services = sourceServices(
+      createCourseSourceFinalizationServices({
+        buildDocumentIndex: vi.fn(),
+        mapBatch: vi.fn().mockRejectedValue(failure),
+        readSourceMaterials: vi.fn(),
+      })
+    );
+    const workerId = `map-course-source-${mode}-batch`;
+    await expect(runStep(workerId, batch, services, 2)).rejects.toBe(failure);
+    const worker = findNode(workerId) as StepDefinition;
+    const output = worker.outputSchema.parse(
+      JSON.parse(JSON.stringify(await runStep(workerId, batch, services, 3)))
+    ) as BatchAttempt;
+    const expectedFailure = {
+      attemptNumber: 3,
+      batchIndex: batch.batchIndex,
+      diagnostic: { code: failure.failure.code, type: 'WorkflowStepError' },
+      kind: failure.failure.kind,
+      stage: workerId,
+    };
+    expect(output).toEqual({
+      batchIndex: batch.batchIndex,
+      failure: expectedFailure,
+      status: 'failed',
+    });
+    const progress = node.outputSchema.parse(
+      JSON.parse(
+        JSON.stringify(
+          node.fanIn(
+            [{ input: batch, key: String(batch.batchIndex), output, status: 'completed' }],
+            parent
+          )
+        )
+      )
+    );
+    const afterRepair = repair.outputSchema.parse(
+      JSON.parse(JSON.stringify(repair.fanIn([], progress)))
+    );
+    expect(afterRepair).toMatchObject({ mappingFailed: true, mappingFailures: [expectedFailure] });
+    expect(repair.inputs(afterRepair)).toEqual([]);
+    expect(JSON.stringify(afterRepair.mappingFailures)).not.toContain('PRIVATE');
+    const result = await services.completeCourseSourceFinalization(stageContext(afterRepair));
+    expect(result.documentIndex).toMatchObject({
+      mappingQuality: { mappingSource: 'fallback' },
+      mappingRecovery: { status: 'exhausted' },
+      mappingWarnings: [PDF_MAPPING_RECOVERY_EXHAUSTED_WARNING],
+    });
+  });
+
+  test.each([
+    { mode: 'fast', response: 'PRIVATE_MALFORMED_JSON', causeType: 'SyntaxError' },
+    { mode: 'repair', response: 'PRIVATE_MALFORMED_JSON', causeType: 'SyntaxError' },
+    { mode: 'fast', response: '{}', causeType: 'ZodError' },
+    { mode: 'repair', response: '{}', causeType: 'ZodError' },
+  ] as const)('retains the recorded $causeType cause in final $mode mapping checkpoints', async ({
+    mode,
+    response,
+    causeType,
+  }) => {
+    const generate = createCourseObjectGenerator({
+      runAiObject: vi.fn(),
+      runCodexObject: vi.fn().mockResolvedValue(response),
+    });
+    const mapper = createCourseLessonChunkBatchMapper(generate);
+    const services = sourceServices(
+      createCourseSourceFinalizationServices({
+        buildDocumentIndex: vi.fn(),
+        readSourceMaterials: vi.fn(),
+        mapBatch: input =>
+          mapper({
+            ...input,
+            config: { ...input.config, aiProviderOverrides: { course: 'codex' } },
+          }),
+      })
+    );
+    const node = findNode(`map-course-source-${mode}-batches`) as FanOutDefinition<
+      CourseSourcePreparationOutcome | CourseSourceMappingProgress,
+      CourseChunkMappingBatch,
+      BatchAttempt,
+      CourseSourceMappingProgress
+    >;
+    const parent = mode === 'fast' ? mappingState() : mappingProgress([]);
+    const batch = node.inputs(parent)[0];
+    const workerId = `map-course-source-${mode}-batch`;
+    const worker = findNode(workerId) as StepDefinition;
+    const output = worker.outputSchema.parse(
+      JSON.parse(JSON.stringify(await runStep(workerId, batch, services, 3)))
+    ) as BatchAttempt;
+    const progress = node.outputSchema.parse(
+      JSON.parse(
+        JSON.stringify(
+          node.fanIn(
+            [{ input: batch, key: String(batch.batchIndex), output, status: 'completed' }],
+            parent
+          )
+        )
+      )
+    );
+    const expected = {
+      type: 'WorkflowStepError',
+      code: 'course_model_output_invalid',
+      cause: {
+        type: causeType,
+        modelCall: { phase: 'post-processing', elapsedMs: expect.any(Number) },
+      },
+    };
+    expect(output).toMatchObject({ status: 'failed', failure: { diagnostic: expected } });
+    expect(progress).toMatchObject({ mappingFailures: [{ diagnostic: expected }] });
+    expect(JSON.stringify(progress)).not.toContain('PRIVATE_');
+  });
+
+  test('retains only technical provider causes on the final failed batch', async () => {
+    const error = new CourseModelProviderError(
+      Object.assign(new Error('PRIVATE SOURCE CONTENT'), {
+        code: 'ETIMEDOUT',
+        responseBody: 'PRIVATE PROVIDER RESPONSE',
+      })
+    );
+    Object.assign(error, {
+      modelCall: {
+        phase: 'awaiting-output',
+        elapsedMs: 25,
+        phaseElapsedMs: 25,
+        durationsMs: { 'awaiting-output': 25 },
+      },
+    });
+    const mapBatch = vi.fn().mockRejectedValue(error);
+    const services = sourceServices(
+      createCourseSourceFinalizationServices({
+        buildDocumentIndex: vi.fn(),
+        mapBatch,
+        readSourceMaterials: vi.fn(),
+      })
+    );
+    const fast = findNode('map-course-source-fast-batches') as FanOutDefinition<
+      CourseSourcePreparationOutcome,
+      CourseChunkMappingBatch
+    >;
+    const batch = fast.inputs(mappingState())[0];
+    const output = JSON.parse(
+      JSON.stringify(await runStep('map-course-source-fast-batch', batch, services, 3))
+    );
+    expect(output).toEqual({
+      batchIndex: batch.batchIndex,
+      failure: {
+        attemptNumber: 3,
+        batchIndex: batch.batchIndex,
+        diagnostic: {
+          type: 'CourseModelProviderError',
+          code: 'course_source_finalization_failed',
+          cause: { type: 'Error', code: 'ETIMEDOUT' },
+          modelCall: {
+            phase: 'awaiting-output',
+            elapsedMs: 25,
+            phaseElapsedMs: 25,
+            durationsMs: { 'awaiting-output': 25 },
+          },
+        },
+        kind: 'operational',
+        stage: 'map-course-source-fast-batch',
+      },
+      status: 'failed',
+    });
+    expect(output.failure.diagnostic).toMatchObject({
+      modelCall: { phase: 'awaiting-output', elapsedMs: 25 },
+    });
+    expect(JSON.stringify(output)).not.toContain('PRIVATE');
+    const permanent = failPermanently({ code: 'mapping_forbidden', message: 'Forbidden.' });
+    mapBatch.mockRejectedValue(permanent);
+    await expect(runStep('map-course-source-fast-batch', batch, services, 3)).rejects.toBe(
+      permanent
+    );
   });
 
   test('does not turn programming errors into a successful fallback', async () => {

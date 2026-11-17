@@ -10,10 +10,15 @@ import {
   type TextModelSlot,
 } from '../config/modelConfig.js';
 import {
+  type LessonReviewDiagnostic,
+  LessonReviewDiagnosticSchema,
+} from '../services/lessonGenerationCorrection.js';
+import {
   sanitizeDiagnosticPayload,
   sanitizeDiagnosticText,
 } from '../utils/sanitizeDiagnosticText.js';
 import { isRecord } from '../utils/validation.js';
+import { ModelCallDiagnosticSchema, modelCallErrorDiagnostic } from './modelCallDiagnostics.js';
 import type { JsonValue } from './types.js';
 
 const MAX_ERROR_CAUSE_DEPTH = 3;
@@ -44,6 +49,20 @@ for (let depth = 1; depth < MAX_ERROR_CAUSE_DEPTH; depth += 1) {
 }
 export const WorkflowTechnicalDiagnosticSchema: z.ZodType<WorkflowErrorDiagnostic> =
   technicalDiagnosticSchema;
+// Historical definitions retain the legacy schema; current checkpoints keep observations.
+const ObservedTechnicalFieldsSchema = TechnicalDiagnosticFieldsSchema.extend({
+  errorStage: z.string().optional(),
+  modelCall: ModelCallDiagnosticSchema.optional(),
+});
+let observedTechnicalSchema = ObservedTechnicalFieldsSchema;
+for (let depth = 1; depth < MAX_ERROR_CAUSE_DEPTH; depth += 1) {
+  observedTechnicalSchema = ObservedTechnicalFieldsSchema.extend({
+    cause: observedTechnicalSchema.optional(),
+  });
+}
+export const WorkflowObservedTechnicalDiagnosticSchema: z.ZodType<WorkflowErrorDiagnostic> =
+  observedTechnicalSchema;
+
 type DiagnosticCode = number | string;
 
 const readTechnicalIdentifier = (value: unknown): string | undefined =>
@@ -170,6 +189,9 @@ const createDiagnosticProjection = (input: {
   providerFields: ProviderDiagnosticFields;
   status: number | undefined;
   type: string;
+  validation?: LessonReviewDiagnostic;
+  errorStage?: string;
+  modelCall?: z.infer<typeof ModelCallDiagnosticSchema>;
 }): WorkflowErrorDiagnostic => ({
   ...(input.cause ? { cause: input.cause } : {}),
   ...(input.code === undefined ? {} : { code: input.code }),
@@ -187,7 +209,13 @@ const createDiagnosticProjection = (input: {
     : {}),
   ...(input.status === undefined ? {} : { status: input.status }),
   type: input.type,
+  ...(input.errorStage ? { errorStage: input.errorStage } : {}),
+  ...(input.modelCall ? { modelCall: input.modelCall } : {}),
+  ...(input.validation ? { validation: input.validation } : {}),
 });
+
+const readErrorStage = (value: Record<string, unknown>, persisted: boolean) =>
+  readModelIdentifier(persisted ? value.errorStage : value.stage);
 
 const createDiagnostic = (
   value: unknown,
@@ -229,7 +257,14 @@ const createDiagnostic = (
     depth < MAX_ERROR_CAUSE_DEPTH && value.cause !== undefined
       ? createDiagnostic(value.cause, depth + 1, persisted)
       : undefined;
+  const validation = LessonReviewDiagnosticSchema.safeParse(value.validation);
+  const modelCall = ModelCallDiagnosticSchema.safeParse(
+    value.modelCall ?? modelCallErrorDiagnostic(value)
+  );
   return createDiagnosticProjection({
+    ...(modelCall.success ? { modelCall: modelCall.data } : {}),
+    errorStage: readErrorStage(value, persisted),
+    ...(validation.success ? { validation: validation.data } : {}),
     cause,
     code,
     message,
@@ -251,9 +286,12 @@ export const toWorkflowErrorDiagnostic = (
   const diagnostic = createDiagnostic(error, 1, false, options.trustedMessage) ?? {
     type: 'UnknownError',
   };
-  return options.includeContent === false
-    ? WorkflowTechnicalDiagnosticSchema.parse(diagnostic)
-    : diagnostic;
+  if (options.includeContent !== false) return diagnostic;
+  // Keep the exported durable workflow schema stable; review metadata is runtime-only.
+  return {
+    ...observedTechnicalSchema.parse(diagnostic),
+    ...(diagnostic.validation ? { validation: diagnostic.validation } : {}),
+  };
 };
 
 /** Revalidates stored diagnostics before they cross into structured operational logs. */

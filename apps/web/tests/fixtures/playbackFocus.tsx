@@ -6,18 +6,51 @@ import { setAccountLocale } from '../../i18n/uiMessages';
 import '../../styles/app.css';
 
 setAccountLocale('it');
+const layout = new URLSearchParams(location.search).has('layout');
+const long = new URLSearchParams(location.search).has('long');
 const mobile = new URLSearchParams(location.search).has('mobile');
 const content = {
-  sectionContent: 'Una lezione di prova.',
+  sectionContent: layout
+    ? `# Passaggio sintetico\n\n${long ? 'La descrizione collega ogni passaggio alla figura e mantiene il contesto durante la lettura. '.repeat(12) : 'Una breve spiegazione.'}\n\n{{VISUAL_EXAMPLE:layout-scene}}`
+    : 'Una lezione di prova.',
+  activeSectionGeneratedVisualsById: layout
+    ? {
+        'layout-scene': {
+          id: 'layout-scene',
+          kind: 'scene',
+          code: '',
+          createdAt: '',
+          title: 'Passi sintetici',
+          scene: {
+            type: 'steps',
+            title: 'Passi sintetici',
+            body: '',
+            quote: '',
+            note: '',
+            groups: [],
+            items: ['Osserva', 'Collega', 'Verifica'].map(label => ({
+              label,
+              icon: '',
+              detail:
+                'Una descrizione abbastanza lunga da andare a capo anche nel lettore desktop, senza nascondere alcun passaggio della figura.',
+            })),
+          },
+        },
+      }
+    : {},
   activeSectionTitle: 'Prova del fuoco',
-  isDarkMode: false,
+  isDarkMode: new URLSearchParams(location.search).has('dark'),
   isMobileViewport: mobile,
   activeSectionAssetsById: {},
   activeSectionImageRefsById: {},
 } as WorkspaceReaderContentModel;
 
+document.documentElement.classList.toggle('dark', content.isDarkMode);
+
 function Fixture() {
   const [open, setOpen] = useState(false);
+  const [voice, setVoice] = useState('Kore');
+  const [speed, setSpeed] = useState(1);
   return (
     <main style={{ height: '200vh', paddingTop: '50vh' }}>
       <button type="button" onClick={() => setOpen(true)}>
@@ -31,11 +64,14 @@ function Fixture() {
           autoPlay={false}
           onClose={() => setOpen(false)}
           tts={{
-            currentVoice: 'Kore',
-            playbackRate: 1,
-            availableVoices: [{ id: 'Kore', label: 'Voce', language: 'it' }],
-            onVoiceChange: () => {},
-            onSpeedChange: () => {},
+            currentVoice: voice,
+            playbackRate: speed,
+            availableVoices: [
+              { id: 'Kore', label: 'Kore', language: 'it' },
+              { id: 'Puck', label: 'Puck', language: 'it' },
+            ],
+            onVoiceChange: setVoice,
+            onSpeedChange: setSpeed,
           }}
           overlays={{
             contextAnswerSize: { width: 480, height: 400 },

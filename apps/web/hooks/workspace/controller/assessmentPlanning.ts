@@ -503,6 +503,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
       if (!state.isWorkflowCurrent('generatePlan', requestId)) return true;
 
       const applied = await projectLibrary.applyPersistedProjectRevision({
+        acceptNewerRevision: true,
         projectId: result.projectId,
         revision: result.projectRevision,
       });
@@ -512,7 +513,7 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
       ) {
         return true;
       }
-      if (!applied && !domain.learningPlan) {
+      if (!applied) {
         throw new Error('Il corso è stato generato, ma non è stato possibile caricarlo.');
       }
 
@@ -543,6 +544,9 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
         requestId,
       });
       if (state.isWorkflowCurrent('generatePlan', requestId)) {
+        if (resumed && runId && projectLibrary.getCurrentProjectId() === projectId) {
+          state.setDiagnosticAdapter?.(undefined);
+        }
         state.succeedWorkflow('generatePlan', requestId);
       }
       return resumed ? 'resumed' : 'not-found';
@@ -919,7 +923,8 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
           state.setWorkflowMessage(
             'assessment',
             requestId,
-            formatSourcePreparationProgress(progress)
+            formatSourcePreparationProgress(progress),
+            progress
           );
         },
       }
@@ -1051,8 +1056,9 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
         return abandonCancelledStart();
       }
     }
-    if (error instanceof ProjectStorageError && error.sourceWarnings?.length) {
-      startState.sourceWarnings = error.sourceWarnings;
+    const storageError = error instanceof ProjectStorageError ? error : undefined;
+    if (storageError?.sourceWarnings?.length) {
+      startState.sourceWarnings = storageError.sourceWarnings;
     }
     const errorMessage = getErrorMessage(error);
     const isCurrent = isRequestCurrent();
@@ -1061,14 +1067,19 @@ export const createAssessmentPlanningCommands = (context: WorkspaceControllerCon
     pushNousDebugTrace('assessment:startup-failed', {
       draftCleanup: 'skipped',
       errorType: error instanceof Error ? error.constructor.name : typeof error,
-      ...(error instanceof ProjectStorageError ? { errorCode: error.code } : {}),
+      errorCode: storageError?.code,
       projectId: startState.draftProjectId,
     });
     if (!isCurrent) return { outcome: 'abandoned' };
     if (projectLibrary.getCurrentProjectId() === startState.draftProjectId) {
       resetInterviewClientState();
     }
-    return { outcome: 'failed', errorMessage, sourceWarnings: startState.sourceWarnings };
+    return {
+      outcome: 'failed',
+      errorMessage,
+      sourceWarnings: startState.sourceWarnings,
+      terminalSourceDocuments: storageError?.sourceDocuments,
+    };
   };
 
   async function runHomeChatStart(args: HomeChatStartArgs): Promise<HomeChatStartResult> {

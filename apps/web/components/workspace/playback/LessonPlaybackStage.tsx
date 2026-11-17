@@ -1,8 +1,4 @@
-import {
-  type FormulaSpotlightData,
-  formulaSpotlightCovers,
-  resolveFormulaReferences,
-} from '@shared/formulaSpotlight';
+import { type FormulaSpotlightData, formulaSpotlightCovers } from '@shared/formulaSpotlight';
 import {
   getPlaybackFormulaMarkdown,
   getPlaybackFormulaSources,
@@ -24,6 +20,7 @@ import type { PlaybackQuestionContext } from '@shared/playbackQuestionContext';
 import { hasPreparedVisualSections, playbackVisualSections } from '@shared/playbackVisualSections';
 import { alignedWordTimes, type PlaybackWordAlignment } from '@shared/playbackWordTiming';
 import {
+  type CSSProperties,
   Fragment,
   type RefObject,
   useCallback,
@@ -49,23 +46,15 @@ import { LessonSceneVisual } from '../../shared/lessonScene/LessonSceneVisual.ts
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import type { WorkspaceReaderContentModel } from '../shell/types.ts';
 import {
-  CAPTION_TIMING,
   type CaptionWord,
   captionFormat,
-  captionLookAhead,
-  captionPauses,
   captionSource,
   captionSpeechRanges,
-  pacedCaptionTime,
 } from './captionFormat.ts';
+import { type CaptionTimingClock, createCaptionTiming } from './captionTiming.ts';
 import { captionViewport } from './captionViewport.ts';
 import {
-  adoptCueTimes,
   type CaptionRun,
-  captionAnchorSpan,
-  captionAnchorTimes,
-  captionMotionEvents,
-  captionRangeSpan,
   motionStates,
   sceneCaptionAnchors,
   sceneElements,
@@ -73,49 +62,24 @@ import {
   visualSpeechRange,
 } from './stageMotion.ts';
 import './stage.css';
-import { SaveablePlaybackVisual } from './SaveablePlaybackVisual.tsx';
+import { PlaybackVisualPresence, SaveablePlaybackVisual } from './SaveablePlaybackVisual.tsx';
 
-type DrawnCaptionRun = CaptionRun & { revealEdge?: number; readOpacity?: number };
+type DrawnCaptionRun = CaptionRun & { opacity?: number };
+const CAPTION_FUTURE_OPACITY = 0.5;
 
-interface CaptionClock {
+interface CaptionClock extends CaptionTimingClock {
   viewport: ReturnType<typeof captionViewport>;
   runs: DrawnCaptionRun[];
-  width: number;
-  feather: number;
-  bodyDuration: number;
-  speechRanges: PlaybackRange[];
-  aligned?: ReturnType<typeof alignedWordTimes>;
   duration: number;
-  headingDuration: number;
-  seekRevision: number;
-  read: () => { blockTime: number; bodyTime: number; revealTime: number };
 }
 
-/** Draws changed word styles and identifies the word crossed by the reveal edge. */
-function drawCaptionWord(
-  run: DrawnCaptionRun,
-  clock: CaptionClock,
-  edge: number,
-  bodyTime: number
-) {
-  const local = edge - run.start;
-  // Settled words keep their cached styles to avoid per-frame invalidation.
-  const maskEdge = Math.max(0, Math.min(run.width + clock.feather, local));
-  if (run.revealEdge !== maskEdge) {
-    run.span.style.opacity = local > 0 ? '1' : '0';
-    run.span.style.setProperty('--reveal-edge', `${maskEdge}px`);
-    run.span.style.maskImage = local >= run.width + clock.feather ? 'none' : '';
-    run.revealEdge = maskEdge;
+/** Theme colours stay in CSS; only changed progress is written to the retained word DOM. */
+function drawCaptionWord(run: DrawnCaptionRun, progress: number) {
+  const opacity = CAPTION_FUTURE_OPACITY + progress * (1 - CAPTION_FUTURE_OPACITY);
+  if (run.opacity !== opacity) {
+    run.span.style.opacity = String(opacity);
+    run.opacity = opacity;
   }
-  const readAge = bodyTime - ((run.start + run.width) / clock.width) * clock.bodyDuration;
-  const fade = Math.max(0, Math.min(1, readAge / CAPTION_TIMING.readFadeSeconds));
-  const readOpacity = 1 - fade * (1 - CAPTION_TIMING.readOpacity);
-  if (run.readOpacity !== readOpacity) {
-    const text = run.span.firstElementChild as HTMLElement;
-    text.style.opacity = String(readOpacity);
-    run.readOpacity = readOpacity;
-  }
-  return local >= 0 && local <= run.width;
 }
 
 function hasMissingMotionTargets(
@@ -128,44 +92,6 @@ function hasMissingMotionTargets(
 function captionTag(word: CaptionWord) {
   if (word.code && !word.mathHtml) return 'code';
   return word.bold ? 'strong' : 'span';
-}
-
-function formulaCueTiming(scene: FormulaSpotlightData, speech: string, current: CaptionClock) {
-  const times = scene.symbols.map(() => Number.POSITIVE_INFINITY);
-  const ends = scene.symbols.map(() => Number.NEGATIVE_INFINITY);
-  for (const reference of resolveFormulaReferences(scene, speech)) {
-    const span = captionAnchorSpan({
-      anchors: [reference.anchor],
-      speech,
-      speechRanges: current.speechRanges,
-      runs: current.runs,
-      width: current.width,
-      feather: 0,
-      duration: current.bodyDuration,
-      startOffset: current.headingDuration,
-      aligned: current.aligned,
-    });
-    times[reference.index] = span.startMs;
-    ends[reference.index] = span.endMs;
-  }
-  return { times, ends };
-}
-
-function canRetainPresentedCues(
-  current: CaptionClock,
-  previous: CaptionClock | null
-): previous is CaptionClock {
-  return previous !== null && previous.seekRevision === current.seekRevision;
-}
-
-function retainPresentedCues(
-  current: CaptionClock,
-  previous: CaptionClock | null,
-  before: number[] | undefined,
-  next: number[] | undefined
-) {
-  if (!next || !canRetainPresentedCues(current, previous)) return next;
-  return adoptCueTimes(before, next, current.read().blockTime * 1000);
 }
 
 function PlaybackScene({
@@ -194,47 +120,22 @@ function PlaybackScene({
     if (!isAnimatedLessonScene(scene) && scene.type !== 'formula-spotlight') return undefined;
     const anchors = sceneCaptionAnchors(scene, block.speech);
     // Voice cues exclude both caption look-ahead and its graphical reveal feather.
-    let previousClock: CaptionClock | null = null;
-    let times: number[] | undefined;
-    let ends: number[] | undefined;
+    const timing = createCaptionTiming(block.speech, {
+      anchors,
+      formula: scene.type === 'formula-spotlight' ? (scene as FormulaSpotlightData) : undefined,
+    });
     return () => {
       const current = clock.current;
       if (!current?.bodyDuration) return undefined;
       if (anchors && !current.width) return undefined;
-      if (current !== previousClock) {
-        const previousTimes = times;
-        const previousEnds = ends;
-        times = anchors
-          ? captionAnchorTimes({
-              anchors,
-              speech: block.speech,
-              speechRanges: current.speechRanges,
-              runs: current.runs,
-              width: current.width,
-              feather: 0,
-              duration: current.bodyDuration,
-              startOffset: current.headingDuration,
-              aligned: current.aligned,
-            })
-          : undefined;
-        if (scene.type === 'formula-spotlight' && anchors) {
-          ({ times, ends } = formulaCueTiming(
-            scene as FormulaSpotlightData,
-            block.speech,
-            current
-          ));
-        }
-        times = retainPresentedCues(current, previousClock, previousTimes, times);
-        ends = retainPresentedCues(current, previousClock, previousEnds, ends);
-        previousClock = current;
-      }
+      const { cueTimes, cueEndTimes } = timing.read(current);
       const { blockTime } = current.read();
       return anchors
         ? {
             elapsedMs: blockTime * 1000,
             durationMs: current.duration * 1000,
-            cueTimes: times,
-            cueEndTimes: ends,
+            cueTimes,
+            cueEndTimes,
           }
         : {
             elapsedMs: (blockTime - interval.start) * 1000,
@@ -252,63 +153,19 @@ function PlaybackScene({
     const element = host.current;
     if (!element) throw new Error('Playback scene must be mounted');
     let elements = sceneElements(element, scene);
-    let events: TimedMotionEvent[] = [];
-    let previousClock: CaptionClock | null = null;
+    const timing = createCaptionTiming(block.speech, {
+      events: block.prepared?.motion,
+      itemRanges,
+    });
+    let previousTiming: ReturnType<typeof timing.read> | undefined;
     let previousFrame = '';
     const render = () => {
       const current = clock.current;
       if (!current?.width || !current.bodyDuration) return;
-      if (current !== previousClock) {
-        const previousEvents = events;
-        events = captionMotionEvents({
-          events: itemRanges ? [] : (block.prepared?.motion ?? []),
-          speech: block.speech,
-          speechRanges: current.speechRanges,
-          runs: current.runs,
-          width: current.width,
-          feather: 0,
-          duration: current.bodyDuration,
-          startOffset: current.headingDuration,
-          aligned: current.aligned,
-        });
-        if (itemRanges)
-          events = itemRanges.map((range, index) => {
-            const span = captionRangeSpan({
-              range,
-              speech: block.speech,
-              speechRanges: current.speechRanges,
-              runs: current.runs,
-              width: current.width,
-              feather: 0,
-              duration: current.bodyDuration,
-              startOffset: current.headingDuration,
-              aligned: current.aligned,
-            });
-            return {
-              effect: 'focus',
-              targets: [`item:${index}`],
-              quote: '',
-              atMs: span.startMs,
-              durationMs: span.endMs - span.startMs,
-              sustainFocus: true,
-            };
-          });
-        if (canRetainPresentedCues(current, previousClock)) {
-          const onsets = adoptCueTimes(
-            previousEvents.map(event => event.atMs),
-            events.map(event => event.atMs),
-            current.read().blockTime * 1000
-          );
-          events = events.map((event, index) => ({
-            ...event,
-            atMs: onsets[index],
-            durationMs:
-              previousEvents[index]?.atMs === onsets[index]
-                ? previousEvents[index].durationMs
-                : event.durationMs,
-          }));
-        }
-        previousClock = current;
+      const resolved = timing.read(current);
+      const { events } = resolved;
+      if (resolved !== previousTiming) {
+        previousTiming = resolved;
         previousFrame = '';
       }
       if (hasMissingMotionTargets(events, elements)) return;
@@ -441,7 +298,6 @@ function PlaybackVisualContent({
       ) : null}
       {visual.kind === 'markdown' ? (
         <MarkdownRenderer
-          onImageUnavailable={onImageUnavailable}
           content={visual.markdown}
           isDarkMode={content.isDarkMode}
           projectId={content.projectId}
@@ -473,6 +329,7 @@ function PlaybackPassage({
   readTime,
   alignment,
   seekRevision = 0,
+  loading = false,
   questionContextRef,
 }: Readonly<{
   lessonKey?: string;
@@ -485,6 +342,7 @@ function PlaybackPassage({
   readTime?: () => number;
   alignment?: PlaybackWordAlignment;
   seekRevision?: number;
+  loading?: boolean;
   questionContextRef?: RefObject<(() => PlaybackQuestionContext) | null>;
 }>) {
   const source = useMemo(() => captionSource(block, sources), [block, sources]);
@@ -505,74 +363,15 @@ function PlaybackPassage({
       ),
     [alignmentKey, block.speech, duration]
   );
-  const captions = useRef<HTMLParagraphElement>(null);
-  const sceneFit = useRef<HTMLDivElement>(null);
+  const captions = useRef<HTMLElement>(null);
   const sceneCard = useRef<HTMLElement>(null);
   const clock = useRef<CaptionClock | null>(null);
 
   const animate = useShouldAnimate();
-  const latest = useRef({ time, speed, readTime, animate, aligned, seekRevision });
+  const latest = useRef({ time, speed, readTime, animate, aligned, seekRevision, loading });
   useLayoutEffect(() => {
-    const slot = sceneFit.current;
-    const card = sceneCard.current;
-    const stage = slot?.parentElement;
-    const captionSection = captions.current?.parentElement;
-    if (!slot || !card || !stage || !captionSection)
-      throw new Error('Playback stage must be mounted');
-    // Measure before scaling: transforms must not feed back into the natural dimensions.
-    const fitScene = () => {
-      // Classify the presented visual, including aligned cards and asynchronously mounted scenes.
-      const formulas = card.querySelectorAll('.katex:not(.spotlight-symbol .katex)');
-      card.classList.toggle('lesson-player-formula', formulas.length === 1);
-      const layout = getComputedStyle(stage);
-      const verticalPadding =
-        (Number.parseFloat(layout.paddingTop) || 0) +
-        (Number.parseFloat(layout.paddingBottom) || 0);
-      const availableHeight = stage.clientHeight - verticalPadding;
-      if (!slot.clientWidth || availableHeight <= 0) return;
-      card.style.width = `${slot.clientWidth}px`;
-      const width = Math.max(card.offsetWidth, card.scrollWidth);
-      card.style.width = `${width}px`;
-      const height = Math.max(card.offsetHeight, card.scrollHeight);
-      if (!width || !height) return;
-      const scale = Math.min(1, slot.clientWidth / width, availableHeight / height);
-      slot.style.setProperty('--scene-scale', String(scale));
-      // The visual centers independently inside the stage's full-height grid row.
-      slot.style.height = `${height * scale}px`;
-      slot.style.setProperty('--scene-left', `${(slot.clientWidth - width * scale) / 2}px`);
-    };
-    let fitFrame: number | undefined;
-    // ResizeObserver notifications must not resize their own observed ancestors.
-    const scheduleFit = () => {
-      fitFrame ??= requestAnimationFrame(() => {
-        fitFrame = undefined;
-        fitScene();
-      });
-    };
-    const observer = new ResizeObserver(scheduleFit);
-    observer.observe(slot);
-    observer.observe(card);
-    observer.observe(stage);
-    observer.observe(captionSection);
-    // A replacement or asynchronous diagram can change overflow without resizing the card.
-    const mutations = new MutationObserver(scheduleFit);
-    mutations.observe(card, {
-      childList: true,
-      characterData: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['hidden'],
-    });
-    fitScene();
-    return () => {
-      observer.disconnect();
-      mutations.disconnect();
-      if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);
-    };
-  }, []);
-  useLayoutEffect(() => {
-    latest.current = { time, speed, readTime, animate, aligned, seekRevision };
-  }, [time, speed, readTime, animate, aligned, seekRevision]);
+    latest.current = { time, speed, readTime, animate, aligned, seekRevision, loading };
+  }, [time, speed, readTime, animate, aligned, seekRevision, loading]);
 
   useLayoutEffect(() => {
     const paragraph = captions.current;
@@ -585,51 +384,33 @@ function PlaybackPassage({
         width += wordWidth;
         return { span, start, width: wordWidth };
       });
-      const feather = Number.parseFloat(
-        getComputedStyle(paragraph).getPropertyValue('--caption-feather')
-      );
       const bodyDuration =
         (duration * formatted.words.length) / (formatted.words.length + formatted.headingWords);
-      const pauses = captionPauses(
-        formatted.words,
-        runs.map(run => (run.start + run.width) / width),
-        bodyDuration
-      );
-      const headingShare =
-        formatted.headingWords / (formatted.words.length + formatted.headingWords);
       clock.current = {
         viewport: captionViewport(paragraph),
         runs,
         width,
-        feather,
         bodyDuration,
         aligned: latest.current.aligned,
         duration,
         seekRevision: latest.current.seekRevision,
         headingDuration: duration - bodyDuration,
         speechRanges: formatted.speechRanges,
-        read: () => {
-          const {
-            readTime: read,
-            time: fallbackTime,
-            speed: rate,
-            animate: motion,
-          } = latest.current;
-          const elapsed = read ? read() : fallbackTime;
-          const bodyTime = elapsed - duration * headingShare;
-          const ahead = bodyTime + captionLookAhead(elapsed, rate, CAPTION_TIMING.lookAheadSeconds);
-          return {
-            blockTime: elapsed,
-            bodyTime,
-            revealTime: motion ? pacedCaptionTime(ahead, pauses) : ahead,
-          };
-        },
+        // Preparation exposes the requested position before the live audio anchor commits.
+        read: () => ({
+          blockTime: latest.current.loading
+            ? latest.current.time
+            : (latest.current.readTime?.() ?? latest.current.time),
+        }),
       };
     };
     measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(paragraph);
     window.addEventListener('resize', measure);
     document.fonts.addEventListener('loadingdone', measure);
     return () => {
+      observer.disconnect();
       window.removeEventListener('resize', measure);
       document.fonts.removeEventListener('loadingdone', measure);
     };
@@ -644,8 +425,10 @@ function PlaybackPassage({
   }, [aligned, seekRevision]);
 
   useLayoutEffect(() => {
+    const timing = createCaptionTiming(block.speech, { words: formatted.speechRanges });
     let previousClock: CaptionClock | null = null;
     let previousBodyTime: number | undefined;
+    let previousActive: HTMLElement | undefined;
     const render = () => {
       const paragraph = captions.current;
       if (!paragraph) throw new Error('Captions must be mounted');
@@ -655,15 +438,20 @@ function PlaybackPassage({
         previousClock = current;
         previousBodyTime = undefined;
       }
-      const { bodyTime, revealTime } = current.read();
+      const { blockTime: bodyTime } = current.read();
       const motion = latest.current.animate;
       current.viewport.clip();
       if (previousBodyTime === bodyTime) return;
-      const progress = Math.max(0, Math.min(1, revealTime / current.bodyDuration));
-      const edge = progress * (current.width + current.feather);
-      let active = edge >= current.width ? current.runs.at(-1)?.span : undefined;
-      for (const run of current.runs) {
-        if (drawCaptionWord(run, current, edge, bodyTime)) active = run.span;
+      const progress = timing.fill(current, bodyTime, latest.current.speed);
+      current.runs.forEach((run, index) => {
+        drawCaptionWord(run, progress[index]);
+      });
+      const spokenWord = timing.spokenWord();
+      const active = spokenWord === undefined ? undefined : current.runs[spokenWord]?.span;
+      if (active !== previousActive) {
+        previousActive?.removeAttribute('aria-current');
+        active?.setAttribute('aria-current', 'true');
+        previousActive = active;
       }
       // Place new or backward seeks immediately; animate subsequent playback updates.
       current.viewport.follow(
@@ -679,7 +467,7 @@ function PlaybackPassage({
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [block.speech, formatted.speechRanges]);
 
   const [unavailableImages, setUnavailableImages] = useState<ReadonlySet<string>>(new Set());
   const onImageUnavailable = useCallback((imageId: string) => {
@@ -863,9 +651,13 @@ function PlaybackPassage({
   );
   useLayoutEffect(() => {
     if (!visuals.length) return;
-    let previousClock: CaptionClock | null = null;
+    const timing = createCaptionTiming(block.speech, {
+      visuals: visualReferences.map(({ anchors }, index) => ({
+        anchors,
+        range: visualRanges[index],
+      })),
+    });
     let previousActive: number | undefined;
-    let spans: (ReturnType<typeof captionAnchorSpan> | undefined)[] = [];
     let frame = 0;
     const tick = () => {
       const current = clock.current;
@@ -874,37 +666,7 @@ function PlaybackPassage({
         (current.width ||
           !(visualReferences.some(reference => reference.anchors) || visualRanges.some(Boolean)))
       ) {
-        if (current !== previousClock) {
-          const previousSpans = spans;
-          spans = visualReferences.map(({ anchors: quotation }, index) => {
-            const timing = {
-              speech: block.speech,
-              speechRanges: current.speechRanges,
-              runs: current.runs,
-              width: current.width,
-              feather: 0,
-              duration: current.bodyDuration,
-              startOffset: current.headingDuration,
-              aligned: current.aligned,
-            };
-            const range = visualRanges[index];
-            if (range) return captionRangeSpan({ ...timing, range });
-            if (!quotation) return undefined;
-            return captionAnchorSpan({ ...timing, anchors: quotation, speech: block.speech });
-          });
-          if (canRetainPresentedCues(current, previousClock)) {
-            const heardMs = current.read().blockTime * 1000;
-            spans = spans.map((span, index) => {
-              const previous = previousSpans[index];
-              if (!span || !previous) return span;
-              return {
-                startMs: adoptCueTimes([previous.startMs], [span.startMs], heardMs)[0],
-                endMs: adoptCueTimes([previous.endMs], [span.endMs], heardMs)[0],
-              };
-            });
-          }
-          previousClock = current;
-        }
+        const { spans } = timing.read(current);
         const { blockTime } = current.read();
         let active = 0;
         let latestStart = Number.NEGATIVE_INFINITY;
@@ -939,6 +701,7 @@ function PlaybackPassage({
   const visual = visuals[visualIndex];
   const selectedStored =
     visual?.kind === 'generated-visual' ? availableGeneratedVisuals[visual.visualId] : undefined;
+  const selectedStoredKind = selectedStored ? getStoredLessonVisualKind(selectedStored) : undefined;
   let selectedScene: LessonScene | null = null;
   if (visual?.kind === 'scene') selectedScene = visual.scene;
   else if (selectedStored) selectedScene = getStoredLessonVisualScene(selectedStored);
@@ -991,7 +754,7 @@ function PlaybackPassage({
             }))
         : [];
       let code = visual?.kind === 'mermaid' ? visual.code : undefined;
-      if (selectedStored && getStoredLessonVisualKind(selectedStored) !== 'image') {
+      if (selectedStored && selectedStoredKind !== 'image') {
         code = getStoredLessonVisualCode(selectedStored) ?? undefined;
       }
       return {
@@ -1000,7 +763,7 @@ function PlaybackPassage({
         heardSentence: playbackHeardSentence(block, voiceTime, duration, alignment),
         visual: visual
           ? {
-              kind: selectedStored ? getStoredLessonVisualKind(selectedStored) : visual.kind,
+              kind: selectedStoredKind ?? visual.kind,
               title: selectedScene?.title ?? selectedStored?.title ?? block.heading,
               scene: selectedScene ?? undefined,
               code,
@@ -1027,17 +790,79 @@ function PlaybackPassage({
     visual,
     selectedScene,
     selectedStored,
+    selectedStoredKind,
     supplementalFormula,
   ]);
+  const visualCard = (
+    <SaveablePlaybackVisual
+      key={JSON.stringify([visualIndex, visual, supplementalFormula, [...unavailableImages]])}
+      hasVisual={!!visual}
+      cardRef={sceneCard}
+      scene={selectedScene}
+      visualIndex={visualIndex}
+      playback={{
+        lessonKey,
+        readTime: () => latest.current.readTime?.() ?? latest.current.time,
+        duration,
+        alignment,
+      }}
+      block={block}
+      content={content}
+    >
+      {authoredListVisuals.map(({ visual: authored, sourceIndex }) => (
+        <PlaybackVisualContent
+          key={`authored:${sourceIndex}`}
+          {...sceneProps}
+          itemRanges={undefined}
+          onImageUnavailable={onImageUnavailable}
+          interval={{ start: 0, duration }}
+          visual={authored}
+          content={{ ...content, activeSectionAssetsById: availableAssets }}
+        />
+      ))}
+      {supplementalFormula ? (
+        <MarkdownRenderer content={supplementalFormula} isDarkMode={content.isDarkMode} />
+      ) : null}
+      {visual ? (
+        <PlaybackVisualContent
+          onImageUnavailable={onImageUnavailable}
+          key={`${block.id}:${visualIndex}`}
+          {...sceneProps}
+          interval={{
+            start: (duration * visualIndex) / visuals.length,
+            duration: duration / visuals.length,
+          }}
+          visual={visual}
+          content={{
+            ...content,
+            activeSectionAssetsById: availableAssets,
+            activeSectionGeneratedVisualsById: availableGeneratedVisuals,
+          }}
+        />
+      ) : null}
+    </SaveablePlaybackVisual>
+  );
   return (
-    <div className="lesson-player-stage">
+    <div
+      className="lesson-player-stage"
+      style={{ '--caption-future-opacity': CAPTION_FUTURE_OPACITY } as CSSProperties}
+    >
       <section className="listening-stage">
-        <section className="captions" aria-label={t('Sottotitoli')}>
-          {passageHeadings.map((heading, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: authored headings may repeat
-            <h2 key={`${index}:${heading}`}>{heading}</h2>
-          ))}
-          <p ref={captions} key={block.id} className="caption-page">
+        <section className="captions">
+          <div className="caption-headings">
+            {passageHeadings.map((heading, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: authored headings may repeat
+              <h2 key={`${index}:${heading}`}>{heading}</h2>
+            ))}
+          </div>
+          <section
+            ref={captions}
+            key={block.id}
+            className="caption-page"
+            aria-label={t('Sottotitoli')}
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: This named scroll region needs native keyboard scrolling.
+            tabIndex={0}
+          >
             {formatted.words.map((word, index) => {
               const Tag = captionTag(word);
               return (
@@ -1060,55 +885,12 @@ function PlaybackPassage({
                 </Fragment>
               );
             })}
-          </p>
+          </section>
         </section>
-        <div ref={sceneFit} className="scene-fit">
-          <SaveablePlaybackVisual
-            hasVisual={!!visual}
-            cardRef={sceneCard}
-            scene={selectedScene}
-            visualIndex={visualIndex}
-            playback={{
-              lessonKey,
-              readTime: () => latest.current.readTime?.() ?? latest.current.time,
-              duration,
-              alignment,
-            }}
-            block={block}
-            content={content}
-          >
-            {authoredListVisuals.map(({ visual: authored, sourceIndex }) => (
-              <PlaybackVisualContent
-                key={`authored:${sourceIndex}`}
-                {...sceneProps}
-                itemRanges={undefined}
-                onImageUnavailable={onImageUnavailable}
-                interval={{ start: 0, duration }}
-                visual={authored}
-                content={{ ...content, activeSectionAssetsById: availableAssets }}
-              />
-            ))}
-            {supplementalFormula ? (
-              <MarkdownRenderer content={supplementalFormula} isDarkMode={content.isDarkMode} />
-            ) : null}
-            {visual ? (
-              <PlaybackVisualContent
-                onImageUnavailable={onImageUnavailable}
-                key={`${block.id}:${visualIndex}`}
-                {...sceneProps}
-                interval={{
-                  start: (duration * visualIndex) / visuals.length,
-                  duration: duration / visuals.length,
-                }}
-                visual={visual}
-                content={{
-                  ...content,
-                  activeSectionAssetsById: availableAssets,
-                  activeSectionGeneratedVisualsById: availableGeneratedVisuals,
-                }}
-              />
-            ) : null}
-          </SaveablePlaybackVisual>
+        <div className="scene-fit">
+          <PlaybackVisualPresence enabled={animate && selectedStoredKind !== 'html'}>
+            {visualCard}
+          </PlaybackVisualPresence>
         </div>
       </section>
     </div>

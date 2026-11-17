@@ -1,5 +1,6 @@
 import { PDF_TEXT_SOURCE_CHUNK_CHARS } from '@shared/pdfDocumentPolicy';
 import { buildPdfTextIndex } from '@shared/pdfTextIndex';
+import { sourceTextEndOffset } from '@shared/sourceTextSlice';
 
 import { type CourseSourceMaterial, sortCourseSourceMaterials } from './courseGenerationSources.js';
 import type { CourseDocumentIndex } from './courseGenerationWorkflowContract.js';
@@ -9,9 +10,11 @@ const buildTextSourceIndex = (
   now: () => string
 ): CourseDocumentIndex => {
   const chunks: CourseDocumentIndex['chunks'] = [];
-  for (let offset = 0; offset < material.text.length; offset += PDF_TEXT_SOURCE_CHUNK_CHARS) {
-    const endOffset = Math.min(material.text.length, offset + PDF_TEXT_SOURCE_CHUNK_CHARS);
-    const text = material.text.slice(offset, endOffset).trim();
+  for (let offset = 0; offset < material.text.length; ) {
+    const startOffset = offset;
+    const endOffset = sourceTextEndOffset(material.text, offset + PDF_TEXT_SOURCE_CHUNK_CHARS);
+    const text = material.text.slice(startOffset, endOffset).trim();
+    offset = endOffset;
     if (!text) continue;
     chunks.push({
       endOffset,
@@ -19,7 +22,7 @@ const buildTextSourceIndex = (
       id: `${material.descriptor.id}:chunk-${String(chunks.length + 1).padStart(3, '0')}`,
       sequence: chunks.length,
       sourceId: material.descriptor.id,
-      startOffset: offset,
+      startOffset,
       text,
     });
   }

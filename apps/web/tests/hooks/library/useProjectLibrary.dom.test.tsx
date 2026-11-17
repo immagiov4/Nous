@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
-import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
+import {
+  buildProjectAnnotationWriteState,
+  PROJECT_PATCH_REBASE_MODE,
+} from '@shared/projectContract';
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import JSZip from 'jszip';
 import { useState } from 'react';
@@ -7,10 +10,13 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { ProjectRevisionConflictError } from '../../../../backend/src/projects/projectRevision.ts';
 import type { ProjectSnapshot as StoredProjectSnapshot } from '../../../../backend/src/projects/types.ts';
 import { InMemoryProjectStore } from '../../../../backend/tests/helpers/inMemoryProjectStore.ts';
+import { preparedPlayback } from '../../../../backend/tests/helpers/lessonPlayback.ts';
+import { useReaderShellProps } from '../../../app/useReaderShellProps.ts';
 import AccountSettingsDialog from '../../../components/account/AccountSettingsDialog.tsx';
 import { NewHomeView } from '../../../components/newHome/NewHomeView.tsx';
 import { importProjectBackupFile } from '../../../hooks/workspace/controller/projectImport.ts';
 import { useWorkspaceDomain } from '../../../hooks/workspace/useWorkspaceDomain';
+import { useWorkspaceReaderActions } from '../../../hooks/workspace/useWorkspaceReaderActions.ts';
 import { loadDocumentText } from '../../../services/projects/documentText';
 import { createLibraryArchiveBlob } from '../../../services/projects/libraryArchive.ts';
 import { createProjectArchiveBlob } from '../../../services/projects/projectArchive.ts';
@@ -21,12 +27,14 @@ import { createEmptyWorkspaceDomainState } from '../../../services/workspace/dom
 import { resolvePersistedAppState } from '../../../services/workspace/persistence.ts';
 import {
   AppState,
+  type LessonLearningAid,
   type ProjectRevisionEvent,
   type ProjectSnapshot,
   type ProjectSource,
   type SavedProjectMeta,
   type WorkspaceDomainState,
 } from '../../../types.ts';
+import { buildConversationNoteCatalog } from '../../../utils/context/conversationNoteCatalog.ts';
 import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
 
 const repositoryMocks = vi.hoisted(() => ({
@@ -113,6 +121,76 @@ const buildSnapshot = (id: string, overrides: Partial<ProjectSnapshot> = {}): Pr
   lastOpenedAt: '2026-04-02T10:00:00.000Z',
   ...overrides,
 });
+
+const useReaderSaveSession = () => {
+  const domain = useWorkspaceDomain();
+  const library = useProjectLibrary({
+    domainState: domain.domainState,
+    hydrateSnapshot: domain.hydrateSnapshot,
+  });
+  const [attachExerciseFiles] = useState(() => vi.fn(async () => undefined));
+  type ShellArgs = Parameters<typeof useReaderShellProps>[0];
+  const shell = useReaderShellProps({
+    controller: {
+      ...domain,
+      ...library,
+      attachExerciseFiles,
+      workflowState: { loadSection: { requestId: 0 }, generateExercise: {}, evaluateExercise: {} },
+    } as unknown as ShellArgs['controller'],
+    readerState: {
+      readerChrome: {},
+      readerContext: {},
+      ttsPlayer: { audioState: { chunks: [], currentChunkIndex: 0 } },
+      ttsTextPicker: {},
+    } as unknown as ShellArgs['readerState'],
+    readerActions: {} as ShellArgs['readerActions'],
+    handleAttachSourceFile: vi.fn(),
+    handleBackToLibrary: vi.fn(),
+    handleExportProject: vi.fn(),
+    libraryAssistantDataSource: {} as ShellArgs['libraryAssistantDataSource'],
+    notify: vi.fn(),
+    onOpenLibraryReference: vi.fn(),
+    pdfMappingWarning: null,
+    syncState: 'saved',
+  });
+  return { domain, library, shell, attachExerciseFiles };
+};
+
+const useAnnotationSaveSession = () => {
+  const domain = useWorkspaceDomain();
+  const library = useProjectLibrary({
+    domainState: domain.domainState,
+    getDomainState: domain.getDomainState,
+    hydrateSnapshot: domain.hydrateSnapshot,
+    setSource: domain.setSource,
+  });
+  type ReaderArgs = Parameters<typeof useWorkspaceReaderActions>[0];
+  const reader = useWorkspaceReaderActions({
+    activeSectionId: domain.activeSectionId,
+    advanceActiveSection: vi.fn(async () => 'noop' as const),
+    closeContextMenu: vi.fn(),
+    completeActiveSection: vi.fn(async () => 'noop' as const),
+    contextMenu: {} as ReaderArgs['contextMenu'],
+    contextMenuScrollTopRef: { current: null },
+    createLessonFromSelection: vi.fn(async () => ({ outcome: 'failed' as const })),
+    documentIndex: null,
+    isMobileViewport: false,
+    learningPlan: domain.learningPlan,
+    notify: vi.fn(),
+    openContextAnswer: vi.fn(),
+    openExercise: vi.fn(async () => undefined),
+    openSection: vi.fn(async () => undefined),
+    patchSectionAnnotations: library.patchSectionAnnotations,
+    projectId: library.currentProjectId,
+    regenerateActiveSection: vi.fn(async () => 'loaded' as const),
+    scrollContainerRef: { current: null },
+    sectionContent: domain.sectionContent,
+    setIsMobileSidebarOpen: vi.fn(),
+    source: null,
+    updateSection: domain.updateSection,
+  });
+  return { domain, library, reader };
+};
 
 const switchProjectDuringWrite = async ({
   failWrite,
@@ -312,6 +390,138 @@ describe('useProjectLibrary', () => {
     unmount();
     await loadDocumentText('text-lifecycle', current);
     expect(repositoryMocks.loadProjectWithRevision).toHaveBeenCalledTimes(4);
+  });
+
+  test.each([
+    { destination: 'project-2', succeeds: true },
+    { destination: 'project-2', succeeds: false },
+    { destination: 'project-1', succeeds: true },
+    { destination: 'project-1', succeeds: false },
+  ])('keeps concept saves with their course across navigation ($destination, success: $succeeds)', async ({
+    destination,
+    succeeds,
+  }) => {
+    const aid = (id: string): LessonLearningAid => ({
+      id,
+      kind: 'definition',
+      title: id,
+      content: `Definition ${id}`,
+    });
+    const originalAids = [aid('original')];
+    const savedAids = [aid('saved')];
+    const otherAids = [aid('other-course')];
+    const snapshot = (id: string, learningAids: LessonLearningAid[]) =>
+      buildSnapshot(id, {
+        activeSectionId: 'lesson-1',
+        learningPlan: buildTestLearningPlan([
+          buildTestLesson({ id: 'lesson-1', content: 'Lesson', learningAids }),
+          buildTestLesson({ id: 'lesson-2', content: 'Next lesson' }),
+        ]),
+      });
+    const first = snapshot('project-1', originalAids);
+    const second = snapshot('project-2', otherAids);
+    const store = new InMemoryProjectStore();
+    const userId = 'concept-save-learner';
+    for (const project of [first, second])
+      await store.saveProject(userId, project as unknown as StoredProjectSnapshot);
+    repositoryMocks.listProjects.mockImplementation(() => store.listProjects(userId));
+    repositoryMocks.saveProject.mockImplementation((project, options) =>
+      store.saveProject(userId, project, options)
+    );
+    let finish!: () => void;
+    repositoryMocks.patchProject.mockImplementation(async (id, patch, options) => {
+      await new Promise<void>(resolve => {
+        finish = resolve;
+      });
+      if (!succeeds) throw new ProjectStorageError('Save failed', 'unknown');
+      return store.patchProject(userId, id, patch, options);
+    });
+    const { result, unmount } = renderHook(useReaderSaveSession);
+    await waitFor(() => expect(result.current.library.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.domain.hydrateSnapshot(first);
+      result.current.library.setCurrentProjectId(first.id);
+    });
+    act(() => result.current.library.completeProjectHydration({ snapshot: first, revision: 1 }));
+    let saving!: Promise<boolean>;
+    act(() => {
+      saving = result.current.shell.header.onSaveLearningAids(savedAids);
+    });
+    await waitFor(() => expect(repositoryMocks.patchProject).toHaveBeenCalledOnce());
+    act(() => {
+      if (destination === second.id) {
+        result.current.library.setProjectHydrated(false);
+        result.current.library.setCurrentProjectId(second.id);
+        result.current.domain.hydrateSnapshot(second);
+      } else {
+        result.current.domain.setActiveSectionId('lesson-2');
+      }
+    });
+    if (destination === second.id)
+      act(() => result.current.library.completeProjectHydration({ snapshot: second, revision: 1 }));
+    await act(async () => {
+      finish();
+      await saving;
+    });
+    await expect(saving).resolves.toBe(succeeds);
+    const expectedAids =
+      destination === second.id ? otherAids : succeeds ? savedAids : originalAids;
+    expect(result.current.domain.learningPlan?.modules[0]?.children[0]).toMatchObject({
+      learningAids: expectedAids,
+    });
+    // A later real snapshot write must not persist the old course's concepts into the destination.
+    await act(async () => {
+      await result.current.library.saveCurrentProject();
+    });
+    const reloadedDestination = await store.loadProject(userId, destination);
+    expect(reloadedDestination?.learningPlan?.modules?.[0]?.children?.[0]).toMatchObject({
+      learningAids: expectedAids,
+    });
+    const reloadedOrigin = await store.loadProject(userId, first.id);
+    expect(reloadedOrigin?.learningPlan?.modules?.[0]?.children?.[0]).toMatchObject({
+      learningAids: succeeds ? savedAids : originalAids,
+    });
+    if (destination === second.id) expect(result.current.library.storageError).toBeNull();
+    unmount();
+  });
+
+  test.each([
+    false,
+    true,
+  ])('applies decoded exercise files only in their originating course (switch: %s)', async switchProject => {
+    const { result, unmount } = renderHook(useReaderSaveSession);
+    await waitFor(() => expect(result.current.library.isLibraryLoading).toBe(false));
+    act(() => result.current.library.setCurrentProjectId('project-1'));
+    let finishRead!: (bytes: ArrayBuffer) => void;
+    const file = new File(['answer'], 'answer.txt', { type: 'text/plain' });
+    Object.defineProperty(file, 'arrayBuffer', {
+      value: () =>
+        new Promise<ArrayBuffer>(resolve => {
+          finishRead = resolve;
+        }),
+    });
+    const nextFile = new File(['next answer'], 'next.txt', { type: 'text/plain' });
+    const readNextFile = vi.fn(async () => new TextEncoder().encode('next answer').buffer);
+    Object.defineProperty(nextFile, 'arrayBuffer', { value: readNextFile });
+    act(() =>
+      result.current.shell.content.onAttachExerciseFiles('exercise-1', [
+        file,
+        nextFile,
+      ] as unknown as FileList)
+    );
+    if (switchProject) act(() => result.current.library.setCurrentProjectId('project-2'));
+    await act(async () => {
+      finishRead(new TextEncoder().encode('answer').buffer);
+    });
+    if (switchProject) {
+      expect(readNextFile).not.toHaveBeenCalled();
+      expect(result.current.attachExerciseFiles).not.toHaveBeenCalled();
+    } else
+      expect(result.current.attachExerciseFiles).toHaveBeenCalledWith('exercise-1', [
+        expect.objectContaining({ name: 'answer.txt', kind: 'text', data: 'answer' }),
+        expect.objectContaining({ name: 'next.txt', kind: 'text', data: 'next answer' }),
+      ]);
+    unmount();
   });
 
   test('loads and sorts saved projects by last opened time', async () => {
@@ -2718,7 +2928,10 @@ describe('useProjectLibrary', () => {
     });
   });
 
-  test('hydrates a newer authoritative snapshot without applying a stale job result', async () => {
+  test.each([
+    false,
+    true,
+  ])('hydrates a newer authoritative snapshot with acceptance %s', async acceptNewerRevision => {
     const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
     const newerSnapshot = buildSnapshot('project-1', {
       activeSectionId: 'lesson-1',
@@ -2751,10 +2964,11 @@ describe('useProjectLibrary', () => {
       shouldApplyResult = await result.current.applyPersistedProjectRevision({
         projectId: 'project-1',
         revision: 5,
+        acceptNewerRevision,
       });
     });
 
-    expect(shouldApplyResult).toBe(false);
+    expect(shouldApplyResult).toBe(acceptNewerRevision);
     expect(hydrateSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({
         activeSectionId: 'lesson-1',
@@ -2775,7 +2989,10 @@ describe('useProjectLibrary', () => {
     );
   });
 
-  test('does not hydrate a delayed snapshot older than a completed local write', async () => {
+  test.each([
+    false,
+    true,
+  ])('does not hydrate a delayed snapshot older than a completed local write with acceptance %s', async acceptNewerRevision => {
     const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
     let resolveRevisionLoad!: (value: { revision: number; snapshot: ProjectSnapshot }) => void;
     repositoryMocks.listProjects.mockResolvedValue([initialMeta]);
@@ -2805,6 +3022,7 @@ describe('useProjectLibrary', () => {
       applyResult = result.current.applyPersistedProjectRevision({
         projectId: 'project-1',
         revision: 4,
+        acceptNewerRevision,
       });
     });
     await act(async () => {
@@ -3256,63 +3474,354 @@ describe('useProjectLibrary', () => {
     );
   });
 
-  test('patchSectionAnnotations suppresses autosave even when called with a stale closure', async () => {
-    // Regression: previously patchSectionAnnotations captured `domainState` from
-    // closure, so the persisted signature was set against the OLD state. After
-    // the React commit applied the dispatch (with a NEW state), the autosave
-    // effect saw a signature mismatch and triggered a full saveProject — which
-    // is exactly what we wanted to avoid.
-    vi.useFakeTimers();
-    repositoryMocks.patchProject.mockImplementation(async (projectId: string) =>
-      buildMeta(projectId, '2026-04-02T11:00:00.000Z')
-    );
-
-    const initialDomain = createEmptyWorkspaceDomainState();
-    const { result, rerender } = renderHook(
-      ({ domainState }: { domainState: WorkspaceDomainState }) =>
-        useProjectLibrary({ domainState, hydrateSnapshot: vi.fn() }),
-      { initialProps: { domainState: initialDomain } }
-    );
-
-    await act(async () => {
-      await vi.runOnlyPendingTimersAsync();
+  test.each(
+    (['note', 'artifact'] as const).flatMap(kind =>
+      (['adopted', 'dirty', 'dirty-before-render', 'in-flight', 'later-dirty'] as const).map(
+        timing => ({ kind, timing })
+      )
+    )
+  )('playback revision advance preserves remote data across $kind save: $timing', async ({
+    kind,
+    timing,
+  }) => {
+    const userId = 'synthetic-playback-learner';
+    const store = new InMemoryProjectStore();
+    const content = 'First sentence.';
+    const initialLesson = buildTestLesson({ id: 'lesson-1', content });
+    const initial = buildSnapshot('project-1', {
+      activeSectionId: 'lesson-1',
+      learningPlan: buildTestLearningPlan([initialLesson]),
     });
+    await store.saveProject(userId, initial as unknown as StoredProjectSnapshot);
+    repositoryMocks.listProjects.mockImplementation(() => store.listProjects(userId));
+    repositoryMocks.loadProjectWithRevision.mockImplementation(id =>
+      store.loadProjectWithRevision(userId, id)
+    );
+    let releasePatch!: () => void;
+    const patchGate = new Promise<void>(resolve => {
+      releasePatch = resolve;
+    });
+    repositoryMocks.patchProject.mockImplementation(async (id, patch, options) => {
+      if (timing === 'in-flight' || timing === 'later-dirty') await patchGate;
+      try {
+        return await store.patchProject(userId, id, patch, options);
+      } catch (error) {
+        if (error instanceof ProjectRevisionConflictError)
+          throw new ProjectStorageError(error.message, 'revision-conflict');
+        throw error;
+      }
+    });
+    repositoryMocks.saveProject.mockImplementation(async (snapshot, options) => {
+      try {
+        return await store.saveProject(userId, snapshot, options);
+      } catch (error) {
+        if (error instanceof ProjectRevisionConflictError)
+          throw new ProjectStorageError(error.message, 'revision-conflict');
+        throw error;
+      }
+    });
+    const { result, unmount } = renderHook(useAnnotationSaveSession);
+    try {
+      await waitFor(() => expect(result.current.library.isLibraryLoading).toBe(false));
+      act(() => {
+        result.current.domain.hydrateSnapshot(initial);
+        result.current.library.setCurrentProjectId(initial.id);
+      });
+      act(() =>
+        result.current.library.completeProjectHydration({ revision: 1, snapshot: initial })
+      );
+      if (timing === 'dirty')
+        act(() => result.current.domain.setGenerationNotes('Keep local instructions'));
+      const playback = preparedPlayback({ ...initialLesson });
+      const advancePlayback = async () => {
+        const meta = await store.patchProject(
+          userId,
+          initial.id,
+          { section: { sectionId: initialLesson.id, playback } },
+          { expectedRevision: 1 }
+        );
+        if (meta.revision === undefined) throw new Error('Stored playback revision is required.');
+        if (timing !== 'dirty-before-render')
+          revisionListener?.({ projectId: initial.id, revision: meta.revision });
+      };
+      if (timing !== 'in-flight' && timing !== 'later-dirty') await act(advancePlayback);
+      if (timing === 'adopted')
+        await waitFor(() => expect(result.current.domain.activeSection?.playback).toBeDefined());
+      let save!: Promise<unknown>;
+      act(() => {
+        if (timing === 'dirty-before-render')
+          result.current.domain.setGenerationNotes('Keep local instructions');
+        const target = { projectId: initial.id, lessonId: initialLesson.id };
+        if (kind === 'artifact')
+          save = result.current.reader.handleSaveArtifactToLesson(
+            target,
+            { id: 'visual-draft-new', kind: 'scene', title: 'Memory', code: '', createdAt: '' },
+            {
+              artifactId: 'project-1:lesson-1:generated-visual:visual-draft-new',
+              kind: 'generated-visual',
+              title: 'Memory',
+            }
+          );
+        else {
+          const passage = buildConversationNoteCatalog({ content, locale: 'en' }).entries[0];
+          save = result.current.reader.handleSaveConversationNote(target, {
+            ...passage.anchor,
+            note: 'Keep my note',
+            exactTarget: { content, selector: passage.selector, segments: passage.segments },
+          });
+        }
+      });
+      await waitFor(() => expect(repositoryMocks.patchProject).toHaveBeenCalledOnce());
+      if (timing === 'in-flight' || timing === 'later-dirty')
+        await act(async () => {
+          if (timing === 'later-dirty')
+            result.current.domain.setGenerationNotes('Keep local instructions');
+          await advancePlayback();
+          releasePatch();
+        });
+      const succeeds = timing !== 'dirty' && timing !== 'dirty-before-render';
+      await act(async () =>
+        expect(await save).toMatchObject(
+          kind === 'artifact' ? { succeeded: succeeds } : { saved: succeeds }
+        )
+      );
+      expect(repositoryMocks.patchProject.mock.calls[0]?.[2]).toMatchObject({
+        expectedRevision: timing === 'adopted' ? 2 : 1,
+      });
+      const options = repositoryMocks.patchProject.mock.calls[0]?.[2];
+      if (succeeds) {
+        expect(options).toMatchObject({
+          rebaseMode: PROJECT_PATCH_REBASE_MODE.annotations,
+          expectedAnnotationState: buildProjectAnnotationWriteState(initialLesson),
+        });
+      } else {
+        expect(options).not.toHaveProperty('rebaseMode');
+        expect(options).not.toHaveProperty('expectedAnnotationState');
+      }
+      const persisted = await store.loadProjectWithRevision(userId, initial.id);
+      expect(persisted?.revision).toBe(succeeds ? 3 : 2);
+      const lesson = persisted?.snapshot.learningPlan?.modules?.[0]?.children?.[0];
+      expect(lesson?.playback).toMatchObject({ lessonKey: playback.lessonKey });
+      if (succeeds) {
+        expect(lesson?.annotations).toHaveLength(1);
+        if (kind === 'note')
+          expect(lesson?.annotations).toMatchObject([
+            {
+              note: 'Keep my note',
+              anchor: { kind: 'selection', selector: { exact: content } },
+            },
+          ]);
+      } else {
+        expect(lesson?.annotations || []).toHaveLength(0);
+        expect(result.current.library.projectSyncState.kind).toBe('conflict');
+        expect(result.current.domain.activeSection?.annotations).toEqual(initialLesson.annotations);
+      }
+      if (timing === 'dirty' || timing === 'dirty-before-render' || timing === 'later-dirty')
+        expect(result.current.domain.generationNotes).toBe('Keep local instructions');
+      if (timing === 'later-dirty')
+        expect(result.current.library.storageError).toContain('modifiche locali');
+      await act(async () => {
+        await new Promise(resolve => globalThis.setTimeout(resolve, 500));
+      });
+      const hasUnrelatedDirtyInput =
+        timing === 'dirty' || timing === 'dirty-before-render' || timing === 'later-dirty';
+      if (hasUnrelatedDirtyInput) {
+        expect(repositoryMocks.saveProject).toHaveBeenCalledOnce();
+        expect(repositoryMocks.saveProject.mock.calls[0]?.[1]).toMatchObject({
+          expectedRevision: 1,
+        });
+        expect(result.current.domain.generationNotes).toBe('Keep local instructions');
+      } else {
+        expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
+      }
+      expect((await store.loadProjectWithRevision(userId, initial.id))?.snapshot).toEqual(
+        persisted?.snapshot
+      );
+    } finally {
+      unmount();
+    }
+  });
 
+  test.each(
+    (['note', 'artifact'] as const).flatMap(kind =>
+      (['clean', 'dirty-before', 'dirty-during', 'conflict', 'rollback-quiz'] as const).map(
+        scenario => ({
+          kind,
+          scenario,
+        })
+      )
+    )
+  )('reader $kind save acknowledges only its committed mutation: $scenario', async ({
+    kind,
+    scenario,
+  }) => {
+    const content = 'First sentence.';
+    const initialLesson = buildTestLesson({ id: 'lesson-1', content });
+    const initial = buildSnapshot('project-1', {
+      activeSectionId: 'lesson-1',
+      learningPlan: buildTestLearningPlan([initialLesson]),
+    });
+    repositoryMocks.listProjects.mockResolvedValue([
+      { ...buildMeta('project-1', initial.updatedAt, 1), hasSourceFile: false },
+    ]);
+    let finishPatch!: () => void;
+    repositoryMocks.patchProject.mockImplementation(
+      () =>
+        new Promise((resolve, reject) => {
+          finishPatch = () =>
+            scenario === 'conflict'
+              ? reject(new ProjectStorageError('Revision conflict', 'revision-conflict'))
+              : resolve({
+                  ...buildMeta(
+                    'project-1',
+                    initial.updatedAt,
+                    scenario === 'rollback-quiz' ? 3 : 2
+                  ),
+                  hasSourceFile: false,
+                });
+        })
+    );
+    const { result, unmount } = renderHook(useAnnotationSaveSession);
+    await waitFor(() => expect(result.current.library.isLibraryLoading).toBe(false));
     act(() => {
-      result.current.setCurrentProjectId('proj-1');
-      result.current.setProjectHydrated(true);
+      result.current.domain.hydrateSnapshot(initial);
+      result.current.library.setCurrentProjectId('project-1');
     });
-
-    // Capture the callback after projectId is set but before the rerender —
-    // this is the closure that would persist a stale signature without the fix.
-    const stalePatch = result.current.patchSectionAnnotations;
-
-    // Simulate React applying the updateSection dispatch: rerender with a new
-    // domainState whose signature differs from the initial one. The stale
-    // callback (captured above) would otherwise persist the OLD signature.
-    const updatedDomain: WorkspaceDomainState = {
-      ...initialDomain,
-      learningPlan: {
-        ...buildTestLearningPlan([], { title: 'Plan' }),
-      },
-    };
-    rerender({ domainState: updatedDomain });
-
-    await act(async () => {
-      await stalePatch('sec-1', [], 'updated content');
-    });
-
-    // PATCH was sent — that's expected.
-    expect(repositoryMocks.patchProject).toHaveBeenCalledTimes(1);
-
-    // Now advance past the autosave debounce (400ms). With the fix, the ref
-    // captured the NEW signature via domainStateRef so the autosave stays idle.
-    await act(async () => {
-      vi.advanceTimersByTime(500);
-      await vi.runOnlyPendingTimersAsync();
-    });
-
-    expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
+    act(() => result.current.library.completeProjectHydration({ revision: 1, snapshot: initial }));
+    if (scenario === 'rollback-quiz') {
+      repositoryMocks.patchProject
+        .mockRejectedValueOnce(new ProjectStorageError('Revision conflict', 'revision-conflict'))
+        .mockResolvedValueOnce({
+          ...buildMeta('project-1', initial.updatedAt, 2),
+          hasSourceFile: false,
+        });
+      await act(async () => {
+        expect(
+          await result.current.reader.handleSaveArtifactToLesson(
+            { projectId: 'project-1', lessonId: 'lesson-1' },
+            {
+              id: 'visual-draft-rollback',
+              kind: 'scene',
+              title: 'Rollback',
+              code: '',
+              createdAt: '',
+            },
+            { artifactId: 'rollback', kind: 'generated-visual', title: 'Rollback' }
+          )
+        ).toMatchObject({ succeeded: false });
+      });
+      await act(async () => {
+        const before = result.current.domain.getDomainState();
+        const quizState = { answers: [0], isSubmitted: false };
+        result.current.domain.updateSection('lesson-1', lesson => ({ ...lesson, quizState }));
+        expect(
+          await result.current.library.patchSectionLearnerState(
+            'lesson-1',
+            { quizState },
+            {
+              before,
+              after: result.current.domain.getDomainState(),
+            }
+          )
+        ).toBe(true);
+      });
+      repositoryMocks.patchProject.mockClear();
+      repositoryMocks.saveProject.mockClear();
+    }
+    vi.useFakeTimers();
+    try {
+      if (scenario === 'dirty-before')
+        act(() => result.current.domain.setGenerationNotes('Keep unrelated instructions'));
+      let save!: Promise<unknown>;
+      await act(async () => {
+        const target = { projectId: 'project-1', lessonId: 'lesson-1' };
+        if (kind === 'artifact') {
+          save = result.current.reader.handleSaveArtifactToLesson(
+            target,
+            { id: 'visual-draft-new', kind: 'scene', title: 'Memory', code: '', createdAt: '' },
+            {
+              artifactId: 'project-1:lesson-1:generated-visual:visual-draft-new',
+              kind: 'generated-visual',
+              title: 'Memory',
+            }
+          );
+        } else {
+          const passage = buildConversationNoteCatalog({ content, locale: 'en' }).entries[0];
+          save = result.current.reader.handleSaveConversationNote(target, {
+            ...passage.anchor,
+            note: 'Saved note',
+            exactTarget: { content, selector: passage.selector, segments: passage.segments },
+          });
+        }
+        // The domain mutates synchronously, before React refreshes the library ref.
+        expect(
+          result.current.domain.getDomainState().learningPlan?.modules[0]?.children[0]
+        ).toMatchObject({
+          annotations: [expect.any(Object)],
+        });
+        if (scenario === 'clean' || scenario === 'rollback-quiz') {
+          await Promise.resolve();
+          finishPatch();
+          await save;
+        }
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(repositoryMocks.patchProject).toHaveBeenCalledOnce();
+      expect(repositoryMocks.patchProject.mock.calls[0]?.[2]).toMatchObject({
+        expectedRevision: scenario === 'rollback-quiz' ? 2 : 1,
+      });
+      const committed = repositoryMocks.patchProject.mock.calls[0]?.[1].section;
+      expect(committed.annotations).toHaveLength(1);
+      if (kind === 'artifact') expect(committed.generatedVisuals).toHaveLength(1);
+      if (scenario === 'dirty-during')
+        act(() => {
+          result.current.domain.updateSection('lesson-1', lesson => ({
+            ...lesson,
+            annotations: [
+              ...(lesson.annotations || []),
+              {
+                id: 'later-note',
+                note: 'Keep newer annotation',
+                createdAt: '',
+                updatedAt: '',
+              },
+            ],
+          }));
+        });
+      await act(async () => {
+        if (scenario !== 'clean' && scenario !== 'rollback-quiz') finishPatch();
+        expect(await save).toMatchObject(
+          kind === 'artifact'
+            ? { succeeded: scenario !== 'conflict' }
+            : { saved: scenario !== 'conflict' }
+        );
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      if (scenario === 'dirty-before' || scenario === 'dirty-during') {
+        expect(repositoryMocks.saveProject).toHaveBeenCalledOnce();
+        expect(repositoryMocks.saveProject.mock.calls[0]?.[1]).toEqual({ expectedRevision: 2 });
+        const saved = repositoryMocks.saveProject.mock.calls[0]?.[0].learningPlan;
+        if (scenario === 'dirty-before')
+          expect(saved.generationNotes).toBe('Keep unrelated instructions');
+        else
+          expect(saved.modules[0].children[0].annotations).toContainEqual(
+            expect.objectContaining({ id: 'later-note' })
+          );
+      } else {
+        expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
+      }
+      if (scenario === 'conflict')
+        expect(
+          result.current.domain.getDomainState().learningPlan?.modules[0]?.children[0]
+        ).toMatchObject({ annotations: initialLesson.annotations });
+    } finally {
+      unmount();
+      vi.useRealTimers();
+    }
   });
 
   test('patchSectionAnnotations reports persistence failure to its caller', async () => {

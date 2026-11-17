@@ -1,4 +1,18 @@
-import type { ProjectSnapshot, WorkspaceDomainState } from '../../types';
+import type { SectionPatch } from '@shared/projectContract';
+import type { LearningPlan, ProjectSnapshot, WorkspaceDomainState } from '../../types';
+
+import { findPathNodeById } from '../../utils/learning/pathNodes.ts';
+
+// Optional fields can disappear in JSON and return at a different insertion position.
+// Signature equality follows stored values, not object construction order.
+const stringifySignaturePart = (value: unknown): string =>
+  JSON.stringify(value, (_key, nested: unknown) =>
+    nested && typeof nested === 'object' && !Array.isArray(nested)
+      ? Object.fromEntries(
+          Object.entries(nested).sort(([left], [right]) => left.localeCompare(right))
+        )
+      : nested
+  );
 
 const objectSignatureCache = new WeakMap<object, string>();
 
@@ -12,7 +26,7 @@ const buildSignaturePart = <T>(value: T): T | string => {
     return cachedSignature;
   }
 
-  const signature = JSON.stringify(value);
+  const signature = stringifySignaturePart(value);
   objectSignatureCache.set(value, signature);
   return signature;
 };
@@ -82,3 +96,18 @@ export const buildAutosaveSignature = (snapshotLike: SignatureInput): string =>
     researchDossiersBySectionId: buildSignaturePart(snapshotLike.researchDossiersBySectionId ?? {}),
     activeSectionId: snapshotLike.activeSectionId,
   });
+
+/** Advances only the fields committed by a section PATCH, retaining other dirty edits. */
+export const acknowledgeSectionPatch = (signature: string, patch: SectionPatch): string => {
+  if (!signature) return signature;
+  const baseline: { learningPlan: string | null } = JSON.parse(signature);
+  if (!baseline.learningPlan) return signature;
+  const learningPlan: LearningPlan = JSON.parse(baseline.learningPlan);
+  const section = findPathNodeById(learningPlan.modules, patch.sectionId);
+  if (section?.kind !== 'lesson') return signature;
+  for (const [field, value] of Object.entries(patch)) {
+    if (field !== 'sectionId' && value !== undefined) Object.assign(section, { [field]: value });
+  }
+  baseline.learningPlan = stringifySignaturePart(learningPlan);
+  return JSON.stringify(baseline);
+};

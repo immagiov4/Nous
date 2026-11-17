@@ -1,3 +1,4 @@
+import type { SourcePreparationProgress } from '@shared/sourcePreparation';
 import type { UIMessage } from 'ai';
 import type {
   HomeChatMode,
@@ -12,6 +13,8 @@ import type {
   ChatArtifactRegenerateRequest,
   ChatArtifactReplaceRequest,
 } from '../shared/ChatArtifactRenderer.tsx';
+import CourseSetupHeader from './CourseSetupHeader.tsx';
+import { deriveCourseSetupPhase } from './courseSetupPhase.ts';
 import type { DiagnosticAdapter } from './diagnostic/diagnosticFlow.ts';
 import HomeChatComposer, {
   type LibraryMessageSendHandler,
@@ -22,7 +25,9 @@ import HomeChatPanelFrame from './HomeChatPanelFrame.tsx';
 import { useHomeChatPanelState } from './useHomeChatPanelState.ts';
 
 interface HomeChatPanelProps {
+  readonly sourceCount?: number;
   readonly coursePreferences?: import('react').ReactNode;
+  readonly supportsCoursePreferences?: boolean;
   readonly diagnosticAdapter?: DiagnosticAdapter;
   readonly assessmentComplete: boolean;
   readonly assessmentMessages: Message[];
@@ -42,9 +47,11 @@ interface HomeChatPanelProps {
   readonly libraryWebSearch: boolean;
   readonly libraryGenerateArtifacts: boolean;
   readonly newCourseLoadingStatus: string;
+  readonly sourcePreparationProgress?: SourcePreparationProgress;
   readonly pendingFileName: string | null;
   readonly pendingFileNames?: string[];
   readonly pendingFileWarnings?: string[];
+  readonly terminalSourceDocuments?: { id: string; name: string; state: 'error' }[];
   readonly isSourceSelectionPending?: boolean;
   readonly draftValueOverride?: string;
   readonly draftTemplate?: {
@@ -92,7 +99,9 @@ interface HomeChatPanelProps {
 }
 
 export default function HomeChatPanel({
+  sourceCount = 0,
   coursePreferences,
+  supportsCoursePreferences = Boolean(coursePreferences),
   diagnosticAdapter,
   assessmentComplete,
   assessmentMessages,
@@ -112,9 +121,11 @@ export default function HomeChatPanel({
   libraryWebSearch,
   libraryGenerateArtifacts,
   newCourseLoadingStatus,
+  sourcePreparationProgress,
   pendingFileName,
   pendingFileNames,
   pendingFileWarnings,
+  terminalSourceDocuments,
   isSourceSelectionPending = false,
   draftValueOverride,
   draftTemplate,
@@ -169,16 +180,30 @@ export default function HomeChatPanel({
     onHomeChatModeChange,
     onLibraryMessageSend,
   });
-  const reserveClearButtonSpace = showClearChat && hideHeaderCopy && hideModeSelector;
+  const setupPhase =
+    homeChatMode === 'new-course'
+      ? deriveCourseSetupPhase({
+          assessmentComplete,
+          diagnosticKind: diagnosticAdapter?.initial.kind,
+          hasMessages: assessmentMessages.length > 0,
+          hasPreferences: Boolean(coursePreferences),
+          isLoading: isNewCourseLoading,
+          sourceCount,
+        })
+      : null;
+  const reserveClearButtonSpace =
+    !setupPhase && showClearChat && hideHeaderCopy && hideModeSelector;
 
   return (
     <HomeChatPanelFrame
-      hasActiveChat={hasActiveChat || (homeChatMode === 'new-course' && Boolean(diagnosticAdapter))}
+      setupPhase={setupPhase}
+      hasActiveChat={hasActiveChat || Boolean(setupPhase)}
+      isSourcePreparing={Boolean(sourcePreparationProgress)}
       hideHeaderCopy={hideHeaderCopy}
       hideModeSelector={hideModeSelector}
       homeChatMode={homeChatMode}
       isAnyChatLoading={isLibraryModeLoading || isNewCourseLoading}
-      isCompactSurface={isCompactSurface && !(homeChatMode === 'new-course' && diagnosticAdapter)}
+      isCompactSurface={isCompactSurface && !setupPhase}
       isLoading={isLoading}
       isMobileViewport={isMobileViewport}
       onCancelNewCourse={onCancelNewCourse}
@@ -187,6 +212,16 @@ export default function HomeChatPanel({
       showClearChat={showClearChat}
       viewportHeight={viewportHeight}
     >
+      {setupPhase && (
+        <CourseSetupHeader
+          phase={setupPhase}
+          sourceCount={sourceCount}
+          hasPreferences={supportsCoursePreferences}
+          hasDiagnostic={Boolean(diagnosticAdapter)}
+          isLoading={isLoading}
+          onAbandon={onCancelNewCourse}
+        />
+      )}
       <HomeChatConversation
         coursePreferences={coursePreferences}
         diagnosticAdapter={diagnosticAdapter}
@@ -205,6 +240,7 @@ export default function HomeChatPanel({
         libraryErrorMessage={libraryErrorMessage}
         libraryFloatingArtifactPayloads={libraryFloatingArtifactPayloads}
         newCourseLoadingStatus={newCourseLoadingStatus}
+        showLoadingStatus={!sourcePreparationProgress}
         onConfirmGenerate={onConfirmGenerate}
         onContinueAssessment={onContinueAssessment}
         onLibraryArtifactNoteApprove={onLibraryArtifactNoteApprove}
@@ -248,6 +284,9 @@ export default function HomeChatPanel({
           pendingFileName={pendingFileName}
           pendingFileNames={pendingFileNames}
           pendingFileWarnings={pendingFileWarnings}
+          terminalSourceDocuments={terminalSourceDocuments}
+          sourcePreparationProgress={sourcePreparationProgress}
+          sourcePreparationStatus={newCourseLoadingStatus}
           isSourceSelectionPending={isSourceSelectionPending}
           viewportHeight={viewportHeight}
         />

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { COURSE_INTERVIEW_EVENT_SCHEMA_VERSION } from '@shared/courseInterviewContract.js';
 import {
   createLessonPlaybackBlockSchema,
   HistoricalLessonSceneSchemas,
@@ -25,7 +26,10 @@ import {
   createArtifactDraftApi,
   unavailableArtifactDraftApi,
 } from '../artifactDraftApi.js';
-import { createArtifactDraftWorkflow } from '../artifactDraftWorkflow.js';
+import {
+  createArtifactDraftWorkflow,
+  createPreviousArtifactDraftWorkflow,
+} from '../artifactDraftWorkflow.js';
 import { WorkflowExecutionDefaultsSchema } from '../config.js';
 import {
   type CourseGenerationApi,
@@ -41,18 +45,22 @@ import {
   createPreviousCourseGenerationWorkflow,
   createPreviousDiagnosticCourseGenerationWorkflow,
   createPreviousFailureDiagnosticsCourseGenerationWorkflow,
+  createPreviousModelCallCourseGenerationWorkflow,
   createPreviousPreferencesCourseGenerationWorkflow,
   createPreviousRoutingCourseGenerationWorkflow,
+  createPreviousSourceMappingDiagnosticsCourseGenerationWorkflow,
   createPreviousVerificationCriteriaCourseGenerationWorkflow,
 } from '../courseGenerationWorkflow.js';
 import {
   courseGenerationStateSchemas,
   preControlsCourseGenerationStateSchemas,
   preDiagnosticCourseGenerationStateSchemas,
+  preModelCallCourseGenerationStateSchemas,
   previousCourseGenerationStateSchemas,
 } from '../courseGenerationWorkflowContract.js';
 import {
   type CourseInterviewApi,
+  courseInterviewPublishedEventSchemas,
   createCourseInterviewApi,
   projectCourseInterviewEvents,
   unavailableCourseInterviewApi,
@@ -170,7 +178,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 8;
+export const WORKFLOW_SET_VERSION = 12;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -191,6 +199,10 @@ export const createRuntimeProjectRevisionNotificationDelivery = (
 ) =>
   createProjectRevisionNotificationDelivery({
     eventTypes: new Set([COURSE_PROJECT_REVISION_EVENT, LESSON_PROJECT_REVISION_EVENT]),
+    polledEvents: {
+      schemaVersion: COURSE_INTERVIEW_EVENT_SCHEMA_VERSION,
+      schemas: new Map(Object.entries(courseInterviewPublishedEventSchemas)),
+    },
     receiveNotification,
   });
 
@@ -281,6 +293,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     const contract = createSceneLessonVisualContractSchemas(schema);
     return {
       artifact: createArtifactDraftWorkflow(visualExecutionDefaults, contract),
+      previousArtifact: createPreviousArtifactDraftWorkflow(visualExecutionDefaults, contract),
       retry: createLessonVisualWorkflows(visualExecutionDefaults, undefined, contract).retry,
       lesson: createLessonGenerationWorkflow(
         {
@@ -290,7 +303,27 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
           visual,
         },
         undefined,
+        createSceneLessonGenerationDurableSchemaSet(contract, false)
+      ),
+      diagnosticLesson: createLessonGenerationWorkflow(
+        {
+          maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+          models,
+          timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+          visual,
+        },
+        undefined,
         createSceneLessonGenerationDurableSchemaSet(contract)
+      ),
+      previousDiagnosticLesson: createLessonGenerationWorkflow(
+        {
+          maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+          models,
+          timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+          visual,
+        },
+        undefined,
+        createSceneLessonGenerationDurableSchemaSet(contract, true, false)
       ),
       visualSectionsPlayback: createLessonPlaybackWorkflow(
         playbackExecutionDefaults,
@@ -348,7 +381,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   const preOpenAiRemovalScenes = sceneSchemas.map(schema => {
     const contract = createSceneLessonVisualContractSchemas(schema);
     return {
-      artifact: createArtifactDraftWorkflow(
+      artifact: createPreviousArtifactDraftWorkflow(
         visualExecutionDefaults,
         contract,
         historicalVisualConfigSchema
@@ -361,18 +394,18 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
       lesson: createLessonGenerationWorkflow(
         historicalGenerationDefaults,
         historicalLessonConfigSchema,
-        createSceneLessonGenerationDurableSchemaSet(contract)
+        createSceneLessonGenerationDurableSchemaSet(contract, false)
       ),
     };
   });
-  const lessonWorkflow = currentScenes.lesson;
+  const lessonWorkflow = currentScenes.diagnosticLesson;
   // Definitions deployed before lesson scenes keep the legacy visual contract.
   const preSceneRetryWorkflow = createLessonVisualWorkflows(
     visualExecutionDefaults,
     historicalVisualConfigSchema,
     LegacyLessonVisualContractSchemas
   ).retry;
-  const preSceneArtifactDraftWorkflow = createArtifactDraftWorkflow(
+  const preSceneArtifactDraftWorkflow = createPreviousArtifactDraftWorkflow(
     visualExecutionDefaults,
     LegacyLessonVisualContractSchemas,
     historicalVisualConfigSchema
@@ -468,41 +501,51 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   const previousPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
     historicalGenerationDefaults,
     historicalModelConfigSchema,
-    courseGenerationStateSchemas,
-    PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID
+    {
+      schemas: courseGenerationStateSchemas,
+      compatibilityId: PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID,
+      sourceMappingDiagnostics: false,
+    }
   );
   const previousControlsPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
     historicalGenerationDefaults,
     historicalModelConfigSchema,
-    preControlsCourseGenerationStateSchemas
+    { schemas: preControlsCourseGenerationStateSchemas }
   );
   const previousDiagnosticPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
     historicalGenerationDefaults,
     historicalModelConfigSchema,
-    preDiagnosticCourseGenerationStateSchemas
+    { schemas: preDiagnosticCourseGenerationStateSchemas }
   );
   const previousDiagnosticLegacyPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
     historicalGenerationDefaults,
     historicalModelConfigSchema,
-    preDiagnosticCourseGenerationStateSchemas,
-    PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID
+    {
+      schemas: preDiagnosticCourseGenerationStateSchemas,
+      compatibilityId: PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID,
+    }
   );
   const previousControlsLegacyPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
     historicalGenerationDefaults,
     historicalModelConfigSchema,
-    preControlsCourseGenerationStateSchemas,
-    PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID
+    {
+      schemas: preControlsCourseGenerationStateSchemas,
+      compatibilityId: PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID,
+    }
   );
   const previousPreferencesPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
     historicalGenerationDefaults,
     historicalModelConfigSchema,
-    previousCourseGenerationStateSchemas,
-    PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID
+    {
+      schemas: previousCourseGenerationStateSchemas,
+      compatibilityId: PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID,
+    }
   );
   registry.register({
     current: currentScenes.artifact,
     previous: [
-      ...historicalScenes.map(definition => definition.artifact),
+      currentScenes.previousArtifact,
+      ...historicalScenes.flatMap(definition => [definition.artifact, definition.previousArtifact]),
       ...preOpenAiRemovalScenes.map(definition => definition.artifact),
       preSceneArtifactDraftWorkflow,
       preProviderPostprocessingPrevious(preSceneArtifactDraftWorkflow),
@@ -540,6 +583,16 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: courseWorkflow,
     previous: [
+      createPreviousModelCallCourseGenerationWorkflow({
+        maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+        models,
+        timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+      }),
+      createPreviousSourceMappingDiagnosticsCourseGenerationWorkflow({
+        maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+        models,
+        timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+      }),
       createPreviousFailureDiagnosticsCourseGenerationWorkflow({
         maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
         models,
@@ -573,6 +626,10 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: lessonWorkflow,
     previous: [
+      currentScenes.lesson,
+      currentScenes.previousDiagnosticLesson,
+      ...historicalScenes.map(definition => definition.previousDiagnosticLesson),
+      ...historicalScenes.map(definition => definition.diagnosticLesson),
       ...historicalScenes.map(definition => definition.lesson),
       ...preOpenAiRemovalScenes.map(definition => definition.lesson),
       previousPreSceneLessonWorkflow,
@@ -589,7 +646,27 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: pdfMappingRepairWorkflow,
     previous: [
-      createPdfMappingRepairWorkflow(historicalGenerationDefaults, historicalModelConfigSchema),
+      createPdfMappingRepairWorkflow(
+        {
+          maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+          models,
+          timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+        },
+        undefined,
+        { schemas: preModelCallCourseGenerationStateSchemas, sourceMappingDiagnostics: true }
+      ),
+      createPdfMappingRepairWorkflow(
+        {
+          maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+          models,
+          timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+        },
+        undefined,
+        { sourceMappingDiagnostics: false }
+      ),
+      createPdfMappingRepairWorkflow(historicalGenerationDefaults, historicalModelConfigSchema, {
+        sourceMappingDiagnostics: false,
+      }),
       previousDiagnosticPdfMappingRepairWorkflow,
       previousDiagnosticLegacyPdfMappingRepairWorkflow,
       previousControlsPdfMappingRepairWorkflow,

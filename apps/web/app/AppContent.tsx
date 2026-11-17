@@ -73,6 +73,7 @@ const AppContent = () => {
 
   const projectLibrary = useProjectLibrary({
     domainState: domain.domainState,
+    getDomainState: domain.getDomainState,
     hydrateSnapshot: domain.hydrateSnapshot,
     setSource: domain.setSource,
   });

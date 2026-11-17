@@ -5,6 +5,7 @@ import { createDeferred } from '../../helpers/deferred';
 
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
+import { useWorkspaceDomain } from '../../../hooks/workspace/useWorkspaceDomain.ts';
 import { useWorkspaceReaderActions } from '../../../hooks/workspace/useWorkspaceReaderActions.ts';
 import {
   LESSON_SOURCE_UNAVAILABLE_MESSAGE,
@@ -943,4 +944,157 @@ test('a partial selection captures and updates the attached annotation full exac
     undefined,
     undefined
   );
+});
+
+test.each([
+  'selection',
+  'annotation',
+] as const)('plain-note %s keeps its composer after a rejected PATCH', async type => {
+  const content = 'First sentence.';
+  const existing = { id: 'existing', note: 'Old note', createdAt: '', updatedAt: '' };
+  const args = buildHookArgs({
+    activeSectionId: 'lesson-1',
+    learningPlan: buildTestLearningPlan([
+      buildTestLesson({ id: 'lesson-1', content, annotations: [existing] }),
+    ]),
+    contextMenu: {
+      visible: true,
+      placement: 'desktop-floating',
+      annotationNote: 'Old note',
+      type,
+      annotationId: 'existing',
+      selectedText: content,
+      selectedTextStart: 0,
+    } as HookArgs['contextMenu'],
+    patchSectionAnnotations: vi.fn(async () => false),
+  });
+  const { result } = renderHook(() => useWorkspaceReaderActions(args));
+  await act(async () => {
+    await result.current.handleSaveNote('Keep my unsaved draft');
+  });
+  expect(args.closeContextMenu).not.toHaveBeenCalled();
+  expect(args.notify).toHaveBeenCalledWith('Non sono riuscito a salvare la nota.');
+});
+
+test.each([
+  'original',
+  'replacement-menu',
+  'another-project',
+] as const)('plain-note acknowledgement closes only its own composer: %s', async replacement => {
+  const pending = createDeferred();
+  const content = 'First sentence.';
+  const args = buildHookArgs({
+    activeSectionId: 'lesson-1',
+    learningPlan: buildTestLearningPlan([buildTestLesson({ id: 'lesson-1', content })]),
+    contextMenu: {
+      type: 'selection',
+      selectedText: content,
+      selectedTextStart: 0,
+    } as HookArgs['contextMenu'],
+    patchSectionAnnotations: vi.fn(async () => {
+      await pending.promise;
+      return true;
+    }),
+  });
+  const { result, rerender } = renderHook((props: HookArgs) => useWorkspaceReaderActions(props), {
+    initialProps: args,
+  });
+  let first: Promise<void> | undefined;
+  let duplicate: Promise<void> | undefined;
+  act(() => {
+    first = result.current.handleSaveNote('Draft');
+    duplicate = result.current.handleSaveNote('Draft');
+  });
+  expect(args.patchSectionAnnotations).toHaveBeenCalledOnce();
+  expect(args.closeContextMenu).not.toHaveBeenCalled();
+  if (replacement === 'replacement-menu')
+    rerender({
+      ...args,
+      contextMenu: { ...args.contextMenu, selectedText: 'Replacement selection.' },
+    });
+  if (replacement === 'another-project') rerender({ ...args, projectId: 'project-2' });
+  await act(async () => {
+    pending.resolve();
+    await Promise.all([first, duplicate]);
+  });
+  expect(args.closeContextMenu).toHaveBeenCalledTimes(replacement === 'original' ? 1 : 0);
+});
+
+test.each([
+  false,
+  true,
+])('failed plain-note save rolls back only its own optimistic annotations; later annotation edit=%s', async laterAnnotationEdit => {
+  const pending = createDeferred();
+  const content = 'First sentence.';
+  const patch = vi
+    .fn()
+    .mockImplementationOnce(async () => {
+      await pending.promise;
+      return false;
+    })
+    .mockResolvedValue(true);
+  const args = buildHookArgs({
+    contextMenu: {
+      type: 'selection',
+      selectedText: content,
+      selectedTextStart: 0,
+    } as HookArgs['contextMenu'],
+    patchSectionAnnotations: patch,
+  });
+  const { result } = renderHook(() => {
+    const domain = useWorkspaceDomain();
+    const reader = useWorkspaceReaderActions({
+      ...args,
+      activeSectionId: domain.activeSectionId,
+      learningPlan: domain.learningPlan,
+      updateSection: domain.updateSection,
+    });
+    return { domain, reader };
+  });
+  act(() => {
+    result.current.domain.setLearningPlan(
+      buildTestLearningPlan([buildTestLesson({ id: 'lesson-1', content })])
+    );
+    result.current.domain.setActiveSectionId('lesson-1');
+  });
+  let save: Promise<void> | undefined;
+  act(() => {
+    save = result.current.reader.handleSaveNote('Keep this once');
+  });
+  const optimistic = result.current.domain.activeSection?.annotations;
+  expect(optimistic).toHaveLength(1);
+  const optimisticAnnotation = optimistic?.[0];
+  if (!optimisticAnnotation) throw new Error('Expected optimistic annotation');
+  act(() =>
+    result.current.domain.updateSection('lesson-1', section => ({
+      ...section,
+      title: 'Later title',
+      ...(laterAnnotationEdit
+        ? {
+            annotations: [
+              ...(section.annotations || []),
+              { ...optimisticAnnotation, id: 'later', note: 'Later note' },
+            ],
+          }
+        : {}),
+    }))
+  );
+  await act(async () => {
+    pending.resolve();
+    await save;
+  });
+  expect(result.current.domain.activeSection?.title).toBe('Later title');
+  expect(args.closeContextMenu).not.toHaveBeenCalled();
+  if (laterAnnotationEdit) {
+    expect(result.current.domain.activeSection?.annotations).toHaveLength(2);
+    expect(result.current.domain.activeSection?.annotations?.[1].note).toBe('Later note');
+  } else {
+    expect(result.current.domain.activeSection?.annotations || []).toHaveLength(0);
+    await act(async () => {
+      await result.current.reader.handleSaveNote('Keep this once');
+    });
+    expect(result.current.domain.activeSection?.annotations).toHaveLength(1);
+    expect(result.current.domain.activeSection?.annotations?.[0].note).toBe('Keep this once');
+    expect(args.closeContextMenu).toHaveBeenCalledOnce();
+  }
 });

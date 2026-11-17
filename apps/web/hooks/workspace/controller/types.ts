@@ -1,3 +1,4 @@
+import type { SourcePreparationProgress } from '@shared/sourcePreparation';
 import type { GenerationProgressSnapshot } from '../../../services/openrouter/generationProgress.ts';
 import type {
   ProjectPersistenceOptions,
@@ -96,6 +97,7 @@ export interface WorkspaceDomainControllerAdapter {
 
 export interface WorkspaceProjectLibraryAdapter {
   applyPersistedProjectRevision: (args: {
+    acceptNewerRevision?: boolean;
     projectId: string;
     revision: number;
   }) => Promise<boolean>;
@@ -234,7 +236,12 @@ export interface WorkspaceControllerStateAdapter {
     parentSectionId?: string
   ) => void;
   setProjectMissingSource: (projectId: string, missing: boolean) => void;
-  setWorkflowMessage: (workflowId: WorkspaceWorkflowId, requestId: number, message: string) => void;
+  setWorkflowMessage: (
+    workflowId: WorkspaceWorkflowId,
+    requestId: number,
+    message: string,
+    sourcePreparation?: SourcePreparationProgress
+  ) => void;
   setWorkflowReasoning: (
     workflowId: WorkspaceWorkflowId,
     requestId: number,
@@ -352,6 +359,7 @@ export interface WorkspaceControllerCommands {
       | 'noop'
       | 'planned';
     sourceWarnings?: ProjectSourceWarning[];
+    terminalSourceDocuments?: { id: string; name: string; state: 'error' }[];
   }>;
   submitAssessment: (
     input: string,
@@ -360,6 +368,7 @@ export interface WorkspaceControllerCommands {
     errorMessage?: string;
     outcome: 'abandoned' | 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
     sourceWarnings?: ProjectSourceWarning[];
+    terminalSourceDocuments?: { id: string; name: string; state: 'error' }[];
   }>;
   updateApplicationExercise: (
     exerciseId: string,

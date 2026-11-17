@@ -99,20 +99,15 @@ interface SpokenFollowUpQuestion {
 /** Connects the conversation generation state and spoken questions to the player. */
 function ConversationBridge({
   blocked,
-  onBlockedChange,
   question,
   send,
   deliver,
 }: Readonly<{
   blocked: boolean;
-  onBlockedChange: (blocked: boolean) => void;
   question: SpokenFollowUpQuestion | null;
   send: (text: string) => void;
   deliver: (question: SpokenFollowUpQuestion, send: (text: string) => void) => void;
 }>) {
-  useLayoutEffect(() => {
-    onBlockedChange(blocked);
-  }, [blocked, onBlockedChange]);
   useEffect(() => {
     if (question && !blocked) deliver(question, send);
   }, [blocked, deliver, question, send]);
@@ -236,18 +231,20 @@ export default function LessonPlayer({
   const [answer, setAnswer] = useState<ContextAnswerState | null>(null);
   const [holdingSpace, setHoldingSpace] = useState(false);
   const spaceDown = useRef(false);
-  const answerSubmissionBlocked = useRef(false);
-  const syncAnswerSubmissionBlocked = useCallback((blocked: boolean) => {
-    answerSubmissionBlocked.current = blocked;
-  }, []);
   const spokenQuestion = useRef<ContextAnswerState | null>(null);
   const heldTranscription = useRef<string | null>(null);
   const [spokenFollowUp, setSpokenFollowUp] = useState<SpokenFollowUpQuestion | null>(null);
   const deliveredFollowUps = useRef(new Set<string>());
   const receiveTranscription = (text: string) => {
     const question = spokenQuestion.current;
-    if (question?.initialQuestion) setSpokenFollowUp({ id: crypto.randomUUID(), text });
-    else if (question) setAnswer({ ...question, initialQuestion: text });
+    if (question?.initialQuestion) {
+      const id = crypto.randomUUID();
+      // Keep completed captures together while the conversation is busy.
+      setSpokenFollowUp(previous => ({
+        id,
+        text: appendSpeechTranscription(previous?.text ?? '', text),
+      }));
+    } else if (question) setAnswer({ ...question, initialQuestion: text });
     else changeDraft(appendSpeechTranscription(draft, text));
   };
   const speech = useSpeechInput({
@@ -423,17 +420,31 @@ export default function LessonPlayer({
     anchor.current = null;
   };
   const listening = holdingSpace && !speech.speechInputError;
-  const spaceHintHidden = Boolean(answer) || listening || noteMode || Boolean(draft);
+  const hintRef = useRef<HTMLParagraphElement>(null);
+  const hintTextRef = useRef<HTMLSpanElement>(null);
+  const [hintFits, setHintFits] = useState(false);
+  useLayoutEffect(() => {
+    const hint = hintRef.current;
+    const text = hintTextRef.current;
+    if (!hint || !text) return;
+    const updateFit = () => setHintFits(hint.clientWidth >= text.scrollWidth);
+    const observer = new ResizeObserver(updateFit);
+    observer.observe(hint);
+    observer.observe(text);
+    updateFit();
+    return () => observer.disconnect();
+  }, []);
+  const spaceHintHidden = !hintFits || Boolean(answer) || listening || noteMode || Boolean(draft);
   const questionActive = Boolean(answer) || holdingSpace;
   const pendingQuestion = Boolean(answer && !answer.initialQuestion && speech.state !== 'idle');
   // The effect that delivers a follow-up can run more than once (re-renders, Strict Mode), so
-  // each spoken question is sent exactly once by id.
+  // each accumulated follow-up is sent exactly once by id.
   const deliverSpokenFollowUp = useCallback(
     (question: SpokenFollowUpQuestion, send: (text: string) => void) => {
       if (deliveredFollowUps.current.has(question.id)) return;
       deliveredFollowUps.current.add(question.id);
       send(question.text);
-      setSpokenFollowUp(null);
+      setSpokenFollowUp(previous => (previous?.id === question.id ? null : previous));
     },
     []
   );
@@ -454,7 +465,6 @@ export default function LessonPlayer({
       {conversation ? (
         <ConversationBridge
           blocked={disabled || Boolean(stopResponse)}
-          onBlockedChange={syncAnswerSubmissionBlocked}
           question={spokenFollowUp}
           send={send}
           deliver={deliverSpokenFollowUp}
@@ -515,7 +525,6 @@ export default function LessonPlayer({
   }, [resetSpeech]);
   const closeAnswer = () => {
     cancelCapture();
-    answerSubmissionBlocked.current = false;
     setSpokenFollowUp(null);
     setAnswer(null);
     if (!mobile) dialogRef.current?.focus({ preventScroll: true });
@@ -530,16 +539,17 @@ export default function LessonPlayer({
   useEffect(() => {
     if (mobile) return;
     const keydown = (event: KeyboardEvent) => {
-      if (event.code !== 'Space' || event.defaultPrevented) return;
+      if (event.code !== 'Space') return;
       const target = event.target instanceof Element ? event.target : document.activeElement;
+      // Native selects own Space for option selection, including their browser popup.
       if (
         target?.closest(
-          'input, textarea, button, select, a[href], [role="button"], [role="slider"], [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
+          'input:read-write, textarea:read-write, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
         )
       )
         return;
       event.preventDefault();
-      if (!canAsk || event.repeat || spaceDown.current || answerSubmissionBlocked.current) return;
+      if (!canAsk || event.repeat || spaceDown.current) return;
       playback.pause();
       speech.reset();
       heldTranscription.current = null;
@@ -576,12 +586,13 @@ export default function LessonPlayer({
     const blur = () => {
       if (spaceDown.current) cancelCapture();
     };
-    window.addEventListener('keydown', keydown);
-    window.addEventListener('keyup', keyup);
+    // Reserve Space before focused controls handle it; Enter keeps their native activation.
+    window.addEventListener('keydown', keydown, true);
+    window.addEventListener('keyup', keyup, true);
     window.addEventListener('blur', blur);
     return () => {
-      window.removeEventListener('keydown', keydown);
-      window.removeEventListener('keyup', keyup);
+      window.removeEventListener('keydown', keydown, true);
+      window.removeEventListener('keyup', keyup, true);
       window.removeEventListener('blur', blur);
     };
   });
@@ -640,10 +651,10 @@ export default function LessonPlayer({
       open
       aria-modal="true"
       aria-label={t('Riproduci lezione')}
-      className={`${content.isDarkMode ? 'dark' : ''} fixed inset-0 z-[80] m-0 flex w-full max-w-none max-h-none flex-col border-0 bg-paper-light p-0 font-sans text-stone-800 outline-0 dark:bg-paper-dark dark:text-stone-100`}
+      className={`lesson-player-dialog ${content.isDarkMode ? 'dark' : ''} fixed inset-0 z-[80] m-0 flex w-full max-w-none max-h-none flex-col border-0 bg-paper-light p-0 font-sans text-stone-800 dark:bg-paper-dark dark:text-stone-100`}
       style={{ height: viewportHeight ?? '100dvh' }}
     >
-      <header className="flex shrink-0 items-center gap-3 px-4 py-3 md:gap-5 md:px-[4%] md:pt-6">
+      <header className="lesson-player-header flex shrink-0 items-center gap-3 px-4 py-3 md:pt-6">
         <button
           ref={backButton}
           type="button"
@@ -670,6 +681,7 @@ export default function LessonPlayer({
             speed={tts.playbackRate}
             readTime={playback.readTime}
             seekRevision={playback.seekRevision}
+            loading={playback.loading}
             alignment={playback.recording?.wordAlignment}
           />
         </MermaidRenderCacheContext.Provider>
@@ -760,12 +772,15 @@ export default function LessonPlayer({
         </div>
         {/* Desktop only: push-to-talk has no equivalent on touch screens. */}
         <p
+          ref={hintRef}
           aria-hidden={spaceHintHidden}
-          className={`pointer-events-none hidden min-w-0 flex-1 items-center justify-center gap-1 whitespace-nowrap ${COMPOSER_BAR_HEIGHT} text-xs text-stone-500 transition-opacity duration-200 ease-out motion-reduce:transition-none md:flex dark:text-stone-400 ${spaceHintHidden ? 'opacity-0' : 'opacity-100'}`}
+          className={`pointer-events-none hidden min-w-0 flex-1 overflow-hidden items-center justify-center gap-1 whitespace-nowrap ${COMPOSER_BAR_HEIGHT} text-xs text-stone-500 transition-opacity duration-200 ease-out motion-reduce:transition-none md:flex dark:text-stone-400 ${spaceHintHidden ? 'opacity-0' : 'opacity-100'}`}
         >
-          {t('Tieni premuto')}
-          <kbd className="font-sans">{t('Spazio')}</kbd>
-          {t('per fare una domanda a voce')}
+          <span ref={hintTextRef} className="inline-flex shrink-0 items-center gap-1">
+            {t('Tieni premuto')}
+            <kbd className="font-sans">{t('Spazio')}</kbd>
+            {t('per fare una domanda a voce')}
+          </span>
         </p>
         <div className="relative flex min-w-0 flex-col gap-2.5 md:w-[30rem] md:max-w-[45vw]">
           <AnimatePresence>

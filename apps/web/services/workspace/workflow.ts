@@ -1,3 +1,5 @@
+import type { SourcePreparationProgress } from '@shared/sourcePreparation';
+
 export const WORKSPACE_WORKFLOW_IDS = [
   'openProject',
   'attachSource',
@@ -19,6 +21,7 @@ export interface WorkflowEntry {
   message?: string;
   reasoning?: string;
   progress?: GenerationProgressSnapshot;
+  sourcePreparation?: SourcePreparationProgress;
   error?: string;
   requestId: number;
 }

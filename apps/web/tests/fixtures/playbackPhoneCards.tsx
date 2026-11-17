@@ -77,7 +77,12 @@ export function renderPhoneVisualCards() {
         { label: 'Ragioni insufficienti', items: ['Sola apparenza'], icons: ['eye'] },
       ],
     },
-    steps: base,
+    steps: params.has('transition')
+      ? {
+          ...base,
+          items: base.items.map(item => ({ ...item, detail: `${item.detail} ${item.detail}` })),
+        }
+      : base,
     comparison: {
       ...base,
       type: 'comparison',
@@ -153,18 +158,19 @@ export function renderPhoneVisualCards() {
       items: [base.items[0]],
     },
   };
-  const markdown =
+  let markdown =
     kind === 'missing'
       ? "In una situazione ambigua, le persone osservano gli altri prima di intervenire. Quando nessuno agisce, la calma apparente può rafforzare l'incertezza.\n\n{{PDF_IMAGE:fixture-image|alt=Figura di esempio|caption=Una figura}}"
       : 'La spiegazione descrive gli elementi della figura e le loro relazioni.';
-  const sources = [
+  if (params.has('transition')) markdown = `# Passaggio sintetico\n\n${markdown.repeat(12)}`;
+  let sources = [
     {
       type: 'markdown' as const,
       markdown,
     },
   ];
   const sourceBlock = segmentLessonPlayback(sources)[0];
-  const block: LessonPlaybackBlock = {
+  let block: LessonPlaybackBlock = {
     ...sourceBlock,
     visuals:
       kind === 'missing'
@@ -191,30 +197,51 @@ export function renderPhoneVisualCards() {
   }
   document.documentElement.style.cssText =
     '--bg-paper:#fdfbf7;--bg-surface:#fff;--ink-primary:#1f1f1f;--ink-secondary:#4a4a4a;--border-subtle:#e5e7eb';
-  createRoot(root).render(
-    <div style={{ height: '100dvh', display: 'flex' }}>
-      <LessonPlaybackStage
-        block={block}
-        duration={30}
-        time={15}
-        content={
-          {
-            isDarkMode: false,
-            sectionContentBlocks: sources,
-            activeSectionAssetsById: params.has('asset')
-              ? {
-                  'fixture-image': {
-                    id: 'fixture-image',
-                    dataUrl:
-                      params.get('asset') === 'broken'
-                        ? 'data:image/png;base64,broken'
-                        : 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="180" height="120"%3E%3Crect width="180" height="120" fill="%23a25031"/%3E%3C/svg%3E',
-                  },
-                }
-              : {},
-          } as unknown as WorkspaceReaderContentModel
-        }
-      />
-    </div>
-  );
+  const playbackRoot = createRoot(root);
+  const clockStart = performance.now();
+  const render = () =>
+    playbackRoot.render(
+      <div style={{ height: '100dvh', display: 'flex' }}>
+        <LessonPlaybackStage
+          block={block}
+          duration={30}
+          time={15}
+          readTime={
+            params.has('clock') ? () => 15 + (performance.now() - clockStart) / 1000 : undefined
+          }
+          content={
+            {
+              isDarkMode: false,
+              sectionContentBlocks: sources,
+              activeSectionAssetsById: params.has('asset')
+                ? {
+                    'fixture-image': {
+                      id: 'fixture-image',
+                      dataUrl:
+                        params.get('asset') === 'broken'
+                          ? 'data:image/png;base64,broken'
+                          : 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="180" height="120"%3E%3Crect width="180" height="120" fill="%23a25031"/%3E%3C/svg%3E',
+                    },
+                  }
+                : {},
+            } as unknown as WorkspaceReaderContentModel
+          }
+        />
+      </div>
+    );
+  render();
+  if (params.has('transition'))
+    addEventListener('playback-next', () => {
+      sources = [{ type: 'markdown', markdown: '# Passaggio sintetico\n\nUna breve spiegazione.' }];
+      const next = segmentLessonPlayback(sources)[0];
+      block = {
+        ...block,
+        ...next,
+        prepared: {
+          scene: scenes[kind],
+          motion: [{ effect: 'focus', targets: ['item:0'], quote: next.speech }],
+        },
+      };
+      render();
+    });
 }

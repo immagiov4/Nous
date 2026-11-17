@@ -1,4 +1,5 @@
 import { EXERCISE_TASK_DISCLOSURE_RULE } from '@shared/lessonGenerationPolicy';
+import { clipSourceExcerptText } from '@shared/sourceTextSlice';
 import type {
   ApplicationExerciseNode,
   LearningPlan,
@@ -185,7 +186,10 @@ const formatPdfSourceLayer = (
   const chunks = documentIndex.chunks
     .filter(chunk => chunkIds.has(chunk.id))
     .sort((left, right) => left.sequence - right.sequence)
-    .map(chunk => `### ${chunk.headingPath.join(' > ') || chunk.id}\n${chunk.text}`);
+    .map(
+      chunk =>
+        `### ${chunk.headingPath.join(' > ') || chunk.id}\n${clipSourceExcerptText(chunk.text)}`
+    );
 
   return clipText(chunks.join('\n\n'), MAX_SOURCE_CHARS, '[fonti PDF troncate]');
 };

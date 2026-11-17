@@ -288,11 +288,8 @@
     "sonarjs/cognitive-complexity": {
       "count": 3
     },
-    "sonarjs/deprecation": {
-      "count": 2
-    },
     "sonarjs/no-nested-conditional": {
-      "count": 11
+      "count": 10
     },
     "sonarjs/no-nested-template-literals": {
       "count": 1

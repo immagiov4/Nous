@@ -686,6 +686,7 @@ const createStateAdapter = () => {
           status: 'failed',
           error: errorMessage,
           message: undefined,
+          sourcePreparation: undefined,
         },
       };
     },
@@ -790,8 +791,11 @@ const createStateAdapter = () => {
     setScreenState: screenState => {
       internalState.screenState = screenState;
     },
-    setWorkflowMessage: (workflowId, requestId, message) => {
-      if (internalState.workflowState[workflowId].requestId !== requestId) {
+    setWorkflowMessage: (workflowId, requestId, message, sourcePreparation) => {
+      if (
+        internalState.workflowState[workflowId].requestId !== requestId ||
+        (sourcePreparation && internalState.workflowState[workflowId].status !== 'pending')
+      ) {
         return;
       }
 
@@ -800,6 +804,7 @@ const createStateAdapter = () => {
         [workflowId]: {
           ...internalState.workflowState[workflowId],
           message,
+          sourcePreparation,
         },
       };
     },
@@ -841,6 +846,7 @@ const createStateAdapter = () => {
           status: 'succeeded',
           error: undefined,
           message,
+          sourcePreparation: undefined,
         },
       };
     },
@@ -1084,6 +1090,22 @@ const createControllerHarness = (args?: {
   };
 };
 
+test.each([
+  'succeeded',
+  'failed',
+] as const)('controller harness rejects preparation callbacks after %s', terminal => {
+  const { state } = createControllerHarness();
+  const request = state.adapter.beginWorkflow('assessment');
+  const progress = { step: 'extraction' as const, completed: 0, total: 1 };
+  state.adapter.setWorkflowMessage('assessment', request, 'Reading', progress);
+  expect(state.internalState.workflowState.assessment.sourcePreparation).toEqual(progress);
+  if (terminal === 'succeeded') state.adapter.succeedWorkflow('assessment', request);
+  else state.adapter.failWorkflow('assessment', request, 'Terminal error');
+  expect(state.internalState.workflowState.assessment.sourcePreparation).toBeUndefined();
+  state.adapter.setWorkflowMessage('assessment', request, 'Late reading', progress);
+  expect(state.internalState.workflowState.assessment.sourcePreparation).toBeUndefined();
+});
+
 test('openProject starts document assessment when a stored project has a source but no plan', async () => {
   const snapshot = createProjectSnapshot({
     id: 'project-doc',
@@ -1132,7 +1154,7 @@ test('openProject resumes an active durable course instead of restarting assessm
   assert.equal(result.outcome, 'opened');
   assert.equal(resumeActiveDurableCourse.mock.calls.length, 1);
   assert.deepEqual(projectLibrary.appliedProjectRevisions, [
-    { projectId: snapshot.id, revision: 7 },
+    { projectId: snapshot.id, revision: 7, acceptNewerRevision: true },
   ]);
   assert.equal(state.internalState.screenState, AppState.READING);
   assert.deepEqual(state.internalState.assessmentMessages, []);
@@ -4926,6 +4948,35 @@ test('startHomeChat resets its unsaved selection when the first draft save fails
   expect(startCourseInterview).not.toHaveBeenCalled();
 });
 
+test('startHomeChat forwards structured preparation through its existing workflow message', async () => {
+  const started = createDeferred();
+  const finish = createDeferred();
+  const progress = {
+    step: 'extraction' as const,
+    completed: 0,
+    total: 1,
+    documents: [{ id: 'source', name: 'notes.md', state: 'reading' as const }],
+  };
+  const { controller, state } = createControllerHarness({
+    projectLibrary: {
+      persistSnapshot: async (_snapshot, options) => {
+        options?.onSourceProgress?.(progress);
+        started.resolve();
+        await finish.promise;
+        throw new Error('Synthetic save failure');
+      },
+    },
+  });
+  const starting = controller.startHomeChat({
+    input: 'Learn from notes',
+    selectedFile: new File(['Notes'], 'notes.md', { type: 'text/markdown' }),
+  });
+  await started.promise;
+  expect(state.internalState.workflowState.assessment.sourcePreparation).toEqual(progress);
+  finish.resolve();
+  expect((await starting).outcome).toBe('failed');
+});
+
 test('startHomeChat preserves prepared sources for retry after interview startup fails', async () => {
   const startCourseInterview = vi
     .fn()
@@ -5849,6 +5900,33 @@ test('startHomeChat assesses extracted ZIP PDFs and reports each unusable PDF en
   expect(assessmentText).toContain('note.txt');
 });
 
+test('startHomeChat retains terminal source identities on a failed preparation', async () => {
+  const sourceDocuments = [
+    { id: 'one', name: 'same.pdf', state: 'error' as const },
+    { id: 'two', name: 'same.pdf', state: 'error' as const },
+  ];
+  const sourceWarnings = [{ name: 'same.pdf', message: 'Unreadable source' }];
+  const { controller } = createControllerHarness({
+    projectLibrary: {
+      persistSnapshot: async () => {
+        throw new ProjectStorageError('Unusable', 'source-preparation-failed', {
+          sourceWarnings,
+          sourceDocuments,
+        });
+      },
+    },
+  });
+  const result = await controller.startHomeChat({
+    input: 'Study',
+    selectedFile: new File(['data'], 'sources.zip', { type: 'application/zip' }),
+  });
+  expect(result).toMatchObject({
+    outcome: 'failed',
+    terminalSourceDocuments: sourceDocuments,
+    sourceWarnings,
+  });
+});
+
 test('startHomeChat rejects a ZIP when every PDF entry is unusable', async () => {
   const sourceWarnings = [
     {
@@ -6558,6 +6636,101 @@ test('confirmation recovers an approval already waiting on diagnostics and prese
   );
   assert.equal(setDiagnosticAdapter.mock.calls.length, 1);
 });
+
+test.each([
+  'download failure',
+  'rejected revision',
+])('completed diagnostic Continue retains its replacement after %s', async failure => {
+  const auth = await import('../../../services/auth/supabaseAuth.ts');
+  const { resumeDurableCourse } = await import(
+    '../../../services/openrouter/courseGenerationClient.ts'
+  );
+  const job = {
+    createdAt: '2026-11-14T12:00:00.000Z',
+    updatedAt: '2026-11-14T12:00:00.000Z',
+    mode: 'learn',
+    projectId: 'document-project',
+    retrying: false,
+    stage: 'structure',
+    status: 'failed',
+    id: 'failed-course',
+    errorCode: 'workflow_step_timeout',
+  };
+  let replacement: Record<string, unknown> | undefined;
+  let replacementCount = 0;
+  const fetch = vi
+    .spyOn(auth, 'fetchWithSupabaseAuth')
+    .mockImplementation(async (_url, options) => {
+      if (options?.method === 'POST' && !replacement) {
+        replacementCount += 1;
+        replacement = {
+          ...job,
+          id: 'new-course',
+          status: 'completed',
+          stage: 'ready',
+          result: { projectId: 'document-project', firstSectionId: 'lesson-1', projectRevision: 4 },
+        };
+      }
+      return new Response(JSON.stringify({ success: true, job: replacement ?? job }));
+    });
+  const completedInterview = createInterviewSnapshot({
+    projectId: 'document-project',
+    generationRunId: 'failed-course',
+    result: { kind: 'approved', projectId: 'document-project', generationRunId: 'failed-course' },
+    diagnostic: {
+      collectionId: 'collection',
+      stage: {
+        kind: 'complete',
+        id: 'done',
+        title: 'Punto di partenza individuato',
+        feedback: 'Ripartiamo dalle basi.',
+      },
+    },
+    status: 'completed',
+    wait: null,
+  });
+  const { controller, state, projectLibrary } = createControllerHarness({
+    domain: { learningPlan: buildPlan({ title: 'Previous course' }) },
+    projectLibrary: {
+      currentProjectId: 'document-project',
+      applyPersistedProjectRevision: vi
+        .fn()
+        .mockImplementationOnce(async () => {
+          if (failure === 'download failure') throw new Error('Project download failed');
+          return false;
+        })
+        .mockResolvedValue(true),
+    },
+    openRouter: {
+      getActiveCourseInterview: async () => createProposalSnapshot('document-project'),
+      sendCourseInterviewDecision: async () => completedInterview,
+      resumeCourseInterview: async () => completedInterview,
+      resumeDurableCourse,
+    },
+  });
+  const setDiagnosticAdapter = vi.fn();
+  state.adapter.setDiagnosticAdapter = setDiagnosticAdapter;
+  expect((await controller.confirmPlanGeneration()).outcome).toBe('diagnostic');
+  const adapter = setDiagnosticAdapter.mock.calls[0][0];
+  await expect(adapter.onComplete()).rejects.toThrow(
+    failure === 'download failure'
+      ? 'Project download failed'
+      : 'Il corso è stato generato, ma non è stato possibile caricarlo.'
+  );
+  expect(state.internalState.screenState).toBe(AppState.LIBRARY);
+  expect(setDiagnosticAdapter).toHaveBeenCalledTimes(1);
+  await adapter.onComplete();
+  expect(replacementCount).toBe(1);
+  expect(fetch.mock.calls[1][0]).toContain('/runs/failed-course/retry');
+  expect(state.internalState.workflowState.generatePlan.status).toBe('succeeded');
+  expect(state.internalState.screenState).toBe(AppState.READING);
+  expect(projectLibrary.adapter.applyPersistedProjectRevision).toHaveBeenNthCalledWith(2, {
+    projectId: 'document-project',
+    revision: 4,
+    acceptNewerRevision: true,
+  });
+  expect(setDiagnosticAdapter).toHaveBeenLastCalledWith(undefined);
+});
 test.each([
   ['lookup', 'generatePlan'],
   ['approval', 'generatePlan'],
@@ -6724,7 +6897,7 @@ test('confirmPlanGeneration approves the durable proposal and resumes its course
     { role: 'model', text: 'Proposta approvata' },
   ]);
   assert.deepEqual(projectLibrary.appliedProjectRevisions, [
-    { projectId: 'document-project', revision: 4 },
+    { projectId: 'document-project', revision: 4, acceptNewerRevision: true },
   ]);
 });
 

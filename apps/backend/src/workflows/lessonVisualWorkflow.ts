@@ -58,11 +58,15 @@ import type {
 
 type DurableProjectVisual = z.infer<typeof ProjectVisualSchema>;
 
-export const createLessonVisualWorkflowSchemas = (visualContract: LessonVisualContractSchemas) => {
+export const createLessonVisualWorkflowSchemas = (
+  visualContract: LessonVisualContractSchemas,
+  preserveArtifactRequest = false
+) => {
   const LessonVisualWorkflowInputSchema = z.object({
     contextFingerprint: z.string().length(64),
     existingEmbeddedAssets: z.array(ProjectAssetRefSchema).optional(),
     lessonMarkdown: z.string().min(1),
+    ...(preserveArtifactRequest ? { requestText: z.string().optional() } : {}),
     plan: visualContract.LessonVisualRetryPlanSchema,
     projectId: z.string().min(1),
     sectionDescription: z.string(),
@@ -211,6 +215,7 @@ const visualServiceInput = (
   config: config.visual,
   existingEmbeddedAssets: input.existingEmbeddedAssets,
   lessonMarkdown: input.lessonMarkdown,
+  ...(typeof input.requestText === 'string' ? { requestText: input.requestText } : {}),
   plan: input.plan,
   ...(retryFeedback ? { retryFeedback } : {}),
   sectionDescription: input.sectionDescription,
@@ -305,13 +310,14 @@ export const createLessonVisualWorkflows = <
 >(
   executionDefaults: Config,
   configSchema: z.ZodType<Config> = LessonVisualWorkflowConfigSchema as z.ZodType<Config>,
-  visualContract: LessonVisualContractSchemas = CurrentLessonVisualContractSchemas
+  visualContract: LessonVisualContractSchemas = CurrentLessonVisualContractSchemas,
+  preserveArtifactRequest = false
 ) => {
   const {
     LessonVisualRetryWorkflowResultSchema,
     LessonVisualWorkflowInputSchema,
     LessonVisualWorkflowResultSchema,
-  } = createLessonVisualWorkflowSchemas(visualContract);
+  } = createLessonVisualWorkflowSchemas(visualContract, preserveArtifactRequest);
   const { ArtifactReviewDecisionSchema, ArtifactReviewStateSchema, EmbeddedImageInputSchema } =
     createArtifactWorkflowSchemas(LessonVisualWorkflowInputSchema);
   const supportsScenes = visualContract.supportsScenes;

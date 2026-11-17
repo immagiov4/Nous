@@ -159,7 +159,8 @@ describe('generateLessonArtifactDraft', () => {
     expect(JSON.parse(serialized)).toEqual(playbackQuestion);
     expect(body).toMatchObject({
       sectionTitle: lesson.title,
-      requestText: 'Mappa dei passi visibili',
+      requestText:
+        'creami una mappa di questa cosa che sta essendo mostrata in questo momento, del controller… un flowchart',
     });
     expect(body.lessonMarkdown).toContain('Corso: Corso reti');
     expect(body.lessonMarkdown).toContain(

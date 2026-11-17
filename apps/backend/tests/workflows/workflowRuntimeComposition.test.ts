@@ -24,6 +24,7 @@ import { subscribeToWorkflowTransientEvents } from '../../src/workflows/workflow
 import type { WorkflowRunState } from '../../src/workflows/workflowReadModel.js';
 
 import frozenContracts from './fixtures/productionWorkflowContracts.json';
+import phaseContracts from './fixtures/productionWorkflowPhaseContracts.json';
 
 const RUN_ID = '9de19290-0dab-470d-a554-9a214073283e';
 const PRE_PDF_SOURCE_HASH_LESSON_DEFINITION =
@@ -74,7 +75,7 @@ describe('workflow runtime production composition', () => {
   });
 
   test('in-flight runs retain every frozen workflow-set contract', () => {
-    for (const deployment of frozenContracts) {
+    for (const deployment of [...frozenContracts, phaseContracts]) {
       for (const boundary of deployment.current) {
         expect(
           productionRegistry.resolve(boundary.workflowId, boundary.definitionHash)?.definitionHash
@@ -222,6 +223,21 @@ describe('workflow runtime production composition', () => {
 
   test.each([
     ['unsupported event', { eventType: 'unknown' }, 'notification_unsupported'],
+    ['unsupported version', { schemaVersion: 2 }, 'notification_unsupported'],
+    [
+      'unsupported interview version',
+      {
+        eventType: 'course-interview-message',
+        schemaVersion: 2,
+        payload: { message: { role: 'model', text: 'Question?' } },
+      },
+      'notification_unsupported',
+    ],
+    [
+      'invalid interview payload',
+      { eventType: 'course-interview-message', payload: { message: { role: 'model', text: '' } } },
+      'notification_payload_invalid',
+    ],
     [
       'invalid payload',
       { payload: { projectId: 'project-1', revision: -1 } },
@@ -258,6 +274,7 @@ describe('workflow runtime production composition', () => {
       readActive: vi.fn().mockResolvedValue(null),
     };
     const courseGenerationApi: CourseGenerationApi = {
+      retry: vi.fn(),
       get: vi.fn(),
       getActive: vi.fn(),
       start: vi.fn(),

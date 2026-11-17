@@ -16,6 +16,10 @@ Run `bun run gate:cloud` for the complete gate in this Linux cloud image. It use
 
 ## Local checks
 
+Before restoring worktree dependencies, check free space on the target volume, then restore with `bun run deps:install`, which reuses the exact lockfile; keep cache and hardlinks on the same volume. If Vite config imports or Vitest peer resolution fail, inspect their real paths before calling it a product failure: a junction to another checkout can break config temporaries, and global-store links can miss peers. Keep any frozen-install repair local to the affected worktree and preserve manifests and lockfiles.
+
+With an explicitly configured shared/global store, restore its links through the configured linker and repair missing-peer resolution at the package metadata or resolver. Reproduce the failing import and verify both the affected test and the resolved shared package paths. This preserves disk reuse; diagnosis may delay the first test run. Worktrees without a configured shared store retain the frozen-install recovery above.
+
 After installing dependencies with `bun run deps:install`, install Chromium for browser tests:
 
 ```bash
@@ -56,7 +60,9 @@ Four concurrent real layout-browser proofs at the default four-slot capacity als
 
 ## CI and merge readiness
 
-The CI `test` job runs `bun run gate:ci`: full `quality:ci` checks, dependency boundaries, the Fallow regression check, and one complete Node test suite with coverage. It then runs SonarQube Cloud analysis and waits for its quality-gate result. CI checks out the pull-request head and reports Sonar analysis against that same commit.
+The CI `quality-coverage` job runs `bun run gate:ci`: full `quality:ci` checks, dependency boundaries, the Fallow regression check, and one complete Node test suite with coverage. It uploads LCOV and, on pushes to `main` and same-repository pull requests, runs SonarQube Cloud analysis and waits for its quality-gate result. CI checks out the pull-request head and reports Sonar analysis against that same commit.
+
+The independent `browser-proofs` job verifies production audio, caption rows, keyboard focus and interview recovery, retaining the recovery evidence. The required `test` check logs both worker results and passes only when both succeed; a failed, cancelled or skipped worker makes it fail. Diagnose failures in the corresponding worker's logs.
 
 Wait for all applicable CI checks and review before merging. Fix or explicitly resolve every new Sonar finding with an owner-visible disposition. A missing or failed SonarCloud result blocks merging; diagnose it in the CI logs and SonarCloud report.
 
@@ -64,7 +70,7 @@ Pull requests also run the Supabase contract and remote body verification. The c
 
 <details><summary>Details</summary>
 
-Coverage uses the Node major pinned in `.node-version` and the ordered Vitest projects in `apps/web/vitest.config.ts`. Its preflight removes stale LCOV, checks Node, and installs Chromium. One coverage-producing suite supplies both the test result and the Sonar report.
+Coverage uses the Node major pinned in `.node-version` and the ordered Vitest projects in `apps/web/vitest.config.ts`. Its preflight removes stale LCOV, checks Node, and installs Chromium. One coverage-producing suite supplies both the test result and the Sonar report. Before including a new source language in Sonar analysis, verify that CI produces and imports coverage for it; an asset-render proof does not supply Python coverage through JavaScript LCOV.
 
 Fallow compares finding identities with `config/fallow-baselines/regression.json`; every new identity blocks CI. Refresh the baseline explicitly after reviewing the change. The scripts own fingerprinting and report details.
 

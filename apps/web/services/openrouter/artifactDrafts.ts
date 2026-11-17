@@ -270,7 +270,7 @@ export const generateLessonArtifactDraft = async ({
     generationNotes,
     lessonMarkdown,
     projectId,
-    requestText: prompt.trim(),
+    requestText: userRequest?.trim() || prompt.trim(),
     requestedVisualKind: resolvedVisualKind,
     requestIdentity: requestKey,
     sectionDescription: lesson.description,

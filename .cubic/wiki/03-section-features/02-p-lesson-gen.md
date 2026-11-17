@@ -117,6 +117,12 @@ The system follows strict writing rules to maintain educational quality:
 
 Sources: [packages/shared-types/lessonWritingContract.ts:31-40, 115-120, 140-145](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonWritingContract.ts#L31-L40)
 
+### Lesson review contract
+
+[Lesson review](../../../apps/backend/src/services/lessonGenerationVerification.ts) returns a corrected candidate, an integrity assessment and a report keyed by the required check IDs. Each check's output schema permits only its allowed statuses. Local validation also requires a judgment for relevant artifacts present in either the original or corrected candidate.
+
+After those checks pass, the [fence classifier](../../../apps/backend/src/services/lessonFenceClassification.ts) enumerates the corrected candidate's remaining text/plaintext or unlabelled fences with the shared Markdown parser. Only candidates with ambiguous fences incur a classification request. The request has one required key per server-issued fence ID; missing/unknown decisions and prose classifications reject the same review attempt before checkpoint acceptance. Retry limits, provider selection and cancellation remain owned by the enclosing review operation.
+
 ## Learning Aids & Visuals
 
 Lessons are enriched with interactive and visual elements to support diverse learning styles.
@@ -178,3 +184,5 @@ Sources: [packages/shared-types/lessonWritingContract.ts:203-210](https://github
 [Workflow state](../../../apps/backend/src/routes/workflows.ts) exposes the lesson run's node statuses and failures; [attempt logs](../../../apps/backend/src/workflows/workflowObservability.ts) distinguish retries, checkpoint replay and completion by run and node. The [persistence tests](../../../apps/backend/tests/workflows/lessonGenerationPersistence.test.ts) cover atomic adoption, replacement of learner state and compensation. A completed run proves that content was committed, while the explanation's factual and teaching quality still requires the [testing and quality guidance](../09-section-tools/02-p-testing-quality.md).
 
 Failed document-source attempts retain `error.details.substages` with elapsed milliseconds and outcomes for project loading, PDF extraction, asset staging, captioning and provider-result persistence. The same diagnostic reaches the failed node and terminal run through the existing workflow failure records. A deadline snapshot includes interrupted work even when a dependency ignores cancellation; substage diagnostics contain technical error fields rather than source text, filenames, image bytes or captions. These observations identify the failing boundary without establishing the cause of an earlier run that lacks them.
+
+Lesson-review fence classification is observable through the `workflow.lesson-fence-classification` event. The [workflow logger](../../../apps/backend/src/workflows/workflowObservability.ts) owns its diagnostic contract.

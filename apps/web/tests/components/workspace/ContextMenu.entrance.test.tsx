@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, render } from '@testing-library/react';
-import type { HTMLAttributes, InputHTMLAttributes, TextareaHTMLAttributes } from 'react';
+import type { HTMLAttributes, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from 'react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import ContextMenu from '../../../components/workspace/ContextMenu.tsx';
 
@@ -11,6 +11,7 @@ vi.mock('../../../utils/motion/useShouldAnimate.ts', () => ({
 }));
 
 vi.mock('framer-motion', () => ({
+  AnimatePresence: ({ children }: { children: ReactNode }) => children,
   motion: {
     div: ({
       onAnimationComplete,
@@ -24,7 +25,7 @@ vi.mock('framer-motion', () => ({
       animate: unknown;
       transition: unknown;
     }) => {
-      motion.complete = onAnimationComplete;
+      if (onAnimationComplete) motion.complete = onAnimationComplete;
       return <div {...props} />;
     },
     input: ({

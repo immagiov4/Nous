@@ -9,10 +9,11 @@ import type { useWorkspaceController } from '../../hooks/workspace/useWorkspaceC
 import type { useWorkspaceFileActions } from '../../hooks/workspace/useWorkspaceFileActions.ts';
 import type { useWorkspaceNavigation } from '../../hooks/workspace/useWorkspaceNavigation.ts';
 import type { useWorkspaceReaderState } from '../../hooks/workspace/useWorkspaceReaderState.ts';
-import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { DIAGNOSTIC_COMPLETION_ERROR, translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
 import { setFeedbackProductContext } from '../../services/feedback/browserDiagnostics.ts';
+import { CourseGenerationError } from '../../services/openrouter/courseGenerationClient.ts';
 import { sortSourceFiles } from '../../services/projects/courseSources.ts';
 import { inspectSourceSelection } from '../../services/projects/sourceFileSelection.ts';
 import { formatSourceWarningSummary } from '../../services/projects/sourceWarningSummary.ts';
@@ -108,6 +109,7 @@ export const LibraryScreenContainer = ({
   }, [controller.learningPlan]);
   const [isAddingAssessmentDetails, setIsAddingAssessmentDetails] = useState(false);
   const [homeChatMode, setHomeChatMode] = useState<HomeChatMode>(() =>
+    !controller.diagnosticAdapter &&
     typeof globalThis.window !== 'undefined' &&
     isLibraryQueryPath(globalThis.window.location.pathname)
       ? 'library-query'
@@ -116,10 +118,29 @@ export const LibraryScreenContainer = ({
   const [pendingHomeSourceFiles, setPendingHomeSourceFiles] = useState<File[]>([]);
   const [isConfirmingCourse, setIsConfirmingCourse] = useState(false);
   const [pendingFileWarnings, setPendingFileWarnings] = useState<string[]>([]);
+  const [terminalSourceDocuments, setTerminalSourceDocuments] =
+    useState<{ id: string; name: string; state: 'error' }[]>();
+  const [terminalSourceWarnings, setTerminalSourceWarnings] = useState<string[]>([]);
   const [isSourceSelectionPending, setIsSourceSelectionPending] = useState(false);
   const sourceSelectionRequestRef = useRef(0);
   const isConfirmingCourseRef = useRef(false);
   const newCourseRequestTokenRef = useRef(0);
+
+  const completeDiagnostic = async () => {
+    try {
+      await controller.diagnosticAdapter?.onComplete?.();
+    } catch (error) {
+      console.error('Diagnostic completion failed', {
+        name: error instanceof Error ? error.name : typeof error,
+        code: error instanceof CourseGenerationError ? error.code : 'diagnostic_completion_failed',
+      });
+      notify(
+        error instanceof CourseGenerationError
+          ? t(error.publicMessage)
+          : t(DIAGNOSTIC_COMPLETION_ERROR)
+      );
+    }
+  };
 
   const {
     assessmentMessages,
@@ -131,6 +152,12 @@ export const LibraryScreenContainer = ({
     startHomeChat,
     submitAssessment,
   } = controller;
+  const source = controller.source;
+  let sourceCount = pendingHomeSourceFiles.length;
+  if (source && pendingHomeSourceFiles.length === 0)
+    sourceCount = 'sources' in source && source.sources ? source.sources.length : 1;
+  sourceCount =
+    controller.workflowState.assessment.sourcePreparation?.documents?.length ?? sourceCount;
   const assessmentComplete = Boolean(controller.courseProposal) && !isAddingAssessmentDetails;
   const isNewCourseLoading =
     controller.workflowState.assessment.status === 'pending' || isConfirmingCourse;
@@ -157,6 +184,8 @@ export const LibraryScreenContainer = ({
     const input = event.target;
     const selectedFiles = sortSourceFiles(Array.from(input.files || []));
     const request = ++sourceSelectionRequestRef.current;
+    setTerminalSourceDocuments(undefined);
+    setTerminalSourceWarnings([]);
     setPendingHomeSourceFiles(selectedFiles);
     setPendingFileWarnings([]);
     setIsSourceSelectionPending(true);
@@ -180,6 +209,8 @@ export const LibraryScreenContainer = ({
     async (message: string) => {
       if (isSourceSelectionPending) return;
       const requestToken = ++newCourseRequestTokenRef.current;
+      setTerminalSourceDocuments(undefined);
+      setTerminalSourceWarnings([]);
       const toolPreferences: HomeChatToolPreferences = {
         addingAssessmentDetails: isAddingAssessmentDetails,
         mode: 'new-course',
@@ -205,16 +236,21 @@ export const LibraryScreenContainer = ({
         setPendingFileWarnings([]);
       }
 
-      if (result.errorMessage) {
-        notify(result.errorMessage);
-      }
-      if (result.sourceWarnings?.length) {
-        notify(
-          formatSourceWarningSummary(result.sourceWarnings, {
+      const sourceWarningMessage = result.sourceWarnings?.length
+        ? formatSourceWarningSummary(result.sourceWarnings, {
             continues: !result.errorMessage,
           })
+        : undefined;
+      if (result.outcome === 'failed' && result.terminalSourceDocuments?.length) {
+        setTerminalSourceDocuments(result.terminalSourceDocuments);
+        setTerminalSourceWarnings(
+          result.sourceWarnings?.map(warning =>
+            t('Non verrà usato: {name}. {reason}', { name: warning.name, reason: warning.message })
+          ) ?? []
         );
       }
+      if (result.errorMessage || sourceWarningMessage)
+        notify([result.errorMessage, sourceWarningMessage].filter(Boolean).join('\n'));
     },
     [
       assessmentMessages.length,
@@ -238,6 +274,8 @@ export const LibraryScreenContainer = ({
       setIsAddingAssessmentDetails(false);
       setPendingHomeSourceFiles([]);
       setPendingFileWarnings([]);
+      setTerminalSourceDocuments(undefined);
+      setTerminalSourceWarnings([]);
       setHomeChatMode('library-query');
       return true;
     } catch (error) {
@@ -350,9 +388,10 @@ export const LibraryScreenContainer = ({
       <NewHomeView
         storageError={projectLibrary.storageError}
         chatProps={{
+          supportsCoursePreferences: controller.supportsCoursePreferences,
           coursePreferences:
             controller.courseProposal && controller.supportsCoursePreferences ? (
-              <div className="max-w-xl space-y-4">
+              <div className="w-full space-y-4">
                 <CourseControls
                   value={
                     coursePreferences.coursePlanningControls ?? DEFAULT_COURSE_PLANNING_CONTROLS
@@ -371,7 +410,11 @@ export const LibraryScreenContainer = ({
                 />
               </div>
             ) : undefined,
-          diagnosticAdapter: controller.diagnosticAdapter,
+          sourceCount,
+          diagnosticAdapter: controller.diagnosticAdapter && {
+            ...controller.diagnosticAdapter,
+            onComplete: controller.diagnosticAdapter.onComplete ? completeDiagnostic : undefined,
+          },
           assessmentComplete,
           assessmentMessages:
             confirmedPreferences !== undefined &&
@@ -393,15 +436,19 @@ export const LibraryScreenContainer = ({
           libraryGenerateArtifacts: libraryAssistantChat.generateArtifacts,
           newCourseLoadingStatus:
             controller.workflowState.assessment.message || t('Caricamento...'),
+          sourcePreparationProgress: controller.workflowState.assessment.sourcePreparation,
           pendingFileName: pendingHomeSourceFiles[0]?.name || null,
           pendingFileNames: pendingHomeSourceFiles.map(file => file.name),
-          pendingFileWarnings,
+          pendingFileWarnings: [...pendingFileWarnings, ...terminalSourceWarnings],
+          terminalSourceDocuments,
           isSourceSelectionPending,
           onClearPendingFile: () => {
             sourceSelectionRequestRef.current += 1;
             setIsSourceSelectionPending(false);
             setPendingHomeSourceFiles([]);
             setPendingFileWarnings([]);
+            setTerminalSourceDocuments(undefined);
+            setTerminalSourceWarnings([]);
           },
           onClearLibraryMessages: libraryAssistantChat.clearLibraryMessages,
           onCancelNewCourse: cancelNewCourse,

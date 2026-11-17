@@ -58,7 +58,17 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
   for (const listener of localeListeners) listener();
 };
 
+export const DIAGNOSTIC_COMPLETION_ERROR =
+  'La richiesta non è disponibile in questo momento. Riprova più tardi.';
+
 const ENGLISH_UI_MESSAGES = {
+  'La generazione del corso non è riuscita. Riprova.': 'Course generation failed. Try again.',
+  'La generazione del corso ha superato il tempo disponibile. Riprova.':
+    'Course generation timed out. Try again.',
+  'Il tentativo precedente non è ancora stato ripristinato. Riprova più tardi.':
+    'The previous attempt has not finished restoring the course. Try again later.',
+  'L’app è stata aggiornata mentre questa generazione era in corso. Avvia una nuova generazione.':
+    'The app was updated while this generation was running. Start a new generation.',
   [CONTEXT_NOTE_MESSAGES.noPassages]: 'This lesson has no passages to attach a note to.',
   [CONTEXT_NOTE_MESSAGES.unavailable]: 'Note proposal unavailable.',
   [CONTEXT_NOTE_MESSAGES.invalidAnchor]:
@@ -404,6 +414,7 @@ const ENGLISH_UI_MESSAGES = {
   'Voglio che tu crei un corso su': 'I want you to create a course about',
   '1 fonte': '1 source',
   '{courseCount} corsi': '{courseCount} courses',
+  '{sourceCount} fonte': '{sourceCount} source',
   '{sourceCount} fonti': '{sourceCount} sources',
   '{lessonCount} lezioni · {lastOpenedDate}': '{lessonCount} lessons · {lastOpenedDate}',
   '{streakDays} giorni': '{streakDays} days',
@@ -435,8 +446,6 @@ const ENGLISH_UI_MESSAGES = {
   Struttura: 'Structure',
   'Tempo trascorso': 'Elapsed time',
   'Elaborazione in corso': 'Working',
-  'Nuovo tentativo in corso.': 'Starting another attempt.',
-  Tentativo: 'Attempt',
   'Un passaggio non è riuscito. Riprovo automaticamente.': 'A step failed. Retrying automatically.',
   Verifica: 'Review',
   'Apri progetto': 'Open project',
@@ -722,8 +731,7 @@ const ENGLISH_UI_MESSAGES = {
   'Invia email di recupero': 'Send recovery email',
   'Invio email di recupero non riuscito. Riprova.': 'Could not send the recovery email. Try again.',
   'Interroga e verifica': 'Ask and check your understanding',
-  'La richiesta non è disponibile in questo momento. Riprova più tardi.':
-    'The request is unavailable right now. Try again later.',
+  [DIAGNOSTIC_COMPLETION_ERROR]: 'The request is unavailable right now. Try again later.',
   'La password è troppo debole. Scegline una più lunga e difficile.':
     'The password is too weak. Choose a longer, harder-to-guess password.',
   'La tua email': 'Your email',
@@ -1236,6 +1244,11 @@ const ENGLISH_UI_MESSAGES = {
   'Nessuna istruzione aggiuntiva: verrà usata solo la selezione corrente.':
     'No additional instructions: only the current selection will be used.',
   Nota: 'Note',
+  'Su questo passaggio': 'About this passage',
+  'Scrivi una nota': 'Write a note',
+  Allega: 'Attach',
+  'Modalità di scrittura': 'Writing mode',
+  'Bozza presente': 'Draft available',
   'Nota associata al passaggio': 'Note attached to this passage',
   Procedi: 'Continue',
   Rimuovi: 'Remove',
@@ -1300,6 +1313,8 @@ const ENGLISH_UI_MESSAGES = {
   '{count} corsi': '{count} courses',
   '{count} corsi inclusi': '{count} courses included',
   '{count} lezioni': '{count} lessons',
+  'Le tue fonti': 'Your sources',
+  '1 fonte selezionata': '1 source selected',
   '{count} fonti selezionate': '{count} sources selected',
   '{completed}/{total} lezioni completate': '{completed}/{total} lessons completed',
   'Aggiunge grounding esterno quando servono confronti, suggerimenti di corsi o dati aggiornati.':

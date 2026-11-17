@@ -1,4 +1,5 @@
 import { MAX_CONTEXT_CHAT_FIELD_CHARS } from '@shared/lessonSourceContext';
+import { clipSourceExcerptText } from '@shared/sourceTextSlice';
 import { resolveLessonContextChunks } from '../../services/openrouter/documentIndex/context.ts';
 import { resolvePdfChunkPageSpan } from '../../services/openrouter/documentIndex/index.ts';
 import { getCourseSourceDescriptors } from '../../services/projects/courseSources.ts';
@@ -48,7 +49,9 @@ const formatArchiveEntry = (entry: SourceArchiveEntry): string => {
     `${entry.byteSize} bytes`,
     ...(entry.hash ? [`sha256 ${entry.hash}`] : []),
   ].join(' | ');
-  return entry.preview === undefined ? header : `${header}\npreview:\n${entry.preview}`;
+  return entry.preview === undefined
+    ? header
+    : `${header}\npreview:\n${clipSourceExcerptText(entry.preview)}`;
 };
 
 const buildArchiveSourceMaterial = (source: Extract<ProjectSource, { kind: 'archive' }>): string =>
@@ -56,7 +59,7 @@ const buildArchiveSourceMaterial = (source: Extract<ProjectSource, { kind: 'arch
 
 const formatChunk = (chunk: PdfTextChunk) => {
   const headingPath = chunk.headingPath.join(' > ').trim() || 'Nessuno';
-  return `CHUNK ${chunk.id}\nHeading path: ${headingPath}\n${chunk.text}`;
+  return `CHUNK ${chunk.id}\nHeading path: ${headingPath}\n${clipSourceExcerptText(chunk.text)}`;
 };
 
 const buildPdfSourceMaterial = (chunks: readonly PdfTextChunk[]): string =>

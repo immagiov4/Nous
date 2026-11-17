@@ -179,5 +179,9 @@ export function atlasStageReady() {
   for (const figure of root.querySelectorAll('article > figure[data-nous-speech="ignore"]')) {
     if (!figure.querySelector('img[data-pdf-asset-id], [role="img"]')) return false;
   }
-  return Array.from(root.querySelectorAll('img')).every(image => image.complete);
+  return Array.from(root.querySelectorAll('img')).every(
+    image =>
+      image.complete &&
+      (!image.classList.contains('resolved-pdf-image') || getComputedStyle(image).opacity === '1')
+  );
 }

@@ -30,6 +30,29 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+test('reserves the stored image ratio through asset resolution and decoding', async () => {
+  let finish!: (result: { release: () => void; src: string }) => void;
+  vi.mocked(resolveProjectDocumentImage).mockImplementation(
+    () =>
+      new Promise(resolve => {
+        finish = resolve;
+      })
+  );
+  const image = { ...durableImage, intrinsicWidth: 600, intrinsicHeight: 400 };
+  render(<ResolvedPdfImage alt="Circuit" image={image} className="block w-full" />);
+  expect(screen.queryByRole('img', { name: 'Circuit' })).not.toBeInTheDocument();
+  const pending = screen.getByRole('presentation', { hidden: true });
+  expect(pending).toHaveAttribute('width', '600');
+  expect(pending).toHaveAttribute('height', '400');
+  expect(pending).not.toHaveAttribute('src');
+  finish({ release: vi.fn(), src: 'blob:circuit' });
+  await waitFor(() =>
+    expect(screen.getByRole('img', { name: 'Circuit' })).toHaveAttribute('src', 'blob:circuit')
+  );
+  expect(screen.getByRole('img', { name: 'Circuit' })).toHaveAttribute('width', '600');
+  expect(screen.getByRole('img', { name: 'Circuit' })).toHaveAttribute('height', '400');
+});
+
 test('renders a durable PDF image and aborts/releases it on unmount', async () => {
   const release = vi.fn();
   vi.mocked(resolveProjectDocumentImage).mockResolvedValue({

@@ -49,6 +49,27 @@ test('keeps the entire pre-PR Markdown prefix in a lesson longer than 22000 char
   expect(view.replace(/⟦p[0-9a-z]+⟧/gu, '')).toBe(content.slice(0, MAX_CONTEXT_CHAT_FIELD_CHARS));
 });
 
+test.each([
+  [MAX_CONTEXT_CHAT_FIELD_CHARS - 2, `${'a'.repeat(MAX_CONTEXT_CHAT_FIELD_CHARS - 2)}𝑋`],
+  [MAX_CONTEXT_CHAT_FIELD_CHARS - 1, 'a'.repeat(MAX_CONTEXT_CHAT_FIELD_CHARS - 1)],
+  [MAX_CONTEXT_CHAT_FIELD_CHARS, 'a'.repeat(MAX_CONTEXT_CHAT_FIELD_CHARS)],
+] as const)('catalog prefix keeps complete characters and schema budget at offset %s', async (offset, expected) => {
+  const content = `${'a'.repeat(offset)}𝑋tail`;
+  const catalog = build(content);
+  const view = serializeContextNoteView(catalog.records).replace(/⟦p[0-9a-z]+⟧/gu, '');
+  expect(view).toBe(expected);
+  expect(view).not.toMatch(/[\uD800-\uDFFF]/u);
+  expect(view.length).toBeLessThanOrEqual(MAX_CONTEXT_CHAT_FIELD_CHARS);
+  expect(
+    ContextNoteCatalogSchema.safeParse({
+      records: catalog.records,
+      snapshotId: await catalog.snapshotId,
+    }).success
+  ).toBe(true);
+  expect(catalog.content).toBe(content);
+  assertRoundTrip(catalog);
+});
+
 test('rebuilding identical input resolves a previously issued ID and has the same snapshot identity', async () => {
   const source = 'Prima frase. Seconda frase.';
   const first = build(source, 'it', { selectedText: 'Seconda frase.', selectedTextStart: 13 });

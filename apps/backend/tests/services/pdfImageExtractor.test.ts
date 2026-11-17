@@ -1,3 +1,4 @@
+import { deflateSync } from 'node:zlib';
 import { PDFParse } from 'pdf-parse';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
@@ -29,6 +30,99 @@ const buildMinimalPdfDataUrl = (): string => {
   body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
   return `data:application/pdf;base64,${Buffer.from(body).toString('base64')}`;
 };
+
+const buildImagePdfDataUrl = (inline: boolean): string => {
+  const dimension = inline ? 80 : 160;
+  const pixels = Buffer.alloc(dimension * dimension * 3);
+  let seed = 504;
+  for (let index = 0; index < pixels.length; index += 1) {
+    seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
+    pixels[index] = seed >>> 24;
+  }
+  const compressed = deflateSync(pixels);
+  const pageCount = inline ? 1 : 4;
+  const imageObjectId = 3 + pageCount * 2;
+  const objects = [
+    Buffer.from('<< /Type /Catalog /Pages 2 0 R >>'),
+    Buffer.from(
+      `<< /Type /Pages /Kids [${Array.from({ length: pageCount }, (_, index) => `${3 + index * 2} 0 R`).join(' ')}] /Count ${pageCount} >>`
+    ),
+  ];
+  for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+    const pageObjectId = 3 + pageIndex * 2;
+    const content = inline
+      ? Buffer.concat([
+          Buffer.from(
+            `q 160 0 0 160 20 20 cm\nBI /W ${dimension} /H ${dimension} /CS /RGB /BPC 8 /F /FlateDecode ID\n`
+          ),
+          compressed,
+          Buffer.from('\nEI\nQ\n'),
+        ])
+      : Buffer.from('q 160 0 0 160 20 20 cm /Figure Do Q');
+    objects.push(
+      Buffer.from(
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Figure ${imageObjectId} 0 R >> >> /Contents ${pageObjectId + 1} 0 R >>`
+      ),
+      Buffer.concat([
+        Buffer.from(`<< /Length ${content.length} >>\nstream\n`),
+        content,
+        Buffer.from('\nendstream'),
+      ])
+    );
+  }
+  objects.push(
+    Buffer.concat([
+      Buffer.from(
+        `<< /Type /XObject /Subtype /Image /Width ${dimension} /Height ${dimension} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length ${compressed.length} >>\nstream\n`
+      ),
+      compressed,
+      Buffer.from('\nendstream'),
+    ])
+  );
+  const parts = [Buffer.from('%PDF-1.4\n')];
+  const offsets: number[] = [];
+  let length = parts[0].length;
+  for (const [index, object] of objects.entries()) {
+    offsets.push(length);
+    const part = Buffer.concat([
+      Buffer.from(`${index + 1} 0 obj\n`),
+      object,
+      Buffer.from('\nendobj\n'),
+    ]);
+    parts.push(part);
+    length += part.length;
+  }
+  parts.push(
+    Buffer.from(
+      `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${length}\n%%EOF\n`
+    )
+  );
+  return `data:application/pdf;base64,${Buffer.concat(parts).toString('base64')}`;
+};
+
+test.each([
+  { pages: undefined },
+  { pages: [1] },
+])('finishes a small inline image with selection $pages', async ({ pages }) => {
+  await expect(extractPdfImages(buildImagePdfDataUrl(true), undefined, pages)).resolves.toEqual({
+    failedPages: [],
+    images: [],
+  });
+});
+
+test.each([
+  { pages: undefined },
+  { pages: [1, 2, 3, 4] },
+])('extracts a globally shared figure with selection $pages', async ({ pages }) => {
+  const result = await extractPdfImages(buildImagePdfDataUrl(false), undefined, pages);
+  expect(result.failedPages).toEqual([]);
+  expect(result.images).toHaveLength(1);
+  expect(result.images[0]).toMatchObject({
+    intrinsicWidth: 160,
+    intrinsicHeight: 160,
+    pageNumber: 1,
+  });
+});
 
 test('loads the production PDF.js path and extracts a real minimal PDF', async () => {
   await expect(extractPdfImages(buildMinimalPdfDataUrl(), 1, [1])).resolves.toEqual({

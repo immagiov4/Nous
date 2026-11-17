@@ -3,8 +3,8 @@ import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { createInterface, type Interface as ReadLineInterface } from 'node:readline';
 import { Readable } from 'node:stream';
-
 import type { ReasoningEffort } from '../config/modelConfig.js';
+import { bindModelCallPhase, withModelCallDiagnostics } from '../workflows/modelCallDiagnostics.js';
 import { startModelExchange } from '../workflows/modelExchanges.js';
 import {
   currentWorkflowAttempt,
@@ -14,10 +14,14 @@ import {
 import { toWorkflowErrorDiagnostic } from '../workflows/workflowErrorDiagnostics.js';
 
 const CODEX_REQUEST_TIMEOUT_MS = 30_000;
+const CODEX_PARSER_REJECTION = 'Failed to deserialize JSONRPCMessage';
+const CODEX_PARSER_DIAGNOSTIC = `ERROR codex_app_server_transport::transport: ${CODEX_PARSER_REJECTION}:`;
 export const CODEX_TURN_TIMEOUT_MS = 10 * 60_000;
 const CODEX_BASE_INSTRUCTIONS =
   'You are the Nous Reader text engine. Use only capabilities explicitly supplied by Nous. Never inspect the host filesystem, environment, applications, or browser. If a dynamic tool returns status "awaiting_client_result", end the turn immediately without inventing its result.';
 const CODEX_OFFLINE_INSTRUCTION = 'Do not access the network.';
+const CODEX_SERVER_TOOL_INSTRUCTION =
+  'Do not access the network directly. Only the explicitly registered server-side dynamic tools may perform authorized server-side operations. This does not grant shell, browser, native web search, or any other network access.';
 const CODEX_WEB_RESEARCH_INSTRUCTION =
   'Web search is available for this research request. Search and open enough relevant sources to support the requested result, and preserve source URLs in the structured output.';
 const CODEX_IMAGE_GENERATION_INSTRUCTION =
@@ -29,8 +33,8 @@ const CODEX_DISABLED_BUILTIN_FEATURES = [
   'browser_use',
   'browser_use_external',
   'browser_use_full_cdp_access',
-  'code_mode_host',
   'computer_use',
+  'code_mode_host',
   'goals',
   'hooks',
   'image_generation',
@@ -133,6 +137,7 @@ export interface CodexTurnInput {
   input: Array<{ text: string; type: 'text' } | { type: 'image'; url: string }>;
   model: string;
   onImageGenerated?: (result: string) => void;
+  onWebSearchCompleted?: () => void;
   onUsage?: (usage: Omit<WorkflowAiUsage, 'model' | 'provider'>) => void;
   onReasoningDelta?: (delta: string) => void;
   onTextDelta?: (delta: string) => void;
@@ -199,10 +204,52 @@ const makeProtocolError = (message: unknown): CodexAppServerError => {
 export class CodexJsonRpcClient {
   readonly #lineReader: ReadLineInterface;
   readonly #notificationListeners = new Set<(method: string, params: unknown) => void>();
+  readonly #failureListeners = new Set<(error: unknown) => void>();
   readonly #pendingRequests = new Map<string, PendingRequest>();
   #closed = false;
+  #closedReason: unknown;
   #nextRequestId = 1;
   #serverRequestHandler?: (request: JsonRpcRequest) => Promise<unknown>;
+  #stderrPrefix = '';
+  #stderrPhase: 'timestamp' | 'diagnostic' | 'ignore' = 'timestamp';
+  readonly #onStderr = (chunk: Buffer | string): void => {
+    if (this.#closed) return;
+    for (const character of String(chunk)) {
+      if (!this.#matchesParserDiagnostic(character)) continue;
+      // Project an explicit transport diagnostic; stderr may also contain request contents.
+      const cause = Object.assign(new Error(`${CODEX_PARSER_REJECTION}.`), {
+        code: 'jsonrpc_deserialization_failed',
+      });
+      this.close(
+        new CodexAppServerError('Codex app-server rejected a JSON-RPC message.', 'protocol', {
+          cause,
+        })
+      );
+      return;
+    }
+  };
+
+  #matchesParserDiagnostic(character: string): boolean {
+    if (character === '\n') {
+      this.#stderrPrefix = '';
+      this.#stderrPhase = 'timestamp';
+      return false;
+    }
+    if (this.#stderrPhase === 'ignore') return false;
+    if (this.#stderrPhase === 'timestamp') {
+      // Codex's default stderr renderer prefixes each record with an RFC 3339 timestamp.
+      if (character === ' ') this.#stderrPhase = 'diagnostic';
+      else if (!/[\dT:.+Z-]/u.test(character)) this.#stderrPhase = 'ignore';
+      return false;
+    }
+    if (character !== CODEX_PARSER_DIAGNOSTIC[this.#stderrPrefix.length]) {
+      this.#stderrPrefix = '';
+      this.#stderrPhase = 'ignore';
+      return false;
+    }
+    this.#stderrPrefix += character;
+    return this.#stderrPrefix === CODEX_PARSER_DIAGNOSTIC;
+  }
 
   constructor(
     readonly process: CodexProcess,
@@ -210,13 +257,13 @@ export class CodexJsonRpcClient {
   ) {
     this.#lineReader = createInterface({ input: process.stdout });
     this.#lineReader.on('line', line => this.#handleLine(line));
-    process.stderr.on('data', () => undefined);
+    process.stderr.on('data', this.#onStderr);
     process.once('error', error =>
-      this.#failPending(error instanceof Error ? error : new Error(String(error)))
+      this.close(error instanceof Error ? error : new Error(String(error)))
     );
     process.once('exit', code => {
       if (!this.#closed) {
-        this.#failPending(
+        this.close(
           new CodexAppServerError(
             `Codex app-server exited with code ${code ?? 'unknown'}.`,
             'process'
@@ -233,7 +280,7 @@ export class CodexJsonRpcClient {
   ): Promise<unknown> {
     options.signal?.throwIfAborted();
     if (this.#closed) {
-      throw new CodexAppServerError('Codex app-server connection is closed.', 'process');
+      throw this.#closedReason;
     }
 
     const id = this.#nextRequestId++;
@@ -241,8 +288,7 @@ export class CodexJsonRpcClient {
     const onAbort = () => {
       // Drain a response already buffered on stdout so a started turn can be interrupted.
       abortImmediate = setImmediate(() => {
-        this.#failPending(options.signal?.reason);
-        this.close();
+        this.close(options.signal?.reason);
       });
     };
     const cleanup = () => {
@@ -261,7 +307,24 @@ export class CodexJsonRpcClient {
     });
 
     this.#write({ id, method, ...(params === undefined ? {} : { params }) });
-    return result;
+    return result.catch(error => {
+      // Caller cancellation retains its identity for interruption handling.
+      if (options.signal?.aborted && error === options.signal.reason) throw error;
+      if (error instanceof CodexAppServerError) {
+        throw Object.assign(
+          new CodexAppServerError(error.message, error.code, { cause: error.cause }),
+          { stage: method }
+        );
+      }
+      throw Object.assign(
+        new CodexAppServerError(
+          error instanceof Error ? error.message : 'Codex RPC request failed.',
+          'process',
+          { cause: error }
+        ),
+        { stage: method }
+      );
+    });
   }
 
   notify(method: string, params?: unknown): void {
@@ -273,19 +336,29 @@ export class CodexJsonRpcClient {
     return () => this.#notificationListeners.delete(listener);
   }
 
+  onFailure(listener: (error: unknown) => void): () => void {
+    this.#failureListeners.add(listener);
+    return () => this.#failureListeners.delete(listener);
+  }
+
   handleServerRequests(handler: (request: JsonRpcRequest) => Promise<unknown>): void {
     this.#serverRequestHandler = handler;
   }
 
-  close(): void {
+  close(
+    reason: unknown = new CodexAppServerError('Codex app-server connection closed.', 'process')
+  ): void {
     if (this.#closed) {
       return;
     }
     this.#closed = true;
+    this.#closedReason = reason;
+    this.#stderrPrefix = '';
+    this.process.stderr.off('data', this.#onStderr);
     this.#lineReader.close();
     this.process.stdin.end();
     this.process.kill();
-    this.#failPending(new CodexAppServerError('Codex app-server connection closed.', 'process'));
+    this.#failPending(reason);
   }
 
   #write(message: JsonObject): void {
@@ -361,12 +434,14 @@ export class CodexJsonRpcClient {
         throw new Error(`Unsupported server request: ${request.method}`);
       }
       const result = await this.#serverRequestHandler(request);
+      if (this.#closed) return;
       this.#write({ id: request.id, result });
     } catch (error) {
       console.error('[Codex app-server] Client tool request failed.', {
         diagnostic: toWorkflowErrorDiagnostic(error),
         method: request.method,
       });
+      if (this.#closed) return;
       this.#write({
         id: request.id,
         error: { code: -32_603, message: 'Operazione non riuscita.' },
@@ -381,6 +456,7 @@ export class CodexJsonRpcClient {
       pending.reject(error);
     }
     this.#pendingRequests.clear();
+    for (const listener of this.#failureListeners) listener(error);
   }
 }
 
@@ -389,7 +465,11 @@ export const isCodexAppServerEnabled = (): boolean =>
 
 export const buildCodexAppServerCommand = (
   binary: string,
-  options: { allowImageGeneration?: boolean } = {}
+  options: {
+    allowImageGeneration?: boolean;
+    allowWebSearch?: boolean;
+    hasDynamicTools?: boolean;
+  } = {}
 ): string[] => [
   binary,
   'app-server',
@@ -400,10 +480,15 @@ export const buildCodexAppServerCommand = (
   'mcp_servers={}',
   ...CODEX_DISABLED_BUILTIN_FEATURES.filter(
     feature =>
-      !options.allowImageGeneration || !['image_generation', 'code_mode_host'].includes(feature)
+      !(feature === 'image_generation' && options.allowImageGeneration) &&
+      !(
+        feature === 'code_mode_host' &&
+        (options.allowImageGeneration || options.allowWebSearch || options.hasDynamicTools)
+      )
   ).flatMap(feature => ['--disable', feature]),
-  ...(options.allowImageGeneration
-    ? ['--enable', 'image_generation', '--enable', 'code_mode_host']
+  ...(options.allowImageGeneration ? ['--enable', 'image_generation'] : []),
+  ...(options.allowImageGeneration || options.allowWebSearch || options.hasDynamicTools
+    ? ['--enable', 'code_mode_host']
     : []),
 ];
 
@@ -445,7 +530,13 @@ declare const Bun: {
   };
 };
 
-const spawnCodexAppServer = (options: { allowImageGeneration?: boolean } = {}): CodexProcess => {
+const spawnCodexAppServer = (
+  options: {
+    allowImageGeneration?: boolean;
+    allowWebSearch?: boolean;
+    hasDynamicTools?: boolean;
+  } = {}
+): CodexProcess => {
   const binary = process.env.CODEX_BINARY?.trim() || 'codex';
   const subprocess = Bun.spawn(buildCodexAppServerCommand(binary, options), {
     cwd: process.env.CODEX_WORKING_DIRECTORY?.trim() || tmpdir(),
@@ -716,12 +807,17 @@ interface CodexTurnExecution {
   readonly settled: Promise<void>;
 }
 
-const codexBaseInstructions = (turn: CodexTurnInput): string =>
-  [
+const codexBaseInstructions = (turn: CodexTurnInput): string => {
+  let networkInstruction = CODEX_OFFLINE_INSTRUCTION;
+  if (turn.allowWebSearch) networkInstruction = CODEX_WEB_RESEARCH_INSTRUCTION;
+  else if (turn.tools?.some(tool => tool.execute))
+    networkInstruction = CODEX_SERVER_TOOL_INSTRUCTION;
+  return [
     CODEX_BASE_INSTRUCTIONS,
-    turn.allowWebSearch ? CODEX_WEB_RESEARCH_INSTRUCTION : CODEX_OFFLINE_INSTRUCTION,
+    networkInstruction,
     ...(turn.allowImageGeneration ? [CODEX_IMAGE_GENERATION_INSTRUCTION] : []),
   ].join('\n');
+};
 
 type ExchangeCapture = ReturnType<typeof startModelExchange>;
 
@@ -822,6 +918,7 @@ const executeCodexAppServerTurn = async (
   client: CodexJsonRpcClient,
   capture: ExchangeCapture
 ): Promise<CodexTurnExecution> => {
+  const markPhase = bindModelCallPhase();
   turn.signal?.throwIfAborted();
   let completedText = '';
   let streamedText = '';
@@ -926,6 +1023,8 @@ const executeCodexAppServerTurn = async (
       }
       if (captured) captureCodexNotification(capture, captured, method, params);
 
+      if (method === 'turn/started') markPhase('awaiting-output');
+
       if (method === 'thread/tokenUsage/updated') {
         const metering = readTurnTokenUsage(params);
         if (metering) usageByTurnId.set(metering.turnId, metering.usage);
@@ -935,6 +1034,7 @@ const executeCodexAppServerTurn = async (
       if (method === 'item/agentMessage/delta' && isRecord(params)) {
         const delta = readText(params.delta);
         if (delta) {
+          markPhase('receiving-output');
           streamedText += delta;
           turn.onTextDelta?.(delta);
         }
@@ -944,6 +1044,7 @@ const executeCodexAppServerTurn = async (
       if (method === 'item/reasoning/textDelta' && isRecord(params)) {
         const delta = readText(params.delta);
         if (delta) {
+          markPhase('receiving-output');
           hasStreamedReasoningText = true;
           turn.onReasoningDelta?.(delta);
         }
@@ -957,6 +1058,7 @@ const executeCodexAppServerTurn = async (
       ) {
         const delta = readText(params.delta);
         if (delta) {
+          markPhase('receiving-output');
           streamedReasoningSummary += delta;
           turn.onReasoningDelta?.(delta);
         }
@@ -964,6 +1066,11 @@ const executeCodexAppServerTurn = async (
       }
 
       if (method === 'item/completed') {
+        if (readAgentMessageText(params) || readCompletedReasoningSummary(params))
+          markPhase('receiving-output');
+        if (isRecord(params) && isRecord(params.item) && params.item.type === 'webSearch') {
+          turn.onWebSearchCompleted?.();
+        }
         const imageResult = readCompletedImageResult(params);
         if (imageResult) {
           turn.onImageGenerated?.(imageResult);
@@ -998,15 +1105,19 @@ const executeCodexAppServerTurn = async (
         );
         return;
       }
+      markPhase('completed');
       resolveTurnCompleted(completedText || streamedText);
     });
+    const unsubscribeFailure = client.onFailure(rejectTurnCompleted);
     cleanupTurnListener = () => {
       unsubscribe();
+      unsubscribeFailure();
       cleanupCancellation();
     };
   });
 
   try {
+    markPhase('awaiting-ack');
     const turnResponse = await client.request(
       'turn/start',
       {
@@ -1023,6 +1134,7 @@ const executeCodexAppServerTurn = async (
       },
       { signal: turn.signal }
     );
+    markPhase('awaiting-output');
     const turnId = readStartedTurnId(turnResponse);
     if (!turnId) {
       throw new CodexAppServerError('Codex did not return a turn id.', 'protocol');
@@ -1105,6 +1217,8 @@ const executeCodexAppServerTurn = async (
     return { result, settled };
   } catch (error) {
     cleanupTurnListener();
+    rejectTurnCompleted(error);
+    await turnCompleted.catch(() => undefined);
     throw error;
   }
 };
@@ -1125,13 +1239,21 @@ const trackCodexTurnUsage = async (execution: Promise<CodexTurnExecution>): Prom
 export const runCodexAppServerTurnWithClient = (
   turn: CodexTurnInput,
   client: CodexJsonRpcClient
-): Promise<string> => trackCodexTurnUsage(startCodexAppServerTurnWithClient(turn, client));
+): Promise<string> =>
+  withModelCallDiagnostics(turn.signal, () =>
+    trackCodexTurnUsage(startCodexAppServerTurnWithClient(turn, client))
+  );
 
 const startCodexAppServerTurn = async (turn: CodexTurnInput): Promise<CodexTurnExecution> => {
   let client: CodexJsonRpcClient;
   try {
     client = await startCodexAppServerClient(
-      () => spawnCodexAppServer({ allowImageGeneration: turn.allowImageGeneration }),
+      () =>
+        spawnCodexAppServer({
+          allowImageGeneration: turn.allowImageGeneration,
+          allowWebSearch: turn.allowWebSearch,
+          hasDynamicTools: Boolean(turn.tools?.length),
+        }),
       turn.signal
     );
   } catch (error) {
@@ -1143,7 +1265,7 @@ const startCodexAppServerTurn = async (turn: CodexTurnInput): Promise<CodexTurnE
 };
 
 export const runCodexAppServerTurn = (turn: CodexTurnInput): Promise<string> =>
-  trackCodexTurnUsage(startCodexAppServerTurn(turn));
+  withModelCallDiagnostics(turn.signal, () => trackCodexTurnUsage(startCodexAppServerTurn(turn)));
 
 export const CODEX_IMAGE_TURN_SETTINGS = { reasoningEffort: 'low', serviceTier: 'fast' } as const;
 

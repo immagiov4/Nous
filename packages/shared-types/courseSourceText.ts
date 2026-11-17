@@ -1,4 +1,5 @@
 import type { PdfTextChunk, PdfTextIndex } from './pdfTextIndex';
+import { sourceTextEndOffset } from './sourceTextSlice';
 
 export interface SourceOutlineNode {
   children: SourceOutlineNode[];
@@ -143,8 +144,11 @@ export const buildTextSourceIndex = (
   const chunks: PdfTextChunk[] = [];
 
   for (const range of ranges) {
-    for (let offset = range.start; offset < range.end; offset += TEXT_CHUNK_CHARS) {
-      const chunkText = text.slice(offset, Math.min(range.end, offset + TEXT_CHUNK_CHARS)).trim();
+    for (let offset = range.start; offset < range.end; ) {
+      const startOffset = offset;
+      const endOffset = sourceTextEndOffset(text, Math.min(range.end, offset + TEXT_CHUNK_CHARS));
+      const chunkText = text.slice(startOffset, endOffset).trim();
+      offset = endOffset;
       if (!chunkText) {
         continue;
       }
@@ -154,8 +158,8 @@ export const buildTextSourceIndex = (
         sequence: chunks.length,
         text: chunkText,
         headingPath: range.headingPath,
-        startOffset: offset,
-        endOffset: Math.min(range.end, offset + TEXT_CHUNK_CHARS),
+        startOffset,
+        endOffset,
       });
     }
   }

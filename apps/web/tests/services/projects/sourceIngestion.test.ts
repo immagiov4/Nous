@@ -61,12 +61,13 @@ test('standalone files and ZIP members cross one file-only transport with the sa
   const staging = stage();
   const sent: { names: string[]; texts: string[]; ids: string[] }[] = [];
   const ingestSources = createSourceIngestion({
-    publish: async (destination, files) => {
+    publish: async (destination, files, options) => {
       sent.push({
         names: files.map(file => file.file.name),
         texts: await Promise.all(files.map(file => file.file.text())),
         ids: files.map(file => file.sourceId),
       });
+      options.onProgress?.({ step: 'upload', completed: 1, total: 1 });
       return {
         snapshot: destination.snapshot,
         meta: {
@@ -87,6 +88,7 @@ test('standalone files and ZIP members cross one file-only transport with the sa
     },
   });
   const zip = new JSZip();
+  const onProgress = vi.fn();
   zip.file('lesson.txt', '∀ n ∈ ℕ');
   const packed = new File([await zip.generateAsync({ type: 'arraybuffer' })], 'course.zip', {
     type: 'application/zip',
@@ -95,10 +97,15 @@ test('standalone files and ZIP members cross one file-only transport with the sa
     inputs: [new File(['∀ n ∈ ℕ'], 'lesson.txt', { type: 'text/plain' })],
     destination: { snapshot },
   });
-  await ingestSources({ inputs: [packed], destination: { snapshot } });
+  await ingestSources({ inputs: [packed], destination: { snapshot }, onProgress });
   expect(sent).toHaveLength(2);
   expect(sent[0]).toEqual(sent[1]);
   expect(sent[0].names).toEqual(['lesson.txt']);
+  expect(onProgress).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      documents: [{ id: sent[0].ids[0], name: 'lesson.txt', state: 'idle' }],
+    })
+  );
   expect(staging.removed).toHaveLength(1);
 });
 

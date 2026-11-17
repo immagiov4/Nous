@@ -44,6 +44,7 @@ interface HomeChatConversationProps {
   readonly libraryErrorMessage: string | null;
   readonly libraryFloatingArtifactPayloads: LearningArtifactRenderPayload[];
   readonly newCourseLoadingStatus: string;
+  readonly showLoadingStatus?: boolean;
   readonly onConfirmGenerate: () => void;
   readonly onContinueAssessment?: () => void;
   readonly onLibraryArtifactNoteApprove: (
@@ -482,11 +483,13 @@ const UserAvatar = ({ show }: { show: boolean }) => {
 const EmptyConversationState = ({
   hasMessages,
   homeChatMode,
+  showLoadingStatus,
 }: {
   hasMessages: boolean;
   homeChatMode: HomeChatMode;
+  showLoadingStatus: boolean;
 }) => {
-  if (hasMessages) return null;
+  if (hasMessages || (homeChatMode === 'new-course' && !showLoadingStatus)) return null;
   const isNewCourse = homeChatMode === 'new-course';
   const title = isNewCourse ? t('Cosa vorresti imparare?') : t('Interroga la tua libreria');
   const description = isNewCourse
@@ -529,7 +532,7 @@ function CourseApproval({
     return null;
   return (
     <>
-      {coursePreferences}
+      {coursePreferences ? <div data-course-preferences>{coursePreferences}</div> : null}
       <div className="flex flex-col items-center gap-3 rounded-2xl border border-amber-200/80 bg-amber-50/60 px-5 py-4 dark:border-amber-700/40 dark:bg-amber-950/20">
         <p className="text-center text-sm font-medium text-amber-800 dark:text-amber-200">
           {coursePreferences
@@ -589,6 +592,7 @@ export default function HomeChatConversation({
   libraryErrorMessage,
   libraryFloatingArtifactPayloads,
   newCourseLoadingStatus,
+  showLoadingStatus = true,
   onConfirmGenerate,
   onContinueAssessment,
   onLibraryArtifactNoteApprove,
@@ -603,6 +607,7 @@ export default function HomeChatConversation({
 }: HomeChatConversationProps) {
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const diagnosticRef = useRef<HTMLDivElement>(null);
+  const messagesContentRef = useRef<HTMLDivElement>(null);
   const visibleDiagnostic = homeChatMode === 'new-course' ? diagnosticAdapter : undefined;
   const [scrollOffsetOverride, setScrollOffsetOverride] = useState(0);
   const assessmentMessageKeys = useMemo(
@@ -615,6 +620,8 @@ export default function HomeChatConversation({
   );
   const activeMessages =
     homeChatMode === 'new-course' ? assessmentMessages : visibleLibraryMessages;
+  const hasPreferences = Boolean(coursePreferences) && !visibleDiagnostic;
+  const diagnosticKind = visibleDiagnostic?.initial.kind;
   const hasMessages = activeMessages.length > 0 || Boolean(visibleDiagnostic);
   const activeContentLength = getConversationContentLength(
     homeChatMode,
@@ -633,12 +640,21 @@ export default function HomeChatConversation({
     ) {
       return;
     }
-    const maxScrollTop = Math.max(
-      0,
-      messagesScrollRef.current.scrollHeight - messagesScrollRef.current.clientHeight
-    );
-    const nextOffset = Math.round(maxScrollTop * Math.min(1, Math.max(0, scrollProgressOverride)));
-    setScrollOffsetOverride(current => (current === nextOffset ? current : nextOffset));
+    const viewport = messagesScrollRef.current;
+    const content = messagesContentRef.current;
+    if (!content) return;
+    const measureOverflow = () => {
+      const maxScrollTop = Math.max(0, content.scrollHeight - viewport.clientHeight);
+      const nextOffset = Math.round(
+        maxScrollTop * Math.min(1, Math.max(0, scrollProgressOverride))
+      );
+      setScrollOffsetOverride(current => (current === nextOffset ? current : nextOffset));
+    };
+    measureOverflow();
+    const observer = new ResizeObserver(measureOverflow);
+    observer.observe(viewport);
+    observer.observe(content);
+    return () => observer.disconnect();
   }, [scrollMeasurementKey, scrollProgressOverride]);
 
   useLayoutEffect(() => {
@@ -647,11 +663,18 @@ export default function HomeChatConversation({
     const messagesScroll = messagesScrollRef.current;
     if (!messagesScroll) return;
     const diagnostic = diagnosticRef.current;
-    if (diagnostic) {
+    if (diagnostic && !hasPreferences && diagnosticKind) {
       messagesScroll.scrollTop +=
         diagnostic.getBoundingClientRect().top - messagesScroll.getBoundingClientRect().top;
     } else messagesScroll.scrollTop = messagesScroll.scrollHeight;
-  }, [activeMessages, assessmentComplete, isLoading, scrollProgressOverride]);
+  }, [
+    activeMessages,
+    assessmentComplete,
+    isLoading,
+    scrollProgressOverride,
+    hasPreferences,
+    diagnosticKind,
+  ]);
 
   return (
     <div
@@ -661,10 +684,11 @@ export default function HomeChatConversation({
         hasMessages,
         isLoading,
         reserveClearButtonSpace
-      )} ${visibleDiagnostic ? 'md:!h-[75dvh]' : ''}`}
+      )}`}
       style={scrollProgressOverride === undefined ? undefined : { overflowY: 'hidden' }}
     >
       <div
+        ref={messagesContentRef}
         className={`space-y-3.5 ${scrollProgressOverride === undefined ? '' : 'pb-20'}`}
         style={
           scrollProgressOverride === undefined
@@ -672,7 +696,11 @@ export default function HomeChatConversation({
             : { transform: `translateY(-${scrollOffsetOverride}px)` }
         }
       >
-        <EmptyConversationState hasMessages={hasMessages} homeChatMode={homeChatMode} />
+        <EmptyConversationState
+          hasMessages={hasMessages}
+          homeChatMode={homeChatMode}
+          showLoadingStatus={showLoadingStatus}
+        />
 
         {homeChatMode === 'new-course' ? (
           <AssessmentConversation
@@ -708,7 +736,7 @@ export default function HomeChatConversation({
             onReplaceArtifact={onLibraryArtifactReplace}
           />
         ) : null}
-        {homeChatMode === 'new-course' && isLoading ? (
+        {homeChatMode === 'new-course' && isLoading && showLoadingStatus ? (
           <div className="flex justify-start">
             <div className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-gray-50/80 px-4 py-3 text-sm text-gray-600 dark:border-zinc-600/50 dark:bg-stone-700 dark:text-zinc-300">
               <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
@@ -733,7 +761,7 @@ export default function HomeChatConversation({
         {visibleDiagnostic ? (
           <div ref={diagnosticRef} className="flex min-w-0 items-start gap-2.5">
             {assistantAvatar}
-            <div className="min-w-0 max-w-[82ch] flex-1 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 sm:p-6">
+            <div className="min-w-0 flex-1 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 sm:p-6">
               <DiagnosticFlow
                 key={visibleDiagnostic.collectionId}
                 adapter={visibleDiagnostic}

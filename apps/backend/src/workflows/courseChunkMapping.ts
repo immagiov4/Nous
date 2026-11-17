@@ -14,6 +14,7 @@ import {
   PDF_MAPPING_TARGET_PROMPT_CHARS,
 } from '@shared/pdfDocumentPolicy';
 import { buildCompactSnippet } from '@shared/pdfTextIndex';
+import { clipSourceExcerptText } from '@shared/sourceTextSlice';
 import * as z from 'zod';
 
 import { generateCourseObject } from './courseGenerationModel.js';
@@ -231,7 +232,7 @@ const buildMappingPrompt = ({
         id: chunk.id,
         sequence: chunk.sequence,
         textLength: chunk.text.length,
-        textPreview: buildCompactSnippet(chunk.text, previewChars),
+        textPreview: buildCompactSnippet(clipSourceExcerptText(chunk.text), previewChars),
       })
     ),
     ...(retryFeedback ? { correction: retryFeedback } : {}),

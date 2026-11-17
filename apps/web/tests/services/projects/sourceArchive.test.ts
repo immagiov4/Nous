@@ -76,6 +76,27 @@ test('formatSourceArchiveIndex shares a global preview budget fairly across 20k 
   assert.match(formatted, /FILE src\/file-19999[.]ts/u);
 });
 
+test('archive preview quotas keep 20k supplementary entries within the shared budget', () => {
+  const entries = Array.from({ length: 20_000 }, (_, index) => ({
+    contentKind: 'text' as const,
+    kind: 'file' as const,
+    path: `symbols-${String(index).padStart(5, '0')}.txt`,
+    preview: '𝑋tail',
+  }));
+  const formatted = formatSourceArchiveIndex({ entries }, { previewBudgetChars: 20_000 });
+  const lines = formatted.split('\n');
+  const previews = lines.flatMap((line, index) =>
+    line.startsWith('PREVIEW ') ? [lines[index + 1] || ''] : []
+  );
+  assert.equal(previews.length, entries.length);
+  assert.ok(previews.reduce((total, preview) => total + preview.length, 0) <= 20_000);
+  assert.ok(previews.every(preview => !/[\uD800-\uDFFF]/u.test(preview)));
+  assert.equal(
+    formatSourceArchiveIndex({ entries: [...entries].reverse() }, { previewBudgetChars: 20_000 }),
+    formatted
+  );
+});
+
 test('formatSourceArchiveIndex rejects a budget that would starve text files', () => {
   assert.throws(
     () =>

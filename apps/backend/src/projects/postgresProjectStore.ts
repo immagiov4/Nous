@@ -1073,7 +1073,10 @@ export class PostgresProjectStore implements ProjectStore {
       throw new ProjectNotFoundError();
     }
     if (expectedRevision !== undefined && existingMeta?.revision !== expectedRevision) {
-      throw new ProjectRevisionConflictError();
+      throw new ProjectRevisionConflictError({
+        expectedRevision,
+        currentRevision: existingMeta?.revision,
+      });
     }
     const existingSnapshot = await this.loadProject(userId, snapshot.id);
     if (expectedRevision !== undefined && !existingSnapshot) {
@@ -1297,7 +1300,7 @@ export class PostgresProjectStore implements ProjectStore {
           this.runReservedTransaction(sql, transaction =>
             patchProjectInTransaction(transaction, {
               buildPatch: project => {
-                assertRebasedProjectPatch(project.snapshot, patch, options);
+                assertRebasedProjectPatch(project.snapshot, patch, options, project.revision);
                 return patch;
               },
               projectId: id,

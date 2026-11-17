@@ -11,6 +11,7 @@ export interface HomeChatStartResult {
     | 'noop'
     | 'planned';
   sourceWarnings?: ProjectSourceWarning[];
+  terminalSourceDocuments?: { id: string; name: string; state: 'error' }[];
 }
 
 export interface PendingAssessmentInterviewRun {

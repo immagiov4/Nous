@@ -1,5 +1,9 @@
 import { isDeepStrictEqual } from 'node:util';
-import { PROJECT_PATCH_REBASE_MODE, type ProjectWriteOptions } from '@shared/projectContract';
+import {
+  buildProjectAnnotationWriteState,
+  PROJECT_PATCH_REBASE_MODE,
+  type ProjectWriteOptions,
+} from '@shared/projectContract';
 import {
   canonicalizeLearningPlanContent,
   canonicalizeLessonNodeContent,
@@ -37,7 +41,8 @@ export const isNavigationProjectPatch = (patch: ProjectPatch): boolean => {
 export const assertRebasedProjectPatch = (
   project: ProjectSnapshot,
   patch: ProjectPatch,
-  options: ProjectWriteOptions
+  options: ProjectWriteOptions,
+  currentRevision?: number
 ): void => {
   if (options.rebaseMode === PROJECT_PATCH_REBASE_MODE.navigation) {
     if (!isNavigationProjectPatch(patch))
@@ -49,6 +54,30 @@ export const assertRebasedProjectPatch = (
   const sectionFields = Object.entries(sectionPatch ?? {}).filter(
     ([, value]) => value !== undefined
   );
+  if (options.rebaseMode === PROJECT_PATCH_REBASE_MODE.annotations) {
+    if (
+      sectionPatch?.annotations === undefined ||
+      !options.expectedAnnotationState ||
+      options.expectedRevision === undefined ||
+      projectFields.some(([key]) => key !== 'section' && key !== 'updatedAt') ||
+      sectionFields.some(
+        ([key]) => key !== 'sectionId' && key !== 'annotations' && key !== 'generatedVisuals'
+      )
+    )
+      throw new TypeError(
+        'Annotation rebase requires only annotations and optional generated visuals with their original context.'
+      );
+    const section = findProjectLessonSection(project, sectionPatch.sectionId);
+    if (
+      !section ||
+      !isDeepStrictEqual(buildProjectAnnotationWriteState(section), options.expectedAnnotationState)
+    )
+      throw new ProjectRevisionConflictError({
+        expectedRevision: options.expectedRevision,
+        currentRevision,
+      });
+    return;
+  }
   if (
     options.rebaseMode !== PROJECT_PATCH_REBASE_MODE.quiz ||
     !sectionPatch?.quizState ||
@@ -64,7 +93,10 @@ export const assertRebasedProjectPatch = (
     (section.lastGenerationRunId ?? null) !== options.expectedLessonGenerationRunId ||
     !isDeepStrictEqual(section.quizState ?? null, options.expectedQuizState)
   ) {
-    throw new ProjectRevisionConflictError();
+    throw new ProjectRevisionConflictError({
+      expectedRevision: options.expectedRevision,
+      currentRevision,
+    });
   }
 };
 

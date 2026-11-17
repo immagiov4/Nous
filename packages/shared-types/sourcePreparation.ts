@@ -6,6 +6,8 @@ export interface SourcePreparationProgress {
   completed: number;
   total: number;
   documentName?: string;
+  /** Ordered collection members, including expanded ZIP entries; states follow actual completion. */
+  documents?: { id: string; name: string; state: 'idle' | 'reading' | 'done' | 'error' }[];
   failedPages?: number[];
   failures?: { documentName: string; pageNumber?: number }[];
   reducedQuality?: { from: number; to: number };

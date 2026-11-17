@@ -25,6 +25,8 @@ import {
   LessonResearchStateSchema,
   LessonReviewedStateSchema,
   LessonSourcesStateSchema,
+  LessonYouTubePlanStateSchema,
+  LessonYouTubeSearchStateSchema,
   LessonYouTubeStateSchema,
 } from '../../src/workflows/lessonGenerationWorkflowContract.js';
 import { indexWorkflowNodes } from '../../src/workflows/workflowNodeIndex.js';
@@ -376,6 +378,16 @@ describe('lesson generation production stages', () => {
         else
           await expect(result).resolves.toMatchObject({
             research: { summary: outcome === 'recover' ? summary : null },
+            ...(outcome === 'exhaust'
+              ? {
+                  degradationDiagnostics: [
+                    expect.objectContaining({
+                      stage: 'research-lesson',
+                      diagnostic: { type: 'CodexAppServerError', code: 'process' },
+                    }),
+                  ],
+                }
+              : {}),
           });
       }
       expect(generateResearch).toHaveBeenCalledTimes(attempts);
@@ -415,6 +427,44 @@ describe('lesson generation production stages', () => {
       node.run({ ...context, attemptNumber: 2, retryFeedback: error.failure.feedback } as never)
     ).resolves.toMatchObject({ researchRouting: { channels: [{ type: 'web', selected: true }] } });
     expect(planner.mock.calls[1][0].retryFeedback).toBe(error.failure.feedback);
+  });
+  test.each([
+    ['planYouTubeResearch', 'plan-youtube-research', LessonYouTubePlanStateSchema],
+    ['researchSpecificYouTube', 'research-specific-youtube', LessonYouTubeSearchStateSchema],
+    ['researchFallbackYouTube', 'research-fallback-youtube', LessonYouTubeSearchStateSchema],
+  ] as const)('%s persists its final cause without retaining provider prose', async (method, stage, schema) => {
+    const error = new CodexAppServerError('private provider payload', 'process');
+    const services = createLessonGenerationStageServices(
+      dependencies({
+        planYouTube: vi.fn().mockRejectedValue(error),
+        researchYouTube: vi.fn().mockRejectedValue(error),
+        logger: { warn: vi.fn() },
+      })
+    );
+    const input = LessonYouTubeSearchStateSchema.parse({
+      ...lessonSourcesState(),
+      stage: 'youtube-search',
+      youtubeSearchOutcome: null,
+      youtubeSearchPlan: {
+        specificQuery: 'specific',
+        fallbackQuery: 'fallback',
+        focusConcept: 'concept',
+      },
+      researchRouting: { suppliedSourcesSufficient: true, rationale: 'Optional', channels: [] },
+    });
+    await expect(services[method](stageContext(input))).rejects.toBe(error);
+    const output = schema.parse(
+      await services[method]({ ...stageContext(input), attemptNumber: config.maxAttempts })
+    );
+    expect(output.degradationDiagnostics).toEqual([
+      {
+        attemptNumber: config.maxAttempts,
+        stage,
+        kind: 'operational',
+        diagnostic: { type: 'CodexAppServerError', code: 'process' },
+      },
+    ]);
+    expect(JSON.stringify(output.degradationDiagnostics)).not.toContain('private');
   });
   test('passes only configured capabilities to the lesson planner', async () => {
     const planner = vi.fn().mockResolvedValue({
@@ -459,7 +509,10 @@ describe('lesson generation production stages', () => {
       attemptNumber: config.maxAttempts,
     });
     if (suppliedSourcesSufficient)
-      await expect(planning).resolves.toMatchObject({ youtubeSearchPlan: null });
+      await expect(planning).resolves.toMatchObject({
+        youtubeSearchPlan: null,
+        degradationDiagnostics: [expect.objectContaining({ stage: 'plan-youtube-research' })],
+      });
     else await expect(planning).rejects.toBe(providerError);
     planYouTube.mockResolvedValue({
       specificQuery: 'specific',
@@ -478,14 +531,20 @@ describe('lesson generation production stages', () => {
       attemptNumber: config.maxAttempts,
     });
     if (suppliedSourcesSufficient)
-      await expect(specific).resolves.toMatchObject({ youtubeSearchOutcome: null });
+      await expect(specific).resolves.toMatchObject({
+        youtubeSearchOutcome: null,
+        degradationDiagnostics: [expect.objectContaining({ stage: 'research-specific-youtube' })],
+      });
     else await expect(specific).rejects.toBe(providerError);
     const fallback = services.researchFallbackYouTube({
       ...stageContext({ ...planned, stage: 'youtube-search', youtubeSearchOutcome: null }),
       attemptNumber: config.maxAttempts,
     });
     if (suppliedSourcesSufficient)
-      await expect(fallback).resolves.toMatchObject({ youtubeSearchOutcome: null });
+      await expect(fallback).resolves.toMatchObject({
+        youtubeSearchOutcome: null,
+        degradationDiagnostics: [expect.objectContaining({ stage: 'research-fallback-youtube' })],
+      });
     else await expect(fallback).rejects.toBe(providerError);
     planYouTube.mockRejectedValue(new CodexAppServerError('Invalid response', 'protocol'));
     await expect(services.planYouTubeResearch(stageContext(input))).rejects.toThrow(
@@ -1303,7 +1362,6 @@ describe('lesson generation production stages', () => {
     expect(warn).toHaveBeenCalledWith('Optional lesson YouTube research failed.', {
       diagnostic: {
         code: 'RATE_LIMIT',
-        originalMessage: 'secret=[REDACTED]',
         status: 429,
         type: 'Error',
       },

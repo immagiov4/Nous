@@ -1,6 +1,6 @@
 import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { useLayoutEffect, useReducer, useRef, useState } from 'react';
-import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import { DIAGNOSTIC_COMPLETION_ERROR, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import DiagnosticQuestionCard from './DiagnosticQuestionCard.tsx';
 import DiagnosticTree from './DiagnosticTree.tsx';
 import {
@@ -68,7 +68,12 @@ export default function DiagnosticFlow({ adapter, isDarkMode }: DiagnosticFlowPr
   if (stage.kind === 'self-assessment') nextLabel = t('Continua');
   else if (stage.kind === 'round' && position < items.length - 1) nextLabel = t('Successiva');
   return (
-    <section className="diagnostic-flow" aria-label={t('Conoscenze iniziali')} aria-busy={busy}>
+    <section
+      data-stage={stage.kind}
+      className="diagnostic-flow"
+      aria-label={t('Conoscenze iniziali')}
+      aria-busy={busy}
+    >
       <h2 ref={titleRef} tabIndex={-1} className="mb-6 text-xl font-semibold outline-none">
         {stage.title}
         {stage.kind === 'round' && (
@@ -100,11 +105,7 @@ export default function DiagnosticFlow({ adapter, isDarkMode }: DiagnosticFlowPr
               {t('Continua')}
             </button>
           )}
-          {completionError && (
-            <p role="alert">
-              {t('La richiesta non è disponibile in questo momento. Riprova più tardi.')}
-            </p>
-          )}
+          {completionError && <p role="alert">{t(DIAGNOSTIC_COMPLETION_ERROR)}</p>}
         </>
       ) : (
         <>
@@ -114,6 +115,8 @@ export default function DiagnosticFlow({ adapter, isDarkMode }: DiagnosticFlowPr
               <DiagnosticTree
                 topics={stage.topics}
                 answers={state.answers}
+                collapsedTopics={state.collapsedTopics}
+                onToggle={itemId => dispatch({ type: 'toggle-topic', itemId })}
                 onAnswer={(id, value) => answer(id, { kind: 'self-report', value })}
               />
             ) : (

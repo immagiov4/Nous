@@ -433,7 +433,10 @@ export class InMemoryProjectStore implements ProjectStore {
       throw new ProjectNotFoundError();
     }
     if (expectedRevision !== undefined && existing?.meta.revision !== expectedRevision) {
-      throw new ProjectRevisionConflictError();
+      throw new ProjectRevisionConflictError({
+        expectedRevision,
+        currentRevision: existing?.meta.revision,
+      });
     }
 
     let snapshot = normalizeProjectSnapshot(clone(data), false, {
@@ -485,10 +488,13 @@ export class InMemoryProjectStore implements ProjectStore {
       options.expectedRevision !== undefined &&
       existing.meta.revision !== options.expectedRevision
     ) {
-      throw new ProjectRevisionConflictError();
+      throw new ProjectRevisionConflictError({
+        expectedRevision: options.expectedRevision,
+        currentRevision: existing.meta.revision,
+      });
     }
     if (options.rebaseMode !== undefined)
-      assertRebasedProjectPatch(existing.snapshot, patch, options);
+      assertRebasedProjectPatch(existing.snapshot, patch, options, existing.meta.revision);
 
     const snapshot = applyProjectPatch(existing.snapshot, patch, patch.updatedAt || timestampIso());
     const meta = {

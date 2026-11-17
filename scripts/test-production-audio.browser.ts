@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { chromium, devices, firefox, type Page } from 'playwright';
+import { chromium, devices, firefox, type Page, type Request } from 'playwright';
 import { build, preview } from 'vite';
 import { FIXED_AUDIO_SECONDS, fixedAudio } from '../apps/web/tests/fixtures/fixedAudio';
 import { segmentLessonPlayback } from '../packages/shared-types/lessonPlayback';
@@ -17,6 +17,7 @@ declare global {
 
 const configFile = resolve('apps/web/vite.config.ts');
 let workletFailure: string | null = null;
+const pendingRequests = new Set<Request>();
 const bytes = Buffer.from(fixedAudio());
 const hash = createHash('sha256').update(bytes).digest('hex');
 const blocks = segmentLessonPlayback([{ type: 'markdown', markdown: 'Fixed audio sample.' }]).map(
@@ -33,6 +34,9 @@ const blocks = segmentLessonPlayback([{ type: 'markdown', markdown: 'Fixed audio
 
 async function serveRecordings(page: Page) {
   const requestedVoices: string[] = [];
+  page.on('request', request => pendingRequests.add(request));
+  page.on('requestfinished', request => pendingRequests.delete(request));
+  page.on('requestfailed', request => pendingRequests.delete(request));
   await page.route('**/api/projects/audio-contract/**', async route => {
     const url = route.request().url();
     if (url.includes('/assets/')) {
@@ -199,9 +203,14 @@ try {
       );
     } catch (error) {
       console.error(`${browserType.name()}:`, error);
+      console.error(
+        'Pending browser requests:',
+        [...pendingRequests].map(request => request.url())
+      );
       failures.push(error);
     } finally {
       await browser.close();
+      pendingRequests.clear();
     }
   }
 } finally {

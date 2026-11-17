@@ -78,11 +78,14 @@ export class DiagnosticStoppedError extends Error {}
 export interface DiagnosticState {
   readonly stage: DiagnosticStage;
   readonly answers: Readonly<Record<string, DiagnosticAnswer>>;
+  readonly inferredFrom: Readonly<Record<string, string>>;
+  readonly collapsedTopics: Readonly<Record<string, boolean>>;
   readonly position: number;
   readonly status: 'editing' | 'submitting' | 'failed' | 'stopped';
 }
 export type DiagnosticAction =
   | { type: 'answer'; itemId: string; answer: DiagnosticAnswer }
+  | { type: 'toggle-topic'; itemId: string }
   | { type: 'navigate'; position: number }
   | { type: 'submit' }
   | { type: 'failed' }
@@ -97,7 +100,79 @@ export function diagnosticItems(stage: DiagnosticStage) {
   return stage.kind === 'round' ? stage.questions : flattenTopics(stage.topics);
 }
 export function initialDiagnosticState(stage: DiagnosticStage): DiagnosticState {
-  return { stage, answers: {}, position: 0, status: 'editing' };
+  return {
+    stage,
+    answers: {},
+    inferredFrom: {},
+    collapsedTopics: {},
+    position: 0,
+    status: 'editing',
+  };
+}
+/** Cascade ownership lets a later parent edit clear only that parent's inferred answers. */
+function answerTopic(
+  state: DiagnosticState,
+  topic: DiagnosticTopic,
+  answer: DiagnosticAnswer
+): DiagnosticState {
+  if (answer.kind !== 'self-report') return state;
+  const answers = { ...state.answers, [topic.id]: answer };
+  const inferredFrom = { ...state.inferredFrom };
+  delete inferredFrom[topic.id];
+  const unfamiliar = answer.value === 'unfamiliar';
+  const descendants = flattenTopics(topic.children);
+  const descendantIds = new Set(descendants.map(descendant => descendant.id));
+  for (const descendant of descendants) {
+    const previous = answers[descendant.id];
+    if (previous && !inferredFrom[descendant.id]) continue;
+    // An explicitly unknown subtopic owns its own cascade, even inside this branch.
+    const owner = inferredFrom[descendant.id];
+    if (owner && descendantIds.has(owner) && !state.inferredFrom[owner]) continue;
+    if (unfamiliar) {
+      answers[descendant.id] = { kind: 'self-report', value: 'unfamiliar' };
+      inferredFrom[descendant.id] = topic.id;
+    } else if (owner === topic.id || (owner && owner === state.inferredFrom[topic.id])) {
+      delete answers[descendant.id];
+      delete inferredFrom[descendant.id];
+    }
+  }
+  return {
+    ...state,
+    answers,
+    inferredFrom,
+    // Unknown hides the filled branch; any other rating reopens it so cleared subtopics stay visible.
+    collapsedTopics:
+      topic.children.length > 0
+        ? { ...state.collapsedTopics, [topic.id]: unfamiliar }
+        : state.collapsedTopics,
+  };
+}
+function answerItem(
+  state: DiagnosticState,
+  action: Extract<DiagnosticAction, { type: 'answer' }>
+): DiagnosticState {
+  if (state.status === 'failed' || state.status === 'stopped') return state;
+  if (!diagnosticItems(state.stage).some(item => item.id === action.itemId)) return state;
+  if (
+    !state.inferredFrom[action.itemId] &&
+    !(
+      state.stage.kind === 'self-assessment' &&
+      action.answer.kind === 'self-report' &&
+      action.answer.value === 'unfamiliar'
+    ) &&
+    JSON.stringify(state.answers[action.itemId]) === JSON.stringify(action.answer)
+  )
+    return state;
+  if (state.stage.kind === 'self-assessment') {
+    const topic = flattenTopics(state.stage.topics).find(item => item.id === action.itemId);
+    if (!topic) return state;
+    return answerTopic(state, topic, action.answer);
+  }
+  return {
+    ...state,
+    status: 'editing',
+    answers: { ...state.answers, [action.itemId]: action.answer },
+  };
 }
 export function diagnosticReducer(
   state: DiagnosticState,
@@ -108,17 +183,16 @@ export function diagnosticReducer(
   if (action.type === 'stopped') return { ...state, status: 'stopped' };
   if (state.status === 'submitting' || state.stage.kind === 'complete') return state;
   switch (action.type) {
-    case 'answer': {
-      if (state.status === 'failed' || state.status === 'stopped') return state;
-      if (!diagnosticItems(state.stage).some(item => item.id === action.itemId)) return state;
-      if (JSON.stringify(state.answers[action.itemId]) === JSON.stringify(action.answer))
-        return state;
+    case 'answer':
+      return answerItem(state, action);
+    case 'toggle-topic':
       return {
         ...state,
-        status: 'editing',
-        answers: { ...state.answers, [action.itemId]: action.answer },
+        collapsedTopics: {
+          ...state.collapsedTopics,
+          [action.itemId]: !state.collapsedTopics[action.itemId],
+        },
       };
-    }
     case 'navigate':
       if (action.position < 0 || action.position >= diagnosticItems(state.stage).length)
         return state;
