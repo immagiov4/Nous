@@ -156,14 +156,23 @@ export const sequence = ({ scene }: SceneRenderContext, kind: string) => (
   </ol>
 );
 
-export const matrix = ({ scene, labels }: SceneRenderContext) => {
+export const matrix = ({ scene, labels, playback }: SceneRenderContext) => {
   const rowCount = Math.max(0, ...scene.groups.map(group => group.items.length));
   return (
-    <div className="table-wrap">
+    // biome-ignore lint/a11y/noNoninteractiveTabindex: the scrollable table needs keyboard access.
+    <section
+      className="table-wrap"
+      aria-label={scene.title || labels.comparison}
+      tabIndex={playback ? undefined : 0}
+    >
       <table>
         <thead>
           <tr>
-            {scene.criteria ? <th scope="col">{labels.criterion}</th> : null}
+            {scene.criteria ? (
+              <th scope="col" className="matrix-corner">
+                {labels.criterion}
+              </th>
+            ) : null}
             {scene.groups.map((group, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; authored order is static
               <th key={`${index}-${group.label}`} scope="col">
@@ -178,20 +187,24 @@ export const matrix = ({ scene, labels }: SceneRenderContext) => {
             <tr key={`${row}-${scene.criteria?.[row] ?? ''}`}>
               {scene.criteria ? (
                 <th scope="row">
-                  <SceneText>{scene.criteria[row]}</SceneText>
+                  <div className="matrix-row-label">
+                    <SceneText>{scene.criteria[row]}</SceneText>
+                  </div>
                 </th>
               ) : null}
               {scene.groups.map((group, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; authored order is static
                 <td key={`${index}-${group.label}`}>
-                  <SceneText>{group.items[row] ?? '—'}</SceneText>
+                  <div className="matrix-copy">
+                    <SceneText>{group.items[row] ?? '—'}</SceneText>
+                  </div>
                 </td>
               ))}
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
+    </section>
   );
 };
 
@@ -256,7 +269,6 @@ const QUICK_GEOMETRY = {
   },
   cycle: { radius: 33, center: 50, gapMax: 0.49, gapFraction: 0.7, arrowHead: 2 },
   branches: { width: 100, height: 36, join: 18, center: 50 },
-  heatmapTone: 28,
 } as const;
 
 export const quickBox = (label: string, detail = '', icon?: string) => (
@@ -402,46 +414,69 @@ export const quickTree = ({ scene }: SceneRenderContext) => {
   );
 };
 
-export const quickMatrix = ({ scene }: SceneRenderContext) => (
-  <div className="q-table">
-    <table>
-      <thead>
-        <tr>
-          <th />
-          {(scene.columns as string[]).map((column, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: authored columns have stable order
-            <th key={`${index}-${column}`} scope="col">
-              {column}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {(scene.rows as NonNullable<LessonScene['rows']>).map((row, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: authored rows have stable order
-          <tr key={`${index}-${row.label}`}>
-            <th scope="row">{row.label}</th>
-            {row.values.map((value, column) => (
-              <td
-                // biome-ignore lint/suspicious/noArrayIndexKey: repeated values occupy distinct fixed columns
-                key={`${column}-${value}`}
-                style={
-                  scene.type === 'heatmap'
-                    ? {
-                        background: `color-mix(in srgb,var(--blue) ${Math.round(((value as number) / (scene.max as number)) * QUICK_GEOMETRY.heatmapTone)}%,var(--surface))`,
-                      }
-                    : undefined
-                }
-              >
-                {value}
-              </td>
+export const quickMatrix = ({ scene, labels, playback }: SceneRenderContext) => {
+  const columns = scene.columns as string[];
+  const heatmap = scene.type === 'heatmap';
+  return (
+    // biome-ignore lint/a11y/noNoninteractiveTabindex: the scrollable table needs keyboard access.
+    <section
+      className="q-table"
+      aria-label={scene.title || labels.comparison}
+      tabIndex={playback ? undefined : 0}
+    >
+      <table
+        style={heatmap ? ({ '--heatmap-tracks': columns.length + 2 } as CSSProperties) : undefined}
+      >
+        {heatmap ? (
+          <caption>
+            0–{scene.max} {scene.unit}
+          </caption>
+        ) : null}
+        <thead>
+          <tr>
+            <td />
+            {columns.map((column, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: authored columns have stable order
+              <th key={`${index}-${column}`} scope="col">
+                {column}
+              </th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-);
+        </thead>
+        <tbody>
+          {(scene.rows as NonNullable<LessonScene['rows']>).map((row, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: authored rows have stable order
+            <tr key={`${index}-${row.label}`}>
+              <th scope="row">
+                <div className="matrix-row-label">{row.label}</div>
+              </th>
+              {row.values.map((value, column) => (
+                <td
+                  // biome-ignore lint/suspicious/noArrayIndexKey: repeated values occupy distinct fixed columns
+                  key={`${column}-${value}`}
+                  style={
+                    heatmap
+                      ? ({
+                          '--heatmap-value': `${((value as number) / (scene.max as number)) * 100}%`,
+                        } as CSSProperties)
+                      : undefined
+                  }
+                >
+                  {value}
+                  {heatmap ? (
+                    <span className="heatmap-track" aria-hidden="true">
+                      <span />
+                    </span>
+                  ) : null}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+};
 
 export const quickTreemap = ({ scene }: SceneRenderContext) => {
   const layout = (
