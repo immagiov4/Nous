@@ -300,16 +300,17 @@ export const SCENE_RENDERERS = {
   },
   scatter: quickScatter,
   process: c => (
-    <ol className="q-process">
+    // biome-ignore lint/a11y/useSemanticElements lint/a11y/noRedundantRoles: Safari loses list semantics when native markers are hidden.
+    <ol className="q-process" role="list">
       {c.scene.items.map((item, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: authored stages have stable order
         <li key={`${index}-${item.label}`} data-playback-item={index}>
-          <div className="q-step-marker">
-            <b className="q-index">{index + 1}</b>
+          <span className="q-index">{index + 1}</span>
+          <div className="q-step-copy">
             {item.icon ? <SceneIcon name={item.icon} /> : null}
+            <strong>{item.label}</strong>
+            {item.detail ? <p>{item.detail}</p> : null}
           </div>
-          <strong>{item.label}</strong>
-          {item.detail ? <p>{item.detail}</p> : null}
         </li>
       ))}
     </ol>

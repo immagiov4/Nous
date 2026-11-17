@@ -2352,6 +2352,16 @@
   transform: scale(var(--scene-scale, 1));
   transform-origin: top left;
 }
+.lesson-player-stage .listening-stage > .scene-fit > .scene-host[data-process-card] {
+  min-height: 0;
+  max-height: var(--scene-height-limit);
+  justify-content: safe center;
+  overflow: auto;
+  scrollbar-width: none;
+}
+.lesson-player-stage .scene-host[data-process-card]::-webkit-scrollbar {
+  display: none;
+}
 .lesson-player-stage
   .scene-host
   :is(

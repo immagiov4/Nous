@@ -1,7 +1,10 @@
 import { useLayoutEffect, useRef } from 'react';
 
-/** Fit each current or departing visual independently, before its pixels become visible. */
-export function usePlaybackVisualFit(present: boolean) {
+/** Fit each visual independently. A scrollable card caps its height while keeping its text size. */
+export function usePlaybackVisualFit(
+  present: boolean,
+  reportVerticalOverflow?: (overflowing: boolean) => void
+) {
   const cardRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     if (!present) return;
@@ -20,11 +23,17 @@ export function usePlaybackVisualFit(present: boolean) {
         Number.parseFloat(layout.paddingTop) + Number.parseFloat(layout.paddingBottom);
       const availableHeight = stage.clientHeight - padding;
       if (!slot.clientWidth || availableHeight <= 0) return;
+      if (reportVerticalOverflow)
+        card.style.setProperty('--scene-height-limit', `${availableHeight}px`);
       card.style.width = `${slot.clientWidth}px`;
       const width = Math.max(card.offsetWidth, card.scrollWidth);
       card.style.width = `${width}px`;
       if (formulas.length) fitImagesAroundText(card, availableHeight);
-      const height = Math.max(card.offsetHeight, card.scrollHeight);
+      const contentHeight = Math.max(card.offsetHeight, card.scrollHeight);
+      const height = reportVerticalOverflow
+        ? Math.min(contentHeight, availableHeight)
+        : contentHeight;
+      reportVerticalOverflow?.(contentHeight > availableHeight);
       if (!width || !height) return;
       const scale = Math.min(1, slot.clientWidth / width, availableHeight / height);
       card.style.setProperty('--scene-scale', String(scale));
@@ -63,7 +72,7 @@ export function usePlaybackVisualFit(present: boolean) {
       document.fonts.removeEventListener('loadingdone', fitScene);
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
-  }, [present]);
+  }, [present, reportVerticalOverflow]);
   return cardRef;
 }
 

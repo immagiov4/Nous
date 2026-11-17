@@ -12,6 +12,7 @@
   --tinted-muted: var(--ink-secondary);
   --line: var(--border-subtle);
   --diagram-rule: var(--border-strong);
+  --scene-outline: color-mix(in srgb, var(--ink-secondary) 85%, var(--surface));
   --blue: #a94f34;
   --tint: #fbefe9;
   --note-bg: #fbefe9;
@@ -1682,13 +1683,20 @@
 }
 .lesson-scene.lesson-scene-animated .interaction-card .path-details {
   display: grid;
-  gap: var(--interaction-gap);
-  padding-left: var(--interaction-gap);
+  gap: var(--diagram-gap);
+  margin-block-start: var(--interaction-gap);
+  list-style: none;
 }
-.lesson-scene.lesson-scene-animated .interaction-card .path-details li {
-  padding: var(--interaction-gap);
-  border-radius: var(--radius);
+.lesson-scene.lesson-scene-animated .interaction-card .path-details > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: var(--diagram-pad);
+  border: 1px solid var(--scene-outline);
+  border-radius: var(--diagram-radius);
   background: var(--paper);
+  overflow-wrap: anywhere;
 }
 .lesson-scene.lesson-scene-animated .interaction-card .guided-stops .guided-stop {
   display: flex;
@@ -1863,15 +1871,17 @@
   margin-top: 12px;
 }
 .lesson-scene .quick-scene .q-quadrant {
+  --quadrant-rule-width: 1px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px;
-  background: var(--blue);
-  border: 2px solid var(--blue);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--quadrant-rule-width);
+  background: var(--scene-outline);
+  border: var(--quadrant-rule-width) solid var(--scene-outline);
   border-radius: 20px;
   overflow: hidden;
 }
 .lesson-scene .quick-scene .q-quadrant .q-box {
+  border: 0;
   border-radius: 0;
   background: var(--surface);
   --muted: var(--ink-secondary);
@@ -2059,50 +2069,50 @@
   border-radius: 8px;
 }
 .lesson-scene .quick-scene .q-process {
-  --step-line: 24px;
+  --process-number-size: clamp(2.5rem, 9cqi, 3.5rem);
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: calc(var(--diagram-gap) * 1.5);
   list-style: none;
-  column-gap: var(--diagram-gap);
 }
-.lesson-scene .quick-scene .q-process li {
+.lesson-scene .quick-scene .q-process > li {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-content: start;
-  gap: 4px 10px;
-  padding-block: 12px;
-  border-bottom: 1px solid var(--line);
+  grid-template-columns: var(--process-number-size) minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
   overflow-wrap: anywhere;
 }
-.lesson-scene .quick-scene .q-step-marker {
+.lesson-scene .quick-scene .q-process .q-step-copy {
+  --step-title-line: 1.5rem;
+  --icon-size: 1.25rem;
   display: grid;
-  grid-template-columns: var(--step-line);
-  align-self: start;
-  align-items: center;
-  gap: 8px;
-  --icon-size: 20px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px 8px;
 }
-.lesson-scene .quick-scene .q-process:has(.meaning-icon) .q-step-marker {
-  grid-template-columns: var(--step-line) var(--icon-size);
+.lesson-scene .quick-scene .q-process:has(.meaning-icon) .q-step-copy {
+  grid-template-columns: var(--icon-size) minmax(0, 1fr);
 }
-.lesson-scene .quick-scene .q-index {
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--blue);
-  color: var(--surface);
-  margin: 0;
-  width: var(--step-line);
-  height: var(--step-line);
-  font-size: 14px;
+.lesson-scene .quick-scene .q-process .q-index {
+  color: color-mix(in srgb, var(--blue) 76%, transparent);
+  font-size: var(--process-number-size);
+  font-weight: 650;
+  line-height: 1;
+  text-align: center;
 }
-.lesson-scene .quick-scene .q-process strong {
-  font-size: 16px;
-  line-height: var(--step-line);
+.lesson-scene .quick-scene .q-step-copy > .meaning-icon {
+  grid-row: 1;
+  margin-block-start: calc((var(--step-title-line) - var(--icon-size)) / 2);
 }
-.lesson-scene .quick-scene .q-process p {
-  grid-column: 2;
+.lesson-scene .quick-scene .q-step-copy > strong {
+  grid-column: -2;
+  grid-row: 1;
+  font-size: var(--diagram-label);
+  line-height: var(--step-title-line);
+}
+.lesson-scene .quick-scene .q-step-copy > p {
+  grid-column: -2;
   color: var(--muted);
+  font-size: 1rem;
 }
 .lesson-scene .quick-scene .q-units {
   display: grid;
@@ -2304,9 +2314,6 @@
 }
 
 @container (max-width: 650px) {
-  .lesson-scene .quick-scene .q-process {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .lesson-scene .quick-scene .q-venn-diagram {
     padding: 0 12px;
     gap: 5px;
