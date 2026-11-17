@@ -44,6 +44,7 @@ export function usePlaybackVisualFit(
       if (reportVerticalOverflow) {
         scrollRange = content.scrollHeight - content.clientHeight;
         if (scrollRange > 0) {
+          card.style.setProperty('--process-scroll-viewport', `${content.clientHeight}px`);
           card.style.setProperty(
             '--process-visible-fraction',
             String(content.clientHeight / content.scrollHeight)

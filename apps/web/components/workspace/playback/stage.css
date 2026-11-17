@@ -2354,6 +2354,7 @@
   transform-origin: top left;
 }
 .lesson-player-stage .listening-stage > .scene-fit > .scene-host[data-process-card] {
+  gap: 0;
   min-height: 0;
   max-height: var(--scene-height-limit);
   padding: 0;
@@ -2377,11 +2378,29 @@
   outline-offset: -1px;
 }
 .lesson-player-stage
+  .scene-host[data-process-card]
+  > :is(.playback-visual-action, .playback-visual-error) {
+  position: static;
+  flex: none;
+}
+.lesson-player-stage .scene-host[data-process-card] > .playback-visual-error {
+  order: 1;
+  align-self: stretch;
+  margin: 0;
+  padding: calc(var(--space) / 2) var(--scene-card-padding);
+}
+.lesson-player-stage .scene-host[data-process-card] > .playback-visual-action {
+  order: 2;
+  margin-block: calc(var(--space) / 2);
+  transform: none;
+  animation: none;
+}
+.lesson-player-stage
   .listening-stage
   > .scene-fit
   > .scene-host[data-process-card][data-process-overflow]:not([inert])::after {
   --process-thumb-inset: 8px;
-  --process-thumb-track: calc(100% - 2 * var(--process-thumb-inset));
+  --process-thumb-track: calc(var(--process-scroll-viewport) - 2 * var(--process-thumb-inset));
   --process-thumb-size: min(
     var(--process-thumb-track),
     max(1.5rem, var(--process-thumb-track) * var(--process-visible-fraction))
