@@ -152,7 +152,8 @@ async function resizedCardKeepsSpokenRowVisible(page: Page, baseUrl: string) {
     () => (document.querySelector('.caption-page')?.getBoundingClientRect().height ?? 0) > 500
   );
   await page.evaluate(() => dispatchEvent(new Event('resize')));
-  const index = await page.locator('.caption-page').evaluate(paragraph => {
+  const captionPage = page.locator('.caption-page');
+  const index = await captionPage.evaluate(paragraph => {
     const origin = paragraph.getBoundingClientRect().top;
     return [...paragraph.querySelectorAll('.caption-word')].findIndex(word => {
       const y = word.getBoundingClientRect().top - origin;
@@ -164,11 +165,21 @@ async function resizedCardKeepsSpokenRowVisible(page: Page, baseUrl: string) {
     index => dispatchEvent(new CustomEvent('caption-playback-time', { detail: (index + 0.2) / 4 })),
     index
   );
+  const spokenWord = captionPage
+    .locator('.caption-word')
+    .nth(index)
+    .and(page.locator('[aria-current="true"]'));
+  await spokenWord.waitFor({ state: 'attached' });
+  const before = await captionPage.evaluate(paragraph => paragraph.scrollTop);
   await page.getByRole('button', { name: 'Shrink visual' }).click();
-  await page.waitForFunction(
-    () =>
-      (document.querySelector('.caption-page')?.getBoundingClientRect().height ?? Infinity) <= 301
-  );
+  // The height can change before the resize observer's measurement is used to follow the word.
+  await page.waitForFunction(before => {
+    const paragraph = document.querySelector('.caption-page');
+    return (
+      paragraph && paragraph.getBoundingClientRect().height <= 301 && paragraph.scrollTop > before
+    );
+  }, before);
+  assert.equal(await spokenWord.count(), 1, 'The shortened card keeps the same spoken word');
   assert(
     await activeCaptionIsVisible(page),
     'A shorter card remeasures follow and keeps its spoken row visible'
