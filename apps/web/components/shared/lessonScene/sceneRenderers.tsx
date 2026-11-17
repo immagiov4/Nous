@@ -40,8 +40,8 @@ const chart: SceneRenderer = ({ scene, isDarkMode, prototype }) => (
   <SceneChart scene={scene} isDarkMode={isDarkMode} prototype={prototype} />
 );
 
-const diagram: SceneRenderer = ({ scene, isDarkMode }) => (
-  <SceneDiagram scene={scene} isDarkMode={isDarkMode} />
+const diagram: SceneRenderer = ({ scene, isDarkMode, playback }) => (
+  <SceneDiagram scene={scene} isDarkMode={isDarkMode} playback={playback} />
 );
 
 export const SCENE_RENDERERS = {

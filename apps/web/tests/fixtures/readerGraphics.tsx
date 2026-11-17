@@ -2,6 +2,7 @@ import type { LessonScene } from '@shared/lessonScene';
 import { createRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { LAB_QUICK_SCENES } from '../../../backend/tests/helpers/lessonSceneLabExamples';
+import { LessonSceneVisual } from '../../components/shared/lessonScene/LessonSceneVisual';
 import WorkspaceReaderContent from '../../components/workspace/shell/WorkspaceReaderContent';
 import '../../styles/app.css';
 
@@ -89,7 +90,7 @@ if (!root) throw new Error('Reader fixture is missing its root.');
 const contained = new URLSearchParams(location.search).has('contained');
 if (contained) root.classList.add('flex', 'h-dvh', 'flex-col', 'overflow-hidden');
 
-createRoot(root).render(
+const reader = (
   <WorkspaceReaderContent
     activeSectionAssetsById={{}}
     activeSectionImageRefsById={{}}
@@ -144,4 +145,14 @@ createRoot(root).render(
     ]}
     ttsTextPicker={{ isActive: false, hoveredChunkIndex: null, overlayRects: [] }}
   />
+);
+
+createRoot(root).render(
+  new URLSearchParams(location.search).has('playback') ? (
+    <div className="lesson-player-stage" style={{ width: 656 }}>
+      <LessonSceneVisual variant="bare" scene={flowchart(true)} />
+    </div>
+  ) : (
+    reader
+  )
 );

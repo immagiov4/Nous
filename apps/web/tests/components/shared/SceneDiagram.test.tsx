@@ -94,7 +94,7 @@ test.each([
   }
   const { container } = render(
     <MermaidRenderCacheContext.Provider value={cache}>
-      <SceneDiagram scene={scene} isDarkMode={false} />
+      <SceneDiagram scene={scene} isDarkMode={false} playback={false} />
     </MermaidRenderCacheContext.Provider>
   );
   await waitFor(() => expect(container.querySelectorAll('.actor-line')).toHaveLength(2));

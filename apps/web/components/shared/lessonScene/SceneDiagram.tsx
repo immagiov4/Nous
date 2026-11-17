@@ -224,9 +224,11 @@ export async function prepareSceneDiagrams({
 /** `isDarkMode` only triggers a re-render: Mermaid reads the theme tokens when it draws. */
 export const SceneDiagram = ({
   isDarkMode,
+  playback,
   scene,
 }: {
   readonly isDarkMode: boolean;
+  readonly playback: boolean;
   readonly scene: SceneContentData;
 }) => {
   const cache = useContext(MermaidRenderCacheContext);
@@ -264,7 +266,7 @@ export const SceneDiagram = ({
           const intrinsicWidth = graphic.viewBox.baseVal.width;
           graphic.style.maxWidth = '100%';
           graphic.style.width = `${intrinsicWidth}px`;
-          if (scene.type === 'flowchart') {
+          if (!playback && scene.type === 'flowchart') {
             // The existing scroll region can expose the remainder at the reader's text size.
             graphic.style.minWidth = `min(${intrinsicWidth}px, calc(var(--diagram-copy) * ${intrinsicWidth / DIAGRAM_FONT_SIZE}))`;
           }
@@ -285,7 +287,7 @@ export const SceneDiagram = ({
       request?.abort();
       observer.disconnect();
     };
-  }, [cache, isDarkMode, scene]);
+  }, [cache, isDarkMode, playback, scene]);
 
   const diagram = scene.diagram;
   const labelOf = (id: string) => diagram?.nodes.find(node => node.id === id)?.label ?? id;

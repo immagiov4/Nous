@@ -158,3 +158,18 @@ test.each(contexts)('keeps reader graphics readable in $device $colorScheme', as
     await context.close();
   }
 });
+
+test('fits a dense diagram to the playback card width', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?playback`);
+    const graphic = page.getByRole('img', { name: 'Verify an observation' });
+    await graphic.waitFor();
+    const overflow = await graphic.evaluate(
+      svg => svg.getBoundingClientRect().width - (svg.parentElement?.clientWidth ?? 0)
+    );
+    expect(overflow).toBeLessThanOrEqual(1);
+  } finally {
+    await page.close();
+  }
+});
