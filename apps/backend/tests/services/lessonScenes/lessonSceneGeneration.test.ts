@@ -63,6 +63,26 @@ const sceneDraft = (source: string) => ({
   type: 'parts',
 });
 
+test('offers checklist for new hypotheses and preserves a hypothesis-only resumed contract', async () => {
+  const source = 'Verifica se il client usa DNS.';
+  const input = unplannedInput(source);
+  const draft = sceneDraft(source);
+
+  generateStructuredOutputMock.mockResolvedValue({ ...draft, type: 'hypothesis' });
+  expect(await generateLessonScene(input)).toMatchObject({ kind: 'invalid' });
+
+  generateStructuredOutputMock.mockResolvedValue({ ...draft, type: 'checklist' });
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'checklist' },
+  });
+
+  generateStructuredOutputMock.mockResolvedValue({ ...draft, type: 'hypothesis' });
+  expect(await generateLessonScene({ ...input, allowedSceneTypes: ['hypothesis'] })).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'hypothesis' },
+  });
+});
 test.each([
   'quote',
   'definition',
