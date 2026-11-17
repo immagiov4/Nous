@@ -289,36 +289,64 @@ export const quickGroup = (group: LessonSceneGroup, index: number) => (
   </section>
 );
 
-const placeScatterLabels = (svg: SVGSVGElement) => {
-  const { labelGap, left, right } = QUICK_GEOMETRY.scatter;
-  const { width } = QUICK_GEOMETRY.svg;
-  const key = svg.nextElementSibling as HTMLOListElement;
-  const labels = svg.querySelectorAll<HTMLElement>('.q-scatter-point-label');
+const chartKey = (labels: readonly string[]) => (
+  <ol className="q-chart-key" hidden>
+    {labels.map((label, index) => (
+      // biome-ignore lint/suspicious/noArrayIndexKey: authored measurements have stable order
+      <li key={`${index}-${label}`} hidden value={index + 1}>
+        {label}
+      </li>
+    ))}
+  </ol>
+);
+
+const updateChartKey = <Label extends Element>(
+  svg: SVGSVGElement,
+  labels: NodeListOf<Label>,
+  placeLabel: (label: Label) => boolean
+) => {
+  const key = svg.parentElement?.querySelector<HTMLOListElement>(':scope > .q-chart-key');
+  if (!key) return;
   let hasKeyEntries = false;
   for (const [index, label] of labels.entries()) {
-    const pointX = Number(label.dataset.pointX);
-    const pointY = Number(label.dataset.pointY);
-    const preferLeft = right - pointX < pointX - left;
-    const name = label.children[0] as HTMLElement;
-    const marker = label.children[1] as HTMLElement;
-    name.hidden = false;
-    marker.hidden = true;
-    // A name with no room on either side would otherwise cover points or axis labels.
-    const leftSpace = pointX - 2 * labelGap;
-    const rightSpace = width - pointX - 2 * labelGap;
-    const showKey = name.offsetWidth > Math.max(leftSpace, rightSpace);
-    name.hidden = showKey;
-    marker.hidden = !showKey;
+    const showKey = placeLabel(label);
     key.children[index].toggleAttribute('hidden', !showKey);
     hasKeyEntries ||= showKey;
-    const { offsetWidth, offsetHeight } = label;
-    const labelOnLeft = offsetWidth > rightSpace || (preferLeft && offsetWidth <= leftSpace);
-    const beside = labelOnLeft ? pointX - labelGap - offsetWidth : pointX + labelGap;
-    const above = pointY - labelGap - offsetHeight;
-    label.style.left = `${Math.max(labelGap, Math.min(beside, width - labelGap - offsetWidth))}px`;
-    label.style.top = `${above >= 0 ? above : pointY + labelGap}px`;
   }
   key.hidden = !hasKeyEntries;
+};
+
+const placeScatterLabel = (label: HTMLElement) => {
+  const { labelGap, left, right } = QUICK_GEOMETRY.scatter;
+  const { width } = QUICK_GEOMETRY.svg;
+  const pointX = Number(label.dataset.pointX);
+  const pointY = Number(label.dataset.pointY);
+  const preferLeft = right - pointX < pointX - left;
+  const name = label.children[0] as HTMLElement;
+  const marker = label.children[1] as HTMLElement;
+  name.hidden = false;
+  marker.hidden = true;
+  // A name with no room on either side would otherwise cover points or axis labels.
+  const leftSpace = pointX - 2 * labelGap;
+  const rightSpace = width - pointX - 2 * labelGap;
+  const showKey = name.offsetWidth > Math.max(leftSpace, rightSpace);
+  name.hidden = showKey;
+  marker.hidden = !showKey;
+  const { offsetWidth, offsetHeight } = label;
+  const labelOnLeft = offsetWidth > rightSpace || (preferLeft && offsetWidth <= leftSpace);
+  const beside = labelOnLeft ? pointX - labelGap - offsetWidth : pointX + labelGap;
+  const above = pointY - labelGap - offsetHeight;
+  label.style.left = `${Math.max(labelGap, Math.min(beside, width - labelGap - offsetWidth))}px`;
+  label.style.top = `${above >= 0 ? above : pointY + labelGap}px`;
+  return showKey;
+};
+
+const placeRadialLabel = (label: SVGTextElement) => {
+  label.removeAttribute('data-in-key');
+  const { x, width } = label.getBBox();
+  const showKey = x < 0 || x + width > QUICK_GEOMETRY.svg.width;
+  label.toggleAttribute('data-in-key', showKey);
+  return showKey;
 };
 
 const sizeQuickChartLabels = (svg: SVGSVGElement | null) => {
@@ -332,7 +360,19 @@ const sizeQuickChartLabels = (svg: SVGSVGElement | null) => {
       '--q-inverse-scale',
       String(Math.max(width / clientWidth, height / clientHeight))
     );
-    if (svg.classList.contains('q-scatter')) placeScatterLabels(svg);
+    if (svg.classList.contains('q-scatter')) {
+      updateChartKey(
+        svg,
+        svg.querySelectorAll<HTMLElement>('.q-scatter-point-label'),
+        placeScatterLabel
+      );
+    } else {
+      updateChartKey(
+        svg,
+        svg.querySelectorAll<SVGTextElement>('.q-radial-label'),
+        placeRadialLabel
+      );
+    }
   };
   const observer = new ResizeObserver(resize);
   observer.observe(svg.parentElement);
@@ -377,6 +417,9 @@ export const quickRadial = ({ scene }: SceneRenderContext) => {
     else if (y > cy + radius) top = y + labelBottom;
     return { anchor, top };
   };
+  const measurements = scene.items.map(
+    item => `${item.label}: ${item.value} / ${scene.max} ${scene.unit}`
+  );
   const chart = quickSvg(
     scene,
     <>
@@ -429,12 +472,15 @@ export const quickRadial = ({ scene }: SceneRenderContext) => {
               {item.value} / {scene.max}
               <tspan className="q-radial-inline-unit"> {scene.unit}</tspan>
             </tspan>
+            <tspan className="q-radial-marker" x={x}>
+              {index + 1}
+            </tspan>
           </text>
         );
       })}
     </>,
     height,
-    scene.items.map(item => `${item.label}: ${item.value} / ${scene.max} ${scene.unit}`).join('; ')
+    measurements.join('; ')
   );
   return (
     <>
@@ -444,6 +490,7 @@ export const quickRadial = ({ scene }: SceneRenderContext) => {
           {scene.unit}
         </p>
       ) : null}
+      {chartKey(measurements)}
     </>
   );
 };
@@ -635,14 +682,7 @@ export const quickScatter = ({ scene }: SceneRenderContext) => {
   return (
     <>
       {chart}
-      <ol className="q-scatter-key" hidden>
-        {scene.items.map((item, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: authored points have stable order
-          <li key={`${index}-${item.label}`} hidden value={index + 1}>
-            {item.label}
-          </li>
-        ))}
-      </ol>
+      {chartKey(scene.items.map(item => item.label))}
     </>
   );
 };

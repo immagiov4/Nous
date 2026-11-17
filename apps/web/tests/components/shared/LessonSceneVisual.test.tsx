@@ -59,6 +59,81 @@ test.each(['network', 'hierarchy'] as const)('omits the heading for an untitled 
   expect(container.querySelector('h2')).toBeNull();
 });
 
+test.each(['network', 'hierarchy'] as const)('reads the %s root heading before its intro', type => {
+  const scene = {
+    type,
+    title: 'Local observations',
+    body: 'The branches describe measurements.',
+    items: [{ label: 'Rain', detail: 'Amount over time', icon: '' }],
+    groups: [],
+    quote: '',
+    note: '',
+  };
+  const { rerender } = render(<LessonSceneVisual scene={scene} />);
+  const [heading] = screen.getAllByRole('heading', { name: scene.title });
+  const intro = screen.getByText(scene.body);
+  expect(screen.getAllByRole('heading', { name: scene.title })).toHaveLength(1);
+  expect(heading.compareDocumentPosition(intro) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(heading.parentElement).toHaveClass(type === 'network' ? 'hub' : 'root-node');
+  expect(screen.getByText('Amount over time')).toBeInTheDocument();
+  rerender(<LessonSceneVisual scene={{ ...scene, title: '' }} />);
+  expect(screen.queryByRole('heading')).toBeNull();
+  expect(screen.getByText(scene.body)).toBeInTheDocument();
+});
+
+test('restores a radial name to its ray when the chart has room', () => {
+  let resize = () => {};
+  let viewportWidth = 320;
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    }
+  );
+  vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(() => viewportWidth);
+  vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(
+    () => (viewportWidth * 420) / 640
+  );
+  const prototype = SVGElement.prototype;
+  const original = Object.getOwnPropertyDescriptor(prototype, 'getBBox');
+  Object.defineProperty(prototype, 'getBBox', {
+    configurable: true,
+    value(this: SVGTextElement) {
+      const long = this.textContent?.includes('Western precision');
+      return new DOMRect(long && viewportWidth === 320 ? -20 : 30, 0, 120, 24);
+    },
+  });
+  const scene: LessonScene = {
+    type: 'radar',
+    title: 'Measured precision',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    max: 5,
+    unit: 'points',
+    items: [
+      { label: 'Western precision', value: 4, detail: '', icon: '' },
+      { label: 'Eastern precision', value: 3, detail: '', icon: '' },
+    ],
+  };
+  try {
+    render(<LessonSceneVisual scene={scene} />);
+    expect(screen.getByRole('listitem')).toHaveTextContent('Western precision: 4 / 5 points');
+    viewportWidth = 640;
+    act(resize);
+    expect(screen.queryByRole('list')).toBeNull();
+  } finally {
+    if (original) Object.defineProperty(prototype, 'getBBox', original);
+    else Reflect.deleteProperty(prototype, 'getBBox');
+    vi.unstubAllGlobals();
+  }
+});
+
 test('fits scatter labels to the resized chart while keeping the authored measurements', () => {
   let width = 0;
   let resize = () => {};

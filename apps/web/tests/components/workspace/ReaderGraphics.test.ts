@@ -156,9 +156,12 @@ test.each(contexts)('keeps reader graphics readable in $device $colorScheme', as
       const chart = scene.getByRole('img', { name: title });
       const measured = await labels(
         chart,
-        type === 'scatter' ? 'text, .q-scatter-point-label' : 'text > tspan'
+        type === 'scatter' ? 'text, .q-scatter-point-label' : 'text > tspan:visible'
       );
       expect(measured.length, type).toBeGreaterThan(0);
+      if (type !== 'scatter') {
+        expect(await chart.locator('.q-radial-label > tspan:first-child:visible').count()).toBe(4);
+      }
       const sceneBounds = await page
         .locator('figure.lesson-scene')
         .filter({ has: scene })
@@ -266,6 +269,41 @@ test('keeps long scatter labels readable through an in-chart marker and a chart 
     expect(label.x + label.width).toBeLessThanOrEqual(viewport.x + viewport.width);
     expect(label.y).toBeGreaterThanOrEqual(viewport.y);
     expect(label.y + label.height).toBeLessThanOrEqual(viewport.y + viewport.height);
+  } finally {
+    await page.close();
+  }
+});
+
+test.each([
+  'radar',
+  'polar',
+] as const)('keeps long %s labels and their values within a narrow chart card', async type => {
+  const page = await browser.newPage({
+    viewport: { width: 390, height: 844 },
+    reducedMotion: 'reduce',
+  });
+  try {
+    await page.goto(inject('browserFixtureUrl') + 'tests/fixtures/readerGraphics.html?long-radial');
+    const plot = page.locator(`.type-${type}`);
+    const graphic = plot.getByRole('img');
+    await graphic.waitFor();
+    const bounds = await graphic.boundingBox();
+    if (!bounds) throw new Error('Radial chart must be visible.');
+    const text = await labels(graphic, '.q-radial-label > tspan:visible');
+    expect(text.length).toBeGreaterThan(0);
+    expect(
+      text.filter(label => label.left < bounds.x - 1 || label.right > bounds.x + bounds.width + 1)
+    ).toEqual([]);
+    const key = plot.getByRole('list');
+    const expected =
+      type === 'radar'
+        ? ['3 / 5 punti', '4 / 5 punti']
+        : ['60 / 100 richieste', '40 / 100 richieste'];
+    expect(await key.getByRole('listitem').allTextContents()).toEqual([
+      expect.stringMatching(new RegExp(`^Eastern measure.*: ${expected[0]}$`)),
+      expect.stringMatching(new RegExp(`^Western measure.*: ${expected[1]}$`)),
+    ]);
+    expect(text.map(label => label.text)).toEqual(expect.arrayContaining(['2', '4']));
   } finally {
     await page.close();
   }

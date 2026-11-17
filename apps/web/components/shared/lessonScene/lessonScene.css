@@ -208,6 +208,7 @@
   background: var(--tint);
   display: grid;
   place-items: center;
+  align-content: center;
   padding: 20px;
   text-align: center;
   position: relative;
@@ -2367,7 +2368,7 @@
   line-height: 1.2;
   white-space: nowrap;
 }
-.lesson-scene .quick-scene .q-scatter-key {
+.lesson-scene .quick-scene .q-chart-key {
   list-style: decimal;
   padding-inline-start: var(--diagram-pad);
   font-size: var(--diagram-copy);
@@ -2384,6 +2385,13 @@
 .lesson-scene .quick-scene .q-radial-value {
   font-size: max(18px, var(--q-reading-size));
   font-weight: 400;
+}
+.lesson-scene .quick-scene .q-radial-marker,
+.lesson-scene .quick-scene .q-radial-label[data-in-key] > tspan {
+  display: none;
+}
+.lesson-scene .quick-scene .q-radial-label[data-in-key] > .q-radial-marker {
+  display: inline;
 }
 .lesson-scene .quick-scene .q-radial-unit {
   display: none;

@@ -10,6 +10,10 @@ import '../../styles/app.css';
 const options = new URLSearchParams(location.search);
 const longLabel =
   'Control trial after recalibration, repeated under the same load to verify that response time stayed within tolerance';
+const longRadialLabels = [
+  'Eastern measure after the full review of observation methods and local conditions at the start of the trial',
+  'Western measure after verification under the same conditions across the full duration of the trial',
+];
 const empty = { body: '', groups: [], items: [], note: '', quote: '' };
 const stages = [
   'Receive the submitted observation',
@@ -57,8 +61,18 @@ const defaultScenes: LessonScene[] = [
   flowchart(true),
   flowchart(false),
   ...LAB_QUICK_SCENES.filter(scene => ['radar', 'polar', 'scatter'].includes(scene.type)).map(
-    scene =>
-      scene.type === 'scatter'
+    scene => {
+      if (scene.type !== 'scatter' && options.has('long-radial')) {
+        return {
+          ...scene,
+          items: scene.items.map((item, index) =>
+            index === 1 || index === 3
+              ? { ...item, label: longRadialLabels[(index - 1) / 2] }
+              : item
+          ),
+        };
+      }
+      return scene.type === 'scatter'
         ? {
             ...scene,
             items: [
@@ -68,10 +82,12 @@ const defaultScenes: LessonScene[] = [
                 : { label: 'External trial', detail: '', icon: '', x: 79, y: 65 },
             ],
           }
-        : scene
+        : scene;
+    }
   ),
   ...(['network', 'hierarchy'] as const).map(type => ({
     ...empty,
+    body: options.has('root-intro') ? 'The branches describe measurements.' : '',
     title: type === 'network' ? 'Weather observations' : 'Observation records',
     type,
     items: [
