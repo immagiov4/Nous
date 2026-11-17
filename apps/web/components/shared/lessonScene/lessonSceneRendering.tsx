@@ -289,18 +289,39 @@ export const quickGroup = (group: LessonSceneGroup, index: number) => (
   </section>
 );
 
+const sizeQuickChartLabels = (svg: SVGSVGElement | null) => {
+  if (!svg?.parentElement || typeof ResizeObserver === 'undefined') return;
+  const resize = () => {
+    const { clientHeight, clientWidth, viewBox } = svg;
+    if (!clientWidth || !clientHeight) return;
+    // The viewBox uses the smaller axis scale, including when max-height limits the chart.
+    const { width, height } = viewBox.baseVal;
+    svg.style.setProperty(
+      '--q-inverse-scale',
+      String(Math.max(width / clientWidth, height / clientHeight))
+    );
+  };
+  const observer = new ResizeObserver(resize);
+  observer.observe(svg.parentElement);
+  resize();
+  return () => observer.disconnect();
+};
+
 const quickSvg = (
   scene: LessonScene,
   content: ReactNode,
-  height: number = QUICK_GEOMETRY.svg.height
+  height: number = QUICK_GEOMETRY.svg.height,
+  description?: string
 ) => (
   <svg
     className={`q-svg${scene.type === 'scatter' ? ' q-scatter' : ''}`}
     viewBox={`0 0 ${QUICK_GEOMETRY.svg.width} ${height}`}
     role="img"
     aria-label={scene.title}
+    ref={description ? sizeQuickChartLabels : undefined}
   >
     <title>{scene.title}</title>
+    {description ? <desc>{description}</desc> : null}
     {content}
   </svg>
 );
@@ -322,7 +343,7 @@ export const quickRadial = ({ scene }: SceneRenderContext) => {
     else if (y > cy + radius) top = y + labelBottom;
     return { anchor, top };
   };
-  return quickSvg(
+  const chart = quickSvg(
     scene,
     <>
       {[0.25, 0.5, 0.75, 1].map(fraction => (
@@ -371,13 +392,25 @@ export const quickRadial = ({ scene }: SceneRenderContext) => {
           >
             <tspan x={x}>{item.label}</tspan>
             <tspan className="q-radial-value" x={x} dy={valueLine}>
-              {item.value} / {scene.max} {scene.unit}
+              {item.value} / {scene.max}
+              <tspan className="q-radial-inline-unit"> {scene.unit}</tspan>
             </tspan>
           </text>
         );
       })}
     </>,
-    height
+    height,
+    scene.items.map(item => `${item.label}: ${item.value} / ${scene.max} ${scene.unit}`).join('; ')
+  );
+  return (
+    <>
+      {chart}
+      {scene.unit ? (
+        <p className="q-radial-unit" aria-hidden="true">
+          {scene.unit}
+        </p>
+      ) : null}
+    </>
   );
 };
 
@@ -557,7 +590,11 @@ export const quickScatter = ({ scene }: SceneRenderContext) => {
           </text>
         </g>
       ))}
-    </>
+    </>,
+    QUICK_GEOMETRY.svg.height,
+    scene.items
+      .map(item => `${item.label}: ${scene.xLabel} ${item.x}, ${scene.yLabel} ${item.y}`)
+      .join('; ')
   );
 };
 

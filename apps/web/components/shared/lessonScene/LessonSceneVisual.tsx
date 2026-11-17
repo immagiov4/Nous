@@ -35,6 +35,26 @@ const SceneContent = (
     relationSymbols: LESSON_SCENE_RELATION_SYMBOLS,
   });
 
+const SceneHeader = ({ scene }: { readonly scene: LessonScene }) => {
+  const titleInRoot = scene.type === 'network' || scene.type === 'hierarchy';
+  const showIntro = scene.body && !hasDuplicateDecisionIntro(scene);
+  if (titleInRoot && !showIntro) return null;
+  return (
+    <header>
+      {scene.title && !titleInRoot ? (
+        <h2>
+          <SceneText>{scene.title}</SceneText>
+        </h2>
+      ) : null}
+      {showIntro ? (
+        <p className={isAnimatedLessonScene(scene) ? undefined : 'scene-intro'}>
+          <SceneText>{scene.body}</SceneText>
+        </p>
+      ) : null}
+    </header>
+  );
+};
+
 export const LessonSceneVisual = ({
   className = '',
   isDarkMode = false,
@@ -58,18 +78,7 @@ export const LessonSceneVisual = ({
         <article
           className={`scene type-${scene.type}${isAnimatedLessonScene(scene) ? ' interaction-card' : ''}${isQuickLessonScene(scene) ? ' quick-scene' : ''}`}
         >
-          <header>
-            {scene.title ? (
-              <h2>
-                <SceneText>{scene.title}</SceneText>
-              </h2>
-            ) : null}
-            {scene.body && !hasDuplicateDecisionIntro(scene) ? (
-              <p className={isAnimatedLessonScene(scene) ? undefined : 'scene-intro'}>
-                <SceneText>{scene.body}</SceneText>
-              </p>
-            ) : null}
-          </header>
+          <SceneHeader scene={scene} />
           {isAnimatedLessonScene(scene) ? (
             <SceneContent
               playback={variant === 'bare'}

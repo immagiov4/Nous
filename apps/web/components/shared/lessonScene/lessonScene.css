@@ -436,9 +436,6 @@
   .lesson-scene .roles {
     gap: 16px;
   }
-  .lesson-scene .network {
-    gap: 16px;
-  }
   .lesson-scene .hub {
     padding: 12px;
   }
@@ -527,6 +524,12 @@
 }
 .lesson-scene .visual-content {
   margin-top: 26px;
+}
+.lesson-scene :is(.type-network, .type-hierarchy) .visual-content:first-child {
+  margin-top: 0;
+}
+.lesson-scene .scene :is(.hub, .root-node) h2 {
+  font-size: inherit;
 }
 .lesson-scene .item-dot {
   width: 5px;
@@ -803,14 +806,14 @@
   align-items: center;
   gap: var(--network-gap);
 }
-.lesson-scene .hub:after {
+.lesson-scene .network .hub:after {
   content: "";
   position: absolute;
   left: 100%;
   top: 50%;
   border: 0;
   border-top: var(--connector-width) solid var(--connector-color);
-  width: 22px;
+  width: var(--network-gap);
 }
 .lesson-scene .satellites > .concept {
   position: relative;
@@ -1004,19 +1007,6 @@
     border-left-style: solid;
     padding: 0 0 0 18px;
     margin-left: 16px;
-  }
-  .lesson-scene .network {
-    grid-template-columns: 1fr;
-  }
-  .lesson-scene .hub:after {
-    left: 22px;
-    top: 100%;
-    height: 28px;
-    width: 0;
-    border-left: 1px solid var(--diagram-rule);
-  }
-  .lesson-scene .satellites {
-    margin-left: 0;
   }
   .lesson-scene .groups:not(.related) {
     grid-template-columns: 1fr;
@@ -1277,7 +1267,13 @@
   border-bottom-left-radius: var(--connector-radius);
 }
 .lesson-scene .satellites > .concept:nth-last-child(2):after {
-  height: calc(100% + 10px);
+  height: calc(
+    100% +
+    var(--network-item-gap) +
+    var(--network-branch-y) -
+    var(--connector-radius) -
+    var(--network-stem-start)
+  );
 }
 .lesson-scene .cycle {
   display: grid;
@@ -1392,17 +1388,22 @@
   }
   .lesson-scene .network {
     --network-gap: 28px;
+    grid-template-columns: minmax(0, 1fr);
   }
-  .lesson-scene .hub:after {
+  .lesson-scene .network .hub:after {
     width: 0;
     left: 0;
     top: 100%;
-    height: 28px;
+    height: calc(var(--network-gap) + var(--network-branch-y));
     border-left: var(--connector-width) solid var(--connector-color);
     border-top: 0;
   }
-  .lesson-scene .satellites {
-    margin-left: 0;
+  .lesson-scene .network .satellites > .concept:first-child:before {
+    border-left: 0;
+    border-top-left-radius: 0;
+  }
+  .lesson-scene .network .satellites > .concept:first-child:after {
+    --network-stem-start: var(--network-branch-y);
   }
   .lesson-scene .definition {
     grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
@@ -1415,14 +1416,6 @@
   }
   .lesson-scene .interval-values {
     font-size: 12px;
-  }
-}
-.lesson-scene .network .hub:after {
-  width: var(--network-gap);
-}
-@container (max-width: 460px) {
-  .lesson-scene .network .hub:after {
-    width: 0;
   }
 }
 .lesson-scene .definition .concept {
@@ -1461,6 +1454,9 @@
   max-width: 100%;
   padding: 12px 4px 20px;
   border-radius: var(--diagram-radius);
+}
+.lesson-scene .type-flowchart .diagram-scroll {
+  padding-inline: 0;
 }
 .lesson-scene .mermaid-diagram {
   min-width: 0;
@@ -1859,6 +1855,7 @@
   background: var(--tint);
 }
 .lesson-scene .quick-scene .q-svg {
+  --q-reading-size: calc(var(--diagram-copy) * var(--q-inverse-scale, 1));
   display: block;
   width: 100%;
   max-height: 400px;
@@ -2311,19 +2308,33 @@
 }
 
 .lesson-scene .quick-scene .q-scatter {
-  font-size: 21px;
+  font-size: max(21px, var(--q-reading-size));
 }
 .lesson-scene .quick-scene .q-tile {
   box-shadow: inset 0 0 0 1px var(--q-border);
 }
 
 .lesson-scene .quick-scene .q-radial-label {
-  font-size: 20px;
+  font-size: max(20px, var(--q-reading-size));
   font-weight: 600;
 }
 .lesson-scene .quick-scene .q-radial-value {
-  font-size: 18px;
+  font-size: max(18px, var(--q-reading-size));
   font-weight: 400;
+}
+.lesson-scene .quick-scene .q-radial-unit {
+  display: none;
+}
+@container (max-width: 460px) {
+  .lesson-scene .quick-scene .q-radial-inline-unit {
+    display: none;
+  }
+  .lesson-scene .quick-scene .q-radial-unit {
+    display: block;
+    color: var(--muted);
+    font-size: var(--diagram-copy);
+    text-align: center;
+  }
 }
 
 .lesson-scene .quick-scene .q-layer .q-box:has(> .meaning-icon) {

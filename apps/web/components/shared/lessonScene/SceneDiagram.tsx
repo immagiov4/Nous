@@ -11,6 +11,7 @@ import {
 
 // Below this width a flowchart runs top-down so labels keep their size instead of shrinking.
 const VERTICAL_LAYOUT_MAX_WIDTH = 560;
+const DIAGRAM_FONT_SIZE = 16;
 const SEQUENCE_DIAGRAM_MARGIN_Y = 20;
 
 const diagramConfiguration = (host: HTMLElement) => {
@@ -51,7 +52,7 @@ const diagramConfiguration = (host: HTMLElement) => {
       sequenceNumberColor: token('--surface'),
       edgeLabelBackground: token('--surface'),
       fontFamily: css.fontFamily,
-      fontSize: '16px',
+      fontSize: `${DIAGRAM_FONT_SIZE}px`,
       labelBoxBkgColor: token('--surface'),
       labelTextColor: token('--ink'),
       lineColor: token('--connector-color'),
@@ -260,9 +261,13 @@ export const SceneDiagram = ({
           if (!graphic) return;
           graphic.setAttribute('role', 'img');
           graphic.setAttribute('aria-label', scene.title);
-          // Wide diagrams scale down to the scene width instead of overflowing it.
+          const intrinsicWidth = graphic.viewBox.baseVal.width;
           graphic.style.maxWidth = '100%';
-          graphic.style.width = `${graphic.viewBox.baseVal.width}px`;
+          graphic.style.width = `${intrinsicWidth}px`;
+          if (scene.type === 'flowchart') {
+            // The existing scroll region can expose the remainder at the reader's text size.
+            graphic.style.minWidth = `min(${intrinsicWidth}px, calc(var(--diagram-copy) * ${intrinsicWidth / DIAGRAM_FONT_SIZE}))`;
+          }
           setStatus('ready');
         })
         .catch(error => {

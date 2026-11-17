@@ -84,13 +84,25 @@ export const SCENE_RENDERERS = {
   hierarchy: c =>
     concepts(c, {
       className: 'hierarchy',
-      before: <div className="root-node">{c.scene.title}</div>,
+      before: (
+        <div className="root-node">
+          <h2>
+            <SceneText>{c.scene.title}</SceneText>
+          </h2>
+        </div>
+      ),
       itemsClassName: 'branches',
     }),
   network: c =>
     concepts(c, {
       className: 'network',
-      before: <div className="hub">{c.scene.title}</div>,
+      before: (
+        <div className="hub">
+          <h2>
+            <SceneText>{c.scene.title}</SceneText>
+          </h2>
+        </div>
+      ),
       itemsClassName: 'satellites',
     }),
   cycle: c =>
