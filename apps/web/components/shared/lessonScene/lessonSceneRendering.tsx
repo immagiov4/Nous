@@ -159,7 +159,6 @@ export const sequence = ({ scene }: SceneRenderContext, kind: string) => (
 export const matrix = ({ scene, labels, playback }: SceneRenderContext) => {
   const rowCount = Math.max(0, ...scene.groups.map(group => group.items.length));
   return (
-    // biome-ignore lint/a11y/noNoninteractiveTabindex: the scrollable table needs keyboard access.
     <section
       className="table-wrap"
       aria-label={scene.title || labels.comparison}
@@ -418,7 +417,6 @@ export const quickMatrix = ({ scene, labels, playback }: SceneRenderContext) => 
   const columns = scene.columns as string[];
   const heatmap = scene.type === 'heatmap';
   return (
-    // biome-ignore lint/a11y/noNoninteractiveTabindex: the scrollable table needs keyboard access.
     <section
       className="q-table"
       aria-label={scene.title || labels.comparison}
