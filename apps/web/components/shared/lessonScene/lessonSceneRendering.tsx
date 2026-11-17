@@ -431,7 +431,8 @@ export const quickMatrix = ({ scene, labels, tableKeyboardAccess }: SceneRenderC
   const heatmap = scene.type === 'heatmap';
   const max = heatmap ? authoredHeatmapMaximum(scene.max, rows) : undefined;
   const unit = heatmap && typeof scene.unit === 'string' ? scene.unit.trim() : '';
-  const caption = max === undefined ? unit : `0–${max}${unit ? ` ${unit}` : ''}`;
+  const range = max === undefined ? '' : `0–${max}`;
+  const caption = `${range} ${unit}`.trim();
   return (
     <section
       className="q-table"

@@ -52,9 +52,10 @@ export const LessonSceneVisual = ({
   readonly variant?: 'card' | 'bare' | 'thumbnail';
 }) => {
   if (isRetiredLessonScene(scene)) return null;
+  const variantClass = variant === 'card' ? '' : `lesson-scene-${variant}`;
   return (
     <figure
-      className={`lesson-scene ${variant === 'card' ? '' : `lesson-scene-${variant}`} ${isAnimatedLessonScene(scene) ? 'lesson-scene-animated' : ''} ${className}`}
+      className={`lesson-scene ${variantClass} ${isAnimatedLessonScene(scene) ? 'lesson-scene-animated' : ''} ${className}`}
       data-nous-speech="ignore"
       inert={variant === 'thumbnail'}
     >
