@@ -153,6 +153,9 @@ jobs:
       - name: Verify complete caption rows
         run: bun run test:caption-rows
 
+      - name: Verify guided-step badge alignment
+        run: bun --tsconfig-override e2e/nous/tsconfig.json apps/web/tests/components/shared/GuidedStepAlignment.browser.tsx
+
       - name: Verify playback bar layout
         run: bun scripts/heavy-run.mjs --label playback-bar -- bun apps/web/tests/components/workspace/PlaybackBarLayout.browser.ts
 
