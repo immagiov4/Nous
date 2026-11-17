@@ -1,5 +1,10 @@
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
-import { isLessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
+import {
+  HistoricalLessonSceneSchemas,
+  isLessonScene,
+  LessonSceneSchema,
+  STATIC_LESSON_SCENE_TYPES,
+} from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const { chooseIconsMock, generateStructuredOutputMock } = vi.hoisted(() => ({
@@ -82,6 +87,87 @@ test('offers checklist for new hypotheses and preserves a hypothesis-only resume
     kind: 'scene',
     scene: { type: 'hypothesis' },
   });
+});
+
+test('generates both limits without offering a qualitative gradient, including on resume', async () => {
+  const interpretations = [
+    { label: 'Holes in a leaf', detail: 'They show damage.' },
+    { label: 'Cause of damage', detail: 'Identifying the insect requires another observation.' },
+  ];
+  const source = interpretations.map(item => item.detail).join(' ');
+  const draft = {
+    ...sceneDraft(source),
+    title: 'Reading leaf damage',
+    items: interpretations.map(item => ({
+      ...item,
+      value: null,
+      time: null,
+      iconQueries: queries,
+    })),
+  };
+  const continuum = { ...draft, type: 'continuum' };
+  const limits = { ...draft, type: 'limits' };
+  const input = unplannedInput(source);
+  for (const request of [
+    input,
+    { ...input, allowedSceneTypes: LessonSceneSchema.shape.type.options },
+    { ...input, allowedSceneTypes: STATIC_LESSON_SCENE_TYPES, narration: source },
+  ]) {
+    generateStructuredOutputMock.mockResolvedValueOnce(continuum);
+    expect(await generateLessonScene(request)).toMatchObject({
+      kind: 'invalid',
+      diagnostic: { errorStage: 'schema' },
+    });
+    const { output } = generateStructuredOutputMock.mock.calls.at(-1)?.[0] ?? {};
+    const schema = z.fromJSONSchema(output.schema);
+    expect(schema.safeParse(continuum).success).toBe(false);
+    generateStructuredOutputMock.mockResolvedValueOnce(limits);
+    expect(await generateLessonScene(request)).toMatchObject({
+      kind: 'scene',
+      scene: { type: 'limits', items: interpretations },
+    });
+  }
+});
+
+test('generates a numeric interval with its bounds and estimate intact', async () => {
+  const source =
+    'The walk takes about 20 minutes, with a lower bound of 15 and an upper bound of 25.';
+  const points = [
+    { label: 'Minimum', value: 15 },
+    { label: 'Estimate', value: 20 },
+    { label: 'Maximum', value: 25 },
+  ];
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...sceneDraft(source),
+    title: 'Walking time',
+    type: 'interval',
+    unit: 'minutes',
+    items: points.map(point => ({ ...point, detail: '', time: null, iconQueries: queries })),
+  });
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'interval', unit: 'minutes', items: points },
+  });
+});
+
+test('current and frozen workflow contracts can still read a saved continuum', () => {
+  const saved = {
+    title: 'Reading leaf damage',
+    type: 'continuum',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [
+      { label: 'Damage', detail: 'The leaf has holes.', icon: '' },
+      { label: 'Cause', detail: 'Observe the insect separately.', icon: '' },
+    ],
+  };
+  expect(isLessonScene(saved)).toBe(true);
+  for (const schema of [LessonSceneSchema, ...HistoricalLessonSceneSchemas]) {
+    expect(schema.parse(saved)).toEqual(saved);
+    expect(schema.safeParse({ ...saved, type: 'limits' }).success).toBe(true);
+  }
 });
 test.each([
   'quote',
