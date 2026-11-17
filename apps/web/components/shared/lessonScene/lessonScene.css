@@ -1539,7 +1539,7 @@
 }
 .lesson-scene.lesson-scene-animated .interaction-card .quantity-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.4fr) 1fr;
   align-items: center;
   gap: var(--interaction-gap);
   margin: 32px 0;
