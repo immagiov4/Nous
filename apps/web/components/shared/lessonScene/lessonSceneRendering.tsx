@@ -572,24 +572,23 @@ export const quickScatter = ({ scene }: SceneRenderContext) => {
       <text x={geometry.left} y={geometry.axisY} textAnchor="start">
         {scene.yLabel}
       </text>
-      {scene.items.map((item, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: authored points have stable order
-        <g key={`${index}-${item.label}`} data-playback-item={index}>
-          <circle
-            className="q-dot"
-            cx={x(item.x as number)}
-            cy={y(item.y as number)}
-            r={geometry.dot}
-          />
-          <text
-            x={x(item.x as number) + (item.x === xmax ? -geometry.labelGap : geometry.labelGap)}
-            y={y(item.y as number) - geometry.labelGap}
-            textAnchor={item.x === xmax ? 'end' : 'start'}
-          >
-            {item.label}
-          </text>
-        </g>
-      ))}
+      {scene.items.map((item, index) => {
+        const pointX = x(item.x as number);
+        const labelOnLeft = geometry.right - pointX < pointX - geometry.left;
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: authored points have stable order
+          <g key={`${index}-${item.label}`} data-playback-item={index}>
+            <circle className="q-dot" cx={pointX} cy={y(item.y as number)} r={geometry.dot} />
+            <text
+              x={pointX + (labelOnLeft ? -geometry.labelGap : geometry.labelGap)}
+              y={y(item.y as number) - geometry.labelGap}
+              textAnchor={labelOnLeft ? 'end' : 'start'}
+            >
+              {item.label}
+            </text>
+          </g>
+        );
+      })}
     </>,
     QUICK_GEOMETRY.svg.height,
     scene.items

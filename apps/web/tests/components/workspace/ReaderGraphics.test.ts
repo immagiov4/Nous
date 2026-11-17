@@ -23,7 +23,9 @@ const labels = (graphic: Locator, selector: string) =>
   graphic.locator(selector).evaluateAll(elements =>
     elements.map(element => {
       const label = element as SVGGraphicsElement;
-      const matrix = label.getScreenCTM();
+      const svgElement =
+        label instanceof SVGGraphicsElement ? label : element.closest('foreignObject');
+      const matrix = svgElement?.getScreenCTM();
       const bounds = label.getBoundingClientRect();
       if (!matrix) throw new Error('Visible graphic label must have a screen transform.');
       return {
@@ -61,7 +63,9 @@ test.each(contexts)('keeps reader graphics readable in $device $colorScheme', as
       const graphic = scene.getByRole('img', { name: title });
       await graphic.waitFor();
       await page.evaluate(() => document.fonts.ready);
-      const measured = await labels(graphic, '.node text, .edgeLabel text');
+      const nodes = await labels(graphic, '.node text, .node foreignObject .nodeLabel');
+      expect(nodes).toHaveLength(scene === dense ? 8 : 4);
+      const measured = [...nodes, ...(await labels(graphic, '.edgeLabel text'))];
       expect(measured.map(label => label.text)).toEqual(expect.arrayContaining(['Yes', 'No']));
       expect
         .soft(Math.round(Math.min(...measured.map(label => label.px))), title)

@@ -51,7 +51,18 @@ const flowchart = (dense: boolean): LessonScene => {
 const defaultScenes: LessonScene[] = [
   flowchart(true),
   flowchart(false),
-  ...LAB_QUICK_SCENES.filter(scene => ['radar', 'polar', 'scatter'].includes(scene.type)),
+  ...LAB_QUICK_SCENES.filter(scene => ['radar', 'polar', 'scatter'].includes(scene.type)).map(
+    scene =>
+      scene.type === 'scatter'
+        ? {
+            ...scene,
+            items: [
+              ...scene.items,
+              { label: 'External trial', detail: '', icon: '', x: 79, y: 65 },
+            ],
+          }
+        : scene
+  ),
   ...(['network', 'hierarchy'] as const).map(type => ({
     ...empty,
     title: type === 'network' ? 'Weather observations' : 'Observation records',
