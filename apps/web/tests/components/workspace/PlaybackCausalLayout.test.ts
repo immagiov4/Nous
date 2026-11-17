@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { type Browser, chromium, type Page } from 'playwright';
 import { afterAll, beforeAll, expect, inject, test } from 'vitest';
@@ -20,6 +20,163 @@ const formulaViewports = [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ];
+
+test.each(
+  ['tall', 'wide', 'square'].flatMap(aspect =>
+    [
+      { width: 1920, height: 900 },
+      { width: 390, height: 844 },
+    ].flatMap(viewport => [false, true].map(dark => ({ aspect, viewport, dark })))
+  )
+)('keeps native formula typography with a $aspect image at $viewport.width px (dark=$dark)', async ({
+  aspect,
+  viewport,
+  dark,
+}) => {
+  const page = await browser.newPage({ viewport, reducedMotion: 'no-preference' });
+  try {
+    await page.addInitScript(() => {
+      Object.assign(window, { formulaImageShifts: [] });
+      new PerformanceObserver(list => {
+        const shifts = (window as unknown as { formulaImageShifts: number[] }).formulaImageShifts;
+        shifts.push(
+          ...list.getEntries().map(entry => (entry as PerformanceEntry & { value: number }).value)
+        );
+      }).observe({ type: 'layout-shift', buffered: true });
+    });
+    await page.goto(
+      `${baseUrl}tests/fixtures/playbackLayout.html?formulas=5&formulaPath=image&imageAspect=${aspect}${dark ? '&dark' : ''}`
+    );
+    await page.locator('.scene-host img').evaluate((image: HTMLImageElement) => image.decode());
+    await page.evaluate(() => document.fonts.ready);
+    const measured = await page.locator('.scene-host').evaluate(async card => {
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+      const image = card.querySelector('img');
+      const slot = card.parentElement?.getBoundingClientRect();
+      if (!image || !slot) throw new Error('Mixed visual must be mounted');
+      const inside = (element: Element) => {
+        const box = element.getBoundingClientRect();
+        return (
+          Math.round(box.left) >= Math.round(slot.left) &&
+          Math.round(box.right) <= Math.round(slot.right) &&
+          Math.round(box.top) >= Math.round(slot.top) &&
+          Math.round(box.bottom) <= Math.round(slot.bottom)
+        );
+      };
+      const formulas = [
+        ...card.querySelectorAll<HTMLElement>(':scope > .prose .katex-html > .base'),
+      ];
+      return {
+        formulas: formulas.map(formula => ({
+          paintedHeight: formula.getBoundingClientRect().height,
+          nativeHeight: formula.offsetHeight,
+          inside: inside(formula),
+        })),
+        image: {
+          width: image.getBoundingClientRect().width,
+          height: image.getBoundingClientRect().height,
+          inside: inside(image),
+          objectFit: getComputedStyle(image).objectFit,
+          naturalWidth: image.naturalWidth,
+          naturalHeight: image.naturalHeight,
+        },
+        card: { ...card.getBoundingClientRect().toJSON(), inside: inside(card) },
+        shifts: (window as unknown as { formulaImageShifts: number[] }).formulaImageShifts,
+      };
+    });
+    if (process.env.NOUS_E2E_DATA) {
+      await mkdir(process.env.NOUS_E2E_DATA, { recursive: true });
+      await writeFile(
+        path.join(process.env.NOUS_E2E_DATA, `formula-${aspect}-${viewport.width}-${dark}.json`),
+        JSON.stringify(measured)
+      );
+    }
+    expect(measured.formulas).toHaveLength(5);
+    for (const formula of measured.formulas) {
+      expect(formula.paintedHeight).toBeCloseTo(formula.nativeHeight, 0);
+      expect(formula.inside).toBe(true);
+    }
+    expect(measured.image.width).toBeGreaterThan(0);
+    expect(measured.image.height).toBeGreaterThan(0);
+    expect(measured.image.inside && measured.card.inside).toBe(true);
+    expect(measured.shifts.reduce((sum, shift) => sum + shift, 0)).toBe(0);
+    if (aspect === 'tall') expect(measured.image.objectFit).toBe('contain');
+    if (viewport.width === 390)
+      expect(
+        await page.locator('.captions').evaluate(element => getComputedStyle(element).visibility)
+      ).toBe('hidden');
+    await evidence(page, `formula-${aspect}-${viewport.width}-${dark}`);
+  } finally {
+    await page.close();
+  }
+});
+
+test('flows short supplemental formulas beside each other without shrinking mixed image cards', async () => {
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  try {
+    for (const viewport of [
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      for (const dark of [false, true]) {
+        await page.goto(
+          `${baseUrl}tests/fixtures/playbackLayout.html?formulas=5&formulaPath=image${dark ? '&dark' : ''}`
+        );
+        const image = page.locator('.scene-host img');
+        await image.waitFor();
+        await image.evaluate((image: HTMLImageElement) => image.decode());
+        await page.evaluate(() => document.fonts.ready);
+        const geometry = await page.locator('.scene-host').evaluate(async card => {
+          await new Promise(requestAnimationFrame);
+          await new Promise(requestAnimationFrame);
+          const summary = card.querySelector(':scope > .prose');
+          const formulas = [...(summary?.querySelectorAll('.katex-display') ?? [])];
+          const box = card.getBoundingClientRect();
+          const slot = card.parentElement?.getBoundingClientRect();
+          if (!slot) throw new Error('Scene slot must exist');
+          return {
+            count: formulas.length,
+            rows: new Set(formulas.map(formula => Math.round(formula.getBoundingClientRect().top)))
+              .size,
+            fillsWidth: Math.round(box.width) === Math.round(slot.width),
+            contentInside: [
+              ...formulas.map(formula => formula.querySelector('.katex-html') ?? formula),
+              ...card.querySelectorAll('img'),
+            ].every(element => {
+              const content = element.getBoundingClientRect();
+              return (
+                content.width > 0 &&
+                content.height > 0 &&
+                Math.round(content.left) >= Math.round(box.left) &&
+                Math.round(content.right) <= Math.round(box.right) &&
+                Math.round(content.top) >= Math.round(box.top) &&
+                Math.round(content.bottom) <= Math.round(box.bottom)
+              );
+            }),
+            inside:
+              Math.round(box.left) >= Math.round(slot.left) &&
+              Math.round(box.right) <= Math.round(slot.right) &&
+              Math.round(box.top) >= Math.round(slot.top) &&
+              Math.round(box.bottom) <= Math.round(slot.bottom),
+          };
+        });
+        expect(geometry.count).toBe(5);
+        expect(geometry.rows).toBeLessThan(geometry.count);
+        expect(geometry.fillsWidth).toBe(true);
+        expect(geometry.contentInside).toBe(true);
+        expect(geometry.inside).toBe(true);
+        if (viewport.width === 390)
+          expect(
+            await page.locator('.captions').evaluate(e => getComputedStyle(e).visibility)
+          ).toBe('hidden');
+      }
+    }
+  } finally {
+    await page.close();
+  }
+});
 
 test('keeps the save action at its approved size when a scene is fitted on desktop or touch screens', async () => {
   const page = await browser.newPage({ reducedMotion: 'reduce' });

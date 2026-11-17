@@ -2088,6 +2088,10 @@
     --caption-height: 4lh;
   }
 }
+.lesson-player-dialog:focus {
+  /* Initial focus targets the surface; its controls retain native keyboard indicators. */
+  outline: 0;
+}
 /* Share the title's desktop inset with the caption column, including the back action. */
 .lesson-player-dialog,
 .lesson-player-stage {
@@ -2275,6 +2279,17 @@
 }
 .lesson-player-stage .scene-host > div {
   width: 100%;
+}
+.lesson-player-stage .scene-host > .prose {
+  /* Supplemental expressions share rows before the complete visual is fitted. */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space);
+}
+.lesson-player-stage .scene-host > .prose > .katex-display {
+  margin: 0;
 }
 .lesson-player-stage .lesson-player-formula .katex:not(.spotlight-symbol .katex) {
   font-size: var(--symbol-size);

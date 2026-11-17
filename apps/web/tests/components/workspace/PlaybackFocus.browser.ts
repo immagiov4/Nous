@@ -7,6 +7,27 @@ import { build, preview } from 'vite';
 import { withMutedAudio } from '../../../../../scripts/browser-audio';
 import viteConfig from '../../../vite.config';
 
+function focusOutline(element: Element) {
+  const style = getComputedStyle(element);
+  const rules: string[] = [];
+  const inspect = (list: CSSRuleList) => {
+    for (const rule of list) {
+      if (rule instanceof CSSStyleRule && element.matches(rule.selectorText) && rule.style.outline)
+        rules.push(rule.cssText);
+      if ('cssRules' in rule) inspect((rule as CSSGroupingRule).cssRules);
+    }
+  };
+  for (const sheet of document.styleSheets) inspect(sheet.cssRules);
+  return {
+    width: style.outlineWidth,
+    style: style.outlineStyle,
+    color: style.outlineColor,
+    focusVisible: element.matches(':focus-visible'),
+    rules,
+    classes: element.className,
+  };
+}
+
 const output = await realpath(await mkdtemp(path.join(tmpdir(), 'nous-playback-focus-')));
 try {
   const config = viteConfig({ command: 'build', mode: 'test' });
@@ -142,10 +163,8 @@ try {
         await player.waitFor();
         assert(await player.evaluate(element => element === document.activeElement));
         assert.equal(await page.evaluate(() => scrollY), scroll);
-        assert.equal(
-          await player.evaluate(element => getComputedStyle(element).outlineWidth),
-          '0px'
-        );
+        const openingOutline = await player.evaluate(focusOutline);
+        assert.equal(openingOutline.width, '0px', JSON.stringify(openingOutline));
         await page.keyboard.press('Shift+Tab');
         assert(
           await player
@@ -159,6 +178,9 @@ try {
             element => element === document.activeElement && element.matches(':focus-visible')
           )
         );
+        const controlOutline = await back.evaluate(focusOutline);
+        assert.notEqual(controlOutline.style, 'none', JSON.stringify(controlOutline));
+        assert(Number.parseFloat(controlOutline.width) > 0, JSON.stringify(controlOutline));
         await page.keyboard.press('Shift+Tab');
         assert(
           await player.evaluate(element => {
@@ -177,9 +199,15 @@ try {
         await page.keyboard.press('Enter');
         await player.waitFor();
         assert(await player.evaluate(element => element === document.activeElement));
-        assert.equal(
-          await player.evaluate(element => getComputedStyle(element).outlineWidth),
-          '0px'
+        const reopenedOutline = await player.evaluate(focusOutline);
+        assert.equal(reopenedOutline.width, '0px', JSON.stringify(reopenedOutline));
+        console.log(
+          JSON.stringify({
+            browser: engine.name(),
+            openingOutline,
+            reopenedOutline,
+            controlOutline,
+          })
         );
         const forward = player.getByRole('button', { name: 'Avanti di 5 secondi' });
         await forward.focus();
