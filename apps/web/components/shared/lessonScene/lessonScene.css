@@ -9,6 +9,7 @@
   --surface: var(--bg-surface);
   --ink: var(--ink-primary);
   --muted: var(--ink-secondary);
+  --tinted-muted: var(--ink-secondary);
   --line: var(--border-subtle);
   --diagram-rule: var(--border-strong);
   --blue: #a94f34;
@@ -38,6 +39,7 @@
   --diagram-title: 25px;
   --diagram-label: 18px;
   --diagram-copy: 15px;
+  --quantity-tile-padding: 8px;
   --icon-size: 24px;
   --symbol-size: 58px;
   container-type: inline-size;
@@ -65,6 +67,7 @@
   }
 }
 .dark .lesson-scene {
+  --tinted-muted: color-mix(in srgb, var(--ink-secondary) 60%, var(--ink-primary));
   --scene-dark-accent: #fdba74;
   --blue: var(--scene-dark-accent);
   --tint: rgba(251, 146, 60, 0.14);
@@ -148,6 +151,7 @@
 }
 .lesson-scene .groups section:first-child {
   background: var(--tint);
+  --muted: var(--tinted-muted);
 }
 .lesson-scene .groups h3 {
   font-size: 20px;
@@ -162,9 +166,11 @@
 }
 .lesson-scene .signals section:first-child {
   background: var(--paper);
+  --muted: var(--ink-secondary);
 }
 .lesson-scene .signals section:last-child {
   background: var(--tint);
+  --muted: var(--tinted-muted);
 }
 .lesson-scene table {
   border-collapse: collapse;
@@ -658,9 +664,11 @@
 .lesson-scene .comparison.related[data-relation="less"] section:last-child,
 .lesson-scene .signals.related section:last-child {
   background: var(--tint);
+  --muted: var(--tinted-muted);
 }
 .lesson-scene .comparison.related[data-relation="versus"] section {
   background: var(--paper);
+  --muted: var(--ink-secondary);
 }
 .lesson-scene .scene-note {
   display: flex;
@@ -706,6 +714,7 @@
 .lesson-scene .checklist {
   padding: 22px;
   background: var(--tint);
+  --muted: var(--tinted-muted);
   border-radius: var(--diagram-radius);
 }
 .lesson-scene .checklist .step-index {
@@ -851,10 +860,12 @@
   border-radius: 14px;
   padding: 18px;
   background: var(--tint);
+  --muted: var(--tinted-muted);
 }
 .lesson-scene .limits-items .concept:nth-child(even) {
   border-color: var(--line);
   background: var(--paper);
+  --muted: var(--ink-secondary);
 }
 .lesson-scene .limits:empty {
   display: none;
@@ -1153,9 +1164,11 @@
 }
 .lesson-scene .groups.assessment .verdict-prefer {
   background: var(--tint);
+  --muted: var(--tinted-muted);
 }
 .lesson-scene .groups.assessment .verdict-avoid {
   background: var(--paper);
+  --muted: var(--ink-secondary);
 }
 .lesson-scene .groups.assessment .verdict-avoid h3 .meaning-icon {
   color: var(--muted);
@@ -1526,14 +1539,14 @@
 }
 .lesson-scene.lesson-scene-animated .interaction-card .quantity-layout {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
   align-items: center;
   gap: var(--interaction-gap);
   margin: 32px 0;
 }
 .lesson-scene.lesson-scene-animated .interaction-card .replica-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 .lesson-scene.lesson-scene-animated .interaction-card .quantity-summary {
@@ -1557,12 +1570,15 @@
 .lesson-scene.lesson-scene-animated .interaction-card .replica {
   border: 1px solid var(--line);
   border-radius: 14px;
+  padding: var(--quantity-tile-padding);
   min-height: 100px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 6px;
+  text-align: center;
+  overflow-wrap: anywhere;
   background: var(--paper);
   transition:
     background-color var(--interaction-transition),
@@ -1578,6 +1594,7 @@
 .lesson-scene.lesson-scene-animated .interaction-card .replica.present {
   background: var(--tint);
   border-color: var(--blue);
+  --muted: var(--tinted-muted);
 }
 .lesson-scene.lesson-scene-animated .interaction-card .replica.present > * {
   opacity: 1;
@@ -1805,6 +1822,7 @@
 }
 .lesson-scene .quick-scene .q-box {
   background: var(--q-fill);
+  --muted: var(--tinted-muted);
   border: 1px solid var(--q-border);
   border-radius: 18px;
   padding: 20px;
@@ -1856,9 +1874,11 @@
 .lesson-scene .quick-scene .q-quadrant .q-box {
   border-radius: 0;
   background: var(--surface);
+  --muted: var(--ink-secondary);
 }
 .lesson-scene .quick-scene .q-quadrant .q-box:first-child {
   background: var(--tint);
+  --muted: var(--tinted-muted);
 }
 .lesson-scene .quick-scene .q-svg {
   display: block;
@@ -2039,20 +2059,31 @@
   border-radius: 8px;
 }
 .lesson-scene .quick-scene .q-process {
-  display: flex;
+  --step-line: 24px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   list-style: none;
-  gap: 32px;
+  column-gap: var(--diagram-gap);
 }
 .lesson-scene .quick-scene .q-process li {
-  flex: 1;
-  min-width: 0;
-  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: start;
+  gap: 4px 10px;
+  padding-block: 12px;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
 }
 .lesson-scene .quick-scene .q-step-marker {
-  position: relative;
-  height: 44px;
   display: grid;
-  justify-items: center;
+  grid-template-columns: var(--step-line);
+  align-self: start;
+  align-items: center;
+  gap: 8px;
+  --icon-size: 20px;
+}
+.lesson-scene .quick-scene .q-process:has(.meaning-icon) .q-step-marker {
+  grid-template-columns: var(--step-line) var(--icon-size);
 }
 .lesson-scene .quick-scene .q-index {
   display: grid;
@@ -2061,20 +2092,26 @@
   background: var(--blue);
   color: var(--surface);
   margin: 0;
-  width: 32px;
-  height: 32px;
+  width: var(--step-line);
+  height: var(--step-line);
   font-size: 14px;
 }
-.lesson-scene .quick-scene .q-process .q-box {
-  height: calc(100% - 44px);
-  text-align: center;
-  padding: 18px 12px;
+.lesson-scene .quick-scene .q-process strong {
+  font-size: 16px;
+  line-height: var(--step-line);
+}
+.lesson-scene .quick-scene .q-process p {
+  grid-column: 2;
+  color: var(--muted);
 }
 .lesson-scene .quick-scene .q-units {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
   gap: 14px;
   text-align: center;
+}
+.lesson-scene .quick-scene .q-units .q-box {
+  padding: 12px var(--quantity-tile-padding);
 }
 .lesson-scene .quick-scene .q-result {
   text-align: center;
@@ -2083,6 +2120,10 @@
 .lesson-scene .quick-scene .q-result > strong {
   font-size: 44px;
   color: var(--blue);
+  overflow-wrap: anywhere;
+}
+.lesson-scene .quick-scene .q-result small {
+  font-size: var(--diagram-label);
 }
 .lesson-scene .quick-scene .q-result p {
   color: var(--muted);
@@ -2264,25 +2305,7 @@
 
 @container (max-width: 650px) {
   .lesson-scene .quick-scene .q-process {
-    flex-direction: column;
-    gap: 26px;
-  }
-  .lesson-scene .quick-scene .q-process li {
-    display: flex;
-    gap: 16px;
-    align-items: center;
-  }
-  .lesson-scene .quick-scene .q-step-marker {
-    height: auto;
-    flex: 0 0 32px;
-  }
-  .lesson-scene .quick-scene .q-process .q-box {
-    height: auto;
-    flex: 1;
-    text-align: left;
-  }
-  .lesson-scene .quick-scene .q-process .q-box > .meaning-icon {
-    margin-left: 0;
+    grid-template-columns: minmax(0, 1fr);
   }
   .lesson-scene .quick-scene .q-venn-diagram {
     padding: 0 12px;
@@ -2358,21 +2381,6 @@
   width: 22px;
   height: 22px;
 }
-.lesson-scene .quick-scene .q-step-arrow {
-  position: absolute;
-  left: -30px;
-  top: 2px;
-  width: 28px;
-  height: 28px;
-  display: block;
-}
-.lesson-scene .quick-scene .q-step-arrow > .meaning-icon {
-  width: 28px;
-  height: 28px;
-}
-.lesson-scene .quick-scene .q-step-arrow > [data-icon="arrow-down"] {
-  display: none;
-}
 .lesson-scene .quick-scene .q-integration {
   display: grid;
   grid-template-columns: 1fr;
@@ -2418,18 +2426,6 @@
 }
 .lesson-scene .quick-scene .q-branches-out {
   transform: scaleY(-1);
-}
-@container (max-width: 650px) {
-  .lesson-scene .quick-scene .q-step-arrow {
-    left: 2px;
-    top: -27px;
-  }
-  .lesson-scene .quick-scene .q-step-arrow > [data-icon="arrow-right"] {
-    display: none;
-  }
-  .lesson-scene .quick-scene .q-step-arrow > [data-icon="arrow-down"] {
-    display: block;
-  }
 }
 @container (max-width: 380px) {
   .lesson-scene .quick-scene .q-venn-circles i {
@@ -2499,6 +2495,7 @@
 .lesson-scene .type-composition .composed-panels > section {
   min-width: 0;
   background: var(--tint);
+  --muted: var(--tinted-muted);
   border-radius: var(--diagram-radius);
   padding: var(--diagram-pad);
 }
@@ -2623,6 +2620,7 @@
 .type-formula-spotlight .spotlight-symbols > div[data-active="true"] {
   border-color: var(--blue);
   background: var(--tint);
+  --muted: var(--tinted-muted);
   border-radius: var(--diagram-radius);
 }
 .type-formula-spotlight dt {

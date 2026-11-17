@@ -304,16 +304,12 @@ export const SCENE_RENDERERS = {
       {c.scene.items.map((item, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: authored stages have stable order
         <li key={`${index}-${item.label}`} data-playback-item={index}>
-          {index ? (
-            <span className="q-step-arrow">
-              <SceneIcon name="arrow-right" />
-              <SceneIcon name="arrow-down" />
-            </span>
-          ) : null}
           <div className="q-step-marker">
             <b className="q-index">{index + 1}</b>
+            {item.icon ? <SceneIcon name={item.icon} /> : null}
           </div>
-          {quickBox(item.label, item.detail, item.icon)}
+          <strong>{item.label}</strong>
+          {item.detail ? <p>{item.detail}</p> : null}
         </li>
       ))}
     </ol>
@@ -327,23 +323,24 @@ export const SCENE_RENDERERS = {
   ),
   'proportional-static': c => {
     const numbers = new Intl.NumberFormat(getAppLocale(), { maximumSignificantDigits: 21 });
-    const total = proportionalTotal(c.scene.amountPerUnit as number, c.scene.quantity as number);
+    const quantity = c.scene.quantity as number;
+    const amountPerUnit = c.scene.amountPerUnit as number;
+    const amount = numbers.format(amountPerUnit);
+    const total = proportionalTotal(amountPerUnit, quantity);
     return (
       <>
         <div className="q-units">
-          {Array.from({ length: c.scene.quantity as number }, (_, index) => (
+          {Array.from({ length: quantity }, (_, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: each unit occupies a fixed numbered position
-            <Fragment key={index + 1}>
-              {quickBox(String(index + 1), `${c.scene.amountPerUnit} ${c.scene.unit}`)}
-            </Fragment>
+            <Fragment key={index + 1}>{quickBox(numbers.format(index + 1), amount)}</Fragment>
           ))}
         </div>
         <div className="q-result">
           <strong>
-            {numbers.format(total)} {c.scene.unit}
+            {numbers.format(total)} <small>{c.scene.unit}</small>
           </strong>
           <p>
-            {c.scene.quantity} × {c.scene.amountPerUnit} {c.scene.unit}
+            {numbers.format(quantity)} × {amount}
           </p>
         </div>
       </>

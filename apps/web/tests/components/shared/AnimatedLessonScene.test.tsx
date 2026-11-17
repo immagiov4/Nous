@@ -248,14 +248,14 @@ test.each([
     '0.0000000000000000000000002',
     '0.0000000000000000000000004',
   ],
-] as const)('preserves significant proportional digits for %s', (amountPerUnit, unit, initial, next) => {
+] as const)('preserves significant proportional digits for %s', (amountPerUnit, amount, initial, next) => {
   setRenderingLocaleOverride('en');
   const { container, getByRole } = render(
     <LessonSceneVisual scene={{ ...proportionalScene, amountPerUnit }} />
   );
-  expect(container.querySelector('.replica strong')?.textContent).toBe(`${unit} MB`);
+  expect(container.querySelector('.replica strong')?.textContent).toBe(amount);
   expect(container.querySelector('[data-quantity-value]')?.textContent).toBe(initial);
-  expect(container.querySelector('.formula')?.textContent).toBe(`2 × ${unit} MB`);
+  expect(container.querySelector('.formula')?.textContent).toBe(`2 × ${amount} MB`);
   expect(getByRole('status').textContent).toContain(initial);
   expect(container.querySelectorAll('output')).toHaveLength(1);
   act(() => intersect([{ isIntersecting: true }]));

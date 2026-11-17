@@ -208,9 +208,7 @@ export function AnimatedScene({
                       <span className="server-symbol">
                         <SceneIcon name="server" />
                       </span>
-                      <strong>
-                        {numbers.format(scene.amountPerUnit)} {scene.outputUnit}
-                      </strong>
+                      <strong>{numbers.format(scene.amountPerUnit)}</strong>
                       <span>
                         {scene.unitLabel} {numbers.format(index + 1)}
                       </span>
