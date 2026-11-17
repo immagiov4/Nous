@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 
-import type { LessonScene } from '@shared/lessonScene';
+import { type LessonScene, LessonSceneSchema } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import { render, screen, waitFor } from '@testing-library/react';
 import { beforeAll, describe, expect, test, vi } from 'vitest';
@@ -74,6 +74,25 @@ const comparison: LessonScene = {
   title: 'A che cosa dare più peso?',
   type: 'comparison',
 };
+
+test('renders the gradient and both labels from a previously saved continuum', () => {
+  const saved = LessonSceneSchema.parse({
+    body: '',
+    groups: [],
+    items: [
+      { label: 'Bud', detail: 'Petals are folded.', icon: 'point' },
+      { label: 'Flower', detail: 'Petals are open.', icon: 'point' },
+    ],
+    note: '',
+    quote: '',
+    title: 'Opening of a flower',
+    type: 'continuum',
+  });
+  const { container } = render(<LessonSceneVisual scene={saved} />);
+  expect(container.querySelector('.continuum-line')).toBeInTheDocument();
+  expect(screen.getByText('Bud')).toBeVisible();
+  expect(screen.getByText('Flower')).toBeVisible();
+});
 
 test.each([
   'quote',
