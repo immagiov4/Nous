@@ -277,20 +277,21 @@ function focusDurationMs(event: TimedMotionEvent) {
 
 /** Scrolling follows the spoken cue, including direct seeks, without following the focus fade. */
 export function activeFocusCue(events: readonly TimedMotionEvent[], heardMs: number) {
-  let activeIndex = -1;
+  const targets = new Set<string>();
   let activeOnset = Number.NEGATIVE_INFINITY;
-  for (const [index, event] of events.entries()) {
+  for (const event of events) {
     if (
       event.effect === 'focus' &&
-      event.atMs > activeOnset &&
+      event.atMs >= activeOnset &&
       event.atMs <= heardMs &&
       heardMs < event.atMs + focusDurationMs(event)
     ) {
-      activeIndex = index;
+      if (event.atMs > activeOnset) targets.clear();
+      for (const id of event.targets) targets.add(id);
       activeOnset = event.atMs;
     }
   }
-  return activeIndex;
+  return { onset: activeOnset, targets: [...targets] };
 }
 
 const processScrolls = new WeakMap<HTMLElement, AbortController>();

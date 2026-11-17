@@ -189,9 +189,8 @@ function PlaybackScene({
         }
       }
       if (scene.type !== 'process') return;
-      const cue = activeFocusCue(events, voiceTime);
-      const targetIds = events[cue]?.targets ?? [];
-      const key = `${current.seekRevision}:${cue}:${targetIds.join(',')}`;
+      const { onset, targets: targetIds } = activeFocusCue(events, voiceTime);
+      const key = `${current.seekRevision}:${onset}:${targetIds.join(',')}`;
       if (key === followedCue.current?.key) return;
       const scrollport = element.closest<HTMLElement>(
         '[data-process-card]:not([inert]) > [data-process-scroll]'

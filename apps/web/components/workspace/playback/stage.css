@@ -2289,7 +2289,7 @@
   justify-content: center;
   gap: var(--space);
 }
-.lesson-player-stage .scene-host > .prose > .katex-display {
+.lesson-player-stage :is(.scene-host, [data-process-scroll]) > .prose > .katex-display {
   margin: 0;
 }
 .lesson-player-stage .lesson-player-formula .katex:not(.spotlight-symbol .katex) {

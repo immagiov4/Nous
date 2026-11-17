@@ -2200,11 +2200,16 @@ test.each([
 });
 
 test.each([
-  { cue: 'one step', targets: ['item:1'], firstTop: 0 },
-  { cue: 'a group that fits', targets: ['item:0', 'item:1'], firstTop: 215 },
-  { cue: 'a group with an already visible first step', targets: ['item:0', 'item:1'], firstTop: 0 },
+  { cue: 'one step', groups: [['item:1']], firstTop: 0 },
+  { cue: 'a group that fits', groups: [['item:0', 'item:1']], firstTop: 215 },
+  {
+    cue: 'a group with an already visible first step',
+    groups: [['item:0', 'item:1']],
+    firstTop: 0,
+  },
+  { cue: 'simultaneous events', groups: [['item:0'], ['item:1']], firstTop: 0 },
 ])('a process focus on $cue follows recording and seeks while manual scrolling persists', ({
-  targets,
+  groups,
   firstTop,
 }) => {
   vi.mocked(useShouldAnimate).mockReturnValue(false);
@@ -2237,7 +2242,11 @@ test.each([
     ...segmentLessonPlayback(sources)[0],
     prepared: {
       scene,
-      motion: [{ effect: 'focus' as const, targets, quote: 'Final report.' }],
+      motion: groups.map(targets => ({
+        effect: 'focus' as const,
+        targets,
+        quote: 'Final report.',
+      })),
     },
   };
   const content = {
@@ -2294,7 +2303,7 @@ test.each([
   tick();
   expect(finalStep.style.getPropertyValue('--motion-emphasis')).toBe('1');
   expect(firstStep.style.getPropertyValue('--motion-emphasis')).toBe(
-    targets.includes('item:0') ? '1' : '0'
+    groups.flat().includes('item:0') ? '1' : '0'
   );
   expect(scroll).toHaveBeenCalledExactlyOnceWith({ top: 200, behavior: 'instant' });
   card.scrollTop = 10;
