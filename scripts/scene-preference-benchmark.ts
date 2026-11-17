@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import * as z from 'zod';
 import { MAX_VISUAL_LESSON_CHARS } from '../packages/shared-types/lessonGenerationPolicy.js';
-import { GENERATABLE_LESSON_SCENE_TYPES } from '../packages/shared-types/lessonScene.js';
+import { selectableLessonSceneTypes } from '../packages/shared-types/lessonScene.js';
 import { readGitIdentity } from './git-identity.js';
 
 /**
@@ -21,7 +21,7 @@ import { readGitIdentity } from './git-identity.js';
  */
 
 const form = z.union([
-  z.enum(GENERATABLE_LESSON_SCENE_TYPES),
+  z.enum(selectableLessonSceneTypes({ captioned: false })),
   z
     .string()
     .startsWith('uncovered:')
@@ -37,9 +37,7 @@ const CaseSchema = z
     rejected: form,
     tie: z.boolean(),
   })
-  .refine(c => c.preferred !== c.rejected)
-  // This benchmark exercises uncaptioned generation, where spotlight cannot be selected.
-  .refine(c => c.preferred !== 'formula-spotlight' && c.rejected !== 'formula-spotlight');
+  .refine(c => c.preferred !== c.rejected);
 type PreferenceCase = z.infer<typeof CaseSchema>;
 export interface Trial {
   id: string;

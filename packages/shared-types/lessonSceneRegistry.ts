@@ -1235,6 +1235,23 @@ export const GENERATABLE_LESSON_SCENE_TYPES = LESSON_SCENE_TYPES.filter(
   type => !isRetiredLessonScene({ type }) && type !== 'definition'
 );
 
+/** Preserve frozen contracts that offer hypothesis without its checklist equivalent. */
+export function selectableLessonSceneTypes({
+  captioned,
+  allowedTypes = GENERATABLE_LESSON_SCENE_TYPES,
+}: {
+  captioned: boolean;
+  allowedTypes?: readonly LessonSceneType[];
+}) {
+  const prefersChecklist = allowedTypes.includes('checklist');
+  return allowedTypes.filter(
+    type =>
+      GENERATABLE_LESSON_SCENE_TYPES.includes(type) &&
+      (type !== 'hypothesis' || !prefersChecklist) &&
+      (type !== 'formula-spotlight' || captioned)
+  );
+}
+
 export const STATIC_LESSON_SCENE_TYPES = LESSON_SCENE_CATALOG_SNAPSHOTS[0];
 
 export const LESSON_SCENE_CATALOG = Object.fromEntries(

@@ -123,6 +123,8 @@ test('validates JSONL without echoing private records in errors', () => {
     JSON.stringify({ ...cases[0], rejected: 'steps' }),
     JSON.stringify({ ...cases[0], preferred: 'formula-spotlight' }),
     JSON.stringify({ ...cases[0], rejected: 'formula-spotlight' }),
+    JSON.stringify({ ...cases[0], preferred: 'hypothesis' }),
+    JSON.stringify({ ...cases[0], rejected: 'hypothesis' }),
   ]) {
     expect(() => parseCases(input)).toThrowError(new Error('Invalid benchmark dataset'));
   }
