@@ -60,14 +60,21 @@ function Scene({
   heights,
   textHeight,
   formula,
+  onOverflow,
 }: {
   readonly heights: readonly number[];
   readonly textHeight: number;
   readonly formula: boolean;
+  readonly onOverflow?: (overflowing: boolean) => void;
 }) {
-  const ref = usePlaybackVisualFit(true);
+  const ref = usePlaybackVisualFit(true, onOverflow);
   return (
-    <section ref={ref} className="scene-host" data-text-height={textHeight}>
+    <section
+      ref={ref}
+      className="scene-host"
+      data-text-height={textHeight}
+      data-stage-height={onOverflow ? 600 : undefined}
+    >
       {formula ? <span className="katex">x = 1</span> : null}
       {heights.map((height, index) => (
         <figure key={height}>
@@ -78,12 +85,22 @@ function Scene({
   );
 }
 
-function mount(heights: readonly number[], textHeight: number, formula = true) {
+function mount(
+  heights: readonly number[],
+  textHeight: number,
+  formula = true,
+  onOverflow?: (overflowing: boolean) => void
+) {
   const view = render(
     <div className="listening-stage" data-stage-height="600" style={{ padding: 0 }}>
       <div className="captions" />
       <div className="scene-fit">
-        <Scene heights={heights} textHeight={textHeight} formula={formula} />
+        <Scene
+          heights={heights}
+          textHeight={textHeight}
+          formula={formula}
+          onOverflow={onOverflow}
+        />
       </div>
     </div>
   );
@@ -142,4 +159,18 @@ test('an image without a formula retains whole-visual fitting', () => {
   const { card, images } = mount([1200], 0, false);
   expect(images[0].style.maxHeight).toBe('');
   expect(card.style.getPropertyValue('--scene-scale')).toBe('0.5');
+});
+
+test('an overflowing process reports its native scroll position and visible fraction', () => {
+  const reportOverflow = vi.fn();
+  const { card } = mount([], 1200, false, reportOverflow);
+  expect(reportOverflow).toHaveBeenLastCalledWith(true);
+  expect(card.style.getPropertyValue('--process-visible-fraction')).toBe('0.5');
+  expect(card.style.getPropertyValue('--process-scroll-progress')).toBe('0');
+
+  for (const progress of [0.5, 1]) {
+    card.scrollTop = 600 * progress;
+    fireEvent.scroll(card);
+    expect(card.style.getPropertyValue('--process-scroll-progress')).toBe(String(progress));
+  }
 });

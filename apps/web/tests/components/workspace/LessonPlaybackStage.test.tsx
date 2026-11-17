@@ -2198,6 +2198,104 @@ test.each([
   expect(Number(visualValue())).toBeGreaterThan(0);
 });
 
+test('a process focus follows the recording and an explicit seek while manual scrolling persists', () => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
+    new DOMRect(0, 0, 100, 100)
+  );
+  const sources = [{ type: 'markdown' as const, markdown: 'First sample. Final report.' }];
+  const scene: LessonScene = {
+    type: 'process',
+    title: 'Sampling process',
+    body: '',
+    items: [
+      { label: 'First sample', detail: '', icon: 'circle' },
+      { label: 'Final report', detail: '', icon: 'circle' },
+    ],
+    groups: [],
+    note: '',
+    quote: '',
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: {
+      scene,
+      motion: [{ effect: 'focus' as const, targets: ['item:1'], quote: 'Final report.' }],
+    },
+  };
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+  } as WorkspaceReaderContentModel;
+  let heard = 0;
+  const refreshedBlock = {
+    ...block,
+    prepared: { ...block.prepared, motion: [...block.prepared.motion] },
+  };
+  const readTime = () => heard;
+  const view = (seekRevision: number, snapshot = block) => (
+    <LessonPlaybackStage
+      block={snapshot}
+      content={content}
+      duration={10}
+      time={heard}
+      readTime={readTime}
+      seekRevision={seekRevision}
+      alignment={{ status: 'aligned', onsets: [0, 1, 6, 7] }}
+    />
+  );
+  const { container, rerender } = render(view(0));
+  const card = container.querySelector<HTMLElement>('[data-process-card]');
+  const finalStep = container.querySelector<HTMLElement>('[data-playback-item="1"]');
+  if (!card || !finalStep) throw new Error('The process card must render its final step');
+  const scroll = vi.fn(({ top }: ScrollToOptions) => {
+    card.scrollTop = top ?? 0;
+  });
+  Object.defineProperties(card, {
+    clientHeight: { value: 100 },
+    offsetHeight: { value: 100 },
+    scrollHeight: { value: 300 },
+    scrollTo: { value: scroll },
+  });
+  Object.defineProperty(finalStep, 'getBoundingClientRect', {
+    value: () => new DOMRect(0, 240 - card.scrollTop, 100, 60),
+  });
+  const tick = () =>
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    });
+
+  tick();
+  expect(scroll).not.toHaveBeenCalled();
+  heard = 6.2;
+  tick();
+  expect(finalStep.style.getPropertyValue('--motion-emphasis')).toBe('1');
+  expect(scroll).toHaveBeenCalledExactlyOnceWith({ top: 200, behavior: 'instant' });
+  card.scrollTop = 10;
+  heard = 6.3;
+  tick();
+  expect(card.scrollTop).toBe(10);
+  expect(scroll).toHaveBeenCalledTimes(1);
+  rerender(view(0, refreshedBlock));
+  tick();
+  expect(card.scrollTop).toBe(10);
+  rerender(view(1, refreshedBlock));
+  tick();
+  expect(card.scrollTop).toBe(200);
+  expect(scroll).toHaveBeenCalledTimes(2);
+});
+
 test('retains a final aligned reveal after the spoken heading share', () => {
   const events = captionMotionEvents({
     events: [{ effect: 'reveal', targets: ['item:0'], quote: 'Ultima' }],

@@ -2363,6 +2363,34 @@
   display: none;
 }
 .lesson-player-stage
+  .listening-stage
+  > .scene-fit
+  > .scene-host[data-process-card][data-process-overflow]:not([inert])::after {
+  --process-thumb-inset: 8px;
+  --process-thumb-track: calc(100% - 2 * var(--process-thumb-inset));
+  --process-thumb-size: min(
+    var(--process-thumb-track),
+    max(1.5rem, var(--process-thumb-track) * var(--process-visible-fraction))
+  );
+
+  /* Draw the position even on platforms that hide their native overlay scrollbar. */
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset-inline-end: var(--process-thumb-inset);
+  inset-block-start: calc(
+    var(--process-scroll-progress) *
+    (var(--process-thumb-track) - var(--process-thumb-size)) +
+    var(--process-thumb-inset)
+  );
+  translate: 0 calc(var(--process-scroll-progress) * var(--process-scroll-range));
+  inline-size: 4px;
+  block-size: var(--process-thumb-size);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink-secondary) 85%, var(--bg-surface));
+  pointer-events: none;
+}
+.lesson-player-stage
   .scene-host
   :is(
     .table-wrap,

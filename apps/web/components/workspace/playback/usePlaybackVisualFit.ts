@@ -15,6 +15,12 @@ export function usePlaybackVisualFit(
     const slot = card?.parentElement;
     const captions = stage?.querySelector<HTMLElement>('.captions');
     if (!slot || !captions) throw new Error('Playback stage must be mounted');
+    let scrollRange = 0;
+    const updateScrollProgress = () => {
+      if (scrollRange <= 0) return;
+      const progress = Math.min(1, Math.max(0, card.scrollTop / scrollRange));
+      card.style.setProperty('--process-scroll-progress', String(progress));
+    };
     const fitScene = () => {
       const formulas = card.querySelectorAll('.katex:not(.spotlight-symbol .katex)');
       card.classList.toggle('lesson-player-formula', formulas.length === 1);
@@ -33,7 +39,18 @@ export function usePlaybackVisualFit(
       const height = reportVerticalOverflow
         ? Math.min(contentHeight, availableHeight)
         : contentHeight;
-      reportVerticalOverflow?.(contentHeight > availableHeight);
+      if (reportVerticalOverflow) {
+        scrollRange = card.scrollHeight - card.clientHeight;
+        if (scrollRange > 0) {
+          card.style.setProperty('--process-scroll-range', `${scrollRange}px`);
+          card.style.setProperty(
+            '--process-visible-fraction',
+            String(card.clientHeight / card.scrollHeight)
+          );
+          updateScrollProgress();
+        }
+        reportVerticalOverflow(scrollRange > 0);
+      }
       if (!width || !height) return;
       const scale = Math.min(1, slot.clientWidth / width, availableHeight / height);
       card.style.setProperty('--scene-scale', String(scale));
@@ -63,12 +80,15 @@ export function usePlaybackVisualFit(
     });
     // Image decoding changes intrinsic layout without a React commit. Fit before that paint.
     card.addEventListener('load', fitScene, true);
+    if (reportVerticalOverflow)
+      card.addEventListener('scroll', updateScrollProgress, { passive: true });
     document.fonts.addEventListener('loadingdone', fitScene);
     fitScene();
     return () => {
       observer.disconnect();
       mutations.disconnect();
       card.removeEventListener('load', fitScene, true);
+      if (reportVerticalOverflow) card.removeEventListener('scroll', updateScrollProgress);
       document.fonts.removeEventListener('loadingdone', fitScene);
       if (frame !== undefined) cancelAnimationFrame(frame);
     };

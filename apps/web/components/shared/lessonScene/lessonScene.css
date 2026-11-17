@@ -4,6 +4,15 @@
  * darker tone than --accent for legibility, and dark mode lightens them. Regenerate the rules below
  * from the prototype instead of editing them selector by selector.
  */
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("../../../assets/fonts/source-serif-4-italic-digits.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  unicode-range: U+0030-0039;
+}
+
 .lesson-scene {
   --paper: var(--bg-paper);
   --surface: var(--bg-surface);
@@ -1708,7 +1717,7 @@
   justify-content: center;
   gap: 12px;
   padding: 14px 8px;
-  border: 2px solid transparent;
+  border: 1px solid var(--scene-outline);
   border-radius: 18px;
   background: var(--paper);
   transition:
@@ -1716,8 +1725,11 @@
     background var(--interaction-transition);
   font: inherit;
 }
+.lesson-scene.lesson-scene-animated .type-guided-path {
+  --path-accent: var(--scene-dark-accent, var(--blue));
+}
 .lesson-scene.lesson-scene-animated .interaction-card .guided-stops .guided-stop.current {
-  border-color: var(--blue);
+  border-color: var(--path-accent);
   background: var(--tint);
 }
 .lesson-scene.lesson-scene-animated .interaction-card .stop-number {
@@ -1725,6 +1737,7 @@
   place-items: center;
   width: 30px;
   height: 30px;
+  flex: none;
   border-radius: 50%;
   background: var(--ink);
   color: var(--surface);
@@ -1735,11 +1748,13 @@
 }
 .lesson-scene.lesson-scene-animated .interaction-card .current .stop-number,
 .lesson-scene.lesson-scene-animated .interaction-card .visited .stop-number {
-  background: var(--blue);
+  background: var(--path-accent);
   color: var(--surface);
 }
 .lesson-scene.lesson-scene-animated .interaction-card .guided-stops strong {
   font-size: 15px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .lesson-scene.lesson-scene-animated .interaction-card .path-explanation {
   background: var(--paper);
@@ -1749,7 +1764,7 @@
 }
 .lesson-scene.lesson-scene-animated .interaction-card .path-position {
   font-size: 12px;
-  color: var(--blue);
+  color: var(--path-accent);
   font-weight: 600;
 }
 .lesson-scene.lesson-scene-animated .interaction-card .path-explanation p {
@@ -2070,10 +2085,14 @@
 }
 .lesson-scene .quick-scene .q-process {
   --process-number-size: clamp(2.5rem, 9cqi, 3.5rem);
+  --process-number-tint: 70%;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
   gap: calc(var(--diagram-gap) * 1.5);
   list-style: none;
+}
+.dark .lesson-scene .quick-scene .q-process {
+  --process-number-tint: 52%;
 }
 .lesson-scene .quick-scene .q-process > li {
   display: grid;
@@ -2093,11 +2112,19 @@
   grid-template-columns: var(--icon-size) minmax(0, 1fr);
 }
 .lesson-scene .quick-scene .q-process .q-index {
-  color: color-mix(in srgb, var(--blue) 76%, transparent);
-  font-size: var(--process-number-size);
-  font-weight: 650;
-  line-height: 1;
+  color: color-mix(in srgb, var(--blue) var(--process-number-tint), transparent);
+  font-family: "Source Serif 4", "Times New Roman", serif;
+  font-size: calc(var(--process-number-size) * 1.15);
+  font-style: italic;
+  font-variant-numeric: lining-nums;
+  font-weight: 400;
+  line-height: var(--process-number-size);
   text-align: center;
+}
+@media (prefers-contrast: more) {
+  .lesson-scene .quick-scene .q-process .q-index {
+    color: var(--ink);
+  }
 }
 .lesson-scene .quick-scene .q-step-copy > .meaning-icon {
   grid-row: 1;

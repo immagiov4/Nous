@@ -269,15 +269,57 @@ function motionRiseMs(event: TimedMotionEvent) {
       );
 }
 
+function focusDurationMs(event: TimedMotionEvent) {
+  return event.sustainFocus
+    ? event.durationMs
+    : Math.min(event.durationMs, MOTION_TIMING.maxFocusMs);
+}
+
+/** Scrolling follows the spoken cue, including direct seeks, without following the focus fade. */
+export function activeFocusCue(events: readonly TimedMotionEvent[], heardMs: number) {
+  let activeIndex = -1;
+  let activeOnset = Number.NEGATIVE_INFINITY;
+  for (const [index, event] of events.entries()) {
+    if (
+      event.effect === 'focus' &&
+      event.atMs > activeOnset &&
+      event.atMs <= heardMs &&
+      heardMs < event.atMs + focusDurationMs(event)
+    ) {
+      activeIndex = index;
+      activeOnset = event.atMs;
+    }
+  }
+  return activeIndex;
+}
+
+/** Scroll only the bounded process card, leaving rows already in view and the page in place. */
+export function revealProcessStep(card: HTMLElement, step: Element, animate: boolean) {
+  if (!card.clientHeight || card.scrollHeight <= card.clientHeight) return;
+  const viewport = card.getBoundingClientRect();
+  const bounds = step.getBoundingClientRect();
+  const scale = viewport.height / card.offsetHeight;
+  const top = (bounds.top - viewport.top) / scale - card.clientTop;
+  const bottom = (bounds.bottom - viewport.top) / scale - card.clientTop;
+  const height = bottom - top;
+  const overflow = bottom - card.clientHeight;
+  const delta =
+    top < 0 || (height > card.clientHeight && overflow > 0) ? top : Math.max(0, overflow);
+  if (Math.abs(delta) < 1) return;
+  const destination = card.scrollTop + delta;
+  card.scrollTo({
+    top: delta > 0 ? Math.ceil(destination) : Math.floor(destination),
+    behavior: animate ? 'smooth' : 'instant',
+  });
+}
+
 function motionUpdate(event: TimedMotionEvent, eventTime: number, reduced: boolean) {
   if (event.effect === 'reveal') {
     return {
       opacity: reduced ? 1 : smooth((eventTime - event.atMs + event.durationMs) / event.durationMs),
     };
   }
-  const focusDuration = event.sustainFocus
-    ? event.durationMs
-    : Math.min(event.durationMs, MOTION_TIMING.maxFocusMs);
+  const focusDuration = focusDurationMs(event);
   if (!(event.effect === 'focus' && eventTime < event.atMs + focusDuration)) return {};
   const transition = motionRiseMs(event);
   return {

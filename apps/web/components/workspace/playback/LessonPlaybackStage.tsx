@@ -54,8 +54,10 @@ import {
 import { type CaptionTimingClock, createCaptionTiming } from './captionTiming.ts';
 import { captionViewport } from './captionViewport.ts';
 import {
+  activeFocusCue,
   type CaptionRun,
   motionStates,
+  revealProcessStep,
   sceneCaptionAnchors,
   sceneElements,
   type TimedMotionEvent,
@@ -116,6 +118,7 @@ function PlaybackScene({
   const sceneKey = JSON.stringify(sourceScene);
   const scene = useMemo<LessonScene>(() => JSON.parse(sceneKey), [sceneKey]);
   const host = useRef<HTMLDivElement>(null);
+  const followedCue = useRef('');
   const readAnimationFrame = useMemo<ReadSceneAnimationFrame | undefined>(() => {
     if (!isAnimatedLessonScene(scene) && scene.type !== 'formula-spotlight') return undefined;
     const anchors = sceneCaptionAnchors(scene, block.speech);
@@ -170,7 +173,7 @@ function PlaybackScene({
       }
       if (hasMissingMotionTargets(events, elements)) return;
       const voiceTime = current.read().blockTime * 1000;
-      const frameKey = `${voiceTime}:${animate}`;
+      const frameKey = `${current.seekRevision}:${voiceTime}:${animate}`;
       if (frameKey === previousFrame) return;
       previousFrame = frameKey;
       const states = motionStates(Array.from(elements.keys()), events, voiceTime, !animate, 0);
@@ -184,6 +187,20 @@ function PlaybackScene({
           target.style.setProperty('--motion-emphasis', String(state.emphasis));
         }
       }
+      if (scene.type !== 'process') return;
+      const cue = activeFocusCue(events, voiceTime);
+      const targetId = events[cue]?.targets[0];
+      if (!targetId) {
+        followedCue.current = '';
+        return;
+      }
+      const key = `${current.seekRevision}:${cue}:${targetId}`;
+      if (key === followedCue.current) return;
+      const processCard = element.closest<HTMLElement>('[data-process-card]:not([inert])');
+      if (!processCard) return;
+      followedCue.current = key;
+      const target = elements.get(targetId)?.[0];
+      if (target) revealProcessStep(processCard, target, animate);
     };
     // Mermaid mounts its targets asynchronously. Rediscover only when the scene DOM changes.
     const observer = new MutationObserver(() => {

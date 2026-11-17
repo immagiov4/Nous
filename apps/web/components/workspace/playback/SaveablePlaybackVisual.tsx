@@ -181,6 +181,7 @@ export function SaveablePlaybackVisual({
       style={{ pointerEvents: present ? undefined : 'none' }}
       className="scene-host"
       data-process-card={processCard || undefined}
+      data-process-overflow={processOverflows || undefined}
       data-exiting={present ? undefined : true}
       inert={!present}
       aria-hidden={!hasVisual || !present}
