@@ -20,7 +20,9 @@ export interface CaptionTimingClock {
   read: () => { blockTime: number };
 }
 type Span = { startMs: number; endMs: number };
+export const CAPTION_FILL_LEAD_SECONDS = 0.6;
 interface TimingRequest {
+  words?: readonly PlaybackRange[];
   anchors?: readonly string[];
   formula?: FormulaSpotlightData;
   events?: readonly PlaybackMotionEvent[];
@@ -32,6 +34,12 @@ interface TimingRequest {
  * Range spans use absolute passage milliseconds, so paragraph progress can share this mapping.
  */
 export function createCaptionTiming(speech: string, request: TimingRequest) {
+  let fillBoundary = 0;
+  let previousFillTime = 0;
+  // Presentation can complete before an acoustic boundary is eligible for retention.
+  const completedWords = new Set<number>();
+  let acousticSpans: (Span | undefined)[] = [];
+  let spokenWord: number | undefined;
   let previous: CaptionTimingClock | undefined;
   let result: {
     spans: (Span | undefined)[];
@@ -46,7 +54,7 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
     | { reason: 'initial' | 'refresh' | 'seek'; heardMs: number; retained: number }
     | undefined;
   return {
-    read(current: CaptionTimingClock) {
+    read(current: CaptionTimingClock, blockTime?: number) {
       if (current === previous) return result;
       const timing = {
         speech,
@@ -74,6 +82,9 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
           if (range) return captionRangeSpan({ ...timing, range });
           return anchors ? captionAnchorSpan({ ...timing, anchors }) : undefined;
         });
+      if (request.words) spans = request.words.map(range => captionRangeSpan({ ...timing, range }));
+      // Following tracks the recording, independently of retained presentation and its lead.
+      acousticSpans = spans;
       let events = request.itemRanges
         ? request.itemRanges.map((range, index): TimedMotionEvent => {
             const span = captionRangeSpan({ ...timing, range });
@@ -87,7 +98,7 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
             };
           })
         : captionMotionEvents({ ...timing, events: request.events ?? [] });
-      const heardMs = current.read().blockTime * 1000;
+      const heardMs = (blockTime ?? current.read().blockTime) * 1000;
       const retain = previous?.seekRevision === current.seekRevision;
       let retained = 0;
       const boundary = (before: number | undefined, next: number) => {
@@ -115,7 +126,12 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
         };
       });
       let reason: 'initial' | 'refresh' | 'seek' = 'initial';
-      if (previous) reason = retain ? 'refresh' : 'seek';
+      if (retain) reason = 'refresh';
+      else if (previous) reason = 'seek';
+      if (current.seekRevision !== (previous?.seekRevision ?? 0)) {
+        fillBoundary = heardMs / 1000;
+        completedWords.clear();
+      }
       transition = {
         reason,
         heardMs,
@@ -141,6 +157,32 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
       };
       return result;
     },
+    /** Presentation lead never changes acoustic scene cues or advances a paused seek target. */
+    fill(current: CaptionTimingClock, time = current.read().blockTime, rate = 1): number[] {
+      if (time === 0 && previousFillTime > 0) {
+        completedWords.clear();
+        fillBoundary = 0;
+      }
+      previousFillTime = time;
+      const { spans } = this.read(current, time);
+      spokenWord = undefined;
+      for (const [index, span] of acousticSpans.entries())
+        if (span && span.startMs <= time * 1000) spokenWord = index;
+      if (time < 0) return spans.map(() => 0);
+      const lead = Math.min(CAPTION_FILL_LEAD_SECONDS * rate, Math.max(0, time - fillBoundary));
+      const presentedMs = Math.max(0, time + lead) * 1000;
+      return spans.map((span, index) => {
+        if (!span) throw new Error('Caption word timing must exist');
+        if (completedWords.has(index)) return 1;
+        if (presentedMs >= span.endMs) {
+          completedWords.add(index);
+          return 1;
+        }
+        if (span.endMs === span.startMs) return 0;
+        return Math.max(0, Math.min(1, (presentedMs - span.startMs) / (span.endMs - span.startMs)));
+      });
+    },
+    spokenWord: () => spokenWord,
     /** Latest refresh only; no narration, word data, DOM references or accumulated history. */
     snapshot: () => transition,
   };

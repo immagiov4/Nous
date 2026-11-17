@@ -2,9 +2,11 @@
 
 import { type LessonPlaybackBlock, segmentLessonPlayback } from '@shared/lessonPlayback';
 import { LessonPlaybackResponseSchema } from '@shared/lessonPlaybackSchema';
+import { alignedWordTimes, narrationWords } from '@shared/playbackWordTiming';
 import { act, render, renderHook, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
+import { createCaptionTiming } from '../../../components/workspace/playback/captionTiming.ts';
 import { useLessonPlayback } from '../../../hooks/reader/useLessonPlayback.ts';
 import * as playbackAuth from '../../../services/auth/supabaseAuth.ts';
 import {
@@ -1657,5 +1659,55 @@ test.each([
       status.resolve(cancelledState());
     });
     fetch.mockRestore();
+  }
+});
+
+test.each([
+  'forward',
+  'backward',
+] as const)('REVIEW620: delayed audio seek applies presentation boundary at the committed target (%s)', async direction => {
+  const { result } = renderHook(() => useLessonPlayback(target));
+  await act(async () => result.current.play());
+  const speech = blocks[0].speech;
+  const timing = createCaptionTiming(speech, { words: narrationWords(speech) });
+  const before = direction === 'forward' ? 1 : 6;
+  const targetTime = direction === 'forward' ? 4.9 : 1.9;
+  act(() => audio.moveTo(0, before));
+  const makeClock = () => ({
+    runs: [
+      { start: 0, width: 100 },
+      { start: 100, width: 100 },
+    ],
+    width: 200,
+    bodyDuration: 10,
+    headingDuration: 0,
+    speechRanges: narrationWords(speech),
+    aligned: alignedWordTimes(speech, 10, { status: 'aligned', onsets: [0, 5] }),
+    seekRevision: result.current.seekRevision,
+    read: () => ({
+      blockTime: result.current.loading ? result.current.time : result.current.readTime(),
+    }),
+  });
+  timing.fill(makeClock());
+  const audioReady = deferred<void>();
+  const originalStart = audio.start.getMockImplementation();
+  if (!originalStart) throw new Error('Audio start fixture must have an implementation');
+  audio.start.mockImplementationOnce(async (...args) => {
+    await audioReady.promise;
+    return originalStart(...args);
+  });
+  act(() => result.current.seek(targetTime));
+  await waitFor(() => expect(audio.start).toHaveBeenCalledTimes(2));
+  expect(result.current.duration).toBe(10);
+  expect(result.current.readTime()).toBe(before);
+  const seekClock = makeClock();
+  timing.fill(seekClock);
+  await act(async () => audioReady.resolve());
+  expect(result.current.readTime()).toBe(targetTime);
+  const actual = timing.fill(seekClock);
+  if (direction === 'forward') expect(actual[1]).toBe(0);
+  else {
+    act(() => audio.moveTo(0, 2.1));
+    expect(timing.fill(seekClock)[0]).toBeCloseTo(2.3 / 5);
   }
 });

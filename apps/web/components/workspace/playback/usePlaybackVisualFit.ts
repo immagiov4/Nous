@@ -10,7 +10,7 @@ export function usePlaybackVisualFit(present: boolean) {
     // The saveable visual is also used independently of the playback stage.
     if (!card || !stage) return;
     const slot = card?.parentElement;
-    const captions = stage?.querySelector('.captions');
+    const captions = stage?.querySelector<HTMLElement>('.captions');
     if (!slot || !captions) throw new Error('Playback stage must be mounted');
     const fitScene = () => {
       const formulas = card.querySelectorAll('.katex:not(.spotlight-symbol .katex)');
@@ -29,6 +29,7 @@ export function usePlaybackVisualFit(present: boolean) {
       card.style.setProperty('--scene-scale', String(scale));
       card.style.setProperty('--scene-left', `${(slot.clientWidth - width * scale) / 2}px`);
       card.style.setProperty('--scene-top', `${(availableHeight - height * scale) / 2}px`);
+      captions.style.setProperty('--caption-card-height', `${height * scale}px`);
       // Keep the viewport fixed while independently fitted outgoing/current cards overlap.
       slot.style.height = `${availableHeight}px`;
       slot.style.setProperty('--scene-scale', String(scale));
