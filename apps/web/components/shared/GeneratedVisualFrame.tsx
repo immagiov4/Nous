@@ -546,9 +546,10 @@ const GeneratedVisualFrame = ({
   if (resolvedVisual.kind === 'scene' && resolvedVisual.scene) {
     return (
       <LessonSceneVisual
-        className={`${className}${displayMode === 'thumbnail' ? ' lesson-scene-thumbnail' : ''}`}
+        className={className}
         isDarkMode={isDarkMode}
         scene={resolvedVisual.scene}
+        variant={displayMode === 'thumbnail' ? 'thumbnail' : 'card'}
       />
     );
   }

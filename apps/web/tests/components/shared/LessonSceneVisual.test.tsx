@@ -141,8 +141,7 @@ test('renders matrix notation without changing the surrounding plain text', () =
   expect(cell?.querySelectorAll('math')).toHaveLength(2);
   expect(cell?.querySelectorAll('.katex-html')[0]?.textContent).toBe('x');
   expect(cell?.querySelectorAll('math mi')[1]?.textContent).toBe('ω');
-  expect(cell?.firstChild?.textContent).toBe('Prima ');
-  expect(cell?.lastChild?.textContent).toBe(' dopo');
+  expect(cell?.textContent).toMatch(/^Prima .* dopo$/u);
 });
 
 test.each([

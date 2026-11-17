@@ -1180,12 +1180,36 @@
   border-radius: var(--diagram-radius);
   overflow: auto;
 }
+.lesson-scene:not(.lesson-scene-bare) .table-wrap {
+  container-type: inline-size;
+}
 .lesson-scene .table-wrap table {
   border-collapse: separate;
   border-spacing: 0;
 }
 .lesson-scene .table-wrap tbody tr:last-child > * {
   border-bottom: 0;
+}
+@container (max-width: 380px) {
+  .lesson-scene:not(.lesson-scene-bare) .type-matrix .table-wrap :is(th, td) {
+    padding-inline: 6px;
+  }
+  .lesson-scene:not(.lesson-scene-bare) .type-matrix .matrix-copy {
+    /* Keep compact cells intrinsic and let a long comparison use two of the three columns' space. */
+    inline-size: max-content;
+    max-inline-size: calc(100cqi * 2 / 3 - 1em);
+    overflow-wrap: break-word;
+  }
+  .lesson-scene:not(.lesson-scene-bare) .type-matrix .matrix-row-label {
+    max-inline-size: calc(100cqi / 3);
+    overflow-wrap: break-word;
+  }
+}
+.lesson-scene:not(.lesson-scene-bare) .type-matrix :is(.matrix-corner, th[scope="row"]),
+.lesson-scene:not(.lesson-scene-bare) .type-security tr > :first-child {
+  position: sticky;
+  inset-inline-start: 0;
+  background: linear-gradient(var(--tint), var(--tint)), var(--surface);
 }
 .lesson-scene .source {
   display: grid;
@@ -2000,8 +2024,9 @@
 }
 .lesson-scene .quick-scene .q-table th,
 .lesson-scene .quick-scene .q-table td {
+  --q-table-cell-inline-padding: 16px;
   text-align: left;
-  padding: 16px;
+  padding: 16px var(--q-table-cell-inline-padding);
   border-bottom: 1px solid var(--line);
   overflow-wrap: anywhere;
 }
@@ -2011,6 +2036,48 @@
 }
 .lesson-scene .quick-scene .q-table tr:last-child > * {
   border-bottom: 0;
+}
+.lesson-scene:not(.lesson-scene-bare) .type-security .q-table {
+  container-type: inline-size;
+}
+.lesson-scene:not(.lesson-scene-bare) .type-security .q-table table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.lesson-scene:not(.lesson-scene-bare) .type-security .q-table th,
+.lesson-scene:not(.lesson-scene-bare) .type-security .q-table td {
+  overflow-wrap: normal;
+}
+.lesson-scene:not(.lesson-scene-bare) .type-security :is(.matrix-row-label, .security-cell-copy) {
+  /* The pinned resource and any one permission must fit in the table viewport together. */
+  max-inline-size: calc(50cqi - 2 * var(--q-table-cell-inline-padding));
+  overflow-wrap: break-word;
+}
+.lesson-scene .type-heatmap caption {
+  padding: 8px 16px;
+  text-align: start;
+  color: var(--muted);
+}
+.lesson-scene .type-heatmap tbody td {
+  --heatmap-top-tint: color-mix(in srgb, var(--blue) 28%, var(--surface));
+  background: color-mix(in srgb, var(--surface), var(--heatmap-top-tint) var(--heatmap-value));
+  font-variant-numeric: tabular-nums;
+}
+.lesson-scene .heatmap-track,
+.lesson-scene .heatmap-track > span {
+  display: block;
+  block-size: 0.25em;
+  border-radius: 1em;
+}
+.lesson-scene .heatmap-track {
+  /* A common track width keeps marks comparable; reserve extra room for row headers. */
+  inline-size: max(1em, calc(100cqi / var(--heatmap-tracks) - 1em));
+  margin-block-start: 0.25em;
+  background: var(--surface);
+}
+.lesson-scene .heatmap-track > span {
+  inline-size: var(--heatmap-value);
+  background: var(--blue);
 }
 .lesson-scene .quick-scene .q-gantt {
   display: grid;
@@ -2298,7 +2365,8 @@
   }
   .lesson-scene .quick-scene .q-table th,
   .lesson-scene .quick-scene .q-table td {
-    padding: 10px 8px;
+    --q-table-cell-inline-padding: 8px;
+    padding: 10px var(--q-table-cell-inline-padding);
   }
   .lesson-scene .quick-scene .q-cycle-node {
     border-radius: 14px;
