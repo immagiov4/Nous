@@ -892,6 +892,7 @@ const ENGLISH_UI_MESSAGES = {
   confronto: 'comparison',
   Criterio: 'Criterion',
   Diagramma: 'Diagram',
+  'Scorri il diagramma': 'Scroll the diagram',
   diventa: 'becomes',
   Domanda: 'Question',
   'Il diagramma non è disponibile. Puoi leggere i collegamenti nella descrizione.':

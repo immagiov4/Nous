@@ -293,12 +293,6 @@
 .lesson-player-stage .lesson-scene .branches .concept {
   flex: 1;
 }
-.lesson-player-stage .lesson-scene .network {
-  display: grid;
-  grid-template-columns: 1fr 1.2fr;
-  gap: 32px;
-  align-items: center;
-}
 .lesson-player-stage .lesson-scene .hub {
   background: var(--tint);
   border: 1px solid var(--diagram-rule);
@@ -309,12 +303,6 @@
   padding: 20px;
   text-align: center;
   font-size: 20px;
-}
-.lesson-player-stage .lesson-scene .satellites {
-  display: grid;
-  gap: 20px;
-  border-left: 2px solid var(--line);
-  padding-left: 22px;
 }
 .lesson-player-stage .lesson-scene .cycle {
   display: grid;
@@ -679,9 +667,6 @@
     grid-template-columns: 1fr;
   }
   .lesson-player-stage .lesson-scene .roles {
-    gap: 16px;
-  }
-  .lesson-player-stage .lesson-scene .network {
     gap: 16px;
   }
   .lesson-player-stage .lesson-scene .hub {
@@ -1087,9 +1072,6 @@
   height: 16px;
   border-left: 1px solid var(--diagram-rule);
 }
-.lesson-player-stage .lesson-scene .network {
-  gap: 28px;
-}
 .lesson-player-stage .lesson-scene .hub {
   position: relative;
   font-size: 18px;
@@ -1097,28 +1079,6 @@
   min-height: 90px;
   border: 0;
   border-radius: 16px;
-}
-.lesson-player-stage .lesson-scene .hub:after {
-  content: "";
-  position: absolute;
-  left: 100%;
-  top: 50%;
-  width: 28px;
-  border-top: 1px solid var(--diagram-rule);
-}
-.lesson-player-stage .lesson-scene .satellites {
-  border-color: var(--diagram-rule);
-}
-.lesson-player-stage .lesson-scene .satellites > .concept {
-  position: relative;
-}
-.lesson-player-stage .lesson-scene .satellites > .concept:before {
-  content: "";
-  position: absolute;
-  right: 100%;
-  top: 12px;
-  width: 22px;
-  border-top: 1px solid var(--diagram-rule);
 }
 .lesson-player-stage .lesson-scene .concept-map {
   display: grid;
@@ -1347,19 +1307,6 @@
   }
   .lesson-player-stage .lesson-scene .root-node:after {
     left: 16px;
-  }
-  .lesson-player-stage .lesson-scene .network {
-    grid-template-columns: 1fr;
-  }
-  .lesson-player-stage .lesson-scene .hub:after {
-    left: 22px;
-    top: 100%;
-    height: 28px;
-    width: 0;
-    border-left: 1px solid var(--diagram-rule);
-  }
-  .lesson-player-stage .lesson-scene .satellites {
-    margin-left: 22px;
   }
   .lesson-player-stage .lesson-scene .groups:not(.related) {
     grid-template-columns: 1fr;
@@ -1592,54 +1539,6 @@
   border-color: var(--connector-color);
   border-width: var(--connector-width);
 }
-.lesson-player-stage .lesson-scene .network {
-  gap: 44px;
-}
-.lesson-player-stage .lesson-scene .hub:after {
-  width: 22px;
-  border-color: var(--connector-color);
-  border-width: var(--connector-width);
-}
-.lesson-player-stage .lesson-scene .satellites {
-  padding-left: 22px;
-  border: 0;
-  gap: 20px;
-}
-.lesson-player-stage .lesson-scene .satellites > .concept:before {
-  left: -22px;
-  right: auto;
-  top: 12px;
-  width: 22px;
-  border-top: var(--connector-width) solid var(--connector-color);
-}
-.lesson-player-stage .lesson-scene .satellites > .concept:not(:last-child):after {
-  content: "";
-  position: absolute;
-  left: -22px;
-  top: 12px;
-  height: calc(100% + 20px);
-  border-left: var(--connector-width) solid var(--connector-color);
-}
-.lesson-player-stage .lesson-scene .satellites > .concept:first-child:before {
-  height: 10px;
-  border-left: var(--connector-width) solid var(--connector-color);
-  border-top-left-radius: var(--connector-radius);
-}
-.lesson-player-stage .lesson-scene .satellites > .concept:first-child:after {
-  top: 22px;
-  height: calc(100% + 10px);
-}
-.lesson-player-stage .lesson-scene .satellites > .concept:last-child:before {
-  top: 2px;
-  height: 12px;
-  border-top: 0;
-  border-bottom: var(--connector-width) solid var(--connector-color);
-  border-left: var(--connector-width) solid var(--connector-color);
-  border-bottom-left-radius: var(--connector-radius);
-}
-.lesson-player-stage .lesson-scene .satellites > .concept:nth-last-child(2):after {
-  height: calc(100% + 10px);
-}
 .lesson-player-stage .lesson-scene .cycle {
   padding: 24px 24px 32px;
   border-color: var(--connector-color);
@@ -1743,20 +1642,6 @@
     max-width: 100%;
     flex: none;
   }
-  .lesson-player-stage .lesson-scene .network {
-    gap: 28px;
-  }
-  .lesson-player-stage .lesson-scene .hub:after {
-    width: 0;
-    left: 0;
-    top: 100%;
-    height: 28px;
-    border-left: var(--connector-width) solid var(--connector-color);
-    border-top: 0;
-  }
-  .lesson-player-stage .lesson-scene .satellites {
-    margin-left: 0;
-  }
   .lesson-player-stage .lesson-scene .definition {
     grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   }
@@ -1768,14 +1653,6 @@
   }
   .lesson-player-stage .lesson-scene .interval-values {
     font-size: 12px;
-  }
-}
-.lesson-player-stage .lesson-scene .network .hub:after {
-  width: 44px;
-}
-@container (max-width: 460px) {
-  .lesson-player-stage .lesson-scene .network .hub:after {
-    width: 0;
   }
 }
 .lesson-player-stage .lesson-scene .hierarchy {

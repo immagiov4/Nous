@@ -86,9 +86,11 @@ export const SCENE_RENDERERS = {
       className: 'hierarchy',
       before: (
         <div className="root-node">
-          <h2>
-            <SceneText>{c.scene.title}</SceneText>
-          </h2>
+          {c.scene.title ? (
+            <h2>
+              <SceneText>{c.scene.title}</SceneText>
+            </h2>
+          ) : null}
         </div>
       ),
       itemsClassName: 'branches',
@@ -98,9 +100,11 @@ export const SCENE_RENDERERS = {
       className: 'network',
       before: (
         <div className="hub">
-          <h2>
-            <SceneText>{c.scene.title}</SceneText>
-          </h2>
+          {c.scene.title ? (
+            <h2>
+              <SceneText>{c.scene.title}</SceneText>
+            </h2>
+          ) : null}
         </div>
       ),
       itemsClassName: 'satellites',

@@ -1,5 +1,5 @@
 import { buildLessonSceneDiagramSource, type SceneContentData } from '@shared/lessonScene';
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useId, useRef, useState } from 'react';
 
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import {
@@ -233,12 +233,28 @@ export const SceneDiagram = ({
 }) => {
   const cache = useContext(MermaidRenderCacheContext);
   const hostRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLElement>(null);
+  const scrollbarRef = useRef<HTMLInputElement>(null);
+  const viewportId = useId();
+  const scrollableFlowchart = !playback && scene.type === 'flowchart';
   const renderedSceneRef = useRef<SceneContentData | null>(null);
   const [status, setStatus] = useState<'failed' | 'loading' | 'ready'>('loading');
   // biome-ignore lint/correctness/useExhaustiveDependencies: A theme change replaces the inherited DOM tokens read by this effect.
   useEffect(() => {
     const host = hostRef.current;
-    if (!host) return;
+    const viewport = viewportRef.current;
+    if (!host || !viewport) return;
+    const scrollbar = scrollbarRef.current;
+    const updateScrollbar = () => {
+      if (!scrollbar) return;
+      const { clientWidth, scrollWidth, scrollLeft } = viewport;
+      const overflow = scrollWidth - clientWidth;
+      scrollbar.hidden = overflow <= 0;
+      if (scrollbar.hidden) return;
+      scrollbar.max = String(overflow);
+      scrollbar.value = String(scrollLeft);
+      scrollbar.style.setProperty('--diagram-thumb-width', `${(clientWidth / scrollWidth) * 100}%`);
+    };
     let renderedKey = '';
     let disposed = false;
     let request: AbortController | undefined;
@@ -266,49 +282,81 @@ export const SceneDiagram = ({
           const intrinsicWidth = graphic.viewBox.baseVal.width;
           graphic.style.maxWidth = '100%';
           graphic.style.width = `${intrinsicWidth}px`;
-          if (!playback && scene.type === 'flowchart') {
+          if (scrollableFlowchart) {
             // The existing scroll region can expose the remainder at the reader's text size.
             graphic.style.minWidth = `min(${intrinsicWidth}px, calc(var(--diagram-copy) * ${intrinsicWidth / DIAGRAM_FONT_SIZE}))`;
           }
+          updateScrollbar();
           setStatus('ready');
         })
         .catch(error => {
           if (disposed || current.signal.aborted) return;
           console.error('Lesson scene diagram rendering failed.', error);
           host.replaceChildren();
+          updateScrollbar();
           setStatus('failed');
         });
     };
-    const observer = new ResizeObserver(render);
+    const observer = new ResizeObserver(() => {
+      updateScrollbar();
+      render();
+    });
     observer.observe(host);
+    updateScrollbar();
     render();
     return () => {
       disposed = true;
       request?.abort();
       observer.disconnect();
     };
-  }, [cache, isDarkMode, playback, scene]);
+  }, [cache, isDarkMode, scene, scrollableFlowchart]);
 
   const diagram = scene.diagram;
   const labelOf = (id: string) => diagram?.nodes.find(node => node.id === id)?.label ?? id;
   return (
     <>
-      <section
-        aria-label={`${t('Diagramma')}: ${scene.title}`}
-        className="diagram-scroll"
-        // biome-ignore lint/a11y/noNoninteractiveTabindex: wide diagrams scroll, so keyboard users must reach the region
-        tabIndex={0}
-      >
-        {/* Mermaid owns this element's children, so React never renders into it. */}
-        <div ref={hostRef} className="mermaid-diagram" />
-        {status === 'ready' ? null : (
-          <p>
-            {status === 'failed'
-              ? t('Il diagramma non è disponibile. Puoi leggere i collegamenti nella descrizione.')
-              : t('Composizione del diagramma…')}
-          </p>
-        )}
-      </section>
+      <div className={scrollableFlowchart ? 'diagram-scroll-frame' : undefined}>
+        <section
+          ref={viewportRef}
+          id={viewportId}
+          aria-label={`${t('Diagramma')}: ${scene.title}`}
+          className="diagram-scroll"
+          onScroll={event => {
+            const scrollbar = scrollbarRef.current;
+            if (scrollbar) scrollbar.value = String(event.currentTarget.scrollLeft);
+          }}
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: wide diagrams scroll, so keyboard users must reach the region
+          tabIndex={0}
+        >
+          {/* Mermaid owns this element's children, so React never renders into it. */}
+          <div ref={hostRef} className="mermaid-diagram" />
+          {status === 'ready' ? null : (
+            <p>
+              {status === 'failed'
+                ? t(
+                    'Il diagramma non è disponibile. Puoi leggere i collegamenti nella descrizione.'
+                  )
+                : t('Composizione del diagramma…')}
+            </p>
+          )}
+        </section>
+        {scrollableFlowchart ? (
+          <input
+            ref={scrollbarRef}
+            className="diagram-scrollbar"
+            type="range"
+            min={0}
+            defaultValue={0}
+            hidden
+            aria-controls={viewportId}
+            aria-label={`${t('Scorri il diagramma')}: ${scene.title}`}
+            onInput={event => {
+              const viewport = viewportRef.current;
+              if (viewport) viewport.scrollLeft = event.currentTarget.valueAsNumber;
+            }}
+          />
+        ) : null}
+      </div>
       <div className={`diagram-description${status === 'failed' ? '' : ' sr-only'}`}>
         <ol>
           {diagram?.edges.map((edge, index) => (

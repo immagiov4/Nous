@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import type { LessonScene } from '@shared/lessonScene';
-import { render, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import {
   prepareSceneDiagrams,
@@ -29,6 +29,58 @@ afterEach(() => {
   Reflect.deleteProperty(SVGElement.prototype, 'getBBox');
   if (originalFonts) Object.defineProperty(document, 'fonts', originalFonts);
   else Reflect.deleteProperty(document, 'fonts');
+});
+
+test('exposes overflow after drawing and keeps its scrollbar synchronized through resize', async () => {
+  let resize = () => {};
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    }
+  );
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
+    new DOMRect(0, 0, 600, 400)
+  );
+  let viewportWidth = 300;
+  vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(() => viewportWidth);
+  vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockImplementation(() =>
+    document.querySelector('.mermaid-diagram svg') ? 600 : viewportWidth
+  );
+  const scene: LessonScene = {
+    type: 'flowchart',
+    title: 'Check the sample',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [],
+    diagram: {
+      nodes: [
+        { id: 'a', label: 'Observe', kind: 'start' },
+        { id: 'b', label: 'Record', kind: 'end' },
+      ],
+      edges: [{ from: 'a', to: 'b', label: '', kind: 'call', evidence: '' }],
+    },
+  };
+  render(<SceneDiagram scene={scene} isDarkMode={false} playback={false} />);
+  const viewport = screen.getByRole('region', { name: /Check the sample/ });
+  expect(screen.queryByRole('slider')).toBeNull();
+  const bar = await screen.findByRole('slider', { name: /Check the sample/ });
+  expect(bar).toHaveAttribute('max', '300');
+  expect(bar.style.getPropertyValue('--diagram-thumb-width')).toBe('50%');
+  viewport.scrollLeft = 75;
+  fireEvent.scroll(viewport);
+  expect(bar).toHaveValue('75');
+  fireEvent.input(bar, { target: { value: '150' } });
+  expect(viewport.scrollLeft).toBe(150);
+  viewportWidth = 600;
+  act(resize);
+  expect(screen.queryByRole('slider')).toBeNull();
 });
 
 test.each([

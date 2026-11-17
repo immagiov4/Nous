@@ -289,6 +289,38 @@ export const quickGroup = (group: LessonSceneGroup, index: number) => (
   </section>
 );
 
+const placeScatterLabels = (svg: SVGSVGElement) => {
+  const { labelGap, left, right } = QUICK_GEOMETRY.scatter;
+  const { width } = QUICK_GEOMETRY.svg;
+  const key = svg.nextElementSibling as HTMLOListElement;
+  const labels = svg.querySelectorAll<HTMLElement>('.q-scatter-point-label');
+  let hasKeyEntries = false;
+  for (const [index, label] of labels.entries()) {
+    const pointX = Number(label.dataset.pointX);
+    const pointY = Number(label.dataset.pointY);
+    const preferLeft = right - pointX < pointX - left;
+    const name = label.children[0] as HTMLElement;
+    const marker = label.children[1] as HTMLElement;
+    name.hidden = false;
+    marker.hidden = true;
+    // A name with no room on either side would otherwise cover points or axis labels.
+    const leftSpace = pointX - 2 * labelGap;
+    const rightSpace = width - pointX - 2 * labelGap;
+    const showKey = name.offsetWidth > Math.max(leftSpace, rightSpace);
+    name.hidden = showKey;
+    marker.hidden = !showKey;
+    key.children[index].toggleAttribute('hidden', !showKey);
+    hasKeyEntries ||= showKey;
+    const { offsetWidth, offsetHeight } = label;
+    const labelOnLeft = offsetWidth > rightSpace || (preferLeft && offsetWidth <= leftSpace);
+    const beside = labelOnLeft ? pointX - labelGap - offsetWidth : pointX + labelGap;
+    const above = pointY - labelGap - offsetHeight;
+    label.style.left = `${Math.max(labelGap, Math.min(beside, width - labelGap - offsetWidth))}px`;
+    label.style.top = `${above >= 0 ? above : pointY + labelGap}px`;
+  }
+  key.hidden = !hasKeyEntries;
+};
+
 const sizeQuickChartLabels = (svg: SVGSVGElement | null) => {
   if (!svg?.parentElement || typeof ResizeObserver === 'undefined') return;
   const resize = () => {
@@ -300,6 +332,7 @@ const sizeQuickChartLabels = (svg: SVGSVGElement | null) => {
       '--q-inverse-scale',
       String(Math.max(width / clientWidth, height / clientHeight))
     );
+    if (svg.classList.contains('q-scatter')) placeScatterLabels(svg);
   };
   const observer = new ResizeObserver(resize);
   observer.observe(svg.parentElement);
@@ -314,6 +347,7 @@ const quickSvg = (
   description?: string
 ) => (
   <svg
+    key={description}
     className={`q-svg${scene.type === 'scatter' ? ' q-scatter' : ''}`}
     viewBox={`0 0 ${QUICK_GEOMETRY.svg.width} ${height}`}
     role="img"
@@ -533,7 +567,7 @@ export const quickScatter = ({ scene }: SceneRenderContext) => {
     geometry.left + ((value - xmin) / (xmax - xmin)) * (geometry.right - geometry.left);
   const y = (value: number) =>
     geometry.bottom - ((value - ymin) / (ymax - ymin)) * (geometry.bottom - geometry.top);
-  return quickSvg(
+  const chart = quickSvg(
     scene,
     <>
       {Array.from({ length: geometry.ticks + 1 }, (_, index) => {
@@ -574,18 +608,21 @@ export const quickScatter = ({ scene }: SceneRenderContext) => {
       </text>
       {scene.items.map((item, index) => {
         const pointX = x(item.x as number);
-        const labelOnLeft = geometry.right - pointX < pointX - geometry.left;
+        const pointY = y(item.y as number);
         return (
           // biome-ignore lint/suspicious/noArrayIndexKey: authored points have stable order
           <g key={`${index}-${item.label}`} data-playback-item={index}>
-            <circle className="q-dot" cx={pointX} cy={y(item.y as number)} r={geometry.dot} />
-            <text
-              x={pointX + (labelOnLeft ? -geometry.labelGap : geometry.labelGap)}
-              y={y(item.y as number) - geometry.labelGap}
-              textAnchor={labelOnLeft ? 'end' : 'start'}
+            <circle className="q-dot" cx={pointX} cy={pointY} r={geometry.dot} />
+            <foreignObject
+              width={QUICK_GEOMETRY.svg.width}
+              height={QUICK_GEOMETRY.svg.height}
+              pointerEvents="none"
             >
-              {item.label}
-            </text>
+              <span className="q-scatter-point-label" data-point-x={pointX} data-point-y={pointY}>
+                <span>{item.label}</span>
+                <span hidden>{index + 1}</span>
+              </span>
+            </foreignObject>
           </g>
         );
       })}
@@ -594,6 +631,19 @@ export const quickScatter = ({ scene }: SceneRenderContext) => {
     scene.items
       .map(item => `${item.label}: ${scene.xLabel} ${item.x}, ${scene.yLabel} ${item.y}`)
       .join('; ')
+  );
+  return (
+    <>
+      {chart}
+      <ol className="q-scatter-key" hidden>
+        {scene.items.map((item, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: authored points have stable order
+          <li key={`${index}-${item.label}`} hidden value={index + 1}>
+            {item.label}
+          </li>
+        ))}
+      </ol>
+    </>
   );
 };
 

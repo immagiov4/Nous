@@ -2,10 +2,14 @@ import type { LessonScene } from '@shared/lessonScene';
 import { createRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { LAB_QUICK_SCENES } from '../../../backend/tests/helpers/lessonSceneLabExamples';
-import { LessonSceneVisual } from '../../components/shared/lessonScene/LessonSceneVisual';
+import LessonPlaybackStage from '../../components/workspace/playback/LessonPlaybackStage';
+import type { WorkspaceReaderContentModel } from '../../components/workspace/shell/types';
 import WorkspaceReaderContent from '../../components/workspace/shell/WorkspaceReaderContent';
 import '../../styles/app.css';
 
+const options = new URLSearchParams(location.search);
+const longLabel =
+  'Control trial after recalibration, repeated under the same load to verify that response time stayed within tolerance';
 const empty = { body: '', groups: [], items: [], note: '', quote: '' };
 const stages = [
   'Receive the submitted observation',
@@ -59,7 +63,9 @@ const defaultScenes: LessonScene[] = [
             ...scene,
             items: [
               ...scene.items,
-              { label: 'External trial', detail: '', icon: '', x: 79, y: 65 },
+              options.has('long-label')
+                ? { label: longLabel, detail: '', icon: '', x: 42, y: 140 }
+                : { label: 'External trial', detail: '', icon: '', x: 79, y: 65 },
             ],
           }
         : scene
@@ -87,7 +93,7 @@ const noop = () => {};
 const sectionContent = 'Inspect the diagrams and measurements in this synthetic lesson.';
 const root = document.getElementById('root');
 if (!root) throw new Error('Reader fixture is missing its root.');
-const contained = new URLSearchParams(location.search).has('contained');
+const contained = options.has('contained');
 if (contained) root.classList.add('flex', 'h-dvh', 'flex-col', 'overflow-hidden');
 
 const reader = (
@@ -147,10 +153,29 @@ const reader = (
   />
 );
 
+const playingScene = scenes.find(scene => scene.type === options.get('playback')) ?? scenes[0];
 createRoot(root).render(
-  new URLSearchParams(location.search).has('playback') ? (
-    <div className="lesson-player-stage" style={{ width: 656 }}>
-      <LessonSceneVisual variant="bare" scene={flowchart(true)} />
+  options.has('playback') ? (
+    <div style={{ height: '100dvh', display: 'flex' }}>
+      <LessonPlaybackStage
+        block={{
+          id: 'reader-graphics',
+          heading: '',
+          speech: sectionContent,
+          spans: [],
+          audio: [],
+          visuals: [{ kind: 'scene', scene: playingScene }],
+        }}
+        content={
+          {
+            isDarkMode,
+            sectionContent,
+            sectionContentBlocks: [{ type: 'markdown', markdown: sectionContent }],
+          } as WorkspaceReaderContentModel
+        }
+        duration={10}
+        time={5}
+      />
     </div>
   ) : (
     reader
