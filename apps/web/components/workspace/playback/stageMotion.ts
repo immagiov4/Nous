@@ -293,24 +293,93 @@ export function activeFocusCue(events: readonly TimedMotionEvent[], heardMs: num
   return activeIndex;
 }
 
-/** Scroll only the bounded process card, leaving rows already in view and the page in place. */
-export function revealProcessStep(card: HTMLElement, step: Element, animate: boolean) {
-  if (!card.clientHeight || card.scrollHeight <= card.clientHeight) return;
-  const viewport = card.getBoundingClientRect();
-  const bounds = step.getBoundingClientRect();
-  const scale = viewport.height / card.offsetHeight;
-  const top = (bounds.top - viewport.top) / scale - card.clientTop;
-  const bottom = (bounds.bottom - viewport.top) / scale - card.clientTop;
-  const height = bottom - top;
-  const overflow = bottom - card.clientHeight;
-  const delta =
-    top < 0 || (height > card.clientHeight && overflow > 0) ? top : Math.max(0, overflow);
-  if (Math.abs(delta) < 1) return;
-  const destination = card.scrollTop + delta;
-  card.scrollTo({
-    top: delta > 0 ? Math.ceil(destination) : Math.floor(destination),
-    behavior: animate ? 'smooth' : 'instant',
-  });
+const processScrolls = new WeakMap<HTMLElement, AbortController>();
+const scrollKeys = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
+
+function releaseProcessScroll(scrollport: HTMLElement) {
+  processScrolls.get(scrollport)?.abort();
+  return processScrolls.delete(scrollport);
+}
+
+/** Interrupt only a pending programmatic scroll, leaving native input in control. */
+export function stopProcessScroll(scrollport: HTMLElement) {
+  if (releaseProcessScroll(scrollport)) {
+    scrollport.scrollTo({ top: scrollport.scrollTop, behavior: 'instant' });
+  }
+}
+
+function trackProcessScroll(scrollport: HTMLElement, destination: number) {
+  const follow = new AbortController();
+  processScrolls.set(scrollport, follow);
+  const { signal } = follow;
+  const release = () => releaseProcessScroll(scrollport);
+  scrollport.addEventListener('wheel', release, { signal, passive: true });
+  scrollport.addEventListener('touchmove', release, { signal, passive: true });
+  scrollport.addEventListener(
+    'scroll',
+    () => {
+      if (Math.abs(scrollport.scrollTop - destination) < 1) release();
+    },
+    { signal, passive: true }
+  );
+  scrollport.addEventListener(
+    'keydown',
+    event => {
+      if (scrollKeys.has(event.key)) release();
+    },
+    { signal }
+  );
+}
+
+function processFocusBounds(scrollport: HTMLElement, steps: readonly Element[]) {
+  const viewport = scrollport.getBoundingClientRect();
+  const scale = viewport.height / scrollport.offsetHeight;
+  const height = scrollport.clientHeight;
+  const bounds = steps
+    .map(step => {
+      const rect = step.getBoundingClientRect();
+      return {
+        top: (rect.top - viewport.top) / scale - scrollport.clientTop,
+        bottom: (rect.bottom - viewport.top) / scale - scrollport.clientTop,
+      };
+    })
+    .sort((a, b) => a.top - b.top);
+  const top = bounds[0]?.top;
+  if (top === undefined) return undefined;
+  const bottom = Math.max(...bounds.map(step => step.bottom));
+  if (bottom - top <= height) return { top, bottom };
+  // If the group cannot fit, surface a hidden step before adjusting one already partly visible.
+  return (
+    bounds.find(step => step.bottom <= 0 || step.top >= height) ??
+    bounds.find(step => step.top < 0 || step.bottom > height)
+  );
+}
+
+/** Reveal the cue within its own process scrollport with one movement. */
+export function revealProcessSteps(
+  scrollport: HTMLElement,
+  steps: readonly Element[],
+  animate: boolean
+) {
+  const height = scrollport.clientHeight;
+  const range = scrollport.scrollHeight - height;
+  if (!height || range <= 0) return stopProcessScroll(scrollport);
+  const bounds = processFocusBounds(scrollport, steps);
+  if (!bounds) return stopProcessScroll(scrollport);
+  const { top, bottom } = bounds;
+  const overflow = bottom - height;
+  const delta = top < 0 || (bottom - top > height && overflow > 0) ? top : Math.max(0, overflow);
+  const destination = Math.min(
+    range,
+    Math.max(
+      0,
+      delta > 0 ? Math.ceil(scrollport.scrollTop + delta) : Math.floor(scrollport.scrollTop + delta)
+    )
+  );
+  if (Math.abs(destination - scrollport.scrollTop) < 1) return stopProcessScroll(scrollport);
+  releaseProcessScroll(scrollport);
+  if (animate) trackProcessScroll(scrollport, destination);
+  scrollport.scrollTo({ top: destination, behavior: animate ? 'smooth' : 'instant' });
 }
 
 function motionUpdate(event: TimedMotionEvent, eventTime: number, reduced: boolean) {

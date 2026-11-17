@@ -57,9 +57,10 @@ import {
   activeFocusCue,
   type CaptionRun,
   motionStates,
-  revealProcessStep,
+  revealProcessSteps,
   sceneCaptionAnchors,
   sceneElements,
+  stopProcessScroll,
   type TimedMotionEvent,
   visualSpeechRange,
 } from './stageMotion.ts';
@@ -118,7 +119,7 @@ function PlaybackScene({
   const sceneKey = JSON.stringify(sourceScene);
   const scene = useMemo<LessonScene>(() => JSON.parse(sceneKey), [sceneKey]);
   const host = useRef<HTMLDivElement>(null);
-  const followedCue = useRef('');
+  const followedCue = useRef<{ key: string; seekRevision: number }>(null);
   const readAnimationFrame = useMemo<ReadSceneAnimationFrame | undefined>(() => {
     if (!isAnimatedLessonScene(scene) && scene.type !== 'formula-spotlight') return undefined;
     const anchors = sceneCaptionAnchors(scene, block.speech);
@@ -189,18 +190,24 @@ function PlaybackScene({
       }
       if (scene.type !== 'process') return;
       const cue = activeFocusCue(events, voiceTime);
-      const targetId = events[cue]?.targets[0];
-      if (!targetId) {
-        followedCue.current = '';
-        return;
+      const targetIds = events[cue]?.targets ?? [];
+      const key = `${current.seekRevision}:${cue}:${targetIds.join(',')}`;
+      if (key === followedCue.current?.key) return;
+      const scrollport = element.closest<HTMLElement>(
+        '[data-process-card]:not([inert]) > [data-process-scroll]'
+      );
+      if (!scrollport) return;
+      const seekChanged = current.seekRevision !== followedCue.current?.seekRevision;
+      followedCue.current = { key, seekRevision: current.seekRevision };
+      if (targetIds.length) {
+        revealProcessSteps(
+          scrollport,
+          targetIds.flatMap(id => elements.get(id) ?? []),
+          animate
+        );
+      } else if (seekChanged) {
+        stopProcessScroll(scrollport);
       }
-      const key = `${current.seekRevision}:${cue}:${targetId}`;
-      if (key === followedCue.current) return;
-      const processCard = element.closest<HTMLElement>('[data-process-card]:not([inert])');
-      if (!processCard) return;
-      followedCue.current = key;
-      const target = elements.get(targetId)?.[0];
-      if (target) revealProcessStep(processCard, target, animate);
     };
     // Mermaid mounts its targets asynchronously. Rediscover only when the scene DOM changes.
     const observer = new MutationObserver(() => {

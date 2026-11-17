@@ -69,12 +69,10 @@ function Scene({
 }) {
   const ref = usePlaybackVisualFit(true, onOverflow);
   return (
-    <section
-      ref={ref}
-      className="scene-host"
-      data-text-height={textHeight}
-      data-stage-height={onOverflow ? 600 : undefined}
-    >
+    <section ref={ref} className="scene-host" data-text-height={textHeight}>
+      {onOverflow ? (
+        <div data-process-scroll data-stage-height={600} data-text-height={textHeight} />
+      ) : null}
       {formula ? <span className="katex">x = 1</span> : null}
       {heights.map((height, index) => (
         <figure key={height}>
@@ -163,14 +161,26 @@ test('an image without a formula retains whole-visual fitting', () => {
 
 test('an overflowing process reports its native scroll position and visible fraction', () => {
   const reportOverflow = vi.fn();
-  const { card } = mount([], 1200, false, reportOverflow);
+  const { card, stage } = mount([], 1200, false, reportOverflow);
+  const scrollport = card.querySelector<HTMLElement>('[data-process-scroll]');
+  if (!scrollport) throw new Error('Synthetic process scrollport missing');
   expect(reportOverflow).toHaveBeenLastCalledWith(true);
   expect(card.style.getPropertyValue('--process-visible-fraction')).toBe('0.5');
   expect(card.style.getPropertyValue('--process-scroll-progress')).toBe('0');
 
   for (const progress of [0.5, 1]) {
-    card.scrollTop = 600 * progress;
-    fireEvent.scroll(card);
+    scrollport.scrollTop = 600 * progress;
+    fireEvent.scroll(scrollport);
     expect(card.style.getPropertyValue('--process-scroll-progress')).toBe(String(progress));
+  }
+
+  for (const height of [1200, 600]) {
+    act(() => {
+      scrollport.dataset.stageHeight = String(height);
+      stage.dataset.stageHeight = String(height);
+      resize();
+      for (const callback of frames.splice(0)) callback(0);
+    });
+    expect(reportOverflow).toHaveBeenLastCalledWith(height < 1200);
   }
 });

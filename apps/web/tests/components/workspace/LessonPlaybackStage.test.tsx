@@ -27,6 +27,7 @@ import {
   captionAnchorTimes,
   captionMotionEvents,
   motionStates,
+  revealProcessSteps,
   sceneElements,
 } from '../../../components/workspace/playback/stageMotion.ts';
 import type { WorkspaceReaderContentModel } from '../../../components/workspace/shell/types.ts';
@@ -2198,7 +2199,14 @@ test.each([
   expect(Number(visualValue())).toBeGreaterThan(0);
 });
 
-test('a process focus follows the recording and an explicit seek while manual scrolling persists', () => {
+test.each([
+  { cue: 'one step', targets: ['item:1'], firstTop: 0 },
+  { cue: 'a group that fits', targets: ['item:0', 'item:1'], firstTop: 215 },
+  { cue: 'a group with an already visible first step', targets: ['item:0', 'item:1'], firstTop: 0 },
+])('a process focus on $cue follows recording and seeks while manual scrolling persists', ({
+  targets,
+  firstTop,
+}) => {
   vi.mocked(useShouldAnimate).mockReturnValue(false);
   const frames = new Map<number, FrameRequestCallback>();
   let frameId = 0;
@@ -2229,7 +2237,7 @@ test('a process focus follows the recording and an explicit seek while manual sc
     ...segmentLessonPlayback(sources)[0],
     prepared: {
       scene,
-      motion: [{ effect: 'focus' as const, targets: ['item:1'], quote: 'Final report.' }],
+      motion: [{ effect: 'focus' as const, targets, quote: 'Final report.' }],
     },
   };
   const content = {
@@ -2254,9 +2262,10 @@ test('a process focus follows the recording and an explicit seek while manual sc
     />
   );
   const { container, rerender } = render(view(0));
-  const card = container.querySelector<HTMLElement>('[data-process-card]');
+  const card = container.querySelector<HTMLElement>('[data-process-scroll]');
+  const firstStep = container.querySelector<HTMLElement>('[data-playback-item="0"]');
   const finalStep = container.querySelector<HTMLElement>('[data-playback-item="1"]');
-  if (!card || !finalStep) throw new Error('The process card must render its final step');
+  if (!card || !firstStep || !finalStep) throw new Error('The process card must render both steps');
   const scroll = vi.fn(({ top }: ScrollToOptions) => {
     card.scrollTop = top ?? 0;
   });
@@ -2265,6 +2274,9 @@ test('a process focus follows the recording and an explicit seek while manual sc
     offsetHeight: { value: 100 },
     scrollHeight: { value: 300 },
     scrollTo: { value: scroll },
+  });
+  Object.defineProperty(firstStep, 'getBoundingClientRect', {
+    value: () => new DOMRect(0, firstTop - card.scrollTop, 100, 16),
   });
   Object.defineProperty(finalStep, 'getBoundingClientRect', {
     value: () => new DOMRect(0, 240 - card.scrollTop, 100, 60),
@@ -2281,6 +2293,9 @@ test('a process focus follows the recording and an explicit seek while manual sc
   heard = 6.2;
   tick();
   expect(finalStep.style.getPropertyValue('--motion-emphasis')).toBe('1');
+  expect(firstStep.style.getPropertyValue('--motion-emphasis')).toBe(
+    targets.includes('item:0') ? '1' : '0'
+  );
   expect(scroll).toHaveBeenCalledExactlyOnceWith({ top: 200, behavior: 'instant' });
   card.scrollTop = 10;
   heard = 6.3;
@@ -2294,6 +2309,33 @@ test('a process focus follows the recording and an explicit seek while manual sc
   tick();
   expect(card.scrollTop).toBe(200);
   expect(scroll).toHaveBeenCalledTimes(2);
+});
+
+test('a visible target supersedes an unfinished process reveal while native input retains control', () => {
+  const scrollport = document.createElement('section');
+  const early = document.createElement('li');
+  const late = document.createElement('li');
+  const scrollTo = vi.fn();
+  Object.defineProperties(scrollport, {
+    clientHeight: { value: 100 },
+    offsetHeight: { value: 100 },
+    scrollHeight: { value: 300 },
+    scrollTo: { value: scrollTo },
+  });
+  vi.spyOn(scrollport, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 100));
+  vi.spyOn(early, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 12, 100, 18));
+  vi.spyOn(late, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 240, 100, 60));
+
+  revealProcessSteps(scrollport, [late], true);
+  expect(scrollTo).toHaveBeenLastCalledWith({ top: 200, behavior: 'smooth' });
+  scrollport.scrollTop = 5;
+  revealProcessSteps(scrollport, [early], true);
+  expect(scrollTo).toHaveBeenLastCalledWith({ top: 5, behavior: 'instant' });
+
+  revealProcessSteps(scrollport, [late], true);
+  fireEvent.wheel(scrollport);
+  revealProcessSteps(scrollport, [early], true);
+  expect(scrollTo).toHaveBeenCalledTimes(3);
 });
 
 test('retains a final aligned reveal after the spoken heading share', () => {

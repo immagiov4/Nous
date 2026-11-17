@@ -15,10 +15,12 @@ export function usePlaybackVisualFit(
     const slot = card?.parentElement;
     const captions = stage?.querySelector<HTMLElement>('.captions');
     if (!slot || !captions) throw new Error('Playback stage must be mounted');
+    const scrollport = card.querySelector<HTMLElement>('[data-process-scroll]');
+    const content = scrollport ?? card;
     let scrollRange = 0;
     const updateScrollProgress = () => {
       if (scrollRange <= 0) return;
-      const progress = Math.min(1, Math.max(0, card.scrollTop / scrollRange));
+      const progress = Math.min(1, Math.max(0, content.scrollTop / scrollRange));
       card.style.setProperty('--process-scroll-progress', String(progress));
     };
     const fitScene = () => {
@@ -32,20 +34,19 @@ export function usePlaybackVisualFit(
       if (reportVerticalOverflow)
         card.style.setProperty('--scene-height-limit', `${availableHeight}px`);
       card.style.width = `${slot.clientWidth}px`;
-      const width = Math.max(card.offsetWidth, card.scrollWidth);
+      const width = Math.max(card.offsetWidth, content.scrollWidth);
       card.style.width = `${width}px`;
       if (formulas.length) fitImagesAroundText(card, availableHeight);
-      const contentHeight = Math.max(card.offsetHeight, card.scrollHeight);
+      const contentHeight = Math.max(card.offsetHeight, content.scrollHeight);
       const height = reportVerticalOverflow
         ? Math.min(contentHeight, availableHeight)
         : contentHeight;
       if (reportVerticalOverflow) {
-        scrollRange = card.scrollHeight - card.clientHeight;
+        scrollRange = content.scrollHeight - content.clientHeight;
         if (scrollRange > 0) {
-          card.style.setProperty('--process-scroll-range', `${scrollRange}px`);
           card.style.setProperty(
             '--process-visible-fraction',
-            String(card.clientHeight / card.scrollHeight)
+            String(content.clientHeight / content.scrollHeight)
           );
           updateScrollProgress();
         }
@@ -80,15 +81,14 @@ export function usePlaybackVisualFit(
     });
     // Image decoding changes intrinsic layout without a React commit. Fit before that paint.
     card.addEventListener('load', fitScene, true);
-    if (reportVerticalOverflow)
-      card.addEventListener('scroll', updateScrollProgress, { passive: true });
+    scrollport?.addEventListener('scroll', updateScrollProgress, { passive: true });
     document.fonts.addEventListener('loadingdone', fitScene);
     fitScene();
     return () => {
       observer.disconnect();
       mutations.disconnect();
       card.removeEventListener('load', fitScene, true);
-      if (reportVerticalOverflow) card.removeEventListener('scroll', updateScrollProgress);
+      scrollport?.removeEventListener('scroll', updateScrollProgress);
       document.fonts.removeEventListener('loadingdone', fitScene);
       if (frame !== undefined) cancelAnimationFrame(frame);
     };

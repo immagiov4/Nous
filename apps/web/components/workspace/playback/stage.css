@@ -807,7 +807,8 @@
 }
 .lesson-player-stage .scene-host {
   container-type: inline-size;
-  padding: 30px;
+  --scene-card-padding: 30px;
+  padding: var(--scene-card-padding);
   min-height: 420px;
   overflow: visible;
 }
@@ -1385,7 +1386,7 @@
     --symbol-size: 48px;
   }
   .lesson-player-stage .scene-host {
-    padding: 22px;
+    --scene-card-padding: 22px;
   }
   .lesson-player-stage .lesson-scene .scene h2 {
     font-size: var(--diagram-title);
@@ -1988,7 +1989,7 @@
     order: 0;
     max-height: none;
     min-height: 260px;
-    padding: 22px;
+    --scene-card-padding: 22px;
   }
   .lesson-player-stage .captions {
     order: 1;
@@ -2277,10 +2278,10 @@
 .lesson-player-stage .scene-host[aria-hidden="true"]:not([data-exiting]) {
   visibility: hidden;
 }
-.lesson-player-stage .scene-host > div {
+.lesson-player-stage :is(.scene-host, [data-process-scroll]) > div {
   width: 100%;
 }
-.lesson-player-stage .scene-host > .prose {
+.lesson-player-stage :is(.scene-host, [data-process-scroll]) > .prose {
   /* Supplemental expressions share rows before the complete visual is fitted. */
   display: flex;
   flex-wrap: wrap;
@@ -2355,12 +2356,25 @@
 .lesson-player-stage .listening-stage > .scene-fit > .scene-host[data-process-card] {
   min-height: 0;
   max-height: var(--scene-height-limit);
-  justify-content: safe center;
+  padding: 0;
+  overflow: clip;
+}
+.lesson-player-stage [data-process-scroll] {
+  container-type: inline-size;
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: var(--space);
+  min-height: 0;
+  padding: var(--scene-card-padding);
   overflow: auto;
   scrollbar-width: none;
 }
-.lesson-player-stage .scene-host[data-process-card]::-webkit-scrollbar {
+.lesson-player-stage [data-process-scroll]::-webkit-scrollbar {
   display: none;
+}
+.lesson-player-stage [data-process-scroll]:focus-visible {
+  outline-offset: -1px;
 }
 .lesson-player-stage
   .listening-stage
@@ -2383,7 +2397,6 @@
     (var(--process-thumb-track) - var(--process-thumb-size)) +
     var(--process-thumb-inset)
   );
-  translate: 0 calc(var(--process-scroll-progress) * var(--process-scroll-range));
   inline-size: 4px;
   block-size: var(--process-thumb-size);
   border-radius: 999px;

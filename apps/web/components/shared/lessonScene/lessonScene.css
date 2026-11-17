@@ -1671,7 +1671,7 @@
   left: 100%;
   border-radius: var(--path-stroke);
 }
-@media (min-width: 601px) {
+@container (width > 600px) {
   .lesson-scene.lesson-scene-animated .interaction-card .guided-stops li {
     grid-column: var(--path-column);
     grid-row: var(--path-row);
@@ -1754,7 +1754,7 @@
 .lesson-scene.lesson-scene-animated .interaction-card .guided-stops strong {
   font-size: 15px;
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .lesson-scene.lesson-scene-animated .interaction-card .path-explanation {
   background: var(--paper);
@@ -1792,6 +1792,8 @@
   .lesson-scene.lesson-scene-animated .interaction-card .quantity-result > strong {
     font-size: 44px;
   }
+}
+@container (max-width: 600px) {
   .lesson-scene.lesson-scene-animated .interaction-card .guided-stops {
     --path-gap: 14px;
     grid-template-columns: 1fr;

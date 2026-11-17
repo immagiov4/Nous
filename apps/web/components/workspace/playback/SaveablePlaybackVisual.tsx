@@ -104,6 +104,10 @@ export function SaveablePlaybackVisual({
     content.onRemovePlaybackVisual
   );
   const visible = enabled && (hovered || focused || tapped);
+  const region = {
+    'aria-label': t('Visualizzazione della lezione'),
+    tabIndex: enabled || processOverflows ? 0 : undefined,
+  };
   const toggleSaved = async () => {
     if (
       pending.current ||
@@ -173,6 +177,7 @@ export function SaveablePlaybackVisual({
   };
   return (
     <motion.section
+      {...(processCard ? {} : region)}
       ref={attachCard}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -185,8 +190,6 @@ export function SaveablePlaybackVisual({
       data-exiting={present ? undefined : true}
       inert={!present}
       aria-hidden={!hasVisual || !present}
-      aria-label={t('Visualizzazione della lezione')}
-      tabIndex={enabled || (processCard && processOverflows) ? 0 : undefined}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}
@@ -201,7 +204,13 @@ export function SaveablePlaybackVisual({
           setTapped(true);
       }}
     >
-      {children}
+      {processCard ? (
+        <section {...region} data-process-scroll>
+          {children}
+        </section>
+      ) : (
+        children
+      )}
       {visible ? (
         <span className="playback-visual-action">
           <button
