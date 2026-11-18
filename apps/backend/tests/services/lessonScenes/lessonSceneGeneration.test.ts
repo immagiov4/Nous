@@ -935,6 +935,24 @@ test.each([
     expected: 10,
   },
   {
+    label: 'a scope omitted from the draft field but visible in the full quote',
+    source: 'Use a scale of 0 to 10 cases for every region. North reports 2 and 5.',
+    quote: 'Use a scale of 0 to 10 cases for every region',
+    unit: 'cases',
+    reviewQualifier: 'for every region',
+    expected: 10,
+  },
+  {
+    label: 'a separate scope with source punctuation',
+    source: 'Escala de 0 a 10 puntos, compartida por todas las celdas. Norte registra 2 y 5.',
+    quote: 'Escala de 0 a 10 puntos',
+    reviewQuote: 'Escala de 0 a 10 puntos, compartida por todas las celdas',
+    qualifier: 'compartida por todas las celdas.',
+    reviewQualifier: ', compartida por todas las celdas',
+    unit: 'puntos',
+    expected: 10,
+  },
+  {
     label: 'an exclusion without its scope',
     source: 'Scale: 0–10 cases. Alternative scale: from 0 to 5 cases. North reports 2 and 5.',
     quote: 'Scale: 0–10 cases',
@@ -1000,12 +1018,14 @@ test.each([
   });
   reviewHeatmapRanges([
     {
-      quote: example.quote,
+      quote: 'reviewQuote' in example ? example.reviewQuote : example.quote,
       unit: 'reviewUnit' in example ? example.reviewUnit : example.unit,
       role: 'applies',
-      ...('qualifier' in example && !('reviewUnit' in example)
-        ? { qualifier: example.qualifier }
-        : {}),
+      ...('reviewQualifier' in example
+        ? { qualifier: example.reviewQualifier }
+        : 'qualifier' in example && !('reviewUnit' in example)
+          ? { qualifier: example.qualifier }
+          : {}),
     },
     ...('alternate' in example ? [example.alternate] : []),
   ]);
