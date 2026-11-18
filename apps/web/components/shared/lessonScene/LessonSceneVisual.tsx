@@ -39,13 +39,11 @@ const SceneContent = (
   });
 
 const SceneHeader = ({ scene }: { readonly scene: LessonScene }) => {
-  if (scene.type === 'network' || scene.type === 'hierarchy') return null;
-  const showTitle = scene.title && !treeSharesTitle(scene);
+  if (scene.type === 'network' || scene.type === 'hierarchy' || treeSharesTitle(scene)) return null;
   const showIntro = scene.body && !hasDuplicateDecisionIntro(scene);
-  if (!showTitle && !showIntro) return null;
   return (
     <header>
-      {showTitle ? (
+      {scene.title ? (
         <h2>
           <SceneText>{scene.title}</SceneText>
         </h2>

@@ -47,11 +47,12 @@ test('shows a shared tree title and root once while preserving nested details an
   });
   const { container, rerender } = render(<LessonSceneVisual scene={scene} variant="bare" />);
   expect(screen.getAllByText('Telescope')).toHaveLength(1);
-  expect(screen.getByText('Optical assembly')).toBeVisible();
+  const heading = screen.getByRole('heading', { name: 'Telescope' });
+  const intro = screen.getByText('Optical assembly');
+  expect(intro).toBeVisible();
+  expect(heading.compareDocumentPosition(intro) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   const targets = sceneElements(container, scene);
-  expect(targets.get('item:1')?.[0]).toContainElement(
-    screen.getByRole('heading', { name: 'Telescope' })
-  );
+  expect(targets.get('item:1')?.[0]).toContainElement(heading);
   expect(targets.get('item:0')?.[0]).toHaveTextContent('Holds the optical tube');
   expect(targets.get('item:2')?.[0]).toHaveTextContent('Gathers light');
   expect(targets.get('item:0')?.[0]?.parentElement).toBe(targets.get('item:2')?.[0]?.parentElement);

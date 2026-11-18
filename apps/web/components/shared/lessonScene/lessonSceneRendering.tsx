@@ -562,7 +562,8 @@ export const quickTree = ({ scene }: SceneRenderContext) => {
   const sharedTitle = treeSharesTitle(scene);
   const branch = (node: LessonSceneItem): ReactNode => {
     const descendants = children(node.id as string);
-    const Label = node === root && sharedTitle ? 'h2' : 'strong';
+    const isHeading = node === root && sharedTitle;
+    const Label = isHeading ? 'h2' : 'strong';
     return (
       <li key={node.id} data-playback-item={scene.items.indexOf(node)}>
         <div className="q-box">
@@ -570,6 +571,11 @@ export const quickTree = ({ scene }: SceneRenderContext) => {
           <Label>
             <SceneText>{node.label}</SceneText>
           </Label>
+          {isHeading && scene.body ? (
+            <p className="scene-intro">
+              <SceneText>{scene.body}</SceneText>
+            </p>
+          ) : null}
           {node.detail ? (
             <p>
               <SceneText>{node.detail}</SceneText>
