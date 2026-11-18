@@ -540,12 +540,22 @@ export const createLessonVisualWorkflows = <
       const outcome = await services.generateScene({
         ...visualServiceInput(config, input, signal, retryFeedback),
         allowedSceneTypes: visualContract.sceneTypes,
+        supportsConceptLayout: visualContract.supportsConceptLayout,
       });
       if (outcome.kind === 'invalid') {
         throw retryCorrective({
           code: 'lesson_visual_generation_incomplete',
           ...(outcome.diagnostic ? { details: { diagnostic: outcome.diagnostic } } : {}),
           feedback: `The previous scene did not follow the catalog contract:\n- ${outcome.problems.join('\n- ')}`,
+          message: 'The lesson visual could not be completed.',
+        });
+      }
+      if (!visualContract.supportsConceptLayout && outcome.scene.conceptLayout !== undefined) {
+        // Reject before the frozen output schema projects away the layout.
+        throw retryCorrective({
+          code: 'lesson_visual_generation_incomplete',
+          feedback:
+            'The resumed scene contract does not support conceptLayout. Choose an available form.',
           message: 'The lesson visual could not be completed.',
         });
       }
