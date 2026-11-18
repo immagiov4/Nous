@@ -131,6 +131,63 @@ test('chooses fixed or animated replicas from one proportional form and retains 
   });
 });
 
+test.each([
+  {
+    type: 'security',
+    source:
+      'For records, owners can edit, reviewers can read, and visitors have no access. For notes, owners can read, reviewers can edit and visitor access is unknown.',
+    columns: ['Owner', 'Reviewer', 'Visitor'],
+    rows: [
+      { label: 'Records', values: ['Edit', 'Read', 'No access'] },
+      { label: 'Notes', values: ['Read', 'Edit', 'Unknown'] },
+    ],
+  },
+  {
+    type: 'heatmap',
+    source: 'On a scale of 0 to 10 cases, the north reports 0, 2.5 and 10 across three months.',
+    columns: ['January', 'February', 'March'],
+    rows: [{ label: 'North', values: [0, 2.5, 10] }],
+    max: 10,
+    unit: 'cases',
+  },
+] as const)('corrects an incomplete $type matrix and preserves every ordered cell on retry', async example => {
+  const { source, type, ...table } = example;
+  const input = unplannedInput(source);
+  const draft = {
+    ...sceneDraft(source),
+    ...table,
+    items: [],
+    type: 'matrix',
+    variant: type,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...draft,
+    rows: [{ ...table.rows[0], values: table.rows[0].values.slice(1) }],
+  });
+  const invalid = await generateLessonScene(input);
+  expect(invalid).toMatchObject({ kind: 'invalid', problems: ['Invalid matrix dimensions.'] });
+  if (invalid.kind !== 'invalid') throw new Error('Expected corrective feedback');
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  const corrected = await generateLessonScene({
+    ...input,
+    retryFeedback: invalid.problems.join('\n'),
+  });
+  expect(corrected).toMatchObject({ kind: 'scene', scene: { ...table, type } });
+  const { output } = generateStructuredOutputMock.mock.calls.at(-1)?.[0] ?? {};
+  const schema = z.fromJSONSchema(output.schema);
+  const { variant: _variant, ...fields } = draft;
+  const legacy = { ...fields, type };
+  expect(schema.safeParse(draft).success).toBe(true);
+  expect(schema.safeParse(legacy).success).toBe(false);
+
+  generateStructuredOutputMock.mockResolvedValueOnce(legacy);
+  expect(await generateLessonScene({ ...input, allowedSceneTypes: [type] })).toEqual(corrected);
+  generateStructuredOutputMock.mockResolvedValueOnce(fields);
+  expect(await generateLessonScene(input)).toMatchObject({ kind: 'invalid' });
+});
+
 test('offers checklist for new hypotheses and preserves a hypothesis-only resumed contract', async () => {
   const source = 'Verifica se il client usa DNS.';
   const input = unplannedInput(source);
@@ -789,6 +846,9 @@ test.each([
     ...content,
     ...(example.type === 'proportional-static'
       ? { type: 'proportional', variant: example.type }
+      : {}),
+    ...(example.type === 'heatmap' || example.type === 'security'
+      ? { type: 'matrix', variant: example.type }
       : {}),
     intent: 'Understand the example.',
     evidence: LAB_COMPOSITION_SOURCE,

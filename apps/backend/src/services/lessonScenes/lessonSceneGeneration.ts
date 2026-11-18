@@ -183,6 +183,8 @@ type SceneDraft = z.infer<typeof SceneDraftSchema>;
 
 const sceneVariantFamilies = {
   'proportional-static': 'proportional',
+  security: 'matrix',
+  heatmap: 'matrix',
 } as const satisfies Partial<Record<LessonSceneType, LessonSceneType>>;
 
 const sceneVariants = Object.keys(sceneVariantFamilies) as (keyof typeof sceneVariantFamilies)[];
@@ -251,7 +253,7 @@ FORMS
 - Make the layout mirror the logical relations the lesson states: parallel criteria, factors, or options sit side by side in one form (checklist, parts, comparison); only actions the lesson explicitly orders become steps. Sequence diagrams show message exchanges between participants. Never chain parallel items as consecutive steps.
 - checklist: concrete questions or practical checks in labels, including how to test a hypothesis. State the question being tested in the title or a label. Use details only when they add information. limits: two items meaning "Shows" and "Does not prove", in the lesson language. roles: people as items with a neutral profile. steps: strictly ordered actions, not alternatives; options after a pause become a checklist with the pause in body.
 - comparison, signals, matrix, decision, balance, and beforeafter need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other original forms need at least two items, except number, flowchart, sequence, journey, proportional, and guided-path; diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
-- matrix: use short criterion and alternative labels. Each cell states the result for its criterion as a short phrase with any qualifier needed for accuracy. Use a comparison or explain the alternatives in the lesson when understanding them requires several sentences per alternative.
+- Base matrix: use groups for two alternatives and criteria for row labels. Each cell states the result for its criterion as a short phrase with any qualifier needed for accuracy. Use a comparison or explain the alternatives in the lesson when understanding them requires several sentences per alternative.
 - For hierarchies and networks the title names the common node. Do not use maps, cycles, or timelines for plain lists. beforeafter needs an actual transformation; a mere preference between two behaviours is a comparison with verdicts.
 - Quantitative forms only with REAL numbers present in the lesson, never invented scores. Each numeric item has a finite value >= 0 and a label with unit or period. interval has exactly three items: minimum, estimate, maximum. line points carry increasing times, which set their real spacing; the label shows how the lesson names each time. number has one item. HTTP codes, versions, and identifiers are not quantities.
 - A message exchange with replies and branches is a sequence, not an invented causal chain.
@@ -269,7 +271,7 @@ These forms have a title of at most 160 characters, optional body and note of at
 - stack/process: 2–6 ordered items. Stack separates levels without implying containment; process preserves successive stages and their owner or result.
 - venn: three groups (left only, intersection, right only), with qualitative areas; each label at most 24 characters and at most one description of at most 48 characters per region. If the content does not fit, choose comparison rather than making the text ambiguous.
 - funnel/treemap: items with value and explicit unit; funnel values never increase, treemap values are positive. For funnel, the title identifies the common quantity or entity once (for example Requests); labels contain only stage names (Received, Valid, Successful), without repeating units or numbers. The component shows quantities and retention on a common cell scale, including fractions; never draw or count cells yourself.
-- heatmap/security: columns:[labels], rows:[{label,values:[values]}], 1–5 columns and 1–8 rows; every row has as many values as columns. heatmap requires positive max and explicit unit, with values between zero and max. security requires an explicit textual permission (at most 60 characters) in every cell, including unknown permissions.
+- Heatmap and security matrix modes: columns:[labels], rows:[{label,values:[values]}], 1–5 columns and 1–8 rows. Keep groups, items and criteria empty. Every row has exactly one value per column, in column order, preserving every association. Heatmap requires the declared positive max, explicit unit and exact values from zero to max. Security requires a textual permission (at most 60 characters) in every cell, including explicit unknown permissions. If the source does not establish a cell or a common scale, choose a form that conveys what the source does establish.
 - security: use brief, unambiguous permission phrases and keep the lesson's full role and resource names where shortening them would obscure the meaning.
 - gantt: items with finite numeric start/end, end greater than start, and a common explicit unit.
 - scatter: items with finite numeric x/y, xLabel/yLabel including units, and explicit unit.
@@ -459,12 +461,24 @@ const compareSupportQuotation = (evidence: string, lesson: string, excerpt: stri
   };
 };
 
+const findMatrixDraftProblems = (scene: LessonScene): string[] => {
+  if (scene.type === 'matrix' && (scene.columns !== undefined || scene.rows !== undefined))
+    return ['Use a security or heatmap matrix variant for columns and rows.'];
+  if (
+    (scene.type === 'security' || scene.type === 'heatmap') &&
+    (scene.items.length || scene.groups.length || scene.criteria?.length)
+  )
+    return ['Table matrix variants use columns and rows, with no items, groups or criteria.'];
+  return [];
+};
+
 const findDraftProblems = (
   draft: SceneDraft,
   scene: LessonScene,
   source: string,
   narration?: string
 ): string[] => [
+  ...findMatrixDraftProblems(scene),
   ...(scene.type === 'proportional-static' &&
   (scene.items.length ||
     scene.groups.length ||
