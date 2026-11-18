@@ -206,7 +206,7 @@ test.each([
   },
   {
     type: 'heatmap',
-    source: 'On a scale of 0 to 10 cases, the north reports 0, 2.5 and 10 across three months.',
+    source: 'Use a scale of 0 to 10 cases. The north reports 0, 2.5 and 10 across three months.',
     columns: ['January', 'February', 'March'],
     rows: [{ label: 'North', values: [0, 2.5, 10] }],
     max: 10,
@@ -258,7 +258,7 @@ test.each([
 
 test('accepts only the full sourced heatmap scale when observations stop below it', async () => {
   const source =
-    'On a scale of 0 to 10 cases per week, North reports 0 in January and 5 in February.';
+    'Use a scale of 0 to 10 cases per week. North reports 0 in January and 5 in February.';
   const draft = {
     ...sceneDraft(source),
     type: 'matrix',
@@ -365,10 +365,17 @@ test.each([
   {
     declaration: 'scale of 0 to 10 cases for every region',
     source: 'Use a scale of 0 to 10 cases for every region. North reports 0 and 5.',
+    confirmed: false,
   },
   {
     declaration: 'La escala de 0 a 10 puntos, compartida por todas las celdas.',
     source: 'La escala de 0 a 10 puntos, compartida por todas las celdas. Norte registra 0 y 5.',
+    unit: 'puntos',
+    confirmed: false,
+  },
+  {
+    declaration: 'La escala de 0 a 10 puntos; compartida por todas las celdas.',
+    source: 'La escala de 0 a 10 puntos; compartida por todas las celdas. Norte registra 0 y 5.',
     unit: 'puntos',
   },
   {
@@ -376,10 +383,11 @@ test.each([
     source:
       'DraftScale of 0 to 10 cases is a heading key. Scale of 0 to 10 cases. North reports 0 and 5.',
   },
-])('accepts a complete scale citation in "$source"', async ({
+])('checks the unit boundary in "$source"', async ({
   declaration,
   source,
   unit = 'cases',
+  confirmed = true,
 }) => {
   const draft = {
     ...sceneDraft(source),
@@ -394,10 +402,11 @@ test.each([
   };
   generateStructuredOutputMock.mockResolvedValueOnce(draft);
   confirmHeatmapScale(declaration, unit);
-  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
-    kind: 'scene',
-    scene: { type: 'heatmap', unit, max: 10, rows: draft.rows },
-  });
+  const result = await generateLessonScene(unplannedInput(source));
+  expect(result).toMatchObject({ kind: 'scene', scene: { type: 'heatmap', rows: draft.rows } });
+  if (result.kind !== 'scene') throw new Error('Expected exact values');
+  expect(result.scene.max).toBe(confirmed ? 10 : undefined);
+  expect(result.scene.unit).toBe(confirmed ? unit : undefined);
 });
 test.each([
   {
@@ -470,7 +479,7 @@ test.each([
     quote: 'Escala de 0 a 10 puntos, para todas las estaciones',
     max: 10,
     unit: 'puntos',
-    confirmed: true,
+    confirmed: false,
   },
 ])('uses a bar only when the scale and complete unit are clear in "$source"', async example => {
   const draft = {
@@ -497,13 +506,14 @@ test.each([
   )?.[0];
   if (example.source.startsWith('<!--') && !example.confirmed) {
     expect(verification).toBeUndefined();
-  } else {
+  } else if (verification) {
     expect(JSON.parse(verification.prompt)).toEqual(expect.objectContaining({ rows: draft.rows }));
     expect(JSON.parse(verification.prompt)).not.toHaveProperty('max');
     expect(JSON.parse(verification.prompt).lesson).not.toContain('<!--');
     if (example.source.startsWith('<!--'))
       expect(JSON.parse(verification.prompt).lesson).not.toContain('Scale: 0–5 cases');
   }
+  if (example.confirmed) expect(verification).toBeDefined();
   expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'heatmap', rows: draft.rows } });
   if (outcome.kind !== 'scene') throw new Error('Expected the numeric table');
   expect(outcome.scene.max).toBe(example.confirmed ? example.max : undefined);
@@ -893,6 +903,65 @@ test.each([
   }
 });
 
+test.each([
+  {
+    label: 'an exclusion without its scope',
+    source: 'Scale: 0–10 cases. Alternative scale: from 0 to 5 cases. North reports 2 and 5.',
+    quote: 'Scale: 0–10 cases',
+    unit: 'cases',
+    alternate: { quote: '0 to 5 cases', role: 'other-scope', unit: null },
+  },
+  {
+    label: 'a competing scale that starts at one',
+    source: 'Scale: 0–10 cases. Alternative scale: 1–5 cases. North reports 2 and 5.',
+    quote: 'Scale: 0–10 cases',
+    unit: 'cases',
+    alternate: { quote: 'Alternative scale: 1–5 cases', role: 'applies', unit: 'cases' },
+  },
+  {
+    label: 'the same incomplete unit from both models',
+    source: 'Scale: 0–10 cases per week. North reports 2 and 5.',
+    quote: 'Scale: 0–10 cases per week',
+    unit: 'cases',
+  },
+  {
+    label: 'a scale before a sentence beginning with a number',
+    source: 'Scale: 0–10 cases. 10 cases were counted overall. North reports 2 and 5.',
+    quote: 'Scale: 0–10 cases',
+    unit: 'cases',
+    expected: 10,
+  },
+  {
+    label: 'a confirmed complete unit',
+    source: 'Scale: 0–10 cases per week. North reports 2 and 5.',
+    quote: 'Scale: 0–10 cases per week',
+    unit: 'cases per week',
+    expected: 10,
+  },
+] as const)('prepares heatmap values with $label', async example => {
+  const rows = [{ label: 'North', values: [2, 5] }];
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...sceneDraft(example.source),
+    type: 'matrix',
+    variant: 'heatmap',
+    items: [],
+    columns: ['January', 'February'],
+    rows,
+    max: 10,
+    unit: example.unit,
+    scaleEvidence: example.quote,
+  });
+  reviewHeatmapRanges([
+    { quote: example.quote, unit: example.unit, role: 'applies' },
+    ...('alternate' in example ? [example.alternate] : []),
+  ]);
+  const prepared = await prepareQuantitativePlayback(example.source);
+  const expected = 'expected' in example ? example.expected : undefined;
+  expect(prepared.scene).toMatchObject({ type: 'heatmap', rows });
+  expect(prepared.scene?.max).toBe(expected);
+  expect(prepared.scene?.unit).toBe(expected ? example.unit : undefined);
+});
+
 test('offers checklist for new hypotheses and preserves a hypothesis-only resumed contract', async () => {
   const source = 'Verifica se il client usa DNS.';
   const input = unplannedInput(source);
@@ -1102,7 +1171,7 @@ test.each([
     type: 'bars',
     items: ['Clarity', 'Speed', 'Reliability'].map((label, index) => ({
       detail: '',
-      label: label + ' (out of ' + max + ' points)',
+      label: `${label} (out of ${max} points)`,
       value: [2, 3, 5][index],
       time: null,
       iconQueries: queries,
@@ -1110,22 +1179,18 @@ test.each([
     max,
     unit: 'points',
   });
-  const scale =
-    (max: number, quote: string) =>
-    async (request: { output: { schema: { properties: Record<string, unknown> } } }) => ({
-      status: 'declared',
-      scale: { quote, max, unit: 'points' },
-      ...('ranges' in request.output.schema.properties
-        ? { ranges: [{ id: 0, role: 'applies', quote: example.actualQuote, unit: 'points' }] }
-        : {}),
-    });
+  const scale = (max: number, quote: string) => ({
+    status: 'declared',
+    scale: { quote, max, unit: 'points' },
+    ranges: [{ id: 0, role: 'applies', quote: example.actualQuote, unit: 'points' }],
+  });
   generateStructuredOutputMock
     .mockResolvedValueOnce(draft(10))
-    .mockImplementationOnce(scale(10, example.wrongQuote));
+    .mockResolvedValueOnce(scale(10, example.wrongQuote));
   if ('actual' in example) {
     generateStructuredOutputMock
       .mockResolvedValueOnce(draft(example.actual))
-      .mockImplementationOnce(scale(example.actual, example.actualQuote));
+      .mockResolvedValueOnce(scale(example.actual, example.actualQuote));
   } else {
     generateStructuredOutputMock.mockResolvedValueOnce({
       ...sceneDraft(example.source),
@@ -1206,6 +1271,7 @@ test('keeps a lone number in prose and compares independent criteria with bars',
   generateStructuredOutputMock.mockResolvedValueOnce({ ...chart, type: 'bars' });
   generateStructuredOutputMock.mockResolvedValueOnce({
     status: 'declared',
+    ranges: [],
     scale: { quote: 'Out of 10 points', max: 10, unit: 'points' },
   });
   expect(await generateLessonScene(constrained)).toMatchObject({
@@ -1267,6 +1333,7 @@ test.each([
   generateStructuredOutputMock.mockResolvedValueOnce(draft);
   generateStructuredOutputMock.mockResolvedValueOnce({
     status: scale ? 'declared' : 'absent',
+    ranges: [],
     scale,
   });
   const result = await generateLessonScene(unplannedInput(source));
