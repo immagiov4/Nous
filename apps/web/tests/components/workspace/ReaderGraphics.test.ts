@@ -1,7 +1,10 @@
+import { createHash } from 'node:crypto';
+import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { isLessonScene, LessonSceneSchema } from '@shared/lessonScene';
 import { type Browser, chromium, devices, type Locator } from 'playwright';
 import { afterAll, beforeAll, expect, inject, test } from 'vitest';
 import { withMutedAudio } from '../../../../../scripts/browser-audio';
+import { FIXED_AUDIO_SECONDS, fixedAudio } from '../../fixtures/fixedAudio';
 
 let browser: Browser;
 
@@ -191,18 +194,20 @@ test.each(
   }
 });
 
+const guidedSpeech = 'Begin. Collect the sample. Check the seal. Store it safely.';
+const guidedSteps = [
+  { anchor: 'Collect', label: 'Collection', detail: 'Record the collection site.' },
+  { anchor: 'Check', label: 'Inspection', detail: 'Keep the seal intact.' },
+  { anchor: 'Store', label: 'Storage', detail: 'Use the designated shelf.' },
+];
 const guidedScene = LessonSceneSchema.parse({
   type: 'guided-path',
   title: 'Follow a sample to storage',
   body: 'Follow the active stage.',
   autoplay: true,
   durationMs: 900,
-  narration: 'Begin. Collect the sample. Check the seal. Store it safely.',
-  steps: [
-    { anchor: 'Collect', label: 'Collection', detail: 'Record the collection site.' },
-    { anchor: 'Check', label: 'Inspection', detail: 'Keep the seal intact.' },
-    { anchor: 'Store', label: 'Storage', detail: 'Use the designated shelf.' },
-  ],
+  narration: guidedSpeech,
+  steps: guidedSteps,
   items: [],
   groups: [],
   note: '',
@@ -245,6 +250,19 @@ test('reveals each guided detail exactly at its narration cue and reverses on a 
       await expect.poll(() => detail.textContent()).toBe(expected);
       expect(await active.allTextContents()).toEqual(label ? [label] : []);
     }
+    await clock.press('End');
+    const review = card.locator('.path-details li:visible');
+    await expect
+      .poll(() => review.locator('p').allTextContents())
+      .toEqual(guidedSteps.map(step => step.detail));
+    expect(await review.locator('strong').allTextContents()).toEqual(
+      guidedSteps.map(step => step.label)
+    );
+    expect(await active.count()).toBe(0);
+    await clock.fill('4.8');
+    await expect.poll(() => detail.textContent()).toBe('Keep the seal intact.');
+    await expect.poll(() => review.count()).toBe(0);
+    expect(await active.allTextContents()).toEqual(['Inspection']);
   } finally {
     await page.close();
   }
@@ -282,6 +300,70 @@ test.each([
     await page.close();
   }
 });
+
+test.each([
+  'audio ends',
+  'seek to end',
+] as const)('keeps every guided detail readable when %s on the audio clock', async ending => {
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  try {
+    const bytes = Buffer.from(fixedAudio());
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    const block = {
+      ...segmentLessonPlayback([{ type: 'markdown', markdown: guidedSpeech }])[0],
+      visuals: [{ kind: 'scene', scene: guidedScene }],
+      audio: [
+        {
+          voice: 'Kore',
+          model: 'local-sample',
+          durationSeconds: FIXED_AUDIO_SECONDS,
+          asset: { id: hash, hash, byteSize: bytes.length, mediaType: 'audio/wav' },
+        },
+      ],
+    };
+    await page.route('**/api/projects/audio-contract/**', route => {
+      const url = new URL(route.request().url());
+      if (url.pathname.includes('/assets/'))
+        return route.fulfill({ contentType: 'audio/wav', body: bytes });
+      return route.fulfill({
+        json: url.pathname.endsWith('/prepare')
+          ? { block, voice: 'Kore', model: 'local-sample' }
+          : { lessonKey: hash, blocks: [block] },
+      });
+    });
+    await page.goto(
+      `${inject('browserFixtureUrl')}tests/fixtures/audio-production.html?${new URLSearchParams({ speech: guidedSpeech })}`
+    );
+    await page.getByRole('button', { name: 'Play', exact: true }).click();
+    const card = page.locator('.type-guided-path');
+    const review = card.locator('.path-details li:visible');
+    await expect
+      .poll(() => card.locator('.path-explanation p').allTextContents())
+      .toEqual([guidedSteps[0].detail]);
+    expect(await review.count()).toBe(0);
+    if (ending === 'seek to end') await page.getByRole('button', { name: 'Seek to end' }).click();
+    await expect
+      .poll(() => page.locator('output[data-position]').textContent(), {
+        timeout: (FIXED_AUDIO_SECONDS + 5) * 1000,
+      })
+      .toBe('idle');
+    expect(await page.locator('output[data-position]').getAttribute('data-position')).toBe(
+      String(FIXED_AUDIO_SECONDS)
+    );
+    await expect
+      .poll(() => review.locator('p').allTextContents())
+      .toEqual(guidedSteps.map(step => step.detail));
+    expect(await review.locator('strong').allTextContents()).toEqual(
+      guidedSteps.map(step => step.label)
+    );
+    await page.getByRole('button', { name: 'Play', exact: true }).click();
+    await expect
+      .poll(() => card.locator('.path-explanation p').allTextContents())
+      .toEqual([guidedSteps[0].detail]);
+  } finally {
+    await page.close();
+  }
+}, 25_000);
 
 const labels = (graphic: Locator, selector: string) =>
   graphic.locator(selector).evaluateAll(elements =>

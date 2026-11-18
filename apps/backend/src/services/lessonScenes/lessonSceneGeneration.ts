@@ -61,6 +61,7 @@ export type LessonSceneOutcome =
 export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'plan'> & {
   readonly allowedSceneTypes?: readonly LessonSceneType[];
   readonly supportsConceptLayout?: boolean;
+  readonly useOrderedSceneSelection?: boolean;
   readonly narration?: string;
   readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
@@ -243,7 +244,8 @@ const catalogText = (
 const sceneSystemPrompt = (
   types: readonly LessonSceneType[],
   variants: readonly (typeof sceneVariants)[number][],
-  supportsConceptLayout: boolean
+  supportsConceptLayout: boolean,
+  useOrderedSceneSelection: boolean
 ) => String.raw`Design the visual scene that accompanies one concept of a lesson for adults. First state the reader's task: what must the reader understand? Then choose the semantic relation (parts and whole, distinction, comparison by a criterion, check, sequence, limit, question) and only then choose the form from the catalog. Use only the lesson text. Preserve negations, scope, conditions, and uncertainty. All visible text uses the lesson language. Show the passage's structure, relationships or quantities with concise labels. A process needs its actual steps or flow. Never make a text-repeat card or copy narration sentences into the visual; captions already show the narration.
 
 ${LESSON_MATH_DELIMITERS_RULE}
@@ -308,7 +310,7 @@ ORDERED STAGES
 Keep the lesson's explicit order and the granularity needed for its teaching goal. Identify the actor when responsibility matters and the outcome when it explains the next stage. When both matter, keep both in the stage's label and detail. Preserve the person's perspective in a linear path. Use an item for each necessary stage and leave groups empty.${
   types.includes('process')
     ? `
-- process: the standard card for ordered actions, successive stages, or linear journeys. Use ${LESSON_SCENE_LIMITS.minItems}–${PROCESS_SCENE_MAX_STAGES} labeled items with iconQueries. Include all necessary stages even above ${LESSON_SCENE_LIMITS.items}.`
+- process: the standard card for ordered actions, successive stages, or linear journeys. Use ${LESSON_SCENE_LIMITS.minItems}–${useOrderedSceneSelection ? PROCESS_SCENE_MAX_STAGES : LESSON_SCENE_LIMITS.items} labeled items with iconQueries.${useOrderedSceneSelection ? ` Include all necessary stages even above ${LESSON_SCENE_LIMITS.items}.` : ''}`
     : ''
 }${
   types.includes('steps')
@@ -517,15 +519,23 @@ const compareSupportQuotation = (evidence: string, lesson: string, excerpt: stri
   };
 };
 
-const findOrderedDraftProblems = (draft: SceneDraft): string[] => {
+const findOrderedDraftProblems = (
+  draft: SceneDraft,
+  useOrderedSceneSelection: boolean
+): string[] => {
   if (draft.type !== 'steps' && draft.type !== 'process') return [];
+  if (!useOrderedSceneSelection && draft.type === 'process') {
+    return draft.items.length > LESSON_SCENE_LIMITS.items
+      ? [`The process card takes at most ${LESSON_SCENE_LIMITS.items} entries.`]
+      : [];
+  }
   return [
-    ...(draft.steps
+    ...(useOrderedSceneSelection && draft.steps
       ? [
           'Use guided-path (when available) for timed stages. For a static list, put stages in items and omit steps.',
         ]
       : []),
-    ...(draft.diagram
+    ...(useOrderedSceneSelection && draft.diagram
       ? ['Use an available diagram form to preserve visible connections. Otherwise omit diagram.']
       : []),
     ...(draft.type === 'steps' && draft.items.length > LESSON_SCENE_LIMITS.items
@@ -590,9 +600,12 @@ const findDraftProblems = (
   draft: SceneDraft,
   scene: LessonScene,
   source: string,
-  input: Pick<GenerateLessonSceneInput, 'narration' | 'supportsConceptLayout'>
+  input: Pick<
+    GenerateLessonSceneInput,
+    'narration' | 'supportsConceptLayout' | 'useOrderedSceneSelection'
+  >
 ): string[] => [
-  ...findOrderedDraftProblems(draft),
+  ...findOrderedDraftProblems(draft, input.useOrderedSceneSelection ?? true),
   ...(scene.type === 'proportional-static' &&
   (scene.items.length ||
     scene.groups.length ||
@@ -645,13 +658,14 @@ export async function generateLessonScene(
   // visuals (the learner's provider), while scene models come from the live configuration.
   const config = await getResolvedModelConfigForProvider(input.config.artifact.provider);
   const captioned = input.narration !== undefined;
-  const { supportsConceptLayout = true } = input;
+  const { supportsConceptLayout = true, useOrderedSceneSelection = true } = input;
   // A resumed workflow must generate within the catalog admitted by its saved contract.
   // Spotlight definitions need the owning playback's canonical speech, not raw Markdown anchors.
   const allowedTypes = selectableLessonSceneTypes({
     captioned,
     allowedTypes: input.allowedSceneTypes,
     supportsConceptLayout,
+    useOrderedSceneSelection,
   });
   const variants = sceneVariants.filter(
     variant =>
@@ -711,7 +725,7 @@ export async function generateLessonScene(
     prompt: buildScenePrompt(input),
     signal: input.signal,
     slot: 'scene',
-    system: `${sceneSystemPrompt(types, variants, supportsConceptLayout)}${captionRule}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
+    system: `${sceneSystemPrompt(types, variants, supportsConceptLayout, useOrderedSceneSelection)}${captionRule}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
   }).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;

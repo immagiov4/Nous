@@ -5,6 +5,10 @@ import LessonPlaybackStage from '../../components/workspace/playback/LessonPlayb
 import type { WorkspaceReaderContentModel } from '../../components/workspace/shell/types';
 import { useLessonPlayback } from '../../hooks/reader/useLessonPlayback';
 
+const markdown = new URLSearchParams(location.search).get('speech') ?? 'Fixed audio sample.';
+const sources = [{ type: 'markdown' as const, markdown }];
+const initialBlocks = segmentLessonPlayback(sources);
+
 function AudioContract() {
   const [voice, setVoice] = useState('Kore');
   const [speed, setSpeed] = useState(1);
@@ -13,7 +17,7 @@ function AudioContract() {
     sectionId: 'lesson',
     voice,
     speed,
-    initialBlocks: segmentLessonPlayback([{ type: 'markdown', markdown: 'Fixed audio sample.' }]),
+    initialBlocks,
   });
   return (
     <>
@@ -25,6 +29,9 @@ function AudioContract() {
       </button>
       <button type="button" id="seek" onClick={() => playback.seek(0)}>
         Seek
+      </button>
+      <button type="button" onClick={() => playback.seek(playback.total)}>
+        Seek to end
       </button>
       <button
         type="button"
@@ -50,7 +57,7 @@ function AudioContract() {
         content={
           {
             isDarkMode: false,
-            sectionContentBlocks: [{ type: 'markdown', markdown: 'Fixed audio sample.' }],
+            sectionContentBlocks: sources,
           } as WorkspaceReaderContentModel
         }
         time={playback.time}

@@ -36,7 +36,8 @@ export const createProductionLessonPlaybackServices = (
     supportsUnlinkedFormulaSymbols = true,
     synchronizeAnimations = false,
     supportsVisualSections = true,
-    supportsConceptLayout = true
+    supportsConceptLayout = true,
+    useOrderedSceneSelection = true
   ) => {
     const project = await projectStore.loadProjectWithRevision(input.userId, input.projectId);
     const section = project && findProjectLessonSection(project.snapshot, input.sectionId);
@@ -81,6 +82,7 @@ export const createProductionLessonPlaybackServices = (
       synchronizeAnimations,
       supportsVisualSections,
       supportsConceptLayout,
+      useOrderedSceneSelection,
       allowedSceneTypes,
       supportsSpokenMath,
       supportsFencedCode,

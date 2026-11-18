@@ -57,6 +57,7 @@ interface PrepareLessonPlaybackBlockInput {
   readonly supportsFencedCode?: boolean;
   readonly supportsUnlinkedFormulaSymbols?: boolean;
   readonly supportsConceptLayout?: boolean;
+  readonly useOrderedSceneSelection?: boolean;
   readonly allowedSceneTypes?: readonly LessonSceneType[];
   readonly providerEffect?: WorkflowProviderEffectExecutor;
   readonly ttsModel?: string;
@@ -199,6 +200,7 @@ const prepareScene = async (
       onValidatedScene,
       allowedSceneTypes,
       supportsConceptLayout: input.supportsConceptLayout,
+      useOrderedSceneSelection: input.useOrderedSceneSelection,
       config: resolveLessonVisualModelConfig(config),
       lessonMarkdown,
       narration: block.speech,
@@ -398,6 +400,7 @@ const generateSectionScene = async (
       config: resolveLessonVisualModelConfig(input.config),
       allowedSceneTypes: types,
       supportsConceptLayout: input.supportsConceptLayout,
+      useOrderedSceneSelection: input.useOrderedSceneSelection,
       lessonMarkdown: speech,
       narration: speech,
       sectionTitle: '',

@@ -1288,10 +1288,12 @@ export function selectableLessonSceneTypes({
   captioned,
   allowedTypes,
   supportsConceptLayout = true,
+  useOrderedSceneSelection = true,
 }: {
   captioned: boolean;
   allowedTypes?: readonly LessonSceneType[];
   supportsConceptLayout?: boolean;
+  useOrderedSceneSelection?: boolean;
 }) {
   const available = supportsConceptLayout
     ? GENERATABLE_LESSON_SCENE_TYPES
@@ -1299,9 +1301,8 @@ export function selectableLessonSceneTypes({
   const candidates = allowedTypes ?? available;
   const prefersChecklist = candidates.includes('checklist');
   const prefersTree = candidates.includes('tree');
-  // Resume older scene contracts with the journey option they deployed with.
   const offersJourneyReplacements =
-    supportsConceptLayout && candidates.includes('process') && candidates.includes('flowchart');
+    useOrderedSceneSelection && candidates.includes('process') && candidates.includes('flowchart');
   return candidates.filter(
     type =>
       available.includes(type) &&
