@@ -21,6 +21,7 @@ vi.mock('../../../src/services/lessonScenes/lessonSceneIconChoice.js', () => ({
 
 import * as z from 'zod';
 import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
+import { prepareLessonPlaybackVisuals } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { generateLessonScene } from '../../../src/services/lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../../../src/services/lessonVisualModelConfig.js';
 import {
@@ -652,6 +653,214 @@ test.each([
   expect(outcome).toMatchObject({ kind: 'scene', scene: { rows } });
   if (outcome.kind !== 'scene') throw new Error('Expected a numeric table');
   expect(outcome.scene).not.toHaveProperty('max');
+});
+
+test.each([
+  {
+    legacy: 'signals',
+    kind: 'complementary',
+    label: 'Read together',
+    panels: ['Visible signs', 'How to interpret them'],
+    entries: ['Wilting leaves', 'Check the soil moisture'],
+    source: 'Wilting leaves are a clue to read alongside soil moisture.',
+  },
+  {
+    legacy: 'balance',
+    kind: 'tradeoff',
+    label: 'Benefit and cost',
+    panels: ['Benefit', 'Cost'],
+    entries: ['Less watering', 'Slower growth'],
+    source: 'Less watering comes at the cost of slower growth.',
+  },
+])('generates $legacy as comparison while retaining frozen workflows', async ({
+  legacy,
+  kind,
+  label,
+  panels,
+  entries,
+  source,
+}) => {
+  const draft = {
+    ...sceneDraft(source),
+    items: [],
+    groups: panels.map((panel, index) => ({
+      label: panel,
+      items: [entries[index]],
+      iconQueries: [queries],
+      verdict: 'none',
+    })),
+  };
+  const oldDraft = { ...draft, type: legacy };
+  const comparison = {
+    ...draft,
+    type: 'comparison',
+    relation: { evidence: source, kind, label },
+  };
+  const input = unplannedInput(source);
+  for (const request of [input, { ...input, narration: source }]) {
+    generateStructuredOutputMock.mockResolvedValueOnce(oldDraft);
+    expect(await generateLessonScene(request)).toMatchObject({
+      kind: 'invalid',
+      diagnostic: { errorStage: 'schema' },
+    });
+    generateStructuredOutputMock.mockResolvedValueOnce({
+      ...comparison,
+      relation: { ...comparison.relation, evidence: 'Absent evidence.' },
+    });
+    const rejected = await generateLessonScene(request);
+    expect(rejected).toMatchObject({ kind: 'invalid', diagnostic: { errorStage: 'domain' } });
+    if (rejected.kind !== 'invalid') throw new Error('Expected corrective feedback.');
+    generateStructuredOutputMock.mockResolvedValueOnce(comparison);
+    expect(
+      await generateLessonScene({ ...request, retryFeedback: rejected.problems.join('\n') })
+    ).toMatchObject({
+      kind: 'scene',
+      scene: {
+        type: 'comparison',
+        relation: comparison.relation,
+        groups: panels.map((label, index) => ({ label, items: [entries[index]] })),
+      },
+    });
+    const schema = z.fromJSONSchema(generateStructuredOutputMock.mock.lastCall?.[0].output.schema);
+    expect(schema.safeParse(comparison).success).toBe(true);
+    expect(schema.safeParse(oldDraft).success).toBe(false);
+  }
+
+  const legacyCatalogs = HistoricalLessonSceneSchemas.filter(
+    ({ shape }) =>
+      shape.type.options.includes(legacy) &&
+      !shape.relation.unwrap().shape.kind.options.includes(kind)
+  );
+  expect(legacyCatalogs.some(({ shape }) => 'conceptLayout' in shape)).toBe(true);
+  for (const { shape } of legacyCatalogs) {
+    generateStructuredOutputMock.mockResolvedValueOnce(oldDraft);
+    const resumed = await generateLessonScene({
+      ...input,
+      allowedSceneTypes: shape.type.options,
+      allowedSceneRelationKinds: shape.relation.unwrap().shape.kind.options,
+      supportsConceptLayout: 'conceptLayout' in shape,
+    });
+    expect(resumed).toMatchObject({ kind: 'scene', scene: { type: legacy } });
+    if (resumed.kind !== 'scene') throw new Error('Expected a historical comparison.');
+    for (const schema of [LessonSceneSchema, ...HistoricalLessonSceneSchemas]) {
+      if (schema.shape.type.options.includes(legacy)) {
+        expect(schema.parse(resumed.scene)).toEqual(resumed.scene);
+      }
+    }
+    const frozenOutput = z.fromJSONSchema(
+      generateStructuredOutputMock.mock.lastCall?.[0].output.schema
+    );
+    expect(frozenOutput.safeParse(comparison).success).toBe(false);
+  }
+});
+
+const resultFirstPassage = 'The result is firm clay. Before drying, the material was soft clay.';
+const maturityPassage = 'Il frutto passa da immaturo a maturo.';
+const neighboringPassage = 'Heating turns firm clay into fired ceramic.';
+
+test.each([
+  {
+    name: 'result mentioned first',
+    speech: resultFirstPassage,
+    labels: ['soft clay', 'firm clay'],
+  },
+  { name: 'reversed draft', speech: resultFirstPassage, labels: ['firm clay', 'soft clay'] },
+  {
+    name: 'state names with a shared substring',
+    speech: maturityPassage,
+    labels: ['immaturo', 'maturo'],
+  },
+  {
+    name: 'evidence from the authored context',
+    speech: resultFirstPassage,
+    labels: ['firm clay', 'fired ceramic'],
+    evidence: neighboringPassage,
+    context: neighboringPassage,
+  },
+  {
+    name: 'evidence missing from the lesson',
+    speech: resultFirstPassage,
+    labels: ['soft clay', 'firm clay'],
+    evidence: neighboringPassage,
+    rejected: true,
+  },
+  {
+    name: 'versus relation',
+    speech: resultFirstPassage,
+    labels: ['soft clay', 'firm clay'],
+    kind: 'versus',
+    evidence: '',
+  },
+  {
+    name: 'no explicit relation',
+    speech: resultFirstPassage,
+    labels: ['soft clay', 'firm clay'],
+    kind: null,
+  },
+])('preserves baseline playback for $name', async ({
+  speech,
+  labels,
+  kind = 'leads',
+  evidence = speech,
+  context,
+  rejected,
+}) => {
+  for (const type of ['beforeafter', 'comparison'] as const) {
+    const relation = kind === null ? null : { kind, label: 'State comparison', evidence };
+    const groups = labels.map(label => ({ label, items: [label], icons: [''] }));
+    const draft = {
+      ...sceneDraft(speech),
+      type,
+      items: [],
+      groups: groups.map(({ label, items }) => ({
+        label,
+        items,
+        verdict: 'none',
+        iconQueries: [queries],
+      })),
+      relation,
+    };
+    let attempts = 0;
+    generateStructuredOutputMock.mockImplementation(async request => {
+      if (request.output.name !== 'lesson_scene')
+        return { plans: [{ chunk: 0, events: [], reason: 'Static scene' }] };
+      attempts += 1;
+      return draft;
+    });
+    const entirePassage = context ? `${speech}\n\n${context}` : speech;
+    const prepared = await prepareLessonPlaybackVisuals({
+      userId: 'comparison-playback-test',
+      config: getGlobalModelConfig(),
+      voice: 'Kore',
+      lesson: {
+        title: 'State comparison',
+        sources: [{ type: 'markdown', markdown: entirePassage }],
+      },
+      signal: new AbortController().signal,
+      block: {
+        id: 'state-change',
+        speech,
+        heading: '',
+        spans: [
+          {
+            sourceBlockIndex: 0,
+            source: { start: 0, end: speech.length },
+            speech: { start: 0, end: speech.length },
+          },
+        ],
+        audio: [],
+        visuals: [],
+      },
+    });
+    if (rejected) {
+      expect(prepared.scene).toBeUndefined();
+      expect(attempts).toBeGreaterThan(1);
+    } else {
+      expect(prepared.scene).toMatchObject({ type, groups });
+      expect(prepared.scene?.relation).toEqual(relation ?? undefined);
+      expect(attempts).toBe(1);
+    }
+  }
 });
 
 test('offers checklist for new hypotheses and preserves a hypothesis-only resumed contract', async () => {
