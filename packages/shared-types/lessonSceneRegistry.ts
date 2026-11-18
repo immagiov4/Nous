@@ -1367,11 +1367,16 @@ const createFrozenLessonSceneSchema = (
     )
   ) as typeof LessonSceneSchema;
 
+export const FrozenUnlinkedFormulaSceneSchema = createFrozenLessonSceneSchema(
+  UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT,
+  z.string()
+);
+
 export const HistoricalLessonSceneSchemas = [
   ...LESSON_SCENE_CATALOG_SNAPSHOTS.map(types =>
     createFrozenLessonSceneSchema(types, z.string().min(1).regex(/\S/u))
   ),
-  createFrozenLessonSceneSchema(UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT, z.string()),
+  FrozenUnlinkedFormulaSceneSchema,
 ];
 
 const findFormContentProblems = (

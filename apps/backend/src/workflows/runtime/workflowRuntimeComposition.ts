@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { COURSE_INTERVIEW_EVENT_SCHEMA_VERSION } from '@shared/courseInterviewContract.js';
+import { FrozenUnlinkedFormulaSceneSchema } from '@shared/lessonScene';
 import {
   createLessonPlaybackBlockSchema,
   HistoricalLessonSceneSchemas,
@@ -681,15 +682,21 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
       preCompatibilityIdAndExternalEffectPrevious(previousPdfMappingRepairWorkflow),
     ],
   });
-  registry.register({
-    current: createLessonPlaybackWorkflow(
+  const createTextOnlyPlayback = (catalog: typeof LessonSceneSchema) =>
+    createLessonPlaybackWorkflow(
       playbackExecutionDefaults,
-      createLessonPlaybackBlockSchema(sceneSchema, true, true, true, false, true, true),
+      createLessonPlaybackBlockSchema(catalog, true, true, true, false, true, true),
       true,
       true,
       true
-    ),
+    );
+  registry.register({
+    current: createTextOnlyPlayback(sceneSchema),
     previous: [
+      // Text-only ranges were deployed with the frozen unlinked-formula catalog.
+      ...(!schemasMatch(sceneSchema, FrozenUnlinkedFormulaSceneSchema)
+        ? [createTextOnlyPlayback(FrozenUnlinkedFormulaSceneSchema)]
+        : []),
       currentScenes.visualSectionsPlayback,
       ...historicalScenes.map(definition => definition.visualSectionsPlayback),
       ...[currentScenes, ...historicalScenes].map(definition => definition.legacySectionsPlayback),

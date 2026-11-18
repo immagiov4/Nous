@@ -14,6 +14,13 @@ vi.mock('../../src/config/modelConfig.js', async importOriginal => ({
 // The fixture identifies the revision defining these current and historical registry outputs.
 const registry = createProductionRegistry();
 const sha256 = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const textOnlyPlayback = {
+  workflowId: 'prepare-lesson-playback-block',
+  definitionHash: 'da89fb448a37dfca3e44bccd159edd724b953c25ebcd1a2d6550238b55f235be',
+  definitionHashVersion: 1,
+  manifestSha256: 'f21a5faf5b91e7a376a03df2b4d9bc3a6e129bd82c1bb2d8e89eec64e2c1866b',
+  defaultsSha256: '6c0f290aa85f95b38ae7bb71d2f4602476fc7240e6b4c25139b2548c3468fbc5',
+};
 
 test('preserves every production registry output and durable fingerprint byte for byte', () => {
   const current = Object.fromEntries(
@@ -21,24 +28,31 @@ test('preserves every production registry output and durable fingerprint byte fo
       .listDefinitionDeployments()
       .map(({ current }) => [current.workflowId, current.definitionHash])
   );
-  expect(current).toEqual(combinedContracts.current);
+  expect(current).toEqual({
+    ...combinedContracts.current,
+    [textOnlyPlayback.workflowId]: textOnlyPlayback.definitionHash,
+  });
   const added = registry
     .listRegisteredBoundaries()
     .filter(
       boundary =>
         !fixture.definitions.some(previous => previous.definitionHash === boundary.definitionHash)
     );
-  expect(
-    added.map(boundary => {
-      const definition = registry.resolve(boundary.workflowId, boundary.definitionHash);
-      if (!definition) throw new Error(`Unresolvable definition: ${boundary.workflowId}`);
-      return {
-        ...boundary,
-        manifestSha256: sha256(definition.manifest),
-        defaultsSha256: sha256(definition.executionDefaults),
-      };
-    })
-  ).toEqual(combinedContracts.addedDefinitions);
+  const addedFingerprints = added.map(boundary => {
+    const definition = registry.resolve(boundary.workflowId, boundary.definitionHash);
+    if (!definition) throw new Error(`Unresolvable definition: ${boundary.workflowId}`);
+    return {
+      ...boundary,
+      manifestSha256: sha256(definition.manifest),
+      defaultsSha256: sha256(definition.executionDefaults),
+    };
+  });
+  const isTextOnlyPlayback = (boundary: { definitionHash: string }) =>
+    boundary.definitionHash === textOnlyPlayback.definitionHash;
+  expect(addedFingerprints.filter(isTextOnlyPlayback)).toEqual([textOnlyPlayback]);
+  expect(addedFingerprints.filter(boundary => !isTextOnlyPlayback(boundary))).toEqual(
+    combinedContracts.addedDefinitions
+  );
   expect(
     fixture.definitions.map(
       ({ manifestSha256: _manifest, defaultsSha256: _defaults, ...boundary }) => {
