@@ -1,6 +1,13 @@
 import type { LessonScene, LessonSceneGroup, LessonSceneItem } from '@shared/lessonScene';
 import type { ReadSceneAnimationFrame } from '@shared/lessonSceneAnimation';
-import { type CSSProperties, Fragment, type ReactNode } from 'react';
+import {
+  type CSSProperties,
+  Fragment,
+  type ReactNode,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 
 import { SceneIcon as Icon } from './SceneIcon.tsx';
 import { SceneText } from './SceneText.tsx';
@@ -918,88 +925,182 @@ export const quickFunnel = ({ scene }: SceneRenderContext) => {
   );
 };
 
-export const quickCycle = ({ scene }: SceneRenderContext) => {
-  const { radius, center, gapMax, gapFraction, arrowHead } = QUICK_GEOMETRY.cycle;
-  const usesKey = !scene.center || scene.items.some(item => item.detail.trim());
-  const stationGap = Math.min(gapMax, (Math.PI / scene.items.length) * gapFraction);
-  const point = (angle: number) => [
-    center + radius * Math.sin(angle),
-    center - radius * Math.cos(angle),
-  ];
+const cyclePoint = (angle: number) => {
+  const { radius, center } = QUICK_GEOMETRY.cycle;
+  return [center + radius * Math.sin(angle), center - radius * Math.cos(angle)] as const;
+};
+
+const cycleConnections = (stationCount: number) => {
+  const { gapMax, gapFraction } = QUICK_GEOMETRY.cycle;
+  const spacing = (2 * Math.PI) / stationCount;
+  const gap = Math.min(gapMax, (spacing / 2) * gapFraction);
+  return Array.from({ length: stationCount }, (_, index) => {
+    const end = (index + 1) * spacing - gap;
+    return { from: cyclePoint(index * spacing + gap), tip: cyclePoint(end), end };
+  });
+};
+
+const rectanglesOverlap = (a: DOMRect, b: DOMRect) =>
+  a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+function cycleNodesFit(ring: HTMLElement, connections: ReturnType<typeof cycleConnections>) {
+  const frame = ring.getBoundingClientRect();
+  if (!frame.width || !frame.height) return undefined;
+  const nodes = [...ring.querySelectorAll('.q-cycle-node')].map(node =>
+    node.getBoundingClientRect()
+  );
+  const center = ring.querySelector('.q-cycle-center');
+  const centerContent = center
+    ? (() => {
+        const range = ring.ownerDocument.createRange();
+        range.selectNodeContents(center);
+        return [...range.getClientRects()];
+      })()
+    : [];
+  const visibleContent = [...nodes, ...centerContent];
+  const outside = visibleContent.some(
+    rect =>
+      rect.left < frame.left ||
+      rect.right > frame.right ||
+      rect.top < frame.top ||
+      rect.bottom > frame.bottom
+  );
+  const overlap = nodes.some((node, index) =>
+    [...nodes.slice(index + 1), ...centerContent].some(other => rectanglesOverlap(node, other))
+  );
+  // Each connector needs a visible start and arrow tip in the gaps between the cards.
+  const coversConnection = connections.some(({ from, tip }) =>
+    [from, tip].some(([x, y]) => {
+      const left = frame.left + (x / 100) * frame.width;
+      const top = frame.top + (y / 100) * frame.height;
+      return visibleContent.some(
+        rect => left >= rect.left && left <= rect.right && top >= rect.top && top <= rect.bottom
+      );
+    })
+  );
+  return !outside && !overlap && !coversConnection;
+}
+
+const CycleStationContent = ({ item }: { readonly item: LessonSceneItem }) => (
+  <>
+    <strong>
+      {item.icon ? <Icon name={item.icon} /> : null}
+      <SceneText>{item.label}</SceneText>
+    </strong>
+    {item.detail.trim() ? (
+      <p>
+        <SceneText>{item.detail}</SceneText>
+      </p>
+    ) : null}
+  </>
+);
+
+const CycleLayout = ({ scene }: { readonly scene: LessonScene }) => {
+  const direct = useRef<HTMLDivElement>(null);
+  const [usesKey, setUsesKey] = useState(false);
+  useLayoutEffect(() => {
+    const ring = direct.current;
+    if (!ring) return;
+    const connections = cycleConnections(scene.items.length);
+    const measure = () => {
+      const fits = cycleNodesFit(ring, connections);
+      if (fits !== undefined) setUsesKey(!fits);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(ring);
+    for (const node of ring.querySelectorAll('.q-cycle-node')) observer.observe(node);
+    const fonts = ring.ownerDocument.fonts;
+    fonts?.addEventListener('loadingdone', measure);
+    return () => {
+      observer.disconnect();
+      fonts?.removeEventListener('loadingdone', measure);
+    };
+  }, [scene]);
+
+  const { radius, arrowHead } = QUICK_GEOMETRY.cycle;
+  const connections = cycleConnections(scene.items.length);
+  const arrows = (
+    <svg viewBox="0 0 100 100" aria-hidden="true">
+      {connections.map(({ from: [x, y], tip: [ex, ey], end }) => {
+        const dx = Math.cos(end);
+        const dy = Math.sin(end);
+        return (
+          <g key={end}>
+            <path d={`M ${x} ${y} A ${radius} ${radius} 0 0 1 ${ex} ${ey}`} />
+            <path
+              d={`M ${ex - dx * arrowHead + dy * arrowHead} ${ey - dy * arrowHead - dx * arrowHead} L ${ex} ${ey} L ${ex - dx * arrowHead - dy * arrowHead} ${ey - dy * arrowHead + dx * arrowHead}`}
+            />
+          </g>
+        );
+      })}
+    </svg>
+  );
+  const center = scene.center ? (
+    <div className="q-cycle-center">
+      {scene.icon ? <Icon name={scene.icon} /> : null}
+      <SceneText>{scene.center}</SceneText>
+    </div>
+  ) : null;
+  const stations = scene.items.map((item, index) => {
+    const [x, y] = cyclePoint((index * 2 * Math.PI) / scene.items.length);
+    return { item, index, position: { left: `${x}%`, top: `${y}%` } };
+  });
+
   return (
-    <>
-      <div className={`q-cycle${usesKey ? ' q-cycle-keyed' : ''}`}>
-        <svg viewBox="0 0 100 100" aria-hidden="true">
-          {scene.items.map((item, index) => {
-            const start = (index * 2 * Math.PI) / scene.items.length + stationGap,
-              end = ((index + 1) * 2 * Math.PI) / scene.items.length - stationGap;
-            const [x, y] = point(start),
-              [ex, ey] = point(end),
-              dx = Math.cos(end),
-              dy = Math.sin(end);
-            return (
-              // biome-ignore lint/suspicious/noArrayIndexKey: authored stations have stable order
-              <g key={`${index}-${item.label}`}>
-                <path d={`M ${x} ${y} A ${radius} ${radius} 0 0 1 ${ex} ${ey}`} />
-                <path
-                  d={`M ${ex - dx * arrowHead + dy * arrowHead} ${ey - dy * arrowHead - dx * arrowHead} L ${ex} ${ey} L ${ex - dx * arrowHead - dy * arrowHead} ${ey - dy * arrowHead + dx * arrowHead}`}
-                />
-              </g>
-            );
-          })}
-        </svg>
-        {scene.center ? (
-          <div className="q-cycle-center">
-            {scene.icon ? <Icon name={scene.icon} /> : null}
-            <SceneText>{scene.center}</SceneText>
-          </div>
-        ) : null}
-        {scene.items.map((item, index) => {
-          const [x, y] = point((index * 2 * Math.PI) / scene.items.length);
-          return (
-            <div
-              // biome-ignore lint/suspicious/noArrayIndexKey: authored stations have stable order
-              key={`${index}-${item.label}`}
-              className="q-cycle-node"
-              aria-hidden={usesKey || undefined}
-              style={{ left: `${x}%`, top: `${y}%` }}
-              data-playback-item={index}
-            >
-              {usesKey ? (
-                <strong>{index + 1}</strong>
-              ) : (
-                <>
-                  {item.icon ? <Icon name={item.icon} /> : null}
-                  <strong>
-                    <SceneText>{item.label}</SceneText>
-                  </strong>
-                </>
-              )}
-            </div>
-          );
-        })}
-      </div>
+    <div className="q-cycle-layout">
       {usesKey ? (
-        <ol className="q-cycle-details">
-          {scene.items.map((item, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: authored stations have stable order
-            <li key={`${index}-${item.label}`} data-playback-item={index}>
-              <strong>
-                {item.icon ? <Icon name={item.icon} /> : null}
-                <SceneText>{item.label}</SceneText>
-              </strong>
-              {item.detail.trim() ? (
-                <p>
-                  <SceneText>{item.detail}</SceneText>
-                </p>
-              ) : null}
-            </li>
-          ))}
-        </ol>
+        <>
+          <div className="q-cycle q-cycle-keyed">
+            {arrows}
+            {center}
+            {stations.map(({ item, index, position }) => (
+              <div
+                key={`${index}-${item.label}`}
+                className="q-cycle-node"
+                aria-hidden="true"
+                style={position}
+                data-playback-item={index}
+              >
+                <strong>{index + 1}</strong>
+              </div>
+            ))}
+          </div>
+          <ol className="q-cycle-details">
+            {stations.map(({ item, index }) => (
+              <li key={`${index}-${item.label}`} data-playback-item={index}>
+                <CycleStationContent item={item} />
+              </li>
+            ))}
+          </ol>
+        </>
       ) : null}
-    </>
+      {/* Keep the full nodes measurable across resizing when the existing key is visible. */}
+      <div
+        ref={direct}
+        className={`q-cycle q-cycle-direct${usesKey ? ' q-cycle-probe' : ''}`}
+        aria-hidden={usesKey || undefined}
+        inert={usesKey}
+      >
+        {usesKey ? null : arrows}
+        {center}
+        {stations.map(({ item, index, position }) => (
+          <div
+            key={`${index}-${item.label}`}
+            className="q-cycle-node"
+            style={position}
+            data-playback-item={usesKey ? undefined : index}
+          >
+            <CycleStationContent item={item} />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 };
+
+export const quickCycle = ({ scene }: SceneRenderContext) => <CycleLayout scene={scene} />;
 
 export const quickIntegration = ({ scene }: SceneRenderContext) => {
   const bank = (group: LessonSceneGroup, groupIndex: number) => (

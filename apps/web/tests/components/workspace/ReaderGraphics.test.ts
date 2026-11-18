@@ -658,6 +658,57 @@ test.each(
   }
 });
 
+test('puts shutter labels, icons and details directly on the ring when they fit', async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  try {
+    await page.addInitScript(() => {
+      Object.assign(window, {
+        readerGraphicsScenes: [
+          {
+            type: 'flywheel',
+            title: 'Camera shutter',
+            body: '',
+            note: '',
+            quote: '',
+            groups: [],
+            items: [
+              { label: 'Open', detail: 'Expose the sensor', icon: 'camera' },
+              { label: 'Close', detail: 'Read the exposure', icon: 'lock' },
+            ],
+          },
+        ],
+      });
+    });
+    await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html`);
+    const ring = page.locator('.q-cycle:visible');
+    await ring.waitFor();
+    const nodes = ring.locator('.q-cycle-node');
+    await expect
+      .poll(() => nodes.allTextContents())
+      .toEqual(['OpenExpose the sensor', 'CloseRead the exposure']);
+    expect(
+      await nodes
+        .locator('.meaning-icon')
+        .evaluateAll(elements => elements.map(element => element.getAttribute('data-icon')))
+    ).toEqual(['camera', 'lock']);
+    expect(await ring.locator('svg > g > path:first-child').count()).toBe(2);
+    expect(await page.locator('.q-cycle-details:visible').count()).toBe(0);
+    await page.setViewportSize({ width: 280, height: 900 });
+    const key = page.locator('.q-cycle-details:visible');
+    await key.waitFor();
+    expect(await key.locator('li').allTextContents()).toEqual([
+      'OpenExpose the sensor',
+      'CloseRead the exposure',
+    ]);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect
+      .poll(() => nodes.allTextContents())
+      .toEqual(['OpenExpose the sensor', 'CloseRead the exposure']);
+  } finally {
+    await page.close();
+  }
+});
+
 test('fits a detailed cycle center and icon inside the ring during phone playback', async () => {
   const page = await browser.newPage({
     ...devices['Pixel 7'],

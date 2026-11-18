@@ -42,7 +42,7 @@ test('renders a closed loop with a shared center, station details and stable pla
   });
   const { container, rerender } = render(<LessonSceneVisual scene={scene} variant="bare" />);
   expect(screen.getByText('Forecast model')).toBeVisible();
-  const stations = screen.getAllByRole('listitem');
+  const stations = [...container.querySelectorAll('.q-cycle-node')];
   expect(stations.map(item => item.textContent)).toEqual([
     'MeasureCompare with actual demand',
     'UpdateCorrect the model',
@@ -66,7 +66,7 @@ test('renders a closed loop with a shared center, station details and stable pla
     <LessonSceneVisual scene={{ ...scene, center: undefined, items: scene.items.slice(0, 2) }} />
   );
   expect(screen.queryByText('Forecast model')).toBeNull();
-  expect(screen.getAllByRole('listitem')).toHaveLength(2);
+  expect(container.querySelectorAll('.q-cycle-node')).toHaveLength(2);
   expect(container.querySelectorAll('.q-cycle svg > g > path:first-child')).toHaveLength(2);
 });
 

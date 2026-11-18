@@ -2386,11 +2386,20 @@
 .lesson-scene .quick-scene .q-tile .meaning-icon {
   margin: auto;
 }
+.lesson-scene .quick-scene .q-cycle-layout {
+  position: relative;
+}
 .lesson-scene .quick-scene .q-cycle {
   position: relative;
   aspect-ratio: 1;
   max-width: 510px;
   margin: 0 auto;
+}
+.lesson-scene .quick-scene .q-cycle-probe {
+  position: absolute;
+  inset: 0 0 auto;
+  width: 100%;
+  visibility: hidden;
 }
 .lesson-scene .quick-scene .q-cycle > svg {
   position: absolute;
@@ -2424,6 +2433,23 @@
   width: 24px;
   height: 24px;
 }
+.lesson-scene .quick-scene .q-cycle-direct .q-cycle-node {
+  gap: 2px;
+  padding-block: 6px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.lesson-scene .quick-scene .q-cycle-direct .q-cycle-node strong {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: inherit;
+}
+.lesson-scene .quick-scene .q-cycle-direct .q-cycle-node p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.25;
+}
 .lesson-scene .quick-scene .q-cycle-center {
   position: absolute;
   inset: 38% 32%;
@@ -2440,7 +2466,7 @@
 .lesson-scene .quick-scene .q-cycle-keyed:has(.q-cycle-center) {
   max-width: 22rem;
 }
-.lesson-scene .quick-scene .q-cycle-keyed .q-cycle-center {
+.lesson-scene .quick-scene .q-cycle-layout .q-cycle-center {
   inset: 22% 27%;
   line-height: 1.2;
   overflow-wrap: anywhere;
