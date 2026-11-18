@@ -102,21 +102,21 @@ test('playback bars use the stated maximum and keep ordinary bars on their own a
     ...ordinary,
     max: 10,
     unit: 'points',
-    items: ordinary.items.map(item => ({ ...item, label: item.label + ' (out of 10 points)' })),
+    items: ordinary.items.map(item => ({ ...item, label: `${item.label} (out of 10 points)` })),
   };
-  const draw = async (chart: LessonScene, axisEnd: string) => {
+  const draw = async (chart: LessonScene, axisEnd: number) => {
     const { container } = render(<SceneChart scene={chart} isDarkMode={false} />);
     await waitFor(() => expect(sceneElements(container, chart).size).toBe(3));
     const finalTick = container.querySelector(
       'g[aria-label="x-axis tick label"] > text:last-child'
     );
-    expect(Number(finalTick?.textContent)).toBe(Number(axisEnd));
+    expect(Number(finalTick?.textContent)).toBe(axisEnd);
     return Array.from(container.querySelectorAll('.playback-chart-items > rect'), rect =>
       Number(rect.getAttribute('width'))
     );
   };
-  const ordinaryWidths = await draw(ordinary, '5');
-  const scaledWidths = await draw(scaled, '10');
+  const ordinaryWidths = await draw(ordinary, 5);
+  const scaledWidths = await draw(scaled, 10);
   expect(ordinaryWidths).toHaveLength(3);
   expect(scaledWidths).toHaveLength(3);
   for (const [index, width] of scaledWidths.entries())

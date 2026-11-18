@@ -555,10 +555,77 @@ test('keeps a lone number in prose and compares independent criteria with bars',
   });
   expect(await generateLessonScene(constrained)).toMatchObject({ kind: 'invalid' });
   generateStructuredOutputMock.mockResolvedValueOnce({ ...chart, type: 'bars' });
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    status: 'declared',
+    scale: { quote: 'Out of 10 points', max: 10, unit: 'points' },
+  });
   expect(await generateLessonScene(constrained)).toMatchObject({
     kind: 'scene',
     scene: { type: 'bars', items: criteria },
   });
+});
+
+test.each([
+  {
+    label: 'the full score scale',
+    source: 'Scores are out of 10 points. Clarity is 3, speed is 4, and reliability is 5.',
+    scale: { quote: 'Scores are out of 10 points', max: 10, unit: 'points' },
+    candidate: { max: 10, unit: 'points' },
+    expected: 'scene',
+  },
+  {
+    label: 'an observed value as the maximum',
+    source: 'Scores are out of 10 points. Clarity is 3, speed is 4, and reliability is 5.',
+    scale: { quote: 'Scores are out of 10 points', max: 10, unit: 'points' },
+    candidate: { max: 5, unit: 'points' },
+    expected: 'invalid',
+  },
+  {
+    label: 'a missing maximum when a scale is declared',
+    source: 'Scores are out of 10 points. Clarity is 3, speed is 4, and reliability is 5.',
+    scale: { quote: 'Scores are out of 10 points', max: 10, unit: 'points' },
+    candidate: {},
+    expected: 'invalid',
+  },
+  {
+    label: 'a scale check with no visible quotation',
+    source: 'Scores are out of 10 points. Clarity is 3, speed is 4, and reliability is 5.',
+    scale: { quote: '', max: 10, unit: 'points' },
+    candidate: { max: 10, unit: 'points' },
+    expected: 'invalid',
+  },
+  {
+    label: 'ordinary counts without a stated scale',
+    source: 'Clarity received 3 votes, speed received 4, and reliability received 5.',
+    scale: null,
+    candidate: {},
+    expected: 'scene',
+  },
+])('checks $label before accepting a bar chart', async ({ source, scale, candidate, expected }) => {
+  const draft = {
+    ...sceneDraft(source),
+    title: 'Measurements by criterion',
+    type: 'bars',
+    items: ['Clarity', 'Speed', 'Reliability'].map((name, index) => ({
+      detail: '',
+      label: candidate.max ? `${name} (out of ${candidate.max} points)` : `${name} (votes)`,
+      value: index + 3,
+      time: null,
+      iconQueries: queries,
+    })),
+    ...candidate,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    status: scale ? 'declared' : 'absent',
+    scale,
+  });
+  const result = await generateLessonScene(unplannedInput(source));
+  expect(result.kind).toBe(expected);
+  if (result.kind === 'scene') {
+    expect(result.scene.max).toBe(candidate.max);
+    expect(result.scene.items.map(item => item.value)).toEqual([3, 4, 5]);
+  }
 });
 
 test('current and frozen workflow contracts can still read a saved continuum', () => {

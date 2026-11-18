@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { COURSE_INTERVIEW_EVENT_SCHEMA_VERSION } from '@shared/courseInterviewContract.js';
-import { FrozenUnlinkedFormulaSceneSchema } from '@shared/lessonScene';
 import {
   createLessonPlaybackBlockSchema,
   HistoricalLessonSceneSchemas,
   LessonSceneSchema,
 } from '@shared/lessonPlaybackSchema';
+import { FrozenUnlinkedFormulaSceneSchema } from '@shared/lessonScene';
 import { readCurrentAccountPreferences } from '../../account/accountStore.js';
 import {
   getGlobalModelConfig,

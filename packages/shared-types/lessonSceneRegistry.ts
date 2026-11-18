@@ -477,7 +477,7 @@ const readSourceToken = (token: string): number[] => {
   return readings.map(value => sign * (exponent ? Number(`${value}e${exponent}`) : value));
 };
 
-const readSourceNumbers = (source: string): Set<number> =>
+export const readSourceNumbers = (source: string): Set<number> =>
   new Set([...source.matchAll(SOURCE_NUMBER_PATTERN)].flatMap(([token]) => readSourceToken(token)));
 
 /** A line places its points at their real distance in time, so every point needs a time stated in the lesson, in increasing order. */
