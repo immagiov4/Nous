@@ -126,8 +126,8 @@ In the `LessonPlaybackStage`, the renderer synchronizes with the audio clock.
 
 Sources: [apps/web/tests/components/workspace/LessonPlaybackStage.test.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/components/workspace/LessonPlaybackStage.test.tsx)
 
-Flat Markdown math cards highlight a standalone inline occurrence while its linked pronunciation is heard. They use the current recording's aligned word intervals and retain source order for repeated notation. Context formulas and cards without the required association or alignment remain readable.
+During playback, a math card highlights a standalone formula while its linked pronunciation is heard. The full context formula stays visible, and the card stays static when the recording does not identify a single occurrence.
 
 ## Observability
 
-On the current playback card, `data-playback-formula-current` identifies the active rendered occurrence. A card at rest has no current marker. Overlapping aligned intervals also clear the marker until the recording identifies one occurrence. To distinguish an unlinked row from missing timing, inspect the resolved passage's source-to-speech ranges and the active recording's word alignment. The marker carries no narration or timestamps.
+On the current playback card, the highlighted occurrence has the `data-playback-formula-current` attribute. A static card has no current marker.
