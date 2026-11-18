@@ -10,12 +10,14 @@ import {
   isAnimatedLessonScene,
   LESSON_SCENE_CATALOG,
   LESSON_SCENE_DIAGRAM_TYPES,
+  LESSON_SCENE_LIMITS,
   LESSON_SCENE_REGISTRY,
   LESSON_SCENE_RELATION_KINDS,
   LESSON_SCENE_VERDICTS,
   type LessonScene,
   LessonSceneSchema,
   type LessonSceneType,
+  PROCESS_SCENE_MAX_STAGES,
   selectableLessonSceneTypes,
 } from '@shared/lessonScene';
 import { interactiveSelectionRules } from '@shared/lessonSceneAnimation';
@@ -218,10 +220,10 @@ FIELDS
 - note: one necessary limit in at most 18 words; default "".
 - criteria: row labels for matrix, otherwise [].
 - relation: for comparison and signals with two genuinely related terms, {kind, label, evidence}; otherwise null. kind is greater, less, different, equal, versus, or leads. label is only read by screen readers. evidence is an exact quotation (may be "" for versus). Use different only for an explicit distinction and leads only for an explicit process or consequence. Do not impose a winner when the lesson asks the reader to choose.
-- diagram: for flowchart, sequence, and journey only, {nodes: [{id, label, kind}], edges: [{from, to, label, kind, evidence}]}; otherwise null. 2 to 8 nodes, 1 to 12 connections. Node kind is step, decision, start, or end; edge kind is call, return, or event. Every connection carries an EXACT lesson quotation in evidence. Decision branches carry their condition in the label. In a sequence, nodes name participants and edges name their messages; never put actions or sentences in participant boxes. A sequence keeps message order and distinguishes returns and asynchronous events; a journey follows its nodes in order without branches. An ordered list of actions belongs in steps. Never write SVG, coordinates, CSS, or Mermaid code.
+- diagram: for flowchart, sequence${types.includes('journey') ? ', and journey' : ''} only, {nodes: [{id, label, kind}], edges: [{from, to, label, kind, evidence}]}; otherwise null. 2 to 8 nodes, 1 to 12 connections. Node kind is step, decision, start, or end; edge kind is call, return, or event. Every connection carries an EXACT lesson quotation in evidence. Decision branches carry their condition in the label. In a sequence, nodes name participants and edges name their messages; never put actions or sentences in participant boxes. A sequence keeps message order and distinguishes returns and asynchronous events.${types.includes('journey') ? ' A journey follows its nodes in order without branches.' : ''} When available, use flowchart when connections themselves must be visible, including a linear path with a meaningful transition between stages. Never write SVG, coordinates, CSS, or Mermaid code.
 - Animated proportional: items and groups []; supply autoplay, inputLabel, unitLabel, min, max, initial (integers, 1 <= min <= initial <= max), positive amountPerUnit, outputUnit, outputLabel, assumption. Use this mode for a taught progression of equal groups. The renderer multiplies quantity by amountPerUnit. Use only quantities and a proportional relation stated in the lesson. Optional cues are {anchor, value}: increasing cumulative quantities ending at max.
 - formula-spotlight: items and groups []; formula is complete LaTeX with explicit \nousSymbol{id} references, not HTML or CSS. symbols is an ordered array of {id,latex,name,meaning,anchor}. Each id is a letter followed by letters or digits. Replace the original symbol with its reference, never append the reference after the glyph. Substituting every reference with its latex must reproduce the authored formula without adding or removing operators. Every symbol occurs through its reference in formula (including repeated occurrences); explain every symbol in natural language. Bare mathematical identifiers are invalid, including subscripts and macro-expanded identifiers; an operator with its own symbol entry must use its reference at every occurrence. Keep symbols with distinct meanings separate, including an operator and its operands. Bind each anchor to the narration explaining that exact symbol, not adjacent text. Each nonempty anchor is an exact, unique narration quotation covering only the words that refer to that element; stop at the end of that reference. Use an empty anchor when the narration does not specifically refer to that element. Keep the base, subscript, superscript and operator independently targetable whenever the narration distinguishes them: x and its index i use separate references, never a single x_i target for a mention of i. List linked symbols by their first spoken mention; unlinked symbols may follow. The fixed renderer shows the complete formula and symbol names and emphasizes a linked element only for its quoted span; nothing stays emphasized between references. Include every authored term discussed in the canonical narration, including all indices, conditions, arguments and operators. Choose this form when a large formula and its definitions teach the passage; do not select by formula count or keyword. Prefer a useful visual over repeating prose; retain the source meaning and conditions.
-- guided-path: items and groups []; supply autoplay and steps: ${GUIDED_PATH_MIN_STEPS} to ${GUIDED_PATH_MAX_STEPS} {label, detail, optional anchor} entries following the explicit path in the lesson. Every label and detail is non-empty.
+- guided-path: use when revealing the active stage alongside narration or over time is necessary to understand the path. Supply autoplay and steps: ${GUIDED_PATH_MIN_STEPS} to ${GUIDED_PATH_MAX_STEPS} {label, detail, optional anchor} entries following the explicit path in the lesson. Every label and detail is non-empty. Use items and groups [].
 - Animated forms reuse title and body as the prototype's title and description. Set autoplay true for gradual reader playback. Narration and cue anchors quote the canonical narration when supplied, otherwise the lesson text. Ground quantities and other facts in the lesson text. Supply data only, never executable formulas, scripts, CSS, coordinates, or animation code. The formula-spotlight LaTeX field is mathematical notation, not executable code.
 - Additional static forms use their own fields and replace the preceding items/groups constraints. Their field instructions appear below. Items may also carry id, parent, start, end, x, or y for those forms. A group's optional details has one short description per entity. Optional groupIconQueries chooses a group's heading icon; optional top-level iconQueries chooses the center icon. Both use the same three search phrases as item iconQueries.
 
@@ -249,8 +251,8 @@ Diagram labels use brief entity names, symbols, quantities or messages, not expl
 FORMS
 - ${LESSON_SCENE_INDEPENDENT_CONTENT_RULE}
 - Make the layout mirror the logical relations the lesson states: parallel criteria, factors, or options sit side by side in one form (checklist, parts, comparison); only actions the lesson explicitly orders become steps. Sequence diagrams show message exchanges between participants. Never chain parallel items as consecutive steps.
-- checklist: concrete questions or practical checks in labels, including how to test a hypothesis. State the question being tested in the title or a label. Use details only when they add information. limits: two items meaning "Shows" and "Does not prove", in the lesson language. roles: people as items with a neutral profile. steps: strictly ordered actions, not alternatives; options after a pause become a checklist with the pause in body.
-- comparison, signals, matrix, decision, balance, and beforeafter need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other original forms need at least two items, except number, flowchart, sequence, journey, proportional, and guided-path; diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
+- checklist: concrete questions or practical checks in labels, including how to test a hypothesis. State the question being tested in the title or a label. Use details only when they add information. Options after a pause become a checklist with the pause in body. limits: two items meaning "Shows" and "Does not prove", in the lesson language. roles: people as items with a neutral profile.
+- comparison, signals, matrix, decision, balance, and beforeafter need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other original forms need at least two items, except number; diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
 - matrix: use short criterion and alternative labels. Each cell states the result for its criterion as a short phrase with any qualifier needed for accuracy. Use a comparison or explain the alternatives in the lesson when understanding them requires several sentences per alternative.
 - For hierarchies and networks the title names the common node. Do not use maps, cycles, or timelines for plain lists. beforeafter needs an actual transformation; a mere preference between two behaviours is a comparison with verdicts.
 - Quantitative forms only with REAL numbers present in the lesson, never invented scores. Each numeric item has a finite value >= 0 and a label with unit or period. interval has exactly three items: minimum, estimate, maximum. line points carry increasing times, which set their real spacing; the label shows how the lesson names each time. number has one item. HTTP codes, versions, and identifiers are not quantities.
@@ -260,13 +262,26 @@ FORMS
 - For source, the first item identifies the source; the others state its competence and relevance to the request, each with a criterion label and concrete detail. A concluding question belongs in quote, an additional limit in note. If one choice is explicitly discouraged and another recommended, group verdicts may be avoid and prefer; never assign verdicts to a quiz.
 - Keep quizzes open without suggesting the answer. Supplied code is teaching material: represent its boundaries and relations without executing it. Never invent transitions, branches, emotions, scores, usefulness, or causes.
 
+ORDERED STAGES
+Keep the lesson's explicit order and the granularity needed for its teaching goal. Include the responsible actor or result in the relevant item's detail when it matters. Preserve the person's perspective in a linear path. Use an item for each necessary stage and leave groups empty.${
+  types.includes('process')
+    ? `
+- process: the standard card for ordered actions, successive stages, or linear journeys. Use ${LESSON_SCENE_LIMITS.minItems}–${PROCESS_SCENE_MAX_STAGES} labeled items with iconQueries. Include all necessary stages even above ${LESSON_SCENE_LIMITS.items}.`
+    : ''
+}${
+  types.includes('steps')
+    ? `
+- steps: use the compact numbered reference when the reader needs a short list of ordered actions and ordinal numbers and text are enough. Use ${LESSON_SCENE_LIMITS.minItems}–${LESSON_SCENE_LIMITS.items} items.`
+    : ''
+}
+
 ADDITIONAL STATIC FORMS
 These forms have a title of at most 160 characters, optional body and note of at most 600 characters, at most 12 items (label at most 160 characters, detail at most 240), and at most 6 groups with at most 6 entries each. Groups containing multiple entities need complete iconQueries, one per entity. Colours and geometry belong to the component: never invent palettes, per-entry styles, or colour variations. A different colour requires a necessary semantic distinction. These forms are static: no motion fields, timer, or user commands. Keep every description brief and understandable. Never invent permissions, deadlines, causal categories, or values to fit a form.
 - quadrant: exactly four groups, in top-left, top-right, bottom-left, bottom-right order; xLabel and yLabel explain the axes.
 - radar/polar: 3–6 items with real non-negative value, at least one positive value, a common positive max, and explicit unit; no value exceeds max.
 - flywheel: 3–6 ordered items and center (at most 80 characters), only for a real cycle.
 - tree: items with unique id (at most 40 characters), optional parent, exactly one root, acyclic, at most three levels.
-- stack/process: 2–6 ordered items. Stack separates levels without implying containment; process preserves successive stages and their owner or result.
+- stack: 2–6 ordered levels, without implying that one level leads to the next or contains it.
 - venn: three groups (left only, intersection, right only), with qualitative areas; each label at most 24 characters and at most one description of at most 48 characters per region. If the content does not fit, choose comparison rather than making the text ambiguous.
 - funnel/treemap: items with value and explicit unit; funnel values never increase, treemap values are positive. For funnel, the title identifies the common quantity or entity once (for example Requests); labels contain only stage names (Received, Valid, Successful), without repeating units or numbers. The component shows quantities and retention on a common cell scale, including fractions; never draw or count cells yourself.
 - heatmap/security: columns:[labels], rows:[{label,values:[values]}], 1–5 columns and 1–8 rows; every row has as many values as columns. heatmap requires positive max and explicit unit, with values between zero and max. security requires an explicit textual permission (at most 60 characters) in every cell, including unknown permissions.
@@ -459,12 +474,32 @@ const compareSupportQuotation = (evidence: string, lesson: string, excerpt: stri
   };
 };
 
+const findOrderedDraftProblems = (draft: SceneDraft): string[] => {
+  if (draft.type !== 'steps' && draft.type !== 'process') return [];
+  return [
+    ...(draft.steps
+      ? [
+          'Use guided-path (when available) for timed stages. For a static list, put stages in items and omit steps.',
+        ]
+      : []),
+    ...(draft.diagram
+      ? ['Use an available diagram form to preserve visible connections. Otherwise omit diagram.']
+      : []),
+    ...(draft.type === 'steps' && draft.items.length > LESSON_SCENE_LIMITS.items
+      ? [
+          `The compact steps list takes at most ${LESSON_SCENE_LIMITS.items} entries. Use the process card for a longer sequence when available.`,
+        ]
+      : []),
+  ];
+};
+
 const findDraftProblems = (
   draft: SceneDraft,
   scene: LessonScene,
   source: string,
   narration?: string
 ): string[] => [
+  ...findOrderedDraftProblems(draft),
   ...(scene.type === 'proportional-static' &&
   (scene.items.length ||
     scene.groups.length ||
