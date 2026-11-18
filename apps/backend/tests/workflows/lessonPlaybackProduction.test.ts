@@ -1,3 +1,4 @@
+import { getPlaybackFormulaMarkdown } from '@shared/lessonPlayback';
 import { type LessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
 
@@ -43,8 +44,7 @@ import {
 } from '../helpers/lessonPlayback.js';
 
 beforeEach(() => vi.clearAllMocks());
-const setup = () => {
-  const section = playbackSection();
+const setup = (section = playbackSection()) => {
   section.playback = preparedPlayback(section);
   const assets = {
     stage: vi.fn(async () => playbackAsset),
@@ -197,6 +197,58 @@ test.each([
     });
   }
   expect(result.block.audio).toEqual(preparedPlayback().blocks[0].audio);
+  expect(assets.stage).not.toHaveBeenCalled();
+});
+
+test('resumes an older formula passage using its authored Markdown and cached audio', async () => {
+  const markdown = 'Use the rule $h=wx+b$ here.';
+  const { section, assets, services, context } = setup({
+    ...playbackSection(),
+    content: markdown,
+    contentBlocks: [{ type: 'markdown', markdown }],
+  });
+  const playback = preparedPlayback(section);
+  section.playback = {
+    ...playback,
+    blocks: playback.blocks.map(({ prepared: _prepared, ...block }) => block),
+  };
+  const { prepareLessonPlaybackVisuals } = await vi.importActual<
+    typeof import('../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js')
+  >('../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js');
+  prepareVisuals.mockImplementationOnce(prepareLessonPlaybackVisuals);
+  structured.mockResolvedValueOnce({
+    intent: 'Show the exact authored equation.',
+    evidence: '$$\nh=wx+b\n$$',
+    title: 'Equation',
+    criteria: [],
+    relation: null,
+    diagram: null,
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [],
+    type: 'text',
+  });
+
+  const result = await services.preparePlayback(
+    { ...context, input: { ...context.input, visualOnly: true } },
+    STATIC_LESSON_SCENE_TYPES,
+    true,
+    true,
+    false,
+    false,
+    true,
+    false
+  );
+  const request = structured.mock.calls[0]?.[0];
+  expect(request.output.schema.properties.type.enum).toContain('text');
+  expect(request.system).toContain('AUTHORED FORMULA');
+  expect(result.block.prepared).toEqual({ motion: [] });
+  expect(getPlaybackFormulaMarkdown(result.block, [{ type: 'markdown', markdown }])).toBe(
+    '$$\nh=wx+b\n$$'
+  );
+  expect(result.block.audio).toEqual(playback.blocks[0].audio);
   expect(assets.stage).not.toHaveBeenCalled();
 });
 

@@ -62,6 +62,7 @@ export type LessonSceneOutcome =
 
 export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'plan'> & {
   readonly allowedSceneTypes?: readonly LessonSceneType[];
+  readonly authoredFormulaFallback?: boolean;
   readonly narration?: string;
   readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
@@ -707,6 +708,15 @@ const publicSceneProblem = (problem: string): string => {
   return problem;
 };
 
+function textFallbackPrompt(
+  input: GenerateLessonSceneInput & { allowTextFallback?: boolean }
+): string {
+  if (!input.allowTextFallback) return '';
+  if (input.authoredFormulaFallback)
+    return '\nAUTHORED FORMULA: Choose type text, empty items and groups, and an exact quotation from the authored equations to show those equations as Markdown. This choice is only for the supplied formulas.';
+  return '\nTEXT FALLBACK: When a single measurement belongs in prose or no catalog visual helps this passage, choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.';
+}
+
 /** Generates and validates one lesson scene, then chooses its icons. */
 export function generateLessonScene(
   input: GenerateLessonSceneInput & { allowTextFallback: true }
@@ -779,7 +789,7 @@ export async function generateLessonScene(
     prompt: buildScenePrompt(input),
     signal: input.signal,
     slot: 'scene',
-    system: `${sceneSystemPrompt(types, variants)}${captioned ? '\nCAPTIONED PLAYBACK: body and note must be empty. The narration already supplies prose. In parts and concepts scenes, item detail must also be empty: name each part and its role directly in the label. Never turn narration into a glossary. Put every necessary condition in the visual labels, groups or data qualifiers.' : ''}${input.allowTextFallback ? '\nTEXT FALLBACK: When a single measurement belongs in prose or no catalog visual helps this passage, choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
+    system: `${sceneSystemPrompt(types, variants)}${captioned ? '\nCAPTIONED PLAYBACK: body and note must be empty. The narration already supplies prose. In parts and concepts scenes, item detail must also be empty: name each part and its role directly in the label. Never turn narration into a glossary. Put every necessary condition in the visual labels, groups or data qualifiers.' : ''}${textFallbackPrompt(input)}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
   }).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;

@@ -1,5 +1,10 @@
-import { resolvePlaybackNarration } from '@shared/lessonPlayback';
+import {
+  getPlaybackFormulaMarkdown,
+  type LessonPlaybackBlock,
+  resolvePlaybackNarration,
+} from '@shared/lessonPlayback';
 import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
+import { hasPreparedVisualSections } from '@shared/playbackVisualSections';
 import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import {
   lessonPlaybackContent,
@@ -66,9 +71,14 @@ export const createProductionLessonPlaybackServices = (
       supportsUnlinkedFormulaSymbols,
     });
     const visualSources = supportsVisualSections ? lesson.sources : [];
+    const visualReady = (candidate: LessonPlaybackBlock) =>
+      isPlaybackVisualReady(candidate, visualSources) ||
+      (!supportsTextOnlyVisuals &&
+        Boolean(candidate.prepared && getPlaybackFormulaMarkdown(candidate, lesson.sources)) &&
+        hasPreparedVisualSections(candidate, visualSources));
     if (
       input.visualOnly
-        ? isPlaybackVisualReady(block, visualSources)
+        ? visualReady(block)
         : isPlaybackBlockReady(block, ttsClient.resolveVoice(input.model, input.voice), input.model)
     ) {
       return { target: input, block: LessonPlaybackBlockSchema.parse(block) };
@@ -107,7 +117,7 @@ export const createProductionLessonPlaybackServices = (
         },
         true
       );
-      if (!isPlaybackVisualReady({ ...block, prepared }, visualSources))
+      if (!visualReady({ ...block, prepared }))
         throw failPermanently({
           code: 'lesson_playback_scene_invalid',
           message: 'No usable passage visual was prepared.',

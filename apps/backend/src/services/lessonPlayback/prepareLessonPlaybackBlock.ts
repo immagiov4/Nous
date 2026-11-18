@@ -172,7 +172,10 @@ const generateNarratedScene = async (
 ): Promise<{ scene?: LessonScene; textOnly?: true }> => {
   const { block, config, signal } = input;
   const allowedSceneTypes = compatibleSceneTypes(input);
-  const allowTextFallback = input.supportsTextOnlyVisuals !== false;
+  const supportsTextOnly = input.supportsTextOnlyVisuals !== false;
+  const sourceFormulas = getPlaybackFormulaSources(block, input.lesson.sources);
+  const authoredFormulaFallback = !supportsTextOnly && sourceFormulas.length > 0;
+  const allowTextFallback = supportsTextOnly || authoredFormulaFallback;
   let retryFeedback: string | undefined;
   let diagnostic: WorkflowErrorDiagnostic | undefined;
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt += 1) {
@@ -184,6 +187,7 @@ const generateNarratedScene = async (
       lessonMarkdown,
       narration: block.speech,
       allowTextFallback,
+      authoredFormulaFallback,
       retryFeedback,
       // Authored heading boundaries provide context; general lesson metadata is not source evidence.
       sectionDescription: '',
@@ -193,13 +197,7 @@ const generateNarratedScene = async (
     });
     signal.throwIfAborted();
     if (outcome.kind === 'scene') {
-      if (
-        sceneRetainsSourceMath(
-          outcome.scene,
-          getPlaybackFormulaSources(block, input.lesson.sources)
-        )
-      )
-        return { scene: outcome.scene };
+      if (sceneRetainsSourceMath(outcome.scene, sourceFormulas)) return { scene: outcome.scene };
       diagnostic = {
         type: 'Error',
         originalMessage: 'Generated scene did not retain authored mathematics.',
@@ -209,7 +207,7 @@ const generateNarratedScene = async (
         (allowTextFallback ? ' You may choose text for the sourced-formula presentation.' : '');
       continue;
     }
-    if (outcome.kind === 'text') return { textOnly: true };
+    if (outcome.kind === 'text') return supportsTextOnly ? { textOnly: true } : {};
     if (outcome.kind === 'unavailable') return {};
     retryFeedback = outcome.problems.join('\n');
     diagnostic = outcome.diagnostic ?? diagnostic;

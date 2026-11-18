@@ -109,6 +109,9 @@ const plotOptions = (plot: Plot, scene: ChartScene, width: number, theme: ChartT
     };
   }
   if (scene.type === 'bars') {
+    const max = scene.max;
+    const authoredMax =
+      max !== undefined && items.every(item => item.value <= max) ? max : undefined;
     const labelWidth = Math.min(LAYOUT.barLabelMaxWidth, width * LAYOUT.barLabelWidthFraction);
     return {
       ...common,
@@ -140,9 +143,9 @@ const plotOptions = (plot: Plot, scene: ChartScene, width: number, theme: ChartT
         grid: true,
         label: null,
         zero: true,
-        ...(scene.max === undefined
+        ...(authoredMax === undefined
           ? { nice: true, ticks: 4 }
-          : { domain: [0, scene.max], ticks: [0, scene.max / 2, scene.max] }),
+          : { domain: [0, authoredMax], ticks: [0, authoredMax / 2, authoredMax] }),
       },
       y: { axis: null, domain: items.map(item => item.label), label: null },
     };

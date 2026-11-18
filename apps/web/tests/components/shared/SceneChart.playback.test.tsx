@@ -123,6 +123,24 @@ test('playback bars use the stated maximum and keep ordinary bars on their own a
     expect(width / ordinaryWidths[index]).toBeCloseTo(0.5);
 });
 
+test('shows a saved bar value above an old maximum', async () => {
+  const chart = {
+    ...scene,
+    type: 'bars' as const,
+    max: 5,
+    unit: 'points',
+    items: scene.items.map((item, index) => ({ ...item, value: [3, 4, 8][index] })),
+  };
+  const { container } = render(<SceneChart scene={chart} isDarkMode={false} />);
+  await waitFor(() => expect(sceneElements(container, chart).size).toBe(3));
+  const finalTick = container.querySelector('g[aria-label="x-axis tick label"] > text:last-child');
+  expect(Number(finalTick?.textContent)).toBeGreaterThanOrEqual(8);
+  const marks = container.querySelectorAll('.playback-chart-items > rect');
+  const smallest = Number(marks[0].getAttribute('width'));
+  const largest = Number(marks[2].getAttribute('width'));
+  expect(largest / smallest).toBeCloseTo(8 / 3);
+});
+
 test('playback line points retain the real time gaps', async () => {
   const { container } = render(<SceneChart scene={scene} isDarkMode={false} prototype />);
   await waitFor(() => expect(sceneElements(container, scene).size).toBe(3));
