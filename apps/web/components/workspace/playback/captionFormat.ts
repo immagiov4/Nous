@@ -59,6 +59,28 @@ function captionSourceLines(block: LessonPlaybackBlock, sources: readonly Playba
   return lines;
 }
 
+function captionLineSpeech(
+  span: LessonPlaybackBlock['spans'][number],
+  lineStart: number,
+  start: number,
+  end: number
+): PlaybackRange | undefined {
+  // A formula consumes its authored text on every covered line and speaks only on its first line.
+  if (span.math) return span.source.start >= lineStart ? span.speech : undefined;
+  return {
+    start: span.speech.start + start - span.source.start,
+    end: span.speech.start + end - span.source.start,
+  };
+}
+
+function captionLineBreak(spans: LessonPlaybackBlock['spans'], lineEnd: number): string {
+  // An internal formula newline does not separate its pronunciation from following prose.
+  const continuesFormula = spans.some(
+    span => span.math && span.source.start <= lineEnd && span.source.end > lineEnd
+  );
+  return continuesFormula ? '' : '\n';
+}
+
 /** Recover the authored lines covered by the canonical speech/source mapping. */
 export function captionSource(
   block: LessonPlaybackBlock,
@@ -76,6 +98,7 @@ export function captionSource(
       markdown += `${line.text}\n`;
       continue;
     }
+    const lineEnd = line.start + line.text.length;
     let cursor = line.start;
     const lineSpans = block.spans.filter(
       span =>
@@ -85,15 +108,12 @@ export function captionSource(
     );
     for (const span of lineSpans) {
       const start = Math.max(line.start, span.source.start);
-      const end = Math.min(line.start + line.text.length, span.source.end);
+      const end = Math.min(lineEnd, span.source.end);
       if (start >= end) continue;
       markdown += line.text.slice(cursor - line.start, start - line.start);
-      const speech = span.math
-        ? span.speech
-        : {
-            start: span.speech.start + start - span.source.start,
-            end: span.speech.start + end - span.source.start,
-          };
+      cursor = end;
+      const speech = captionLineSpeech(span, line.start, start, end);
+      if (!speech) continue;
       const text = span.math
         ? block.speech.slice(speech.start, speech.end)
         : line.text.slice(start - line.start, end - line.start);
@@ -102,9 +122,9 @@ export function captionSource(
         speech,
       });
       markdown += text;
-      cursor = end;
     }
-    markdown += `${line.text.slice(cursor - line.start)}\n`;
+    markdown += line.text.slice(cursor - line.start);
+    markdown += captionLineBreak(lineSpans, lineEnd);
   }
   return { markdown, ranges };
 }

@@ -1003,17 +1003,27 @@ export function getPlaybackFormulaSources(
   block: LessonPlaybackBlock,
   sources: readonly PlaybackContentBlock[] = []
 ): string[] {
-  const formulas = block.spans.flatMap(span => (span.math ? [span.math] : []));
+  return playbackFormulaEntries(block, sources).map(({ formula }) => formula);
+}
+
+function playbackFormulaEntries(
+  block: LessonPlaybackBlock,
+  sources: readonly PlaybackContentBlock[]
+): { formula: string; span?: PlaybackTextSpan }[] {
+  const formulas: { formula: string; span?: PlaybackTextSpan }[] = block.spans.flatMap(span =>
+    span.math ? [{ formula: span.math, span }] : []
+  );
   for (const visual of formulas.length ? [] : block.visuals) {
     if (visual.kind !== 'markdown') continue;
     formulas.push(
-      ...analyzeMarkdown(visual.markdown).math.map(range =>
-        visual.markdown.slice(range.start, range.end)
-      )
+      ...analyzeMarkdown(visual.markdown).math.map(range => ({
+        formula: visual.markdown.slice(range.start, range.end),
+      }))
     );
   }
-  if (formulas.some(isDisplayFormula)) return formulas;
-  return [...precedingPlaybackFormulas(block, sources), ...formulas];
+  if (formulas.some(({ formula }) => isDisplayFormula(formula))) return formulas;
+  const preceding = precedingPlaybackFormulas(block, sources).map(formula => ({ formula }));
+  return [...preceding, ...formulas];
 }
 
 // Source objects own their syntax analysis; replacing or editing a source invalidates it.
@@ -1097,15 +1107,26 @@ export function getPlaybackFormulaMarkdown(
   block: LessonPlaybackBlock,
   sources: readonly PlaybackContentBlock[] = []
 ) {
-  const formulas = getPlaybackFormulaSources(block, sources);
-  return formulas.length
-    ? formulas
-        .map(formula => {
-          const delimiter = formula.startsWith('$$') || formula.startsWith('\\') ? 2 : 1;
-          return `$$\n${formula.slice(delimiter, -delimiter).trim()}\n$$`;
-        })
-        .join('\n\n')
-    : undefined;
+  return getPlaybackFormulaCard(block, sources)?.markdown;
+}
+
+/** Keep each rendered row attached to its own spoken inline occurrence, when available. */
+export function getPlaybackFormulaCard(
+  block: LessonPlaybackBlock,
+  sources: readonly PlaybackContentBlock[]
+) {
+  const formulas = playbackFormulaEntries(block, sources);
+  if (!formulas.length) return undefined;
+  const rows = formulas.map(({ formula, span }) => {
+    const display = isDisplayFormula(formula);
+    const delimiter = display || formula.startsWith('\\') ? 2 : 1;
+    const range = !display && span && span.speech.start < span.speech.end ? span.speech : undefined;
+    return { latex: formula.slice(delimiter, -delimiter).trim(), range };
+  });
+  return {
+    markdown: rows.map(({ latex }) => `$$\n${latex}\n$$`).join('\n\n'),
+    rows,
+  };
 }
 
 /** The target's authored heading bounds context, including a following list introduced by the passage. */

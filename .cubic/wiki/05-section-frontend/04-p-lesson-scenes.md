@@ -125,3 +125,9 @@ In the `LessonPlaybackStage`, the renderer synchronizes with the audio clock.
 3.  **Captions:** The renderer ensures that as a word is spoken, the corresponding scene element (if anchored) is highlighted or revealed.
 
 Sources: [apps/web/tests/components/workspace/LessonPlaybackStage.test.tsx](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/tests/components/workspace/LessonPlaybackStage.test.tsx)
+
+During playback, a math card highlights a standalone formula while its linked pronunciation is heard. The full context formula stays visible, and the card stays static when the recording does not identify a single occurrence.
+
+## Observability
+
+On the current playback card, the highlighted occurrence has the `data-playback-formula-current` attribute. A static card has no current marker.

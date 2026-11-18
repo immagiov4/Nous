@@ -2347,3 +2347,9 @@
 .lesson-player-stage .scene-host figure {
   content-visibility: visible;
 }
+
+.lesson-player-stage [data-playback-formula-current] > .katex-html > .base {
+  border-radius: 0.2em;
+  background: var(--annotation-highlight-color);
+  box-shadow: 0 0 0 0.23em var(--annotation-highlight-color);
+}
