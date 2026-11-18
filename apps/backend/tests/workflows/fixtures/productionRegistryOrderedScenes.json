@@ -1,0 +1,32 @@
+{
+  "addedDefinitions": [
+    {
+      "definitionHash": "a0998a018952db137fba2af69355ff24b7f7e1403f98f22cb604a34f13a2d1ce",
+      "definitionHashVersion": 1,
+      "workflowId": "lesson-artifact-draft",
+      "manifestSha256": "28ffd5302dfe0e5cca929676e95449c5eaa4d915a90f6dcaaa2bb3cf3faa558f",
+      "defaultsSha256": "86ff744cb92ac885f6a557eff1337c1bcf13067d925acb38c3224db7ecc9be58"
+    },
+    {
+      "definitionHash": "57dde6c3fa0934b52b8bc1f9e2dd33bdcb12e7c8c4466af1da30429d3029c4fa",
+      "definitionHashVersion": 1,
+      "workflowId": "lesson-generation",
+      "manifestSha256": "cb50e08e024289806c1fef78d01dab7f731048ca1ae5a411f88dada6c7b6f9a3",
+      "defaultsSha256": "11797811ce2adfe9096a1bb9a6ed095bfae3143c59852d68b4e1fabfe4d1d7b0"
+    },
+    {
+      "definitionHash": "0ec61eecd7c8d93346a882e69f81ac1cb9984351adb8db315fe985a0f5daea4f",
+      "definitionHashVersion": 1,
+      "workflowId": "prepare-lesson-playback-block",
+      "manifestSha256": "edc02554e3251018e13c84a0ba9f1356567532aaca8d4c01ff9379d541366e75",
+      "defaultsSha256": "6c0f290aa85f95b38ae7bb71d2f4602476fc7240e6b4c25139b2548c3468fbc5"
+    },
+    {
+      "definitionHash": "f978e27cf1cf96753da358c101d1b1bc5fadb3f12aaaff20888e273e785ab815",
+      "definitionHashVersion": 1,
+      "workflowId": "retry-lesson-visual",
+      "manifestSha256": "a7fa989ffbd16c033f48a9319b56d4d3b0cc268dce81a9ab86c56df4b3a55713",
+      "defaultsSha256": "86ff744cb92ac885f6a557eff1337c1bcf13067d925acb38c3224db7ecc9be58"
+    }
+  ]
+}

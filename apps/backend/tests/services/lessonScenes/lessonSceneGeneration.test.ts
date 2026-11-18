@@ -724,6 +724,18 @@ test('generates a two-station loop without a center and retains cycle for a froz
   expect(
     await generateLessonScene({ ...input, allowedSceneTypes: STATIC_LESSON_SCENE_TYPES })
   ).toMatchObject({ kind: 'scene', scene: { type: 'cycle' } });
+
+  const v15 = { ...input, useClosedLoopSelection: false };
+  generateStructuredOutputMock.mockResolvedValueOnce(cycle);
+  expect(await generateLessonScene(v15)).toMatchObject({ kind: 'scene', scene: { type: 'cycle' } });
+  expect(generateStructuredOutputMock.mock.lastCall?.[0].system).toContain(
+    'flywheel: 3–6 ordered items and center'
+  );
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...cycle, type: 'flywheel' });
+  expect(await generateLessonScene(v15)).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'domain' },
+  });
 });
 
 test.each([

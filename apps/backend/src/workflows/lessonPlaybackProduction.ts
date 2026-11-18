@@ -38,7 +38,8 @@ export const createProductionLessonPlaybackServices = (
     supportsVisualSections = true,
     supportsConceptLayout = true,
     allowedSceneRelationKinds,
-    useOrderedSceneSelection = true
+    useOrderedSceneSelection = true,
+    useClosedLoopSelection = true
   ) => {
     const project = await projectStore.loadProjectWithRevision(input.userId, input.projectId);
     const section = project && findProjectLessonSection(project.snapshot, input.sectionId);
@@ -86,6 +87,7 @@ export const createProductionLessonPlaybackServices = (
       allowedSceneRelationKinds,
       supportsConceptLayout,
       useOrderedSceneSelection,
+      useClosedLoopSelection,
       allowedSceneTypes,
       supportsSpokenMath,
       supportsFencedCode,

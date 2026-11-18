@@ -179,7 +179,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 15;
+export const WORKFLOW_SET_VERSION = 16;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -296,7 +296,32 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
     visual,
   };
-  // The ordered catalog changes generation policy without changing the saved scene shape.
+  // These policies change generation while keeping the saved scene shape.
+  const createOrderedSceneWorkflows = (
+    schema: typeof LessonSceneSchema,
+    useClosedLoopSelection = false
+  ) => {
+    const contract = createSceneLessonVisualContractSchemas(schema, true, useClosedLoopSelection);
+    return {
+      artifact: createArtifactDraftWorkflow(visualExecutionDefaults, contract),
+      retry: createLessonVisualWorkflows(visualExecutionDefaults, undefined, contract).retry,
+      lesson: createLessonGenerationWorkflow(
+        lessonExecutionDefaults,
+        undefined,
+        createSceneLessonGenerationDurableSchemaSet(contract)
+      ),
+      playback: createLessonPlaybackWorkflow(
+        playbackExecutionDefaults,
+        createLessonPlaybackBlockSchema(schema, true, true, true, false, true),
+        true,
+        true,
+        true,
+        true,
+        useClosedLoopSelection
+      ),
+    };
+  };
+  const cycleScenes = createOrderedSceneWorkflows(sceneSchema, true);
   const [orderedScenes, ...historicalOrderedScenes] = sceneSchemas
     .filter(
       (schema, index) =>
@@ -304,26 +329,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
         ('conceptLayout' in schema.shape &&
           supportsComparisonRelations(schema.shape.relation.unwrap().shape.kind.options))
     )
-    .map(schema => {
-      const contract = createSceneLessonVisualContractSchemas(schema, true);
-      return {
-        artifact: createArtifactDraftWorkflow(visualExecutionDefaults, contract),
-        retry: createLessonVisualWorkflows(visualExecutionDefaults, undefined, contract).retry,
-        lesson: createLessonGenerationWorkflow(
-          lessonExecutionDefaults,
-          undefined,
-          createSceneLessonGenerationDurableSchemaSet(contract)
-        ),
-        playback: createLessonPlaybackWorkflow(
-          playbackExecutionDefaults,
-          createLessonPlaybackBlockSchema(schema, true, true, true, false, true),
-          true,
-          true,
-          true,
-          true
-        ),
-      };
-    });
+    .map(schema => createOrderedSceneWorkflows(schema));
   const [currentScenes, ...historicalScenes] = sceneSchemas.map(schema => {
     const contract = createSceneLessonVisualContractSchemas(schema);
     return {
@@ -561,8 +567,9 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     }
   );
   registry.register({
-    current: orderedScenes.artifact,
+    current: cycleScenes.artifact,
     previous: [
+      orderedScenes.artifact,
       currentScenes.artifact,
       currentScenes.previousArtifact,
       ...historicalOrderedScenes.map(definition => definition.artifact),
@@ -575,8 +582,9 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     ],
   });
   registry.register({
-    current: orderedScenes.retry,
+    current: cycleScenes.retry,
     previous: [
+      orderedScenes.retry,
       currentScenes.retry,
       ...historicalOrderedScenes.map(definition => definition.retry),
       ...historicalScenes.map(definition => definition.retry),
@@ -647,8 +655,9 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     ],
   });
   registry.register({
-    current: orderedScenes.lesson,
+    current: cycleScenes.lesson,
     previous: [
+      orderedScenes.lesson,
       currentScenes.diagnosticLesson,
       currentScenes.lesson,
       currentScenes.previousDiagnosticLesson,
@@ -707,8 +716,9 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     ],
   });
   registry.register({
-    current: orderedScenes.playback,
+    current: cycleScenes.playback,
     previous: [
+      orderedScenes.playback,
       currentScenes.visualSectionsPlayback,
       ...historicalOrderedScenes.map(definition => definition.playback),
       ...historicalScenes.map(definition => definition.visualSectionsPlayback),

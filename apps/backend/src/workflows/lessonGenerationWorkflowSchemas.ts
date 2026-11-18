@@ -225,11 +225,13 @@ const createLessonVisualContractSchemas = ({
   visualTypes,
   sceneSchema = LessonSceneSchema,
   useOrderedSceneSelection = false,
+  useClosedLoopSelection = false,
 }: {
   includeScene: boolean;
   visualTypes: readonly [string, ...string[]];
   sceneSchema?: typeof LessonSceneSchema;
   useOrderedSceneSelection?: boolean;
+  useClosedLoopSelection?: boolean;
 }) => {
   const LessonVisualPlanSchema = z.object({
     altText: z.string(),
@@ -356,6 +358,7 @@ const createLessonVisualContractSchemas = ({
     sceneTypes: sceneSchema.shape.type.options,
     supportsConceptLayout: 'conceptLayout' in sceneSchema.shape,
     useOrderedSceneSelection,
+    useClosedLoopSelection,
     supportsScenes: includeScene,
   };
 };
@@ -418,17 +421,20 @@ export const toLegacyLessonVisualTypes = <T>(value: T): T => {
 
 export const createSceneLessonVisualContractSchemas = (
   sceneSchema = LessonSceneSchema,
-  useOrderedSceneSelection = false
+  useOrderedSceneSelection = false,
+  useClosedLoopSelection = false
 ) =>
   createLessonVisualContractSchemas({
     includeScene: true,
     visualTypes: LESSON_VISUAL_TYPES,
     sceneSchema,
     useOrderedSceneSelection,
+    useClosedLoopSelection,
   });
 
 export const CurrentLessonVisualContractSchemas = createSceneLessonVisualContractSchemas(
   LessonSceneSchema,
+  true,
   true
 );
 

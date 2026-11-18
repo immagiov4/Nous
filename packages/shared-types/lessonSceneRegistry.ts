@@ -1327,12 +1327,14 @@ export function selectableLessonSceneTypes({
   supportsConceptLayout = true,
   relationKinds = LESSON_SCENE_RELATION_KINDS,
   useOrderedSceneSelection = true,
+  useClosedLoopSelection = true,
 }: {
   captioned: boolean;
   allowedTypes?: readonly LessonSceneType[];
   supportsConceptLayout?: boolean;
   relationKinds?: readonly LessonSceneRelationKind[];
   useOrderedSceneSelection?: boolean;
+  useClosedLoopSelection?: boolean;
 }) {
   const available = supportsConceptLayout
     ? GENERATABLE_LESSON_SCENE_TYPES
@@ -1344,7 +1346,7 @@ export function selectableLessonSceneTypes({
   const prefersTree = candidates.includes('tree');
   const offersJourneyReplacements =
     useOrderedSceneSelection && candidates.includes('process') && candidates.includes('flowchart');
-  const prefersFlywheel = candidates.includes('flywheel');
+  const prefersFlywheel = useClosedLoopSelection && candidates.includes('flywheel');
   return candidates.filter(
     type =>
       available.includes(type) &&

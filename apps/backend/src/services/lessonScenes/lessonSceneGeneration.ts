@@ -65,6 +65,7 @@ export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'pl
   readonly allowedSceneTypes?: readonly LessonSceneType[];
   readonly supportsConceptLayout?: boolean;
   readonly useOrderedSceneSelection?: boolean;
+  readonly useClosedLoopSelection?: boolean;
   readonly narration?: string;
   readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
@@ -226,13 +227,23 @@ const sceneVariantFamilies = {
 
 const sceneVariants = Object.keys(sceneVariantFamilies) as (keyof typeof sceneVariantFamilies)[];
 
+type SceneSelection = Required<
+  Pick<
+    GenerateLessonSceneInput,
+    'supportsConceptLayout' | 'useOrderedSceneSelection' | 'useClosedLoopSelection'
+  >
+>;
+
 const catalogText = (
   types: readonly LessonSceneType[],
   variants: readonly (typeof sceneVariants)[number][],
-  supportsConceptLayout: boolean
+  { supportsConceptLayout, useClosedLoopSelection }: SceneSelection
 ): string =>
   types
     .map(type => {
+      if (type === 'flywheel' && !useClosedLoopSelection) {
+        return '- flywheel: Un ciclo esplicito che aggiorna un elemento comune.';
+      }
       const choices = variants
         .filter(variant => sceneVariantFamilies[variant] === type)
         .map(variant => ` Variant ${variant}: ${LESSON_SCENE_CATALOG[variant]}`);
@@ -265,13 +276,18 @@ const orderedStageRules = (
     .join('\n');
 };
 
+const flywheelContract = (useClosedLoopSelection: boolean): string =>
+  useClosedLoopSelection
+    ? '2–6 ordered items, only when the last station explicitly leads to the first. Keep each necessary station detail with that item. If a cycle of 3–6 stations explicitly updates a shared subject, put that subject in center (at most 80 characters). Leave center absent for an ordinary repeating sequence.'
+    : '3–6 ordered items and center (at most 80 characters), only for a real cycle.';
+
 const sceneSystemPrompt = (
   types: readonly LessonSceneType[],
   variants: readonly (typeof sceneVariants)[number][],
   relationKinds: readonly LessonSceneRelationKind[],
-  supportsConceptLayout: boolean,
-  useOrderedSceneSelection: boolean
+  selection: SceneSelection
 ) => {
+  const { supportsConceptLayout, useOrderedSceneSelection, useClosedLoopSelection } = selection;
   const comparisonConsolidated =
     types.includes('comparison') && supportsComparisonRelations(relationKinds);
   const comparisonForms = comparisonConsolidated
@@ -347,7 +363,7 @@ ADDITIONAL STATIC FORMS
 These forms have a title of at most 160 characters, optional body and note of at most 600 characters, at most 12 items (label at most 160 characters, detail at most 240), and at most 6 groups with at most 6 entries each. Groups containing multiple entities need complete iconQueries, one per entity. Colours and geometry belong to the component: never invent palettes, per-entry styles, or colour variations. A different colour requires a necessary semantic distinction. These forms are static: no motion fields, timer, or user commands. Keep every description brief and understandable. Never invent permissions, deadlines, causal categories, or values to fit a form.
 - quadrant: exactly four groups, in top-left, top-right, bottom-left, bottom-right order; xLabel and yLabel explain the axes.
 - radar/polar: 3–6 items with real non-negative value, at least one positive value, a common positive max, and explicit unit; no value exceeds max.
-- flywheel: 2–6 ordered items, only when the last station explicitly leads to the first. Keep each necessary station detail with that item. If a cycle of 3–6 stations explicitly updates a shared subject, put that subject in center (at most 80 characters). Leave center absent for an ordinary repeating sequence.
+- flywheel: ${flywheelContract(useClosedLoopSelection)}
 - tree: items with unique id (at most 40 characters), optional parent, exactly one root, acyclic, at most three levels. Use it for a direct parent and its children as well as for deeper hierarchies. Give the root the title when both name the same thing. Keep each child's description in its own detail.
 - stack: 2–6 ordered levels, without implying that one level leads to the next or contains it.
 - venn: three groups (left only, intersection, right only), with qualitative areas; each label at most 24 characters and at most one description of at most 48 characters per region. If the content does not fit, choose comparison rather than making the text ambiguous.
@@ -367,7 +383,7 @@ COMPOSITION
 Choose composition when comparing two alternatives and one has an indispensable internal sequence that a simple list would hide. Do not hide an explicit, relevant sequence in a note or a generic entry: retain its steps in the steps panel. Supply items:[], groups:[], body:"", quote:"", note, and panels:[{title,kind:"facts"|"steps",items:[{label,detail,iconQueries}],evidence}]. Exactly two panels with different forms: one facts and one steps; two facts lists become comparison. At most two levels, with 1–4 items per panel and at least two steps in a steps panel. Panel titles and item labels are at most 160 characters; details at most 600. The steps panel's evidence is an EXACT quotation documenting their order. Each step is a real successive action or state: a negation, requirement, or property is not a step, and a mere enumeration does not prove temporal order. facts contains independent properties. Do not repeat panel content in note. No nested panels, code, or coordinates. Each panel item uses ordinary iconQueries. Composition preserves different internal relationships; it is not a way to vary appearance when two simple lists already explain the concept.
 
 CATALOG
-${catalogText(types, variants, supportsConceptLayout)}
+${catalogText(types, variants, selection)}
 ${variants.length ? 'For a listed variant, use its parent as type and the variant name in variant. For the base form, omit variant.' : ''}
 
 Final check: does every sentence under a title add something? Are the entries of each group truly examples of that group? Evidence entries must be evidence, never reasons to doubt signs. If the passage provides only signs and limits, compare "Visible signs" and "Limits of signs" with versus, or list the named limits. Do not invent evidence to fill a comparison. An attribute repeated for every item moves to body or note. Can the closing text be omitted without losing necessary meaning? If yes, leave it empty. Every note must be necessary; avoid generic warnings such as "often, not always".`;
@@ -625,12 +641,12 @@ const findDraftProblems = (
   draft: SceneDraft,
   scene: LessonScene,
   source: string,
-  input: Pick<
-    GenerateLessonSceneInput,
-    'narration' | 'supportsConceptLayout' | 'useOrderedSceneSelection'
-  >
+  input: Pick<GenerateLessonSceneInput, 'narration' | keyof SceneSelection>
 ): string[] => [
   ...findOrderedDraftProblems(draft, input.useOrderedSceneSelection ?? true),
+  ...(input.useClosedLoopSelection === false && scene.type === 'flywheel' && !scene.center
+    ? ['Cycle requires 3–6 stations and a center.']
+    : []),
   ...(scene.type === 'proportional-static' &&
   (scene.items.length ||
     scene.groups.length ||
@@ -683,7 +699,12 @@ export async function generateLessonScene(
   // visuals (the learner's provider), while scene models come from the live configuration.
   const config = await getResolvedModelConfigForProvider(input.config.artifact.provider);
   const captioned = input.narration !== undefined;
-  const { supportsConceptLayout = true, useOrderedSceneSelection = true } = input;
+  const selection: SceneSelection = {
+    supportsConceptLayout: input.supportsConceptLayout ?? true,
+    useOrderedSceneSelection: input.useOrderedSceneSelection ?? true,
+    useClosedLoopSelection: input.useClosedLoopSelection ?? true,
+  };
+  const { supportsConceptLayout } = selection;
   // A resumed workflow must generate within the catalog admitted by its saved contract.
   // Spotlight definitions need the owning playback's canonical speech, not raw Markdown anchors.
   const relationKinds = input.allowedSceneRelationKinds ?? LESSON_SCENE_RELATION_KINDS;
@@ -691,8 +712,7 @@ export async function generateLessonScene(
     captioned,
     allowedTypes: input.allowedSceneTypes,
     relationKinds,
-    supportsConceptLayout,
-    useOrderedSceneSelection,
+    ...selection,
   });
   const variants = sceneVariants.filter(
     variant =>
@@ -756,7 +776,7 @@ export async function generateLessonScene(
     prompt: buildScenePrompt(input),
     signal: input.signal,
     slot: 'scene',
-    system: `${sceneSystemPrompt(types, variants, relationKinds, supportsConceptLayout, useOrderedSceneSelection)}${captionRule}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
+    system: `${sceneSystemPrompt(types, variants, relationKinds, selection)}${captionRule}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
   }).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
