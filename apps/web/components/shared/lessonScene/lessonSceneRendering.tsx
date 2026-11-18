@@ -216,10 +216,10 @@ const QUICK_GEOMETRY = {
     radius: 130,
     height: 420,
     labelGap: 24,
-    labelTop: 22,
+    upperValueOffset: 3,
     labelBottom: 16,
     labelOffset: 8,
-    valueLine: 25,
+    labelLineHeight: '1.5em',
     dot: 6,
   },
   scatter: {
@@ -401,8 +401,18 @@ const quickSvg = (
 );
 
 export const quickRadial = ({ scene }: SceneRenderContext) => {
-  const { cx, cy, radius, height, labelGap, labelTop, labelBottom, labelOffset, valueLine, dot } =
-    QUICK_GEOMETRY.radial;
+  const {
+    cx,
+    cy,
+    radius,
+    height,
+    labelGap,
+    upperValueOffset,
+    labelBottom,
+    labelOffset,
+    labelLineHeight,
+    dot,
+  } = QUICK_GEOMETRY.radial;
   const point = (index: number, distance: number) => [
     cx + Math.cos((index * 2 * Math.PI) / scene.items.length - Math.PI / 2) * distance,
     cy + Math.sin((index * 2 * Math.PI) / scene.items.length - Math.PI / 2) * distance,
@@ -412,10 +422,12 @@ export const quickRadial = ({ scene }: SceneRenderContext) => {
     let anchor: 'middle' | 'start' | 'end' = 'end';
     if (Math.abs(dx) < 1) anchor = 'middle';
     else if (dx > 0) anchor = 'start';
-    let top = y - labelOffset;
-    if (y < cy - radius) top = y - labelTop;
-    else if (y > cy + radius) top = y + labelBottom;
-    return { anchor, top };
+    const abovePlot = y < cy - radius;
+    let baseline = y - labelOffset;
+    // Above the plot, anchor the value so wider line spacing grows away from the grid.
+    if (abovePlot) baseline = y + upperValueOffset;
+    else if (y > cy + radius) baseline = y + labelBottom;
+    return { anchor, abovePlot, baseline };
   };
   const measurements = scene.items.map(
     item => `${item.label}: ${item.value} / ${scene.max} ${scene.unit}`
@@ -456,23 +468,31 @@ export const quickRadial = ({ scene }: SceneRenderContext) => {
       )}
       {scene.items.map((item, index) => {
         const [x, y] = point(index, radius + labelGap);
-        const { anchor, top } = labelPlacement(x, y);
+        const { anchor, abovePlot, baseline } = labelPlacement(x, y);
+        const nameOffset = abovePlot ? `-${labelLineHeight}` : undefined;
         return (
           <text
             // biome-ignore lint/suspicious/noArrayIndexKey: authored measures have stable order
             key={`${index}-${item.label}`}
             className="q-radial-label"
             x={x}
-            y={top}
+            y={baseline}
             textAnchor={anchor}
             data-playback-item={index}
           >
-            <tspan x={x}>{item.label}</tspan>
-            <tspan className="q-radial-value" x={x} dy={valueLine}>
+            <tspan x={x} dy={nameOffset}>
+              {item.label}
+            </tspan>
+            <tspan
+              className="q-radial-value"
+              x={x}
+              y={abovePlot ? baseline : undefined}
+              dy={abovePlot ? undefined : labelLineHeight}
+            >
               {item.value} / {scene.max}
               <tspan className="q-radial-inline-unit"> {scene.unit}</tspan>
             </tspan>
-            <tspan className="q-radial-marker" x={x}>
+            <tspan className="q-radial-marker" x={x} dy={nameOffset}>
               {index + 1}
             </tspan>
           </text>

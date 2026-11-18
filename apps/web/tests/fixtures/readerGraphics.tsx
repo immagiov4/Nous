@@ -21,9 +21,9 @@ const stages = [
   'Check the measurement equipment',
   'Repeat the measurement sequence',
   'Does the observation agree?',
-  'Record the confirmed observation',
+  'Record and publish the confirmed observation',
   'Review the measurement setup',
-  'Publish the verified result',
+  'Request an independent verification',
 ];
 
 const flowchart = (dense: boolean): LessonScene => {
@@ -51,7 +51,7 @@ const flowchart = (dense: boolean): LessonScene => {
         ...nodes.slice(0, decision).map((_, index) => edge(index, index + 1)),
         edge(decision, decision + 1, 'Yes'),
         edge(decision, decision + 2, 'No'),
-        ...(dense ? [edge(5, 7), edge(6, 3, 'Try again')] : []),
+        ...(dense ? [edge(4, 7, 'Unclear'), edge(6, 3, 'Try again')] : []),
       ],
     },
   };

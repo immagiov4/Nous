@@ -2397,11 +2397,15 @@
   display: none;
 }
 @container (max-width: 460px) {
+  .lesson-scene .quick-scene .q-svg:has(.q-radial-label) {
+    margin-block-start: var(--diagram-copy);
+  }
   .lesson-scene .quick-scene .q-radial-inline-unit {
     display: none;
   }
   .lesson-scene .quick-scene .q-radial-unit {
     display: block;
+    margin-block-start: var(--diagram-gap);
     color: var(--muted);
     font-size: var(--diagram-copy);
     text-align: center;

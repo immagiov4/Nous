@@ -42,6 +42,119 @@ const readingSize = (scene: Locator) =>
     Number.parseFloat(getComputedStyle(element).getPropertyValue('--diagram-copy'))
   );
 
+const numberedKey = (scene: Locator) =>
+  scene
+    .getByRole('list')
+    .getByRole('listitem')
+    .evaluateAll(items =>
+      items.map(item => ({ number: (item as HTMLLIElement).value, text: item.textContent }))
+    );
+
+async function radialPlatformFonts(chart: Locator, type: 'radar' | 'polar') {
+  const page = chart.page();
+  const session = await page.context().newCDPSession(page);
+  try {
+    await session.send('DOM.enable');
+    await session.send('CSS.enable');
+    const { root } = await session.send('DOM.getDocument');
+    const { nodeIds } = await session.send('DOM.querySelectorAll', {
+      nodeId: root.nodeId,
+      selector: `.type-${type} .q-radial-label > tspan`,
+    });
+    const nodes = await Promise.all(
+      nodeIds.map(nodeId => session.send('CSS.getPlatformFontsForNode', { nodeId }))
+    );
+    return [...new Set(nodes.flatMap(node => node.fonts.map(font => font.familyName)))];
+  } finally {
+    await session.detach();
+  }
+}
+
+async function expectRadialLayout(chart: Locator, type: 'radar' | 'polar', mobile: boolean) {
+  const scene = chart.locator('..');
+  const { labels, svg, viewport, valueToUnit, valueToGrid } = await scene.evaluate(element => {
+    const graphic = element.querySelector<SVGSVGElement>('svg.q-svg') as SVGSVGElement;
+    const matrix = graphic.getScreenCTM() as DOMMatrix;
+    const svg = { left: matrix.e, right: matrix.e + matrix.a * graphic.viewBox.baseVal.width };
+    const labels = Array.from(graphic.querySelectorAll('.q-radial-label'), label => {
+      const marker = label.querySelector('.q-radial-marker') as Element;
+      const showsMarker = getComputedStyle(marker).display !== 'none';
+      // Measure the unabridged label even when the reader substitutes a number.
+      label.removeAttribute('data-in-key');
+      const name = label.firstElementChild as Element;
+      const value = label.querySelector('.q-radial-value') as Element;
+      const a = name.getBoundingClientRect();
+      const b = value.getBoundingClientRect();
+      const font = getComputedStyle(name).font;
+      label.toggleAttribute('data-in-key', showsMarker);
+      return {
+        name: name.textContent,
+        measurement: `${name.textContent}: ${value.textContent}`,
+        font,
+        showsMarker,
+        left: Math.min(a.left, b.left),
+        right: Math.max(a.right, b.right),
+        lineGap: b.top - a.bottom,
+        bottom: b.bottom,
+      };
+    });
+    const unit = element.querySelector('.q-radial-unit') as Element;
+    const unitText = document.createRange();
+    unitText.selectNodeContents(unit);
+    const grid = graphic.querySelector('circle.q-grid:last-of-type') as Element;
+    return {
+      labels,
+      svg,
+      viewport: { width: innerWidth, height: innerHeight },
+      valueToUnit:
+        unitText.getBoundingClientRect().top -
+        Math.max(...labels.filter(label => !label.showsMarker).map(label => label.bottom)),
+      valueToGrid: grid.getBoundingClientRect().top - labels[0].bottom,
+    };
+  });
+  const authored =
+    type === 'radar'
+      ? [
+          'Chiarezza: 4 / 5 punti',
+          'Copertura: 3 / 5 punti',
+          'Verifica: 5 / 5 punti',
+          'Tracciabilità: 4 / 5 punti',
+        ]
+      : [
+          '00–06: 20 / 100 richieste',
+          '06–12: 60 / 100 richieste',
+          '12–18: 80 / 100 richieste',
+          '18–24: 40 / 100 richieste',
+        ];
+  expect(labels.map(label => label.measurement)).toEqual(authored);
+  const fallback = labels.map(label => label.left < svg.left || label.right > svg.right);
+  const mismatches = labels.filter((label, index) => label.showsMarker !== fallback[index]);
+  const diagnostic =
+    mismatches.length || fallback.includes(true)
+      ? JSON.stringify({
+          type,
+          viewport,
+          svg,
+          labels,
+          platformFonts: await radialPlatformFonts(chart, type),
+        })
+      : undefined;
+  expect(mismatches, diagnostic).toEqual([]);
+  if (diagnostic) console.info('Radial label fallback', diagnostic);
+  expect(await numberedKey(scene)).toEqual(
+    authored.flatMap((text, index) => (fallback[index] ? [{ number: index + 1, text }] : []))
+  );
+  const inline = labels.filter(label => !label.showsMarker);
+  expect(inline.length).toBeGreaterThan(0);
+  if (mobile) {
+    expect
+      .soft(Math.min(...inline.map(label => label.lineGap)), type + ' category and value')
+      .toBeGreaterThan(0);
+    expect.soft(valueToUnit, type + ' value and unit').toBeGreaterThan(await readingSize(scene));
+    expect.soft(valueToGrid, type + ' value and plot').toBeGreaterThan(0);
+  }
+}
+
 const networkGaps = (network: Locator) =>
   network.evaluate(element => {
     const root = element.querySelector<HTMLElement>('.hub');
@@ -82,7 +195,49 @@ async function expectHorizontalScrollbar(dense: Locator, short: Locator, mobile:
   await bar.press('Home');
   await expect.poll(scrollLeft).toBe(0);
 
-  if (!mobile) {
+  if (mobile) {
+    const session = await page.context().newCDPSession(page);
+    const drag = async (startX: number, y: number, distance: number) => {
+      await session.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [{ x: startX, y }],
+      });
+      for (let step = 1; step <= 8; step++) {
+        await session.send('Input.dispatchTouchEvent', {
+          type: 'touchMove',
+          touchPoints: [{ x: startX + (distance * step) / 8, y }],
+        });
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+      }
+      await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    };
+    try {
+      await bar.scrollIntoViewIfNeeded();
+      const track = await bar.boundingBox();
+      if (!track) throw new Error('The thumb must be visible to drag.');
+      const fraction = await dense.evaluate(el => el.clientWidth / el.scrollWidth);
+      const startX = track.x + (track.width * fraction) / 2;
+      const centerY = track.y + track.height / 2;
+      await drag(startX, centerY, track.width * (1 - fraction));
+      await expect
+        .poll(scrollLeft, { message: 'touch drag moves the thumb and diagram' })
+        .toBeGreaterThan(maximum / 2);
+      expect(Number(await bar.inputValue())).toBe(await scrollLeft());
+      await bar.press('Home');
+      await expect.poll(scrollLeft).toBe(0);
+      await dense.evaluate(element => element.scrollIntoView({ block: 'start' }));
+      const plot = await dense.boundingBox();
+      if (!plot) throw new Error('The diagram must be visible to swipe.');
+      const x = plot.x + plot.width * 0.75;
+      const y = plot.y + Math.min(plot.height / 2, 100);
+      await drag(x, y, -plot.width / 3);
+      await expect
+        .poll(scrollLeft, { message: 'touch swipe moves the diagram' })
+        .toBeGreaterThan(0);
+    } finally {
+      await session.detach();
+    }
+  } else {
     await bar.scrollIntoViewIfNeeded();
     const bounds = await bar.boundingBox();
     if (!bounds) throw new Error('The scrollbar must be available to drag.');
@@ -150,7 +305,7 @@ test.each(contexts)('keeps reader graphics readable in $device $colorScheme', as
       });
     }
 
-    for (const type of ['radar', 'polar', 'scatter']) {
+    for (const type of ['radar', 'polar', 'scatter'] as const) {
       const scene = page.locator(`.type-${type}`);
       const title = await scene.getByRole('heading', { level: 2 }).innerText();
       const chart = scene.getByRole('img', { name: title });
@@ -159,9 +314,7 @@ test.each(contexts)('keeps reader graphics readable in $device $colorScheme', as
         type === 'scatter' ? 'text, .q-scatter-point-label' : 'text > tspan:visible'
       );
       expect(measured.length, type).toBeGreaterThan(0);
-      if (type !== 'scatter') {
-        expect(await chart.locator('.q-radial-label > tspan:first-child:visible').count()).toBe(4);
-      }
+      if (type !== 'scatter') await expectRadialLayout(chart, type, mobile);
       const sceneBounds = await page
         .locator('figure.lesson-scene')
         .filter({ has: scene })
@@ -294,14 +447,13 @@ test.each([
     expect(
       text.filter(label => label.left < bounds.x - 1 || label.right > bounds.x + bounds.width + 1)
     ).toEqual([]);
-    const key = plot.getByRole('list');
     const expected =
       type === 'radar'
         ? ['3 / 5 punti', '4 / 5 punti']
         : ['60 / 100 richieste', '40 / 100 richieste'];
-    expect(await key.getByRole('listitem').allTextContents()).toEqual([
-      expect.stringMatching(new RegExp(`^Eastern measure.*: ${expected[0]}$`)),
-      expect.stringMatching(new RegExp(`^Western measure.*: ${expected[1]}$`)),
+    expect(await numberedKey(plot)).toEqual([
+      { number: 2, text: expect.stringMatching(new RegExp(`^Eastern measure.*: ${expected[0]}$`)) },
+      { number: 4, text: expect.stringMatching(new RegExp(`^Western measure.*: ${expected[1]}$`)) },
     ]);
     expect(text.map(label => label.text)).toEqual(expect.arrayContaining(['2', '4']));
   } finally {
