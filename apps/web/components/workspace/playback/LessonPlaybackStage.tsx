@@ -1,6 +1,6 @@
 import { type FormulaSpotlightData, formulaSpotlightCovers } from '@shared/formulaSpotlight';
 import {
-  getPlaybackFormulaMarkdown,
+  getPlaybackFormulaCard,
   getPlaybackFormulaSources,
   getPlaybackMathMarkdown,
   type LessonPlaybackBlock,
@@ -57,6 +57,7 @@ import {
 } from './captionFormat.ts';
 import { type CaptionTimingClock, createCaptionTiming } from './captionTiming.ts';
 import { captionViewport } from './captionViewport.ts';
+import { NARRATED_FORMULA_CLASS, useNarratedFormulaFocus } from './narratedFormulaFocus.ts';
 import {
   activeFocusCue,
   type CaptionRun,
@@ -298,12 +299,14 @@ function PlaybackStoredVisual({
 }
 
 function PlaybackVisualContent({
+  narratedFormula,
   visual,
   content,
   onImageUnavailable,
   ...props
 }: Readonly<{
   visual: PlaybackVisual;
+  narratedFormula?: boolean;
   onImageUnavailable: (imageId: string) => void;
   content: WorkspaceReaderContentModel;
   block: LessonPlaybackBlock;
@@ -340,6 +343,7 @@ function PlaybackVisualContent({
       {visual.kind === 'markdown' ? (
         <MarkdownRenderer
           content={visual.markdown}
+          className={narratedFormula ? NARRATED_FORMULA_CLASS : undefined}
           isDarkMode={content.isDarkMode}
           projectId={content.projectId}
           lessonAssetsById={content.activeSectionAssetsById}
@@ -578,6 +582,11 @@ function PlaybackPassage({
       hasPreparedVisualSections(visualBlock, sources) ? preparedVisualTimeline(visualBlock) : null,
     [visualBlock, sources]
   );
+  const formulaCard = useMemo(() => getPlaybackFormulaCard(block, sources), [block, sources]);
+  const formulaFallback = useMemo(
+    () => formulaCard && { kind: 'markdown' as const, markdown: formulaCard.markdown },
+    [formulaCard]
+  );
   const visualCandidates = useMemo(() => {
     if (!visualTimeline) return [];
     if (visualBlock.prepared?.sections?.length)
@@ -589,7 +598,6 @@ function PlaybackPassage({
             }
           : null
       );
-    const formulas = getPlaybackFormulaMarkdown(block, sources);
     const cards = block.visuals.filter(
       visual =>
         visual.kind === 'markdown' && block.spans.some(span => span.math === visual.markdown)
@@ -601,13 +609,13 @@ function PlaybackPassage({
     const projected = availableVisuals(sourceVisuals);
     if (
       scene?.type === 'formula-spotlight' &&
-      formulas &&
+      formulaFallback &&
       !formulaSpotlightCovers(
         scene as FormulaSpotlightData,
         getPlaybackFormulaSources(block, sources)
       )
     )
-      return projected.length ? projected : [{ kind: 'markdown' as const, markdown: formulas }];
+      return projected.length ? projected : [formulaFallback];
     if (scene && getPlaybackMathMarkdown(block))
       return [...projected, { kind: 'scene' as const, scene }];
     if (projected.length)
@@ -620,10 +628,9 @@ function PlaybackPassage({
             getStoredLessonVisualScene(availableGeneratedVisuals[visual.visualId]));
         return existingScene ? { kind: 'scene' as const, scene } : visual;
       });
-    if (formulas && !visualBlock.prepared?.scene)
-      return [{ kind: 'markdown' as const, markdown: formulas }];
+    if (formulaFallback && !visualBlock.prepared?.scene) return [formulaFallback];
     if (scene) return [{ kind: 'scene' as const, scene }];
-    if (formulas) return [{ kind: 'markdown' as const, markdown: formulas }];
+    if (formulaFallback) return [formulaFallback];
     return [];
   }, [
     visualBlock,
@@ -633,6 +640,7 @@ function PlaybackPassage({
     sources,
     availableGeneratedVisuals,
     visualTimeline,
+    formulaFallback,
   ]);
   const needsVisual = visualCandidates.length === 0 && !visualTimeline?.length;
   const { projectId, activeSectionId: sectionId } = content;
@@ -764,10 +772,7 @@ function PlaybackPassage({
   let selectedScene: LessonScene | null = null;
   if (visual?.kind === 'scene') selectedScene = visual.scene;
   else if (selectedStored) selectedScene = getStoredLessonVisualScene(selectedStored);
-  const formulaMarkdown = useMemo(
-    () => getPlaybackFormulaMarkdown(block, sources),
-    [block, sources]
-  );
+  const formulaMarkdown = formulaCard?.markdown;
   const supplementalFormula =
     formulaMarkdown &&
     (!visualRanges[visualIndex] || visualBlock.prepared?.sections?.length) &&
@@ -775,6 +780,31 @@ function PlaybackPassage({
     !(visual?.kind === 'markdown' && visual.markdown === formulaMarkdown)
       ? formulaMarkdown
       : undefined;
+  const projectedFormula = formulaFallback && visualCandidates[visualIndex] === formulaFallback;
+  const authoredFormulaRows = useMemo(() => {
+    const range = visualRanges[visualIndex];
+    if (visual?.kind !== 'markdown' || !range || !formulaCard) return undefined;
+    const source = block.spans.find(
+      span =>
+        span.math === visual.markdown &&
+        span.speech.start === range.start &&
+        span.speech.end === range.end
+    );
+    const row = formulaCard.rows.find(row => row.range === source?.speech);
+    return row?.range ? [row] : undefined;
+  }, [block.spans, formulaCard, visual, visualIndex, visualRanges]);
+  const visualKey = JSON.stringify([
+    visualIndex,
+    visual,
+    supplementalFormula,
+    [...unavailableImages],
+  ]);
+  useNarratedFormulaFocus(
+    sceneCard,
+    clock,
+    supplementalFormula || projectedFormula ? formulaCard?.rows : authoredFormulaRows,
+    loading ? undefined : aligned
+  );
   const sceneProps = {
     itemRanges: visualTimeline?.[visualIndex]?.items,
     block: visualBlock,
@@ -854,7 +884,7 @@ function PlaybackPassage({
   ]);
   const visualCard = (
     <SaveablePlaybackVisual
-      key={JSON.stringify([visualIndex, visual, supplementalFormula, [...unavailableImages]])}
+      key={visualKey}
       hasVisual={!!visual}
       cardRef={sceneCard}
       scene={selectedScene}
@@ -880,7 +910,11 @@ function PlaybackPassage({
         />
       ))}
       {supplementalFormula ? (
-        <MarkdownRenderer content={supplementalFormula} isDarkMode={content.isDarkMode} />
+        <MarkdownRenderer
+          content={supplementalFormula}
+          isDarkMode={content.isDarkMode}
+          className={NARRATED_FORMULA_CLASS}
+        />
       ) : null}
       {visual ? (
         <PlaybackVisualContent
@@ -892,6 +926,7 @@ function PlaybackPassage({
             duration: duration / visuals.length,
           }}
           visual={visual}
+          narratedFormula={!supplementalFormula && Boolean(projectedFormula || authoredFormulaRows)}
           content={{
             ...content,
             activeSectionAssetsById: availableAssets,

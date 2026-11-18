@@ -1869,6 +1869,89 @@ test('keeps a text-only prepared passage in captions while the visual panel is p
   expect(container.querySelector('.scene-host')?.textContent).toBe('');
 });
 
+test('highlights each standalone formula occurrence on its own aligned narration range', () => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        '# Fattoriale\n\nIl prodotto è questo.\n\n$$\nn! = n \\times \\cdots \\times 1\n$$\n\nQui $n$ conta. I $\\cdots$ continuano. Poi $n$ basta.',
+    },
+  ];
+  const raw = segmentLessonPlayback(sources)[1];
+  const block = {
+    ...raw,
+    prepared: {
+      motion: [],
+      spokenMath: [
+        { formula: '$n$', spoken: 'enne' },
+        { formula: '$\\cdots$', spoken: 'puntini di sospensione' },
+        { formula: '$n$', spoken: 'enne' },
+      ],
+    },
+  };
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  let time = 0;
+  const alignment = { status: 'aligned' as const, onsets: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] };
+  const view = (props: { aligned?: boolean; linked?: boolean; revision?: number } = {}) => (
+    <LessonPlaybackStage
+      block={props.linked === false ? raw : block}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      alignment={props.aligned === false ? undefined : alignment}
+      duration={11}
+      time={time}
+      readTime={() => time}
+      seekRevision={props.revision}
+    />
+  );
+  const { container, rerender } = render(view());
+  const rows = () => [...container.querySelectorAll('.scene-host .katex')];
+  const active = () =>
+    rows().flatMap((row, index) =>
+      row.hasAttribute('data-playback-formula-current') ? [index] : []
+    );
+  const advance = (next: number) => {
+    time = next;
+    act(() => {
+      const queued = [...frames.values()];
+      frames.clear();
+      for (const callback of queued) callback(0);
+    });
+  };
+  expect(rows().map(row => row.querySelector('annotation')?.textContent?.trim())).toEqual([
+    'n! = n \\times \\cdots \\times 1',
+    'n',
+    '\\cdots',
+    'n',
+  ]);
+  expect(active()).toEqual([]);
+  advance(1.2);
+  expect(active()).toEqual([1]);
+  advance(2);
+  expect(active()).toEqual([]);
+  advance(5.2);
+  expect(active()).toEqual([2]);
+  advance(9.2);
+  expect(active()).toEqual([3]);
+  rerender(view({ revision: 1 }));
+  advance(4.2);
+  expect(active()).toEqual([2]);
+  rerender(view({ aligned: false, revision: 1 }));
+  advance(4.2);
+  expect(active()).toEqual([]);
+  rerender(view({ linked: false, revision: 1 }));
+  advance(4.2);
+  expect(active()).toEqual([]);
+  expect(rows()).toHaveLength(4);
+});
 test('retains the complete authored formula while the next passage explains its subscript', () => {
   const sources = [
     {
