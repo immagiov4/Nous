@@ -278,7 +278,7 @@ test.each([
 });
 test('keeps a visible heatmap scale when the draft puts the unit in unitLabel', async () => {
   const quote = '**Scale of 0 to 10 cases**';
-  const source = quote + '\n\nNorth reports 0 in January and 5 in February.';
+  const source = `${quote}\n\nNorth reports 0 in January and 5 in February.`;
   const draft = {
     ...sceneDraft(source),
     type: 'matrix',
@@ -449,6 +449,72 @@ test.each([
   expect(outcome.scene.max).toBe(example.confirmed ? example.max : undefined);
   expect(outcome.scene.unit).toBe(example.confirmed ? example.unit : undefined);
 });
+test.each([
+  {
+    source:
+      'Survey. <span hidden>Scale: 0–5 cases.</span> Scale: 0–10 cases. North reports 0 and 5.',
+    quote: 'Scale: 0–5 cases',
+    max: 5,
+    unit: 'cases',
+    expected: undefined,
+  },
+  {
+    source:
+      'Survey. <span hidden>Scale: 0–5 cases.</span> Scale: 0–10 cases. North reports 0 and 5.',
+    quote: 'Scale: 0–10 cases',
+    max: 10,
+    unit: 'cases',
+    expected: 10,
+  },
+  {
+    source: '**Scale: 0%–10%**. North reports 0 and 5.',
+    quote: 'Scale: 0%–10%',
+    max: 10,
+    unit: '%',
+    expected: 10,
+  },
+  {
+    source:
+      'The table may use either scale. Scale: 0–10 cases. Scale: 0–5 cases. North reports 0 and 5.',
+    quote: 'Scale: 0–10 cases',
+    max: 10,
+    unit: 'cases',
+    expected: undefined,
+  },
+  {
+    source: 'Both scales are listed. Scale: 0–10 cases. Scale: 0–10 points. North reports 0 and 5.',
+    quote: 'Scale: 0–10 cases',
+    max: 10,
+    unit: 'cases',
+    expected: undefined,
+  },
+  {
+    source: 'Use either scale of 0 to 10 cases or 0 to 5 cases here. North reports 0 and 5.',
+    quote: 'Use either scale of 0 to 10 cases or 0 to 5 cases here',
+    max: 10,
+    unit: 'cases',
+    expected: undefined,
+  },
+])('keeps only a unique visible scale for "$source" and "$quote"', async example => {
+  const draft = {
+    ...sceneDraft(example.source),
+    type: 'matrix',
+    variant: 'heatmap',
+    items: [],
+    columns: ['January', 'February'],
+    rows: [{ label: 'North', values: [0, 5] }],
+    max: example.max,
+    unit: example.unit,
+    scaleEvidence: example.quote,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  confirmHeatmapScale(example.quote, example.max, example.unit);
+  const outcome = await generateLessonScene(unplannedInput(example.source));
+  expect(outcome).toMatchObject({ kind: 'scene', scene: { rows: draft.rows } });
+  if (outcome.kind !== 'scene') throw new Error('Expected a numeric table');
+  expect(outcome.scene.max).toBe(example.expected);
+});
+
 test('offers checklist for new hypotheses and preserves a hypothesis-only resumed contract', async () => {
   const source = 'Verifica se il client usa DNS.';
   const input = unplannedInput(source);
