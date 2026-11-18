@@ -3,6 +3,7 @@ import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import { LessonSceneAnimationShape } from '@shared/lessonPlaybackSchema';
 import {
   findLessonSceneProblems,
+  GENERATABLE_LESSON_SCENE_TYPES,
   GUIDED_PATH_MAX_STEPS,
   GUIDED_PATH_MIN_STEPS,
   hasConflictingLessonSceneClosingText,
@@ -11,7 +12,6 @@ import {
   LESSON_SCENE_DIAGRAM_TYPES,
   LESSON_SCENE_REGISTRY,
   LESSON_SCENE_RELATION_KINDS,
-  LESSON_SCENE_TYPES,
   LESSON_SCENE_VERDICTS,
   type LessonScene,
   LessonSceneSchema,
@@ -118,7 +118,7 @@ const draftItemShape = {
 const SceneDraftSchema = z.strictObject({
   intent: z.string(),
   evidence: z.string(),
-  type: z.enum(LESSON_SCENE_TYPES),
+  type: z.enum(GENERATABLE_LESSON_SCENE_TYPES),
   title: z.string(),
   body: z.string(),
   items: z.array(
