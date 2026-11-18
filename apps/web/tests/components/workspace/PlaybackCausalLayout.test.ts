@@ -21,6 +21,160 @@ const formulaViewports = [
   { width: 390, height: 844 },
 ];
 
+const measureInstrumentBorders = (entries: Element[]) =>
+  entries.map(entry => {
+    const css = getComputedStyle(entry);
+    const box = entry.getBoundingClientRect();
+    return {
+      label: entry.querySelector('strong')?.textContent,
+      description: entry.querySelector('p')?.textContent,
+      icon: entry.querySelector('[data-icon]')?.getAttribute('data-icon'),
+      sides: ['top', 'right', 'bottom', 'left'].map(side => ({
+        side,
+        width: css.getPropertyValue(`border-${side}-width`),
+        style: css.getPropertyValue(`border-${side}-style`),
+        color: css.getPropertyValue(`border-${side}-color`),
+        padding: css.getPropertyValue(`padding-${side}`),
+      })),
+      radius: css.borderTopLeftRadius,
+      x: box.x,
+      y: box.y,
+    };
+  });
+
+test.each(
+  formulaViewports.flatMap(viewport =>
+    [false, true].flatMap(dark =>
+      ['playback', 'reader', 'thumbnail'].map(surface => ({ viewport, dark, surface }))
+    )
+  )
+)('outlines every instrument in $surface at $viewport.width px (dark=$dark)', async ({
+  viewport,
+  dark,
+  surface,
+}) => {
+  const page = await browser.newPage({ viewport, reducedMotion: 'reduce' });
+  const url = `${baseUrl}tests/fixtures/playbackLayout.html?concept-example=grid&concept-surface=${surface}${dark ? '&dark' : ''}`;
+  try {
+    await page.goto(url);
+    const figure = page.locator('.lesson-scene');
+    await figure.locator('h2').waitFor();
+    await page.evaluate(() => document.fonts.ready);
+    const cards = figure.locator('.parts > .concept');
+    const measurements = await cards.evaluateAll(measureInstrumentBorders);
+    const fileName = `grid-border-${surface}-${viewport.width}-${dark ? 'dark' : 'light'}`;
+    await evidence(page, fileName);
+    if (process.env.PHONE_VISUAL_EVIDENCE) {
+      await writeFile(
+        path.join(process.env.PHONE_VISUAL_EVIDENCE, `${fileName}.json`),
+        JSON.stringify(measurements, null, 2)
+      );
+    }
+    expect(measurements.map(({ label, description, icon }) => [label, description, icon])).toEqual([
+      ['Thermometer', 'Air temperature', 'temperature'],
+      ['Rain gauge', 'Rainfall collected', 'droplet'],
+      ['Wind vane', 'Wind direction', 'wind'],
+    ]);
+    for (const entry of measurements) {
+      expect(Number.parseFloat(entry.radius)).toBeGreaterThan(0);
+      for (const side of entry.sides) {
+        expect(side.style).toBe('solid');
+        expect(Number.parseFloat(side.width)).toBeGreaterThan(0);
+        expect(Number.parseFloat(side.padding)).toBeGreaterThan(0);
+        expect(side.color).toBe(entry.sides[0].color);
+        expect(side.color).not.toBe('rgba(0, 0, 0, 0)');
+      }
+    }
+    if (surface === 'playback') {
+      await page.goto(`${url}&boundary`);
+      await figure.locator('.parts > .concept.motion-target').last().waitFor();
+      expect(
+        (await cards.evaluateAll(measureInstrumentBorders)).map(({ radius, sides }) => ({
+          radius,
+          sides,
+        }))
+      ).toEqual(measurements.map(({ radius, sides }) => ({ radius, sides })));
+    }
+  } finally {
+    await page.close();
+  }
+});
+
+const sourceAttributeContrast = (source: Element) => {
+  const luminance = (color: string) => {
+    const [red, green, blue] = (color.match(/[\d.]+/gu) ?? []).map(value => {
+      const channel = Number(value) / 255;
+      return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    });
+    return red * 0.2126 + green * 0.7152 + blue * 0.0722;
+  };
+  const label = source.querySelector('dt');
+  if (!label) throw new Error('Expected the source attribute label');
+  const foreground = luminance(getComputedStyle(label).color);
+  const background = luminance(getComputedStyle(source).backgroundColor);
+  return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+};
+
+test.each(
+  formulaViewports.flatMap(viewport => [false, true].map(dark => ({ viewport, dark })))
+)('preserves concept layouts and scope at $viewport.width px (dark=$dark)', async ({
+  viewport,
+  dark,
+}) => {
+  const page = await browser.newPage({ viewport, reducedMotion: 'reduce' });
+  const mobile = viewport.width === 390;
+  try {
+    for (const variant of ['grid', 'roles', 'featured', 'scope']) {
+      await page.goto(
+        `${baseUrl}tests/fixtures/playbackLayout.html?concept-example=${variant}${dark ? '&dark' : ''}`
+      );
+      const host = page.locator('.scene-host');
+      await host.locator('h2').waitFor();
+      if (variant === 'grid') {
+        const entries = host.locator('.parts strong');
+        expect(await entries.allTextContents()).toEqual(['Thermometer', 'Rain gauge', 'Wind vane']);
+        const [first, second] = await Promise.all([
+          entries.nth(0).boundingBox(),
+          entries.nth(1).boundingBox(),
+        ]);
+        expect(first).not.toBeNull();
+        expect(second).not.toBeNull();
+        if (mobile) expect(second?.y).toBeGreaterThan(first?.y ?? 0);
+        else expect(second?.x).toBeGreaterThan(first?.x ?? 0);
+      } else if (variant === 'roles') {
+        const observer = host.locator('.roles section').first();
+        expect(await observer.locator('strong').innerText()).toBe('Observer');
+        expect(await observer.locator('p').innerText()).toBe('Identifies birds by sight and sound');
+        const icon = await observer.locator('.avatar').boundingBox();
+        const name = await observer.locator('strong').boundingBox();
+        if (mobile) expect(name?.x).toBeGreaterThan(icon?.x ?? 0);
+        else expect(name?.y).toBeGreaterThan(icon?.y ?? 0);
+      } else if (variant === 'featured') {
+        const profile = host.locator('.source-profile');
+        expect(await profile.innerText()).toContain('Field guide');
+        const principal = await profile.boundingBox();
+        const attributes = await host.locator('dl').boundingBox();
+        if (mobile) expect(attributes?.y).toBeGreaterThan(principal?.y ?? 0);
+        else expect(attributes?.x).toBeGreaterThan(principal?.x ?? 0);
+        expect(
+          await host.locator('.source').evaluate(sourceAttributeContrast)
+        ).toBeGreaterThanOrEqual(4.5);
+      } else {
+        const regions = host.locator('.boundary-regions section');
+        expect(await regions.locator('h3').allTextContents()).toEqual(['Members', 'Visitors']);
+        const outlineStyle = await regions.evaluateAll(sections =>
+          sections.map(section => getComputedStyle(section).outlineStyle)
+        );
+        expect(outlineStyle[0]).toBe('dashed');
+        expect(outlineStyle[1]).not.toBe('dashed');
+      }
+      await evidence(page, `concept-${variant}-${viewport.width}-${dark ? 'dark' : 'light'}`);
+    }
+  } finally {
+    await page.close();
+  }
+});
+
 test.each(
   ['tall', 'wide', 'square'].flatMap(aspect =>
     [

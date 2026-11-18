@@ -113,7 +113,13 @@ beforeEach(() => {
   motion.mockResolvedValue(events);
 });
 
-test('replaces an earlier summary with a complete source-list scene while reusing its recording', async () => {
+test.each([
+  { type: 'concepts', conceptLayout: 'grid', supportsConceptLayout: true },
+  { type: 'parts', supportsConceptLayout: false },
+] as const)('replaces an earlier summary with a complete $type scene while reusing its recording', async ({
+  supportsConceptLayout,
+  ...layout
+}) => {
   const sources = [
     {
       type: 'markdown' as const,
@@ -124,6 +130,7 @@ test('replaces an earlier summary with a complete source-list scene while reusin
   const list = segmentLessonPlayback(sources)[1];
   const listScene = {
     ...scene,
+    ...layout,
     items: ['Scopo', 'Risorse', 'Tempi', 'Rischi', 'Verifica'].map(label => ({
       label,
       detail: '',
@@ -137,6 +144,7 @@ test('replaces an earlier summary with a complete source-list scene while reusin
   };
   const prepared = await prepareLessonPlaybackVisuals({
     ...input(),
+    supportsConceptLayout,
     lesson: { title: 'Piano', sources },
     block: {
       ...list,
@@ -145,6 +153,8 @@ test('replaces an earlier summary with a complete source-list scene while reusin
       audio: [recording],
     },
   });
+  expect(prepared.sections?.[0].scene).toMatchObject(layout);
+  expect(sceneGeneration.mock.calls[0][0].allowedSceneTypes).toEqual([layout.type]);
   expect(prepared.sections?.[0].scene.items.map(item => item.label)).toEqual([
     'Scopo',
     'Risorse',
@@ -195,14 +205,15 @@ test('prepares one recording and retains a list between two text-only passages',
       spans: [{ speech: range, source: range, sourceBlockIndex: 0 }],
     },
   };
+  const list = { ...scene, type: 'concepts' as const, conceptLayout: 'grid' as const };
   sceneGeneration
     .mockResolvedValueOnce({ kind: 'text' })
-    .mockResolvedValueOnce({ kind: 'scene', scene })
+    .mockResolvedValueOnce({ kind: 'scene', scene: list })
     .mockResolvedValueOnce({ kind: 'text' });
   const { prepared } = await prepareLessonPlaybackBlock(target);
   expect(prepared).toMatchObject({
-    scene,
-    sections: [{ scene }],
+    scene: list,
+    sections: [{ scene: list }],
     textOnlyRanges: [
       { start: 0, end: speech.indexOf('- First') },
       { start: speech.indexOf('\n\nThe tank'), end: speech.length },
@@ -1258,7 +1269,10 @@ test('keeps a structural section animation linked to its recording with its own 
       steps: guidedPathScene.steps.map(step => ({ ...step, anchor: undefined })),
     },
   });
-  sceneGeneration.mockResolvedValue({ kind: 'scene', scene });
+  sceneGeneration.mockResolvedValue({
+    kind: 'scene',
+    scene: { ...scene, type: 'concepts', conceptLayout: 'grid' },
+  });
   structured.mockResolvedValue({
     cues: guidedPathScene.steps.map((step, value) => ({ anchor: step.anchor, value })),
   });

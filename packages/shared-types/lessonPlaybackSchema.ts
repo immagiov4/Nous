@@ -6,7 +6,7 @@ import {
   validatePlaybackFencedCode,
   validatePlaybackSpokenMath,
 } from './lessonPlayback';
-import { isLessonScene, LessonSceneSchema } from './lessonScene';
+import { isGridLessonScene, isLessonScene, LessonSceneSchema } from './lessonScene';
 import { isValidProjectAssetRef, type ProjectAssetRef } from './projectAsset';
 
 export {
@@ -217,7 +217,7 @@ const validVisualSections = (block: LessonPlaybackBlock): boolean => {
       range.start < range.end &&
       range.end <= length &&
       (!items ||
-        (scene.type === 'parts' &&
+        (isGridLessonScene(scene) &&
           scene.items.length === items.length &&
           items.every(
             (item, index) =>

@@ -40,7 +40,8 @@ export const createProductionLessonPlaybackServices = (
     supportsUnlinkedFormulaSymbols = true,
     synchronizeAnimations = false,
     supportsVisualSections = true,
-    supportsTextOnlyVisuals = true
+    supportsTextOnlyVisuals = true,
+    supportsConceptLayout = true
   ) => {
     const project = await projectStore.loadProjectWithRevision(input.userId, input.projectId);
     const section = project && findProjectLessonSection(project.snapshot, input.sectionId);
@@ -69,6 +70,7 @@ export const createProductionLessonPlaybackServices = (
       lesson,
       allowedSceneTypes,
       supportsUnlinkedFormulaSymbols,
+      supportsConceptLayout,
     });
     const visualSources = supportsVisualSections ? lesson.sources : [];
     const visualReady = (candidate: LessonPlaybackBlock) =>
@@ -89,6 +91,7 @@ export const createProductionLessonPlaybackServices = (
       synchronizeAnimations,
       supportsVisualSections,
       supportsTextOnlyVisuals,
+      supportsConceptLayout,
       allowedSceneTypes,
       supportsSpokenMath,
       supportsFencedCode,

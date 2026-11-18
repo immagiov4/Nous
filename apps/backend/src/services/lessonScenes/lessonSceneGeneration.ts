@@ -65,6 +65,7 @@ export type LessonSceneOutcome =
 export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'plan'> & {
   readonly allowedSceneTypes?: readonly LessonSceneType[];
   readonly authoredFormulaFallback?: boolean;
+  readonly supportsConceptLayout?: boolean;
   readonly narration?: string;
   readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
@@ -98,6 +99,7 @@ const SceneDiagramSchema = z.strictObject({
 // Key order is the generation order: the model states its intent and evidence before the form.
 const SceneDraftFormShape = LessonSceneSchema.omit({
   type: true,
+  conceptLayout: true,
   title: true,
   body: true,
   items: true,
@@ -187,7 +189,38 @@ const SceneDraftSchema = z.strictObject({
     .optional(),
 });
 
-type SceneDraft = z.infer<typeof SceneDraftSchema>;
+const ConceptSceneDraftSchema = SceneDraftSchema.extend({
+  conceptLayout: LessonSceneSchema.shape.conceptLayout,
+});
+const BoundarySceneDraftSchema = ConceptSceneDraftSchema.extend({
+  scopeEvidence: z.string().optional(),
+  groups: SceneDraftSchema.shape.groups.element
+    .extend({
+      scopeSide: z.enum(['inside', 'outside']).optional(),
+    })
+    .array(),
+});
+type SceneDraft = z.infer<typeof BoundarySceneDraftSchema>;
+
+const selectDraftSchema = (types: readonly LessonSceneType[], supportsConceptLayout: boolean) => {
+  if (!supportsConceptLayout) return SceneDraftSchema;
+  return types.includes('boundary') ? BoundarySceneDraftSchema : ConceptSceneDraftSchema;
+};
+
+const conceptLayoutRules = `- concepts: use items and leave groups empty. Omit conceptLayout for a vertical described list. Set conceptLayout to grid for equally important parts or independent calculations. Keep the same item order at all widths. Preserve concise item-specific details needed to read the grid. For one scope, name the scope in the title and list what belongs to it. For a counterexample, label the rule and the case in the lesson language and show which condition fails. For limits, name what the observation shows and what it cannot establish in the item labels.
+- Set conceptLayout to roles for people or system components with distinct responsibilities. Each item label names the actor or role, and its detail gives the responsibility. Supply an icon for each actor.
+- Set conceptLayout to featured when the first item is the principal entity. For a source, the first item identifies the source and the remaining items name its attributes, such as scope and relevance, with their details. For an argument, state the thesis in the title with an evidence list or place it in the featured first item and label the subsequent items as supporting evidence. Use comparison for evidence that teaches an explicit comparative relation. State the names and relationships visibly in the lesson language.`;
+
+const legacyConceptRules = (types: readonly LessonSceneType[]) =>
+  [
+    types.includes('limits') &&
+      '- limits: two items meaning "Shows" and "Does not prove", in the lesson language.',
+    types.includes('roles') && '- roles: people as items with a neutral profile.',
+    types.includes('source') &&
+      '- source: the first item identifies the source. The others state its competence and relevance with a criterion label and concrete detail.',
+  ]
+    .filter(Boolean)
+    .join('\n');
 
 const sceneVariantFamilies = {
   'proportional-static': 'proportional',
@@ -199,20 +232,26 @@ const sceneVariants = Object.keys(sceneVariantFamilies) as (keyof typeof sceneVa
 
 const catalogText = (
   types: readonly LessonSceneType[],
-  variants: readonly (typeof sceneVariants)[number][]
+  variants: readonly (typeof sceneVariants)[number][],
+  supportsConceptLayout: boolean
 ): string =>
   types
     .map(type => {
       const choices = variants
         .filter(variant => sceneVariantFamilies[variant] === type)
         .map(variant => ` Variant ${variant}: ${LESSON_SCENE_CATALOG[variant]}`);
-      return `- ${type}: ${LESSON_SCENE_CATALOG[type]}${choices.join('')}`;
+      const description =
+        type === 'boundary' && !supportsConceptLayout
+          ? 'Name a scope and list at least two items it contains.'
+          : LESSON_SCENE_CATALOG[type];
+      return `- ${type}: ${description}${choices.join('')}`;
     })
     .join('\n');
 
 const sceneSystemPrompt = (
   types: readonly LessonSceneType[],
-  variants: readonly (typeof sceneVariants)[number][]
+  variants: readonly (typeof sceneVariants)[number][],
+  supportsConceptLayout: boolean
 ) => String.raw`Design the visual scene that accompanies one concept of a lesson for adults. First state the reader's task: what must the reader understand? Then choose the semantic relation (parts and whole, distinction, comparison by a criterion, check, sequence, limit, question) and only then choose the form from the catalog. Use only the lesson text. Preserve negations, scope, conditions, and uncertainty. All visible text uses the lesson language. Show the passage's structure, relationships or quantities with concise labels. A process needs its actual steps or flow. Never make a text-repeat card or copy narration sentences into the visual; captions already show the narration.
 
 ${LESSON_MATH_DELIMITERS_RULE}
@@ -258,16 +297,19 @@ Diagram labels use brief entity names, symbols, quantities or messages, not expl
 
 FORMS
 - ${LESSON_SCENE_INDEPENDENT_CONTENT_RULE}
-- Make the layout mirror the logical relations the lesson states: parallel criteria, factors, or options sit side by side in one form (checklist, parts, comparison); only actions the lesson explicitly orders become steps. Sequence diagrams show message exchanges between participants. Never chain parallel items as consecutive steps.
-- checklist: concrete questions or practical checks in labels, including how to test a hypothesis. State the question being tested in the title or a label. Use details only when they add information. limits: two items meaning "Shows" and "Does not prove", in the lesson language. roles: people as items with a neutral profile. steps: strictly ordered actions, not alternatives; options after a pause become a checklist with the pause in body.
-- comparison, signals, decision, balance, and beforeafter need exactly two non-empty groups. The other original forms need at least two items, except matrix, flowchart, sequence, journey, proportional, and guided-path; diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
+- Make the layout mirror the logical relations the lesson states: parallel criteria, factors, or options sit side by side; only actions the lesson explicitly orders become steps. Sequence diagrams show message exchanges between participants. Never chain parallel items as consecutive steps.
+- checklist: concrete questions or practical checks in labels, including how to test a hypothesis. State the question being tested in the title or a label. Use details only when they add information. steps: strictly ordered actions, not alternatives; options after a pause become a checklist with the pause in body.
+- comparison, signals, decision, balance, and beforeafter need exactly two non-empty groups. The other original forms need at least two items, except matrix, flowchart, sequence, journey, proportional, and guided-path${supportsConceptLayout ? ', and boundary' : ''}; diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
+${supportsConceptLayout && types.includes('concepts') ? conceptLayoutRules : ''}
+${supportsConceptLayout && types.includes('boundary') ? '- boundary: use only when the passage says what is inside and outside the same scope. Copy the exact words that show this relationship into scopeEvidence. Two facts about the same place do not make a boundary. For example, books on two floors and an opening time belong in a plain concepts list. Name the scope in the title and use exactly two named, non-empty groups with no items at scene level. Mark the first group with scopeSide "inside" and the second with scopeSide "outside". Write visible labels in the lesson language. Leave scopeEvidence and scopeSide unset for other forms.' : ''}
+${supportsConceptLayout ? '' : legacyConceptRules(types)}
 - Base matrix: use groups for two alternatives and criteria for row labels. Keep criterion and alternative labels short. Both alternatives have a cell for every criterion, in criterion order. Each cell states the result for its criterion as a short phrase with any qualifier needed for accuracy. Use a comparison or explain the alternatives in the lesson when understanding them requires several sentences per alternative.
 - For hierarchy (when offered) and network, the title names the common node. Do not use maps, cycles, or timelines for plain lists. beforeafter needs an actual transformation; a mere preference between two behaviours is a comparison with verdicts.
 - Quantitative forms only with REAL numbers present in the lesson, never invented scores. Each numeric item has a finite value >= 0 and a label with unit or period. interval has exactly three items: minimum, estimate, maximum on one numeric axis; preserve the shared unit when stated. line points carry increasing times, which set their real spacing; the label shows how the lesson names each time. Use bars for independent measurements. When a common maximum is stated, supply max, unit and the full denominator in every label (for example "Clarity (out of 10 points)"). A single measurement belongs in the lesson prose. HTTP codes, versions, and identifiers are not quantities.
 - A message exchange with replies and branches is a sequence, not an invented causal chain.
 - For comparison and signals, the symbol alone connects the groups: their labels must be comparable terms read left to right, never headings such as "More weight" and "Not enough". Put qualifications about reasonable trust in note, not body before the comparison. The scene title establishes the criterion: for example "What deserves more weight?", with "Verifiable competence" > "Mere appearance". Use different only for an explicit distinction, never for two arbitrarily different lists.
 - Group summary example: "Verifiable competence" has entries "Experience with the question at hand" and "Reasons that can be checked"; "Mere appearance" has "Professional title" and "Confident tone". Entries articulate the subject rather than repeating its label in an almost identical sentence. For signals, short names suffice: "Professional title", rather than repeating "may indicate competence" in every entry. Compare signs with their limits using versus; distinguish signs from evidence using different with homogeneous terms. Never fill an Evidence column with limits of signs.
-- For source, the first item identifies the source; the others state its competence and relevance to the request, each with a criterion label and concrete detail. A concluding question belongs in quote, an additional limit in note. If one choice is explicitly discouraged and another recommended, group verdicts may be avoid and prefer; never assign verdicts to a quiz.
+- A concluding question belongs in quote, an additional limit in note. If one choice is explicitly discouraged and another recommended, group verdicts may be avoid and prefer; never assign verdicts to a quiz.
 - Keep quizzes open without suggesting the answer. Supplied code is teaching material: represent its boundaries and relations without executing it. Never invent transitions, branches, emotions, scores, usefulness, or causes.
 
 ADDITIONAL STATIC FORMS
@@ -295,10 +337,10 @@ COMPOSITION
 Choose composition when comparing two alternatives and one has an indispensable internal sequence that a simple list would hide. Do not hide an explicit, relevant sequence in a note or a generic entry: retain its steps in the steps panel. Supply items:[], groups:[], body:"", quote:"", note, and panels:[{title,kind:"facts"|"steps",items:[{label,detail,iconQueries}],evidence}]. Exactly two panels with different forms: one facts and one steps; two facts lists become comparison. At most two levels, with 1–4 items per panel and at least two steps in a steps panel. Panel titles and item labels are at most 160 characters; details at most 600. The steps panel's evidence is an EXACT quotation documenting their order. Each step is a real successive action or state: a negation, requirement, or property is not a step, and a mere enumeration does not prove temporal order. facts contains independent properties. Do not repeat panel content in note. No nested panels, code, or coordinates. Each panel item uses ordinary iconQueries. Composition preserves different internal relationships; it is not a way to vary appearance when two simple lists already explain the concept.
 
 CATALOG
-${catalogText(types, variants)}
+${catalogText(types, variants, supportsConceptLayout)}
 ${variants.length ? 'For a listed variant, use its parent as type and the variant name in variant. For the base form, omit variant.' : ''}
 
-Final check: does every sentence under a title add something? Are the entries of each group truly examples of that group? Evidence entries must be evidence, never reasons to doubt signs. If the passage provides only signs and limits, use "Visible signs" and "Limits of signs" with versus, or limits. Do not invent evidence to fill a comparison. An attribute repeated for every item moves to body or note. Can the closing text be omitted without losing necessary meaning? If yes, leave it empty. Every note must be necessary; avoid generic warnings such as "often, not always".`;
+Final check: does every sentence under a title add something? Are the entries of each group truly examples of that group? Evidence entries must be evidence, never reasons to doubt signs. If the passage provides only signs and limits, compare "Visible signs" and "Limits of signs" with versus, or list the named limits. Do not invent evidence to fill a comparison. An attribute repeated for every item moves to body or note. Can the closing text be omitted without losing necessary meaning? If yes, leave it empty. Every note must be necessary; avoid generic warnings such as "often, not always".`;
 
 const MALFORMED_ANSWER_PROBLEM = 'The answer must follow the requested JSON structure.';
 
@@ -337,6 +379,7 @@ const toScene = (draft: SceneDraft): LessonScene => ({
       .filter(key => draft[key as keyof SceneDraft] !== undefined)
       .map(key => [key, draft[key as keyof SceneDraft]])
   ),
+  ...(draft.conceptLayout ? { conceptLayout: draft.conceptLayout } : {}),
   body: draft.body,
   ...(draft.criteria.length ? { criteria: draft.criteria } : {}),
   ...(draft.diagram && LESSON_SCENE_DIAGRAM_TYPES.has(draft.type)
@@ -664,11 +707,61 @@ const barScaleProblem = async (
   return 'Use the stated bar maximum and full unit. Leave max empty only when the source gives no scale.';
 };
 
+const findBoundaryDraftProblems = (
+  draft: SceneDraft,
+  source: string,
+  supportsConceptLayout: boolean
+): string[] => {
+  if (draft.type !== 'boundary') {
+    return draft.scopeEvidence !== undefined ||
+      draft.groups.some(group => group.scopeSide !== undefined)
+      ? ['Only boundary scenes can set scopeEvidence or scopeSide.']
+      : [];
+  }
+  if (!supportsConceptLayout) {
+    return draft.items.length ? [] : ['The boundary form requires at least two items.'];
+  }
+  const [inside, outside] = draft.groups;
+  const hasScope = draft.title.trim() && !draft.items.length && draft.groups.length === 2;
+  const hasSides = inside?.scopeSide === 'inside' && outside?.scopeSide === 'outside';
+  if (!hasScope || !hasSides || !inside.label.trim() || !outside.label.trim())
+    return [
+      'Name the scope in the title and use named groups with scopeSide inside, then outside, with no scene items.',
+    ];
+  const scopeEvidence = supportQuotationText(draft.scopeEvidence ?? '');
+  return scopeEvidence && supportQuotationText(source).includes(scopeEvidence)
+    ? []
+    : [
+        'Quote the exact words that show both sides of the same scope in scopeEvidence. If the passage has no such words, use a plain concepts list when available.',
+      ];
+};
+
+const findConceptFamilyDraftProblems = (
+  draft: SceneDraft,
+  scene: LessonScene,
+  {
+    narration,
+    supportsConceptLayout = true,
+  }: Pick<GenerateLessonSceneInput, 'narration' | 'supportsConceptLayout'>
+): string[] => [
+  ...(!supportsConceptLayout &&
+  narration !== undefined &&
+  (scene.type === 'parts' || scene.type === 'concepts') &&
+  scene.items.some(item => item.detail.trim())
+    ? [
+        'Captioned concept lists name each part and its role in the label, with empty detail. Use grouping for shared qualifications instead of glossary descriptions.',
+      ]
+    : []),
+  ...(supportsConceptLayout && scene.type === 'concepts' && scene.groups.length
+    ? ['Concept lists use items, not groups.']
+    : []),
+];
+
 const findDraftProblems = (
   draft: SceneDraft,
   scene: LessonScene,
   source: string,
-  narration?: string
+  input: Pick<GenerateLessonSceneInput, 'narration' | 'supportsConceptLayout'>
 ): string[] => [
   ...findMatrixDraftProblems(scene),
   ...(scene.type === 'proportional-static' &&
@@ -695,14 +788,9 @@ const findDraftProblems = (
   ...(hasConflictingLessonSceneClosingText(scene)
     ? ['Use either an essential closing question or a necessary note, or leave both empty.']
     : []),
-  ...(narration !== undefined &&
-  (scene.type === 'parts' || scene.type === 'concepts') &&
-  scene.items.some(item => item.detail.trim())
-    ? [
-        'Captioned concept lists name each part and its role in the label, with empty detail. Use grouping for shared qualifications instead of glossary descriptions.',
-      ]
-    : []),
-  ...findLessonSceneProblems(scene, source, narration),
+  ...findBoundaryDraftProblems(draft, source, input.supportsConceptLayout ?? true),
+  ...findConceptFamilyDraftProblems(draft, scene, input),
+  ...findLessonSceneProblems(scene, source, input.narration),
 ];
 
 const groundSceneDraft = async (
@@ -714,7 +802,7 @@ const groundSceneDraft = async (
       ? { ...draft, max: undefined, unit: undefined, unitLabel: undefined }
       : draft
   );
-  const problems = findDraftProblems(draft, scene, context.source, context.input.narration);
+  const problems = findDraftProblems(draft, scene, context.source, context.input);
   if (problems.length) return { problems };
   if (scene.type === 'bars') {
     const problem = await barScaleProblem(scene, context);
@@ -744,6 +832,16 @@ function textFallbackPrompt(
     return '\nAUTHORED FORMULA: Choose type text, empty items and groups, and an exact quotation from the authored equations to show those equations as Markdown. This choice is only for the supplied formulas.';
   return '\nTEXT FALLBACK: When a single measurement belongs in prose or no catalog visual helps this passage, choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.';
 }
+const textFallbackProblems = (
+  draft: Pick<SceneDraft, 'conceptLayout' | 'evidence'>,
+  source: string
+): string[] => {
+  if (draft.conceptLayout !== undefined) return ['Text fallback must omit conceptLayout.'];
+  return draft.evidence.trim() &&
+    supportQuotationText(source).includes(supportQuotationText(draft.evidence))
+    ? []
+    : ['Text fallback needs exact source evidence.'];
+};
 
 /** Generates and validates one lesson scene, then chooses its icons. */
 export function generateLessonScene(
@@ -760,18 +858,21 @@ export async function generateLessonScene(
   // visuals (the learner's provider), while scene models come from the live configuration.
   const config = await getResolvedModelConfigForProvider(input.config.artifact.provider);
   const captioned = input.narration !== undefined;
+  const { supportsConceptLayout = true } = input;
   // A resumed workflow must generate within the catalog admitted by its saved contract.
   // Spotlight definitions need the owning playback's canonical speech, not raw Markdown anchors.
   const allowedTypes = selectableLessonSceneTypes({
     captioned,
     allowedTypes: input.allowedSceneTypes,
+    supportsConceptLayout,
   });
   const variants = sceneVariants.filter(
     variant =>
       allowedTypes.includes(variant) && allowedTypes.includes(sceneVariantFamilies[variant])
   );
   const types = allowedTypes.filter(type => !variants.some(variant => variant === type));
-  const baseSchema = SceneDraftSchema.extend({
+  const draftSchema = selectDraftSchema(types, supportsConceptLayout);
+  const baseSchema = draftSchema.extend({
     type: z.enum(input.allowTextFallback ? [...types, 'text'] : types),
   });
   const catalogSchema = variants.length
@@ -781,6 +882,12 @@ export async function generateLessonScene(
     ? catalogSchema.extend({ body: z.literal(''), note: z.literal('') })
     : catalogSchema;
   const { $schema: _dialect, ...outputSchema } = z.toJSONSchema(schema);
+  const compactFormRule = supportsConceptLayout
+    ? ''
+    : ' In parts and concepts scenes, item detail must be empty. Name each part and its role in the label.';
+  const captionRule = captioned
+    ? `\nCAPTIONED PLAYBACK: body and note must be empty. The narration already supplies prose.${compactFormRule} Never turn narration into a glossary. Put every necessary condition in the visual labels, groups or data qualifiers.`
+    : '';
   // Malformed output surfaces either as an error or as JSON of the wrong shape; both become
   // corrective feedback for the next attempt.
   let outputPath: 'direct' | 'json-envelope' | 'unavailable' = 'unavailable';
@@ -817,7 +924,7 @@ export async function generateLessonScene(
     prompt: buildScenePrompt(input),
     signal: input.signal,
     slot: 'scene',
-    system: `${sceneSystemPrompt(types, variants)}${captioned ? '\nCAPTIONED PLAYBACK: body and note must be empty. The narration already supplies prose. In parts and concepts scenes, item detail must also be empty: name each part and its role directly in the label. Never turn narration into a glossary. Put every necessary condition in the visual labels, groups or data qualifiers.' : ''}${textFallbackPrompt(input)}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
+    system: `${sceneSystemPrompt(types, variants, supportsConceptLayout)}${captionRule}${textFallbackPrompt(input)}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
   }).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
@@ -846,14 +953,8 @@ export async function generateLessonScene(
     };
   }
   if (parsed.data.type === 'text') {
-    if (
-      parsed.data.evidence.trim() &&
-      supportQuotationText(input.lessonMarkdown).includes(
-        supportQuotationText(parsed.data.evidence)
-      )
-    )
-      return { kind: 'text' };
-    const problems = ['Text fallback needs exact source evidence.'];
+    const problems = textFallbackProblems(parsed.data, input.lessonMarkdown);
+    if (!problems.length) return { kind: 'text' };
     return {
       kind: 'invalid',
       problems,

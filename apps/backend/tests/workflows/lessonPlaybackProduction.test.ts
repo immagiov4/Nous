@@ -86,6 +86,52 @@ test('reuses a block completed between the API cache read and the run starting',
   expect(assets.stage).not.toHaveBeenCalled();
 });
 
+test('keeps a cached section layout under the current contract and rejects it under a frozen one', async () => {
+  const { section, assets, services, context } = setup();
+  const playback = preparedPlayback(section);
+  const scene: LessonScene = {
+    type: 'concepts',
+    conceptLayout: 'grid',
+    title: 'Piano',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [
+      { label: 'Scopo', detail: '', icon: '' },
+      { label: 'Risorse', detail: '', icon: '' },
+    ],
+  };
+  section.playback = {
+    ...playback,
+    blocks: playback.blocks.map(block => ({
+      ...block,
+      prepared: {
+        motion: [],
+        sections: [{ range: { start: 0, end: block.speech.length }, scene }],
+      },
+    })),
+  };
+  await expect(services.preparePlayback(context)).resolves.toMatchObject({
+    block: { prepared: { sections: [{ scene }] } },
+  });
+  await expect(
+    services.preparePlayback(
+      context,
+      STATIC_LESSON_SCENE_TYPES,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    )
+  ).rejects.toMatchObject({ failure: { code: 'lesson_playback_scene_invalid' } });
+  expect(prepare).not.toHaveBeenCalled();
+  expect(assets.stage).not.toHaveBeenCalled();
+});
+
 test('prepares a real scene for cached audio without staging or synthesizing another recording', async () => {
   const { assets, services, context } = setup();
   const scene: LessonScene = {
@@ -137,9 +183,13 @@ test('returns an intentional all-text visual preparation and reuses the stored r
 });
 
 test.each([
-  false,
-  true,
-])('resumes visual preparation with text-only support set to %s', async supportsTextOnly => {
+  { supportsTextOnly: false, supportsConceptLayout: false },
+  { supportsTextOnly: false, supportsConceptLayout: true },
+  { supportsTextOnly: true, supportsConceptLayout: true },
+])('resumes visual preparation with text=$supportsTextOnly and concepts=$supportsConceptLayout', async ({
+  supportsTextOnly,
+  supportsConceptLayout,
+}) => {
   const { services, context, assets } = setup();
   const { prepareLessonPlaybackVisuals } = await vi.importActual<
     typeof import('../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js')
@@ -165,11 +215,14 @@ test.each([
     time: null,
     iconQueries,
   }));
+  const supportedScene = supportsConceptLayout
+    ? { type: 'concepts', conceptLayout: 'grid' }
+    : { type: 'parts' };
   structured.mockImplementationOnce(async ({ output }) => {
     const offersText = output.schema.properties.type.enum.includes('text');
     return offersText
       ? { ...motionlessDraft, type: 'text', items: [] }
-      : { ...motionlessDraft, type: 'parts', items };
+      : { ...motionlessDraft, ...supportedScene, items };
   });
 
   const result = await services.preparePlayback(
@@ -180,7 +233,8 @@ test.each([
     false,
     false,
     false,
-    supportsTextOnly
+    supportsTextOnly,
+    supportsConceptLayout
   );
   expect(structured.mock.calls[0]?.[0].output.schema.properties.type.enum.includes('text')).toBe(
     supportsTextOnly
@@ -192,7 +246,7 @@ test.each([
   else {
     expect(result.block.prepared?.textOnlyRanges).toBeUndefined();
     expect(result.block.prepared?.scene).toMatchObject({
-      type: 'parts',
+      ...supportedScene,
       items: [{ label: 'Prima' }, { label: 'frase' }],
     });
   }

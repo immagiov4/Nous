@@ -5,7 +5,10 @@ import {
   HistoricalLessonSceneSchemas,
   LessonSceneSchema,
 } from '@shared/lessonPlaybackSchema';
-import { FrozenUnlinkedFormulaSceneSchema } from '@shared/lessonScene';
+import {
+  FrozenConceptLayoutSceneSchema,
+  FrozenUnlinkedFormulaSceneSchema,
+} from '@shared/lessonScene';
 import { readCurrentAccountPreferences } from '../../account/accountStore.js';
 import {
   getGlobalModelConfig,
@@ -179,7 +182,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 13;
+export const WORKFLOW_SET_VERSION = 14;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -693,10 +696,10 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: createTextOnlyPlayback(sceneSchema),
     previous: [
-      // Text-only ranges were deployed with the frozen unlinked-formula catalog.
-      ...(!schemasMatch(sceneSchema, FrozenUnlinkedFormulaSceneSchema)
-        ? [createTextOnlyPlayback(FrozenUnlinkedFormulaSceneSchema)]
-        : []),
+      // Rebuild text-only playback for the published catalogs after new scene fields are added.
+      ...[FrozenUnlinkedFormulaSceneSchema, FrozenConceptLayoutSceneSchema]
+        .filter(catalog => !schemasMatch(sceneSchema, catalog))
+        .map(createTextOnlyPlayback),
       currentScenes.visualSectionsPlayback,
       ...historicalScenes.map(definition => definition.visualSectionsPlayback),
       ...[currentScenes, ...historicalScenes].map(definition => definition.legacySectionsPlayback),

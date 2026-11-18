@@ -63,6 +63,16 @@ test.each([
   expect(validatePlaybackMotion(reveal, { ...scene, type }, speech)).toEqual(reveal);
 });
 
+test('reveals a consolidated grid in narration order without turning a featured list into steps', () => {
+  const concepts = { ...scene, type: 'concepts' } as const;
+  expect(
+    validatePlaybackMotion([...reveal].reverse(), { ...concepts, conceptLayout: 'grid' }, speech)
+  ).toEqual(reveal);
+  expect(() =>
+    validatePlaybackMotion(reveal, { ...concepts, conceptLayout: 'featured' }, speech)
+  ).toThrow(/Reveal is reserved/);
+});
+
 test.each([
   { events: [{ ...focus[0], targets: ['item:9'] }], source: speech, expected: /Unknown/ },
   { events: focus, source: `${speech} ${speech}`, expected: /unique/ },

@@ -17,6 +17,7 @@ import {
 } from '@shared/lessonPlaybackSchema';
 import {
   isAnimatedLessonScene,
+  isGridLessonScene,
   isRetiredLessonScene,
   LESSON_SCENE_TYPES,
   type LessonScene,
@@ -59,6 +60,7 @@ interface PrepareLessonPlaybackBlockInput {
   readonly supportsFencedCode?: boolean;
   readonly supportsUnlinkedFormulaSymbols?: boolean;
   readonly supportsTextOnlyVisuals?: boolean;
+  readonly supportsConceptLayout?: boolean;
   readonly allowedSceneTypes?: readonly LessonSceneType[];
   readonly providerEffect?: WorkflowProviderEffectExecutor;
   readonly ttsModel?: string;
@@ -95,7 +97,11 @@ const existingScenes = ({
 export const validatePlaybackSceneTypes = (
   input: Pick<
     PrepareLessonPlaybackBlockInput,
-    'block' | 'lesson' | 'allowedSceneTypes' | 'supportsUnlinkedFormulaSymbols'
+    | 'block'
+    | 'lesson'
+    | 'allowedSceneTypes'
+    | 'supportsUnlinkedFormulaSymbols'
+    | 'supportsConceptLayout'
   >
 ): void => {
   const { allowedSceneTypes } = input;
@@ -106,6 +112,7 @@ export const validatePlaybackSceneTypes = (
     scene =>
       !isRetiredLessonScene(scene) &&
       ((allowedSceneTypes && !allowedSceneTypes.includes(scene.type)) ||
+        (input.supportsConceptLayout === false && scene.conceptLayout !== undefined) ||
         (input.supportsUnlinkedFormulaSymbols === false &&
           scene.type === 'formula-spotlight' &&
           (scene as FormulaSpotlightData).symbols.some(symbol => !symbol.anchor)))
@@ -187,6 +194,7 @@ const generateNarratedScene = async (
     const outcome = await generatePlaybackScene({
       onValidatedScene,
       allowedSceneTypes,
+      supportsConceptLayout: input.supportsConceptLayout,
       config: resolveLessonVisualModelConfig(config),
       lessonMarkdown,
       narration: block.speech,
@@ -310,7 +318,14 @@ const prepareVisuals = async (
       const sceneKey = createHash('sha256')
         .update(
           JSON.stringify(
-            scene ? { type: scene.type, title: scene.title, targets: motionTargets(scene) } : null
+            scene
+              ? {
+                  type: scene.type,
+                  conceptLayout: scene.conceptLayout,
+                  title: scene.title,
+                  targets: motionTargets(scene),
+                }
+              : null
           )
         )
         .digest('hex');
@@ -381,19 +396,18 @@ const prepareVisuals = async (
   return prepared;
 };
 
-const sceneCoversSection = (scene: LessonScene, section: PlaybackVisualSection) =>
-  !section.items || (scene.type === 'parts' && scene.items.length === section.items.length);
-
 const generateSectionScene = async (
   input: PrepareLessonPlaybackBlockInput,
   section: PlaybackVisualSection
 ): Promise<{ scene?: LessonScene }> => {
   const speech = input.block.speech.slice(section.range.start, section.range.end);
-  const types = section.items
-    ? (['parts'] as const)
+  const listType = input.supportsConceptLayout === false ? 'parts' : 'concepts';
+  const types: readonly LessonSceneType[] = section.items
+    ? [listType]
     : (input.allowedSceneTypes ?? LESSON_SCENE_TYPES).filter(type => type !== 'definition');
+  const listForm = listType === 'concepts' ? 'concepts with conceptLayout grid' : 'parts';
   const listRule = section.items
-    ? `Use parts, one item per authored list item, in source order. Include every one of the ${section.items.length} items. Summarize each item faithfully; do not reduce the list to an earlier summary.`
+    ? `Use ${listForm}, one item per authored list item, in source order. Include every one of the ${section.items.length} items. Summarize each item faithfully; do not reduce the list to an earlier summary.`
     : '';
   let feedback = listRule;
   const allowTextFallback = !section.items && input.supportsTextOnlyVisuals !== false;
@@ -402,6 +416,7 @@ const generateSectionScene = async (
     const outcome = await generateLessonScene({
       config: resolveLessonVisualModelConfig(input.config),
       allowedSceneTypes: types,
+      supportsConceptLayout: input.supportsConceptLayout,
       lessonMarkdown: speech,
       narration: speech,
       allowTextFallback,
@@ -411,7 +426,13 @@ const generateSectionScene = async (
       sourceProvenance: input.lesson.sourceProvenance,
       signal: input.signal,
     });
-    if (outcome.kind === 'scene' && sceneCoversSection(outcome.scene, section))
+    if (
+      outcome.kind === 'scene' &&
+      (!section.items ||
+        (outcome.scene.type === listType &&
+          isGridLessonScene(outcome.scene) &&
+          outcome.scene.items.length === section.items.length))
+    )
       return { scene: outcome.scene };
     if (allowTextFallback && outcome.kind === 'text') return {};
     if (outcome.kind === 'invalid') {

@@ -31,7 +31,7 @@ const cases = [
     sectionTitle: 'Routes',
     sectionDescription: '',
     preferred: 'comparison',
-    rejected: 'parts',
+    rejected: 'boundary',
     tie: false,
   },
   {
@@ -48,7 +48,7 @@ const cases = [
     passage: 'Two equal options.',
     sectionTitle: 'Options',
     sectionDescription: '',
-    preferred: 'parts',
+    preferred: 'boundary',
     rejected: 'concepts',
     tie: true,
   },
@@ -57,7 +57,7 @@ const cases = [
 test('scores only decisive covered pairs; neither and failures remain visible', () => {
   const trials: Trial[] = [
     { id: 'synthetic-a', repetition: 1, kind: 'scene', chosen: 'steps', latencyMs: 10 },
-    { id: 'synthetic-b', repetition: 1, kind: 'scene', chosen: 'parts', latencyMs: 20 },
+    { id: 'synthetic-b', repetition: 1, kind: 'scene', chosen: 'boundary', latencyMs: 20 },
     { id: 'synthetic-c', repetition: 1, kind: 'scene', chosen: 'steps', latencyMs: 30 },
     { id: 'synthetic-a', repetition: 2, kind: 'scene', chosen: 'network', latencyMs: 40 },
     { id: 'synthetic-b', repetition: 2, kind: 'text', latencyMs: 50 },
@@ -148,6 +148,18 @@ test('validates JSONL without echoing private records in errors', () => {
   ]) {
     expect(() => parseCases(input)).toThrowError(new Error('Invalid benchmark dataset'));
   }
+});
+
+test('reports consolidated historical preferences as uncovered without crediting concepts', () => {
+  const pair = { ...cases[0], preferred: 'parts' };
+  const parsed = parseCases(JSON.stringify(pair));
+  const report = summarize(
+    parsed,
+    [{ id: pair.id, repetition: 1, kind: 'scene', chosen: 'concepts', latencyMs: 1 }],
+    1
+  );
+  expect(report.dataset).toMatchObject({ coveredPairs: 0, uncoveredPreferred: { parts: 1 } });
+  expect(report.accuracy.mean).toBeNull();
 });
 
 test('records the production excerpt boundary and hash without retaining passage text', async () => {
