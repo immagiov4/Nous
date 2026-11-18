@@ -554,6 +554,13 @@ test.each([
 
 test.each([
   {
+    source: 'North reports 0 on a scale of 0–10 cases. Then it reports 5.',
+    quote: 'scale of 0–10 cases',
+    reason: 'not-a-range',
+    relatedQuote: 'North reports 0 on a scale of 0–10 cases',
+    expected: 10,
+  },
+  {
     source: 'Scale: 0–10 cases. Observed range: 0–5 cases.',
     quote: 'Scale: 0–10 cases',
     reason: 'observation',
@@ -607,6 +614,10 @@ test.each([
   ]);
 
   const result = await generateLessonScene(unplannedInput(example.source));
+  expect(result).toMatchObject({ kind: 'scene', scene: { rows: draft.rows } });
+  if (result.kind !== 'scene') throw new Error('Expected a numeric table');
+  expect(result.scene.max).toBe(example.expected);
+  expect(result.scene.unit).toBe(example.expected ? draft.unit : undefined);
   const verification = generateStructuredOutputMock.mock.calls.find(
     ([request]) => request.output.name === 'heatmap_source_scale'
   )?.[0];
@@ -617,10 +628,6 @@ test.each([
     ])
   );
   expect(JSON.parse(verification.prompt).possibleRanges.length).toBeGreaterThanOrEqual(2);
-  expect(result).toMatchObject({ kind: 'scene', scene: { rows: draft.rows } });
-  if (result.kind !== 'scene') throw new Error('Expected a numeric table');
-  expect(result.scene.max).toBe(example.expected);
-  expect(result.scene.unit).toBe(example.expected ? draft.unit : undefined);
 });
 
 test.each([
