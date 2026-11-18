@@ -530,6 +530,10 @@ test.each([
     await page.getByRole('button', { name: 'Play', exact: true }).click();
     const transport = page.locator('output[data-position]');
     await transport.getByText('playing', { exact: true }).waitFor();
+    // Web Audio can resample the WAV during decoding, so the clip can end before its metadata.
+    const decodedDuration = Number(await transport.getAttribute('data-duration'));
+    expect(decodedDuration).toBeGreaterThan(0);
+    const slider = page.getByRole('slider');
     const card = page.locator('.type-guided-path');
     const review = card.locator('.path-details li:visible');
     const firstDetail = card
@@ -537,22 +541,39 @@ test.each([
       .filter({ hasText: guidedSteps[0].detail });
     await firstDetail.waitFor();
     expect(await review.count()).toBe(0);
-    if (ending === 'seek to end') await page.getByRole('slider').press('End');
+    if (ending === 'seek to end') await slider.press('End');
     await expect
       .poll(() => transport.textContent(), {
         timeout: (duration + 5) * 1000,
       })
       .toBe('idle');
-    expect(await transport.getAttribute('data-position')).toBe(String(duration));
+    expect(Number(await transport.getAttribute('data-position'))).toBe(decodedDuration);
     await expect
       .poll(() => review.locator('p').allTextContents())
       .toEqual(guidedSteps.map(step => step.detail));
     expect(await review.locator('strong').allTextContents()).toEqual(
       guidedSteps.map(step => step.label)
     );
+    if (ending === 'seek to end') {
+      const resumeAt = 2;
+      await slider.fill(String(resumeAt));
+      await slider.press('Tab');
+      await expect
+        .poll(async () => Number(await transport.getAttribute('data-position')))
+        .toBe(resumeAt);
+      expect(await transport.textContent()).toBe('idle');
+      await firstDetail.waitFor();
+      expect(await review.count()).toBe(0);
+    }
     await page.getByRole('button', { name: 'Play', exact: true }).click();
     await transport.getByText('playing', { exact: true }).waitFor();
     await firstDetail.waitFor();
+    if (ending === 'seek to end') {
+      await card
+        .locator('.path-explanation p')
+        .filter({ hasText: guidedSteps[1].detail })
+        .waitFor();
+    }
   } finally {
     await page.close();
   }

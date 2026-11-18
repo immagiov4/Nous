@@ -54,7 +54,7 @@ function AudioContract() {
         >
           Speed
         </button>
-        <output data-position={playback.time}>
+        <output data-position={playback.time} data-duration={playback.duration}>
           {playback.loading
             ? 'loading'
             : playback.failed
