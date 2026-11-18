@@ -29,6 +29,20 @@ if (new URLSearchParams(location.search).has('case')) {
   const boundaryProof = new URLSearchParams(location.search).has('boundary');
   const snapshotProof = new URLSearchParams(location.search).has('snapshot');
   const formulaPath = new URLSearchParams(location.search).get('formulaPath');
+  const arithmetic = formulaPath === 'arithmetic';
+  const arithmeticSymbols = [
+    ['4', 'Four', 'is the first factor'],
+    [String.raw`\times`, 'Times', 'means multiply'],
+    ['3', 'Three', 'is the second factor'],
+    ['=', 'Equals', 'introduces the result'],
+    ['12', 'Twelve', 'is the product'],
+  ].map(([latex, name, meaning], index) => ({
+    id: `term${index}`,
+    latex,
+    name,
+    meaning,
+    anchor: name,
+  }));
   const mixedImage = formulaPath === 'image';
   const imageAspect = new URLSearchParams(location.search).get('imageAspect');
   let mixedImageUrl = playbackImageUrl;
@@ -59,6 +73,10 @@ if (new URLSearchParams(location.search).has('case')) {
         : 'Compare $a$, $b$ and $c$.';
   if (formulaPath === 'scene' || formulaPath === 'stored')
     sources[0].markdown = FORMULA_SPOTLIGHT_MARKDOWN;
+  if (arithmetic)
+    sources[0].markdown = arithmeticSymbols
+      .map(({ name, meaning }) => `${name} ${meaning}.`)
+      .join(' ');
   if (formulaPath === 'wide-scene')
     sources[0].markdown = `$${Array(4).fill(String.raw`p_\theta(y\mid x)`).join('+')}$`;
   if (formulaPath === 'cards') sources[0].markdown = 'Compare $a$, $b$ and $c$.';
@@ -187,7 +205,7 @@ if (new URLSearchParams(location.search).has('case')) {
   const root = document.getElementById('root');
   if (!root) throw new Error('Fixture root must exist');
   const playbackRoot = createRoot(root);
-  function renderBlock(index: number) {
+  function renderBlock(index: number, seekTime?: number) {
     const source = blocks[index];
     const duration = 30;
     let block: LessonPlaybackBlock = {
@@ -243,6 +261,15 @@ if (new URLSearchParams(location.search).has('case')) {
       };
     if (formulaPath === 'scene') {
       block = { ...block, prepared: { scene: formulaSpotlight, motion: [] } };
+    }
+    if (arithmetic) {
+      const scene = {
+        ...formulaSpotlight,
+        title: 'Multiplication',
+        formula: arithmeticSymbols.map(symbol => String.raw`\nousSymbol{${symbol.id}}`).join(''),
+        symbols: arithmeticSymbols,
+      };
+      block = { ...block, prepared: { scene, motion: [] } };
     }
     if (formulaPath === 'wide-scene') {
       block = {
@@ -315,7 +342,7 @@ if (new URLSearchParams(location.search).has('case')) {
               : undefined
           }
           duration={duration}
-          time={duration / 2}
+          time={seekTime ?? duration / 2}
         />
       </div>
     );
@@ -341,6 +368,10 @@ if (new URLSearchParams(location.search).has('case')) {
       renderBlock(index);
     });
   }
+  if (arithmetic)
+    addEventListener('arithmetic-seek', event =>
+      renderBlock(0, (event as CustomEvent<number>).detail)
+    );
 
   if (snapshotProof) {
     addEventListener('playback-snapshot', () => renderBlock(0));

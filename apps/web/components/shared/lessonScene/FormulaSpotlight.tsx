@@ -32,6 +32,12 @@ export const FormulaSpotlight = memo(function FormulaSpotlight({
     const terms = symbols.map(symbol =>
       Array.from(element.querySelectorAll<HTMLElement>(`.nous-formula-symbol-${symbol.id}`))
     );
+    for (const term of terms.flat()) {
+      // KaTeX puts inter-atom glue inside the preceding wrapper. Keep it in flow outside the tint.
+      while (term.lastElementChild?.classList.contains('mspace')) {
+        term.after(term.lastElementChild);
+      }
+    }
     let previous: number | undefined;
     let frame = 0;
     const tick = () => {

@@ -21,6 +21,66 @@ const formulaViewports = [
   { width: 390, height: 844 },
 ];
 
+test.each(
+  formulaViewports.flatMap(viewport => [false, true].map(dark => ({ viewport, dark })))
+)('centers arithmetic highlights at $viewport.width px (dark=$dark) without moving the tokens', async ({
+  viewport,
+  dark,
+}) => {
+  const context = await browser.newContext({ viewport, colorScheme: dark ? 'dark' : 'light' });
+  try {
+    const page = await context.newPage();
+    await page.goto(
+      `${baseUrl}tests/fixtures/playbackLayout.html?formulaPath=arithmetic${dark ? '&dark' : ''}`
+    );
+    const formula = page.locator('.spotlight-formula');
+    await formula.locator('.nous-formula-symbol-term4').waitFor();
+    await page.evaluate(() => document.fonts.ready);
+    const offsets = new Map<string, number>();
+    let positions: number[] | undefined;
+    for (let time = 0; time < 30 && offsets.size < 5; time += 0.25) {
+      const tokens = await formula.evaluate(async (element, time) => {
+        dispatchEvent(new CustomEvent('arithmetic-seek', { detail: time }));
+        await new Promise<void>(resolve =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        );
+        return [...element.querySelectorAll<HTMLElement>('[class*="nous-formula-symbol-"]')].map(
+          term => {
+            const atom = term.querySelector(':scope > :not(.mspace)');
+            if (!atom) throw new Error('Expected a rendered arithmetic atom');
+            const glyph = atom.getBoundingClientRect();
+            const highlight = term.getBoundingClientRect();
+            return {
+              text: atom.textContent,
+              x: glyph.x,
+              active: getComputedStyle(term).backgroundColor !== 'rgba(0, 0, 0, 0)',
+              offset: highlight.x + highlight.width / 2 - (glyph.x + glyph.width / 2),
+            };
+          }
+        );
+      }, time);
+      expect(tokens.map(token => token.text)).toEqual(['4', '×', '3', '=', '12']);
+      const current = tokens.map(token => token.x);
+      positions ??= current;
+      expect(current).toEqual(positions);
+      for (const token of tokens) {
+        if (!token.active || offsets.has(token.text)) continue;
+        offsets.set(token.text, token.offset);
+        if (process.env.FORMULA_EVIDENCE)
+          await page.screenshot({
+            path: path.join(
+              process.env.FORMULA_EVIDENCE,
+              `${viewport.width}-${dark}-${offsets.size}.png`
+            ),
+          });
+      }
+    }
+    expect(Object.fromEntries(offsets)).toEqual({ '4': 0, '×': 0, '3': 0, '=': 0, '12': 0 });
+  } finally {
+    await context.close();
+  }
+});
+
 const measureInstrumentBorders = (entries: Element[]) =>
   entries.map(entry => {
     const css = getComputedStyle(entry);
