@@ -156,6 +156,7 @@ test.each([
   const draft = {
     ...sceneDraft(source),
     ...table,
+    ...(type === 'heatmap' ? { scaleEvidence: 'scale of 0 to 10 cases' } : {}),
     items: [],
     type: 'matrix',
     variant: type,
@@ -186,6 +187,45 @@ test.each([
   expect(await generateLessonScene({ ...input, allowedSceneTypes: [type] })).toEqual(corrected);
   generateStructuredOutputMock.mockResolvedValueOnce(fields);
   expect(await generateLessonScene(input)).toMatchObject({ kind: 'invalid' });
+});
+
+test('accepts only the full sourced heatmap scale when observations stop below it', async () => {
+  const source =
+    'On a scale of 0 to 10 cases per week, North reports 0 in January and 5 in February.';
+  const draft = {
+    ...sceneDraft(source),
+    type: 'matrix',
+    variant: 'heatmap',
+    items: [],
+    columns: ['January', 'February'],
+    rows: [{ label: 'North', values: [0, 5] }],
+    max: 10,
+    unit: 'cases per week',
+    scaleEvidence: 'scale of 0 to 10 cases per week',
+  };
+  for (const change of [
+    { max: 5 },
+    { scaleEvidence: 'scale of 0 to 5 cases per week', max: 5 },
+    { scaleEvidence: 'scale of 0 to 10 cases', unit: 'cases' },
+    { unit: 'cases per month' },
+    { scaleEvidence: undefined },
+  ]) {
+    const { scaleEvidence, ...candidate } = { ...draft, ...change };
+    generateStructuredOutputMock.mockResolvedValueOnce({
+      ...candidate,
+      ...(scaleEvidence === undefined ? {} : { scaleEvidence }),
+    });
+    expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'invalid' });
+  }
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  const outcome = await generateLessonScene(unplannedInput(source));
+  expect(outcome).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'heatmap', max: 10, unit: draft.unit, rows: draft.rows },
+  });
+  if (outcome.kind !== 'scene') throw new Error('Expected a heatmap');
+  expect(outcome.scene).not.toHaveProperty('scaleEvidence');
 });
 
 test('offers checklist for new hypotheses and preserves a hypothesis-only resumed contract', async () => {
@@ -834,7 +874,9 @@ test.each([
   ...LAB_QUICK_SCENES,
   LAB_COMPOSITION_SCENE,
 ])('generates the lab $type fields and all icon slots', async example => {
-  const source = `${LAB_COMPOSITION_SOURCE}\nExample data: ${JSON.stringify(example, null, 2)}`;
+  const scaleEvidence =
+    example.type === 'heatmap' ? `scale: 0–${example.max} ${example.unit}` : undefined;
+  const source = `${LAB_COMPOSITION_SOURCE}\nExample data: ${JSON.stringify(example, null, 2)}${scaleEvidence ? `\n${scaleEvidence}.` : ''}`;
   const { items, groups, ...fields } = example;
   const {
     icon: centerIcon,
@@ -844,6 +886,7 @@ test.each([
   const draft = {
     ...sceneDraft(''),
     ...content,
+    ...(scaleEvidence ? { scaleEvidence } : {}),
     ...(example.type === 'proportional-static'
       ? { type: 'proportional', variant: example.type }
       : {}),
