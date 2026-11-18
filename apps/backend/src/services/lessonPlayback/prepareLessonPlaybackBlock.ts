@@ -165,25 +165,12 @@ const hasNonSceneSourceVisual = ({ block, lesson }: PrepareLessonPlaybackBlockIn
     return render && render.kind !== 'scene';
   });
 
-const prepareScene = async (
+const generateNarratedScene = async (
   input: PrepareLessonPlaybackBlockInput,
+  lessonMarkdown: string,
   onValidatedScene?: (scene: LessonScene) => void
 ): Promise<{ scene?: LessonScene; textOnly?: true }> => {
   const { block, config, signal } = input;
-  const formulas = getPlaybackFormulaMarkdown(block, input.lesson.sources);
-  const scenes = existingScenes(input);
-  if (!formulas && (scenes.length || hasNonSceneSourceVisual(input))) {
-    // Motion events carry no scene id, so a block with several scenes shows them without motion.
-    return scenes.length === 1 ? { scene: scenes[0] } : {};
-  }
-  const lessonMarkdown = playbackSceneMarkdown(input, formulas);
-  // A prepared block must cover its complete speech, not silently inherit the lesson excerpt cut.
-  const targetLength = formulas
-    ? formulas.length + '\n\n'.length + block.speech.length
-    : block.speech.length;
-  if (targetLength > MAX_VISUAL_LESSON_CHARS) {
-    throw new Error('Playback block speech exceeds the scene generation text limit.');
-  }
   const allowedSceneTypes = compatibleSceneTypes(input);
   let retryFeedback: string | undefined;
   let diagnostic: WorkflowErrorDiagnostic | undefined;
@@ -230,6 +217,28 @@ const prepareScene = async (
     diagnostic,
   });
   return {};
+};
+
+const prepareScene = async (
+  input: PrepareLessonPlaybackBlockInput,
+  onValidatedScene?: (scene: LessonScene) => void
+): Promise<{ scene?: LessonScene; textOnly?: true }> => {
+  const { block } = input;
+  const formulas = getPlaybackFormulaMarkdown(block, input.lesson.sources);
+  const scenes = existingScenes(input);
+  if (!formulas && (scenes.length || hasNonSceneSourceVisual(input))) {
+    // Motion events carry no scene id, so a block with several scenes shows them without motion.
+    return scenes.length === 1 ? { scene: scenes[0] } : {};
+  }
+  const lessonMarkdown = playbackSceneMarkdown(input, formulas);
+  // A prepared block must cover its complete speech, not silently inherit the lesson excerpt cut.
+  const targetLength = formulas
+    ? formulas.length + '\n\n'.length + block.speech.length
+    : block.speech.length;
+  if (targetLength > MAX_VISUAL_LESSON_CHARS) {
+    throw new Error('Playback block speech exceeds the scene generation text limit.');
+  }
+  return generateNarratedScene(input, lessonMarkdown, onValidatedScene);
 };
 
 /** Prepares one block's visual cues and audio; the caller owns its eventual asset reference. */
@@ -402,12 +411,12 @@ const generateSectionScene = async (
     if (outcome.kind === 'scene' && sceneCoversSection(outcome.scene, section))
       return { scene: outcome.scene };
     if (allowTextFallback && outcome.kind === 'text') return {};
-    feedback =
-      listRule +
-      (outcome.kind === 'invalid'
-        ? outcome.problems.join('\n')
-        : 'The previous scene omitted authored list items.');
-    if (outcome.kind === 'invalid') diagnostic = outcome.diagnostic ?? diagnostic;
+    if (outcome.kind === 'invalid') {
+      feedback = listRule + outcome.problems.join('\n');
+      diagnostic = outcome.diagnostic ?? diagnostic;
+    } else {
+      feedback = `${listRule}The previous scene omitted authored list items.`;
+    }
   }
   throw new Error(
     section.items
