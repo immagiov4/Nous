@@ -276,6 +276,32 @@ test.each([
     scene: { type: 'heatmap', max: 10, unit, rows: draft.rows },
   });
 });
+test('keeps a visible heatmap scale when the draft puts the unit in unitLabel', async () => {
+  const quote = '**Scale of 0 to 10 cases**';
+  const source = quote + '\n\nNorth reports 0 in January and 5 in February.';
+  const draft = {
+    ...sceneDraft(source),
+    type: 'matrix',
+    variant: 'heatmap',
+    items: [],
+    columns: ['January', 'February'],
+    rows: [{ label: 'North', values: [0, 5] }],
+    max: 10,
+    unitLabel: 'cases',
+    scaleEvidence: quote,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  confirmHeatmapScale('Scale of 0 to 10 cases', 10, 'cases');
+
+  const result = await generateLessonScene(unplannedInput(source));
+  expect(result).toMatchObject({
+    kind: 'scene',
+    scene: { rows: draft.rows, max: 10, unit: 'cases' },
+  });
+  if (result.kind !== 'scene') throw new Error('Expected a heatmap');
+  expect(result.scene).not.toHaveProperty('unitLabel');
+});
+
 test.each([
   {
     declaration: 'scale of 0 to 10 cases for every region',
