@@ -96,6 +96,29 @@ const defaultScenes: LessonScene[] = [
       { label: 'Clouds', detail: 'Type and coverage', icon: 'cloud' },
     ],
   })),
+  {
+    ...empty,
+    title: 'Telescope',
+    type: 'tree',
+    items: [
+      { id: 'scope', label: 'Telescope', detail: '', icon: '' },
+      { id: 'lens', parent: 'scope', label: 'Lens', detail: 'Gathers light', icon: 'circle' },
+      {
+        id: 'tube',
+        parent: 'scope',
+        label: 'Tube',
+        detail: 'Keeps the optics aligned',
+        icon: 'box',
+      },
+      {
+        id: 'mount',
+        parent: 'scope',
+        label: 'Mount',
+        detail: 'Holds the telescope steady',
+        icon: 'tripod',
+      },
+    ],
+  },
 ];
 
 const scenes =

@@ -351,6 +351,57 @@ test('offers checklist for new hypotheses and preserves a hypothesis-only resume
   });
 });
 
+test('corrects a flat hierarchy to a tree with child details and still generates for a frozen catalog', async () => {
+  const source = 'A telescope has a lens that gathers light and a mount that holds it steady.';
+  const input = { ...unplannedInput(source), narration: source };
+  const draft = sceneDraft(source);
+  const children = [
+    { ...draft.items[0], label: 'Lens', detail: 'Gathers light' },
+    { ...draft.items[1], label: 'Mount', detail: 'Holds the telescope steady' },
+  ];
+  const hierarchy = { ...draft, title: 'Telescope', type: 'hierarchy', items: children };
+  generateStructuredOutputMock.mockResolvedValueOnce(hierarchy);
+  const rejected = await generateLessonScene(input);
+  expect(rejected).toMatchObject({ kind: 'invalid', diagnostic: { errorStage: 'schema' } });
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+  if (rejected.kind !== 'invalid') throw new Error('Expected a prompt correction');
+
+  const root = { ...draft.items[0], id: 'telescope', label: 'Telescope', detail: '' };
+  const branches = children.map(item => ({ ...item, id: item.label, parent: root.id }));
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...hierarchy,
+    type: 'tree',
+    items: [root, ...branches],
+  });
+  expect(
+    await generateLessonScene({ ...input, retryFeedback: rejected.problems.join('\n') })
+  ).toMatchObject({
+    kind: 'scene',
+    scene: {
+      type: 'tree',
+      items: [
+        { id: 'telescope', label: 'Telescope' },
+        { parent: 'telescope', label: 'Lens', detail: 'Gathers light' },
+        { parent: 'telescope', label: 'Mount', detail: 'Holds the telescope steady' },
+      ],
+    },
+  });
+
+  generateStructuredOutputMock.mockResolvedValueOnce(hierarchy);
+  expect(
+    await generateLessonScene({ ...input, allowedSceneTypes: STATIC_LESSON_SCENE_TYPES })
+  ).toMatchObject({
+    kind: 'scene',
+    scene: {
+      type: 'hierarchy',
+      items: [
+        { label: 'Lens', detail: 'Gathers light' },
+        { label: 'Mount', detail: 'Holds the telescope steady' },
+      ],
+    },
+  });
+});
+
 test('generates both limits without offering a qualitative gradient, including on resume', async () => {
   const interpretations = [
     { label: 'Holes in a leaf', detail: 'They show damage.' },

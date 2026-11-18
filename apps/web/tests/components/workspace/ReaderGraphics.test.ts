@@ -197,6 +197,62 @@ const readingSize = (scene: Locator) =>
     Number.parseFloat(getComputedStyle(element).getPropertyValue('--diagram-copy'))
   );
 
+test.each(
+  contexts
+)('renders the downward tree with details in reader and playback on $device $colorScheme', async ({
+  device,
+  colorScheme,
+}) => {
+  const mobile = device === 'mobile';
+  const context = await browser.newContext({
+    ...(mobile ? devices['Pixel 7'] : {}),
+    viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme,
+    reducedMotion: 'reduce',
+  });
+  try {
+    const page = await context.newPage();
+    for (const route of ['', '?playback=tree']) {
+      await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html${route}`);
+      const scene = page.locator('.type-tree');
+      const root = scene.getByRole('heading', { name: 'Telescope' });
+      await root.waitFor();
+      expect(await scene.getByText('Telescope', { exact: true }).count()).toBe(1);
+      const parent = await root.boundingBox();
+      if (!parent) throw new Error('The tree root must be visible.');
+      const children = scene.locator('.q-tree > li > ul > li');
+      const icons = await children
+        .locator('.meaning-icon')
+        .evaluateAll(elements => elements.map(icon => icon.getAttribute('data-icon')));
+      expect(icons).toEqual(['circle', 'box', 'tripod']);
+      expect(await children.allTextContents()).toEqual([
+        'LensGathers light',
+        'TubeKeeps the optics aligned',
+        'MountHolds the telescope steady',
+      ]);
+      const branches = await children.evaluateAll(elements =>
+        elements.map(element => ({
+          y: element.getBoundingClientRect().top,
+          x: element.getBoundingClientRect().left,
+          joinsFork:
+            ['::before', '::after'].some(pseudo => {
+              const style = getComputedStyle(element, pseudo);
+              return style.display !== 'none' && Number.parseFloat(style.borderLeftWidth) > 0;
+            }) || Number.parseFloat(getComputedStyle(element, '::after').borderRightWidth) > 0,
+        }))
+      );
+      expect(
+        branches.every(branch => branch.y > parent.y + parent.height && branch.joinsFork)
+      ).toBe(true);
+      expect(branches[0].x).toBeLessThan(branches[1].x);
+      expect(branches[1].x).toBeLessThan(branches[2].x);
+    }
+  } finally {
+    await context.close();
+  }
+});
+
 const numberedKey = (scene: Locator) =>
   scene
     .getByRole('list')

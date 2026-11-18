@@ -1006,7 +1006,8 @@ export const LESSON_SCENE_REGISTRY = {
   cycle: itemForm('Un processo ripetuto esplicitamente. Non inventare un ciclo.'),
   decision: {
     ...groupRules,
-    description: 'Una domanda e due esiti condizionali espliciti.',
+    description:
+      'Una domanda e due risposte con dettagli indipendenti da tenere nei propri pannelli.',
     validate: scene => {
       const problems = findTwoGroupProblems(scene);
       if (problems.length) return problems;
@@ -1066,7 +1067,9 @@ export const LESSON_SCENE_REGISTRY = {
         : [];
     },
   }),
-  flowchart: diagramForm('Azioni, decisioni e diramazioni connesse con condizioni esplicite.'),
+  flowchart: diagramForm(
+    'Azioni connesse, anche un solo bivio, con condizioni sui rami ed esiti descritti nei nodi.'
+  ),
   sequence: diagramForm(
     'Messaggi connessi e ordinati tra partecipanti: chiamate, risposte ed eventi distinti.'
   ),
@@ -1126,7 +1129,11 @@ export const LESSON_SCENE_REGISTRY = {
         : [];
     }
   ),
-  tree: quickForm('Gerarchia esplicita, fino a tre livelli.', {}, findTreeProblems),
+  tree: quickForm(
+    'Un concetto padre e i suoi figli con eventuali dettagli, fino a tre livelli.',
+    {},
+    findTreeProblems
+  ),
   stack: quickForm(
     'Livelli separati e ordinati, senza implicare contenimento.',
     {},
@@ -1284,11 +1291,13 @@ export function selectableLessonSceneTypes({
   const prefersChecklist = allowedTypes.includes('checklist');
   const prefersComparison =
     allowedTypes.includes('comparison') && supportsComparisonRelations(relationKinds);
+  const prefersTree = allowedTypes.includes('tree');
   return allowedTypes.filter(
     type =>
       GENERATABLE_LESSON_SCENE_TYPES.includes(type) &&
       (type !== 'hypothesis' || !prefersChecklist) &&
       (!prefersComparison || !MERGED_COMPARISON_TYPES.includes(type)) &&
+      (type !== 'hierarchy' || !prefersTree) &&
       (type !== 'formula-spotlight' || captioned)
   );
 }
