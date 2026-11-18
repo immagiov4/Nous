@@ -825,9 +825,13 @@ const findMatrixProblems = (scene: Record<string, unknown>): string[] => {
       ? ['Every permission must be explicit, including unknown permissions.']
       : [];
   }
+  if (typeof scene.max === 'number' && !scene.unit) return ['Heatmap scale needs a unit.'];
   return rows.some(row =>
     row.values.some(
-      value => typeof value !== 'number' || value < 0 || value > (scene.max as number)
+      value =>
+        typeof value !== 'number' ||
+        value < 0 ||
+        (typeof scene.max === 'number' && value > scene.max)
     )
   )
     ? ['Heatmap requires values between zero and max.']
@@ -862,7 +866,7 @@ const findQuickNumberProblems: SceneValidator = (scene, source) => {
     case 'heatmap':
       numbers = [
         ...(scene.rows as { values: number[] }[]).flatMap(row => row.values),
-        scene.max as number,
+        ...(typeof scene.max === 'number' ? [scene.max] : []),
       ];
       break;
     case 'proportional-static':
@@ -897,7 +901,8 @@ const quickForm = <Fields extends z.ZodRawShape>(
   schema: QuickDataSchema.extend(fields),
   validate: (scene: Record<string, unknown>, source?: string) => {
     const blankField = ['unit', 'center', 'xLabel', 'yLabel'].some(
-      field => Object.hasOwn(fields, field) && !(scene[field] as string).trim()
+      field =>
+        Object.hasOwn(fields, field) && typeof scene[field] === 'string' && !scene[field].trim()
     );
     if (blankField) return ['Static scene labels and units must be non-empty.'];
     const problems = validate(scene, source);
@@ -1160,7 +1165,8 @@ export const LESSON_SCENE_REGISTRY = {
     'Matrice numerica con scala comune esplicita.',
     {
       ...matrixFields,
-      ...radialFields,
+      unit: radialFields.unit.optional(),
+      max: radialFields.max.optional(),
     },
     findMatrixProblems
   ),
