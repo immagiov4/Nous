@@ -214,11 +214,28 @@ const legacyConceptRules = (types: readonly LessonSceneType[]) =>
     .filter(Boolean)
     .join('\n');
 
-const catalogText = (types: readonly LessonSceneType[]): string =>
-  types.map(type => `- ${type}: ${LESSON_SCENE_CATALOG[type]}`).join('\n');
+const sceneVariantFamilies = {
+  'proportional-static': 'proportional',
+} as const satisfies Partial<Record<LessonSceneType, LessonSceneType>>;
+
+const sceneVariants = Object.keys(sceneVariantFamilies) as (keyof typeof sceneVariantFamilies)[];
+
+const catalogText = (
+  types: readonly LessonSceneType[],
+  variants: readonly (typeof sceneVariants)[number][]
+): string =>
+  types
+    .map(type => {
+      const choices = variants
+        .filter(variant => sceneVariantFamilies[variant] === type)
+        .map(variant => ` Variant ${variant}: ${LESSON_SCENE_CATALOG[variant]}`);
+      return `- ${type}: ${LESSON_SCENE_CATALOG[type]}${choices.join('')}`;
+    })
+    .join('\n');
 
 const sceneSystemPrompt = (
   types: readonly LessonSceneType[],
+  variants: readonly (typeof sceneVariants)[number][],
   supportsConceptLayout: boolean
 ) => String.raw`Design the visual scene that accompanies one concept of a lesson for adults. First state the reader's task: what must the reader understand? Then choose the semantic relation (parts and whole, distinction, comparison by a criterion, check, sequence, limit, question) and only then choose the form from the catalog. Use only the lesson text. Preserve negations, scope, conditions, and uncertainty. All visible text uses the lesson language. Show the passage's structure, relationships or quantities with concise labels. A process needs its actual steps or flow. Never make a text-repeat card or copy narration sentences into the visual; captions already show the narration.
 
@@ -236,7 +253,7 @@ FIELDS
 - criteria: row labels for matrix, otherwise [].
 - relation: for comparison and signals with two genuinely related terms, {kind, label, evidence}; otherwise null. kind is greater, less, different, equal, versus, or leads. label is only read by screen readers. evidence is an exact quotation (may be "" for versus). Use different only for an explicit distinction and leads only for an explicit process or consequence. Do not impose a winner when the lesson asks the reader to choose.
 - diagram: for flowchart, sequence, and journey only, {nodes: [{id, label, kind}], edges: [{from, to, label, kind, evidence}]}; otherwise null. 2 to 8 nodes, 1 to 12 connections. Node kind is step, decision, start, or end; edge kind is call, return, or event. Every connection carries an EXACT lesson quotation in evidence. Decision branches carry their condition in the label. In a sequence, nodes name participants and edges name their messages; never put actions or sentences in participant boxes. A sequence keeps message order and distinguishes returns and asynchronous events; a journey follows its nodes in order without branches. An ordered list of actions belongs in steps. Never write SVG, coordinates, CSS, or Mermaid code.
-- proportional: items and groups []; supply autoplay, inputLabel, unitLabel, min, max, initial (integers, 1 <= min <= initial <= max), positive amountPerUnit, outputUnit, outputLabel, assumption. The fixed renderer multiplies quantity by amountPerUnit. Use only quantities and a proportional relation stated in the lesson. Optional cues are {anchor, value}: increasing cumulative quantities ending at max.
+- Animated proportional: items and groups []; supply autoplay, inputLabel, unitLabel, min, max, initial (integers, 1 <= min <= initial <= max), positive amountPerUnit, outputUnit, outputLabel, assumption. Use this mode for a taught progression of equal groups. The renderer multiplies quantity by amountPerUnit. Use only quantities and a proportional relation stated in the lesson. Optional cues are {anchor, value}: increasing cumulative quantities ending at max.
 - formula-spotlight: items and groups []; formula is complete LaTeX with explicit \nousSymbol{id} references, not HTML or CSS. symbols is an ordered array of {id,latex,name,meaning,anchor}. Each id is a letter followed by letters or digits. Replace the original symbol with its reference, never append the reference after the glyph. Substituting every reference with its latex must reproduce the authored formula without adding or removing operators. Every symbol occurs through its reference in formula (including repeated occurrences); explain every symbol in natural language. Bare mathematical identifiers are invalid, including subscripts and macro-expanded identifiers; an operator with its own symbol entry must use its reference at every occurrence. Keep symbols with distinct meanings separate, including an operator and its operands. Bind each anchor to the narration explaining that exact symbol, not adjacent text. Each nonempty anchor is an exact, unique narration quotation covering only the words that refer to that element; stop at the end of that reference. Use an empty anchor when the narration does not specifically refer to that element. Keep the base, subscript, superscript and operator independently targetable whenever the narration distinguishes them: x and its index i use separate references, never a single x_i target for a mention of i. List linked symbols by their first spoken mention; unlinked symbols may follow. The fixed renderer shows the complete formula and symbol names and emphasizes a linked element only for its quoted span; nothing stays emphasized between references. Include every authored term discussed in the canonical narration, including all indices, conditions, arguments and operators. Choose this form when a large formula and its definitions teach the passage; do not select by formula count or keyword. Prefer a useful visual over repeating prose; retain the source meaning and conditions.
 - guided-path: items and groups []; supply autoplay and steps: ${GUIDED_PATH_MIN_STEPS} to ${GUIDED_PATH_MAX_STEPS} {label, detail, optional anchor} entries following the explicit path in the lesson. Every label and detail is non-empty.
 - Animated forms reuse title and body as the prototype's title and description. Set autoplay true for gradual reader playback. Narration and cue anchors quote the canonical narration when supplied, otherwise the lesson text. Ground quantities and other facts in the lesson text. Supply data only, never executable formulas, scripts, CSS, coordinates, or animation code. The formula-spotlight LaTeX field is mathematical notation, not executable code.
@@ -295,7 +312,7 @@ These forms have a title of at most 160 characters, optional body and note of at
 - scatter: items with finite numeric x/y, xLabel/yLabel including units, and explicit unit.
 - integration: two groups (sources, recipients), center, and optional top-level iconQueries for its icon. Each group contains entity names in items, mandatory matching iconQueries, and optional details with one description per entity (at most 120 characters). Each side allows 1–2 entities; use flowchart for more branches.
 - deployment: 2–4 groups; use one item for a coherent description, or separate entities with an iconQueries entry for each. Optional groupIconQueries represents the execution container.
-- proportional-static: integer quantity 1–12, positive amountPerUnit, and explicit unit; only explicit data. Every quantitative static form requires unit (at most 80 characters).
+- Fixed proportional: use a fixed number of equal groups for a completed product, such as three trays with two seedlings per tray. ${variants.includes('proportional-static') ? 'Return type "proportional" and variant "proportional-static". ' : ''}Supply integer quantity 1–12, positive amountPerUnit, and unit. Keep items and groups empty. Omit animation fields, including min, max, initial, cues and outputUnit. Every quantitative static form requires unit (at most 80 characters).
 
 RELATIONSHIPS
 Choose the relationship before the form. Two alternatives are not before/after: beforeafter requires the same object in two temporal states. Reducing a dependency does not mean it is smaller than another: greater/less require an explicit common criterion. Properties and contracts are not processes. Preserve alternatives expressed with OR as alternatives, never simultaneous activities. Do not invent messages or branches. For a condition, use decision with the question in body; limits means what can be concluded from an example, not any two categories.
@@ -304,7 +321,8 @@ COMPOSITION
 Choose composition when comparing two alternatives and one has an indispensable internal sequence that a simple list would hide. Do not hide an explicit, relevant sequence in a note or a generic entry: retain its steps in the steps panel. Supply items:[], groups:[], body:"", quote:"", note, and panels:[{title,kind:"facts"|"steps",items:[{label,detail,iconQueries}],evidence}]. Exactly two panels with different forms: one facts and one steps; two facts lists become comparison. At most two levels, with 1–4 items per panel and at least two steps in a steps panel. Panel titles and item labels are at most 160 characters; details at most 600. The steps panel's evidence is an EXACT quotation documenting their order. Each step is a real successive action or state: a negation, requirement, or property is not a step, and a mere enumeration does not prove temporal order. facts contains independent properties. Do not repeat panel content in note. No nested panels, code, or coordinates. Each panel item uses ordinary iconQueries. Composition preserves different internal relationships; it is not a way to vary appearance when two simple lists already explain the concept.
 
 CATALOG
-${catalogText(types)}
+${catalogText(types, variants)}
+${variants.length ? 'For a listed variant, use its parent as type and the variant name in variant. For the base form, omit variant.' : ''}
 
 Final check: does every sentence under a title add something? Are the entries of each group truly examples of that group? Evidence entries must be evidence, never reasons to doubt signs. If the passage provides only signs and limits, compare "Visible signs" and "Limits of signs" with versus, or list the named limits. Do not invent evidence to fill a comparison. An attribute repeated for every item moves to body or note. Can the closing text be omitted without losing necessary meaning? If yes, leave it empty. Every note must be necessary; avoid generic warnings such as "often, not always".`;
 
@@ -526,6 +544,17 @@ const findDraftProblems = (
   source: string,
   input: Pick<GenerateLessonSceneInput, 'narration' | 'supportsConceptLayout'>
 ): string[] => [
+  ...(scene.type === 'proportional-static' &&
+  (scene.items.length ||
+    scene.groups.length ||
+    Object.keys(LessonSceneAnimationShape).some(
+      key => key !== 'amountPerUnit' && Object.hasOwn(scene, key)
+    ))
+    ? ['Fixed proportional scenes use quantity, amountPerUnit and unit, with no motion or items.']
+    : []),
+  ...(scene.type === 'proportional' && draft.quantity !== undefined
+    ? ['Use the fixed proportional variant for a single quantity, or omit quantity for motion.']
+    : []),
   ...(isAnimatedLessonScene(scene) && scene.autoplay !== true
     ? ['Generated animated scenes must enable autoplay.']
     : []),
@@ -569,15 +598,23 @@ export async function generateLessonScene(
   const { supportsConceptLayout = true } = input;
   // A resumed workflow must generate within the catalog admitted by its saved contract.
   // Spotlight definitions need the owning playback's canonical speech, not raw Markdown anchors.
-  const types = selectableLessonSceneTypes({
+  const allowedTypes = selectableLessonSceneTypes({
     captioned,
     allowedTypes: input.allowedSceneTypes,
     supportsConceptLayout,
   });
+  const variants = sceneVariants.filter(
+    variant =>
+      allowedTypes.includes(variant) && allowedTypes.includes(sceneVariantFamilies[variant])
+  );
+  const types = allowedTypes.filter(type => !variants.some(variant => variant === type));
   const draftSchema = selectDraftSchema(types, supportsConceptLayout);
-  const catalogSchema = draftSchema.extend({
+  const baseSchema = draftSchema.extend({
     type: z.enum(input.allowTextFallback ? [...types, 'text'] : types),
   });
+  const catalogSchema = variants.length
+    ? baseSchema.extend({ variant: z.enum(variants).optional() })
+    : baseSchema;
   const schema = captioned
     ? catalogSchema.extend({ body: z.literal(''), note: z.literal('') })
     : catalogSchema;
@@ -624,7 +661,7 @@ export async function generateLessonScene(
     prompt: buildScenePrompt(input),
     signal: input.signal,
     slot: 'scene',
-    system: `${sceneSystemPrompt(types, supportsConceptLayout)}${captionRule}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
+    system: `${sceneSystemPrompt(types, variants, supportsConceptLayout)}${captionRule}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
   }).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
@@ -641,6 +678,17 @@ export async function generateLessonScene(
       ),
     };
   }
+  const variant = variants.find(
+    variant => 'variant' in parsed.data && parsed.data.variant === variant
+  );
+  if (variant && sceneVariantFamilies[variant] !== parsed.data.type) {
+    const problems = [`Use type ${sceneVariantFamilies[variant]} with variant ${variant}.`];
+    return {
+      kind: 'invalid',
+      problems,
+      diagnostic: diagnostic('domain', problems, parsed.data.evidence),
+    };
+  }
   if (parsed.data.type === 'text') {
     const problems = textFallbackProblems(parsed.data, input.lessonMarkdown);
     if (!problems.length) return { kind: 'text' };
@@ -650,7 +698,10 @@ export async function generateLessonScene(
       diagnostic: diagnostic('domain', problems, parsed.data.evidence, input.lessonMarkdown),
     };
   }
-  const draft = { ...parsed.data, type: parsed.data.type };
+  // Resolve the draft-only choice before validation, icon selection and persistence.
+  const draft = { ...parsed.data, type: variant ?? parsed.data.type };
+  if (draft.type === 'proportional-static' && draft.outputUnit === draft.unit)
+    delete draft.outputUnit;
   const scene = toScene(draft);
   const problems = findDraftProblems(draft, scene, excerpt, input);
   if (problems.length)
