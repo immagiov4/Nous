@@ -436,15 +436,133 @@ test('reserves boundary for a named inside and outside while a single scope uses
 
   generateStructuredOutputMock.mockResolvedValueOnce({
     ...groupDraft,
+    scopeEvidence: source,
     groups: [
       { ...first, scopeSide: 'inside' },
       { ...second, scopeSide: 'outside' },
     ],
   });
-  expect(await generateLessonScene(input)).toMatchObject({
+  const scoped = await generateLessonScene(input);
+  expect(scoped).toMatchObject({
     kind: 'scene',
     scene: { type: 'boundary', title: 'Library membership', groups },
   });
+  expect(scoped).not.toHaveProperty('scene.scopeEvidence');
+});
+
+test('asks for a plain list when boundary markers have no quote for a shared scope', async () => {
+  const source = 'The library has books on two floors. It opens at nine.';
+  const draft = {
+    ...sceneDraft(source),
+    type: 'boundary',
+    title: 'Library',
+    items: [],
+    groups: [
+      {
+        label: 'Books',
+        items: ['On two floors'],
+        iconQueries: [queries],
+        verdict: 'none',
+        scopeSide: 'inside',
+      },
+      {
+        label: 'Hours',
+        items: ['Opens at nine'],
+        iconQueries: [queries],
+        verdict: 'none',
+        scopeSide: 'outside',
+      },
+    ],
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  const input = unplannedInput(source);
+  const rejected = await generateLessonScene(input);
+  expect(rejected).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'domain' },
+    problems: [expect.stringContaining('plain concepts list')],
+  });
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+  if (rejected.kind !== 'invalid') throw new Error('Expected corrective feedback.');
+
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...draft,
+    scopeEvidence: 'Opening hours are outside the reading area.',
+  });
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'domain' },
+  });
+
+  const items = [
+    { label: 'Books', detail: 'On two floors', value: null, time: null, iconQueries: queries },
+    { label: 'Hours', detail: 'Opens at nine', value: null, time: null, iconQueries: queries },
+  ];
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...draft,
+    type: 'concepts',
+    groups: [],
+    items,
+  });
+  expect(
+    await generateLessonScene({ ...input, retryFeedback: rejected.problems.join('\n') })
+  ).toMatchObject({
+    kind: 'scene',
+    scene: {
+      type: 'concepts',
+      groups: [],
+      items: items.map(({ label, detail }) => ({ label, detail })),
+    },
+  });
+  expect(generateStructuredOutputMock.mock.calls.at(-1)?.[0].prompt).toContain(
+    'plain concepts list'
+  );
+});
+
+test('offers a list-only boundary in the frozen generation catalog', async () => {
+  const source = 'The pass covers local trains and city buses.';
+  const draft = {
+    ...sceneDraft(source),
+    type: 'boundary',
+    title: 'Pass coverage',
+    items: ['Local trains', 'City buses'].map(label => ({
+      label,
+      detail: '',
+      value: null,
+      time: null,
+      iconQueries: queries,
+    })),
+  };
+  const input = {
+    ...unplannedInput(source),
+    allowedSceneTypes: ['boundary'] as const,
+    supportsConceptLayout: false,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'scene',
+    scene: {
+      type: 'boundary',
+      title: 'Pass coverage',
+      items: [{ label: 'Local trains' }, { label: 'City buses' }],
+    },
+  });
+
+  const request = generateStructuredOutputMock.mock.calls[0][0];
+  expect(request.system.split('\nCATALOG\n')[1]).toContain(
+    '- boundary: Name a scope and list at least two items it contains.'
+  );
+  expect(request.output.schema.properties).not.toHaveProperty('scopeEvidence');
+
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...draft,
+    items: [],
+    groups: [
+      { label: 'Trains', items: ['Local trains'], iconQueries: [queries], verdict: 'none' },
+      { label: 'Buses', items: ['City buses'], iconQueries: [queries], verdict: 'none' },
+    ],
+  });
+  expect(await generateLessonScene(input)).toMatchObject({ kind: 'invalid' });
 });
 
 test.each([

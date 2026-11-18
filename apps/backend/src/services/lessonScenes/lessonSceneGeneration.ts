@@ -185,6 +185,7 @@ const ConceptSceneDraftSchema = SceneDraftSchema.extend({
   conceptLayout: LessonSceneSchema.shape.conceptLayout,
 });
 const BoundarySceneDraftSchema = ConceptSceneDraftSchema.extend({
+  scopeEvidence: z.string().optional(),
   groups: SceneDraftSchema.shape.groups.element
     .extend({
       scopeSide: z.enum(['inside', 'outside']).optional(),
@@ -209,7 +210,6 @@ const legacyConceptRules = (types: readonly LessonSceneType[]) =>
     types.includes('roles') && '- roles: people as items with a neutral profile.',
     types.includes('source') &&
       '- source: the first item identifies the source. The others state its competence and relevance with a criterion label and concrete detail.',
-    types.includes('boundary') && '- boundary: a named scope and the items it contains.',
   ]
     .filter(Boolean)
     .join('\n');
@@ -222,14 +222,19 @@ const sceneVariants = Object.keys(sceneVariantFamilies) as (keyof typeof sceneVa
 
 const catalogText = (
   types: readonly LessonSceneType[],
-  variants: readonly (typeof sceneVariants)[number][]
+  variants: readonly (typeof sceneVariants)[number][],
+  supportsConceptLayout: boolean
 ): string =>
   types
     .map(type => {
       const choices = variants
         .filter(variant => sceneVariantFamilies[variant] === type)
         .map(variant => ` Variant ${variant}: ${LESSON_SCENE_CATALOG[variant]}`);
-      return `- ${type}: ${LESSON_SCENE_CATALOG[type]}${choices.join('')}`;
+      const description =
+        type === 'boundary' && !supportsConceptLayout
+          ? 'Name a scope and list at least two items it contains.'
+          : LESSON_SCENE_CATALOG[type];
+      return `- ${type}: ${description}${choices.join('')}`;
     })
     .join('\n');
 
@@ -286,7 +291,7 @@ FORMS
 - checklist: concrete questions or practical checks in labels, including how to test a hypothesis. State the question being tested in the title or a label. Use details only when they add information. steps: strictly ordered actions, not alternatives; options after a pause become a checklist with the pause in body.
 - comparison, signals, matrix, decision, balance, and beforeafter need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other original forms need at least two items, except number, flowchart, sequence, journey, proportional, and guided-path${supportsConceptLayout ? ', and boundary' : ''}; diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
 ${supportsConceptLayout && types.includes('concepts') ? conceptLayoutRules : ''}
-${supportsConceptLayout && types.includes('boundary') ? '- boundary: use only when the passage explicitly distinguishes membership in the same scope. Name the scope in the title and use exactly two named, non-empty groups with no items at scene level. Mark the first group with scopeSide "inside" and the second with scopeSide "outside". Write visible labels in the lesson language. Leave scopeSide unset for all other forms.' : ''}
+${supportsConceptLayout && types.includes('boundary') ? '- boundary: use only when the passage says what is inside and outside the same scope. Copy the exact words that show this relationship into scopeEvidence. Two facts about the same place do not make a boundary. For example, books on two floors and an opening time belong in a plain concepts list. Name the scope in the title and use exactly two named, non-empty groups with no items at scene level. Mark the first group with scopeSide "inside" and the second with scopeSide "outside". Write visible labels in the lesson language. Leave scopeEvidence and scopeSide unset for other forms.' : ''}
 ${supportsConceptLayout ? '' : legacyConceptRules(types)}
 - matrix: use short criterion and alternative labels. Each cell states the result for its criterion as a short phrase with any qualifier needed for accuracy. Use a comparison or explain the alternatives in the lesson when understanding them requires several sentences per alternative.
 - For hierarchies and networks the title names the common node. Do not use maps, cycles, or timelines for plain lists. beforeafter needs an actual transformation; a mere preference between two behaviours is a comparison with verdicts.
@@ -321,7 +326,7 @@ COMPOSITION
 Choose composition when comparing two alternatives and one has an indispensable internal sequence that a simple list would hide. Do not hide an explicit, relevant sequence in a note or a generic entry: retain its steps in the steps panel. Supply items:[], groups:[], body:"", quote:"", note, and panels:[{title,kind:"facts"|"steps",items:[{label,detail,iconQueries}],evidence}]. Exactly two panels with different forms: one facts and one steps; two facts lists become comparison. At most two levels, with 1–4 items per panel and at least two steps in a steps panel. Panel titles and item labels are at most 160 characters; details at most 600. The steps panel's evidence is an EXACT quotation documenting their order. Each step is a real successive action or state: a negation, requirement, or property is not a step, and a mere enumeration does not prove temporal order. facts contains independent properties. Do not repeat panel content in note. No nested panels, code, or coordinates. Each panel item uses ordinary iconQueries. Composition preserves different internal relationships; it is not a way to vary appearance when two simple lists already explain the concept.
 
 CATALOG
-${catalogText(types, variants)}
+${catalogText(types, variants, supportsConceptLayout)}
 ${variants.length ? 'For a listed variant, use its parent as type and the variant name in variant. For the base form, omit variant.' : ''}
 
 Final check: does every sentence under a title add something? Are the entries of each group truly examples of that group? Evidence entries must be evidence, never reasons to doubt signs. If the passage provides only signs and limits, compare "Visible signs" and "Limits of signs" with versus, or list the named limits. Do not invent evidence to fill a comparison. An attribute repeated for every item moves to body or note. Can the closing text be omitted without losing necessary meaning? If yes, leave it empty. Every note must be necessary; avoid generic warnings such as "often, not always".`;
@@ -497,10 +502,15 @@ const compareSupportQuotation = (evidence: string, lesson: string, excerpt: stri
   };
 };
 
-const findBoundaryDraftProblems = (draft: SceneDraft, supportsConceptLayout: boolean): string[] => {
+const findBoundaryDraftProblems = (
+  draft: SceneDraft,
+  source: string,
+  supportsConceptLayout: boolean
+): string[] => {
   if (draft.type !== 'boundary') {
-    return draft.groups.some(group => group.scopeSide !== undefined)
-      ? ['Only boundary scenes can set scopeSide.']
+    return draft.scopeEvidence !== undefined ||
+      draft.groups.some(group => group.scopeSide !== undefined)
+      ? ['Only boundary scenes can set scopeEvidence or scopeSide.']
       : [];
   }
   if (!supportsConceptLayout) {
@@ -509,10 +519,15 @@ const findBoundaryDraftProblems = (draft: SceneDraft, supportsConceptLayout: boo
   const [inside, outside] = draft.groups;
   const hasScope = draft.title.trim() && !draft.items.length && draft.groups.length === 2;
   const hasSides = inside?.scopeSide === 'inside' && outside?.scopeSide === 'outside';
-  return hasScope && hasSides && inside.label.trim() && outside.label.trim()
+  if (!hasScope || !hasSides || !inside.label.trim() || !outside.label.trim())
+    return [
+      'Name the scope in the title and use named groups with scopeSide inside, then outside, with no scene items.',
+    ];
+  const scopeEvidence = supportQuotationText(draft.scopeEvidence ?? '');
+  return scopeEvidence && supportQuotationText(source).includes(scopeEvidence)
     ? []
     : [
-        'Name the scope in the title and use named groups with scopeSide inside, then outside, with no scene items.',
+        'Quote the exact words that show both sides of the same scope in scopeEvidence. If the passage has no such words, use a plain concepts list when available.',
       ];
 };
 
@@ -535,7 +550,6 @@ const findConceptFamilyDraftProblems = (
   ...(supportsConceptLayout && scene.type === 'concepts' && scene.groups.length
     ? ['Concept lists use items, not groups.']
     : []),
-  ...findBoundaryDraftProblems(draft, supportsConceptLayout),
 ];
 
 const findDraftProblems = (
@@ -568,6 +582,7 @@ const findDraftProblems = (
   ...(hasConflictingLessonSceneClosingText(scene)
     ? ['Use either an essential closing question or a necessary note, or leave both empty.']
     : []),
+  ...findBoundaryDraftProblems(draft, source, input.supportsConceptLayout ?? true),
   ...findConceptFamilyDraftProblems(draft, scene, input),
   ...findLessonSceneProblems(scene, source, input.narration),
 ];
