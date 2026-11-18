@@ -542,6 +542,7 @@ export const createLessonVisualWorkflows = <
         allowedSceneRelationKinds: visualContract.sceneRelationKinds,
         allowedSceneTypes: visualContract.sceneTypes,
         supportsConceptLayout: visualContract.supportsConceptLayout,
+        useOrderedSceneSelection: visualContract.useOrderedSceneSelection,
       });
       if (outcome.kind === 'invalid') {
         throw retryCorrective({
@@ -589,7 +590,9 @@ export const createLessonVisualWorkflows = <
       });
 
   const renderWorkflow = workflow({
-    compatibilityId: 'render-lesson-visual-v1',
+    compatibilityId: visualContract.useOrderedSceneSelection
+      ? 'render-lesson-visual-v2'
+      : 'render-lesson-visual-v1',
     configSchema,
     executionDefaults,
     id: 'render-lesson-visual',

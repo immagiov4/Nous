@@ -698,19 +698,30 @@ test('pending voice audio keeps the requested anchor through pause and retry', a
   expect(activeAudio().position.time).toBe(8);
 });
 
-test('end of lesson resets the displayed block and a later seek remains usable', async () => {
+test('the last block stays visible at the end and playback can resume after a seek', async () => {
   const { result } = renderHook(() => useLessonPlayback(target));
   await act(async () => result.current.play());
   act(() => result.current.seek(25));
   await waitFor(() => expect(result.current.loading).toBe(false));
-  expect(result.current.index).toBe(2);
-  act(() => audio.onEnded?.());
-  expect(result.current.index).toBe(0);
-  expect(result.current.time).toBe(0);
-  act(() => result.current.seek(2));
+  const lastIndex = blocks.length - 1;
+  const lastDuration = activeAudio().position.duration;
+  act(() => {
+    audio.moveTo(lastIndex, lastDuration);
+    audio.onEnded?.();
+  });
+  expect(result.current.index).toBe(lastIndex);
+  expect(result.current.time).toBe(lastDuration);
+  expect(result.current.playing).toBe(false);
+
+  const resumeAt = 2;
+  act(() => result.current.seek(resumeAt));
   await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.index).toBe(0);
+  expect(result.current.time).toBe(resumeAt);
+  expect(result.current.playing).toBe(false);
   await act(async () => result.current.play());
-  expect(activeAudio().position.time).toBe(2);
+  expect(result.current.playing).toBe(true);
+  expect(activeAudio().position.time).toBe(resumeAt);
 });
 
 test('unmount releases the audio clock', async () => {

@@ -15,13 +15,13 @@ export function usePlaybackVisualFit(
     const slot = card?.parentElement;
     const captions = stage?.querySelector<HTMLElement>('.captions');
     if (!slot || !captions) throw new Error('Playback stage must be mounted');
-    const scrollport = card.querySelector<HTMLElement>('[data-process-scroll]');
+    const scrollport = card.querySelector<HTMLElement>('[data-ordered-scroll]');
     const content = scrollport ?? card;
     let scrollRange = 0;
     const updateScrollProgress = () => {
       if (scrollRange <= 0) return;
       const progress = Math.min(1, Math.max(0, content.scrollTop / scrollRange));
-      card.style.setProperty('--process-scroll-progress', String(progress));
+      card.style.setProperty('--ordered-scroll-progress', String(progress));
     };
     const fitScene = () => {
       const formulas = card.querySelectorAll('.katex:not(.spotlight-symbol .katex)');
@@ -44,9 +44,9 @@ export function usePlaybackVisualFit(
       if (reportVerticalOverflow) {
         scrollRange = content.scrollHeight - content.clientHeight;
         if (scrollRange > 0) {
-          card.style.setProperty('--process-scroll-viewport', `${content.clientHeight}px`);
+          card.style.setProperty('--ordered-scroll-viewport', `${content.clientHeight}px`);
           card.style.setProperty(
-            '--process-visible-fraction',
+            '--ordered-visible-fraction',
             String(content.clientHeight / content.scrollHeight)
           );
           updateScrollProgress();

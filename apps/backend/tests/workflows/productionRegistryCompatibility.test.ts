@@ -23,17 +23,24 @@ test('promotes only scene workflows and preserves every preceding durable finger
       .listDefinitionDeployments()
       .map(({ current }) => [current.workflowId, current.definitionHash])
   );
-  expect(current).toEqual({ ...combinedContracts.current, ...integratedContracts.current });
-  expect(Object.keys(integratedContracts.current)).toEqual([
+  const deployed = new Map(
+    Object.entries({ ...combinedContracts.current, ...integratedContracts.current })
+  );
+  const promoted = Object.keys(current).filter(
+    workflowId => current[workflowId] !== deployed.get(workflowId)
+  );
+  expect(promoted).toEqual([
     'lesson-artifact-draft',
     'lesson-generation',
     'prepare-lesson-playback-block',
     'retry-lesson-visual',
   ]);
+  const promotedHashes = new Set(promoted.map(workflowId => current[workflowId]));
   const added = registry
     .listRegisteredBoundaries()
     .filter(
       boundary =>
+        !promotedHashes.has(boundary.definitionHash) &&
         !fixture.definitions.some(previous => previous.definitionHash === boundary.definitionHash)
     );
   const addedFingerprints = added.map(boundary => {
