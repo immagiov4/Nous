@@ -1,5 +1,5 @@
 import { motionTargets, type PlaybackMotionEvent } from '@shared/lessonPlayback';
-import type { LessonScene, LessonSceneType } from '@shared/lessonScene';
+import { isGridLessonScene, type LessonScene, type LessonSceneType } from '@shared/lessonScene';
 import * as z from 'zod';
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
 import { isInvalidLessonVisualStructuredOutput } from '../lessonGenerationVisuals.js';
@@ -15,7 +15,6 @@ const REVEAL_SCENE_TYPES: ReadonlySet<LessonSceneType> = new Set([
   'steps',
   'hypothesis',
   'timeline',
-  'parts',
 ]);
 const LIST_SCENE_TYPES: ReadonlySet<LessonSceneType> = new Set([
   'checklist',
@@ -23,6 +22,9 @@ const LIST_SCENE_TYPES: ReadonlySet<LessonSceneType> = new Set([
   'hypothesis',
   'timeline',
 ]);
+
+const canReveal = (scene: LessonScene): boolean =>
+  isGridLessonScene(scene) || REVEAL_SCENE_TYPES.has(scene.type);
 
 const MotionEventsSchema = z
   .array(
@@ -48,7 +50,7 @@ const { $schema: _dialect, ...MOTION_OUTPUT_SCHEMA } = z.toJSONSchema(MotionResp
 
 const validateEvent = (
   event: PlaybackMotionEvent,
-  sceneType: LessonSceneType,
+  scene: LessonScene,
   targets: ReadonlySet<string>,
   speech: string
 ): void => {
@@ -62,7 +64,7 @@ const validateEvent = (
     throw new Error('Duplicate motion target');
   }
   if (event.effect === 'reveal') {
-    if (!REVEAL_SCENE_TYPES.has(sceneType)) {
+    if (!canReveal(scene)) {
       throw new Error(
         'Reveal is reserved for lists and articulated parts; compact definitions and comparisons stay visible'
       );
@@ -71,7 +73,7 @@ const validateEvent = (
     return;
   }
   if (targets.size < 2) throw new Error('Focus requires a meaningful selection');
-  if (LIST_SCENE_TYPES.has(sceneType)) throw new Error('Lists use progressive appearance');
+  if (LIST_SCENE_TYPES.has(scene.type)) throw new Error('Lists use progressive appearance');
 };
 
 /** Lab validation without simulated timings; quotes are anchored in the original block speech. */
@@ -82,7 +84,7 @@ export const validatePlaybackMotion = (
 ): readonly PlaybackMotionEvent[] => {
   if (!MotionEventsSchema.safeParse(events).success) throw new Error('Invalid motion plan');
   const targets = new Set(motionTargets(scene).map(target => target.id));
-  for (const event of events) validateEvent(event, scene.type, targets, speech);
+  for (const event of events) validateEvent(event, scene, targets, speech);
   const focused = new Set(
     events.filter(event => event.effect === 'focus').flatMap(event => event.targets)
   );
@@ -155,9 +157,17 @@ export const planPlaybackMotion = async ({
   // The lab keeps sequence scenes and scenes without targetable elements static.
   if (scene.type === 'sequence' || targets.length === 0) return [];
   // Focus needs a selection; a single element can still appear progressively in reveal forms.
-  if (targets.length === 1 && !REVEAL_SCENE_TYPES.has(scene.type)) return [];
+  if (targets.length === 1 && !canReveal(scene)) return [];
   const request = JSON.stringify([
-    { chunk: 0, type: scene.type, title: scene.title, text: speech, targets, sourceProvenance },
+    {
+      chunk: 0,
+      type: scene.type,
+      conceptLayout: scene.conceptLayout,
+      title: scene.title,
+      text: speech,
+      targets,
+      sourceProvenance,
+    },
   ]);
   let feedback = '';
   let problem = '';

@@ -540,6 +540,7 @@ export const createLessonVisualWorkflows = <
       const outcome = await services.generateScene({
         ...visualServiceInput(config, input, signal, retryFeedback),
         allowedSceneTypes: visualContract.sceneTypes,
+        supportsConceptLayout: visualContract.supportsConceptLayout,
       });
       if (outcome.kind === 'invalid') {
         throw retryCorrective({

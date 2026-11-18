@@ -25,6 +25,33 @@ beforeAll(async () => {
   await import('@tabler-icon-nodes');
 });
 
+test('distinguishes the primary source from its attributes in a saved concepts scene', () => {
+  const scene = LessonSceneSchema.parse({
+    type: 'concepts',
+    conceptLayout: 'featured',
+    title: 'Identifying tracks',
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: [
+      { label: 'Field guide', detail: 'Regional species', icon: 'school' },
+      { label: 'Scope', detail: 'Track shapes', icon: 'school' },
+      { label: 'Relevance', detail: 'Local trails', icon: 'school' },
+    ],
+  });
+  const { container } = render(<LessonSceneVisual scene={scene} variant="bare" />);
+  expect(container.querySelector('.source-profile')).toHaveTextContent('Field guide');
+  expect(container.querySelector('dl')).toHaveTextContent('ScopeTrack shapesRelevanceLocal trails');
+  expect(
+    [...sceneElements(container, scene)].map(([id, [element]]) => [id, element.textContent])
+  ).toEqual([
+    ['item:0', 'Field guideRegional species'],
+    ['item:1', 'ScopeTrack shapes'],
+    ['item:2', 'RelevanceLocal trails'],
+  ]);
+});
+
 test.each([
   String.raw`\$5 ($x$)`,
   String.raw`\$5 [$x$]`,

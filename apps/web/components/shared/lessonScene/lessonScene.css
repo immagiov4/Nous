@@ -1014,6 +1014,21 @@
   .lesson-scene .roles {
     display: grid;
   }
+  .lesson-scene .type-concepts .roles section {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: var(--diagram-pad);
+  }
+  .lesson-scene .type-concepts .roles .avatar {
+    margin-bottom: 0;
+  }
+  .lesson-scene .type-concepts .roles p {
+    grid-column: 2;
+  }
+  .lesson-scene .groups.boundary-regions {
+    grid-template-columns: 1fr;
+  }
   .lesson-scene .causal {
     flex-direction: column;
   }
@@ -1141,6 +1156,10 @@
   border-radius: 20px;
   padding: var(--diagram-pad);
   border-color: var(--boundary-stroke);
+}
+.lesson-scene .boundary-regions > section:first-child {
+  outline: 2px dashed var(--boundary-stroke);
+  outline-offset: -2px;
 }
 .lesson-scene .nested-layers section {
   padding: 20px;

@@ -65,7 +65,7 @@ const sceneDraft = (source: string) => ({
   quote: '',
   relation: null,
   title: 'Fonti',
-  type: 'parts',
+  type: 'concepts',
 });
 
 test('offers checklist for new hypotheses and preserves a hypothesis-only resumed contract', async () => {
@@ -89,6 +89,53 @@ test('offers checklist for new hypotheses and preserves a hypothesis-only resume
   });
 });
 
+test.each([
+  'parts',
+  'claim',
+  'source',
+  'counterexample',
+  'limits',
+  'roles',
+])('excludes %s from new generation but completes a frozen request that admits it', async type => {
+  const source = 'A field guide identifies the tracks by shape.';
+  const input = unplannedInput(source);
+  generateStructuredOutputMock.mockResolvedValue({ ...sceneDraft(source), type });
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'schema' },
+  });
+  expect(
+    await generateLessonScene({
+      ...input,
+      allowedSceneTypes: STATIC_LESSON_SCENE_TYPES,
+      supportsConceptLayout: false,
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type } });
+});
+
+test('keeps an authored person and responsibility together in captioned concepts', async () => {
+  const source = 'The coordinator books the room. The host welcomes guests.';
+  const items = [
+    { label: 'Coordinator', detail: 'Books the room' },
+    { label: 'Host', detail: 'Welcomes guests' },
+  ];
+  generateStructuredOutputMock.mockResolvedValue({
+    ...sceneDraft(source),
+    type: 'concepts',
+    conceptLayout: 'roles',
+    items: items.map(item => ({ ...item, time: null, value: null, iconQueries: queries })),
+  });
+  const input = { ...unplannedInput(source), narration: source };
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'concepts', conceptLayout: 'roles', items },
+  });
+  expect(await generateLessonScene({ ...input, supportsConceptLayout: false })).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'schema' },
+  });
+});
+
 test('generates both limits without offering a qualitative gradient, including on resume', async () => {
   const interpretations = [
     { label: 'Holes in a leaf', detail: 'They show damage.' },
@@ -106,12 +153,16 @@ test('generates both limits without offering a qualitative gradient, including o
     })),
   };
   const continuum = { ...draft, type: 'continuum' };
-  const limits = { ...draft, type: 'limits' };
   const input = unplannedInput(source);
   for (const request of [
-    input,
+    { ...input, supportsConceptLayout: true },
     { ...input, allowedSceneTypes: LessonSceneSchema.shape.type.options },
-    { ...input, allowedSceneTypes: STATIC_LESSON_SCENE_TYPES, narration: source },
+    {
+      ...input,
+      allowedSceneTypes: STATIC_LESSON_SCENE_TYPES,
+      narration: source,
+      supportsConceptLayout: false,
+    },
   ]) {
     generateStructuredOutputMock.mockResolvedValueOnce(continuum);
     expect(await generateLessonScene(request)).toMatchObject({
@@ -121,10 +172,11 @@ test('generates both limits without offering a qualitative gradient, including o
     const { output } = generateStructuredOutputMock.mock.calls.at(-1)?.[0] ?? {};
     const schema = z.fromJSONSchema(output.schema);
     expect(schema.safeParse(continuum).success).toBe(false);
-    generateStructuredOutputMock.mockResolvedValueOnce(limits);
+    const type = request.supportsConceptLayout === false ? 'limits' : 'concepts';
+    generateStructuredOutputMock.mockResolvedValueOnce({ ...draft, type });
     expect(await generateLessonScene(request)).toMatchObject({
       kind: 'scene',
-      scene: { type: 'limits', items: interpretations },
+      scene: { type, items: interpretations },
     });
   }
 });
@@ -189,7 +241,7 @@ test.each([
   expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
     kind: 'scene',
     scene: {
-      type: 'parts',
+      type: 'concepts',
       items: [
         { label: 'Fonte', detail: source },
         { label: 'Riscontri', detail: '' },
@@ -224,13 +276,17 @@ test.each([
 });
 
 test.each([
-  'parts',
-  'concepts',
-] as const)('rejects glossary descriptions in captioned %s while retaining standalone details', async type => {
+  { type: 'parts', supportsConceptLayout: false },
+  { type: 'concepts', supportsConceptLayout: false },
+] as const)('rejects glossary descriptions in captioned $type while retaining standalone details', async ({
+  supportsConceptLayout,
+  ...form
+}) => {
   const source = 'Input and output are the two parts of the system.';
-  const draft = { ...sceneDraft(source), type };
+  const draft = { ...sceneDraft(source), ...form };
+  const request = { ...unplannedInput(source), supportsConceptLayout };
   generateStructuredOutputMock.mockResolvedValueOnce(draft);
-  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
+  expect(await generateLessonScene(request)).toMatchObject({
     kind: 'scene',
     scene: {
       items: [
@@ -239,7 +295,7 @@ test.each([
       ],
     },
   });
-  const captioned = { ...unplannedInput(source), narration: source };
+  const captioned = { ...request, narration: source };
   generateStructuredOutputMock.mockResolvedValueOnce(draft);
   expect(await generateLessonScene(captioned)).toMatchObject({ kind: 'invalid' });
   generateStructuredOutputMock.mockResolvedValueOnce({
@@ -249,12 +305,55 @@ test.each([
   expect(await generateLessonScene(captioned)).toMatchObject({
     kind: 'scene',
     scene: {
-      type,
+      ...form,
       items: [
         { label: 'Fonte', detail: '' },
         { label: 'Riscontri', detail: '' },
       ],
     },
+  });
+});
+
+test('keeps item-specific details in a captioned adaptive grid', async () => {
+  const source = 'Use a thermometer to measure temperature and a gauge to collect rainfall.';
+  const items = [
+    { label: 'Thermometer', detail: 'Air temperature' },
+    { label: 'Rain gauge', detail: 'Rainfall collected' },
+  ];
+  generateStructuredOutputMock.mockResolvedValue({
+    ...sceneDraft(source),
+    conceptLayout: 'grid',
+    items: items.map(item => ({ ...item, time: null, value: null, iconQueries: queries })),
+  });
+  expect(await generateLessonScene({ ...unplannedInput(source), narration: source })).toMatchObject(
+    {
+      kind: 'scene',
+      scene: { type: 'concepts', conceptLayout: 'grid', items },
+    }
+  );
+});
+
+test('reserves boundary for a named inside and outside while a single scope uses concepts', async () => {
+  const source = 'Members may borrow books. Visitors may only read them on site.';
+  const input = unplannedInput(source);
+  const singleScope = { ...sceneDraft(source), type: 'boundary' };
+  generateStructuredOutputMock.mockResolvedValueOnce(singleScope);
+  expect(await generateLessonScene(input)).toMatchObject({ kind: 'invalid' });
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...singleScope, type: 'concepts' });
+  expect(await generateLessonScene(input)).toMatchObject({ kind: 'scene' });
+
+  const groups = [
+    { label: 'Inside the membership', items: ['Borrow books'] },
+    { label: 'Outside the membership', items: ['Read on site'] },
+  ];
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...singleScope,
+    items: [],
+    groups: groups.map(group => ({ ...group, iconQueries: [queries], verdict: 'none' })),
+  });
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'boundary', groups },
   });
 });
 
@@ -267,7 +366,7 @@ test.each([
   );
   expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
     kind: 'scene',
-    scene: { type: 'parts', items: [{ detail: source }, { detail: '' }] },
+    scene: { type: 'concepts', items: [{ detail: source }, { detail: '' }] },
   });
 });
 
@@ -293,12 +392,21 @@ test('generation honors the catalog admitted by a resumed static-scene workflow'
   const speech = proportionalScene.body;
   const draft = { ...sceneDraft(''), ...proportionalScene, intent: 'Contare.', evidence: speech };
   generateStructuredOutputMock.mockResolvedValueOnce(draft);
-  const input = { ...unplannedInput(speech), allowedSceneTypes: STATIC_LESSON_SCENE_TYPES };
+  const input = {
+    ...unplannedInput(speech),
+    allowedSceneTypes: STATIC_LESSON_SCENE_TYPES,
+    supportsConceptLayout: false,
+  };
   expect(await generateLessonScene(input)).toMatchObject({ kind: 'invalid' });
   const request = generateStructuredOutputMock.mock.calls[0][0];
   const schema = z.fromJSONSchema(request.output.schema);
   expect(schema.safeParse(draft).success).toBe(false);
-  const staticDraft = { ...sceneDraft(speech), evidence: speech, intent: 'Leggere.' };
+  const staticDraft = {
+    ...sceneDraft(speech),
+    type: 'parts',
+    evidence: speech,
+    intent: 'Leggere.',
+  };
   expect(schema.safeParse(staticDraft).success).toBe(true);
   generateStructuredOutputMock.mockResolvedValueOnce(staticDraft);
   expect(await generateLessonScene(input)).toMatchObject({
@@ -401,7 +509,7 @@ test('generates a validated scene from speech without a visual plan', async () =
   await expect(generateLessonScene(unplannedInput(speech))).resolves.toMatchObject({
     kind: 'scene',
     scene: {
-      type: 'parts',
+      type: 'concepts',
       items: [
         { label: 'Fonte', detail: speech },
         { label: 'Riscontri', detail: '' },
@@ -472,7 +580,8 @@ test.each([
 
   generateStructuredOutputMock.mockResolvedValueOnce({
     ...draft,
-    type: 'parts',
+    type: 'concepts',
+    conceptLayout: 'grid',
     items: computations.map(item => ({ ...item, time: null, value: null, iconQueries: queries })),
   });
   const result = await generateLessonScene({
@@ -481,7 +590,7 @@ test.each([
   });
   expect(result.kind).toBe('scene');
   if (result.kind !== 'scene') throw new Error('Expected a non-graph scene');
-  expect(result.scene.type).toBe('parts');
+  expect(result.scene).toMatchObject({ type: 'concepts', conceptLayout: 'grid' });
   expect(result.scene.items).toEqual(computations.map(item => ({ ...item, icon: '' })));
   expect(result.scene.diagram).toBeUndefined();
   expect(isLessonScene(result.scene)).toBe(true);

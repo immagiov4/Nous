@@ -110,6 +110,67 @@ if (new URLSearchParams(location.search).has('case')) {
     note: '',
     quote: '',
   };
+  const conceptExample = new URLSearchParams(location.search).get('concept-example');
+  if (conceptExample) {
+    scene = { ...scene, type: 'concepts', diagram: undefined };
+    const items = (entries: readonly [string, string, string][]) =>
+      entries.map(([label, detail, icon]) => ({ label, detail, icon }));
+    switch (conceptExample) {
+      case 'grid':
+        scene = {
+          ...scene,
+          title: 'Weather station instruments',
+          conceptLayout: 'grid',
+          items: items([
+            ['Thermometer', 'Air temperature', 'temperature'],
+            ['Rain gauge', 'Rainfall collected', 'droplet'],
+            ['Wind vane', 'Wind direction', 'wind'],
+          ]),
+        };
+        break;
+      case 'roles':
+        scene = {
+          ...scene,
+          title: 'Who runs the field survey?',
+          conceptLayout: 'roles',
+          items: items([
+            ['Observer', 'Identifies birds by sight and sound', 'binoculars'],
+            ['Recorder', 'Logs species and observation times', 'notebook'],
+            ['Coordinator', 'Assigns routes to each group', 'map'],
+          ]),
+        };
+        break;
+      case 'featured':
+        scene = {
+          ...scene,
+          title: 'Identifying local tracks',
+          conceptLayout: 'featured',
+          items: items([
+            ['Field guide', 'Regional mammals', 'book'],
+            ['Scope', 'Track shapes and sizes', 'ruler'],
+            ['Relevance', 'Species found on local trails', 'map'],
+          ]),
+        };
+        break;
+      case 'scope':
+        scene = {
+          ...scene,
+          type: 'boundary',
+          title: 'Library membership',
+          items: [],
+          groups: [
+            { label: 'Members', items: ['Borrow books'], icons: ['book'] },
+            { label: 'Visitors', items: ['Read on site'], icons: ['armchair'] },
+          ],
+        };
+        break;
+    }
+    sources[0].markdown = [
+      scene.title,
+      ...scene.items.map(item => `${item.label}. ${item.detail}.`),
+      ...scene.groups.map(group => `${group.label}. ${group.items.join('. ')}.`),
+    ].join(' ');
+  }
   scene.items.forEach((item, index) => {
     item.value = index + 1;
   });

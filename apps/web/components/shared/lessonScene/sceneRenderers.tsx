@@ -44,6 +44,43 @@ const diagram: SceneRenderer = ({ scene, isDarkMode, playback }) => (
   <SceneDiagram scene={scene} isDarkMode={isDarkMode} playback={playback} />
 );
 
+const parts: SceneRenderer = c => concepts(c, { className: 'parts' });
+
+const featuredConcepts: SceneRenderer = c => (
+  <div className="source">
+    <div className="source-profile">{concepts(c, { items: c.scene.items.slice(0, 1) })}</div>
+    <dl>
+      {c.scene.items.slice(1).map((item, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; authored order is static
+        <div key={`${index}-${item.label}`}>
+          <dt>
+            <SceneIcon name={item.icon} />
+            {item.label}
+          </dt>
+          <dd>{item.detail}</dd>
+        </div>
+      ))}
+    </dl>
+  </div>
+);
+
+const roles: SceneRenderer = c => (
+  <div className="roles">
+    {c.scene.items.map((item, index) => (
+      // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; authored order is static
+      <section key={`${index}-${item.label}`}>
+        <div aria-hidden="true" className="avatar">
+          <SceneIcon name={item.icon || 'user'} />
+        </div>
+        <strong>{item.label}</strong>
+        <p>{item.detail}</p>
+      </section>
+    ))}
+  </div>
+);
+
+const conceptLayouts = { grid: parts, featured: featuredConcepts, roles };
+
 const relationshipRoot = ({ title, body }: SceneRenderContext['scene'], className: string) => (
   <div className={className}>
     {title ? (
@@ -67,7 +104,7 @@ export const SCENE_RENDERERS = {
     />
   ),
   definition: c => concepts(c, { className: 'definition', badges: true }),
-  parts: c => concepts(c, { className: 'parts' }),
+  parts,
   signals: c => groups(c, 'signals'),
   comparison: groups,
   matrix,
@@ -145,7 +182,10 @@ export const SCENE_RENDERERS = {
       <div className="fulcrum" />
     </div>
   ),
-  concepts: c => concepts(c, { className: 'concept-map' }),
+  concepts: c =>
+    c.scene.conceptLayout
+      ? conceptLayouts[c.scene.conceptLayout](c)
+      : concepts(c, { className: 'concept-map' }),
   claim: c => (
     <div className="claim">
       <div className="claim-rule" />
@@ -153,23 +193,7 @@ export const SCENE_RENDERERS = {
     </div>
   ),
   hypothesis: c => sequence(c, 'checklist'),
-  source: c => (
-    <div className="source">
-      <div className="source-profile">{concepts(c, { items: c.scene.items.slice(0, 1) })}</div>
-      <dl>
-        {c.scene.items.slice(1).map((item, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; authored order is static
-          <div key={`${index}-${item.label}`}>
-            <dt>
-              <SceneIcon name={item.icon} />
-              {item.label}
-            </dt>
-            <dd>{item.detail}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
-  ),
+  source: featuredConcepts,
   counterexample: c => concepts(c, { className: 'counterexample' }),
   limits: c => (
     <Fragment>
@@ -177,20 +201,7 @@ export const SCENE_RENDERERS = {
       {groups(c, 'limits')}
     </Fragment>
   ),
-  roles: c => (
-    <div className="roles">
-      {c.scene.items.map((item, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; authored order is static
-        <section key={`${index}-${item.label}`}>
-          <div aria-hidden="true" className="avatar">
-            <SceneIcon name={item.icon || 'user'} />
-          </div>
-          <strong>{item.label}</strong>
-          <p>{item.detail}</p>
-        </section>
-      ))}
-    </div>
-  ),
+  roles,
   beforeafter: c =>
     c.scene.groups.some(group => group.verdict)
       ? groups(c, 'assessment')
@@ -202,7 +213,10 @@ export const SCENE_RENDERERS = {
           },
         }),
   layers: c => <div className="nested-layers">{nestedLayers(c.scene.items)}</div>,
-  boundary: c => concepts(c, { className: 'boundary', after: groups(c, 'boundary-groups') }),
+  boundary: c =>
+    c.scene.items.length
+      ? concepts(c, { className: 'boundary', after: groups(c, 'boundary-groups') })
+      : groups(c, 'boundary-regions'),
   number: c => (
     <div className="big-number">
       {c.scene.items[0]?.value}

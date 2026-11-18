@@ -22,6 +22,63 @@ const formulaViewports = [
 ];
 
 test.each(
+  formulaViewports.flatMap(viewport => [false, true].map(dark => ({ viewport, dark })))
+)('preserves concept layouts and scope at $viewport.width px (dark=$dark)', async ({
+  viewport,
+  dark,
+}) => {
+  const page = await browser.newPage({ viewport, reducedMotion: 'reduce' });
+  const mobile = viewport.width === 390;
+  try {
+    for (const variant of ['grid', 'roles', 'featured', 'scope']) {
+      await page.goto(
+        `${baseUrl}tests/fixtures/playbackLayout.html?concept-example=${variant}${dark ? '&dark' : ''}`
+      );
+      const host = page.locator('.scene-host');
+      await host.locator('h2').waitFor();
+      if (variant === 'grid') {
+        const entries = host.locator('.parts strong');
+        expect(await entries.allTextContents()).toEqual(['Thermometer', 'Rain gauge', 'Wind vane']);
+        const [first, second] = await Promise.all([
+          entries.nth(0).boundingBox(),
+          entries.nth(1).boundingBox(),
+        ]);
+        expect(first).not.toBeNull();
+        expect(second).not.toBeNull();
+        if (mobile) expect(second?.y).toBeGreaterThan(first?.y ?? 0);
+        else expect(second?.x).toBeGreaterThan(first?.x ?? 0);
+      } else if (variant === 'roles') {
+        const observer = host.locator('.roles section').first();
+        expect(await observer.locator('strong').innerText()).toBe('Observer');
+        expect(await observer.locator('p').innerText()).toBe('Identifies birds by sight and sound');
+        const icon = await observer.locator('.avatar').boundingBox();
+        const name = await observer.locator('strong').boundingBox();
+        if (mobile) expect(name?.x).toBeGreaterThan(icon?.x ?? 0);
+        else expect(name?.y).toBeGreaterThan(icon?.y ?? 0);
+      } else if (variant === 'featured') {
+        const profile = host.locator('.source-profile');
+        expect(await profile.innerText()).toContain('Field guide');
+        const principal = await profile.boundingBox();
+        const attributes = await host.locator('dl').boundingBox();
+        if (mobile) expect(attributes?.y).toBeGreaterThan(principal?.y ?? 0);
+        else expect(attributes?.x).toBeGreaterThan(principal?.x ?? 0);
+      } else {
+        const regions = host.locator('.boundary-regions section');
+        expect(await regions.locator('h3').allTextContents()).toEqual(['Members', 'Visitors']);
+        const outlineStyle = await regions.evaluateAll(sections =>
+          sections.map(section => getComputedStyle(section).outlineStyle)
+        );
+        expect(outlineStyle[0]).toBe('dashed');
+        expect(outlineStyle[1]).not.toBe('dashed');
+      }
+      await evidence(page, `concept-${variant}-${viewport.width}-${dark ? 'dark' : 'light'}`);
+    }
+  } finally {
+    await page.close();
+  }
+});
+
+test.each(
   ['tall', 'wide', 'square'].flatMap(aspect =>
     [
       { width: 1920, height: 900 },

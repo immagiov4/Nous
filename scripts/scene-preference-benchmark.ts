@@ -7,7 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import * as z from 'zod';
 import { MAX_VISUAL_LESSON_CHARS } from '../packages/shared-types/lessonGenerationPolicy.js';
-import { selectableLessonSceneTypes } from '../packages/shared-types/lessonScene.js';
+import {
+  CONSOLIDATED_CONCEPT_SCENE_TYPES,
+  type LessonSceneType,
+  selectableLessonSceneTypes,
+} from '../packages/shared-types/lessonScene.js';
 import { readGitIdentity } from './git-identity.js';
 
 /**
@@ -21,7 +25,10 @@ import { readGitIdentity } from './git-identity.js';
  */
 
 const form = z.union([
-  z.enum(selectableLessonSceneTypes({ captioned: false })),
+  z.enum([
+    ...selectableLessonSceneTypes({ captioned: false }),
+    ...CONSOLIDATED_CONCEPT_SCENE_TYPES,
+  ]),
   z
     .string()
     .startsWith('uncovered:')
@@ -65,7 +72,11 @@ export const parseCases = (text: string): PreferenceCase[] => {
   }
 };
 
-const uncovered = (type: string) => type.startsWith('uncovered:');
+const uncoveredLabel = (type: string) => {
+  if (type.startsWith('uncovered:')) return type.slice('uncovered:'.length);
+  if (CONSOLIDATED_CONCEPT_SCENE_TYPES.has(type as LessonSceneType)) return type;
+  return undefined;
+};
 const ratio = (n: number, d: number) => (d ? n / d : null);
 const percentile = (sorted: number[], p: number) =>
   sorted.length ? sorted[Math.ceil(sorted.length * p) - 1] : null;
@@ -83,12 +94,14 @@ export const summarize = (
   const completed = trials.filter(t => t.kind !== 'cancelled');
   const decisive = cases.filter(c => !c.tie);
   const pairs = new Map(
-    decisive.filter(c => !uncovered(c.preferred) && !uncovered(c.rejected)).map(c => [c.id, c])
+    decisive
+      .filter(c => !uncoveredLabel(c.preferred) && !uncoveredLabel(c.rejected))
+      .map(c => [c.id, c])
   );
   const uncoveredPreferred: Record<string, number> = {};
-  for (const c of decisive.filter(c => uncovered(c.preferred))) {
-    const label = c.preferred.slice('uncovered:'.length);
-    uncoveredPreferred[label] = (uncoveredPreferred[label] ?? 0) + 1;
+  for (const c of decisive) {
+    const label = uncoveredLabel(c.preferred);
+    if (label) uncoveredPreferred[label] = (uncoveredPreferred[label] ?? 0) + 1;
   }
   const runs = Array.from({ length: repetitions }, (_, index) => {
     const own = completed.filter(t => t.repetition === index + 1);
