@@ -895,6 +895,55 @@ describe('workflow runtime worker', () => {
     }
   });
 
+  test('claims a newly queued step when a wake arrives and capacity is free', async () => {
+    vi.useFakeTimers();
+    let releaseSlowStep!: () => void;
+    const slowStep = new Promise<void>(resolve => {
+      releaseSlowStep = resolve;
+    });
+    const started: string[] = [];
+    const { definition, registry } = registerStepWorkflow(async text => {
+      started.push(text);
+      if (text === 'slow') await slowStep;
+      return text;
+    });
+    const store = makeStore();
+    const claimNext = vi.mocked(store.steps.claimNext);
+    claimNext
+      .mockResolvedValueOnce(makeClaim(definition, 'worker-1', { input: { text: 'slow' } }))
+      .mockResolvedValue(null);
+    const wakeSource = new FakeWakeSource();
+    const worker = createWorkflowRuntimeWorker({
+      onLoopError: vi.fn(),
+      pollIntervalMs: POLL_INTERVAL_MS,
+      reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
+      registry,
+      services: {},
+      stepConcurrency: 2,
+      store,
+      wakeSource,
+      workerId: 'worker-1',
+    });
+
+    await worker.start();
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(started).toEqual(['slow']);
+      claimNext.mockResolvedValueOnce(
+        makeClaim(definition, 'worker-1', {
+          input: { text: 'new' },
+          runId: '00000002-1111-4111-8111-111111111111',
+        })
+      );
+      wakeSource.emit('step');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(started).toEqual(['slow', 'new']);
+    } finally {
+      releaseSlowStep();
+      await worker.stop();
+    }
+  });
+
   test('does not refill capacity after stop while a claim is in flight', async () => {
     let resolveClaim!: (claim: WorkflowStepClaim) => void;
     const pendingClaim = new Promise<WorkflowStepClaim>(resolve => {
