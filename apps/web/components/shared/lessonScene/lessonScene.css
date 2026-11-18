@@ -2218,7 +2218,7 @@
 }
 .lesson-scene .quick-scene .q-process .q-step-copy {
   --step-title-line: 1.5rem;
-  --icon-size: 1.25rem;
+  --icon-size: 2rem;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 6px 8px;
