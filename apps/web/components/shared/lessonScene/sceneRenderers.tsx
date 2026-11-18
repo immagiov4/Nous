@@ -40,8 +40,23 @@ const chart: SceneRenderer = ({ scene, isDarkMode, prototype }) => (
   <SceneChart scene={scene} isDarkMode={isDarkMode} prototype={prototype} />
 );
 
-const diagram: SceneRenderer = ({ scene, isDarkMode }) => (
-  <SceneDiagram scene={scene} isDarkMode={isDarkMode} />
+const diagram: SceneRenderer = ({ scene, isDarkMode, playback }) => (
+  <SceneDiagram scene={scene} isDarkMode={isDarkMode} playback={playback} />
+);
+
+const relationshipRoot = ({ title, body }: SceneRenderContext['scene'], className: string) => (
+  <div className={className}>
+    {title ? (
+      <h2>
+        <SceneText>{title}</SceneText>
+      </h2>
+    ) : null}
+    {body ? (
+      <p className="scene-intro">
+        <SceneText>{body}</SceneText>
+      </p>
+    ) : null}
+  </div>
 );
 
 export const SCENE_RENDERERS = {
@@ -84,13 +99,13 @@ export const SCENE_RENDERERS = {
   hierarchy: c =>
     concepts(c, {
       className: 'hierarchy',
-      before: <div className="root-node">{c.scene.title}</div>,
+      before: relationshipRoot(c.scene, 'root-node'),
       itemsClassName: 'branches',
     }),
   network: c =>
     concepts(c, {
       className: 'network',
-      before: <div className="hub">{c.scene.title}</div>,
+      before: relationshipRoot(c.scene, 'hub'),
       itemsClassName: 'satellites',
     }),
   cycle: c =>

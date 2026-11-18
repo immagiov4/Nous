@@ -19,6 +19,19 @@ test('keeps unfinished diagrams unready with a paused animation clock', () => {
   expect(atlasStageReady()).toBe(true);
 });
 
+test('accepts a failed diagram only when its own connection list is visible', () => {
+  document.body.innerHTML = `
+    <div class="scene-host">
+      <article class="scene"><div class="diagram-description"></div></article>
+      <article class="scene"><div><section class="diagram-scroll"><div class="mermaid-diagram"></div></section></div>
+        <div class="diagram-description sr-only"></div>
+      </article>
+    </div>`;
+  expect(atlasStageReady()).toBe(false);
+  document.querySelector('.diagram-description.sr-only')?.classList.remove('sr-only');
+  expect(atlasStageReady()).toBe(true);
+});
+
 test('accepts an image only after its bytes complete', () => {
   document.body.innerHTML = '<div class="scene-host"><img alt="Synthetic image"></div>';
   const image = document.querySelector('img');

@@ -229,10 +229,10 @@ const QUICK_GEOMETRY = {
     radius: 130,
     height: 420,
     labelGap: 24,
-    labelTop: 22,
+    upperValueOffset: 3,
     labelBottom: 16,
     labelOffset: 8,
-    valueLine: 25,
+    labelLineHeight: '1.5em',
     dot: 6,
   },
   scatter: {
@@ -301,25 +301,154 @@ export const quickGroup = (group: LessonSceneGroup, index: number) => (
   </section>
 );
 
+const chartKey = (labels: readonly string[]) => (
+  <ol className="q-chart-key" hidden>
+    {labels.map((label, index) => (
+      // biome-ignore lint/suspicious/noArrayIndexKey: authored measurements have stable order
+      <li key={`${index}-${label}`} data-playback-item={index} hidden value={index + 1}>
+        {label}
+      </li>
+    ))}
+  </ol>
+);
+
+const updateChartKey = <Label extends Element>(
+  svg: SVGSVGElement,
+  labels: NodeListOf<Label>,
+  placeLabel: (label: Label) => boolean
+) => {
+  const key = svg.parentElement?.querySelector<HTMLOListElement>(':scope > .q-chart-key');
+  if (!key) return;
+  let hasKeyEntries = false;
+  for (const [index, label] of labels.entries()) {
+    const showKey = placeLabel(label);
+    key.children[index].toggleAttribute('hidden', !showKey);
+    hasKeyEntries ||= showKey;
+  }
+  key.hidden = !hasKeyEntries;
+};
+
+const placeScatterLabel = (label: HTMLElement) => {
+  const { labelGap, left, right } = QUICK_GEOMETRY.scatter;
+  const { width } = QUICK_GEOMETRY.svg;
+  const pointX = Number(label.dataset.pointX);
+  const pointY = Number(label.dataset.pointY);
+  const preferLeft = right - pointX < pointX - left;
+  const name = label.children[0] as HTMLElement;
+  const marker = label.children[1] as HTMLElement;
+  name.hidden = false;
+  marker.hidden = true;
+  // A name with no room on either side would otherwise cover points or axis labels.
+  const leftSpace = pointX - 2 * labelGap;
+  const rightSpace = width - pointX - 2 * labelGap;
+  const showKey = name.offsetWidth > Math.max(leftSpace, rightSpace);
+  name.hidden = showKey;
+  marker.hidden = !showKey;
+  const { offsetWidth, offsetHeight } = label;
+  const labelOnLeft = offsetWidth > rightSpace || (preferLeft && offsetWidth <= leftSpace);
+  const beside = labelOnLeft ? pointX - labelGap - offsetWidth : pointX + labelGap;
+  const above = pointY - labelGap - offsetHeight;
+  label.style.left = `${Math.max(labelGap, Math.min(beside, width - labelGap - offsetWidth))}px`;
+  label.style.top = `${above >= 0 ? above : pointY + labelGap}px`;
+  return showKey;
+};
+
+function placeScatterAxes(svg: SVGSVGElement) {
+  const key = svg.parentElement?.querySelector<HTMLElement>('.q-axis-key');
+  if (!key) return;
+  const bounds = svg.getBoundingClientRect();
+  const axes = svg.querySelectorAll<SVGTextElement>('[data-axis]');
+  for (const [index, axis] of axes.entries()) {
+    const title = axis.children[0];
+    title.removeAttribute('hidden');
+    axis.removeAttribute('data-in-key');
+    const extent = title.getBoundingClientRect();
+    const outside = extent.left < bounds.left || extent.right > bounds.right;
+    title.toggleAttribute('hidden', outside);
+    axis.toggleAttribute('data-in-key', outside);
+    key.children[index].toggleAttribute('hidden', !outside);
+  }
+  key.hidden = !key.querySelector(':scope > :not([hidden])');
+}
+
+const placeRadialLabel = (label: SVGTextElement) => {
+  label.removeAttribute('data-in-key');
+  const { x, width } = label.getBBox();
+  const showKey = x < 0 || x + width > QUICK_GEOMETRY.svg.width;
+  label.toggleAttribute('data-in-key', showKey);
+  return showKey;
+};
+
+const sizeQuickChartLabels = (svg: SVGSVGElement | null) => {
+  if (!svg?.parentElement || typeof ResizeObserver === 'undefined') return;
+  const resize = () => {
+    const { clientHeight, clientWidth, viewBox } = svg;
+    if (!clientWidth || !clientHeight) return;
+    // The viewBox uses the smaller axis scale, including when max-height limits the chart.
+    const { width, height } = viewBox.baseVal;
+    svg.style.setProperty(
+      '--q-inverse-scale',
+      String(Math.max(width / clientWidth, height / clientHeight))
+    );
+    if (svg.classList.contains('q-scatter')) {
+      placeScatterAxes(svg);
+      updateChartKey(
+        svg,
+        svg.querySelectorAll<HTMLElement>('.q-scatter-point-label'),
+        placeScatterLabel
+      );
+    } else {
+      updateChartKey(
+        svg,
+        svg.querySelectorAll<SVGTextElement>('.q-radial-label'),
+        placeRadialLabel
+      );
+    }
+  };
+  const observer = new ResizeObserver(resize);
+  observer.observe(svg.parentElement);
+  const fonts = svg.ownerDocument.fonts;
+  fonts.addEventListener('loadingdone', resize);
+  resize();
+  return () => {
+    observer.disconnect();
+    fonts.removeEventListener('loadingdone', resize);
+  };
+};
+
 const quickSvg = (
   scene: LessonScene,
   content: ReactNode,
-  height: number = QUICK_GEOMETRY.svg.height
+  height: number = QUICK_GEOMETRY.svg.height,
+  description?: string
 ) => (
   <svg
+    key={description}
     className={`q-svg${scene.type === 'scatter' ? ' q-scatter' : ''}`}
     viewBox={`0 0 ${QUICK_GEOMETRY.svg.width} ${height}`}
     role="img"
     aria-label={scene.title}
+    ref={description ? sizeQuickChartLabels : undefined}
   >
     <title>{scene.title}</title>
+    {description ? <desc>{description}</desc> : null}
     {content}
   </svg>
 );
 
 export const quickRadial = ({ scene }: SceneRenderContext) => {
-  const { cx, cy, radius, height, labelGap, labelTop, labelBottom, labelOffset, valueLine, dot } =
-    QUICK_GEOMETRY.radial;
+  const {
+    cx,
+    cy,
+    radius,
+    height,
+    labelGap,
+    upperValueOffset,
+    labelBottom,
+    labelOffset,
+    labelLineHeight,
+    dot,
+  } = QUICK_GEOMETRY.radial;
   const point = (index: number, distance: number) => [
     cx + Math.cos((index * 2 * Math.PI) / scene.items.length - Math.PI / 2) * distance,
     cy + Math.sin((index * 2 * Math.PI) / scene.items.length - Math.PI / 2) * distance,
@@ -329,12 +458,17 @@ export const quickRadial = ({ scene }: SceneRenderContext) => {
     let anchor: 'middle' | 'start' | 'end' = 'end';
     if (Math.abs(dx) < 1) anchor = 'middle';
     else if (dx > 0) anchor = 'start';
-    let top = y - labelOffset;
-    if (y < cy - radius) top = y - labelTop;
-    else if (y > cy + radius) top = y + labelBottom;
-    return { anchor, top };
+    const abovePlot = y < cy - radius;
+    let baseline = y - labelOffset;
+    // Above the plot, anchor the value so wider line spacing grows away from the grid.
+    if (abovePlot) baseline = y + upperValueOffset;
+    else if (y > cy + radius) baseline = y + labelBottom;
+    return { anchor, abovePlot, baseline };
   };
-  return quickSvg(
+  const measurements = scene.items.map(
+    item => `${item.label}: ${item.value} / ${scene.max} ${scene.unit}`
+  );
+  const chart = quickSvg(
     scene,
     <>
       {[0.25, 0.5, 0.75, 1].map(fraction => (
@@ -370,26 +504,50 @@ export const quickRadial = ({ scene }: SceneRenderContext) => {
       )}
       {scene.items.map((item, index) => {
         const [x, y] = point(index, radius + labelGap);
-        const { anchor, top } = labelPlacement(x, y);
+        const { anchor, abovePlot, baseline } = labelPlacement(x, y);
+        const nameOffset = abovePlot ? `-${labelLineHeight}` : undefined;
         return (
           <text
             // biome-ignore lint/suspicious/noArrayIndexKey: authored measures have stable order
             key={`${index}-${item.label}`}
             className="q-radial-label"
             x={x}
-            y={top}
+            y={baseline}
             textAnchor={anchor}
             data-playback-item={index}
           >
-            <tspan x={x}>{item.label}</tspan>
-            <tspan className="q-radial-value" x={x} dy={valueLine}>
-              {item.value} / {scene.max} {scene.unit}
+            <tspan x={x} dy={nameOffset}>
+              {item.label}
+            </tspan>
+            <tspan
+              className="q-radial-value"
+              x={x}
+              y={abovePlot ? baseline : undefined}
+              dy={abovePlot ? undefined : labelLineHeight}
+            >
+              {item.value} / {scene.max}
+              <tspan className="q-radial-inline-unit"> {scene.unit}</tspan>
+            </tspan>
+            <tspan className="q-radial-marker" x={x} dy={nameOffset}>
+              {index + 1}
             </tspan>
           </text>
         );
       })}
     </>,
-    height
+    height,
+    measurements.join('; ')
+  );
+  return (
+    <>
+      {chart}
+      {scene.unit ? (
+        <p className="q-radial-unit" aria-hidden="true">
+          {scene.unit}
+        </p>
+      ) : null}
+      {chartKey(measurements)}
+    </>
   );
 };
 
@@ -550,7 +708,7 @@ export const quickScatter = ({ scene }: SceneRenderContext) => {
     geometry.left + ((value - xmin) / (xmax - xmin)) * (geometry.right - geometry.left);
   const y = (value: number) =>
     geometry.bottom - ((value - ymin) / (ymax - ymin)) * (geometry.bottom - geometry.top);
-  return quickSvg(
+  const chart = quickSvg(
     scene,
     <>
       {Array.from({ length: geometry.ticks + 1 }, (_, index) => {
@@ -583,30 +741,54 @@ export const quickScatter = ({ scene }: SceneRenderContext) => {
         y2={geometry.bottom}
         className="q-axes"
       />
-      <text x={geometry.labelX} y={geometry.labelY} textAnchor="middle">
-        {scene.xLabel}
+      <text data-axis="X" x={geometry.labelX} y={geometry.labelY} textAnchor="middle">
+        <tspan>{scene.xLabel}</tspan>
+        <tspan className="q-axis-marker">X</tspan>
       </text>
-      <text x={geometry.left} y={geometry.axisY} textAnchor="start">
-        {scene.yLabel}
+      <text data-axis="Y" x={geometry.left} y={geometry.axisY} textAnchor="start">
+        <tspan>{scene.yLabel}</tspan>
+        <tspan className="q-axis-marker">Y</tspan>
       </text>
-      {scene.items.map((item, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: authored points have stable order
-        <g key={`${index}-${item.label}`} data-playback-item={index}>
-          <circle
-            className="q-dot"
-            cx={x(item.x as number)}
-            cy={y(item.y as number)}
-            r={geometry.dot}
-          />
-          <text
-            x={x(item.x as number) + (item.x === xmax ? -geometry.labelGap : geometry.labelGap)}
-            y={y(item.y as number) - geometry.labelGap}
-            textAnchor={item.x === xmax ? 'end' : 'start'}
-          >
-            {item.label}
-          </text>
-        </g>
-      ))}
+      {scene.items.map((item, index) => {
+        const pointX = x(item.x as number);
+        const pointY = y(item.y as number);
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: authored points have stable order
+          <g key={`${index}-${item.label}`} data-playback-item={index}>
+            <circle className="q-dot" cx={pointX} cy={pointY} r={geometry.dot} />
+            <foreignObject
+              width={QUICK_GEOMETRY.svg.width}
+              height={QUICK_GEOMETRY.svg.height}
+              pointerEvents="none"
+            >
+              <span className="q-scatter-point-label" data-point-x={pointX} data-point-y={pointY}>
+                <span>{item.label}</span>
+                <span hidden>{index + 1}</span>
+              </span>
+            </foreignObject>
+          </g>
+        );
+      })}
+    </>,
+    QUICK_GEOMETRY.svg.height,
+    scene.items
+      .map(item => `${item.label}: ${scene.xLabel} ${item.x}, ${scene.yLabel} ${item.y}`)
+      .join('; ')
+  );
+  return (
+    <>
+      {chart}
+      <dl className="q-axis-key" hidden>
+        <div hidden>
+          <dt>X</dt>
+          <dd>{scene.xLabel}</dd>
+        </div>
+        <div hidden>
+          <dt>Y</dt>
+          <dd>{scene.yLabel}</dd>
+        </div>
+      </dl>
+      {chartKey(scene.items.map(item => item.label))}
     </>
   );
 };

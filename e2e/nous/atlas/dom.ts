@@ -169,9 +169,7 @@ export function atlasStageReady() {
   for (const host of root.querySelectorAll('.mermaid-diagram')) {
     if (
       !host.querySelector('svg') &&
-      !host
-        .closest('.diagram-scroll')
-        ?.nextElementSibling?.matches('.diagram-description:not(.sr-only)')
+      !host.closest('.scene')?.querySelector('.diagram-description:not(.sr-only)')
     )
       return false;
   }

@@ -17,6 +17,7 @@ const BROWSER_FIXTURE_TESTS = [
   'apps/web/tests/utils/reader/lessonPlaybackSignal.test.ts',
   'apps/web/tests/components/workspace/PlaybackCausalLayout.test.ts',
   'apps/web/tests/components/workspace/ContextComposerLayout.test.ts',
+  'apps/web/tests/components/workspace/ReaderGraphics.test.ts',
 ];
 // These suites own browser/parser subprocesses, process fixtures, or production registry rebuilds.
 const LOAD_SENSITIVE_TESTS = [

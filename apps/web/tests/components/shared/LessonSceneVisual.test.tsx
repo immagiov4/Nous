@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 
 import { type LessonScene, LessonSceneSchema } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeAll, describe, expect, test, vi } from 'vitest';
 
 // The real path data is a 2 MB lazy chunk; one known icon keeps the test deterministic.
@@ -17,6 +17,8 @@ vi.mock('@tabler-icon-nodes', () => ({
 import GeneratedVisualFrame from '../../../components/shared/GeneratedVisualFrame.tsx';
 import { LessonSceneVisual } from '../../../components/shared/lessonScene/LessonSceneVisual.tsx';
 import { SceneText } from '../../../components/shared/lessonScene/SceneText.tsx';
+
+import { sceneElements } from '../../../components/workspace/playback/stageMotion.ts';
 
 beforeAll(async () => {
   // Load the mocked asset before measuring the component's asynchronous render.
@@ -51,6 +53,145 @@ test.each([
   expect(container.querySelectorAll('math')).toHaveLength(1);
   expect(container.querySelector('annotation')?.textContent).toBe(copy.slice(1, -3));
   expect(container.lastChild?.textContent).toBe('表示');
+});
+
+test.each(['network', 'hierarchy'] as const)('omits the heading for an untitled %s', type => {
+  const scene = { type, title: '', body: '', items: [], groups: [], quote: '', note: '' };
+  const { container } = render(<LessonSceneVisual scene={scene} />);
+  expect(container.querySelector('h2')).toBeNull();
+});
+
+test.each(['network', 'hierarchy'] as const)('reads the %s root heading before its intro', type => {
+  const scene = {
+    type,
+    title: 'Local observations',
+    body: 'The branches describe measurements.',
+    items: [{ label: 'Rain', detail: 'Amount over time', icon: '' }],
+    groups: [],
+    quote: '',
+    note: '',
+  };
+  const { rerender } = render(<LessonSceneVisual scene={scene} />);
+  const [heading] = screen.getAllByRole('heading', { name: scene.title });
+  const intro = screen.getByText(scene.body);
+  expect(screen.getAllByRole('heading', { name: scene.title })).toHaveLength(1);
+  expect(heading.compareDocumentPosition(intro) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(heading.parentElement).toHaveClass(type === 'network' ? 'hub' : 'root-node');
+  expect(screen.getByText('Amount over time')).toBeInTheDocument();
+  rerender(<LessonSceneVisual scene={{ ...scene, title: '' }} />);
+  expect(screen.queryByRole('heading')).toBeNull();
+  expect(screen.getByText(scene.body)).toBeInTheDocument();
+});
+
+test('restores a radial name to its ray when the chart has room', () => {
+  let resize = () => {};
+  let viewportWidth = 320;
+  let wideFont = false;
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    }
+  );
+  vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(() => viewportWidth);
+  vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(
+    () => (viewportWidth * 420) / 640
+  );
+  const prototype = SVGElement.prototype;
+  const original = Object.getOwnPropertyDescriptor(prototype, 'getBBox');
+  Object.defineProperty(prototype, 'getBBox', {
+    configurable: true,
+    value(this: SVGTextElement) {
+      const long = this.textContent?.includes('Western precision');
+      return new DOMRect(long && wideFont && viewportWidth === 320 ? -20 : 30, 0, 120, 24);
+    },
+  });
+  const scene: LessonScene = {
+    type: 'radar',
+    title: 'Measured precision',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    max: 5,
+    unit: 'points',
+    items: [
+      { label: 'Western precision', value: 4, detail: '', icon: '' },
+      { label: 'Eastern precision', value: 3, detail: '', icon: '' },
+    ],
+  };
+  try {
+    const { container } = render(<LessonSceneVisual scene={scene} />);
+    expect(screen.queryByRole('list')).toBeNull();
+    wideFont = true;
+    document.fonts.dispatchEvent(new Event('loadingdone'));
+    expect(sceneElements(container, scene).get('item:0')).toContain(screen.getByRole('listitem'));
+    expect(screen.getByRole('listitem')).toHaveTextContent('Western precision: 4 / 5 points');
+    viewportWidth = 640;
+    act(resize);
+    expect(screen.queryByRole('list')).toBeNull();
+  } finally {
+    if (original) Object.defineProperty(prototype, 'getBBox', original);
+    else Reflect.deleteProperty(prototype, 'getBBox');
+    vi.unstubAllGlobals();
+  }
+});
+
+test('fits scatter labels to the resized chart while keeping the authored measurements', () => {
+  let width = 0;
+  let resize = () => {};
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    }
+  );
+  vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(() => width);
+  vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(() => (width * 9) / 16);
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(480);
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(90);
+  const scene: LessonScene = {
+    type: 'scatter',
+    title: 'Response times',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    xLabel: 'Load',
+    yLabel: 'Time (ms)',
+    items: [
+      { label: 'Baseline trial', x: 1, y: 2, detail: '', icon: '' },
+      { label: 'Recalibrated sensor at full load', x: 4, y: 8, detail: '', icon: '' },
+    ],
+  };
+  try {
+    const { container } = render(<LessonSceneVisual scene={scene} />);
+    const chart = screen.getByRole('img', { name: scene.title });
+    expect(chart.querySelector('desc')).toHaveTextContent(
+      /Recalibrated sensor at full load: Load 4, Time \(ms\) 8/
+    );
+    width = 320;
+    act(resize);
+    const label = within(chart).getByText('Recalibrated sensor at full load');
+    expect(label.parentElement).toHaveStyle({ top: '62px', left: '93px' });
+    expect(screen.getByRole('list')).toHaveTextContent('Baseline trial');
+    const entry = within(screen.getByRole('list')).getByText('Recalibrated sensor at full load');
+    expect(sceneElements(container, scene).get('item:1')).toContain(entry);
+    expect(chart.style.getPropertyValue('--q-inverse-scale')).toBe('2');
+    width = 640;
+    act(resize);
+    expect(chart.style.getPropertyValue('--q-inverse-scale')).toBe('1');
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 const comparison: LessonScene = {
