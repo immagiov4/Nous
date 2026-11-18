@@ -277,7 +277,7 @@ These forms have a title of at most 160 characters, optional body and note of at
 - venn: three groups (left only, intersection, right only), with qualitative areas; each label at most 24 characters and at most one description of at most 48 characters per region. If the content does not fit, choose comparison rather than making the text ambiguous.
 - Distribution shows frequencies of adjacent ordered classes. Donut shows shares of a known whole. Treemap uses labelled areas for flat parts of a whole. Funnel follows the surviving part of one population through ordered stages.
 - funnel/treemap: items with value and explicit unit; funnel values never increase, treemap values are positive. For funnel, the title identifies the common quantity or entity once (for example Requests); labels contain only stage names (Received, Valid, Successful), without repeating units or numbers. The component shows quantities and retention on a common cell scale, including fractions; never draw or count cells yourself.
-- Heatmap and security matrix modes: columns:[labels], rows:[{label,values:[values]}], 1–5 columns and 1–8 rows. Keep groups, items and criteria []. Every row has exactly one value per column, in column order, preserving every association. For heatmap, supply scaleEvidence quoting a complete, explicit scale declaration from the lesson, including the full unit and any trailing qualifier in the same clause. Use the lesson language and quote the visible text. Copy the quoted upper bound to max and only the complete unit to unit, even if no observed value reaches the upper bound. Use exact cell values from zero to max. Security requires a textual permission (at most 60 characters) in every cell, including explicit unknown permissions. If the source does not clearly declare the scale and unit, omit max, unit and scaleEvidence. The table will still show exact values. Use another form if a cell is missing.
+- Heatmap and security matrix modes: columns:[labels], rows:[{label,values:[values]}], 1–5 columns and 1–8 rows. Keep groups, items and criteria []. Every row has exactly one value per column, in column order, preserving every association. For heatmap, supply scaleEvidence quoting a complete, explicit scale declaration from the lesson, including the full unit and any trailing qualifier in the same clause. Use the lesson language and quote the visible text. Copy the quoted upper bound to max and the complete unit to the unit field, even if no observed value reaches the upper bound. Use exact cell values from zero to max. Security requires a textual permission (at most 60 characters) in every cell, including explicit unknown permissions. If the source does not clearly declare the scale and unit, omit max, unit and scaleEvidence. The table will still show exact values. Use another form if a cell is missing.
 - security: use brief, unambiguous permission phrases and keep the lesson's full role and resource names where shortening them would obscure the meaning.
 - gantt: items with finite numeric start/end, end greater than start, and a common explicit unit.
 - scatter: items with finite numeric x/y, xLabel/yLabel including units, and explicit unit.
@@ -569,7 +569,8 @@ const verifiedHeatmapScale = async (
   draft: SceneDraft,
   context: SceneSourceContext
 ): Promise<Pick<LessonScene, 'max' | 'unit'>> => {
-  const { max, unit, scaleEvidence: quote } = draft;
+  const { max, scaleEvidence: quote } = draft;
+  const unit = draft.unit ?? draft.unitLabel;
   if (max === undefined || unit === undefined || quote === undefined) return {};
   const visible = visibleScaleSource(context.source);
   if (!isVisibleHeatmapScale({ quote, max, unit }, visible)) return {};
@@ -680,7 +681,9 @@ const groundSceneDraft = async (
   context: SceneSourceContext
 ): Promise<{ scene: LessonScene } | { problems: string[] }> => {
   const scene = toScene(
-    draft.type === 'heatmap' ? { ...draft, max: undefined, unit: undefined } : draft
+    draft.type === 'heatmap'
+      ? { ...draft, max: undefined, unit: undefined, unitLabel: undefined }
+      : draft
   );
   const problems = findDraftProblems(draft, scene, context.source, context.input.narration);
   if (problems.length) return { problems };
