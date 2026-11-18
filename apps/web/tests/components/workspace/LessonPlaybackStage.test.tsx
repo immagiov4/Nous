@@ -2393,10 +2393,18 @@ test('a visible target supersedes an unfinished process reveal while native inpu
   revealProcessSteps(scrollport, [early], true);
   expect(scrollTo).toHaveBeenLastCalledWith({ top: 5, behavior: 'instant' });
 
-  revealProcessSteps(scrollport, [late], true);
-  fireEvent.wheel(scrollport);
-  revealProcessSteps(scrollport, [early], true);
-  expect(scrollTo).toHaveBeenCalledTimes(3);
+  for (const interrupt of [
+    () => fireEvent.wheel(scrollport),
+    () => fireEvent.touchMove(scrollport),
+    () => fireEvent.keyDown(scrollport, { key: 'ArrowDown' }),
+  ]) {
+    revealProcessSteps(scrollport, [late], true);
+    scrollTo.mockClear();
+    interrupt();
+    expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 5, behavior: 'instant' });
+    revealProcessSteps(scrollport, [early], true);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+  }
 });
 
 test('retains a final aligned reveal after the spoken heading share', () => {

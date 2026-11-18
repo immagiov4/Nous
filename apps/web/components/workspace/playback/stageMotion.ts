@@ -313,20 +313,20 @@ function trackProcessScroll(scrollport: HTMLElement, destination: number) {
   const follow = new AbortController();
   processScrolls.set(scrollport, follow);
   const { signal } = follow;
-  const release = () => releaseProcessScroll(scrollport);
-  scrollport.addEventListener('wheel', release, { signal, passive: true });
-  scrollport.addEventListener('touchmove', release, { signal, passive: true });
+  const stop = () => stopProcessScroll(scrollport);
+  scrollport.addEventListener('wheel', stop, { signal, passive: true });
+  scrollport.addEventListener('touchmove', stop, { signal, passive: true });
   scrollport.addEventListener(
     'scroll',
     () => {
-      if (Math.abs(scrollport.scrollTop - destination) < 1) release();
+      if (Math.abs(scrollport.scrollTop - destination) < 1) releaseProcessScroll(scrollport);
     },
     { signal, passive: true }
   );
   scrollport.addEventListener(
     'keydown',
     event => {
-      if (scrollKeys.has(event.key)) release();
+      if (scrollKeys.has(event.key)) stop();
     },
     { signal }
   );
