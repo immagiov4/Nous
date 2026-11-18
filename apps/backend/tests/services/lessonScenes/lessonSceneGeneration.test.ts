@@ -925,6 +925,13 @@ test.each([
     unit: 'cases',
   },
   {
+    label: 'a scale before a sentence beginning with a number',
+    source: 'Scale: 0–10 cases. 10 cases were counted overall. North reports 2 and 5.',
+    quote: 'Scale: 0–10 cases',
+    unit: 'cases',
+    expected: 10,
+  },
+  {
     label: 'a confirmed complete unit',
     source: 'Scale: 0–10 cases per week. North reports 2 and 5.',
     quote: 'Scale: 0–10 cases per week',

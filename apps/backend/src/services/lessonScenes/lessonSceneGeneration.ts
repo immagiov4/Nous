@@ -619,8 +619,14 @@ type SourceSpan = { start: number; text: string };
 function* sourceScaleContexts(visible: string): Generator<SourceSpan> {
   let lineStart = 0;
   for (const line of visible.split('\n')) {
-    for (const { segment, index } of scaleSentences.segment(line))
-      yield { start: lineStart + index, text: segment.trimEnd() };
+    for (const { segment, index } of scaleSentences.segment(line)) {
+      let start = lineStart + index;
+      // Sentence segmentation can join a full stop to a following number.
+      for (const text of segment.trimEnd().split(/(?<=\p{Sentence_Terminal}) (?=[+\-−]?\p{N})/u)) {
+        yield { start, text };
+        start += text.length + 1;
+      }
+    }
     lineStart += line.length + 1;
   }
 }
