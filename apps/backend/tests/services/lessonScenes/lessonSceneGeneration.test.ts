@@ -926,6 +926,7 @@ test.each([
     label: 'a Spanish scale cited by a draft with no maximum',
     source: 'Escala de 0 a 10 puntos, compartida por todas las celdas. Norte registra 2 y 5.',
     quote: 'Escala de 0 a 10 puntos, compartida por todas las celdas',
+    qualifier: 'compartida por todas las celdas',
     reviewQualifier: 'compartida por todas las celdas',
     unit: 'puntos',
     omitMaximum: true,
@@ -945,7 +946,6 @@ test.each([
     quote: 'Use a scale of 0 to 10 cases for every region',
     unit: 'cases',
     reviewQualifier: 'for every region',
-    expected: 10,
   },
   {
     label: 'a separate scope with source punctuation',
@@ -970,6 +970,13 @@ test.each([
     quote: 'Scale: 0–10 cases',
     unit: 'cases',
     alternate: { quote: 'Alternative scale: 1–5 cases', role: 'applies', unit: 'cases' },
+  },
+  {
+    label: 'a verifier tries to recast an unclaimed rate as scope',
+    source: 'Scale: 0–10 cases per week. North reports 2 and 5.',
+    quote: 'Scale: 0–10 cases per week',
+    unit: 'cases',
+    reviewQualifier: 'per week',
   },
   {
     label: 'the same incomplete unit from both models',

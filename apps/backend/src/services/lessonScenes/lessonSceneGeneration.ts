@@ -361,7 +361,7 @@ These forms have a title of at most 160 characters, optional body and note of at
 - stack: 2–6 ordered levels, without implying that one level leads to the next or contains it.
 - venn: three groups (left only, intersection, right only), with qualitative areas; each label at most 24 characters and at most one description of at most 48 characters per region. If the content does not fit, choose comparison rather than making the text ambiguous.
 - funnel/treemap: items with value and explicit unit; funnel values never increase, treemap values are positive. For funnel, the title identifies the common quantity or entity once (for example Requests); labels contain only stage names (Received, Valid, Successful), without repeating units or numbers. The component shows quantities and retention on a common cell scale, including fractions; never draw or count cells yourself.
-- Heatmap and security matrix modes: columns:[labels], rows:[{label,values:[values]}], 1–5 columns and 1–8 rows. Keep groups, items and criteria []. Every row has exactly one value per column, in column order, preserving every association. For heatmap, supply scaleEvidence quoting a complete, explicit scale declaration from the lesson, including the full unit and any trailing qualifier in the same clause. If a separate trailing phrase says which cells or groups use the scale, copy it into scaleQualifier and keep the same phrase in scaleEvidence. A rate or denominator is part of the unit, never a scope qualifier. Use the lesson language and quote the visible text. Copy the quoted upper bound to max and the complete unit to the unit field, even if no observed value reaches the upper bound. Use exact cell values from zero to max. Security requires a textual permission (at most 60 characters) in every cell, including explicit unknown permissions. If the source does not clearly declare the scale and unit, omit max, unit and scaleEvidence. The table will still show exact values. Use another form if a cell is missing.
+- Heatmap and security matrix modes: columns:[labels], rows:[{label,values:[values]}], 1–5 columns and 1–8 rows. Keep groups, items and criteria []. Every row has exactly one value per column, in column order, preserving every association. For heatmap, supply scaleEvidence quoting a complete, explicit scale declaration from the lesson, including the full unit and any trailing qualifier in the same clause. Copy any separate trailing phrase that says which cells or groups use the scale into scaleQualifier and include it in scaleEvidence. This field is required when the scope follows the unit in the same clause. For “0 to 10 cases per week for every region”, use unit “cases per week” and scaleQualifier “for every region”. Use the lesson language and quote the visible text. Copy the quoted upper bound to max and the complete unit to the unit field, even if no observed value reaches the upper bound. Use exact cell values from zero to max. Security requires a textual permission (at most 60 characters) in every cell, including explicit unknown permissions. If the source does not clearly declare the scale and unit, omit max, unit and scaleEvidence. The table will still show exact values. Use another form if a cell is missing.
 - security: use brief, unambiguous permission phrases and keep the lesson's full role and resource names where shortening them would obscure the meaning.
 - gantt: items with finite numeric start/end, end greater than start, and a common explicit unit.
 - scatter: items with finite numeric x/y, xLabel/yLabel including units, and explicit unit.
@@ -792,24 +792,20 @@ const heatmapCitation = (range: SourceRange, scale: SourceScaleCitation): string
   return scopePhrase(suffix) === scopePhrase(scale.qualifier) ? quote + suffix : quote;
 };
 
-const canReviewHeatmapCitation = (
+const matchesHeatmapCitation = (
   visible: string,
   range: SourceRange,
-  proposed: SourceScaleCitation
-): boolean => {
-  if (range.min !== 0 || (proposed.max !== undefined && range.max !== proposed.max)) return false;
-  const quote = heatmapCitation(range, proposed);
-  if (rangeSupportsUnit(visible, range, quote, proposed.unit, proposed.qualifier)) return true;
-  if (proposed.qualifier) return false;
-  const tail = sourceUnitSpan(range.context, range.start + range.text.length);
-  const suffix = tail.text.trim().slice(proposed.unit.length);
-  return (
-    tail.text.trimStart().startsWith(proposed.unit) &&
-    /^[\s,]/u.test(suffix) &&
-    quoteCoversSpan(visible, quote, range) &&
-    quoteCoversSpan(visible, quote, tail)
+  citation: SourceScaleCitation
+): boolean =>
+  range.min === 0 &&
+  (citation.max === undefined || range.max === citation.max) &&
+  rangeSupportsUnit(
+    visible,
+    range,
+    heatmapCitation(range, citation),
+    citation.unit,
+    citation.qualifier
   );
-};
 
 const reviewedHeatmapScale = (
   response: unknown,
@@ -822,14 +818,12 @@ const reviewedHeatmapScale = (
   const applicable = reviewedApplicableRanges(visible, ranges, parsed.data.ranges);
   if (applicable?.length !== 1) return {};
   const [{ range, unit, qualifier }] = applicable;
-  const confirmed =
-    range.min === 0 &&
-    (proposed.max === undefined || range.max === proposed.max) &&
-    unit === proposed.unit &&
-    (!proposed.qualifier ||
-      (qualifier !== undefined && scopePhrase(qualifier) === scopePhrase(proposed.qualifier))) &&
-    rangeSupportsUnit(visible, range, heatmapCitation(range, proposed), unit, qualifier);
-  return confirmed ? { max: range.max, unit } : {};
+  // A review can check the proposed boundary, but cannot move unit words into scope.
+  return unit === proposed.unit &&
+    scopePhrase(qualifier ?? '') === scopePhrase(proposed.qualifier ?? '') &&
+    matchesHeatmapCitation(visible, range, proposed)
+    ? { max: range.max, unit }
+    : {};
 };
 
 const sourceRangePrompts = (ranges: readonly SourceRange[]) =>
@@ -848,7 +842,7 @@ const verifiedHeatmapScale = async (
   const visible = visibleScaleSource(context.source);
   const proposed = { quote, max, unit, qualifier };
   const ranges = possibleSourceRanges(visible);
-  if (!ranges.some(range => canReviewHeatmapCitation(visible, range, proposed))) return {};
+  if (!ranges.some(range => matchesHeatmapCitation(visible, range, proposed))) return {};
   const response = await requestScaleEvidence(context, {
     output: { name: 'heatmap_source_scale', schema: heatmapScaleOutputSchema },
     system: SOURCE_RANGE_REVIEW_INSTRUCTION,
