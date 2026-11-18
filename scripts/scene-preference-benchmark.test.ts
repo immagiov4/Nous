@@ -131,12 +131,15 @@ test('validates JSONL without echoing private records in errors', () => {
   expect(parseCases(cases.map(c => JSON.stringify(c)).join('\n'))).toEqual(cases);
   const quantitativePair = { ...cases[0], preferred: 'heatmap', rejected: 'interval' };
   expect(parseCases(JSON.stringify(quantitativePair))).toEqual([quantitativePair]);
+  const orderedPair = { ...cases[0], preferred: 'process', rejected: 'steps' };
+  expect(parseCases(JSON.stringify(orderedPair))).toEqual([orderedPair]);
   for (const input of [
     '',
     'secret passage',
     JSON.stringify({ ...cases[0], preferred: 'bogus' }),
     [cases[0], cases[0]].map(c => JSON.stringify(c)).join('\n'),
     JSON.stringify({ ...cases[0], rejected: 'steps' }),
+    JSON.stringify({ ...cases[0], rejected: 'journey' }),
     JSON.stringify({ ...cases[0], preferred: 'formula-spotlight' }),
     JSON.stringify({ ...cases[0], rejected: 'formula-spotlight' }),
     JSON.stringify({ ...cases[0], preferred: 'hypothesis' }),

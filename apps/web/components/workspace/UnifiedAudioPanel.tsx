@@ -882,6 +882,7 @@ export function PlaybackTimeline({
         disabled={duration <= 0}
         min="0"
         max={duration || 100}
+        step="any"
         value={shownTime}
         onChange={event => setDragTime(Number.parseFloat(event.target.value))}
         onPointerUp={commitSeek}

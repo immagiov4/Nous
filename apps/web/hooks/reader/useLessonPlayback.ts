@@ -671,8 +671,13 @@ export function useLessonPlayback({
     const audio = getAudio();
     unlockLessonPlaybackAudio(audio);
     const position = loadedVoice.current ? audio.position : null;
-    const target = position ? { offset: position.time, relative: false } : targetPosition.current;
     intent.current.playing = true;
+    const last = (playbackRef.current?.blocks.length ?? 0) - 1;
+    if (position?.index === last && position.duration > 0 && position.time === position.duration) {
+      await start(0);
+      return;
+    }
+    const target = position ? { offset: position.time, relative: false } : targetPosition.current;
     await start(position?.index ?? intent.current.index, target.offset, target.relative);
   }, [getAudio, start]);
 
@@ -682,18 +687,15 @@ export function useLessonPlayback({
       if (next < (playbackRef.current?.blocks.length ?? 0)) void start(next, 0, false, true);
       else {
         pause();
-        loadedVoice.current = null;
-        intent.current.index = 0;
-        targetPosition.current = { offset: 0, relative: false };
-        setIndex(0);
-        setTime(0);
-        setDuration(0);
+        // The audio clock has stopped at the end of the final passage. Keep that passage readable.
+        const position = getAudio().position;
+        if (position) setTime(position.time);
       }
     };
     return () => {
       advance.current = () => {};
     };
-  }, [pause, start]);
+  }, [getAudio, pause, start]);
 
   useEffect(() => {
     getAudio().changeSpeed(speed);
@@ -734,8 +736,13 @@ export function useLessonPlayback({
   const elapsed = timeline.slice(0, index).reduce((sum, block) => sum + block.duration, 0) + time;
   const total = timeline.reduce((sum, block) => sum + block.duration, 0);
   const seek = (target: number) => {
-    if (!started.current) return;
+    if (!started.current || !timeline.length) return;
     setSeekRevision(revision => revision + 1);
+    if (target >= total) {
+      pause();
+      void start(timeline.length - 1, 1, true);
+      return;
+    }
     let offset = Math.max(0, Math.min(total, target));
     let next = 0;
     while (next < timeline.length - 1 && offset >= timeline[next].duration) {

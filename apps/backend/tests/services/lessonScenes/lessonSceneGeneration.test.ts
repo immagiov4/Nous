@@ -1,4 +1,5 @@
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
+import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import {
   HistoricalLessonSceneSchemas,
   isLessonScene,
@@ -24,6 +25,13 @@ import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
 import { prepareLessonPlaybackVisuals } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { generateLessonScene } from '../../../src/services/lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../../../src/services/lessonVisualModelConfig.js';
+import type { LessonPlaybackServices } from '../../../src/workflows/lessonPlaybackWorkflow.js';
+import { createProductionRegistry } from '../../../src/workflows/runtime/workflowRuntimeComposition.js';
+import { indexWorkflowNodes } from '../../../src/workflows/workflowNodeIndex.js';
+import {
+  runWorkflowStepClaim,
+  type WorkflowStepRunnerStore,
+} from '../../../src/workflows/workflowStepRunner.js';
 import {
   guidedPathScene,
   proportionalScene as prototypeProportionalScene,
@@ -33,6 +41,7 @@ import {
   LAB_COMPOSITION_SOURCE,
   LAB_QUICK_SCENES,
 } from '../../helpers/lessonSceneLabExamples';
+import workflowContracts from '../../workflows/fixtures/productionWorkflowContracts.json';
 
 const { durationMs: _prototypeDuration, ...proportionalScene } = prototypeProportionalScene;
 
@@ -359,6 +368,331 @@ test('offers checklist for new hypotheses and preserves a hypothesis-only resume
     kind: 'scene',
     scene: { type: 'hypothesis' },
   });
+});
+
+const orderedSteps = [
+  ['Collect the sample', 'Field technician'],
+  ['Seal the container', 'Airtight sample'],
+  ['Record the location', 'Coordinates and date'],
+  ['Deliver the sample', 'Lab technician'],
+  ['Check the seal', 'Intact container'],
+  ['Measure the sample', 'Measurement and units'],
+  ['Review the measurement', 'Second technician'],
+  ['Publish the result', 'Signed report'],
+] as const;
+
+const orderedDraft = (count = orderedSteps.length) => {
+  const steps = orderedSteps.slice(0, count);
+  const source = steps.map(([label, detail]) => `${label} (${detail}).`).join(' Then ');
+  return {
+    ...sceneDraft(source),
+    type: 'process',
+    title: 'Sample handling',
+    items: steps.map(([label, detail]) => ({
+      label,
+      detail,
+      value: null,
+      time: null,
+      iconQueries: queries,
+    })),
+  };
+};
+
+test.each([
+  false,
+  true,
+])('resumes deployed scene catalogs and uses the ordered catalog on new work (captioned %s)', async captioned => {
+  const process = orderedDraft(2);
+  const source = process.evidence;
+  const journey = {
+    ...process,
+    type: 'journey',
+    items: [],
+    diagram: {
+      nodes: process.items.map(({ label }, index) => ({ id: `s${index}`, label, kind: 'step' })),
+      edges: [{ from: 's0', to: 's1', label: 'After collection', kind: 'event', evidence: source }],
+    },
+  };
+  const comparisonDraft = {
+    ...journey,
+    type: 'comparison',
+    diagram: null,
+    relation: { kind: 'tradeoff', label: 'Tradeoff', evidence: source },
+  };
+  const comparisonChoices: boolean[] = [];
+  generateStructuredOutputMock.mockImplementation(async ({ output }) => {
+    const schema = z.fromJSONSchema(output.schema);
+    comparisonChoices.push(schema.safeParse(comparisonDraft).success);
+    return schema.safeParse(journey).success ? journey : process;
+  });
+  const registry = createProductionRegistry();
+  const workflowId = captioned ? 'prepare-lesson-playback-block' : 'lesson-generation';
+  const deployments = [12, 13, 14].map(version => {
+    const frozen = workflowContracts
+      .find(entry => entry.version === version)
+      ?.current.find(boundary => boundary.workflowId === workflowId);
+    if (!frozen) throw new Error(`Expected deployed scene contract v${version}`);
+    return {
+      definition: registry.resolve(workflowId, frozen.definitionHash),
+      type: 'journey',
+      comparison: version === 14,
+    };
+  });
+  const playbackTarget = {
+    userId: 'learner',
+    projectId: 'project',
+    sectionId: 'lesson',
+    incarnationId: 'incarnation',
+    lessonKey: 'a'.repeat(64),
+    blockId: '0',
+    voice: 'Kore',
+    model: 'tts',
+  };
+  const preparePlayback: LessonPlaybackServices['preparePlayback'] = async (
+    { input, signal },
+    allowedSceneTypes,
+    _math,
+    _fenced,
+    _symbols,
+    _sync,
+    _sections,
+    supportsConceptLayout,
+    allowedSceneRelationKinds,
+    useOrderedSceneSelection
+  ) => {
+    const request = {
+      ...unplannedInput(source),
+      narration: source,
+      signal,
+      allowedSceneTypes,
+      allowedSceneRelationKinds,
+      supportsConceptLayout,
+      useOrderedSceneSelection,
+    };
+    const result = await generateLessonScene(request);
+    if (result.kind !== 'scene') throw new Error('Expected a captioned scene');
+    const block = segmentLessonPlayback([{ type: 'markdown', markdown: source }])[0];
+    return { target: input, block: { ...block, prepared: { scene: result.scene, motion: [] } } };
+  };
+  const input = captioned
+    ? playbackTarget
+    : {
+        ...playbackTarget,
+        contextFingerprint: 'b'.repeat(64),
+        lessonMarkdown: source,
+        sectionTitle: 'Sample handling',
+        sectionDescription: '',
+        plan: {
+          slotId: 'order',
+          visualType: 'lesson_scene',
+          complexity: 'simple',
+          title: 'Sample handling',
+          interactionLevel: 'none',
+          requiresDepiction: false,
+          concept: 'Handling a sample',
+          anchorHeading: '',
+          pedagogicalGoal: 'See what happens in order',
+          altText: 'Sample steps',
+          visualDirection: 'Two stages',
+          reason: 'Show the order',
+          factualRequirements: [],
+          coverage: 'complete_synthesis',
+          coverageRationale: 'The two actions are enough',
+        },
+      };
+  const checkpointStep = vi.fn<WorkflowStepRunnerStore['checkpointStep']>(async () => ({
+    status: 'checkpointed',
+    transientEvents: [],
+  }));
+  const store: WorkflowStepRunnerStore = {
+    checkpointStep,
+    cancellation: { releaseClaim: vi.fn() },
+    recordAiUsage: vi.fn(),
+    providerEffects: { getResult: vi.fn(), recordResult: vi.fn(async ({ output }) => output) },
+    steps: {
+      heartbeat: vi.fn(async () => ({ status: 'renewed', leaseExpiresAt: '2026-11-19T00:00:00Z' })),
+      recordDefinitionUnavailable: vi.fn(),
+      recordFailure: vi.fn(async () => ({ status: 'failed', transientEvents: [] })),
+    },
+  };
+  for (const { definition, type, comparison } of [
+    ...deployments,
+    { definition: registry.current(workflowId), type: 'process', comparison: true },
+  ]) {
+    if (!definition) throw new Error('Expected the registered workflow definition');
+    const nodeId = [...indexWorkflowNodes(definition)].find(
+      ([, { node }]) => node.id === (captioned ? 'prepare-synchronized-block' : 'render-scene')
+    )?.[0];
+    if (!nodeId) throw new Error('Expected the pending scene step');
+    const { maxAttempts, timeoutMs } = definition.executionDefaults;
+    const claim = {
+      kind: 'step' as const,
+      workflowId,
+      definitionHash: definition.definitionHash,
+      definitionHashVersion: definition.definitionHashVersion,
+      nodeDefinitionId: nodeId,
+      nodeInstanceId: nodeId,
+      attemptNumber: 1,
+      fencingToken: '1',
+      input,
+      maxAttempts,
+      timeoutMs,
+      leaseExpiresAt: '2026-11-19T00:00:00Z',
+      retryFeedback: '',
+      runId: '11111111-1111-4111-8111-111111111111',
+      userId: playbackTarget.userId,
+      workerId: 'worker',
+      stepPolicies: { [nodeId]: { config: definition.executionDefaults, maxAttempts, timeoutMs } },
+      stepPoliciesVersion: 1 as const,
+    };
+    const result = await runWorkflowStepClaim({
+      claim,
+      registry,
+      store,
+      services: {
+        preparePlayback,
+        generateScene: generateLessonScene,
+        now: () => '2026-11-18T00:00:00Z',
+      },
+    });
+    expect(result.status, JSON.stringify(result)).toBe('checkpointed');
+    expect(comparisonChoices.at(-1)).toBe(comparison);
+    expect(checkpointStep.mock.lastCall?.[0].output).toMatchObject(
+      captioned
+        ? { block: { prepared: { scene: { type } } } }
+        : { visual: { render: { kind: 'scene', scene: { type } } } }
+    );
+  }
+}, 45_000);
+
+test.each([
+  2, 6, 8,
+])('keeps all %i ordered stages and their icon slots, owners and results', async count => {
+  const draft = orderedDraft(count);
+  const input = { ...unplannedInput(draft.evidence), narration: draft.evidence };
+  const items = draft.items.map(({ label, detail }) => ({ label, detail, icon: '' }));
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'process', items },
+  });
+  expect(chooseIconsMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      entries: items.map(({ label, detail }, item) => ({
+        queries,
+        slot: { item, kind: 'item' },
+        text: `${label} — ${detail}`,
+      })),
+    })
+  );
+});
+
+test('keeps the compact list and process distinct on generation and retries, with a diagram for explicit links', async () => {
+  const process = orderedDraft(2);
+  const source = process.evidence;
+  const steps = { ...process, type: 'steps' as const };
+  const journey = {
+    ...process,
+    type: 'journey' as const,
+    items: [],
+    diagram: {
+      nodes: process.items.map(({ label }, index) => ({ id: `s${index}`, label, kind: 'step' })),
+      edges: [{ from: 's0', to: 's1', label: 'After collection', kind: 'event', evidence: source }],
+    },
+  };
+  const input = unplannedInput(source);
+  for (const request of [
+    input,
+    {
+      ...input,
+      allowedSceneTypes: LessonSceneSchema.shape.type.options,
+      retryFeedback: 'Preserve both stages.',
+    },
+  ]) {
+    generateStructuredOutputMock.mockResolvedValueOnce(journey);
+    expect(await generateLessonScene(request)).toMatchObject({
+      kind: 'invalid',
+      diagnostic: { errorStage: 'schema' },
+    });
+    const flowchart = { ...journey, type: 'flowchart' };
+    generateStructuredOutputMock.mockResolvedValueOnce({ ...process, diagram: journey.diagram });
+    expect(await generateLessonScene(request)).toMatchObject({
+      kind: 'invalid',
+      problems: [expect.stringContaining('visible connections')],
+    });
+    const stack = { ...process, type: 'stack' };
+    for (const draft of [process, steps, flowchart, stack]) {
+      generateStructuredOutputMock.mockResolvedValueOnce(draft);
+      expect(await generateLessonScene(request)).toMatchObject({
+        kind: 'scene',
+        scene: { type: draft.type },
+      });
+    }
+  }
+  for (const legacy of [steps, journey] as const) {
+    generateStructuredOutputMock.mockResolvedValueOnce(legacy);
+    expect(await generateLessonScene({ ...input, allowedSceneTypes: [legacy.type] })).toMatchObject(
+      {
+        kind: 'scene',
+        scene: { type: legacy.type },
+      }
+    );
+  }
+  generateStructuredOutputMock.mockResolvedValueOnce(journey);
+  expect(
+    await generateLessonScene({
+      ...input,
+      allowedSceneTypes: HistoricalLessonSceneSchemas[2].shape.type.options,
+      supportsConceptLayout: false,
+      useOrderedSceneSelection: false,
+      retryFeedback: 'Keep the two stops and the transition.',
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'journey', diagram: journey.diagram } });
+});
+
+test('a long scene uses the process card while generation keeps the compact-list limit', async () => {
+  const draft = { ...orderedDraft(), type: 'steps' };
+  const input = unplannedInput(draft.evidence);
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'invalid',
+    problems: [expect.stringContaining('at most 6')],
+  });
+});
+
+test.each([
+  'process',
+  'steps',
+])('requests a correction when a new %s would drop timed stages', async type => {
+  const draft = {
+    ...orderedDraft(2),
+    type,
+    autoplay: true,
+    steps: guidedPathScene.steps,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(unplannedInput(draft.evidence))).toMatchObject({
+    kind: 'invalid',
+    problems: [expect.stringContaining('guided-path')],
+    diagnostic: { errorStage: 'domain' },
+  });
+});
+
+test('a historical steps list longer than six survives domain validation and durable decoding', () => {
+  const draft = orderedDraft();
+  const saved = {
+    title: draft.title,
+    type: 'steps',
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: draft.items.map(({ label, detail }) => ({ label, detail, icon: 'check' })),
+  };
+  const current = LessonSceneSchema.parse(saved);
+  expect(isLessonScene(current)).toBe(true);
+  expect(current.items).toEqual(saved.items);
+  for (const schema of HistoricalLessonSceneSchemas) expect(schema.parse(saved)).toEqual(current);
 });
 
 test.each([

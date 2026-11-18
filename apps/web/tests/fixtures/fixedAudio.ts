@@ -1,9 +1,9 @@
 export const FIXED_AUDIO_SECONDS = 10;
 
 /** Fixed local mono PCM WAV, long enough to exercise each transport command. */
-export function fixedAudio() {
+export function fixedAudio(seconds = FIXED_AUDIO_SECONDS) {
   const sampleRate = 48_000;
-  const samples = sampleRate * FIXED_AUDIO_SECONDS;
+  const samples = sampleRate * seconds;
   const bytes = new Uint8Array(44 + samples * 2);
   const view = new DataView(bytes.buffer);
   const text = (offset: number, value: string) => {

@@ -12,7 +12,7 @@ import {
   type ReadSceneAnimationFrame,
   type SceneAnimationFrame,
 } from '@shared/lessonSceneAnimation';
-import { type CSSProperties, useEffect, useMemo, useRef } from 'react';
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 import { getAppLocale, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { SceneIcon } from './SceneIcon.tsx';
@@ -60,9 +60,13 @@ function quantityRenderer(
 
 function pathRenderer(element: HTMLElement, scene: GuidedPathLessonScene) {
   const stops = Array.from(element.querySelectorAll<HTMLElement>('[data-stop]'));
+  const route = element.querySelector<HTMLOListElement>('.guided-stops');
+  const details = element.querySelector<HTMLOListElement>('.path-details');
+  const panel = element.querySelector<HTMLElement>('.path-explanation');
   const position = element.querySelector('.path-position');
   const explanation = element.querySelector('.path-explanation p');
-  if (!position || !explanation) throw new Error('Path explanation must be mounted');
+  if (!route || !details || !panel || !position || !explanation)
+    throw new Error('Guided path must be mounted');
   let previous = '';
   return (frame: SceneAnimationFrame) => {
     const elapsed = Math.max(0, Math.min(frame.durationMs, frame.elapsedMs));
@@ -76,6 +80,9 @@ function pathRenderer(element: HTMLElement, scene: GuidedPathLessonScene) {
     const key = `${index}:${complete}`;
     if (previous === key) return;
     previous = key;
+    route.hidden = complete;
+    panel.hidden = complete;
+    details.hidden = !complete;
     stops.forEach((stop, stopIndex) => {
       const active =
         !complete &&
@@ -87,9 +94,8 @@ function pathRenderer(element: HTMLElement, scene: GuidedPathLessonScene) {
       if (active) stop.setAttribute('aria-current', 'step');
       else stop.removeAttribute('aria-current');
     });
-    if (complete) {
-      position.textContent = t('Percorso completato');
-    } else if (index < 0) {
+    if (complete) return;
+    if (index < 0) {
       position.textContent = t('Segui il testo');
       explanation.textContent = scene.body;
     } else {
@@ -97,8 +103,6 @@ function pathRenderer(element: HTMLElement, scene: GuidedPathLessonScene) {
         step: index + 1,
         count: scene.steps.length,
       });
-    }
-    if (index >= 0) {
       explanation.textContent = scene.steps
         .filter((_, stepIndex) =>
           frame.cueTimes ? frame.cueTimes[stepIndex] === frame.cueTimes[index] : stepIndex === index
@@ -124,7 +128,11 @@ export function AnimatedScene({
   );
   const shouldAnimate = useShouldAnimate();
   const standalonePlayback = useRef({ scene, elapsedMs: 0 });
-  const staticPath = scene.type === 'guided-path' && !readFrame && !shouldAnimate;
+  const [completedPath, setCompletedPath] = useState<GuidedPathLessonScene | null>(null);
+  const staticPath =
+    scene.type === 'guided-path' &&
+    !readFrame &&
+    (!scene.autoplay || !shouldAnimate || completedPath === scene);
   useEffect(() => {
     if (staticPath) return;
     const element = host.current;
@@ -158,6 +166,7 @@ export function AnimatedScene({
       standaloneClock.elapsedMs = elapsedMs;
       render({ elapsedMs, durationMs });
       if (elapsedMs < durationMs) frameId = requestAnimationFrame(tick);
+      else if (scene.type === 'guided-path') setCompletedPath(scene);
     };
     const initialFrame = readFrame ? readFrame() : { elapsedMs, durationMs };
     if (initialFrame) render(initialFrame);
@@ -232,9 +241,9 @@ export function AnimatedScene({
           </aside>
         </>
       ) : null}
-      {scene.type === 'guided-path' && staticPath ? (
+      {scene.type === 'guided-path' ? (
         // biome-ignore lint/a11y/useSemanticElements lint/a11y/noRedundantRoles: Safari loses list semantics when native markers are hidden.
-        <ol className="path-details" role="list">
+        <ol className="path-details" role="list" hidden={!staticPath}>
           {scene.steps.map((step, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: authored step order is fixed
             <li key={`${index}:${step.label}`}>

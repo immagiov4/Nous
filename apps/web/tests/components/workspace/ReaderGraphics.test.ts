@@ -1,9 +1,17 @@
+import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { LessonScene } from '@shared/lessonScene';
+import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import {
+  GUIDED_PATH_MAX_STEPS,
+  isLessonScene,
+  type LessonScene,
+  LessonSceneSchema,
+} from '@shared/lessonScene';
 import { type Browser, chromium, devices, type Locator } from 'playwright';
 import { afterAll, beforeAll, expect, inject, test } from 'vitest';
 import { withMutedAudio } from '../../../../../scripts/browser-audio';
+import { FIXED_AUDIO_SECONDS, fixedAudio } from '../../fixtures/fixedAudio';
 
 let browser: Browser;
 
@@ -21,6 +29,177 @@ const contexts = [
   { device: 'mobile', colorScheme: 'light' },
   { device: 'mobile', colorScheme: 'dark' },
 ] as const;
+
+const processItems = [
+  {
+    label: 'Collect the sample',
+    detail: 'The field technician collects a sample at the marked location.',
+    icon: 'flask',
+  },
+  {
+    label: 'Seal the container',
+    detail: 'An airtight container protects the sample until it reaches the lab.',
+    icon: 'lock',
+  },
+  {
+    label: 'Record the location',
+    detail: 'Record the coordinates and collection date so the lab can trace the sample.',
+    icon: 'map-pin',
+  },
+  {
+    label: 'Deliver the sample',
+    detail: 'Hand the sealed container to the technician responsible for the measurements.',
+    icon: 'truck',
+  },
+  {
+    label: 'Check the seal',
+    detail: 'The lab technician confirms the container stayed closed during transport.',
+    icon: 'check',
+  },
+  {
+    label: 'Measure the sample under the same conditions',
+    detail: 'Record the measurement and its units so the reviewer can compare the same quantity.',
+    icon: 'ruler',
+  },
+  { label: 'Review the measurement', detail: 'Second technician', icon: 'eye' },
+  { label: 'Publish the result', detail: 'Signed report', icon: 'file' },
+  {
+    label: 'Archive the raw data',
+    detail: 'Keep the original readings with the report.',
+    icon: 'archive',
+  },
+  {
+    label: 'Confirm receipt',
+    detail: 'The requesting team acknowledges the report.',
+    icon: 'mail',
+  },
+  {
+    label: 'Reconcile the record',
+    detail: 'Check that both teams have the same sample identifier.',
+    icon: 'list-check',
+  },
+  {
+    label: 'Close the request',
+    detail: 'The coordinator marks the record complete.',
+    icon: 'circle-check',
+  },
+];
+
+const orderedScene = (type: 'process' | 'steps', count: number) =>
+  LessonSceneSchema.parse({
+    type,
+    title: `${count} stages in ${type === 'process' ? 'sample handling' : 'the saved lesson'}`,
+    body: '',
+    items: processItems.slice(0, count),
+    groups: [],
+    note: '',
+    quote: '',
+  });
+
+const rowFitsScrollport = (row: Locator) =>
+  row.evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    const port = element.closest('[data-ordered-scroll]')?.getBoundingClientRect();
+    return Boolean(port && bounds.top >= port.top && bounds.bottom <= port.bottom);
+  });
+
+const processNumbers = (card: Locator) =>
+  card.locator('.q-index').evaluateAll(numbers =>
+    numbers.map(number => {
+      const text = document.createRange();
+      text.selectNodeContents(number);
+      const copy = number.nextElementSibling;
+      if (!copy) throw new Error('Each process number needs its stage text');
+      return {
+        number: Number(number.textContent),
+        lines: text.getClientRects().length,
+        clearOfCopy: text.getBoundingClientRect().right <= copy.getBoundingClientRect().left,
+        copyOffset: Math.round(
+          copy.getBoundingClientRect().left - number.getBoundingClientRect().left
+        ),
+      };
+    })
+  );
+
+test.each(
+  contexts
+)('renders complete ordered scenes and seeks to either end in $device $colorScheme', async ({
+  device,
+  colorScheme,
+}) => {
+  const context = await browser.newContext({
+    ...(device === 'mobile' ? devices['Pixel 7'] : { viewport: { width: 1440, height: 900 } }),
+    colorScheme,
+    reducedMotion: 'reduce',
+  });
+  const page = await context.newPage();
+  const fixture = `${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html`;
+  const scenes = [
+    orderedScene('process', 12),
+    orderedScene('process', 8),
+    orderedScene('process', 2),
+    orderedScene('process', 6),
+    orderedScene('steps', 8),
+  ];
+  try {
+    expect(scenes.every(isLessonScene)).toBe(true);
+    await page.addInitScript(
+      payload => Object.assign(window, { readerGraphicsScenes: payload }),
+      scenes
+    );
+    await page.goto(fixture);
+    await page.reload();
+    await page.evaluate(() => document.fonts.ready);
+    for (const scene of scenes) {
+      const card = page
+        .locator(`.type-${scene.type}`)
+        .filter({ has: page.getByRole('heading', { name: scene.title, exact: true }) });
+      const rows = card.locator('li');
+      const content = await rows.evaluateAll(items =>
+        items.map(row => ({
+          label: row.querySelector('strong')?.textContent,
+          detail: row.querySelector('p')?.textContent,
+          icon: row.querySelector('[data-icon]')?.getAttribute('data-icon'),
+        }))
+      );
+      expect(content.map(item => [item.label, item.detail])).toEqual(
+        scene.items.map(item => [item.label, item.detail])
+      );
+      if (scene.type === 'process') {
+        expect(content.map(item => item.icon)).toEqual(scene.items.map(item => item.icon));
+        const numbers = await processNumbers(card);
+        expect(numbers).toEqual(
+          scene.items.map((_, index) => ({
+            number: index + 1,
+            lines: 1,
+            clearOfCopy: true,
+            copyOffset: numbers[0].copyOffset,
+          }))
+        );
+      }
+    }
+
+    await page.goto(`${fixture}?playback=process&scene-seek`);
+    const scrollport = page.locator('[data-ordered-scroll]');
+    const position = page.getByRole('slider', { name: 'Fixture playback position' });
+    const rows = scrollport.getByRole('listitem');
+    const emphasis = (row: Locator) =>
+      row.evaluate(element => getComputedStyle(element).getPropertyValue('--motion-emphasis'));
+    await expect.poll(() => emphasis(rows.first())).toBe('1');
+    await expect.poll(() => rowFitsScrollport(rows.first())).toBe(true);
+    if (device === 'desktop') expect(await rowFitsScrollport(rows.last())).toBe(false);
+    await position.press('End');
+    await position.press('ArrowLeft');
+    await expect.poll(() => emphasis(rows.last())).toBe('1');
+    await expect.poll(() => rowFitsScrollport(rows.last())).toBe(true);
+    await position.press('Home');
+    await position.press('ArrowRight');
+    await expect.poll(() => emphasis(rows.first())).toBe('1');
+    await expect.poll(() => rowFitsScrollport(rows.first())).toBe(true);
+  } finally {
+    await context.close();
+  }
+});
 
 const comparisonCases = [
   {
@@ -173,6 +352,232 @@ test.each(
     await context.close();
   }
 });
+
+const guidedSpeech = 'Begin. Collect the sample. Check the seal. Store it safely.';
+const guidedSteps = [
+  { anchor: 'Collect', label: 'Collection', detail: 'Record the collection site.' },
+  { anchor: 'Check', label: 'Inspection', detail: 'Keep the seal intact.' },
+  { anchor: 'Store', label: 'Storage', detail: 'Use the designated shelf.' },
+];
+const guidedScene = LessonSceneSchema.parse({
+  type: 'guided-path',
+  title: 'Follow a sample to storage',
+  body: 'Follow the active stage.',
+  autoplay: true,
+  durationMs: 900,
+  narration: guidedSpeech,
+  steps: guidedSteps,
+  items: [],
+  groups: [],
+  note: '',
+  quote: '',
+});
+
+test('reveals each guided detail exactly at its narration cue and reverses on a seek', async () => {
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  try {
+    await page.addInitScript(
+      scene => Object.assign(window, { readerGraphicsScenes: [scene] }),
+      guidedScene
+    );
+    await page.goto(
+      `${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?playback=guided-path&scene-seek`
+    );
+    const clock = page.getByRole('slider', { name: 'Fixture playback position' });
+    const card = page.locator('.type-guided-path');
+    const detail = card.locator('.path-explanation p');
+    const active = card.locator('[aria-current="step"] strong');
+    await expect
+      .poll(() =>
+        card.evaluate(element => {
+          const host = element.closest('.scene-host');
+          return host ? getComputedStyle(host).getPropertyValue('--scene-scale') : '';
+        })
+      )
+      .toBe('1');
+    for (const [time, label, expected] of [
+      ['1.1', null, 'Follow the active stage.'],
+      ['1.2', 'Collection', 'Record the collection site.'],
+      ['4.7', 'Collection', 'Record the collection site.'],
+      ['4.8', 'Inspection', 'Keep the seal intact.'],
+      ['8.3', 'Inspection', 'Keep the seal intact.'],
+      ['8.4', 'Storage', 'Use the designated shelf.'],
+      ['4.8', 'Inspection', 'Keep the seal intact.'],
+      ['1.1', null, 'Follow the active stage.'],
+    ] as const) {
+      await clock.fill(time);
+      await expect.poll(() => detail.textContent()).toBe(expected);
+      expect(await active.allTextContents()).toEqual(label ? [label] : []);
+    }
+    await clock.press('End');
+    const review = card.locator('.path-details li:visible');
+    await expect
+      .poll(() => review.locator('p').allTextContents())
+      .toEqual(guidedSteps.map(step => step.detail));
+    expect(await review.locator('strong').allTextContents()).toEqual(
+      guidedSteps.map(step => step.label)
+    );
+    expect(await active.count()).toBe(0);
+    await clock.fill('4.8');
+    await expect.poll(() => detail.textContent()).toBe('Keep the seal intact.');
+    await expect.poll(() => review.count()).toBe(0);
+    expect(await active.allTextContents()).toEqual(['Inspection']);
+  } finally {
+    await page.close();
+  }
+});
+
+test('keeps a full guided path readable and scrollable on a phone after the narration ends', async () => {
+  const page = await browser.newPage({ ...devices['Pixel 7'], reducedMotion: 'reduce' });
+  try {
+    const steps = Array.from({ length: GUIDED_PATH_MAX_STEPS }, (_, index) => ({
+      label: `Stage ${index + 1}`,
+      detail:
+        'Check the envelope and write down everything you need to identify this seed batch later.',
+    }));
+    await page.addInitScript(scene => Object.assign(window, { readerGraphicsScenes: [scene] }), {
+      ...guidedScene,
+      steps,
+    });
+    await page.goto(
+      `${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?playback=guided-path&scene-seek`
+    );
+    await page.getByRole('slider', { name: 'Fixture playback position' }).press('End');
+    const host = page.locator('.scene-host[data-ordered-overflow]');
+    const scroll = host.locator('[data-ordered-scroll]');
+    const rows = scroll.locator('.path-details li:visible');
+    await expect.poll(() => rows.count()).toBe(steps.length);
+    expect(await host.evaluate(card => card.style.getPropertyValue('--scene-scale'))).toBe('1');
+    expect(await rowFitsScrollport(rows.last())).toBe(false);
+    await scroll.press('End');
+    await expect.poll(() => rowFitsScrollport(rows.last())).toBe(true);
+    expect(await rows.last().innerText()).toContain(steps.at(-1)?.detail);
+  } finally {
+    await page.close();
+  }
+});
+
+test.each([
+  { reducedMotion: 'reduce', autoplay: true },
+  { reducedMotion: 'no-preference', autoplay: false },
+  { reducedMotion: 'no-preference', autoplay: true },
+] as const)('standalone path makes every detail readable ($reducedMotion, autoplay $autoplay)', async ({
+  reducedMotion,
+  autoplay,
+}) => {
+  const page = await browser.newPage({ reducedMotion });
+  try {
+    await page.addInitScript(scene => Object.assign(window, { readerGraphicsScenes: [scene] }), {
+      ...guidedScene,
+      autoplay,
+    });
+    await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html`);
+    const rows = page.locator('.type-guided-path').getByRole('listitem');
+    await expect
+      .poll(() => rows.locator('p:visible').allTextContents(), { timeout: 4_000 })
+      .toEqual([
+        'Record the collection site.',
+        'Keep the seal intact.',
+        'Use the designated shelf.',
+      ]);
+    expect(await rows.locator('strong:visible').allTextContents()).toEqual([
+      'Collection',
+      'Inspection',
+      'Storage',
+    ]);
+  } finally {
+    await page.close();
+  }
+});
+
+test.each([
+  'audio ends',
+  'seek to end',
+] as const)('keeps every guided detail readable when %s on the audio clock', async ending => {
+  const page = await browser.newPage({
+    ...(ending === 'seek to end' ? devices['Pixel 7'] : {}),
+    reducedMotion: 'reduce',
+  });
+  try {
+    const duration = FIXED_AUDIO_SECONDS + 0.25;
+    const bytes = Buffer.from(fixedAudio(duration));
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    const block = {
+      ...segmentLessonPlayback([{ type: 'markdown', markdown: guidedSpeech }])[0],
+      visuals: [{ kind: 'scene', scene: guidedScene }],
+      audio: [
+        {
+          voice: 'Kore',
+          model: 'local-sample',
+          durationSeconds: duration,
+          asset: { id: hash, hash, byteSize: bytes.length, mediaType: 'audio/wav' },
+        },
+      ],
+    };
+    await page.route('**/api/projects/audio-contract/**', route => {
+      const url = new URL(route.request().url());
+      if (url.pathname.includes('/assets/'))
+        return route.fulfill({ contentType: 'audio/wav', body: bytes });
+      return route.fulfill({
+        json: url.pathname.endsWith('/prepare')
+          ? { block, voice: 'Kore', model: 'local-sample' }
+          : { lessonKey: hash, blocks: [block] },
+      });
+    });
+    await page.goto(
+      `${inject('browserFixtureUrl')}tests/fixtures/audio-production.html?${new URLSearchParams({ speech: guidedSpeech })}`
+    );
+    await page.getByRole('button', { name: 'Play', exact: true }).click();
+    const transport = page.locator('output[data-position]');
+    await transport.getByText('playing', { exact: true }).waitFor();
+    // Web Audio can resample the WAV during decoding, so the clip can end before its metadata.
+    const decodedDuration = Number(await transport.getAttribute('data-duration'));
+    expect(decodedDuration).toBeGreaterThan(0);
+    const slider = page.getByRole('slider');
+    const card = page.locator('.type-guided-path');
+    const review = card.locator('.path-details li:visible');
+    const firstDetail = card
+      .locator('.path-explanation p')
+      .filter({ hasText: guidedSteps[0].detail });
+    await firstDetail.waitFor();
+    expect(await review.count()).toBe(0);
+    if (ending === 'seek to end') await slider.press('End');
+    await expect
+      .poll(() => transport.textContent(), {
+        timeout: (duration + 5) * 1000,
+      })
+      .toBe('idle');
+    expect(Number(await transport.getAttribute('data-position'))).toBe(decodedDuration);
+    await expect
+      .poll(() => review.locator('p').allTextContents())
+      .toEqual(guidedSteps.map(step => step.detail));
+    expect(await review.locator('strong').allTextContents()).toEqual(
+      guidedSteps.map(step => step.label)
+    );
+    if (ending === 'seek to end') {
+      const resumeAt = 2;
+      await slider.fill(String(resumeAt));
+      await slider.press('Tab');
+      await expect
+        .poll(async () => Number(await transport.getAttribute('data-position')))
+        .toBe(resumeAt);
+      expect(await transport.textContent()).toBe('idle');
+      await firstDetail.waitFor();
+      expect(await review.count()).toBe(0);
+    }
+    await page.getByRole('button', { name: 'Play', exact: true }).click();
+    await transport.getByText('playing', { exact: true }).waitFor();
+    await firstDetail.waitFor();
+    if (ending === 'seek to end') {
+      await card
+        .locator('.path-explanation p')
+        .filter({ hasText: guidedSteps[1].detail })
+        .waitFor();
+    }
+  } finally {
+    await page.close();
+  }
+}, 25_000);
 
 const labels = (graphic: Locator, selector: string) =>
   graphic.locator(selector).evaluateAll(elements =>

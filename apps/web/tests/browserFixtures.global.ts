@@ -35,6 +35,7 @@ export default async function setup(project: TestProject) {
             path.resolve('apps/web/tests/fixtures/playbackFocus.html'),
             path.resolve('apps/web/tests/fixtures/playbackOnset.html'),
             path.resolve('apps/web/tests/fixtures/audio-path.html'),
+            path.resolve('apps/web/tests/fixtures/audio-production.html'),
             path.resolve('apps/web/tests/fixtures/readerGraphics.html'),
           ],
         },
