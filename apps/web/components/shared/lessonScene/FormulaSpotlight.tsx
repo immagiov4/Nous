@@ -24,8 +24,10 @@ function renderHighlightMarkup(scene: FormulaSpotlightData): string {
     const children = Array.from(term.children);
 
     const first = children.findIndex(isAtom);
-    const last = children.findLastIndex(isAtom);
-    if (first < 0 || (first === 0 && last === children.length - 1)) continue;
+    if (first < 0) continue;
+    let last = children.length - 1;
+    while (!isAtom(children[last])) last--;
+    if (first === 0 && last === children.length - 1) continue;
 
     // Keep KaTeX edge spacing in the original sizing context and paint only the expression.
     const highlight = document.createElement('span');
