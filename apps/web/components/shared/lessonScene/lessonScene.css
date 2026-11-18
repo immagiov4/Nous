@@ -2211,7 +2211,7 @@
 }
 .lesson-scene .quick-scene .q-process > li {
   display: grid;
-  grid-template-columns: var(--process-number-size) minmax(0, 1fr);
+  grid-template-columns: minmax(var(--process-number-size), max-content) minmax(0, 1fr);
   align-items: start;
   gap: 12px;
   overflow-wrap: anywhere;
@@ -2235,6 +2235,11 @@
   font-weight: 400;
   line-height: var(--process-number-size);
   text-align: center;
+  white-space: nowrap;
+}
+/* Give single- and double-digit stages the same gutter when the list reaches 10. */
+.lesson-scene .quick-scene .q-process:has(> li:nth-child(10)) .q-index {
+  min-inline-size: 2ch;
 }
 @media (prefers-contrast: more) {
   .lesson-scene .quick-scene .q-process .q-index {

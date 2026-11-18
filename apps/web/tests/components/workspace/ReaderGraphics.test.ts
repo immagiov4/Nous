@@ -93,6 +93,24 @@ const rowFitsScrollport = (row: Locator) =>
     return Boolean(port && bounds.top >= port.top && bounds.bottom <= port.bottom);
   });
 
+const processNumbers = (card: Locator) =>
+  card.locator('.q-index').evaluateAll(numbers =>
+    numbers.map(number => {
+      const text = document.createRange();
+      text.selectNodeContents(number);
+      const copy = number.nextElementSibling;
+      if (!copy) throw new Error('Each process number needs its stage text');
+      return {
+        number: Number(number.textContent),
+        lines: text.getClientRects().length,
+        clearOfCopy: text.getBoundingClientRect().right <= copy.getBoundingClientRect().left,
+        copyOffset: Math.round(
+          copy.getBoundingClientRect().left - number.getBoundingClientRect().left
+        ),
+      };
+    })
+  );
+
 test.each(
   contexts
 )('renders complete ordered scenes and seeks to either end in $device $colorScheme', async ({
@@ -121,6 +139,7 @@ test.each(
     );
     await page.goto(fixture);
     await page.reload();
+    await page.evaluate(() => document.fonts.ready);
     for (const scene of scenes) {
       const card = page
         .locator(`.type-${scene.type}`)
@@ -136,8 +155,18 @@ test.each(
       expect(content.map(item => [item.label, item.detail])).toEqual(
         scene.items.map(item => [item.label, item.detail])
       );
-      if (scene.type === 'process')
+      if (scene.type === 'process') {
         expect(content.map(item => item.icon)).toEqual(scene.items.map(item => item.icon));
+        const numbers = await processNumbers(card);
+        expect(numbers).toEqual(
+          scene.items.map((_, index) => ({
+            number: index + 1,
+            lines: 1,
+            clearOfCopy: true,
+            copyOffset: numbers[0].copyOffset,
+          }))
+        );
+      }
     }
 
     await page.goto(`${fixture}?playback=process&scene-seek`);
