@@ -124,6 +124,9 @@ test('switches to the numbered cycle when a card covers an arrowhead side and re
   const bounds = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
     this: Element
   ) {
+    if (this.matches('.q-cycle-node > strong') && this.parentElement) {
+      return this.parentElement.getBoundingClientRect();
+    }
     if (this.matches('.q-cycle')) return new DOMRect(0, 0, 100, 100);
     if (this.matches('.q-cycle-node') && this.textContent?.startsWith('Update')) return update;
     if (this.matches('.q-cycle-node') && this.textContent?.startsWith('Compare')) {
@@ -157,7 +160,7 @@ test('switches to the numbered cycle when a card covers an arrowhead side and re
     expect([...numberedNodes].map(item => item.textContent)).toEqual(['1', '2', '3']);
     expect(sceneElements(container, scene).get('item:2')).toContain(descriptions[2]);
     expect(
-      screen.getByText('Forecast model', { selector: '.q-cycle:not([inert]) .q-cycle-center' })
+      screen.getByText('Forecast model', { selector: '.q-cycle-keyed-layout > .q-cycle-center' })
     ).toBeVisible();
 
     update = new DOMRect(-2, 63, 8, 8);
@@ -185,8 +188,9 @@ test('switches to the numbered cycle when a card covers an arrowhead side and re
     phoneStyle.remove();
     act(resize);
     expect(screen.queryByRole('list')).toBeNull();
+    const observersDisconnected = disconnect.mock.calls.length;
     unmount();
-    expect(disconnect).toHaveBeenCalledOnce();
+    expect(disconnect).toHaveBeenCalledTimes(observersDisconnected + 1);
   } finally {
     bounds.mockRestore();
     rangeSpy.mockRestore();

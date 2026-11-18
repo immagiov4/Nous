@@ -49,7 +49,7 @@
   --diagram-title: 25px;
   --diagram-label: 18px;
   --diagram-copy: 15px;
-  --quantity-tile-padding: 8px;
+  --diagram-tile-padding: 8px;
   --icon-size: 24px;
   --symbol-size: 58px;
   container-type: inline-size;
@@ -1668,7 +1668,7 @@
 .lesson-scene.lesson-scene-animated .interaction-card .replica {
   border: 1px solid var(--line);
   border-radius: 14px;
-  padding: var(--quantity-tile-padding);
+  padding: var(--diagram-tile-padding);
   min-height: 100px;
   display: flex;
   flex-direction: column;
@@ -2290,7 +2290,7 @@
   text-align: center;
 }
 .lesson-scene .quick-scene .q-units .q-box {
-  padding: 12px var(--quantity-tile-padding);
+  padding: 12px var(--diagram-tile-padding);
 }
 .lesson-scene .quick-scene .q-result {
   text-align: center;
@@ -2461,16 +2461,22 @@
   font-size: clamp(12px, 3cqi, 18px);
   font-weight: 600;
 }
-.lesson-scene .quick-scene .q-cycle-keyed {
+.lesson-scene .quick-scene .q-cycle-keyed-layout {
+  position: relative;
+  margin-inline: auto;
   max-width: 16rem;
 }
-.lesson-scene .quick-scene .q-cycle-keyed:has(.q-cycle-center) {
+.lesson-scene .quick-scene .q-cycle-keyed-layout:has(.q-cycle-center) {
   max-width: 22rem;
 }
 .lesson-scene .quick-scene .q-cycle-layout .q-cycle-center {
   inset: 22% var(--q-cycle-center-inset);
   line-height: 1.2;
   overflow-wrap: anywhere;
+}
+.lesson-scene .quick-scene .q-cycle-keyed-layout[data-center-below] > .q-cycle-center {
+  position: static;
+  padding-block: var(--diagram-tile-padding);
 }
 .lesson-scene .quick-scene .q-cycle-keyed .q-cycle-node {
   width: auto;
@@ -2503,9 +2509,18 @@
   .lesson-scene .quick-scene .q-cycle-details li > p {
     display: none;
   }
+  .lesson-scene .quick-scene .q-cycle-details .q-cycle-label {
+    min-width: 0;
+    overflow-x: auto;
+    overflow-wrap: normal;
+    hyphens: none;
+  }
+  .lesson-scene .quick-scene .q-cycle-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .lesson-scene .quick-scene .q-cycle-direct .q-cycle-node {
     min-height: 0;
-    padding-block: 3px;
+    padding: var(--diagram-tile-padding);
     width: max-content;
     max-width: var(--q-cycle-inline-space);
     overflow-wrap: normal;
@@ -2513,7 +2528,12 @@
     hyphens: none;
     white-space: nowrap;
   }
+  .lesson-scene .quick-scene .q-cycle-direct .q-cycle-node strong {
+    max-width: 100%;
+    line-height: normal;
+  }
   .lesson-scene .quick-scene .q-cycle-direct[data-cycle-wrap] .q-cycle-node {
+    min-width: min-content;
     max-width: min(var(--q-cycle-node-width), var(--q-cycle-inline-space));
     white-space: normal;
   }

@@ -1000,10 +1000,35 @@ function fitCompactCycleCenter(center: HTMLElement, frame: DOMRect, nodes: reado
   center.style.setProperty('--q-cycle-center-width', `${2 * halfWidth}px`);
 }
 
+function tightenWrappedCycleStations(stations: readonly HTMLElement[]) {
+  const widths = stations.map(station => {
+    const label = station.querySelector('.q-cycle-label');
+    if (!label) return null;
+    const text = cycleTextBounds(label);
+    if (!text.length) return null;
+    const textWidth =
+      Math.max(...text.map(rect => rect.right)) - Math.min(...text.map(rect => rect.left));
+    const iconWidth = station.querySelector('.meaning-icon')?.getBoundingClientRect().width ?? 0;
+    const style = getComputedStyle(station);
+    const inlineSpace = [
+      style.paddingLeft,
+      style.paddingRight,
+      style.borderLeftWidth,
+      style.borderRightWidth,
+    ].reduce((total, value) => total + (Number.parseFloat(value) || 0), 0);
+    const width = Math.ceil(Math.max(textWidth, iconWidth) + inlineSpace);
+    return width < station.getBoundingClientRect().width ? width : null;
+  });
+  stations.forEach((station, index) => {
+    if (widths[index] !== null) station.style.width = `${widths[index]}px`;
+  });
+}
+
 function cycleNodesFit(
   ring: HTMLElement,
   connections: ReturnType<typeof cycleConnections>,
-  checkLabels: boolean
+  checkLabels: boolean,
+  center = ring.querySelector<HTMLElement>('.q-cycle-center')
 ) {
   const frame = ring.getBoundingClientRect();
   if (!frame.width || !frame.height) return undefined;
@@ -1011,14 +1036,14 @@ function cycleNodesFit(
   const nodes = stations.map(node => node.getBoundingClientRect());
   if (
     checkLabels &&
-    stations.some((station, index) =>
-      [...station.querySelectorAll('.q-cycle-label')].some(label =>
-        cycleTextBounds(label).some(rect => !containsCycleRect(nodes[index], rect))
-      )
-    )
+    [...ring.querySelectorAll('.q-cycle-node > strong')].some(group => {
+      const content = group.getBoundingClientRect();
+      return [...group.querySelectorAll('.q-cycle-label')].some(label =>
+        cycleTextBounds(label).some(rect => !containsCycleRect(content, rect))
+      );
+    })
   )
     return false;
-  const center = ring.querySelector<HTMLElement>('.q-cycle-center');
   if (center && checkLabels) fitCompactCycleCenter(center, frame, nodes);
   const centerContent = center ? cycleTextBounds(center) : [];
   const visibleContent = [...nodes, ...centerContent];
@@ -1065,33 +1090,51 @@ const CycleStationContent = ({ item }: { readonly item: LessonSceneItem }) => (
 
 const CycleLayout = ({ scene }: { readonly scene: LessonScene }) => {
   const direct = useRef<HTMLDivElement>(null);
+  const keyed = useRef<HTMLDivElement>(null);
   const [usesKey, setUsesKey] = useState(false);
   useLayoutEffect(() => {
     const ring = direct.current;
     if (!ring) return;
+    const stations = [...ring.querySelectorAll<HTMLElement>('.q-cycle-node')];
+    const keyedLayout = keyed.current;
+    const keyedRing = keyedLayout?.querySelector<HTMLElement>('.q-cycle-keyed');
+    const keyedCenter = keyedLayout?.querySelector<HTMLElement>('.q-cycle-center');
     const connections = cycleConnections(scene.items.length);
     const measure = () => {
       const compact = getComputedStyle(ring).getPropertyValue('--q-cycle-label-only') === '1';
+      for (const station of stations) station.style.removeProperty('width');
       ring.removeAttribute('data-cycle-wrap');
       let fits = cycleNodesFit(ring, connections, compact);
       if (compact && fits === false) {
         ring.setAttribute('data-cycle-wrap', '');
         fits = cycleNodesFit(ring, connections, compact);
+        if (fits === false) {
+          tightenWrappedCycleStations(stations);
+          fits = cycleNodesFit(ring, connections, compact);
+        }
       }
       if (fits !== undefined) setUsesKey(!fits);
+      if (keyedLayout && keyedRing && keyedCenter) {
+        keyedLayout.removeAttribute('data-center-below');
+        keyedLayout.toggleAttribute(
+          'data-center-below',
+          cycleNodesFit(keyedRing, connections, false, keyedCenter) === false
+        );
+      }
     };
     measure();
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(measure);
     observer.observe(ring);
-    for (const node of ring.querySelectorAll('.q-cycle-node')) observer.observe(node);
+    for (const station of stations) observer.observe(station);
+    if (keyedRing) observer.observe(keyedRing);
     const fonts = ring.ownerDocument.fonts;
     fonts?.addEventListener('loadingdone', measure);
     return () => {
       observer.disconnect();
       fonts?.removeEventListener('loadingdone', measure);
     };
-  }, [scene]);
+  }, [scene, usesKey]);
 
   const { radius, strokeWidth } = QUICK_GEOMETRY.cycle;
   const connections = cycleConnections(scene.items.length);
@@ -1125,20 +1168,22 @@ const CycleLayout = ({ scene }: { readonly scene: LessonScene }) => {
     <div className="q-cycle-layout">
       {usesKey ? (
         <>
-          <div className="q-cycle q-cycle-keyed">
-            {arrows}
+          <div className="q-cycle-keyed-layout" ref={keyed}>
+            <div className="q-cycle q-cycle-keyed">
+              {arrows}
+              {stations.map(({ item, index, position }) => (
+                <div
+                  key={`${index}-${item.label}`}
+                  className="q-cycle-node"
+                  aria-hidden="true"
+                  style={position}
+                  data-playback-item={index}
+                >
+                  <strong>{index + 1}</strong>
+                </div>
+              ))}
+            </div>
             {center}
-            {stations.map(({ item, index, position }) => (
-              <div
-                key={`${index}-${item.label}`}
-                className="q-cycle-node"
-                aria-hidden="true"
-                style={position}
-                data-playback-item={index}
-              >
-                <strong>{index + 1}</strong>
-              </div>
-            ))}
           </div>
           <ol className="q-cycle-details">
             {stations.map(({ item, index }) => (
