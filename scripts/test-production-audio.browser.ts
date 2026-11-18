@@ -120,6 +120,7 @@ try {
     { browserType: firefox, device: undefined },
   ]) {
     workletFailure = null;
+    const target = device ? `${browserType.name()} (Pixel 7)` : browserType.name();
     const browser = await browserType.launch(withMutedAudio({ headless: true }));
     try {
       const page = await browser.newPage(device);
@@ -149,7 +150,15 @@ try {
         if (message.type() === 'error') console.error(browserType.name(), message.text());
       });
       await page.goto(url);
-      assert.match(await page.locator('.captions').innerText(), /Fixed audio sample/u);
+      const captions = page.locator('.caption-page');
+      await captions.locator('.caption-word').first().waitFor({ state: 'attached' });
+      if (device) {
+        assert.equal(await captions.isVisible(), false);
+        assert.match((await captions.textContent()) ?? '', /Fixed audio sample/u);
+      } else {
+        await captions.waitFor({ state: 'visible' });
+        assert.match(await captions.innerText(), /Fixed audio sample/u);
+      }
       await page.locator('#play').click();
       await advances(page);
       await page.locator('#pause').click();
@@ -187,7 +196,7 @@ try {
       assert.equal(await page.evaluate(() => window.audioContractSchedules.at(-1)?.rate), 2);
       assert.deepEqual(errors, []);
       console.log(
-        `${browserType.name()}: production hook and stage mount, playback, resume, seek, voice and speed pass`
+        `${target}: production hook and stage mount, playback, resume, seek, voice and speed pass`
       );
       await page.close();
       const failurePage = await browser.newPage();
@@ -202,7 +211,7 @@ try {
         `${browserType.name()}: processor constructor failure settles and retry advances`
       );
     } catch (error) {
-      console.error(`${browserType.name()}:`, error);
+      console.error(`${target}:`, error);
       console.error(
         'Pending browser requests:',
         [...pendingRequests].map(request => request.url())
