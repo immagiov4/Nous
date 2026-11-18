@@ -396,6 +396,16 @@ const prepareVisuals = async (
   return prepared;
 };
 
+const sceneCoversSection = (
+  scene: LessonScene,
+  section: PlaybackVisualSection,
+  listType: 'parts' | 'concepts'
+): boolean =>
+  !section.items ||
+  (scene.type === listType &&
+    isGridLessonScene(scene) &&
+    scene.items.length === section.items.length);
+
 const generateSectionScene = async (
   input: PrepareLessonPlaybackBlockInput,
   section: PlaybackVisualSection
@@ -426,13 +436,7 @@ const generateSectionScene = async (
       sourceProvenance: input.lesson.sourceProvenance,
       signal: input.signal,
     });
-    if (
-      outcome.kind === 'scene' &&
-      (!section.items ||
-        (outcome.scene.type === listType &&
-          isGridLessonScene(outcome.scene) &&
-          outcome.scene.items.length === section.items.length))
-    )
+    if (outcome.kind === 'scene' && sceneCoversSection(outcome.scene, section, listType))
       return { scene: outcome.scene };
     if (allowTextFallback && outcome.kind === 'text') return {};
     if (outcome.kind === 'invalid') {
