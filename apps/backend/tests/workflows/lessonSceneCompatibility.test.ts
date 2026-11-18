@@ -122,17 +122,26 @@ describe('lesson scene deployment compatibility', () => {
       const extended = createProductionRegistry(
         extendedSchema as unknown as typeof LessonSceneSchema
       );
+      const deployments = registry.listDefinitionDeployments();
+      const savedBoundaries = deployments.flatMap(deployment => deployment.supportedDefinitions);
+      const missingBoundaries = savedBoundaries.filter(
+        ({ workflowId, definitionHash }) => !extended.resolve(workflowId, definitionHash)
+      );
+      expect(missingBoundaries, 'Saved runs must still find their workflow definition').toEqual([]);
+      expect(extended.listRegisteredBoundaries()).toEqual(expect.arrayContaining(savedBoundaries));
+      for (const { workflowId, definitionHash } of savedBoundaries) {
+        const saved = registry.resolve(workflowId, definitionHash);
+        const rebuilt = extended.resolve(workflowId, definitionHash);
+        const boundary = `${workflowId} ${definitionHash}`;
+        expect(rebuilt?.manifest, boundary).toEqual(saved?.manifest);
+        expect(rebuilt?.executionDefaults, boundary).toEqual(saved?.executionDefaults);
+      }
       const nextHashes = Object.fromEntries(
         extended
           .listDefinitionDeployments()
           .map(({ current }) => [current.workflowId, current.definitionHash])
       );
-      for (const deployment of registry.listDefinitionDeployments()) {
-        for (const boundary of deployment.supportedDefinitions) {
-          expect(extended.resolve(boundary.workflowId, boundary.definitionHash)?.manifest).toEqual(
-            registry.resolve(boundary.workflowId, boundary.definitionHash)?.manifest
-          );
-        }
+      for (const deployment of deployments) {
         if (deployment.current.workflowId in sceneDefinitions) {
           expect(nextHashes[deployment.current.workflowId]).not.toBe(
             deployment.current.definitionHash

@@ -321,15 +321,19 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
       ),
     };
   };
-  const cycleScenes = createOrderedSceneWorkflows(sceneSchema, true);
-  const [orderedScenes, ...historicalOrderedScenes] = sceneSchemas
-    .filter(
-      (schema, index) =>
-        index === 0 ||
-        ('conceptLayout' in schema.shape &&
-          supportsComparisonRelations(schema.shape.relation.unwrap().shape.kind.options))
-    )
-    .map(schema => createOrderedSceneWorkflows(schema));
+  const orderedSceneSchemas = sceneSchemas.filter(
+    (schema, index) =>
+      index === 0 ||
+      ('conceptLayout' in schema.shape &&
+        supportsComparisonRelations(schema.shape.relation.unwrap().shape.kind.options))
+  );
+  // Runs keep the policy and catalog they started with when a later catalog adds forms.
+  const [cycleScenes, ...historicalCycleScenes] = orderedSceneSchemas.map(schema =>
+    createOrderedSceneWorkflows(schema, true)
+  );
+  const [orderedScenes, ...historicalOrderedScenes] = orderedSceneSchemas.map(schema =>
+    createOrderedSceneWorkflows(schema)
+  );
   const [currentScenes, ...historicalScenes] = sceneSchemas.map(schema => {
     const contract = createSceneLessonVisualContractSchemas(schema);
     return {
@@ -569,6 +573,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: cycleScenes.artifact,
     previous: [
+      ...historicalCycleScenes.map(definition => definition.artifact),
       orderedScenes.artifact,
       currentScenes.artifact,
       currentScenes.previousArtifact,
@@ -584,6 +589,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: cycleScenes.retry,
     previous: [
+      ...historicalCycleScenes.map(definition => definition.retry),
       orderedScenes.retry,
       currentScenes.retry,
       ...historicalOrderedScenes.map(definition => definition.retry),
@@ -657,6 +663,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: cycleScenes.lesson,
     previous: [
+      ...historicalCycleScenes.map(definition => definition.lesson),
       orderedScenes.lesson,
       currentScenes.diagnosticLesson,
       currentScenes.lesson,
@@ -718,6 +725,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   registry.register({
     current: cycleScenes.playback,
     previous: [
+      ...historicalCycleScenes.map(definition => definition.playback),
       orderedScenes.playback,
       currentScenes.visualSectionsPlayback,
       ...historicalOrderedScenes.map(definition => definition.playback),
