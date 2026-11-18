@@ -524,6 +524,35 @@ test('renders matrix notation without changing the surrounding plain text', () =
 });
 
 test.each([
+  { scale: { max: 10, unit: 'cases per week' }, caption: '0–10 cases per week' },
+  { scale: { max: 10, unit: '%' }, caption: '0–10 %' },
+  { scale: {}, caption: undefined },
+])('renders exact heatmap values and the verified scale $caption', ({ scale, caption }) => {
+  const scene: LessonScene = {
+    ...comparison,
+    items: [],
+    groups: [],
+    columns: ['January', 'February'],
+    rows: [{ label: 'North', values: [0, 5] }],
+    type: 'heatmap',
+    ...scale,
+  };
+  const { container } = render(<LessonSceneVisual scene={scene} />);
+  expect(screen.getAllByRole('columnheader').map(cell => cell.textContent)).toEqual([
+    'January',
+    'February',
+  ]);
+  expect(screen.getByRole('rowheader', { name: 'North' })).toBeVisible();
+  const cells = Array.from(container.querySelectorAll<HTMLTableCellElement>('tbody td'));
+  expect(cells.map(cell => cell.textContent)).toEqual(['0', '5']);
+  expect(container.querySelector('caption')?.textContent).toBe(caption);
+  expect(cells.map(cell => cell.style.getPropertyValue('--heatmap-value'))).toEqual(
+    caption ? ['0%', '50%'] : ['', '']
+  );
+  expect(container.querySelectorAll('.heatmap-track')).toHaveLength(caption ? 2 : 0);
+});
+
+test.each([
   'card',
   'bare',
 ] as const)('shows a repeated decision question only in its highlighted box (%s)', variant => {

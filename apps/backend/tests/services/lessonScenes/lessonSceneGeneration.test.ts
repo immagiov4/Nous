@@ -141,6 +141,570 @@ test('chooses fixed or animated replicas from one proportional form and retains 
   });
 });
 
+const prepareQuantitativePlayback = (speech: string) =>
+  prepareLessonPlaybackVisuals({
+    userId: 'quantitative-playback-test',
+    config: getGlobalModelConfig(),
+    voice: 'Kore',
+    lesson: { title: 'Measurements', sources: [{ type: 'markdown', markdown: speech }] },
+    signal: new AbortController().signal,
+    block: {
+      id: 'quantities',
+      speech,
+      heading: '',
+      spans: [
+        {
+          sourceBlockIndex: 0,
+          source: { start: 0, end: speech.length },
+          speech: { start: 0, end: speech.length },
+        },
+      ],
+      audio: [],
+      visuals: [],
+    },
+  });
+
+type HeatmapReviewFixture = {
+  quote: string;
+  role: 'applies' | 'observation' | 'other-scope' | 'not-a-range' | 'unclear';
+  unit: string | null;
+  qualifier?: string;
+};
+
+const reviewHeatmapRanges = (
+  claims: readonly HeatmapReviewFixture[],
+  unmatched: 'not-a-range' | 'unclear' = 'not-a-range'
+) =>
+  generateStructuredOutputMock.mockImplementationOnce(async ({ prompt }: { prompt: string }) => {
+    const { lesson, possibleRanges } = JSON.parse(prompt) as {
+      lesson: string;
+      possibleRanges: { id: number; start: number; text: string }[];
+    };
+    const visible = lesson.replaceAll('\n', ' ');
+    return {
+      ranges: possibleRanges.map(range => {
+        const claimed = claims.find(({ quote }) => {
+          const plain = quote.replaceAll('**', '');
+          const start = visible.lastIndexOf(plain);
+          return (
+            start >= 0 &&
+            range.start >= start &&
+            range.start + range.text.length <= start + plain.length
+          );
+        });
+        return {
+          id: range.id,
+          ...(claimed ?? { role: unmatched, quote: lesson, unit: null }),
+        };
+      }),
+    };
+  });
+
+const confirmHeatmapScale = (quote: string, unit: string, unmatched?: 'not-a-range' | 'unclear') =>
+  reviewHeatmapRanges([{ quote, unit, role: 'applies' }], unmatched);
+
+test.each([
+  {
+    type: 'security',
+    source:
+      'For records, owners can edit, reviewers can read, and visitors have no access. For notes, owners can read, reviewers can edit and visitor access is unknown.',
+    columns: ['Owner', 'Reviewer', 'Visitor'],
+    rows: [
+      { label: 'Records', values: ['Edit', 'Read', 'No access'] },
+      { label: 'Notes', values: ['Read', 'Edit', 'Unknown'] },
+    ],
+  },
+  {
+    type: 'heatmap',
+    source: 'Use a scale of 0 to 10 cases. The north reports 0, 2.5 and 10 across three months.',
+    columns: ['January', 'February', 'March'],
+    rows: [{ label: 'North', values: [0, 2.5, 10] }],
+    max: 10,
+    unit: 'cases',
+  },
+] as const)('corrects an incomplete $type matrix and preserves every ordered cell on retry', async example => {
+  const { source, type, ...table } = example;
+  const input = unplannedInput(source);
+  const draft = {
+    ...sceneDraft(source),
+    ...table,
+    ...(type === 'heatmap' ? { scaleEvidence: 'scale of 0 to 10 cases' } : {}),
+    items: [],
+    type: 'matrix',
+    variant: type,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...draft,
+    rows: [{ ...table.rows[0], values: table.rows[0].values.slice(1) }],
+  });
+  const invalid = await generateLessonScene(input);
+  expect(invalid).toMatchObject({ kind: 'invalid', problems: ['Invalid matrix dimensions.'] });
+  if (invalid.kind !== 'invalid') throw new Error('Expected corrective feedback');
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  if (type === 'heatmap') confirmHeatmapScale('scale of 0 to 10 cases', example.unit);
+  const corrected = await generateLessonScene({
+    ...input,
+    retryFeedback: invalid.problems.join('\n'),
+  });
+  expect(corrected).toMatchObject({ kind: 'scene', scene: { ...table, type } });
+  const { output } =
+    generateStructuredOutputMock.mock.calls.findLast(
+      ([request]) => request.output.name === 'lesson_scene'
+    )?.[0] ?? {};
+  const schema = z.fromJSONSchema(output.schema);
+  const { variant: _variant, ...fields } = draft;
+  const legacy = { ...fields, type };
+  expect(schema.safeParse(draft).success).toBe(true);
+  expect(schema.safeParse(legacy).success).toBe(false);
+
+  generateStructuredOutputMock.mockResolvedValueOnce(legacy);
+  if (type === 'heatmap') confirmHeatmapScale('scale of 0 to 10 cases', example.unit);
+  expect(await generateLessonScene({ ...input, allowedSceneTypes: [type] })).toEqual(corrected);
+  generateStructuredOutputMock.mockResolvedValueOnce(fields);
+  expect(await generateLessonScene(input)).toMatchObject({ kind: 'invalid' });
+});
+
+test('accepts only the full sourced heatmap scale when observations stop below it', async () => {
+  const source =
+    'Use a scale of 0 to 10 cases per week. North reports 0 in January and 5 in February.';
+  const draft = {
+    ...sceneDraft(source),
+    type: 'matrix',
+    variant: 'heatmap',
+    items: [],
+    columns: ['January', 'February'],
+    rows: [{ label: 'North', values: [0, 5] }],
+    max: 10,
+    unit: 'cases per week',
+    scaleEvidence: 'scale of 0 to 10 cases per week',
+  };
+  for (const change of [
+    { max: 5 },
+    { scaleEvidence: 'scale of 0 to 5 cases per week', max: 5 },
+    { scaleEvidence: 'scale of 0 to 10 cases', unit: 'cases' },
+    { unit: 'cases per month' },
+    { scaleEvidence: undefined },
+  ]) {
+    const { scaleEvidence, ...candidate } = { ...draft, ...change };
+    generateStructuredOutputMock.mockResolvedValueOnce({
+      ...candidate,
+      ...(scaleEvidence === undefined ? {} : { scaleEvidence }),
+    });
+    const result = await generateLessonScene(unplannedInput(source));
+    expect(result).toMatchObject({ kind: 'scene', scene: { type: 'heatmap', rows: draft.rows } });
+    if (result.kind !== 'scene') throw new Error('Expected a numeric table');
+    expect(result.scene).not.toHaveProperty('max');
+    expect(result.scene).not.toHaveProperty('unit');
+  }
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  confirmHeatmapScale(draft.scaleEvidence, draft.unit);
+  const outcome = await generateLessonScene(unplannedInput(source));
+  expect(outcome).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'heatmap', max: 10, unit: draft.unit, rows: draft.rows },
+  });
+  if (outcome.kind !== 'scene') throw new Error('Expected a heatmap');
+  expect(outcome.scene).not.toHaveProperty('scaleEvidence');
+});
+
+test.each([
+  { declaration: 'escala de 0 a 10 puntos', unit: 'puntos', markdown: 'escala de 0 a 10 puntos' },
+  { declaration: 'Scale of 0 to 10 cases', unit: 'cases', markdown: '**Scale of 0 to 10 cases**' },
+  {
+    declaration: '**Scale of 0 to 10 cases**',
+    unit: 'cases',
+    markdown: '**Scale of 0 to 10 cases**',
+  },
+])('grounds the visible heatmap scale "$declaration"', async ({ declaration, unit, markdown }) => {
+  const values = 'North reports 0 in January and 5 in February.';
+  const source = `${markdown}\n\n${values}`;
+  const draft = {
+    ...sceneDraft(values),
+    type: 'matrix',
+    variant: 'heatmap',
+    items: [],
+    columns: ['January', 'February'],
+    rows: [{ label: 'North', values: [0, 5] }],
+    max: 10,
+    unit,
+    scaleEvidence: declaration,
+  };
+  for (const change of [{ max: 5 }, { scaleEvidence: declaration.replace('10', '5'), max: 5 }]) {
+    generateStructuredOutputMock.mockResolvedValueOnce({ ...draft, ...change });
+    const result = await generateLessonScene(unplannedInput(source));
+    expect(result).toMatchObject({ kind: 'scene', scene: { rows: draft.rows } });
+    if (result.kind !== 'scene') throw new Error('Expected a numeric table');
+    expect(result.scene).not.toHaveProperty('max');
+  }
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  confirmHeatmapScale(declaration, unit);
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'heatmap', max: 10, unit, rows: draft.rows },
+  });
+});
+test('keeps a visible heatmap scale when the draft puts the unit in unitLabel', async () => {
+  const quote = '**Scale of 0 to 10 cases**';
+  const source = `${quote}\n\nNorth reports 0 in January and 5 in February.`;
+  const draft = {
+    ...sceneDraft(source),
+    type: 'matrix',
+    variant: 'heatmap',
+    items: [],
+    columns: ['January', 'February'],
+    rows: [{ label: 'North', values: [0, 5] }],
+    max: 10,
+    unitLabel: 'cases',
+    scaleEvidence: quote,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  confirmHeatmapScale('Scale of 0 to 10 cases', 'cases');
+
+  const result = await generateLessonScene(unplannedInput(source));
+  expect(result).toMatchObject({
+    kind: 'scene',
+    scene: { rows: draft.rows, max: 10, unit: 'cases' },
+  });
+  if (result.kind !== 'scene') throw new Error('Expected a heatmap');
+  expect(result.scene).not.toHaveProperty('unitLabel');
+});
+
+test.each([
+  {
+    declaration: 'scale of 0 to 10 cases for every region',
+    source: 'Use a scale of 0 to 10 cases for every region. North reports 0 and 5.',
+    confirmed: false,
+  },
+  {
+    declaration: 'La escala de 0 a 10 puntos, compartida por todas las celdas.',
+    source: 'La escala de 0 a 10 puntos, compartida por todas las celdas. Norte registra 0 y 5.',
+    unit: 'puntos',
+    confirmed: false,
+  },
+  {
+    declaration: 'La escala de 0 a 10 puntos; compartida por todas las celdas.',
+    source: 'La escala de 0 a 10 puntos; compartida por todas las celdas. Norte registra 0 y 5.',
+    unit: 'puntos',
+  },
+  {
+    declaration: 'Scale of 0 to 10 cases',
+    source:
+      'DraftScale of 0 to 10 cases is a heading key. Scale of 0 to 10 cases. North reports 0 and 5.',
+  },
+])('checks the unit boundary in "$source"', async ({
+  declaration,
+  source,
+  unit = 'cases',
+  confirmed = true,
+}) => {
+  const draft = {
+    ...sceneDraft(source),
+    type: 'matrix',
+    variant: 'heatmap',
+    items: [],
+    columns: ['January', 'February'],
+    rows: [{ label: 'North', values: [0, 5] }],
+    max: 10,
+    unit,
+    scaleEvidence: declaration,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  confirmHeatmapScale(declaration, unit);
+  const result = await generateLessonScene(unplannedInput(source));
+  expect(result).toMatchObject({ kind: 'scene', scene: { type: 'heatmap', rows: draft.rows } });
+  if (result.kind !== 'scene') throw new Error('Expected exact values');
+  expect(result.scene.max).toBe(confirmed ? 10 : undefined);
+  expect(result.scene.unit).toBe(confirmed ? unit : undefined);
+});
+test.each([
+  {
+    source: 'Scale: 0–10 cases. Observed range: 0–5 cases.',
+    quote: 'Observed range: 0–5 cases',
+    max: 5,
+    unit: 'cases',
+    confirmed: false,
+    scale: { quote: 'Scale: 0–10 cases', max: 10, unit: 'cases' },
+  },
+  {
+    source: 'Use a scale of 0 to 10 cases per week. North reports 0 and 5.',
+    quote: 'Use a scale of 0 to 10 cases per week',
+    max: 10,
+    unit: 'cases',
+    confirmed: false,
+    scale: { quote: 'Use a scale of 0 to 10 cases per week', max: 10, unit: 'cases per week' },
+  },
+  {
+    source: '<!-- Scale: 0–5 cases -->\n\nScale: 0–10 cases. North reports 0 and 5.',
+    quote: 'Scale: 0–5 cases',
+    max: 5,
+    unit: 'cases',
+    confirmed: false,
+    scale: { quote: 'Scale: 0–10 cases', max: 10, unit: 'cases' },
+  },
+  {
+    source: '<!-- Scale: 0–5 cases -->\n\nScale: 0–10 cases. North reports 0 and 5.',
+    quote: 'Scale: 0–10 cases',
+    max: 10,
+    unit: 'cases',
+    confirmed: true,
+  },
+  {
+    source: 'Escala de 0 a 10 casos, por semana en cada región. Norte registra 0 y 5.',
+    quote: 'Escala de 0 a 10 casos, por semana en cada región',
+    max: 10,
+    unit: 'casos',
+    confirmed: false,
+    scale: {
+      quote: 'Escala de 0 a 10 casos, por semana en cada región',
+      max: 10,
+      unit: 'casos, por semana',
+    },
+  },
+  {
+    source: 'One scale is 0–10 cases. Another scale is 0–5 cases. North reports 0 and 5.',
+    quote: 'One scale is 0–10 cases',
+    max: 10,
+    unit: 'cases',
+    confirmed: false,
+    scale: null,
+  },
+  {
+    source: 'Scale: 0–10%. North reports 0 and 5.',
+    quote: 'Scale: 0–10%',
+    max: 10,
+    unit: '%',
+    confirmed: true,
+  },
+  {
+    source: 'Scale: 0–10  \n**cases per week**. North reports 0 and 5.',
+    quote: 'Scale: 0–10 cases per week',
+    max: 10,
+    unit: 'cases per week',
+    confirmed: true,
+  },
+  {
+    source: 'Escala de 0 a 10 puntos, para todas las estaciones. Norte registra 0 y 5.',
+    quote: 'Escala de 0 a 10 puntos, para todas las estaciones',
+    max: 10,
+    unit: 'puntos',
+    confirmed: false,
+  },
+])('uses a bar only when the scale and complete unit are clear in "$source"', async example => {
+  const draft = {
+    ...sceneDraft(example.source),
+    type: 'matrix',
+    variant: 'heatmap',
+    items: [],
+    columns: ['January', 'February'],
+    rows: [{ label: 'North', values: [0, 5] }],
+    max: example.max,
+    unit: example.unit,
+    scaleEvidence: example.quote,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  const scale =
+    example.scale === undefined
+      ? { max: example.max, unit: example.unit, quote: example.quote }
+      : example.scale;
+  if (scale) confirmHeatmapScale(scale.quote, scale.unit);
+  else reviewHeatmapRanges([], 'unclear');
+  const outcome = await generateLessonScene(unplannedInput(example.source));
+  const verification = generateStructuredOutputMock.mock.calls.find(
+    ([request]) => request.output.name === 'heatmap_source_scale'
+  )?.[0];
+  if (example.source.startsWith('<!--') && !example.confirmed) {
+    expect(verification).toBeUndefined();
+  } else if (verification) {
+    expect(JSON.parse(verification.prompt)).toEqual(expect.objectContaining({ rows: draft.rows }));
+    expect(JSON.parse(verification.prompt)).not.toHaveProperty('max');
+    expect(JSON.parse(verification.prompt).lesson).not.toContain('<!--');
+    if (example.source.startsWith('<!--'))
+      expect(JSON.parse(verification.prompt).lesson).not.toContain('Scale: 0–5 cases');
+  }
+  if (example.confirmed) expect(verification).toBeDefined();
+  expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'heatmap', rows: draft.rows } });
+  if (outcome.kind !== 'scene') throw new Error('Expected the numeric table');
+  expect(outcome.scene.max).toBe(example.confirmed ? example.max : undefined);
+  expect(outcome.scene.unit).toBe(example.confirmed ? example.unit : undefined);
+});
+test.each([
+  {
+    source:
+      'Survey. <span hidden>Scale: 0–5 cases.</span> Scale: 0–10 cases. North reports 0 and 5.',
+    quote: 'Scale: 0–5 cases',
+    max: 5,
+    unit: 'cases',
+    expected: undefined,
+  },
+  {
+    source:
+      'Survey. <span hidden>Scale: 0–5 cases.</span> Scale: 0–10 cases. North reports 0 and 5.',
+    quote: 'Scale: 0–10 cases',
+    max: 10,
+    unit: 'cases',
+    expected: 10,
+  },
+  {
+    source: '**Scale: 0%–10%**. North reports 0 and 5.',
+    quote: 'Scale: 0%–10%',
+    max: 10,
+    unit: '%',
+    expected: 10,
+  },
+  {
+    source:
+      'The table may use either scale. Scale: 0–10 cases. Scale: 0–5 cases. North reports 0 and 5.',
+    quote: 'Scale: 0–10 cases',
+    max: 10,
+    unit: 'cases',
+    expected: undefined,
+  },
+  {
+    source: 'Both scales are listed. Scale: 0–10 cases. Scale: 0–10 points. North reports 0 and 5.',
+    quote: 'Scale: 0–10 cases',
+    max: 10,
+    unit: 'cases',
+    expected: undefined,
+  },
+  {
+    source: 'Use either scale of 0 to 10 cases or 0 to 5 cases here. North reports 0 and 5.',
+    quote: 'Use either scale of 0 to 10 cases or 0 to 5 cases here',
+    max: 10,
+    unit: 'cases',
+    expected: undefined,
+  },
+])('keeps only a unique visible scale for "$source" and "$quote"', async example => {
+  const draft = {
+    ...sceneDraft(example.source),
+    type: 'matrix',
+    variant: 'heatmap',
+    items: [],
+    columns: ['January', 'February'],
+    rows: [{ label: 'North', values: [0, 5] }],
+    max: example.max,
+    unit: example.unit,
+    scaleEvidence: example.quote,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  confirmHeatmapScale(example.quote, example.unit, example.expected ? 'not-a-range' : 'unclear');
+  const outcome = await generateLessonScene(unplannedInput(example.source));
+  expect(outcome).toMatchObject({ kind: 'scene', scene: { rows: draft.rows } });
+  if (outcome.kind !== 'scene') throw new Error('Expected a numeric table');
+  expect(outcome.scene.max).toBe(example.expected);
+});
+
+test.each([
+  {
+    source: 'North reports 0 on a scale of 0–10 cases. Then it reports 5.',
+    quote: 'scale of 0–10 cases',
+    reason: 'not-a-range',
+    relatedQuote: 'North reports 0 on a scale of 0–10 cases',
+    expected: 10,
+  },
+  {
+    source: 'Scale: 0–10 cases. Observed range: 0–5 cases.',
+    quote: 'Scale: 0–10 cases',
+    reason: 'observation',
+    relatedQuote: 'Observed range: 0–5 cases',
+    expected: 10,
+  },
+  {
+    source: 'North scale: 0–10 cases. South scale: 0–5 cases. North reports 0 and 5.',
+    quote: 'North scale: 0–10 cases',
+    reason: 'other-scope',
+    relatedQuote: 'South scale: 0–5 cases',
+    expected: 10,
+  },
+  {
+    source: 'Both scales may apply. Scale: 0–10 cases. Alternative scale: from 0 to 5 cases.',
+    quote: 'Scale: 0–10 cases',
+    reason: 'applies',
+    relatedQuote: 'Alternative scale: from 0 to 5 cases',
+    relatedUnit: 'cases',
+    expected: undefined,
+  },
+  {
+    source:
+      'Both scales may apply. Scale: 0–10 cases. Alternative scale: 0–10 cases per week. North reports 0 and 5.',
+    quote: 'Scale: 0–10 cases',
+    reason: 'applies',
+    relatedQuote: 'Alternative scale: 0–10 cases per week',
+    relatedUnit: 'cases per week',
+    expected: undefined,
+  },
+] as const)('uses the scale for this table in "$source"', async example => {
+  const draft = {
+    ...sceneDraft(example.source),
+    type: 'matrix',
+    variant: 'heatmap',
+    items: [],
+    columns: ['January', 'February'],
+    rows: [{ label: 'North', values: [0, 5] }],
+    max: 10,
+    unit: 'cases',
+    scaleEvidence: example.quote,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  reviewHeatmapRanges([
+    { quote: example.quote, unit: draft.unit, role: 'applies' },
+    {
+      quote: example.relatedQuote,
+      unit: 'relatedUnit' in example ? example.relatedUnit : null,
+      role: example.reason,
+    },
+  ]);
+
+  const result = await generateLessonScene(unplannedInput(example.source));
+  expect(result).toMatchObject({ kind: 'scene', scene: { rows: draft.rows } });
+  if (result.kind !== 'scene') throw new Error('Expected a numeric table');
+  expect(result.scene.max).toBe(example.expected);
+  expect(result.scene.unit).toBe(example.expected ? draft.unit : undefined);
+  const verification = generateStructuredOutputMock.mock.calls.find(
+    ([request]) => request.output.name === 'heatmap_source_scale'
+  )?.[0];
+  expect(JSON.parse(verification.prompt).possibleRanges).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ text: '0–10' }),
+      expect.objectContaining({ text: expect.stringContaining('0') }),
+    ])
+  );
+  expect(JSON.parse(verification.prompt).possibleRanges.length).toBeGreaterThanOrEqual(2);
+});
+
+test.each([
+  {
+    ranges: [{ id: 0, role: 'applies', quote: 'Scale: 0–10 cases', unit: 'cases' }],
+  },
+  {
+    ranges: [
+      { id: 0, role: 'applies', quote: 'Scale: 0–10 cases', unit: 'cases' },
+      { id: 1, role: 'other-scope', quote: 'South alone uses 0 to 5 cases', unit: null },
+    ],
+  },
+])('keeps numbers when possible scale choices lack grounded review', async response => {
+  const source = 'Both scales may apply. Scale: 0–10 cases. Scale: 0 to 5 cases.';
+  const rows = [{ label: 'North', values: [0, 5] }];
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...sceneDraft(source),
+      type: 'matrix',
+      variant: 'heatmap',
+      items: [],
+      columns: ['January', 'February'],
+      rows,
+      max: 10,
+      unit: 'cases',
+      scaleEvidence: 'Scale: 0–10 cases',
+    })
+    .mockResolvedValueOnce(response);
+  const outcome = await generateLessonScene(unplannedInput(source));
+  expect(outcome).toMatchObject({ kind: 'scene', scene: { rows } });
+  if (outcome.kind !== 'scene') throw new Error('Expected a numeric table');
+  expect(outcome.scene).not.toHaveProperty('max');
+});
+
 test.each([
   {
     legacy: 'signals',
@@ -347,6 +911,141 @@ test.each([
       expect(attempts).toBe(1);
     }
   }
+});
+
+test.each([
+  {
+    label: 'the Spanish scope qualifier',
+    source: 'Escala de 0 a 10 puntos, compartida por todas las celdas. Norte registra 2 y 5.',
+    quote: 'Escala de 0 a 10 puntos, compartida por todas las celdas',
+    qualifier: ', compartida por todas las celdas',
+    unit: 'puntos',
+    expected: 10,
+  },
+  {
+    label: 'a Spanish scale cited by a draft with no maximum',
+    source: 'Escala de 0 a 10 puntos, compartida por todas las celdas. Norte registra 2 y 5.',
+    quote: 'Escala de 0 a 10 puntos, compartida por todas las celdas',
+    qualifier: 'compartida por todas las celdas',
+    reviewQualifier: 'compartida por todas las celdas',
+    unit: 'puntos',
+    omitMaximum: true,
+    expected: 10,
+  },
+  {
+    label: 'the English scope qualifier',
+    source: 'Use a scale of 0 to 10 cases for every region. North reports 2 and 5.',
+    quote: 'Use a scale of 0 to 10 cases for every region',
+    qualifier: 'for every region',
+    unit: 'cases',
+    expected: 10,
+  },
+  {
+    label: 'a scope omitted from the draft field but visible in the full quote',
+    source: 'Use a scale of 0 to 10 cases for every region. North reports 2 and 5.',
+    quote: 'Use a scale of 0 to 10 cases for every region',
+    unit: 'cases',
+    reviewQualifier: 'for every region',
+  },
+  {
+    label: 'a separate scope with source punctuation',
+    source: 'Escala de 0 a 10 puntos, compartida por todas las celdas. Norte registra 2 y 5.',
+    quote: 'Escala de 0 a 10 puntos',
+    reviewQuote: 'Escala de 0 a 10 puntos, compartida por todas las celdas',
+    qualifier: 'compartida por todas las celdas.',
+    reviewQualifier: ', compartida por todas las celdas',
+    unit: 'puntos',
+    expected: 10,
+  },
+  {
+    label: 'an exclusion without its scope',
+    source: 'Scale: 0–10 cases. Alternative scale: from 0 to 5 cases. North reports 2 and 5.',
+    quote: 'Scale: 0–10 cases',
+    unit: 'cases',
+    alternate: { quote: '0 to 5 cases', role: 'other-scope', unit: null },
+  },
+  {
+    label: 'a competing scale that starts at one',
+    source: 'Scale: 0–10 cases. Alternative scale: 1–5 cases. North reports 2 and 5.',
+    quote: 'Scale: 0–10 cases',
+    unit: 'cases',
+    alternate: { quote: 'Alternative scale: 1–5 cases', role: 'applies', unit: 'cases' },
+  },
+  {
+    label: 'a verifier tries to recast an unclaimed rate as scope',
+    source: 'Scale: 0–10 cases per week. North reports 2 and 5.',
+    quote: 'Scale: 0–10 cases per week',
+    unit: 'cases',
+    reviewQualifier: 'per week',
+  },
+  {
+    label: 'the same incomplete unit from both models',
+    source: 'Scale: 0–10 cases per week. North reports 2 and 5.',
+    quote: 'Scale: 0–10 cases per week',
+    unit: 'cases',
+  },
+  {
+    label: 'a scale before a sentence beginning with a number',
+    source: 'Scale: 0–10 cases. 10 cases were counted overall. North reports 2 and 5.',
+    quote: 'Scale: 0–10 cases',
+    unit: 'cases',
+    expected: 10,
+  },
+  {
+    label: 'a rate the verifier identifies as part of the unit',
+    source: 'Scale: 0–10 cases per week. North reports 2 and 5.',
+    quote: 'Scale: 0–10 cases per week',
+    unit: 'cases',
+    qualifier: 'per week',
+    reviewUnit: 'cases per week',
+  },
+  {
+    label: 'a qualified complete rate',
+    source: 'Use a scale of 0 to 10 cases per week for every region. North reports 2 and 5.',
+    quote: 'Use a scale of 0 to 10 cases per week for every region',
+    unit: 'cases per week',
+    qualifier: 'for every region',
+    expected: 10,
+  },
+  {
+    label: 'a confirmed complete unit',
+    source: 'Scale: 0–10 cases per week. North reports 2 and 5.',
+    quote: 'Scale: 0–10 cases per week',
+    unit: 'cases per week',
+    expected: 10,
+  },
+] as const)('prepares heatmap values with $label', async example => {
+  const rows = [{ label: 'North', values: [2, 5] }];
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...sceneDraft(example.source),
+    type: 'matrix',
+    variant: 'heatmap',
+    items: [],
+    columns: ['January', 'February'],
+    rows,
+    ...(!('omitMaximum' in example) ? { max: 10 } : {}),
+    unit: example.unit,
+    scaleEvidence: example.quote,
+    ...('qualifier' in example ? { scaleQualifier: example.qualifier } : {}),
+  });
+  reviewHeatmapRanges([
+    {
+      quote: 'reviewQuote' in example ? example.reviewQuote : example.quote,
+      unit: 'reviewUnit' in example ? example.reviewUnit : example.unit,
+      role: 'applies',
+      ...('reviewQualifier' in example
+        ? { qualifier: example.reviewQualifier }
+        : 'qualifier' in example && !('reviewUnit' in example)
+          ? { qualifier: example.qualifier }
+          : {}),
+    },
+    ...('alternate' in example ? [example.alternate] : []),
+  ]);
+  const prepared = await prepareQuantitativePlayback(example.source);
+  const expected = 'expected' in example ? example.expected : undefined;
+  expect(prepared.scene).toMatchObject({ type: 'heatmap', rows });
+  expect(prepared.scene?.max).toBe(expected);
+  expect(prepared.scene?.unit).toBe(expected ? example.unit : undefined);
 });
 
 test('offers checklist for new hypotheses and preserves a hypothesis-only resumed contract', async () => {
@@ -1668,7 +2367,9 @@ test.each([
   ...LAB_QUICK_SCENES,
   LAB_COMPOSITION_SCENE,
 ])('generates the lab $type fields and all icon slots', async example => {
-  const source = `${LAB_COMPOSITION_SOURCE}\nExample data: ${JSON.stringify(example, null, 2)}`;
+  const scaleEvidence =
+    example.type === 'heatmap' ? `scale: 0–${example.max} ${example.unit}` : undefined;
+  const source = `${LAB_COMPOSITION_SOURCE}\nExample data: ${JSON.stringify(example, null, 2)}${scaleEvidence ? `\n${scaleEvidence}.` : ''}`;
   const { items, groups, ...fields } = example;
   const {
     icon: centerIcon,
@@ -1678,8 +2379,12 @@ test.each([
   const draft = {
     ...sceneDraft(''),
     ...content,
+    ...(scaleEvidence ? { scaleEvidence } : {}),
     ...(example.type === 'proportional-static'
       ? { type: 'proportional', variant: example.type }
+      : {}),
+    ...(example.type === 'heatmap' || example.type === 'security'
+      ? { type: 'matrix', variant: example.type }
       : {}),
     intent: 'Understand the example.',
     evidence: LAB_COMPOSITION_SOURCE,
@@ -1715,6 +2420,8 @@ test.each([
       : {}),
   };
   generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  if (example.type === 'heatmap' && scaleEvidence && example.max && example.unit)
+    confirmHeatmapScale(scaleEvidence, example.unit);
   const result = await generateLessonScene(unplannedInput(source));
   expect(result.kind).toBe('scene');
   if (result.kind !== 'scene') throw new Error(JSON.stringify(result.problems));
