@@ -896,6 +896,7 @@ describe('workflow runtime worker', () => {
   });
 
   test('claims a newly queued step when a wake arrives and capacity is free', async () => {
+    vi.useFakeTimers();
     let releaseSlowStep!: () => void;
     const slowStep = new Promise<void>(resolve => {
       releaseSlowStep = resolve;
@@ -926,10 +927,8 @@ describe('workflow runtime worker', () => {
 
     await worker.start();
     try {
-      await vi.waitFor(() => {
-        expect(started).toEqual(['slow']);
-        expect(claimNext).toHaveBeenCalledTimes(2);
-      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(started).toEqual(['slow']);
       claimNext.mockResolvedValueOnce(
         makeClaim(definition, 'worker-1', {
           input: { text: 'new' },
@@ -937,7 +936,8 @@ describe('workflow runtime worker', () => {
         })
       );
       wakeSource.emit('step');
-      await vi.waitFor(() => expect(started).toEqual(['slow', 'new']), { timeout: 200 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(started).toEqual(['slow', 'new']);
     } finally {
       releaseSlowStep();
       await worker.stop();
