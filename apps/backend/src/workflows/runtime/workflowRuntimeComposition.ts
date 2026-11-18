@@ -178,7 +178,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 12;
+export const WORKFLOW_SET_VERSION = 13;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -682,8 +682,15 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     ],
   });
   registry.register({
-    current: currentScenes.visualSectionsPlayback,
+    current: createLessonPlaybackWorkflow(
+      playbackExecutionDefaults,
+      createLessonPlaybackBlockSchema(sceneSchema, true, true, true, false, true, true),
+      true,
+      true,
+      true
+    ),
     previous: [
+      currentScenes.visualSectionsPlayback,
       ...historicalScenes.map(definition => definition.visualSectionsPlayback),
       ...[currentScenes, ...historicalScenes].map(definition => definition.legacySectionsPlayback),
       ...[currentScenes, ...historicalScenes].map(definition => definition.visualPlayback),

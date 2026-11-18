@@ -543,6 +543,9 @@ const findDraftProblems = (
 export function generateLessonScene(
   input: GenerateLessonSceneInput & { allowTextFallback: true }
 ): Promise<LessonSceneOutcome | { readonly kind: 'text' }>;
+export function generateLessonScene(
+  input: GenerateLessonSceneInput & { allowTextFallback: boolean }
+): Promise<LessonSceneOutcome | { readonly kind: 'text' }>;
 export function generateLessonScene(input: GenerateLessonSceneInput): Promise<LessonSceneOutcome>;
 export async function generateLessonScene(
   input: GenerateLessonSceneInput & { allowTextFallback?: boolean }

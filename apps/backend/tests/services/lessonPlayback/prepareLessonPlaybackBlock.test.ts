@@ -176,6 +176,54 @@ test('rejects a replacement visual that omits an authored list item', async () =
   expect(audio).not.toHaveBeenCalled();
 });
 
+test('prepares one recording and retains a list between two text-only passages', async () => {
+  const speech =
+    'The jar holds 3 litres.\n\n- First check.\n- Second check.\n\nThe tank holds 5 litres.';
+  const range = { start: 0, end: speech.length };
+  const request = input();
+  const providerEffect: WorkflowProviderEffectExecutor = {
+    run: async ({ outputSchema, operation }) =>
+      outputSchema.parse(JSON.parse(JSON.stringify(await operation()))),
+  };
+  const target = {
+    ...request,
+    providerEffect,
+    lesson: { ...request.lesson, sources: [{ type: 'markdown' as const, markdown: speech }] },
+    block: {
+      ...request.block,
+      speech,
+      spans: [{ speech: range, source: range, sourceBlockIndex: 0 }],
+    },
+  };
+  sceneGeneration
+    .mockResolvedValueOnce({ kind: 'text' })
+    .mockResolvedValueOnce({ kind: 'scene', scene })
+    .mockResolvedValueOnce({ kind: 'text' });
+  const { prepared } = await prepareLessonPlaybackBlock(target);
+  expect(prepared).toMatchObject({
+    scene,
+    sections: [{ scene }],
+    textOnlyRanges: [
+      { start: 0, end: speech.indexOf('- First') },
+      { start: speech.indexOf('\n\nThe tank'), end: speech.length },
+    ],
+  });
+  expect(prepared.sections?.[0].items?.map(item => speech.slice(item.start, item.end))).toEqual([
+    '- First check.',
+    '- Second check.',
+  ]);
+  expect(audio).toHaveBeenCalledWith(expect.objectContaining({ text: speech }));
+  expect(sceneGeneration.mock.calls.map(([request]) => request.allowTextFallback)).toEqual([
+    true,
+    false,
+    true,
+  ]);
+  expect(
+    await prepareLessonPlaybackVisuals({ ...target, block: { ...target.block, prepared } })
+  ).toEqual(prepared);
+  expect(sceneGeneration).toHaveBeenCalledTimes(3);
+});
+
 test.each([
   'invalid',
   'incomplete',
@@ -245,7 +293,11 @@ test('keeps an isolated measurement in speech and reuses the text-only preparati
   );
 
   const prepared = await prepareLessonPlaybackVisuals(target);
-  expect(prepared).toEqual({ scene: undefined, motion: [] });
+  expect(prepared).toEqual({
+    scene: undefined,
+    motion: [],
+    textOnlyRanges: [{ start: 0, end: speech.length }],
+  });
   expect(motion).not.toHaveBeenCalled();
   expect(
     await prepareLessonPlaybackVisuals({ ...target, block: { ...target.block, prepared } })

@@ -48,7 +48,11 @@ export const prepareLessonPlaybackVisual = async (target: {
       result = await prepareLessonPlayback(request);
     }
     const prepared = result.block.prepared;
-    if (!prepared?.scene || isRetiredLessonScene(prepared.scene))
+    if (
+      !prepared ||
+      (!prepared.textOnlyRanges?.length &&
+        (!prepared.scene || isRetiredLessonScene(prepared.scene)))
+    )
       throw new Error('Playback visual unavailable.');
     return prepared;
   };

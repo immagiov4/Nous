@@ -76,6 +76,28 @@ test.each([
 });
 
 describe('playback block commit', () => {
+  test('persists an intentional text-only result beside cached audio', () => {
+    const section = playbackSection();
+    section.playback = preparedPlayback(section);
+    const result = playbackResult(section);
+    result.target.visualOnly = true;
+    result.assetOwner = undefined;
+    const prepared = {
+      motion: [],
+      textOnlyRanges: [{ start: 0, end: result.block.speech.length }],
+    };
+    result.block = { ...result.block, audio: [], prepared };
+    const snapshot = playbackProject(section);
+    const patch = buildLessonPlaybackCommitPatch(
+      { snapshot, incarnationId: 'incarnation-1', revision: 2 },
+      result
+    );
+    const saved = applyProjectPatch(snapshot, patch ?? {}, snapshot.updatedAt).learningPlan
+      ?.sections?.[0]?.playback?.blocks[0];
+    expect(saved?.prepared).toEqual(prepared);
+    expect(saved?.audio).toEqual(section.playback.blocks[0].audio);
+  });
+
   test.each([
     undefined,
     true,

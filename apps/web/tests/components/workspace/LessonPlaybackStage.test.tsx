@@ -540,9 +540,13 @@ beforeEach(() => {
 });
 
 test.each([
-  false,
-  true,
-])('replaces a summary and follows all five heard ranges (on demand: %s)', async onDemand => {
+  { onDemand: false, textOnly: false },
+  { onDemand: true, textOnly: false },
+  { onDemand: true, textOnly: true },
+])('follows all five heard ranges (on demand: $onDemand, text-only intro: $textOnly)', async ({
+  onDemand,
+  textOnly,
+}) => {
   vi.mocked(useShouldAnimate).mockReturnValue(false);
   const frames = new Map<number, FrameRequestCallback>();
   let frameId = 0;
@@ -594,15 +598,20 @@ test.each([
       icon: '',
     })),
   };
-  const sections = playbackVisualSections(block, sources).map(section => ({
-    ...section,
-    scene: section.items ? listScene : summary,
-  }));
-  vi.mocked(prepareLessonPlaybackVisual).mockResolvedValueOnce({
-    scene: summary,
-    motion: [],
-    sections,
-  });
+  const timeline = playbackVisualSections(block, sources);
+  const sections = timeline
+    .filter(section => !textOnly || section.items)
+    .map(section => ({
+      ...section,
+      scene: section.items ? listScene : summary,
+    }));
+  if (onDemand)
+    vi.mocked(prepareLessonPlaybackVisual).mockResolvedValueOnce({
+      scene: textOnly ? listScene : summary,
+      motion: [],
+      sections,
+      ...(textOnly ? { textOnlyRanges: [timeline[0].range] } : {}),
+    });
   let heard = 1.5;
   const { container } = render(
     <LessonPlaybackStage
@@ -626,10 +635,7 @@ test.each([
   );
   if (onDemand) {
     expect(container.querySelector('.scene-host h2')).toBeNull();
-    await waitFor(() =>
-      expect(container.querySelector('.scene-host h2')?.textContent).toBe('Sintesi precedente')
-    );
-    expect(prepareLessonPlaybackVisual).toHaveBeenCalledOnce();
+    await waitFor(() => expect(prepareLessonPlaybackVisual).toHaveBeenCalledOnce());
   }
   const flush = () => {
     for (let step = 0; step < 4; step++)
@@ -640,7 +646,9 @@ test.each([
       });
   };
   flush();
-  expect(container.querySelector('.scene-host h2')?.textContent).toBe('Sintesi precedente');
+  expect(container.querySelector('.scene-host h2')?.textContent).toBe(
+    textOnly ? undefined : 'Sintesi precedente'
+  );
   for (let index = 0; index < 5; index++) {
     heard = 2 + index * 7 + 0.1;
     flush();
@@ -660,6 +668,13 @@ test.each([
   expect(container.querySelector('[data-motion-id="item:0"]')?.getAttribute('style')).toContain(
     '--motion-emphasis: 1'
   );
+  if (textOnly) {
+    heard = 1.5;
+    flush();
+    expect(container.querySelector('.scene-host h2')).toBeNull();
+    expect(container.querySelector('.caption-page')).toHaveTextContent('Prima sintesi.');
+    expect(prepareLessonPlaybackVisual).toHaveBeenCalledOnce();
+  }
 });
 
 test('keeps authored mathematics beside a prepared list visual', () => {

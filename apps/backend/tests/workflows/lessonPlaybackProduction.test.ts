@@ -106,6 +106,24 @@ test('prepares a real scene for cached audio without staging or synthesizing ano
   expect(assets.stage).not.toHaveBeenCalled();
 });
 
+test('returns an intentional all-text visual preparation and reuses the stored result', async () => {
+  const { section, assets, services, context } = setup();
+  const baseline = preparedPlayback(section);
+  const prepared = {
+    motion: [],
+    textOnlyRanges: [{ start: 0, end: baseline.blocks[0].speech.length }],
+  };
+  const visualOnlyContext = { ...context, input: { ...context.input, visualOnly: true } };
+  prepareVisuals.mockResolvedValueOnce(prepared);
+  const result = await services.preparePlayback(visualOnlyContext);
+  expect(result.block.prepared).toEqual(prepared);
+  expect(result.block.audio).toEqual(baseline.blocks[0].audio);
+  section.playback = { ...baseline, blocks: [result.block, ...baseline.blocks.slice(1)] };
+  expect(await services.preparePlayback(visualOnlyContext)).toEqual(result);
+  expect(prepareVisuals).toHaveBeenCalledOnce();
+  expect(assets.stage).not.toHaveBeenCalled();
+});
+
 test('passes saved scene and motion into another voice request and stages only its audio', async () => {
   const { section, assets, services, context } = setup();
   const scene: LessonScene = {

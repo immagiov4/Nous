@@ -50,7 +50,8 @@ export interface LessonPlaybackServices {
     supportsFencedCode?: boolean,
     supportsUnlinkedFormulaSymbols?: boolean,
     synchronizeAnimations?: boolean,
-    supportsVisualSections?: boolean
+    supportsVisualSections?: boolean,
+    supportsTextOnlyVisuals?: boolean
   ) => Promise<LessonPlaybackResult>;
   persistPlayback: (
     context: StepCommitContext<
@@ -101,7 +102,8 @@ export const createLessonPlaybackWorkflow = (
         supportsFencedCode,
         supportsUnlinkedFormulaSymbols,
         synchronizeAnimations,
-        'sections' in blockSchema.shape.prepared.unwrap().shape
+        'sections' in blockSchema.shape.prepared.unwrap().shape,
+        'textOnlyRanges' in blockSchema.shape.prepared.unwrap().shape
       ),
   });
   const persist = step<

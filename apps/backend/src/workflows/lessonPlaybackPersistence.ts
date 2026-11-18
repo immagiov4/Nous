@@ -52,15 +52,19 @@ export const buildLessonPlaybackCommitPatch = (
           const needsSections =
             preparedVisual?.sections &&
             !hasPreparedVisualSections(saved, lessonPlaybackContent(section));
+          const hasIncomingVisual =
+            preparedVisual &&
+            (preparedVisual.textOnlyRanges?.length ||
+              (preparedVisual.scene && !isRetiredLessonScene(preparedVisual.scene)));
           if (
-            preparedVisual?.scene &&
-            !isRetiredLessonScene(preparedVisual.scene) &&
+            hasIncomingVisual &&
             (!saved.prepared?.scene || isRetiredLessonScene(saved.prepared.scene) || needsSections)
           ) {
             prepared = {
               ...(saved.prepared ?? preparedVisual),
               scene: preparedVisual.scene,
               motion: preparedVisual.motion,
+              textOnlyRanges: preparedVisual.textOnlyRanges,
               ...(preparedVisual.sections ? { sections: preparedVisual.sections } : {}),
             };
           }

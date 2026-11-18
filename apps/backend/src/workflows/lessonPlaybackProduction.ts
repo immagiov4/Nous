@@ -1,6 +1,5 @@
 import { resolvePlaybackNarration } from '@shared/lessonPlayback';
 import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
-import { isRetiredLessonScene } from '@shared/lessonScene';
 import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import {
   lessonPlaybackContent,
@@ -35,7 +34,8 @@ export const createProductionLessonPlaybackServices = (
     supportsFencedCode = true,
     supportsUnlinkedFormulaSymbols = true,
     synchronizeAnimations = false,
-    supportsVisualSections = true
+    supportsVisualSections = true,
+    supportsTextOnlyVisuals = true
   ) => {
     const project = await projectStore.loadProjectWithRevision(input.userId, input.projectId);
     const section = project && findProjectLessonSection(project.snapshot, input.sectionId);
@@ -78,6 +78,7 @@ export const createProductionLessonPlaybackServices = (
       userId: input.userId,
       synchronizeAnimations,
       supportsVisualSections,
+      supportsTextOnlyVisuals,
       allowedSceneTypes,
       supportsSpokenMath,
       supportsFencedCode,
@@ -106,7 +107,7 @@ export const createProductionLessonPlaybackServices = (
         },
         true
       );
-      if (!prepared.scene || isRetiredLessonScene(prepared.scene))
+      if (!isPlaybackVisualReady({ ...block, prepared }, visualSources))
         throw failPermanently({
           code: 'lesson_playback_scene_invalid',
           message: 'No usable passage visual was prepared.',
