@@ -53,6 +53,26 @@ const processItems = [
   },
   { label: 'Review the measurement', detail: 'Second technician', icon: 'eye' },
   { label: 'Publish the result', detail: 'Signed report', icon: 'file' },
+  {
+    label: 'Archive the raw data',
+    detail: 'Keep the original readings with the report.',
+    icon: 'archive',
+  },
+  {
+    label: 'Confirm receipt',
+    detail: 'The requesting team acknowledges the report.',
+    icon: 'mail',
+  },
+  {
+    label: 'Reconcile the record',
+    detail: 'Check that both teams have the same sample identifier.',
+    icon: 'list-check',
+  },
+  {
+    label: 'Close the request',
+    detail: 'The coordinator marks the record complete.',
+    icon: 'circle-check',
+  },
 ];
 
 const orderedScene = (type: 'process' | 'steps', count: number) =>
@@ -87,6 +107,7 @@ test.each(
   const page = await context.newPage();
   const fixture = `${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html`;
   const scenes = [
+    orderedScene('process', 12),
     orderedScene('process', 8),
     orderedScene('process', 2),
     orderedScene('process', 6),
@@ -103,7 +124,7 @@ test.each(
     for (const scene of scenes) {
       const card = page
         .locator(`.type-${scene.type}`)
-        .filter({ has: page.getByRole('heading', { name: scene.title }) });
+        .filter({ has: page.getByRole('heading', { name: scene.title, exact: true }) });
       const rows = card.locator('li');
       const content = await rows.evaluateAll(items =>
         items.map(row => ({
@@ -173,6 +194,14 @@ test('reveals each guided detail exactly at its narration cue and reverses on a 
     const card = page.locator('.type-guided-path');
     const detail = card.locator('.path-explanation p');
     const active = card.locator('[aria-current="step"] strong');
+    await expect
+      .poll(() =>
+        card.evaluate(element => {
+          const host = element.closest('.scene-host');
+          return host ? getComputedStyle(host).getPropertyValue('--scene-scale') : '';
+        })
+      )
+      .toBe('1');
     for (const [time, label, expected] of [
       ['1.1', null, 'Follow the active stage.'],
       ['1.2', 'Collection', 'Record the collection site.'],

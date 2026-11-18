@@ -192,7 +192,7 @@ function SeekableScenePlayback({ scene }: { scene: LessonScene }) {
     },
   };
   return (
-    <div className="flex h-dvh flex-col">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh' }}>
       <input
         aria-label="Fixture playback position"
         type="range"
