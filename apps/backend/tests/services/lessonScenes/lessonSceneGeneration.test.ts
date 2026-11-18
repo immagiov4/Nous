@@ -270,6 +270,56 @@ test('generates a numeric interval with its bounds and estimate intact', async (
   });
 });
 
+test('keeps a lone number in prose and compares independent criteria with bars', async () => {
+  const single = 'The jar contains 3 litres of water.';
+  const observation = {
+    label: 'Litres of water',
+    value: 3,
+    detail: '',
+    time: null,
+    iconQueries: queries,
+  };
+  const number = { ...sceneDraft(single), type: 'number', items: [observation] };
+  generateStructuredOutputMock.mockResolvedValueOnce(number);
+  expect(
+    await generateLessonScene({
+      ...unplannedInput(single),
+      narration: single,
+      allowTextFallback: true,
+    })
+  ).toMatchObject({ kind: 'invalid' });
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...number, type: 'text', items: [] });
+  expect(
+    await generateLessonScene({
+      ...unplannedInput(single),
+      narration: single,
+      allowTextFallback: true,
+    })
+  ).toEqual({ kind: 'text' });
+
+  const source = 'Out of 10 points: clarity scores 3, speed 8, and reliability 6.';
+  const criteria = [
+    { label: 'Clarity (points)', value: 3 },
+    { label: 'Speed (points)', value: 8 },
+    { label: 'Reliability (points)', value: 6 },
+  ];
+  const chart = {
+    ...sceneDraft(source),
+    title: 'Scores by criterion',
+    items: criteria.map(criterion => ({ ...observation, ...criterion })),
+    max: 10,
+    unit: 'points',
+  };
+  const constrained = { ...unplannedInput(source), allowedSceneTypes: STATIC_LESSON_SCENE_TYPES };
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...chart, type: 'radar' });
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'invalid' });
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...chart, type: 'bars' });
+  expect(await generateLessonScene(constrained)).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'bars', items: criteria },
+  });
+});
+
 test('current and frozen workflow contracts can still read a saved continuum', () => {
   const saved = {
     title: 'Reading leaf damage',
@@ -831,7 +881,7 @@ test('generation requires supplied narration to preserve source grounding and al
 });
 
 test.each([
-  ...LAB_QUICK_SCENES,
+  ...LAB_QUICK_SCENES.filter(scene => scene.type !== 'radar'),
   LAB_COMPOSITION_SCENE,
 ])('generates the lab $type fields and all icon slots', async example => {
   const source = `${LAB_COMPOSITION_SOURCE}\nExample data: ${JSON.stringify(example, null, 2)}`;
@@ -928,14 +978,14 @@ test.each([
 
 test('rejects invented quantitative quick data before icon selection', async () => {
   const source =
-    'Chiarezza 4, copertura 3, verifica 5 e tracciabilità 4, su un massimo di 5 punti.';
+    'Mattina 4, pomeriggio 3, sera 5 e notte 4, su un massimo di 5 richieste. Poi torna mattina.';
   generateStructuredOutputMock.mockResolvedValueOnce({
     ...sceneDraft(''),
-    type: 'radar',
-    title: 'Criteri',
+    type: 'polar',
+    title: 'Richieste nella giornata',
     evidence: source,
     max: 5,
-    unit: 'punti',
+    unit: 'richieste',
     items: [2, 3, 5, 4].map(value => ({
       label: 'Criterio',
       detail: '',

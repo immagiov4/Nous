@@ -4,7 +4,11 @@ import type {
   PlaybackVisual,
 } from '@shared/lessonPlayback';
 import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
-import { type LessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
+import {
+  type LessonScene,
+  LessonSceneSchema,
+  STATIC_LESSON_SCENE_TYPES,
+} from '@shared/lessonScene';
 import { playbackMode } from '@shared/lessonSceneAnimation';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import { beforeEach, expect, test, vi } from 'vitest';
@@ -232,6 +236,50 @@ test('retains the existing visual for an individually recorded list item', async
   expect(audio).not.toHaveBeenCalled();
 });
 
+test('keeps an isolated measurement in speech and reuses the text-only preparation', async () => {
+  const request = input();
+  const speech = 'The jar contains 3 litres of water.';
+  const target = { ...request, block: { ...request.block, speech } };
+  sceneGeneration.mockImplementation(async ({ allowTextFallback }) =>
+    allowTextFallback ? { kind: 'text' } : { kind: 'scene', scene }
+  );
+
+  const prepared = await prepareLessonPlaybackVisuals(target);
+  expect(prepared).toEqual({ scene: undefined, motion: [] });
+  expect(motion).not.toHaveBeenCalled();
+  expect(
+    await prepareLessonPlaybackVisuals({ ...target, block: { ...target.block, prepared } })
+  ).toEqual(prepared);
+  expect(sceneGeneration).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  { type: 'number', values: [3], unit: 'litres' },
+  { type: 'radar', values: [3, 5, 4], max: 5, unit: 'points' },
+] as const)('reuses a stored $type scene with every value and its unit', async historical => {
+  const { values, ...fields } = historical;
+  const saved = LessonSceneSchema.parse({
+    ...scene,
+    ...fields,
+    items: values.map((value, index) => ({
+      label: `Measure ${index + 1}`,
+      value,
+      detail: '',
+      icon: '',
+    })),
+  });
+  const request = input();
+  const prepared = { scene: saved, motion: [] };
+  expect(
+    await prepareLessonPlaybackVisuals({
+      ...request,
+      block: { ...request.block, prepared },
+      allowedSceneTypes: LessonSceneSchema.shape.type.options,
+    })
+  ).toEqual(prepared);
+  expect(sceneGeneration).not.toHaveBeenCalled();
+});
+
 test.each([
   'quote',
 ] as const)('replaces a stored %s through visual preparation without synthesizing audio', async type => {
@@ -248,7 +296,7 @@ test.each([
     expect.objectContaining({
       lessonMarkdown: 'Confini e interazioni.',
       narration: 'Confini e interazioni.',
-      allowTextFallback: false,
+      allowTextFallback: true,
     })
   );
   expect(audio).not.toHaveBeenCalled();
@@ -260,7 +308,7 @@ test('prepares a real scene when a stored visual reference is missing', async ()
   );
   expect(result).toEqual({ prepared: { scene, motion: events }, audio: preparedAudio });
   expect(sceneGeneration).toHaveBeenCalledWith(
-    expect.objectContaining({ lessonMarkdown: 'Confini e interazioni.', allowTextFallback: false })
+    expect.objectContaining({ lessonMarkdown: 'Confini e interazioni.', allowTextFallback: true })
   );
 });
 

@@ -1230,9 +1230,14 @@ export const LESSON_SCENE_TYPES = Object.keys(LESSON_SCENE_REGISTRY) as readonly
 export const isRetiredLessonScene = (scene: Pick<LessonScene, 'type'>): boolean =>
   scene.type === 'quote';
 
-/** Saved definitions and qualitative gradients stay readable, including in frozen workflows. */
+/** This catalog controls new selections; saved scenes use the full registry. */
 export const GENERATABLE_LESSON_SCENE_TYPES = LESSON_SCENE_TYPES.filter(
-  type => !isRetiredLessonScene({ type }) && type !== 'definition' && type !== 'continuum'
+  type =>
+    !isRetiredLessonScene({ type }) &&
+    type !== 'definition' &&
+    type !== 'continuum' &&
+    type !== 'number' &&
+    type !== 'radar'
 );
 
 /** Preserve frozen contracts that offer hypothesis without its checklist equivalent. */

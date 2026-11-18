@@ -183,7 +183,6 @@ const prepareScene = async (
     throw new Error('Playback block speech exceeds the scene generation text limit.');
   }
   const allowedSceneTypes = compatibleSceneTypes(input);
-  const allowTextFallback = Boolean(formulas);
   let retryFeedback: string | undefined;
   let diagnostic: WorkflowErrorDiagnostic | undefined;
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt += 1) {
@@ -194,7 +193,7 @@ const prepareScene = async (
       config: resolveLessonVisualModelConfig(config),
       lessonMarkdown,
       narration: block.speech,
-      allowTextFallback,
+      allowTextFallback: true,
       retryFeedback,
       // Authored heading boundaries provide context; general lesson metadata is not source evidence.
       sectionDescription: '',

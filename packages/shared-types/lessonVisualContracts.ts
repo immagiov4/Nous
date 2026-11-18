@@ -160,6 +160,7 @@ export const LESSON_VISUAL_PLANNING_RULES = `- ${GENERATED_VISUAL_RELEVANCE_RULE
 - ${VISUAL_FORMAT_SELECTION_RULE}
 - ${LESSON_SCENE_INDEPENDENT_CONTENT_RULE}
 - For automatic generation, normally plan zero or one artifact. Plan two only when they answer different, complementary pedagogical questions, and three only when all are indispensable. Never produce aesthetic variants of the same content.
+- Keep a single measurement without a visual relationship in the lesson text with its exact value, unit and context.
 - Format variety is never a goal. Two or three raster images are correct when they are the best pedagogical solution.
 - Do not simulate images with ASCII art, monospace text, cells, coordinates, geometric boxes, or scenes. If concrete appearance matters, use illustrative_image.
 - Every plan must stay within the local section where it is placed. Do not preview concepts from later sections or merge distant topics.
