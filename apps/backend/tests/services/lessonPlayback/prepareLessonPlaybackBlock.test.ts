@@ -5,8 +5,8 @@ import type {
 } from '@shared/lessonPlayback';
 import { resolvePlaybackNarration, segmentLessonPlayback } from '@shared/lessonPlayback';
 import {
+  HistoricalLessonSceneSchemas,
   type LessonScene,
-  LessonSceneSchema,
   STATIC_LESSON_SCENE_TYPES,
 } from '@shared/lessonScene';
 import { playbackMode } from '@shared/lessonSceneAnimation';
@@ -258,7 +258,11 @@ test.each([
   { type: 'radar', values: [3, 5, 4], max: 5, unit: 'points' },
 ] as const)('reuses a stored $type scene with every value and its unit', async historical => {
   const { values, ...fields } = historical;
-  const saved = LessonSceneSchema.parse({
+  const frozen = HistoricalLessonSceneSchemas.find(schema =>
+    schema.shape.type.options.includes(historical.type)
+  );
+  if (!frozen) throw new Error('Expected a frozen contract for the stored scene');
+  const saved = frozen.parse({
     ...scene,
     ...fields,
     items: values.map((value, index) => ({
@@ -271,12 +275,12 @@ test.each([
   const request = input();
   const prepared = { scene: saved, motion: [] };
   expect(
-    await prepareLessonPlaybackVisuals({
+    await prepareLessonPlaybackBlock({
       ...request,
       block: { ...request.block, prepared },
-      allowedSceneTypes: LessonSceneSchema.shape.type.options,
+      allowedSceneTypes: frozen.shape.type.options,
     })
-  ).toEqual(prepared);
+  ).toEqual({ prepared, audio: preparedAudio });
   expect(sceneGeneration).not.toHaveBeenCalled();
 });
 

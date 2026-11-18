@@ -1013,7 +1013,22 @@ export const LESSON_SCENE_REGISTRY = {
         (scene.items as unknown[]).length === 1 ? [] : ['A number shows exactly one quantity.'],
     }
   ),
-  bars: numericForm('SOLO quantità confrontabili esplicitamente fornite nel testo.'),
+  bars: numericForm('SOLO quantità confrontabili esplicitamente fornite nel testo.', {
+    validate: (scene, source) => {
+      if (source === undefined || scene.max === undefined) return [];
+      const { max, unit, items } = scene as {
+        max: number;
+        unit?: string;
+        items: LessonSceneItem[];
+      };
+      if (!readSourceNumbers(source).has(max) || items.some(item => (item.value as number) > max))
+        return ['A bar scale maximum must be stated in the lesson and contain every value.'];
+      return unit?.trim() &&
+        items.every(item => item.label.includes(unit) && readSourceNumbers(item.label).has(max))
+        ? []
+        : ['Include the shared maximum and unit in every bar label.'];
+    },
+  }),
   line: numericForm(
     'SOLO valori numerici associati a tempi espliciti nel testo, alla loro distanza reale.',
     {

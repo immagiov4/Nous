@@ -299,9 +299,9 @@ test('keeps a lone number in prose and compares independent criteria with bars',
 
   const source = 'Out of 10 points: clarity scores 3, speed 8, and reliability 6.';
   const criteria = [
-    { label: 'Clarity (points)', value: 3 },
-    { label: 'Speed (points)', value: 8 },
-    { label: 'Reliability (points)', value: 6 },
+    { label: 'Clarity (out of 10 points)', value: 3 },
+    { label: 'Speed (out of 10 points)', value: 8 },
+    { label: 'Reliability (out of 10 points)', value: 6 },
   ];
   const chart = {
     ...sceneDraft(source),
@@ -313,6 +313,12 @@ test('keeps a lone number in prose and compares independent criteria with bars',
   const constrained = { ...unplannedInput(source), allowedSceneTypes: STATIC_LESSON_SCENE_TYPES };
   generateStructuredOutputMock.mockResolvedValueOnce({ ...chart, type: 'radar' });
   expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'invalid' });
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...chart,
+    type: 'bars',
+    items: chart.items.map(item => ({ ...item, label: item.label.replace('out of 10 ', '') })),
+  });
+  expect(await generateLessonScene(constrained)).toMatchObject({ kind: 'invalid' });
   generateStructuredOutputMock.mockResolvedValueOnce({ ...chart, type: 'bars' });
   expect(await generateLessonScene(constrained)).toMatchObject({
     kind: 'scene',
