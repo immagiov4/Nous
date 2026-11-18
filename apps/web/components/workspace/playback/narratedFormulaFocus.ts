@@ -45,7 +45,7 @@ export function useNarratedFormulaFocus(
       if (host !== card.current) {
         host = card.current;
         targets = boundRows(
-          host?.querySelector('.' + NARRATED_FORMULA_CLASS) ?? null,
+          host?.querySelector(`.${NARRATED_FORMULA_CLASS}`) ?? null,
           rows,
           aligned
         );
