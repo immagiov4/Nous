@@ -83,8 +83,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes ffmpeg
           python3 -m pip install --target "$RUNNER_TEMP/source-shelf-python" coverage==7.6.1 numpy==2.5.4 pillow==13.0.0
-          curl --fail --location --silent --show-error https://download.blender.org/release/Blender3.0/blender-3.0.0-linux-x64.tar.xz -o "$RUNNER_TEMP/blender.tar.xz"
-          echo "19b09dfcf5d3f3a068827454f0a704a9aa9c826350f73016121afef5f4d287ce  $RUNNER_TEMP/blender.tar.xz" | sha256sum --check
+          archive="$RUNNER_TEMP/blender.tar.xz"
+          for mirror in https://mirror.clarkson.edu/blender https://ftp.nluug.nl/graphics/blender; do
+            echo "Downloading Blender from $mirror"
+            if curl --fail --location --silent --show-error --max-time 120 "$mirror/release/Blender3.0/blender-3.0.0-linux-x64.tar.xz" -o "$archive" &&
+              echo "19b09dfcf5d3f3a068827454f0a704a9aa9c826350f73016121afef5f4d287ce  $archive" | sha256sum --check; then
+              break
+            fi
+            rm -f "$archive"
+          done
+          test -f "$archive"
           tar -xf "$RUNNER_TEMP/blender.tar.xz" -C "$RUNNER_TEMP"
           export PYTHONPATH="$RUNNER_TEMP/source-shelf-python"
           "$RUNNER_TEMP/blender-3.0.0-linux-x64/blender" -b --python-exit-code 1 --python scripts/source-shelf/tests/coverage_blender.py -- check blue
