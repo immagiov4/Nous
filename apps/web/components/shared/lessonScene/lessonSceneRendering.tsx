@@ -293,7 +293,7 @@ const chartKey = (labels: readonly string[]) => (
   <ol className="q-chart-key" hidden>
     {labels.map((label, index) => (
       // biome-ignore lint/suspicious/noArrayIndexKey: authored measurements have stable order
-      <li key={`${index}-${label}`} hidden value={index + 1}>
+      <li key={`${index}-${label}`} data-playback-item={index} hidden value={index + 1}>
         {label}
       </li>
     ))}
@@ -376,8 +376,13 @@ const sizeQuickChartLabels = (svg: SVGSVGElement | null) => {
   };
   const observer = new ResizeObserver(resize);
   observer.observe(svg.parentElement);
+  const fonts = svg.ownerDocument.fonts;
+  fonts.addEventListener('loadingdone', resize);
   resize();
-  return () => observer.disconnect();
+  return () => {
+    observer.disconnect();
+    fonts.removeEventListener('loadingdone', resize);
+  };
 };
 
 const quickSvg = (

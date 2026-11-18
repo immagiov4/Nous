@@ -18,6 +18,8 @@ import GeneratedVisualFrame from '../../../components/shared/GeneratedVisualFram
 import { LessonSceneVisual } from '../../../components/shared/lessonScene/LessonSceneVisual.tsx';
 import { SceneText } from '../../../components/shared/lessonScene/SceneText.tsx';
 
+import { sceneElements } from '../../../components/workspace/playback/stageMotion.ts';
+
 beforeAll(async () => {
   // Load the mocked asset before measuring the component's asynchronous render.
   await import('@tabler-icon-nodes');
@@ -84,6 +86,7 @@ test.each(['network', 'hierarchy'] as const)('reads the %s root heading before i
 test('restores a radial name to its ray when the chart has room', () => {
   let resize = () => {};
   let viewportWidth = 320;
+  let wideFont = false;
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -104,7 +107,7 @@ test('restores a radial name to its ray when the chart has room', () => {
     configurable: true,
     value(this: SVGTextElement) {
       const long = this.textContent?.includes('Western precision');
-      return new DOMRect(long && viewportWidth === 320 ? -20 : 30, 0, 120, 24);
+      return new DOMRect(long && wideFont && viewportWidth === 320 ? -20 : 30, 0, 120, 24);
     },
   });
   const scene: LessonScene = {
@@ -122,7 +125,11 @@ test('restores a radial name to its ray when the chart has room', () => {
     ],
   };
   try {
-    render(<LessonSceneVisual scene={scene} />);
+    const { container } = render(<LessonSceneVisual scene={scene} />);
+    expect(screen.queryByRole('list')).toBeNull();
+    wideFont = true;
+    document.fonts.dispatchEvent(new Event('loadingdone'));
+    expect(sceneElements(container, scene).get('item:0')).toContain(screen.getByRole('listitem'));
     expect(screen.getByRole('listitem')).toHaveTextContent('Western precision: 4 / 5 points');
     viewportWidth = 640;
     act(resize);
@@ -166,7 +173,7 @@ test('fits scatter labels to the resized chart while keeping the authored measur
     ],
   };
   try {
-    render(<LessonSceneVisual scene={scene} />);
+    const { container } = render(<LessonSceneVisual scene={scene} />);
     const chart = screen.getByRole('img', { name: scene.title });
     expect(chart.querySelector('desc')).toHaveTextContent(
       /Recalibrated sensor at full load: Load 4, Time \(ms\) 8/
@@ -176,6 +183,8 @@ test('fits scatter labels to the resized chart while keeping the authored measur
     const label = within(chart).getByText('Recalibrated sensor at full load');
     expect(label.parentElement).toHaveStyle({ top: '62px', left: '93px' });
     expect(screen.getByRole('list')).toHaveTextContent('Baseline trial');
+    const entry = within(screen.getByRole('list')).getByText('Recalibrated sensor at full load');
+    expect(sceneElements(container, scene).get('item:1')).toContain(entry);
     expect(chart.style.getPropertyValue('--q-inverse-scale')).toBe('2');
     width = 640;
     act(resize);
