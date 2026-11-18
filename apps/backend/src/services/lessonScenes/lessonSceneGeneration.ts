@@ -184,11 +184,28 @@ const SceneDraftSchema = z.strictObject({
 
 type SceneDraft = z.infer<typeof SceneDraftSchema>;
 
-const catalogText = (types: readonly LessonSceneType[]): string =>
-  types.map(type => `- ${type}: ${LESSON_SCENE_CATALOG[type]}`).join('\n');
+const sceneVariantFamilies = {
+  'proportional-static': 'proportional',
+} as const satisfies Partial<Record<LessonSceneType, LessonSceneType>>;
+
+const sceneVariants = Object.keys(sceneVariantFamilies) as (keyof typeof sceneVariantFamilies)[];
+
+const catalogText = (
+  types: readonly LessonSceneType[],
+  variants: readonly (typeof sceneVariants)[number][]
+): string =>
+  types
+    .map(type => {
+      const choices = variants
+        .filter(variant => sceneVariantFamilies[variant] === type)
+        .map(variant => ` Variant ${variant}: ${LESSON_SCENE_CATALOG[variant]}`);
+      return `- ${type}: ${LESSON_SCENE_CATALOG[type]}${choices.join('')}`;
+    })
+    .join('\n');
 
 const sceneSystemPrompt = (
   types: readonly LessonSceneType[],
+  variants: readonly (typeof sceneVariants)[number][],
   relationKinds: readonly LessonSceneRelationKind[]
 ) => String.raw`Design the visual scene that accompanies one concept of a lesson for adults. First state the reader's task: what must the reader understand? Then choose the semantic relation (parts and whole, distinction, comparison by a criterion, check, sequence, limit, question) and only then choose the form from the catalog. Use only the lesson text. Preserve negations, scope, conditions, and uncertainty. All visible text uses the lesson language. Show the passage's structure, relationships or quantities with concise labels. A process needs its actual steps or flow. Never make a text-repeat card or copy narration sentences into the visual; captions already show the narration.
 
@@ -204,9 +221,9 @@ FIELDS
 - quote: an EXACT quotation from the lesson; in decision forms it is the main question, otherwise only an essential closing question; default "".
 - note: one necessary limit in at most 18 words; default "".
 - criteria: row labels for matrix, otherwise [].
-- relation: {kind, label, evidence} for a form with an explicit relation marker. Use null with explicit group verdicts or for forms without a relation marker. Available kinds: ${relationKinds.join(', ')}. label names the relation in the lesson language for screen readers. evidence is an exact quotation (may be "" for versus). Use different only for an explicit distinction. Do not impose a winner when the lesson asks the reader to choose.
+- relation: for comparison${types.includes('signals') ? ' and signals' : ''} with two genuinely related terms, {kind, label, evidence}; otherwise null. Available kinds: ${relationKinds.join(', ')}. label is only read by screen readers. evidence is an exact quotation (may be "" for versus). Use different only for an explicit distinction and leads only for an explicit process or consequence. Do not impose a winner when the lesson asks the reader to choose.
 - diagram: for flowchart, sequence, and journey only, {nodes: [{id, label, kind}], edges: [{from, to, label, kind, evidence}]}; otherwise null. 2 to 8 nodes, 1 to 12 connections. Node kind is step, decision, start, or end; edge kind is call, return, or event. Every connection carries an EXACT lesson quotation in evidence. Decision branches carry their condition in the label. In a sequence, nodes name participants and edges name their messages; never put actions or sentences in participant boxes. A sequence keeps message order and distinguishes returns and asynchronous events; a journey follows its nodes in order without branches. An ordered list of actions belongs in steps. Never write SVG, coordinates, CSS, or Mermaid code.
-- proportional: items and groups []; supply autoplay, inputLabel, unitLabel, min, max, initial (integers, 1 <= min <= initial <= max), positive amountPerUnit, outputUnit, outputLabel, assumption. The fixed renderer multiplies quantity by amountPerUnit. Use only quantities and a proportional relation stated in the lesson. Optional cues are {anchor, value}: increasing cumulative quantities ending at max.
+- Animated proportional: items and groups []; supply autoplay, inputLabel, unitLabel, min, max, initial (integers, 1 <= min <= initial <= max), positive amountPerUnit, outputUnit, outputLabel, assumption. Use this mode for a taught progression of equal groups. The renderer multiplies quantity by amountPerUnit. Use only quantities and a proportional relation stated in the lesson. Optional cues are {anchor, value}: increasing cumulative quantities ending at max.
 - formula-spotlight: items and groups []; formula is complete LaTeX with explicit \nousSymbol{id} references, not HTML or CSS. symbols is an ordered array of {id,latex,name,meaning,anchor}. Each id is a letter followed by letters or digits. Replace the original symbol with its reference, never append the reference after the glyph. Substituting every reference with its latex must reproduce the authored formula without adding or removing operators. Every symbol occurs through its reference in formula (including repeated occurrences); explain every symbol in natural language. Bare mathematical identifiers are invalid, including subscripts and macro-expanded identifiers; an operator with its own symbol entry must use its reference at every occurrence. Keep symbols with distinct meanings separate, including an operator and its operands. Bind each anchor to the narration explaining that exact symbol, not adjacent text. Each nonempty anchor is an exact, unique narration quotation covering only the words that refer to that element; stop at the end of that reference. Use an empty anchor when the narration does not specifically refer to that element. Keep the base, subscript, superscript and operator independently targetable whenever the narration distinguishes them: x and its index i use separate references, never a single x_i target for a mention of i. List linked symbols by their first spoken mention; unlinked symbols may follow. The fixed renderer shows the complete formula and symbol names and emphasizes a linked element only for its quoted span; nothing stays emphasized between references. Include every authored term discussed in the canonical narration, including all indices, conditions, arguments and operators. Choose this form when a large formula and its definitions teach the passage; do not select by formula count or keyword. Prefer a useful visual over repeating prose; retain the source meaning and conditions.
 - guided-path: items and groups []; supply autoplay and steps: ${GUIDED_PATH_MIN_STEPS} to ${GUIDED_PATH_MAX_STEPS} {label, detail, optional anchor} entries following the explicit path in the lesson. Every label and detail is non-empty.
 - Animated forms reuse title and body as the prototype's title and description. Set autoplay true for gradual reader playback. Narration and cue anchors quote the canonical narration when supplied, otherwise the lesson text. Ground quantities and other facts in the lesson text. Supply data only, never executable formulas, scripts, CSS, coordinates, or animation code. The formula-spotlight LaTeX field is mathematical notation, not executable code.
@@ -237,14 +254,13 @@ FORMS
 - ${LESSON_SCENE_INDEPENDENT_CONTENT_RULE}
 - Make the layout mirror the logical relations the lesson states: parallel criteria, factors, or options sit side by side in one form (checklist, parts, comparison); only actions the lesson explicitly orders become steps. Sequence diagrams show message exchanges between participants. Never chain parallel items as consecutive steps.
 - checklist: concrete questions or practical checks in labels, including how to test a hypothesis. State the question being tested in the title or a label. Use details only when they add information. limits: two items meaning "Shows" and "Does not prove", in the lesson language. roles: people as items with a neutral profile. steps: strictly ordered actions, not alternatives; options after a pause become a checklist with the pause in body.
-- comparison, matrix, and decision need exactly two named, non-empty groups. matrix also needs criteria, with as many rows in both groups. Other item-based forms need at least two items, except number; diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
+- comparison, ${types.includes('signals') ? 'signals, ' : ''}matrix, decision, ${types.includes('balance') ? 'balance, ' : ''}and beforeafter need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other original forms need at least two items, except number, flowchart, sequence, journey, proportional, and guided-path; diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
 - matrix: use short criterion and alternative labels. Each cell states the result for its criterion as a short phrase with any qualifier needed for accuracy. Use a comparison or explain the alternatives in the lesson when understanding them requires several sentences per alternative.
-- For hierarchies and networks the title names the common node. Do not use maps, cycles, or timelines for plain lists.
+- For hierarchies and networks the title names the common node. Do not use maps, cycles, or timelines for plain lists. beforeafter needs an actual transformation; a mere preference between two behaviours is a comparison with verdicts.
 - Quantitative forms only with REAL numbers present in the lesson, never invented scores. Each numeric item has a finite value >= 0 and a label with unit or period. interval has exactly three items: minimum, estimate, maximum. line points carry increasing times, which set their real spacing; the label shows how the lesson names each time. number has one item. HTTP codes, versions, and identifiers are not quantities.
 - A message exchange with replies and branches is a sequence, not an invented causal chain.
-- For comparison, each group label names what that panel contains. Keep every indispensable entry on each side. The scene title establishes the common question or criterion: for example "What deserves more weight?", with "Verifiable competence" > "Mere appearance". Use a relation or explicit verdicts, never both. A preference between behaviours can use verdicts.
-${supportsComparisonRelations(relationKinds) ? '- For clues that should be read alongside their interpretation, use comparison with complementary and name what each side contributes; use different when the source explicitly distinguishes signs from evidence. For needs in tension, use comparison with tradeoff and preserve both sides, such as benefits and costs.\n- For an explicit change to the same entity, use beforeafter when offered. This form requires two non-empty groups, initial state first and resulting state second, and a leads relation with no group verdicts. Copy both state labels verbatim from a single exact quotation in relation.evidence. That quotation must come from the target narration when supplied and contain each state label exactly once, in initial-to-result order. When the passage cannot give that evidence, choose a form that makes no directional claim. Use leads only with beforeafter.' : '- When available, signals distinguishes signs from evidence or their limits, balance preserves needs in tension, and beforeafter shows a transformation of the same entity with its original state first. Each needs two named non-empty groups. A comparison or signals scene may use leads for an explicit process or consequence.'}
-- Group summary example: "Verifiable competence" has entries "Experience with the question at hand" and "Reasons that can be checked"; "Mere appearance" has "Professional title" and "Confident tone". Entries articulate the subject without repeating the panel label. Never fill an Evidence panel with limits of signs.
+- For comparison${types.includes('signals') ? ' and signals' : ''}, the symbol alone connects the groups: their labels must be comparable terms read left to right, never headings such as "More weight" and "Not enough". Put qualifications about reasonable trust in note, not body before the comparison. The scene title establishes the criterion: for example "What deserves more weight?", with "Verifiable competence" > "Mere appearance". Use different only for an explicit distinction, never for two arbitrarily different lists.
+${types.includes('comparison') && supportsComparisonRelations(relationKinds) ? '- For clues that should be read alongside their interpretation, use comparison with complementary and name what each side contributes. For needs in tension, use comparison with tradeoff and retain both named panels, with every indispensable entry on each side. These relations require an exact quotation and no group verdicts.\n' : ''}- Group summary example: "Verifiable competence" has entries "Experience with the question at hand" and "Reasons that can be checked"; "Mere appearance" has "Professional title" and "Confident tone". Entries articulate the subject rather than repeating its label in an almost identical sentence. ${types.includes('signals') ? 'For signals, short names suffice: "Professional title", rather than repeating "may indicate competence" in every entry. ' : ''}Compare signs with their limits using versus; distinguish signs from evidence using different with homogeneous terms. Never fill an Evidence column with limits of signs.
 - For source, the first item identifies the source; the others state its competence and relevance to the request, each with a criterion label and concrete detail. A concluding question belongs in quote, an additional limit in note. If one choice is explicitly discouraged and another recommended, group verdicts may be avoid and prefer; never assign verdicts to a quiz.
 - Keep quizzes open without suggesting the answer. Supplied code is teaching material: represent its boundaries and relations without executing it. Never invent transitions, branches, emotions, scores, usefulness, or causes.
 
@@ -263,16 +279,17 @@ These forms have a title of at most 160 characters, optional body and note of at
 - scatter: items with finite numeric x/y, xLabel/yLabel including units, and explicit unit.
 - integration: two groups (sources, recipients), center, and optional top-level iconQueries for its icon. Each group contains entity names in items, mandatory matching iconQueries, and optional details with one description per entity (at most 120 characters). Each side allows 1–2 entities; use flowchart for more branches.
 - deployment: 2–4 groups; use one item for a coherent description, or separate entities with an iconQueries entry for each. Optional groupIconQueries represents the execution container.
-- proportional-static: integer quantity 1–12, positive amountPerUnit, and explicit unit; only explicit data. Every quantitative static form requires unit (at most 80 characters).
+- Fixed proportional: use a fixed number of equal groups for a completed product, such as three trays with two seedlings per tray. ${variants.includes('proportional-static') ? 'Return type "proportional" and variant "proportional-static". ' : ''}Supply integer quantity 1–12, positive amountPerUnit, and unit. Keep items and groups empty. Omit animation fields, including min, max, initial, cues and outputUnit. Every quantitative static form requires unit (at most 80 characters).
 
 RELATIONSHIPS
-Choose the relationship before the form. Reducing a dependency does not mean it is smaller than another: greater/less require an explicit common criterion. Properties and contracts are not processes. Preserve alternatives expressed with OR as alternatives, never simultaneous activities. Do not invent messages or branches. For a condition, use decision with the question in body; limits means what can be concluded from an example, not any two categories.
+Choose the relationship before the form. Two alternatives are not before/after: beforeafter requires the same object in two temporal states. Reducing a dependency does not mean it is smaller than another: greater/less require an explicit common criterion. Properties and contracts are not processes. Preserve alternatives expressed with OR as alternatives, never simultaneous activities. Do not invent messages or branches. For a condition, use decision with the question in body; limits means what can be concluded from an example, not any two categories.
 
 COMPOSITION
 Choose composition when comparing two alternatives and one has an indispensable internal sequence that a simple list would hide. Do not hide an explicit, relevant sequence in a note or a generic entry: retain its steps in the steps panel. Supply items:[], groups:[], body:"", quote:"", note, and panels:[{title,kind:"facts"|"steps",items:[{label,detail,iconQueries}],evidence}]. Exactly two panels with different forms: one facts and one steps; two facts lists become comparison. At most two levels, with 1–4 items per panel and at least two steps in a steps panel. Panel titles and item labels are at most 160 characters; details at most 600. The steps panel's evidence is an EXACT quotation documenting their order. Each step is a real successive action or state: a negation, requirement, or property is not a step, and a mere enumeration does not prove temporal order. facts contains independent properties. Do not repeat panel content in note. No nested panels, code, or coordinates. Each panel item uses ordinary iconQueries. Composition preserves different internal relationships; it is not a way to vary appearance when two simple lists already explain the concept.
 
 CATALOG
-${catalogText(types)}
+${catalogText(types, variants)}
+${variants.length ? 'For a listed variant, use its parent as type and the variant name in variant. For the base form, omit variant.' : ''}
 
 Final check: does every sentence under a title add something? Are the entries of each group truly examples of that group? Evidence entries must be evidence, never reasons to doubt signs. If the passage provides only signs and limits, use "Visible signs" and "Limits of signs" with versus, or limits. Do not invent evidence to fill a comparison. An attribute repeated for every item moves to body or note. Can the closing text be omitted without losing necessary meaning? If yes, leave it empty. Every note must be necessary; avoid generic warnings such as "often, not always".`;
 
@@ -446,50 +463,23 @@ const compareSupportQuotation = (evidence: string, lesson: string, excerpt: stri
   };
 };
 
-const findComparisonDraftProblems = (scene: LessonScene): string[] => {
-  if (scene.type !== 'comparison') return [];
-  const problems: string[] = [];
-  if (scene.relation?.kind === 'leads')
-    problems.push('Use beforeafter for a directional transition instead of comparison.');
-  if (scene.groups.some(group => !group.label.trim()))
-    problems.push('Name both comparison panels.');
-  const hasVerdict = scene.groups.some(group => group.verdict !== undefined);
-  if (hasVerdict === Boolean(scene.relation))
-    problems.push('A comparison needs an explicit relation or group verdicts, never both.');
-  return problems;
-};
-
-const findTransitionDraftProblems = (scene: LessonScene, target: string): string[] => {
-  if (scene.type !== 'beforeafter') return [];
-  const { relation, groups } = scene;
-  if (relation?.kind !== 'leads' || groups.some(group => group.verdict))
-    return ['A beforeafter scene requires a leads relation and no group verdicts.'];
-  if (!relation.evidence.trim() || !target.includes(relation.evidence))
-    return ['The transition evidence must be an exact quotation from the target passage.'];
-  if (groups.length !== 2) return []; // The form validator reports invalid group counts.
-
-  const [initial, final] = groups.map(group => group.label.trim());
-  const { evidence } = relation;
-  const initialStart = evidence.indexOf(initial);
-  const finalStart = evidence.indexOf(final);
-  return initial &&
-    final &&
-    initialStart >= 0 &&
-    initialStart + initial.length <= finalStart &&
-    initialStart === evidence.lastIndexOf(initial) &&
-    finalStart === evidence.lastIndexOf(final)
-    ? []
-    : [
-        'Quote both state labels exactly once; the initial label must occur before the final label.',
-      ];
-};
-
 const findDraftProblems = (
   draft: SceneDraft,
   scene: LessonScene,
   source: string,
   narration?: string
 ): string[] => [
+  ...(scene.type === 'proportional-static' &&
+  (scene.items.length ||
+    scene.groups.length ||
+    Object.keys(LessonSceneAnimationShape).some(
+      key => key !== 'amountPerUnit' && Object.hasOwn(scene, key)
+    ))
+    ? ['Fixed proportional scenes use quantity, amountPerUnit and unit, with no motion or items.']
+    : []),
+  ...(scene.type === 'proportional' && draft.quantity !== undefined
+    ? ['Use the fixed proportional variant for a single quantity, or omit quantity for motion.']
+    : []),
   ...(isAnimatedLessonScene(scene) && scene.autoplay !== true
     ? ['Generated animated scenes must enable autoplay.']
     : []),
@@ -528,18 +518,26 @@ export async function generateLessonScene(
   // A resumed workflow must generate within the catalog admitted by its saved contract.
   // Spotlight definitions need the owning playback's canonical speech, not raw Markdown anchors.
   const relationKinds = input.allowedSceneRelationKinds ?? LESSON_SCENE_RELATION_KINDS;
-  const types = selectableLessonSceneTypes({
+  const allowedTypes = selectableLessonSceneTypes({
     captioned,
     allowedTypes: input.allowedSceneTypes,
     relationKinds,
   });
-  const catalogSchema = SceneDraftSchema.extend({
+  const variants = sceneVariants.filter(
+    variant =>
+      allowedTypes.includes(variant) && allowedTypes.includes(sceneVariantFamilies[variant])
+  );
+  const types = allowedTypes.filter(type => !variants.some(variant => variant === type));
+  const baseSchema = SceneDraftSchema.extend({
     type: z.enum(input.allowTextFallback ? [...types, 'text'] : types),
     relation: SceneDraftSchema.shape.relation
       .unwrap()
       .extend({ kind: z.enum(relationKinds) })
       .nullable(),
   });
+  const catalogSchema = variants.length
+    ? baseSchema.extend({ variant: z.enum(variants).optional() })
+    : baseSchema;
   const schema = captioned
     ? catalogSchema.extend({ body: z.literal(''), note: z.literal('') })
     : catalogSchema;
@@ -580,7 +578,7 @@ export async function generateLessonScene(
     prompt: buildScenePrompt(input),
     signal: input.signal,
     slot: 'scene',
-    system: `${sceneSystemPrompt(types, relationKinds)}${captioned ? '\nCAPTIONED PLAYBACK: body and note must be empty. The narration already supplies prose. In parts and concepts scenes, item detail must also be empty: name each part and its role directly in the label. Never turn narration into a glossary. Put every necessary condition in the visual labels, groups or data qualifiers.' : ''}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
+    system: `${sceneSystemPrompt(types, variants, relationKinds)}${captioned ? '\nCAPTIONED PLAYBACK: body and note must be empty. The narration already supplies prose. In parts and concepts scenes, item detail must also be empty: name each part and its role directly in the label. Never turn narration into a glossary. Put every necessary condition in the visual labels, groups or data qualifiers.' : ''}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
   }).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
@@ -595,6 +593,17 @@ export async function generateLessonScene(
         'schema',
         parsed.error.issues.map(({ code, path }) => ({ code, path }))
       ),
+    };
+  }
+  const variant = variants.find(
+    variant => 'variant' in parsed.data && parsed.data.variant === variant
+  );
+  if (variant && sceneVariantFamilies[variant] !== parsed.data.type) {
+    const problems = [`Use type ${sceneVariantFamilies[variant]} with variant ${variant}.`];
+    return {
+      kind: 'invalid',
+      problems,
+      diagnostic: diagnostic('domain', problems, parsed.data.evidence),
     };
   }
   if (parsed.data.type === 'text') {
@@ -612,17 +621,12 @@ export async function generateLessonScene(
       diagnostic: diagnostic('domain', problems, parsed.data.evidence, input.lessonMarkdown),
     };
   }
-  const draft = { ...parsed.data, type: parsed.data.type };
+  // Resolve the draft-only choice before validation, icon selection and persistence.
+  const draft = { ...parsed.data, type: variant ?? parsed.data.type };
+  if (draft.type === 'proportional-static' && draft.outputUnit === draft.unit)
+    delete draft.outputUnit;
   const scene = toScene(draft);
-  const problems = [
-    ...findDraftProblems(draft, scene, excerpt, input.narration),
-    ...(supportsComparisonRelations(relationKinds)
-      ? [
-          ...findComparisonDraftProblems(scene),
-          ...findTransitionDraftProblems(scene, input.narration ?? excerpt),
-        ]
-      : []),
-  ];
+  const problems = findDraftProblems(draft, scene, excerpt, input.narration);
   if (problems.length)
     return {
       kind: 'invalid',

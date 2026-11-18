@@ -69,6 +69,69 @@ const sceneDraft = (source: string) => ({
   type: 'parts',
 });
 
+test('chooses fixed or animated replicas from one proportional form and retains frozen choices', async () => {
+  const source = 'Use 3 groups with 2 observations per group.';
+  const fixed = {
+    ...sceneDraft(source),
+    type: 'proportional',
+    variant: 'proportional-static',
+    title: 'Observations in groups',
+    items: [],
+    quantity: 3,
+    amountPerUnit: 2,
+    unit: 'observations',
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(fixed);
+  const result = await generateLessonScene(unplannedInput(source));
+  expect(result).toEqual({
+    kind: 'scene',
+    scene: {
+      type: 'proportional-static',
+      title: fixed.title,
+      body: '',
+      items: [],
+      groups: [],
+      note: '',
+      quote: '',
+      quantity: 3,
+      amountPerUnit: 2,
+      unit: 'observations',
+    },
+  });
+  const { variant: _variant, ...fields } = fixed;
+  const legacy = { ...fields, type: 'proportional-static' };
+  const { output } = generateStructuredOutputMock.mock.calls.at(-1)?.[0] ?? {};
+  const schema = z.fromJSONSchema(output.schema);
+  expect(schema.safeParse(fixed).success).toBe(true);
+  expect(schema.safeParse(legacy).success).toBe(false);
+
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...fixed, outputUnit: fixed.unit });
+  expect(await generateLessonScene(unplannedInput(source))).toEqual(result);
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...fixed, outputUnit: 'litres' });
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'domain' },
+  });
+
+  generateStructuredOutputMock.mockResolvedValueOnce(legacy);
+  expect(
+    await generateLessonScene({
+      ...unplannedInput(source),
+      allowedSceneTypes: ['proportional-static'],
+    })
+  ).toEqual(result);
+
+  generateStructuredOutputMock.mockResolvedValueOnce(fixed);
+  expect(
+    await generateLessonScene({ ...unplannedInput(source), allowedSceneTypes: ['proportional'] })
+  ).toMatchObject({ kind: 'invalid' });
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...fixed, cues: [{ value: 3 }] });
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'domain' },
+  });
+});
+
 test.each([
   {
     legacy: 'signals',
@@ -158,181 +221,113 @@ test.each([
   expect(frozenOutput.safeParse(comparison).success).toBe(false);
 });
 
-const transitionPassage = 'Drying turns soft clay into firm clay.';
+const resultFirstPassage = 'The result is firm clay. Before drying, the material was soft clay.';
+const maturityPassage = 'Il frutto passa da immaturo a maturo.';
 const neighboringPassage = 'Heating turns firm clay into fired ceramic.';
-const transitionDraft = {
-  ...sceneDraft(transitionPassage),
-  type: 'beforeafter',
-  title: 'Clay during drying',
-  items: [],
-  groups: ['soft clay', 'firm clay'].map(label => ({
-    label,
-    items: [label],
-    verdict: 'none',
-    iconQueries: [queries],
-  })),
-  relation: { kind: 'leads', label: 'Becomes', evidence: transitionPassage },
-};
 
 test.each([
   {
-    case: 'inverted panels with the correct quotation',
-    draft: { ...transitionDraft, groups: [...transitionDraft.groups].reverse() },
-    feedback: 'initial label must occur before',
+    name: 'result mentioned first',
+    speech: resultFirstPassage,
+    labels: ['soft clay', 'firm clay'],
+  },
+  { name: 'reversed draft', speech: resultFirstPassage, labels: ['firm clay', 'soft clay'] },
+  {
+    name: 'state names with a shared substring',
+    speech: maturityPassage,
+    labels: ['immaturo', 'maturo'],
   },
   {
-    case: 'leads grounded only in neighboring prose',
-    draft: {
-      ...transitionDraft,
-      relation: { ...transitionDraft.relation, evidence: neighboringPassage },
-    },
-    feedback: 'quotation from the target passage',
+    name: 'evidence from the authored context',
+    speech: resultFirstPassage,
+    labels: ['firm clay', 'fired ceramic'],
+    evidence: neighboringPassage,
+    context: neighboringPassage,
   },
   {
-    case: 'versus substituted for the transition',
-    draft: { ...transitionDraft, relation: { ...transitionDraft.relation, kind: 'versus' } },
-    feedback: 'beforeafter scene requires a leads relation',
+    name: 'evidence missing from the lesson',
+    speech: resultFirstPassage,
+    labels: ['soft clay', 'firm clay'],
+    evidence: neighboringPassage,
+    rejected: true,
   },
   {
-    case: 'leads submitted as a generic comparison',
-    draft: { ...transitionDraft, type: 'comparison' },
-    feedback: 'Use beforeafter for a directional transition',
+    name: 'versus relation',
+    speech: resultFirstPassage,
+    labels: ['soft clay', 'firm clay'],
+    kind: 'versus',
+    evidence: '',
   },
-])('playback retries $case before accepting a directed scene', async ({ draft, feedback }) => {
-  const requestedPrompts: string[] = [];
-  generateStructuredOutputMock.mockImplementation(async request => {
-    if (request.output.name !== 'lesson_scene')
-      return { plans: [{ chunk: 0, events: [], reason: 'Static scene' }] };
-    requestedPrompts.push(request.prompt);
-    return requestedPrompts.length === 1 ? draft : transitionDraft;
-  });
-  const prepared = await prepareLessonPlaybackVisuals({
-    userId: 'comparison-playback-test',
-    config: getGlobalModelConfig(),
-    voice: 'Kore',
-    lesson: {
-      title: 'Working with clay',
-      sources: [{ type: 'markdown', markdown: `${transitionPassage}\n\n${neighboringPassage}` }],
-    },
-    signal: new AbortController().signal,
-    block: {
-      id: 'clay-drying',
-      speech: transitionPassage,
-      heading: '',
-      spans: [
-        {
-          sourceBlockIndex: 0,
-          source: { start: 0, end: transitionPassage.length },
-          speech: { start: 0, end: transitionPassage.length },
-        },
-      ],
-      audio: [],
-      visuals: [],
-    },
-  });
-  expect(requestedPrompts).toHaveLength(2);
-  expect(requestedPrompts[0]).toContain(neighboringPassage);
-  expect(requestedPrompts[1]).toContain(feedback);
-  expect(prepared.scene).toMatchObject({
-    type: 'beforeafter',
-    relation: transitionDraft.relation,
-    groups: transitionDraft.groups.map(({ label, items }) => ({ label, items })),
-  });
-  expect(chooseIconsMock).toHaveBeenCalledTimes(1);
-});
-
-test('retains a saved directed comparison during historical playback', async () => {
-  const saved = {
-    ...transitionDraft,
-    type: 'comparison' as const,
-    diagram: undefined,
-    groups: transitionDraft.groups.map(({ label, items }) => ({ label, items, icons: [''] })),
-  };
-  const frozen = HistoricalLessonSceneSchemas[0];
-  const scene = frozen.parse(saved);
-  const prepared = await prepareLessonPlaybackVisuals({
-    userId: 'comparison-playback-test',
-    config: getGlobalModelConfig(),
-    voice: 'Kore',
-    lesson: { title: 'Working with clay' },
-    signal: new AbortController().signal,
-    allowedSceneTypes: frozen.shape.type.options,
-    allowedSceneRelationKinds: frozen.shape.relation.unwrap().shape.kind.options,
-    block: {
-      id: 'clay-drying',
-      speech: transitionPassage,
-      heading: '',
-      spans: [],
-      audio: [],
-      visuals: [],
-      prepared: { scene, motion: [] },
-    },
-  });
-  expect(prepared.scene).toEqual(scene);
-  expect(generateStructuredOutputMock).not.toHaveBeenCalled();
-});
-
-test('frozen generation still accepts both historical transition representations', async () => {
-  const frozen = HistoricalLessonSceneSchemas[0];
-  const input = {
-    ...unplannedInput(transitionPassage),
-    allowedSceneTypes: frozen.shape.type.options,
-    allowedSceneRelationKinds: frozen.shape.relation.unwrap().shape.kind.options,
-  };
-  generateStructuredOutputMock.mockResolvedValueOnce({ ...transitionDraft, relation: null });
-  expect(await generateLessonScene(input)).toMatchObject({
-    kind: 'scene',
-    scene: { type: 'beforeafter' },
-  });
-  generateStructuredOutputMock.mockResolvedValueOnce({ ...transitionDraft, type: 'comparison' });
-  expect(await generateLessonScene(input)).toMatchObject({
-    kind: 'scene',
-    scene: { type: 'comparison', relation: transitionDraft.relation },
-  });
-});
-
-test('new comparisons require a relation or a verdict and two named panels', async () => {
-  const source = 'Clay and wax can each be shaped by hand.';
-  const draft = {
-    ...sceneDraft(source),
-    items: [],
-    groups: ['Clay', 'Wax'].map(label => ({
-      label,
-      items: [label],
-      iconQueries: [queries],
-      verdict: 'none',
-    })),
-    type: 'comparison',
-  };
-  generateStructuredOutputMock.mockResolvedValueOnce(draft);
-  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
-    kind: 'invalid',
-    diagnostic: { errorStage: 'domain' },
-  });
-  const ordinary = {
-    ...draft,
-    relation: { evidence: '', kind: 'versus', label: 'Two materials' },
-  };
-  generateStructuredOutputMock.mockResolvedValueOnce({
-    ...ordinary,
-    groups: [{ ...draft.groups[0], label: ' ' }, draft.groups[1]],
-  });
-  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'invalid' });
-  generateStructuredOutputMock.mockResolvedValueOnce({
-    ...ordinary,
-    groups: [{ ...draft.groups[0], verdict: 'prefer' }, draft.groups[1]],
-  });
-  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'invalid' });
-  generateStructuredOutputMock.mockResolvedValueOnce({
-    ...draft,
-    groups: [{ ...draft.groups[0], verdict: 'prefer' }, draft.groups[1]],
-  });
-  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'scene' });
-  generateStructuredOutputMock.mockResolvedValueOnce(ordinary);
-  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
-    kind: 'scene',
-    scene: { relation: ordinary.relation },
-  });
+  {
+    name: 'no explicit relation',
+    speech: resultFirstPassage,
+    labels: ['soft clay', 'firm clay'],
+    kind: null,
+  },
+])('preserves baseline playback for $name', async ({
+  speech,
+  labels,
+  kind = 'leads',
+  evidence = speech,
+  context,
+  rejected,
+}) => {
+  for (const type of ['beforeafter', 'comparison'] as const) {
+    const relation = kind === null ? null : { kind, label: 'State comparison', evidence };
+    const groups = labels.map(label => ({ label, items: [label], icons: [''] }));
+    const draft = {
+      ...sceneDraft(speech),
+      type,
+      items: [],
+      groups: groups.map(({ label, items }) => ({
+        label,
+        items,
+        verdict: 'none',
+        iconQueries: [queries],
+      })),
+      relation,
+    };
+    let attempts = 0;
+    generateStructuredOutputMock.mockImplementation(async request => {
+      if (request.output.name !== 'lesson_scene')
+        return { plans: [{ chunk: 0, events: [], reason: 'Static scene' }] };
+      attempts += 1;
+      return draft;
+    });
+    const entirePassage = context ? `${speech}\n\n${context}` : speech;
+    const prepared = await prepareLessonPlaybackVisuals({
+      userId: 'comparison-playback-test',
+      config: getGlobalModelConfig(),
+      voice: 'Kore',
+      lesson: {
+        title: 'State comparison',
+        sources: [{ type: 'markdown', markdown: entirePassage }],
+      },
+      signal: new AbortController().signal,
+      block: {
+        id: 'state-change',
+        speech,
+        heading: '',
+        spans: [
+          {
+            sourceBlockIndex: 0,
+            source: { start: 0, end: speech.length },
+            speech: { start: 0, end: speech.length },
+          },
+        ],
+        audio: [],
+        visuals: [],
+      },
+    });
+    if (rejected) {
+      expect(prepared.scene).toBeUndefined();
+      expect(attempts).toBeGreaterThan(1);
+    } else {
+      expect(prepared.scene).toMatchObject({ type, groups });
+      expect(prepared.scene?.relation).toEqual(relation ?? undefined);
+      expect(attempts).toBe(1);
+    }
+  }
 });
 
 test('offers checklist for new hypotheses and preserves a hypothesis-only resumed contract', async () => {
@@ -991,6 +986,9 @@ test.each([
   const draft = {
     ...sceneDraft(''),
     ...content,
+    ...(example.type === 'proportional-static'
+      ? { type: 'proportional', variant: example.type }
+      : {}),
     intent: 'Understand the example.',
     evidence: LAB_COMPOSITION_SOURCE,
     items: items.map(item => {
