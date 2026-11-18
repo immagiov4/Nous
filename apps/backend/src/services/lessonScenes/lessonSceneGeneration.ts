@@ -567,14 +567,16 @@ const verifiedHeatmapScale = async (
     : {};
 };
 
+interface SceneSourceContext {
+  source: string;
+  config: Awaited<ReturnType<typeof getResolvedModelConfigForProvider>>;
+  input: GenerateLessonSceneInput;
+}
+
 const addVerifiedHeatmapScale = async (
   scene: LessonScene,
   draft: SceneDraft,
-  context: {
-    source: string;
-    config: Awaited<ReturnType<typeof getResolvedModelConfigForProvider>>;
-    input: GenerateLessonSceneInput;
-  }
+  context: SceneSourceContext
 ): Promise<LessonScene> => {
   const { source, config, input } = context;
   const scale = await verifiedHeatmapScale(draft, source, config, input);
@@ -623,6 +625,20 @@ const findDraftProblems = (
     : []),
   ...findLessonSceneProblems(scene, source, narration),
 ];
+
+const groundSceneDraft = async (
+  draft: SceneDraft,
+  context: SceneSourceContext
+): Promise<{ scene: LessonScene } | { problems: string[] }> => {
+  const scene = toScene(
+    draft.type === 'heatmap' ? { ...draft, max: undefined, unit: undefined } : draft
+  );
+  const problems = findDraftProblems(draft, scene, context.source, context.input.narration);
+  if (problems.length) return { problems };
+  return {
+    scene: scene.type === 'heatmap' ? await addVerifiedHeatmapScale(scene, draft, context) : scene,
+  };
+};
 
 // These validator templates can contain personal details from the source.
 const publicSceneProblem = (problem: string): string => {
@@ -751,27 +767,20 @@ export async function generateLessonScene(
   const draft = { ...parsed.data, type: variant ?? parsed.data.type };
   if (draft.type === 'proportional-static' && draft.outputUnit === draft.unit)
     delete draft.outputUnit;
-  const scene = toScene(
-    draft.type === 'heatmap' ? { ...draft, max: undefined, unit: undefined } : draft
-  );
-  const problems = findDraftProblems(draft, scene, excerpt, input.narration);
-  if (problems.length)
+  const grounded = await groundSceneDraft(draft, { source: excerpt, config, input });
+  if ('problems' in grounded)
     return {
       kind: 'invalid',
-      problems,
-      diagnostic: diagnostic('domain', problems.map(publicSceneProblem), draft.evidence),
+      problems: grounded.problems,
+      diagnostic: diagnostic('domain', grounded.problems.map(publicSceneProblem), draft.evidence),
     };
-  const verifiedScene =
-    scene.type === 'heatmap'
-      ? await addVerifiedHeatmapScale(scene, draft, { source: excerpt, config, input })
-      : scene;
-  input.onValidatedScene?.(verifiedScene);
+  input.onValidatedScene?.(grounded.scene);
   return {
     kind: 'scene',
     scene: await chooseLessonSceneIcons({
       config,
       entries: iconEntries(draft),
-      scene: verifiedScene,
+      scene: grounded.scene,
       signal: input.signal,
     }),
   };
