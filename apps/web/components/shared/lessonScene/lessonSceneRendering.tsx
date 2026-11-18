@@ -551,17 +551,41 @@ export const quickRadial = ({ scene }: SceneRenderContext) => {
   );
 };
 
+const treeRoot = (scene: LessonScene) => scene.items.find(item => !item.parent);
+
+export const treeSharesTitle = (scene: LessonScene) =>
+  scene.type === 'tree' && Boolean(scene.title) && treeRoot(scene)?.label === scene.title;
+
 export const quickTree = ({ scene }: SceneRenderContext) => {
+  const root = treeRoot(scene) as LessonSceneItem;
   const children = (parent: string) => scene.items.filter(item => item.parent === parent);
-  const branch = (node: LessonSceneItem): ReactNode => (
-    <li key={node.id} data-playback-item={scene.items.indexOf(node)}>
-      {quickBox(node.label, node.detail, node.icon)}
-      {children(node.id as string).length ? (
-        <ul>{children(node.id as string).map(branch)}</ul>
-      ) : null}
-    </li>
-  );
-  const root = scene.items.find(item => !item.parent) as LessonSceneItem;
+  const sharedTitle = treeSharesTitle(scene);
+  const branch = (node: LessonSceneItem): ReactNode => {
+    const descendants = children(node.id as string);
+    const isHeading = node === root && sharedTitle;
+    const Label = isHeading ? 'h2' : 'strong';
+    return (
+      <li key={node.id} data-playback-item={scene.items.indexOf(node)}>
+        <div className="q-box">
+          {node.icon ? <Icon name={node.icon} /> : null}
+          <Label>
+            <SceneText>{node.label}</SceneText>
+          </Label>
+          {isHeading && scene.body ? (
+            <p className="scene-intro">
+              <SceneText>{scene.body}</SceneText>
+            </p>
+          ) : null}
+          {node.detail ? (
+            <p>
+              <SceneText>{node.detail}</SceneText>
+            </p>
+          ) : null}
+        </div>
+        {descendants.length ? <ul>{descendants.map(branch)}</ul> : null}
+      </li>
+    );
+  };
   return (
     <ul
       className="q-tree"

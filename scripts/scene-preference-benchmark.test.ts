@@ -70,6 +70,7 @@ test('scores only decisive covered pairs; neither and failures remain visible', 
     decisive: 3,
     ties: 1,
     coveredPairs: 2,
+    nonSelectablePairs: 0,
     uncoveredPreferred: { polygon: 1 },
     uncoveredPreferredShare: 1 / 3,
   });
@@ -90,6 +91,19 @@ test('scores only decisive covered pairs; neither and failures remain visible', 
   expect(report.textFallbackRate).toBe(1 / 7);
   expect(report.completedTrials).toBe(7);
   expect(report.expectedTrials).toBe(9);
+});
+
+test('keeps an archived hierarchy preference without scoring an unavailable alternative', () => {
+  const archived = { ...cases[0], preferred: 'hierarchy', rejected: 'tree' };
+  const dataset = parseCases(JSON.stringify(archived));
+  expect(dataset).toEqual([archived]);
+  const result = summarize(
+    dataset,
+    [{ id: archived.id, repetition: 1, kind: 'scene', chosen: 'tree', latencyMs: 10 }],
+    1
+  );
+  expect(result.dataset).toMatchObject({ coveredPairs: 0, nonSelectablePairs: 1 });
+  expect(result.repetitions[0]).toMatchObject({ completed: 1, rejected: 0, accuracy: null });
 });
 
 test('reports spread across repetitions and no accuracy for empty pairs', () => {
