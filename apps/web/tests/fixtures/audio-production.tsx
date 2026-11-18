@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import LessonPlaybackStage from '../../components/workspace/playback/LessonPlaybackStage';
 import type { WorkspaceReaderContentModel } from '../../components/workspace/shell/types';
+import { PlaybackTimeline } from '../../components/workspace/UnifiedAudioPanel';
 import { useLessonPlayback } from '../../hooks/reader/useLessonPlayback';
 import '../../styles/app.css';
 
@@ -34,9 +35,11 @@ function AudioContract() {
         <button type="button" id="seek" onClick={() => playback.seek(0)}>
           Seek
         </button>
-        <button type="button" onClick={() => playback.seek(playback.total)}>
-          Seek to end
-        </button>
+        <PlaybackTimeline
+          time={playback.elapsed}
+          duration={playback.total}
+          onSeek={playback.seek}
+        />
         <button
           type="button"
           id="voice"

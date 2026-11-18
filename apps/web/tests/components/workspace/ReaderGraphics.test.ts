@@ -499,7 +499,8 @@ test.each([
     reducedMotion: 'reduce',
   });
   try {
-    const bytes = Buffer.from(fixedAudio());
+    const duration = FIXED_AUDIO_SECONDS + 0.25;
+    const bytes = Buffer.from(fixedAudio(duration));
     const hash = createHash('sha256').update(bytes).digest('hex');
     const block = {
       ...segmentLessonPlayback([{ type: 'markdown', markdown: guidedSpeech }])[0],
@@ -508,7 +509,7 @@ test.each([
         {
           voice: 'Kore',
           model: 'local-sample',
-          durationSeconds: FIXED_AUDIO_SECONDS,
+          durationSeconds: duration,
           asset: { id: hash, hash, byteSize: bytes.length, mediaType: 'audio/wav' },
         },
       ],
@@ -536,13 +537,13 @@ test.each([
       .filter({ hasText: guidedSteps[0].detail });
     await firstDetail.waitFor();
     expect(await review.count()).toBe(0);
-    if (ending === 'seek to end') await page.getByRole('button', { name: 'Seek to end' }).click();
+    if (ending === 'seek to end') await page.getByRole('slider').press('End');
     await expect
       .poll(() => transport.textContent(), {
-        timeout: (FIXED_AUDIO_SECONDS + 5) * 1000,
+        timeout: (duration + 5) * 1000,
       })
       .toBe('idle');
-    expect(await transport.getAttribute('data-position')).toBe(String(FIXED_AUDIO_SECONDS));
+    expect(await transport.getAttribute('data-position')).toBe(String(duration));
     await expect
       .poll(() => review.locator('p').allTextContents())
       .toEqual(guidedSteps.map(step => step.detail));
