@@ -985,9 +985,7 @@ export const LESSON_SCENE_REGISTRY = {
   signals: groupForm(
     'Distinzione esplicita fra indizi esteriori e ragioni verificabili; due gruppi.'
   ),
-  comparison: groupForm(
-    'Due pannelli nominati: alternative, indizi e interpretazione, oppure benefici e costi.'
-  ),
+  comparison: groupForm('Due alternative descritte con criteri comparabili; due gruppi.'),
   matrix: {
     ...groupRules,
     description: 'Due alternative, almeno due criteri esplicitamente confrontabili.',
