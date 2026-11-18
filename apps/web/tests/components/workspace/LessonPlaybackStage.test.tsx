@@ -45,6 +45,7 @@ vi.mock('../../../services/projects/projectVisualResolver.ts', () => ({
 }));
 
 let resizeScene: () => void;
+let resizeProcessViewport: (() => void) | undefined;
 const disconnectScene = vi.fn();
 
 test.each([
@@ -520,12 +521,14 @@ test('retains a failed adjacent PDF placeholder beside the available image', () 
   expect(container.querySelector('.scene-host')?.textContent).toContain('Immagine non disponibile');
 });
 beforeEach(() => {
+  resizeProcessViewport = undefined;
   vi.stubGlobal(
     'ResizeObserver',
     class {
       constructor(readonly callback: () => void) {}
       observe(target: Element) {
         if (target.classList.contains('scene-fit')) resizeScene = this.callback;
+        if (target.hasAttribute('data-process-scroll')) resizeProcessViewport = this.callback;
       }
       disconnect = disconnectScene;
     }
@@ -2281,6 +2284,7 @@ test.each([
     card.scrollTop = top ?? 0;
   });
   const host = card.parentElement!;
+  let viewportHeight = 100;
   if (fitDuringCue) {
     const stage = host.closest<HTMLElement>('.listening-stage')!;
     stage.style.padding = '0px';
@@ -2289,7 +2293,8 @@ test.each([
   }
   Object.defineProperties(card, {
     clientHeight: {
-      get: () => (fitDuringCue && !host.style.getPropertyValue('--scene-height-limit') ? 300 : 100),
+      get: () =>
+        fitDuringCue && !host.style.getPropertyValue('--scene-height-limit') ? 300 : viewportHeight,
     },
     offsetHeight: { value: 100 },
     scrollHeight: { value: 300 },
@@ -2316,7 +2321,9 @@ test.each([
     expect(scroll).not.toHaveBeenCalled();
     resizeScene();
     tick();
-    await act(async () => {});
+    await act(async () => {
+      resizeProcessViewport?.();
+    });
     expect(host).toHaveAttribute('data-process-overflow');
   }
   expect(finalStep.style.getPropertyValue('--motion-emphasis')).toBe('1');
@@ -2336,6 +2343,17 @@ test.each([
   tick();
   expect(card.scrollTop).toBe(200);
   expect(scroll).toHaveBeenCalledTimes(2);
+  if (fitDuringCue) {
+    viewportHeight = 80;
+    resizeProcessViewport?.();
+    tick();
+    expect(host).toHaveAttribute('data-process-overflow');
+    expect(card.scrollTop).toBe(220);
+    card.scrollTop = 10;
+    resizeProcessViewport?.();
+    tick();
+    expect(card.scrollTop).toBe(10);
+  }
   if (groups.length > 1) {
     // The second step is now visible. Seeking to the shared cue must reveal the first.
     rerender(view(2, refreshedBlock));

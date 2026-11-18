@@ -119,7 +119,7 @@ function PlaybackScene({
   const sceneKey = JSON.stringify(sourceScene);
   const scene = useMemo<LessonScene>(() => JSON.parse(sceneKey), [sceneKey]);
   const host = useRef<HTMLDivElement>(null);
-  const followedCue = useRef<{ key: string; seekRevision: number }>(null);
+  const followedCue = useRef<{ key: string; seekRevision: number; viewportHeight: number }>(null);
   const readAnimationFrame = useMemo<ReadSceneAnimationFrame | undefined>(() => {
     if (!isAnimatedLessonScene(scene) && scene.type !== 'formula-spotlight') return undefined;
     const anchors = sceneCaptionAnchors(scene, block.speech);
@@ -162,6 +162,8 @@ function PlaybackScene({
       itemRanges,
     });
     let previousTiming: ReturnType<typeof timing.read> | undefined;
+    const scrollport =
+      scene.type === 'process' ? element.closest<HTMLElement>('[data-process-scroll]') : null;
     let previousFrame = '';
     const render = () => {
       const current = clock.current;
@@ -188,16 +190,16 @@ function PlaybackScene({
           target.style.setProperty('--motion-emphasis', String(state.emphasis));
         }
       }
-      if (scene.type !== 'process') return;
+      if (!scrollport || scrollport.closest('[inert]')) return;
       const { onset, targets: targetIds } = activeFocusCue(events, voiceTime);
       const key = `${current.seekRevision}:${onset}:${targetIds.join(',')}`;
       if (key === followedCue.current?.key) return;
-      const scrollport = element.closest<HTMLElement>(
-        '[data-process-card]:not([inert]) > [data-process-scroll]'
-      );
-      if (!scrollport) return;
       const seekChanged = current.seekRevision !== followedCue.current?.seekRevision;
-      followedCue.current = { key, seekRevision: current.seekRevision };
+      followedCue.current = {
+        key,
+        seekRevision: current.seekRevision,
+        viewportHeight: scrollport.clientHeight,
+      };
       if (targetIds.length) {
         revealProcessSteps(
           scrollport,
@@ -208,22 +210,24 @@ function PlaybackScene({
         stopProcessScroll(scrollport);
       }
     };
-    const processCard = scene.type === 'process' ? element.closest('[data-process-card]') : null;
-    const observer = new MutationObserver(records => {
-      // Fitting can hide the current step after its cue was followed in the uncapped card.
-      if (
-        processCard?.hasAttribute('data-process-overflow') &&
-        records.some(record => record.target === processCard)
-      ) {
+    // A footer or the initial fit can shrink the visible area during a single spoken cue.
+    const viewportObserver =
+      scrollport &&
+      new ResizeObserver(() => {
+        if (!followedCue.current || followedCue.current.viewportHeight === scrollport.clientHeight)
+          return;
         followedCue.current = null;
-      }
-      // Mermaid mounts its targets asynchronously.
+        previousFrame = '';
+        render();
+      });
+    if (scrollport) viewportObserver?.observe(scrollport);
+    // Mermaid mounts its targets asynchronously.
+    const observer = new MutationObserver(() => {
       elements = sceneElements(element, scene);
       previousFrame = '';
       render();
     });
     observer.observe(element, { childList: true, subtree: true });
-    if (processCard) observer.observe(processCard, { attributeFilter: ['data-process-overflow'] });
     let frame = 0;
     const tick = () => {
       render();
@@ -233,6 +237,7 @@ function PlaybackScene({
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      viewportObserver?.disconnect();
       for (const target of Array.from(elements.values()).flat()) {
         target.classList.remove('motion-target');
         target.style.removeProperty('opacity');
