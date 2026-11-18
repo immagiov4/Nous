@@ -419,7 +419,7 @@ const sectionSceneRequest = (
   const listRule = section.items
     ? `Use ${listForm}, one item per authored list item, in source order. Include every one of the ${section.items.length} items. Summarize each item faithfully; do not reduce the list to an earlier summary.`
     : '';
-  return { speech, listType, types, listRule };
+  return { speech, listType, types, listRule } as const;
 };
 
 const generateSectionScene = async (
