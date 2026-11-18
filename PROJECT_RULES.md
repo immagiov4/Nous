@@ -408,7 +408,11 @@ For debugging tasks: show exact evidence (files, functions, lines), explain the 
 
 Do not run state-changing version control commands without explicit approval. Never commit, push, rebase, reset, amend, stash, stage, or otherwise mutate repository state unless explicitly requested. Read-only commands are acceptable for context.
 
-Write every GitHub issue and pull-request title and description in English.
+### Language for GitHub issues and pull requests
+
+Use plain English at CEFR level B2 for all text you write in issues and pull requests. This includes titles, descriptions, comments, reviews and replies. Apply the same rule when you edit existing text.
+
+Use common words and short, direct sentences. Say what happened, what changed or what the reader needs to do. Keep exact code names, commands, quotations and error messages when they matter. Explain any technical term the reader needs to know. Before posting, check that a reader can understand the main point on the first read.
 
 Before writing any human-facing text, read and follow `.agents/skills/writing-for-humans/SKILL.md`. This covers PR and issue bodies, commit messages, documentation, wiki pages, and comments intended for people.
 

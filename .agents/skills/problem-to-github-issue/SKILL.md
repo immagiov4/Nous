@@ -36,7 +36,7 @@ remaining limit names the evidence that would resolve it.
 
 ## Draft the issue
 
-- Write the title and body in English.
+- Follow the [issue and pull request language rule](../../../PROJECT_RULES.md#language-for-github-issues-and-pull-requests) for the title, body and comments.
 - Use the smallest set of contract sections that carries the available information.
 - Keep hypotheses and unapproved options out of desired behavior and acceptance criteria.
 - Acceptance criteria restate the requested or approved outcome in observable terms. The agent
