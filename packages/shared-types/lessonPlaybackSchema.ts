@@ -43,7 +43,8 @@ const createPlaybackPreparedSchema = (
   sceneSchema = LessonSceneSchema,
   spokenMath = false,
   fencedCode = false,
-  visualSections = false
+  visualSections = false,
+  textOnlyVisuals = false
 ) => {
   const schema = z.object({
     sections: z
@@ -66,26 +67,33 @@ const createPlaybackPreparedSchema = (
       })
     ),
   });
-  if (visualSections) return schema;
+  const withTextOnly = schema.extend({
+    textOnlyRanges: z.array(PlaybackRangeSchema).min(1).optional(),
+  });
+  if (visualSections) return (textOnlyVisuals ? withTextOnly : schema) as typeof withTextOnly;
   // Construct frozen shapes directly: Zod's omit adds fingerprinted checks metadata.
   if (!spokenMath)
-    return z.object({ scene: schema.shape.scene, motion: schema.shape.motion }) as typeof schema;
+    return z.object({
+      scene: schema.shape.scene,
+      motion: schema.shape.motion,
+    }) as typeof withTextOnly;
   return fencedCode
     ? (z.object({
         fencedCode: schema.shape.fencedCode,
         spokenMath: schema.shape.spokenMath,
         scene: schema.shape.scene,
         motion: schema.shape.motion,
-      }) as typeof schema)
+      }) as typeof withTextOnly)
     : (z.object({
         spokenMath: schema.shape.spokenMath,
         scene: schema.shape.scene,
         motion: schema.shape.motion,
-      }) as typeof schema);
+      }) as typeof withTextOnly);
 };
 
 export const PlaybackPreparedSchema = createPlaybackPreparedSchema(
   LessonSceneSchema,
+  true,
   true,
   true,
   true
@@ -112,7 +120,8 @@ export const createLessonPlaybackBlockSchema = (
   fencedCode = false,
   legacyVisuals = false,
   wordAlignment = false,
-  visualSections = false
+  visualSections = false,
+  textOnlyVisuals = false
 ) => {
   const spanSchema = z.object({
     fencedCode: z
@@ -156,7 +165,8 @@ export const createLessonPlaybackBlockSchema = (
       sceneSchema,
       spokenMath,
       fencedCode,
-      visualSections
+      visualSections,
+      textOnlyVisuals
     ).optional(),
     audio: z.array(wordAlignment ? PlaybackAudioSchema : LegacyPlaybackAudioSchema),
   });
@@ -164,6 +174,7 @@ export const createLessonPlaybackBlockSchema = (
 
 export const LessonPlaybackBlockSchema = createLessonPlaybackBlockSchema(
   LessonSceneSchema,
+  true,
   true,
   true,
   true,
@@ -179,8 +190,27 @@ const LessonPlaybackSchema = z.object({
 
 const validVisualSections = (block: LessonPlaybackBlock): boolean => {
   const sections = block.prepared?.sections;
-  if (!sections?.length) return true;
+  const textOnly = block.prepared?.textOnlyRanges ?? [];
+  if (!sections?.length && !textOnly.length) return true;
   const length = resolvePlaybackNarration(block).speech.length;
+  const ranges = [...(sections ?? []).map(section => section.range), ...textOnly].sort(
+    (left, right) => left.start - right.start
+  );
+  if (
+    textOnly.length &&
+    ranges.some(
+      (range, i) =>
+        range.start >= range.end || range.end > length || (i > 0 && ranges[i - 1].end > range.start)
+    )
+  )
+    return false;
+  if (!sections?.length)
+    return (
+      textOnly.length === 1 &&
+      textOnly[0].start === 0 &&
+      textOnly[0].end === length &&
+      !block.prepared?.scene
+    );
   return sections.every(
     ({ range, items, scene }) =>
       isLessonScene(scene) &&

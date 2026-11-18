@@ -64,8 +64,8 @@ export const isPlaybackVisualReady = (
   sources: readonly PlaybackContentBlock[]
 ): boolean =>
   Boolean(
-    block.prepared?.scene &&
-      !isRetiredLessonScene(block.prepared.scene) &&
+    (block.prepared?.textOnlyRanges?.length ||
+      (block.prepared?.scene && !isRetiredLessonScene(block.prepared.scene))) &&
       hasPreparedVisualSections(block, sources)
   );
 

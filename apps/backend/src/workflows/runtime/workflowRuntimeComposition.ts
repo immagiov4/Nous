@@ -5,7 +5,12 @@ import {
   HistoricalLessonSceneSchemas,
   LessonSceneSchema,
 } from '@shared/lessonPlaybackSchema';
-import { supportsComparisonRelations } from '@shared/lessonScene';
+import {
+  FrozenComparisonIntegrationSceneSchema,
+  FrozenConceptLayoutSceneSchema,
+  FrozenUnlinkedFormulaSceneSchema,
+  supportsComparisonRelations,
+} from '@shared/lessonScene';
 import { readCurrentAccountPreferences } from '../../account/accountStore.js';
 import {
   getGlobalModelConfig,
@@ -179,7 +184,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 16;
+export const WORKFLOW_SET_VERSION = 17;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -722,13 +727,38 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
       preCompatibilityIdAndExternalEffectPrevious(previousPdfMappingRepairWorkflow),
     ],
   });
+  const createTextOnlyPlayback = (
+    catalog: typeof LessonSceneSchema,
+    ordered = false,
+    useClosedLoopSelection = false
+  ) =>
+    createLessonPlaybackWorkflow(
+      playbackExecutionDefaults,
+      createLessonPlaybackBlockSchema(catalog, true, true, true, false, true, true),
+      true,
+      true,
+      true,
+      ordered,
+      useClosedLoopSelection
+    );
   registry.register({
-    current: cycleScenes.playback,
+    current: createTextOnlyPlayback(sceneSchema, true, true),
     previous: [
+      // Rebuild text-only playback for the published catalogs after new scene fields are added.
+      ...[
+        FrozenUnlinkedFormulaSceneSchema,
+        FrozenConceptLayoutSceneSchema,
+        FrozenComparisonIntegrationSceneSchema,
+      ].map(catalog => createTextOnlyPlayback(catalog)),
+      createTextOnlyPlayback(FrozenComparisonIntegrationSceneSchema, true),
+      ...(!schemasMatch(sceneSchema, FrozenComparisonIntegrationSceneSchema)
+        ? [createTextOnlyPlayback(FrozenComparisonIntegrationSceneSchema, true, true)]
+        : []),
+      cycleScenes.playback,
       ...historicalCycleScenes.map(definition => definition.playback),
       orderedScenes.playback,
-      currentScenes.visualSectionsPlayback,
       ...historicalOrderedScenes.map(definition => definition.playback),
+      currentScenes.visualSectionsPlayback,
       ...historicalScenes.map(definition => definition.visualSectionsPlayback),
       ...[currentScenes, ...historicalScenes].map(definition => definition.legacySectionsPlayback),
       ...[currentScenes, ...historicalScenes].map(definition => definition.visualPlayback),

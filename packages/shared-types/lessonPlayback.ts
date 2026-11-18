@@ -101,6 +101,7 @@ export interface LessonPlaybackBlock {
   readonly prepared?: {
     readonly spokenMath?: readonly PlaybackSpokenMath[];
     readonly fencedCode?: readonly PlaybackFencedCodeDecision[];
+    readonly textOnlyRanges?: readonly PlaybackRange[];
     readonly scene?: LessonScene;
     readonly sections?: readonly {
       readonly range: PlaybackRange;

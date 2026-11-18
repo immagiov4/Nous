@@ -68,6 +68,7 @@ export type LessonSceneOutcome =
 export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'plan'> & {
   readonly allowedSceneRelationKinds?: readonly LessonSceneRelationKind[];
   readonly allowedSceneTypes?: readonly LessonSceneType[];
+  readonly authoredFormulaFallback?: boolean;
   readonly supportsConceptLayout?: boolean;
   readonly useOrderedSceneSelection?: boolean;
   readonly useClosedLoopSelection?: boolean;
@@ -322,7 +323,7 @@ FIELDS
 - criteria: row labels for the base matrix only. Use [] for matrix variants.
 - relation: for ${comparisonTargets} with two genuinely related terms, {kind, label, evidence}; otherwise null. ${relationKindRule} label is only read by screen readers. evidence is an exact quotation (may be "" for versus). Use different only for an explicit distinction and leads only for an explicit process or consequence. Do not impose a winner when the lesson asks the reader to choose.
 - diagram: for flowchart, sequence${types.includes('journey') ? ', and journey' : ''} only, {nodes: [{id, label, kind}], edges: [{from, to, label, kind, evidence}]}; otherwise null. 2 to 8 nodes, 1 to 12 connections. Node kind is step, decision, start, or end; edge kind is call, return, or event. Every connection carries an EXACT lesson quotation in evidence. Decision branches carry their condition in the label. In a sequence, nodes name participants and edges name their messages; never put actions or sentences in participant boxes. A sequence keeps message order and distinguishes returns and asynchronous events.${types.includes('journey') ? ' A journey follows its nodes in order without branches.' : ''} When available, use flowchart when connections themselves must be visible, including a linear path with a meaningful transition between stages. Never write SVG, coordinates, CSS, or Mermaid code.
-- Animated proportional: items and groups []; supply autoplay, inputLabel, unitLabel, min, max, initial (integers, 1 <= min <= initial <= max), positive amountPerUnit, outputUnit, outputLabel, assumption. Use this mode for a taught progression of equal groups. The renderer multiplies quantity by amountPerUnit. Use only quantities and a proportional relation stated in the lesson. Optional cues are {anchor, value}: increasing cumulative quantities ending at max.
+- Animated proportional: use this mode when the lesson teaches a progression of equal groups with stated bounds and an initial quantity. Supply autoplay, inputLabel, unitLabel, min, max, initial (integers, 1 <= min <= initial <= max), positive amountPerUnit, outputUnit, outputLabel, assumption, and items and groups []. The renderer multiplies quantity by amountPerUnit. Optional cues are {anchor, value}: increasing cumulative quantities ending at max.
 - formula-spotlight: items and groups []; formula is complete LaTeX with explicit \nousSymbol{id} references, not HTML or CSS. symbols is an ordered array of {id,latex,name,meaning,anchor}. Each id is a letter followed by letters or digits. Replace the original symbol with its reference, never append the reference after the glyph. Substituting every reference with its latex must reproduce the authored formula without adding or removing operators. Every symbol occurs through its reference in formula (including repeated occurrences); explain every symbol in natural language. Bare mathematical identifiers are invalid, including subscripts and macro-expanded identifiers; an operator with its own symbol entry must use its reference at every occurrence. Keep symbols with distinct meanings separate, including an operator and its operands. Bind each anchor to the narration explaining that exact symbol, not adjacent text. Each nonempty anchor is an exact, unique narration quotation covering only the words that refer to that element; stop at the end of that reference. Use an empty anchor when the narration does not specifically refer to that element. Keep the base, subscript, superscript and operator independently targetable whenever the narration distinguishes them: x and its index i use separate references, never a single x_i target for a mention of i. List linked symbols by their first spoken mention; unlinked symbols may follow. The fixed renderer shows the complete formula and symbol names and emphasizes a linked element only for its quoted span; nothing stays emphasized between references. Include every authored term discussed in the canonical narration, including all indices, conditions, arguments and operators. Choose this form when a large formula and its definitions teach the passage; do not select by formula count or keyword. Prefer a useful visual over repeating prose; retain the source meaning and conditions.
 - guided-path: use when revealing the active stage alongside narration or over time is necessary to understand the path. Supply autoplay and steps: ${GUIDED_PATH_MIN_STEPS} to ${GUIDED_PATH_MAX_STEPS} {label, detail, optional anchor} entries following the explicit path in the lesson. Every label and detail is non-empty. Use items and groups [].
 - Animated forms reuse title and body as the prototype's title and description. Set autoplay true for gradual reader playback. Narration and cue anchors quote the canonical narration when supplied, otherwise the lesson text. Ground quantities and other facts in the lesson text. Supply data only, never executable formulas, scripts, CSS, coordinates, or animation code. The formula-spotlight LaTeX field is mathematical notation, not executable code.
@@ -353,13 +354,13 @@ FORMS
 - ${LESSON_SCENE_INDEPENDENT_CONTENT_RULE}
 - Make the layout mirror the logical relations the lesson states: parallel criteria, factors, or options sit side by side; only actions the lesson explicitly orders become steps. Sequence diagrams show message exchanges between participants. Never chain parallel items as consecutive steps.
 - checklist: concrete questions or practical checks in labels, including how to test a hypothesis. State the question being tested in the title or a label. Use details only when they add information. Independent options after a pause become a checklist with the pause in body.
-- ${comparisonForms} need exactly two non-empty groups. Original item-based forms need at least two items, except number. Diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
+- ${comparisonForms} need exactly two non-empty groups. Original item-based forms need at least two items, except forms with their own rules below. Diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
 ${supportsConceptLayout && types.includes('concepts') ? conceptLayoutRules : ''}
 ${supportsConceptLayout && types.includes('boundary') ? '- boundary: use only when the passage says what is inside and outside the same scope. Copy the exact words that show this relationship into scopeEvidence. Two facts about the same place do not make a boundary. For example, books on two floors and an opening time belong in a plain concepts list. Name the scope in the title and use exactly two named, non-empty groups with no items at scene level. Mark the first group with scopeSide "inside" and the second with scopeSide "outside". Write visible labels in the lesson language. Leave scopeEvidence and scopeSide unset for other forms.' : ''}
 ${supportsConceptLayout ? '' : legacyConceptRules(types)}
 - Base matrix: use groups for two alternatives and criteria for row labels. Keep criterion and alternative labels short. Both alternatives have a cell for every criterion, in criterion order. Each cell states the result for its criterion as a short phrase with any qualifier needed for accuracy. Use a comparison or explain the alternatives in the lesson when understanding them requires several sentences per alternative.
 - For hierarchy (when offered) and network, the title names the common node. Do not use maps, cycles, or timelines for plain lists. beforeafter needs an actual transformation; a mere preference between two behaviours is a comparison with verdicts.
-- Quantitative forms only with REAL numbers present in the lesson, never invented scores. Each numeric item has a finite value >= 0 and a label with unit or period. interval has exactly three items: minimum, estimate, maximum. line points carry increasing times, which set their real spacing; the label shows how the lesson names each time. number has one item. HTTP codes, versions, and identifiers are not quantities.
+- Quantitative forms only with REAL numbers present in the lesson, never invented scores. Each numeric item has a finite value >= 0 and a label with unit or period. interval has exactly three items: minimum, estimate, maximum on one numeric axis; preserve the shared unit when stated. line points carry increasing times, which set their real spacing; the label shows how the lesson names each time. Use bars for independent measurements. When a common maximum is stated, supply max, unit and the full denominator in every label (for example "Clarity (out of 10 points)"). A single measurement belongs in the lesson prose. HTTP codes, versions, and identifiers are not quantities.
 - A message exchange with replies and branches is a sequence, not an invented causal chain.
 - For ${comparisonTargets}, the symbol alone connects the groups: their labels must be comparable terms read left to right, never headings such as "More weight" and "Not enough". Put qualifications about reasonable trust in note, not body before the comparison. The scene title establishes the criterion: for example "What deserves more weight?", with "Verifiable competence" > "Mere appearance". Use different only for an explicit distinction, never for two arbitrarily different lists.
 ${comparisonConsolidated ? '- For clues that should be read alongside their interpretation, use comparison with complementary and name what each side contributes. For needs in tension, use comparison with tradeoff and retain both named panels, with every indispensable entry on each side. These relations require an exact quotation and no group verdicts.\n' : ''}- Group summary example: "Verifiable competence" has entries "Experience with the question at hand" and "Reasons that can be checked"; "Mere appearance" has "Professional title" and "Confident tone". Entries articulate the subject rather than repeating its label in an almost identical sentence. ${!comparisonConsolidated ? 'For signals, short names suffice: "Professional title", rather than repeating "may indicate competence" in every entry. ' : ''}Compare signs with their limits using versus; distinguish signs from evidence using different with homogeneous terms. Never fill an Evidence column with limits of signs.
@@ -370,12 +371,13 @@ ${orderedStageRules(types, useOrderedSceneSelection)}
 
 ADDITIONAL STATIC FORMS
 These forms have a title of at most 160 characters, optional body and note of at most 600 characters, at most 12 items (label at most 160 characters, detail at most 240), and at most 6 groups with at most 6 entries each. Groups containing multiple entities need complete iconQueries, one per entity. Colours and geometry belong to the component: never invent palettes, per-entry styles, or colour variations. A different colour requires a necessary semantic distinction. These forms are static: no motion fields, timer, or user commands. Keep every description brief and understandable. Never invent permissions, deadlines, causal categories, or values to fit a form.
-- quadrant: exactly four groups, in top-left, top-right, bottom-left, bottom-right order; xLabel and yLabel explain the axes.
-- radar/polar: 3–6 items with real non-negative value, at least one positive value, a common positive max, and explicit unit; no value exceeds max.
+- quadrant: use for four regions classified by two qualitative axes. Supply groups in top-left, top-right, bottom-left, bottom-right order; xLabel explains left to right and yLabel explains bottom to top.
+- polar: choose this for 3–6 measures when reading the wrap from the last category to the first matters, such as night leading back to morning. Preserve cyclic order and supply max and unit. Copy the stated upper bound into max even when every measurement is lower (a 0–100 scale requires max:100). Values stay between zero and max, with at least one positive value. Use bars for independent criteria.
 - flywheel: ${flywheelContract(useClosedLoopSelection)}
 - tree: items with unique id (at most 40 characters), optional parent, exactly one root, acyclic, at most three levels. Use it for a direct parent and its children as well as for deeper hierarchies. Give the root the title when both name the same thing. Keep each child's description in its own detail.
 - stack: 2–6 ordered levels, without implying that one level leads to the next or contains it.
 - venn: three groups (left only, intersection, right only), with qualitative areas; each label at most 24 characters and at most one description of at most 48 characters per region. If the content does not fit, choose comparison rather than making the text ambiguous.
+- Distribution shows frequencies of adjacent ordered classes. Donut shows shares of a known whole. Treemap uses labelled areas for flat parts of a whole. Funnel follows the surviving part of one population through ordered stages.
 - funnel/treemap: items with value and explicit unit; funnel values never increase, treemap values are positive. For funnel, the title identifies the common quantity or entity once (for example Requests); labels contain only stage names (Received, Valid, Successful), without repeating units or numbers. The component shows quantities and retention on a common cell scale, including fractions; never draw or count cells yourself.
 - Heatmap and security matrix modes: columns:[labels], rows:[{label,values:[values]}], 1–5 columns and 1–8 rows. Keep groups, items and criteria []. Every row has exactly one value per column, in column order, preserving every association. For heatmap, supply scaleEvidence quoting a complete, explicit scale declaration from the lesson, including the full unit and any trailing qualifier in the same clause. Copy any separate trailing phrase that says which cells or groups use the scale into scaleQualifier and include it in scaleEvidence. This field is required when the scope follows the unit in the same clause. For “0 to 10 cases per week for every region”, use unit “cases per week” and scaleQualifier “for every region”. Use the lesson language and quote the visible text. Copy the quoted upper bound to max and the complete unit to the unit field, even if no observed value reaches the upper bound. Use exact cell values from zero to max. Security requires a textual permission (at most 60 characters) in every cell, including explicit unknown permissions. If the source does not clearly declare the scale and unit, omit max, unit and scaleEvidence. The table will still show exact values. Use another form if a cell is missing.
 - security: use brief, unambiguous permission phrases and keep the lesson's full role and resource names where shortening them would obscure the meaning.
@@ -383,7 +385,7 @@ These forms have a title of at most 160 characters, optional body and note of at
 - scatter: items with finite numeric x/y, xLabel/yLabel including units, and explicit unit.
 - integration: two groups (sources, recipients), center, and optional top-level iconQueries for its icon. Each group contains entity names in items, mandatory matching iconQueries, and optional details with one description per entity (at most 120 characters). Each side allows 1–2 entities; use flowchart for more branches.
 - deployment: 2–4 groups; use one item for a coherent description, or separate entities with an iconQueries entry for each. Optional groupIconQueries represents the execution container.
-- Fixed proportional: use a fixed number of equal groups for a completed product, such as three trays with two seedlings per tray. ${variants.includes('proportional-static') ? 'Return type "proportional" and variant "proportional-static". ' : ''}Supply integer quantity 1–12, positive amountPerUnit, and unit. Keep items and groups empty. Omit animation fields, including min, max, initial, cues and outputUnit. Every quantitative static form requires unit (at most 80 characters).
+- Fixed proportional: use a fixed number of equal groups for a completed product. ${variants.includes('proportional-static') ? 'Return type "proportional" and variant "proportional-static". ' : ''}Supply integer quantity 1–12, positive amountPerUnit, and unit of the product. For three trays of two seedlings each, give quantity:3, amountPerUnit:2, unit:"seedlings". The unit describes the total of six seedlings. Keep items and groups empty and omit min, max, initial, cues and outputUnit. On correction, supply any missing fixed fields without inventing a progression. Every quantitative static form requires unit (at most 80 characters).
 
 RELATIONSHIPS
 Choose the relationship before the form. Two alternatives are not before/after: beforeafter requires the same object in two temporal states. Reducing a dependency does not mean it is smaller than another: greater/less require an explicit common criterion. Properties and contracts are not processes. Preserve alternatives expressed with OR as alternatives, never simultaneous activities. Do not invent messages or branches. For a source-supported conditional flow, even a single fork, put the question only in the flowchart's decision node. Put each condition on its edge and the action or result with its necessary detail in the destination node. Keep any explicit return edge. Use decision panels for two answers with independent facts that need to stay grouped. For type decision, put the exact main question in quote, or use body to phrase it when the scene is uncaptioned. Limits means what can be concluded from an example, not any two categories.
@@ -595,25 +597,17 @@ const findMatrixDraftProblems = (scene: LessonScene): string[] => {
   return [];
 };
 
-const HeatmapRangeReviewSchema = z.strictObject({
-  ranges: z.array(
-    z.strictObject({
-      id: z.number().int().nonnegative(),
-      role: z.enum(['applies', 'observation', 'other-scope', 'not-a-range', 'unclear']),
-      quote: z.string(),
-      unit: z.string().nullable(),
-      qualifier: z.string().nullish(),
-    })
-  ),
+const ScaleQuoteSchema = z.strictObject({
+  quote: z.string(),
+  max: z.number().positive(),
+  unit: z.string(),
+  qualifier: z.string().nullish(),
 });
-const { $schema: _heatmapScaleDialect, ...heatmapScaleOutputSchema } =
-  HeatmapRangeReviewSchema.toJSONSchema();
-type SourceScaleCitation = { quote: string; max?: number; unit: string; qualifier?: string };
 
 interface SceneSourceContext {
   source: string;
   config: Awaited<ReturnType<typeof getResolvedModelConfigForProvider>>;
-  input: GenerateLessonSceneInput;
+  input: GenerateLessonSceneInput & { allowTextFallback?: boolean };
 }
 
 const visibleScaleSource = (source: string): string =>
@@ -637,6 +631,27 @@ const requestScaleEvidence = (
     });
     return null;
   });
+
+const HeatmapRangeReviewSchema = z.strictObject({
+  ranges: z.array(
+    z.strictObject({
+      id: z.number().int().nonnegative(),
+      role: z.enum(['applies', 'observation', 'other-scope', 'not-a-range', 'unclear']),
+      quote: z.string(),
+      unit: z.string().nullable(),
+      qualifier: z.string().nullish(),
+    })
+  ),
+});
+const { $schema: _heatmapScaleDialect, ...heatmapScaleOutputSchema } =
+  HeatmapRangeReviewSchema.toJSONSchema();
+const BarScaleSchema = z.strictObject({
+  ranges: HeatmapRangeReviewSchema.shape.ranges,
+  scale: ScaleQuoteSchema.nullable(),
+  status: z.enum(['declared', 'absent', 'unclear']),
+});
+const { $schema: _barScaleDialect, ...barScaleOutputSchema } = BarScaleSchema.toJSONSchema();
+type SourceScaleCitation = { quote: string; max?: number; unit: string; qualifier?: string };
 
 const CITATION_START = /[\s([{“"«]/u;
 const CITATION_END = /[.,;:!?)}\]”"»]/u;
@@ -683,17 +698,34 @@ const POSSIBLE_SOURCE_RANGE =
 
 const sourceBound = (text: string): number => Number(text.replace(',', '.').replace('−', '-'));
 
-const possibleSourceRanges = (visible: string) =>
+// A written score denominator is evidence of the same zero-based scale as a
+// numeric interval. A bare number with surrounding prose does not identify it.
+const WRITTEN_SCORE_DENOMINATOR =
+  /(?<!\p{L})out\s+of\s+(\d+(?:[.,]\d+)?)(?![\p{L}\p{N}]|[.,]\d)/giu;
+
+const possibleSourceRanges = (visible: string, includeScoreDenominators = false) =>
   Array.from(sourceScaleContexts(visible))
-    .flatMap(context =>
-      Array.from(context.text.matchAll(POSSIBLE_SOURCE_RANGE), match => ({
+    .flatMap(context => {
+      const bounds = Array.from(context.text.matchAll(POSSIBLE_SOURCE_RANGE), match => ({
         start: context.start + match.index,
         text: match[1],
         context,
         min: sourceBound(match[2]),
         max: sourceBound(match[3]),
-      }))
-    )
+      }));
+      if (includeScoreDenominators)
+        for (const match of context.text.matchAll(WRITTEN_SCORE_DENOMINATOR)) {
+          bounds.push({
+            start: context.start,
+            text: context.text.slice(0, match.index + match[0].length),
+            context,
+            min: 0,
+            max: sourceBound(match[1]),
+          });
+        }
+      return bounds;
+    })
+    .sort((left, right) => left.start - right.start)
     .map((range, id) => ({ ...range, id }));
 
 type SourceRange = ReturnType<typeof possibleSourceRanges>[number];
@@ -884,6 +916,90 @@ const addVerifiedHeatmapScale = async (
   return findLessonSceneProblems(scaled, source, input.narration).length ? scene : scaled;
 };
 
+// A single number in prose can name a total. A score written as a fraction
+// links its measured value to the denominator by notation instead of word order.
+const SCORE_FRACTION =
+  /(?<![\p{L}\p{N}.,/])(?<value>\d+(?:[.,]\d+)?)\s*\/\s*(?<maximum>\d+(?:[.,]\d+)?)(?![\p{L}\p{N}/])/gu;
+
+const confirmsBarDenominator = (
+  visible: string,
+  scale: z.infer<typeof ScaleQuoteSchema>,
+  items: LessonScene['items']
+): boolean => {
+  const quote = supportRepresentation(scale.quote);
+  const matchedValues = new Set<number>();
+  let cited = false;
+  for (const context of sourceScaleContexts(visible)) {
+    for (const match of context.text.matchAll(SCORE_FRACTION)) {
+      const { value, maximum } = match.groups ?? {};
+      if (!value || !maximum || sourceBound(maximum) !== scale.max) continue;
+      const start = context.start + match.index;
+      const unitSpan = sourceUnitSpan(context, start + match[0].length);
+      if (unitSpan.text.trim() !== scale.unit) continue;
+      matchedValues.add(sourceBound(value));
+      if (quoteCoversSpan(visible, quote, { start, text: match[0] + unitSpan.text })) cited = true;
+    }
+  }
+  return cited && items.every(({ value }) => value !== undefined && matchedValues.has(value));
+};
+
+const BAR_SCALE_CORRECTION =
+  'Use the stated bar maximum and full unit. Leave max empty only when the source gives no scale. Prove a shared maximum with a zero-based range, a written score denominator, or fractions with the same denominator for every score. Otherwise choose a suitable table with exact values or use the authored text if offered.';
+
+type BarScaleCheck = 'confirmed' | 'correctable' | 'unsupported';
+
+const checkBarScale = async (
+  scene: LessonScene,
+  context: SceneSourceContext
+): Promise<BarScaleCheck> => {
+  const visible = visibleScaleSource(context.source);
+  const ranges = possibleSourceRanges(visible, true);
+  const response = await requestScaleEvidence(context, {
+    output: { name: 'bar_source_scale', schema: barScaleOutputSchema },
+    system:
+      SOURCE_RANGE_REVIEW_INSTRUCTION +
+      ' Also report whether the lesson declares a common maximum, such as a zero-based range, a clause assigning a score denominator to all the measurements, or the same denominator written in every score. For a written score denominator, cite the whole clause including what is scored. Read the complete context for each bound before marking it applies. Applicable declarations with the same bounds and complete unit describe one scale. The common maximum cannot be a total or an observed value. For ordinary counts with no stated scale, use status absent and scale null. If the scale is unclear or starts away from zero, use status unclear and scale null. Otherwise use status declared and copy the maximum, complete unit, and the full source clause in scale.',
+    prompt: JSON.stringify({
+      lesson: visible,
+      measurements: scene.items.map(item => ({ value: item.value })),
+      possibleRanges: sourceRangePrompts(ranges),
+    }),
+  });
+  const parsed = BarScaleSchema.safeParse(response);
+  if (!parsed.success) return 'correctable';
+  const { status, scale } = parsed.data;
+  const applicable = reviewedApplicableRanges(visible, ranges, parsed.data.ranges);
+  if (!applicable) return 'correctable';
+  const [first] = applicable;
+  if (
+    first &&
+    applicable.some(
+      ({ range, unit, qualifier }) =>
+        range.min !== 0 ||
+        range.max !== first.range.max ||
+        unit !== first.unit ||
+        scopePhrase(qualifier ?? '') !== scopePhrase(first.qualifier ?? '')
+    )
+  )
+    return 'unsupported';
+  if (status === 'unclear') return 'correctable';
+  const { max, unit } = scene;
+  if (status === 'absent')
+    return !applicable.length && scale === null && max === undefined ? 'confirmed' : 'correctable';
+  if (max === undefined || scale?.max !== max || scale.unit !== unit) return 'correctable';
+  if (!first)
+    return confirmsBarDenominator(visible, scale, scene.items) ? 'confirmed' : 'unsupported';
+  const quote = supportRepresentation(scale.quote);
+  const matchesCitation = applicable.some(
+    candidate =>
+      candidate.range.max === max &&
+      candidate.unit === unit &&
+      scopePhrase(candidate.qualifier ?? '') === scopePhrase(scale.qualifier ?? '') &&
+      rangeSupportsUnit(visible, candidate.range, quote, unit, candidate.qualifier)
+  );
+  return matchesCitation ? 'confirmed' : 'correctable';
+};
+
 const findOrderedDraftProblems = (
   draft: SceneDraft,
   useOrderedSceneSelection: boolean
@@ -1004,7 +1120,7 @@ const findDraftProblems = (
 const groundSceneDraft = async (
   draft: SceneDraft,
   context: SceneSourceContext
-): Promise<{ scene: LessonScene } | { problems: string[] }> => {
+): Promise<{ scene: LessonScene } | { problems: string[] } | { textOnly: true }> => {
   const scene = toScene(
     draft.type === 'heatmap'
       ? { ...draft, max: undefined, unit: undefined, unitLabel: undefined }
@@ -1012,6 +1128,18 @@ const groundSceneDraft = async (
   );
   const problems = findDraftProblems(draft, scene, context.source, context.input);
   if (problems.length) return { problems };
+  if (scene.type === 'bars') {
+    const check = await checkBarScale(scene, context);
+    const { allowTextFallback, authoredFormulaFallback, narration } = context.input;
+    if (
+      check === 'unsupported' &&
+      allowTextFallback &&
+      !authoredFormulaFallback &&
+      narration !== undefined
+    )
+      return { textOnly: true };
+    if (check !== 'confirmed') return { problems: [BAR_SCALE_CORRECTION] };
+  }
   return {
     scene: scene.type === 'heatmap' ? await addVerifiedHeatmapScale(scene, draft, context) : scene,
   };
@@ -1028,6 +1156,14 @@ const publicSceneProblem = (problem: string): string => {
   return problem;
 };
 
+function textFallbackPrompt(
+  input: GenerateLessonSceneInput & { allowTextFallback?: boolean }
+): string {
+  if (!input.allowTextFallback) return '';
+  if (input.authoredFormulaFallback)
+    return '\nAUTHORED FORMULA: Choose type text, empty items and groups, and an exact quotation from the authored equations to show those equations as Markdown. This choice is only for the supplied formulas.';
+  return '\nTEXT FALLBACK: When a single measurement belongs in prose or no catalog visual helps this passage, choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.';
+}
 const textFallbackProblems = (
   draft: Pick<SceneDraft, 'conceptLayout' | 'evidence'>,
   source: string
@@ -1042,6 +1178,9 @@ const textFallbackProblems = (
 /** Generates and validates one lesson scene, then chooses its icons. */
 export function generateLessonScene(
   input: GenerateLessonSceneInput & { allowTextFallback: true }
+): Promise<LessonSceneOutcome | { readonly kind: 'text' }>;
+export function generateLessonScene(
+  input: GenerateLessonSceneInput & { allowTextFallback: boolean }
 ): Promise<LessonSceneOutcome | { readonly kind: 'text' }>;
 export function generateLessonScene(input: GenerateLessonSceneInput): Promise<LessonSceneOutcome>;
 export async function generateLessonScene(
@@ -1128,7 +1267,7 @@ export async function generateLessonScene(
     prompt: buildScenePrompt(input),
     signal: input.signal,
     slot: 'scene',
-    system: `${sceneSystemPrompt(types, variants, relationKinds, selection)}${captionRule}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
+    system: `${sceneSystemPrompt(types, variants, relationKinds, selection)}${captionRule}${textFallbackPrompt(input)}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
   }).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
@@ -1170,6 +1309,7 @@ export async function generateLessonScene(
   if (draft.type === 'proportional-static' && draft.outputUnit === draft.unit)
     delete draft.outputUnit;
   const grounded = await groundSceneDraft(draft, { source: excerpt, config, input });
+  if ('textOnly' in grounded) return { kind: 'text' };
   if ('problems' in grounded)
     return {
       kind: 'invalid',

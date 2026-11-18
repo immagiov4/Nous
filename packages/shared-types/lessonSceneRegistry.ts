@@ -1074,7 +1074,22 @@ export const LESSON_SCENE_REGISTRY = {
         (scene.items as unknown[]).length === 1 ? [] : ['A number shows exactly one quantity.'],
     }
   ),
-  bars: numericForm('SOLO quantità confrontabili esplicitamente fornite nel testo.'),
+  bars: numericForm('SOLO quantità confrontabili esplicitamente fornite nel testo.', {
+    validate: (scene, source) => {
+      if (source === undefined || scene.max === undefined) return [];
+      const { max, unit, items } = scene as {
+        max: number;
+        unit?: string;
+        items: LessonSceneItem[];
+      };
+      if (!readSourceNumbers(source).has(max) || items.some(item => (item.value as number) > max))
+        return ['A bar scale maximum must be stated in the lesson and contain every value.'];
+      return unit?.trim() &&
+        items.every(item => item.label.includes(unit) && readSourceNumbers(item.label).has(max))
+        ? []
+        : ['Include the shared maximum and unit in every bar label.'];
+    },
+  }),
   line: numericForm(
     'SOLO valori numerici associati a tempi espliciti nel testo, alla loro distanza reale.',
     {
@@ -1300,7 +1315,12 @@ export const isRetiredLessonScene = (scene: Pick<LessonScene, 'type'>): boolean 
   scene.type === 'quote';
 
 const LEGACY_GENERATABLE_LESSON_SCENE_TYPES = LESSON_SCENE_TYPES.filter(
-  type => !isRetiredLessonScene({ type }) && type !== 'definition' && type !== 'continuum'
+  type =>
+    !isRetiredLessonScene({ type }) &&
+    type !== 'definition' &&
+    type !== 'continuum' &&
+    type !== 'number' &&
+    type !== 'radar'
 );
 
 const MERGED_COMPARISON_TYPES: readonly LessonSceneType[] = ['signals', 'balance'];
@@ -1467,24 +1487,37 @@ const createFrozenLessonSceneSchema = (
     relation: relation.optional() as typeof SceneDataSchema.shape.relation,
   }) as typeof LessonSceneSchema;
 
+export const FrozenUnlinkedFormulaSceneSchema = createFrozenLessonSceneSchema(
+  UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT,
+  z.string()
+);
+
+export const FrozenConceptLayoutSceneSchema = createFrozenLessonSceneSchema(
+  UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT,
+  z.string(),
+  true
+);
+
+export const FrozenComparisonIntegrationSceneSchema = createFrozenLessonSceneSchema(
+  UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT,
+  z.string(),
+  true,
+  RelationSchema
+);
+
 export const HistoricalLessonSceneSchemas = [
   ...LESSON_SCENE_CATALOG_SNAPSHOTS.map(types =>
     createFrozenLessonSceneSchema(types, z.string().min(1).regex(/\S/u))
   ),
-  createFrozenLessonSceneSchema(UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT, z.string()),
+  FrozenUnlinkedFormulaSceneSchema,
   createFrozenLessonSceneSchema(
     UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT,
     z.string(),
     false,
     RelationSchema
   ),
-  createFrozenLessonSceneSchema(UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT, z.string(), true),
-  createFrozenLessonSceneSchema(
-    UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT,
-    z.string(),
-    true,
-    RelationSchema
-  ),
+  FrozenConceptLayoutSceneSchema,
+  FrozenComparisonIntegrationSceneSchema,
 ];
 
 const findFormContentProblems = (

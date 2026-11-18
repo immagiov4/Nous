@@ -117,6 +117,20 @@ const visualSectionRangeIdentity = (sections: readonly PlaybackVisualSection[]) 
     items?.map(item => [item.start, item.end]),
   ]);
 
+/** Keep text-only intervals in the visual timeline without storing dummy scenes. */
+export function preparedVisualTimeline(block: LessonPlaybackBlock) {
+  const sections = block.prepared?.sections ?? [];
+  if (!block.prepared?.textOnlyRanges?.length) return sections;
+  return [
+    ...sections,
+    ...block.prepared.textOnlyRanges.map(range => ({
+      range,
+      items: undefined,
+      scene: null,
+    })),
+  ].sort((left, right) => left.range.start - right.range.start);
+}
+
 /** Coverage is an exact source-map contract, independent of scene labels and provider wording. */
 export function hasPreparedVisualSections(
   block: LessonPlaybackBlock,
@@ -126,6 +140,6 @@ export function hasPreparedVisualSections(
   return (
     !expected.length ||
     JSON.stringify(visualSectionRangeIdentity(expected)) ===
-      JSON.stringify(visualSectionRangeIdentity(block.prepared?.sections ?? []))
+      JSON.stringify(visualSectionRangeIdentity(preparedVisualTimeline(block)))
   );
 }

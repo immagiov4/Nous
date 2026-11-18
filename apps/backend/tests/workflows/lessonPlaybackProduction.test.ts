@@ -1,7 +1,9 @@
+import { getPlaybackFormulaMarkdown } from '@shared/lessonPlayback';
 import { type LessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
 
-const { prepare, prepareVisuals } = vi.hoisted(() => ({
+const { prepare, prepareVisuals, structured } = vi.hoisted(() => ({
+  structured: vi.fn(),
   prepare: vi.fn(),
   prepareVisuals: vi.fn(),
 }));
@@ -15,9 +17,20 @@ vi.mock(
     prepareLessonPlaybackVisuals: prepareVisuals,
   })
 );
-vi.mock('../../src/config/modelConfig.js', async importOriginal => ({
-  ...(await importOriginal<typeof import('../../src/config/modelConfig.js')>()),
-  getResolvedGlobalModelConfig: async () => ({}),
+vi.mock('../../src/config/modelConfig.js', async importOriginal => {
+  const config = await importOriginal<typeof import('../../src/config/modelConfig.js')>();
+  return { ...config, getResolvedGlobalModelConfig: async () => config.getGlobalModelConfig() };
+});
+
+vi.mock('../../src/services/structuredGeneration.js', () => ({
+  generateStructuredOutput: structured,
+}));
+vi.mock('../../src/services/lessonScenes/lessonSceneIconChoice.js', () => ({
+  chooseLessonSceneIcons: async ({ scene }: { scene: LessonScene }) => scene,
+}));
+vi.mock('../../src/services/lessonPlayback/playbackMotion.js', () => ({
+  MAX_PLAYBACK_PREPARATION_ATTEMPTS: 3,
+  planPlaybackMotion: async () => [],
 }));
 
 import { createProductionLessonPlaybackServices } from '../../src/workflows/lessonPlaybackProduction.js';
@@ -31,8 +44,7 @@ import {
 } from '../helpers/lessonPlayback.js';
 
 beforeEach(() => vi.clearAllMocks());
-const setup = () => {
-  const section = playbackSection();
+const setup = (section = playbackSection()) => {
   section.playback = preparedPlayback(section);
   const assets = {
     stage: vi.fn(async () => playbackAsset),
@@ -112,6 +124,7 @@ test('keeps a cached section layout under the current contract and rejects it un
       true,
       false,
       true,
+      true,
       false
     )
   ).rejects.toMatchObject({ failure: { code: 'lesson_playback_scene_invalid' } });
@@ -148,6 +161,148 @@ test('prepares a real scene for cached audio without staging or synthesizing ano
     true
   );
   expect(prepare).not.toHaveBeenCalled();
+  expect(assets.stage).not.toHaveBeenCalled();
+});
+
+test('returns an intentional all-text visual preparation and reuses the stored result', async () => {
+  const { section, assets, services, context } = setup();
+  const baseline = preparedPlayback(section);
+  const prepared = {
+    motion: [],
+    textOnlyRanges: [{ start: 0, end: baseline.blocks[0].speech.length }],
+  };
+  const visualOnlyContext = { ...context, input: { ...context.input, visualOnly: true } };
+  prepareVisuals.mockResolvedValueOnce(prepared);
+  const result = await services.preparePlayback(visualOnlyContext);
+  expect(result.block.prepared).toEqual(prepared);
+  expect(result.block.audio).toEqual(baseline.blocks[0].audio);
+  section.playback = { ...baseline, blocks: [result.block, ...baseline.blocks.slice(1)] };
+  expect(await services.preparePlayback(visualOnlyContext)).toEqual(result);
+  expect(prepareVisuals).toHaveBeenCalledOnce();
+  expect(assets.stage).not.toHaveBeenCalled();
+});
+
+test.each([
+  { supportsTextOnly: false, supportsConceptLayout: false },
+  { supportsTextOnly: false, supportsConceptLayout: true },
+  { supportsTextOnly: true, supportsConceptLayout: true },
+])('resumes visual preparation with text=$supportsTextOnly and concepts=$supportsConceptLayout', async ({
+  supportsTextOnly,
+  supportsConceptLayout,
+}) => {
+  const { services, context, assets } = setup();
+  const { prepareLessonPlaybackVisuals } = await vi.importActual<
+    typeof import('../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js')
+  >('../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js');
+  prepareVisuals.mockImplementationOnce(prepareLessonPlaybackVisuals);
+  const motionlessDraft = {
+    intent: 'Compare the two source terms.',
+    evidence: 'Prima frase.',
+    title: 'Source terms',
+    criteria: [],
+    relation: null,
+    diagram: null,
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+  };
+  const iconQueries = { action: 'read', concept: 'sentence', object: 'document' };
+  const items = ['Prima', 'frase'].map(label => ({
+    label,
+    detail: '',
+    value: null,
+    time: null,
+    iconQueries,
+  }));
+  const supportedScene = supportsConceptLayout
+    ? { type: 'concepts', conceptLayout: 'grid' }
+    : { type: 'parts' };
+  structured.mockImplementationOnce(async ({ output }) => {
+    const offersText = output.schema.properties.type.enum.includes('text');
+    return offersText
+      ? { ...motionlessDraft, type: 'text', items: [] }
+      : { ...motionlessDraft, ...supportedScene, items };
+  });
+
+  const result = await services.preparePlayback(
+    { ...context, input: { ...context.input, visualOnly: true } },
+    STATIC_LESSON_SCENE_TYPES,
+    true,
+    true,
+    false,
+    false,
+    false,
+    supportsTextOnly,
+    supportsConceptLayout
+  );
+  expect(structured.mock.calls[0]?.[0].output.schema.properties.type.enum.includes('text')).toBe(
+    supportsTextOnly
+  );
+  if (supportsTextOnly)
+    expect(result.block.prepared?.textOnlyRanges).toEqual([
+      { start: 0, end: result.block.speech.length },
+    ]);
+  else {
+    expect(result.block.prepared?.textOnlyRanges).toBeUndefined();
+    expect(result.block.prepared?.scene).toMatchObject({
+      ...supportedScene,
+      items: [{ label: 'Prima' }, { label: 'frase' }],
+    });
+  }
+  expect(result.block.audio).toEqual(preparedPlayback().blocks[0].audio);
+  expect(assets.stage).not.toHaveBeenCalled();
+});
+
+test('resumes an older formula passage using its authored Markdown and cached audio', async () => {
+  const markdown = 'Use the rule $h=wx+b$ here.';
+  const { section, assets, services, context } = setup({
+    ...playbackSection(),
+    content: markdown,
+    contentBlocks: [{ type: 'markdown', markdown }],
+  });
+  const playback = preparedPlayback(section);
+  section.playback = {
+    ...playback,
+    blocks: playback.blocks.map(({ prepared: _prepared, ...block }) => block),
+  };
+  const { prepareLessonPlaybackVisuals } = await vi.importActual<
+    typeof import('../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js')
+  >('../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js');
+  prepareVisuals.mockImplementationOnce(prepareLessonPlaybackVisuals);
+  structured.mockResolvedValueOnce({
+    intent: 'Show the exact authored equation.',
+    evidence: '$$\nh=wx+b\n$$',
+    title: 'Equation',
+    criteria: [],
+    relation: null,
+    diagram: null,
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [],
+    type: 'text',
+  });
+
+  const result = await services.preparePlayback(
+    { ...context, input: { ...context.input, visualOnly: true } },
+    STATIC_LESSON_SCENE_TYPES,
+    true,
+    true,
+    false,
+    false,
+    true,
+    false
+  );
+  const request = structured.mock.calls[0]?.[0];
+  expect(request.output.schema.properties.type.enum).toContain('text');
+  expect(request.system).toContain('AUTHORED FORMULA');
+  expect(result.block.prepared).toEqual({ motion: [] });
+  expect(getPlaybackFormulaMarkdown(result.block, [{ type: 'markdown', markdown }])).toBe(
+    '$$\nh=wx+b\n$$'
+  );
+  expect(result.block.audio).toEqual(playback.blocks[0].audio);
   expect(assets.stage).not.toHaveBeenCalled();
 });
 

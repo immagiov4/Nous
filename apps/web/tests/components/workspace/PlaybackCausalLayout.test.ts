@@ -496,6 +496,13 @@ for (const type of ['flowchart', 'sequence', 'journey', 'bars']) {
       await page.goto(`${baseUrl}tests/fixtures/playbackLayout.html?snapshot&type=${type}`);
       const drawing = page.locator('.scene .visual-content svg').first();
       await drawing.waitFor();
+      // Drawing can finish before the captions restore their position after layout measurement.
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+      });
+      await page.waitForFunction(
+        () => (document.querySelector<HTMLElement>('.caption-page')?.scrollTop ?? 0) > 0
+      );
       const result = await page.evaluate(async () => {
         const graphic = document.querySelector('.scene .visual-content svg');
         const paragraph = document.querySelector<HTMLElement>('.caption-page');
@@ -503,20 +510,24 @@ for (const type of ['flowchart', 'sequence', 'journey', 'bars']) {
         const scroll = paragraph.scrollTop;
         const host = document.querySelector('.scene-host');
         if (!host) throw new Error('Scene host must exist');
-        const observer = new MutationObserver(() => {});
+        const removed: Node[] = [];
+        const recordRemovals = (records: MutationRecord[]) => {
+          for (const record of records) removed.push(...record.removedNodes);
+        };
+        const observer = new MutationObserver(recordRemovals);
         observer.observe(host, {
           childList: true,
           subtree: true,
         });
         dispatchEvent(new Event('playback-snapshot'));
         for (let frame = 0; frame < 4; frame++) await new Promise(requestAnimationFrame);
-        const removed = observer.takeRecords().flatMap(record => [...record.removedNodes]);
+        recordRemovals(observer.takeRecords());
         observer.disconnect();
         return {
           retained: document.querySelector('.scene .visual-content svg') === graphic,
           removed: removed.some(node => node === graphic || node.contains(graphic)),
           scrollBefore: scroll,
-          scrollAfter: paragraph.scrollTop,
+          scrollAfter: document.querySelector<HTMLElement>('.caption-page')?.scrollTop,
         };
       });
       expect(result.retained).toBe(true);

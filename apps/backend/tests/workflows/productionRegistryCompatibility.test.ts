@@ -3,10 +3,11 @@ import { expect, test, vi } from 'vitest';
 import { createProductionRegistry } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
 import integratedContracts from './fixtures/productionRegistryComparisonIntegration.json';
 import comparisonContracts from './fixtures/productionRegistryComparisonRelations.json';
+import conceptContracts from './fixtures/productionRegistryConceptLayouts.json';
 import diagnosticContracts from './fixtures/productionRegistryDegradation.json';
 import orderedContracts from './fixtures/productionRegistryOrderedScenes.json';
 import combinedContracts from './fixtures/productionRegistryPhaseDiagnostics.json';
-import workflowContracts from './fixtures/productionWorkflowContracts.json';
+import workflowSets from './fixtures/productionWorkflowContracts.json';
 import fixture from './productionRegistryCompatibility.fixture.json';
 
 // Keep model settings explicit so local environment overrides do not change the comparison.
@@ -18,6 +19,25 @@ vi.mock('../../src/config/modelConfig.js', async importOriginal => ({
 // The fixture identifies the revision defining these current and historical registry outputs.
 const registry = createProductionRegistry();
 const sha256 = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const textOnlyPlayback = {
+  workflowId: 'prepare-lesson-playback-block',
+  definitionHash: 'da89fb448a37dfca3e44bccd159edd724b953c25ebcd1a2d6550238b55f235be',
+  definitionHashVersion: 1,
+  manifestSha256: 'f21a5faf5b91e7a376a03df2b4d9bc3a6e129bd82c1bb2d8e89eec64e2c1866b',
+  defaultsSha256: '6c0f290aa85f95b38ae7bb71d2f4602476fc7240e6b4c25139b2548c3468fbc5',
+};
+
+const comparisonTextOnlyPlayback = {
+  ...conceptContracts.textOnlyPlayback,
+  definitionHash: 'd39584808e5076110fda82ab47ed5a259f3be6be0764b46c1669faa16dab6e23',
+  manifestSha256: 'f85c8e5c0cf1124d4b9ac4b69f25cf7921b7076617e23728dfb01bb56856a44b',
+};
+
+const orderedTextOnlyPlayback = {
+  ...comparisonTextOnlyPlayback,
+  definitionHash: '35cc02c7a94f93d2cacddbccc05eec5b3afe997809b2818da85e28040e428f87',
+  manifestSha256: 'fb8408ba32c1dcff008f53ef58a9d9a04a469f7dd10be2b2eeed0a7e93c68a1a',
+};
 
 test('promotes only scene workflows and preserves every preceding durable fingerprint byte for byte', () => {
   const current = Object.fromEntries(
@@ -25,29 +45,25 @@ test('promotes only scene workflows and preserves every preceding durable finger
       .listDefinitionDeployments()
       .map(({ current }) => [current.workflowId, current.definitionHash])
   );
-  const previousSet = workflowContracts.find(({ version }) => version === 15);
-  if (!previousSet) throw new Error('Missing the v15 workflow set');
-  const deployed = new Map(
-    previousSet.current.map(({ workflowId, definitionHash }) => [workflowId, definitionHash])
-  );
-  const promoted = Object.keys(current).filter(
-    workflowId => current[workflowId] !== deployed.get(workflowId)
-  );
-  expect(promoted).toEqual([
-    'lesson-artifact-draft',
-    'lesson-generation',
-    'prepare-lesson-playback-block',
-    'retry-lesson-visual',
-  ]);
-  const promotedHashes = new Set(promoted.map(workflowId => current[workflowId]));
-  const added = registry
-    .listRegisteredBoundaries()
-    .filter(
-      boundary =>
-        !promotedHashes.has(boundary.definitionHash) &&
-        !fixture.definitions.some(previous => previous.definitionHash === boundary.definitionHash)
-    );
-  const addedFingerprints = added.map(boundary => {
+  const cycleSet = workflowSets.find(({ version }) => version === 16);
+  if (!cycleSet) throw new Error('Missing the published cycle workflow set');
+  expect(
+    cycleSet.current.filter(boundary => current[boundary.workflowId] !== boundary.definitionHash)
+  ).toEqual([expect.objectContaining({ workflowId: 'prepare-lesson-playback-block' })]);
+  const prior = [
+    ...fixture.definitions,
+    ...combinedContracts.addedDefinitions,
+    ...comparisonContracts.addedDefinitions,
+    ...integratedContracts.addedDefinitions,
+    ...conceptContracts.addedDefinitions,
+    ...orderedContracts.addedDefinitions,
+    textOnlyPlayback,
+    conceptContracts.textOnlyPlayback,
+    comparisonTextOnlyPlayback,
+    orderedTextOnlyPlayback,
+  ];
+  const expected = new Map(prior.map(definition => [definition.definitionHash, definition]));
+  const registered = registry.listRegisteredBoundaries().map(boundary => {
     const definition = registry.resolve(boundary.workflowId, boundary.definitionHash);
     if (!definition) throw new Error(`Unresolvable definition: ${boundary.workflowId}`);
     return {
@@ -56,27 +72,12 @@ test('promotes only scene workflows and preserves every preceding durable finger
       defaultsSha256: sha256(definition.executionDefaults),
     };
   });
-  const expectedAdditions = [
-    ...combinedContracts.addedDefinitions,
-    ...comparisonContracts.addedDefinitions,
-    ...integratedContracts.addedDefinitions,
-    ...orderedContracts.addedDefinitions,
-  ];
-  expect(addedFingerprints).toHaveLength(expectedAdditions.length);
-  expect(addedFingerprints).toEqual(expect.arrayContaining(expectedAdditions));
-  expect(
-    [...fixture.definitions, ...combinedContracts.addedDefinitions].map(
-      ({ manifestSha256: _manifest, defaultsSha256: _defaults, ...boundary }) => {
-        const definition = registry.resolve(boundary.workflowId, boundary.definitionHash);
-        if (!definition) throw new Error(`Unresolvable definition: ${boundary.workflowId}`);
-        return {
-          ...boundary,
-          manifestSha256: sha256(definition.manifest),
-          defaultsSha256: sha256(definition.executionDefaults),
-        };
-      }
-    )
-  ).toEqual([...fixture.definitions, ...combinedContracts.addedDefinitions]);
+  const publishedHashes = new Set([
+    ...expected.keys(),
+    ...workflowSets.flatMap(set => set.current.map(boundary => boundary.definitionHash)),
+  ]);
+  expect(new Set(registered.map(boundary => boundary.definitionHash))).toEqual(publishedHashes);
+  expect(registered).toEqual(expect.arrayContaining([...expected.values()]));
 });
 
 test('registers visual-only requests while preserving the historical input contract', () => {

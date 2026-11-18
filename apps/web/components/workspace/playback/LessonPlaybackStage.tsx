@@ -17,7 +17,11 @@ import {
   type LessonScene,
 } from '@shared/lessonScene';
 import type { PlaybackQuestionContext } from '@shared/playbackQuestionContext';
-import { hasPreparedVisualSections, playbackVisualSections } from '@shared/playbackVisualSections';
+import {
+  hasPreparedVisualSections,
+  playbackVisualSections,
+  preparedVisualTimeline,
+} from '@shared/playbackVisualSections';
 import { alignedWordTimes, type PlaybackWordAlignment } from '@shared/playbackWordTiming';
 import {
   type CSSProperties,
@@ -569,13 +573,22 @@ function PlaybackPassage({
     visualBlock.prepared?.scene && !isRetiredLessonScene(visualBlock.prepared.scene)
       ? visualBlock.prepared.scene
       : undefined;
+  const visualTimeline = useMemo(
+    () =>
+      hasPreparedVisualSections(visualBlock, sources) ? preparedVisualTimeline(visualBlock) : null,
+    [visualBlock, sources]
+  );
   const visualCandidates = useMemo(() => {
-    if (!hasPreparedVisualSections(visualBlock, sources)) return [];
+    if (!visualTimeline) return [];
     if (visualBlock.prepared?.sections?.length)
-      return visualBlock.prepared.sections.map(section => ({
-        kind: 'scene' as const,
-        scene: section.scene,
-      }));
+      return visualTimeline.map(section =>
+        section.scene
+          ? {
+              kind: 'scene' as const,
+              scene: section.scene,
+            }
+          : null
+      );
     const formulas = getPlaybackFormulaMarkdown(block, sources);
     const cards = block.visuals.filter(
       visual =>
@@ -612,8 +625,16 @@ function PlaybackPassage({
     if (scene) return [{ kind: 'scene' as const, scene }];
     if (formulas) return [{ kind: 'markdown' as const, markdown: formulas }];
     return [];
-  }, [visualBlock, scene, availableVisuals, block, sources, availableGeneratedVisuals]);
-  const needsVisual = visualCandidates.length === 0;
+  }, [
+    visualBlock,
+    scene,
+    availableVisuals,
+    block,
+    sources,
+    availableGeneratedVisuals,
+    visualTimeline,
+  ]);
+  const needsVisual = visualCandidates.length === 0 && !visualTimeline?.length;
   const { projectId, activeSectionId: sectionId } = content;
   useEffect(() => {
     if (!needsVisual || !projectId || !sectionId) return;
@@ -642,7 +663,7 @@ function PlaybackPassage({
       : value
   );
   const visuals = useMemo(
-    () => JSON.parse(visualProjection) as readonly PlaybackVisual[],
+    () => JSON.parse(visualProjection) as readonly (PlaybackVisual | null)[],
     [visualProjection]
   );
   const [selection, setSelection] = useState<{
@@ -653,11 +674,11 @@ function PlaybackPassage({
     () =>
       visuals.map(visual => {
         const stored =
-          visual.kind === 'generated-visual'
+          visual?.kind === 'generated-visual'
             ? availableGeneratedVisuals[visual.visualId]
             : undefined;
         const scene =
-          visual.kind === 'scene' ? visual.scene : stored && getStoredLessonVisualScene(stored);
+          visual?.kind === 'scene' ? visual.scene : stored && getStoredLessonVisualScene(stored);
         return {
           anchors: visuals.length > 1 ? sceneCaptionAnchors(scene, block.speech) : undefined,
         };
@@ -667,19 +688,20 @@ function PlaybackPassage({
   const visualRangeProjection = JSON.stringify(
     visualCandidates.map(
       (visual, index) =>
-        visualBlock.prepared?.sections?.[index]?.range ??
-        visualSpeechRange(
-          block,
-          visual,
-          visualCandidates
-            .slice(0, index)
-            .filter(
-              previous =>
-                previous.kind === 'markdown' &&
-                visual.kind === 'markdown' &&
-                previous.markdown === visual.markdown
-            ).length
-        )
+        visualTimeline?.[index]?.range ??
+        (visual &&
+          visualSpeechRange(
+            block,
+            visual,
+            visualCandidates
+              .slice(0, index)
+              .filter(
+                previous =>
+                  previous?.kind === 'markdown' &&
+                  visual.kind === 'markdown' &&
+                  previous.markdown === visual.markdown
+              ).length
+          ))
     )
   );
   const visualRanges = useMemo(
@@ -754,7 +776,7 @@ function PlaybackPassage({
       ? formulaMarkdown
       : undefined;
   const sceneProps = {
-    itemRanges: visualBlock.prepared?.sections?.[visualIndex]?.items,
+    itemRanges: visualTimeline?.[visualIndex]?.items,
     block: visualBlock,
     clock,
     speed,

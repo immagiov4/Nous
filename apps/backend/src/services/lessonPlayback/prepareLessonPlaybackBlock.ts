@@ -39,7 +39,10 @@ import {
   type WorkflowErrorDiagnostic,
 } from '../../workflows/workflowErrorDiagnostics.js';
 import type { LessonSourceProvenance } from '../lessonPrimarySourceContext.js';
-import { generateLessonScene } from '../lessonScenes/lessonSceneGeneration.js';
+import {
+  type GenerateLessonSceneInput,
+  generateLessonScene,
+} from '../lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../lessonVisualModelConfig.js';
 import { prepareSpeech } from '../speechPreparation.js';
 import { resolvePlaybackAnimationCues } from './playbackAnimationCues.js';
@@ -57,6 +60,7 @@ interface PrepareLessonPlaybackBlockInput {
   readonly supportsSpokenMath?: boolean;
   readonly supportsFencedCode?: boolean;
   readonly supportsUnlinkedFormulaSymbols?: boolean;
+  readonly supportsTextOnlyVisuals?: boolean;
   readonly allowedSceneRelationKinds?: readonly LessonSceneRelationKind[];
   readonly supportsConceptLayout?: boolean;
   readonly useOrderedSceneSelection?: boolean;
@@ -142,7 +146,7 @@ const compatibleSceneTypes = (input: PrepareLessonPlaybackBlockInput) =>
 
 /** Scene service failures retain narration and the source presentation; cancellation still propagates. */
 const generatePlaybackScene = async (
-  input: Parameters<typeof generateLessonScene>[0] & { allowTextFallback?: boolean }
+  input: GenerateLessonSceneInput & { allowTextFallback: boolean }
 ) => {
   try {
     return await generateLessonScene(input);
@@ -151,7 +155,7 @@ const generatePlaybackScene = async (
     console.warn('Playback scene generation unavailable.', {
       diagnostic: toWorkflowErrorDiagnostic(error),
     });
-    return { kind: 'text' as const };
+    return { kind: 'unavailable' as const };
   }
 };
 
@@ -168,37 +172,29 @@ const playbackSceneMarkdown = (
     : block.speech;
 };
 
-const prepareScene = async (
+const hasNonSceneSourceVisual = ({ block, lesson }: PrepareLessonPlaybackBlockInput) =>
+  block.visuals.some(visual => {
+    if (visual.kind === 'scene') return false;
+    if (visual.kind !== 'generated-visual') return true;
+    const render = lesson.generatedVisuals?.find(stored => stored.id === visual.visualId)?.render;
+    return render && render.kind !== 'scene';
+  });
+
+const generateNarratedScene = async (
   input: PrepareLessonPlaybackBlockInput,
+  lessonMarkdown: string,
   onValidatedScene?: (scene: LessonScene) => void
-): Promise<LessonScene | undefined> => {
+): Promise<{ scene?: LessonScene; textOnly?: true }> => {
   const { block, config, signal } = input;
-  const formulas = getPlaybackFormulaMarkdown(block, input.lesson.sources);
-  const scenes = existingScenes(input);
-  const hasSourceVisual =
-    scenes.length ||
-    block.visuals.some(visual => {
-      if (visual.kind === 'scene') return false;
-      if (visual.kind !== 'generated-visual') return true;
-      const render = input.lesson.generatedVisuals?.find(
-        stored => stored.id === visual.visualId
-      )?.render;
-      return render && render.kind !== 'scene';
-    });
-  if (hasSourceVisual && !formulas) {
-    // Motion events carry no scene id, so a block with several scenes shows them without motion.
-    return scenes.length === 1 ? scenes[0] : undefined;
-  }
-  const lessonMarkdown = playbackSceneMarkdown(input, formulas);
-  // A prepared block must cover its complete speech, not silently inherit the lesson excerpt cut.
-  const targetLength = formulas
-    ? formulas.length + '\n\n'.length + block.speech.length
-    : block.speech.length;
-  if (targetLength > MAX_VISUAL_LESSON_CHARS) {
-    throw new Error('Playback block speech exceeds the scene generation text limit.');
-  }
   const allowedSceneTypes = compatibleSceneTypes(input);
-  const allowTextFallback = Boolean(formulas);
+  const supportsTextOnly = input.supportsTextOnlyVisuals !== false;
+  const sourceFormulas = getPlaybackFormulaSources(block, input.lesson.sources);
+  const authoredFormulaFallback = !supportsTextOnly && sourceFormulas.length > 0;
+  const allowTextFallback = supportsTextOnly || authoredFormulaFallback;
+  const textFallback = supportsTextOnly ? { textOnly: true as const } : {};
+  const formulaCorrection =
+    'The spotlight must retain every complete authored expression, including scripts, conditions and operators. Return the complete equations.' +
+    (allowTextFallback ? ' You may choose text for the sourced-formula presentation.' : '');
   let retryFeedback: string | undefined;
   let diagnostic: WorkflowErrorDiagnostic | undefined;
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt += 1) {
@@ -214,6 +210,7 @@ const prepareScene = async (
       lessonMarkdown,
       narration: block.speech,
       allowTextFallback,
+      authoredFormulaFallback,
       retryFeedback,
       // Authored heading boundaries provide context; general lesson metadata is not source evidence.
       sectionDescription: '',
@@ -223,29 +220,45 @@ const prepareScene = async (
     });
     signal.throwIfAborted();
     if (outcome.kind === 'scene') {
-      if (
-        sceneRetainsSourceMath(
-          outcome.scene,
-          getPlaybackFormulaSources(block, input.lesson.sources)
-        )
-      )
-        return outcome.scene;
+      if (sceneRetainsSourceMath(outcome.scene, sourceFormulas)) return { scene: outcome.scene };
       diagnostic = {
         type: 'Error',
         originalMessage: 'Generated scene did not retain authored mathematics.',
       };
-      retryFeedback =
-        'The spotlight must retain every complete authored expression, including scripts, conditions and operators. Return the complete equations or choose text for the sourced-formula presentation.';
+      retryFeedback = formulaCorrection;
       continue;
     }
-    if (outcome.kind === 'text') return undefined;
+    if (outcome.kind === 'text') return textFallback;
+    if (outcome.kind === 'unavailable') return {};
     retryFeedback = outcome.problems.join('\n');
     diagnostic = outcome.diagnostic ?? diagnostic;
   }
   console.warn('[lesson-playback] Scene did not validate; retaining source visuals.', {
     diagnostic,
   });
-  return undefined;
+  return {};
+};
+
+const prepareScene = async (
+  input: PrepareLessonPlaybackBlockInput,
+  onValidatedScene?: (scene: LessonScene) => void
+): Promise<{ scene?: LessonScene; textOnly?: true }> => {
+  const { block } = input;
+  const formulas = getPlaybackFormulaMarkdown(block, input.lesson.sources);
+  const scenes = existingScenes(input);
+  if (!formulas && (scenes.length || hasNonSceneSourceVisual(input))) {
+    // Motion events carry no scene id, so a block with several scenes shows them without motion.
+    return scenes.length === 1 ? { scene: scenes[0] } : {};
+  }
+  const lessonMarkdown = playbackSceneMarkdown(input, formulas);
+  // A prepared block must cover its complete speech, not silently inherit the lesson excerpt cut.
+  const targetLength = formulas
+    ? formulas.length + '\n\n'.length + block.speech.length
+    : block.speech.length;
+  if (targetLength > MAX_VISUAL_LESSON_CHARS) {
+    throw new Error('Playback block speech exceeds the scene generation text limit.');
+  }
+  return generateNarratedScene(input, lessonMarkdown, onValidatedScene);
 };
 
 /** Prepares one block's visual cues and audio; the caller owns its eventual asset reference. */
@@ -358,14 +371,17 @@ const prepareVisuals = async (
       void prepareMotion(scene).catch(() => {});
     };
     try {
-      const scene = input.providerEffect
-        ? (
-            await input.providerEffect.run({
-              key: 'scene',
-              outputSchema: z.object({ scene: LessonSceneSchema.optional() }),
-              operation: async () => ({ scene: await prepareScene(input, onValidatedScene) }),
-            })
-          ).scene
+      const { scene, textOnly } = input.providerEffect
+        ? await input.providerEffect.run({
+            key: 'scene',
+            outputSchema: z.object({
+              scene: LessonSceneSchema.optional(),
+              ...(input.supportsTextOnlyVisuals === false
+                ? {}
+                : { textOnly: z.literal(true).optional() }),
+            }),
+            operation: () => prepareScene(input, onValidatedScene),
+          })
         : await prepareScene(input, onValidatedScene);
       const savedMotion = input.providerEffect
         ? await input.providerEffect.run({
@@ -375,11 +391,13 @@ const prepareVisuals = async (
           })
         : await prepareMotion(scene);
       const synchronizedScene = await prepareAnimationCues(input, scene);
+      const { textOnlyRanges: _previousTextOnly, ...previous } = block.prepared ?? { motion: [] };
       prepared = {
-        ...block.prepared,
+        ...previous,
         scene: undefined,
         ...(synchronizedScene ? { scene: synchronizedScene } : {}),
         motion: savedMotion,
+        ...(textOnly ? { textOnlyRanges: [{ start: 0, end: block.speech.length }] } : {}),
       };
     } finally {
       // A competing workflow attempt can commit a different authoritative scene.
@@ -389,7 +407,17 @@ const prepareVisuals = async (
   return prepared;
 };
 
-const generateSectionScene = async (
+const sceneCoversSection = (
+  scene: LessonScene,
+  section: PlaybackVisualSection,
+  listType: 'parts' | 'concepts'
+): boolean =>
+  !section.items ||
+  (scene.type === listType &&
+    isGridLessonScene(scene) &&
+    scene.items.length === section.items.length);
+
+const sectionSceneRequest = (
   input: PrepareLessonPlaybackBlockInput,
   section: PlaybackVisualSection
 ) => {
@@ -402,7 +430,16 @@ const generateSectionScene = async (
   const listRule = section.items
     ? `Use ${listForm}, one item per authored list item, in source order. Include every one of the ${section.items.length} items. Summarize each item faithfully; do not reduce the list to an earlier summary.`
     : '';
+  return { speech, listType, types, listRule } as const;
+};
+
+const generateSectionScene = async (
+  input: PrepareLessonPlaybackBlockInput,
+  section: PlaybackVisualSection
+): Promise<{ scene?: LessonScene }> => {
+  const { speech, listType, types, listRule } = sectionSceneRequest(input, section);
   let feedback = listRule;
+  const allowTextFallback = !section.items && input.supportsTextOnlyVisuals !== false;
   let diagnostic: WorkflowErrorDiagnostic | undefined;
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt++) {
     const outcome = await generateLessonScene({
@@ -414,30 +451,31 @@ const generateSectionScene = async (
       useClosedLoopSelection: input.useClosedLoopSelection,
       lessonMarkdown: speech,
       narration: speech,
+      allowTextFallback,
       sectionTitle: '',
       sectionDescription: '',
       retryFeedback: feedback,
       sourceProvenance: input.lesson.sourceProvenance,
       signal: input.signal,
     });
-    if (
-      outcome.kind === 'scene' &&
-      (!section.items ||
-        (outcome.scene.type === listType &&
-          isGridLessonScene(outcome.scene) &&
-          outcome.scene.items.length === section.items.length))
-    )
+    if (outcome.kind === 'scene' && sceneCoversSection(outcome.scene, section, listType))
       return { scene: outcome.scene };
-    feedback =
-      listRule +
-      (outcome.kind === 'invalid'
-        ? outcome.problems.join('\n')
-        : 'The previous scene omitted authored list items.');
-    if (outcome.kind === 'invalid') diagnostic = outcome.diagnostic ?? diagnostic;
+    if (allowTextFallback && outcome.kind === 'text') return {};
+    if (outcome.kind === 'invalid') {
+      feedback = listRule + outcome.problems.join('\n');
+      diagnostic = outcome.diagnostic ?? diagnostic;
+    } else {
+      feedback = `${listRule}The previous scene omitted authored list items.`;
+    }
   }
-  throw new Error('The list visual did not cover every authored item.', {
-    cause: diagnostic ? new Error(JSON.stringify(diagnostic)) : undefined,
-  });
+  throw new Error(
+    section.items
+      ? 'The list visual did not cover every authored item.'
+      : 'The prose section did not produce a valid visual or text-only result.',
+    {
+      cause: diagnostic ? new Error(JSON.stringify(diagnostic)) : undefined,
+    }
+  );
 };
 
 /** Prepare and cache structural visuals separately from paid narration. */
@@ -453,15 +491,22 @@ export const prepareLessonPlaybackVisuals = async (
   const preparedSections: NonNullable<
     NonNullable<LessonPlaybackBlock['prepared']>['sections']
   >[number][] = [];
+  const textOnlyRanges = [];
   for (const [index, section] of sections.entries()) {
     input.signal.throwIfAborted();
     const result = input.providerEffect
       ? await input.providerEffect.run({
           key: `visual-section:${index}`,
-          outputSchema: z.object({ scene: LessonSceneSchema }),
+          outputSchema: z.object({ scene: LessonSceneSchema.optional() }),
           operation: () => generateSectionScene(input, section),
         })
       : await generateSectionScene(input, section);
+    if (!result.scene) {
+      if (section.items || input.supportsTextOnlyVisuals === false)
+        throw new Error('A required visual section has no scene.');
+      textOnlyRanges.push(section.range);
+      continue;
+    }
     const scene = isAnimatedLessonScene(result.scene)
       ? ((await prepareAnimationCues(
           input,
@@ -471,11 +516,13 @@ export const prepareLessonPlaybackVisuals = async (
       : result.scene;
     preparedSections.push({ ...section, scene });
   }
+  const { textOnlyRanges: _previousTextOnly, ...previous } = input.block.prepared ?? { motion: [] };
   return {
-    ...input.block.prepared,
-    scene: preparedSections[0].scene,
+    ...previous,
+    scene: preparedSections[0]?.scene,
     motion: [],
     sections: preparedSections,
+    ...(textOnlyRanges.length ? { textOnlyRanges } : {}),
   };
 };
 

@@ -141,7 +141,10 @@ test('chooses fixed or animated replicas from one proportional form and retains 
   });
 });
 
-const prepareQuantitativePlayback = (speech: string) =>
+const prepareQuantitativePlayback = (
+  speech: string,
+  contract: Partial<Parameters<typeof prepareLessonPlaybackVisuals>[0]> = {}
+) =>
   prepareLessonPlaybackVisuals({
     userId: 'quantitative-playback-test',
     config: getGlobalModelConfig(),
@@ -162,6 +165,7 @@ const prepareQuantitativePlayback = (speech: string) =>
       audio: [],
       visuals: [],
     },
+    ...contract,
   });
 
 type HeatmapReviewFixture = {
@@ -1155,6 +1159,7 @@ test.each([
     _symbols,
     _sync,
     _sections,
+    _textOnly,
     supportsConceptLayout,
     allowedSceneRelationKinds,
     useOrderedSceneSelection
@@ -1599,6 +1604,379 @@ test('generates a numeric interval with its bounds and estimate intact', async (
     kind: 'scene',
     scene: { type: 'interval', unit: 'minutes', items: points },
   });
+});
+
+test.each([
+  {
+    label: 'a total offered as the scale',
+    source:
+      'Scale: 0–5 points. 10 points were awarded overall. Clarity earned 2, speed 3, and reliability 5.',
+    wrongQuote: '10 points were awarded overall',
+    actualQuote: 'Scale: 0–5 points',
+    actual: 5,
+  },
+  {
+    label: 'a scale that starts at one',
+    source: 'Scale: 1–10 points. Clarity earned 2, speed 3, and reliability 5.',
+    wrongQuote: 'Scale: 1–10 points',
+    actualQuote: 'Scale: 1–10 points',
+  },
+] as const)('prepares exact values instead of $label', async example => {
+  generateStructuredOutputMock.mockResolvedValue({
+    plans: [{ chunk: 0, events: [], reason: 'Static scene' }],
+  });
+  const draft = (max: number) => ({
+    ...sceneDraft(example.source),
+    type: 'bars',
+    items: ['Clarity', 'Speed', 'Reliability'].map((label, index) => ({
+      detail: '',
+      label: `${label} (out of ${max} points)`,
+      value: [2, 3, 5][index],
+      time: null,
+      iconQueries: queries,
+    })),
+    max,
+    unit: 'points',
+  });
+  const scale = (max: number, quote: string) => ({
+    status: 'declared',
+    scale: { quote, max, unit: 'points' },
+    ranges: [{ id: 0, role: 'applies', quote: example.actualQuote, unit: 'points' }],
+  });
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(draft(10))
+    .mockResolvedValueOnce(scale(10, example.wrongQuote));
+  if ('actual' in example) {
+    generateStructuredOutputMock
+      .mockResolvedValueOnce(draft(example.actual))
+      .mockResolvedValueOnce(scale(example.actual, example.actualQuote));
+  } else {
+    generateStructuredOutputMock.mockImplementation(async ({ output }) =>
+      output.name === 'lesson_scene'
+        ? draft(10)
+        : { ...scale(10, example.wrongQuote), status: 'unclear', scale: null }
+    );
+  }
+  const prepared = await prepareQuantitativePlayback(example.source);
+  if ('actual' in example) {
+    expect(prepared.scene).toMatchObject({
+      type: 'bars',
+      max: example.actual,
+      unit: 'points',
+      items: [
+        { label: 'Clarity (out of 5 points)', value: 2 },
+        { label: 'Speed (out of 5 points)', value: 3 },
+        { label: 'Reliability (out of 5 points)', value: 5 },
+      ],
+    });
+  } else {
+    expect(prepared.scene).toBeUndefined();
+    expect(prepared.textOnlyRanges).toEqual([{ start: 0, end: example.source.length }]);
+  }
+  expect(
+    generateStructuredOutputMock.mock.calls.filter(([r]) => r.output.name === 'lesson_scene')
+  ).toHaveLength('actual' in example ? 2 : 1);
+});
+
+test.each([
+  { source: 'Scores are out of 10 points.', expected: 10 },
+  { source: 'Overall the test awarded 10 points. Scores are out of 10 points.', expected: 10 },
+  { source: 'Scale: 0–10 points. Scores are out of 10 points.', expected: 10 },
+  {
+    source: 'Scores are out of 10 points. Scale: 0–10 points.',
+    citation: 'Scale: 0–10 points',
+    expected: 10,
+  },
+  {
+    source: 'Scale: 0–10 points, for all traits. Scores are out of 10 points for all traits.',
+    citation: 'Scale: 0–10 points, for all traits',
+    scaleQualifier: 'for all traits',
+    rangeQualifiers: [', for all traits', 'for all traits'],
+    expected: 10,
+  },
+  { source: 'Scores are out of 10 points. Scores are out of 5 points.', expected: undefined },
+  { source: 'Scale: 0–5 points. Scores are out of 10 points.', expected: undefined },
+  { source: 'Scale: 1–10 points. Scores are out of 10 points.', expected: undefined },
+  {
+    source: 'Scale: 0–10 points per week. Scores are out of 10 points.',
+    rangeUnits: ['points per week', 'points'],
+    expected: undefined,
+  },
+  {
+    source: 'Scale: 0–10 points per week. Scores are out of 10 points.',
+    rangeQualifiers: ['per week'],
+    expected: undefined,
+  },
+])('prepares bars when the score scales agree in "$source"', async example => {
+  const { source, expected, citation = 'Scores are out of 10 points', rangeUnits = [] } = example;
+  const speech = `${source} Clarity earned 2, speed 3, and reliability 5.`;
+  const items = ['Clarity', 'Speed', 'Reliability'].map((name, index) => ({
+    label: `${name} (out of 10 points)`,
+    value: [2, 3, 5][index],
+    detail: '',
+    time: null,
+    iconQueries: queries,
+  }));
+  const draft = { ...sceneDraft(speech), type: 'bars', items, max: 10, unit: 'points' };
+  generateStructuredOutputMock.mockImplementation(async ({ output, prompt }) => {
+    if (output.name === 'lesson_scene') return draft;
+    if (output.name !== 'bar_source_scale')
+      return { plans: [{ chunk: 0, events: [], reason: 'Static scene' }] };
+    const { possibleRanges } = JSON.parse(prompt) as {
+      possibleRanges: { id: number; context: string }[];
+    };
+    return {
+      status: 'declared',
+      scale: { quote: citation, max: 10, unit: 'points', qualifier: example.scaleQualifier },
+      ranges: possibleRanges.map(({ id, context }) => ({
+        id,
+        role: 'applies',
+        quote: context,
+        unit: rangeUnits[id] ?? 'points',
+        qualifier: example.rangeQualifiers?.[id],
+      })),
+    };
+  });
+  const prepared = await prepareQuantitativePlayback(speech);
+  if (expected) {
+    expect(prepared.scene).toMatchObject({
+      type: 'bars',
+      max: expected,
+      unit: 'points',
+      items: items.map(({ label, value }) => ({ label, value })),
+    });
+  } else {
+    expect(prepared.scene).toBeUndefined();
+    expect(prepared.textOnlyRanges).toEqual([{ start: 0, end: speech.length }]);
+  }
+});
+
+const falseMaximumExamples = [
+  { source: 'Scale: 0–5 points. Overall the test awarded 10 points.', range: true },
+  { source: 'Overall the test awarded 10 points. Scale: 0–5 points.', range: true },
+  { source: 'Overall the test awarded 10 points.', range: false },
+];
+
+test.each(
+  falseMaximumExamples.flatMap(example => [false, true].map(legacy => ({ ...example, legacy })))
+)('preserves the numbers after "$source" (legacy: $legacy)', async ({ source, range, legacy }) => {
+  const labels = ['Clarity', 'Speed', 'Reliability'];
+  const values = [2, 3, 5];
+  const speech = `${source} Clarity earned 2, speed 3, and reliability 5.`;
+  const draft = {
+    ...sceneDraft(speech),
+    type: 'bars',
+    max: 10,
+    unit: 'points',
+    items: labels.map((label, i) => ({
+      label: `${label} (out of 10 points)`,
+      detail: '',
+      value: values[i],
+      time: null,
+      iconQueries: queries,
+    })),
+  };
+  const rows = labels.map((label, index) => ({ label, values: [values[index]] }));
+  let attempts = 0;
+  generateStructuredOutputMock.mockImplementation(async ({ output }) => {
+    if (output.name === 'lesson_scene') {
+      attempts++;
+      if (attempts === 1 || !legacy) return draft;
+      return {
+        ...sceneDraft(speech),
+        type: 'matrix',
+        variant: 'heatmap',
+        items: [],
+        columns: ['Points earned'],
+        rows,
+      };
+    }
+    if (output.name === 'bar_source_scale')
+      return {
+        status: 'declared',
+        scale: { quote: 'Overall the test awarded 10 points', max: 10, unit: 'points' },
+        ranges: range
+          ? [{ id: 0, role: 'other-scope', quote: 'Scale: 0–5 points', unit: null }]
+          : [],
+      };
+    return { plans: [{ chunk: 0, events: [], reason: 'Static scene' }] };
+  });
+  const frozenCatalog = HistoricalLessonSceneSchemas.at(-1);
+  if (!frozenCatalog) throw new Error('Expected a deployed scene catalog.');
+  const prepared = await prepareQuantitativePlayback(
+    speech,
+    legacy
+      ? {
+          supportsTextOnlyVisuals: false,
+          useOrderedSceneSelection: true,
+          allowedSceneTypes: frozenCatalog.shape.type.options,
+        }
+      : {}
+  );
+  expect(attempts).toBe(legacy ? 2 : 1);
+  if (legacy) {
+    expect(prepared.scene).toMatchObject({ type: 'heatmap', rows, columns: ['Points earned'] });
+    expect(prepared.scene).not.toHaveProperty('max');
+    expect(prepared.textOnlyRanges).toBeUndefined();
+    const request = generateStructuredOutputMock.mock.calls.find(
+      ([call]) => call.output.name === 'lesson_scene'
+    )?.[0];
+    expect(request.output.schema.properties.type.enum).not.toContain('text');
+    expect(frozenCatalog.parse(prepared.scene)).toEqual(prepared.scene);
+  } else {
+    expect(prepared.scene).toBeUndefined();
+    expect(prepared.textOnlyRanges).toEqual([{ start: 0, end: speech.length }]);
+  }
+});
+
+test('keeps a lone number in prose and compares independent criteria with bars', async () => {
+  const single = 'The jar contains 3 litres of water.';
+  const observation = {
+    label: 'Litres of water',
+    value: 3,
+    detail: '',
+    time: null,
+    iconQueries: queries,
+  };
+  const number = { ...sceneDraft(single), type: 'number', items: [observation] };
+  generateStructuredOutputMock.mockResolvedValueOnce(number);
+  expect(
+    await generateLessonScene({
+      ...unplannedInput(single),
+      narration: single,
+      allowTextFallback: true,
+    })
+  ).toMatchObject({ kind: 'invalid' });
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...number, type: 'text', items: [] });
+  expect(
+    await generateLessonScene({
+      ...unplannedInput(single),
+      narration: single,
+      allowTextFallback: true,
+    })
+  ).toEqual({ kind: 'text' });
+
+  const source =
+    'Clarity scores 3/10 points. Speed scores 8/10 points. Reliability scores 6/10 points.';
+  const criteria = [
+    { label: 'Clarity (out of 10 points)', value: 3 },
+    { label: 'Speed (out of 10 points)', value: 8 },
+    { label: 'Reliability (out of 10 points)', value: 6 },
+  ];
+  const chart = {
+    ...sceneDraft(source),
+    title: 'Scores by criterion',
+    items: criteria.map(criterion => ({ ...observation, ...criterion })),
+    max: 10,
+    unit: 'points',
+  };
+  const constrained = { ...unplannedInput(source), allowedSceneTypes: STATIC_LESSON_SCENE_TYPES };
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...chart, type: 'radar' });
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'invalid' });
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...chart,
+    type: 'bars',
+    items: chart.items.map(item => ({ ...item, label: item.label.replace('out of 10 ', '') })),
+  });
+  expect(await generateLessonScene(constrained)).toMatchObject({ kind: 'invalid' });
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...chart, type: 'bars' });
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    status: 'declared',
+    ranges: [],
+    scale: { quote: 'Clarity scores 3/10 points', max: 10, unit: 'points' },
+  });
+  expect(await generateLessonScene(constrained)).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'bars', items: criteria },
+  });
+});
+
+test.each([
+  {
+    label: 'the full score scale',
+    source: 'Scores are out of 10 points. Clarity is 3, speed is 4, and reliability is 5.',
+    scale: { quote: 'Scores are out of 10 points', max: 10, unit: 'points' },
+    candidate: { max: 10, unit: 'points' },
+    expected: 'scene',
+  },
+  {
+    label: 'a shared denominator in every score',
+    source: 'Clarity got 3/10 points. Speed got 4/10 points. Reliability got 5/10 points.',
+    scale: { quote: 'Clarity got 3/10 points', max: 10, unit: 'points' },
+    candidate: { max: 10, unit: 'points' },
+    expected: 'scene',
+  },
+  {
+    label: 'a denominator written for only one of the scores',
+    source: 'Clarity got 3/10 points. Speed got 4 points. Reliability got 5 points.',
+    scale: { quote: 'Clarity got 3/10 points', max: 10, unit: 'points' },
+    candidate: { max: 10, unit: 'points' },
+    expected: 'invalid',
+  },
+  {
+    label: 'an observed value as the maximum',
+    source: 'Scores are out of 10 points. Clarity is 3, speed is 4, and reliability is 5.',
+    scale: { quote: 'Scores are out of 10 points', max: 10, unit: 'points' },
+    candidate: { max: 5, unit: 'points' },
+    expected: 'invalid',
+  },
+  {
+    label: 'a missing maximum when a scale is declared',
+    source: 'Scores are out of 10 points. Clarity is 3, speed is 4, and reliability is 5.',
+    scale: { quote: 'Scores are out of 10 points', max: 10, unit: 'points' },
+    candidate: {},
+    expected: 'invalid',
+  },
+  {
+    label: 'a scale check with no visible quotation',
+    source: 'Scores are out of 10 points. Clarity is 3, speed is 4, and reliability is 5.',
+    scale: { quote: '', max: 10, unit: 'points' },
+    candidate: { max: 10, unit: 'points' },
+    expected: 'invalid',
+  },
+  {
+    label: 'ordinary counts without a stated scale',
+    source: 'Clarity received 3 votes, speed received 4, and reliability received 5.',
+    scale: null,
+    candidate: {},
+    expected: 'scene',
+  },
+])('checks $label before accepting a bar chart', async ({ source, scale, candidate, expected }) => {
+  const draft = {
+    ...sceneDraft(source),
+    title: 'Measurements by criterion',
+    type: 'bars',
+    items: ['Clarity', 'Speed', 'Reliability'].map((name, index) => ({
+      detail: '',
+      label: candidate.max ? `${name} (out of ${candidate.max} points)` : `${name} (votes)`,
+      value: index + 3,
+      time: null,
+      iconQueries: queries,
+    })),
+    ...candidate,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  generateStructuredOutputMock.mockImplementationOnce(async ({ prompt }) => {
+    const { possibleRanges } = JSON.parse(prompt) as {
+      possibleRanges: { id: number; context: string }[];
+    };
+    return {
+      status: scale ? 'declared' : 'absent',
+      ranges: possibleRanges.map(({ id, context }) => ({
+        id,
+        role: 'applies',
+        quote: context,
+        unit: 'points',
+      })),
+      scale,
+    };
+  });
+  const result = await generateLessonScene(unplannedInput(source));
+  expect(result.kind).toBe(expected);
+  if (result.kind === 'scene') {
+    expect(result.scene.max).toBe(candidate.max);
+    expect(result.scene.items.map(item => item.value)).toEqual([3, 4, 5]);
+  }
 });
 
 test('current and frozen workflow contracts can still read a saved continuum', () => {
@@ -2364,7 +2742,7 @@ test('generation requires supplied narration to preserve source grounding and al
 });
 
 test.each([
-  ...LAB_QUICK_SCENES,
+  ...LAB_QUICK_SCENES.filter(scene => scene.type !== 'radar'),
   LAB_COMPOSITION_SCENE,
 ])('generates the lab $type fields and all icon slots', async example => {
   const scaleEvidence =
@@ -2466,14 +2844,14 @@ test.each([
 
 test('rejects invented quantitative quick data before icon selection', async () => {
   const source =
-    'Chiarezza 4, copertura 3, verifica 5 e tracciabilità 4, su un massimo di 5 punti.';
+    'Mattina 4, pomeriggio 3, sera 5 e notte 4, su un massimo di 5 richieste. Poi torna mattina.';
   generateStructuredOutputMock.mockResolvedValueOnce({
     ...sceneDraft(''),
-    type: 'radar',
-    title: 'Criteri',
+    type: 'polar',
+    title: 'Richieste nella giornata',
     evidence: source,
     max: 5,
-    unit: 'punti',
+    unit: 'richieste',
     items: [2, 3, 5, 4].map(value => ({
       label: 'Criterio',
       detail: '',
