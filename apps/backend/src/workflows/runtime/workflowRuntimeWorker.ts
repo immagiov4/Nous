@@ -180,6 +180,7 @@ const assertWorkerInput = (
 class WorkflowRuntimeWorker<Services> {
   private active = false;
   private readonly loopStates = createLoopStates();
+  private signalStepProgress: (() => void) | undefined;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private startPromise: Promise<void> | null = null;
   private stopPromise: Promise<void> | null = null;
@@ -274,7 +275,10 @@ class WorkflowRuntimeWorker<Services> {
   private requestDrain(loop: WorkflowRuntimeLoop): void {
     const state = this.loopStates[loop];
     state.pending = true;
-    if (state.running) return;
+    if (state.running) {
+      if (loop === 'step') this.signalStepProgress?.();
+      return;
+    }
 
     const running = this.drain(loop, state).finally(() => {
       if (state.running === running) state.running = null;
@@ -443,6 +447,7 @@ class WorkflowRuntimeWorker<Services> {
     let claimedAny = false;
 
     while (this.active) {
+      this.loopStates.step.pending = false;
       while (
         this.active &&
         runningSteps.size < this.input.stepConcurrency &&
@@ -466,7 +471,10 @@ class WorkflowRuntimeWorker<Services> {
           .catch(error => {
             failures.push(error);
           })
-          .finally(() => runningSteps.delete(execution));
+          .finally(() => {
+            runningSteps.delete(execution);
+            this.signalStepProgress?.();
+          });
         runningSteps.add(execution);
       }
 
@@ -475,12 +483,25 @@ class WorkflowRuntimeWorker<Services> {
         throw failures[0];
       }
       if (runningSteps.size === 0) return claimedAny;
-      await Promise.race(runningSteps);
+      await this.waitForStepProgress(runningSteps);
     }
 
     await Promise.all(runningSteps);
     if (failures.length > 0) throw failures[0];
     return claimedAny;
+  }
+
+  private waitForStepProgress(runningSteps: ReadonlySet<Promise<void>>): Promise<void> {
+    const hasCapacity = () => runningSteps.size < this.input.stepConcurrency;
+    if (hasCapacity() && this.loopStates.step.pending) return Promise.resolve();
+    return new Promise(resolve => {
+      this.signalStepProgress = () => {
+        // A wake can refill spare capacity even while an earlier step is still running.
+        if (!hasCapacity()) return;
+        this.signalStepProgress = undefined;
+        resolve();
+      };
+    });
   }
 
   private async runStepRecovery(): Promise<boolean> {
