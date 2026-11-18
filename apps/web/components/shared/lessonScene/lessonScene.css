@@ -2368,6 +2368,18 @@
   line-height: 1.2;
   white-space: nowrap;
 }
+.lesson-scene .q-scatter [data-axis]:not([data-in-key]) .q-axis-marker {
+  display: none;
+}
+.lesson-scene .quick-scene .q-axis-key {
+  font-size: var(--diagram-copy);
+  overflow-wrap: anywhere;
+}
+.lesson-scene .q-axis-key > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--space);
+}
 .lesson-scene .quick-scene .q-chart-key {
   list-style: decimal;
   padding-inline-start: var(--diagram-pad);

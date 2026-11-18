@@ -341,6 +341,24 @@ const placeScatterLabel = (label: HTMLElement) => {
   return showKey;
 };
 
+function placeScatterAxes(svg: SVGSVGElement) {
+  const key = svg.parentElement?.querySelector<HTMLElement>('.q-axis-key');
+  if (!key) return;
+  const bounds = svg.getBoundingClientRect();
+  const axes = svg.querySelectorAll<SVGTextElement>('[data-axis]');
+  for (const [index, axis] of axes.entries()) {
+    const title = axis.children[0];
+    title.removeAttribute('hidden');
+    axis.removeAttribute('data-in-key');
+    const extent = title.getBoundingClientRect();
+    const outside = extent.left < bounds.left || extent.right > bounds.right;
+    title.toggleAttribute('hidden', outside);
+    axis.toggleAttribute('data-in-key', outside);
+    key.children[index].toggleAttribute('hidden', !outside);
+  }
+  key.hidden = !key.querySelector(':scope > :not([hidden])');
+}
+
 const placeRadialLabel = (label: SVGTextElement) => {
   label.removeAttribute('data-in-key');
   const { x, width } = label.getBBox();
@@ -361,6 +379,7 @@ const sizeQuickChartLabels = (svg: SVGSVGElement | null) => {
       String(Math.max(width / clientWidth, height / clientHeight))
     );
     if (svg.classList.contains('q-scatter')) {
+      placeScatterAxes(svg);
       updateChartKey(
         svg,
         svg.querySelectorAll<HTMLElement>('.q-scatter-point-label'),
@@ -672,11 +691,13 @@ export const quickScatter = ({ scene }: SceneRenderContext) => {
         y2={geometry.bottom}
         className="q-axes"
       />
-      <text x={geometry.labelX} y={geometry.labelY} textAnchor="middle">
-        {scene.xLabel}
+      <text data-axis="X" x={geometry.labelX} y={geometry.labelY} textAnchor="middle">
+        <tspan>{scene.xLabel}</tspan>
+        <tspan className="q-axis-marker">X</tspan>
       </text>
-      <text x={geometry.left} y={geometry.axisY} textAnchor="start">
-        {scene.yLabel}
+      <text data-axis="Y" x={geometry.left} y={geometry.axisY} textAnchor="start">
+        <tspan>{scene.yLabel}</tspan>
+        <tspan className="q-axis-marker">Y</tspan>
       </text>
       {scene.items.map((item, index) => {
         const pointX = x(item.x as number);
@@ -707,6 +728,16 @@ export const quickScatter = ({ scene }: SceneRenderContext) => {
   return (
     <>
       {chart}
+      <dl className="q-axis-key" hidden>
+        <div hidden>
+          <dt>X</dt>
+          <dd>{scene.xLabel}</dd>
+        </div>
+        <div hidden>
+          <dt>Y</dt>
+          <dd>{scene.yLabel}</dd>
+        </div>
+      </dl>
       {chartKey(scene.items.map(item => item.label))}
     </>
   );

@@ -430,6 +430,50 @@ test('keeps four short radial labels on their rays at 390 px with a bundled font
   }
 });
 
+test('keeps full scatter axis titles readable inside the phone card', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  try {
+    const axes = {
+      xLabel: 'Elapsed time since the beginning of the observation period in milliseconds',
+      yLabel: 'Total observations received per sampling station in the previous hour',
+    };
+    await page.addInitScript(axes => {
+      Object.assign(window, {
+        readerGraphicsScenes: [
+          {
+            type: 'scatter',
+            title: 'Station observations',
+            body: '',
+            quote: '',
+            note: '',
+            groups: [],
+            ...axes,
+            items: [{ label: 'Station A', x: 1, y: 2, detail: '', icon: '' }],
+          },
+        ],
+      });
+    }, axes);
+    await page.goto(inject('browserFixtureUrl') + 'tests/fixtures/readerGraphics.html');
+    const plot = page.locator('.type-scatter');
+    const graphic = plot.getByRole('img');
+    const bounds = await plot.boundingBox();
+    if (!bounds) throw new Error('The chart must be visible.');
+    for (const [axis, title] of [
+      ['X', axes.xLabel],
+      ['Y', axes.yLabel],
+    ]) {
+      const full = plot.getByText(title, { exact: true }).filter({ visible: true });
+      const label = await full.boundingBox();
+      if (!label) throw new Error('The full axis title must be visible.');
+      expect(label.x).toBeGreaterThanOrEqual(bounds.x - 1);
+      expect(label.x + label.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1);
+      expect(await graphic.getByText(axis, { exact: true }).isVisible()).toBe(true);
+    }
+  } finally {
+    await page.close();
+  }
+});
+
 test('keeps long scatter labels readable through an in-chart marker and a chart key', async () => {
   const page = await browser.newPage({
     viewport: { width: 390, height: 844 },
