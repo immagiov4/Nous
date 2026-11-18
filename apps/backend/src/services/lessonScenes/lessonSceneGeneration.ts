@@ -363,7 +363,7 @@ These forms have a title of at most 160 characters, optional body and note of at
 - venn: three groups (left only, intersection, right only), with qualitative areas; each label at most 24 characters and at most one description of at most 48 characters per region. If the content does not fit, choose comparison rather than making the text ambiguous.
 - Distribution shows frequencies of adjacent ordered classes. Donut shows shares of a known whole. Treemap uses labelled areas for flat parts of a whole. Funnel follows the surviving part of one population through ordered stages.
 - funnel/treemap: items with value and explicit unit; funnel values never increase, treemap values are positive. For funnel, the title identifies the common quantity or entity once (for example Requests); labels contain only stage names (Received, Valid, Successful), without repeating units or numbers. The component shows quantities and retention on a common cell scale, including fractions; never draw or count cells yourself.
-- Heatmap and security matrix modes: columns:[labels], rows:[{label,values:[values]}], 1–5 columns and 1–8 rows. Keep groups, items and criteria []. Every row has exactly one value per column, in column order, preserving every association. For heatmap, supply scaleEvidence quoting a complete, explicit scale declaration from the lesson, including the full unit and any trailing qualifier in the same clause. If a separate trailing phrase says which cells or groups use the scale, copy it into scaleQualifier and keep the same phrase in scaleEvidence. A rate or denominator is part of the unit, never a scope qualifier. Use the lesson language and quote the visible text. Copy the quoted upper bound to max and the complete unit to the unit field, even if no observed value reaches the upper bound. Use exact cell values from zero to max. Security requires a textual permission (at most 60 characters) in every cell, including explicit unknown permissions. If the source does not clearly declare the scale and unit, omit max, unit and scaleEvidence. The table will still show exact values. Use another form if a cell is missing.
+- Heatmap and security matrix modes: columns:[labels], rows:[{label,values:[values]}], 1–5 columns and 1–8 rows. Keep groups, items and criteria []. Every row has exactly one value per column, in column order, preserving every association. For heatmap, supply scaleEvidence quoting a complete, explicit scale declaration from the lesson, including the full unit and any trailing qualifier in the same clause. Copy any separate trailing phrase that says which cells or groups use the scale into scaleQualifier and include it in scaleEvidence. This field is required when the scope follows the unit in the same clause. For “0 to 10 cases per week for every region”, use unit “cases per week” and scaleQualifier “for every region”. Use the lesson language and quote the visible text. Copy the quoted upper bound to max and the complete unit to the unit field, even if no observed value reaches the upper bound. Use exact cell values from zero to max. Security requires a textual permission (at most 60 characters) in every cell, including explicit unknown permissions. If the source does not clearly declare the scale and unit, omit max, unit and scaleEvidence. The table will still show exact values. Use another form if a cell is missing.
 - security: use brief, unambiguous permission phrases and keep the lesson's full role and resource names where shortening them would obscure the meaning.
 - gantt: items with finite numeric start/end, end greater than start, and a common explicit unit.
 - scatter: items with finite numeric x/y, xLabel/yLabel including units, and explicit unit.
@@ -682,17 +682,34 @@ const POSSIBLE_SOURCE_RANGE =
 
 const sourceBound = (text: string): number => Number(text.replace(',', '.').replace('−', '-'));
 
-const possibleSourceRanges = (visible: string) =>
+// A written score denominator is evidence of the same zero-based scale as a
+// numeric interval. A bare number with surrounding prose does not identify it.
+const WRITTEN_SCORE_DENOMINATOR =
+  /(?<!\p{L})out\s+of\s+(\d+(?:[.,]\d+)?)(?![\p{L}\p{N}]|[.,]\d)/giu;
+
+const possibleSourceRanges = (visible: string, includeScoreDenominators = false) =>
   Array.from(sourceScaleContexts(visible))
-    .flatMap(context =>
-      Array.from(context.text.matchAll(POSSIBLE_SOURCE_RANGE), match => ({
+    .flatMap(context => {
+      const bounds = Array.from(context.text.matchAll(POSSIBLE_SOURCE_RANGE), match => ({
         start: context.start + match.index,
         text: match[1],
         context,
         min: sourceBound(match[2]),
         max: sourceBound(match[3]),
-      }))
-    )
+      }));
+      if (includeScoreDenominators)
+        for (const match of context.text.matchAll(WRITTEN_SCORE_DENOMINATOR)) {
+          bounds.push({
+            start: context.start,
+            text: context.text.slice(0, match.index + match[0].length),
+            context,
+            min: 0,
+            max: sourceBound(match[1]),
+          });
+        }
+      return bounds;
+    })
+    .sort((left, right) => left.start - right.start)
     .map((range, id) => ({ ...range, id }));
 
 type SourceRange = ReturnType<typeof possibleSourceRanges>[number];
@@ -807,24 +824,20 @@ const heatmapCitation = (range: SourceRange, scale: SourceScaleCitation): string
   return scopePhrase(suffix) === scopePhrase(scale.qualifier) ? quote + suffix : quote;
 };
 
-const canReviewHeatmapCitation = (
+const matchesHeatmapCitation = (
   visible: string,
   range: SourceRange,
-  proposed: SourceScaleCitation
-): boolean => {
-  if (range.min !== 0 || (proposed.max !== undefined && range.max !== proposed.max)) return false;
-  const quote = heatmapCitation(range, proposed);
-  if (rangeSupportsUnit(visible, range, quote, proposed.unit, proposed.qualifier)) return true;
-  if (proposed.qualifier) return false;
-  const tail = sourceUnitSpan(range.context, range.start + range.text.length);
-  const suffix = tail.text.trim().slice(proposed.unit.length);
-  return (
-    tail.text.trimStart().startsWith(proposed.unit) &&
-    /^[\s,]/u.test(suffix) &&
-    quoteCoversSpan(visible, quote, range) &&
-    quoteCoversSpan(visible, quote, tail)
+  citation: SourceScaleCitation
+): boolean =>
+  range.min === 0 &&
+  (citation.max === undefined || range.max === citation.max) &&
+  rangeSupportsUnit(
+    visible,
+    range,
+    heatmapCitation(range, citation),
+    citation.unit,
+    citation.qualifier
   );
-};
 
 const reviewedHeatmapScale = (
   response: unknown,
@@ -837,14 +850,12 @@ const reviewedHeatmapScale = (
   const applicable = reviewedApplicableRanges(visible, ranges, parsed.data.ranges);
   if (applicable?.length !== 1) return {};
   const [{ range, unit, qualifier }] = applicable;
-  const confirmed =
-    range.min === 0 &&
-    (proposed.max === undefined || range.max === proposed.max) &&
-    unit === proposed.unit &&
-    (!proposed.qualifier ||
-      (qualifier !== undefined && scopePhrase(qualifier) === scopePhrase(proposed.qualifier))) &&
-    rangeSupportsUnit(visible, range, heatmapCitation(range, proposed), unit, qualifier);
-  return confirmed ? { max: range.max, unit } : {};
+  // A review can check the proposed boundary, but cannot move unit words into scope.
+  return unit === proposed.unit &&
+    scopePhrase(qualifier ?? '') === scopePhrase(proposed.qualifier ?? '') &&
+    matchesHeatmapCitation(visible, range, proposed)
+    ? { max: range.max, unit }
+    : {};
 };
 
 const sourceRangePrompts = (ranges: readonly SourceRange[]) =>
@@ -863,7 +874,7 @@ const verifiedHeatmapScale = async (
   const visible = visibleScaleSource(context.source);
   const proposed = { quote, max, unit, qualifier };
   const ranges = possibleSourceRanges(visible);
-  if (!ranges.some(range => canReviewHeatmapCitation(visible, range, proposed))) return {};
+  if (!ranges.some(range => matchesHeatmapCitation(visible, range, proposed))) return {};
   const response = await requestScaleEvidence(context, {
     output: { name: 'heatmap_source_scale', schema: heatmapScaleOutputSchema },
     system: SOURCE_RANGE_REVIEW_INSTRUCTION,
@@ -917,7 +928,7 @@ const confirmsBarDenominator = (
 };
 
 const BAR_SCALE_CORRECTION =
-  'Use the stated bar maximum and full unit. Leave max empty only when the source gives no scale. Prove a shared maximum with a source range starting at zero or with each score written as a fraction. Otherwise choose a suitable table with exact values or use the authored text if offered.';
+  'Use the stated bar maximum and full unit. Leave max empty only when the source gives no scale. Prove a shared maximum with a zero-based range, a written score denominator, or fractions with the same denominator for every score. Otherwise choose a suitable table with exact values or use the authored text if offered.';
 
 type BarScaleCheck = 'confirmed' | 'correctable' | 'unsupported';
 
@@ -926,12 +937,12 @@ const checkBarScale = async (
   context: SceneSourceContext
 ): Promise<BarScaleCheck> => {
   const visible = visibleScaleSource(context.source);
-  const ranges = possibleSourceRanges(visible);
+  const ranges = possibleSourceRanges(visible, true);
   const response = await requestScaleEvidence(context, {
     output: { name: 'bar_source_scale', schema: barScaleOutputSchema },
     system:
       SOURCE_RANGE_REVIEW_INSTRUCTION +
-      ' Also report whether the lesson declares a common maximum, such as a zero-based range or a shared denominator written in the scores. The common maximum cannot be a total or an observed value. For ordinary counts with no stated scale, use status absent and scale null. If the scale is unclear or starts away from zero, use status unclear and scale null. Otherwise use status declared and copy the maximum, complete unit, and the full source clause in scale.',
+      ' Also report whether the lesson declares a common maximum, such as a zero-based range, a clause assigning a score denominator to all the measurements, or the same denominator written in every score. For a written score denominator, cite the whole clause including what is scored. Read the complete context for each bound before marking it applies. The common maximum cannot be a total or an observed value. For ordinary counts with no stated scale, use status absent and scale null. If the scale is unclear or starts away from zero, use status unclear and scale null. Otherwise use status declared and copy the maximum, complete unit, and the full source clause in scale.',
     prompt: JSON.stringify({
       lesson: visible,
       measurements: scene.items.map(item => ({ value: item.value })),

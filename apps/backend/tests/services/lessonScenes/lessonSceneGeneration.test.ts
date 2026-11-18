@@ -930,6 +930,7 @@ test.each([
     label: 'a Spanish scale cited by a draft with no maximum',
     source: 'Escala de 0 a 10 puntos, compartida por todas las celdas. Norte registra 2 y 5.',
     quote: 'Escala de 0 a 10 puntos, compartida por todas las celdas',
+    qualifier: 'compartida por todas las celdas',
     reviewQualifier: 'compartida por todas las celdas',
     unit: 'puntos',
     omitMaximum: true,
@@ -949,7 +950,6 @@ test.each([
     quote: 'Use a scale of 0 to 10 cases for every region',
     unit: 'cases',
     reviewQualifier: 'for every region',
-    expected: 10,
   },
   {
     label: 'a separate scope with source punctuation',
@@ -974,6 +974,13 @@ test.each([
     quote: 'Scale: 0–10 cases',
     unit: 'cases',
     alternate: { quote: 'Alternative scale: 1–5 cases', role: 'applies', unit: 'cases' },
+  },
+  {
+    label: 'a verifier tries to recast an unclaimed rate as scope',
+    source: 'Scale: 0–10 cases per week. North reports 2 and 5.',
+    quote: 'Scale: 0–10 cases per week',
+    unit: 'cases',
+    reviewQualifier: 'per week',
   },
   {
     label: 'the same incomplete unit from both models',
@@ -1679,17 +1686,11 @@ const falseMaximumExamples = [
   { source: 'Scale: 0–5 points. Overall the test awarded 10 points.', range: true },
   { source: 'Overall the test awarded 10 points. Scale: 0–5 points.', range: true },
   { source: 'Overall the test awarded 10 points.', range: false },
-  { source: 'Scores are out of 10 points.', quote: 'Scores are out of 10 points', range: false },
 ];
 
 test.each(
   falseMaximumExamples.flatMap(example => [false, true].map(legacy => ({ ...example, legacy })))
-)('preserves the numbers after "$source" (legacy: $legacy)', async ({
-  source,
-  range,
-  quote = 'Overall the test awarded 10 points',
-  legacy,
-}) => {
+)('preserves the numbers after "$source" (legacy: $legacy)', async ({ source, range, legacy }) => {
   const labels = ['Clarity', 'Speed', 'Reliability'];
   const values = [2, 3, 5];
   const speech = `${source} Clarity earned 2, speed 3, and reliability 5.`;
@@ -1724,7 +1725,7 @@ test.each(
     if (output.name === 'bar_source_scale')
       return {
         status: 'declared',
-        scale: { quote, max: 10, unit: 'points' },
+        scale: { quote: 'Overall the test awarded 10 points', max: 10, unit: 'points' },
         ranges: range
           ? [{ id: 0, role: 'other-scope', quote: 'Scale: 0–5 points', unit: null }]
           : [],
@@ -1827,7 +1828,7 @@ test.each([
     source: 'Scores are out of 10 points. Clarity is 3, speed is 4, and reliability is 5.',
     scale: { quote: 'Scores are out of 10 points', max: 10, unit: 'points' },
     candidate: { max: 10, unit: 'points' },
-    expected: 'invalid',
+    expected: 'scene',
   },
   {
     label: 'a shared denominator in every score',
@@ -1886,10 +1887,20 @@ test.each([
     ...candidate,
   };
   generateStructuredOutputMock.mockResolvedValueOnce(draft);
-  generateStructuredOutputMock.mockResolvedValueOnce({
-    status: scale ? 'declared' : 'absent',
-    ranges: [],
-    scale,
+  generateStructuredOutputMock.mockImplementationOnce(async ({ prompt }) => {
+    const { possibleRanges } = JSON.parse(prompt) as {
+      possibleRanges: { id: number; context: string }[];
+    };
+    return {
+      status: scale ? 'declared' : 'absent',
+      ranges: possibleRanges.map(({ id, context }) => ({
+        id,
+        role: 'applies',
+        quote: context,
+        unit: 'points',
+      })),
+      scale,
+    };
   });
   const result = await generateLessonScene(unplannedInput(source));
   expect(result.kind).toBe(expected);
