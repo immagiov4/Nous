@@ -529,7 +529,7 @@ beforeEach(() => {
       constructor(readonly callback: () => void) {}
       observe(target: Element) {
         if (target.classList.contains('scene-fit')) resizeScene = this.callback;
-        if (target.hasAttribute('data-process-scroll')) {
+        if (target.hasAttribute('data-ordered-scroll')) {
           resizeProcessViewport = this.callback;
           this.disconnect = disconnectProcessViewport;
         }
@@ -2280,7 +2280,7 @@ test.each([
     />
   );
   const { container, rerender, unmount } = render(view(0));
-  const card = container.querySelector<HTMLElement>('[data-process-scroll]');
+  const card = container.querySelector<HTMLElement>('[data-ordered-scroll]');
   const firstStep = container.querySelector<HTMLElement>('[data-playback-item="0"]');
   const finalStep = container.querySelector<HTMLElement>('[data-playback-item="1"]');
   if (!card || !firstStep || !finalStep) throw new Error('The process card must render both steps');
@@ -2328,7 +2328,7 @@ test.each([
     await act(async () => {
       resizeProcessViewport?.();
     });
-    expect(host).toHaveAttribute('data-process-overflow');
+    expect(host).toHaveAttribute('data-ordered-overflow');
   }
   expect(finalStep.style.getPropertyValue('--motion-emphasis')).toBe('1');
   expect(firstStep.style.getPropertyValue('--motion-emphasis')).toBe(
@@ -2351,7 +2351,7 @@ test.each([
     viewportHeight = 80;
     resizeProcessViewport?.();
     tick();
-    expect(host).toHaveAttribute('data-process-overflow');
+    expect(host).toHaveAttribute('data-ordered-overflow');
     expect(card.scrollTop).toBe(220);
     card.scrollTop = 10;
     resizeProcessViewport?.();

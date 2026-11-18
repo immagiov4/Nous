@@ -5,6 +5,7 @@ import {
   HistoricalLessonSceneSchemas,
   LessonSceneSchema,
 } from '@shared/lessonPlaybackSchema';
+import { supportsComparisonRelations } from '@shared/lessonScene';
 import { readCurrentAccountPreferences } from '../../account/accountStore.js';
 import {
   getGlobalModelConfig,
@@ -178,7 +179,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 14;
+export const WORKFLOW_SET_VERSION = 15;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -297,7 +298,12 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   };
   // The ordered catalog changes generation policy without changing the saved scene shape.
   const [orderedScenes, ...historicalOrderedScenes] = sceneSchemas
-    .filter((schema, index) => index === 0 || 'conceptLayout' in schema.shape)
+    .filter(
+      (schema, index) =>
+        index === 0 ||
+        ('conceptLayout' in schema.shape &&
+          supportsComparisonRelations(schema.shape.relation.unwrap().shape.kind.options))
+    )
     .map(schema => {
       const contract = createSceneLessonVisualContractSchemas(schema, true);
       return {

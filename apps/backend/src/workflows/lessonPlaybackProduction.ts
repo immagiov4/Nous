@@ -37,6 +37,7 @@ export const createProductionLessonPlaybackServices = (
     synchronizeAnimations = false,
     supportsVisualSections = true,
     supportsConceptLayout = true,
+    allowedSceneRelationKinds,
     useOrderedSceneSelection = true
   ) => {
     const project = await projectStore.loadProjectWithRevision(input.userId, input.projectId);
@@ -64,6 +65,7 @@ export const createProductionLessonPlaybackServices = (
     validatePlaybackSceneTypes({
       block,
       lesson,
+      allowedSceneRelationKinds,
       allowedSceneTypes,
       supportsUnlinkedFormulaSymbols,
       supportsConceptLayout,
@@ -81,6 +83,7 @@ export const createProductionLessonPlaybackServices = (
       userId: input.userId,
       synchronizeAnimations,
       supportsVisualSections,
+      allowedSceneRelationKinds,
       supportsConceptLayout,
       useOrderedSceneSelection,
       allowedSceneTypes,

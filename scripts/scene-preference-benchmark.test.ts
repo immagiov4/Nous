@@ -185,6 +185,24 @@ test('records the production excerpt boundary and hash without retaining passage
   }
 });
 
+test.each([
+  'signals',
+  'balance',
+])('benchmark rejects %s in either arm of a new-generation pair', form => {
+  const pair = { ...cases[0], preferred: 'comparison', rejected: 'matrix' };
+  expect(parseCases(JSON.stringify(pair))).toEqual([pair]);
+  for (const arm of ['preferred', 'rejected']) {
+    expect(() => parseCases(JSON.stringify({ ...pair, [arm]: form }))).toThrow(
+      'Invalid benchmark dataset'
+    );
+  }
+});
+
+test('benchmark can pair a before/after scene with an ordinary comparison', () => {
+  const pair = { ...cases[0], preferred: 'beforeafter', rejected: 'comparison' };
+  expect(parseCases(JSON.stringify(pair))).toEqual([pair]);
+});
+
 test('rejects internal dot-dot-prefixed directories and junctions while admitting external siblings', async () => {
   const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
   const internal = await mkdtemp(join(repo, '..private-'));

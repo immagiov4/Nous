@@ -2162,10 +2162,10 @@
 .lesson-player-stage .scene-host[aria-hidden="true"]:not([data-exiting]) {
   visibility: hidden;
 }
-.lesson-player-stage :is(.scene-host, [data-process-scroll]) > div {
+.lesson-player-stage :is(.scene-host, [data-ordered-scroll]) > div {
   width: 100%;
 }
-.lesson-player-stage :is(.scene-host, [data-process-scroll]) > .prose {
+.lesson-player-stage :is(.scene-host, [data-ordered-scroll]) > .prose {
   /* Supplemental expressions share rows before the complete visual is fitted. */
   display: flex;
   flex-wrap: wrap;
@@ -2173,7 +2173,7 @@
   justify-content: center;
   gap: var(--space);
 }
-.lesson-player-stage :is(.scene-host, [data-process-scroll]) > .prose > .katex-display {
+.lesson-player-stage :is(.scene-host, [data-ordered-scroll]) > .prose > .katex-display {
   margin: 0;
 }
 .lesson-player-stage .lesson-player-formula .katex:not(.spotlight-symbol .katex) {
@@ -2237,14 +2237,14 @@
   transform: scale(var(--scene-scale, 1));
   transform-origin: top left;
 }
-.lesson-player-stage .listening-stage > .scene-fit > .scene-host[data-process-card] {
+.lesson-player-stage .listening-stage > .scene-fit > .scene-host[data-ordered-card] {
   gap: 0;
   min-height: 0;
   max-height: var(--scene-height-limit);
   padding: 0;
   overflow: clip;
 }
-.lesson-player-stage [data-process-scroll] {
+.lesson-player-stage [data-ordered-scroll] {
   container-type: inline-size;
   display: flex;
   width: 100%;
@@ -2255,25 +2255,25 @@
   overflow: auto;
   scrollbar-width: none;
 }
-.lesson-player-stage [data-process-scroll]::-webkit-scrollbar {
+.lesson-player-stage [data-ordered-scroll]::-webkit-scrollbar {
   display: none;
 }
-.lesson-player-stage [data-process-scroll]:focus-visible {
+.lesson-player-stage [data-ordered-scroll]:focus-visible {
   outline-offset: -1px;
 }
 .lesson-player-stage
-  .scene-host[data-process-card]
+  .scene-host[data-ordered-card]
   > :is(.playback-visual-action, .playback-visual-error) {
   position: static;
   flex: none;
 }
-.lesson-player-stage .scene-host[data-process-card] > .playback-visual-error {
+.lesson-player-stage .scene-host[data-ordered-card] > .playback-visual-error {
   order: 1;
   align-self: stretch;
   margin: 0;
   padding: calc(var(--space) / 2) var(--scene-card-padding);
 }
-.lesson-player-stage .scene-host[data-process-card] > .playback-visual-action {
+.lesson-player-stage .scene-host[data-ordered-card] > .playback-visual-action {
   order: 2;
   margin-block: calc(var(--space) / 2);
   transform: none;
@@ -2282,26 +2282,26 @@
 .lesson-player-stage
   .listening-stage
   > .scene-fit
-  > .scene-host[data-process-card][data-process-overflow]:not([inert])::after {
-  --process-thumb-inset: 8px;
-  --process-thumb-track: calc(var(--process-scroll-viewport) - 2 * var(--process-thumb-inset));
-  --process-thumb-size: min(
-    var(--process-thumb-track),
-    max(1.5rem, var(--process-thumb-track) * var(--process-visible-fraction))
+  > .scene-host[data-ordered-card][data-ordered-overflow]:not([inert])::after {
+  --ordered-thumb-inset: 8px;
+  --ordered-thumb-track: calc(var(--ordered-scroll-viewport) - 2 * var(--ordered-thumb-inset));
+  --ordered-thumb-size: min(
+    var(--ordered-thumb-track),
+    max(1.5rem, var(--ordered-thumb-track) * var(--ordered-visible-fraction))
   );
 
   /* Show scroll position without intercepting input intended for the scrollport. */
   content: "";
   position: absolute;
   z-index: 1;
-  inset-inline-end: var(--process-thumb-inset);
+  inset-inline-end: var(--ordered-thumb-inset);
   inset-block-start: calc(
-    var(--process-scroll-progress) *
-    (var(--process-thumb-track) - var(--process-thumb-size)) +
-    var(--process-thumb-inset)
+    var(--ordered-scroll-progress) *
+    (var(--ordered-thumb-track) - var(--ordered-thumb-size)) +
+    var(--ordered-thumb-inset)
   );
   inline-size: 4px;
-  block-size: var(--process-thumb-size);
+  block-size: var(--ordered-thumb-size);
   border-radius: 999px;
   background: color-mix(in srgb, var(--ink-secondary) 85%, var(--bg-surface));
   pointer-events: none;

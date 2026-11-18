@@ -1,6 +1,13 @@
 import { createHash } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
-import { isLessonScene, LessonSceneSchema } from '@shared/lessonScene';
+import {
+  GUIDED_PATH_MAX_STEPS,
+  isLessonScene,
+  type LessonScene,
+  LessonSceneSchema,
+} from '@shared/lessonScene';
 import { type Browser, chromium, devices, type Locator } from 'playwright';
 import { afterAll, beforeAll, expect, inject, test } from 'vitest';
 import { withMutedAudio } from '../../../../../scripts/browser-audio';
@@ -92,7 +99,7 @@ const orderedScene = (type: 'process' | 'steps', count: number) =>
 const rowFitsScrollport = (row: Locator) =>
   row.evaluate(element => {
     const bounds = element.getBoundingClientRect();
-    const port = element.closest('[data-process-scroll]')?.getBoundingClientRect();
+    const port = element.closest('[data-ordered-scroll]')?.getBoundingClientRect();
     return Boolean(port && bounds.top >= port.top && bounds.bottom <= port.bottom);
   });
 
@@ -173,7 +180,7 @@ test.each(
     }
 
     await page.goto(`${fixture}?playback=process&scene-seek`);
-    const scrollport = page.locator('[data-process-scroll]');
+    const scrollport = page.locator('[data-ordered-scroll]');
     const position = page.getByRole('slider', { name: 'Fixture playback position' });
     const rows = scrollport.getByRole('listitem');
     const emphasis = (row: Locator) =>
@@ -190,6 +197,158 @@ test.each(
     await expect.poll(() => emphasis(rows.first())).toBe('1');
     await expect.poll(() => rowFitsScrollport(rows.first())).toBe(true);
   } finally {
+    await context.close();
+  }
+});
+
+const comparisonCases = [
+  {
+    legacy: 'signals',
+    kind: 'complementary',
+    label: 'Read together',
+    symbol: '+',
+    icon: 'plus',
+    panels: ['Clue', 'Interpretation'],
+    entries: ['Wilting leaves', 'Check soil moisture'],
+  },
+  {
+    legacy: 'balance',
+    kind: 'tradeoff',
+    label: 'Tradeoff',
+    symbol: '⇄',
+    icon: 'arrows-exchange',
+    panels: ['Benefit', 'Cost'],
+    entries: ['Less watering', 'Slower growth'],
+  },
+  {
+    legacy: 'beforeafter',
+    kind: 'leads',
+    label: 'Becomes',
+    symbol: '→',
+    icon: 'arrow-right',
+    panels: ['Before drying', 'After drying'],
+    entries: ['Soft clay', 'Firm clay'],
+  },
+] as const;
+
+const comparisonScene = (example: (typeof comparisonCases)[number]): LessonScene => ({
+  type: 'comparison',
+  title: example.label,
+  body: '',
+  note: '',
+  quote: '',
+  items: [],
+  groups: example.panels.map((label, index) => ({
+    label,
+    items: [example.entries[index]],
+    icons: [index === 0 ? 'seedling' : 'droplet'],
+  })),
+  relation: { kind: example.kind, label: example.label, evidence: example.entries.join(' ') },
+});
+
+test.each(
+  contexts
+)('preserves comparison relations and historical scenes in $device $colorScheme', async ({
+  device,
+  colorScheme,
+}) => {
+  const mobile = device === 'mobile';
+  const context = await browser.newContext({
+    ...(mobile ? devices['Pixel 7'] : {}),
+    viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme,
+    reducedMotion: 'reduce',
+  });
+  const evidence = process.env.NOUS_COMPARISON_EVIDENCE;
+  const description = `${device}-${colorScheme}`;
+  const errors: string[] = [];
+  const started = performance.now();
+  const fixture = `${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html`;
+  const cases = comparisonCases.map(example => {
+    const comparison = comparisonScene(example);
+    const historical: LessonScene = { ...comparison, type: example.legacy, relation: undefined };
+    return { example, scenes: [comparison, historical] };
+  });
+  if (evidence) {
+    await mkdir(evidence, { recursive: true });
+    await context.tracing.start({ snapshots: true, screenshots: true });
+  }
+  try {
+    const page = await context.newPage();
+    page.on('pageerror', error => errors.push(error.message));
+    await page.addInitScript(
+      scenes => {
+        const index = Number(new URL(location.href).searchParams.get('scene'));
+        Object.assign(window, { readerGraphicsScenes: [scenes[index]] });
+      },
+      cases.flatMap(entry => entry.scenes)
+    );
+    for (const [caseIndex, { example, scenes }] of cases.entries()) {
+      for (const surface of ['reader', 'playback'] as const) {
+        for (const [sceneIndex, scene] of scenes.entries()) {
+          const index = caseIndex * scenes.length + sceneIndex;
+          await page.goto(`${fixture}?scene=${index}${surface === 'reader' ? '' : '&playback'}`);
+          const figure = page.locator(`.lesson-scene:has(.type-${scene.type})`);
+          const groups = figure.locator('.groups');
+          const panels = groups.locator('section');
+          await panels.last().waitFor();
+          expect(await panels.locator('h3').allTextContents()).toEqual([...example.panels]);
+          expect(await panels.locator('li').allTextContents()).toEqual([...example.entries]);
+          if (scene.type === 'balance') {
+            expect(await figure.locator('.fulcrum').isVisible()).toBe(true);
+          } else {
+            const marker = groups.locator('.relation');
+            expect(await marker.isVisible()).toBe(true);
+            if (scene.type === 'comparison') {
+              expect(await marker.getAttribute('aria-label')).toBe(example.label);
+              if (surface === 'reader') {
+                expect(await marker.textContent()).toBe(example.symbol);
+              } else {
+                const icon = marker.locator('.meaning-icon');
+                await expect
+                  .poll(() => icon.evaluate(el => getComputedStyle(el).maskImage))
+                  .toContain('%3Cpath');
+                expect(await icon.getAttribute('data-icon')).toBe(example.icon);
+              }
+            }
+            if (example.kind === 'leads') {
+              const [first, second] = await Promise.all([
+                panels.first().boundingBox(),
+                panels.last().boundingBox(),
+              ]);
+              expect(first).toBeTruthy();
+              expect(second).toBeTruthy();
+              if (!first || !second)
+                throw new Error('Comparison panels must have a rendered size.');
+              const stacked = second.y >= first.y + first.height - 1;
+              expect(second.x > first.x || stacked).toBe(true);
+              expect(
+                await marker
+                  .locator('.relation-symbol')
+                  .evaluate(el => getComputedStyle(el).transform)
+              ).toBe(stacked ? 'matrix(0, 1, -1, 0, 0, 0)' : 'none');
+              if (mobile && surface === 'reader') expect(stacked).toBe(true);
+            }
+          }
+          if (evidence) {
+            await page.evaluate(() => document.fonts.ready);
+            await figure.screenshot({
+              path: join(evidence, `${description}-${surface}-${example.legacy}-${scene.type}.png`),
+            });
+          }
+        }
+      }
+    }
+    expect(errors).toEqual([]);
+  } finally {
+    if (evidence) {
+      await context.tracing.stop({ path: join(evidence, `${description}.zip`) });
+      await writeFile(
+        join(evidence, `${description}.json`),
+        JSON.stringify({ elapsedMs: performance.now() - started, errors })
+      );
+    }
     await context.close();
   }
 });
@@ -268,6 +427,36 @@ test('reveals each guided detail exactly at its narration cue and reverses on a 
   }
 });
 
+test('keeps a full guided path readable and scrollable on a phone after the narration ends', async () => {
+  const page = await browser.newPage({ ...devices['Pixel 7'], reducedMotion: 'reduce' });
+  try {
+    const steps = Array.from({ length: GUIDED_PATH_MAX_STEPS }, (_, index) => ({
+      label: `Stage ${index + 1}`,
+      detail:
+        'Check the envelope and write down everything you need to identify this seed batch later.',
+    }));
+    await page.addInitScript(scene => Object.assign(window, { readerGraphicsScenes: [scene] }), {
+      ...guidedScene,
+      steps,
+    });
+    await page.goto(
+      `${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?playback=guided-path&scene-seek`
+    );
+    await page.getByRole('slider', { name: 'Fixture playback position' }).press('End');
+    const host = page.locator('.scene-host[data-ordered-overflow]');
+    const scroll = host.locator('[data-ordered-scroll]');
+    const rows = scroll.locator('.path-details li:visible');
+    await expect.poll(() => rows.count()).toBe(steps.length);
+    expect(await host.evaluate(card => card.style.getPropertyValue('--scene-scale'))).toBe('1');
+    expect(await rowFitsScrollport(rows.last())).toBe(false);
+    await scroll.press('End');
+    await expect.poll(() => rowFitsScrollport(rows.last())).toBe(true);
+    expect(await rows.last().innerText()).toContain(steps.at(-1)?.detail);
+  } finally {
+    await page.close();
+  }
+});
+
 test.each([
   { reducedMotion: 'reduce', autoplay: true },
   { reducedMotion: 'no-preference', autoplay: false },
@@ -305,7 +494,10 @@ test.each([
   'audio ends',
   'seek to end',
 ] as const)('keeps every guided detail readable when %s on the audio clock', async ending => {
-  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  const page = await browser.newPage({
+    ...(ending === 'seek to end' ? devices['Pixel 7'] : {}),
+    reducedMotion: 'reduce',
+  });
   try {
     const bytes = Buffer.from(fixedAudio());
     const hash = createHash('sha256').update(bytes).digest('hex');
@@ -335,21 +527,22 @@ test.each([
       `${inject('browserFixtureUrl')}tests/fixtures/audio-production.html?${new URLSearchParams({ speech: guidedSpeech })}`
     );
     await page.getByRole('button', { name: 'Play', exact: true }).click();
+    const transport = page.locator('output[data-position]');
+    await transport.getByText('playing', { exact: true }).waitFor();
     const card = page.locator('.type-guided-path');
     const review = card.locator('.path-details li:visible');
-    await expect
-      .poll(() => card.locator('.path-explanation p').allTextContents())
-      .toEqual([guidedSteps[0].detail]);
+    const firstDetail = card
+      .locator('.path-explanation p')
+      .filter({ hasText: guidedSteps[0].detail });
+    await firstDetail.waitFor();
     expect(await review.count()).toBe(0);
     if (ending === 'seek to end') await page.getByRole('button', { name: 'Seek to end' }).click();
     await expect
-      .poll(() => page.locator('output[data-position]').textContent(), {
+      .poll(() => transport.textContent(), {
         timeout: (FIXED_AUDIO_SECONDS + 5) * 1000,
       })
       .toBe('idle');
-    expect(await page.locator('output[data-position]').getAttribute('data-position')).toBe(
-      String(FIXED_AUDIO_SECONDS)
-    );
+    expect(await transport.getAttribute('data-position')).toBe(String(FIXED_AUDIO_SECONDS));
     await expect
       .poll(() => review.locator('p').allTextContents())
       .toEqual(guidedSteps.map(step => step.detail));
@@ -357,9 +550,8 @@ test.each([
       guidedSteps.map(step => step.label)
     );
     await page.getByRole('button', { name: 'Play', exact: true }).click();
-    await expect
-      .poll(() => card.locator('.path-explanation p').allTextContents())
-      .toEqual([guidedSteps[0].detail]);
+    await transport.getByText('playing', { exact: true }).waitFor();
+    await firstDetail.waitFor();
   } finally {
     await page.close();
   }

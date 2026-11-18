@@ -1,5 +1,5 @@
 import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
-import type { LessonSceneType } from '@shared/lessonScene';
+import type { LessonSceneRelationKind, LessonSceneType } from '@shared/lessonScene';
 import * as z from 'zod';
 
 import { WorkflowExecutionDefaultsSchema } from './config.js';
@@ -52,6 +52,7 @@ export interface LessonPlaybackServices {
     synchronizeAnimations?: boolean,
     supportsVisualSections?: boolean,
     supportsConceptLayout?: boolean,
+    allowedSceneRelationKinds?: readonly LessonSceneRelationKind[],
     useOrderedSceneSelection?: boolean
   ) => Promise<LessonPlaybackResult>;
   persistPlayback: (
@@ -79,10 +80,11 @@ export const createLessonPlaybackWorkflow = (
     block: blockSchema,
     target: inputSchema,
   });
-  const sceneTypes = blockSchema.shape.prepared.unwrap().shape.scene.unwrap().shape.type.options;
   const supportsFencedCode = 'fencedCode' in blockSchema.shape.prepared.unwrap().shape;
   const supportsSpokenMath = 'spokenMath' in blockSchema.shape.prepared.unwrap().shape;
   const sceneSchema = blockSchema.shape.prepared.unwrap().shape.scene.unwrap();
+  const sceneTypes = sceneSchema.shape.type.options;
+  const relationKinds = sceneSchema.shape.relation.unwrap().shape.kind.options;
   const supportsUnlinkedFormulaSymbols =
     sceneTypes.includes('formula-spotlight') &&
     sceneSchema.shape.symbols.unwrap().element.shape.anchor.safeParse('').success;
@@ -106,6 +108,7 @@ export const createLessonPlaybackWorkflow = (
         synchronizeAnimations,
         'sections' in blockSchema.shape.prepared.unwrap().shape,
         'conceptLayout' in sceneSchema.shape,
+        relationKinds,
         useOrderedSceneSelection
       ),
   });

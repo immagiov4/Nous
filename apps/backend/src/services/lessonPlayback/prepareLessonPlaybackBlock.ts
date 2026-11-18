@@ -21,6 +21,7 @@ import {
   isRetiredLessonScene,
   LESSON_SCENE_TYPES,
   type LessonScene,
+  type LessonSceneRelationKind,
   type LessonSceneType,
 } from '@shared/lessonScene';
 import {
@@ -56,6 +57,7 @@ interface PrepareLessonPlaybackBlockInput {
   readonly supportsSpokenMath?: boolean;
   readonly supportsFencedCode?: boolean;
   readonly supportsUnlinkedFormulaSymbols?: boolean;
+  readonly allowedSceneRelationKinds?: readonly LessonSceneRelationKind[];
   readonly supportsConceptLayout?: boolean;
   readonly useOrderedSceneSelection?: boolean;
   readonly allowedSceneTypes?: readonly LessonSceneType[];
@@ -96,12 +98,13 @@ export const validatePlaybackSceneTypes = (
     PrepareLessonPlaybackBlockInput,
     | 'block'
     | 'lesson'
+    | 'allowedSceneRelationKinds'
     | 'allowedSceneTypes'
     | 'supportsUnlinkedFormulaSymbols'
     | 'supportsConceptLayout'
   >
 ): void => {
-  const { allowedSceneTypes } = input;
+  const { allowedSceneRelationKinds, allowedSceneTypes } = input;
   const scenes = existingScenes(input);
   if (input.block.prepared?.scene) scenes.push(input.block.prepared.scene);
   for (const section of input.block.prepared?.sections ?? []) scenes.push(section.scene);
@@ -109,6 +112,9 @@ export const validatePlaybackSceneTypes = (
     scene =>
       !isRetiredLessonScene(scene) &&
       ((allowedSceneTypes && !allowedSceneTypes.includes(scene.type)) ||
+        (scene.relation &&
+          allowedSceneRelationKinds &&
+          !allowedSceneRelationKinds.includes(scene.relation.kind)) ||
         (input.supportsConceptLayout === false && scene.conceptLayout !== undefined) ||
         (input.supportsUnlinkedFormulaSymbols === false &&
           scene.type === 'formula-spotlight' &&
@@ -198,6 +204,7 @@ const prepareScene = async (
     signal.throwIfAborted();
     const outcome = await generatePlaybackScene({
       onValidatedScene,
+      allowedSceneRelationKinds: input.allowedSceneRelationKinds,
       allowedSceneTypes,
       supportsConceptLayout: input.supportsConceptLayout,
       useOrderedSceneSelection: input.useOrderedSceneSelection,
@@ -398,6 +405,7 @@ const generateSectionScene = async (
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt++) {
     const outcome = await generateLessonScene({
       config: resolveLessonVisualModelConfig(input.config),
+      allowedSceneRelationKinds: input.allowedSceneRelationKinds,
       allowedSceneTypes: types,
       supportsConceptLayout: input.supportsConceptLayout,
       useOrderedSceneSelection: input.useOrderedSceneSelection,

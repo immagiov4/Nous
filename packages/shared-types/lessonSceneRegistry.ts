@@ -17,7 +17,7 @@ export const GUIDED_PATH_MAX_STEPS = 8;
 
 export const GUIDED_PATH_STEPS_PER_ROW = 4;
 
-export const LESSON_SCENE_RELATION_KINDS = [
+const HISTORICAL_RELATION_KINDS = [
   'greater',
   'less',
   'different',
@@ -26,14 +26,23 @@ export const LESSON_SCENE_RELATION_KINDS = [
   'leads',
 ] as const;
 
+const COMPARISON_RELATION_KINDS = ['complementary', 'tradeoff'] as const;
+
+export const LESSON_SCENE_RELATION_KINDS = [
+  ...HISTORICAL_RELATION_KINDS,
+  ...COMPARISON_RELATION_KINDS,
+] as const;
+
 export type LessonSceneRelationKind = (typeof LESSON_SCENE_RELATION_KINDS)[number];
 
 export const LESSON_SCENE_RELATION_SYMBOLS: Readonly<Record<LessonSceneRelationKind, string>> = {
+  complementary: '+',
   different: '≠',
   equal: '=',
   greater: '>',
   leads: '→',
   less: '<',
+  tradeoff: '⇄',
   versus: 'vs',
 };
 
@@ -56,6 +65,18 @@ export const LESSON_SCENE_LIMITS = {
   relationLabel: 160,
   text: 600,
 } as const;
+
+const RelationSchema = z.object({
+  evidence: z.string(),
+  kind: z.enum(LESSON_SCENE_RELATION_KINDS),
+  label: z.string(),
+});
+
+const HistoricalRelationSchema = RelationSchema.extend({
+  kind: z.enum(HISTORICAL_RELATION_KINDS),
+});
+
+type SceneRelationSchema = typeof RelationSchema | typeof HistoricalRelationSchema;
 
 const SceneDataSchema = z.object({
   body: z.string(),
@@ -95,13 +116,7 @@ const SceneDataSchema = z.object({
   ),
   note: z.string(),
   quote: z.string(),
-  relation: z
-    .object({
-      evidence: z.string(),
-      kind: z.enum(LESSON_SCENE_RELATION_KINDS),
-      label: z.string(),
-    })
-    .optional(),
+  relation: RelationSchema.optional(),
   title: z.string(),
 });
 
@@ -426,6 +441,21 @@ const findRelationProblems = (relation: unknown, source: string | undefined): st
   return relation.kind === 'versus' || includesEvidence(source, relation.evidence)
     ? []
     : ['A relation other than versus needs an exact quotation from the lesson.'];
+};
+
+const findComparisonRelationProblems = (scene: Record<string, unknown>): string[] => {
+  const { relation } = scene;
+  if (
+    !isRecord(relation) ||
+    !(COMPARISON_RELATION_KINDS as readonly unknown[]).includes(relation.kind)
+  )
+    return [];
+  return scene.type === 'comparison' &&
+    (scene.groups as LessonSceneGroup[]).every(group => group.label.trim() && !group.verdict)
+    ? []
+    : [
+        'Complementary and tradeoff relations require a comparison with named panels and no verdicts.',
+      ];
 };
 
 // Numbers written in the lesson: digit runs joined by dots, commas, or an inline space before a
@@ -1266,6 +1296,12 @@ const LEGACY_GENERATABLE_LESSON_SCENE_TYPES = LESSON_SCENE_TYPES.filter(
   type => !isRetiredLessonScene({ type }) && type !== 'definition' && type !== 'continuum'
 );
 
+const MERGED_COMPARISON_TYPES: readonly LessonSceneType[] = ['signals', 'balance'];
+
+export const supportsComparisonRelations = (
+  relationKinds: readonly LessonSceneRelationKind[]
+): boolean => COMPARISON_RELATION_KINDS.every(kind => relationKinds.includes(kind));
+
 export const CONSOLIDATED_CONCEPT_SCENE_TYPES: ReadonlySet<LessonSceneType> = new Set([
   'parts',
   'claim',
@@ -1288,11 +1324,13 @@ export function selectableLessonSceneTypes({
   captioned,
   allowedTypes,
   supportsConceptLayout = true,
+  relationKinds = LESSON_SCENE_RELATION_KINDS,
   useOrderedSceneSelection = true,
 }: {
   captioned: boolean;
   allowedTypes?: readonly LessonSceneType[];
   supportsConceptLayout?: boolean;
+  relationKinds?: readonly LessonSceneRelationKind[];
   useOrderedSceneSelection?: boolean;
 }) {
   const available = supportsConceptLayout
@@ -1300,6 +1338,8 @@ export function selectableLessonSceneTypes({
     : LEGACY_GENERATABLE_LESSON_SCENE_TYPES;
   const candidates = allowedTypes ?? available;
   const prefersChecklist = candidates.includes('checklist');
+  const prefersComparison =
+    candidates.includes('comparison') && supportsComparisonRelations(relationKinds);
   const prefersTree = candidates.includes('tree');
   const offersJourneyReplacements =
     useOrderedSceneSelection && candidates.includes('process') && candidates.includes('flowchart');
@@ -1307,6 +1347,7 @@ export function selectableLessonSceneTypes({
     type =>
       available.includes(type) &&
       (type !== 'hypothesis' || !prefersChecklist) &&
+      (!prefersComparison || !MERGED_COMPARISON_TYPES.includes(type)) &&
       (type !== 'hierarchy' || !prefersTree) &&
       (type !== 'journey' || !offersJourneyReplacements) &&
       (type !== 'formula-spotlight' || captioned)
@@ -1385,11 +1426,12 @@ export const LessonSceneAnimationShape = Object.fromEntries(
   )
 ) as Omit<typeof animatedSceneSchema.shape, keyof typeof SceneDataSchema.shape | 'type'>;
 
-/** Frozen catalogs retain their form fields and formula-anchor constraints. */
+/** Frozen catalogs retain their form fields, relation kinds, and formula-anchor constraints. */
 const createFrozenLessonSceneSchema = (
   types: readonly (keyof typeof LESSON_SCENE_REGISTRY)[],
   anchorSchema: z.ZodString,
-  supportsConceptLayout = false
+  supportsConceptLayout = false,
+  relation: SceneRelationSchema = HistoricalRelationSchema
 ) =>
   createLessonSceneSchema(
     Object.fromEntries(
@@ -1410,14 +1452,28 @@ const createFrozenLessonSceneSchema = (
         ];
       })
     )
-  ) as typeof LessonSceneSchema;
+  ).extend({
+    relation: relation.optional() as typeof SceneDataSchema.shape.relation,
+  }) as typeof LessonSceneSchema;
 
 export const HistoricalLessonSceneSchemas = [
   ...LESSON_SCENE_CATALOG_SNAPSHOTS.map(types =>
     createFrozenLessonSceneSchema(types, z.string().min(1).regex(/\S/u))
   ),
   createFrozenLessonSceneSchema(UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT, z.string()),
+  createFrozenLessonSceneSchema(
+    UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT,
+    z.string(),
+    false,
+    RelationSchema
+  ),
   createFrozenLessonSceneSchema(UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT, z.string(), true),
+  createFrozenLessonSceneSchema(
+    UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT,
+    z.string(),
+    true,
+    RelationSchema
+  ),
 ];
 
 const findFormContentProblems = (
@@ -1503,7 +1559,10 @@ export const findLessonSceneProblems = (
       issue => `${issue.path.join('.') || type}: ${issue.message}`
     );
   }
-  return findFormContentProblems(form, value, { source, narration, quoteProblems });
+  return [
+    ...findFormContentProblems(form, value, { source, narration, quoteProblems }),
+    ...findComparisonRelationProblems(value),
+  ];
 };
 
 export const isLessonScene = (value: unknown): value is LessonScene =>

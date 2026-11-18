@@ -61,11 +61,11 @@ export function SaveablePlaybackVisual({
 }>) {
   const present = useIsPresent();
   const animate = useShouldAnimate();
-  const processCard = scene?.type === 'process';
-  const [processOverflows, setProcessOverflows] = useState(false);
+  const orderedCard = scene?.type === 'process' || scene?.type === 'guided-path';
+  const [orderedCardOverflows, setOrderedCardOverflows] = useState(false);
   const fittedCardRef = usePlaybackVisualFit(
     present,
-    processCard ? setProcessOverflows : undefined
+    orderedCard ? setOrderedCardOverflows : undefined
   );
   const attachCard = useCallback(
     (node: HTMLElement | null) => {
@@ -106,7 +106,7 @@ export function SaveablePlaybackVisual({
   const visible = enabled && (hovered || focused || tapped);
   const region = {
     'aria-label': t('Visualizzazione della lezione'),
-    tabIndex: enabled || processOverflows ? 0 : undefined,
+    tabIndex: enabled || orderedCardOverflows ? 0 : undefined,
   };
   const toggleSaved = async () => {
     if (
@@ -177,7 +177,7 @@ export function SaveablePlaybackVisual({
   };
   return (
     <motion.section
-      {...(processCard ? {} : region)}
+      {...(orderedCard ? {} : region)}
       ref={attachCard}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -185,8 +185,8 @@ export function SaveablePlaybackVisual({
       transition={animate ? TRANSITION_FADE : { duration: 0 }}
       style={{ pointerEvents: present ? undefined : 'none' }}
       className="scene-host"
-      data-process-card={processCard || undefined}
-      data-process-overflow={processOverflows || undefined}
+      data-ordered-card={orderedCard || undefined}
+      data-ordered-overflow={orderedCardOverflows || undefined}
       data-exiting={present ? undefined : true}
       inert={!present}
       aria-hidden={!hasVisual || !present}
@@ -204,8 +204,8 @@ export function SaveablePlaybackVisual({
           setTapped(true);
       }}
     >
-      {processCard ? (
-        <section {...region} data-process-scroll>
+      {orderedCard ? (
+        <section {...region} data-ordered-scroll>
           {children}
         </section>
       ) : (
