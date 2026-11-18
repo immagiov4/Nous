@@ -1492,7 +1492,7 @@
   padding: var(--diagram-pad);
   border: 0;
   border-radius: var(--diagram-radius);
-  background: var(--nested-fill);
+  background: var(--paper);
   gap: 28px;
 }
 .lesson-player-stage .lesson-scene .source-profile {

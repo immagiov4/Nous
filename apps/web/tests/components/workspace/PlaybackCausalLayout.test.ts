@@ -21,6 +21,21 @@ const formulaViewports = [
   { width: 390, height: 844 },
 ];
 
+const sourceAttributeContrast = (source: Element) => {
+  const luminance = (color: string) => {
+    const [red, green, blue] = (color.match(/[\d.]+/gu) ?? []).map(value => {
+      const channel = Number(value) / 255;
+      return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    });
+    return red * 0.2126 + green * 0.7152 + blue * 0.0722;
+  };
+  const label = source.querySelector('dt');
+  if (!label) throw new Error('Expected the source attribute label');
+  const foreground = luminance(getComputedStyle(label).color);
+  const background = luminance(getComputedStyle(source).backgroundColor);
+  return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+};
+
 test.each(
   formulaViewports.flatMap(viewport => [false, true].map(dark => ({ viewport, dark })))
 )('preserves concept layouts and scope at $viewport.width px (dark=$dark)', async ({
@@ -62,6 +77,9 @@ test.each(
         const attributes = await host.locator('dl').boundingBox();
         if (mobile) expect(attributes?.y).toBeGreaterThan(principal?.y ?? 0);
         else expect(attributes?.x).toBeGreaterThan(principal?.x ?? 0);
+        expect(
+          await host.locator('.source').evaluate(sourceAttributeContrast)
+        ).toBeGreaterThanOrEqual(4.5);
       } else {
         const regions = host.locator('.boundary-regions section');
         expect(await regions.locator('h3').allTextContents()).toEqual(['Members', 'Visitors']);
