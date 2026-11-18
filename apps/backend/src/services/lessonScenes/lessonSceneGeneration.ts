@@ -647,15 +647,16 @@ function startsWithScaleUnit(text: string, unit: string): boolean {
 
 // The scanner finds possible bounds, including ordinary mentions of two numbers.
 // Only the source review decides what each occurrence means for the table.
+// A lookahead lets a second zero begin its own range, even if it ends another match.
 const POSSIBLE_ZERO_RANGE =
-  /(?<![\p{L}\p{N}.,])0\s*%?\s*(?:[-–—]|\p{L}+(?:\s+\p{L}+)*)\s*(\d+(?:[.,]\d+)?)(?!\p{N})/gu;
+  /(?<![\p{L}\p{N}.,])(?=(0\s*%?\s*(?:[-–—]|\p{L}+(?:\s+\p{L}+)*)\s*(\d+(?:[.,]\d+)?)(?!\p{N})))/gu;
 
 const possibleSourceRanges = (visible: string) =>
   Array.from(visible.replaceAll('\n', ' ').matchAll(POSSIBLE_ZERO_RANGE), (match, id) => ({
     id,
     start: match.index,
-    text: match[0],
-    max: Number(match[1].replace(',', '.')),
+    text: match[1],
+    max: Number(match[2].replace(',', '.')),
   }));
 
 type SourceRange = ReturnType<typeof possibleSourceRanges>[number];
